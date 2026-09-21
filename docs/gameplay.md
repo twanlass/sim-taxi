@@ -2013,16 +2013,26 @@ one clock.
 ### The chase
 
 The one thing the original brief ruled out, and now the point of the event. It is **two lines of
-behaviour**: `car.chase` lifts that cop's cruise ceiling, and `car.route` is a plain route to the
-junction the taxi is at — after which [the one routing branch](traffic.md#the-one-routing-branch)
-does the rest. A chasing cop *is* a routed car, the same thing the player's own taxi is.
+behaviour**: `car.chase` lifts that cop's cruise ceiling and its cornering, and `car.route` is a
+plain route to a junction on the taxi's own route, three to five ahead of it — after which
+[the one routing branch](traffic.md#the-one-routing-branch) does the rest. A chasing cop *is* a
+routed car, the same thing the player's own taxi is.
 
-Measured over 12 events on 12 seeds: the set opens a mean of **42 units out** and every one closes
-to 5 or better, with a cop inside one block for 57% of the chase.
+**They cut you off rather than chase you, and that is not a flourish — it is the only version that
+works.** A cop's mean speed over a getaway is 9 against a boosting taxi's 27, because it is
+cornering and queueing where the taxi is flat out; sent to where the taxi *is*, it is aimed at a
+point already a second old and loses ground every frame. Tuning could not save it: scattering the
+traffic in front of it, doubling its cornering speed and (as an experiment) turning every light in
+the city green for it lifted its mean speed from 6.8 to 13.6 and moved its distance to the taxi by
+nothing at all. Sent three junctions down the **route the player drew**, it only has to win one
+race it can actually win. Measured over 40 seeds, that took a cop inside one block from 31% of the
+chase to 47%, and put one in the road *ahead* of the taxi for 38% of it — see
+[the chase](traffic.md#why-it-is-not-a-pursuit) for the full table.
 
-A cop cruises at **16.1** against a boosting taxi's 22.1 and the traffic's 8.5. That gap is the
-mode — the pill outruns them and lifting off does not — so Loco Mode becomes the answer to the
-event and [the wreck](traffic.md#the-wreck) is what makes it a gamble. And they strobe at the
+A cop cruises at **20.4** against a boosting taxi's 22.1 and the traffic's 8.5. That gap is the
+mode — the pill outruns them in a straight line and lifting off does not — so Loco Mode becomes the
+answer to the event and [the wreck](traffic.md#the-wreck) is what makes it a gamble. What Loco Mode
+cannot outrun is the cop already sitting in the junction it is about to take. And they strobe at the
 cruiser's **hunting rate** while chasing, which is the same cue that module uses for its own
 lock-on: a cop cruising past on its own business and one that has turned to come after you are
 otherwise the same blue car.
@@ -2035,6 +2045,21 @@ at is a chance to lose them, and the probe holds the whole chase to zero signal 
 **Nothing about the fail state changed.** A cop catching you does nothing at all — there is no bust,
 no new ending. What four converging cars are is four more things to hit while you are on the pill,
 which is the ending the game already had.
+
+**And [the corridor cruiser](traffic.md#the-bust-chase) does not bust you during one.** That rule —
+boost within a block of the cruiser and the run ends — is a good one, and its legibility rests
+entirely on there being *one* police car on the street and it being obvious which. A robbery puts
+four more on the street in the same paint under the same flashing bar, and hands the player the
+tightest clock in the game so that boosting is the only way to make it. So the event asks for Loco
+Mode and an unrelated patrol ends the run for using it, and at a glance there is no telling which of
+the five blue cars is the one that does that. It was found the way these things are found: a real
+run ended that way, with the note that none of the *other* police had so much as moved.
+
+It restores a rule this event already states. A robbery is **imposed** — it walks out of a building
+because the taxi drove past — which is why a robber who runs out of clock bails rather than ending
+the run. Letting a patrol end it instead is that same rule going out the side door. The honest cost
+is that Loco Mode has no downside but the wreck for the length of a getaway; the chase is what pays
+that back, and it now drives cop cars into the road *ahead* of the taxi rather than trailing it.
 
 **And a boosting getaway throws cash out of the back.** `game/cashtrail.js` — banknotes tumbling out
 behind the taxi for as long as the pill is held with a robber aboard. It is the one part of the event

@@ -1,4 +1,4 @@
-import { GRID_I, GRID_J, lineX, lineZ } from '../city/grid.js';
+import { GRID_I, GRID_J, dirSign, isXAxis, lineX, lineZ } from '../city/grid.js';
 import { URGENCY_SEGMENTS, urgencyLevel } from './urgency.js';
 import { findRoute, planOrigin } from './route.js';
 
@@ -211,41 +211,127 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
   let aimedAt = null;
 
   /**
-   * Point every cop car at the taxi.
+   * How far down the taxi's own route the police are sent, in junctions.
+   *
+   * **This is the whole difference between a chase that works and one that does not**, and the
+   * first cut got it wrong in the most reasonable way available: it sent every cop to the junction
+   * the taxi was *at*. That is a stern chase, and a stern chase against this taxi is arithmetically
+   * unwinnable. Measured over six events with the player boosting, a cop averaged 7 u/s against a
+   * taxi's 27 — it is being sent to a point the taxi left a second ago, so the gap grows every
+   * frame it drives. The numbers say so without any ambiguity: the nearest cop sat at a median of
+   * 25-30 units for the length of the getaway and was inside half a block for **0-9%** of it. On
+   * screen that is four blue cars milling about somewhere behind you, which is exactly how it was
+   * reported — "none of the other police actually moved or followed me".
+   *
+   * And it is not a tuning problem. The chase was given three separate advantages, each measured:
+   * traffic that scatters out of its lane, corners taken at nearly twice an ordinary car's speed,
+   * and — as an experiment, not shipped — **every red light in the city turned green for it**. All
+   * three together moved a cop's mean speed from 7 to 13 and moved the distance to the taxi by
+   * nothing at all. A pursuer slower than its quarry does not catch it, however much licence it is
+   * given.
+   *
+   * So the cops stop pursuing and start **cutting you off**. The taxi's route is a list of the
+   * junctions it is going to drive through, and it is already sitting on `taxi.route` because the
+   * player drew it; sending a cop to one of them is the same `findRoute` to a different target. It
+   * turns the event from a tail-chase into a road that keeps filling up ahead of you — which is
+   * both the drama and, unlike the tail-chase, a thing that can actually happen: a cop only has to
+   * beat the taxi to *one* junction on its way, and the taxi has told everyone which ones those
+   * are.
+   *
+   * Three junctions, spread. A block is ~2.3s at ordinary cruise and about 0.75s at the Loco top,
+   * so aiming at the next junction lands the cop behind the taxi again; aiming ten ahead puts it
+   * somewhere the run may never reach. Three to five is the band where a cop starting a block or
+   * two off to the side arrives while the taxi is still coming. They are dealt round-robin rather
+   * than all sent to one, so the road ahead is seeded rather than barricaded at a single point.
+   */
+  const CUT_OFF_AHEAD = [3, 4, 5];
+
+  /**
+   * Where a cop should be heading: a junction on the taxi's route, `steps` ahead of it.
+   *
+   * Falls back to the taxi's own junction, which is the right answer for both cases that get here
+   * — a taxi with no route (nobody aboard, or the player has not drawn one yet) and a taxi within
+   * `steps` of its destination. In the second the drop-off *is* where everyone is converging, which
+   * is the ending this event wants anyway.
+   */
+  function cutOffFor(steps) {
+    const route = taxi.route;
+    if (!route?.length) return { i: taxi.i, j: taxi.j };
+    // `taxi.i/j` is the junction the taxi's lane runs *into*, so walking the route from there is
+    // walking it from the first junction it has not decided yet — which is exactly what the route
+    // steps describe. Each step is a grid direction: one junction along that axis.
+    let { i, j } = taxi;
+    for (let k = 0; k < Math.min(steps, route.length); k++) {
+      const d = route[k];
+      if (isXAxis(d)) i += dirSign(d);
+      else j += dirSign(d);
+    }
+    // A route step is a grid direction, so walking it can only leave the grid if the route did —
+    // but clamp anyway: `findRoute` answers null for a junction that does not exist, and a null
+    // route is a cop that quietly stops chasing.
+    return { i: Math.max(0, Math.min(GRID_I, i)), j: Math.max(0, Math.min(GRID_J, j)) };
+  }
+
+  /**
+   * Point every cop car at a junction the taxi is about to drive through.
    *
    * **The whole chase is this function**, and it is deliberately four lines of behaviour:
    *
-   *   - `car.chase = 1` lifts that car's cruise ceiling by `CHASE_SPEED` (sim/traffic.js). A cop
-   *     cruises at 16.1 against a boosting taxi's 22.1 and an ordinary car's 8.5 — so the pill
-   *     outruns them and lifting off does not, which is the whole shape of the event.
-   *   - `car.route` is a plain `findRoute` to the junction the taxi is at. From there the one
-   *     routing branch in sim/traffic.js does everything: the cop takes the turn its route calls
-   *     for and is subject to every signal, yield and following rule unchanged.
+   *   - `car.chase = 1` lifts that car's cruise ceiling by `CHASE_SPEED` and its cornering by
+   *     `CHASE_CORNER_SPEED` (both sim/traffic.js), and puts the cars in front of it to flight on
+   *     the same `scatter` the boosting taxi uses. A cop cruises at 20.4 against a boosting taxi's
+   *     22.1 and an ordinary car's 8.5 — so the pill still outruns them in a straight line, and
+   *     what it cannot outrun is one that is already parked across the junction ahead.
+   *   - `car.route` is a plain `findRoute` to a junction on the taxi's own route — see
+   *     `CUT_OFF_AHEAD`. From there the one routing branch in sim/traffic.js does everything: the
+   *     cop takes the turn its route calls for and is subject to every signal, yield and following
+   *     rule unchanged.
    *   - It is re-planned when the **taxi** moves to a new junction, not on a clock and not per
    *     frame. A chase that re-aims every frame stalls; one that re-aims per junction converges.
    *   - A cop whose route has run dry gets a fresh one even if the taxi has not moved, which is
-   *     what happens when it arrives at the junction the taxi has since left.
+   *     what happens when it arrives at its cut-off and the taxi has not got there yet.
    *
    * What it deliberately does **not** do is give a cop any licence an ordinary car lacks. It does
    * not run reds, it does not ignore queues, and it cannot be crashed into by anything but the
    * player — `sim/collisions.js` only ever tests the taxi. A cop let through a red would drive
    * *through* the cross traffic rather than into it, which is the trap `releaseCar` already
-   * records, and the event does not need it: four cars converging on the player at twice the speed
-   * of the traffic around them is the drama, and every red they sit at is a chance to lose them.
+   * records. That licence was measured (see CUT_OFF_AHEAD) and bought nothing, which is the
+   * happier half of this: the version that reads best is also the one that keeps every rule.
    */
   function steerChase() {
-    const at = { i: taxi.i, j: taxi.j };
-    const moved = !aimedAt || aimedAt.i !== at.i || aimedAt.j !== at.j;
+    // What the aim is keyed on: the junction the taxi is heading into, **and the route it is
+    // heading down**. The second half is not redundant — the cut-off targets are junctions on that
+    // route, so a player who redraws it has moved every one of them without moving the taxi an
+    // inch. Keyed on the junction alone, the police went on converging on a road the taxi had
+    // stopped driving down until it happened to cross a junction, which is up to a whole block of
+    // the chase aiming at nothing. A prefix rather than the whole list because only the first few
+    // steps are read (see CUT_OFF_AHEAD), and a route's tail changes every time a leg retires.
+    const at = {
+      i: taxi.i,
+      j: taxi.j,
+      plan: (taxi.route ?? []).slice(0, Math.max(...CUT_OFF_AHEAD)).join(','),
+    };
+    const moved = !aimedAt || aimedAt.i !== at.i || aimedAt.j !== at.j || aimedAt.plan !== at.plan;
+    let nth = 0;
     for (const car of traffic.policeCars) {
       if (car.crashed) continue;
       car.chase = 1;
+      const steps = CUT_OFF_AHEAD[nth % CUT_OFF_AHEAD.length];
+      nth += 1;
       if (!moved && car.route?.length) continue;
-      const route = findRoute(planOrigin(car), at);
-      // Null is an unroutable pair, which `main.js` rerolls the city to prevent — and an empty
-      // array is a cop already standing on the taxi's own junction. Both leave the car rolling the
-      // ordinary dice until the next re-aim, which is the right answer for each: there is nowhere
-      // to send it.
-      if (route) car.route = route;
+      // An **empty** route is a cop already standing on the junction it was sent to, and leaving
+      // it there is the one thing that undoes the whole idea: a car with no route rolls the
+      // ordinary dice at its next junction, so the cop that got there first then wanders off the
+      // getaway a beat before the taxi arrives. Send it further down the same road instead — the
+      // taxi is still coming, and a cop driving along the road ahead of you reads better than one
+      // parked on it anyway. Null is an unroutable pair, which `main.js` rerolls the city to
+      // prevent; that one is left rolling the dice until the next re-aim, because there is
+      // genuinely nowhere to send it.
+      let route = findRoute(planOrigin(car), cutOffFor(steps));
+      if (route && route.length === 0) {
+        route = findRoute(planOrigin(car), cutOffFor(steps + CUT_OFF_AHEAD.length));
+      }
+      if (route?.length) car.route = route;
       car.routeConsumed = false;
     }
     aimedAt = at;
@@ -292,10 +378,14 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
     // delivers one. It is the target-count shape that makes that easy to miss.
     for (let k = 0; k < EXTRA_CARS; k++) traffic.setCarCount(traffic.cars.length + 1);
     traffic.setPoliceCars(POLICE_CARS);
-    // Pointed at the taxi on the frame they turn blue rather than on the next re-pick, so the
-    // convergence starts as the robber is still getting in.
-    steerChase();
+    // `onBoard` first, and the order matters now. It is what dispatches the taxi to the getaway
+    // (main.js), so it is what puts a route on the car — and the police are sent to junctions on
+    // *that* route. Aiming before it ran left the whole set converging on the taxi's own junction
+    // until it next crossed one, which is the stern chase this event was just taken off.
     onBoard(fare);
+    // Pointed down the getaway on the frame they turn blue rather than on the next re-pick, so the
+    // road is already filling up as the robber is still getting in.
+    steerChase();
   }
 
   /** Hand the cop cars back their own paint and start the clock on the next one. */

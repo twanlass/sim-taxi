@@ -13128,6 +13128,68 @@ let chopperOrder; // likewise
         chaseTop > SPEED && chaseTop < boostCruise(),
         `${SPEED} ambient, ${chaseTop.toFixed(1)} chasing, ${boostCruise().toFixed(1)} boosting`);
 
+      // **And faster than the traffic it just frightened**, which is the ordering the first cut
+      // had backwards. A chasing cop now puts the cars in front of it to flight on the same
+      // `scatter` the boosting taxi uses, and a fleeing car runs at SCATTER_SPEED — so a chase
+      // ceiling *below* that is a cop opening a gap it cannot then drive into. It spent the whole
+      // event following the car it had just scattered, at that car's speed.
+      const flee = SPEED * chased.traffic.scatterSpeed();
+      check('...and faster than the traffic it scatters out of its own lane',
+        chaseTop > flee, `${chaseTop.toFixed(1)} chasing against a fleeing car's ${flee.toFixed(1)}`);
+
+      // **They are sent to where the taxi is going, not to where it is.** This is the whole of
+      // what makes the chase read, and the check is written against the junction arithmetic rather
+      // than against a distance, because a distance is what hid the bug: a stern chase measures as
+      // "converging" whenever the taxi happens to be stopped, which in this harness it always is.
+      {
+        const cut = runEvent();
+        const ct = cut.traffic.taxi;
+        // A real getaway: give the taxi somewhere to be, the way the drop-off dispatch does.
+        const far = { i: ct.i > GRID_I / 2 ? 0 : GRID_I, j: ct.j > GRID_J / 2 ? 0 : GRID_J };
+        const taxiRoute = findRoute(planOrigin(ct), far);
+        ct.route = taxiRoute ? [...taxiRoute] : [];
+        ct.routeConsumed = false;
+        cut.rob.update(1 / 60);
+
+        // Where each cop's own route lands it, walked the same way the chase walks the taxi's.
+        const walk = (from, route) => {
+          let { i, j } = from;
+          for (const d of route) { if (isXAxis(d)) i += dirSign(d); else j += dirSign(d); }
+          return { i, j };
+        };
+        const onTaxiRoute = new Set();
+        {
+          let { i, j } = ct;
+          onTaxiRoute.add(`${i},${j}`);
+          for (const d of ct.route) {
+            if (isXAxis(d)) i += dirSign(d); else j += dirSign(d);
+            onTaxiRoute.add(`${i},${j}`);
+          }
+        }
+        const targets = cut.traffic.policeCars
+          .filter((c) => !c.crashed && c.route?.length)
+          .map((c) => walk(planOrigin(c), c.route));
+        check('every cop is sent to a junction on the taxi’s own route',
+          ct.route.length > 0 && targets.length > 0
+            && targets.every((t) => onTaxiRoute.has(`${t.i},${t.j}`)),
+          `${targets.filter((t) => onTaxiRoute.has(`${t.i},${t.j}`)).length}/${targets.length} on route`);
+        // ...and *ahead* of it rather than at its own junction, which is the difference between
+        // cutting the taxi off and trailing it. A pursuer slower than its quarry never arrives;
+        // one sent three junctions down the road only has to beat it to one of them.
+        check('...ahead of the taxi rather than at the junction it is already on',
+          targets.some((t) => t.i !== ct.i || t.j !== ct.j),
+          `${targets.filter((t) => t.i !== ct.i || t.j !== ct.j).length}/${targets.length} ahead`);
+      }
+
+      // The two licences the chase actually needed, both measured rather than guessed — see
+      // CHASE_CORNER_SPEED in sim/traffic.js. A cop that corners at an ordinary car's 5.95 never
+      // reaches a ceiling of any size, because a chase to a moving target turns at nearly every
+      // junction; and a cop stuck behind an ambient queue never reaches one either.
+      const copCorner = chaseTop * chased.traffic.chaseCornerSpeed();
+      check('...taking corners faster than an ordinary car but slower than Loco Mode',
+        copCorner > SPEED * 0.7 && copCorner < chaseTop,
+        `${copCorner.toFixed(1)} against an ambient corner's ${(SPEED * 0.7).toFixed(1)}`);
+
       // Their routes actually aim somewhere: run the sim and the set has to close on the taxi
       // rather than wander.
       //

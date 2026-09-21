@@ -503,12 +503,19 @@ const SCATTER_STRAIGHT_W = 0.04;  // what the "carry straight on" turn weight co
 // chase: the danger is not that a cop catches you, it is that four of them are now driving at
 // wherever you are, and a boosting taxi meets them head on.
 //
-// **1.9x, which is under the flee's 2.0 and well under the boosting taxi's.** A cop cruises at
-// 16.2 against a boosting taxi's 22.1, so a player on the pill outruns them and a player off it
-// does not. That gap is the mode: the chase is what makes Loco Mode the answer to the event, and
-// the wreck is what makes it a gamble. Level with the taxi it would be a guaranteed loss for
-// anyone who ever lifts off; faster still and there would be no point in the pill.
-const CHASE_SPEED = 1.9;
+// **2.4x, which is over the flee's 2.0 and under the boosting taxi's 2.6.** A cop cruises at 20.4
+// against a boosting taxi's 22.1, so a player on the pill outruns them and a player off it does
+// not. That gap is the mode: the chase is what makes Loco Mode the answer to the event, and the
+// wreck is what makes it a gamble. Level with the taxi it would be a guaranteed loss for anyone
+// who ever lifts off; faster still and there would be no point in the pill.
+//
+// It was 1.9 — *under* the flee — and the ordering was the bug rather than the magnitude. A cop
+// now clears its own lane (see the scatter block in `update`), and a car told to flee runs at
+// SCATTER_SPEED, so a ceiling below that meant the cop opened a gap in front of itself and then
+// could not drive into it: it spent the chase following, at the speed of the car it had just
+// frightened. Anything that clears a lane has to be able to outrun what it clears. 2.4 is the
+// midpoint of the only band that satisfies both ends, and both ends are asserted in the probe.
+const CHASE_SPEED = 2.4;
 
 // --- Passing ------------------------------------------------------------------
 //
@@ -1069,6 +1076,26 @@ const BRAKE = 17.5;           // units/s^2 shedding speed; ~2.1 units to stop fr
 // look like anything at all.
 const HARD_BRAKE = 2 * BRAKE;
 const CORNER_SPEED = SPEED * 0.7;
+
+/**
+ * What a chasing cop takes a corner at, as a fraction of its own (already lifted) cruise.
+ *
+ * **A corner, not a straight, is what the chase was actually losing to**, and it hid because every
+ * number anyone would look at is a straight-line number. `CORNER_SPEED` is a flat constant —
+ * `SPEED * 0.7`, 5.95 — and `cruiseCapFor` never reaches it: the cap is the ceiling for the drive
+ * branch, and the turn branch has its own target that no per-car factor composes into. So a cop
+ * whose ceiling had just been raised to 20.4 still went round every junction at 5.95, and a chase
+ * to a *moving* target turns at nearly every junction. Measured over six events with the taxi
+ * boosting, before this existed: a chasing cop averaged 7.4 u/s and was at or above **ordinary**
+ * cruise for a quarter of the chase. Scattering the traffic in front of it moved the stopped time
+ * but not the mean, which is what pointed here — the queue was never the thing.
+ *
+ * 0.55 rather than the taxi's boost-turn exemption (which goes round a left at full cruise) is the
+ * line between a cop driving hard and a cop driving Loco Mode. At 20.4 cruise that is 11.2 into a
+ * corner against an ambient car's 5.95 — fast enough that a cop carries speed between junctions,
+ * slow enough that it still visibly sets up for one.
+ */
+const CHASE_CORNER_SPEED = 0.55;
 
 /**
  * A car's own cruise ceiling: its class's speed, lifted by the flee, dipped by the panic, and
@@ -3287,18 +3314,38 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // exit point is what turns the don't-block-the-box check below into a dead stop at a green
     // line, which is the second-biggest thing that took Loco Mode's speed away.
     const fleeing = new Set();
-    if (taxiActive && taxi.boost) {
-      const mark = (lane, fromS) => {
-        for (const { car } of ahead(lane, fromS, SCATTER_RANGE)) {
-          // Trucks are exempt — too big to skitter. See the scatter tuning block up top.
-          if (!car.isTaxi && !car.isTruck) fleeing.add(car);
+    const mark = (source, lane, fromS, range) => {
+      for (const { car } of ahead(lane, fromS, range)) {
+        // Trucks are exempt — too big to skitter. See the scatter tuning block up top.
+        // A chasing cop never scatters *another* cop: four of them converging on the same
+        // junction would spend the last block shoving each other down it.
+        if (car === source || car.isTaxi || car.isTruck || car.chase > 0) continue;
+        fleeing.add(car);
+      }
+    };
+
+    // The exit lane is measured from behind its start by the same clearance the box check wants,
+    // so the cars that would fail that check are exactly the ones told to move.
+    const markExit = (source, lane, range) => mark(source, lane, -MIN_GAP * 1.5, range);
+
+    // Whatever is in front of this car, on the lane it is on and the lane its route lands it on.
+    // Factored out because two things now clear a lane — the boosting taxi and a chasing cop —
+    // and they clear it by exactly the same rule.
+    const clearAhead = (car, range) => {
+      if (car.state === 'drive') {
+        mark(car, car.lane, car.s, range);
+        // Only once the junction is close enough to matter — otherwise every car on every road
+        // the route touches is fleeing something two blocks away.
+        if (car.lane.length - car.s <= range) {
+          const turn = exitToward(net, car.lane, car.route?.length ? car.route[0] : car.d);
+          if (turn) markExit(car, net.laneById.get(turn.outLane), range);
         }
-      };
+      } else {
+        markExit(car, net.laneById.get(car.turn.outLane), range);
+      }
+    };
 
-      // The exit lane is measured from behind its start by the same clearance the box check wants,
-      // so the cars that would fail that check are exactly the ones told to move.
-      const markExit = (lane) => mark(lane, -MIN_GAP * 1.5);
-
+    if (taxiActive && taxi.boost) {
       // Nothing scatters while the taxi is passing. Scatter's premise is "the car in front is in
       // my way", and a taxi that has committed to going round it has answered that a different
       // way. Left on it defeats the pass outright: a fleeing car runs at SCATTER_SPEED (2.0x
@@ -3314,17 +3361,30 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // Suppressing here rather than lowering SCATTER_SPEED is what keeps the flee at full
       // strength everywhere it is still the right answer: every car the taxi is *not* going
       // round, which is nearly all of them.
-      if (taxi.state === 'drive') {
-        mark(taxi.lane, taxi.s);
-        // Only once the junction is close enough to matter — otherwise every car on every road
-        // the route touches is fleeing a taxi two blocks away.
-        if (taxi.lane.length - taxi.s <= SCATTER_RANGE) {
-          const turn = exitToward(net, taxi.lane, taxi.route?.length ? taxi.route[0] : taxi.d);
-          if (turn) markExit(net.laneById.get(turn.outLane));
-        }
-      } else if (taxi.state !== 'drive') {
-        markExit(net.laneById.get(taxi.turn.outLane));
-      }
+      clearAhead(taxi, SCATTER_RANGE);
+    }
+
+    // --- Who is in a chasing cop's way?
+    //
+    // **This is what the chase actually needed**, and the reason is worth writing down because the
+    // first cut got it wrong in a way that measured fine and played as nothing. `CHASE_SPEED` is a
+    // *cruise ceiling*, and a ceiling only does something to a car that is otherwise free to reach
+    // it — which a cop in this city almost never is. Measured over four events with the taxi
+    // boosting: a chasing cop was at or above ordinary cruise for **25-44%** of the chase and
+    // averaged **7 u/s against its own 16.1 ceiling**, because it spent the rest following the
+    // same ambient queue as everybody else. The headline number said the cops were twice as fast
+    // as traffic; on screen they were traffic. Raising the ceiling would not have moved any of it.
+    //
+    // So a cop clears its lane the same way the boosting taxi does — the same `scatter`, which is
+    // already the city's whole vocabulary for "get out of the way". It reads better than it had
+    // any right to: the siren is on the roof, the car in front pulls away, and the pack arrives
+    // through a gap it opened rather than through one that happened to be there.
+    //
+    // Half the taxi's reach. Scatter is a *reaction*, and two blocks of it in front of four cars
+    // empties the map ahead of the player, which reads as the city fleeing rather than as the
+    // police coming. One block is a car noticing what is behind it.
+    for (const car of policeCars) {
+      if (car.chase > 0 && !car.crashed) clearAhead(car, SCATTER_RANGE / 2);
     }
 
     for (const car of cars) {
@@ -3743,11 +3803,17 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // softer target on rights (0.75× cruise) keeps the no-brakes feel while giving the tight
         // arc back its visual weight.
         const isRight = car.turn.hand === 'right';
+        // A chasing cop corners between the two — see CHASE_CORNER_SPEED. Lerped on `car.chase`
+        // rather than branched on it so a cop handed its own paint back at the end of an event
+        // does not drop a corner's worth of speed on one frame; `chase` is 0 or 1 today, and the
+        // lerp costs nothing while it is.
+        const chaseTurn = CORNER_SPEED
+          + (cruise * CHASE_CORNER_SPEED - CORNER_SPEED) * car.chase;
         const boostTurn = fullPower
           ? (isRight ? cruise * 0.75 : cruise)
           : car.isTruck
             ? (isRight ? TRUCK_RIGHT_TURN_SPEED : TRUCK_CORNER_SPEED)
-            : CORNER_SPEED;
+            : chaseTurn;
         const cornerTarget = straightOn ? straightTop : boostTurn;
 
         // Don't close on the car in front while crossing a junction.
@@ -4249,6 +4315,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
      * and so the probe can assert the ordering rather than the constant.
      */
     chaseSpeed: () => CHASE_SPEED,
+    /** What a frightened car runs at, as a multiple of cruise — the probe asserts CHASE_SPEED
+     *  clears it, because a pursuer slower than what it scatters cannot use the gap it made. */
+    scatterSpeed: () => SCATTER_SPEED,
+    /** What a chasing cop takes a corner at, as a fraction of its own cruise. */
+    chaseCornerSpeed: () => CHASE_CORNER_SPEED,
     /** Called with `{ x, z, yaw, v, deck }` on the frame the taxi's hop touches down. */
     onTaxiLand: (cb) => { landListeners.push(cb); },
     wreckShell, stats,

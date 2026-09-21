@@ -1916,20 +1916,71 @@ queue behind it holds, because each car's limit comes from its leader's position
 the `n` ambient cars nearest the taxi, paints them `policeBody` and switches on a light bar on their
 roofs; `setPoliceCars(0)` puts every one of them back.
 
-**They come after you, and the chase is two lines of behaviour.** `car.chase` lifts that car's cruise
-ceiling by `CHASE_SPEED`, and `car.route` is a plain `findRoute` to the junction the taxi is at —
-after which [the one routing branch](#the-one-routing-branch) does everything. A chasing cop *is* a
-routed car, which is the same thing the player's own taxi is.
+**They cut you off; they do not follow you.** `car.chase` lifts that car's cruise ceiling by
+`CHASE_SPEED` and its cornering by `CHASE_CORNER_SPEED`, and `car.route` is a plain `findRoute` to a
+junction **on the taxi's own route, three to five ahead of it** (`CUT_OFF_AHEAD` in
+`game/robbery.js`) — after which [the one routing branch](#the-one-routing-branch) does everything.
+A chasing cop *is* a routed car, which is the same thing the player's own taxi is.
 
-That is the whole implementation, and what it buys is worth stating: measured over 12 events on 12
-seeds, the set opens a mean of **42 units out** and every one of them closes to 5 or better (mean 3),
-with a cop inside one block for 57% of the chase and inside half a block for 28% of it.
+### Why it is not a pursuit
 
-`CHASE_SPEED` is **1.9**, so a cop cruises at 16.1 — under the flee's 2.0, well under a boosting
-taxi's 22.1, and about twice the traffic it is weaving through. That gap is the mode: the pill
-outruns them and lifting off does not, so Loco Mode is the answer to the event and the wreck is what
-makes it a gamble. Level with the taxi it would be a guaranteed loss for anyone who ever lifts off;
-faster still and there would be no point in the pill.
+The first version sent every cop to the junction the taxi was *at*, which is the obvious design and
+is arithmetically unwinnable. A cop cruises at 20.4 and a boosting taxi at 22.1 — but a cop is
+cornering and queueing, so its **mean speed over a getaway is 9**, against a boosting taxi's 27. It
+is being sent to a point the taxi left a second ago, so the gap grows every frame it drives.
+Measured over 40 seeds, the nearest cop sat at a median of **28 units** and was inside half a block
+for 13% of the chase. On screen that is four blue cars milling about somewhere behind you, which is
+exactly how it was reported.
+
+It is not a tuning problem, and that was established by tuning it. The chase was given three
+advantages, each measured separately: traffic that scatters out of its lane, corners taken at nearly
+twice an ordinary car's speed, and — as an experiment, *not shipped* — every red light in the city
+turned green for it. All three together lifted a cop's mean speed from 6.8 to 13.6 and moved the
+distance to the taxi **by nothing**. A pursuer slower than its quarry does not catch it, however
+much licence it is given.
+
+So the cops stop chasing and start intercepting. The taxi's route is a list of the junctions it is
+about to drive through and it is already on `taxi.route`, because the player drew it; aiming at one
+of them is the same `findRoute` to a different target. A cop only has to beat the taxi to **one**
+junction on its way, and the taxi has announced which ones those are. Over the same 40 seeds:
+
+| | pursuit | interception |
+|---|---|---|
+| nearest cop, median | 28.3 | **21.6** |
+| inside one block (20u) | 31% | **47%** |
+| inside half a block | 13% | **20%** |
+| a cop in the road *ahead* of the taxi | 30% | **38%** |
+| cop mean speed | 6.8 | **9.1** |
+| at or above ordinary cruise | 29% | **55%** |
+
+The aim is keyed on the taxi's junction **and the first few steps of its route**, so redrawing the
+route re-aims the police on the same frame. Keyed on the junction alone they went on converging on
+a road the taxi had stopped driving down.
+
+Three to five junctions, dealt round-robin. A block is about 0.75s at the Loco top, so one ahead
+lands the cop behind the taxi again and ten ahead puts it somewhere the run may never reach. They
+are spread rather than stacked so the road is seeded rather than barricaded at one point. Six cop
+cars instead of four buys 4 points of "a cop ahead" and nothing else, which is why it is still four.
+
+### The speeds, and the ordering between them
+
+`CHASE_SPEED` is **2.4**, so a cop cruises at 20.4: over the flee's 2.0, under a boosting taxi's
+2.6. It was 1.9, and the *ordering* was the bug rather than the magnitude — a cop now clears its own
+lane with the same `scatter` the boosting taxi uses, and a car told to flee runs at `SCATTER_SPEED`,
+so a ceiling below that meant the cop opened a gap in front of itself and then could not drive into
+it. Anything that clears a lane has to be able to outrun what it clears; the probe asserts both ends.
+
+`CHASE_CORNER_SPEED` is **0.55 of the cop's own cruise**, 11.2 against an ordinary car's 5.95. A
+corner rather than a straight is what the chase was really losing to, and it hid because every
+number anyone would look at is a straight-line number: `CORNER_SPEED` is a flat constant that
+`cruiseCapFor` never reaches, because the cap is the *drive* branch's ceiling and the turn branch
+has its own target that no per-car factor composes into. A cop whose ceiling had just been doubled
+still went round every junction at 5.95 — and a chase to a moving target turns at nearly every
+junction.
+
+That gap between 20.4 and 22.1 is the mode: the pill outruns them in a straight line and lifting off
+does not, so Loco Mode is the answer to the event and the wreck is what makes it a gamble. What it
+cannot outrun is a cop already parked across the junction ahead.
 
 **It grants a cop no licence an ordinary car lacks**, and that is the part that makes it safe to
 ship rather than merely dramatic. A chasing cop queues, indicates, stops at reds, yields and can be
@@ -1939,9 +1990,12 @@ next step and it is the one thing that must not happen: `sim/collisions.js` only
 the same trap `releaseCar` and the drive-through's exit already record (see
 [the drive-through](#the-drive-through)). `tools/probe.mjs` asserts the whole chase runs at zero signal violations.
 
-The plan is **keyed on the taxi's junction**, not on a clock and not per frame. Re-planning a route
-every frame is a standing trap here: the turn a car has committed to never retires from its route,
-so it sits at the junction re-deciding the same turn. Re-aimed per junction, it converges.
+The plan is **keyed on the taxi's junction and route**, not on a clock and not per frame.
+Re-planning a route every frame is a standing trap here: the turn a car has committed to never
+retires from its route, so it sits at the junction re-deciding the same turn. Re-aimed per junction,
+it converges. A cop whose route comes back *empty* has arrived at its cut-off; it is sent further
+down the same road rather than left there, because a car with no route rolls the ordinary dice at
+its next junction and would wander off the getaway a beat before the taxi arrived.
 
 A chasing cop also strobes at the cruiser's **hunting rate** — eleven changes a second against six.
 That is the same cue and the same constant `sim/police.js` uses for its own lock-on, where it is

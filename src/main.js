@@ -1079,6 +1079,28 @@ function checkPoliceBust() {
   // Engaged, not just active — the bust range still catches the taxi through the cooldown tail,
   // so braking off Loco Mode a beat too close to a cruiser doesn't buy a free pass.
   if (!boost.isEngaged()) return;
+  // **Not during a getaway**, and this is a design call rather than a special case.
+  //
+  // Two systems own a police car and they were asking for opposite things. The corridor cruiser
+  // (sim/police.js) ends the run for boosting within a block of it — a rule about reckless driving
+  // in front of a cop, and a good one, whose whole legibility rests on there being one police car
+  // on the street and it being obvious. A robbery puts **four more** on the street, wearing the
+  // same paint and the same flashing bar, and then hands the player the tightest clock in the game
+  // so that boosting is the only way to make it. So the event asks you to use Loco Mode and the
+  // cruiser ends your run for using it, and at a glance you cannot tell which of the five blue cars
+  // is the one that does that. Reported from a real run, which is how this was found: "I got busted
+  // by the actual cop car; none of the other police actually moved or followed me."
+  //
+  // The event already states the principle this restores — see the note on the timeout in
+  // game/robbery.js. A robbery is *imposed*: it walks out of a building because the taxi drove
+  // past, so a robber who runs out of clock bails rather than ending the run. Letting an unrelated
+  // patrol end it instead is that same rule going out the side door.
+  //
+  // What it costs is real and worth stating: Loco Mode has no downside but the wreck for the length
+  // of a getaway. The event pays that back with the chase, which now drives cop cars *into the road
+  // ahead of the taxi* rather than trailing behind it (`CUT_OFF_AHEAD` in game/robbery.js) — so the
+  // risk on the pill during a robbery is the one the pill has always had, and there is more of it.
+  if (robbery?.state.active) return;
   // Armed, not merely active. A cruiser still fading in at the edge of the map used to be able to
   // end the run before it had drawn a pixel — see BUST_ARM_INSET in sim/police.js. The light bar
   // runs a block ahead of this on purpose: the siren says a cop is here, and the gap between the
