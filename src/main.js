@@ -2013,6 +2013,11 @@ function kickLocoMode() {
     car.z + bz * TAXI_TAILPIPE_BACK,
     car.yaw,
   );
+  // ...and a fistful of notes out of the back, if there is a robber in there. Here with the flame
+  // and the rubber rather than in `spillCash` for the reason all three are here: this is the frame
+  // the button went down, and a stream that only ramps up has nothing to say on it. See
+  // game/cashtrail.js.
+  if (fares.robbing()) cashTrail.kick(car, TAXI_TAILPIPE_HEIGHT + deckHeightAt(car.x, car.z).y);
   // Break traction on the launch as well as in the corners. One pair stamped here so a standing
   // start (pressing while held at a red) still leaves a patch under the wheels — the distance
   // spacing in layRubber can't produce anything until the car actually moves.

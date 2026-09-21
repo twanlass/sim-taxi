@@ -64,10 +64,10 @@ const LAMP_Y = 2.1 + CHASSIS_LIFT;
  */
 export function createCopLights(scene, { enabled = true } = {}) {
   if (!enabled) {
-    return { update: () => {}, lights: [], state: { lit: 0 } };
+    return { update: () => {}, lights: [], state: { lit: 0, hunting: false } };
   }
 
-  const state = { lit: 0 };
+  const state = { lit: 0, hunting: false };
   const lamps = [];
   for (let k = 0; k < LIGHTS; k++) {
     // A pair per car, the same split the bar itself uses: one lamp per colour, alternating, rather
@@ -106,7 +106,10 @@ export function createCopLights(scene, { enabled = true } = {}) {
       .sort((a, b) => Math.hypot(a.x - taxi.x, a.z - taxi.z) - Math.hypot(b.x - taxi.x, b.z - taxi.z))
       .slice(0, LIGHTS);
 
-    const on = sirenOn(flash);
+    // Per car rather than once for the pass: a cop that is chasing strobes at the hunting rate and
+    // one that is not strobes at the cruising rate, and the wash has to be the same siren as the
+    // bar over it or the two visibly disagree on the same vehicle.
+    const anyChasing = near.some((car) => car.chase > 0);
     for (let k = 0; k < lamps.length; k++) {
       const car = near[k];
       const lamp = lamps[k];
@@ -117,10 +120,12 @@ export function createCopLights(scene, { enabled = true } = {}) {
       }
       lamp.red.position.set(car.x, LAMP_Y, car.z);
       lamp.blue.position.copy(lamp.red.position);
+      const on = sirenOn(flash, car.chase > 0);
       lamp.red.intensity = on ? PEAK : DIM;
       lamp.blue.intensity = on ? DIM : PEAK;
     }
     state.lit = near.length;
+    state.hunting = anyChasing;
   }
 
   return {

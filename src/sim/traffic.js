@@ -492,6 +492,24 @@ const SCATTER_SPEED = 2.0;     // multiplier on cruise while fleeing. Just under
                                // it still closes and the flee reads as *not quite enough*.
 const SCATTER_STRAIGHT_W = 0.04;  // what the "carry straight on" turn weight collapses to
 
+// --- The chase ----------------------------------------------------------------
+//
+// A cop car running the taxi down during a bank robbery (game/robbery.js). It is two things and
+// **neither of them is new machinery**: a route, which the one routing branch already drives, and
+// a multiplier on this car's cruise ceiling, which `cruiseCapFor` already composes three of.
+//
+// Everything else about a chasing cop is an ordinary car. It queues, it indicates, it stops at
+// reds, it yields, it can be crashed into — and that last one is the whole point of making it
+// chase: the danger is not that a cop catches you, it is that four of them are now driving at
+// wherever you are, and a boosting taxi meets them head on.
+//
+// **1.9x, which is under the flee's 2.0 and well under the boosting taxi's.** A cop cruises at
+// 16.2 against a boosting taxi's 22.1, so a player on the pill outruns them and a player off it
+// does not. That gap is the mode: the chase is what makes Loco Mode the answer to the event, and
+// the wreck is what makes it a gamble. Level with the taxi it would be a guaranteed loss for
+// anyone who ever lifts off; faster still and there would be no point in the pill.
+const CHASE_SPEED = 1.9;
+
 // --- Passing ------------------------------------------------------------------
 //
 // Loco Mode's one remaining brake is the car directly in front. Scatter moves it, but a lane is
@@ -1067,6 +1085,7 @@ const CORNER_SPEED = SPEED * 0.7;
  */
 const cruiseCapFor = (car) => (car.isTruck ? TRUCK_SPEED : SPEED)
   * (1 + (SCATTER_SPEED - 1) * car.scatter)
+  * (1 + (CHASE_SPEED - 1) * car.chase)
   * (1 - PANIC_BRAKE * car.panic)
   * (1 - PULLOVER_BRAKE * car.pullover);
 
@@ -1769,6 +1788,11 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // Getting out of the boosting taxi's way. Eased toward 1 while the taxi is behind this car
       // in its own lane; drives a higher speed cap and a turn-off-at-the-next-junction bias.
       scatter: 0,
+      // Running the taxi *down* rather than away from it — a cop car during a bank robbery. 0 or
+      // 1; see CHASE_SPEED. It lifts this car's cruise ceiling and nothing else: where it is going
+      // is a `route`, which is the same mechanism that drives the player's own taxi, and every
+      // other rule of the road applies to it unchanged.
+      chase: 0,
     });
   }
 
@@ -2269,6 +2293,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       const police = chosen.has(car);
       if (car.police === police) continue;
       car.police = police;
+      // A car handed back its own livery stops chasing, and stops holding the route it was given.
+      // Cleared here rather than by the caller because this is the one place a car leaves the set:
+      // a cop left with a stale route would go on driving at wherever the taxi was when the event
+      // ended, faster than the traffic around it, in an ordinary colour.
+      if (!police) {
+        car.chase = 0;
+        if (car.route?.length) car.route.length = 0;
+      }
       paint(car, car.instanceIndex);
       repainted = true;
     }
@@ -2577,7 +2609,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // cruiser blink together if they meet on the same street.
     if (!car.isTruck) {
       const lit = car.police ? 1 : 0;
-      const red = sirenOn(stats.time) ? lit : 0;
+      // Double-time while this one is running the taxi down. It is the same cue and the same
+      // constant the cruiser uses for its own lock-on — eleven changes a second against six — and
+      // there it is described as "the only cue the player gets that the run has become about
+      // them". A cop car cruising past on its own business and one that has turned to come after
+      // you are otherwise the same blue car.
+      const red = sirenOn(stats.time, car.chase > 0) ? lit : 0;
       writeLight(sirenRedMesh, car, red);
       writeLight(sirenBlueMesh, car, lit - red);
     }
@@ -4204,6 +4241,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     setPoliceCars,
     /** The cars currently wearing it, for the probe and the tools. Live, not a copy. */
     policeCars,
+    /**
+     * The multiplier a chasing cop's cruise ceiling is lifted by — see CHASE_SPEED.
+     *
+     * Exported so `game/robbery.js` can state the gap it is relying on (a cop cruises under a
+     * boosting taxi and over an unboosted one) against the number rather than against a copy of it,
+     * and so the probe can assert the ordering rather than the constant.
+     */
+    chaseSpeed: () => CHASE_SPEED,
     /** Called with `{ x, z, yaw, v, deck }` on the frame the taxi's hop touches down. */
     onTaxiLand: (cb) => { landListeners.push(cb); },
     wreckShell, stats,

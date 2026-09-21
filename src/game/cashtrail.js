@@ -33,27 +33,46 @@ import { TAXI_TAILPIPE_BACK } from '../geometry/taxi.js';
 /**
  * The pool.
  *
- * `RATE` notes a second over a `LIFE` of 1.6s is 22 live at the top of a sustained hold, and a
- * hold is the longest thing that feeds this — there is no burst. 48 leaves room for the frame a
- * second robbery's first notes overlap the tail of the last one's, and a wrapped slot silently
+ * `RATE` notes a second over a `LIFE` of 2.4s is 96 live at the top of a sustained hold, and the
+ * `KICK` burst can put 24 more on top of that in one frame. 160 covers both with room for the
+ * frame a second robbery's first notes overlap the tail of the last one's; a wrapped slot silently
  * truncates the stream rather than failing.
+ *
+ * **It is a big pool on purpose.** The first cut ran 14 a second into 48 slots, which is 22 notes
+ * in the air — and 22 four-pixel rectangles spread over thirty units of road is a scattering you
+ * have to go looking for. The whole of this effect is that it should be impossible to miss.
  */
-const MAX_NOTES = 48;
+const MAX_NOTES = 160;
 
 /**
- * Notes per second while the pill is held.
+ * Notes per second while the pill is held, and the burst the press itself throws.
  *
- * Sized against the tank rather than against the look: a full tank is 15 seconds of boost
- * (game/boost.js) and a getaway spends a fraction of one, so at 14/s a typical two-second burst
- * throws about 28 notes. Enough to read as a stream from the first frame, few enough that the road
- * behind the taxi is still a road.
+ * 40/s rather than 14. A getaway's boost is spent in bursts of a second or two, so the stream has
+ * to be dense enough to read *within* a burst rather than building over one — which is also why
+ * there is a `KICK` at all: an effect that ramps up has nothing to say on the frame the player
+ * actually pressed the button, and that frame is the one they are looking at. The kick is fired
+ * from the same `kickLocoMode` in main.js that throws the tailpipe flame and stamps the launch
+ * rubber, so the three land together as one event.
  */
-const RATE = 14;
+const RATE = 40;
+const KICK = 24;
 
-/** Seconds a note is in the air. Long: the point is that it hangs. */
-const LIFE = 1.6;
-/** The last fraction of that spent fading, so a note thins out rather than blinking off. */
-const FADE_FROM = 0.55;
+/**
+ * Seconds a note is in the air.
+ *
+ * Long, and longer than it was: the point is that money *hangs*, and then that it is still lying
+ * there when the player looks back. At 1.6s the road behind a getaway was clean again almost as
+ * fast as it dirtied.
+ */
+const LIFE = 2.4;
+/**
+ * The last fraction of that spent fading, so a note thins out rather than blinking off.
+ *
+ * Late — a note is solid for nearly three quarters of its life. Fading earlier spends most of the
+ * effect at a low alpha, which is the other half of why the first cut was hard to see: the notes
+ * were not only small, most of them were half transparent.
+ */
+const FADE_FROM = 0.74;
 
 // Paper physics. Gravity well under the sparks' exaggerated 26 and under a real 9.8, drag well
 // over: a note launched at 9 u/s covers 9/3.4 = 2.6 units before it stops, which is most of a car
@@ -64,16 +83,30 @@ const DRAG = 3.4;
 // notes reached terminal speed and rained; with it they sink about a unit a second.
 const FALL_DRAG = 2.6;
 
-/** Tumble, in rad/s, and how fast it winds down. */
-const SPIN = 7.5;
-const SPIN_DRAG = 1.9;
+/**
+ * Tumble, in rad/s, and how fast it winds down.
+ *
+ * **Slower than it was, and that is a visibility fix rather than a taste one.** A note is a 0.02
+ * plate, so it is invisible edge-on — at 7.5 rad/s (1.2 revolutions a second) every note in the
+ * shower was strobing through its own edge several times on the way down, which reads as flicker
+ * and costs the effect a large fraction of its frames. At 4.2 a note turns about two-thirds of a
+ * revolution over its whole life: enough to flash its pale back once or twice, not enough to spend
+ * the flight edge-on.
+ */
+const SPIN = 4.2;
+const SPIN_DRAG = 1.4;
 
 // How the note is thrown: back out of the tailpipe, a little sideways, a little up. Up *least*,
 // for the reason the sparks are: thrown up as hard as they go back, the shower arcs over the roof
 // and reads as confetti being fired rather than cash being lost.
-const BACK = [5.5, 10.5];
-const SIDE = 2.4;
-const UP = [1.6, 4.4];
+//
+// The sideways throw is wider than it was (2.4), because the stream is now dense enough that a
+// narrow one stacked the notes into a single line down the middle of the lane. At 4.2 the trail is
+// about a lane wide, which is what makes it read as a mess being left behind rather than as a rope
+// being paid out.
+const BACK = [5.5, 11.5];
+const SIDE = 4.2;
+const UP = [1.6, 4.8];
 
 /**
  * How much of the taxi's own speed a note keeps.
@@ -85,9 +118,17 @@ const UP = [1.6, 4.4];
  */
 const NOTE_CARRY = 0.3;
 
-/** A note, in world units. At 7.7px per unit that is a 4.8 x 2.6px rectangle. */
-const NOTE_L = 0.62;
-const NOTE_W = 0.34;
+/**
+ * A note, in world units. At 7.7px per unit that is an 8.9 x 4.8px rectangle.
+ *
+ * Nearly double the 0.62 x 0.34 it started at, which was 4.8 x 2.6px — about the size of a lane
+ * dash, against a road already painted with lane dashes. This is a third of the drawn taxi's own
+ * length, which is frankly enormous for a banknote and exactly right for this game: the burger on
+ * the drive-through sign is 14px across and reads as a burger, and nothing else in the city is
+ * built to scale either.
+ */
+const NOTE_L = 1.15;
+const NOTE_W = 0.62;
 const NOTE_T = 0.02;
 
 /**
@@ -98,7 +139,7 @@ const NOTE_T = 0.02;
  * than as money — the green is the only thing saying what these are. Capped here, the stream is
  * mostly banknote with a scattering of notes caught edge-on, which is what a tumble looks like.
  */
-const BACK_MIX = 0.55;
+const BACK_MIX = 0.45;
 
 /** How far above the tailpipe the stream starts, so it leaves the boot rather than the road. */
 const LIFT = 0.15;
@@ -243,6 +284,18 @@ export function createCashTrail(scene, rng) {
    * @param car the taxi, for `x`/`z`/`yaw`/`v`
    * @param y   the surface it is driving on — the note settles onto this
    */
+  /**
+   * The burst the press throws, on top of whatever the hold goes on to feed.
+   *
+   * Fired from `kickLocoMode` in main.js alongside the tailpipe flame and the launch rubber, so the
+   * three are one event on one frame. A stream that only ramps up has nothing to say on the frame
+   * the button actually went down, and that is the frame the player is looking at.
+   */
+  function kick(car, y) {
+    if (!car || car.crashed) return;
+    for (let k = 0; k < KICK; k++) emit(car.x, y, car.z, car.yaw, car.v);
+  }
+
   function feed(dt, on, car, y) {
     if (!on || !car || car.crashed) { pending = 0; return; }
     // Note the order this is called in relative to `update`: **feed first**. A note's instance
@@ -328,5 +381,5 @@ export function createCashTrail(scene, rng) {
     return n;
   };
 
-  return { mesh, feed, update, live };
+  return { mesh, feed, kick, update, live };
 }

@@ -242,14 +242,22 @@ export const PALETTE = {
   // shower is what stops a stream of them reading as a stencil — the same reason the sparks spread
   // their hue across a spray rather than walking it over one spark's life.
   //
-  // Keyed off the HUD's own earnings green (#6BE08A, `.earning` in index.html) so the notes and
-  // the number that flies to the counter are visibly the same currency — but duller and warmer,
-  // because that one is 27px of type on a dark scrim and these are 4px objects on a road. At the
-  // HUD's saturation a note on grey asphalt read as a pill of light rather than as paper.
-  cashNote: '#7FC08A',
+  // Keyed off the HUD's own earnings green (#6BE08A, `.earning` in index.html) so the notes and the
+  // number that flies to the counter are visibly the same currency.
+  //
+  // **Saturated rather than duller, which is a reversal.** The first cut pulled the hue toward a
+  // paper green on the argument that the HUD's is 27px of type on a dark scrim while these are
+  // small objects on a road — and the result was notes nobody could find. What that argument missed
+  // is the ground they are landing on: `asphalt` is luma 104 and the lane dashes painted all over
+  // it are 210, so a note at 174 sat between the road and the paint it was competing with. At 179
+  // with the saturation back it separates from both — it is nowhere near the dashes in hue, and
+  // half again the road in value.
+  cashNote: '#5FD182',
   // The back of the note, and it has to be *pale* rather than a second green: what makes a tumble
-  // read at this size is the value flipping, not the hue.
-  cashBack: '#D6DCC0',
+  // read is the value flipping, not the hue. At 232 it is brighter than the lane dashes, which is
+  // the point — the flash as a note turns over is the thing that catches an eye that is on the road
+  // ahead rather than on the trail.
+  cashBack: '#EDE9CF',
 
   // --- The bank ---------------------------------------------------------------
   // The city's one bank (city/bank.js), and the third building the tower generator does not draw.

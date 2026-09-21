@@ -1751,9 +1751,10 @@ description, and it is worth listing what is *not* new, because none of it is:
   things differ: the clock, and a bonus that reads it. What *looks* different is the figure — see
   [the robber](#the-robber).
 - The cop cars are **ordinary ambient traffic wearing police livery**. They queue, indicate, stop at
-  reds and can be crashed into exactly like the cars they were a moment before. Not one of them ever
-  steers toward the taxi; [the one police car that does](traffic.md#the-bust-chase) is a different
-  module and is not touched by any of this.
+  reds, yield and can be crashed into exactly like the cars they were a moment before — and they
+  **come after you**, which is a route and a speed rather than an AI. See
+  [the chase](#the-chase). [The corridor cruiser's own chase](traffic.md#the-bust-chase) is a
+  different module and is not touched by any of this.
 - Loco Mode is untouched — the same finite tank, spent in a hold.
 - The fail state is untouched. Crashing into a cop car is crashing into a car:
   [`sim/collisions.js`](../src/sim/collisions.js) does not know what livery anything is wearing and
@@ -1910,12 +1911,19 @@ same cities, same situations, the robbery layer the only difference:
 | | perfect player (1.5s) | slower player (4s) |
 |---|---|---|
 | no robbery | 13.9 fares · $339 | 11.2 fares · $264 |
-| **shipped** | **12.4 fares · $309** | **8.6 fares · $211** |
+| across town, no chase | 12.4 fares · $309 | 8.6 fares · $211 |
+| **shipped, with the chase** | **10.9 fares · $268** | **9.6 fares · $235** |
 
-A fast player pays about a fare and a half for the event; a slower one pays two and a half, and
-their p10 drops from 6 to 1. See [the getaway](#the-getaway-runs-across-town) for why that asymmetry
-exists and which two constants move it — it is the price of a cross-town drive, and it is the one
-number in this feature that is a deliberate trade rather than a free win.
+The event costs a fast player three fares of survival and a slower one about one and a half. That is
+a real price and it is a deliberate one: two rounds of "make it more dramatic" bought a cross-town
+getaway and four cars hunting you, and both are paid for out of the same clock.
+
+**One large caveat on those numbers.** `tools/autoplay.mjs`'s perfect player **never uses Loco
+Mode** — it drives everywhere at cruise. So the harness measures the chase purely as extra traffic
+in the way, and cannot measure the thing the chase is actually for: a player on the pill outruns
+cop cars, and the decision the event poses is whether to spend the tank doing it. The real event is
+a risk/reward the soak has no way to play. Treat these as the cost to somebody who ignores the
+mechanic.
 
 One thing to know when reading `npm run check`: the suite's `fares` line runs the soak over **nine**
 seeds, which is a small enough sample that the first nine happen to be unlucky here — it reads a
@@ -2001,6 +2009,32 @@ split matters, because the first two alone did not read:
 The rate is `sirenOn()`, shared with [the corridor cruiser](traffic.md#police-priority-corridor) and
 [the off-screen wash](rendering.md#off-screen-police-warning), so a city with both in it strobes on
 one clock.
+
+### The chase
+
+The one thing the original brief ruled out, and now the point of the event. It is **two lines of
+behaviour**: `car.chase` lifts that cop's cruise ceiling, and `car.route` is a plain route to the
+junction the taxi is at — after which [the one routing branch](traffic.md#the-one-routing-branch)
+does the rest. A chasing cop *is* a routed car, the same thing the player's own taxi is.
+
+Measured over 12 events on 12 seeds: the set opens a mean of **42 units out** and every one closes
+to 5 or better, with a cop inside one block for 57% of the chase.
+
+A cop cruises at **16.1** against a boosting taxi's 22.1 and the traffic's 8.5. That gap is the
+mode — the pill outruns them and lifting off does not — so Loco Mode becomes the answer to the
+event and [the wreck](traffic.md#the-wreck) is what makes it a gamble. And they strobe at the
+cruiser's **hunting rate** while chasing, which is the same cue that module uses for its own
+lock-on: a cop cruising past on its own business and one that has turned to come after you are
+otherwise the same blue car.
+
+**They are given no licence an ordinary car lacks**, which is what makes this safe rather than
+merely loud. No red-running in particular: `sim/collisions.js` only ever tests the taxi, so a cop
+let through a light would drive *through* the cross traffic rather than into it. Every red they sit
+at is a chance to lose them, and the probe holds the whole chase to zero signal violations.
+
+**Nothing about the fail state changed.** A cop catching you does nothing at all — there is no bust,
+no new ending. What four converging cars are is four more things to hit while you are on the pill,
+which is the ending the game already had.
 
 **And a boosting getaway throws cash out of the back.** `game/cashtrail.js` — banknotes tumbling out
 behind the taxi for as long as the pill is held with a robber aboard. It is the one part of the event

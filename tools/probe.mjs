@@ -12965,11 +12965,20 @@ let chopperOrder; // likewise
 
     for (let f = 0; f < 120; f++) { trail.feed(1 / 60, true, car, 0.74); trail.update(1 / 60); }
     const streaming = trail.live();
-    // RATE 14/s over a LIFE of 1.6s is ~22 in the air at steady state, and the pool is 48. The
+    // RATE 40/s over a LIFE of 2.4s is ~96 in the air at steady state, and the pool is 160. The
     // bound that matters is the upper one: a stream that filled the pool would start recycling
-    // slots that are still in the air, which reads as notes blinking out mid-fall.
+    // slots that are still in the air, which reads as notes blinking out mid-fall. The lower one
+    // is the visibility ask — this effect was rebuilt because 22 four-pixel notes over thirty
+    // units of road was a scattering you had to go looking for.
     check('a boosting getaway trails cash without filling the pool',
-      streaming > 8 && streaming < 40, `${streaming} notes in the air`);
+      streaming > 45 && streaming < 130, `${streaming} notes in the air`);
+
+    // ...and the press itself throws a fistful, so the frame the button goes down has something on
+    // it. A stream that only ramps up says nothing on the one frame the player is looking at.
+    const kicker = createCashTrail(new THREE.Scene(), makeRng(seed + 212));
+    kicker.kick(car, 0.74);
+    check('the press that engages Loco Mode throws a burst of its own',
+      kicker.live() >= 16, `${kicker.live()} notes on the press frame`);
 
     // A crashed taxi stops spilling, which is the one gate the caller cannot express: a run that
     // ends mid-getaway leaves `boost.isActive()` true for a frame or two.
@@ -13095,6 +13104,75 @@ let chopperOrder; // likewise
       check('...and the next rider on that slot is not wearing it',
         Boolean(reused) && hidden(slot) === 5,
         reused ? `${hidden(slot)} of 5 pieces hidden` : 'slot never came back round');
+    }
+
+    // --- They come after you ---------------------------------------------------
+    //
+    // The one thing the original brief ruled out and the iteration put back. What is checked is
+    // that it is a *route and a speed* rather than new machinery, and — the half that matters more
+    // — that it grants a cop no licence an ordinary car lacks. A cop that could run a red would
+    // drive **through** the cross traffic rather than into it, because sim/collisions.js only ever
+    // tests the taxi.
+    {
+      const chased = runEvent();
+      const cops = chased.traffic.policeCars;
+      check('every cop car is chasing, and has somewhere to be',
+        cops.length > 0 && cops.every((car) => car.chase > 0)
+          && cops.some((car) => car.route?.length > 0),
+        `${cops.filter((c) => c.route?.length).length}/${cops.length} routed`);
+
+      // The gap that makes the mode. A cop has to be faster than the traffic it is weaving through
+      // and slower than a boosting taxi, or the pill stops being the answer to the event.
+      const chaseTop = SPEED * chased.traffic.chaseSpeed();
+      check('...faster than traffic, slower than a boosting taxi',
+        chaseTop > SPEED && chaseTop < boostCruise(),
+        `${SPEED} ambient, ${chaseTop.toFixed(1)} chasing, ${boostCruise().toFixed(1)} boosting`);
+
+      // Their routes actually aim somewhere: run the sim and the set has to close on the taxi
+      // rather than wander.
+      //
+      // Measured against the taxi's **junction** rather than its world position, because that is
+      // what the chase is routed at — and in this harness the two are not the same point: the
+      // event is staged by writing the taxi's x/z onto the bank's doorstep while its lane position
+      // stays wherever the warmup left it. Measuring the world distance scored the hunt against a
+      // target nothing was hunting, and read as no convergence at all.
+      const quarry = () => ({ x: lineX(chased.traffic.taxi.i), z: lineZ(chased.traffic.taxi.j) });
+      const nearest = () => {
+        const at = quarry();
+        return Math.min(...chased.traffic.policeCars.filter((c) => !c.crashed)
+          .map((c) => Math.hypot(c.x - at.x, c.z - at.z)));
+      };
+      const before = nearest();
+      let closest = before;
+      // A real event is a cross-town getaway, so the window is a real event's length rather than a
+      // couple of seconds. Over eight seconds the set had only halved the gap and the check read
+      // as a chase that does not close; over twenty it lands on the car.
+      for (let f = 0; f < 60 * 20 && chased.rob.state.active; f++) {
+        chased.traffic.update(1 / 60);
+        chased.rob.update(1 / 60);
+        if (chased.traffic.policeCars.length) closest = Math.min(closest, nearest());
+      }
+      // Measured over 12 events on 12 seeds: the set opens a mean of 42 units out and every one of
+      // them closes to 5 or better, with a mean closest of 3 — and a cop is inside one block for
+      // 57% of the chase and inside half a block for 28% of it. Eight is the loosest bar that still
+      // means "arrived" rather than "passing": a junction is 8 across.
+      check('...and they close on the taxi rather than wander',
+        closest < before && closest < 8,
+        `nearest cop ${before.toFixed(0)} units out, ${closest.toFixed(0)} at its closest`);
+
+      // The licence check, and the reason the chase is safe to ship: a chasing cop is still in the
+      // `cars` array under every rule of the road. `stats.violations` counts any car crossing a
+      // hold line on a red — the probe gates the whole run on it elsewhere, and this asserts the
+      // chase specifically did not contribute.
+      check('...without being let through a single red light',
+        chased.traffic.stats.violations === 0,
+        `${chased.traffic.stats.violations} violations over the whole chase`);
+
+      // And it all comes off when the event does. A cop left chasing would go on driving at where
+      // the taxi was, faster than the traffic around it, in an ordinary colour.
+      chased.traffic.setPoliceCars(0);
+      check('...and the chase ends with the livery',
+        chased.traffic.cars.every((car) => !car.chase && !car.route?.length || car.isTaxi));
     }
 
     check('a robbery that runs out of clock never ends the run',

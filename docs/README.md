@@ -81,12 +81,14 @@ because nobody is stopping you taking a rider through a drive-through. See
 One block of every city is a **bank** — low and wide under a colonnade, with a patinated dome behind
 it, the one curved mass and the one gap in the skyline. Drive past it with an **empty cab** and a
 masked robber comes down the steps with a sack and gets in, on the tightest clock in the game, bound
-for the far side of the city. Four of the cars already on the road turn blue and put flashing light
-bars on. The cops are ordinary traffic in police paint: they queue, they stop at reds, and none of
-them ever comes after you — what they are is four more things to hit while you are in a hurry. Lean
-on the pill and the loot starts coming out of the back. It pays a bonus scaled to the clock you land
-it with, and missing one never ends a run: the event is imposed rather than chosen, so it is not
-allowed to cost the player the game. See [the bank robbery](gameplay.md#the-bank-robbery).
+for the far side of the city. Four of the cars already on the road turn blue, put flashing bars on,
+and **start driving at you** — at twice the speed of the traffic and under the speed of a boosting
+taxi, which is the whole of the decision the event offers. They are still ordinary cars: they queue,
+they stop at reds, none of them can arrest you, and what they are is four more things to hit while
+you are in a hurry. Lean on the pill and the loot comes streaming out of the back. It pays a bonus
+scaled to the clock you land it with, and missing one never ends a run: the event is imposed rather
+than chosen, so it is not allowed to cost the player the game. See
+[the bank robbery](gameplay.md#the-bank-robbery).
 
 Once a run, a side street closes for **roadworks** — barricades at both ends, cones, a hole in the
 road and two workers standing over it. Ambient traffic routes around it while the taxi's own router

@@ -1916,12 +1916,37 @@ queue behind it holds, because each car's limit comes from its leader's position
 the `n` ambient cars nearest the taxi, paints them `policeBody` and switches on a light bar on their
 roofs; `setPoliceCars(0)` puts every one of them back.
 
-**Nothing about how they drive changes.** `car.police` is read in exactly two places — the paint, and
-whether the bar is drawn — and it is deliberately not a behaviour flag. A cop car queues, indicates,
-stops at reds, yields to the corridor cruiser and can be crashed into exactly like the car it was a
-moment before. There is no pursuit AI in it and none anywhere else: the one police car that acknowledges
-the taxi is [the corridor cruiser](#police-priority-corridor), which is a different module and is not
-touched by any of this.
+**They come after you, and the chase is two lines of behaviour.** `car.chase` lifts that car's cruise
+ceiling by `CHASE_SPEED`, and `car.route` is a plain `findRoute` to the junction the taxi is at —
+after which [the one routing branch](#the-one-routing-branch) does everything. A chasing cop *is* a
+routed car, which is the same thing the player's own taxi is.
+
+That is the whole implementation, and what it buys is worth stating: measured over 12 events on 12
+seeds, the set opens a mean of **42 units out** and every one of them closes to 5 or better (mean 3),
+with a cop inside one block for 57% of the chase and inside half a block for 28% of it.
+
+`CHASE_SPEED` is **1.9**, so a cop cruises at 16.1 — under the flee's 2.0, well under a boosting
+taxi's 22.1, and about twice the traffic it is weaving through. That gap is the mode: the pill
+outruns them and lifting off does not, so Loco Mode is the answer to the event and the wreck is what
+makes it a gamble. Level with the taxi it would be a guaranteed loss for anyone who ever lifts off;
+faster still and there would be no point in the pill.
+
+**It grants a cop no licence an ordinary car lacks**, and that is the part that makes it safe to
+ship rather than merely dramatic. A chasing cop queues, indicates, stops at reds, yields and can be
+crashed into exactly like the car it was a moment before. Letting one through a red is the obvious
+next step and it is the one thing that must not happen: `sim/collisions.js` only ever tests the
+**taxi**, so a cop that ran a light would drive *through* the cross traffic rather than into it —
+the same trap `releaseCar` and the drive-through's exit already record (see
+[the drive-through](#the-drive-through)). `tools/probe.mjs` asserts the whole chase runs at zero signal violations.
+
+The plan is **keyed on the taxi's junction**, not on a clock and not per frame. Re-planning a route
+every frame is a standing trap here: the turn a car has committed to never retires from its route,
+so it sits at the junction re-deciding the same turn. Re-aimed per junction, it converges.
+
+A chasing cop also strobes at the cruiser's **hunting rate** — eleven changes a second against six.
+That is the same cue and the same constant `sim/police.js` uses for its own lock-on, where it is
+described as the only thing telling the player the run has become about them. A cop car cruising past
+on its own business and one that has turned to come after you are otherwise the same blue car.
 
 Three things worth knowing about how it is drawn:
 

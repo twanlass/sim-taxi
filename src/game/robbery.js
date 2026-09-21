@@ -1,5 +1,6 @@
 import { GRID_I, GRID_J, lineX, lineZ } from '../city/grid.js';
 import { URGENCY_SEGMENTS, urgencyLevel } from './urgency.js';
+import { findRoute, planOrigin } from './route.js';
 
 // The bank robbery: the empty taxi drives past the bank, somebody gets in with a bag, and the
 // streets fill with police for as long as it takes to get them where they are going.
@@ -11,10 +12,14 @@ import { URGENCY_SEGMENTS, urgencyLevel } from './urgency.js';
 //     crystal, same ring, same band of paint, same arrival test, same payout flight. What differs
 //     is the clock (the tightest in the game) and a bonus that reads it at the drop-off.
 //   - The cop cars are ordinary ambient traffic wearing police livery — `setPoliceCars` in
-//     sim/traffic.js. They queue, indicate, stop at reds and can be crashed into exactly like the
-//     cars they were a moment before. **There is no pursuit AI of any kind**: not one of them ever
-//     steers toward the taxi, and the module that could make them (sim/police.js, the corridor
-//     cruiser and its chase) is not touched by any of this.
+//     sim/traffic.js. They queue, indicate, stop at reds, yield and can be crashed into exactly
+//     like the cars they were a moment before.
+//   - **And they come after you**, which is the one thing in this event that was originally ruled
+//     out and is now the point of it. It is still not pursuit *AI*: a chasing cop is an ordinary
+//     car with a `route` — the same single branch that drives the player's own taxi
+//     ([traffic.md](../../docs/traffic.md#the-one-routing-branch)) — and a multiplier on its cruise
+//     ceiling. See `steerChase` below. Nothing in sim/police.js, which owns the corridor cruiser
+//     and its own scripted chase, is touched by any of this.
 //   - Loco Mode is untouched. It is still a finite tank spent in a hold, and the choice the event
 //     poses is the one the tank already poses, now with something on the other side of it: boost
 //     past the traffic and risk the wreck, or hold off and risk the clock.
@@ -199,6 +204,53 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
   /** How far the taxi is from the bank's door, in world units. */
   const range = () => Math.hypot(taxi.x - site.door.x, taxi.z - site.door.z);
 
+  // Where the chase was last aimed. A plan is keyed on its endpoint and left alone in between,
+  // which is not a micro-optimisation: re-planning a route every frame is a standing trap in this
+  // codebase — the turn a car has already committed to never retires from its route, so it sits at
+  // the junction re-deciding the same turn and never takes it. See CLAUDE.md.
+  let aimedAt = null;
+
+  /**
+   * Point every cop car at the taxi.
+   *
+   * **The whole chase is this function**, and it is deliberately four lines of behaviour:
+   *
+   *   - `car.chase = 1` lifts that car's cruise ceiling by `CHASE_SPEED` (sim/traffic.js). A cop
+   *     cruises at 16.1 against a boosting taxi's 22.1 and an ordinary car's 8.5 — so the pill
+   *     outruns them and lifting off does not, which is the whole shape of the event.
+   *   - `car.route` is a plain `findRoute` to the junction the taxi is at. From there the one
+   *     routing branch in sim/traffic.js does everything: the cop takes the turn its route calls
+   *     for and is subject to every signal, yield and following rule unchanged.
+   *   - It is re-planned when the **taxi** moves to a new junction, not on a clock and not per
+   *     frame. A chase that re-aims every frame stalls; one that re-aims per junction converges.
+   *   - A cop whose route has run dry gets a fresh one even if the taxi has not moved, which is
+   *     what happens when it arrives at the junction the taxi has since left.
+   *
+   * What it deliberately does **not** do is give a cop any licence an ordinary car lacks. It does
+   * not run reds, it does not ignore queues, and it cannot be crashed into by anything but the
+   * player — `sim/collisions.js` only ever tests the taxi. A cop let through a red would drive
+   * *through* the cross traffic rather than into it, which is the trap `releaseCar` already
+   * records, and the event does not need it: four cars converging on the player at twice the speed
+   * of the traffic around them is the drama, and every red they sit at is a chance to lose them.
+   */
+  function steerChase() {
+    const at = { i: taxi.i, j: taxi.j };
+    const moved = !aimedAt || aimedAt.i !== at.i || aimedAt.j !== at.j;
+    for (const car of traffic.policeCars) {
+      if (car.crashed) continue;
+      car.chase = 1;
+      if (!moved && car.route?.length) continue;
+      const route = findRoute(planOrigin(car), at);
+      // Null is an unroutable pair, which `main.js` rerolls the city to prevent — and an empty
+      // array is a cop already standing on the taxi's own junction. Both leave the car rolling the
+      // ordinary dice until the next re-aim, which is the right answer for each: there is nowhere
+      // to send it.
+      if (route) car.route = route;
+      car.routeConsumed = false;
+    }
+    aimedAt = at;
+  }
+
   function eligible() {
     if (state.active || fares.state.gameOver) return false;
     if (state.since < COOLDOWN) return false;
@@ -240,6 +292,9 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
     // delivers one. It is the target-count shape that makes that easy to miss.
     for (let k = 0; k < EXTRA_CARS; k++) traffic.setCarCount(traffic.cars.length + 1);
     traffic.setPoliceCars(POLICE_CARS);
+    // Pointed at the taxi on the frame they turn blue rather than on the next re-pick, so the
+    // convergence starts as the robber is still getting in.
+    steerChase();
     onBoard(fare);
   }
 
@@ -248,6 +303,10 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
     if (!state.active) return;
     state.active = false;
     state.since = 0;
+    aimedAt = null;
+    // `setPoliceCars(0)` clears each car's `chase` and its route as it hands the paint back — see
+    // the note there. It is the one place a car leaves the set, so it is the one place that can be
+    // sure of catching every one of them.
     traffic.setPoliceCars(0);
   }
 
@@ -264,7 +323,12 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
       if (state.sinceRepick >= REPICK) {
         state.sinceRepick = 0;
         traffic.setPoliceCars(POLICE_CARS);
+        // A car that has just been handed the livery has no route and no chase yet, so the aim has
+        // to be forgotten along with the set — otherwise a fresh cop waits for the taxi to change
+        // junction before it is ever pointed anywhere.
+        aimedAt = null;
       }
+      steerChase();
       return;
     }
 

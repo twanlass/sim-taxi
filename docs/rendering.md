@@ -1696,11 +1696,12 @@ It is a **flutter** pool, and every difference from the three above follows from
 
 - **Low gravity, heavy drag on *both* axes.** A note thrown back at 9 u/s is doing 2 by the time it
   has left the bumper and travels 2.6 units of its own — most of a car length and no more. What
-  makes the *trail* long is the car, not the note: measured over 2.5 seconds at the Loco top, the
-  live notes run from 1.86 units behind the origin (the tailpipe is at 2.01) back to 36, which is
-  the better part of two blocks of streamer with a lateral spread of only ±0.71. The drag on the
-  *fall* is what makes a note flutter rather than rain: without it they reached terminal speed and
-  dropped straight down.
+  makes the *trail* long is the car, not the note: measured at the Loco top, the live notes run
+  from the tailpipe back some 36 units, the better part of two blocks of streamer. The sideways
+  throw was widened from 2.4 to 4.2 when the stream got dense, because a narrow one stacked the
+  notes into a single line down the middle of the lane; at a lane's width it reads as a mess being
+  left behind rather than a rope being paid out. The drag on the *fall* is what makes a note
+  flutter rather than rain: without it they reached terminal speed and dropped straight down.
 - **It tumbles**, about a random fixed axis per note, winding down with the rest. That is the whole
   reason a note is a thin **box** rather than a plane: a plane is one-sided, and half of every
   tumble would be a note that is simply not drawn — the trap the boats' wake sat in for weeks.
@@ -1709,13 +1710,33 @@ It is a **flutter** pool, and every difference from the three above follows from
 - **It settles rather than bounces**, and onto a floor passed in per note the way a spark's is, so a
   getaway over a bridge drops its notes on the **deck**.
 
-Two numbers are sized against something rather than picked. `RATE` is 14 notes a second against a
-`LIFE` of 1.6s, which is 22 in the air at steady state in a pool of 48 — the headroom is for the
-frame one getaway's first notes overlap the tail of the last one's, and a wrapped slot silently
-truncates a stream. And a note is 0.62 × 0.34, which at 7.7px per unit is a 4.8 × 2.6px rectangle:
-small enough that the road behind the taxi is still a road. Its colour rolls between a banknote
-green and a pale back, but only 55% of the way to the back — an even roll put half the shower
-nearer the pale end, and a road strewn with pale flecks reads as litter rather than as money.
+**It was rebuilt once for being too subtle, and every number moved.** The first cut ran 14 notes a
+second at 0.62 × 0.34 units into a pool of 48 — 22 notes in the air, each a 4.8 × 2.6px rectangle,
+on a road already painted with lane dashes. That is a scattering you have to go looking for, and
+the whole of this effect is that it should be impossible to miss. What changed, and why:
+
+| | first cut | now | why |
+|---|---|---|---|
+| Size | 0.62 × 0.34 (4.8 × 2.6px) | 1.15 × 0.62 (8.9 × 4.8px) | A third of the drawn taxi's length. Frankly enormous for a banknote, and right for a game whose drive-through sign is a 14px burger. |
+| Rate | 14/s | 40/s | A getaway's boost is spent in bursts of a second or two, so the stream has to read *within* a burst rather than build over one. |
+| Pool | 48 | 160 | 96 in the air at steady state, plus the kick. |
+| Life | 1.6s | 2.4s, fading from 74% | Money should hang, and still be lying there when the player looks back. Fading from 55% spent most of the effect half-transparent, which was the other half of why it was hard to see. |
+| Tumble | 7.5 rad/s | 4.2 | A note is a 0.02 plate and is **invisible edge-on**. At 1.2 revolutions a second every note was strobing through its own edge on the way down, which reads as flicker and costs a large fraction of the effect's frames. |
+| Colour | #7FC08A | #5FD182 | See below. |
+| The press | nothing | a 24-note kick | An effect that only ramps up says nothing on the frame the button went down, and that is the frame the player is looking at. |
+
+The **colour** is a reversal worth recording. The first cut pulled the hue toward a paper green on
+the argument that the HUD's earnings green is 27px of type on a dark scrim while these are small
+objects on a road. What that missed is the ground they land on: `asphalt` is luma 104 and the lane
+dashes painted all over it are 210, so a note at 174 sat *between* the road and the paint it was
+competing with. At 179 with the saturation back it is nowhere near the dashes in hue and half again
+the road in value. The pale back went to 232 — brighter than the dashes — because the flash as a
+note turns over is what catches an eye that is on the road ahead.
+
+Measured on a rendered frame rather than argued: counting pixels that are bright green with more
+blue than red (which separates a banknote from park grass, whose blue sits *below* its red), a
+getaway frame scores **937** against **0** on a frame with no robbery in it — and that is with the
+headless page throttled to a fraction of the note count a real 60fps hold produces.
 
 **Fed before it is ticked**, which is the one ordering that matters here. The pool writes an
 instance matrix only in its update pass, so a stream fed after it draws every note one frame late —
