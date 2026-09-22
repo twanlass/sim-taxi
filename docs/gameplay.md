@@ -339,7 +339,7 @@ third is not going to. A repeat says `LINES.boostAgain` — "Hold it down — do
 louder version of a sentence they have already read and acted on.
 
 It is also the only one that points at a **control** rather than at the city, so it is placed
-differently: `#coach.at-boost` drops it onto the Loco Mode pill's own 26px gutter just above the
+differently: `#coach.at-boost` drops it into the gutter just above the Loco Mode
 pill, flips the tail to the bottom, and grows the entrance upward out of it. The other two hang
 centred with the tail up, because what they are talking about is up there.
 
@@ -2863,7 +2863,7 @@ Two consequences worth knowing:
 ## The brake
 
 The **Brake** button, to the right of the Loco Mode pill and sharing the bottom row with it:
-**60% Loco Mode, 40% brake**, of the same 3/4-width band the pill used to have to itself. Hold it
+**60% Loco Mode, 40% brake**, of the same band the pill used to have to itself. Hold it
 and the taxi hauls itself to a stop wherever it is; let go and it drives itself again, because
 driving itself is the game's resting state and the brake never took that away — it only outranked
 it while held. The physics is in
@@ -2885,9 +2885,21 @@ taxi's own lamps are coming on out on the road at the same moment.
 Both buttons stay independently `position: fixed` rather than becoming flex children of a row. A
 wrapper would put a new element between `#boost` and the viewport, and that pill is measured
 (the tutorial aims its third bubble at its `getBoundingClientRect`), animated (`translate` on the
-HUD entrance) and pressed through pointer capture. Two `calc()`s against `--ctl-side` / `--ctl-gap`
-/ `--brake-w` cost less than re-testing all of that. The shares are of the *band*, not of the
-screen, so the 60/40 survives any change to the band's own margins.
+HUD entrance) and pressed through pointer capture. Two `calc()`s against `--ctl-left` /
+`--ctl-right` / `--ctl-gap` / `--brake-w` cost less than re-testing all of that. The shares are
+of the *band*, not of the screen, so the 60/40 survives any change to the band's own margins.
+
+**The row sits in one inset, and that inset is derived rather than typed.** The same gap left,
+right and underneath, so the pair reads as a panel resting in the corner of the screen. The
+number cannot be a constant, because the gap the player sees at the bottom is the constant plus
+`env(safe-area-inset-bottom)` — 26px on a desktop and 60pt on a notched iPhone, from one
+declaration. So `--ctl-inset` halves the *sum* (`(26px + var(--safe-bottom)) / 2`), which is
+13px on a desktop and 30pt on a phone, and the sides take the same number. 30pt still clears
+the home indicator's ~21pt of edge protection, which is why the bottom may spend part of the
+safe area rather than sitting on top of all of it — but only the bottom. Landscape puts 47pt of
+notch beside the row and no derived inset beats that, so `--ctl-left` / `--ctl-right` floor at
+their own `env()`. The rider-finder chips, the taxi finder and the coach bubble are all stacked
+on `--ctl-bottom` rather than placed on their own, so the whole bottom cluster moves together.
 
 **Last pedal pressed wins.** Pressing the brake releases Loco Mode and pressing Loco Mode releases
 the brake, so a two-thumbed player never ends up spending fuel against a speed target of zero — the
