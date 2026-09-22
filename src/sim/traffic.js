@@ -181,6 +181,26 @@ const RING_YIELD = 24;
 const RIGHT_ON_RED_YIELD = 15;
 
 /**
+ * How clear the crossing street has to be for a **chasing cop** to go through a red, in units of
+ * that street's remaining lane.
+ *
+ * Twice `RIGHT_ON_RED_YIELD` and over `RING_YIELD`, and the reason is what the two manoeuvres are.
+ * A right on red turns into the *near* lane and is out of the box almost at once; a cop on a chase
+ * is crossing the whole junction, on a street it does not have the green on, at up to 21.7 u/s.
+ * Cross traffic scattering out of its way runs at `SCATTER_SPEED` — 17 — so 30 units is about 1.8
+ * seconds of the fastest thing that could be coming, against the 0.4s the crossing itself takes.
+ *
+ * **This is the one licence a chasing cop has that an ordinary car does not, and it is fenced on
+ * five sides**, because the standing trap here is lethal: `sim/collisions.js` only ever tests the
+ * taxi, so a car let through a red does not crash into the cross traffic, it drives *through* it.
+ * See the gate in the signal decision — the street has to be clear by this margin, the junction
+ * has to be empty of anything mid-turn, nothing may be stranded in the box, no emergency corridor
+ * may be running through it, and the exit lane may not be closed. Anything short of all five and
+ * the cop waits like everybody else.
+ */
+const CHASE_RED_YIELD = 30;
+
+/**
  * How far back from the junction boundary a car actually holds.
  *
  * Cars used to stop with their *centre* on the boundary, putting the nose 1.7 units inside the
@@ -503,9 +523,9 @@ const SCATTER_STRAIGHT_W = 0.04;  // what the "carry straight on" turn weight co
 // chase: the danger is not that a cop catches you, it is that four of them are now driving at
 // wherever you are, and a boosting taxi meets them head on.
 //
-// **2.4x, which is over the flee's 2.0 and under the boosting taxi's 2.6.** A cop cruises at 20.4
-// against a boosting taxi's 22.1, so a player on the pill outruns them and a player off it does
-// not. That gap is the mode: the chase is what makes Loco Mode the answer to the event, and the
+// **2.55x, which is over the flee's 2.0 and just under the boosting taxi's 2.6.** A cop cruises at
+// 21.7 against a boosting taxi's 22.1, so a player on the pill outruns them — barely, on a
+// straight, and not at all once the taxi's overdrive band opens — and a player off it does not. That gap is the mode: the chase is what makes Loco Mode the answer to the event, and the
 // wreck is what makes it a gamble. Level with the taxi it would be a guaranteed loss for anyone
 // who ever lifts off; faster still and there would be no point in the pill.
 //
@@ -515,7 +535,7 @@ const SCATTER_STRAIGHT_W = 0.04;  // what the "carry straight on" turn weight co
 // could not drive into it: it spent the chase following, at the speed of the car it had just
 // frightened. Anything that clears a lane has to be able to outrun what it clears. 2.4 is the
 // midpoint of the only band that satisfies both ends, and both ends are asserted in the probe.
-const CHASE_SPEED = 2.4;
+const CHASE_SPEED = 2.55;
 
 /**
  * How many cop cars a robbery puts on the road, and therefore how much buffer headroom the
@@ -1105,12 +1125,46 @@ const CORNER_SPEED = SPEED * 0.7;
  * cruise for a quarter of the chase. Scattering the traffic in front of it moved the stopped time
  * but not the mean, which is what pointed here — the queue was never the thing.
  *
- * 0.55 rather than the taxi's boost-turn exemption (which goes round a left at full cruise) is the
- * line between a cop driving hard and a cop driving Loco Mode. At 20.4 cruise that is 11.2 into a
- * corner against an ambient car's 5.95 — fast enough that a cop carries speed between junctions,
+ * 0.72 rather than the taxi's boost-turn exemption (which goes round a left at full cruise) is the
+ * line between a cop driving hard and a cop driving Loco Mode. At 21.7 cruise that is 15.6 into a
+ * corner against an ambient car's 5.95 — fast enough that a cop barely gives a junction back,
  * slow enough that it still visibly sets up for one.
+ *
+ * It was 0.55, and went up with the same complaint that raised the ceiling: at 11.2 a cop's *mean*
+ * over a getaway was 9, which is an unboosted taxi's cruise. A pursuer no faster than the thing it
+ * is pursuing at rest gives the player no reason to spend the pill, which is the whole shape of
+ * the event.
  */
-const CHASE_CORNER_SPEED = 0.55;
+const CHASE_CORNER_SPEED = 0.72;
+
+/**
+ * What a chasing cop pulls away at, in units/s².
+ *
+ * **This is the constant that was actually holding the chase back, and it took three attempts to
+ * find** — worth recording, because each of the first two looked like the answer and measured as
+ * nothing. First the *ceiling* went up (`CHASE_SPEED` 1.9 → 2.55, 16 → 21.7 u/s). Then the *corner
+ * target* went up (`CHASE_CORNER_SPEED`, 5.95 → 15.6). Neither moved a cop's mean speed off 6.6,
+ * and the reason is visible the moment the speeds are split by what the car is doing:
+ *
+ * | | target | actually reached |
+ * |---|---|---|
+ * | mid-corner | 15.6 | **9.4** |
+ * | on a lane | 21.7 | **10.9** |
+ *
+ * A cop never gets near either, because the distance between junctions is 20 units and it was
+ * accelerating at `ACCEL` — 6, the same as a hatchback pulling away from a light. From 9 u/s over
+ * the ~12 units of lane between two junction boxes that reaches 15, and then it has to brake for
+ * the next corner. **A cop with a doubled ceiling and an ordinary engine is a cop that spends the
+ * whole chase accelerating and never arrives at any of it.** Measured per state: 42% of a chase is
+ * spent mid-corner, 30% stopped, and only 10% flowing — so the ceiling applies to a tenth of the
+ * event and the acceleration applies to all of it.
+ *
+ * 15 rather than the taxi's `BOOST_ACCEL` of 24: the pill should still be the harder-accelerating
+ * thing on the road, because that is what the player is spending. At 15 a cop leaving a corner at
+ * 9 reaches 19 by the next junction, which is most of its ceiling — so the ceiling starts meaning
+ * something, which is all the first two changes needed.
+ */
+const CHASE_ACCEL = 15;
 
 /**
  * A car's own cruise ceiling: its class's speed, lifted by the flee, dipped by the panic, and
@@ -1279,6 +1333,24 @@ const hardBrake = () => Math.max(HARD_BRAKE, brake());
  * against what it is fleeing, so raising the punch in the panel raises the scatter with it.
  */
 const scatterAccel = () => loco.accel;
+
+/**
+ * How hard this car pulls away: its class's rate, lifted by the flee and again by the chase.
+ *
+ * The two lift the same number and the larger wins, rather than compounding. A fleeing cop is not
+ * a thing — `mark` in the scatter block refuses to scatter a car that is chasing — so in practice
+ * only one of the two terms is ever non-zero; taking the max rather than summing them is what keeps
+ * that an implementation detail rather than a number nobody can predict.
+ *
+ * Factored out because **both** acceleration sites have to agree. The turn branch and the drive
+ * branch each compute their own, and any difference between them is a rate that jumps at the
+ * junction boundary — which the car then chases with real acceleration, four times a block. The
+ * comment at the second site records that trap for the speed target; it is the same trap here.
+ */
+const chaseAccelFor = (car) => Math.max(
+  ACCEL + (scatterAccel() - ACCEL) * car.scatter,
+  ACCEL + (CHASE_ACCEL - ACCEL) * car.chase,
+);
 
 /**
  * Acceleration available to a car at full boost, which is not one number: full punch up to the
@@ -2613,7 +2685,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // phase happens to be at the moment you sample it.
   const stats = {
     time: 0, violations: 0, minGap: Infinity, moving: 0, waiting: 0,
-    distance: 0, routeDesync: 0, rightOnRed: 0,
+    distance: 0, routeDesync: 0, rightOnRed: 0, chaseOnRed: 0,
   };
 
   const matrix = new THREE.Matrix4();
@@ -3706,7 +3778,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         const topSpeed = fullPower ? overdriveTop() : cruiseCap;
         const accel = fullPower
           ? boostAccel(car.v)
-          : ACCEL + (scatterAccel() - ACCEL) * car.scatter;
+          : chaseAccelFor(car);
         // The brake pedal outranks every one of them, including the boost ceiling: holding it means
         // stop, so the target is zero and the car sheds toward it at `hardBrake()` however much road
         // it has been granted. Nothing else needs to know — with a target of 0 the accelerate branch
@@ -3743,6 +3815,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
           let green;
           let viaRightOnRed = false;
+          // A chasing cop waved through a red on a clear box — see the gate below. Tracked so the
+          // crossing is counted as sanctioned rather than as a signal violation.
+          let viaChaseOnRed = false;
           if (!arrive.signalised) {
             // No signal here. The priority street runs; anyone joining waits for a real gap.
             green = arrive.open || ringGapClear(car, approaching);
@@ -3758,6 +3833,35 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
                 && rightTurn && !closedLanes.has(rightTurn.outLane)
                 && rightOnRedClear(car, arrive, approaching)) {
               viaRightOnRed = true;
+            }
+
+            // **A chasing cop crosses a red when the junction is provably empty**, which is the
+            // one thing that lifts its *average* speed rather than its ceiling — and the average is
+            // what the player can see. A cop stopped at a light is stopped for 15-37% of a
+            // getaway, and 20 u/s of ceiling is worth nothing during it.
+            //
+            // It is the licence this file spent a long time refusing, so the fencing is the
+            // interesting part. `sim/collisions.js` only tests the taxi, so an unsafe crossing is
+            // not a crash — it is a cop driving *through* a car, in full view, with nothing
+            // logged. Every clause below is load-bearing:
+            //
+            //   - the crossing street clear by `CHASE_RED_YIELD`, which is `streetIsClear`, the
+            //     same test right-on-red and the ring both use;
+            //   - **nothing mid-turn in the box**, which that test cannot see: a car part-way round
+             //    its arc is past its lane's end, so it is in neither `approaching` nor `heldAt`.
+            //     This is the clause whose absence would have made the whole thing unshippable;
+            //   - `!held` — nothing stranded or braking in the junction;
+            //   - no emergency corridor through it, so the cruiser still owns any box it wants;
+            //   - and a legal, open exit, checked below by the ordinary turn resolution.
+            //
+            // Counted separately from `stats.violations`, like right-on-red: this is a sanctioned
+            // crossing, and folding it into the violation count would hide a real one.
+            if (!green && !held && car.chase > 0 && !corridorCovers(car.i, car.j)
+                && streetIsClear(car, arrive.street, CHASE_RED_YIELD, approaching)
+                && !cars.some((other) => other !== car && !other.crashed
+                  && other.state === 'turn' && other.i === car.i && other.j === car.j)) {
+              green = true;
+              viaChaseOnRed = true;
             }
           }
 
@@ -3917,6 +4021,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           // the turn logic can't quietly start running red lights. Ring junctions are exempt —
           // they have no phase to obey.
           if (viaRightOnRed) stats.rightOnRed += 1;
+          else if (viaChaseOnRed) stats.chaseOnRed += 1;
           else if (arrive.signalised && !arrive.open
               && !taxiClearsYellow(car, arrive, distToLine)) stats.violations += 1;
 
@@ -4038,7 +4143,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // climb to is not a ceiling. At plain ACCEL a fleeing car needs 24 units to reach
         // SCATTER_SPEED and a junction is 8, so without this the cruise cap above would raise the
         // roof and the car would still cross at the speed it entered.
-        const accel = fullPower ? boostAccel(car.v) : ACCEL + (scatterAccel() - ACCEL) * car.scatter;
+        const accel = fullPower ? boostAccel(car.v) : chaseAccelFor(car);
         car.v = car.v > target
           ? Math.max(target, car.v - (car.braking ? hardBrake() : brake()) * dt)
           : Math.min(target, car.v + accel * dt);
@@ -4507,6 +4612,16 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     scatterSpeed: () => SCATTER_SPEED,
     /** What a chasing cop takes a corner at, as a fraction of its own cruise. */
     chaseCornerSpeed: () => CHASE_CORNER_SPEED,
+    /**
+     * How hard a chasing cop pulls away, and the two rates the probe brackets it between.
+     *
+     * Exported as three because the *ordering* is what matters and it has been wrong twice: a cop
+     * that accelerates like an ordinary car never reaches a raised ceiling, and one that
+     * accelerates like the pill takes the point out of pressing it.
+     */
+    chaseAccel: () => CHASE_ACCEL,
+    ambientAccel: () => ACCEL,
+    boostAccelTop: () => BOOST_ACCEL,
     /** Called with `{ x, z, yaw, v, deck }` on the frame the taxi's hop touches down. */
     onTaxiLand: (cb) => { landListeners.push(cb); },
     wreckShell, stats,

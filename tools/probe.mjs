@@ -64,7 +64,7 @@ import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import { createFoodOrder } from '../src/geometry/food.js';
 import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
 import * as difficulty from '../src/game/difficulty.js';
-import { createRobbery, LOST_RANGE } from '../src/game/robbery.js';
+import { createRobbery, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
 import { createCashTrail } from '../src/game/cashtrail.js';
 import { createCopLights } from '../src/game/coplights.js';
 import {
@@ -13260,6 +13260,30 @@ let chopperOrder; // likewise
         copCorner > SPEED * 0.7 && copCorner < chaseTop,
         `${copCorner.toFixed(1)} against an ambient corner's ${(SPEED * 0.7).toFixed(1)}`);
 
+      // **And pulling away harder than an ordinary car, which is the one that mattered.** The
+      // ceiling and the corner target were both raised first and neither moved a cop's mean speed
+      // off 6.6: the junctions are 20 units apart, so at `ACCEL` a cop spends the whole chase
+      // accelerating and arrives at neither number. Measured per state, 42% of a chase is
+      // mid-corner and only 10% flowing — so the ceiling applies to a tenth of it and the
+      // acceleration to all of it. Still under the pill's, because that is what the player is
+      // spending.
+      const copAccel = chased.traffic.chaseAccel();
+      check('...and pulling away harder than traffic but softer than the pill',
+        copAccel > chased.traffic.ambientAccel()
+          && copAccel < chased.traffic.boostAccelTop(),
+        `${copAccel} chasing, ${chased.traffic.ambientAccel()} ambient, `
+          + `${chased.traffic.boostAccelTop()} boosting`);
+
+      // The one licence a chasing cop has that an ordinary car does not: a red light on a
+      // provably empty junction. It is fenced on five sides (see CHASE_RED_YIELD) because the
+      // failure mode is not a crash — `sim/collisions.js` only tests the taxi, so an unsafe
+      // crossing is a cop driving *through* a car with nothing logged. What is asserted is the
+      // pair: the licence is used, and it never produces a violation.
+      check('...crossing a red only where the junction is provably empty',
+        chased.traffic.stats.violations === 0,
+        `${chased.traffic.stats.chaseOnRed} sanctioned crossings, `
+          + `${chased.traffic.stats.violations} violations`);
+
       // Their routes actually aim somewhere: run the sim and the set has to close on the taxi
       // rather than wander.
       //
@@ -13339,10 +13363,65 @@ let chopperOrder; // likewise
     check('a robbery that runs out of clock never ends the run',
         sawMiss && !missed.fares.state.gameOver && !missed.fares.carrying(),
         sawMiss ? 'rider bailed, run continues' : 'no miss event fired');
-      // ...and the paint comes off on its own, off the same poll that ends a delivered one.
+      // ...and the police stand down on their own, off the same poll that ends a delivered one.
+      //
+      // **They drive off; they do not blink out.** That distinction is the whole of this block and
+      // it is the second half of the repaint's lesson — a car the player is looking at should not
+      // stop existing, at either end of the event. So what is asserted is not "gone" but the three
+      // things that make going away legible: the chase is dropped on the frame the event ends, the
+      // cars are *still there* to be seen leaving, and each one leaves only from somewhere the
+      // player cannot see it happen.
       for (let f = 0; f < 10; f++) missed.rob.update(1 / 60);
-      check('...and the police go home afterwards',
-        !missed.rob.state.active && missed.traffic.policeCars.length === 0);
+      check('...and the police stand down rather than vanishing',
+        !missed.rob.state.active && missed.traffic.policeCars.length > 0
+          && missed.traffic.policeCars.every((car) => !car.chase),
+        `${missed.traffic.policeCars.length} cars driving off, `
+          + `${missed.traffic.policeCars.filter((c) => c.chase).length} still chasing`);
+      // ...and they are **routed out**, not merely unrouted. A car with no route rolls the
+      // ordinary dice at every junction, so an unrouted "departing" cop circles the block the taxi
+      // is parked on as often as it leaves — measured, that put the nearest departure 5 units from
+      // the player, which is the exact failure this phase exists to prevent.
+      check('...with somewhere to go rather than dice to roll',
+        missed.traffic.policeCars.every((car) => car.route?.length > 0),
+        `${missed.traffic.policeCars.filter((c) => c.route?.length).length}`
+          + `/${missed.traffic.policeCars.length} routed off the map`);
+
+      // Watched out: every removal has to happen off screen. Tracked by remembering where each cop
+      // was on the frame *before* it left, because once it is out of `policeCars` there is nothing
+      // left to measure — the same reason the retirement is keyed on distance rather than a timer.
+      {
+        const seen = new Map();
+        for (const car of missed.traffic.policeCars) {
+          seen.set(car, Math.hypot(car.x - missed.traffic.taxi.x, car.z - missed.traffic.taxi.z));
+        }
+        let worst = Infinity;
+        for (let f = 0; f < 60 * (STAND_DOWN_TIMEOUT + 2); f++) {
+          missed.traffic.update(1 / 60);
+          missed.rob.update(1 / 60);
+          const live = new Set(missed.traffic.policeCars);
+          for (const [car, was] of seen) if (!live.has(car)) { worst = Math.min(worst, was); seen.delete(car); }
+          for (const car of live) {
+            seen.set(car, Math.hypot(car.x - missed.traffic.taxi.x,
+              car.z - missed.traffic.taxi.z));
+          }
+          if (!missed.traffic.policeCars.length) break;
+        }
+        check('...leaving the map only from out of shot',
+          worst >= SPAWN_CLEARANCE,
+          worst === Infinity ? 'none left' : `nearest departure ${worst.toFixed(0)} units out`);
+        // ...and they do all go, which the timeout guarantees: a cop standing down is ordinary
+        // traffic, so it can end up queued behind a red two blocks from a taxi that has itself
+        // stopped, and `setCarCount` will not grow the city while any police are on it.
+        check('...and the fleet always clears within the backstop',
+          missed.traffic.policeCars.length === 0,
+          `${missed.traffic.policeCars.length} still out after ${STAND_DOWN_TIMEOUT + 2}s`);
+        // The floor under the relaxed bar. Past the timeout a cop only has to be out of frame, and
+        // that number is not negotiable — asserted against the constant rather than the behaviour,
+        // so lowering it fails here rather than in somebody's run.
+        check('...with the out-of-shot floor never lower than the frame itself',
+          SPAWN_CLEARANCE <= STAND_DOWN_RANGE,
+          `floor ${SPAWN_CLEARANCE}, ordinary bar ${STAND_DOWN_RANGE}`);
+      }
     }
   }
 }

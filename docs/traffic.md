@@ -1958,6 +1958,53 @@ appearing out of nothing in frame is the one failure with no defence — and dis
 minimised subject to it, by a search that relaxes one requirement at a time. `ENTRY_SPREAD` keeps
 four arrivals from stacking onto one street.
 
+### What actually made them fast: acceleration
+
+Three constants were raised in order, and **the first two measured as nothing** — which is the
+useful part of the story, because each looked obviously right.
+
+| | before | after | effect on a cop's mean speed |
+|---|---|---|---|
+| `CHASE_SPEED` (ceiling) | 1.9 → 16.2 | 2.55 → 21.7 | none |
+| `CHASE_CORNER_SPEED` | 5.95 | 15.6 | none |
+| `CHASE_ACCEL` | `ACCEL`, 6 | **15** | **6.6 → 8.8** |
+
+Splitting a cop's speed by what the car was doing is what found it:
+
+| | target | actually reached |
+|---|---|---|
+| mid-corner | 15.6 | 9.4 |
+| on a lane | 21.7 | 10.9 |
+
+It never got near either. Junctions are 20 units apart, so from 9 u/s over the ~12 units of lane
+between two boxes at `ACCEL` a cop reaches 15 and then has to brake for the next corner. **A cop
+with a doubled ceiling and a hatchback's engine spends the whole chase accelerating and arrives at
+none of it.** Measured per state over 40 seeds: 42% of a chase is mid-corner, 30% stopped, and only
+10% flowing — so the ceiling applies to a tenth of the event and the acceleration to all of it.
+`chaseAccelFor` composes it the same way the flee's is composed, and at both acceleration sites,
+because a rate that differs between the turn branch and the drive branch is a rate that jumps at
+every junction boundary.
+
+### The one licence: a red on a provably empty junction
+
+A chasing cop crosses a red when the junction is demonstrably clear (`CHASE_RED_YIELD`). This is
+the licence this file spent a long time refusing, and the fencing is the interesting part —
+`sim/collisions.js` only tests the **taxi**, so an unsafe crossing is not a crash, it is a cop
+driving *through* a car in full view with nothing logged. Five clauses, all load-bearing:
+
+- the crossing street clear by 30 units, via `streetIsClear` — the same test right-on-red and the
+  ring both use;
+- **nothing mid-turn in the box**, which that test cannot see: a car part-way round its arc is past
+  its lane's end, so it is in neither `approaching` nor `heldAt`. This is the clause whose absence
+  would have made the whole thing unshippable;
+- nothing stranded or braking in the junction (`held`);
+- no emergency corridor through it, so the cruiser still owns any box it wants;
+- and a legal, open exit.
+
+Counted as `stats.chaseOnRed` rather than `stats.violations`, like right-on-red: it is sanctioned,
+and folding it in would hide a real violation. Over 40 seeds a getaway produces about one crossing
+per event and **zero** violations.
+
 ### They are recycled, because a slower car cannot stay in the picture
 
 A cop that falls more than `LOST_RANGE` (56, just past the frame) behind is taken off the map and
@@ -1971,6 +2018,45 @@ Measured over 40 seeds with the player boosting, against the same event without 
 in frame for **89%** of a getaway rather than 85%, and there are two of them at a time rather than
 1.8. Swept at 72 and 52 as well — 72 leaves the fleet strung out and 52 buys nothing while cutting
 into the margin that keeps a retirement out of sight.
+
+### Which is the whole shape of the event, in one table
+
+Over 40 seeds, with and without the player holding the pill:
+
+| | not boosting | boosting |
+|---|---|---|
+| nearest cop, median | **12.0** | 27.1 |
+| inside one block | **67%** | 32% |
+| inside half a block | **42%** | 12% |
+| a cop behind you, in frame | 73% | 46% |
+| cop mean speed | 8.8 | 11.2 |
+| taxi mean speed | 5.0 | 25.5 |
+
+That is the number the event is tuned against. Lift off and a cop is within half a block of you
+**42%** of the time — and a cop is a wall, so that is the crash the run ends on. Hold the pill and
+that falls to 12%. Before the acceleration fix it read 31% against 12%, which is a chase that is
+merely *there* rather than one worth spending anything to escape.
+
+### Standing down
+
+A getaway used to end with every cop car blinking out of existence, including whichever ones were in
+frame at the drop-off. That is the repaint's failure at the other end of the event, and just as bad.
+
+So the drop-off **stands the police down**: each one loses its chase and is routed to the map corner
+furthest from the taxi, and `driveOff` takes it off only once it is `STAND_DOWN_RANGE` (90 units,
+four and a half blocks) away. `STAND_DOWN_TIMEOUT` relaxes that bar to `SPAWN_CLEARANCE` after
+twelve seconds, and **never below it** — a cop standing down is ordinary traffic, so it can end up
+queued behind a red two blocks from a taxi that has itself stopped at a kerb, but "a car the player
+is watching does not blink out" is the rule the phase exists to keep.
+
+Routing them out is not cosmetic. The first cut merely *cleared* their routes, and a car with no
+route rolls the ordinary dice at every junction — so a "departing" cop circled the block the taxi
+was parked on as often as it left, and the backstop then deleted it in full view. Measured: nearest
+departure **5 units** from the taxi. Given somewhere to be, they drive there; the probe asserts the
+nearest departure is outside the frame, and that they leave with a route rather than with dice.
+
+`abandon` is immediate by contrast — a wreck puts a retry screen over the city, so there is nobody
+to watch them go.
 
 **Half of them cut you off and half come after you.** `car.chase` lifts that car's cruise ceiling
 by `CHASE_SPEED` and its cornering by `CHASE_CORNER_SPEED`, and `car.route` is a plain `findRoute` to

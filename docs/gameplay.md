@@ -1750,11 +1750,24 @@ description, and it is worth listing what is *not* new, because none of it is:
   road, same band of paint between them, same arrival test, same payout flight to the counter. Two
   things differ: the clock, and a bonus that reads it. What *looks* different is the figure — see
   [the robber](#the-robber).
-- The cop cars are **ordinary ambient traffic wearing police livery**. They queue, indicate, stop at
-  reds, yield and can be crashed into exactly like the cars they were a moment before — and they
-  **come after you**, which is a route and a speed rather than an AI. See
-  [the chase](#the-chase). [The corridor cruiser's own chase](traffic.md#the-bust-chase) is a
-  different module and is not touched by any of this.
+- The cop cars are **ordinary cars**. They queue, indicate, stop at reds, yield and can be crashed
+  into like anything else on the road — and they **come after you**, which is a route, a speed and
+  an acceleration rather than an AI. See [the chase](#the-chase).
+  [The corridor cruiser's own chase](traffic.md#the-bust-chase) is a different module and is not
+  touched by any of this.
+
+  They **arrive and leave, rather than transforming**. A robbery brings four vehicles onto the map
+  from off screen and stands them down again at the drop-off, driving off under their own steam. The
+  first version repainted the ambient cars nearest the taxi and deleted them at the end, which reads
+  exactly as badly as it sounds at both ends: a car you have been following turns into a police car,
+  and a police car in your mirror stops existing. See
+  [cop cars in ambient traffic](traffic.md#they-are-spawned-not-repainted) and
+  [standing down](traffic.md#standing-down).
+
+  The one thing they are allowed that an ordinary car is not is **a red light on a junction that is
+  provably empty** — fenced on five sides, because `sim/collisions.js` only tests the taxi, so an
+  unsafe crossing would be a cop driving *through* a car rather than into it. See
+  [the licence](traffic.md#the-one-licence-a-red-on-a-provably-empty-junction).
 - Loco Mode is untouched — the same finite tank, spent in a hold.
 - The fail state is untouched. Crashing into a cop car is crashing into a car:
   [`sim/collisions.js`](../src/sim/collisions.js) does not know what livery anything is wearing and

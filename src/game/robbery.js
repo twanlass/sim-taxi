@@ -1,7 +1,7 @@
 import { GRID_I, GRID_J, dirSign, isXAxis, lineX, lineZ } from '../city/grid.js';
 import { URGENCY_SEGMENTS, urgencyLevel } from './urgency.js';
 import { findRoute, planOrigin } from './route.js';
-import { POLICE_FLEET } from '../sim/traffic.js';
+import { POLICE_FLEET, SPAWN_CLEARANCE } from '../sim/traffic.js';
 
 // The bank robbery: the empty taxi drives past the bank, somebody gets in with a bag, and the
 // streets fill with police for as long as it takes to get them where they are going.
@@ -165,6 +165,36 @@ export const LOST_RANGE = 56;
  */
 const REENTRY_GAP = 1.1;
 
+/**
+ * How far a cop has to get from the taxi after the event before it leaves the map, in world units.
+ *
+ * **A getaway used to end with every cop car blinking out of existence**, including whichever ones
+ * were in frame at the drop-off — which is the same failure the repaint had at the other end of the
+ * event, and just as bad: a car the player is looking at should not stop existing. So the drop-off
+ * stands the police *down* rather than deleting them. They lose the chase, lose their route, and
+ * drive off as ordinary traffic; each one leaves the map only once it is this far away.
+ *
+ * Deliberately further out than `LOST_RANGE`. A cop being recycled mid-chase is replaced by another
+ * a moment later, so the bar only has to be past the frame; one standing down is gone for good, and
+ * the player has time to watch it go. 90 units is four and a half blocks, which on this camera is
+ * most of the way to the map edge.
+ */
+export const STAND_DOWN_RANGE = 90;
+
+/**
+ * Seconds before a cop that has not managed to get clear is taken off anyway.
+ *
+ * The backstop, and it needs one: a cop standing down is ordinary traffic, so it can end up queued
+ * behind a red two blocks from a taxi that has itself stopped at a kerb, and neither of them is
+ * going anywhere. Without this the fleet would sit there indefinitely — and `setCarCount` refuses
+ * to grow the city while any police are out, so the density ramp would stall behind it too.
+ *
+ * Twelve seconds is long enough that the ordinary case (a cop driving away down a clear street at
+ * cruise, 8.5 u/s, covering the 90 units in about eleven) resolves on its own, and short enough
+ * that the pathological case is over before the next fare is delivered.
+ */
+export const STAND_DOWN_TIMEOUT = 12;
+
 /** The junction nearest a world point, clamped onto the grid. */
 function nearestJunction(x, z) {
   let best = { i: 0, j: 0 };
@@ -201,6 +231,8 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
     since: COOLDOWN,
     /** Seconds since a cop last came onto the map — see REENTRY_GAP. */
     sinceEntry: 0,
+    /** Seconds since the last event ended, while its cop cars are still driving off. */
+    standingDown: 0,
     /** How many have happened this run, for the tools. */
     count: 0,
   };
@@ -387,6 +419,12 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
     state.active = true;
     state.count += 1;
     state.sinceEntry = 0;
+    state.standingDown = 0;
+    // Anything still driving off from the last event goes now rather than being adopted by this
+    // one — it has no chase and no route, so it would sit in the fleet as a cop that never
+    // converges and never leaves. The cooldown makes this all but unreachable; it is here because
+    // "all but" is not a guarantee.
+    traffic.clearPolice();
     // The traffic first, so the police are already on the road on the frame the player looks up
     // from the crystal appearing over their roof. They come in off screen near the bank —
     // `enterPolice` in sim/traffic.js owns where, and why "near the bank" and "off screen" have to
@@ -402,15 +440,77 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
     steerChase();
   }
 
-  /** Take the cop cars off the road and start the clock on the next event. */
+  /**
+   * The event is over: stand the police down.
+   *
+   * They are **not** deleted here. Every cop loses its chase and its route and carries on as
+   * ordinary traffic, and `driveOff` takes each one off the map once it is out of sight — see
+   * `STAND_DOWN_RANGE`. That is the whole difference between a getaway that ends and one where
+   * four cars blink out in front of the player.
+   */
   function stop() {
     if (!state.active) return;
     state.active = false;
     state.since = 0;
+    state.standingDown = 0;
     aimedAt = null;
-    // The one place a car leaves the set, so the one place that can be sure of catching every one
-    // of them — and the cars go with it, rather than being handed back a colour.
-    traffic.clearPolice();
+    // The corner of the map furthest from the taxi, worked out once: every cop is sent there, so
+    // they leave *together and away*, which is both how a police response actually disperses and
+    // the only version that reliably gets them out of shot.
+    const out = {
+      i: taxi.i > GRID_I / 2 ? 0 : GRID_I,
+      j: taxi.j > GRID_J / 2 ? 0 : GRID_J,
+    };
+    for (const cop of traffic.policeCars) {
+      cop.chase = 0;
+      // **Routed out rather than simply unrouted**, and the difference is not cosmetic. A car with
+      // no route rolls the ordinary dice at every junction, so a "departing" cop wanders — it
+      // circles the block the taxi is parked on as often as it leaves, and then the backstop below
+      // deletes it in full view. Measured: with the route cleared instead of replaced, the nearest
+      // departure was **5 units** from the taxi, which is the exact failure standing them down was
+      // supposed to fix. Given somewhere to be, they drive there.
+      const route = findRoute(planOrigin(cop), out);
+      cop.route = route ?? [];
+      cop.routeConsumed = false;
+    }
+  }
+
+  /**
+   * Take the stood-down cops off the map as they get clear, and give up on the stragglers.
+   *
+   * Runs on every frame there are police but no event. `leavePolice` only takes the last car in the
+   * fleet, so this walks from the tail — the same reason `clearPolice` does.
+   */
+  function driveOff(dt) {
+    state.standingDown += dt;
+    // **The bar relaxes with the backstop; it never disappears.** Past the timeout a cop only has
+    // to be out of frame rather than four blocks away — but `SPAWN_CLEARANCE` is a floor under it
+    // whatever happens, because "a car the player is watching does not blink out" is the rule this
+    // whole phase exists to keep, and a backstop that broke it would be worse than no backstop.
+    // The route out (see `stop`) is what makes the floor reachable rather than a deadlock.
+    const bar = state.standingDown >= STAND_DOWN_TIMEOUT ? SPAWN_CLEARANCE : STAND_DOWN_RANGE;
+    for (let k = traffic.policeCars.length - 1; k >= 0; k--) {
+      const cop = traffic.policeCars[k];
+      // A wreck is not going to drive anywhere, and its shell has already been handed to the
+      // effects — so it leaves the fleet on distance alone, with no route to wait on.
+      if (Math.hypot(cop.x - taxi.x, cop.z - taxi.z) < bar) continue;
+      // Only the tail can go, so a cop that is clear but not last waits its turn — at most a
+      // frame each, since the ones behind it are being tested on the same pass.
+      if (k === traffic.policeCars.length - 1) traffic.leavePolice(cop);
+    }
+    // Out of route and still hanging about: point it at the edge again. Its first plan is spent
+    // by the time it reaches the corner, and an unrouted car rolls dice.
+    if (state.standingDown >= STAND_DOWN_TIMEOUT) {
+      for (const cop of traffic.policeCars) {
+        if (cop.route?.length || cop.crashed) continue;
+        const out = {
+          i: cop.i > GRID_I / 2 ? 0 : GRID_I,
+          j: cop.j > GRID_J / 2 ? 0 : GRID_J,
+        };
+        const route = findRoute(planOrigin(cop), out);
+        if (route?.length) { cop.route = route; cop.routeConsumed = false; }
+      }
+    }
   }
 
   /**
@@ -482,6 +582,9 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
       return;
     }
 
+    // Left over from the event that just ended, driving themselves off the map.
+    if (traffic.policeCars.length) driveOff(dt);
+
     if (eligible()) start();
   }
 
@@ -497,7 +600,14 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
      * contract `burgerRun.abandon` keeps. The fare loop has already cleared the board by then
      * (`crash` in game/fares.js); what is left is a fleet of blue cars that would otherwise stay
      * blue behind the retry screen.
+     *
+     * **Immediate, unlike `stop`.** A drop-off stands the police down and lets them drive away
+     * because the player is watching; a wreck puts a retry screen over the city, so there is
+     * nobody to watch them go and nothing to be gained by animating it.
      */
-    abandon: stop,
+    abandon() {
+      stop();
+      traffic.clearPolice();
+    },
   };
 }
