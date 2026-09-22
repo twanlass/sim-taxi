@@ -3733,6 +3733,8 @@ window.__taxi = {
   traffic,
   daylight,
   boost,
+  // The bump's starburst, so a check can fire one where it can see it — see game/impact.js.
+  impact,
   /**
    * Loco Mode's speed ramp — `get`, `set`, `reset`, `ramp`, `defaults`. The ⚙️ panel's sliders
    * drive the same handle, so this is where you go for a value past the end of one of them.
