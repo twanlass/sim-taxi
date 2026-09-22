@@ -566,6 +566,18 @@ Omit the whole section if there's nothing to note.
   light on its roof, and it looks like the strength being too high, so the instinct is to turn down
   the one knob that was not the problem. Each level has to come in at a fraction of the one below
   (`LEVEL_WEIGHT` in `game/bloom.js`); it is the same thing `UnrealBloomPass` spells as `radius`.
+- **A launch the OS refuses leaves no crash report, and `git bisect` clears every commit.** iOS 27
+  made the UIScene lifecycle mandatory: an app linked against that SDK with no
+  `UIApplicationSceneManifest` and no `UIWindowSceneDelegate` is terminated before
+  `didFinishLaunchingWithOptions` runs. Nothing crashed, so `idevicecrashreport` has no entry for
+  the bundle and `devicectl` reports a clean `exit code 0` rather than a signal — it reads as "the
+  app isn't even starting", which sends you at the install, the signing and the bundle layout, all
+  of which verify fine. The trap inside the trap is the bisect: the trigger is the **SDK you link
+  against**, so rebuilding an older commit picks up the new SDK too and it fails identically — which
+  looks like proof the code is innocent *and* like proof the OS upgrade broke everything, when the
+  variable that actually moved was Xcode. Whenever an app dies at launch with no crash report and no
+  commit in between, ask what the toolchain did, and check the shell against the SDK's current
+  requirements before reading any of your own code. See [docs/ios.md](docs/ios.md#the-scene-lifecycle-and-the-launch-that-leaves-no-crash-report).
 - **Never name a Rollup chunk after anything under `src/`.** `vite.config.js` has two entries now
   (the game and `/lab/`), and a `manualChunks` rule that swept `src/main.js` into a shared chunk
   made every page importing that chunk *boot the game* — `/lab/` came up with the city's road
