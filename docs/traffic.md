@@ -1414,6 +1414,47 @@ each in its own paint — see [nearby-traffic ghost outlines](rendering.md#nearb
 It fades in and out with the boost rather than being always on, and follows `taxi.boost` rather
 than the speed cap, so like every other hazard rule it stays up through the cooldown tail.
 
+## Bumps and hit points
+
+The taxi has **100 HP** (`TAXI_HP` in `sim/collisions.js`), and every contact but the one that
+empties the bar is a **bump** rather than [the wreck](#the-wreck). Collisions are still armed only
+while boosting — outside Loco Mode the lane model keeps the taxi off everything by construction, so
+there is nothing for HP to mean there.
+
+**What a hit costs is the closing speed**, not a flat count: `10 + 1.3 × closing`, clamped 12–60.
+Rear-ending a car at boost cruise closes at ~10.5 u/s and costs 24; T-boning cross traffic at boost
+cruise closes at ~21 and costs 37; anything in the overdrive band costs 49–55. So a sloppy tailgate
+is forgiven about four times and a red run flat out about twice.
+
+**What a bump does:**
+
+- The struck car is shoved directly away from the taxi and slewed off its line (`knockCar` in
+  `traffic.js`), then sits on its brakes for 1.4s (`stun`, which drives the existing `braking` flag,
+  so a car stunned inside a junction box holds cross traffic exactly as the brake pedal does).
+- The taxi keeps 45% of its speed, recoils a little the other way, and gets 0.8s of grace in which
+  nothing can hit it — it is still overlapping the car it just shunted, and without the grace would
+  take the same hit every frame. A car still reacting to a knock is out of play too.
+- `main.js` shakes the camera a fraction of the wreck's amount, throws sparks and a puff off the
+  seam, and knocks the HP bar in the top-left. Under a third of the bar the taxi smokes from the
+  bonnet.
+
+**The shove never leaves the lane model.** It is a render offset — a world-space slide and a yaw
+slew under drag, eased back to zero after 0.7s — layered on like the weave and the pull-over, while
+the sim holds the car at its lane coordinate. The old stun (see below) snapped a car back onto the
+grid from wherever the drift left it, which is the class of `releaseCar` site the CLAUDE.md trap
+about stop lines is warning about. This one has no hand-back to get wrong: the queue behind a shunted
+car forms where the car nominally is, and it pulls back into its own lane because it never left it.
+
+**Why survivable bumps don't bring back the problem the stun was removed for.** That complaint was
+the *asymmetry*: one car scrap, the other shrugging it off. Here the outcome is symmetric — a bump
+leaves both cars on the road and a wreck destroys both — so the wreck still reads as the crash that
+finally mattered rather than as a rule firing.
+
+**`hp` is opt-in on the car.** A taxi with no `hp` keeps the old first-contact-is-the-wreck rule,
+and that is on purpose: `tools/lab.mjs` and `tools/probe.mjs` measure Loco Mode by when it first
+touches something, and every crash rate on this page is in that currency. `onImpact` still means
+"the wreck"; bumps come out of `onBump`.
+
 ## The wreck
 
 `sim/collisions.js` detects the impact, `main.js` stages it, `game/wreckage.js` leaves the two

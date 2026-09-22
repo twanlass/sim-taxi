@@ -15,10 +15,10 @@ import { createProps } from './city/props.js';
 import { createGarage } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import {
-  createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, SPEED, ROAD_Y,
+  createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, CAR_LEN, laysPassRubber, SPEED, ROAD_Y,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
 } from './sim/traffic.js';
-import { createCollisions } from './sim/collisions.js';
+import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import {
   createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE,
@@ -30,6 +30,7 @@ import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
+import { createHpMeter } from './game/hpmeter.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
@@ -874,7 +875,8 @@ roadwork.onPlaced(({ ends }) => { fares.aimNextDropoff(ends); });
 const carGhosts = createCarGhosts(scene, traffic);
 
 // Collision detection between the taxi and ambient cars. Only fires while boosting — see
-// src/sim/collisions.js. On impact *both* cars are wrecked: each detonates where it stands and
+// src/sim/collisions.js. Every hit but the one that empties the taxi's HP is a bump (`onBump`,
+// below the handler); on the last one *both* cars are wrecked: each detonates where it stands and
 // each shell slides out of the blast, crumples and is left lying in the road, the camera shakes and
 // pulls into a close-up, the sim drops into slow-mo, boost is released, and the fare system flips
 // into game-over — but the run-end banner is held for CRASH_BANNER_DELAY (wallclock, so the delay
@@ -967,6 +969,40 @@ const SHELL_SPIN = 0.6;
 const STRUCK_SPIN = 1.9;
 
 const collisions = createCollisions(traffic.cars, traffic.taxi);
+
+// Hit points. Arming `hp` is what turns every contact but the last into a bump rather than the
+// wreck — see TAXI_HP in sim/collisions.js. A retry reloads the page, so this is also the refill.
+traffic.taxi.hp = TAXI_HP;
+const hpMeter = createHpMeter(document.getElementById('hp'), TAXI_HP);
+
+// A survivable hit: the struck car is shoved off its line and sits stunned (sim/traffic.js
+// `knockCar`), the taxi loses most of its speed, and here is the noise — a shake a third of the
+// wreck's, sparks off the seam and a small puff where the two met. Sized off the closing speed so
+// a nudge and a T-bone are told apart without the bar.
+const BUMP_SHAKE = 0.35;
+const BUMP_SHAKE_PER_UNIT = 0.03;
+collisions.onBump(({ x, z, closing, hp }) => {
+  const yaw = traffic.taxi.yaw;
+  controller.kickShake(BUMP_SHAKE + closing * BUMP_SHAKE_PER_UNIT);
+  sparks.burst(x, ROAD_Y + 0.5, z, yaw, 8 + Math.round(closing * 0.4), traffic.taxi.v);
+  dust.burst(x, z, yaw, 8, 0.5, { tint: PALETTE.wreckSmoke, linger: 0.7 });
+  hpMeter.hit(hp);
+});
+
+// Smoke off the bonnet once the bar is in the red — the one warning that is on the car rather than
+// in the corner, where the player is actually looking while Loco Mode is down.
+const DAMAGE_SMOKE_EVERY = 0.14;   // s
+let damageSmokeIn = 0;
+function updateDamageSmoke(dt) {
+  const taxi = traffic.taxi;
+  if (!hpMeter.isLow() || taxi.crashed || taxi.staged) return;
+  damageSmokeIn -= dt;
+  if (damageSmokeIn > 0) return;
+  damageSmokeIn = DAMAGE_SMOKE_EVERY;
+  const ahead = CAR_LEN * 0.35;
+  dust.add(taxi.x + Math.cos(taxi.yaw) * ahead, taxi.z - Math.sin(taxi.yaw) * ahead,
+    taxi.yaw, 0.35, 0.2, PALETTE.wreckSmoke, ROAD_Y + 1.1);
+}
 collisions.onImpact(({ x, z, speed, other }) => {
   // One detonation per car — a shockwave ring on the tarmac, a fireball and a scatter of shards,
   // all of it inside game/blast.js. It used to be four effects stacked at each point plus a third
@@ -2775,7 +2811,9 @@ function frame() {
   // what the two wreck shells are copied out of. A detected impact takes both cars out of the
   // sim from this frame on; the loops in traffic.js already skip a crashed car, so no further
   // plumbing is needed here.
-  collisions.update();
+  collisions.update(dt);
+  hpMeter.update(dt);
+  updateDamageSmoke(dt);
   checkPoliceBust();
   // Last of the three, and both halves of that matter. It copies the matrices traffic composed
   // *this* frame, so running it any earlier would slide every outline off its own car by a couple
@@ -3259,6 +3297,8 @@ if (shot) {
     traffic.update(1 / 60);
     traffic.taxi.staged = false;
     traffic.taxi.boost = true;
+    // One hit from the end, so the staged contact is the wreck rather than a bump.
+    traffic.taxi.hp = 1;
     for (let guard = 0; guard < 90 && !traffic.taxi.crashed; guard++) {
       collisions.update();
       traffic.update(1 / 60);

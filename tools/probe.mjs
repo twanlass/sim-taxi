@@ -38,7 +38,7 @@ import { createDust } from '../src/game/dust.js';
 import { createSparks } from '../src/game/sparks.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
 import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, laneCost } from '../src/game/route.js';
-import { createCollisions } from '../src/sim/collisions.js';
+import { createCollisions, TAXI_HP, bumpDamage } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET, CHASE_SPEED } from '../src/sim/police.js';
 import { sirenOn } from '../src/geometry/lights.js';
 import {
@@ -5807,6 +5807,70 @@ check('the taxi is an ordinary car in the traffic array',
   }
   check('no collisions fire while the taxi is not boosting', quietHits === 0,
     `${quietHits} impacts over 30s`);
+}
+
+// --- Hit points: a bump is not a wreck ------------------------------------
+// With `taxi.hp` armed (main.js does), every contact but the last is survivable. What can go
+// quietly wrong: the bump wrecks anyway, the struck car is left stunned forever or never stops, its
+// shove is never eased back out so it drives on a unit off its lane, the taxi takes the same hit
+// every frame while the two still overlap, or running out of HP fails to hand over to the wreck.
+{
+  const hScene = new THREE.Scene();
+  const hTraffic = createTraffic(makeRng(seed + 45), hScene, CARS_DEFAULT);
+  const hTaxi = hTraffic.taxi;
+  const hCollisions = createCollisions(hTraffic.cars, hTaxi);
+  const bumps = [];
+  let wrecks = 0;
+  hCollisions.onBump((event) => bumps.push(event));
+  hCollisions.onImpact(() => { wrecks += 1; });
+  hTaxi.hp = TAXI_HP;
+  hTraffic.warmup(3);
+
+  const target = hTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive' && c.v > 1);
+  hTaxi.staged = true;
+  hTaxi.x = target.x;
+  hTaxi.z = target.z;
+  hTaxi.yaw = target.yaw + Math.PI / 2;
+  hTaxi.v = 19;
+  hTaxi.boost = true;
+  hCollisions.update(1 / 60);
+  // Hold the pair on top of each other for a while: the grace has to stop this being many hits.
+  for (let f = 0; f < 20; f++) { hTraffic.update(1 / 60); hCollisions.update(1 / 60); }
+  hTaxi.staged = false;
+
+  const first = bumps[0];
+  check('a boosting contact with HP to spare is a bump, not a wreck',
+    bumps.length === 1 && wrecks === 0 && !hTaxi.crashed && !target.crashed,
+    `${bumps.length} bumps, ${wrecks} wrecks`);
+  check('the bump costs HP priced off the closing speed',
+    first && first.damage === bumpDamage(first.closing) && hTaxi.hp === TAXI_HP - first.damage
+      && first.damage > 12,
+    first && `closing ${first.closing.toFixed(1)} → ${first.damage} HP, ${hTaxi.hp} left`);
+  check('the taxi loses most of its speed to it', first && hTaxi.v < first.speed * 0.5,
+    first && `${first.speed.toFixed(1)} → ${hTaxi.v.toFixed(1)}`);
+  check('the struck car is shoved and stunned',
+    Boolean(target.knock) && target.stun > 0 && target.braking,
+    `knock ${Boolean(target.knock)}, stun ${target.stun.toFixed(2)}`);
+
+  // And it gathers itself: back on its lane, off the brakes, driving again.
+  for (let f = 0; f < 60 * 3; f++) hTraffic.update(1 / 60);
+  const onLane = target.state === 'drive' ? target.lane.path.at(target.s) : null;
+  const drift = onLane ? Math.hypot(target.x - onLane.x, target.z - onLane.z) : 0;
+  check('the struck car recovers onto its lane and drives on',
+    !target.knock && target.stun === 0 && !target.braking && drift < 1.5,
+    `knock ${Boolean(target.knock)}, stun ${target.stun}, ${drift.toFixed(2)} off the lane`);
+
+  // Out of HP, the next contact is the wreck through the old path.
+  hTaxi.hp = 1;
+  const next = hTraffic.cars.find((c) => !c.isTaxi && !c.knock && !c.crashed);
+  hTaxi.staged = true;
+  hTaxi.x = next.x;
+  hTaxi.z = next.z;
+  hTaxi.v = 19;
+  hTaxi.boost = true;
+  for (let f = 0; f < 60 && !hTaxi.crashed; f++) hCollisions.update(1 / 60);
+  check('the hit that empties the bar is the wreck', hTaxi.crashed && next.crashed && wrecks === 1
+    && hTaxi.hp === 0, `crashed ${hTaxi.crashed}, ${wrecks} wrecks, hp ${hTaxi.hp}`);
 }
 
 // --- Box trucks --------------------------------------------------------------
