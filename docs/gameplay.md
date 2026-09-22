@@ -705,6 +705,13 @@ crystal behind a tower has nothing else speaking for it (see [corners the camera
 see](#corners-the-camera-cannot-see)). The [taxi finder](rendering.md#getting-back-to-the-taxi)
 stays — losing your own car is not a decision, it is a lost tool.
 
+The pan itself is the one part of that cost that was handed back: on a phone, **tapping an arrow
+rides the camera to the mark it points at** ([tapping an edge
+arrow](rendering.md#tapping-an-edge-arrow)). Dragging the map in a direction an arrow was already
+naming, guessing when to stop, was never a decision the board was asking about — where to go is the
+decision, and it is still made by looking at the corner once you get there and tapping the rider.
+The arrow still says nothing about whether to take them.
+
 ### Why the first fare is close, and why that alone made it harder
 
 The mechanic the opening has to teach is that a **tap dispatches the taxi and the drop-off

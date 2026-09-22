@@ -3506,6 +3506,68 @@ The third thing the map outgrowing the frame can lose is the **taxi itself**, an
 chip rather than an arrow: a direction is enough when you already know what is over there, and not
 enough when what is missing is your own car. See [getting back to the taxi](#getting-back-to-the-taxi).
 
+#### Tapping an edge arrow
+
+On a narrow viewport a press on an arrow glides the camera onto the mark it is pointing at, and the
+arrow then takes itself down because the thing it stood in for is in frame. `onTap` in
+`game/farepointers.js`, `lookAtMark` in `main.js`, and it is a two-line handler on top of the same
+`glideTo` [the rider peek](#the-rider-peek) travels on — the interesting part is all in what it
+deliberately does not do.
+
+**It moves the camera and nothing else.** Dispatching in the same tap is exactly what the
+[rider-finder chips](gameplay.md#finding-the-next-rider) did, and what the board was rebuilt without:
+the player still has to read the corner, judge whether the fare is worth the drive, and tap the
+rider. What the arrow hands over is the *pan* — dragging the map in a direction it was already
+naming, guessing when to stop, on a clock that is draining — which was never the decision.
+
+**It keeps the camera.** A [chip tap](#the-rider-peek) peeked and rode home, because it was a glance
+at a rider the taxi was already driving at. This is the player asking to *look* somewhere and then
+act there, so it takes the camera the way a swipe does (`releaseCameraToPlayer`) and stays. The way
+back is the taxi-finder chip, which comes up 0.4s after the car goes fully off-frame — the two
+affordances are each other's return leg.
+
+**Narrow only,** for the reason drag-to-pan and both follow-cams are: above `NARROW_VIEWPORT` the
+whole city is in frame, so nothing is ever off it and there is no pan to save. The gate is a
+`can-tap` class on the host, set from `isNarrow` every frame so a resize flips it without a reload,
+and while it is off the arrows keep `pointer-events: none` — which matters for more than tidiness:
+an arrow that answered a pointer on a desktop would be an invisible hole in the map at each point
+around the frame, eating clicks meant for the city.
+
+Three details that are each a bug if they go the other way:
+
+- **The hit area is a pad, not the shape.** The art is 35px, under the 44 a thumb wants, so
+  `.fare-pointer::before` runs `inset: -8px` for a 51px square about the same centre. A pad rather
+  than a bigger box, so `EDGE_MARGIN`'s clamp arithmetic and the drop-off's size step keep meaning
+  what they say.
+- **The destination is read at press time**, off `atX`/`atZ` on the pool slot. One pooled div
+  answers for a different fare from one frame to the next, so a listener closed over whoever held
+  the slot when it was created would ride the camera to a rider who was picked up two blocks ago.
+  `aimed` is cleared whenever an arrow goes down, so a hidden slot cannot answer with a stale mark.
+- **A `pointerdown`/`pointerup` pair, not a `click`.** WebKit only synthesises a click on a bare div
+  that passes its own "is this clickable" test, and the pair also has to reject two things a naive
+  handler accepts: a drag that began on the map and merely *finished* over an arrow (hence pairing at
+  all), and a press that slid away to mean *no* — a touch pointer is implicitly captured to the
+  element it landed on, so the `pointerup` arrives here regardless and only a `TAP_SLOP` travel test
+  tells the two apart. The press dip is an `is-held` class for the same reason `:active` fails on
+  [the pedals](gameplay.md#the-pedal-slide), arriving by a different route: `:active` would stay lit
+  on an arrow the finger had already abandoned.
+
+What it costs is that an arrow outranks the canvas under it. A press within ~25px of one belongs to
+the arrow, so the [route band](#route-band--gameroutelinejs) is that much harder to grab out at the frame edge,
+and a swipe that *starts* on an arrow does not pan the map at all — the capture means the canvas
+never sees the rest of the gesture. Four 51px squares against a whole frame of map, and the swipe is
+still there one thumb-width away. It sits at z-index 18, under the pedals (20) and the pause button
+(24), so a thumb sliding onto the brake still gets the brake.
+
+`tools/smoke.mjs` presses one with a real `Input.dispatchTouchEvent` rather than a synthesised click
+— for the reason the initials check does (see the caret trap in `CLAUDE.md`): a
+`dispatchEvent(new MouseEvent)` runs the
+handler whatever the hit-testing says, so it passes just as happily against an arrow that is
+`pointer-events: none`, buried under the HUD, or too small for a thumb, and every one of those is the
+bug. It asserts the camera *landed on a mark* — compared against the corners the board was offering,
+read in the same task as the arrow's rect — that the taxi was **not** dispatched, and that the host
+carries no `can-tap` at 900px wide.
+
 ### Off-screen police warning
 
 `game/sirenglow.js`, styled under `#siren-glow` in `index.html`. Red and blue washing in over the
