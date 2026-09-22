@@ -12982,6 +12982,17 @@ let chopperOrder; // likewise
     check('and the wash goes out with the event',
       lampList.every((l) => l.intensity === 0) && glow.state.lit === 0);
 
+    // ...and it goes out with the **bar**, not with the fleet list. The stand-down is the one
+    // stretch where those differ: the cars are still in `policeCars`, driving themselves off the
+    // map, and their bars are already dark. A wash still playing on the tarmac under a dark bar is
+    // the one place that disagreement would show.
+    for (const car of glowTraffic.policeCars) car.siren = false;
+    glow.update(glowTraffic.policeCars, glowTraffic.taxi, 0);
+    check('...and it goes dark for a stood-down cop that is still on the road',
+      lampList.every((l) => l.intensity === 0) && glow.state.lit === 0,
+      `${glowTraffic.policeCars.length} cars still out, ${glow.state.lit} lamps lit`);
+    for (const car of glowTraffic.policeCars) car.siren = true;
+
     // `?safe` drops the whole thing rather than dimming it: two point lights is exactly the
     // per-fragment cost a budget mode exists to skip, and the bars keep flashing without them.
     const off = createCopLights(new THREE.Scene(), { enabled: false });
@@ -13377,6 +13388,15 @@ let chopperOrder; // likewise
           && missed.traffic.policeCars.every((car) => !car.chase),
         `${missed.traffic.policeCars.length} cars driving off, `
           + `${missed.traffic.policeCars.filter((c) => c.chase).length} still chasing`);
+      // **Lights out on the frame the event ends.** `siren` is separate from `police` for exactly
+      // this beat — the car keeps its paint, because that is what it is, and loses the bar, because
+      // that is what it was doing. A car driving away from a finished scene with its bar still
+      // going reads as an event that has not ended.
+      check('...with the bar switched off, a beat before they leave',
+        missed.traffic.policeCars.every((car) => !car.siren && car.police),
+        `${missed.traffic.policeCars.filter((c) => c.siren).length} still flashing, `
+          + `${missed.traffic.policeCars.filter((c) => c.police).length} still in police paint`);
+
       // ...and they are **routed out**, not merely unrouted. A car with no route rolls the
       // ordinary dice at every junction, so an unrouted "departing" cop circles the block the taxi
       // is parked on as often as it leaves — measured, that put the nearest departure 5 units from

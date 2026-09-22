@@ -1903,6 +1903,10 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // Getting out of the boosting taxi's way. Eased toward 1 while the taxi is behind this car
       // in its own lane; drives a higher speed cap and a turn-off-at-the-next-junction bias.
       scatter: 0,
+      // Is the light bar running? Set with the livery and cleared when a robbery ends, which is a
+      // beat *before* the car leaves the map — a stood-down cop drives off dark. Separate from
+      // `police` because that is the paint, and paint does not switch off.
+      siren: false,
       // Running the taxi *down* rather than away from it — a cop car during a bank robbery. 0 or
       // 1; see CHASE_SPEED. It lifts this car's cruise ceiling and nothing else: where it is going
       // is a `route`, which is the same mechanism that drives the player's own taxi, and every
@@ -2491,6 +2495,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // car's roof and a police box truck is not a thing.
       car.isTruck = false;
       car.police = true;
+      car.siren = true;
       car.chase = 1;
       // Put it where it actually is, now, rather than leaving it at the origin until the first
       // physics tick writes a position. `spawnCars` builds a car at `x: 0, z: 0` because every
@@ -2543,6 +2548,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // Belt and braces for anything still holding the object: a retired cop is not in `cars`, so
     // nothing drives it, but `sim/collisions.js` and the effects walk their own lists.
     car.police = false;
+    car.siren = false;
     car.chase = 0;
     if (car.route?.length) car.route.length = 0;
     mesh.count = ambient.length;
@@ -2887,7 +2893,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // screenshot reproduces, and off `sirenOn` rather than a second timer so a cop car and the
     // cruiser blink together if they meet on the same street.
     if (!car.isTruck) {
-      const lit = car.police ? 1 : 0;
+      // `siren`, not `police`. The two come apart for the length of the stand-down: a cop that has
+      // been released from a finished robbery is still a police car — it keeps its paint, because
+      // that is what it *is* — but it is off duty, and a car driving away from a scene with its bar
+      // still going reads as an event that has not actually ended. See `stop` in game/robbery.js.
+      const lit = car.siren ? 1 : 0;
       // Double-time while this one is running the taxi down. It is the same cue and the same
       // constant the cruiser uses for its own lock-on — eleven changes a second against six — and
       // there it is described as "the only cue the player gets that the run has become about

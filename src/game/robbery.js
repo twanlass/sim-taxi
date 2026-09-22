@@ -174,12 +174,17 @@ const REENTRY_GAP = 1.1;
  * stands the police *down* rather than deleting them. They lose the chase, lose their route, and
  * drive off as ordinary traffic; each one leaves the map only once it is this far away.
  *
- * Deliberately further out than `LOST_RANGE`. A cop being recycled mid-chase is replaced by another
- * a moment later, so the bar only has to be past the frame; one standing down is gone for good, and
- * the player has time to watch it go. 90 units is four and a half blocks, which on this camera is
- * most of the way to the map edge.
+ * A shade further out than `LOST_RANGE`, and for a different reason: a cop being recycled mid-chase
+ * is replaced by another a moment later, where one standing down is gone for good, so it is worth a
+ * little extra margin that nobody catches it going.
+ *
+ * It is **not** worth a lot of extra margin, which the first cut got wrong. At 90 units — four and
+ * a half blocks — a stood-down cop driving away at ordinary cruise takes eleven seconds to qualify,
+ * so it was the `STAND_DOWN_TIMEOUT` backstop that retired most of them rather than the distance,
+ * and the police hung around long after the event they belonged to. 62 is three blocks: clear of
+ * the frame by a quarter of a block and reached in about seven seconds.
  */
-export const STAND_DOWN_RANGE = 90;
+export const STAND_DOWN_RANGE = 62;
 
 /**
  * Seconds before a cop that has not managed to get clear is taken off anyway.
@@ -462,6 +467,12 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
       j: taxi.j > GRID_J / 2 ? 0 : GRID_J,
     };
     for (const cop of traffic.policeCars) {
+      // **Bar off first.** The robbery is over on this frame, and a car driving away from a
+      // finished scene with its lights still going reads as an event that has not ended — which is
+      // most of what "they need to turn off their lights and exit" was. `siren` is separate from
+      // `police` for exactly this beat: the car keeps its paint, because that is what it is, and
+      // loses the bar, because that is what it was *doing*.
+      cop.siren = false;
       cop.chase = 0;
       // **Routed out rather than simply unrouted**, and the difference is not cosmetic. A car with
       // no route rolls the ordinary dice at every junction, so a "departing" cop wanders — it

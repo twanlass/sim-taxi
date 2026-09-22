@@ -2042,12 +2042,26 @@ merely *there* rather than one worth spending anything to escape.
 A getaway used to end with every cop car blinking out of existence, including whichever ones were in
 frame at the drop-off. That is the repaint's failure at the other end of the event, and just as bad.
 
-So the drop-off **stands the police down**: each one loses its chase and is routed to the map corner
-furthest from the taxi, and `driveOff` takes it off only once it is `STAND_DOWN_RANGE` (90 units,
-four and a half blocks) away. `STAND_DOWN_TIMEOUT` relaxes that bar to `SPAWN_CLEARANCE` after
-twelve seconds, and **never below it** — a cop standing down is ordinary traffic, so it can end up
-queued behind a red two blocks from a taxi that has itself stopped at a kerb, but "a car the player
-is watching does not blink out" is the rule the phase exists to keep.
+So the drop-off **stands the police down**: on the frame the event ends each one switches its bar
+off, loses its chase, and is routed to the map corner furthest from the taxi. `driveOff` takes it
+off only once it is `STAND_DOWN_RANGE` (62 units, three blocks) away. `STAND_DOWN_TIMEOUT` relaxes
+that bar to `SPAWN_CLEARANCE` after twelve seconds, and **never below it** — a cop standing down is
+ordinary traffic, so it can end up queued behind a red two blocks from a taxi that has itself
+stopped at a kerb, but "a car the player is watching does not blink out" is the rule the phase
+exists to keep.
+
+62 rather than the 90 the first cut used. At 90 a cop driving away at ordinary cruise takes eleven
+seconds to qualify, so the *backstop* retired most of them rather than the distance, and the police
+hung around long after the event they belonged to. Three blocks clears the frame by a quarter of a
+block and is reached in about seven seconds.
+
+**`car.siren` is a separate flag from `car.police`, and the stand-down is the only stretch where
+they differ.** `police` is the paint, and paint does not switch off — a stood-down cop is still a
+police car, because that is what it *is*. `siren` is what it was *doing*. The light bar in
+`writeAmbient` and the road wash in `game/coplights.js` both read `siren`, so a car driving away
+from a finished scene goes dark, together, a beat before it leaves the map. Reading `police` for the
+bar meant the fleet drove off with its lights still going, which reads as an event that has not
+actually ended.
 
 Routing them out is not cosmetic. The first cut merely *cleared* their routes, and a car with no
 route rolls the ordinary dice at every junction — so a "departing" cop circled the block the taxi

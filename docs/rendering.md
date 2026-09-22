@@ -1775,6 +1775,14 @@ do. The cruiser has had a real `PointLight` per colour since it existed, for the
 there: the bar alone is a couple of pixels, and what sells a siren is the colour washing across the
 tarmac and the fronts of nearby buildings as it goes past.
 
+**Both read `car.siren`, not `car.police`.** The two flags differ for exactly one stretch — the
+stand-down after a drop-off, when the cars are still on the road driving themselves off the map. The
+paint is what a cop car *is* and does not switch off; the bar is what it was *doing*. Keying the bar
+on the paint sent the whole fleet away with its lights still going, which reads as an event that has
+not actually ended, and a wash still playing on the tarmac under a dark bar is the one place the two
+would visibly disagree on the same vehicle. See
+[standing down](traffic.md#standing-down).
+
 **Two lights against four cars in livery**, and that asymmetry is the design. A point light is a
 uniform slot and a per-fragment term on every lit material in the scene, paid every frame whether or
 not a robbery is running — so the count is fixed at construction and small, and two is exactly what

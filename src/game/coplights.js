@@ -99,10 +99,14 @@ export function createCopLights(scene, { enabled = true } = {}) {
   function update(cars, taxi, flash) {
     if (!cars.length) { dark(); return; }
 
-    // Nearest first. A partial selection would do, but the list is at most a dozen and a sort is
-    // clearer than a hand-rolled top-two.
+
+    // Nearest first, of the cars whose **bar is actually running**. `siren` rather than the fact of
+    // being in `policeCars`, because the two come apart for the length of the stand-down: a cop
+    // released from a finished robbery keeps its paint and loses its lights, and a wash still
+    // playing on the tarmac under a dark bar is the one place this would show as a disagreement
+    // between the two. Same reason the bar itself is written off `siren` in sim/traffic.js.
     const near = [...cars]
-      .filter((car) => !car.crashed)
+      .filter((car) => !car.crashed && car.siren)
       .sort((a, b) => Math.hypot(a.x - taxi.x, a.z - taxi.z) - Math.hypot(b.x - taxi.x, b.z - taxi.z))
       .slice(0, LIGHTS);
 
@@ -126,6 +130,9 @@ export function createCopLights(scene, { enabled = true } = {}) {
     }
     state.lit = near.length;
     state.hunting = anyChasing;
+    // A fleet that is entirely stood down leaves `near` empty, and the loop above has already
+    // zeroed every lamp — `state.lit` going to 0 is what the probe reads as "no robbery, no wash".
+    if (!near.length) state.hunting = false;
   }
 
   return {
