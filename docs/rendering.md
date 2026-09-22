@@ -1685,6 +1685,117 @@ opposite reason: a shard is a piece of the car and goes with it, a spark is sepa
 0.45 an overdrive landing throws sparks that creep forward for a tenth of a second and are then left
 behind as the taxi drives out from under them.
 
+### The getaway's cash trail — `game/cashtrail.js`
+
+Banknotes off the back of the taxi while it boosts with a robber aboard
+([the bank robbery](gameplay.md#the-bank-robbery)). The gate is the robbery and not the boost:
+money off the back of any boosting taxi is a fun effect with nothing behind it, and the game already
+has a flying `$20` that means something precise.
+
+It is a **flutter** pool, and every difference from the three above follows from paper being light:
+
+- **Low gravity, heavy drag on *both* axes.** A note thrown back at 9 u/s is doing 2 by the time it
+  has left the bumper and travels 2.6 units of its own — most of a car length and no more. What
+  makes the *trail* long is the car, not the note: measured at the Loco top, the live notes run
+  from the tailpipe back some 36 units, the better part of two blocks of streamer. The sideways
+  throw was widened from 2.4 to 4.2 when the stream got dense, because a narrow one stacked the
+  notes into a single line down the middle of the lane; at a lane's width it reads as a mess being
+  left behind rather than a rope being paid out. The drag on the *fall* is what makes a note
+  flutter rather than rain: without it they reached terminal speed and dropped straight down.
+- **It tumbles**, about a random fixed axis per note, winding down with the rest. That is the whole
+  reason a note is a thin **box** rather than a plane: a plane is one-sided, and half of every
+  tumble would be a note that is simply not drawn — the trap the boats' wake sat in for weeks.
+- **Unlit, not additive, not bloomed.** Money reflects light rather than emitting it. Additive over
+  dark asphalt came out as a glowing sliver, and a glowing banknote is a firefly.
+- **It settles rather than bounces**, and onto a floor passed in per note the way a spark's is, so a
+  getaway over a bridge drops its notes on the **deck**.
+
+**It was rebuilt once for being too subtle, and every number moved.** The first cut ran 14 notes a
+second at 0.62 × 0.34 units into a pool of 48 — 22 notes in the air, each a 4.8 × 2.6px rectangle,
+on a road already painted with lane dashes. That is a scattering you have to go looking for, and
+the whole of this effect is that it should be impossible to miss. What changed, and why:
+
+| | first cut | second | now | why |
+|---|---|---|---|---|
+| Size | 0.62 × 0.34 (4.8 × 2.6px) | 1.15 × 0.62 | **0.88 × 0.48** (6.8 × 3.7px) | It has been both too small and too big. 1.15 is *a third of the drawn taxi's length* — at that size the notes stop reading as a shower of small things and start reading as a few large ones. What made the big size necessary was never the size; it was the density and the alpha, and with those fixed a note can look like paper again. |
+| Rate | 14/s | 40/s flat | **a gust clock** | A flat rate is a rope paid out of the back of the car, and a constant anything reads as a machine. 78/s for 0.16–0.44s, then 7/s for 0.14–0.42s, each drawn fresh. Same mean density (~44/s); the *distribution* is the whole change. The lull is a trickle rather than silence — at zero the stream visibly stops, which reads as the effect switching off. |
+| Pool | 48 | 160 | 160 | ~105 in the air at steady state, plus the gust peak and the kick. |
+| Life | 1.6s | 2.4s, fading from 74% | 2.4s, fading from 74% | Money should hang, and still be lying there when the player looks back. Fading from 55% spent most of the effect half-transparent, which was the other half of why it was hard to see. |
+| Tumble | 7.5 rad/s | 4.2 | 4.2 | A note is a 0.02 plate and is **invisible edge-on**. At 1.2 revolutions a second every note was strobing through its own edge on the way down, which reads as flicker and costs a large fraction of the effect's frames. |
+| Colour | one swatch, #7FC08A | one swatch, #5FD182 | **a spread**, `cashNote` → `cashPale` | See below. |
+| The press | nothing | a 24-note kick | a 24-note kick | An effect that only ramps up says nothing on the frame the button went down, and that is the frame the player is looking at. |
+
+The **colour** is a reversal worth recording. The first cut pulled the hue toward a paper green on
+the argument that the HUD's earnings green is 27px of type on a dark scrim while these are small
+objects on a road. What that missed is the ground they land on: `asphalt` is luma 104 and the lane
+dashes painted all over it are 210, so a note at 174 sat *between* the road and the paint it was
+competing with. At 179 with the saturation back it is nowhere near the dashes in hue and half again
+the road in value. The pale back went to 232 — brighter than the dashes — because the flash as a
+note turns over is what catches an eye that is on the road ahead.
+
+**And the face is now a spread rather than a swatch.** Every note rolls its own colour between
+`cashNote` and `cashPale`, which is a separate roll from the one toward `cashBack` — and the
+distinction is the whole reason there are two. `cashBack` is a near-white *flip*, there so a
+tumbling note flashes; the face spread is there so 160 notes are 160 slightly different notes rather
+than 160 copies of one colour, which at this size is the difference between a shower and a texture.
+The roll is **squared** toward the saturated end: a uniform draw puts as much of the shower at the
+pale end as the green one and the trail washes out, where `t²` keeps the mass on `cashNote` and lets
+the pale ones be the highlights they are meant to be.
+
+Measured on a rendered frame rather than argued: counting pixels that are bright green with more
+blue than red (which separates a banknote from park grass, whose blue sits *below* its red), a
+getaway frame scores **937** against **0** on a frame with no robbery in it — and that is with the
+headless page throttled to a fraction of the note count a real 60fps hold produces.
+
+**Fed before it is ticked**, which is the one ordering that matters here. The pool writes an
+instance matrix only in its update pass, so a stream fed after it draws every note one frame late —
+0.57 units of road at the Loco top, which reads as the trail starting a car length back from the
+bumper.
+
+### Cop cars' sirens — `geometry/lights.js`, `game/coplights.js`
+
+A cop car in ambient traffic ([the police](gameplay.md#the-police)) gets its siren from three
+places, and the split is worth knowing because the first two alone were not enough.
+
+The **bar** is two instanced emissive pods on the roof, off the same machinery every brake light in
+the game uses — one fixed material per colour, and on/off as a scale about each pod's own origin.
+Both pods flash together, so the whole bar goes red and then blue rather than one lamp lighting at
+each end. That is arithmetic rather than taste: a pod is 4px across at play zoom, and a bar split by
+colour alternates two specks a colour apart and reads as a flicker. Together they are one 9.9px mark
+changing colour six times a second.
+
+The **bloom** carries it the rest of the way at distance, and it took a fix: `main.js` marks every
+lamp `sim/traffic.js` owns in a single loop, and marking them all `pod` gave a cop car's bar a brake
+light's 3.4 against the cruiser's 4.2 — dimmer than the police car parked beside it, for no reason
+on screen. The kind now rides on the mesh (`userData.bloomKind`) and the loop reads it, so a new
+lamp arrives at the right strength by being built rather than by being remembered in a second list.
+
+And the **wash on the road** is `game/coplights.js`, which is the part neither of the other two can
+do. The cruiser has had a real `PointLight` per colour since it existed, for the reason stated
+there: the bar alone is a couple of pixels, and what sells a siren is the colour washing across the
+tarmac and the fronts of nearby buildings as it goes past.
+
+**Both read `car.siren`, not `car.police`.** The two flags differ for exactly one stretch — the
+stand-down after a drop-off, when the cars are still on the road driving themselves off the map. The
+paint is what a cop car *is* and does not switch off; the bar is what it was *doing*. Keying the bar
+on the paint sent the whole fleet away with its lights still going, which reads as an event that has
+not actually ended, and a wash still playing on the tarmac under a dark bar is the one place the two
+would visibly disagree on the same vehicle. See
+[standing down](traffic.md#standing-down).
+
+**Two lights against four cars in livery**, and that asymmetry is the design. A point light is a
+uniform slot and a per-fragment term on every lit material in the scene, paid every frame whether or
+not a robbery is running — so the count is fixed at construction and small, and two is exactly what
+the cruiser already costs. Which two is re-picked every frame: the nearest to the taxi, so the wash
+is always on the cars the player can see while the further ones still flash their bars. `?safe`
+builds none of them.
+
+`PEAK` is 62 against the cruiser's 90, because there can be two of these at once and the cruiser is
+one car: at 90 apiece a pair of cop cars a block apart washed the road between them into a flat
+purple, which reads as a lighting bug rather than as two sirens. The off colour holds the cruiser's
+own 14/90 floor rather than going dark, for the reason stated there — a hard on/off strobe reads as
+flicker.
+
 ### Loco Mode kickoff — `game/flames.js`, plus a wheelie in `sim/traffic.js`
 
 Two effects on the press that first engages Loco Mode — as against

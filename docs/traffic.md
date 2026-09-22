@@ -1910,6 +1910,281 @@ Three things the invitation changes, all of them at the mouth:
 A wreck in the lot — the run ending while the player is at the window — stops where it is, and the
 queue behind it holds, because each car's limit comes from its leader's position.
 
+## Cop cars in ambient traffic
+
+`enterPolice(n, near)` in `sim/traffic.js`, driven by [the bank robbery](gameplay.md#the-police). It
+brings `n` cop cars onto the map — real vehicles, painted `policeBody` with a light bar on the roof —
+entering from off screen as near the bank as the camera allows. `clearPolice()` takes them off again.
+
+### They are spawned, not repainted
+
+The first version took the `n` ambient cars nearest the taxi and turned them blue for the length of
+the event. It is cheap, it needs no buffer headroom, and it reads **wrong**: a car the player has
+been following for half a block becomes a police car in front of them, and a police car that falls
+behind turns back into a hatchback. Nothing in a world should change species, and there is no
+version of the repaint that fixes it — the repaint *is* the bug.
+
+So a robbery brings its own cars. Three things follow, and each is load-bearing:
+
+- **They live at the tail of `ambient`.** Removing a car out of the *middle* of an instance buffer
+  is the thing `setCarCount` refuses to do — every index after it shifts and the car vanishes off a
+  road it was visibly driving down. At the tail there is no index after it: the count comes down and
+  nothing else moves. `swapAmbient` is what lets the caller choose *which* cop leaves, by moving it
+  to the tail first; it is only ever used between two police cars, which are a contiguous block.
+- **`setCarCount` will not grow the fleet while they are out.** A density car appended behind the
+  police would break that contiguity and then be stranded above `mesh.count` the moment the event
+  ended — still in `cars`, still driving, still collidable, no longer drawn. The ramp catches up on
+  the next call.
+- **`POLICE_FLEET` is buffer headroom, not density.** The vehicle meshes are sized for the
+  difficulty ramp's ceiling *plus* the cop fleet, so a robbery at full density still has somewhere
+  to put its cars. `game/robbery.js` imports the constant rather than keeping its own, because the
+  fleet size and the reservation are the same fact.
+
+A cop is also **placed** on arrival — `spawnCars` builds a car at the origin, and every other caller
+either runs a warm-up or spawns before the first frame. This one spawns mid-run, so an unplaced car
+is a cop car drawn at the middle of the map for a frame.
+
+### Off screen, and as near the bank as that allows
+
+Two conditions that pull against each other. It has to be far enough from the taxi that the player
+does not watch it appear — `SPAWN_CLEARANCE` is the 50 units this file already uses for exactly
+that — and it should be near the bank, because a police response arriving from the far side of the
+city is one nobody sees.
+
+They cannot both be satisfied, and it is worth being plain about why: **the taxi is at the bank when
+a robbery starts.** "Within two blocks" is 40 units and "off screen" is 50, so on the frame the
+event fires the two sets do not intersect. The off-screen constraint is taken as hard — a car
+appearing out of nothing in frame is the one failure with no defence — and distance to the bank is
+minimised subject to it, by a search that relaxes one requirement at a time. `ENTRY_SPREAD` keeps
+four arrivals from stacking onto one street.
+
+### What actually made them fast: acceleration
+
+Three constants were raised in order, and **the first two measured as nothing** — which is the
+useful part of the story, because each looked obviously right.
+
+| | before | after | effect on a cop's mean speed |
+|---|---|---|---|
+| `CHASE_SPEED` (ceiling) | 1.9 → 16.2 | 2.55 → 21.7 | none |
+| `CHASE_CORNER_SPEED` | 5.95 | 15.6 | none |
+| `CHASE_ACCEL` | `ACCEL`, 6 | **15** | **6.6 → 8.8** |
+
+Splitting a cop's speed by what the car was doing is what found it:
+
+| | target | actually reached |
+|---|---|---|
+| mid-corner | 15.6 | 9.4 |
+| on a lane | 21.7 | 10.9 |
+
+It never got near either. Junctions are 20 units apart, so from 9 u/s over the ~12 units of lane
+between two boxes at `ACCEL` a cop reaches 15 and then has to brake for the next corner. **A cop
+with a doubled ceiling and a hatchback's engine spends the whole chase accelerating and arrives at
+none of it.** Measured per state over 40 seeds: 42% of a chase is mid-corner, 30% stopped, and only
+10% flowing — so the ceiling applies to a tenth of the event and the acceleration to all of it.
+`chaseAccelFor` composes it the same way the flee's is composed, and at both acceleration sites,
+because a rate that differs between the turn branch and the drive branch is a rate that jumps at
+every junction boundary.
+
+### The one licence: a red on a provably empty junction
+
+A chasing cop crosses a red when the junction is demonstrably clear (`CHASE_RED_YIELD`). This is
+the licence this file spent a long time refusing, and the fencing is the interesting part —
+`sim/collisions.js` only tests the **taxi**, so an unsafe crossing is not a crash, it is a cop
+driving *through* a car in full view with nothing logged. Five clauses, all load-bearing:
+
+- the crossing street clear by 30 units, via `streetIsClear` — the same test right-on-red and the
+  ring both use;
+- **nothing mid-turn in the box**, which that test cannot see: a car part-way round its arc is past
+  its lane's end, so it is in neither `approaching` nor `heldAt`. This is the clause whose absence
+  would have made the whole thing unshippable;
+- nothing stranded or braking in the junction (`held`);
+- no emergency corridor through it, so the cruiser still owns any box it wants;
+- and a legal, open exit.
+
+Counted as `stats.chaseOnRed` rather than `stats.violations`, like right-on-red: it is sanctioned,
+and folding it in would hide a real violation. Over 40 seeds a getaway produces about one crossing
+per event and **zero** violations.
+
+### They are recycled, because a slower car cannot stay in the picture
+
+A cop that falls more than `LOST_RANGE` (56, just past the frame) behind is taken off the map and
+another comes in **behind the taxi**, on the straight it is already driving. That is not a
+concession, it is the only thing that works: a cop's *ceiling* is 20.4 against a boosting taxi's
+22.1, but cornering and queueing put its mean over a getaway at about 9 against the taxi's 27, so
+one simply left to drive recedes and keeps receding. Recycled, the road behind a getaway keeps
+refilling. `REENTRY_GAP` spaces the replacements so they arrive one at a time rather than as a rank.
+
+Measured over 40 seeds with the player boosting, against the same event without recycling: a cop is
+in frame for **89%** of a getaway rather than 85%, and there are two of them at a time rather than
+1.8. Swept at 72 and 52 as well — 72 leaves the fleet strung out and 52 buys nothing while cutting
+into the margin that keeps a retirement out of sight.
+
+### Which is the whole shape of the event, in one table
+
+Over 40 seeds, with and without the player holding the pill:
+
+| | not boosting | boosting |
+|---|---|---|
+| nearest cop, median | **12.0** | 27.1 |
+| inside one block | **67%** | 32% |
+| inside half a block | **42%** | 12% |
+| a cop behind you, in frame | 73% | 46% |
+| cop mean speed | 8.8 | 11.2 |
+| taxi mean speed | 5.0 | 25.5 |
+
+That is the number the event is tuned against. Lift off and a cop is within half a block of you
+**42%** of the time — and a cop is a wall, so that is the crash the run ends on. Hold the pill and
+that falls to 12%. Before the acceleration fix it read 31% against 12%, which is a chase that is
+merely *there* rather than one worth spending anything to escape.
+
+### Standing down
+
+A getaway used to end with every cop car blinking out of existence, including whichever ones were in
+frame at the drop-off. That is the repaint's failure at the other end of the event, and just as bad.
+
+So the drop-off **stands the police down**: on the frame the event ends each one switches its bar
+off, loses its chase, and is routed to the map corner furthest from the taxi. `driveOff` takes it
+off only once it is `STAND_DOWN_RANGE` (62 units, three blocks) away. `STAND_DOWN_TIMEOUT` relaxes
+that bar to `SPAWN_CLEARANCE` after twelve seconds, and **never below it** — a cop standing down is
+ordinary traffic, so it can end up queued behind a red two blocks from a taxi that has itself
+stopped at a kerb, but "a car the player is watching does not blink out" is the rule the phase
+exists to keep.
+
+62 rather than the 90 the first cut used. At 90 a cop driving away at ordinary cruise takes eleven
+seconds to qualify, so the *backstop* retired most of them rather than the distance, and the police
+hung around long after the event they belonged to. Three blocks clears the frame by a quarter of a
+block and is reached in about seven seconds.
+
+**`car.siren` is a separate flag from `car.police`, and the stand-down is the only stretch where
+they differ.** `police` is the paint, and paint does not switch off — a stood-down cop is still a
+police car, because that is what it *is*. `siren` is what it was *doing*. The light bar in
+`writeAmbient` and the road wash in `game/coplights.js` both read `siren`, so a car driving away
+from a finished scene goes dark, together, a beat before it leaves the map. Reading `police` for the
+bar meant the fleet drove off with its lights still going, which reads as an event that has not
+actually ended.
+
+Routing them out is not cosmetic. The first cut merely *cleared* their routes, and a car with no
+route rolls the ordinary dice at every junction — so a "departing" cop circled the block the taxi
+was parked on as often as it left, and the backstop then deleted it in full view. Measured: nearest
+departure **5 units** from the taxi. Given somewhere to be, they drive there; the probe asserts the
+nearest departure is outside the frame, and that they leave with a route rather than with dice.
+
+`abandon` is immediate by contrast — a wreck puts a retry screen over the city, so there is nobody
+to watch them go.
+
+**Half of them cut you off and half come after you.** `car.chase` lifts that car's cruise ceiling
+by `CHASE_SPEED` and its cornering by `CHASE_CORNER_SPEED`, and `car.route` is a plain `findRoute` to
+a junction **on the taxi's own route** — for two of the four that is the junction the taxi is at
+(a stern chase) and for the other two it is three or five ahead of it (`CUT_OFF_AHEAD` in
+`game/robbery.js`). After that [the one routing branch](#the-one-routing-branch) does everything. A
+chasing cop *is* a routed car, which is the same thing the player's own taxi is.
+
+The split is the point. A cop aimed down the road is doing the useful work and is usually off to the
+side doing it; a cop aimed at the taxi is *behind* the taxi, in the mirror, on the same straight,
+which is what a chase looks like from the driver's seat. Sending every car to a cut-off made the
+getaway read as an empty road with the occasional cop appearing at a junction. What makes the stern
+half viable at all is the recycling above.
+
+### Why it is not a pursuit
+
+The first version sent every cop to the junction the taxi was *at*, which is the obvious design and
+is arithmetically unwinnable. A cop cruises at 20.4 and a boosting taxi at 22.1 — but a cop is
+cornering and queueing, so its **mean speed over a getaway is 9**, against a boosting taxi's 27. It
+is being sent to a point the taxi left a second ago, so the gap grows every frame it drives.
+Measured over 40 seeds, the nearest cop sat at a median of **28 units** and was inside half a block
+for 13% of the chase. On screen that is four blue cars milling about somewhere behind you, which is
+exactly how it was reported.
+
+It is not a tuning problem, and that was established by tuning it. The chase was given three
+advantages, each measured separately: traffic that scatters out of its lane, corners taken at nearly
+twice an ordinary car's speed, and — as an experiment, *not shipped* — every red light in the city
+turned green for it. All three together lifted a cop's mean speed from 6.8 to 13.6 and moved the
+distance to the taxi **by nothing**. A pursuer slower than its quarry does not catch it, however
+much licence it is given.
+
+So the cops stop chasing and start intercepting. The taxi's route is a list of the junctions it is
+about to drive through and it is already on `taxi.route`, because the player drew it; aiming at one
+of them is the same `findRoute` to a different target. A cop only has to beat the taxi to **one**
+junction on its way, and the taxi has announced which ones those are. Over the same 40 seeds:
+
+| | pursuit | interception |
+|---|---|---|
+| nearest cop, median | 28.3 | **21.6** |
+| inside one block (20u) | 31% | **47%** |
+| inside half a block | 13% | **20%** |
+| a cop in the road *ahead* of the taxi | 30% | **38%** |
+| cop mean speed | 6.8 | **9.1** |
+| at or above ordinary cruise | 29% | **55%** |
+
+The aim is keyed on the taxi's junction **and the first few steps of its route**, so redrawing the
+route re-aims the police on the same frame. Keyed on the junction alone they went on converging on
+a road the taxi had stopped driving down.
+
+Three to five junctions, dealt round-robin. A block is about 0.75s at the Loco top, so one ahead
+lands the cop behind the taxi again and ten ahead puts it somewhere the run may never reach. They
+are spread rather than stacked so the road is seeded rather than barricaded at one point. Six cop
+cars instead of four buys 4 points of "a cop ahead" and nothing else, which is why it is still four.
+
+### The speeds, and the ordering between them
+
+`CHASE_SPEED` is **2.4**, so a cop cruises at 20.4: over the flee's 2.0, under a boosting taxi's
+2.6. It was 1.9, and the *ordering* was the bug rather than the magnitude — a cop now clears its own
+lane with the same `scatter` the boosting taxi uses, and a car told to flee runs at `SCATTER_SPEED`,
+so a ceiling below that meant the cop opened a gap in front of itself and then could not drive into
+it. Anything that clears a lane has to be able to outrun what it clears; the probe asserts both ends.
+
+`CHASE_CORNER_SPEED` is **0.55 of the cop's own cruise**, 11.2 against an ordinary car's 5.95. A
+corner rather than a straight is what the chase was really losing to, and it hid because every
+number anyone would look at is a straight-line number: `CORNER_SPEED` is a flat constant that
+`cruiseCapFor` never reaches, because the cap is the *drive* branch's ceiling and the turn branch
+has its own target that no per-car factor composes into. A cop whose ceiling had just been doubled
+still went round every junction at 5.95 — and a chase to a moving target turns at nearly every
+junction.
+
+That gap between 20.4 and 22.1 is the mode: the pill outruns them in a straight line and lifting off
+does not, so Loco Mode is the answer to the event and the wreck is what makes it a gamble. What it
+cannot outrun is a cop already parked across the junction ahead.
+
+**It grants a cop no licence an ordinary car lacks**, and that is the part that makes it safe to
+ship rather than merely dramatic. A chasing cop queues, indicates, stops at reds, yields and can be
+crashed into exactly like the car it was a moment before. Letting one through a red is the obvious
+next step and it is the one thing that must not happen: `sim/collisions.js` only ever tests the
+**taxi**, so a cop that ran a light would drive *through* the cross traffic rather than into it —
+the same trap `releaseCar` and the drive-through's exit already record (see
+[the drive-through](#the-drive-through)). `tools/probe.mjs` asserts the whole chase runs at zero signal violations.
+
+The plan is **keyed on the taxi's junction and route**, not on a clock and not per frame.
+Re-planning a route every frame is a standing trap here: the turn a car has committed to never
+retires from its route, so it sits at the junction re-deciding the same turn. Re-aimed per junction,
+it converges. A cop whose route comes back *empty* has arrived at its cut-off; it is sent further
+down the same road rather than left there, because a car with no route rolls the ordinary dice at
+its next junction and would wander off the getaway a beat before the taxi arrived.
+
+A chasing cop also strobes at the cruiser's **hunting rate** — eleven changes a second against six.
+That is the same cue and the same constant `sim/police.js` uses for its own lock-on, where it is
+described as the only thing telling the player the run has become about them. A cop car cruising past
+on its own business and one that has turned to come after you are otherwise the same blue car.
+
+Three things worth knowing about how it is drawn:
+
+- **The livery is a tint, not a mesh.** An ambient car's body is baked white and multiplied by its
+  instance colour (see `carGeometry`), so a cop car is one `setColorAt` away from an ordinary one.
+  Its `colorIndex` is never overwritten, which is what makes handing the paint back free rather than
+  something to remember.
+- **The bar is two pods on the roof**, off the same `lightPodGeometry` machinery the brake and
+  turn-signal pods use — one fixed emissive material per colour, and on/off as a scale about each
+  pod's own origin (`geometry/lights.js`). Both pods flash together, so the whole bar goes red then
+  blue: a pod is 3.5px across at play zoom, and a bar split by colour alternates two specks a colour
+  apart and reads as a flicker.
+- **Every ambient car writes the bar every frame**, not just the police ones — a car that is not a cop
+  writes a level of zero and its pods collapse. A loop that skipped the others would leave whatever
+  they last wrote standing on the road, which is the trap `game/bloom.js` records one layer up: in a
+  pass keyed on something other than the material, skipping the write does not skip the draw.
+
+`sirenOn()` moved out of `sim/police.js` into `geometry/lights.js` when this arrived. It stopped being
+the cruiser's own the moment there was a second kind of police car, and two clocks would have had the
+two blinking out of step on the same street.
+
 ## Police priority corridor
 
 `src/sim/police.js`. A police car crosses the city on a cycle, holding every signal on its road

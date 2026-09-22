@@ -27,6 +27,7 @@ src/
     props.js            trees, street furniture
     pond.js             the one duck pond: which park it lands in, and the water itself
     garage.js           the taxi's depot: which block it takes, and the roller door on the front
+    bank.js             the city's one bank: which lot it takes, its portico, and where its door is
     burgerjoint.js      the burger joint: its block, its drive-through lane, and the turning sign
 
   sim/                  things that move on their own
@@ -68,6 +69,9 @@ src/
     birds.js            the park flocks: walk the grass, startled up by the taxi, come back; two per city
     ducks.js            the birds on the pond: paddle, sit, dabble, never leave
     clouds.js           the weather ringing the island — placed on the screen, never over the city
+    robbery.js          the bank robbery: who gets in outside the bank, and the cops that come with them
+    coplights.js        the red and blue a cop car throws on the road while a robbery runs
+    cashtrail.js        banknotes out of the back of a boosting getaway
     opening.js          the opening vignette: camera onto the garage door, door up, taxi out
     drivethru.js        who pulls into the burger joint, what they do in there, how they leave
     burgerrun.js        the secret: a tap on the joint sends the taxi through it for a splash of boost
@@ -203,7 +207,7 @@ isn't caching anything.
 ## Testing hooks
 
 `main.js` exposes `window.__taxi` with `traffic`, `boost`, `skids`, `police`, `fares`, `daylight`,
-`routeTo`, `findRoute`, `isSelected`, `flyover`, `chopper`, `flocks` (every park flock, in build order), `clouds` and `redraw`. The headless tools in `tools/` drive the game
+`routeTo`, `findRoute`, `isSelected`, `flyover`, `chopper`, `flocks` (every park flock, in build order), `clouds`, `robbery` (the bank event, null in shot mode and on a city with no bank) and `redraw`. The headless tools in `tools/` drive the game
 through this instead of through the DOM, which is what makes the whole suite run in about a second.
 
 `redraw()` draws one frame on demand. Shot mode never starts the render loop — it warms the sim,

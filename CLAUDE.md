@@ -348,6 +348,20 @@ Omit the whole section if there's nothing to note.
   without moving it in depth. And check the *screen* separations before sizing one: neighbouring
   junctions are 14.1 screen units apart sideways and 15.4 down the diagonal, which is the whole
   budget.
+- **A building at the wrong height does not hide a ground mark, it halves it — and the visibility
+  filter cannot say so.** `cornerSeen` scores six samples across a kerb mark and keeps the corner at
+  three of six, a threshold calibrated against towers, which hide a mark outright or not at all. A
+  *whole-block* building is a different shape of occluder: one flat wall 10 units wide standing
+  directly up-screen of a corner, at one height all the way along. The sightline climbs 0.92 per
+  unit and a mark is 3.5 across, so there is a 3.2-unit band of roof height that cuts the mark
+  clean in two — and three of six is exactly what that scores. The bank's first draw sat in it: a
+  roofline of 7.75 against a back wall 9.35 units from the corner (`HALF_ROAD + 0.5` out, `HALF_ROAD`
+  back, `INSET` further in) put **three corners in 20 cities** on the board with under 60% of their
+  mark visible, and the probe's own gap between the two populations — 0 or 1 for a hidden corner, 4+
+  for a visible one — stopped existing. The fix is to size the building off the arithmetic
+  (`city/bank.js`, and `tools/probe.mjs` asserts it against the grid constants rather than against
+  the number), and the lesson is that the filter answers "how much of this is hidden" with a yes or
+  a no. Anything that takes a whole block has to land clear of the band rather than inside it.
 - **A mark on the ground can be behind a building, and that is a fact about the *city*.** The view
   never rotates and the projection is orthographic, so what occludes what does not change when the
   player pans or zooms — a corner hidden on one frame is hidden for the whole run. Which is what

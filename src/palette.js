@@ -237,6 +237,73 @@ export const PALETTE = {
   lettuce: '#7FB050',
   sesame: '#F7EDD6',
 
+  // The cash a getaway throws out of the back of the taxi (game/cashtrail.js). Two colours because
+  // a note tumbles: one instance is one colour, so rolling between a face and a back across the
+  // shower is what stops a stream of them reading as a stencil — the same reason the sparks spread
+  // their hue across a spray rather than walking it over one spark's life.
+  //
+  // Keyed off the HUD's own earnings green (#6BE08A, `.earning` in index.html) so the notes and the
+  // number that flies to the counter are visibly the same currency.
+  //
+  // **Saturated rather than duller, which is a reversal.** The first cut pulled the hue toward a
+  // paper green on the argument that the HUD's is 27px of type on a dark scrim while these are
+  // small objects on a road — and the result was notes nobody could find. What that argument missed
+  // is the ground they are landing on: `asphalt` is luma 104 and the lane dashes painted all over
+  // it are 210, so a note at 174 sat between the road and the paint it was competing with. At 179
+  // with the saturation back it separates from both — it is nowhere near the dashes in hue, and
+  // half again the road in value.
+  cashNote: '#5FD182',
+  // The back of the note, and it has to be *pale* rather than a second green: what makes a tumble
+  // read is the value flipping, not the hue. At 232 it is brighter than the lane dashes, which is
+  // the point — the flash as a note turns over is the thing that catches an eye that is on the road
+  // ahead rather than on the trail.
+  cashBack: '#EDE9CF',
+  // The pale end of the *face*, which is a different job from `cashBack` and was at first confused
+  // with it. The back is a flash — a value flip as a note turns over — and there is one of it. This
+  // is a **spread**: every note rolls its own face somewhere between `cashNote` and here, so the
+  // shower is a family of greens rather than 160 copies of one swatch. Kept green rather than run
+  // all the way to white, because the hue is the only thing on the road saying what these are; at
+  // 214 luma it is still under the lane dashes' 210-ish paint in saturation while being clearly a
+  // lighter note of the same colour.
+  cashPale: '#C3EFD0',
+
+  // --- The bank ---------------------------------------------------------------
+  // The city's one bank (city/bank.js), and the third building the tower generator does not draw.
+  // Unlike the depot and the burger joint its envelope stays **inside** the muted family every
+  // other building is in: it is a bank among offices, not a shed or a roadside box, and the thing
+  // that has to make it findable from across the map is its *silhouette* — a colonnade under a
+  // pediment with a dome behind it — rather than a colour nothing else is wearing. A bank painted
+  // to shout would have read as one more special-case block and taken the shape's job away from it.
+  //
+  // So the stonework is `pale` (#D2CFC5) pushed a little lighter and warmer, which puts it at the
+  // top of the building range without leaving it: luma 214.2 against pale's 206.9 and concrete's
+  // 178.2.
+  bankStone: '#DCD6C7',
+  // The columns and the pediment a shade lighter again, because a colonnade is only a colonnade if
+  // the gaps between the columns read — and what reads at play zoom, where a column is three pixels
+  // wide, is the column standing *against* the wall behind it rather than the shadow between them.
+  // Seventeen points of luma (231.2 against 214.2) is the whole of that separation, and it survives
+  // the sun moving because it is a difference in the paint rather than in the shading.
+  bankColumn: '#EDE7D8',
+  // The steps and the plinth, darker than both so the building looks like it is standing on
+  // something. Off `statuePlinth` (#8E8A80) deliberately — a stone base under a pale stone object
+  // is the same problem the statue already solved, and solving it twice with two colours is two
+  // things to keep in step.
+  bankStep: '#A9A499',
+  // The dome: patinated copper. The statue's note (`statueStone`) records why a verdigris bronze
+  // was refused there — the obvious patina (~#7A8B6E) lands a few points off `park` (#6F9A5A), and
+  // a figure standing on grass in the colour of grass is a figure nobody sees. A dome stands on a
+  // roof, so that particular collision cannot happen; what is still true is that a yellow-green
+  // reads as foliage wherever it is. This one is pulled round to the **blue** side of green —
+  // 158.7° against park's 104.6°, measured where `getHSL` measures — so it reads as weathered metal
+  // against sky and never as a tree that has got onto a roof.
+  bankDome: '#7FA89B',
+  // The doorway under the portico, and the one dark thing on the building. `window` (#3A424C) is
+  // the city's own glass, and this is darker and flatter than it — luma 48.9 against 65.0 at
+  // saturation 0.18 against 0.26 — because a bank's door is a shadowed reveal rather than a pane
+  // with a room behind it.
+  bankDoor: '#2E3138',
+
   // Yellow is reserved for the taxi. An amber car used to sit in this list and was genuinely
   // mistakable for the player's vehicle at play zoom, where both are a few pixels of warm colour.
   carBody: ['#C9503F', '#2F8F94', '#4E7FC0', '#E4E1DA', '#3F8A63', '#8A6BB0', '#D9D2C3', '#455160'],

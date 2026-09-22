@@ -1742,6 +1742,358 @@ the fare soak (`tools/soak.mjs`): frequent enough to be a real event, not so fre
 forgiving misses meaningfully padded the survival curve. Never on the tutorial fare
 (`VIP_MIN_DELIVERED`) — nothing on the board yet for a purple diamond to be distinguished *from*.
 
+## The bank robbery
+
+`src/game/robbery.js`, `src/city/bank.js`, `src/game/fares.js` (`spawnRobber`), `sim/traffic.js`
+(`setPoliceCars`). One city block is a [bank](city.md#the-bank) — a low stone building under a
+colonnade with a dome behind it. Drive past it **with an empty cab** and somebody comes down the
+steps with a bag, gets in, and the streets go blue for as long as it takes to get them where they
+are going.
+
+**Everything about it is the existing loop turned up.** That is a constraint rather than a
+description, and it is worth listing what is *not* new, because none of it is:
+
+- The robber is an ordinary fare that skipped the kerb. Same crystal over the roof, same ring on the
+  road, same band of paint between them, same arrival test, same payout flight to the counter. Two
+  things differ: the clock, and a bonus that reads it. What *looks* different is the figure — see
+  [the robber](#the-robber).
+- The cop cars are **ordinary cars**. They queue, indicate, stop at reds, yield and can be crashed
+  into like anything else on the road — and they **come after you**, which is a route, a speed and
+  an acceleration rather than an AI. See [the chase](#the-chase).
+  [The corridor cruiser's own chase](traffic.md#the-bust-chase) is a different module and is not
+  touched by any of this.
+
+  They **arrive and leave, rather than transforming**. A robbery brings four vehicles onto the map
+  from off screen and stands them down again at the drop-off, driving off under their own steam. The
+  first version repainted the ambient cars nearest the taxi and deleted them at the end, which reads
+  exactly as badly as it sounds at both ends: a car you have been following turns into a police car,
+  and a police car in your mirror stops existing. See
+  [cop cars in ambient traffic](traffic.md#they-are-spawned-not-repainted) and
+  [standing down](traffic.md#standing-down).
+
+  The one thing they are allowed that an ordinary car is not is **a red light on a junction that is
+  provably empty** — fenced on five sides, because `sim/collisions.js` only tests the taxi, so an
+  unsafe crossing would be a cop driving *through* a car rather than into it. See
+  [the licence](traffic.md#the-one-licence-a-red-on-a-provably-empty-junction).
+- Loco Mode is untouched — the same finite tank, spent in a hold.
+- The fail state is untouched. Crashing into a cop car is crashing into a car:
+  [`sim/collisions.js`](../src/sim/collisions.js) does not know what livery anything is wearing and
+  is not told.
+
+So the whole feature is a trigger, a clock, a bonus, and some paint.
+
+### It is imposed, so it cannot cost the run
+
+A [VIP](#vip-pickups) is *taken on*: it appears on the kerb, the player chooses to jump the queue
+for it, and it can stay optional-but-hard only because missing one is never worse than never having
+seen it. A robbery is not taken on at all — it walks out of a building because the taxi drove past,
+on a trigger the player never pressed.
+
+An imposed event that can end a run is the one thing a score-attack cannot have. So a robber whose
+clock runs out does exactly what a missed VIP does: gets out mid-street, swears about it
+([the outburst bubble](#they-leave-and-they-let-you-know)) and goes. The event costs the bonus and
+the seat it was occupying, and nothing else. There is no streak to lose, which is the one line of
+the VIP's version that is absent here rather than shared.
+
+### The robber
+
+`geometry/person.js`. A mask right across the eyes, a cap over the hair, a dark jacket pulled over
+the torso, the sleeves tinted to match, and a pale sack swinging off the left hand.
+
+**It is the figure that has to say this is not an ordinary fare**, because nothing else does: a
+robber's crystal is on the ordinary urgency scale on purpose — the clock is the drama, and a fixed
+hue like [a VIP's](#vip-pickups) would trade that away to say something the building and the police
+cars are already saying.
+
+It is **additive and switchable**, not a second person, and the reason is the pool. There is one
+figure per fare slot, built once and handed to every fare that occupies it, so a robber cannot be a
+differently-coloured `createPerson`. Nor can the base figure simply be repainted: its torso, head
+and hair are merged into one mesh with the colours baked into the vertices, so tinting the jacket
+tints the face with it. Five boxes that start hidden sidestep both — and the two that *are* a
+repaint (the sleeves) are separate meshes in one flat colour each, where `material.color` multiplies
+cleanly with nothing else on that mesh to spoil.
+
+The jacket was added after looking at the first build. A mask and a cap on a figure still wearing
+the board's pale shirt read as **a man in a hat**: at 24px the torso is the largest thing on the
+figure, and it was still saying "ordinary fare" louder than the head was saying anything. The sack
+is the opposite problem and the reason it is pale — against a black mask, a black cap and a black
+jacket, a dark bag is invisible, and it is the one part of the kit that says *why*.
+
+The kit is deliberately **not** cleared by `rest()`, unlike every other piece of pooled state on the
+rig. `rest()` runs mid-fare — a robber is rested on the frame they appear, and again when they get
+out at the far end — and a kit that came off there would take the mask off halfway through the
+event. What owns it is the spawn: `spawnRobber` puts it on, and `spawnFare` takes it off, which is
+the one place a slot changes hands.
+
+### The clock, and the bonus that reads it
+
+The tightest fare in the game, and it gets there twice over.
+
+**The queue behind it is empty.** Every ordinary rider's clock is budgeted over the whole chain the
+taxi must clear before reaching them — the rider aboard, then everyone on the kerb in urgency order
+([the clock is budgeted](#the-clock-is-budgeted)). A robber's is budgeted over its own trip and
+nothing else, because a robbery cannot start with somebody in the seat. That is the same exemption a
+VIP gets and for the same reason, and on its own it would buy a robber a *longer* clock than an
+ordinary rider on the same trip.
+
+**So the slack factor is turned down further than the VIP's.** `ROBBER_SLACK_FACTOR` is 0.62 against
+`VIP_SLACK_FACTOR`'s 0.8, floored at 1.05 against the VIP's 1.15 — still slack, not a deficit, and
+`tools/probe.mjs` holds the invariant that every fare's clock covers its own driving.
+
+**And the payout is the one price in this game not settled at spawn.** Every other fare is stamped
+when its trip is decided, because a meter that ticked while driving "would punish traffic and reward
+Loco Mode for the wrong reasons" ([Priced by the trip](#priced-by-the-trip)). For a getaway,
+rewarding Loco Mode is exactly the ask. So the base half is stamped like everybody else's, and a
+bonus of up to `ROBBER_BONUS` = 1.5× that base is paid on the *fraction of clock left at the
+drop-off* — read once, on the frame the arrival resolves. Land it with the crystal nearly full and
+the job is worth two and a half ordinary fares of the same length; land it on the last second and it
+is worth one. The event always pays, and how much is the whole of what the player is driving for.
+
+The bonus is folded into the fare's own `value` before anything reads it, so the pop that flies off
+the taxi, the counter it rolls into and the run-end card's "Cash" all say the same number. A second,
+smaller flight arriving from nowhere is exactly the side effect the two-phase payout exists to
+prevent.
+
+### The gate that makes it fair
+
+A robbery takes the seat, and every rider already waiting when it starts is spending a clock that
+was budgeted without it ([the clock is budgeted](#the-clock-is-budgeted)). A rider who was
+comfortable can usually absorb that. A rider who was already in trouble cannot — and *their* clock
+running out ends the run. So the event that is
+[not allowed to end a run](#it-is-imposed-so-it-cannot-cost-the-run) was ending runs by proxy.
+
+`CALM_LEVEL` closes it: a robbery will not start while any waiting rider has dropped below half
+their clock. It is expressed as a **level** rather than a fraction so the rule is one the player can
+read off the board — the urgency scale is four even quarters
+([urgency is one scale](#urgency-is-one-scale)), so this is "every crystal on the kerb is still on
+one of its top two steps". A number like 0.45 would measure the same thing and mean nothing on
+screen.
+
+Measured over 30 paired runs per cell, against a no-robbery baseline of a 13.9-fare mean on $339 at
+a 1.5s reaction and 11.2 on $264 at 4s:
+
+| | perfect player (1.5s) | slower player (4s) | robberies (1.5s) |
+|---|---|---|---|
+| no gate at all | 9.8 fares · $239 | 8.4 · $206 | 28 |
+| **this gate** | **12.4 fares · $309** | **8.6 · $211** | 18 |
+| tightened to the top step | 14.0 fares · $349 | 11.2 · $264 | **2** |
+
+Two findings, and the second is why the gate is not simply turned up further. It is worth two and a
+half fares to a fast player, which is most of what a cross-town getaway costs. And there is **no
+usable room above it**: at the top step the event fires twice in thirty runs at 1.5s and never at
+all at 4s, which is not a rarer event, it is no event.
+
+The cooldown is not a third lever, though it looks like one. Nearly doubling it moved the count of
+robberies from 33 to 34, because the cooldown is not what limits the event — what limits it is the
+taxi happening to drive past the bank with an empty cab and a calm kerb, which on a five-block city
+is about once a run either way.
+
+### The getaway runs across town
+
+`ROBBER_DROPOFF_DARTS` draws the drop-off **eight times over the whole map and keeps the furthest
+from the bank**. Measured over 55 cities that is a median of **7 blocks against a 10-block
+diameter**, range 5 to 9 — so a getaway is reliably a run to the far side of the city, and never a
+hop round the corner. It is the one event in this game whose whole point is the drive.
+
+That distance is not free, and the mechanism is not subtle once it is named: a robbery takes the
+seat for the length of its trip, and every rider standing on a kerb while it runs is spending a
+clock that was budgeted without it. The longer the getaway, the more of other people's clocks it
+eats — and nothing about the robber's own clock touches that, because the robber's clock is not the
+one running out. 30 paired runs per cell through `tools/autoplay.mjs`:
+
+| | perfect player (1.5s) | slower player (4s) |
+|---|---|---|
+| no robbery | 13.9 fares · $339 | 11.2 fares · $264 |
+| **across town, with the calm gate** | **12.4 fares · $309** | **8.6 fares · $211** |
+| across town, no gate at all | 9.8 fares · $239 | 8.4 fares · $206 |
+
+The bottom row is what [the calm gate](#the-gate-that-makes-it-fair) is buying: without it a long
+getaway is the difference between a 14-fare run and a 10-fare one. With it, a fast player pays about
+a fare and a half for the event.
+
+**The slower player pays more, and that is the honest read on this.** At a 4s reaction the cost is
+2.6 fares — the p10 drops from 6 to 1, which is runs ending early rather than everyone landing a
+little shorter. A player who is already behind cannot absorb a sixty-second hijack they did not ask
+for, and the gate only checks the board at the moment the event *starts*.
+
+Two levers if that is ever judged too steep, and they are the two constants in this feature that
+were measured rather than chosen. `ROBBER_DROPOFF_DARTS` is the distance — capped at four blocks
+from the bank, the same sweep reads 12.6 / $314 and 11.4 / $276, which is about a fare cheaper at
+either speed and a materially shorter event. And `CALM_LEVEL` is the frequency, but only in one
+direction: tightened to the top step it fires **twice in thirty runs**, which is not a rarer event,
+it is no event. Everything else was measured and does nothing — see the cooldown.
+
+### What it costs, as shipped
+
+The whole event, measured end to end through `tools/autoplay.mjs` over 30 paired runs per cell —
+same cities, same situations, the robbery layer the only difference:
+
+| | perfect player (1.5s) | slower player (4s) |
+|---|---|---|
+| no robbery | 13.9 fares · $339 | 11.2 fares · $264 |
+| across town, no chase | 12.4 fares · $309 | 8.6 fares · $211 |
+| **shipped, with the chase** | **10.9 fares · $268** | **9.6 fares · $235** |
+
+The event costs a fast player three fares of survival and a slower one about one and a half. That is
+a real price and it is a deliberate one: two rounds of "make it more dramatic" bought a cross-town
+getaway and four cars hunting you, and both are paid for out of the same clock.
+
+**One large caveat on those numbers.** `tools/autoplay.mjs`'s perfect player **never uses Loco
+Mode** — it drives everywhere at cruise. So the harness measures the chase purely as extra traffic
+in the way, and cannot measure the thing the chase is actually for: a player on the pill outruns
+cop cars, and the decision the event poses is whether to spend the tank doing it. The real event is
+a risk/reward the soak has no way to play. Treat these as the cost to somebody who ignores the
+mechanic.
+
+One thing to know when reading `npm run check`: the suite's `fares` line runs the soak over **nine**
+seeds, which is a small enough sample that the first nine happen to be unlucky here — it reads a
+median of 6 against 10 before. The 30-run paired numbers above are the ones to believe, and the gate
+is a band (3–20) rather than the number itself, for exactly this reason.
+
+### The trigger
+
+`TRIGGER_RANGE` is 12 world units from the bank's door, and it is arithmetic rather than a number.
+The door point sits 0.5 out from the building's setback; the near lane is `LANE` = 2 off the kerb,
+so a taxi passing the middle of the frontage is 2.9 units out, and passing its far end on the
+*oncoming* side is hypot(6.9, 5.1) = 8.6 — which has still driven past the bank, so it counts. What
+12 deliberately does not reach is the street on the other side of the block, whose nearest
+carriageway is 18 units away.
+
+Six gates on top of the range, and each is there for its own reason:
+
+- **An empty cab.** A robbery takes the seat, so there has to be one. A player mid-delivery has a
+  clock running that this event would spend on somebody else's trip.
+- **Nobody on the kerb is already in trouble** — every waiting rider's crystal still on one of its
+  top two steps. This is [the gate that makes the event fair](#the-gate-that-makes-it-fair), and the
+  only one that was measured rather than argued.
+- **`MIN_DELIVERED` = 2.** `VIP_MIN_DELIVERED` is 1, on the grounds that a purple diamond needs
+  something to be distinguished *from*. This is higher for a different reason: a robbery takes the
+  wheel, and an event that overrides the loop is only legible to somebody who has one.
+- **No VIP on the board.** The one interaction that would be unfair rather than merely busy: a VIP's
+  clock is budgeted to be served *next*, so a robber taking the seat for a cross-town getaway does
+  not make a VIP harder, it makes it arithmetically impossible. Nothing breaks — missing one is only
+  the bonus — but it would be the game quietly cancelling a fare it had just offered.
+- **A cooldown**, from the **end** of the last event rather than its start, so two can never run into
+  each other however short the getaway was. Longer than `VIP_COOLDOWN` because this event cannot be
+  walked past.
+- **A free slot on the fare board.** The figure, the pins and the crystal come out of the same pool
+  every rider uses. A full board refuses, and nothing is spent when it does — the cooldown has not
+  been reset, so the next pass down the same street tries again.
+
+### The police
+
+`setPoliceCars(n)` in `sim/traffic.js` takes the `n` ambient cars nearest the taxi, paints them
+`policeBody` and puts a light bar on their roofs. `setPoliceCars(0)` hands every one of them back its
+own `colorIndex`, which is left untouched throughout — that is what makes ending the event free
+rather than something to remember.
+
+**The set follows the player; the cars do not.** It is re-run every two seconds, so a cop car that has
+driven off across town is handed back its paint and a nearer one turns blue. That is the closest the
+event comes to the traffic acknowledging the taxi and it is deliberately as far as it goes. Two
+seconds because `SPEED` is 8.5, so a car covers 17 units in that time — most of a 20-unit block —
+and anything that turns over between two re-picks has been out of the frame it was last seen in for
+most of it.
+
+**Four cars, flat, not on the difficulty ramp.** The event already tightens with the run — a robber's
+clock is budgeted off `difficulty.slack`, so the same getaway is a harder drive on delivery forty than
+on delivery three — and hanging a second knob off the same ramp would make the event's difficulty a
+product of two curves neither of which could then be read on its own. Four is also what a five-block
+city can show at once: a block is about a third of a phone's frame at play zoom, so four cars spread
+around the taxi puts one or two in shot without the road reading as a parade.
+
+**And two more cars actually arrive**, which is the half that adds traffic rather than repainting it.
+`setCarCount` only ever grows and is capped at the pool the difficulty ramp's own ceiling sized, so
+what a robbery does is spend that ramp's headroom *early*: the cars it brings forward are cars the run
+was going to get a shift or two later, and no run can end up with more traffic in it than one that
+never met a robbery. They are not painted and they are not un-spawned at the end — a fleet that shrank
+on the frame an event ended would mean deleting cars out of the middle of an instance buffer while the
+player watched.
+
+**Every one of them flashes, and the nearest two glow.** The siren comes from three places and the
+split matters, because the first two alone did not read:
+
+- **The bar**, two instanced emissive pods on the roof off the same machinery the brake and
+  turn-signal pods use (`geometry/lights.js`). Both pods flash together — the whole bar goes red,
+  then blue — rather than one lamp lighting at each end, which is what a real bar does: a pod is 4px
+  across at play zoom, and a bar split by colour alternates two specks a colour apart and reads as a
+  flicker. Together they are one 9.9px mark changing colour six times a second.
+- **The bloom**, which carries it at distance and took a fix. `main.js` marks every lamp the sim
+  owns in one loop, and marking them all `pod` gave a cop car's bar a brake light's 3.4 against the
+  cruiser's 4.2 — dimmer than the police car parked beside it, for no reason on screen. The kind
+  rides on the mesh now and the loop reads it.
+- **The wash on the road** (`game/coplights.js`), which is the part neither of the others can do —
+  two real point lights, parked on the nearest two cop cars and re-picked every frame. See
+  [cop cars' sirens](rendering.md#cop-cars-sirens---geometrylightsjs-gamecoplightsjs) for why it is
+  two lights against four cars, and what `?safe` drops.
+
+The rate is `sirenOn()`, shared with [the corridor cruiser](traffic.md#police-priority-corridor) and
+[the off-screen wash](rendering.md#off-screen-police-warning), so a city with both in it strobes on
+one clock.
+
+### The chase
+
+The one thing the original brief ruled out, and now the point of the event. It is **two lines of
+behaviour**: `car.chase` lifts that cop's cruise ceiling and its cornering, and `car.route` is a
+plain route to a junction on the taxi's own route, three to five ahead of it — after which
+[the one routing branch](traffic.md#the-one-routing-branch) does the rest. A chasing cop *is* a
+routed car, the same thing the player's own taxi is.
+
+**Half cut you off, half come after you, and all of them get recycled.** A cop's mean speed over a
+getaway is 9 against a boosting taxi's 27, because it is cornering and queueing where the taxi is
+flat out; sent to where the taxi *is*, it is aimed at a point already a second old and loses ground
+every frame. Tuning could not save it — scattering the traffic in front of it, doubling its
+cornering speed and (as an experiment) turning every light in the city green for it lifted its mean
+speed from 6.8 to 13.6 and moved its distance to the taxi by nothing at all.
+
+Two answers, and the event needs both. Two of the four are sent three or five junctions down the
+**route the player drew**, which is a race a slower car can actually win: it only has to beat the
+taxi to one junction, and the taxi has announced which ones those are. The other two are sent
+straight at the taxi, and when one of them falls out of the picture it is taken off the map and
+another comes in **behind you on the straight you are already driving**. That is what a pursuit
+looks like from the driver's seat, and it is the half a cut-off cannot supply — see
+[the chase](traffic.md#they-are-recycled-because-a-slower-car-cannot-stay-in-the-picture). Measured
+over 40 seeds, a cop is in frame for 89% of a getaway, two at a time.
+
+A cop cruises at **20.4** against a boosting taxi's 22.1 and the traffic's 8.5. That gap is the
+mode — the pill outruns them in a straight line and lifting off does not — so Loco Mode becomes the
+answer to the event and [the wreck](traffic.md#the-wreck) is what makes it a gamble. What Loco Mode
+cannot outrun is the cop already sitting in the junction it is about to take. And they strobe at the
+cruiser's **hunting rate** while chasing, which is the same cue that module uses for its own
+lock-on: a cop cruising past on its own business and one that has turned to come after you are
+otherwise the same blue car.
+
+**They are given no licence an ordinary car lacks**, which is what makes this safe rather than
+merely loud. No red-running in particular: `sim/collisions.js` only ever tests the taxi, so a cop
+let through a light would drive *through* the cross traffic rather than into it. Every red they sit
+at is a chance to lose them, and the probe holds the whole chase to zero signal violations.
+
+**Nothing about the fail state changed.** A cop catching you does nothing at all — there is no bust,
+no new ending. What four converging cars are is four more things to hit while you are on the pill,
+which is the ending the game already had.
+
+**And [the corridor cruiser](traffic.md#the-bust-chase) does not bust you during one.** That rule —
+boost within a block of the cruiser and the run ends — is a good one, and its legibility rests
+entirely on there being *one* police car on the street and it being obvious which. A robbery puts
+four more on the street in the same paint under the same flashing bar, and hands the player the
+tightest clock in the game so that boosting is the only way to make it. So the event asks for Loco
+Mode and an unrelated patrol ends the run for using it, and at a glance there is no telling which of
+the five blue cars is the one that does that. It was found the way these things are found: a real
+run ended that way, with the note that none of the *other* police had so much as moved.
+
+It restores a rule this event already states. A robbery is **imposed** — it walks out of a building
+because the taxi drove past — which is why a robber who runs out of clock bails rather than ending
+the run. Letting a patrol end it instead is that same rule going out the side door. The honest cost
+is that Loco Mode has no downside but the wreck for the length of a getaway; the chase is what pays
+that back, and it now drives cop cars into the road *ahead* of the taxi rather than trailing it.
+
+**And a boosting getaway throws cash out of the back.** `game/cashtrail.js` — banknotes tumbling out
+behind the taxi for as long as the pill is held with a robber aboard. It is the one part of the event
+that pays the player back *while* the risk is being taken: the bonus is real and the player does not
+see a penny of it until the drop-off resolves, and everything in between is a tight clock and four
+more cars to hit. The gate is the robbery rather than the boost, because money off the back of any
+boosting taxi is a fun effect with nothing behind it — and it is one condition, so widening it is one
+word. See [the cash trail](rendering.md#the-getaways-cash-trail---gamecashtrailjs).
+
 ## The package courier
 
 `src/game/parcels.js`. A brown parcel sits on a kerb corner on a cyan rounded-square pad. Drive

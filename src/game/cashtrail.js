@@ -1,0 +1,471 @@
+import * as THREE from 'three';
+import { color } from '../palette.js';
+import { unlitMaterial } from '../util/geo.js';
+import { carrySpeed } from '../util/carry.js';
+import { TAXI_TAILPIPE_BACK } from '../geometry/taxi.js';
+
+// Banknotes fluttering out of the back of the taxi while it boosts with a robber aboard — see
+// [the bank robbery](../../docs/gameplay.md#the-bank-robbery).
+//
+// **It is the one thing in the event that rewards the player for the risk in the moment.** The
+// bonus a getaway pays is real (`ROBBER_BONUS` in game/fares.js) and the player does not see a
+// penny of it until the drop-off resolves; everything in between is a tight clock and four cop
+// cars to hit. A stream of cash off the back while the pill is held is the payoff arriving at the
+// time it is being earned, which is the whole of what it is for.
+//
+// It is a **flutter** pool, and that is what separates it from the three particle pools already
+// here (game/dust.js's puffs, game/sparks.js's streaks, game/blast.js's shards):
+//
+//   - **Paper, so it is light.** Low gravity, heavy drag on *both* axes — a note thrown back at 9
+//     u/s is doing 2 by the time it has left the bumper — and it never bounces. What that buys is
+//     the read: dust billows, sparks skitter, shards fly, and money *hangs* in the air behind you.
+//   - **It tumbles.** A per-note spin about a fixed random axis, slowing with the same drag, so
+//     the note flashes between its face and its edge as it falls. That is the whole reason it is a
+//     thin **box** rather than a plane: a plane is one-sided, and half of every tumble would be a
+//     note that is simply not drawn (the trap the boats' wake sat in for weeks).
+//   - **Unlit, and not bloomed.** Money is not a light source — it is paper reflecting one — so it
+//     takes `unlitMaterial` for the night read that dust.js takes it for, and stays out of the
+//     bloom's draw list entirely. A glowing banknote is a firefly.
+//
+// One InstancedMesh, one draw call, a ring buffer of slots, and the same per-instance alpha patch
+// dust.js, sparks.js and flames.js use, because `instanceColor` is RGB only.
+
+/**
+ * The pool.
+ *
+ * The gust clock averages about 44 notes a second (see GUST), which over a `LIFE` of 2.4s is ~105
+ * live at the top of a sustained hold — and a gust's own peak runs well over that average while it
+ * lasts. The `KICK` burst can put 24 more on top in one frame. 160 covers both with room for the
+ * frame a second robbery's first notes overlap the tail of the last one's; a wrapped slot silently
+ * truncates the stream rather than failing.
+ *
+ * **It is a big pool on purpose.** The first cut ran 14 a second into 48 slots, which is 22 notes
+ * in the air — and 22 four-pixel rectangles spread over thirty units of road is a scattering you
+ * have to go looking for. The whole of this effect is that it should be impossible to miss.
+ */
+const MAX_NOTES = 160;
+
+/**
+ * The burst the press itself throws.
+ *
+ * An effect that ramps up has nothing to say on the frame the player actually pressed the button,
+ * and that frame is the one they are looking at. Fired from the same `kickLocoMode` in main.js
+ * that throws the tailpipe flame and stamps the launch rubber, so the three land together as one
+ * event. The hold's own rate is the gust clock below.
+ */
+const KICK = 24;
+
+/**
+ * The gust, which is what turns a stream into a shower.
+ *
+ * At a flat `RATE` the trail is a rope: a constant-density ribbon paid out of the back of the car,
+ * and a constant anything reads as a machine rather than as money coming loose. What it should
+ * look like is a bag that keeps catching — a fistful, a gap, another fistful — so the stream is
+ * **modulated** rather than emitted.
+ *
+ * Not a sine, which was the first thing tried and is still a rope, just a lumpy one: the gaps have
+ * to be gaps. It is a two-state clock. A gust runs for `GUST` seconds at `GUST_RATE` and a lull
+ * for `LULL` at `LULL_RATE`, each drawn fresh, so no two bursts are the same length and the
+ * pattern never lands on a beat.
+ *
+ * The lull is not silent. A trickle carries the trail across the gap — at zero the stream visibly
+ * *stops*, which reads as the effect being switched off rather than as the flow being uneven, and
+ * the player is only ever looking at this out of the corner of an eye.
+ *
+ * The rates are set so the average over a full cycle is about the old flat 40: a mean gust of 0.3s
+ * at 78 and a mean lull of 0.28s at 7 averages 44. The density is unchanged and its *distribution*
+ * is the whole change.
+ */
+const GUST = [0.16, 0.44];
+const LULL = [0.14, 0.42];
+const GUST_RATE = 78;
+const LULL_RATE = 7;
+
+/**
+ * Seconds a note is in the air.
+ *
+ * Long, and longer than it was: the point is that money *hangs*, and then that it is still lying
+ * there when the player looks back. At 1.6s the road behind a getaway was clean again almost as
+ * fast as it dirtied.
+ */
+const LIFE = 2.4;
+/**
+ * The last fraction of that spent fading, so a note thins out rather than blinking off.
+ *
+ * Late — a note is solid for nearly three quarters of its life. Fading earlier spends most of the
+ * effect at a low alpha, which is the other half of why the first cut was hard to see: the notes
+ * were not only small, most of them were half transparent.
+ */
+const FADE_FROM = 0.74;
+
+// Paper physics. Gravity well under the sparks' exaggerated 26 and under a real 9.8, drag well
+// over: a note launched at 9 u/s covers 9/3.4 = 2.6 units before it stops, which is most of a car
+// length behind the bumper and no further.
+const GRAVITY = 7.0;
+const DRAG = 3.4;
+// ...and the same drag on the fall, which is what makes it flutter instead of drop. Without it the
+// notes reached terminal speed and rained; with it they sink about a unit a second.
+const FALL_DRAG = 2.6;
+
+/**
+ * Tumble, in rad/s, and how fast it winds down.
+ *
+ * **Slower than it was, and that is a visibility fix rather than a taste one.** A note is a 0.02
+ * plate, so it is invisible edge-on — at 7.5 rad/s (1.2 revolutions a second) every note in the
+ * shower was strobing through its own edge several times on the way down, which reads as flicker
+ * and costs the effect a large fraction of its frames. At 4.2 a note turns about two-thirds of a
+ * revolution over its whole life: enough to flash its pale back once or twice, not enough to spend
+ * the flight edge-on.
+ */
+const SPIN = 4.2;
+const SPIN_DRAG = 1.4;
+
+// How the note is thrown: back out of the tailpipe, a little sideways, a little up. Up *least*,
+// for the reason the sparks are: thrown up as hard as they go back, the shower arcs over the roof
+// and reads as confetti being fired rather than cash being lost.
+//
+// The sideways throw is wider than it was (2.4), because the stream is now dense enough that a
+// narrow one stacked the notes into a single line down the middle of the lane. At 4.2 the trail is
+// about a lane wide, which is what makes it read as a mess being left behind rather than as a rope
+// being paid out.
+const BACK = [5.5, 11.5];
+const SIDE = 4.2;
+const UP = [1.6, 4.8];
+
+/**
+ * How much of the taxi's own speed a note keeps.
+ *
+ * Under the sparks' 0.45, and for the same reason turned up a notch: a note is separating from the
+ * car, and the whole effect is the car driving out from under what it is dropping. At 0.3 a note
+ * drifts forward for about a tenth of a second and is then left behind, which at boost speed puts
+ * the whole stream visibly *trailing*.
+ */
+const NOTE_CARRY = 0.3;
+
+/**
+ * A note, in world units. At 7.7px per unit that is a 6.8 x 3.7px rectangle.
+ *
+ * It has been both too small and too big now, and this is the third setting. It started at 0.62 x
+ * 0.34 — 4.8 x 2.6px, about the size of a lane dash, on a road already painted with lane dashes —
+ * and went to 1.15 x 0.62 to fix that, which is a *third of the drawn taxi's length*: at that size
+ * the notes stop reading as a shower of small things and start reading as a few large ones, and
+ * the pale back of one is a bigger bright shape than anything else on the tarmac.
+ *
+ * What made the bigger size necessary was never the size. It was the density and the alpha (see
+ * `GUST` and `FADE_FROM`), and with those fixed the note can come back down to something that
+ * looks like paper. Still nowhere near to scale, which is right for this game — the burger on the
+ * drive-through sign is 14px across and reads as a burger, and nothing in the city is built to
+ * scale either.
+ */
+const NOTE_L = 0.88;
+const NOTE_W = 0.48;
+const NOTE_T = 0.02;
+
+/**
+ * How far toward the pale back a note's colour is allowed to roll.
+ *
+ * Not the full [0, 1] it started as. An even lerp between the two put half the shower nearer the
+ * back than the face, and a road behind the taxi strewn with pale flecks reads as litter rather
+ * than as money — the green is the only thing saying what these are. Capped here, the stream is
+ * mostly banknote with a scattering of notes caught edge-on, which is what a tumble looks like.
+ */
+const BACK_MIX = 0.45;
+
+/**
+ * The spread of the note's own **face**, from `cashNote` to `cashPale`.
+ *
+ * A second, separate roll from `BACK_MIX`, and the distinction is the whole point of having two.
+ * `BACK_MIX` rolls toward `cashBack`, which is a near-white *flip* — it is there so a tumbling
+ * note flashes. This rolls along the greens, so that 160 notes are 160 slightly different notes
+ * rather than 160 copies of one swatch, which at this size is the difference between a shower and
+ * a texture.
+ *
+ * The full range, unlike `BACK_MIX`, because both ends are green and neither reads as litter. The
+ * roll is **squared** toward the saturated end: a uniform draw between two colours puts as much of
+ * the shower at the pale end as the green one and the trail washes out, where `t²` keeps the mass
+ * on `cashNote` and lets the pale ones be the highlights they are meant to be.
+ */
+const FACE_SPREAD = 1;
+
+/** How far above the tailpipe the stream starts, so it leaves the boot rather than the road. */
+const LIFT = 0.15;
+
+/**
+ * How far behind the car's own origin a note appears.
+ *
+ * `TAXI_TAILPIPE_BACK` is the **drawn** half-length — `createTaxiMesh` puts `TAXI_SCALE` = 1.18 on
+ * the group, so the body on screen is 4.01 units where the simulation's `CAR_LEN` says 3.4, and
+ * anything placing an effect against the bodywork has to use the drawn one. Emitted at the origin
+ * instead, a note starts inside the car and is only carried clear by its own velocity: fine at the
+ * Loco top, and at the bottom of a hold it pops out through the roof. game/locoflame.js hangs its
+ * plume off the same constant for the same reason.
+ */
+const TAIL_BACK = TAXI_TAILPIPE_BACK;
+
+export function createCashTrail(scene, rng) {
+  // A unit box scaled per instance, the same shape trick sparks.js uses: one geometry, and the
+  // note's proportions live entirely in the instance matrix, so nothing touches a buffer.
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+
+  const alphas = new Float32Array(MAX_NOTES);
+  geometry.setAttribute('aAlpha', new THREE.InstancedBufferAttribute(alphas, 1));
+
+  // White, so `instanceColor` multiplies cleanly onto it — the same identity dust.js and sparks.js
+  // rely on. **Not** additive: additive blending is for things that emit, and a banknote reflects.
+  // Over dark asphalt an additive note came out as a glowing sliver.
+  const material = unlitMaterial({
+    color: '#FFFFFF',
+    transparent: true,
+    depthWrite: false,
+  });
+
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aAlpha;\nvarying float vAlpha;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvAlpha = aAlpha;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vAlpha;')
+      .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
+  };
+
+  const mesh = new THREE.InstancedMesh(geometry, material, MAX_NOTES);
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  // Under the flames and sparks (6) and over the road: a note passes *through* the Loco plume it is
+  // being thrown out beside, and the plume is the brighter thing.
+  mesh.renderOrder = 5;
+  // The pool moves, and three latches an InstancedMesh's bounding sphere on the first frame it
+  // culls one — from the matrices as they stood then. A pool that is empty at that moment (which
+  // this one always is at boot: no robbery has happened) latches a radius of -1 at the origin and
+  // never draws again.
+  mesh.frustumCulled = false;
+  scene.add(mesh);
+
+  const life = new Float32Array(MAX_NOTES);
+  const px = new Float32Array(MAX_NOTES);
+  const py = new Float32Array(MAX_NOTES);
+  const pz = new Float32Array(MAX_NOTES);
+  const vx = new Float32Array(MAX_NOTES);
+  const vy = new Float32Array(MAX_NOTES);
+  const vz = new Float32Array(MAX_NOTES);
+  // Tumble: an axis per note and a rate that winds down, integrated onto a quaternion so a note
+  // can spin about any axis rather than about one of the three the Euler angles name.
+  const ax = new Float32Array(MAX_NOTES);
+  const ay = new Float32Array(MAX_NOTES);
+  const az = new Float32Array(MAX_NOTES);
+  const spin = new Float32Array(MAX_NOTES);
+  const quats = Array.from({ length: MAX_NOTES }, () => new THREE.Quaternion());
+  // The surface this note settles onto, so a getaway over a bridge lands on the deck rather than
+  // on the road two units under it. Same reason sparks.js carries one.
+  const floor = new Float32Array(MAX_NOTES);
+
+  const dummy = new THREE.Object3D();
+  const axis = new THREE.Vector3();
+  const step = new THREE.Quaternion();
+  const tint = new THREE.Color();
+  const FACE = color('cashNote');
+  const PALE = color('cashPale');
+  const BACK_COL = color('cashBack');
+
+  // Collapsed and painted up front: `setColorAt` allocates `instanceColor` on its first call and
+  // recompiles the material, and doing that lazily would put a shader compile on the first frame
+  // of a getaway — which is the one frame in this event that cannot afford one.
+  for (let slot = 0; slot < MAX_NOTES; slot++) {
+    dummy.scale.setScalar(0);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(slot, dummy.matrix);
+    mesh.setColorAt(slot, FACE);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+
+  let next = 0;
+  let pending = 0;      // fractional notes owed, so the rate survives a variable frame length
+  // The gust clock — see GUST. `left` counts the current phase down; a hold that ends resets both,
+  // so the next press opens on a gust rather than half way through whatever the last one was in.
+  let gusting = true;
+  let left = 0;
+
+  /** Start the next phase, and answer the rate it runs at. */
+  function turnover() {
+    gusting = !gusting;
+    const span = gusting ? GUST : LULL;
+    left = rng.range(span[0], span[1]);
+    return gusting ? GUST_RATE : LULL_RATE;
+  }
+
+  /** One note, thrown out of the back of a car at (x, y, z) heading `yaw` at `speed` u/s. */
+  function emit(x, y, z, yaw, speed) {
+    const slot = next;
+    next = (next + 1) % MAX_NOTES;
+
+    // `yaw` is a sim heading, so forward is (cos yaw, -sin yaw) and right is (sin yaw, cos yaw).
+    const fx = Math.cos(yaw);
+    const fz = -Math.sin(yaw);
+    const rx = Math.sin(yaw);
+    const rz = Math.cos(yaw);
+    const carry = carrySpeed(speed) * NOTE_CARRY;
+
+    const back = rng.range(BACK[0], BACK[1]);
+    const side = rng.jitter(SIDE);
+    const up = rng.range(UP[0], UP[1]);
+
+    life[slot] = LIFE * rng.range(0.8, 1.2);
+    px[slot] = x - fx * TAIL_BACK + rng.jitter(0.18);
+    py[slot] = y + LIFT;
+    pz[slot] = z - fz * TAIL_BACK + rng.jitter(0.18);
+    vx[slot] = -fx * back + rx * side + fx * carry;
+    vy[slot] = up;
+    vz[slot] = -fz * back + rz * side + fz * carry;
+    floor[slot] = y - LIFT;
+
+    // A random unit axis, so no two notes tumble about the same line. Normalised rather than
+    // drawn on a sphere: the bias toward the cube's corners is invisible on a 4px rectangle.
+    axis.set(rng.jitter(1), rng.jitter(1), rng.jitter(1));
+    if (axis.lengthSq() < 1e-6) axis.set(0, 0, 1);
+    axis.normalize();
+    ax[slot] = axis.x;
+    ay[slot] = axis.y;
+    az[slot] = axis.z;
+    spin[slot] = SPIN * rng.range(0.6, 1.4) * (rng.chance(0.5) ? 1 : -1);
+    quats[slot].identity();
+
+    // Two rolls, in this order and not one: along the greens first (what kind of note is this),
+    // then toward the pale back (how edge-on is it). Collapsing them into a single lerp from
+    // `cashNote` to `cashBack` is what the first version did, and it cannot express a light green
+    // at all — every step toward pale is a step toward the same off-white.
+    const t = rng.next();
+    tint.copy(FACE).lerp(PALE, t * t * FACE_SPREAD);
+    mesh.setColorAt(slot, tint.lerp(BACK_COL, rng.next() * BACK_MIX));
+    alphas[slot] = 1;
+  }
+
+  /**
+   * Feed the stream for one frame.
+   *
+   * `on` is the whole gate — the caller decides what it means, and `main.js` reads it as "the pill
+   * is held and there is a robber in the back". Rate-limited on a fractional accumulator rather
+   * than a per-frame count, so the stream is the same density at 30fps as at 120.
+   *
+   * @param car the taxi, for `x`/`z`/`yaw`/`v`
+   * @param y   the surface it is driving on — the note settles onto this
+   */
+  /**
+   * The burst the press throws, on top of whatever the hold goes on to feed.
+   *
+   * Fired from `kickLocoMode` in main.js alongside the tailpipe flame and the launch rubber, so the
+   * three are one event on one frame. A stream that only ramps up has nothing to say on the frame
+   * the button actually went down, and that is the frame the player is looking at.
+   */
+  function kick(car, y) {
+    if (!car || car.crashed) return;
+    for (let k = 0; k < KICK; k++) emit(car.x, y, car.z, car.yaw, car.v);
+  }
+
+  function feed(dt, on, car, y) {
+    if (!on || !car || car.crashed) {
+      // Reset the clock as well as the accumulator. A hold that ends mid-lull and is pressed again
+      // a moment later would otherwise open on the quiet half, and the frame the button goes down
+      // is the one frame this effect cannot be quiet on. (The `KICK` covers that frame regardless,
+      // but a kick followed by nothing is worse than no kick at all.)
+      pending = 0;
+      gusting = false;
+      left = 0;
+      return;
+    }
+    // Note the order this is called in relative to `update`: **feed first**. A note's instance
+    // matrix is only written by the update pass, so a stream fed after it would put every note on
+    // screen one frame late — which at the Loco top is 0.57 units of road, and reads as the trail
+    // starting a car length back from the bumper.
+    //
+    // The frame is spent phase by phase rather than at one rate, so a gust that ends mid-frame is
+    // paid at its own rate for the part of the frame it covered. At 60fps a frame is 16ms against
+    // a phase of 140ms and up, so this loop runs once nearly every time — it is there so that a
+    // long stalled frame does not silently swallow a whole gust.
+    let rest = dt;
+    while (rest > 0) {
+      if (left <= 0) turnover();
+      const slice = Math.min(rest, left);
+      pending += (gusting ? GUST_RATE : LULL_RATE) * slice;
+      left -= slice;
+      rest -= slice;
+    }
+    // Capped at the pool, so a long stalled frame cannot spend every slot on one tick and leave
+    // the stream empty for the whole of the next second.
+    const count = Math.min(MAX_NOTES, Math.floor(pending));
+    pending -= count;
+    for (let k = 0; k < count; k++) emit(car.x, y, car.z, car.yaw, car.v);
+  }
+
+  function update(dt) {
+    let touched = false;
+    for (let slot = 0; slot < MAX_NOTES; slot++) {
+      if (life[slot] <= 0) continue;
+      touched = true;
+
+      life[slot] -= dt;
+      const age = 1 - Math.max(0, life[slot]) / LIFE;    // 0 fresh, 1 spent
+
+      // Exponential rather than subtractive on both axes, so a long frame cannot push a note
+      // backwards through zero — and on the vertical too, which is what makes this a flutter
+      // rather than a fall.
+      const keep = Math.exp(-DRAG * dt);
+      vx[slot] *= keep;
+      vz[slot] *= keep;
+      vy[slot] = (vy[slot] - GRAVITY * dt) * Math.exp(-FALL_DRAG * dt);
+
+      px[slot] += vx[slot] * dt;
+      py[slot] += vy[slot] * dt;
+      pz[slot] += vz[slot] * dt;
+
+      // Settles rather than bounces. A banknote that hit the road and came back up would be the
+      // one thing in this pool that reads as rubber.
+      const rest = floor[slot] + NOTE_T;
+      if (py[slot] <= rest) {
+        py[slot] = rest;
+        vx[slot] = 0;
+        vy[slot] = 0;
+        vz[slot] = 0;
+        spin[slot] = 0;
+      }
+
+      if (spin[slot] !== 0) {
+        spin[slot] *= Math.exp(-SPIN_DRAG * dt);
+        axis.set(ax[slot], ay[slot], az[slot]);
+        step.setFromAxisAngle(axis, spin[slot] * dt);
+        quats[slot].premultiply(step);
+      }
+
+      // Held at full until FADE_FROM, so a note is solid for most of its flight and only thins as
+      // it reaches the ground. Fading from birth makes the whole stream look like smoke.
+      alphas[slot] = age < FADE_FROM ? 1 : 1 - (age - FADE_FROM) / (1 - FADE_FROM);
+      if (life[slot] <= 0) alphas[slot] = 0;
+
+      dummy.position.set(px[slot], py[slot], pz[slot]);
+      dummy.quaternion.copy(quats[slot]);
+      dummy.scale.set(NOTE_L, NOTE_T, NOTE_W);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(slot, dummy.matrix);
+
+      if (life[slot] <= 0) {
+        dummy.scale.setScalar(0);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(slot, dummy.matrix);
+      }
+    }
+
+    if (touched) {
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.instanceColor.needsUpdate = true;
+      geometry.getAttribute('aAlpha').needsUpdate = true;
+    }
+  }
+
+  /** How many notes are in the air, for the tools. */
+  const live = () => {
+    let n = 0;
+    for (let slot = 0; slot < MAX_NOTES; slot++) if (life[slot] > 0) n += 1;
+    return n;
+  };
+
+  return { mesh, feed, kick, update, live };
+}
