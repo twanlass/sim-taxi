@@ -31,6 +31,7 @@ import {
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
 import { createHpMeter } from './game/hpmeter.js';
+import { createImpact } from './game/impact.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
@@ -974,17 +975,27 @@ const collisions = createCollisions(traffic.cars, traffic.taxi);
 // wreck — see TAXI_HP in sim/collisions.js. A retry reloads the page, so this is also the refill.
 traffic.taxi.hp = TAXI_HP;
 const hpMeter = createHpMeter(document.getElementById('hp'), TAXI_HP);
+const impact = createImpact(scene, camera);
 
-// A survivable hit: the struck car is shoved off its line and sits stunned (sim/traffic.js
-// `knockCar`), the taxi loses most of its speed, and here is the noise — a shake a third of the
-// wreck's, sparks off the seam and a small puff where the two met. Sized off the closing speed so
-// a nudge and a T-bone are told apart without the bar.
+// A survivable hit: the struck car is launched or spun off its line (sim/collisions.js `bump`),
+// the taxi loses most of its speed, and here is the noise — a comic starburst on the contact
+// point (game/impact.js), a shake a fraction of the wreck's, sparks sprayed out along the contact
+// normal and a small puff. Sized off the closing speed so a nudge and a T-bone are told apart
+// without the bar.
 const BUMP_SHAKE = 0.35;
 const BUMP_SHAKE_PER_UNIT = 0.03;
-collisions.onBump(({ x, z, closing, hp }) => {
+collisions.onBump(({ x, z, closing, hp, nx, nz, speed }) => {
   const yaw = traffic.taxi.yaw;
   controller.kickShake(BUMP_SHAKE + closing * BUMP_SHAKE_PER_UNIT);
-  sparks.burst(x, ROAD_Y + 0.5, z, yaw, 8 + Math.round(closing * 0.4), traffic.taxi.v);
+  // Where the bodies actually touch — a bit short of the midpoint of the two centres on the side
+  // the taxi came in from would be pedantry at 3 px; the midpoint is the seam near enough.
+  impact.fire(x, z, closing);
+  // Two sprays fanning out either side of the contact normal, so the sparks come off the seam
+  // sideways rather than trailing behind the taxi like a landing's.
+  const normalYaw = Math.atan2(-nz, nx);
+  const count = 8 + Math.round(closing * 0.5);
+  sparks.burst(x, ROAD_Y + 0.6, z, normalYaw + Math.PI / 2, count, speed * 0.5);
+  sparks.burst(x, ROAD_Y + 0.6, z, normalYaw - Math.PI / 2, count, speed * 0.5);
   dust.burst(x, z, yaw, 8, 0.5, { tint: PALETTE.wreckSmoke, linger: 0.7 });
   hpMeter.hit(hp);
 });
@@ -2813,6 +2824,7 @@ function frame() {
   // plumbing is needed here.
   collisions.update(dt);
   hpMeter.update(dt);
+  impact.update(dt);
   updateDamageSmoke(dt);
   checkPoliceBust();
   // Last of the three, and both halves of that matter. It copies the matrices traffic composed

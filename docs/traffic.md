@@ -1426,17 +1426,35 @@ Rear-ending a car at boost cruise closes at ~10.5 u/s and costs 24; T-boning cro
 cruise closes at ~21 and costs 37; anything in the overdrive band costs 49–55. So a sloppy tailgate
 is forgiven about four times and a red run flat out about twice.
 
+**The taxi rams.** A boosting taxi with `hp` stops following the car in front — no `BOOST_GAP`,
+no moving-leader cap, in lanes or junctions (`rams()` in `traffic.js`). Held to those rules it lifted
+off in the last few units before every rear-end, which read as the taxi flinching. The overtake still
+runs, since it is offered off the leader's distance, which is still measured.
+
 **What a bump does:**
 
-- The struck car is shoved directly away from the taxi and slewed off its line (`knockCar` in
-  `traffic.js`), then sits on its brakes for 1.4s (`stun`, which drives the existing `braking` flag,
-  so a car stunned inside a junction box holds cross traffic exactly as the brake pedal does).
-- The taxi keeps 45% of its speed, recoils a little the other way, and gets 0.8s of grace in which
-  nothing can hit it — it is still overlapping the car it just shunted, and without the grace would
-  take the same hit every frame. A car still reacting to a knock is out of play too.
-- `main.js` shakes the camera a fraction of the wreck's amount, throws sparks and a puff off the
-  seam, and knocks the HP bar in the top-left. Under a third of the bar the taxi smokes from the
-  bonnet.
+- **Rear-end** (headings within ~45°, struck car in front): the car is *launched* — it takes 90% of
+  the taxi's arrival speed and pulls away, which is what separates the two. No stun: a car stopped
+  dead in front of a boosting taxi would be hit again as soon as the contact ended.
+- **Side hit**: the car is shoved along the contact normal and slewed off its line (`knockCar`), then
+  sits on its brakes for 1.4s (`stun`, which drives the existing `braking` flag, so a car stunned
+  inside a junction box holds cross traffic exactly as the brake pedal does).
+- The taxi keeps 45% of its speed and recoils a little the other way.
+- `main.js` pops a comic starburst on the contact point (`game/impact.js`), sprays sparks out
+  sideways along the seam, shakes the camera a fraction of the wreck's amount, and knocks the HP bar
+  in the top-left. Under a third of the bar the taxi smokes from the bonnet.
+
+**Contact is resolved every frame and charged once.** For as long as the two bodies overlap, the
+struck car is pushed out along the deepest circle pair's normal (`shoveCar`): the part along its own
+lane goes into `s`, so a rear-ended car is bulldozed down the road in the sim; the rest goes into the
+knock offset. A contact only costs HP when it *starts* — the two have to be apart for 0.35s
+(`REHIT`) before touching again counts as a new hit. The first cut of this switched collisions off
+instead (a grace period, and knocked cars skipped outright), and the taxi drove straight through a
+car it had just tapped. `tools/lab.mjs` asserts the overlap never gets deeper than one frame of
+travel at the overdrive top.
+
+A truck is tested at its own length now — three circles out to `TRUCK_LEN` rather than a car's two,
+which left 0.7 units of cab and of box at each end that nothing tested.
 
 **The shove never leaves the lane model.** It is a render offset — a world-space slide and a yaw
 slew under drag, eased back to zero after 0.7s — layered on like the weave and the pull-over, while

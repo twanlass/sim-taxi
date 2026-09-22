@@ -1,4 +1,6 @@
-import { CAR_LEN, CIRCLE_OFFSET, CIRCLE_R, knockCar } from './traffic.js';
+import {
+  CAR_LEN, TRUCK_LEN, CIRCLE_OFFSET, CIRCLE_R, knockCar, shoveCar,
+} from './traffic.js';
 
 // Collision detection between the taxi and ambient cars. Deliberately narrow: only the taxi is
 // checked, and only while boosting — everywhere else the lane bookkeeping and following-distance
@@ -51,12 +53,18 @@ export const bumpDamage = (closing) =>
   Math.round(Math.max(BUMP_MIN, Math.min(BUMP_MAX, BUMP_BASE + closing * BUMP_PER_UNIT)));
 
 // What a survivable hit does to the two cars. The taxi keeps under half its speed — enough that it
-// visibly *hit* something, not so much that the pill is dead under the thumb — and gets a short
-// grace in which it cannot be hit again, because it is still overlapping the car it just shunted
-// and would otherwise take the same bump every frame until the two had slid apart.
+// visibly *hit* something, not so much that the pill is dead under the thumb.
+//
+// There used to be a grace period after a hit, and a rule that a car still reeling from one could
+// not be touched. Both were there so the same contact was not charged every frame, and both did
+// it by switching the collision off — so the taxi drove straight through a car it had just
+// tapped. Contact is now resolved every frame and only *charged* once (REHIT, below).
 const BUMP_KEEP = 0.45;
-const BUMP_GRACE = 0.8;          // s
-const STRUCK_STUN = 1.4;         // s the struck car sits on its brakes (sim/traffic.js `stun`)
+const STRUCK_STUN = 1.4;         // s a side-struck car sits on its brakes (sim/traffic.js `stun`)
+// Headings closer than this (cosine) with the struck car in front is a rear-end, and the car is
+// launched down its lane at LAUNCH × the taxi's arrival speed rather than stunned.
+const REAR_END = 0.7;
+const LAUNCH = 0.9;
 // The shove, in u/s along the line between the two centres, and the slew in rad/s. Both capped
 // again inside `knockCar`. The taxi's own recoil is a fraction of it and deliberately small: the
 // player's car flying about is the player losing the road, which is a worse feeling than a dent.
@@ -67,28 +75,48 @@ const STRUCK_SPIN_PER_UNIT = 0.1;
 const TAXI_RECOIL = 0.25;
 const TAXI_SPIN = 0.9;
 
+// A truck is 5.6 long against a car's 3.4, and the two circles used to sit at the car's offsets
+// on it too — which left 0.7 of cab and 0.7 of cargo box at either end that nothing tested, and
+// the taxi drove through them. Its circles go out to its own length, and it gets a third in the
+// middle so the pair does not leave a waist.
 function carCircles(car) {
-  const fx = Math.cos(car.yaw) * CIRCLE_OFFSET;
-  const fz = -Math.sin(car.yaw) * CIRCLE_OFFSET;
-  return [
+  const off = car.isTruck ? TRUCK_LEN * 0.28 : CIRCLE_OFFSET;
+  const fx = Math.cos(car.yaw) * off;
+  const fz = -Math.sin(car.yaw) * off;
+  const circles = [
     { x: car.x + fx, z: car.z + fz },
     { x: car.x - fx, z: car.z - fz },
   ];
+  if (car.isTruck) circles.push({ x: car.x, z: car.z });
+  return circles;
 }
 
-function overlap(a, b) {
-  const ac = carCircles(a);
-  const bc = carCircles(b);
-  const rr = (CIRCLE_R * 2) * (CIRCLE_R * 2);
-  for (const p of ac) {
-    for (const q of bc) {
-      const dx = p.x - q.x;
-      const dz = p.z - q.z;
-      if (dx * dx + dz * dz < rr) return true;
+// The deepest overlapping pair of circles between the two bodies, as a depth and the unit normal
+// pointing from `a` into `b` — or null if they do not touch. Exported for tools/lab.mjs.
+export function penetration(a, b) {
+  const reach = CIRCLE_R * 2;
+  let best = null;
+  for (const p of carCircles(a)) {
+    for (const q of carCircles(b)) {
+      const dx = q.x - p.x;
+      const dz = q.z - p.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= reach * reach) continue;
+      const d = Math.sqrt(d2);
+      const depth = reach - d;
+      if (best && depth <= best.depth) continue;
+      best = d > 1e-6
+        ? { depth, nx: dx / d, nz: dz / d }
+        : { depth, nx: Math.cos(a.yaw), nz: -Math.sin(a.yaw) };
     }
   }
-  return false;
+  return best;
 }
+
+// How long two bodies have to be apart before touching again counts as a new hit. Contact is one
+// hit however long it lasts — a taxi bulldozing a car down the road pays for the impact, not for
+// every frame of the shove — and a separation shorter than this is the same contact flickering.
+const REHIT = 0.35;          // s
 
 export function createCollisions(cars, taxi) {
   const listeners = [];
@@ -96,25 +124,36 @@ export function createCollisions(cars, taxi) {
   const onImpact = (cb) => { listeners.push(cb); };
   const onBump = (cb) => { bumpListeners.push(cb); };
   const emit = (event) => { for (const cb of listeners) cb(event); };
-  let grace = 0;
+  // Sim seconds, and when each car last touched the taxi on that clock.
+  let clock = 0;
+  const lastTouch = new Map();
 
   function update(dt = 1 / 60) {
-    grace = Math.max(0, grace - dt);
+    clock += dt;
     // Nothing to detect unless the taxi has left the safety of its lane. A crashed taxi is done
     // for good, and so is anything it has already hit.
     if (taxi.crashed) return;
     if (!taxi.boost) return;
-    if (grace > 0) return;
 
     for (const other of cars) {
       if (other === taxi) continue;
       if (other.crashed) continue;
-      // A car still reeling from the last bump is out of play until it has pulled itself together
-      // — the grace above covers the taxi, and this covers a taxi that is still stuck to it after.
-      if (other.knock) continue;
-      // Cheap broad phase before the circle-vs-circle work.
-      if (Math.abs(other.x - taxi.x) > CAR_LEN || Math.abs(other.z - taxi.z) > CAR_LEN) continue;
-      if (!overlap(taxi, other)) continue;
+      // Cheap broad phase before the circle-vs-circle work — wide enough for a truck.
+      const reach = (CAR_LEN + TRUCK_LEN) / 2 + CIRCLE_R;
+      if (Math.abs(other.x - taxi.x) > reach || Math.abs(other.z - taxi.z) > reach) continue;
+      const pen = penetration(taxi, other);
+      if (!pen) continue;
+
+      const touched = lastTouch.get(other);
+      lastTouch.set(other, clock);
+      const fresh = touched === undefined || clock - touched > REHIT;
+
+      // Still leaning on something it has already paid for: push it out of the way and carry on.
+      // Every frame of contact does this, which is what stops the taxi ever passing through a car.
+      if (!fresh && taxi.hp != null) {
+        shoveCar(other, pen.nx * pen.depth, pen.nz * pen.depth);
+        continue;
+      }
 
       const px = (taxi.x + other.x) / 2;
       const pz = (taxi.z + other.z) / 2;
@@ -134,20 +173,16 @@ export function createCollisions(cars, taxi) {
         const damage = bumpDamage(closing);
         taxi.hp = Math.max(0, taxi.hp - damage);
         if (taxi.hp > 0) {
-          bump(other, closing, damage, px, pz);
-          return;
+          bump(other, closing, damage, px, pz, pen);
+          continue;
         }
         // Out of hit points: this one is the wreck, through exactly the path it always was.
       }
 
       // Both cars are wrecked. `crashed` is what takes a car out of the simulation entirely —
       // every loop in traffic.js skips it — so neither body drives, queues or is queued behind
-      // again. main.js detonates each one and shrink-fades the two shells out from under the
-      // fireballs, then ends the run.
-      //
-      // The car used to be merely stunned: kicked sideways, spun out, then snapped back onto a
-      // lane and driven off. Two cars meet at a combined ~30 u/s, one is scrap and the other
-      // shakes it off and carries on — the survivor made the taxi's own wreck look arbitrary.
+      // again. main.js detonates each one and leaves both shells lying in the road, then ends the
+      // run. (Every hit before this one is a bump — see `bump` below.)
       taxi.crashed = true;
       taxi.boost = false;
       taxi.v = 0;
@@ -159,28 +194,44 @@ export function createCollisions(cars, taxi) {
     }
   }
 
-  function bump(other, closing, damage, px, pz) {
-    // Shoved directly away from the taxi, which gives every angle of hit the answer it wants
-    // without a case per angle: a rear-end pushes the car on down its lane, a T-bone pushes it
-    // sideways off its line.
-    let nx = other.x - taxi.x;
-    let nz = other.z - taxi.z;
-    const n = Math.hypot(nx, nz);
-    if (n > 1e-6) { nx /= n; nz /= n; } else { nx = Math.cos(taxi.yaw); nz = -Math.sin(taxi.yaw); }
+  function bump(other, closing, damage, px, pz, pen) {
+    // Shoved along the contact normal, which gives every angle of hit the answer it wants without
+    // a case per angle: a rear-end pushes the car on down its lane, a T-bone pushes it sideways
+    // off its line.
+    const { nx, nz } = pen;
+    shoveCar(other, nx * pen.depth, nz * pen.depth);
     // Which side of the taxi's line the car was on, as in main.js's wreck: struck on its left it is
     // turned right, and the taxi recoils the other way.
     const fx = Math.cos(taxi.yaw);
     const fz = -Math.sin(taxi.yaw);
     const side = Math.sign(fx * (other.z - taxi.z) - fz * (other.x - taxi.x)) || 1;
-    const shove = SHOVE_BASE + closing * SHOVE_PER_UNIT;
-    knockCar(other, nx * shove, nz * shove,
-      side * (STRUCK_SPIN_BASE + closing * STRUCK_SPIN_PER_UNIT), STRUCK_STUN);
-    knockCar(taxi, -nx * shove * TAXI_RECOIL, -nz * shove * TAXI_RECOIL, -side * TAXI_SPIN);
     const speed = taxi.v;
+    // A rear-end is two cars pointing the same way with the struck one in front — read off the
+    // headings, not the contact normal, because the normal comes from whichever pair of circles is
+    // deepest and leans toward the struck car's own axis whenever the taxi's nose lands near one
+    // of its circles: a square T-bone measured 0.82 "along" by the normal. A car hit from behind
+    // is *launched* — it takes the taxi's speed and pulls away, which is what separates the two
+    // and gives a rear-end its kick — and is not stunned, because a car stopped dead in front of a
+    // boosting taxi would be hit again the moment the contact lapsed. A car hit in the side is the
+    // one that spins and sits.
+    const ofx = Math.cos(other.yaw);
+    const ofz = -Math.sin(other.yaw);
+    const rearEnd = fx * ofx + fz * ofz > REAR_END
+      && (other.x - taxi.x) * ofx + (other.z - taxi.z) * ofz > 0;
+    const square = Math.max(0, nx * ofx + nz * ofz);
+    if (rearEnd) other.v = Math.max(other.v, speed * LAUNCH);
+    const shove = SHOVE_BASE + closing * SHOVE_PER_UNIT;
+    // The launch already carries a rear-ended car down its lane, so only the sideways part of the
+    // normal is left for the knock to throw — shoving it forward as well would double the push.
+    const lx = rearEnd ? nx - ofx * square : nx;
+    const lz = rearEnd ? nz - ofz * square : nz;
+    knockCar(other, lx * shove, lz * shove,
+      side * (STRUCK_SPIN_BASE + closing * STRUCK_SPIN_PER_UNIT) * (rearEnd ? 0.4 : 1),
+      rearEnd ? 0 : STRUCK_STUN);
+    knockCar(taxi, -nx * shove * TAXI_RECOIL, -nz * shove * TAXI_RECOIL, -side * TAXI_SPIN);
     taxi.v *= BUMP_KEEP;
-    grace = BUMP_GRACE;
     for (const cb of bumpListeners) {
-      cb({ x: px, z: pz, speed, closing, damage, hp: taxi.hp, taxi, other });
+      cb({ x: px, z: pz, speed, closing, damage, hp: taxi.hp, taxi, other, nx, nz, rearEnd });
     }
   }
 

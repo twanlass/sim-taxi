@@ -565,6 +565,13 @@ export const PALETTE = {
   // paint coming off.
   sparkHot: '#FFF8E2',
   sparkTail: '#FF9A22',
+  // The comic starburst a bump pops at the point of contact — see game/impact.js. A warm yellow
+  // body round a near-white core, the "POW" of a cartoon rather than anything physical, so it is
+  // kept off both spark stops above: a burst the same hue as the sparks under it reads as more
+  // sparks. The rim is a dark warm brown, the one thing that holds its edge against pale asphalt.
+  impactBody: '#FFD23F',
+  impactCore: '#FFFBEA',
+  impactRim: '#6B2E12',
   // The collar of smoke thrown out around a wreck — the construction zone's dust, tinted. It is
   // set against the **road**, not against `blastSmoke` beside it, and that is the whole of why it
   // is this light. The fireball is unlit, so its smoke stop can be a dark #4B4B55 and still read;

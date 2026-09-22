@@ -677,6 +677,14 @@ export const laysPassRubber = (car) => Boolean(car.boost)
  */
 const seesLeader = (car) => car.passOffset
   < Math.max(ENVELOPE, laneOffsetFor(car.d, car.i, car.j));
+// A boosting taxi with hit points does not follow anyone: it rams. Everything above about the
+// tailgate gap and the moving-leader cap is how Loco Mode *avoided* the car in front, which was the
+// right call while any contact was the end of the run and is the wrong one now a contact is a bump
+// (sim/collisions.js). Held to the leader it lifted off in the last few units before every rear-end
+// — the cap closing as the gap did — and read as the taxi flinching. Keyed on `hp` so the lab and
+// the probe, which never arm it, keep measuring the avoiding taxi they were tuned against. The
+// overtake still runs: it is offered off the leader's distance, which is still measured.
+const rams = (car) => car.isTaxi && car.boost && car.hp != null;
 // Where the taxi pulls out, and the number the whole manoeuvre is sized by. Closing to a body
 // length past the leader is (PASS_TRIGGER + 5) units of relative displacement, and at the ~10 u/s
 // a boosting taxi gains on cruising traffic that is 1.83 units of road for every unit of it. At
@@ -2093,6 +2101,33 @@ export function knockCar(car, vx, vz, spin, stun = 0) {
   k.spin = Math.max(-KNOCK_MAX_SPIN, Math.min(KNOCK_MAX_SPIN, k.spin + spin));
   k.t = 0;
   car.stun = Math.max(car.stun ?? 0, stun);
+}
+
+/**
+ * Push `car` bodily by (dx, dz) — contact resolution, called every frame the taxi is overlapping
+ * it (sim/collisions.js), so a car can be bulldozed but never driven through.
+ *
+ * The part along the car's own lane is real road: it goes into `s`, so a rear-ended car is shoved
+ * down its lane in the sim and the queue behind it moves with it. Everything else — the sideways
+ * part, a car mid-turn, a car already at the end of its lane — goes into the knock offset, whose
+ * clock is held at zero while the push lasts so it cannot start easing back into the taxi that is
+ * still leaning on it.
+ */
+export function shoveCar(car, dx, dz) {
+  if (car.state === 'drive' && !car.staged) {
+    const t = car.lane.path.tangentAt(car.s);
+    const along = dx * t.x + dz * t.z;
+    if (along > 0) {
+      const ds = Math.min(along, car.lane.length - car.s);
+      car.s += ds;
+      dx -= t.x * ds;
+      dz -= t.z * ds;
+    }
+  }
+  const k = car.knock ?? (car.knock = { x: 0, z: 0, yaw: 0, vx: 0, vz: 0, spin: 0, t: 0 });
+  k.x += dx;
+  k.z += dz;
+  k.t = 0;
 }
 
 function applyKnock(car, dt) {
@@ -3822,7 +3857,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // so queueing at a red — which everything else here is tuned around — is untouched.
         //
         let leadCap = Infinity;
-        const ahead = seesLeader(car) ? leaderDist.get(car) : undefined;
+        const ahead = seesLeader(car) && !rams(car) ? leaderDist.get(car) : undefined;
         if (ahead !== undefined) {
           const leader = leaderOf.get(car);
           const gap = car.boost ? boostGap(car) : followGap(car, leader);
@@ -4208,7 +4243,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // hold. That is what keeps `bargesThrough`'s guarantee intact: nothing stops the taxi
         // inside a junction.
         let target = cornerTarget;
-        const lead = seesLeader(car) ? leaderOf.get(car) : undefined;
+        const lead = seesLeader(car) && !rams(car) ? leaderOf.get(car) : undefined;
         const leadGap = lead === undefined ? undefined : leaderDist.get(car);
         if (leadGap !== undefined) {
           const room = Math.max(0, leadGap - (car.boost ? boostGap(car) : followGap(car, lead)));

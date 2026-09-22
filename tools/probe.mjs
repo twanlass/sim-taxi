@@ -5828,9 +5828,10 @@ check('the taxi is an ordinary car in the traffic array',
 
   const target = hTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive' && c.v > 1);
   hTaxi.staged = true;
-  hTaxi.x = target.x;
-  hTaxi.z = target.z;
+  // Square into its door: the taxi's nose on the car's centre, coming in at right angles.
   hTaxi.yaw = target.yaw + Math.PI / 2;
+  hTaxi.x = target.x - Math.cos(hTaxi.yaw) * 1.6;
+  hTaxi.z = target.z + Math.sin(hTaxi.yaw) * 1.6;
   hTaxi.v = 19;
   hTaxi.boost = true;
   hCollisions.update(1 / 60);
@@ -5848,7 +5849,7 @@ check('the taxi is an ordinary car in the traffic array',
     first && `closing ${first.closing.toFixed(1)} → ${first.damage} HP, ${hTaxi.hp} left`);
   check('the taxi loses most of its speed to it', first && hTaxi.v < first.speed * 0.5,
     first && `${first.speed.toFixed(1)} → ${hTaxi.v.toFixed(1)}`);
-  check('the struck car is shoved and stunned',
+  check('a car struck in the side is shoved and stunned',
     Boolean(target.knock) && target.stun > 0 && target.braking,
     `knock ${Boolean(target.knock)}, stun ${target.stun.toFixed(2)}`);
 
@@ -5872,6 +5873,8 @@ check('the taxi is an ordinary car in the traffic array',
   check('the hit that empties the bar is the wreck', hTaxi.crashed && next.crashed && wrecks === 1
     && hTaxi.hp === 0, `crashed ${hTaxi.crashed}, ${wrecks} wrecks, hp ${hTaxi.hp}`);
 }
+
+
 
 // --- Box trucks --------------------------------------------------------------
 // A purely opt-in ambient variant — every scenario in this file runs with truckChance at its
