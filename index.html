@@ -95,6 +95,12 @@
       :root {
         --hud-count-size: 34px;
         --hud-count-line: calc(var(--hud-count-size) * 1.5); /* the 1.5 in the `font` shorthands */
+        /* The Loco fuel bar that runs under that row — see #loco-bar. Its offset is a variable
+           because three separate rules need the same number: the bar's own `top`, the entrance
+           that slides it off the top edge by exactly that much, and the cargo chip below it, which
+           has to start clear of it. */
+        --loco-bar-h: 8px;
+        --loco-bar-top: calc(18px + var(--safe-top) + var(--hud-count-line) + 8px);
       }
 
       #hud {
@@ -142,7 +148,10 @@
          filter form, so the box holds against pale asphalt exactly as the digits above it do. It is
          a lift off the background rather than a background of its own. */
       #cargo-chip {
-        margin-top: 4px;
+        /* Under the fuel bar, not behind it. The bar is pinned to the viewport and the chip is in
+           flow below the cash total, so the gap has to be paid here: the bar's own offset from the
+           bottom of the counters' line box (8px), its height, and 8px of air under it. */
+        margin-top: calc(8px + var(--loco-bar-h) + 8px);
         width: 42px; height: 42px;
         display: grid; place-items: center;
         filter: drop-shadow(0 2px 6px rgba(20, 40, 55, 0.65));
@@ -192,6 +201,95 @@
         40%  { transform: scale(1.14); color: #F5C130; }
         100% { transform: scale(1);    color: #fff;    }
       }
+
+      /* --- The Loco fuel bar ---------------------------------------------------
+         The tank, read as one thin line across the top of the screen under the counters.
+
+         It used to be painted *into* the Loco Mode pill, which is where it was cheapest to put and
+         the wrong place for two reasons. A thumb on a button covers the thing it is reading — the
+         pill being 45% of the width rather than the whole band was in part so that some of the fill
+         stayed visible past a thumb, which is a workaround rather than a layout. And a dial drawn
+         on its own button says "this button is filling up", where what the player needs to know is
+         "you have this much fuel": a fact about the run, not about a control. Up here it keeps the
+         company it belongs in — the cash total, the streak and the tank are the three read-outs of
+         how the run is going, and none of them is a thing you press.
+
+         Full width between the same 18px gutters the counters sit in, so its ends line up with the
+         `$` and the `x` above it. `pointer-events: none`: the pill is still the only target.
+
+         The gradient is the pill's, moved — `--pct` from game/boostmeter.js and a hard stop between
+         the fuel and the empty track. */
+      #loco-bar {
+        position: fixed; z-index: 12;
+        top: var(--loco-bar-top);
+        left: calc(18px + var(--safe-left)); right: calc(18px + var(--safe-right));
+        height: var(--loco-bar-h); border-radius: 999px;
+        pointer-events: none; user-select: none;
+        background: linear-gradient(90deg, #F5C130 var(--pct, 33.3%), rgba(255, 255, 255, 0.3) 0);
+        /* Two shadows, and both earn their place.
+           The ring is the pill's 2px black outline at the scale this thing is. A track has to read
+           along its *whole length* to say how much is missing, and either colour a track could be
+           disappears against half the city — a pale wash is the value of pale asphalt, a dark one
+           is the value of the road, and a bar reading three quarters full because its last quarter
+           is invisible is worse than no bar. An outline works because it is a *contrast* rather
+           than a colour, which is the same reason the pill has one.
+           The drop under it is the counters' own `text-shadow` in its box form — same offset, same
+           blur — so the bar lifts off the city as the digits above it do.
+           Both are repeated in each state below that rewrites `box-shadow`, because a glow has to
+           be added to these and not land instead of them. */
+        box-shadow: 0 0 0 1.5px rgba(22, 18, 10, 0.55), 0 2px 6px rgba(20, 40, 55, 0.5);
+        transition: box-shadow 0.15s ease;
+      }
+      /* Spending it. Brighter fuel and a glow of its own, so a glance at the top of the screen says
+         the tank is draining without having to catch the end of the bar moving. */
+      #loco-bar.is-active {
+        background: linear-gradient(90deg, #FFE873 var(--pct, 100%), rgba(255, 255, 255, 0.3) 0);
+        box-shadow: 0 0 0 1.5px rgba(22, 18, 10, 0.55), 0 2px 6px rgba(20, 40, 55, 0.5), 0 0 22px rgba(255, 232, 115, 0.8);
+      }
+      /* Fuel arriving — the reward animation for a drop-off, and the same envelope the pill used to
+         wear: `--fill` is 0..1 for "a top-up is pouring" and `--pulse` is the throb inside it, both
+         from game/boostmeter.js. The flutter is translated from a scale to a *thickness*, because
+         the element changed size underneath it: 3.5% of a 49px pill is a pixel and a half either
+         side and reads at the edge of vision; 3.5% of an 8px bar is a third of one. Scaling the
+         bar's own height is that same gesture at the size this thing actually is. */
+      #loco-bar.is-filling {
+        /* Every property here is rewritten per frame, so any transition at all smears the 4Hz
+           throb flat — 0.15s of ease against a 250ms period leaves almost nothing moving. */
+        transition: none;
+        box-shadow: 0 0 0 1.5px rgba(22, 18, 10, 0.55), 0 2px 6px rgba(20, 40, 55, 0.5),
+          0 0 calc(10px + 22px * var(--pulse, 0)) rgba(245, 193, 48, calc(0.95 * var(--fill, 0)));
+        transform: scaleY(calc(1 + 0.55 * var(--pulse, 0)));
+      }
+      /* The leading edge of the fill: a soft vertical bar sitting on the fill front, blurred so it
+         reads as light spilling off the advancing fuel rather than as a hairline UI divider. It
+         tracks the same `--pct` as the gradient — both resolve against the padding box, so they stay
+         locked together — and inherits the fill envelope, fading in as fuel starts arriving and out
+         as the bar springs to rest. It is also what a delivery's energy sparks are aimed at:
+         `locoBarScreenPos` in main.js puts the flight's target on this same front, so the fuel
+         lands exactly where the bar is about to start growing from.
+         Proud of the bar by a pixel at each end rather than inset the way the pill's was — the pill
+         had rounded 49px ends for the blur to poke out of, and at 8px tall the overhang is what
+         makes the edge read as a spill at all. */
+      #loco-bar::after {
+        content: ''; position: absolute; top: -1px; bottom: -1px;
+        left: var(--pct, 33.3%); width: 4px; margin-left: -2px;
+        border-radius: 4px;
+        /* Near-white core with a yellow bloom, not a yellow line: the fill behind it is already
+           #F5C130 and the empty track ahead of it is pale, so a yellow-on-yellow line washed out to
+           nothing. The core carries the position, the bloom carries the colour. */
+        background: #FFFDF2;
+        box-shadow: 0 0 9px 3px rgba(255, 213, 74, 0.95);
+        filter: blur(1.4px);
+        opacity: var(--fill, 0);
+      }
+      /* A bar pumping at 4Hz is exactly what someone who asked for less motion doesn't want. The
+         glow and the leading edge still carry the top-up; only the movement goes. */
+      @media (prefers-reduced-motion: reduce) {
+        #loco-bar.is-filling { transform: none; }
+      }
+      /* The same rule the counters either side of it follow: no screenshot is about the fuel level,
+         and once the run is over the retry pill is the only thing on the screen. */
+      body.shot-mode #loco-bar, body.game-over #loco-bar { display: none; }
 
       /* Pause — the ⏸ between the two counters, and the screen behind it. See src/game/pause.js.
 
@@ -620,11 +718,12 @@
            a second finger tapping a fare is a pinch gesture as far as the browser is concerned,
            and preventDefault on `pointerdown` explicitly does not suppress it. */
         touch-action: none;
-        /* The dial drains left-to-right rather than around a circle, because the button is now a
-           pill. Same reading as the fare ring: filled means time remaining. The fallback matches
-           the starting third, so the frame before the loop first sets --pct doesn't flash full. */
-        background: linear-gradient(90deg, #F5C130 var(--pct, 33.3%), rgba(255, 255, 255, 0.18) 0);
-        transition: box-shadow 0.15s ease, transform 0.1s ease;
+        /* Flat taxi yellow. The fuel level used to be painted here as a left-to-right dial; it is
+           the full-width bar under the counters now (#loco-bar, and the reasoning is up there).
+           What is left is a button that looks like a button — a thumb on it covers no information,
+           and nothing about it changes as the tank drains. */
+        background: #F5C130;
+        transition: background-color 0.12s ease, box-shadow 0.15s ease, transform 0.1s ease;
       }
       /* The label is wrapped and taken out of hit-testing so that the only thing under a thumb on
          this pill is the pill. WebKit's selection and magnifier gestures hit-test like everything
@@ -634,68 +733,28 @@
          and zooming the city in behind it. The button keeps the events either way: `pointer-events`
          only moves the target up to the parent. */
       .boost-label { pointer-events: none; }
+      /* Held. Lit rather than drained: *how much is left* is the bar's question now, so all this
+         has to say is that the pedal is down — which is the same thing the brake beside it says,
+         the same way, in its own colour. */
       #boost.is-active {
-        /* Solid white behind the drained portion, not a translucent wash — over pale asphalt the
-           translucent version read as the same tan as the road and the dial lost its edge. */
-        background: linear-gradient(90deg, #FFE873 var(--pct, 100%), #fff 0);
+        background: #FFE873;
         box-shadow: 0 0 30px rgba(255, 232, 115, 0.85);
       }
       /* Empty tank. Nothing refills on its own, so this greyed-out state persists until the next
-         drop-off tops it up — it reads as "go earn it", not "wait for it". Flat grey rather than the
-         usual dial gradient, and the black outline drops out too: every other state of this pill
-         reads as "press me", so disabled has to read unambiguously as the opposite rather than as a
-         drained version of the same button. */
+         drop-off tops it up — it reads as "go earn it", not "wait for it". Grey rather than a dimmed
+         yellow, and the black outline drops out too: every other state of this pill reads as "press
+         me", so disabled has to read unambiguously as the opposite rather than as a tired version of
+         the same button. */
       #boost.is-empty {
         cursor: default; color: #6b6f73; border-color: transparent;
         background: #b9c0c4;
       }
-      /* Delivery bonus. Fuel is now *only* ever earned, so the pour is the reward animation and it
-         gets the full treatment: the bar overshoots its new mark and springs back, the pill pulses,
-         and a bright edge rides the front of the fill. The shapes are here, the envelope comes from
-         updateBoostButton in main.js — `--fill` is 0..1 for "fuel is arriving" and `--pulse` is the
-         throb inside it. Driving the alpha from a variable rather than a keyframe is what lets the
-         glow fade out smoothly however long the pour ran, instead of snapping off when a fixed
-         animation ends. Listed after .is-active so a top-up collected mid-boost still shows.
-
-         An earlier version was a one-shot green flash matching the flying "$20". Green read as
-         "money", which is what the earnings pop already says — yellow says *this is boost*, which
-         is the thing the player has to notice, and pulsing for exactly as long as fuel is landing
-         ties it to the bar's movement rather than to a fixed 0.65s. */
-      #boost.is-filling {
-        /* Every property here is rewritten per frame, so any transition at all smears the 8Hz
-           throb flat — 0.1s of ease against a 125ms period leaves almost nothing moving. */
-        transition: none;
-        box-shadow: 0 0 calc(14px + 26px * var(--pulse, 0)) rgba(245, 193, 48, calc(0.95 * var(--fill, 0)));
-        /* The pill itself flutters, not just its glow. 3.5% is a couple of pixels either side —
-           enough to catch the eye at the edge of vision, which is where this button is while the
-           player is watching the road. */
-        transform: scale(calc(1 + 0.035 * var(--pulse, 0)));
-      }
-      /* The leading edge of the fill: a soft vertical bar sitting on the fill front, blurred so it
-         reads as light spilling off the advancing fuel rather than as a hairline UI divider. It
-         tracks the same --pct as the gradient — both resolve against the padding box, so they stay
-         locked together — and inherits the fill envelope, fading in as fuel starts arriving and out
-         as the bar springs to rest. Inset a couple of px top and bottom so the blur bleeds to about
-         the pill's edge instead of poking out of the rounded ends. */
-      #boost::after {
-        content: ''; position: absolute; top: 1px; bottom: 1px;
-        left: var(--pct, 33.3%); width: 4px; margin-left: -2px;
-        border-radius: 4px;
-        /* Near-white core with a yellow bloom, not a yellow line: the fill behind it is already
-           #F5C130 and the empty track ahead of it is pale, so a yellow-on-yellow line washed out
-           to nothing at 3px/blur 2.5px. The core carries the position, the bloom carries the
-           colour. Blur stays under half the core width or the line stops reading as an edge. */
-        background: #FFFDF2;
-        box-shadow: 0 0 9px 3px rgba(255, 213, 74, 0.95);
-        filter: blur(1.4px);
-        opacity: var(--fill, 0);
-        pointer-events: none;
-      }
-      /* A pill fluttering at 8Hz is exactly what someone who asked for less motion doesn't want.
-         The glow and the leading edge still carry the top-up; only the movement goes. */
-      @media (prefers-reduced-motion: reduce) {
-        #boost.is-filling { transform: none; }
-      }
+      /* Where the pour went. The overshoot, the flutter and the leading edge a top-up lands with
+         all used to be painted on this pill, along with the fill they were animating; they moved to
+         #loco-bar with it. Nothing about a drop-off shows on the button any more — the reward is a
+         fact about the tank, and the tank is up at the top of the screen.
+         The sparks a delivery throws (game/energybits.js) fly to the bar too, and to the *front of
+         its fill* rather than its middle: see `locoBarScreenPos` in main.js. */
       /* Last of the #boost rules on purpose: the press dip is the one piece of feedback that has to
          win over everything else, and both the throb and the reduced-motion override set a
          transform at equal specificity — a media query adds no weight — so a top-up landing under
@@ -712,8 +771,9 @@
          same black outline, same hold-to-hold contract. What differs is the one thing that has to —
          the colour. Loco Mode is the taxi's own yellow and the brake is brake-light red, so the two
          never have to be read to be told apart at the edge of vision.
-         No dial and no meter: this costs nothing to use and has nothing to run out of, so a pill
-         with a fill on it would promise a resource that isn't there. */
+         And nothing above it. The two pills look the same on purpose, so what says the brake is free
+         is the absence of the fuel bar the other one answers to — this costs nothing to use and has
+         nothing to run out of, and a read-out over it would promise a resource that isn't there. */
       #brake {
         position: fixed; bottom: calc(26px + var(--safe-bottom)); z-index: 20;
         left: calc(100% - var(--ctl-side) - var(--brake-w)); right: var(--ctl-side);
@@ -1121,11 +1181,15 @@
 
          main.js adds `hud-ready`: the moment the last bubble is dismissed, or immediately when
          there is no tutorial (`?tutorial=off`, shot mode). */
-      #hud, #streak, #pause, #boost, #brake, #rider-finder-stack {
+      #hud, #streak, #pause, #loco-bar, #boost, #brake, #rider-finder-stack {
         opacity: 0;
         transition: opacity 0.45s ease, translate 0.55s cubic-bezier(0.22, 1, 0.36, 1);
       }
       #hud, #streak, #pause { translate: 0 -160%; }
+      /* A percentage is the wrong unit for something this thin: -160% of an 8px bar is 13px, which
+         is a twitch rather than an entrance. Off the top edge by its own offset instead, which is
+         the one length that means "gone" for a bar 8 pixels tall. */
+      #loco-bar { translate: 0 calc(-1 * (var(--loco-bar-top) + var(--loco-bar-h))); }
       #boost, #brake, #rider-finder-stack { translate: 0 200%; }
       /* Invisible is not un-tappable: a 0-opacity pill still takes the tap that was aimed at the
          rider behind it. (#hud and #streak are already pointer-events: none.) The pause button
@@ -1134,7 +1198,7 @@
       body:not(.hud-ready) #pause, body:not(.hud-ready) #boost,
       body:not(.hud-ready) #brake, body:not(.hud-ready) #rider-finder-stack { pointer-events: none; }
       body.hud-ready #hud, body.hud-ready #streak, body.hud-ready #pause,
-      body.hud-ready #boost, body.hud-ready #brake,
+      body.hud-ready #loco-bar, body.hud-ready #boost, body.hud-ready #brake,
       body.hud-ready #rider-finder-stack { opacity: 1; translate: 0 0; }
       /* Staggered, top corners first then the bottom ones, so four elements arriving at once read
          as a HUD assembling rather than as a single fade. */
@@ -1158,11 +1222,14 @@
       /* The pause button lands with the streak counter rather than after it: the two of them are the
          rest of the same top edge, and staggering a row of three left-to-right would read as the
          HUD dealing itself out rather than arriving. */
-      body.hud-ready #streak, body.hud-ready #pause { transition-delay: 0.07s; }
+      /* The bar lands with the row it sits under rather than after it — it is the rest of that
+         same top edge, and staggering it separately would read as the HUD dealing itself out. */
+      body.hud-ready #streak, body.hud-ready #pause,
+      body.hud-ready #loco-bar { transition-delay: 0.07s; }
       body.hud-ready #boost, body.hud-ready #brake { transition-delay: 0.14s; }
       body.hud-ready #rider-finder-stack { transition-delay: 0.21s; }
       @media (prefers-reduced-motion: reduce) {
-        #hud, #streak, #pause, #boost, #brake, #rider-finder-stack { translate: none; }
+        #hud, #streak, #pause, #loco-bar, #boost, #brake, #rider-finder-stack { translate: none; }
       }
 
       /* --- "Add to Home Screen" screen — see src/game/homescreen.js -------------
@@ -1388,6 +1455,11 @@
       <div id="cargo-chip" role="img" aria-label="Package aboard" aria-hidden="true"></div>
     </div>
     <div id="streak"><span id="streak-count">0</span>x</div>
+    <!-- The tank, drawn as one thin line under the counters and across the width of the screen. A
+         read-out and not a control — the Loco Mode pill below is still the only thing that spends
+         it. See #loco-bar in the stylesheet, and src/game/boostmeter.js for what drives the three
+         CSS variables it is painted from. -->
+    <div id="loco-bar" aria-hidden="true"></div>
 
     <!-- Both glyphs ship in the one button; CSS shows whichever the current state offers. Drawn
          rather than typed for the same reason the Home Screen tip draws its ⋯ — the pause and play
@@ -1408,7 +1480,8 @@
     </div>
 
     <!-- `aria-keyshortcuts` is how the spacebar hold announces itself; nothing is painted on the
-         pill, which is already the fuel dial and the tutorial's third target. See main.js. -->
+         pill, which is already carrying a label at 800 weight and is the tutorial's third target.
+         What the tank is doing is #loco-bar's job, up under the counters. See main.js. -->
     <button id="boost" type="button" aria-label="Loco Mode" aria-keyshortcuts="Space"
       ><span class="boost-label">Loco Mode&trade;</span></button>
     <!-- The brake shares the bottom row with the pill above, 40% of it to Loco Mode's 60%. Same

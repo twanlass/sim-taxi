@@ -289,17 +289,21 @@ invisible to everything else.
 
 ### The HUD arrives afterwards
 
-The money counter, the [multiplier counter](#the-multiplier-counter), the Loco Mode pill and the
-brake all start off their own screen edge and slide in together the moment the last bubble is
-dismissed (the [rider chips](#finding-the-next-rider) rode in with them, and still do under
+The money counter, the [multiplier counter](#the-multiplier-counter), the
+[fuel bar](#crazy-taxi-mode), the Loco Mode pill and the brake all start off their own screen edge
+and slide in together the moment the last bubble is dismissed (the [rider chips](#finding-the-next-rider) rode in with them, and still do under
 `?chips=on`). A run used to open with all of them already lit, every one reading zero and answering
 a question nobody had asked yet. `main.js` adds `body.hud-ready`; with no tutorial to wait for (`?tutorial=off`, shot mode) they
 are simply there from the first frame.
 
-The offset is the standalone `translate` property, **not** a transform. Three of those four already
-animate their own transform — the money bump, the streak bump, the Loco Mode press dip and its
+The offset is the standalone `translate` property, **not** a transform. Most of those already
+animate their own transform — the money bump, the streak bump, the Loco Mode press dip, the bar's
 top-up flutter — and a `body.hud-ready #boost { transform: none }` outranks `#boost:active` on
 specificity, which would quietly kill the press feedback for the rest of the run.
+
+The bar is the one that can't use the group's `-160%`: a percentage of an 8px box is 13px, which is
+a twitch rather than an entrance, so it slides off the top edge by its own offset instead
+(`--loco-bar-top` plus `--loco-bar-h`, which is also what the cargo chip below it clears by).
 
 Nothing else is taught. The drop-off [dispatches itself](#the-drop-off-dispatches-itself) and the
 clock is [a coloured crystal over a head](#the-fares-clock-travels) — neither needs a sentence, and
@@ -2539,8 +2543,30 @@ unbroken move: with nothing to arrive at on the car, the box has one destination
 
 The **Loco Mode** button, bottom left. **Hold to enable, release to pause.** A short tap costs a
 short slice, a long hold flows until the tank is empty. Full tank is 15 seconds of boost. The
-decision is now *how long* to press as well as *when*. The button doubles as the dial: a `--pct`
-CSS variable tracks the fuel level, dropping as you drain and climbing as a drop-off pours fuel in.
+decision is now *how long* to press as well as *when*.
+
+**The tank is read off a bar, not off the button.** `#loco-bar` is one thin line under the counters,
+across the full width of the screen: a `--pct` CSS variable tracks the fuel level, dropping as you
+drain and climbing as a drop-off pours fuel in. It used to be painted *into* the pill, as a
+left-to-right dial behind the label, which is where it was cheapest to put and the wrong place for
+two reasons. A thumb on a button covers the thing it is reading — the pill being 45% of the width
+rather than the whole band was in part so that some of the fill stayed visible past a thumb, which
+is a workaround and not a layout. And a dial drawn on its own button says *this button is filling
+up*, where what the player needs to know is *you have this much fuel*: a fact about the run, not
+about a control. Up at the top it keeps the company it belongs in — the cash total, the multiplier
+and the tank are the three read-outs of how the run is going, and none of them is a thing you press.
+
+What is left on the pill is a button that looks like a button: flat taxi yellow, lit (`.is-active`)
+while it is held, grey and dead (`.is-empty`) on an empty tank. Nothing about it changes as the tank
+drains. The bar carries both of those states too — brighter fuel and a glow of its own while it is
+being spent — so a glance at the top of the screen says the tank is draining without having to catch
+the end of the bar moving.
+
+The bar's empty track is pale with a dark outline ring, which is the pill's own 2px black outline at
+the scale of an 8px bar and is there for the same reason. A track has to read along its *whole
+length* to say how much is missing, and either colour a track could be disappears against half the
+city: a pale wash is the value of pale asphalt, a dark one is the value of the road. An outline
+works because it is a contrast rather than a colour.
 
 **The meter never refills on its own.** The run opens with **a third of a tank**, each successful
 drop-off pours in **another third**, a [delivered package](#the-rest-of-it) pours in **a sixth**, and
@@ -2627,17 +2653,27 @@ another window never arrives at all, so alt-tabbing mid-hold is the case where b
 end that hold gets. It clears the `spaceHeld` latch too — that latch is what stops a stray keyup
 (one whose keydown we bowed out of) from cancelling a boost the player is holding on the pill.
 
-The pill carries `aria-keyshortcuts="Space"`; there is no painted "SPACE" label on it, because the
-pill is also the fuel dial and the tutorial's third beat points at it.
+The pill carries `aria-keyshortcuts="Space"`; there is no painted "SPACE" label on it, because it is
+already carrying "Loco Mode™" at 800 weight across 45% of a phone and the tutorial's third beat
+points at it.
 
 ### The refill animation
 
 A drop-off pays two currencies and for a while it only showed one. The flying `$20` says *money*;
 nothing said *and a third of a tank*, so the meter simply grew on its own in the corner of the
 screen with no visible cause. `src/game/energybits.js` is that cause: **six little yellow sparks
-break off the taxi and get pulled into the Punch It pill**, and the tank is topped up when the first
-one lands, not on the delivery frame. A meter that starts filling a second and a half before
-anything visibly reaches it reads exactly backwards.
+break off the taxi and get pulled into the fuel bar**, and the tank is topped up when the first one
+lands, not on the delivery frame. A meter that starts filling a second and a half before anything
+visibly reaches it reads exactly backwards.
+
+They are aimed at the **front of the fill**, not the middle of the bar — `locoBarScreenPos` in
+`main.js`, against `boostMeter.state.pct`. A bar the width of the screen has no single point that
+means "the tank" the way a button does, and the one point that does mean something is the place the
+fuel is about to appear. Since `flyEnergyToBoost` resolves its target at burst time — a second after
+the drop-off, and before the pour starts, because the pour is what `onArrive` kicks off — the point
+it reads is the level the bar is sitting at, and the sparks land exactly on the edge that then
+starts moving. They are held off the rounded caps by 5px, or at an empty or a full tank they would
+converge on a point outside the stroke and read as a near miss.
 
 They are **sequenced behind the payout, not fired alongside it** — the handoff is 1000ms, set from
 the payout's own flight (620ms rise + 460ms fly), so the coin has landed and gone before the first
@@ -2647,11 +2683,11 @@ the drop-off rather than immediately; that delay is the effect, and it's short e
 the gap before the next fare is worth chasing.
 
 Both endpoints are resolved as functions at burst time rather than baked in at call time, so a taxi
-that has driven on — and a pill a resize has moved — are still aimed at correctly. If the pill is
+that has driven on — and a bar a resize has moved — are still aimed at correctly. If the bar is
 hidden (shot mode, or the run-end blackout) the flight is skipped and the fuel is handed over
 anyway: losing earned boost to a presentation detail would be a real bug wearing a cosmetic one.
 
-A delivered package fires the same swarm from the same car to the same pill, for `BOOST_PARCEL_REWARD`
+A delivered package fires the same swarm from the same car to the same bar, for `BOOST_PARCEL_REWARD`
 instead — one effect for "you got fuel", regardless of which job paid it. It sits behind the courier
 payout's flight for the same reason a fare's does.
 
@@ -2665,8 +2701,8 @@ enters the meter, it carries the rest of the reward and gets three more layers, 
 | Layer | What it does | Wiring |
 |---|---|---|
 | **Overfill** | The bar runs ~4.5% of a tank past its new mark, then rings back down onto it | `--pct` |
-| **Flutter** | The whole pill throbs — glow and 3.5% of scale together, 4Hz — for as long as fuel is arriving | `--fill` × `--pulse` → `.is-filling` |
-| **Leading edge** | A blurred near-white line rides the front of the fill, fading in with the pour and out with the bounce | `--fill` → `#boost::after` |
+| **Flutter** | The bar throbs — glow and 55% of its own *thickness* together, 4Hz — for as long as fuel is arriving | `--fill` × `--pulse` → `.is-filling` |
+| **Leading edge** | A blurred near-white line rides the front of the fill, fading in with the pour and out with the bounce | `--fill` → `#loco-bar::after` |
 
 `boostmeter.js` is pure and DOM-free for the same reason `boost.js` is: `main.js` reads three numbers
 off it and writes three CSS variables, and the probe drives it with a real pour and asserts on the
@@ -2692,9 +2728,11 @@ and the decay were pulled back from an original 7%/7-per-second pass that read a
 The flutter runs at 4Hz, halved from an original 8Hz. At 8Hz a pour that landed several energy
 circles at once stacked up enough pulses to read as chaotic rather than lively; one clear pulse
 where there used to be two reads calmer without dropping all the way to the 5Hz "breathing" rate
-that was tried and rejected earlier. It moves the pill itself, not just the glow, which is what
-makes it visible at the edge of vision — where this button is while the player is watching the
-road. `prefers-reduced-motion` drops the scale and keeps the glow and the edge.
+that was tried and rejected earlier. It moves the bar itself, not just the glow, which is what makes
+it visible at the edge of vision — and moving the bar means moving its *height*, not scaling it
+whole: the gesture was 3.5% of a 49px pill, a pixel and a half either side, and 3.5% of an 8px bar
+is a third of one. Scaling the bar's own thickness is that same gesture at the size this element
+actually is. `prefers-reduced-motion` drops the movement and keeps the glow and the edge.
 
 The glow used to be a one-shot green flash matching the flying `$20`. Green read as *money*, which
 is what the earnings pop already says; yellow says *this is boost*. Driving its alpha from a variable
@@ -2832,8 +2870,10 @@ it while held. The physics is in
 [traffic.md](traffic.md#the-brake-pedal); this is what the player touches.
 
 **It costs nothing and cannot run out.** No meter, no fuel, no cooldown, nothing to earn — which is
-why the button carries no dial. A pill with a fill on it would promise a resource that isn't there.
-It is a prototype control in the honest sense: the only thing it does is stop the car.
+why there is no bar over it. The two pills look the same, so what says the brake is free is the
+absence of the read-out the other one answers to; a bar over this button would promise a resource
+that isn't there. It is a prototype control in the honest sense: the only thing it does is stop the
+car.
 
 **Red, not yellow.** Everything else about it is the pill's — same bottom edge, same 49px height,
 same radius, same black outline, same hold-to-hold contract, the same `touch-action: none` and
