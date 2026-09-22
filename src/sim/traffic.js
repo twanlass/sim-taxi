@@ -677,14 +677,18 @@ export const laysPassRubber = (car) => Boolean(car.boost)
  */
 const seesLeader = (car) => car.passOffset
   < Math.max(ENVELOPE, laneOffsetFor(car.d, car.i, car.j));
-// A boosting taxi with hit points does not follow anyone: it rams. Everything above about the
-// tailgate gap and the moving-leader cap is how Loco Mode *avoided* the car in front, which was the
-// right call while any contact was the end of the run and is the wrong one now a contact is a bump
-// (sim/collisions.js). Held to the leader it lifted off in the last few units before every rear-end
-// — the cap closing as the gap did — and read as the taxi flinching. Keyed on `hp` so the lab and
-// the probe, which never arm it, keep measuring the avoiding taxi they were tuned against. The
-// overtake still runs: it is offered off the leader's distance, which is still measured.
-const rams = (car) => car.isTaxi && car.boost && car.hp != null;
+// A boosting taxi with hit points that *cannot* get round the car in front rams it. Everything
+// above about the tailgate gap and the moving-leader cap is how Loco Mode avoided the car in front,
+// which was the right call while any contact was the end of the run. Now a contact is a bump
+// (sim/collisions.js), and a taxi held to a leader it has no way past lifted off in the last few
+// units before the rear-end — the cap closing as the gap did — which read as the taxi flinching.
+//
+// Where a pass *is* on, the taxi follows as it always did: the tailgate is what brings it inside
+// PASS_TRIGGER, and a taxi that ignored the leader would be in its boot before it pulled out.
+// `canPass` is the overtake's own test (the pass block in `update`), so the two cannot disagree
+// about whether there was a way round. Keyed on `hp` so the lab and the probe, which never arm it,
+// keep measuring the avoiding taxi they were tuned against.
+const rams = (car) => car.isTaxi && car.boost && car.hp != null && !car.canPass;
 // Where the taxi pulls out, and the number the whole manoeuvre is sized by. Closing to a body
 // length past the leader is (PASS_TRIGGER + 5) units of relative displacement, and at the ~10 u/s
 // a boosting taxi gains on cruising traffic that is 1.83 units of road for every unit of it. At
@@ -3579,6 +3583,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         const rel = isXAxis(taxi.d) ? (mark.x - taxi.x) * sign : (mark.z - taxi.z) * sign;
         return rel > -PASS_CLEAR;
       };
+
+      // Whether there is a way round the car in front right now — the same four conditions the pull
+      // -out below asks, minus `near`. Read by `rams()`: where this is false, a taxi with hit points
+      // stops following the leader and drives into it. Only worth the oncoming scan with a leader
+      // in view.
+      taxi.canPass = locoHeld && gap !== undefined && room && passable && oncomingClear();
 
       if (taxi.state === 'drive') {
         const was = taxi.passing;

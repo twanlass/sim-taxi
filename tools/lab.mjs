@@ -334,15 +334,17 @@ check('with the front wheels turned into it rather than pointing dead ahead',
 // Two things a player reported on the first cut of HP. The taxi lifted off in the last few units
 // before every rear-end, because it was still held to the leader by tailgate rules written for a
 // taxi that must never touch anything; and a car it had just tapped was switched out of the
-// collision test for a couple of seconds, so it drove clean through it. No route is handed over,
-// so the overtake is never offered (see `approach` above) and the leader is the only answer.
+// collision test for a couple of seconds, so it drove clean through it. With no route handed over
+// the overtake is never offered (see `approach` above), so the leader is the only answer and the
+// taxi rams it. With the road's one exit handed over as a route and the oncoming lane empty, a pass
+// *is* on, and the taxi must take it rather than ram — ramming is the fallback, not the policy.
 //
 // "Through" is measured as overlap, not as which centre ends up in front. The weave carries the
 // taxi a unit or so sideways, so a hit often turns into a glance: the car is shoved aside and the
 // taxi slides past it, which is a collision resolved, not one missed. What must never happen is
 // the two bodies sinking into each other — contact is resolved a frame late by construction, so
 // the bar is one frame's travel at the top of the overdrive band (34 u/s / 60 ≈ 0.57).
-function ram(parked) {
+function ram(parked, route = false) {
   const scene = new THREE.Scene();
   const traffic = createTraffic(makeRng(4242), scene, 2, 2, 0);
   const taxi = traffic.taxi;
@@ -358,16 +360,27 @@ function ram(parked) {
   leader.v = parked ? 0 : SPEED;
   taxi.route = [];
   taxi.v = 17;
-  const out = { hits, minV: Infinity, deepest: 0, leader };
-  for (let n = 0; n < 120; n++) {
+  const out = { hits, minV: Infinity, deepest: 0, leader, passed: false, passing: false };
+  // A pass is ~32 units of road at a closing speed of ~10 u/s, so it wants longer than a ram.
+  for (let n = 0; n < (route ? 240 : 120); n++) {
     taxi.boost = true;
     taxi.boostEasing = false;
+    if (route) while (taxi.route.length < 3) taxi.route.push(taxi.d);
     traffic.update(STEP);
     collisions.update(STEP);
     if (!hits.length) out.minV = Math.min(out.minV, taxi.v);
     out.deepest = Math.max(out.deepest, penetration(taxi, leader)?.depth ?? 0);
+    if (taxi.passing) out.passing = true;
+    if (taxi.x > leader.x + 4) out.passed = true;
   }
   return out;
+}
+
+{
+  const r = ram(false, true);
+  check('with a pass on, a taxi with HP goes round the car rather than ramming it',
+    r.passing && r.passed && r.hits.length === 0,
+    `pulled out ${r.passing}, got past ${r.passed}, ${r.hits.length} hits`);
 }
 
 for (const parked of [true, false]) {

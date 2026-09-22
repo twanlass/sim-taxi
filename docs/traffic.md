@@ -1426,10 +1426,13 @@ Rear-ending a car at boost cruise closes at ~10.5 u/s and costs 24; T-boning cro
 cruise closes at ~21 and costs 37; anything in the overdrive band costs 49–55. So a sloppy tailgate
 is forgiven about four times and a red run flat out about twice.
 
-**The taxi rams.** A boosting taxi with `hp` stops following the car in front — no `BOOST_GAP`,
-no moving-leader cap, in lanes or junctions (`rams()` in `traffic.js`). Held to those rules it lifted
-off in the last few units before every rear-end, which read as the taxi flinching. The overtake still
-runs, since it is offered off the leader's distance, which is still measured.
+**The taxi rams — when it cannot pass.** A boosting taxi with `hp` that has no way round the car in
+front stops following it: no `BOOST_GAP`, no moving-leader cap, in lanes or junctions (`rams()` in
+`traffic.js`). Held to those rules it lifted off in the last few units before every rear-end, which
+read as the taxi flinching. Where a pass *is* on — the route carries straight on, there is an oncoming
+lane, the leader is not mid-turn and the borrowed lane is clear (`canPass`, the overtake's own test) —
+it tailgates exactly as before, because the tailgate is what brings it inside `PASS_TRIGGER` to pull
+out. Ramming is the fallback, not the policy.
 
 **What a bump does:**
 
