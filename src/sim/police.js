@@ -297,24 +297,29 @@ function steeredWheels(group) {
   return { wheels, material };
 }
 
-function lightBar(group) {
+function lightBar(shell, carrier) {
   const make = (hex, z) => {
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(0.55, 0.26, 0.5),
       unlitMaterial({ color: new THREE.Color(hex) }),
     );
     mesh.position.set(-0.2, 1.9 + CHASSIS_LIFT, z);
-    group.add(mesh);
+    shell.add(mesh);
     return mesh;
   };
 
   // Actual lights, not just glowing boxes. The bar alone is a couple of pixels; what sells a
   // siren is the colour washing across the tarmac and the fronts of nearby buildings as it goes
   // past. No shadows — these are cheap fill, and shadow-casting point lights are not.
+  //
+  // Hung on `carrier` rather than on the shell, and that is a **performance** decision, not a
+  // cosmetic one — see the shell's own comment in `createPolice`. Three counts the lights in the
+  // scene by walking the *visible* graph, so a lamp under a hidden parent is not merely dark, it
+  // is absent: `numPointLights` drops to zero and every lit program in the city is rebuilt.
   const lamp = (hex, z) => {
     const light = new THREE.PointLight(new THREE.Color(hex), 0, 34, 1.7);
     light.position.set(-0.2, 2.1 + CHASSIS_LIFT, z);
-    group.add(light);
+    carrier.add(light);
     return light;
   };
 
@@ -333,12 +338,30 @@ function lightBar(group) {
  */
 export function createPolice(rng, scene, cars = []) {
   const group = new THREE.Group();
+  /**
+   * Everything the cruiser *draws*, one level in from the group that carries it.
+   *
+   * The car is off screen for most of a run and used to be hidden by `group.visible = false`,
+   * which is the obvious way to do it and cost a stall every time the cop turned up. Three
+   * collects the scene's lights with `traverseVisible`, so hiding the group took the two siren
+   * lamps out of the count with it: `numPointLights` went 0 → 2 on the spawn frame, and the light
+   * count is part of a material's program cache key, so **every lit material in the city relinked
+   * its shader** — 22 programs on the frame the cruiser appeared and the rest on the frame it
+   * left. Measured on a run at `tools/links.mjs`: 35 program links after boot, all of them the
+   * static city's own materials, gone once the lamps stopped disappearing.
+   *
+   * So the group stays visible for the whole run and only this shell is switched. The lamps sit on
+   * the group, outside it, dark at `intensity = 0` between runs — a light that is counted and
+   * contributes nothing, which is exactly the trade that keeps the program set still.
+   */
+  const shell = new THREE.Group();
+  group.add(shell);
   const body = new THREE.Mesh(policeGeometry(), propMaterial());
   body.receiveShadow = true;
-  group.add(body);
-  const lights = lightBar(group);
-  const front = steeredWheels(group);
-  group.visible = false;
+  shell.add(body);
+  const lights = lightBar(shell, group);
+  const front = steeredWheels(shell);
+  shell.visible = false;
   // Set once, at construction, rather than only where the body is posed: the corridor run writes
   // `group.rotation.y` on its own (railHeading, below) without going through a full `set`, so an
   // order left on the default there would be waiting for the first frame the chase rolled the car.
@@ -555,7 +578,7 @@ export function createPolice(rng, scene, cars = []) {
     state.active = true;
     state.lit = true;      // siren from the spawn frame; the bust waits for BUST_ARM_INSET
     state.runs += 1;
-    group.visible = true;
+    shell.visible = true;
     place();   // otherwise it is drawn at last run's position for one frame
     // A new run starts somewhere else entirely, facing somewhere else. Re-baseline the steering
     // difference against that pose so the jump across the map isn't read as a manoeuvre, and
@@ -792,7 +815,7 @@ export function createPolice(rng, scene, cars = []) {
     state.active = false;
     state.armed = false;
     state.lit = false;
-    group.visible = false;
+    shell.visible = false;
     setPriorityCorridor(null);
     setPolicePresence(null);
     setPoliceRoads([]);

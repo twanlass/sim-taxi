@@ -3515,6 +3515,16 @@ if (shot) {
   // already parked inside it by now, so the city builds itself outward from the depot — which is
   // exactly where the camera is about to go.
   cityEntry.replay(traffic.taxi);
+  // Every program the city needs, linked here rather than on the frame that first draws it.
+  //
+  // Three compiles a material's shader lazily, at its first draw, and half this game's meshes are
+  // pooled effects sitting in the scene with `visible = false` — a blast, a wreck, a rider's
+  // crystal, a roadworks zone. Each of those linked its program on the frame it first appeared,
+  // which is to say on the frame something interesting was happening. `compile()` walks the scene
+  // with `traverse`, not `traverseVisible`, so the hidden ones are covered too: measured at
+  // `tools/links.mjs`, it moves six program links out of the run and into the boot, where they are
+  // behind the wipe and the vignette and nobody is being made to wait for them mid-corner.
+  renderer.compile(scene, camera);
   frame();
 }
 

@@ -263,17 +263,40 @@ float bloomUnpackDepth(vec4 rgba) {
 
 const REJECT = `\tif (gl_FragCoord.z > bloomUnpackDepth(texture2D(tBloomDepth, gl_FragCoord.xy * uBloomDepthTexel)) + uBloomDepthBias) discard;`;
 
-let patchSeq = 0;
+/**
+ * What to call the patch `inherited` applies, as far as three's program cache is concerned.
+ *
+ * The source material's own `customProgramCacheKey` is the answer, and every material has one:
+ * where this project has set it (the rule in CLAUDE.md — every `onBeforeCompile` carries a key),
+ * it is the module's own claim that *this* string names the source its patch produces, so a lamp
+ * lit by `propMaterial()` reports `prop-ssao` whichever lamp it is. Where nothing has set it,
+ * three's default returns `onBeforeCompile.toString()`, which is content rather than identity: two
+ * unpatched materials stringify the same empty stub and share a program, two different patches
+ * cannot. Either way materials that compile to the same source land on the same key.
+ *
+ * `null` for the case there is no source to ask — `setEmissiveMaterial`, where the caller hands in
+ * a material of its own. Those are hand-written shaders, and three keys *those* by their own source
+ * (`customVertexShaderID`), so a shared string here cannot collide two of them either.
+ */
+function inheritedKey(source) {
+  const own = source?.customProgramCacheKey;
+  return own ? `k:${own.call(source)}` : 'plain';
+}
 
-function patchEmissiveDepth(material, inherited = null) {
+function patchEmissiveDepth(material, inherited = null, source = null) {
   // Three builds the program cache key from the material's parameters, *before* `onBeforeCompile`
   // runs, so a patched basic material collides with every unpatched one sharing those parameters
   // and `acquireProgram` hands back whichever compiled first — the trap that once drew the
   // diamond's fill with a building's shader. See CLAUDE.md.
   //
-  // Unique per material rather than one constant for the pass, because `inherited` means two of
-  // these can carry *different* source patches while sharing every parameter three hashes.
-  const key = `bloom-emissive-${patchSeq++}`;
+  // Keyed by the *patch*, not by the material. One constant for the whole pass would be wrong —
+  // `inherited` means two of these can carry different source patches while sharing every parameter
+  // three hashes — but a counter bumped per material was wrong in the other direction, and
+  // expensively: it gave every lamp in the game a program of its own, and a program is deleted the
+  // moment its last material is (`unmarkEmissive` disposes), so a **pooled** lamp that is marked and
+  // unmarked as it is reused relinked a shader every time it came back. Measured at
+  // `tools/links.mjs`: 7 of the 11 shader links left in a run after the police fix were this.
+  const key = `bloom-emissive-${inheritedKey(source)}`;
   material.customProgramCacheKey = () => key;
   material.onBeforeCompile = (shader, renderer) => {
     // The source's own patch first, so this runs on top of whatever it did rather than being
@@ -438,7 +461,7 @@ export function markEmissive(root, kind = 'pod') {
       blending: live.blending,
       depthWrite: live.depthWrite,
       transparent: live.transparent,
-    }), live.onBeforeCompile || null);
+    }), live.onBeforeCompile || null, live);
     object.userData.bloomKind = kind;
     object.userData.bloomSync = null;
     object.layers.enable(BLOOM_LAYER);
