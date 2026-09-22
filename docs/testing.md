@@ -83,6 +83,8 @@ node tools/signals.mjs                        # signal metrics, incl. cycle-leng
 node tools/lab.mjs                            # the passing lab's road and its overtake
 node tools/roadwork-pull.mjs                  # how often a run actually meets the construction zone
 node tools/diag.mjs                           # ad-hoc scratch diagnostics
+node tools/alloc.mjs 6000 110                 # bytes of garbage per simulated frame
+node tools/links.mjs --url http://localhost:5173   # shaders compiled *during* a run
 node tools/smoke.mjs --url http://localhost:4173   # real browser, real DOM
 node tools/native-smoke.mjs --url http://localhost:4173   # the iOS fork, both ways
 ./shots.sh                                    # render the screenshot set
@@ -104,6 +106,50 @@ the wrong reason. And **both probes spoof an iPhone UA**, because `game/homescre
 most important assertion in the file passes against a completely broken build.
 
 Like `smoke.mjs`, it needs a browser and a served bundle, so it is not in `npm run check`.
+
+### The two performance tools
+
+They answer the two halves of "the game hitches", and they are worth running in that order, because
+the first one almost always rules itself out.
+
+`alloc.mjs` runs the headless simulation under V8's allocation sampler and reports **bytes per
+frame**. A full city allocates around 60 of them — call it 4 KiB a second, which is a young-generation
+scavenge about once an hour. Stutter in a browser game reads as garbage collection whether or not it
+is one, and this is how to find out in ten seconds rather than by reading the sim looking for object
+literals. A number in this range means the problem is on the GPU side.
+
+`links.mjs` is the GPU side, and it counts one specific thing: **shader programs linked after the
+game has started**. Three compiles a material's program on the frame that first draws it, and a link
+is a synchronous stall — a few milliseconds on a desktop, tens of them on a phone. Compiled at boot
+it is free, because the player is looking at a wipe; compiled ninety seconds in it is a hitch, and by
+construction it arrives at the moment something interesting started happening. The tool wraps
+`linkProgram` before the page's first script runs, so nothing in `src/` knows it exists, and it exits
+non-zero past `--budget` (12 by default).
+
+It runs under SwiftShader like every other headless browser tool here, so its **wallclock is
+meaningless** — a couple of frames a second, and a run stretched into slow motion. The count is not:
+what compiles, and whether it compiles before or after the game starts, is the same on any GPU.
+
+Two things it caught, both of which had been shipping for a long time and neither of which is visible
+in a profile of the frame loop, because the work happens inside the driver:
+
+  - **A light inside a group that gets hidden.** The police cruiser's two siren lamps used to sit
+    under the group that `group.visible = false` hid between runs. Three collects the scene's lights
+    with `traverseVisible`, so hiding the car did not dim them, it *removed* them — and the light
+    count is part of every lit material's program cache key. Every lit material in the city relinked
+    on the frame the cop appeared, and again on the frame it left: 22 programs, then 9. The fix is in
+    `sim/police.js`: the group stays visible, a `shell` one level in carries everything that draws,
+    and the lamps sit outside it at `intensity = 0`.
+  - **A program cache key that was unique per material.** `game/bloom.js` keyed each lamp's emissive
+    copy off a counter, so every lamp in the game had a program to itself — and three deletes a
+    program when its last material is disposed, which `unmarkEmissive` does. Every pooled marker
+    relinked a shader each time it came back. It is keyed off the source material's own
+    `customProgramCacheKey` now, so lamps that compile to the same source share one program.
+
+Together those took a run from 35 mid-run links to 8, and took 11 programs out of the boot as well.
+The third piece is the `renderer.compile(scene, camera)` at the bottom of `main.js`: `compile()`
+walks the scene with `traverse` rather than `traverseVisible`, so it reaches the pooled effects that
+are sitting there invisible, and moves another six links out of the run.
 
 `roadwork-pull.mjs` is deliberately **not** in `npm run check`. What it measures is a distribution —
 the share of runs in which the taxi is routed through the closed street — and the honest assertion

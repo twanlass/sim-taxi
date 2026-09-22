@@ -6941,8 +6941,15 @@ check('the taxi is an ordinary car in the traffic array',
   let corridorLock = 0;
   let chaseLock = 0;
   let rigLock = 0;
-  // Only the steered wheels yaw; the light-bar boxes and the body sit at 0.
-  const wheelLock = (p) => Math.max(...p.group.children.map((c) => Math.abs(c.rotation.y)));
+  // Only the steered wheels yaw; the light-bar boxes and the body sit at 0. Traversed rather than
+  // read off `group.children`, because the cruiser's meshes hang off a shell one level in — the
+  // group itself has to stay visible so its two siren lamps stay in the scene's light count (see
+  // `createPolice`), and the group's own `rotation.y` is the car's heading, which is not a lock.
+  const wheelLock = (p) => {
+    let peak = 0;
+    p.group.traverse((c) => { if (c.isMesh) peak = Math.max(peak, Math.abs(c.rotation.y)); });
+    return peak;
+  };
 
   for (const kase of cases) {
     const cScene = new THREE.Scene();
@@ -7064,6 +7071,43 @@ check('the taxi is an ordinary car in the traffic array',
     `${(corridorLock * 180 / Math.PI).toFixed(1)}° peak on the rail`);
   check('the cruiser steers into the chase', chaseLock > 0.3 && Math.abs(rigLock - chaseLock) < 1e-9,
     `rig ${(rigLock * 180 / Math.PI).toFixed(0)}° vs model ${(chaseLock * 180 / Math.PI).toFixed(0)}°`);
+
+  // --- What is hidden between runs, and what is deliberately not.
+  //
+  // The cruiser is off screen for most of a run, and the obvious way to put it there —
+  // `group.visible = false` — cost a stall every time it came back. Three collects the scene's
+  // lights with `traverseVisible`, so hiding the group took the two siren lamps out of the light
+  // count with it, and the light count is in every lit material's program cache key: every lit
+  // material in the city relinked its shader on the spawn frame. So the group stays visible and a
+  // shell one level in carries everything that draws. Both halves are asserted, because either one
+  // alone is a bug — a visible group with the meshes still in it is a cruiser parked at the origin
+  // for the whole run, and a dark lamp under a hidden parent is the stall coming back.
+  const hidden = createPolice(makeRng(seed + 66), new THREE.Scene());
+  const lampsOf = (p) => {
+    const lamps = [];
+    p.group.traverse((o) => { if (o.isLight) lamps.push(o); });
+    return lamps;
+  };
+  const drawnOf = (p) => {
+    const drawn = [];
+    p.group.traverse((o) => { if (o.isMesh) drawn.push(o); });
+    return drawn;
+  };
+  const shown = (o) => { let n = o; while (n) { if (!n.visible) return false; n = n.parent; } return true; };
+  check('a parked cruiser draws nothing', drawnOf(hidden).length > 0
+    && drawnOf(hidden).every((m) => !shown(m)),
+    `${drawnOf(hidden).length} meshes, all hidden`);
+  check('...but its siren lamps stay in the scene, dark', lampsOf(hidden).length === 2
+    && lampsOf(hidden).every((l) => shown(l) && l.intensity === 0),
+    'a light under a hidden parent is not counted, and the light count is in every program key');
+  hidden.state.cooldown = 0;
+  for (let step = 0; step < 60 * 30 && !hidden.state.active; step++) hidden.update(1 / 60);
+  check('...and the car it belongs to draws once it is out', hidden.state.active
+    && drawnOf(hidden).every((m) => shown(m)),
+    `active ${hidden.state.active}, ${drawnOf(hidden).filter(shown).length}/${drawnOf(hidden).length} drawn`);
+  check('...without the light count having changed under it', lampsOf(hidden).length === 2
+    && lampsOf(hidden).every(shown),
+    'the lamps are never added or removed, only turned up');
 }
 
 // --- Traffic in the siren's own lane ----------------------------------------
@@ -12990,14 +13034,41 @@ let chopperOrder; // likewise
 
   check('every bloom material is unfogged and keyed',
     mine.every((m) => m.userData.bloomMaterial.fog === false
-      && /^bloom-emissive-\d+$/.test(m.userData.bloomMaterial.customProgramCacheKey?.() ?? '')),
+      && /^bloom-emissive-./.test(m.userData.bloomMaterial.customProgramCacheKey?.() ?? '')),
     'a lamp mixed toward the sky is not a lamp; an unkeyed patch draws with another material\'s shader');
-  // Keyed *uniquely*, not to one constant for the whole pass: a material that inherits a source's
-  // own `onBeforeCompile` (the Loco burst's per-instance alpha) compiles to different source while
+  // Keyed by the **patch**, which is neither of the two obvious answers.
+  //
+  // One constant for the whole pass is wrong: a material that inherits its source's own
+  // `onBeforeCompile` (the Loco burst's per-instance alpha) compiles to different source while
   // sharing every parameter three hashes, so one shared key would hand it another lamp's program.
+  // A counter bumped per material is wrong the other way, and costs a stall rather than a
+  // miscoloured lamp: a program lives only as long as a material referencing it, `unmarkEmissive`
+  // disposes, and every lamp in this game is pooled — so a unique key relinked a shader each time
+  // a marker came back. All of these carry no patch of their own, so all of them compile the same
+  // source and all of them belong on one program.
   const keys = new Set(mine.map((m) => m.userData.bloomMaterial.customProgramCacheKey()));
-  check('...and no two of them share a key', keys.size === mine.length,
-    `${keys.size} keys for ${mine.length} materials`);
+  check('...and lamps that compile to the same source share one program', keys.size === 1,
+    `${keys.size} keys for ${mine.length} unpatched materials`);
+  // The other half of that claim, and the one the sharing above could quietly break: a lamp whose
+  // *source* carries a patch of its own has to land on a key of its own. The ring's sweep is one —
+  // `geometry/targetring.js` keys it `ring-sweep` — so its bloom copy must not be filed with the
+  // plain lamps, or it draws with their shader and the sweep goes missing. Same trap as the
+  // diamond's fill in CLAUDE.md, one layer along.
+  const keyedRing = createTargetRing(PALETTE.urgency[4]);
+  markEmissive(keyedRing.group, 'ring');
+  // Only the parts that actually carry a patch: three gives *every* material a
+  // `customProgramCacheKey`, defaulting to `onBeforeCompile.toString()`, so having one proves
+  // nothing. The ring's rim is plain and belongs with the lamps above; its sweep is not.
+  const plainKey = new THREE.MeshBasicMaterial().customProgramCacheKey();
+  const keyedRingKeys = new Set();
+  keyedRing.group.traverse((o) => {
+    if (!o.userData?.bloomMaterial || !o.material?.customProgramCacheKey) return;
+    if (o.material.customProgramCacheKey() === plainKey) return;
+    keyedRingKeys.add(o.userData.bloomMaterial.customProgramCacheKey());
+  });
+  check('...and one whose source carries a patch does not', keyedRingKeys.size > 0
+    && [...keyedRingKeys].every((k) => !keys.has(k)),
+    `${[...keyedRingKeys].join(', ') || 'no patched lamp found'} against ${[...keys].join(', ')}`);
 
   // --- It follows a material that moves.
   //

@@ -122,6 +122,26 @@ Omit the whole section if there's nothing to note.
   material's parameters *before* the patch runs, so a patched material collides with every unpatched
   one sharing those parameters and gets handed whichever program compiled first. The diamond's fill
   drew with a building's shader and went missing with nothing logged.
+- **A light under a hidden group is not dim, it is gone — and its absence recompiles the whole
+  city.** Three collects the scene's lights with `traverseVisible`, so `group.visible = false` on
+  something carrying a `PointLight` drops `numPointLights`, and the light counts are part of every
+  lit material's program cache key. The police cruiser hid that way between runs, and the frame it
+  appeared on relinked **22 programs** — the buildings, the ground, the river, the garage, the
+  traffic, none of which it has anything to do with — with another 9 on the frame it left. A link is
+  a synchronous stall inside the driver, so it shows up as a hitch exactly when the interesting
+  thing happens and in no profile of the frame loop. Hence the `shell` in `sim/police.js`: the group
+  stays visible, everything that *draws* sits one level in, and the lamps stay counted at
+  `intensity = 0`. Anything that hides a subtree has to ask what else is in it.
+- **A `customProgramCacheKey` that is unique per material gives every object its own shader.** The
+  key is a promise about *source*, not an id — two materials that compile to the same thing should
+  answer the same string, or each of them links a program of its own. That is only a little wasteful
+  while they all live forever, and it is a per-event stall once they don't: three deletes a program
+  when its last material is disposed, so a **pooled** object that is created and freed as it is
+  reused relinks a shader every time it comes back. `game/bloom.js` keyed off a counter and paid it
+  on every fare marker. Key off the source material's own `customProgramCacheKey` instead — three
+  gives every material one, defaulting to `onBeforeCompile.toString()`, which is content rather than
+  identity and is exactly the right answer for an unpatched material. `tools/links.mjs` counts what
+  is still compiling mid-run; the budget is 12 and the honest number is under 10.
 - **On an unlit material a reversed triangle does not draw wrong, it does not draw.** The winding
   trap below has a nastier second form. `MeshBasicMaterial` (everything through `unlitMaterial`) is
   `FrontSide` like everything else, but it has no lighting to go strange — so where the roadworks
