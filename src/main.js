@@ -1430,6 +1430,24 @@ function panToTaxi() {
   });
 }
 
+// A tap on an off-screen fare's edge arrow (see game/farepointers.js): ride the camera to the mark
+// the arrow was pointing at. The third of the three camera shortcuts, and the plainest — it is a
+// pan the player would otherwise have made by dragging the map in that direction and guessing when
+// to stop.
+//
+// It does *not* dispatch the taxi. An arrow answers "where", and answering "shall I take it" in the
+// same press is what the rider-finder chips did and what the board was deliberately rebuilt without
+// (see `wantsRiderChips` below). Nor does it come back, unlike `panToRider`: a chip tap was a glance
+// at a rider the taxi was already driving at, where this is the player asking to look somewhere and
+// then act there — a camera that rode home a beat later would undo the press. The way back is
+// `panToTaxi`, which the taxi-finder chip offers as soon as the car is off-frame.
+function lookAtMark(x, z) {
+  // Same as a swipe, and for the same reason it is in `panToRider`: without it the opening
+  // follow-cam would tow the framing back onto the taxi *during* the pan.
+  releaseCameraToPlayer();
+  controller.glideTo(x, z);
+}
+
 // The rider-finder chips, off by default — `?chips=on` brings them back to compare against.
 //
 // A chip was a portrait of a waiting rider with their own countdown ring and a tap that dispatched
@@ -1468,6 +1486,11 @@ const farePointers = createFarePointers({
   // The same measurement the renderer trusts, so the arrow clamps to the edge of the frame that
   // is actually drawn — `window.inner*` is short of it on an installed iOS app.
   viewport,
+  onTap: lookAtMark,
+  // Narrow only, like drag-to-pan and both follow-cams: above this width the whole city is in
+  // frame, so no mark is ever off it and there is no pan to hand over. Passed as the predicate
+  // rather than a boolean so a resize flips it without a reload.
+  tappable: isNarrow,
 });
 
 // The other half of the same problem, aimed the other way: the drop-off is somewhere the player is

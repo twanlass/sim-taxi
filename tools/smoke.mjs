@@ -908,6 +908,159 @@ try {
           : 'every mark stayed in frame — nothing to point at');
   }
 
+  // --- ...and a tap on that arrow rides the camera to the mark it points at.
+  //
+  // The whole affordance is DOM over canvas, so this is the only place it can be asserted at all —
+  // and it is asserted with a **real touch** rather than a synthesised click, for the reason the
+  // initials check is (see the caret trap in `CLAUDE.md`): a `dispatchEvent(new MouseEvent)` runs
+  // the handler whatever the hit-testing says, so it passes just as happily against an arrow that
+  // is `pointer-events: none`, one buried under the HUD, or one whose 35px art is too small for a
+  // thumb. Every one of those is the bug. `Input.dispatchTouchEvent` at the arrow's own rect is the
+  // only version of this check that tests what a finger does.
+  //
+  // The off-frame mark is **made** rather than waited for. Whether anything is outside the band at
+  // a given instant is a fact about where the taxi has driven, and the check above is allowed to
+  // pass vacuously on it because it is asserting bookkeeping across whatever the board happens to
+  // be doing. This one has to press something, so a run where every mark stayed in frame is not a
+  // weaker sample, it is no sample — and it reported as a failure. Parking the camera at the far
+  // end of the map from a mark guarantees one arrow, and makes the arithmetic strict: from there
+  // the camera has ~90 units to travel, so "it landed on the mark" cannot be satisfied by standing
+  // still.
+  {
+    // The tutorial goes first. While it is framing the city it owns the camera, and this parks the
+    // camera somewhere deliberate — two claims on the same thing, and the one that loses is this.
+    await evaluate(`(() => {
+      const t = window.__taxi.tutorial;
+      for (let i = 0; i < 8 && t && t.holdsCamera(); i++) t.dismiss();
+    })()`);
+
+    // Then a real swipe, and it is not decoration: on a narrow viewport the opening follow-cam is
+    // still trailing the taxi, and it would tow the framing back off the corner parked below —
+    // putting the mark back in frame, and leaving no arrow to press. A swipe is how the camera
+    // becomes the player's, which is also the only way a player reaches this state. The origin is
+    // picked off the route band, because a press on the band is a grab rather than a pan.
+    const swipeAt = JSON.parse(await evaluate(`(() => {
+      const spots = [[200, 420], [80, 700], [320, 200], [60, 180], [330, 770], [200, 640]];
+      for (const [x, y] of spots) if (!window.__taxi.pathDrag.hitTest(x, y)) return JSON.stringify({ x, y });
+      return JSON.stringify({ x: 200, y: 420 });
+    })()`));
+    await dragFrom(swipeAt.x, swipeAt.y, 60, 40);
+
+    // Park at the opposite end of the map from the first mark on the board. `update()` after the
+    // write is not optional — `state.target` is only where the camera *wants* to be, and nothing in
+    // the frame loop copies it onto the camera for an idle pan, so a written target with no repaint
+    // leaves the projection the arrows aim through pointing exactly where it was.
+    const setup = JSON.parse(await evaluate(`(() => {
+      const t = window.__taxi;
+      const carried = t.fares.state.fares.find((f) => f.stage === 'riding');
+      // Mirrors the exclusivity rule rather than reading the module's slots: with someone aboard
+      // the drop-off is the only mark that may raise an arrow, with the seat free it is the kerb.
+      const board = carried ? [carried] : t.fares.state.fares.filter((f) => f.stage === 'waiting');
+      if (!board.length) return JSON.stringify({ empty: true });
+      const marks = board.map((f) => t.cornerFor(f.target.i, f.target.j));
+      const cam = t.camera;
+      cam.cancelGlide();
+      // HALF_SPAN is 50 by 60 and every kerb corner sits at least 4.5 inside it, so the far corner
+      // is ~90 units off on at least one axis against a 52-unit frustum height.
+      cam.state.target.set(marks[0].x > 0 ? -45 : 45, 0, marks[0].z > 0 ? -55 : 55);
+      cam.update(innerWidth / innerHeight);
+      return JSON.stringify({ marks, from: cam.state.target.toArray() });
+    })()`));
+
+    // Everything the press needs and everything it is judged against, in one read: the board is
+    // live, so a rect read in one round trip and candidates read in the next describe two moments.
+    const arrowState = () => evaluate(`(() => {
+      const t = window.__taxi;
+      const el = [...document.querySelectorAll('.fare-pointer')].find((e) => !e.hidden) ?? null;
+      const r = el ? el.getBoundingClientRect() : null;
+      const d = t.fares.directed();
+      return JSON.stringify({
+        // Its centre in CSS pixels, which is where a thumb would go.
+        at: r ? { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } : null,
+        // The gate, read as a *computed* value rather than as the class that should produce it —
+        // the class can be present and lose on specificity, and the stylesheet is half of this
+        // feature. 'none' here and the touch below is landing on the canvas instead.
+        reachable: el ? getComputedStyle(el).pointerEvents : null,
+        canTap: document.getElementById('fare-pointers').classList.contains('can-tap'),
+        target: t.camera.state.target.toArray(),
+        directed: d ? [d.target.i, d.target.j] : null,
+      });
+    })()`);
+
+    if (setup.empty) {
+      check('a tap on an edge arrow rides the camera to that mark', false, 'the board was empty');
+    } else {
+      // A couple of frames for `farePointers.update` to see the parked camera and raise an arrow.
+      let before = null;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        await sleep(300);
+        before = JSON.parse(await arrowState());
+        if (before.at) break;
+      }
+
+      if (!before.at) {
+        check('a tap on an edge arrow rides the camera to that mark', false,
+          `no arrow came up with the camera parked at ${setup.from.map((n) => n.toFixed(0))}`
+          + ` and ${setup.marks.length} mark(s) on the board`);
+      } else {
+        await client.send('Input.dispatchTouchEvent',
+          { type: 'touchStart', touchPoints: [{ x: before.at.x, y: before.at.y, id: 7 }] });
+        await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+
+        // Waited out by **watching the camera stop**, not by sleeping GLIDE_MAX_TIME. The glide is
+        // stepped by the frame loop's `dt`, which `main.js` clamps to 0.05 — so its 0.75s of *sim*
+        // time is 15 frames, and under the software renderer 15 frames is several seconds of
+        // wallclock. A fixed 1.1s wait sampled the tween 93% of the way through its travel and read
+        // as a camera that landed 3.2 units off its mark: a correct feature, failing.
+        let after = JSON.parse(await arrowState());
+        for (let settle = 0; settle < 60; settle++) {
+          await sleep(250);
+          const next = JSON.parse(await arrowState());
+          const step = Math.hypot(next.target[0] - after.target[0], next.target[2] - after.target[2]);
+          after = next;
+          if (step < 0.02) break;
+        }
+
+        // Against every mark the board was offering, not just the one the park was measured from:
+        // which pooled div ends up first in the DOM is slot order, and any of them is a legitimate
+        // answer to the press.
+        const landed = setup.marks.reduce((best, m) => Math.min(best,
+          Math.hypot(m.x - after.target[0], m.z - after.target[2])), Infinity);
+        const moved = Math.hypot(after.target[0] - before.target[0],
+          after.target[2] - before.target[2]);
+        check('a tap on an edge arrow rides the camera to that mark',
+          before.canTap && before.reachable === 'auto' && moved > 1 && landed < 0.75,
+          `pointer-events ${before.reachable}, can-tap ${before.canTap}, camera moved `
+          + `${moved.toFixed(1)}u and settled ${landed.toFixed(2)}u from the nearest of `
+          + `${setup.marks.length} mark(s)`);
+        // Same read, separate claim: the pan is allowed, the dispatch is not. That is the rule the
+        // arrows exist to keep (the chips answered "shall I take it" in the same tap and the board
+        // was deliberately rebuilt without that), it is one line in main.js away from being broken,
+        // and a taxi quietly re-aimed by a camera tap would read in play as the game picking fares
+        // by itself.
+        check('and does not dispatch the taxi at them',
+          JSON.stringify(after.directed) === JSON.stringify(before.directed),
+          `directed ${JSON.stringify(before.directed)} -> ${JSON.stringify(after.directed)}`);
+      }
+    }
+
+    // The other half of the gate, and the half that costs something if it breaks: an arrow with
+    // `pointer-events: auto` on a desktop is an invisible 51px hole in the map at each point around
+    // the frame, eating clicks meant for the city. Checked off the host class rather than off an
+    // arrow, because at this width the whole city is in frame and there is no arrow to read.
+    await client.send('Emulation.setDeviceMetricsOverride',
+      { width: 900, height: 844, deviceScaleFactor: 1, mobile: false });
+    await sleep(300);
+    const wideTap = await evaluate(
+      "document.getElementById('fare-pointers').classList.contains('can-tap')");
+    check('and the arrows are inert above NARROW_VIEWPORT', wideTap === false,
+      `can-tap ${wideTap} at 900px`);
+    // Back to the phone every check below this was written against.
+    await client.send('Emulation.setDeviceMetricsOverride',
+      { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await sleep(300);
+  }
+
   // --- The courier box in the HUD, while a package is aboard. See src/game/cargochip.js.
   //
   // Here rather than in the node suite because the whole thing is browser-only: a WebGL context

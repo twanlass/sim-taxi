@@ -46,6 +46,39 @@ import * as THREE from 'three';
 // be up at once and only one of them is the trip actually under way. Colour cannot carry that —
 // colour is already spoken for by the clocks.
 //
+// ## A tap rides the camera to the mark — on a narrow viewport only
+//
+// The arrow says *which direction*, and on a phone the only way to act on that was to drag the map
+// that way, by hand, guessing when to stop, on a clock that is draining. So a press on one glides
+// the camera onto the mark it is pointing at (`onTap`), and the arrow then takes itself down
+// because the thing it stood in for is in frame.
+//
+// **It moves the camera and nothing else.** The chips this replaced dispatched the taxi in the same
+// tap, and that is precisely what made the board playable off the HUD without ever looking at the
+// city (see above). Snapping the view is not that: the player still has to read the corner, judge
+// whether the fare is worth the drive, and tap the pin. What the arrow hands over is the *pan* —
+// the part that was never a decision.
+//
+// It is a deliberate pan, so it keeps the camera (`releaseCameraToPlayer` in main.js) rather than
+// peeking and riding home the way a chip tap did: the player asked to look at that corner, and a
+// camera that slid back off it a beat later would undo the thing they pressed for. The way home is
+// the taxi-finder chip (game/taxifinder.js), which is up 0.4s after the car goes fully off-frame —
+// the two affordances are each other's return leg.
+//
+// Narrow only, for the same reason drag-to-pan and the follow-cams are: above `NARROW_VIEWPORT` the
+// whole city is in frame, so nothing is ever off it to point at and there is no pan to save. The
+// arrows keep `pointer-events: none` there, which is also what keeps them out of the way of the
+// map — an arrow lives at the frame edge, over the canvas, and while it is inert every press on it
+// goes to `attachDragPan` and the route band as before.
+//
+// At z-index 18 it sits *under* the HUD (the pedals and the pause button are 20 and 24), so a thumb
+// sliding onto the brake still gets the brake. What it does outrank is the canvas underneath it,
+// route band included: a press within ~25px of an arrow belongs to the arrow. That is the cost, and
+// it is paid twice — the band is already hardest to grab out at the frame edge, and a *swipe* that
+// starts on an arrow does not pan the map either, because a touch pointer is captured to the element
+// it landed on and the canvas never sees the rest of the gesture. Four 51px squares against a whole
+// frame of map, and the swipe is still there one thumb-width away.
+//
 // The pool grows on demand and is never shrunk: at most MAX_FARES riders plus one drop-off, so it
 // tops out at a handful of 42px divs.
 
@@ -68,9 +101,29 @@ function readSafeInsets() {
   }
 }
 
-const ARROW_SVG = '<svg viewBox="-16 -16 32 32"><polygon points="13,0 -9,-10 -4,0 -9,10" /></svg>';
+// The arrow's art, wrapped so the press dip has something of its own to scale. The wrapper is
+// what moves: the arrow div's `transform` is written from JS every frame (the clamp point and the
+// rotation), and the individual `scale` property composes *after* that `translate(-50%, -50%)` —
+// so scaling the div would scale it about a point half a box away from its centre and the arrow
+// would slide as it dipped. The span carries no transform of its own, so its origin is its middle.
+// `pointer-events: none` on both, in the stylesheet, so the press has no inner node to hit-test
+// onto and `event.target` is the div the listener is on.
+const ARROW_SVG = '<span><svg viewBox="-16 -16 32 32"><polygon points="13,0 -9,-10 -4,0 -9,10" /></svg></span>';
 
-export function createFarePointers({ camera, pinLocation, viewport = null }) {
+// How far a finger may smear and still be a tap, in px. The same 8 as `PAN_SLOP` in game/camera.js
+// — every selection on a phone lands with 2-4px of travel — and it is here for a reason that is
+// specific to a pointer the element *keeps*: see the press handler below.
+const TAP_SLOP = 8;
+
+/**
+ * @param onTap     (x, z) => void — a press on an arrow, handed the world point it was aiming at.
+ *                  main.js glides the camera there. Omit it and the arrows stay decorative.
+ * @param tappable  whether a press does anything *right now* — `isNarrow`, re-read every frame so
+ *                  a resize flips it without a reload, the same way every other narrow-only
+ *                  affordance is gated. See the header.
+ */
+export function createFarePointers({ camera, pinLocation, viewport = null, onTap = null,
+  tappable = () => false }) {
   const host = document.getElementById('fare-pointers');
   if (!host) return { update: () => {} };
 
@@ -78,6 +131,11 @@ export function createFarePointers({ camera, pinLocation, viewport = null }) {
   window.addEventListener('resize', readSafeInsets);
 
   const projected = new THREE.Vector3();
+
+  // Whether a press on an arrow does anything, and the single source for it: the same boolean sets
+  // the host class the stylesheet reads (which is what actually lets a thumb land on one) and
+  // guards the handler below. Two copies of this rule is how one of them ends up stale.
+  let interactive = false;
 
   // One arrow per pool slot, each remembering the last hex written to it: a colour that only steps
   // four times over a clock shouldn't be a style write on every frame the arrow is up.
@@ -89,7 +147,60 @@ export function createFarePointers({ camera, pinLocation, viewport = null }) {
     el.hidden = true;
     el.innerHTML = ARROW_SVG;
     host.appendChild(el);
-    const arrow = { el, painted: null, dropoff: null };
+    // `atX`/`atZ` rather than the point `pinLocation` handed back: one pooled div answers for a
+    // different fare from one frame to the next, so the destination has to be read at press time.
+    // A listener closed over whoever held the slot when it was created would ride the camera to a
+    // rider who was picked up two blocks ago.
+    const arrow = { el, painted: null, dropoff: null, atX: 0, atZ: 0, aimed: false };
+    // Not a `<button>`, and the host keeps its `aria-hidden`: a focusable control inside an
+    // aria-hidden subtree is one a keyboard can reach and a screen reader cannot describe (the
+    // same trap `taxifinder.js` spends a `disabled` on avoiding). This is a redundant affordance —
+    // the rider's own pin is still on the map, and the arrow only exists on a viewport where the
+    // map can be dragged — so it stays a decoration that happens to answer a thumb.
+    //
+    // A `pointerdown`/`pointerup` pair rather than `click`, for two reasons that both come back to
+    // this being a bare div on an iPhone. WebKit only synthesises a click on a non-interactive
+    // element that passes its own "is this clickable" test — a listener plus `cursor: pointer`
+    // satisfies it today, but it is a heuristic and this is the one platform the game has to work
+    // on. And the pair is explicit about what a press *is*: the pointer is the whole gesture, and
+    // nothing here has to guess.
+    //
+    // The pairing is load-bearing in both directions. A bare `pointerup` would answer a drag that
+    // began on the map and happened to finish over an arrow. And the travel test is not belt and
+    // braces: a touch pointer is *implicitly captured* to the element its `pointerdown` landed on,
+    // so a finger that presses an arrow and then slides away still delivers its `pointerup` here,
+    // and without the slop check sliding off an arrow would ride the camera anyway — the one
+    // gesture a player makes to mean "no".
+    //
+    // The dip that reports the press is a class rather than `:active`, and here that is not the
+    // usual reason (a press sliding between two controls — see the pedals in index.html) but the
+    // same implicit capture: `:active` stays pinned to this element for as long as the finger is
+    // down, wherever it has gone, so an arrow abandoned mid-press would sit there looking pressed
+    // and then do nothing on release. `hold(false)` on the frame the travel passes the slop makes
+    // the dip mean exactly what the release will do.
+    let press = null;
+    const hold = (on) => el.classList.toggle('is-held', on);
+    el.addEventListener('pointerdown', (event) => {
+      // Single finger only, the same rule the map's drag and the route band both keep: a second
+      // touch belongs to a pinch.
+      press = event.isPrimary ? { x: event.clientX, y: event.clientY } : null;
+      hold(Boolean(press));
+    });
+    const travelled = (event) => press
+      && Math.hypot(event.clientX - press.x, event.clientY - press.y) > TAP_SLOP;
+    el.addEventListener('pointermove', (event) => { if (travelled(event)) hold(false); });
+    el.addEventListener('pointerup', (event) => {
+      // Read *before* the press is cleared: `travelled` measures against `press`, so nulling it
+      // first turns the slop test into a constant false and every abandoned press acts.
+      const from = press;
+      const slid = travelled(event);
+      press = null;
+      hold(false);
+      if (!from || !event.isPrimary || slid) return;
+      if (!interactive || el.hidden || !arrow.aimed || !onTap) return;
+      onTap(arrow.atX, arrow.atZ);
+    });
+    el.addEventListener('pointercancel', () => { press = null; hold(false); });
     arrows[index] = arrow;
     return arrow;
   }
@@ -119,9 +230,13 @@ export function createFarePointers({ camera, pinLocation, viewport = null }) {
     // Fully on-screen with a small margin: the marker itself is visible, no arrow needed.
     if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) {
       arrow.el.hidden = true;
+      arrow.aimed = false;
       return false;
     }
     arrow.el.hidden = false;
+    arrow.atX = world.x;
+    arrow.atZ = world.z;
+    arrow.aimed = true;
 
     if (arrow.dropoff !== isDropoff) {
       arrow.dropoff = isDropoff;
@@ -160,6 +275,15 @@ export function createFarePointers({ camera, pinLocation, viewport = null }) {
   }
 
   /**
+   * Take an arrow down, and with it whatever it was aiming at — a pooled div that kept its last
+   * destination could answer a press with a pan to a fare that has expired.
+   */
+  function hide(arrow) {
+    arrow.el.hidden = true;
+    arrow.aimed = false;
+  }
+
+  /**
    * @param aboard   the fare in the car, or null — its drop-off gets the large arrow, and while it
    *                 is set it gets the *only* arrow (see the header)
    * @param waiting  the fares still on the kerb; one arrow each, at their own corner, and ignored
@@ -168,6 +292,15 @@ export function createFarePointers({ camera, pinLocation, viewport = null }) {
    */
   function update(aboard, waiting = [], colorOf = null) {
     let slot = 0;
+
+    // Re-read every frame, not latched at construction: a rotation or a resized window crosses
+    // NARROW_VIEWPORT without a reload, and the arrows have to follow it the way the pan and the
+    // follow-cams do.
+    const canTap = Boolean(onTap) && tappable();
+    if (canTap !== interactive) {
+      interactive = canTap;
+      host.classList.toggle('can-tap', canTap);
+    }
 
     if (aboard && aboard.stage === 'riding') {
       const c = pinLocation(aboard.target.i, aboard.target.j);
@@ -178,7 +311,7 @@ export function createFarePointers({ camera, pinLocation, viewport = null }) {
     // One seat, one arrow: with someone aboard the drop-off above is the whole of it — see the
     // header. `slot` is left at 1, so the sweep at the bottom hides every other arrow in the pool.
     if (aboard && aboard.stage === 'riding') {
-      for (let i = slot; i < arrows.length; i++) arrows[i].el.hidden = true;
+      for (let i = slot; i < arrows.length; i++) hide(arrows[i]);
       return;
     }
 
@@ -194,7 +327,7 @@ export function createFarePointers({ camera, pinLocation, viewport = null }) {
       slot += 1;
     }
 
-    for (let i = slot; i < arrows.length; i++) arrows[i].el.hidden = true;
+    for (let i = slot; i < arrows.length; i++) hide(arrows[i]);
   }
 
   return { update };

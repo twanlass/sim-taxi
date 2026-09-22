@@ -872,8 +872,38 @@
          edge at once and colour is already spoken for by the clocks. */
       .fare-pointer.is-dropoff { width: 42px; height: 42px; }
       .fare-pointer[hidden] { display: none; }
-      .fare-pointer svg { display: block; width: 100%; height: 100%;
+      /* The art, in a wrapper of its own so the press dip has something to scale that JS is not
+         already writing a transform to. The arrow div's `transform` carries the clamp point and the
+         rotation and is rewritten every frame; the individual `scale` property composes *after* it,
+         so a scale on the div would be taken about a point half a box from its centre and the arrow
+         would slide as it dipped. Both layers are `pointer-events: none` so the press lands on the
+         div the listener is on and has no inner node to hit-test onto. */
+      .fare-pointer > span {
+        display: block; width: 100%; height: 100%; pointer-events: none;
+        transition: scale 0.09s ease;
+      }
+      .fare-pointer svg { display: block; width: 100%; height: 100%; pointer-events: none;
         filter: drop-shadow(0 2px 4px rgba(10, 20, 30, 0.45)); }
+      /* --- tappable, on a narrow viewport only -------------------------------
+         `can-tap` is set on the host from `isNarrow` — see src/game/farepointers.js for why a press
+         pans the camera and stops there, and why it is off above NARROW_VIEWPORT (there is nothing
+         off-frame to point at, and an inert arrow is one the map's drag handlers still see through).
+
+         The visible arrow is 35px, under the 44 a thumb wants, so the hit area is a pad rather than
+         the shape: `inset: -8px` makes it 51px square about the same centre — big enough to press
+         at the edge of the frame, and still small enough that two arrows on the same side of the
+         screen stay separately pressable. Pseudo-element rather than a bigger box so the clamp
+         arithmetic and the drop-off's size step keep meaning what they say. */
+      #fare-pointers.can-tap .fare-pointer { pointer-events: auto; cursor: pointer; }
+      #fare-pointers.can-tap .fare-pointer::before { content: ''; position: absolute; inset: -8px; }
+      /* `is-held` rather than `:active`, for the pedals' reason arriving by a different route: a
+         touch pointer is implicitly captured to the element it pressed, so `:active` stays lit on an
+         arrow the finger has already slid away from and abandoned. The class is dropped on the frame
+         the travel passes the tap slop — see the press handlers in src/game/farepointers.js. */
+      #fare-pointers.can-tap .fare-pointer.is-held > span { scale: 0.86; }
+      @media (prefers-reduced-motion: reduce) {
+        .fare-pointer > span { transition: none; }
+      }
       /* Outlined to the same weight as the markers in the world, so an arrow reads as the same
          graphic vocabulary. `currentColor` is what lets one style write on the wrapper repaint it
          as the fare's clock drains. */
