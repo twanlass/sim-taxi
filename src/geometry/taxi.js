@@ -236,7 +236,7 @@ export function createTaxiMesh() {
     addGhostOutline(light, { rim: 0.08 });
   }
 
-  const damage = buildDamage(group, shell, sign);
+  const damage = buildDamage(group, sign);
 
   // Slightly oversized against ambient traffic. The player has to find this car at a glance in a
   // street full of identically shaped vehicles.
@@ -323,8 +323,8 @@ export function createTaxiMesh() {
 // What the car wears after it has been in a scrape — driven in tiers off its hit points by
 // game/taxidamage.js. Everything here is sized for the camera rather than for realism: the taxi is
 // about 30px long at play zoom (1 unit ≈ 7.7px through TAXI_SCALE), so scuffs and a cracked screen
-// would not read at all. What does is a change of *silhouette* — a crushed corner, a sign knocked
-// crooked, a boot lid up, a bumper hanging off — and those are the four pieces.
+// would not read at all. What does is a change of *silhouette* — a sign knocked crooked, a boot lid
+// up, a bumper hanging off — and those are the three pieces.
 //
 // Built at boot and hidden with a zero scale rather than added when needed, for the reason the light
 // pods are: `markOccluder`, the cartoon outline and the ghost-outline traversal all walk this group
@@ -339,66 +339,13 @@ const BOOT_LEN = CAR_LEN / 2 + BOOT_HINGE_X - 0.02;
 const BUMPER_LEN = CAR_W * 0.9;
 const BUMPER_T = 0.14;
 const BUMPER_Y = 0.46 + CHASSIS_LIFT;
-// A dent crushes the top of one corner inward and down. Only vertices above WHEEL_TOP move: the rear
-// wheels are merged into the shell, and a wheel caught in a corner's radius would be crushed with it.
-// The body's own bottom edge stays put, so the crushed face slants — which is the silhouette.
-//
-// Sized off a look at it rather than off a number: the first cut (0.28 in, 0.13 down, three levels)
-// could not be seen from a camera zoomed seven times closer than play, let alone at play zoom, where
-// 0.28 of a unit is two pixels. Two levels of a deeper crush is a corner that visibly folds.
-const DENT_R = 1.1;
-const DENT_IN = 0.5;            // per level, toward the middle of the car along its length
-const DENT_DOWN = 0.22;         // per level
-const DENT_SIDE = 0.14;         // per level, toward the centreline
-const DENT_DARKEN = 0.3;        // per level, toward the trim colour — crumpled metal is in shadow
-const DENT_MAX = 2;
-const WHEEL_TOP = 0.68 + CHASSIS_LIFT;
+// There was a fifth piece: the struck corner of the shell crushed in, down and darkened, a vertex
+// displacement on the merged body. It read at close zoom and looked wrong — a box with one corner
+// sheared off, which at play zoom reads as a modelling fault rather than as a dent — and came out.
+// The damage says itself through parts that come *off* the car (sign, boot, bumper), not through the
+// car changing shape.
 
-function buildDamage(group, shell, sign) {
-  const geometry = shell.geometry;
-  const position = geometry.attributes.position;
-  const colour = geometry.attributes.color;
-  const pristinePos = position.array.slice();
-  const pristineCol = colour ? colour.array.slice() : null;
-  const trim = color('taxiTrim');
-  // Dent level per corner, keyed `${sx},${sz}` with each sign ±1 — sx + is the nose, sz + the right.
-  const dents = new Map();
-
-  function applyDents() {
-    const pos = position.array;
-    pos.set(pristinePos);
-    if (pristineCol) colour.array.set(pristineCol);
-    for (const [key, level] of dents) {
-      if (level <= 0) continue;
-      const [sx, sz] = key.split(',').map(Number);
-      const cx = sx * CAR_LEN / 2;
-      const cz = sz * CAR_W / 2;
-      for (let v = 0; v < position.count; v++) {
-        const y = pristinePos[v * 3 + 1];
-        if (y < WHEEL_TOP) continue;
-        const x = pristinePos[v * 3];
-        const z = pristinePos[v * 3 + 2];
-        // By position, not by index: the merged shell repeats shared corners, and a displacement
-        // keyed on anything but where the vertex is would tear it open (CLAUDE.md).
-        const w = Math.max(0, 1 - Math.hypot(x - cx, z - cz) / DENT_R);
-        if (w <= 0) continue;
-        const k = w * level;
-        pos[v * 3] -= sx * DENT_IN * k;
-        pos[v * 3 + 1] -= DENT_DOWN * k;
-        pos[v * 3 + 2] -= sz * DENT_SIDE * k;
-        if (pristineCol) {
-          const t = Math.min(0.6, DENT_DARKEN * k);
-          colour.array[v * 3] += (trim.r - colour.array[v * 3]) * t;
-          colour.array[v * 3 + 1] += (trim.g - colour.array[v * 3 + 1]) * t;
-          colour.array[v * 3 + 2] += (trim.b - colour.array[v * 3 + 2]) * t;
-        }
-      }
-    }
-    position.needsUpdate = true;
-    if (pristineCol) colour.needsUpdate = true;
-    geometry.computeBoundingSphere();
-  }
-
+function buildDamage(group, sign) {
   // The boot lid, on a hinge at the back of the cabin, over a dark opening that only shows when the
   // lid is up. The lid's underside sits exactly on the body's top face, and that is fine: it faces
   // down and is culled before it can fight anything (see the coplanar notes in CLAUDE.md).
@@ -437,12 +384,6 @@ function buildDamage(group, shell, sign) {
   const tipLocal = new THREE.Vector3(0, -BUMPER_T / 2, -BUMPER_LEN);
 
   return {
-    /** Crush one corner a level further. `sx` + is the nose, `sz` + the car's right. */
-    dent(sx, sz) {
-      const key = `${Math.sign(sx) || 1},${Math.sign(sz) || 1}`;
-      dents.set(key, Math.min(DENT_MAX, (dents.get(key) ?? 0) + 1));
-      applyDents();
-    },
     /** Roll and yaw on the roof sign, radians. */
     setSignTilt(roll, yaw) {
       sign.rotation.set(roll, yaw, 0);
@@ -470,8 +411,6 @@ function buildDamage(group, shell, sign) {
     },
     /** Put everything back — a new run, or a repair. */
     reset() {
-      dents.clear();
-      applyDents();
       sign.rotation.set(0, 0, 0);
       bootHinge.scale.setScalar(0);
       hole.scale.setScalar(0);

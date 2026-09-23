@@ -5,7 +5,7 @@ import { color } from '../palette.js';
 // itself doubles as the gauge. See buildDamage() in geometry/taxi.js for the parts and why they are
 // what they are (silhouette, because at ~30px long nothing finer reads).
 //
-//   1  any hit      the corner that was struck is crushed, and the roof sign is knocked crooked
+//   1  any hit      the roof sign is knocked crooked
 //   2  ≤ 67% (amber) the boot lid is up and bouncing, and a bumper hangs off the back dragging sparks
 //   3  ≤ 34% (red)   smoke off the bonnet going from steam to black, the sign sputtering, and the car
 //                   sitting low on its damaged side and rattling
@@ -22,8 +22,20 @@ const SIGN_ROLL_STEP = 0.07;      // each later one
 const SIGN_ROLL_MAX = 0.45;
 const SIGN_YAW = 0.18;
 
-const BOOT_OPEN = 0.55;           // rad, where the lid rides
-const BOOT_BOUNCE = 0.2;          // rad of flap at speed
+// The boot lid is a damped spring on its hinge, not a sine: it rides open at BOOT_REST, gets kicked
+// by the road, by the car braking and accelerating, and by every hit, and when it swings shut it
+// *slams* against the body and bounces back up. The first cut was a two-sine wobble of ±0.2 rad,
+// which read as a lid that was open — the bounce is what says it is broken. Underdamped on purpose
+// (ζ ≈ 0.2): a kick rings for three or four flaps before it settles.
+const BOOT_REST = 0.6;            // rad, where the lid hangs when nothing is moving it
+const BOOT_MAX = 1.35;            // rad, about as far as the hinge goes
+const BOOT_K = 55;                // 1/s², spring toward rest
+const BOOT_C = 3;                 // 1/s, damping
+const BOOT_SLAM = 0.55;           // of the swing kept when it hits the body and bounces
+const BOOT_ROAD = [0.12, 0.35];   // s between road kicks at speed
+const BOOT_ROAD_KICK = 7;         // rad/s per kick at full speed
+const BOOT_ACCEL = 1.2;           // rad/s² on the lid per u/s² of the car's own acceleration
+const BOOT_HIT_KICK = 14;         // rad/s, on every bump — it slams shut and flies open
 const SPARK_EVERY = 0.045;        // s between bursts off the bumper while it is dragging
 const SPARK_MIN_V = 2.5;          // u/s — a bumper at walking pace scrapes, it does not spark
 
@@ -50,6 +62,10 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
   let smokeIn = 0;
   let flickerIn = FLICKER_MEAN;
   let flickerOut = 0;
+  let boot = BOOT_REST;
+  let bootV = 0;
+  let roadIn = 0;
+  let lastV = 0;
 
   const fraction = () => (taxi.hp ?? maxHp) / maxHp;
   const tier = () => {
@@ -66,10 +82,11 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
     const dz = z - taxi.z;
     const lx = dx * Math.cos(taxi.yaw) - dz * Math.sin(taxi.yaw);
     const lz = dx * Math.sin(taxi.yaw) + dz * Math.cos(taxi.yaw);
-    damage.dent(lx >= 0 ? 1 : -1, lz >= 0 ? 1 : -1);
     sideScore += lz >= 0 ? 1 : -1;
     if (sideScore) side = Math.sign(sideScore);
     hits += 1;
+    // Down hard, so the slam and the bounce off it are the first thing the lid does.
+    bootV -= BOOT_HIT_KICK;
     // Knocked the way the blow came from, a little further each time.
     const roll = Math.min(SIGN_ROLL_MAX, SIGN_ROLL + SIGN_ROLL_STEP * (hits - 1));
     damage.setSignTilt(-side * roll, (lx >= 0 ? 1 : -1) * SIGN_YAW);
@@ -86,8 +103,24 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
     const moving = Math.min(1, v / 8);
     phase += dt * (5 + v * 0.7);
 
+    const accel = dt > 1e-6 ? (v - lastV) / dt : 0;
+    lastV = v;
     if (t >= 2) {
-      damage.setBoot(BOOT_OPEN + BOOT_BOUNCE * moving * (0.6 * Math.sin(phase) + 0.4 * Math.sin(phase * 2.3)));
+      // Road kicks, both ways, more often and harder the faster the car goes.
+      roadIn -= dt;
+      if (roadIn <= 0 && moving > 0.05) {
+        roadIn = BOOT_ROAD[0] + (BOOT_ROAD[1] - BOOT_ROAD[0]) * rng();
+        bootV += (rng() - 0.35) * 2 * BOOT_ROAD_KICK * moving;
+      }
+      // Pulling away swings it open, braking throws it shut — the same way a loose lid goes.
+      // Clamped, because a bump drops the car's speed in one frame and reads as hundreds of u/s² —
+      // the hit already has a kick of its own below.
+      bootV += Math.max(-40, Math.min(40, accel)) * BOOT_ACCEL * dt;
+      bootV += (-BOOT_K * (boot - BOOT_REST) - BOOT_C * bootV) * dt;
+      boot += bootV * dt;
+      if (boot < 0) { boot = 0; bootV = -bootV * BOOT_SLAM; }
+      if (boot > BOOT_MAX) { boot = BOOT_MAX; bootV = -bootV * BOOT_SLAM; }
+      damage.setBoot(boot);
       // The bumper bounces clear of the road now and then and comes back down on it.
       const lift = 0.06 * moving * Math.max(0, Math.sin(phase * 1.7));
       damage.setBumper(-side, lift);
@@ -100,6 +133,10 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
         sparks.burst(tip.x, roadY, tip.z, taxi.yaw + Math.PI, 2, v * 0.4);
       }
     } else {
+      // Held at rest until the lid is actually loose, so a hit's kick taken in the first tier does
+      // not bank up and fire the moment the car reaches amber.
+      boot = BOOT_REST;
+      bootV = 0;
       damage.setBoot(null);
       damage.setBumper(0);
     }
@@ -145,10 +182,12 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
 
   function reset() {
     hits = 0;
+    boot = BOOT_REST;
+    bootV = 0;
     sideScore = 0;
     side = 1;
     damage.reset();
   }
 
-  return { hit, update, reset, tier };
+  return { hit, update, reset, tier, bootAngle: () => boot };
 }
