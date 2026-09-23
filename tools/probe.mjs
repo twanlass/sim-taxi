@@ -5854,12 +5854,23 @@ check('the taxi is an ordinary car in the traffic array',
     `knock ${Boolean(target.knock)}, stun ${target.stun.toFixed(2)}`);
 
   // And it gathers itself: back on its lane, off the brakes, driving again.
-  for (let f = 0; f < 60 * 3; f++) hTraffic.update(1 / 60);
+  // Six seconds, because the recovery is driven rather than timed: the car sits askew through its
+  // 1.4s stun, pulls away, and steers back in over the road it covers — on this staging about 20
+  // units, with a heading swing either side of straight on the way.
+  let steered = 0;
+  for (let f = 0; f < 60 * 6; f++) {
+    hTraffic.update(1 / 60);
+    if (target.knock) steered = Math.max(steered, Math.abs(target.wheelAngle));
+  }
   const onLane = target.state === 'drive' ? target.lane.path.at(target.s) : null;
   const drift = onLane ? Math.hypot(target.x - onLane.x, target.z - onLane.z) : 0;
   check('the struck car recovers onto its lane and drives on',
     !target.knock && target.stun === 0 && !target.braking && drift < 1.5,
     `knock ${Boolean(target.knock)}, stun ${target.stun}, ${drift.toFixed(2)} off the lane`);
+  // And it steers there: the front wheels take real lock during the recovery, which they cannot if
+  // the car is being translated back into place.
+  check('it steers back into the lane rather than sliding into it', steered > 0.3,
+    `${(steered * 180 / Math.PI).toFixed(0)}° of lock at most`);
 
   // Out of HP, the next contact is the wreck through the old path.
   hTaxi.hp = 1;

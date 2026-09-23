@@ -1459,12 +1459,18 @@ travel at the overdrive top.
 A truck is tested at its own length now — three circles out to `TRUCK_LEN` rather than a car's two,
 which left 0.7 units of cab and of box at each end that nothing tested.
 
-**The shove never leaves the lane model.** It is a render offset — a world-space slide and a yaw
-slew under drag, eased back to zero after 0.7s — layered on like the weave and the pull-over, while
-the sim holds the car at its lane coordinate. The old stun (see below) snapped a car back onto the
-grid from wherever the drift left it, which is the class of `releaseCar` site the CLAUDE.md trap
-about stop lines is warning about. This one has no hand-back to get wrong: the queue behind a shunted
-car forms where the car nominally is, and it pulls back into its own lane because it never left it.
+**The shove never leaves the lane model.** It is a render offset layered on like the weave and the
+pull-over, while the sim holds the car at its lane coordinate. It has two phases. First a 0.45s
+**slide** — world-space velocity and spin under drag, nobody at the wheel. Then the driver **steers
+back**, paced by the road the car covers rather than by a clock: a stunned car sits askew where it
+stopped until it pulls away, then turns its nose toward the lane (aiming 3.5 units ahead, at most
+~34° off the lane, on a 3-unit turning circle), drives in along that heading, and straightens as it
+arrives, with the front wheels showing the lock. The first cut eased the offset and the spin to zero
+on a timer, independently, which translated the car sideways into its lane while it unwound on the
+spot. The old stun (see below) snapped a car back onto the grid from wherever the drift left it, which
+is the class of `releaseCar` site the CLAUDE.md trap about stop lines is warning about. This one has
+no hand-back to get wrong: the queue behind a shunted car forms where the car nominally is, and it
+pulls back into its own lane because it never left it.
 
 **Why survivable bumps don't bring back the problem the stun was removed for.** That complaint was
 the *asymmetry*: one car scrap, the other shrugging it off. Here the outcome is symmetric — a bump

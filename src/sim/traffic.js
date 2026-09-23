@@ -2080,24 +2080,36 @@ export function approachRoom(d, i, j) {
 // position it did not choose, so there is no `releaseCar` site to get wrong (see the stop-line trap
 // in CLAUDE.md) and the queue behind a shunted car forms exactly where the car nominally is.
 //
-// So the shove has two phases. It slides and spins off the impact under drag, and then, once the
-// driver has gathered themselves, it is eased back to zero — the car straightening up and pulling
-// back into its lane. Sized so the slide stays about a lane wide: the offset is `v / KNOCK_DRAG`
-// at rest, so KNOCK_MAX_V 8 is 2.3 units, and a car shunted toward the kerb does not end up in a
-// shop front.
+// So the shove has two phases. It **slides** and spins off the impact under drag — world-space
+// physics, nobody at the wheel. Sized so the slide stays about a lane wide: the offset is
+// `v / KNOCK_DRAG` at rest, so KNOCK_MAX_V 8 is 2.3 units, and a car shunted toward the kerb does
+// not end up in a shop front.
+//
+// Then the driver **steers back**. The first cut eased the offset and the spin to zero on a clock,
+// independently, and it looked like what it was: the car translated sideways into its lane while
+// unwinding on the spot, and did it while stopped. Now the recovery is driven — paced by the road
+// the car actually covers, so a stunned car sits askew where it came to rest until it pulls away,
+// and it moves along its own nose: the heading offset is steered toward the lane (aiming at a point
+// RECOVER_LOOK ahead on it) at no more than a turning circle allows, and the sideways offset only
+// changes by `sin(heading) · ds`. So a car spun 40° first turns back past straight toward its lane,
+// drives in, and straightens as it arrives — and the front wheels show the lock it is using.
 export const KNOCK_DRAG = 3.5;         // 1/s, on both the slide and the spin
 export const KNOCK_MAX_V = 8;          // u/s cap on the shove
 export const KNOCK_MAX_SPIN = 4;       // rad/s cap, ~65° of slew before the drag takes it
-const KNOCK_SETTLE_AT = 0.7;           // s before the driver starts pulling back in
-const KNOCK_SETTLE_RATE = 2.8;         // 1/s, the ease home
-const KNOCK_DONE_AT = 2.2;             // s, after which whatever is left is dropped
+const KNOCK_SLIDE = 0.45;              // s of slide before the driver has it back (drag leaves 21%)
+const RECOVER_LOOK = 3.5;              // units ahead on the lane the driver aims at
+const RECOVER_MAX_HEADING = 0.6;       // rad, ~34°: the steepest line back in
+const RECOVER_RADIUS = 3;              // units, the tightest circle the recovery turns on
+const RECOVER_LON = 5;                 // units of road over which a fore-aft offset is shed
 
 /**
  * Shove `car` by (vx, vz) u/s with `spin` rad/s of slew, and hold it stopped for `stun` seconds.
  * A second knock on a car still reacting to the first adds to it rather than restarting it.
  */
+const newKnock = () => ({ x: 0, z: 0, yaw: 0, vx: 0, vz: 0, spin: 0, t: 0 });
+
 export function knockCar(car, vx, vz, spin, stun = 0) {
-  const k = car.knock ?? (car.knock = { x: 0, z: 0, yaw: 0, vx: 0, vz: 0, spin: 0, t: 0 });
+  const k = car.knock ?? (car.knock = newKnock());
   k.vx += vx;
   k.vz += vz;
   const v = Math.hypot(k.vx, k.vz);
@@ -2128,32 +2140,64 @@ export function shoveCar(car, dx, dz) {
       dz -= t.z * ds;
     }
   }
-  const k = car.knock ?? (car.knock = { x: 0, z: 0, yaw: 0, vx: 0, vz: 0, spin: 0, t: 0 });
+  const k = car.knock ?? (car.knock = newKnock());
   k.x += dx;
   k.z += dz;
   k.t = 0;
 }
 
+// `car.yaw` on the way in is the heading the lane gave it, before the knock is added — so the lane
+// frame is read straight off it.
 function applyKnock(car, dt) {
   const k = car.knock;
   k.t += dt;
-  const drag = Math.exp(-KNOCK_DRAG * dt);
-  k.vx *= drag;
-  k.vz *= drag;
-  k.spin *= drag;
-  k.x += k.vx * dt;
-  k.z += k.vz * dt;
-  k.yaw += k.spin * dt;
-  if (k.t > KNOCK_SETTLE_AT) {
-    const home = Math.min(1, KNOCK_SETTLE_RATE * dt);
-    k.x -= k.x * home;
-    k.z -= k.z * home;
-    k.yaw -= k.yaw * home;
+  if (k.t < KNOCK_SLIDE) {
+    const drag = Math.exp(-KNOCK_DRAG * dt);
+    k.vx *= drag;
+    k.vz *= drag;
+    k.spin *= drag;
+    k.x += k.vx * dt;
+    k.z += k.vz * dt;
+    k.yaw += k.spin * dt;
+  } else {
+    k.vx = 0;
+    k.vz = 0;
+    k.spin = 0;
+    // Into the lane's frame: `lat` + toward the car's right, `lon` + ahead.
+    const fx = Math.cos(car.yaw);
+    const fz = -Math.sin(car.yaw);
+    const rx = Math.sin(car.yaw);
+    const rz = Math.cos(car.yaw);
+    let lat = k.x * rx + k.z * rz;
+    let lon = k.x * fx + k.z * fz;
+    const ds = Math.max(0, car.v) * dt;
+    if (ds > 1e-5) {
+      // A positive heading offset turns the nose left, which is toward −right — so a car sitting
+      // right of its lane wants a positive one. Wrapped first: a spin can leave it past ±π.
+      let h = Math.atan2(Math.sin(k.yaw), Math.cos(k.yaw));
+      const aim = Math.max(-RECOVER_MAX_HEADING,
+        Math.min(RECOVER_MAX_HEADING, Math.atan(lat / RECOVER_LOOK)));
+      const turn = Math.max(-ds / RECOVER_RADIUS, Math.min(ds / RECOVER_RADIUS, aim - h));
+      h += turn;
+      lat -= Math.sin(h) * ds;
+      lon -= lon * Math.min(1, ds / RECOVER_LON);
+      k.yaw = h;
+      // The lock that turn took, on the bicycle model the rest of the file steers by.
+      car.wheelAngle = Math.max(-STEER_MAX, Math.min(STEER_MAX, Math.atan(WHEELBASE * turn / ds)));
+    }
+    k.x = rx * lat + fx * lon;
+    k.z = rz * lat + fz * lon;
+    // Aiming a fixed distance ahead makes the last of the approach an exponential tail, so it is
+    // cut off where it stops being visible: 0.1 of a unit is under a pixel at play zoom (1 unit ≈
+    // 7.7px), and 2° of heading on a 3.4-unit body moves a bumper by less than that.
+    if (Math.abs(lat) < 0.1 && Math.abs(lon) < 0.2 && Math.abs(k.yaw) < 0.035) {
+      car.knock = null;
+      return;
+    }
   }
   car.x += k.x;
   car.z += k.z;
   car.yaw += k.yaw;
-  if (k.t > KNOCK_DONE_AT) car.knock = null;
 }
 
 function bezier(p0, p1, p2, t) {
