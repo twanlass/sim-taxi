@@ -581,6 +581,13 @@ export const PALETTE = {
   // gone. Roughly 1.8× the road's value is what it takes to be seen against it. Warm and well
   // short of the dust's pure white: white here is a dust cloud, and this is what is burning.
   wreckSmoke: '#C9C2BB',
+  // The damaged taxi's bonnet smoke — game/taxidamage.js — walked from the first stop to the second
+  // as the last third of its hit points goes. Light enough at the start to read as steam off a
+  // radiator rather than as fire, and dark enough at the end that "one more hit" needs no bar: the
+  // light stop sits just under `wreckSmoke` so the two are one family, the dark one is the colour
+  // the wreck's own smoke collar would be if it were burning oil.
+  damageSmokeLight: '#BDB7B0',
+  damageSmokeDark: '#45403D',
 
   // What a wreck's paint is pulled toward as it scorches — see SCORCH_MIX in game/wreckage.js. Only
   // a fifth of the way, and behind a plain multiply that does most of the darkening, because the

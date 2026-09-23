@@ -10,7 +10,7 @@
 // The colour steps rather than blends — green, amber, red — for the same reason the plumbob's
 // does: three states a glance can tell apart beat a gradient the eye has to judge.
 
-const LOW = 0.34;        // at or under this the bar goes red and the taxi starts smoking
+const LOW = 0.34;        // at or under this the bar goes red (and game/taxidamage.js's last tier starts)
 const MID = 0.67;
 const TRAIL_HOLD = 0.35; // s the damage bar waits before draining
 const TRAIL_RATE = 1.2;  // fraction of the bar per second it drains at
@@ -48,5 +48,5 @@ export function createHpMeter(el, max) {
   }
 
   paint();
-  return { hit, update, isLow: () => shown <= LOW };
+  return { hit, update };
 }

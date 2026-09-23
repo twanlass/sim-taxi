@@ -39,6 +39,8 @@ import { createSparks } from '../src/game/sparks.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
 import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, laneCost } from '../src/game/route.js';
 import { createCollisions, TAXI_HP, bumpDamage } from '../src/sim/collisions.js';
+import { createTaxiDamage } from '../src/game/taxidamage.js';
+import { CHASSIS_LIFT } from '../src/geometry/wheels.js';
 import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET, CHASE_SPEED } from '../src/sim/police.js';
 import { sirenOn } from '../src/geometry/lights.js';
 import {
@@ -5883,6 +5885,114 @@ check('the taxi is an ordinary car in the traffic array',
   for (let f = 0; f < 60 && !hTaxi.crashed; f++) hCollisions.update(1 / 60);
   check('the hit that empties the bar is the wreck', hTaxi.crashed && next.crashed && wrecks === 1
     && hTaxi.hp === 0, `crashed ${hTaxi.crashed}, ${wrecks} wrecks, hp ${hTaxi.hp}`);
+}
+
+// --- The taxi wearing its damage -------------------------------------------
+// Three tiers off the HP bar (game/taxidamage.js over buildDamage in geometry/taxi.js). The silent
+// failures: a dent that crushes a wheel merged into the shell, or tears the shell by moving shared
+// corners apart; a sign that swings about the middle of the car instead of tilting in place; a
+// bumper whose "dragging" end is in the air or under the road; the lean piling up frame on frame;
+// and a reset that leaves any of it behind.
+{
+  const dScene = new THREE.Scene();
+  const dTraffic = createTraffic(makeRng(seed + 46), dScene, CARS_DEFAULT);
+  const dTaxi = dTraffic.taxi;
+  const group = dTraffic.taxiGroup;
+  const shell = group.children.find((c) => c.isMesh && c.geometry.attributes.color);
+  const pristine = shell.geometry.attributes.position.array.slice();
+  const bursts = [];
+  const smokes = [];
+  const dDamage = createTaxiDamage({
+    damage: dTraffic.taxiDamage, group, taxi: dTaxi, maxHp: TAXI_HP, roadY: ROAD_Y,
+    sparks: { burst: (...a) => bursts.push(a) }, dust: { add: (...a) => smokes.push(a) },
+    rng: () => 0.5,
+  });
+  dTraffic.warmup(2);
+  dTaxi.hp = TAXI_HP;
+  check('an undamaged taxi wears nothing', dDamage.tier() === 0);
+
+  // A hit on the front right corner.
+  const f = { x: Math.cos(dTaxi.yaw), z: -Math.sin(dTaxi.yaw) };
+  const r = { x: Math.sin(dTaxi.yaw), z: Math.cos(dTaxi.yaw) };
+  dTaxi.hp = 80;
+  dDamage.hit(dTaxi.x + f.x * 1.5 + r.x * 0.7, dTaxi.z + f.z * 1.5 + r.z * 0.7);
+  const pos = shell.geometry.attributes.position.array;
+  let movedFrontRight = 0;
+  let movedElsewhere = 0;
+  let movedLow = 0;
+  for (let v = 0; v < pos.length; v += 3) {
+    const d = Math.hypot(pos[v] - pristine[v], pos[v + 1] - pristine[v + 1], pos[v + 2] - pristine[v + 2]);
+    if (d < 1e-9) continue;
+    if (pristine[v + 1] < 0.68 + CHASSIS_LIFT) movedLow += 1;
+    else if (pristine[v] > 0 && pristine[v + 2] > 0) movedFrontRight += 1;
+    else movedElsewhere += 1;
+  }
+  check('the first hit crushes the corner it landed on, above the wheels',
+    dDamage.tier() === 1 && movedFrontRight > 0 && movedElsewhere === 0 && movedLow === 0,
+    `${movedFrontRight} vertices moved at the front right, ${movedElsewhere} elsewhere, ${movedLow} low`);
+  // No tear: every copy of a shared corner went to the same place.
+  const seen = new Map();
+  let torn = 0;
+  for (let v = 0; v < pos.length; v += 3) {
+    const key = `${pristine[v].toFixed(5)},${pristine[v + 1].toFixed(5)},${pristine[v + 2].toFixed(5)}`;
+    const now = `${pos[v].toFixed(5)},${pos[v + 1].toFixed(5)},${pos[v + 2].toFixed(5)}`;
+    if (seen.has(key) && seen.get(key) !== now) torn += 1;
+    seen.set(key, now);
+  }
+  check('and does not tear the shell open', torn === 0, `${torn} split corners`);
+
+  const sign = dTraffic.taxiDamage && group.children.find((c) => c.isMesh
+    && c.geometry.parameters?.width === 0.75);
+  const signAt = sign.position.clone();
+  // Tilting in place needs the geometry centred on the mesh's own origin — a rotation is about that
+  // origin, and a sign translated into place in its vertices would swing about the middle of the car.
+  sign.geometry.computeBoundingBox();
+  const signCentre = sign.geometry.boundingBox.getCenter(new THREE.Vector3()).length();
+  check('the sign is knocked crooked in place, not swung about the car',
+    Math.abs(sign.rotation.x) > 0.2 && sign.position.distanceTo(signAt) === 0 && signCentre < 1e-6,
+    `roll ${sign.rotation.x.toFixed(2)}, geometry centred ${signCentre.toExponential(1)} off its origin`);
+
+  // Amber: the boot and the bumper, sparking while the car moves.
+  dTaxi.hp = 60;
+  dTaxi.v = 10;
+  dTaxi.hopFrom = null;
+  for (let n = 0; n < 60; n++) {
+    dTraffic.update(1 / 60);
+    dTaxi.v = 10;
+    dDamage.update(1 / 60);
+  }
+  const tip = dTraffic.taxiDamage.bumperTip(new THREE.Vector3());
+  check('at amber the bumper hangs off and drags sparks',
+    dDamage.tier() === 2 && bursts.length > 5 && smokes.length === 0,
+    `${bursts.length} spark bursts, ${smokes.length} puffs`);
+  // Its end on the road: measured in the car's own frame, where the road is y = 0 — in world space
+  // the car may be pitched over an arch or bouncing on its suspension, which is not the bumper's
+  // doing. Put down with no bounce, it has to land on the floor to the centimetre.
+  dTraffic.taxiDamage.setBumper(1, 0);
+  group.updateMatrixWorld(true);
+  const tipLocal = group.worldToLocal(dTraffic.taxiDamage.bumperTip(new THREE.Vector3()));
+  check('with its free end down on the road', Math.abs(tipLocal.y) < 0.02 && tip.y === tip.y,
+    `tip ${tipLocal.y.toFixed(3)} off the car's floor`);
+
+  // Red: smoke, and a list that does not pile up.
+  dTaxi.hp = 20;
+  const rolls = [];
+  for (let n = 0; n < 120; n++) {
+    dTraffic.update(1 / 60);
+    dTaxi.v = 0;                  // standing still, so only the lean is left, no rattle
+    dDamage.update(1 / 60);
+    rolls.push(group.rotation.x);
+  }
+  const spread = Math.max(...rolls.slice(60)) - Math.min(...rolls.slice(60));
+  check('at red it smokes and lists, and the list holds rather than piling up',
+    dDamage.tier() === 3 && smokes.length > 3 && Math.abs(rolls.at(-1)) > 0.04 && spread < 0.01,
+    `${smokes.length} puffs, roll ${rolls.at(-1).toFixed(3)}, spread ${spread.toFixed(4)}`);
+
+  dDamage.reset();
+  dTaxi.hp = TAXI_HP;
+  dDamage.update(1 / 60);
+  const restored = shell.geometry.attributes.position.array.every((p, i) => p === pristine[i]);
+  check('reset puts every part back', restored && sign.rotation.x === 0 && dDamage.tier() === 0);
 }
 
 

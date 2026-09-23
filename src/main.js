@@ -15,7 +15,7 @@ import { createProps } from './city/props.js';
 import { createGarage } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import {
-  createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, CAR_LEN, laysPassRubber, SPEED, ROAD_Y,
+  createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, SPEED, ROAD_Y,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
@@ -32,6 +32,7 @@ import {
 import { createBoostMeter } from './game/boostmeter.js';
 import { createHpMeter } from './game/hpmeter.js';
 import { createImpact } from './game/impact.js';
+import { createTaxiDamage } from './game/taxidamage.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
@@ -976,6 +977,13 @@ const collisions = createCollisions(traffic.cars, traffic.taxi);
 traffic.taxi.hp = TAXI_HP;
 const hpMeter = createHpMeter(document.getElementById('hp'), TAXI_HP);
 const impact = createImpact(scene, camera);
+// What the car wears for it — a crushed corner and a crooked sign, then a boot lid up and a bumper
+// dragging sparks, then smoke, a sputtering sign and a list. Tiered off the HP bar's own steps; see
+// game/taxidamage.js.
+const taxiDamage = createTaxiDamage({
+  damage: traffic.taxiDamage, group: traffic.taxiGroup, taxi: traffic.taxi, maxHp: TAXI_HP,
+  sparks, dust, roadY: ROAD_Y,
+});
 
 // A survivable hit: the struck car is launched or spun off its line (sim/collisions.js `bump`),
 // the taxi loses most of its speed, and here is the noise — a comic starburst on the contact
@@ -998,22 +1006,9 @@ collisions.onBump(({ x, z, closing, hp, nx, nz, speed }) => {
   sparks.burst(x, ROAD_Y + 0.6, z, normalYaw - Math.PI / 2, count, speed * 0.5);
   dust.burst(x, z, yaw, 8, 0.5, { tint: PALETTE.wreckSmoke, linger: 0.7 });
   hpMeter.hit(hp);
+  taxiDamage.hit(x, z);
 });
 
-// Smoke off the bonnet once the bar is in the red — the one warning that is on the car rather than
-// in the corner, where the player is actually looking while Loco Mode is down.
-const DAMAGE_SMOKE_EVERY = 0.14;   // s
-let damageSmokeIn = 0;
-function updateDamageSmoke(dt) {
-  const taxi = traffic.taxi;
-  if (!hpMeter.isLow() || taxi.crashed || taxi.staged) return;
-  damageSmokeIn -= dt;
-  if (damageSmokeIn > 0) return;
-  damageSmokeIn = DAMAGE_SMOKE_EVERY;
-  const ahead = CAR_LEN * 0.35;
-  dust.add(taxi.x + Math.cos(taxi.yaw) * ahead, taxi.z - Math.sin(taxi.yaw) * ahead,
-    taxi.yaw, 0.35, 0.2, PALETTE.wreckSmoke, ROAD_Y + 1.1);
-}
 collisions.onImpact(({ x, z, speed, other }) => {
   // One detonation per car — a shockwave ring on the tarmac, a fireball and a scatter of shards,
   // all of it inside game/blast.js. It used to be four effects stacked at each point plus a third
@@ -2825,7 +2820,8 @@ function frame() {
   collisions.update(dt);
   hpMeter.update(dt);
   impact.update(dt);
-  updateDamageSmoke(dt);
+  // After traffic has written the taxi's transform: the lean and the rattle ride on top of it.
+  taxiDamage.update(dt);
   checkPoliceBust();
   // Last of the three, and both halves of that matter. It copies the matrices traffic composed
   // *this* frame, so running it any earlier would slide every outline off its own car by a couple
@@ -3735,6 +3731,8 @@ window.__taxi = {
   boost,
   // The bump's starburst, so a check can fire one where it can see it — see game/impact.js.
   impact,
+  // And the tiers of damage the car wears, so a check can stage one — see game/taxidamage.js.
+  taxiDamage,
   /**
    * Loco Mode's speed ramp — `get`, `set`, `reset`, `ramp`, `defaults`. The ⚙️ panel's sliders
    * drive the same handle, so this is where you go for a value past the end of one of them.

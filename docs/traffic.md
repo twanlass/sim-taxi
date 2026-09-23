@@ -1447,6 +1447,26 @@ out. Ramming is the fallback, not the policy.
   sideways along the seam, shakes the camera a fraction of the wreck's amount, and knocks the HP bar
   in the top-left. Under a third of the bar the taxi smokes from the bonnet.
 
+**The car wears its damage, in three tiers** (`game/taxidamage.js` driving `buildDamage` in
+`geometry/taxi.js`), each keyed to one of the HP bar's colour steps so the car itself reads as the
+gauge. Each tier adds a distinct ingredient rather than turning the last one up:
+
+1. **Any hit**: the struck corner is crushed (the shell's top vertices near it pushed in, down and
+   darkened; the wheels merged into the shell are left alone), and the roof sign is knocked crooked.
+2. **Amber (≤ 67%)**: the boot lid is up and bouncing over a dark opening, and a bumper hangs off the
+   rear corner of the worse side, its free end on the road throwing sparks while the car moves.
+3. **Red (≤ 34%)**: smoke off the bonnet walking from steam (`damageSmokeLight`) to black
+   (`damageSmokeDark`) and getting faster, the lit sign sputtering, and the car sitting low on its
+   damaged side and rattling with speed.
+
+Everything is sized for silhouette, because at play zoom the taxi is ~30px long and nothing finer
+reads. It is all render-only; the lean and rattle are added to the group after the sim writes its
+transform each frame, so nothing accumulates and nothing reaches the sim. The parts are built at boot
+and hidden by a zero scale, so `markOccluder`, the cartoon outline and the ghost outline all see them.
+The one thing that does not follow the dent is the ghost-outline rim, which is an inflated *copy* of
+the shell made at boot; it only draws while the car is behind a building, where a crushed corner does
+not show anyway.
+
 **Contact is resolved every frame and charged once.** For as long as the two bodies overlap, the
 struck car is pushed out along the deepest circle pair's normal (`shoveCar`): the part along its own
 lane goes into `s`, so a rear-ended car is bulldozed down the road in the sim; the rest goes into the

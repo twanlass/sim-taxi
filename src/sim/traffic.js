@@ -2267,6 +2267,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const {
     group: taxiGroup, setOccupied: setTaxiOccupied, lights: taxiLights,
     setHighlight: setTaxiHighlight, setSteer: setTaxiSteer, setLights: setTaxiLights,
+    damage: taxiDamage,
   } = createTaxiMesh();
   scene.add(taxiGroup);
 
@@ -4760,7 +4761,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   }
 
   return {
-    cars, taxi, taxiGroup, setTaxiOccupied, setTaxiHighlight, setCarCount, mesh,
+    cars, taxi, taxiGroup, taxiDamage, setTaxiOccupied, setTaxiHighlight, setCarCount, mesh,
     wheelMesh, barMesh, update, warmup,
     /**
      * Bring `n` cop cars onto the map, entering from off screen as near `near` as the camera

@@ -170,13 +170,18 @@ export function createTaxiMesh() {
   // carry the fare's own colour, back when colour paired a rider with their drop-off pin; now
   // that pairing is gone (the drop-off pin is fixed to Loco Mode's yellow, see marker.js), so the
   // sign only has one thing left to say and says it with on/off rather than hue.
+  //
+  // Centred on its own origin and hung at its spot, rather than translated into place in its
+  // vertices, so it tilts about itself when the car is damaged (`damage.setSignTilt`) — a rotation,
+  // like a scale, is about the mesh's origin, and one baked into the vertices would swing the sign
+  // about the middle of the car. See the light pods below for the same trap with scale.
   const signGeo = new THREE.BoxGeometry(0.75, 0.34, 0.4);
-  signGeo.translate(-0.1, 1.92 + CHASSIS_LIFT, 0);
   const sign = new THREE.Mesh(
     signGeo,
     // Starts dark — the taxi is empty until a fare boards.
     new THREE.MeshLambertMaterial({ color: new THREE.Color(PALETTE.taxiTrim), flatShading: true }),
   );
+  sign.position.set(-0.1, 1.92 + CHASSIS_LIFT, 0);
   sign.castShadow = true;
   sign.receiveShadow = true;
   sign.userData.pickable = 'taxi';
@@ -231,15 +236,24 @@ export function createTaxiMesh() {
     addGhostOutline(light, { rim: 0.08 });
   }
 
+  const damage = buildDamage(group, shell, sign);
+
   // Slightly oversized against ambient traffic. The player has to find this car at a glance in a
   // street full of identically shaped vehicles.
   group.scale.setScalar(TAXI_SCALE);
   group.rotation.order = 'YXZ';   // so roll applies about the car's own long axis
 
   /** Lights the roof sign while a rider is aboard; dark (the trim's own colour) while empty. */
-  const setOccupied = (occupied) => {
-    sign.material.color.set(occupied ? PALETTE.taxiSign : PALETTE.taxiTrim);
+  let occupied = false;
+  let signOut = false;
+  const paintSign = () => {
+    sign.material.color.set(occupied && !signOut ? PALETTE.taxiSign : PALETTE.taxiTrim);
   };
+  const setOccupied = (next) => { occupied = next; paintSign(); };
+  // A damaged sign sputters: the damage layer (game/taxidamage.js) drops it out for a few frames
+  // at a time. Kept beside `occupied` rather than written as a colour by the caller, so a fare
+  // boarding mid-flicker cannot leave the sign lit when it should be out or the other way round.
+  damage.setSignOut = (out) => { if (out !== signOut) { signOut = out; paintSign(); } };
 
   /**
    * Light the whole car, 0..1 — the flourish that says a courier box has been accepted
@@ -289,6 +303,7 @@ export function createTaxiMesh() {
   return {
     group,
     sign,
+    damage,
     /**
      * The six light pods — two per lamp, see the note by their construction — so `main.js` can
      * put them in the bloom (`markEmissive` in
@@ -300,5 +315,168 @@ export function createTaxiMesh() {
     setHighlight,
     setSteer,
     setLights,
+  };
+}
+
+// --- Damage ------------------------------------------------------------------------------------
+//
+// What the car wears after it has been in a scrape — driven in tiers off its hit points by
+// game/taxidamage.js. Everything here is sized for the camera rather than for realism: the taxi is
+// about 30px long at play zoom (1 unit ≈ 7.7px through TAXI_SCALE), so scuffs and a cracked screen
+// would not read at all. What does is a change of *silhouette* — a crushed corner, a sign knocked
+// crooked, a boot lid up, a bumper hanging off — and those are the four pieces.
+//
+// Built at boot and hidden with a zero scale rather than added when needed, for the reason the light
+// pods are: `markOccluder`, the cartoon outline and the ghost-outline traversal all walk this group
+// once, and a part that turns up later is missed by all three. A zero scale draws nothing and needs
+// no second code path. (No lights in here, so hiding by scale has none of the light-count trap.)
+
+// Where the boot lid hinges: the rear edge of the cabin, which sits at −0.2 ± CAR_LEN/4.
+const BOOT_HINGE_X = -0.2 - CAR_LEN * 0.25;
+const BODY_TOP = 1.18 + CHASSIS_LIFT;
+const BOOT_LEN = CAR_LEN / 2 + BOOT_HINGE_X - 0.02;
+// The bumper hangs from the rear corner on the side that took the damage and drags on the road.
+const BUMPER_LEN = CAR_W * 0.9;
+const BUMPER_T = 0.14;
+const BUMPER_Y = 0.46 + CHASSIS_LIFT;
+// A dent crushes the top of one corner inward and down. Only vertices above WHEEL_TOP move: the rear
+// wheels are merged into the shell, and a wheel caught in a corner's radius would be crushed with it.
+// The body's own bottom edge stays put, so the crushed face slants — which is the silhouette.
+//
+// Sized off a look at it rather than off a number: the first cut (0.28 in, 0.13 down, three levels)
+// could not be seen from a camera zoomed seven times closer than play, let alone at play zoom, where
+// 0.28 of a unit is two pixels. Two levels of a deeper crush is a corner that visibly folds.
+const DENT_R = 1.1;
+const DENT_IN = 0.5;            // per level, toward the middle of the car along its length
+const DENT_DOWN = 0.22;         // per level
+const DENT_SIDE = 0.14;         // per level, toward the centreline
+const DENT_DARKEN = 0.3;        // per level, toward the trim colour — crumpled metal is in shadow
+const DENT_MAX = 2;
+const WHEEL_TOP = 0.68 + CHASSIS_LIFT;
+
+function buildDamage(group, shell, sign) {
+  const geometry = shell.geometry;
+  const position = geometry.attributes.position;
+  const colour = geometry.attributes.color;
+  const pristinePos = position.array.slice();
+  const pristineCol = colour ? colour.array.slice() : null;
+  const trim = color('taxiTrim');
+  // Dent level per corner, keyed `${sx},${sz}` with each sign ±1 — sx + is the nose, sz + the right.
+  const dents = new Map();
+
+  function applyDents() {
+    const pos = position.array;
+    pos.set(pristinePos);
+    if (pristineCol) colour.array.set(pristineCol);
+    for (const [key, level] of dents) {
+      if (level <= 0) continue;
+      const [sx, sz] = key.split(',').map(Number);
+      const cx = sx * CAR_LEN / 2;
+      const cz = sz * CAR_W / 2;
+      for (let v = 0; v < position.count; v++) {
+        const y = pristinePos[v * 3 + 1];
+        if (y < WHEEL_TOP) continue;
+        const x = pristinePos[v * 3];
+        const z = pristinePos[v * 3 + 2];
+        // By position, not by index: the merged shell repeats shared corners, and a displacement
+        // keyed on anything but where the vertex is would tear it open (CLAUDE.md).
+        const w = Math.max(0, 1 - Math.hypot(x - cx, z - cz) / DENT_R);
+        if (w <= 0) continue;
+        const k = w * level;
+        pos[v * 3] -= sx * DENT_IN * k;
+        pos[v * 3 + 1] -= DENT_DOWN * k;
+        pos[v * 3 + 2] -= sz * DENT_SIDE * k;
+        if (pristineCol) {
+          const t = Math.min(0.6, DENT_DARKEN * k);
+          colour.array[v * 3] += (trim.r - colour.array[v * 3]) * t;
+          colour.array[v * 3 + 1] += (trim.g - colour.array[v * 3 + 1]) * t;
+          colour.array[v * 3 + 2] += (trim.b - colour.array[v * 3 + 2]) * t;
+        }
+      }
+    }
+    position.needsUpdate = true;
+    if (pristineCol) colour.needsUpdate = true;
+    geometry.computeBoundingSphere();
+  }
+
+  // The boot lid, on a hinge at the back of the cabin, over a dark opening that only shows when the
+  // lid is up. The lid's underside sits exactly on the body's top face, and that is fine: it faces
+  // down and is culled before it can fight anything (see the coplanar notes in CLAUDE.md).
+  const bootHinge = new THREE.Group();
+  bootHinge.position.set(BOOT_HINGE_X, BODY_TOP, 0);
+  const lidGeo = new THREE.BoxGeometry(BOOT_LEN, 0.06, CAR_W * 0.94);
+  lidGeo.translate(-BOOT_LEN / 2, 0.03, 0);
+  const lid = new THREE.Mesh(bakeColor(lidGeo, color('taxiBody')), propMaterial());
+  lid.castShadow = true;
+  lid.receiveShadow = true;
+  lid.userData.pickable = 'taxi';
+  bootHinge.add(lid);
+  const holeGeo = new THREE.BoxGeometry(BOOT_LEN * 0.9, 0.02, CAR_W * 0.82);
+  holeGeo.translate(BOOT_HINGE_X - BOOT_LEN / 2, BODY_TOP + 0.01, 0);
+  const hole = new THREE.Mesh(bakeColor(holeGeo, color('taxiTrim')), propMaterial());
+  hole.userData.pickable = 'taxi';
+  bootHinge.scale.setScalar(0);
+  hole.scale.setScalar(0);
+  group.add(bootHinge, hole);
+
+  // The bumper: a dark bar hinged at one rear corner, its free end down on the tarmac. The geometry
+  // runs from the hinge along −z; the other side is the same bar turned half round about the hinge,
+  // which keeps the winding (a mirror by negative scale would not).
+  const bumperHinge = new THREE.Group();
+  bumperHinge.rotation.order = 'YXZ';
+  const barGeo = new THREE.BoxGeometry(BUMPER_T, BUMPER_T, BUMPER_LEN);
+  barGeo.translate(0, 0, -BUMPER_LEN / 2);
+  const bar = new THREE.Mesh(bakeColor(barGeo, color('taxiTrim')), propMaterial());
+  bar.castShadow = true;
+  bar.userData.pickable = 'taxi';
+  bumperHinge.add(bar);
+  bumperHinge.scale.setScalar(0);
+  group.add(bumperHinge);
+  // Angle that puts the free end's underside on the road: the hinge is BUMPER_Y up.
+  const droopToRoad = Math.asin(Math.min(1, (BUMPER_Y - BUMPER_T / 2) / BUMPER_LEN));
+  const tipLocal = new THREE.Vector3(0, -BUMPER_T / 2, -BUMPER_LEN);
+
+  return {
+    /** Crush one corner a level further. `sx` + is the nose, `sz` + the car's right. */
+    dent(sx, sz) {
+      const key = `${Math.sign(sx) || 1},${Math.sign(sz) || 1}`;
+      dents.set(key, Math.min(DENT_MAX, (dents.get(key) ?? 0) + 1));
+      applyDents();
+    },
+    /** Roll and yaw on the roof sign, radians. */
+    setSignTilt(roll, yaw) {
+      sign.rotation.set(roll, yaw, 0);
+    },
+    /** The boot lid's opening angle in radians, or null to put it away altogether. */
+    setBoot(angle) {
+      const shown = angle != null;
+      bootHinge.scale.setScalar(shown ? 1 : 0);
+      hole.scale.setScalar(shown ? 1 : 0);
+      if (shown) bootHinge.rotation.z = -angle;
+    },
+    /**
+     * Hang the bumper off the rear corner on `side` (+1 right, −1 left), `lift` radians short of
+     * resting on the road — or pass side 0 to put it away.
+     */
+    setBumper(side, lift = 0) {
+      bumperHinge.scale.setScalar(side ? 1 : 0);
+      if (!side) return;
+      bumperHinge.position.set(-CAR_LEN / 2 - BUMPER_T / 2, BUMPER_Y, side * (CAR_W / 2 - 0.05));
+      bumperHinge.rotation.set(-(droopToRoad - lift), side > 0 ? 0 : Math.PI, 0);
+    },
+    /** World position of the bumper's dragging end, for the sparks. Needs a current matrixWorld. */
+    bumperTip(target) {
+      return bar.localToWorld(target.copy(tipLocal));
+    },
+    /** Put everything back — a new run, or a repair. */
+    reset() {
+      dents.clear();
+      applyDents();
+      sign.rotation.set(0, 0, 0);
+      bootHinge.scale.setScalar(0);
+      hole.scale.setScalar(0);
+      bumperHinge.scale.setScalar(0);
+      this.setSignOut?.(false);
+    },
   };
 }
