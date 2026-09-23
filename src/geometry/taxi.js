@@ -335,7 +335,8 @@ export function createTaxiMesh() {
 const BOOT_HINGE_X = -0.2 - CAR_LEN * 0.25;
 const BODY_TOP = 1.18 + CHASSIS_LIFT;
 const BOOT_LEN = CAR_LEN / 2 + BOOT_HINGE_X - 0.02;
-// The bumper hangs from the rear corner on the side that took the damage and drags on the road.
+// A bumper hangs by one corner and drags its free end on the road at the corner that has taken the
+// most hits — nose or tail, left or right — so the sparks come off where the damage is.
 const BUMPER_LEN = CAR_W * 0.9;
 const BUMPER_T = 0.14;
 const BUMPER_Y = 0.46 + CHASSIS_LIFT;
@@ -396,13 +397,14 @@ function buildDamage(group, sign) {
       if (shown) bootHinge.rotation.z = -angle;
     },
     /**
-     * Hang the bumper off the rear corner on `side` (+1 right, −1 left), `lift` radians short of
-     * resting on the road — or pass side 0 to put it away.
+     * Hang a bumper by its corner on `side` (+1 right, −1 left) at `end` (+1 the nose, −1 the tail),
+     * its free end across the car on the road and `lift` radians short of resting there — or pass
+     * side 0 to put it away.
      */
-    setBumper(side, lift = 0) {
+    setBumper(side, end = -1, lift = 0) {
       bumperHinge.scale.setScalar(side ? 1 : 0);
       if (!side) return;
-      bumperHinge.position.set(-CAR_LEN / 2 - BUMPER_T / 2, BUMPER_Y, side * (CAR_W / 2 - 0.05));
+      bumperHinge.position.set(end * (CAR_LEN / 2 + BUMPER_T / 2), BUMPER_Y, side * (CAR_W / 2 - 0.05));
       bumperHinge.rotation.set(-(droopToRoad - lift), side > 0 ? 0 : Math.PI, 0);
     },
     /** World position of the bumper's dragging end, for the sparks. Needs a current matrixWorld. */

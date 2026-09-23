@@ -91,8 +91,11 @@ function carCircles(car) {
   return circles;
 }
 
-// The deepest overlapping pair of circles between the two bodies, as a depth and the unit normal
-// pointing from `a` into `b` — or null if they do not touch. Exported for tools/lab.mjs.
+// The deepest overlapping pair of circles between the two bodies, as a depth, the unit normal
+// pointing from `a` into `b`, and the contact point (cx, cz) — the middle of the overlap between
+// those two circles, which is where the bodies are actually touching — or null if they do not.
+// The point matters for the effects: the midpoint of the two cars' *centres* sits in the middle of
+// one of them on a T-bone, a unit and a half from the door that took the hit. Exported for tools/lab.mjs.
 export function penetration(a, b) {
   const reach = CIRCLE_R * 2;
   let best = null;
@@ -105,9 +108,10 @@ export function penetration(a, b) {
       const d = Math.sqrt(d2);
       const depth = reach - d;
       if (best && depth <= best.depth) continue;
-      best = d > 1e-6
-        ? { depth, nx: dx / d, nz: dz / d }
-        : { depth, nx: Math.cos(a.yaw), nz: -Math.sin(a.yaw) };
+      const nx = d > 1e-6 ? dx / d : Math.cos(a.yaw);
+      const nz = d > 1e-6 ? dz / d : -Math.sin(a.yaw);
+      const reachIn = CIRCLE_R - depth / 2;
+      best = { depth, nx, nz, cx: p.x + nx * reachIn, cz: p.z + nz * reachIn };
     }
   }
   return best;
@@ -173,7 +177,7 @@ export function createCollisions(cars, taxi) {
         const damage = bumpDamage(closing);
         taxi.hp = Math.max(0, taxi.hp - damage);
         if (taxi.hp > 0) {
-          bump(other, closing, damage, px, pz, pen);
+          bump(other, closing, damage, pen.cx, pen.cz, pen);
           continue;
         }
         // Out of hit points: this one is the wreck, through exactly the path it always was.

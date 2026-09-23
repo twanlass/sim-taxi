@@ -995,8 +995,9 @@ const BUMP_SHAKE_PER_UNIT = 0.03;
 collisions.onBump(({ x, z, closing, hp, nx, nz, speed }) => {
   const yaw = traffic.taxi.yaw;
   controller.kickShake(BUMP_SHAKE + closing * BUMP_SHAKE_PER_UNIT);
-  // Where the bodies actually touch — a bit short of the midpoint of the two centres on the side
-  // the taxi came in from would be pedantry at 3 px; the midpoint is the seam near enough.
+  // At the point of contact (`cx/cz` off the deepest pair of circles in sim/collisions.js), not
+  // the midpoint of the two cars' centres — on a T-bone that midpoint sits inside the struck car,
+  // a unit and a half from the door the sparks should be coming off.
   impact.fire(x, z, closing);
   // Two sprays fanning out either side of the contact normal, so the sparks come off the seam
   // sideways rather than trailing behind the taxi like a landing's.

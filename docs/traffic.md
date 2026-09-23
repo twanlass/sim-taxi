@@ -1443,7 +1443,8 @@ out. Ramming is the fallback, not the policy.
   sits on its brakes for 1.4s (`stun`, which drives the existing `braking` flag, so a car stunned
   inside a junction box holds cross traffic exactly as the brake pedal does).
 - The taxi keeps 45% of its speed and recoils a little the other way.
-- `main.js` pops a comic starburst on the contact point (`game/impact.js`), sprays sparks out
+- `main.js` pops a comic starburst on the contact point (`game/impact.js`) — the middle of the
+  overlap between the deepest pair of circles, not the midpoint of the two cars' centres, sprays sparks out
   sideways along the seam, shakes the camera a fraction of the wreck's amount, and knocks the HP bar
   in the top-left. Under a third of the bar the taxi smokes from the bonnet.
 
@@ -1452,8 +1453,9 @@ out. Ramming is the fallback, not the policy.
 gauge. Each tier adds a distinct ingredient rather than turning the last one up:
 
 1. **Any hit**: the roof sign is knocked crooked, a little further with each hit.
-2. **Amber (≤ 67%)**: the boot lid is up over a dark opening and a bumper hangs off the rear corner
-   of the worse side, its free end on the road throwing sparks while the car moves. The lid is a
+2. **Amber (≤ 67%)**: the boot lid is up over a dark opening and a bumper hangs off the car, its
+   free end on the road throwing sparks while the car moves — at the corner that has taken the most
+   hits, nose or tail, so the sparks come off where the damage is. The lid is a
    damped spring on its hinge, kicked by the road, by the car's own acceleration and by every hit;
    it slams against the body and bounces back up. A first cut that wobbled it ±0.2 rad on a sine
    read as a lid that was simply open.

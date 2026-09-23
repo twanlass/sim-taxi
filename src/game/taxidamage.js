@@ -55,8 +55,12 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
   const tip = new THREE.Vector3();
 
   let hits = 0;
-  let side = 1;                   // the side that has taken the worst of it: +1 right, −1 left
-  let sideScore = 0;
+  // Hits per corner, keyed `${end},${side}` — end +1 the nose, side +1 the right. The bumper hangs
+  // off the worst one, its free end dragging at that corner, and the list and the sign lean that
+  // way; a tie goes to the corner hit last.
+  const corners = new Map();
+  let worst = { end: -1, side: 1 };
+  let side = 1;
   let phase = 0;
   let sparkIn = 0;
   let smokeIn = 0;
@@ -82,8 +86,17 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
     const dz = z - taxi.z;
     const lx = dx * Math.cos(taxi.yaw) - dz * Math.sin(taxi.yaw);
     const lz = dx * Math.sin(taxi.yaw) + dz * Math.cos(taxi.yaw);
-    sideScore += lz >= 0 ? 1 : -1;
-    if (sideScore) side = Math.sign(sideScore);
+    const key = `${lx >= 0 ? 1 : -1},${lz >= 0 ? 1 : -1}`;
+    corners.set(key, (corners.get(key) ?? 0) + 1);
+    let top = -1;
+    for (const [k, n] of corners) {
+      if (n > top || (n === top && k === key)) {
+        top = n;
+        const [end, s] = k.split(',').map(Number);
+        worst = { end, side: s };
+      }
+    }
+    side = worst.side;
     hits += 1;
     // Down hard, so the slam and the bounce off it are the first thing the lid does.
     bootV -= BOOT_HIT_KICK;
@@ -123,7 +136,8 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
       damage.setBoot(boot);
       // The bumper bounces clear of the road now and then and comes back down on it.
       const lift = 0.06 * moving * Math.max(0, Math.sin(phase * 1.7));
-      damage.setBumper(-side, lift);
+      // Hinged on the far side so its free end — the one throwing sparks — is at the damaged corner.
+      damage.setBumper(-worst.side, worst.end, lift);
       sparkIn -= dt;
       const airborne = taxi.hopFrom != null;
       if (v > SPARK_MIN_V && !airborne && lift < 0.02 && sparkIn <= 0) {
@@ -184,7 +198,8 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
     hits = 0;
     boot = BOOT_REST;
     bootV = 0;
-    sideScore = 0;
+    corners.clear();
+    worst = { end: -1, side: 1 };
     side = 1;
     damage.reset();
   }

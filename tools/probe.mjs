@@ -5848,6 +5848,13 @@ check('the taxi is an ordinary car in the traffic array',
     first && first.damage === bumpDamage(first.closing) && hTaxi.hp === TAXI_HP - first.damage
       && first.damage > 12,
     first && `closing ${first.closing.toFixed(1)} → ${first.damage} HP, ${hTaxi.hp} left`);
+  // The effects fire where the bodies touch: on this T-bone that is the taxi's nose against the
+  // car's door, well away from the midpoint of the two centres, which sits inside the struck car.
+  const noseX = hTaxi.x + Math.cos(hTaxi.yaw) * 1.6;
+  const noseZ = hTaxi.z - Math.sin(hTaxi.yaw) * 1.6;
+  const offNose = first ? Math.hypot(first.x - noseX, first.z - noseZ) : Infinity;
+  check('a bump reports the point of contact, not the midpoint of the two cars',
+    offNose < 0.8, `${offNose.toFixed(2)} units from the taxi's nose`);
   check('the taxi loses most of its speed to it', first && hTaxi.v < first.speed * 0.5,
     first && `${first.speed.toFixed(1)} → ${hTaxi.v.toFixed(1)}`);
   check('a car struck in the side is shoved and stunned',
@@ -5910,9 +5917,13 @@ check('the taxi is an ordinary car in the traffic array',
   dTaxi.hp = TAXI_HP;
   check('an undamaged taxi wears nothing', dDamage.tier() === 0);
 
-  const f = { x: Math.cos(dTaxi.yaw), z: -Math.sin(dTaxi.yaw) };
-  const r = { x: Math.sin(dTaxi.yaw), z: Math.cos(dTaxi.yaw) };
-  const hitAt = (a, b) => dDamage.hit(dTaxi.x + f.x * a + r.x * b, dTaxi.z + f.z * a + r.z * b);
+  // In the car's frame as it stands *now* — it keeps driving between hits, so a heading read once at
+  // the top would aim every later hit at the wrong corner.
+  const hitAt = (a, b) => {
+    const f = { x: Math.cos(dTaxi.yaw), z: -Math.sin(dTaxi.yaw) };
+    const r = { x: Math.sin(dTaxi.yaw), z: Math.cos(dTaxi.yaw) };
+    dDamage.hit(dTaxi.x + f.x * a + r.x * b, dTaxi.z + f.z * a + r.z * b);
+  };
   dTaxi.hp = 80;
   hitAt(1.5, 0.7);
 
@@ -5962,7 +5973,16 @@ check('the taxi is an ordinary car in the traffic array',
   // Its end on the road: measured in the car's own frame, where the road is y = 0 — in world space
   // the car may be pitched over an arch or bouncing on its suspension, which is not the bumper's
   // doing. Put down with no bounce, it has to land on the floor to the centimetre.
-  dTraffic.taxiDamage.setBumper(1, 0);
+  // And it hangs at the corner that took the hits. Two of the three so far were the front right
+  // (hitAt(1.5, 0.7) before amber, and one more below), so the dragging end is there: nose-side in
+  // the car's frame and to its right.
+  hitAt(1.5, 0.7);
+  drive(1, 10);
+  group.updateMatrixWorld(true);
+  const dragAt = group.worldToLocal(dTraffic.taxiDamage.bumperTip(new THREE.Vector3()));
+  check('the bumper drags at the corner that took the hits', dragAt.x > 1 && dragAt.z > 0.3,
+    `free end at (${dragAt.x.toFixed(2)}, ${dragAt.z.toFixed(2)}) in the car's frame`);
+  dTraffic.taxiDamage.setBumper(1, -1, 0);
   group.updateMatrixWorld(true);
   const tipLocal = group.worldToLocal(dTraffic.taxiDamage.bumperTip(new THREE.Vector3()));
   check('the bumper\'s free end is down on the road', Math.abs(tipLocal.y) < 0.02,
