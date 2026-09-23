@@ -992,7 +992,7 @@ const taxiDamage = createTaxiDamage({
 // without the bar.
 const BUMP_SHAKE = 0.35;
 const BUMP_SHAKE_PER_UNIT = 0.03;
-collisions.onBump(({ x, z, closing, hp, nx, nz, speed }) => {
+collisions.onBump(({ x, z, closing, hp, nx, nz, speed, rearEnd }) => {
   const yaw = traffic.taxi.yaw;
   controller.kickShake(BUMP_SHAKE + closing * BUMP_SHAKE_PER_UNIT);
   // At the point of contact (`cx/cz` off the deepest pair of circles in sim/collisions.js), not
@@ -1007,7 +1007,7 @@ collisions.onBump(({ x, z, closing, hp, nx, nz, speed }) => {
   sparks.burst(x, ROAD_Y + 0.6, z, normalYaw - Math.PI / 2, count, speed * 0.5);
   dust.burst(x, z, yaw, 8, 0.5, { tint: PALETTE.wreckSmoke, linger: 0.7 });
   hpMeter.hit(hp);
-  taxiDamage.hit(x, z);
+  taxiDamage.hit(x, z, { rearEnd });
 });
 
 collisions.onImpact(({ x, z, speed, other }) => {

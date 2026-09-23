@@ -7,6 +7,12 @@ import { color } from '../palette.js';
 //
 //   1  any hit      the roof sign is knocked crooked
 //   2  ≤ 67% (amber) the boot lid is up and bouncing, and a bumper hangs off the back dragging sparks
+//
+// And one piece off the tiers: **rear-ending a car pops the bonnet**, whatever the bar says, and it
+// flaps on the same spring as the boot for the rest of the run. It belongs to the kind of hit rather
+// than to the running total — a nose driven into a boot is the one collision that obviously bursts a
+// bonnet catch — which also gives the first tier something louder than a crooked sign when the first
+// hit is the commonest one in Loco Mode.
 //   3  ≤ 34% (red)   smoke off the bonnet going from steam to black, the sign sputtering, and the car
 //                   sitting low on its damaged side and rattling
 //
@@ -36,6 +42,11 @@ const BOOT_ROAD = [0.12, 0.35];   // s between road kicks at speed
 const BOOT_ROAD_KICK = 7;         // rad/s per kick at full speed
 const BOOT_ACCEL = 1.2;           // rad/s² on the lid per u/s² of the car's own acceleration
 const BOOT_HIT_KICK = 14;         // rad/s, on every bump — it slams shut and flies open
+// The bonnet rides the same spring. It rests a little lower — a raised bonnet is in front of the
+// windscreen, and a lid that stood as high as the boot's hid the cabin at this camera — and its first
+// kick is *up*: the catch lets go and it flies open off the body, where the boot's is a slam.
+const HOOD_REST = 0.45;
+const HOOD_POP = 11;              // rad/s, the burst catch
 const SPARK_EVERY = 0.045;        // s between bursts off the bumper while it is dragging
 const SPARK_MIN_V = 2.5;          // u/s — a bumper at walking pace scrapes, it does not spark
 
@@ -66,10 +77,26 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
   let smokeIn = 0;
   let flickerIn = FLICKER_MEAN;
   let flickerOut = 0;
-  let boot = BOOT_REST;
-  let bootV = 0;
-  let roadIn = 0;
+  // One spring per lid. Separate road-kick clocks, so the two do not flap in step.
+  const boot = { angle: BOOT_REST, v: 0, roadIn: 0, rest: BOOT_REST };
+  const hood = { angle: 0, v: 0, roadIn: 0.1, rest: HOOD_REST, open: false };
   let lastV = 0;
+
+  function stepLid(lid, dt, moving, accel) {
+    // Road kicks, both ways, more often and harder the faster the car goes.
+    lid.roadIn -= dt;
+    if (lid.roadIn <= 0 && moving > 0.05) {
+      lid.roadIn = BOOT_ROAD[0] + (BOOT_ROAD[1] - BOOT_ROAD[0]) * rng();
+      lid.v += (rng() - 0.35) * 2 * BOOT_ROAD_KICK * moving;
+    }
+    // The car's own acceleration swings it — clamped, because a bump drops the car's speed in one
+    // frame and reads as hundreds of u/s²; the hit has a kick of its own.
+    lid.v += Math.max(-40, Math.min(40, accel)) * BOOT_ACCEL * dt;
+    lid.v += (-BOOT_K * (lid.angle - lid.rest) - BOOT_C * lid.v) * dt;
+    lid.angle += lid.v * dt;
+    if (lid.angle < 0) { lid.angle = 0; lid.v = -lid.v * BOOT_SLAM; }
+    if (lid.angle > BOOT_MAX) { lid.angle = BOOT_MAX; lid.v = -lid.v * BOOT_SLAM; }
+  }
 
   const fraction = () => (taxi.hp ?? maxHp) / maxHp;
   const tier = () => {
@@ -78,8 +105,8 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
     return f <= LOW ? 3 : f <= MID ? 2 : 1;
   };
 
-  /** A bump landed at world (x, z). */
-  function hit(x, z) {
+  /** A bump landed at world (x, z). `rearEnd` is the taxi's nose into the back of another car. */
+  function hit(x, z, { rearEnd = false } = {}) {
     // Into the car's own frame: +lx toward the nose, +lz toward its right. The same basis the sim
     // uses, (cos yaw, −sin yaw) forward and (sin yaw, cos yaw) right.
     const dx = x - taxi.x;
@@ -99,7 +126,14 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
     side = worst.side;
     hits += 1;
     // Down hard, so the slam and the bounce off it are the first thing the lid does.
-    bootV -= BOOT_HIT_KICK;
+    boot.v -= BOOT_HIT_KICK;
+    if (hood.open) {
+      hood.v -= BOOT_HIT_KICK;
+    } else if (rearEnd) {
+      hood.open = true;
+      hood.angle = 0;
+      hood.v = HOOD_POP;
+    }
     // Knocked the way the blow came from, a little further each time.
     const roll = Math.min(SIGN_ROLL_MAX, SIGN_ROLL + SIGN_ROLL_STEP * (hits - 1));
     damage.setSignTilt(-side * roll, (lx >= 0 ? 1 : -1) * SIGN_YAW);
@@ -118,22 +152,15 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
 
     const accel = dt > 1e-6 ? (v - lastV) / dt : 0;
     lastV = v;
+    if (hood.open) {
+      stepLid(hood, dt, moving, accel);
+      damage.setHood(hood.angle);
+    } else {
+      damage.setHood(null);
+    }
     if (t >= 2) {
-      // Road kicks, both ways, more often and harder the faster the car goes.
-      roadIn -= dt;
-      if (roadIn <= 0 && moving > 0.05) {
-        roadIn = BOOT_ROAD[0] + (BOOT_ROAD[1] - BOOT_ROAD[0]) * rng();
-        bootV += (rng() - 0.35) * 2 * BOOT_ROAD_KICK * moving;
-      }
-      // Pulling away swings it open, braking throws it shut — the same way a loose lid goes.
-      // Clamped, because a bump drops the car's speed in one frame and reads as hundreds of u/s² —
-      // the hit already has a kick of its own below.
-      bootV += Math.max(-40, Math.min(40, accel)) * BOOT_ACCEL * dt;
-      bootV += (-BOOT_K * (boot - BOOT_REST) - BOOT_C * bootV) * dt;
-      boot += bootV * dt;
-      if (boot < 0) { boot = 0; bootV = -bootV * BOOT_SLAM; }
-      if (boot > BOOT_MAX) { boot = BOOT_MAX; bootV = -bootV * BOOT_SLAM; }
-      damage.setBoot(boot);
+      stepLid(boot, dt, moving, accel);
+      damage.setBoot(boot.angle);
       // The bumper bounces clear of the road now and then and comes back down on it.
       const lift = 0.06 * moving * Math.max(0, Math.sin(phase * 1.7));
       // Hinged on the far side so its free end — the one throwing sparks — is at the damaged corner.
@@ -149,8 +176,8 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
     } else {
       // Held at rest until the lid is actually loose, so a hit's kick taken in the first tier does
       // not bank up and fire the moment the car reaches amber.
-      boot = BOOT_REST;
-      bootV = 0;
+      boot.angle = BOOT_REST;
+      boot.v = 0;
       damage.setBoot(null);
       damage.setBumper(0);
     }
@@ -196,13 +223,20 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
 
   function reset() {
     hits = 0;
-    boot = BOOT_REST;
-    bootV = 0;
+    boot.angle = BOOT_REST;
+    boot.v = 0;
+    hood.open = false;
+    hood.angle = 0;
+    hood.v = 0;
     corners.clear();
     worst = { end: -1, side: 1 };
     side = 1;
     damage.reset();
   }
 
-  return { hit, update, reset, tier, bootAngle: () => boot };
+  return {
+    hit, update, reset, tier,
+    bootAngle: () => boot.angle,
+    hoodAngle: () => (hood.open ? hood.angle : null),
+  };
 }

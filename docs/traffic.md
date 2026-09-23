@@ -1463,6 +1463,12 @@ gauge. Each tier adds a distinct ingredient rather than turning the last one up:
    (`damageSmokeDark`) and getting faster, the lit sign sputtering, and the car sitting low on its
    damaged side and rattling with speed.
 
+And one piece off the tiers: **rear-ending a car pops the bonnet**, whatever the bar says. It is the
+boot's mirror image, hinged at the foot of the windscreen, and it flaps on the same spring for the
+rest of the run — first kick *up*, the catch letting go, where every later hit slams it. It belongs to
+the kind of hit rather than to the running total, and it gives the first tier something louder than a
+crooked sign when the first hit is the commonest one in Loco Mode.
+
 Everything is sized for silhouette, because at play zoom the taxi is ~30px long and nothing finer
 reads. It is all render-only; the lean and rattle are added to the group after the sim writes its
 transform each frame, so nothing accumulates and nothing reaches the sim. The parts are built at boot

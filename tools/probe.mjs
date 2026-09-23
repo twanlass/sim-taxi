@@ -5906,12 +5906,13 @@ check('the taxi is an ordinary car in the traffic array',
   const group = dTraffic.taxiGroup;
   const bursts = [];
   const smokes = [];
-  let roll = 0.1;
+  const damageRng = makeRng(seed + 47);
   const dDamage = createTaxiDamage({
     damage: dTraffic.taxiDamage, group, taxi: dTaxi, maxHp: TAXI_HP, roadY: ROAD_Y,
     sparks: { burst: (...a) => bursts.push(a) }, dust: { add: (...a) => smokes.push(a) },
-    // A fixed walk rather than Math.random, so the check sees the same kicks every run.
-    rng: () => { roll = (roll * 9301 + 49297) % 233280 / 233280; return roll; },
+    // Seeded rather than Math.random, so the check sees the same kicks every run. Not a hand-rolled
+    // LCG: the first one here fell into a short cycle that fed the lid the same few kicks forever.
+    rng: () => damageRng.next(),
   });
   dTraffic.warmup(2);
   dTaxi.hp = TAXI_HP;
@@ -5919,10 +5920,10 @@ check('the taxi is an ordinary car in the traffic array',
 
   // In the car's frame as it stands *now* — it keeps driving between hits, so a heading read once at
   // the top would aim every later hit at the wrong corner.
-  const hitAt = (a, b) => {
+  const hitAt = (a, b, opts) => {
     const f = { x: Math.cos(dTaxi.yaw), z: -Math.sin(dTaxi.yaw) };
     const r = { x: Math.sin(dTaxi.yaw), z: Math.cos(dTaxi.yaw) };
-    dDamage.hit(dTaxi.x + f.x * a + r.x * b, dTaxi.z + f.z * a + r.z * b);
+    dDamage.hit(dTaxi.x + f.x * a + r.x * b, dTaxi.z + f.z * a + r.z * b, opts);
   };
   dTaxi.hp = 80;
   hitAt(1.5, 0.7);
@@ -5937,6 +5938,22 @@ check('the taxi is an ordinary car in the traffic array',
     dDamage.tier() === 1 && Math.abs(sign.rotation.x) > 0.2 && sign.position.distanceTo(signAt) === 0
     && signCentre < 1e-6,
     `roll ${sign.rotation.x.toFixed(2)}, geometry centred ${signCentre.toExponential(1)} off its origin`);
+
+  check('a hit that is not a rear-end leaves the bonnet shut', dDamage.hoodAngle() === null);
+
+  // Rear-ending a car pops the bonnet, whatever tier the bar is in, and it flaps from then on.
+  hitAt(1.7, 0, { rearEnd: true });
+  const hoods = [];
+  for (let n = 0; n < 90; n++) {
+    dTraffic.update(1 / 60);
+    dTaxi.v = 10;
+    dDamage.update(1 / 60);
+    hoods.push(dDamage.hoodAngle());
+  }
+  const hoodSwing = Math.max(...hoods) - Math.min(...hoods.slice(30));
+  check('rear-ending a car pops the bonnet, and it flaps like the boot',
+    dDamage.tier() === 1 && Math.max(...hoods.slice(0, 20)) > 0.6 && hoodSwing > 0.4,
+    `up to ${Math.max(...hoods).toFixed(2)} rad, swinging ${hoodSwing.toFixed(2)} once settled`);
 
   // Amber: the boot and the bumper, sparking while the car moves.
   dTaxi.hp = 60;
@@ -6011,7 +6028,7 @@ check('the taxi is an ordinary car in the traffic array',
   dTaxi.hp = TAXI_HP;
   dDamage.update(1 / 60);
   check('reset puts every part back', sign.rotation.x === 0 && dDamage.tier() === 0
-    && dDamage.bootAngle() === 0.6);
+    && dDamage.bootAngle() === 0.6 && dDamage.hoodAngle() === null);
 }
 
 

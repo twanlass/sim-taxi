@@ -324,15 +324,18 @@ export function createTaxiMesh() {
 // game/taxidamage.js. Everything here is sized for the camera rather than for realism: the taxi is
 // about 30px long at play zoom (1 unit ≈ 7.7px through TAXI_SCALE), so scuffs and a cracked screen
 // would not read at all. What does is a change of *silhouette* — a sign knocked crooked, a boot lid
-// up, a bumper hanging off — and those are the three pieces.
+// or a bonnet up, a bumper hanging off — and those are the pieces.
 //
 // Built at boot and hidden with a zero scale rather than added when needed, for the reason the light
 // pods are: `markOccluder`, the cartoon outline and the ghost-outline traversal all walk this group
 // once, and a part that turns up later is missed by all three. A zero scale draws nothing and needs
 // no second code path. (No lights in here, so hiding by scale has none of the light-count trap.)
 
-// Where the boot lid hinges: the rear edge of the cabin, which sits at −0.2 ± CAR_LEN/4.
+// Where the boot lid hinges: the rear edge of the cabin, which sits at −0.2 ± CAR_LEN/4. The bonnet
+// hinges on the front edge, at the foot of the windscreen, the way a real one does.
 const BOOT_HINGE_X = -0.2 - CAR_LEN * 0.25;
+const HOOD_HINGE_X = -0.2 + CAR_LEN * 0.25;
+const HOOD_LEN = CAR_LEN / 2 - HOOD_HINGE_X - 0.02;
 const BODY_TOP = 1.18 + CHASSIS_LIFT;
 const BOOT_LEN = CAR_LEN / 2 + BOOT_HINGE_X - 0.02;
 // A bumper hangs by one corner and drags its free end on the road at the corner that has taken the
@@ -367,6 +370,25 @@ function buildDamage(group, sign) {
   hole.scale.setScalar(0);
   group.add(bootHinge, hole);
 
+  // The bonnet, the boot's mirror image off the other end of the cabin: hinged at the foot of the
+  // windscreen, running forward to the nose, over an opening of its own.
+  const hoodHinge = new THREE.Group();
+  hoodHinge.position.set(HOOD_HINGE_X, BODY_TOP, 0);
+  const hoodGeo = new THREE.BoxGeometry(HOOD_LEN, 0.06, CAR_W * 0.94);
+  hoodGeo.translate(HOOD_LEN / 2, 0.03, 0);
+  const hood = new THREE.Mesh(bakeColor(hoodGeo, color('taxiBody')), propMaterial());
+  hood.castShadow = true;
+  hood.receiveShadow = true;
+  hood.userData.pickable = 'taxi';
+  hoodHinge.add(hood);
+  const bayGeo = new THREE.BoxGeometry(HOOD_LEN * 0.9, 0.02, CAR_W * 0.82);
+  bayGeo.translate(HOOD_HINGE_X + HOOD_LEN / 2, BODY_TOP + 0.01, 0);
+  const bay = new THREE.Mesh(bakeColor(bayGeo, color('taxiTrim')), propMaterial());
+  bay.userData.pickable = 'taxi';
+  hoodHinge.scale.setScalar(0);
+  bay.scale.setScalar(0);
+  group.add(hoodHinge, bay);
+
   // The bumper: a dark bar hinged at one rear corner, its free end down on the tarmac. The geometry
   // runs from the hinge along −z; the other side is the same bar turned half round about the hinge,
   // which keeps the winding (a mirror by negative scale would not).
@@ -396,6 +418,14 @@ function buildDamage(group, sign) {
       hole.scale.setScalar(shown ? 1 : 0);
       if (shown) bootHinge.rotation.z = -angle;
     },
+    /** The bonnet's opening angle in radians (free edge up), or null to put it away. */
+    setHood(angle) {
+      const shown = angle != null;
+      hoodHinge.scale.setScalar(shown ? 1 : 0);
+      bay.scale.setScalar(shown ? 1 : 0);
+      // +z lifts the free end here, where it runs forward of the hinge; the boot's runs back.
+      if (shown) hoodHinge.rotation.z = angle;
+    },
     /**
      * Hang a bumper by its corner on `side` (+1 right, −1 left) at `end` (+1 the nose, −1 the tail),
      * its free end across the car on the road and `lift` radians short of resting there — or pass
@@ -416,6 +446,8 @@ function buildDamage(group, sign) {
       sign.rotation.set(0, 0, 0);
       bootHinge.scale.setScalar(0);
       hole.scale.setScalar(0);
+      hoodHinge.scale.setScalar(0);
+      bay.scale.setScalar(0);
       bumperHinge.scale.setScalar(0);
       this.setSignOut?.(false);
     },
