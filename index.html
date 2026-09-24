@@ -658,14 +658,36 @@
         background: linear-gradient(90deg, #FFE873 var(--pct, 100%), #fff 0);
         box-shadow: 0 0 30px rgba(255, 232, 115, 0.85);
       }
-      /* Empty tank. Nothing refills on its own, so this greyed-out state persists until the next
-         drop-off tops it up — it reads as "go earn it", not "wait for it". Flat grey rather than the
-         usual dial gradient, and the black outline drops out too: every other state of this pill
-         reads as "press me", so disabled has to read unambiguously as the opposite rather than as a
-         drained version of the same button. */
+      /* Empty tank. Flat grey rather than the usual dial gradient, and the black outline drops out
+         too: every other state of this pill reads as "press me", so disabled has to read
+         unambiguously as the opposite rather than as a drained version of the same button. */
       #boost.is-empty {
         cursor: default; color: #6b6f73; border-color: transparent;
         background: #b9c0c4;
+      }
+      /* ...and the five seconds it spends climbing back to a quarter (game/boost.js). The pill is
+         still dead — same grey plate, same grey label, still `disabled` — but the dial comes back
+         so the wait has something to watch: a muted gold creeping across the left quarter of the
+         pill, under the same bright leading edge a delivery's pour rides. Muted rather than the
+         live #F5C130 on purpose. This fuel is not spendable yet, and a full-strength fill on a
+         button that refuses the press is the one combination that reads as broken; the colour
+         arriving *with* the button waking is what the end of the climb is for.
+
+         Specificity: two classes plus the id beats the `#boost.is-empty` grey above it whatever the
+         source order, and ties with `#boost.is-empty:active` at the bottom of the block — which is
+         fine, since that one only takes the transform, and both want it gone. */
+      #boost.is-empty.is-charging {
+        background: linear-gradient(90deg, #cdb46a var(--pct, 0%), #b9c0c4 0);
+      }
+      /* The glow, dimmed to match, and the flutter taken out. `.is-filling` below is written for a
+         pour landing on a live button: full-strength yellow at 0.95 alpha, and a 4Hz scale throb.
+         Both are wrong here — the throb because a dead button that bounces reads as pressable, the
+         glow because it would be the brightest thing on screen while saying "not yet". This keeps
+         the envelope (`--fill`, so it still fades in and out with the climb) at about a third of
+         the spill and none of the movement. */
+      #boost.is-charging.is-filling {
+        box-shadow: 0 0 calc(8px + 8px * var(--fill, 0)) rgba(205, 180, 106, calc(0.5 * var(--fill, 0)));
+        transform: none;
       }
       /* Delivery bonus. Fuel is now *only* ever earned, so the pour is the reward animation and it
          gets the full treatment: the bar overshoots its new mark and springs back, the pill pulses,

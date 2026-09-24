@@ -161,7 +161,7 @@ import { createWreckage } from '../src/game/wreckage.js';
 import { createBlast } from '../src/game/blast.js';
 import {
   createBoost, BOOST_DURATION, BOOST_START_FRACTION, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD,
-  BOOST_COOLDOWN,
+  BOOST_COOLDOWN, BOOST_FLOOR_FRACTION, BOOST_REGEN_SECONDS,
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
 
@@ -8573,18 +8573,21 @@ check('the taxi is an ordinary car in the traffic array',
 
 // --- The Loco Mode meter ----------------------------------------------------
 //
-// The meter is now an earned resource: it opens at a third, drains only while held, and the sole
-// way fuel gets in is a drop-off. A regression here is invisible in a screenshot — a stray refill
-// path just makes the game quietly easier — so assert the whole arc as numbers.
+// The meter is an earned resource with a floor: it opens at a third, drains only while held, and
+// the only thing that fills it above a quarter is a delivery. Below a quarter it trickles back up
+// to a quarter on its own. A regression here is invisible in a screenshot — a stray refill path
+// just makes the game quietly easier, and a missing one leaves the pill dead for the rest of the
+// run — so assert the whole arc as numbers.
 {
   const b = createBoost();
   check('the meter opens at a third of a tank',
     Math.abs(b.fraction() - BOOST_START_FRACTION) < 1e-9, `${b.fraction().toFixed(3)}`);
 
-  // Idle for a full tank's worth of seconds with the button untouched. Nothing may move.
+  // Idle for a full tank's worth of seconds with the button untouched. Nothing may move: the
+  // trickle only ever fills the bottom quarter, and the opening third is above it.
   const idleStart = b.fraction();
   for (let i = 0; i < 60 * BOOST_DURATION; i++) b.update(1 / 60);
-  check('an idle meter does not regenerate', b.fraction() === idleStart,
+  check('an idle meter above the floor does not regenerate', b.fraction() === idleStart,
     `${idleStart.toFixed(3)} -> ${b.fraction().toFixed(3)}`);
 
   // Drain it dry: a third of a tank is 5s of boost, plus the BOOST_COOLDOWN momentum tail that
@@ -8592,20 +8595,82 @@ check('the taxi is an ordinary car in the traffic array',
   // room to spare.
   b.press();
   for (let i = 0; i < 60 * 7; i++) b.update(1 / 60);
-  check('holding drains the tank to empty', b.fraction() === 0 && b.isEmpty(), `mode ${b.state.mode}`);
+  check('holding drains the tank and the pill goes dead',
+    b.isEmpty() && b.fraction() < BOOST_FLOOR_FRACTION, `mode ${b.state.mode}`);
 
-  // Still held, still empty, and — the point of the change — it stays that way. The old fast
-  // recharge would have refilled it inside 15s and re-engaged under the finger.
-  for (let i = 0; i < 60 * BOOST_DURATION; i++) b.update(1 / 60);
-  check('an empty meter never recharges itself', b.fraction() === 0 && !b.isActive(),
-    `mode ${b.state.mode} after ${BOOST_DURATION}s held on empty`);
-
-  // A drop-off is the only way back. It pours in over ~0.7s, and because the button was never
+  // A drop-off is the fast way back, and it outranks the trickle: the pour lights the pill on the
+  // frame it starts rather than waiting out the five seconds. Because the button was never
   // released the boost re-engages rather than waiting for a fresh press.
   b.topUp(BOOST_FARE_REWARD);
   b.update(1 / 60);
-  check('a drop-off revives an empty meter under a held button', b.isActive() && b.fraction() > 0,
-    `mode ${b.state.mode}, ${b.fraction().toFixed(3)}`);
+  check('a drop-off revives an empty meter under a held button without waiting for the trickle',
+    b.isActive() && b.fraction() > 0, `mode ${b.state.mode}, ${b.fraction().toFixed(3)}`);
+
+  // --- the recharge out of empty ---
+  // A tank that has run out is never left out. Timed from the frame it reads 'empty', because the
+  // momentum tail before that freezes everything, the climb included.
+  const f = createBoost();
+  f.press();
+  let dry = 0;
+  while (!f.isEmpty() && dry < 60 * 20) { f.update(1 / 60); dry += 1; }
+  f.release();
+  check('a drained tank reaches empty with the pill dead',
+    f.isEmpty() && f.fraction() < BOOST_FLOOR_FRACTION,
+    `mode ${f.state.mode} after ${(dry / 60).toFixed(2)}s`);
+  check('and starts climbing straight back out of it', f.isCharging());
+
+  // Halfway. The bar is visibly climbing — the whole point, that a dead pill has a clock on it —
+  // behind a button that is still dead, because one that lit up on the first frame of the climb
+  // would offer a sixtieth of a second of boost and go grey again under the player's thumb.
+  for (let i = 0; i < Math.round(60 * BOOST_REGEN_SECONDS / 2); i++) f.update(1 / 60);
+  const half = f.fraction();
+  check('an empty meter climbs back up instead of sitting at zero',
+    half > BOOST_FLOOR_FRACTION * 0.4 && half < BOOST_FLOOR_FRACTION
+      && f.isEmpty() && f.isCharging(),
+    `${half.toFixed(3)} of a tank, mode ${f.state.mode}`);
+
+  // ...and lands on the quarter, at which point the recharge is over and the pill is pressable.
+  for (let i = 0; i < Math.round(60 * BOOST_REGEN_SECONDS / 2) + 2; i++) f.update(1 / 60);
+  check('the climb reaches a quarter tank in BOOST_REGEN_SECONDS and wakes the pill',
+    Math.abs(f.fraction() - BOOST_FLOOR_FRACTION) < 1e-9 && f.isReady() && !f.isCharging(),
+    `${f.fraction().toFixed(3)}, mode ${f.state.mode}`);
+
+  // And stops there. Four recharges' worth of idling adds nothing: everything above a dead tank is
+  // still earned, which is the half of the old no-refill rule worth keeping.
+  for (let i = 0; i < 60 * BOOST_REGEN_SECONDS * 4; i++) f.update(1 / 60);
+  check('and stops at the floor rather than creeping on to a full tank',
+    Math.abs(f.fraction() - BOOST_FLOOR_FRACTION) < 1e-9, `${f.fraction().toFixed(3)}`);
+
+  // Letting go a hair before the tank runs out is the corner this rule has to survive. The drain
+  // stops mid-frame and the momentum window freezes the remainder, which lands at ~1e-14 seconds of
+  // fuel — technically not empty, so the tank came out of the cooldown 'ready': a pill reading 0%
+  // that looks pressable, buys one frame of nothing, and never recharges because only 'empty' does.
+  // A crumb too small to spend has to read as a dead tank.
+  const h = createBoost();
+  h.press();
+  while (h.state.fuel > 0.004) h.update(1 / 60);
+  h.release();
+  for (let i = 0; i < 60 * (BOOST_COOLDOWN + 1); i++) h.update(1 / 60);
+  check('a release a hair before the tank runs out still lands on empty and recharges',
+    h.isEmpty() && h.isCharging() && h.fraction() > 0,
+    `mode ${h.state.mode}, ${h.state.fuel.toFixed(4)}s`);
+
+  // Only an *empty* tank recharges. A player who let go with a sliver left keeps the sliver and
+  // gets nothing — the climb answers a dead button, it is not a drip that tops the meter up all
+  // run — and `isCharging` has to agree, since it is what the HUD dresses.
+  const g = createBoost(BOOST_DURATION, BOOST_FLOOR_FRACTION);
+  g.press();
+  for (let i = 0; i < 60 * 3; i++) g.update(1 / 60);      // spend all but 0.75s of the quarter
+  check('holding still spends a second of fuel a second, with nothing trickling against it',
+    Math.abs(g.state.fuel - (BOOST_DURATION * BOOST_FLOOR_FRACTION - 3)) < 1e-9 && !g.isCharging(),
+    `${g.state.fuel.toFixed(3)}s left of ${(BOOST_DURATION * BOOST_FLOOR_FRACTION).toFixed(3)}s`);
+
+  g.release();
+  for (let i = 0; i < 60 * (BOOST_COOLDOWN + BOOST_REGEN_SECONDS * 2); i++) g.update(1 / 60);
+  check('a part-spent tank above zero never refills itself',
+    g.isReady() && !g.isCharging()
+      && Math.abs(g.state.fuel - (BOOST_DURATION * BOOST_FLOOR_FRACTION - 3)) < 1e-9,
+    `${g.state.fuel.toFixed(3)}s, mode ${g.state.mode}`);
 
   // Three drop-offs fill it from empty. Release first so the pour isn't racing the drain.
   const c = createBoost(BOOST_DURATION, 0);
@@ -8672,6 +8737,54 @@ check('the taxi is an ordinary car in the traffic array',
     `peaked at ${(peak * 100).toFixed(1)}% of a ${(BOOST_PARCEL_REWARD * 100).toFixed(1)}% pour`);
   check('the bar settles on the fuel a package left', Math.abs(m.state.pct - b.fraction()) < 1e-9,
     `${(m.state.pct * 100).toFixed(1)}% vs ${(b.fraction() * 100).toFixed(1)}% fuel`);
+}
+
+// --- The recharge, as the player actually sees it ----------------------------
+//
+// The climb out of 'empty' is fed to the meter as a pour (`updateBoostButton` in main.js), because
+// to the player it is one: fuel is arriving and the bar is moving. The pill stays grey and
+// `disabled` the whole time, so the *only* thing saying the wait is going somewhere is this
+// animation — a bar that failed to move, or a leading edge that never lit, would leave five seconds
+// of a dead button with nothing on it. Not a thing a screenshot can check: assert the trace.
+{
+  const b = createBoost();
+  const m = createBoostMeter();
+  const dt = 1 / 60;
+  b.press();
+  for (let i = 0; i < 60 * 20 && !b.isEmpty(); i++) b.update(dt);
+  b.release();
+
+  const trace = [];
+  for (let i = 0; i < 60 * (BOOST_REGEN_SECONDS + 1.5); i++) {
+    b.update(dt);
+    m.update(dt, b.fraction(), b.state.pending > 0 || b.isCharging());
+    trace.push({ pct: m.state.pct, fill: m.state.fill, charging: b.isCharging() });
+  }
+
+  const climb = trace.filter((s) => s.charging);
+  const rises = climb.every((s, i, a) => i === 0 || s.pct > a[i - 1].pct);
+  check('the recharge draws as a bar climbing, every frame of it',
+    climb.length > 60 * 4 && rises && climb[0].pct < 0.02
+      && climb[climb.length - 1].pct > BOOST_FLOOR_FRACTION - 0.01,
+    `${(climb[0].pct * 100).toFixed(1)}% -> ${(climb[climb.length - 1].pct * 100).toFixed(1)}% over ${(climb.length / 60).toFixed(2)}s`);
+
+  // `--fill` is what the leading edge's opacity and the glow's alpha both ride, so a climb with it
+  // at zero is a bar sliding along with no light on its front.
+  const dark = climb.filter((s) => s.fill <= 0).length;
+  check('with the leading edge lit for the whole climb', dark === 0, `${dark} dark frames`);
+
+  // And the spring lands on the end of it — the same overshoot a delivery's pour gets, firing on
+  // the frame the trickle stops and the button wakes up.
+  const after = trace.filter((s) => !s.charging);
+  const peak = Math.max(...after.map((s) => s.pct));
+  check('and springs past the mark as the pill wakes',
+    peak > BOOST_FLOOR_FRACTION + 0.02 && Math.abs(after[after.length - 1].pct - b.fraction()) < 1e-9,
+    `peaked at ${(peak * 100).toFixed(1)}% over a ${(BOOST_FLOOR_FRACTION * 100).toFixed(0)}% mark`);
+
+  // The glow fades out rather than latching on: the recharge is over, and a pill that kept spilling
+  // light would go on advertising a reward it has finished handing over.
+  check('and the glow lets go afterwards', after[after.length - 1].fill === 0,
+    `fill ${after[after.length - 1].fill.toFixed(3)}`);
 }
 
 // --- The Punch It pill's fill animation -------------------------------------
