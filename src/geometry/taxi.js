@@ -231,6 +231,8 @@ export function createTaxiMesh() {
     addGhostOutline(light, { rim: 0.08 });
   }
 
+  const damage = buildDamage(group, lightPods);
+
   // Slightly oversized against ambient traffic. The player has to find this car at a glance in a
   // street full of identically shaped vehicles.
   group.scale.setScalar(TAXI_SCALE);
@@ -289,6 +291,7 @@ export function createTaxiMesh() {
   return {
     group,
     sign,
+    damage,
     /**
      * The six light pods — two per lamp, see the note by their construction — so `main.js` can
      * put them in the bloom (`markEmissive` in
@@ -300,5 +303,201 @@ export function createTaxiMesh() {
     setHighlight,
     setSteer,
     setLights,
+  };
+}
+
+// --- Damage ------------------------------------------------------------------------------------
+//
+// What the car wears after it has been in a scrape — driven in tiers off its hit points by
+// game/taxidamage.js. Everything here is sized for the camera rather than for realism: the taxi is
+// about 30px long at play zoom (1 unit ≈ 7.7px through TAXI_SCALE), so scuffs and a cracked screen
+// would not read at all. What does is a change of *silhouette* — a lamp hanging out of its socket, a
+// boot lid or a bonnet up, a bumper hanging off — and those are the pieces.
+//
+// The roof sign used to be knocked crooked and then sputter, and both came out: a tilted box on the
+// roof read as the sign wobbling rather than as damage, and the flicker made the one lamp that says
+// whether a rider is aboard unreliable to read.
+//
+// Built at boot and hidden with a zero scale rather than added when needed, for the reason the light
+// pods are: `markOccluder`, the cartoon outline and the ghost-outline traversal all walk this group
+// once, and a part that turns up later is missed by all three. A zero scale draws nothing and needs
+// no second code path. (No lights in here, so hiding by scale has none of the light-count trap.)
+
+// Where the boot lid hinges: the rear edge of the cabin, which sits at −0.2 ± CAR_LEN/4. The bonnet
+// hinges on the front edge, at the foot of the windscreen, the way a real one does.
+const BOOT_HINGE_X = -0.2 - CAR_LEN * 0.25;
+const HOOD_HINGE_X = -0.2 + CAR_LEN * 0.25;
+const HOOD_LEN = CAR_LEN / 2 - HOOD_HINGE_X - 0.02;
+const BODY_TOP = 1.18 + CHASSIS_LIFT;
+const BOOT_LEN = CAR_LEN / 2 + BOOT_HINGE_X - 0.02;
+// A bumper hangs by one corner and drags its free end on the road at the corner that has taken the
+// most hits — nose or tail, left or right — so the sparks come off where the damage is.
+const BUMPER_LEN = CAR_W * 0.9;
+const BUMPER_T = 0.14;
+const BUMPER_Y = 0.46 + CHASSIS_LIFT;
+// There was a fifth piece: the struck corner of the shell crushed in, down and darkened, a vertex
+// displacement on the merged body. It read at close zoom and looked wrong — a box with one corner
+// sheared off, which at play zoom reads as a modelling fault rather than as a dent — and came out.
+// The damage says itself through parts that come *off* the car (sign, boot, bumper), not through the
+// car changing shape.
+
+// A lamp shaken loose hangs on its wire below the socket it came out of. The housing is a little
+// smaller than a lit pod, so a lamp that is on wraps it in its glow and a lamp that is off shows the
+// bare lens: the pods themselves are only ever there while lit (their on/off is a scale to zero), so
+// without a housing a loose indicator would be invisible for every frame it is not blinking.
+// 0.6 because 0.42 hung the lamp's centre only 0.19 below where it used to sit — its top was still
+// level with the socket — which read as a lamp slightly out of place rather than as one hanging.
+const LAMP_WIRE = 0.6;            // socket to the centre of the housing
+const LAMP_OUT = 0.06;            // the socket sits this far proud of the bumper face
+const LAMP_SIZE = [0.24, 0.46, 0.46];
+
+function buildDamage(group, lightPods) {
+  // The boot lid, on a hinge at the back of the cabin, over a dark opening that only shows when the
+  // lid is up. The lid's underside sits exactly on the body's top face, and that is fine: it faces
+  // down and is culled before it can fight anything (see the coplanar notes in CLAUDE.md).
+  const bootHinge = new THREE.Group();
+  bootHinge.position.set(BOOT_HINGE_X, BODY_TOP, 0);
+  const lidGeo = new THREE.BoxGeometry(BOOT_LEN, 0.06, CAR_W * 0.94);
+  lidGeo.translate(-BOOT_LEN / 2, 0.03, 0);
+  const lid = new THREE.Mesh(bakeColor(lidGeo, color('taxiBody')), propMaterial());
+  lid.castShadow = true;
+  lid.receiveShadow = true;
+  lid.userData.pickable = 'taxi';
+  bootHinge.add(lid);
+  const holeGeo = new THREE.BoxGeometry(BOOT_LEN * 0.9, 0.02, CAR_W * 0.82);
+  holeGeo.translate(BOOT_HINGE_X - BOOT_LEN / 2, BODY_TOP + 0.01, 0);
+  const hole = new THREE.Mesh(bakeColor(holeGeo, color('taxiTrim')), propMaterial());
+  hole.userData.pickable = 'taxi';
+  bootHinge.scale.setScalar(0);
+  hole.scale.setScalar(0);
+  group.add(bootHinge, hole);
+
+  // The bonnet, the boot's mirror image off the other end of the cabin: hinged at the foot of the
+  // windscreen, running forward to the nose, over an opening of its own.
+  const hoodHinge = new THREE.Group();
+  hoodHinge.position.set(HOOD_HINGE_X, BODY_TOP, 0);
+  const hoodGeo = new THREE.BoxGeometry(HOOD_LEN, 0.06, CAR_W * 0.94);
+  hoodGeo.translate(HOOD_LEN / 2, 0.03, 0);
+  const hood = new THREE.Mesh(bakeColor(hoodGeo, color('taxiBody')), propMaterial());
+  hood.castShadow = true;
+  hood.receiveShadow = true;
+  hood.userData.pickable = 'taxi';
+  hoodHinge.add(hood);
+  const bayGeo = new THREE.BoxGeometry(HOOD_LEN * 0.9, 0.02, CAR_W * 0.82);
+  bayGeo.translate(HOOD_HINGE_X + HOOD_LEN / 2, BODY_TOP + 0.01, 0);
+  const bay = new THREE.Mesh(bakeColor(bayGeo, color('taxiTrim')), propMaterial());
+  bay.userData.pickable = 'taxi';
+  hoodHinge.scale.setScalar(0);
+  bay.scale.setScalar(0);
+  group.add(hoodHinge, bay);
+
+  // Loose lamps, one per corner. Every pod hangs at one of four corners (a rear corner carries its
+  // brake pod and its indicator on the same anchor), and the pods at a loose corner ride the housing
+  // rather than their anchor, so they still light, blink and brake — just from down on the wire.
+  const lamps = new Map();
+  for (const sx of [1, -1]) {
+    for (const sz of [1, -1]) {
+      const pods = lightPods.filter((pod) => Math.sign(pod.position.x) === sx
+        && Math.sign(pod.position.z) === sz);
+      const home = pods[0].position.clone();
+      const socket = new THREE.Vector3(home.x + sx * LAMP_OUT, home.y + LAMP_SIZE[1] / 2, home.z);
+      const housingGeo = new THREE.BoxGeometry(...LAMP_SIZE);
+      const housing = new THREE.Mesh(
+        bakeColor(housingGeo, color(sx > 0 ? 'taxiSign' : 'lightRed')), propMaterial(),
+      );
+      housing.castShadow = true;
+      housing.userData.pickable = 'taxi';
+      // A thin dark bar from the socket down, scaled to the wire's length and turned with it.
+      const wireGeo = new THREE.BoxGeometry(0.05, 1, 0.05);
+      wireGeo.translate(0, -0.5, 0);
+      const wire = new THREE.Mesh(bakeColor(wireGeo, color('taxiTrim')), propMaterial());
+      wire.position.copy(socket);
+      wire.userData.pickable = 'taxi';
+      housing.scale.setScalar(0);
+      wire.scale.setScalar(0);
+      group.add(housing, wire);
+      lamps.set(`${sx},${sz}`, { pods, home, socket, housing, wire });
+    }
+  }
+  const lampAt = new THREE.Vector3();
+
+  // The bumper: a dark bar hinged at one rear corner, its free end down on the tarmac. The geometry
+  // runs from the hinge along −z; the other side is the same bar turned half round about the hinge,
+  // which keeps the winding (a mirror by negative scale would not).
+  const bumperHinge = new THREE.Group();
+  bumperHinge.rotation.order = 'YXZ';
+  const barGeo = new THREE.BoxGeometry(BUMPER_T, BUMPER_T, BUMPER_LEN);
+  barGeo.translate(0, 0, -BUMPER_LEN / 2);
+  const bar = new THREE.Mesh(bakeColor(barGeo, color('taxiTrim')), propMaterial());
+  bar.castShadow = true;
+  bar.userData.pickable = 'taxi';
+  bumperHinge.add(bar);
+  bumperHinge.scale.setScalar(0);
+  group.add(bumperHinge);
+  // Angle that puts the free end's underside on the road: the hinge is BUMPER_Y up.
+  const droopToRoad = Math.asin(Math.min(1, (BUMPER_Y - BUMPER_T / 2) / BUMPER_LEN));
+  const tipLocal = new THREE.Vector3(0, -BUMPER_T / 2, -BUMPER_LEN);
+
+  return {
+    /**
+     * Hang the lamp at corner (sx, sz) — sx +1 the nose, sz +1 the right — out of its socket at
+     * `angle` radians off vertical (positive swings it toward the nose), or pass null to put it
+     * back where it belongs.
+     */
+    setLamp(sx, sz, angle) {
+      const lamp = lamps.get(`${sx},${sz}`);
+      const loose = angle != null;
+      lamp.housing.scale.setScalar(loose ? 1 : 0);
+      lamp.wire.scale.set(loose ? 1 : 0, loose ? LAMP_WIRE : 0, loose ? 1 : 0);
+      if (!loose) {
+        for (const pod of lamp.pods) { pod.position.copy(lamp.home); pod.rotation.set(0, 0, 0); }
+        return;
+      }
+      lampAt.set(lamp.socket.x + Math.sin(angle) * LAMP_WIRE,
+        lamp.socket.y - Math.cos(angle) * LAMP_WIRE, lamp.socket.z);
+      lamp.housing.position.copy(lampAt);
+      lamp.housing.rotation.z = angle;
+      lamp.wire.rotation.z = angle;
+      for (const pod of lamp.pods) { pod.position.copy(lampAt); pod.rotation.z = angle; }
+    },
+    /** The boot lid's opening angle in radians, or null to put it away altogether. */
+    setBoot(angle) {
+      const shown = angle != null;
+      bootHinge.scale.setScalar(shown ? 1 : 0);
+      hole.scale.setScalar(shown ? 1 : 0);
+      if (shown) bootHinge.rotation.z = -angle;
+    },
+    /** The bonnet's opening angle in radians (free edge up), or null to put it away. */
+    setHood(angle) {
+      const shown = angle != null;
+      hoodHinge.scale.setScalar(shown ? 1 : 0);
+      bay.scale.setScalar(shown ? 1 : 0);
+      // +z lifts the free end here, where it runs forward of the hinge; the boot's runs back.
+      if (shown) hoodHinge.rotation.z = angle;
+    },
+    /**
+     * Hang a bumper by its corner on `side` (+1 right, −1 left) at `end` (+1 the nose, −1 the tail),
+     * its free end across the car on the road and `lift` radians short of resting there — or pass
+     * side 0 to put it away.
+     */
+    setBumper(side, end = -1, lift = 0) {
+      bumperHinge.scale.setScalar(side ? 1 : 0);
+      if (!side) return;
+      bumperHinge.position.set(end * (CAR_LEN / 2 + BUMPER_T / 2), BUMPER_Y, side * (CAR_W / 2 - 0.05));
+      bumperHinge.rotation.set(-(droopToRoad - lift), side > 0 ? 0 : Math.PI, 0);
+    },
+    /** World position of the bumper's dragging end, for the sparks. Needs a current matrixWorld. */
+    bumperTip(target) {
+      return bar.localToWorld(target.copy(tipLocal));
+    },
+    /** Put everything back — a new run, or a repair. */
+    reset() {
+      for (const [key] of lamps) this.setLamp(...key.split(',').map(Number), null);
+      bootHinge.scale.setScalar(0);
+      hole.scale.setScalar(0);
+      hoodHinge.scale.setScalar(0);
+      bay.scale.setScalar(0);
+      bumperHinge.scale.setScalar(0);
+    },
   };
 }

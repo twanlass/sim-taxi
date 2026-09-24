@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { setCityNetwork } from '../src/city/roadnet.js';
 import { createTraffic, placeCar, SPEED, MIN_GAP, laysPassRubber } from '../src/sim/traffic.js';
-import { createCollisions } from '../src/sim/collisions.js';
+import { createCollisions, TAXI_HP, penetration } from '../src/sim/collisions.js';
 import { DIR, dirSign, PITCH, HALF_ROAD, LANE } from '../src/city/grid.js';
 import { labNetwork, labRoadLength, labNodeX, labTreeBlocks, LAB_BLOCKS } from '../src/lab/labroad.js';
 
@@ -329,6 +329,74 @@ check('and the standing swing has the same shape as a rolling one',
   + `roll ran ${standing.bankLow.toFixed(2)} to ${standing.bankHigh.toFixed(2)}`);
 check('with the front wheels turned into it rather than pointing dead ahead',
   standing.wheel > 0.1, `${(standing.wheel * 180 / Math.PI).toFixed(1)}° of lock at the peak`);
+
+// --- Ramming: with hit points, the boosting taxi drives into the car ahead and never through it.
+// Two things a player reported on the first cut of HP. The taxi lifted off in the last few units
+// before every rear-end, because it was still held to the leader by tailgate rules written for a
+// taxi that must never touch anything; and a car it had just tapped was switched out of the
+// collision test for a couple of seconds, so it drove clean through it. With no route handed over
+// the overtake is never offered (see `approach` above), so the leader is the only answer and the
+// taxi rams it. With the road's one exit handed over as a route and the oncoming lane empty, a pass
+// *is* on, and the taxi must take it rather than ram — ramming is the fallback, not the policy.
+//
+// "Through" is measured as overlap, not as which centre ends up in front. The weave carries the
+// taxi a unit or so sideways, so a hit often turns into a glance: the car is shoved aside and the
+// taxi slides past it, which is a collision resolved, not one missed. What must never happen is
+// the two bodies sinking into each other — contact is resolved a frame late by construction, so
+// the bar is one frame's travel at the top of the overdrive band (34 u/s / 60 ≈ 0.57).
+function ram(parked, route = false) {
+  const scene = new THREE.Scene();
+  const traffic = createTraffic(makeRng(4242), scene, 2, 2, 0);
+  const taxi = traffic.taxi;
+  const leader = traffic.cars.find((c) => !c.isTaxi);
+  const collisions = createCollisions(traffic.cars, taxi);
+  const hits = [];
+  collisions.onBump((event) => hits.push(event));
+  taxi.hp = TAXI_HP;
+  placeAtX(taxi, DIR.PX, labNodeX(0) + 6);
+  placeAtX(leader, DIR.PX, labNodeX(0) + 24);
+  leader.route = [];
+  leader.parked = parked;
+  leader.v = parked ? 0 : SPEED;
+  taxi.route = [];
+  taxi.v = 17;
+  const out = { hits, minV: Infinity, deepest: 0, leader, passed: false, passing: false };
+  // A pass is ~32 units of road at a closing speed of ~10 u/s, so it wants longer than a ram.
+  for (let n = 0; n < (route ? 240 : 120); n++) {
+    taxi.boost = true;
+    taxi.boostEasing = false;
+    if (route) while (taxi.route.length < 3) taxi.route.push(taxi.d);
+    traffic.update(STEP);
+    collisions.update(STEP);
+    if (!hits.length) out.minV = Math.min(out.minV, taxi.v);
+    out.deepest = Math.max(out.deepest, penetration(taxi, leader)?.depth ?? 0);
+    if (taxi.passing) out.passing = true;
+    if (taxi.x > leader.x + 4) out.passed = true;
+  }
+  return out;
+}
+
+{
+  const r = ram(false, true);
+  check('with a pass on, a taxi with HP goes round the car rather than ramming it',
+    r.passing && r.passed && r.hits.length === 0,
+    `pulled out ${r.passing}, got past ${r.passed}, ${r.hits.length} hits`);
+}
+
+for (const parked of [true, false]) {
+  const what = parked ? 'a parked car' : 'a car at cruise';
+  const r = ram(parked);
+  check(`a boosting taxi with HP does not lift off before hitting ${what}`,
+    r.hits.length >= 1 && r.minV >= 16.9,
+    `slowest before contact ${r.minV.toFixed(2)} u/s, ${r.hits.length} hits`);
+  check(`and it shoves ${what} rather than sinking into it`, r.deepest < 0.57,
+    `deepest overlap ${r.deepest.toFixed(3)} units`);
+  if (!parked) {
+    check('a rear-end launches the car down its lane rather than stunning it',
+      r.hits[0]?.rearEnd === true && r.leader.stun === 0,
+      `rearEnd ${r.hits[0]?.rearEnd}, stun ${r.leader.stun}`);
+  }
+}
 
 const failed = results.filter((r) => !r.pass).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);

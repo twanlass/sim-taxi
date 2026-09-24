@@ -565,6 +565,13 @@ export const PALETTE = {
   // paint coming off.
   sparkHot: '#FFF8E2',
   sparkTail: '#FF9A22',
+  // The comic starburst a bump pops at the point of contact — see game/impact.js. A warm yellow
+  // body round a near-white core, the "POW" of a cartoon rather than anything physical, so it is
+  // kept off both spark stops above: a burst the same hue as the sparks under it reads as more
+  // sparks. The rim is a dark warm brown, the one thing that holds its edge against pale asphalt.
+  impactBody: '#FFD23F',
+  impactCore: '#FFFBEA',
+  impactRim: '#6B2E12',
   // The collar of smoke thrown out around a wreck — the construction zone's dust, tinted. It is
   // set against the **road**, not against `blastSmoke` beside it, and that is the whole of why it
   // is this light. The fireball is unlit, so its smoke stop can be a dark #4B4B55 and still read;
@@ -574,6 +581,15 @@ export const PALETTE = {
   // gone. Roughly 1.8× the road's value is what it takes to be seen against it. Warm and well
   // short of the dust's pure white: white here is a dust cloud, and this is what is burning.
   wreckSmoke: '#C9C2BB',
+  // The damaged taxi's bonnet smoke — game/taxidamage.js — walked from the first stop to the second
+  // as the last third of its hit points goes. Both are set against the **road**, because that is
+  // what a puff over a moving car is seen against from this camera: the first cut ran to #45403D,
+  // "burning oil", and on dark asphalt that is no smoke at all — the red tier's billows and the
+  // critical plume were both drawn and neither could be found in a screenshot. So the dark end is a
+  // grey that still clears the asphalt by a clear step in lightness, and "worse" reads as denser and
+  // faster rather than as blacker.
+  damageSmokeLight: '#F4F1ED',
+  damageSmokeDark: '#A8A19B',
 
   // What a wreck's paint is pulled toward as it scorches — see SCORCH_MIX in game/wreckage.js. Only
   // a fifth of the way, and behind a plain multiply that does most of the darkening, because the

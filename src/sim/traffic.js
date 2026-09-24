@@ -677,6 +677,18 @@ export const laysPassRubber = (car) => Boolean(car.boost)
  */
 const seesLeader = (car) => car.passOffset
   < Math.max(ENVELOPE, laneOffsetFor(car.d, car.i, car.j));
+// A boosting taxi with hit points that *cannot* get round the car in front rams it. Everything
+// above about the tailgate gap and the moving-leader cap is how Loco Mode avoided the car in front,
+// which was the right call while any contact was the end of the run. Now a contact is a bump
+// (sim/collisions.js), and a taxi held to a leader it has no way past lifted off in the last few
+// units before the rear-end — the cap closing as the gap did — which read as the taxi flinching.
+//
+// Where a pass *is* on, the taxi follows as it always did: the tailgate is what brings it inside
+// PASS_TRIGGER, and a taxi that ignored the leader would be in its boot before it pulled out.
+// `canPass` is the overtake's own test (the pass block in `update`), so the two cannot disagree
+// about whether there was a way round. Keyed on `hp` so the lab and the probe, which never arm it,
+// keep measuring the avoiding taxi they were tuned against.
+const rams = (car) => car.isTaxi && car.boost && car.hp != null && !car.canPass;
 // Where the taxi pulls out, and the number the whole manoeuvre is sized by. Closing to a body
 // length past the leader is (PASS_TRIGGER + 5) units of relative displacement, and at the ~10 u/s
 // a boosting taxi gains on cruising traffic that is 1.83 units of road for every unit of it. At
@@ -1867,6 +1879,11 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // positional budget of zero: this overrides the budget entirely and is the only input that can
       // stop the taxi in the middle of a junction.
       braking: false,
+      // A survivable hit from the boosting taxi (src/sim/collisions.js, via `knockCar`). `knock` is
+      // the shove — a world-space offset and a yaw offset, applied at render only — and `stun` is
+      // how long the car sits on its brakes afterwards. Both clear themselves.
+      knock: null,
+      stun: 0,
       isTaxi: false,
       instanceIndex: -1,
       x: 0, z: 0, yaw: dirYaw(d),
@@ -2010,6 +2027,8 @@ export function stageCar(car, x, z, yaw) {
   car.prevSteerYaw = yaw;
   car.kerbLift = 0;
   car.stageSignal = null;
+  car.knock = null;
+  if (car.stun) { car.stun = 0; car.braking = false; }
 }
 
 /**
@@ -2051,6 +2070,134 @@ export function approachRoom(d, i, j) {
     lane = prev;
   }
   return room;
+}
+
+// --- Bumps ------------------------------------------------------------------
+//
+// A survivable hit (src/sim/collisions.js). The sim keeps the car on its lane coordinate the whole
+// time — it only stops, via `stun` — and the shove is a render offset on top, like the weave and
+// the pull-over. That is what makes it safe: nothing is ever handed back to the lane model from a
+// position it did not choose, so there is no `releaseCar` site to get wrong (see the stop-line trap
+// in CLAUDE.md) and the queue behind a shunted car forms exactly where the car nominally is.
+//
+// So the shove has two phases. It **slides** and spins off the impact under drag — world-space
+// physics, nobody at the wheel. Sized so the slide stays about a lane wide: the offset is
+// `v / KNOCK_DRAG` at rest, so KNOCK_MAX_V 8 is 2.3 units, and a car shunted toward the kerb does
+// not end up in a shop front.
+//
+// Then the driver **steers back**. The first cut eased the offset and the spin to zero on a clock,
+// independently, and it looked like what it was: the car translated sideways into its lane while
+// unwinding on the spot, and did it while stopped. Now the recovery is driven — paced by the road
+// the car actually covers, so a stunned car sits askew where it came to rest until it pulls away,
+// and it moves along its own nose: the heading offset is steered toward the lane (aiming at a point
+// RECOVER_LOOK ahead on it) at no more than a turning circle allows, and the sideways offset only
+// changes by `sin(heading) · ds`. So a car spun 40° first turns back past straight toward its lane,
+// drives in, and straightens as it arrives — and the front wheels show the lock it is using.
+export const KNOCK_DRAG = 3.5;         // 1/s, on both the slide and the spin
+export const KNOCK_MAX_V = 8;          // u/s cap on the shove
+export const KNOCK_MAX_SPIN = 4;       // rad/s cap, ~65° of slew before the drag takes it
+const KNOCK_SLIDE = 0.45;              // s of slide before the driver has it back (drag leaves 21%)
+const RECOVER_LOOK = 3.5;              // units ahead on the lane the driver aims at
+const RECOVER_MAX_HEADING = 0.6;       // rad, ~34°: the steepest line back in
+const RECOVER_RADIUS = 3;              // units, the tightest circle the recovery turns on
+const RECOVER_LON = 5;                 // units of road over which a fore-aft offset is shed
+
+/**
+ * Shove `car` by (vx, vz) u/s with `spin` rad/s of slew, and hold it stopped for `stun` seconds.
+ * A second knock on a car still reacting to the first adds to it rather than restarting it.
+ */
+const newKnock = () => ({ x: 0, z: 0, yaw: 0, vx: 0, vz: 0, spin: 0, t: 0 });
+
+export function knockCar(car, vx, vz, spin, stun = 0) {
+  const k = car.knock ?? (car.knock = newKnock());
+  k.vx += vx;
+  k.vz += vz;
+  const v = Math.hypot(k.vx, k.vz);
+  if (v > KNOCK_MAX_V) { k.vx *= KNOCK_MAX_V / v; k.vz *= KNOCK_MAX_V / v; }
+  k.spin = Math.max(-KNOCK_MAX_SPIN, Math.min(KNOCK_MAX_SPIN, k.spin + spin));
+  k.t = 0;
+  car.stun = Math.max(car.stun ?? 0, stun);
+}
+
+/**
+ * Push `car` bodily by (dx, dz) — contact resolution, called every frame the taxi is overlapping
+ * it (sim/collisions.js), so a car can be bulldozed but never driven through.
+ *
+ * The part along the car's own lane is real road: it goes into `s`, so a rear-ended car is shoved
+ * down its lane in the sim and the queue behind it moves with it. Everything else — the sideways
+ * part, a car mid-turn, a car already at the end of its lane — goes into the knock offset, whose
+ * clock is held at zero while the push lasts so it cannot start easing back into the taxi that is
+ * still leaning on it.
+ */
+export function shoveCar(car, dx, dz) {
+  if (car.state === 'drive' && !car.staged) {
+    const t = car.lane.path.tangentAt(car.s);
+    const along = dx * t.x + dz * t.z;
+    if (along > 0) {
+      const ds = Math.min(along, car.lane.length - car.s);
+      car.s += ds;
+      dx -= t.x * ds;
+      dz -= t.z * ds;
+    }
+  }
+  const k = car.knock ?? (car.knock = newKnock());
+  k.x += dx;
+  k.z += dz;
+  k.t = 0;
+}
+
+// `car.yaw` on the way in is the heading the lane gave it, before the knock is added — so the lane
+// frame is read straight off it.
+function applyKnock(car, dt) {
+  const k = car.knock;
+  k.t += dt;
+  if (k.t < KNOCK_SLIDE) {
+    const drag = Math.exp(-KNOCK_DRAG * dt);
+    k.vx *= drag;
+    k.vz *= drag;
+    k.spin *= drag;
+    k.x += k.vx * dt;
+    k.z += k.vz * dt;
+    k.yaw += k.spin * dt;
+  } else {
+    k.vx = 0;
+    k.vz = 0;
+    k.spin = 0;
+    // Into the lane's frame: `lat` + toward the car's right, `lon` + ahead.
+    const fx = Math.cos(car.yaw);
+    const fz = -Math.sin(car.yaw);
+    const rx = Math.sin(car.yaw);
+    const rz = Math.cos(car.yaw);
+    let lat = k.x * rx + k.z * rz;
+    let lon = k.x * fx + k.z * fz;
+    const ds = Math.max(0, car.v) * dt;
+    if (ds > 1e-5) {
+      // A positive heading offset turns the nose left, which is toward −right — so a car sitting
+      // right of its lane wants a positive one. Wrapped first: a spin can leave it past ±π.
+      let h = Math.atan2(Math.sin(k.yaw), Math.cos(k.yaw));
+      const aim = Math.max(-RECOVER_MAX_HEADING,
+        Math.min(RECOVER_MAX_HEADING, Math.atan(lat / RECOVER_LOOK)));
+      const turn = Math.max(-ds / RECOVER_RADIUS, Math.min(ds / RECOVER_RADIUS, aim - h));
+      h += turn;
+      lat -= Math.sin(h) * ds;
+      lon -= lon * Math.min(1, ds / RECOVER_LON);
+      k.yaw = h;
+      // The lock that turn took, on the bicycle model the rest of the file steers by.
+      car.wheelAngle = Math.max(-STEER_MAX, Math.min(STEER_MAX, Math.atan(WHEELBASE * turn / ds)));
+    }
+    k.x = rx * lat + fx * lon;
+    k.z = rz * lat + fz * lon;
+    // Aiming a fixed distance ahead makes the last of the approach an exponential tail, so it is
+    // cut off where it stops being visible: 0.1 of a unit is under a pixel at play zoom (1 unit ≈
+    // 7.7px), and 2° of heading on a 3.4-unit body moves a bumper by less than that.
+    if (Math.abs(lat) < 0.1 && Math.abs(lon) < 0.2 && Math.abs(k.yaw) < 0.035) {
+      car.knock = null;
+      return;
+    }
+  }
+  car.x += k.x;
+  car.z += k.z;
+  car.yaw += k.yaw;
 }
 
 function bezier(p0, p1, p2, t) {
@@ -2120,6 +2267,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const {
     group: taxiGroup, setOccupied: setTaxiOccupied, lights: taxiLights,
     setHighlight: setTaxiHighlight, setSteer: setTaxiSteer, setLights: setTaxiLights,
+    damage: taxiDamage,
   } = createTaxiMesh();
   scene.add(taxiGroup);
 
@@ -3481,6 +3629,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         return rel > -PASS_CLEAR;
       };
 
+      // Whether there is a way round the car in front right now — the same four conditions the pull
+      // -out below asks, minus `near`. Read by `rams()`: where this is false, a taxi with hit points
+      // stops following the leader and drives into it. Only worth the oncoming scan with a leader
+      // in view.
+      taxi.canPass = locoHeld && gap !== undefined && room && passable && oncomingClear();
+
       if (taxi.state === 'drive') {
         const was = taxi.passing;
         taxi.passing = locoHeld
@@ -3664,6 +3818,15 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // physics below would drag it straight back onto a lane.
       if (car.crashed || car.staged) continue;
 
+      // A car the taxi has just shunted sits on its brakes until it has gathered itself. Through
+      // `braking` rather than a speed clamp of its own, so it gets everything the pedal already
+      // means — a dead stop wherever it is, and a hold on the junction if that is inside a box, so
+      // cross traffic is not released through it. The taxi's own `braking` belongs to main.js.
+      if (car.stun > 0 && !car.isTaxi) {
+        car.stun = Math.max(0, car.stun - dt);
+        car.braking = car.stun > 0;
+      }
+
       // Ease panic toward its target on every car every frame, so it decays smoothly whether the
       // car is driving, turning, or otherwise skipped by the physics branch below.
       const panicTarget = panicTargetFor(car);
@@ -3749,7 +3912,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // so queueing at a red — which everything else here is tuned around — is untouched.
         //
         let leadCap = Infinity;
-        const ahead = seesLeader(car) ? leaderDist.get(car) : undefined;
+        const ahead = seesLeader(car) && !rams(car) ? leaderDist.get(car) : undefined;
         if (ahead !== undefined) {
           const leader = leaderOf.get(car);
           const gap = car.boost ? boostGap(car) : followGap(car, leader);
@@ -4135,7 +4298,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // hold. That is what keeps `bargesThrough`'s guarantee intact: nothing stops the taxi
         // inside a junction.
         let target = cornerTarget;
-        const lead = seesLeader(car) ? leaderOf.get(car) : undefined;
+        const lead = seesLeader(car) && !rams(car) ? leaderOf.get(car) : undefined;
         const leadGap = lead === undefined ? undefined : leaderDist.get(car);
         if (leadGap !== undefined) {
           const room = Math.max(0, leadGap - (car.boost ? boostGap(car) : followGap(car, lead)));
@@ -4350,6 +4513,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         car.x += Math.sin(car.yaw) * push;
         car.z += Math.cos(car.yaw) * push;
       }
+
+      // The shove off a bump, last of the offsets so it lands on top of everything the lane said.
+      // After the wheel angle for the panic wobble's reason: a spin is not a steering input, and
+      // run through `steerToward` it would slam the front wheels lock to lock.
+      // Not on a staged car: its position is not re-derived each frame, so the offset would add up.
+      if (car.knock && !car.staged) applyKnock(car, dt);
 
       // A little vertical bob, scaled by how fast the car is actually going, so stopped traffic
       // sits still instead of idling like a boat.
@@ -4592,7 +4761,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   }
 
   return {
-    cars, taxi, taxiGroup, setTaxiOccupied, setTaxiHighlight, setCarCount, mesh,
+    cars, taxi, taxiGroup, taxiDamage, setTaxiOccupied, setTaxiHighlight, setCarCount, mesh,
     wheelMesh, barMesh, update, warmup,
     /**
      * Bring `n` cop cars onto the map, entering from off screen as near `near` as the camera
