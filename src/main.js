@@ -556,7 +556,8 @@ const robbery = city.bank && !shot
       // what to return to — the same line the `'pickup'` handler runs, and for the same reason: a
       // detour the player asked for is still their standing instruction.
       if (burgerRun?.active()) burgerRun.send();
-      if (depotRun?.active()) depotRun.send();
+      // Not the depot, though: a repair is refused with anyone aboard, so the drop-off just
+      // dispatched stands and `depotRun.update` sees its target gone and stands down.
       haptic('pick');
       radio.show();
     },
@@ -1419,13 +1420,16 @@ function sendForBurger() {
 /**
  * A tap on the depot: in for repairs. Refused on an undamaged car — there is nothing to fix, and a
  * visit holds every clock on the board, so a free one would be a pause button with a garage on it.
- * Refused as well while the depot is busy, which covers the run's own opening.
+ * Refused as well while the depot is busy, which covers the run's own opening, and with a rider
+ * aboard — nobody hails a cab to sit in its garage, and the visit's held clocks would pause the very
+ * fare that is in the back.
  */
 function sendForRepairs() {
   if (!depotRun || !opening || opening.running() || opening.visiting()) return;
   // Nor while anything else is driving the car — the drive-through, mostly. A route planned under a
   // staged taxi would be overwritten by the job that trip hands back on the way out.
   if (traffic.taxi.staged || traffic.taxi.hp >= TAXI_HP) return;
+  if (fares.carrying()) return;
   if (depotRun.send()) haptic('pick');
 }
 
@@ -3096,8 +3100,10 @@ function frame() {
       // lot, where the route above is the one that will be planned again on the way out anyway.
       // See game/burgerrun.js.
       if (burgerRun?.active()) burgerRun.send();
-      // ...and the same for a taxi on its way in for repairs.
-      if (depotRun?.active()) depotRun.send();
+      // A taxi on its way in for repairs is *not* sent back: no rider rides along to the garage
+      // (`sendForRepairs`), so the pickup ends the trip — the drop-off above has replaced its
+      // target and `depotRun.update` stands down on the next frame. A car already staged in the
+      // driveway finishes its visit and `resumeJob` hands it the drop-off on the way out.
     } else if (type === 'delivered') {
       popEarning(fare.value);
       updateStreak(difficulty.payoutMultiplier(fares.state.delivered));

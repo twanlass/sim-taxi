@@ -18,11 +18,11 @@ import { planOrigin } from './route.js';
 // boosting, or weaving wide at the mouth — is sent round the block for another go, once.
 //
 // **Anything else the player aims the taxi at wins**, checked by the identity of `pendingTarget`, as
-// the burger run does it. A rider boarding en route re-aims the taxi at their drop-off from inside
-// the fare loop, and main.js hands the wheel straight back with `send()`.
+// the burger run does it. That includes a rider boarding en route: the fare loop re-aims the taxi at
+// their drop-off and the trip ends there, because main.js refuses a repair with anyone aboard.
 //
-// What it costs is the drive there, on whatever clock is running. The visit itself is free: the
-// board's clocks are held from the turn-in to the camera being handed back (main.js).
+// What it costs is the drive there, on the board's clocks. The visit itself is free: the board's
+// clocks are held from the turn-in to the camera being handed back (main.js).
 
 /** How far either side of the lane centre the taxi may be and still count as on it — the weave. */
 const LANE_TOL = 1.3;

@@ -8896,8 +8896,21 @@ check('the taxi is an ordinary car in the traffic array',
   // than one that stopped mattering. And it was seven until each lamp became two meshes: a pair
   // merged into one geometry cannot be dimmed by a scale without walking up the car
   // (geometry/lights.js), so the pair is two pods pivoting on their own anchors.
-  check('taxi wears a ghost outline on every opaque part', masks.length === 10 && rims.length === 10,
-    `${masks.length} masks, ${rims.length} rims`);
+  check('taxi wears a ghost outline on every opaque part', rims.length === 10,
+    `${rims.length} rims`);
+
+  // ...and every part that draws at all is in the mask, rim or not. The damage pieces (boot lid,
+  // bonnet, the openings under them, loose lamps and their wires, the hanging bumper) are masked
+  // without a rim, and were once not masked at all: a lid swung up inside the shell's hull read as
+  // an occluder and wore the shell's yellow rim across it every time it bounced.
+  const unmasked = [];
+  group.traverse((node) => {
+    if (!node.isMesh || node.name === 'ghostMask' || node.name === 'ghostRim') return;
+    if (node.material.visible === false) return;   // the invisible pick volume
+    if (!node.children.some((c) => c.name === 'ghostMask')) unmasked.push(node);
+  });
+  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 23,
+    `${unmasked.length} unmasked, ${masks.length} masks (10 outlined parts + 13 damage pieces)`);
 
   // --- A dimming lamp must dim where it stands ---------------------------------------------------
   //

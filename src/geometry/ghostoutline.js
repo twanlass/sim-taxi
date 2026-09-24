@@ -189,6 +189,26 @@ export function addGhostOutline(mesh, { rim = RIM } = {}) {
 }
 
 /**
+ * Put a mesh in the ghost stencil mask without giving it a rim of its own — pass 1 of
+ * addGhostOutline alone.
+ *
+ * For a part that has to stop *another* part's rim painting across it but cannot carry a hull of
+ * its own. The taxi's damage pieces are the case: a boot lid or bonnet swung up off the body sits
+ * inside the shell's 0.3-unit hull, so while it is left out of the mask the reversed depth test
+ * reads it as an occluder and traces the shell's yellow rim straight across the panel. A hull
+ * would not work on them either — a 0.06-thick lid is well under FLOOR_MARGIN, so
+ * inflatedGeometry's floor clamp flattens its whole hull above the part.
+ */
+export function addGhostMask(mesh) {
+  const mask = new THREE.Mesh(mesh.geometry, ghostMaskMaterial());
+  mask.name = 'ghostMask';
+  mask.renderOrder = GHOST_MASK_ORDER;
+  mask.raycast = noRaycast;
+  mesh.add(mask);
+  return mask;
+}
+
+/**
  * Show or hide every ghost outline hanging off `root`, wherever in the hierarchy it landed.
  *
  * The taxi wears seven of these — shell, four wheels, roof sign, lights — added at whatever depth
