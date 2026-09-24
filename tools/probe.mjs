@@ -39,7 +39,7 @@ import { createDust } from '../src/game/dust.js';
 import { createSparks } from '../src/game/sparks.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
 import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, laneCost } from '../src/game/route.js';
-import { createCollisions, TAXI_HP, bumpDamage } from '../src/sim/collisions.js';
+import { createCollisions, TAXI_HP, bumpDamage, penetration } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
 import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET, CHASE_SPEED } from '../src/sim/police.js';
 import { sirenOn } from '../src/geometry/lights.js';
@@ -155,7 +155,7 @@ import {
 } from '../src/game/route.js';
 import { GRAB_RADIUS } from '../src/game/pathdrag.js';
 import { nearestJunction, nextIntersection } from '../src/city/grid.js';
-import { DIR, laneOffsetCoord } from '../src/city/grid.js';
+import { DIR, dirYaw, laneOffsetCoord } from '../src/city/grid.js';
 import { PALETTE, BUILDING_COLORS, color } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
 import { createWreckage } from '../src/game/wreckage.js';
@@ -13946,6 +13946,146 @@ let chopperOrder; // likewise
         // colour change taken out.
         check('...retiring them only well outside the frame',
           LOST_RANGE > SPAWN_CLEARANCE, `retired at ${LOST_RANGE}, out of frame past ${SPAWN_CLEARANCE}`);
+      }
+
+      // --- The box-in ---------------------------------------------------------
+      //
+      // Two behaviours on top of the chase: a cop crossing a junction on the taxi's way stops
+      // across it (`holdRoadblocks` in game/robbery.js), and a cop that catches the taxi goes round
+      // it, cuts in and brakes (the cop-pass block in sim/traffic.js). Both are only safe for the
+      // reason every other police rule here is fenced: nothing but the taxi is collision-tested,
+      // so a cop stopped in the wrong place, or out in the wrong lane, is a car drawn *through*
+      // another one with nothing logged. So what is asserted is mostly geometry — over several
+      // staged getaways with a taxi that drives its route off the pill and never re-routes, the
+      // way the box-in means to catch it:
+      //
+      //   - it happens: roadblocks go up, cops go round, and at least one brake-checks;
+      //   - a stopped cop never has another car's centre within 2.2 of its own;
+      //   - a cop out overtaking never comes within 2.3 of anything coming the other way, and
+      //     never within a body length of the taxi it is going round (a lane is 4; 3.75 is the
+      //     closest measured, across a junction where the swing is still settling);
+      //   - and still not one red light run between them.
+      //
+      // Measured over 58 events on 60 seeds while this was built: 56 roadblocks, 45 passes, 27
+      // brake checks, and after the fixes each of these clauses records, zero of every overlap.
+      {
+        let roadblocks = 0; let passes = 0; let checks = 0; let violations = 0;
+        let stoppedOverlap = 0; let oncomingOverlap = 0; let taxiGap = Infinity; let events = 0;
+        const slewed = [];
+        for (let k = 0; k < 6; k++) {
+          const s3 = new THREE.Scene();
+          const t3 = createTraffic(makeRng(seed + 300 + k * 17), s3, 18, 30);
+          const f3 = createFareSystem(makeRng(seed + 55), s3);
+          t3.warmup(3);
+          f3.state.delivered = 5;
+          const r3 = createRobbery({ site: bank, taxi: t3.taxi, fares: f3, traffic: t3 });
+          const tx = t3.taxi;
+          tx.x = bank.door.x;
+          tx.z = bank.door.z;
+          for (let f = 0; f < 3; f++) r3.update(1 / 60);
+          if (!r3.state.active) continue;
+          events += 1;
+          const went = new Set();
+          const checked = new Set();
+          for (let f = 0; f < 60 * 25 && r3.state.active; f++) {
+            if (!tx.route?.length) {
+              const far = { i: tx.i > GRID_I / 2 ? 0 : GRID_I, j: tx.j > GRID_J / 2 ? 0 : GRID_J };
+              const r = findRoute(planOrigin(tx), far);
+              tx.route = r ? [...r] : [];
+              tx.routeConsumed = false;
+            }
+            t3.update(1 / 60);
+            r3.update(1 / 60);
+            for (const cop of t3.policeCars) {
+              if (cop.crashed) continue;
+              if (cop.passing) went.add(cop);
+              if (cop.roadblock > 0 && !cop.blocking) checked.add(cop);
+              // Fully swung across the road it is blocking: 45° off it, give or take whatever the
+              // arc was still doing when the diagonal was latched.
+              if (cop.slew === 1 && !cop.knock && cop.blockAxis != null) {
+                const off = Math.abs(Math.atan2(Math.sin(cop.yaw - dirYaw(cop.blockAxis)),
+                  Math.cos(cop.yaw - dirYaw(cop.blockAxis))));
+                slewed.push(Math.abs((off % (Math.PI / 2)) - Math.PI / 4));
+              }
+              if (cop.pass > 0) taxiGap = Math.min(taxiGap, Math.hypot(cop.x - tx.x, cop.z - tx.z));
+              for (const other of t3.cars) {
+                if (other === cop || other.crashed) continue;
+                const d = Math.hypot(other.x - cop.x, other.z - cop.z);
+                // Against the drawn pose, since a blocking cop is swung to 45°: centre distance
+                // stops meaning anything once the bodies are not parallel. Half a unit of the
+                // circle envelope is a real overlap rather than two bumpers touching.
+                if ((cop.roadblock > 0 || cop.slew > 0) && (penetration(cop, other)?.depth ?? 0) > 0.5) {
+                  stoppedOverlap += 1;
+                }
+                if (cop.passOffset > 2 && !other.isTaxi && d < 2.3) oncomingOverlap += 1;
+              }
+            }
+          }
+          roadblocks += r3.state.roadblocks;
+          passes += went.size;
+          checks += checked.size;
+          violations += t3.stats.violations;
+        }
+        check('the police box the taxi in: roadblocks, overtakes and brake checks',
+          events > 0 && roadblocks > 0 && passes > 0 && checks > 0,
+          `${events} getaways: ${roadblocks} roadblocks, ${passes} passes, ${checks} brake checks`);
+        check('...and a blocking cop stands at 45° across the road, not square in its lane',
+          slewed.length > 0 && Math.max(...slewed) < 0.05,
+          `${slewed.length} frames fully swung, worst ${(Math.max(0, ...slewed) * 180 / Math.PI).toFixed(1)}° off the diagonal`);
+        check('...a stopped cop never has a car drawn through it',
+          stoppedOverlap === 0, `${stoppedOverlap} frames of overlap`);
+        check('...an overtaking cop never meets anything coming the other way',
+          oncomingOverlap === 0, `${oncomingOverlap} frames of overlap`);
+        check('...and stays a lane off the taxi it is going round',
+          taxiGap >= CAR_LEN, `closest ${taxiGap.toFixed(2)} units`);
+        check('...without a red light run between them', violations === 0,
+          `${violations} violations`);
+      }
+
+      // A roadblock is rammed, not driven through: a boosting taxi with hit points meets a cop
+      // stopped across its lane as a bump. Staged directly — a car driven into the middle of a box
+      // and held there, then the taxi on the pill at it — because "the taxi arrives while it
+      // holds" is exactly what a staged getaway cannot promise.
+      {
+        const s4 = new THREE.Scene();
+        const t4 = createTraffic(makeRng(seed + 400), s4, 2, 6);
+        const cop = t4.cars.find((c) => !c.isTaxi) ?? null;
+        const tx = t4.taxi;
+        const J = { i: 2, j: 2 };
+        let stopped = false;
+        let bumpedIt = false;
+        if (cop) {
+          placeCar(tx, DIR.PX, J.i, J.j, 40);
+          tx.route = [DIR.PX, DIR.PX];
+          tx.parked = false;
+          placeCar(cop, DIR.PZ, J.i, J.j, 6);
+          cop.route = [DIR.PZ];
+          // Into the box on its own green, then held half way across it — what `holdRoadblocks`
+          // does, minus the choosing.
+          for (let f = 0; f < 60 * 40 && !stopped; f++) {
+            t4.update(1 / 60);
+            if (cop.state === 'turn' && cop.i === J.i && cop.j === J.j
+              && cop.turnT * cop.turnLen >= cop.leadIn + 3) {
+              cop.roadblock = 99;
+              stopped = true;
+            }
+            // Keep the taxi back until the block is up, so it is the block it meets.
+            if (tx.state === 'drive' && tx.i === J.i && tx.j === J.j) tx.v = 0;
+          }
+          tx.hp = TAXI_HP;
+          const col4 = createCollisions(t4.cars, tx);
+          col4.onBump((e) => { if (e.other === cop) bumpedIt = true; });
+          for (let f = 0; f < 60 * 6 && stopped && !bumpedIt && !tx.crashed; f++) {
+            tx.boost = true;
+            cop.roadblock = 99;
+            t4.update(1 / 60);
+            col4.update(1 / 60);
+          }
+        }
+        check('a boosting taxi rams a roadblock as a bump, not a wreck',
+          stopped && bumpedIt && !tx.crashed && tx.hp < TAXI_HP,
+          `${stopped ? 'cop held in the box' : 'cop never reached the box'}, hp ${tx.hp}, `
+            + `${bumpedIt ? 'bumped' : 'never touched'} the cop`);
       }
 
       // And it all comes off when the event does. A cop left chasing would go on driving at where

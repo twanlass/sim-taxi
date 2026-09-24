@@ -677,6 +677,16 @@ export const laysPassRubber = (car) => Boolean(car.boost)
  */
 const seesLeader = (car) => car.passOffset
   < Math.max(ENVELOPE, laneOffsetFor(car.d, car.i, car.j));
+// A cop out in the oncoming lane overtaking the taxi. Listed in its own lane at its own arc length
+// like any car mid-pass, but nobody behind it should be following it — see the leader bookkeeping
+// in `update`. Police only, so the taxi's own overtake, which every number on this page was
+// measured against, reads exactly as it did.
+//
+// Only while still *committed*, though. Once the cop is past and cutting back in, it is the car in
+// front whatever its offset says, and the taxi has to follow it: skipped for the length of the swing
+// back, a cop that slowed for the next junction was caught and cut into by the very taxi it had
+// just passed (0.7 units centre to centre, measured).
+const outOfLane = (car) => car.police && car.passing && !seesLeader(car);
 // A boosting taxi with hit points that *cannot* get round the car in front rams it. Everything
 // above about the tailgate gap and the moving-leader cap is how Loco Mode avoided the car in front,
 // which was the right call while any contact was the end of the run. Now a contact is a bump
@@ -1100,6 +1110,60 @@ const boostGap = (car) => (car.passOffset > 0
  * A car length and a half puts the whole body past before the wheel comes back.
  */
 const PASS_CLEAR = CAR_LEN * 1.5;
+
+// --- A cop overtaking the taxi ------------------------------------------------
+//
+// See the cop-pass block in `update`. The manoeuvre is the taxi's; these are only its gate.
+//
+// Pulls out from 12 back. A cop closes on a crawling taxi at ~13 u/s (21.7 against 8.5), so it
+// arrives at its following distance within a frame or two of any trigger inside this, and a cop
+// that pulled out from the full following gap would be alongside before the swing was half done.
+const COP_PASS_TRIGGER = 12;
+// Only past a taxi doing under 70% of the cop's own ceiling — 15 u/s. Above that the relative
+// speed is too small to finish inside the two straight junctions the gate asks for: from 12 back
+// to PASS_CLEAR ahead is 17 units of relative displacement, which at 6 u/s is 60 units of road.
+const COP_PASS_SLOWER = 0.7;
+// How far the borrowed lane has to be empty. The manoeuvre is about two seconds from pull-out to
+// cut-in (17 units relative at 13 u/s, plus two swings), and an oncoming car closes at ~30 u/s
+// against a cop at chase speed — but an oncoming *cop* closes at 40, and 60 was measured letting
+// one meet a passing cop head on (1 event in 30). 90 covers two seconds of that.
+const COP_PASS_SIGHT = 90;
+// Once out, how near an oncoming car gets before the pass is given up — a second at the closing
+// speed, which is room for a cop still behind the taxi to drop back and cut in.
+const COP_PASS_ABORT = 40;
+// How far ahead of a cop out in the oncoming lane traffic coming the other way brakes for it.
+const COP_PASS_YIELD = 25;
+// Road the taxi must have clear in front of it for a cop to cut into: PASS_CLEAR to get past, a
+// following gap behind whatever is ahead, and a body. Without it the cop tucks in on top of the
+// car the taxi was queued behind.
+const COP_PASS_CUT_IN = PASS_CLEAR + 2 * CAR_LEN + 4;
+// How long the cop stands on its brakes once it has cut in. Long enough that a taxi following at
+// cruise comes to a full stop behind it (1 unit from 8.5 u/s under an ordinary brake, well inside
+// a second) and the stern-chase cops have a moment to arrive behind; short enough that a player who
+// neither rams nor goes round has lost a couple of seconds of the robber's clock, not the fare.
+const BRAKE_CHECK = 2.5;
+
+// --- A cop across the road ----------------------------------------------------
+//
+// A cop holding a roadblock or a brake check does not sit square in its lane: it swings to 45° to
+// the road it is blocking (`blockAxis`) — the nearest diagonal — as it stops, a skid rather than a
+// park. Render-only like the knock and the pull-over, so the lane model is untouched; but
+// `sim/collisions.js` reads the drawn pose, so the angle is real to the one car that is tested.
+//
+// On a lane (the brake check) it also slides half a lane toward the centreline, which is what puts
+// the body across both lanes in collision terms. On an ordinary street that centres it 1 unit off
+// the middle: a 45° body there reaches 0.8 into the oncoming lane, clear of an oncoming car's flank
+// at 1.15 — so ambient traffic, which is never collision-tested, still drives past without passing
+// through it — while a boosting taxi going round in the oncoming lane (at 2 off the middle) meets
+// its nose at 1.7 units against a 2.31 envelope. Taking it further, to the centreline, would put
+// it through the oncoming queue. In a junction the cop is already stopped on the right line
+// (`acrossPoint` in game/robbery.js), so it only turns.
+//
+// Swung over SLEW_TIME seconds, which is a skid: the car is stopping anyway, and a rotation paced
+// by the road it covers would never finish on a cop that stops in two units. Undone over
+// SLEW_RECOVER units of road as it pulls away, so it drives out of the pose instead.
+const SLEW_TIME = 0.4;
+const SLEW_RECOVER = 2.5;
 const YIELD_RANGE = 15;          // how far ahead oncoming traffic blocks a left turn
 const TURN_WEIGHTS = [0.62, 0.24, 0.14]; // straight, right, left
 
@@ -1884,6 +1948,22 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // how long the car sits on its brakes afterwards. Both clear themselves.
       knock: null,
       stun: 0,
+      // A stop a chasing cop *chose*, in seconds left — a roadblock across a junction or a brake
+      // check in the taxi's lane (game/robbery.js and the cop pass below). Rides the same
+      // `braking` flag as `stun`, and for the same reason: a car standing inside a box holds cross
+      // traffic. Separate from `stun` so the two cannot cancel each other — a rammed roadblock
+      // keeps its hold, and a released one keeps its daze.
+      roadblock: 0,
+      // The road a cop's roadblock is across, as a grid direction, and how far it has swung to
+      // 45° across it — see SLEW_* above. `slewTarget` is the latched heading, `slewLat` the slide
+      // toward the centreline.
+      blockAxis: null,
+      slew: 0,
+      slewTarget: null,
+      slewLat: 0,
+      // A cop that has cut in front of the taxi and is due to brake check it once its swing back
+      // into the lane finishes. See the cop-pass block in `update`.
+      brakeCheckArmed: false,
       isTaxi: false,
       instanceIndex: -1,
       x: 0, z: 0, yaw: dirYaw(d),
@@ -2032,7 +2112,7 @@ export function stageCar(car, x, z, yaw) {
   car.stageSignal = null;
   car.stageLampsOff = false;
   car.knock = null;
-  if (car.stun) { car.stun = 0; car.braking = false; }
+  if (car.stun || car.roadblock) { car.stun = 0; car.roadblock = 0; car.braking = false; }
 }
 
 /**
@@ -2212,6 +2292,23 @@ function bezier(p0, p1, p2, t) {
     z: mt * mt * p0.z + 2 * mt * t * p1.z + t * t * p2.z,
   };
 }
+
+/**
+ * Where a car mid-turn will be at arc parameter `t` (0 at the junction boundary, 1 at the exit
+ * point), and how far along its turn that is — the same mapping the render pass uses, so a point
+ * picked here is exactly where the car will be drawn when `turnT · turnLen` reaches `travelled`.
+ * Read by game/robbery.js to stop a cop across the taxi's lane rather than wherever it happens to
+ * finish braking.
+ */
+export function turnPointAt(car, t) {
+  return {
+    ...bezier(car.entry, car.control, car.exit, t),
+    travelled: car.leadIn + t * (car.turnLen - car.leadIn),
+  };
+}
+
+/** Road a non-taxi car covers stopping from `v` on the pedal — `roadblock` and `stun` use it. */
+export const stopDistance = (v) => (v * v) / (2 * hardBrake());
 
 /** Shortest-path angular interpolation, so a car turning past ±π doesn't spin the long way. */
 function lerpAngle(a, b, t) {
@@ -3280,7 +3377,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // so the junction has to hold for it too. Keyed on the pedal rather than on `v === 0`: the
       // hold has to be in place while the car is still sliding to its stop, not a frame after it
       // has finished, because the cross traffic it protects itself from brakes on approach.
-      if (car.turnT >= 0.95 || car.braking) heldAt.add(`${car.i},${car.j}`);
+      // A cop's `roadblock` is read directly as well as through the pedal it drives, because the
+      // pedal is derived from it further down this same frame: game/robbery.js sets the hold after
+      // the step, and a taxi arriving at its line on the very next frame would otherwise be waved
+      // into a box a cop has just begun to stop across.
+      if (car.turnT >= 0.95 || car.braking || car.roadblock > 0) heldAt.add(`${car.i},${car.j}`);
     }
 
     for (const car of cars) {
@@ -3388,17 +3489,30 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // the taxi while it is alongside — see `passTarget` below.
     const leaderOf = new Map();
     for (const [laneId, members] of lanes) {
-      for (let k = 1; k < members.length; k++) {
+      // The nearest member ahead that is actually *in* the lane. That is every member except a cop
+      // out in the oncoming lane overtaking the taxi (`outOfLane`): it is still listed here at its
+      // own arc length, and read as a leader it would have the taxi it is drawing level with brake
+      // for a car in the other lane — and then stand on its brakes behind nothing. Skipped, the
+      // taxi goes on following whatever really is in front of it until the cop cuts back in.
+      let front = null;
+      for (let k = 0; k < members.length; k++) {
         const behind = members[k];
-        const ahead = members[k - 1];
-        const gap = ahead.laneS - behind.laneS;
-        // Only measure real lane geometry. A turning car's lane position is a synthetic stand-in
-        // used for queueing, so including it here reports overlaps that don't exist on screen.
-        if (behind.car.state === 'drive' && ahead.car.state === 'drive' && gap < stats.minGap) {
-          stats.minGap = gap;
+        if (front) {
+          const gap = front.laneS - behind.laneS;
+          // Only measure real lane geometry. A turning car's lane position is a synthetic stand-in
+          // used for queueing, so including it here reports overlaps that don't exist on screen.
+          if (behind.car.state === 'drive' && front.car.state === 'drive' && gap < stats.minGap) {
+            stats.minGap = gap;
+          }
+          leaderDist.set(behind.car, gap);
+          leaderOf.set(behind.car, front.car);
+        } else {
+          // Nothing in the lane in front of it: look past the junction — see below.
+          const next = ahead(net.laneById.get(laneId), behind.laneS, LOOKAHEAD)
+            .find((n) => !outOfLane(n.car));
+          if (next) { leaderDist.set(behind.car, next.gap); leaderOf.set(behind.car, next.car); }
         }
-        leaderDist.set(behind.car, gap);
-        leaderOf.set(behind.car, ahead.car);
+        if (!outOfLane(behind.car)) front = behind;
       }
       // The car at the front of a lane has to look past the junction for its leader.
       //
@@ -3410,9 +3524,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // walking from `car.lane` with a laneS belonging to the exit lane measures from the wrong
       // end of the junction. `laneId` is what the position means, so it is what the walk uses.
       // For a driving car the two are identical and this is the call it always made.
-      const front = members[0];
-      const next = ahead(net.laneById.get(laneId), front.laneS, LOOKAHEAD)[0];
-      if (next) { leaderDist.set(front.car, next.gap); leaderOf.set(front.car, next.car); }
+      //
+      // (Done in the loop above, for every member with no in-lane car in front of it — which is
+      // `members[0]` alone unless a cop is out overtaking at the head of the lane.)
     }
 
     // --- The two entry tests that aren't the signal.
@@ -3530,6 +3644,35 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // in the file that wants the narrower flag: every other boost-only rule stays armed through
     // the cooldown tail because those are *hazards*, and hazards should outlive the release. This
     // is an input. Letting go has to steer the car back.
+    /**
+     * Is the oncoming lane empty for `sight` units in front of `car`, for a pass that swings it
+     * `lateral` across? Asked by the taxi's overtake and by a cop's overtake *of* the taxi, which
+     * borrow the same lane on the same terms.
+     */
+    const oncomingClearFor = (car, sight, lateral, turningIn = false) => {
+      const sign = dirSign(car.d);
+      const facing = opposite(car.d);
+      for (const other of cars) {
+        if (other === car || other.crashed) continue;
+        // `turningIn` also counts a car part way round a corner onto this road, heading into the
+        // borrowed lane. The cop's pass asks it; the taxi's was tuned without it and keeps that.
+        const coming = other.d === facing
+          || (turningIn && other.state === 'turn' && other.dOut === facing);
+        if (!coming) continue;
+        const along = isXAxis(car.d) ? (other.x - car.x) * sign : (other.z - car.z) * sign;
+        if (along < 0 || along > sight) continue;
+        // On this road rather than a parallel one. Measured against the far lane's centre plus
+        // a body, *not* the road's half-width: on an ordinary street the opposing lane centres
+        // are 2·LANE apart, which is exactly HALF_ROAD, so a bound of HALF_ROAD sat precisely
+        // on the car being looked for and the weave alone was enough to push it out of sight.
+        // The next road over is PITCH (20) away, so there is a lot of daylight before this
+        // catches the wrong car — on a divided arterial too, where `lateral` is 6.67.
+        const side = Math.abs(isXAxis(car.d) ? other.z - car.z : other.x - car.x);
+        if (side <= lateral + CAR_W) return false;
+      }
+      return true;
+    };
+
     if (taxiActive) {
       const gap = leaderDist.get(taxi);
       const locoHeld = taxi.boost && !taxi.boostEasing;
@@ -3601,24 +3744,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // keeping, because it is the one the player could not have read. Being thrown into a car
       // that was in plain sight is not: without this the taxi pulled out with oncoming traffic as
       // little as 3 units away, already inside the collision envelope.
-      const oncomingClear = () => {
-        const sign = dirSign(taxi.d);
-        const facing = opposite(taxi.d);
-        for (const other of cars) {
-          if (other === taxi || other.crashed || other.d !== facing) continue;
-          const along = isXAxis(taxi.d) ? (other.x - taxi.x) * sign : (other.z - taxi.z) * sign;
-          if (along < 0 || along > passSight) continue;
-          // On this road rather than a parallel one. Measured against the far lane's centre plus
-          // a body, *not* the road's half-width: on an ordinary street the opposing lane centres
-          // are 2·LANE apart, which is exactly HALF_ROAD, so a bound of HALF_ROAD sat precisely
-          // on the car being looked for and the weave alone was enough to push it out of sight.
-          // The next road over is PITCH (20) away, so there is a lot of daylight before this
-          // catches the wrong car — on a divided arterial too, where `passLateral` is 6.67.
-          const side = Math.abs(isXAxis(taxi.d) ? other.z - taxi.z : other.x - taxi.x);
-          if (side <= passLateral + CAR_W) return false;
-        }
-        return true;
-      };
+      const oncomingClear = () => oncomingClearFor(taxi, passSight, passLateral);
 
       // Still bodily alongside the car it pulled out for? Then the manoeuvre is not over, whatever
       // the lane arithmetic says. `leaderDist` stops reporting that car the instant the taxi's
@@ -3729,6 +3855,136 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       taxi.passBank += (bankTarget - taxi.passBank) * Math.min(1, ds / PASS_BANK_EASE);
     }
 
+    // --- A chasing cop overtakes the taxi, cuts in, and stands on its brakes.
+    //
+    // The box-in's front half (game/robbery.js owns the junction half). A cop that has caught the
+    // taxi from behind does not sit on its bumper: it pulls out into the oncoming lane, draws
+    // past, cuts back in and brakes — `roadblock` for `BRAKE_CHECK` seconds — so the taxi is now
+    // stopped with a cop in front of it and, as often as not, the stern-chase cops arriving behind.
+    // From there the player's choices are the ones the rest of the game already offers: wait it
+    // out on the robber's clock, go round it in Loco Mode if the oncoming lane is clear, or ram it
+    // (sim/collisions.js — a bump that costs hit points, and the wreck once they are gone).
+    //
+    // It is the taxi's own overtake, not a second one. The same fields (`pass`, `passOffset`,
+    // `passSlope`), the same smoothstepped swing paced by road, the same borrowed-lane test and
+    // the same `PASS_CLEAR` before cutting back in — and `seesLeader` already reads the offset, so
+    // a cop out of its lane stops following the taxi without being told. What is different is only
+    // the gate, and every clause of it is a way this can look wrong:
+    //
+    //   - the taxi is the car directly in front, and is *slow*: a cop cruises a shade under a
+    //     boosting taxi, so pulling out on one would park the cop in the oncoming lane for good;
+    //   - both the cop's route and the taxi's carry straight on for two junctions, because a pass
+    //     always spans one (see PASS_* above) and a corner mid-manoeuvre would peel the cop off its
+    //     arc, or end the pass with the cop still out in the oncoming lane — the taxi turning off
+    //     one junction early left a cop cutting back in across a car turning out of that lane;
+    //   - there is road for it to cut back into in front of the taxi (`COP_PASS_CUT_IN`);
+    //   - the oncoming lane is clear for as far as the whole manoeuvre takes;
+    //   - and no other cop is already out there — each ignores its leader while out of its lane,
+    //     so a second one following the first round would drive through it.
+    //
+    // Ambient traffic has no collision test at all (sim/collisions.js only tests the taxi), so
+    // anything that went wrong here would be a cop driving *through* a car rather than into it.
+    // That is why the gate is this fussy, and why a pass is abandoned — tucking back in *behind*
+    // the taxi — if the taxi takes off in Loco Mode or the light ahead turns before the cop is
+    // level with it.
+    for (const cop of policeCars) {
+      if (cop.crashed || cop.staged) continue;
+      const lateral = passLateralOn(cop);
+      const fade = PASS_FADE * (lateral / PASS_LATERAL);
+      // Signed distance the cop is ahead of the taxi, along the cop's own heading.
+      const sign = dirSign(cop.d);
+      const rel = cop.d === taxi.d
+        ? (isXAxis(cop.d) ? (cop.x - taxi.x) : (cop.z - taxi.z)) * sign
+        : -Infinity;
+      if (cop.state === 'drive') {
+        const was = cop.passing;
+        const hunting = cop.chase > 0 && taxiActive && cop.roadblock === 0;
+        if (cop.passing) {
+          // Committed: stay out until clear of the taxi's nose. A pass that has gone wrong — the
+          // taxi took off on the pill, or the light ahead turned — is abandoned, but a cop that is
+          // alongside cannot simply cut back in, because the taxi is in the lane it is cutting
+          // into. So it stays out until it is a clear `PASS_CLEAR` behind (a boosting taxi pulls
+          // away, which gets it there) or ahead (the light changes back and it is still the faster
+          // car). Tucking in from alongside was measured: 1.7 units centre to centre with the taxi.
+          // A body length back is enough, since the two cannot then be nearer than that.
+          //
+          // Something coming the other way is a reason to abandon too, for the same reason the
+          // start gate looks so far: nothing but the taxi is ever collision-tested, so an oncoming
+          // car meeting a cop out in its lane would drive through it. The gate cannot see a car that
+          // turns into the road after the pass has begun.
+          // A taxi that has turned off, on the other hand, is not in the lane any more.
+          const abandon = !hunting || taxi.boost || !approachSignal(cop, t).open
+            || !oncomingClearFor(cop, COP_PASS_ABORT, lateral, true);
+          cop.passing = cop.d === taxi.d && rel < PASS_CLEAR && !(abandon && rel < -CAR_LEN);
+        } else if (hunting && leaderOf.get(cop) === taxi
+            && leaderDist.get(cop) < COP_PASS_TRIGGER
+            && taxi.v < cruiseCapFor(cop) * COP_PASS_SLOWER
+            && !taxi.boost && taxi.passOffset < 0.5 && approachSignal(cop, t).open
+            && cop.route?.length >= 2 && cop.route[0] === cop.d && cop.route[1] === cop.d
+            && taxi.route?.length >= 2 && taxi.route[0] === taxi.d && taxi.route[1] === taxi.d
+            && Boolean(net.laneByGrid(opposite(cop.d), cop.i, cop.j))
+            && !((leaderDist.get(taxi) ?? Infinity) < COP_PASS_CUT_IN)
+            && !policeCars.some((other) => other !== cop && other.passing)
+            && oncomingClearFor(cop, COP_PASS_SIGHT, lateral, true)) {
+          cop.passing = true;
+          cop.passTarget = taxi;
+        }
+        // Back in, in front, having gone round: brake check. Only if it is still the car in front
+        // of the taxi — a pass that ended with the taxi turning off has nothing left to block.
+        //
+        // And only where it can stop *on the lane*. A brake from chase speed takes 6 units and the
+        // lane is 12, so a cop that finishes its swing late would otherwise come to rest inside
+        // the next junction, where a car turning across it drove straight through it (measured).
+        // Short of room it waits for the next lane, still armed.
+        if (was && !cop.passing && rel >= PASS_CLEAR) cop.brakeCheckArmed = true;
+        if (!cop.passing && cop.pass === 0 && cop.brakeCheckArmed) {
+          if (!hunting || leaderOf.get(taxi) !== cop) {
+            cop.brakeCheckArmed = false;
+          } else if (cop.lane.length - STOP_SETBACK - cop.s > stopDistance(cop.v) + 1) {
+            cop.brakeCheckArmed = false;
+            cop.roadblock = BRAKE_CHECK;
+            cop.blockAxis = cop.d;
+          }
+        }
+        if (!cop.passing && cop.pass === 0) cop.passTarget = null;
+      }
+      // The same distance-paced swing as the taxi's, and frozen through a corner for the same
+      // reason — but not through a straight-through crossing, which is where most of it happens.
+      // Paced by the road the cop *actually* covered last frame rather than by `v · dt`: a cop
+      // held up by the taxi it is tucking in behind keeps its speed but is not granted any road,
+      // and pacing off the speed slid it sideways into the taxi while it stood still.
+      const straight = cop.state === 'drive' || cop.turn?.hand === 'straight';
+      const moved = Math.max(0, cop.travelled - (cop.passFrom ?? cop.travelled));
+      cop.passFrom = cop.travelled;
+      const ds = straight ? moved : 0;
+      const delta = (cop.passing ? 1 : 0) - cop.pass;
+      const step = Math.sign(delta) * Math.min(Math.abs(delta), ds / fade);
+      cop.pass += step;
+      const rate = ds > 0.0001 ? step / ds : 0;
+      cop.passOffset = passEase(cop.pass) * lateral;
+      cop.passSlope = passEaseSlope(cop.pass) * lateral * rate;
+      const bankTarget = rate === 0 ? 0 : 1 - 2 * cop.pass;
+      cop.passBank += (bankTarget - cop.passBank) * Math.min(1, ds / PASS_BANK_EASE);
+
+      // Anything coming the other way stands on its brakes for a cop out in its lane. The gates
+      // above keep that rare, but not impossible: a cop that is alongside the taxi when something
+      // turns into the road cannot abandon, and one that has just got past still has its swing
+      // back to do — measured once in 46 passes, an oncoming cop met one head on as it cut in.
+      // Stopped, it is a car the cop has to miss rather than one closing at 30 u/s; and a car
+      // braking for a police car on the wrong side of the road is what a real one would do.
+      if (cop.passOffset > ENVELOPE) {
+        const facing = opposite(cop.d);
+        for (const other of cars) {
+          if (other === cop || other.isTaxi || other.crashed || other.staged) continue;
+          if (other.d !== facing && !(other.state === 'turn' && other.dOut === facing)) continue;
+          const along = (isXAxis(cop.d) ? other.x - cop.x : other.z - cop.z) * sign;
+          if (along < 0 || along > COP_PASS_YIELD) continue;
+          const side = Math.abs(isXAxis(cop.d) ? other.z - cop.z : other.x - cop.x);
+          if (side <= lateral + CAR_W) other.stun = Math.max(other.stun, 0.3);
+        }
+      }
+    }
+
     // --- Who is in the boosting taxi's way?
     //
     // Both the lane it is driving and the lane it is about to land in: a queue sitting on the
@@ -3827,9 +4083,15 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // `braking` rather than a speed clamp of its own, so it gets everything the pedal already
       // means — a dead stop wherever it is, and a hold on the junction if that is inside a box, so
       // cross traffic is not released through it. The taxi's own `braking` belongs to main.js.
-      if (car.stun > 0 && !car.isTaxi) {
+      //
+      // A cop's `roadblock` is the same pedal held for a different reason. `braking` on a non-taxi
+      // is owned entirely by these two timers, so it is re-derived whenever either is running *or*
+      // the pedal is still down — the last clause is what lets game/robbery.js release a roadblock
+      // early by zeroing it, rather than leaving the car parked on a pedal nobody is holding.
+      if (!car.isTaxi && (car.stun > 0 || car.roadblock > 0 || car.braking)) {
         car.stun = Math.max(0, car.stun - dt);
-        car.braking = car.stun > 0;
+        car.roadblock = Math.max(0, car.roadblock - dt);
+        car.braking = car.stun > 0 || car.roadblock > 0;
       }
 
       // Ease panic toward its target on every car every frame, so it decays smoothly whether the
@@ -3998,7 +4260,15 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           let viaChaseOnRed = false;
           if (!arrive.signalised) {
             // No signal here. The priority street runs; anyone joining waits for a real gap.
-            green = arrive.open || ringGapClear(car, approaching);
+            //
+            // ...and nobody drives into a box something is stopped in, which this branch did not
+            // ask until a cop could park across one on purpose. The approach already refused it
+            // (`entryRefused` reads `heldAt` on every junction), which stopped the car at the line
+            // — and then the arrival, asking only about the priority street, waved it through into
+            // the stopped car. A stranded car on the ring had the same hole; a roadblock just
+            // stands there long enough to find it.
+            const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car);
+            green = (arrive.open || ringGapClear(car, approaching)) && !held;
           } else {
             const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car);
             green = (arrive.open || taxiClearsYellow(car, arrive, distToLine)) && !held;
@@ -4517,6 +4787,45 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         const push = Math.max(0, PULLOVER_LATERAL * car.pullover - already);
         car.x += Math.sin(car.yaw) * push;
         car.z += Math.cos(car.yaw) * push;
+      }
+
+      // A cop holding a roadblock or a brake check swings across the road rather than sitting
+      // square in its lane — see SLEW_* above. Before the knock, so a ram shoves the slewed body.
+      if (car.police && !car.staged) {
+        if (car.roadblock > 0 && car.blockAxis != null) {
+          if (car.slewTarget == null) {
+            // Latch the diagonal once, so a cop still sliding round its arc as it brakes does not
+            // flip between two of them. Nearest of the four to where the car is pointing; a car
+            // lying square along the road (the brake check) is equidistant from two, and takes the
+            // one that swings its nose left — across the centreline, into the oncoming lane.
+            const road = dirYaw(car.blockAxis);
+            let best = null;
+            for (let k = 0; k < 4; k++) {
+              const target = road + Math.PI / 4 + k * Math.PI / 2;
+              const off = Math.atan2(Math.sin(target - car.yaw), Math.cos(target - car.yaw));
+              if (!best || Math.abs(off) < Math.abs(best.off) - 1e-6
+                || (Math.abs(Math.abs(off) - Math.abs(best.off)) <= 1e-6 && off > 0)) {
+                best = { target, off };
+              }
+            }
+            car.slewTarget = best.target;
+            car.slewLat = car.state === 'drive' ? laneOffsetFor(car.d, car.i, car.j) / 2 : 0;
+          }
+          car.slew = Math.min(1, car.slew + dt / SLEW_TIME);
+        } else {
+          // Driven out of, not unwound: paced by the road the car covers, so a cop that has been
+          // let go straightens up as it pulls away rather than rotating on the spot.
+          car.slew = Math.max(0, car.slew - ds / SLEW_RECOVER);
+          if (car.slew === 0) car.slewTarget = null;
+        }
+        if (car.slew > 0 && car.slewTarget != null) {
+          const e = passEase(car.slew);
+          const lat = car.slewLat * e;
+          car.x -= Math.sin(car.yaw) * lat;
+          car.z -= Math.cos(car.yaw) * lat;
+          car.yaw += Math.atan2(Math.sin(car.slewTarget - car.yaw),
+            Math.cos(car.slewTarget - car.yaw)) * e;
+        }
       }
 
       // The shove off a bump, last of the offsets so it lands on top of everything the lane said.

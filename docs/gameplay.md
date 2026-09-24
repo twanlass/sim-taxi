@@ -1778,7 +1778,9 @@ description, and it is worth listing what is *not* new, because none of it is:
 - Loco Mode is untouched — the same finite tank, spent in a hold.
 - The fail state is untouched. Crashing into a cop car is crashing into a car:
   [`sim/collisions.js`](../src/sim/collisions.js) does not know what livery anything is wearing and
-  is not told.
+  is not told. What changed is that the police now **put themselves in your way** — see
+  [they box you in](#they-box-you-in) — so ramming one is a bump that costs hit points, and the
+  last one is the wreck.
 
 So the whole feature is a trigger, a clock, a bonus, and some paint.
 
@@ -2062,14 +2064,17 @@ cruiser's **hunting rate** while chasing, which is the same cue that module uses
 lock-on: a cop cruising past on its own business and one that has turned to come after you are
 otherwise the same blue car.
 
-**They are given no licence an ordinary car lacks**, which is what makes this safe rather than
-merely loud. No red-running in particular: `sim/collisions.js` only ever tests the taxi, so a cop
-let through a light would drive *through* the cross traffic rather than into it. Every red they sit
-at is a chance to lose them, and the probe holds the whole chase to zero signal violations.
+**Every licence they have is fenced**, which is what makes this safe rather than merely loud.
+`sim/collisions.js` only ever tests the taxi, so a cop let through a light, stopped in the wrong
+place or out in the wrong lane would drive *through* another car rather than into it. The red on a
+provably empty junction, the roadblock and the overtake are each gated on every overlap that was
+measured on the way to them, and the probe holds the whole chase to zero signal violations.
 
-**Nothing about the fail state changed.** A cop catching you does nothing at all — there is no bust,
-no new ending. What four converging cars are is four more things to hit while you are on the pill,
-which is the ending the game already had.
+**Nothing about the fail state changed — but a cop catching you is no longer nothing.** There is no
+bust and no new ending. What there is instead is a cop in the way: across the junction ahead, or
+braking in your lane having just gone round you. Ramming one is a bump that costs hit points
+([bumps](traffic.md#bumps-and-hit-points)), and the one that empties them is the wreck the game
+already had.
 
 **And [the corridor cruiser](traffic.md#the-bust-chase) does not bust you during one.** That rule —
 boost within a block of the cruiser and the run ends — is a good one, and its legibility rests
@@ -2093,6 +2098,31 @@ see a penny of it until the drop-off resolves, and everything in between is a ti
 more cars to hit. The gate is the robbery rather than the boost, because money off the back of any
 boosting taxi is a fun effect with nothing behind it — and it is one condition, so widening it is one
 word. See [the cash trail](rendering.md#the-getaways-cash-trail---gamecashtrailjs).
+
+### They box you in
+
+Since the taxi has [hit points](traffic.md#bumps-and-hit-points), the police try to stop it rather
+than only converge on it. Two moves, both ordinary traffic behaviour pointed at the taxi (mechanics
+in [the box-in](traffic.md#the-box-in-roadblocks-the-overtake-and-the-brake-check)):
+
+- **Roadblocks.** A cop crossing a junction a block or two up your route skids to a stop at 45°
+  *across your lane* and holds it for up to four seconds, or until you have got past it. One at a
+  time, eight seconds apart.
+- **The overtake and the brake check.** A cop that catches you from behind goes round you in the
+  oncoming lane, cuts in and slews across the road for 2.5 seconds, with the rest of the chase
+  arriving behind you. Angled across both lanes, it cannot be gone round on the pill — only rammed.
+
+Each poses the same three-way choice, and all three are things the game already had. **Wait** — it
+costs the robber's clock, which is the tightest in the game. **Route round** — redraw the route and
+the roadblock is let go. **Ram it** — on the pill the taxi barges in, and the cop is a bump that
+costs 12–60 hit points by closing speed; enough of them and it is the wreck.
+
+That last one is the line this section used to hold: that an imposed event could not cost the run.
+It still cannot *directly* — a robber who runs out of clock still bails, and there is still no bust.
+But the event now puts things in the road that the player can choose to drive through, and what that
+costs is paid in the currency every other crash is. The fairness lives in the choice being real:
+every roadblock is let go when the taxi routes round it or waits it out, so ramming is never the only
+way past.
 
 ## The package courier
 
