@@ -127,31 +127,6 @@
         100% { transform: scale(1);    color: #fff;    }
       }
 
-      /* Hit points. Under the cash total because that corner is already "the state of your run"
-         and nothing else lives there yet; the width is the digits' own, near enough, so it reads as
-         part of that block rather than as a second widget. */
-      #hp {
-        position: relative; width: 96px; height: 9px; margin-top: 2px;
-        border-radius: 5px; overflow: hidden;
-        background: rgba(20, 40, 55, 0.45);
-        box-shadow: 0 2px 6px rgba(20, 40, 55, 0.45), inset 0 0 0 1.5px rgba(255, 255, 255, 0.85);
-      }
-      #hp .hp-fill, #hp .hp-trail {
-        position: absolute; inset: 1.5px; border-radius: 4px; transform-origin: left center;
-      }
-      #hp .hp-trail { background: #FFE7C2; }
-      #hp .hp-fill { background: #6BE08A; }
-      #hp[data-level="mid"] .hp-fill { background: #F5C130; }
-      #hp[data-level="low"] .hp-fill { background: #FF6B5B; }
-      #hp.hp-hit { animation: hp-hit 0.34s cubic-bezier(0.22, 1, 0.36, 1); }
-      @keyframes hp-hit {
-        0%   { translate: 0 0; }
-        20%  { translate: -4px 0; }
-        45%  { translate: 3px 0; }
-        70%  { translate: -1.5px 0; }
-        100% { translate: 0 0; }
-      }
-      @media (prefers-reduced-motion: reduce) { #hp.hp-hit { animation: none; } }
 
       /* Cargo chip — the courier box, pictured under the cash total while a package is aboard. See
          src/game/cargochip.js for what is inside it and why it lives up here rather than at the end
@@ -1435,11 +1410,6 @@
   <body>
     <div id="hud">
       <div class="money">$<span id="money">0</span></div>
-      <!-- The taxi's hit points — game/hpmeter.js. Two bars in one track: the trail holds the old
-           level for a beat after a hit so the size of the dent can be read. -->
-      <div id="hp" role="meter" aria-label="Taxi condition" aria-valuemin="0" aria-valuemax="100">
-        <div class="hp-trail"></div><div class="hp-fill"></div>
-      </div>
       <!-- The courier load, drawn into by game/cargochip.js while a package is aboard. Empty here:
            the box inside it is the real `createParcel` mesh in a WebGL context of its own, the same
            way the rider-finder chips draw the real figure. -->

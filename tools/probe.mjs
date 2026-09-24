@@ -6005,8 +6005,9 @@ check('the taxi is an ordinary car in the traffic array',
   check('the bumper\'s free end is down on the road', Math.abs(tipLocal.y) < 0.02,
     `tip ${tipLocal.y.toFixed(3)} off the car's floor`);
 
-  // Red: smoke, and a list that does not pile up.
-  dTaxi.hp = 20;
+  // Red: smoke, and a list that does not pile up. Just above the critical line first, so the
+  // plume's own check below can tell the two apart.
+  dTaxi.hp = 30;
   // What the damage layer *adds* each frame, since the car underneath is still driving and rolls
   // through its own corners. With the speed it reads at zero there is no rattle, so the added roll
   // has to be the list and nothing else — the same every frame, which is also what shows it is not
@@ -6023,6 +6024,24 @@ check('the taxi is an ordinary car in the traffic array',
   check('at red it smokes and lists, and the list holds rather than piling up',
     dDamage.tier() === 3 && smokes.length > 3 && Math.abs(added.at(-1)) > 0.04 && spread < 1e-9,
     `${smokes.length} puffs, list ${added.at(-1).toFixed(3)} rad, spread ${spread.toExponential(1)}`);
+
+  // Critical: a steady plume on top of the billows, standing still, every frame's worth of it.
+  const beforePlume = smokes.length;
+  dTaxi.hp = 30;
+  for (let n = 0; n < 60; n++) { dTraffic.update(1 / 60); dTaxi.v = 0; dDamage.update(1 / 60); }
+  const aboveLine = smokes.length - beforePlume;
+  dTaxi.hp = 15;
+  const atCritical = smokes.length;
+  for (let n = 0; n < 60; n++) { dTraffic.update(1 / 60); dTaxi.v = 0; dDamage.update(1 / 60); }
+  const belowLine = smokes.length - atCritical;
+  check('under a fifth of its HP the car never stops smoking, even standing still',
+    belowLine >= aboveLine + 20, `${aboveLine} puffs a second above the line, ${belowLine} below`);
+  // Off the bonnet: ahead of the car's centre and above its roofline-level deck, not inside the
+  // body. The first cut spawned at road + 1.1 — inside the car — and not a puff was ever seen.
+  const [sx, sz, , , , , sy] = smokes.at(-1);
+  const ahead = (sx - dTaxi.x) * Math.cos(dTaxi.yaw) - (sz - dTaxi.z) * Math.sin(dTaxi.yaw);
+  check('the smoke comes off the bonnet, clear of the body', ahead > 0.8 && sy > TAXI_DECK_Y,
+    `${ahead.toFixed(2)} ahead of centre, ${sy.toFixed(2)} up against a deck at ${TAXI_DECK_Y.toFixed(2)}`);
 
   dDamage.reset();
   dTaxi.hp = TAXI_HP;

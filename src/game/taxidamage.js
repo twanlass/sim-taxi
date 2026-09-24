@@ -1,27 +1,49 @@
 import * as THREE from 'three';
 import { color } from '../palette.js';
+import { TAXI_DECK_Y } from '../geometry/taxi.js';
 
-// The taxi wearing its damage — three tiers, each keyed to the HP bar's own colour steps so the car
-// itself doubles as the gauge. See buildDamage() in geometry/taxi.js for the parts and why they are
+// The taxi wearing its damage — four steps down its hit points, so the car itself is the gauge. See buildDamage() in geometry/taxi.js for the parts and why they are
 // what they are (silhouette, because at ~30px long nothing finer reads).
 //
 //   1  any hit      the roof sign is knocked crooked
-//   2  ≤ 67% (amber) the boot lid is up and bouncing, and a bumper hangs off the back dragging sparks
+//   2  ≤ 67%        the boot lid is up and bouncing, and a bumper hangs off the back dragging sparks
 //
-// And one piece off the tiers: **rear-ending a car pops the bonnet**, whatever the bar says, and it
+// And one piece off the tiers: **rear-ending a car pops the bonnet**, however much HP is left, and it
 // flaps on the same spring as the boot for the rest of the run. It belongs to the kind of hit rather
 // than to the running total — a nose driven into a boot is the one collision that obviously bursts a
 // bonnet catch — which also gives the first tier something louder than a crooked sign when the first
 // hit is the commonest one in Loco Mode.
-//   3  ≤ 34% (red)   smoke off the bonnet going from steam to black, the sign sputtering, and the car
+//   3  ≤ 34%        smoke off the bonnet going from steam to black, the sign sputtering, and the car
 //                   sitting low on its damaged side and rattling
+//   4  ≤ 20%        and under all of that, a thin dark plume that never stops — the car is one
+//                   hit from the wreck
+//
+// **This is the whole of the health display.** There was a bar in the HUD, and it came out: the
+// point of the damage is that the car says how hurt it is without the player looking away from it,
+// and a bar beside it turned the car into decoration for a number. So each step has to be visible at
+// play zoom on its own, and the last one has to be unmistakable.
 //
 // Each tier *adds* a distinct ingredient rather than turning the previous one up, so which tier the
 // car is in can be read off it at a glance. All of it is render-only: the sim never learns the car is
 // damaged, so none of this can move a car off its lane or change a speed.
 
-const MID = 0.67;                 // matches game/hpmeter.js
+const MID = 0.67;
 const LOW = 0.34;
+// The last warning. The billows above come and go in puffs; this is a stream — small, dark, one
+// every PLUME_EVERY whatever the car is doing, standing or driving — so a car that is nearly done
+// is never seen without it. The pool is 200 puffs of a second each; 25 a second is an eighth of it.
+const CRITICAL = 0.2;
+const PLUME_EVERY = 0.04;         // s
+const PLUME_SIZE = 0.8;
+// Where the smoke comes from: just above the bonnet, which is the top of the body — TAXI_DECK_Y, 1.77
+// with TAXI_SCALE in — and a little behind the nose. The first cut spawned it at road + 1.1, *inside*
+// the body; a puff rises well under a unit a second at this size and lives about one, so every one of
+// them faded out before it had climbed clear of the car and not a wisp was ever on screen.
+const SMOKE_Y = TAXI_DECK_Y + 0.1;
+const SMOKE_AHEAD = 1.1;
+// How much of the dust pool's backward throw the smoke keeps: a column off a parked car, a trail off
+// a moving one. See `drift` on `add` in game/dust.js.
+const smokeDrift = (moving) => 0.15 + 0.85 * moving;
 
 const SIGN_ROLL = 0.26;           // rad, first hit
 const SIGN_ROLL_STEP = 0.07;      // each later one
@@ -75,6 +97,7 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
   let phase = 0;
   let sparkIn = 0;
   let smokeIn = 0;
+  let plumeIn = 0;
   let flickerIn = FLICKER_MEAN;
   let flickerOut = 0;
   // One spring per lid. Separate road-kick clocks, so the two do not flap in step.
@@ -190,11 +213,19 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
       if (smokeIn <= 0) {
         smokeIn = SMOKE_SLOW + (SMOKE_FAST - SMOKE_SLOW) * worse;
         smokeTint.copy(smokeLight).lerp(smokeDark, worse);
-        const ahead = 1.2;
         // Bigger than the old one-size wisp (0.35), which could not be picked out even zoomed in:
         // a puff has to be a few pixels across at play zoom to register as smoke rather than grit.
-        dust.add(taxi.x + Math.cos(taxi.yaw) * ahead, taxi.z - Math.sin(taxi.yaw) * ahead,
-          taxi.yaw, 0.6 + 0.4 * worse, 0.25, smokeTint, roadY + 1.1);
+        dust.add(taxi.x + Math.cos(taxi.yaw) * SMOKE_AHEAD, taxi.z - Math.sin(taxi.yaw) * SMOKE_AHEAD,
+          taxi.yaw, 0.9 + 0.5 * worse, 0.25, smokeTint, roadY + SMOKE_Y, smokeDrift(moving));
+      }
+
+      if (f <= CRITICAL) {
+        plumeIn -= dt;
+        if (plumeIn <= 0) {
+          plumeIn = PLUME_EVERY;
+          dust.add(taxi.x + Math.cos(taxi.yaw) * SMOKE_AHEAD, taxi.z - Math.sin(taxi.yaw) * SMOKE_AHEAD,
+            taxi.yaw, PLUME_SIZE, 0.08, smokeDark, roadY + SMOKE_Y, smokeDrift(moving));
+        }
       }
 
       // The sign sputters — out for a few frames, back, out again.

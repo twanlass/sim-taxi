@@ -30,7 +30,6 @@ import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
-import { createHpMeter } from './game/hpmeter.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage } from './game/taxidamage.js';
 import { flyEnergyToBoost } from './game/energybits.js';
@@ -975,7 +974,6 @@ const collisions = createCollisions(traffic.cars, traffic.taxi);
 // Hit points. Arming `hp` is what turns every contact but the last into a bump rather than the
 // wreck — see TAXI_HP in sim/collisions.js. A retry reloads the page, so this is also the refill.
 traffic.taxi.hp = TAXI_HP;
-const hpMeter = createHpMeter(document.getElementById('hp'), TAXI_HP);
 const impact = createImpact(scene, camera);
 // What the car wears for it — a crushed corner and a crooked sign, then a boot lid up and a bumper
 // dragging sparks, then smoke, a sputtering sign and a list. Tiered off the HP bar's own steps; see
@@ -992,7 +990,7 @@ const taxiDamage = createTaxiDamage({
 // without the bar.
 const BUMP_SHAKE = 0.35;
 const BUMP_SHAKE_PER_UNIT = 0.03;
-collisions.onBump(({ x, z, closing, hp, nx, nz, speed, rearEnd }) => {
+collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd }) => {
   const yaw = traffic.taxi.yaw;
   controller.kickShake(BUMP_SHAKE + closing * BUMP_SHAKE_PER_UNIT);
   // At the point of contact (`cx/cz` off the deepest pair of circles in sim/collisions.js), not
@@ -1006,7 +1004,6 @@ collisions.onBump(({ x, z, closing, hp, nx, nz, speed, rearEnd }) => {
   sparks.burst(x, ROAD_Y + 0.6, z, normalYaw + Math.PI / 2, count, speed * 0.5);
   sparks.burst(x, ROAD_Y + 0.6, z, normalYaw - Math.PI / 2, count, speed * 0.5);
   dust.burst(x, z, yaw, 8, 0.5, { tint: PALETTE.wreckSmoke, linger: 0.7 });
-  hpMeter.hit(hp);
   taxiDamage.hit(x, z, { rearEnd });
 });
 
@@ -2819,7 +2816,6 @@ function frame() {
   // sim from this frame on; the loops in traffic.js already skip a crashed car, so no further
   // plumbing is needed here.
   collisions.update(dt);
-  hpMeter.update(dt);
   impact.update(dt);
   // After traffic has written the taxi's transform: the lean and the rattle ride on top of it.
   taxiDamage.update(dt);

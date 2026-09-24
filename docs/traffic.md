@@ -1417,7 +1417,7 @@ than the speed cap, so like every other hazard rule it stays up through the cool
 ## Bumps and hit points
 
 The taxi has **100 HP** (`TAXI_HP` in `sim/collisions.js`), and every contact but the one that
-empties the bar is a **bump** rather than [the wreck](#the-wreck). Collisions are still armed only
+empties it is a **bump** rather than [the wreck](#the-wreck). Collisions are still armed only
 while boosting — outside Loco Mode the lane model keeps the taxi off everything by construction, so
 there is nothing for HP to mean there.
 
@@ -1445,25 +1445,29 @@ out. Ramming is the fallback, not the policy.
 - The taxi keeps 45% of its speed and recoils a little the other way.
 - `main.js` pops a comic starburst on the contact point (`game/impact.js`) — the middle of the
   overlap between the deepest pair of circles, not the midpoint of the two cars' centres, sprays sparks out
-  sideways along the seam, shakes the camera a fraction of the wreck's amount, and knocks the HP bar
-  in the top-left. Under a third of the bar the taxi smokes from the bonnet.
+  sideways along the seam, and shakes the camera a fraction of the wreck's amount.
 
-**The car wears its damage, in three tiers** (`game/taxidamage.js` driving `buildDamage` in
-`geometry/taxi.js`), each keyed to one of the HP bar's colour steps so the car itself reads as the
-gauge. Each tier adds a distinct ingredient rather than turning the last one up:
+**The car wears its damage, and that is the only health display there is** (`game/taxidamage.js`
+driving `buildDamage` in `geometry/taxi.js`). There was an HP bar in the HUD under the cash total and
+it came out: the point is that the player reads how hurt the car is off the car, without looking
+away from it, and a bar beside it made the car decoration for a number. So each step has to read at
+play zoom on its own. Each adds a distinct ingredient rather than turning the last one up:
 
 1. **Any hit**: the roof sign is knocked crooked, a little further with each hit.
-2. **Amber (≤ 67%)**: the boot lid is up over a dark opening and a bumper hangs off the car, its
+2. **≤ 67%**: the boot lid is up over a dark opening and a bumper hangs off the car, its
    free end on the road throwing sparks while the car moves — at the corner that has taken the most
    hits, nose or tail, so the sparks come off where the damage is. The lid is a
    damped spring on its hinge, kicked by the road, by the car's own acceleration and by every hit;
    it slams against the body and bounces back up. A first cut that wobbled it ±0.2 rad on a sine
    read as a lid that was simply open.
-3. **Red (≤ 34%)**: smoke off the bonnet walking from steam (`damageSmokeLight`) to black
+3. **≤ 34%**: smoke off the bonnet walking from steam (`damageSmokeLight`) to black
    (`damageSmokeDark`) and getting faster, the lit sign sputtering, and the car sitting low on its
-   damaged side and rattling with speed.
+   damaged side and rattling with speed. One more T-bone at boost cruise (37) is the wreck from here.
+4. **≤ 20%**: under all of that, a thin dark plume that never stops — a small puff every 0.04s,
+   standing or driving — so a car one hit from the end is never seen without it. The billows above
+   come and go; this is the one thing that is always there.
 
-And one piece off the tiers: **rear-ending a car pops the bonnet**, whatever the bar says. It is the
+And one piece off the tiers: **rear-ending a car pops the bonnet**, however much HP is left. It is the
 boot's mirror image, hinged at the foot of the windscreen, and it flaps on the same spring for the
 rest of the run — first kick *up*, the catch letting go, where every later hit slams it. It belongs to
 the kind of hit rather than to the running total, and it gives the first tier something louder than a
