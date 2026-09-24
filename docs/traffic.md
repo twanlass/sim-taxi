@@ -1453,7 +1453,12 @@ it came out: the point is that the player reads how hurt the car is off the car,
 away from it, and a bar beside it made the car decoration for a number. So each step has to read at
 play zoom on its own. Each adds a distinct ingredient rather than turning the last one up:
 
-1. **Any hit**: the roof sign is knocked crooked, a little further with each hit.
+1. **Any hit**: the lamp at the struck corner comes out of its socket and hangs on a wire, swinging
+   fore and aft — flung outward when it comes loose, free to swing away from the car but clacking off
+   the bumper on the way back in. Each corner comes loose on its own first hit. The brake and
+   indicator pods at that corner ride the hanging housing, so the lamp still lights, blinks and brakes
+   from down on the wire; the housing (a white lens at the front, red at the back) is what shows while
+   the lamp is off, since the pods themselves only exist while lit.
 2. **≤ 67%**: the boot lid is up over a dark opening and a bumper hangs off the car, its
    free end on the road throwing sparks while the car moves — at the corner that has taken the most
    hits, nose or tail, so the sparks come off where the damage is. The lid is a
@@ -1461,8 +1466,8 @@ play zoom on its own. Each adds a distinct ingredient rather than turning the la
    it slams against the body and bounces back up. A first cut that wobbled it ±0.2 rad on a sine
    read as a lid that was simply open.
 3. **≤ 34%**: smoke off the bonnet walking from steam (`damageSmokeLight`) to black
-   (`damageSmokeDark`) and getting faster, the lit sign sputtering, and the car sitting low on its
-   damaged side and rattling with speed. One more T-bone at boost cruise (37) is the wreck from here.
+   (`damageSmokeDark`) and getting faster, and the car sitting low on its damaged side and rattling
+   with speed. One more T-bone at boost cruise (37) is the wreck from here.
 4. **≤ 20%**: under all of that, a thin dark plume that never stops — a small puff every 0.04s,
    standing or driving — so a car one hit from the end is never seen without it. The billows above
    come and go; this is the one thing that is always there.
@@ -1470,15 +1475,17 @@ play zoom on its own. Each adds a distinct ingredient rather than turning the la
 And one piece off the tiers: **rear-ending a car pops the bonnet**, however much HP is left. It is the
 boot's mirror image, hinged at the foot of the windscreen, and it flaps on the same spring for the
 rest of the run — first kick *up*, the catch letting go, where every later hit slams it. It belongs to
-the kind of hit rather than to the running total, and it gives the first tier something louder than a
-crooked sign when the first hit is the commonest one in Loco Mode.
+the kind of hit rather than to the running total, and it gives a rear-end something louder than a
+swinging lamp when the first hit is the commonest one in Loco Mode.
 
 Everything is sized for silhouette, because at play zoom the taxi is ~30px long and nothing finer
 reads. It is all render-only; the lean and rattle are added to the group after the sim writes its
 transform each frame, so nothing accumulates and nothing reaches the sim. The parts are built at boot
 and hidden by a zero scale, so `markOccluder`, the cartoon outline and the ghost outline all see them.
 
-There was a fourth piece, and it came out: the struck corner of the shell crushed in, down and
+The roof sign used to be knocked crooked and then sputter at low HP, and both came out: the tilt read
+as the sign wobbling rather than as damage, and the flicker made the one lamp that says whether a rider
+is aboard unreliable. There was also a crushed corner, and it came out too: the struck corner of the shell crushed in, down and
 darkened by displacing the merged body's vertices. It looked wrong — a box with a corner sheared
 off, which reads as a modelling fault rather than as a dent. The damage now says itself through
 parts that come *off* the car, not through the car changing shape.

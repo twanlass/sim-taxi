@@ -5894,8 +5894,9 @@ check('the taxi is an ordinary car in the traffic array',
 }
 
 // --- The taxi wearing its damage -------------------------------------------
-// Three tiers off the HP bar (game/taxidamage.js over buildDamage in geometry/taxi.js). The silent
-// failures: a sign that swings about the middle of the car instead of tilting in place; a boot lid
+// Steps down the car's HP (game/taxidamage.js over buildDamage in geometry/taxi.js). The silent
+// failures: a loose lamp that leaves its pods behind at the socket, so it hangs dark while the
+// indicator blinks in mid-air where the lamp used to be; a boot lid
 // that is open but does not move, which is what the first cut's ±0.2 rad wobble read as; a bumper
 // whose "dragging" end is in the air or under the road; the lean piling up frame on frame; and a
 // reset that leaves any of it behind.
@@ -5928,16 +5929,31 @@ check('the taxi is an ordinary car in the traffic array',
   dTaxi.hp = 80;
   hitAt(1.5, 0.7);
 
-  const sign = group.children.find((c) => c.isMesh && c.geometry.parameters?.width === 0.75);
-  const signAt = sign.position.clone();
-  // Tilting in place needs the geometry centred on the mesh's own origin — a rotation is about that
-  // origin, and a sign translated into place in its vertices would swing about the middle of the car.
-  sign.geometry.computeBoundingBox();
-  const signCentre = sign.geometry.boundingBox.getCenter(new THREE.Vector3()).length();
-  check('the first hit knocks the sign crooked in place, not swung about the car',
-    dDamage.tier() === 1 && Math.abs(sign.rotation.x) > 0.2 && sign.position.distanceTo(signAt) === 0
-    && signCentre < 1e-6,
-    `roll ${sign.rotation.x.toFixed(2)}, geometry centred ${signCentre.toExponential(1)} off its origin`);
+  // The lamp at the struck corner — the front right — is out of its socket, and the pods that live
+  // there ride it: they still light and blink, from down on the wire. The other three corners have
+  // not moved. Pods are the meshes wearing the brake or indicator material; their corner is the
+  // sign of where they sit.
+  const pods = group.children.filter((c) => c.isMesh && c.material.emissiveIntensity > 1);
+  const homes = new Map(pods.map((pod) => [pod, pod.position.clone()]));
+  for (let n = 0; n < 30; n++) { dTraffic.update(1 / 60); dTaxi.v = 10; dDamage.update(1 / 60); }
+  const frontRight = pods.filter((pod) => homes.get(pod).x > 0 && homes.get(pod).z > 0);
+  const others = pods.filter((pod) => !frontRight.includes(pod));
+  const hung = frontRight.every((pod) => pod.position.y < homes.get(pod).y - 0.2);
+  const stayed = others.every((pod) => pod.position.distanceTo(homes.get(pod)) === 0);
+  check('the first hit shakes the struck corner\'s lamp loose, and only that one',
+    dDamage.tier() === 1 && frontRight.length === 1 && hung && stayed
+    && dDamage.lampAngle(1, 1) !== null && dDamage.lampAngle(-1, -1) === null,
+    `${frontRight.length} pod at the front right, hanging ${hung}, others untouched ${stayed}`);
+  const lampSwing = [];
+  for (let n = 0; n < 90; n++) {
+    dTraffic.update(1 / 60); dTaxi.v = n < 45 ? 4 : 14; dDamage.update(1 / 60);
+    lampSwing.push(dDamage.lampAngle(1, 1));
+  }
+  const lampRange = Math.max(...lampSwing) - Math.min(...lampSwing);
+  // Freely out, and only a little way back in before the bumper stops it — never through the body.
+  check('and it swings on its wire, out from the car but not back through it',
+    lampRange > 0.3 && Math.min(...lampSwing) >= -0.35 - 1e-9,
+    `swung through ${lampRange.toFixed(2)} rad, ${Math.min(...lampSwing).toFixed(2)} at its furthest in`);
 
   check('a hit that is not a rear-end leaves the bonnet shut', dDamage.hoodAngle() === null);
 
@@ -6046,8 +6062,9 @@ check('the taxi is an ordinary car in the traffic array',
   dDamage.reset();
   dTaxi.hp = TAXI_HP;
   dDamage.update(1 / 60);
-  check('reset puts every part back', sign.rotation.x === 0 && dDamage.tier() === 0
-    && dDamage.bootAngle() === 0.6 && dDamage.hoodAngle() === null);
+  check('reset puts every part back', dDamage.tier() === 0 && dDamage.bootAngle() === 0.6
+    && dDamage.hoodAngle() === null && dDamage.lampAngle(1, 1) === null
+    && pods.every((pod) => pod.position.distanceTo(homes.get(pod)) === 0));
 }
 
 

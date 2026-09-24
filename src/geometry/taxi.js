@@ -170,18 +170,13 @@ export function createTaxiMesh() {
   // carry the fare's own colour, back when colour paired a rider with their drop-off pin; now
   // that pairing is gone (the drop-off pin is fixed to Loco Mode's yellow, see marker.js), so the
   // sign only has one thing left to say and says it with on/off rather than hue.
-  //
-  // Centred on its own origin and hung at its spot, rather than translated into place in its
-  // vertices, so it tilts about itself when the car is damaged (`damage.setSignTilt`) — a rotation,
-  // like a scale, is about the mesh's origin, and one baked into the vertices would swing the sign
-  // about the middle of the car. See the light pods below for the same trap with scale.
   const signGeo = new THREE.BoxGeometry(0.75, 0.34, 0.4);
+  signGeo.translate(-0.1, 1.92 + CHASSIS_LIFT, 0);
   const sign = new THREE.Mesh(
     signGeo,
     // Starts dark — the taxi is empty until a fare boards.
     new THREE.MeshLambertMaterial({ color: new THREE.Color(PALETTE.taxiTrim), flatShading: true }),
   );
-  sign.position.set(-0.1, 1.92 + CHASSIS_LIFT, 0);
   sign.castShadow = true;
   sign.receiveShadow = true;
   sign.userData.pickable = 'taxi';
@@ -236,7 +231,7 @@ export function createTaxiMesh() {
     addGhostOutline(light, { rim: 0.08 });
   }
 
-  const damage = buildDamage(group, sign);
+  const damage = buildDamage(group, lightPods);
 
   // Slightly oversized against ambient traffic. The player has to find this car at a glance in a
   // street full of identically shaped vehicles.
@@ -244,16 +239,9 @@ export function createTaxiMesh() {
   group.rotation.order = 'YXZ';   // so roll applies about the car's own long axis
 
   /** Lights the roof sign while a rider is aboard; dark (the trim's own colour) while empty. */
-  let occupied = false;
-  let signOut = false;
-  const paintSign = () => {
-    sign.material.color.set(occupied && !signOut ? PALETTE.taxiSign : PALETTE.taxiTrim);
+  const setOccupied = (occupied) => {
+    sign.material.color.set(occupied ? PALETTE.taxiSign : PALETTE.taxiTrim);
   };
-  const setOccupied = (next) => { occupied = next; paintSign(); };
-  // A damaged sign sputters: the damage layer (game/taxidamage.js) drops it out for a few frames
-  // at a time. Kept beside `occupied` rather than written as a colour by the caller, so a fare
-  // boarding mid-flicker cannot leave the sign lit when it should be out or the other way round.
-  damage.setSignOut = (out) => { if (out !== signOut) { signOut = out; paintSign(); } };
 
   /**
    * Light the whole car, 0..1 — the flourish that says a courier box has been accepted
@@ -323,8 +311,12 @@ export function createTaxiMesh() {
 // What the car wears after it has been in a scrape — driven in tiers off its hit points by
 // game/taxidamage.js. Everything here is sized for the camera rather than for realism: the taxi is
 // about 30px long at play zoom (1 unit ≈ 7.7px through TAXI_SCALE), so scuffs and a cracked screen
-// would not read at all. What does is a change of *silhouette* — a sign knocked crooked, a boot lid
-// or a bonnet up, a bumper hanging off — and those are the pieces.
+// would not read at all. What does is a change of *silhouette* — a lamp hanging out of its socket, a
+// boot lid or a bonnet up, a bumper hanging off — and those are the pieces.
+//
+// The roof sign used to be knocked crooked and then sputter, and both came out: a tilted box on the
+// roof read as the sign wobbling rather than as damage, and the flicker made the one lamp that says
+// whether a rider is aboard unreliable to read.
 //
 // Built at boot and hidden with a zero scale rather than added when needed, for the reason the light
 // pods are: `markOccluder`, the cartoon outline and the ghost-outline traversal all walk this group
@@ -349,7 +341,17 @@ const BUMPER_Y = 0.46 + CHASSIS_LIFT;
 // The damage says itself through parts that come *off* the car (sign, boot, bumper), not through the
 // car changing shape.
 
-function buildDamage(group, sign) {
+// A lamp shaken loose hangs on its wire below the socket it came out of. The housing is a little
+// smaller than a lit pod, so a lamp that is on wraps it in its glow and a lamp that is off shows the
+// bare lens: the pods themselves are only ever there while lit (their on/off is a scale to zero), so
+// without a housing a loose indicator would be invisible for every frame it is not blinking.
+// 0.6 because 0.42 hung the lamp's centre only 0.19 below where it used to sit — its top was still
+// level with the socket — which read as a lamp slightly out of place rather than as one hanging.
+const LAMP_WIRE = 0.6;            // socket to the centre of the housing
+const LAMP_OUT = 0.06;            // the socket sits this far proud of the bumper face
+const LAMP_SIZE = [0.24, 0.46, 0.46];
+
+function buildDamage(group, lightPods) {
   // The boot lid, on a hinge at the back of the cabin, over a dark opening that only shows when the
   // lid is up. The lid's underside sits exactly on the body's top face, and that is fine: it faces
   // down and is culled before it can fight anything (see the coplanar notes in CLAUDE.md).
@@ -389,6 +391,36 @@ function buildDamage(group, sign) {
   bay.scale.setScalar(0);
   group.add(hoodHinge, bay);
 
+  // Loose lamps, one per corner. Every pod hangs at one of four corners (a rear corner carries its
+  // brake pod and its indicator on the same anchor), and the pods at a loose corner ride the housing
+  // rather than their anchor, so they still light, blink and brake — just from down on the wire.
+  const lamps = new Map();
+  for (const sx of [1, -1]) {
+    for (const sz of [1, -1]) {
+      const pods = lightPods.filter((pod) => Math.sign(pod.position.x) === sx
+        && Math.sign(pod.position.z) === sz);
+      const home = pods[0].position.clone();
+      const socket = new THREE.Vector3(home.x + sx * LAMP_OUT, home.y + LAMP_SIZE[1] / 2, home.z);
+      const housingGeo = new THREE.BoxGeometry(...LAMP_SIZE);
+      const housing = new THREE.Mesh(
+        bakeColor(housingGeo, color(sx > 0 ? 'taxiSign' : 'lightRed')), propMaterial(),
+      );
+      housing.castShadow = true;
+      housing.userData.pickable = 'taxi';
+      // A thin dark bar from the socket down, scaled to the wire's length and turned with it.
+      const wireGeo = new THREE.BoxGeometry(0.05, 1, 0.05);
+      wireGeo.translate(0, -0.5, 0);
+      const wire = new THREE.Mesh(bakeColor(wireGeo, color('taxiTrim')), propMaterial());
+      wire.position.copy(socket);
+      wire.userData.pickable = 'taxi';
+      housing.scale.setScalar(0);
+      wire.scale.setScalar(0);
+      group.add(housing, wire);
+      lamps.set(`${sx},${sz}`, { pods, home, socket, housing, wire });
+    }
+  }
+  const lampAt = new THREE.Vector3();
+
   // The bumper: a dark bar hinged at one rear corner, its free end down on the tarmac. The geometry
   // runs from the hinge along −z; the other side is the same bar turned half round about the hinge,
   // which keeps the winding (a mirror by negative scale would not).
@@ -407,9 +439,26 @@ function buildDamage(group, sign) {
   const tipLocal = new THREE.Vector3(0, -BUMPER_T / 2, -BUMPER_LEN);
 
   return {
-    /** Roll and yaw on the roof sign, radians. */
-    setSignTilt(roll, yaw) {
-      sign.rotation.set(roll, yaw, 0);
+    /**
+     * Hang the lamp at corner (sx, sz) — sx +1 the nose, sz +1 the right — out of its socket at
+     * `angle` radians off vertical (positive swings it toward the nose), or pass null to put it
+     * back where it belongs.
+     */
+    setLamp(sx, sz, angle) {
+      const lamp = lamps.get(`${sx},${sz}`);
+      const loose = angle != null;
+      lamp.housing.scale.setScalar(loose ? 1 : 0);
+      lamp.wire.scale.set(loose ? 1 : 0, loose ? LAMP_WIRE : 0, loose ? 1 : 0);
+      if (!loose) {
+        for (const pod of lamp.pods) { pod.position.copy(lamp.home); pod.rotation.set(0, 0, 0); }
+        return;
+      }
+      lampAt.set(lamp.socket.x + Math.sin(angle) * LAMP_WIRE,
+        lamp.socket.y - Math.cos(angle) * LAMP_WIRE, lamp.socket.z);
+      lamp.housing.position.copy(lampAt);
+      lamp.housing.rotation.z = angle;
+      lamp.wire.rotation.z = angle;
+      for (const pod of lamp.pods) { pod.position.copy(lampAt); pod.rotation.z = angle; }
     },
     /** The boot lid's opening angle in radians, or null to put it away altogether. */
     setBoot(angle) {
@@ -443,13 +492,12 @@ function buildDamage(group, sign) {
     },
     /** Put everything back — a new run, or a repair. */
     reset() {
-      sign.rotation.set(0, 0, 0);
+      for (const [key] of lamps) this.setLamp(...key.split(',').map(Number), null);
       bootHinge.scale.setScalar(0);
       hole.scale.setScalar(0);
       hoodHinge.scale.setScalar(0);
       bay.scale.setScalar(0);
       bumperHinge.scale.setScalar(0);
-      this.setSignOut?.(false);
     },
   };
 }

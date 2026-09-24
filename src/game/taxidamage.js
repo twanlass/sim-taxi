@@ -5,15 +5,16 @@ import { TAXI_DECK_Y } from '../geometry/taxi.js';
 // The taxi wearing its damage — four steps down its hit points, so the car itself is the gauge. See buildDamage() in geometry/taxi.js for the parts and why they are
 // what they are (silhouette, because at ~30px long nothing finer reads).
 //
-//   1  any hit      the roof sign is knocked crooked
+//   1  any hit      the lamp at the corner that was struck is shaken out of its socket and swings
+//                   on its wire — still lit, still blinking, still braking
 //   2  ≤ 67%        the boot lid is up and bouncing, and a bumper hangs off the back dragging sparks
 //
 // And one piece off the tiers: **rear-ending a car pops the bonnet**, however much HP is left, and it
 // flaps on the same spring as the boot for the rest of the run. It belongs to the kind of hit rather
 // than to the running total — a nose driven into a boot is the one collision that obviously bursts a
-// bonnet catch — which also gives the first tier something louder than a crooked sign when the first
+// bonnet catch — which also gives the first tier something louder than a swinging lamp when the first
 // hit is the commonest one in Loco Mode.
-//   3  ≤ 34%        smoke off the bonnet going from steam to black, the sign sputtering, and the car
+//   3  ≤ 34%        smoke off the bonnet going from steam to black, and the car
 //                   sitting low on its damaged side and rattling
 //   4  ≤ 20%        and under all of that, a thin dark plume that never stops — the car is one
 //                   hit from the wreck
@@ -45,10 +46,20 @@ const SMOKE_AHEAD = 1.1;
 // a moving one. See `drift` on `add` in game/dust.js.
 const smokeDrift = (moving) => 0.15 + 0.85 * moving;
 
-const SIGN_ROLL = 0.26;           // rad, first hit
-const SIGN_ROLL_STEP = 0.07;      // each later one
-const SIGN_ROLL_MAX = 0.45;
-const SIGN_YAW = 0.18;
+// A loose lamp is a pendulum on its wire, swinging fore and aft. Stiffer than a real one on a wire
+// this short would be, so it reads as swinging rather than jittering at play zoom — about a swing
+// and a half a second — and kicked the same three ways the lids are: the car's own acceleration
+// (a car pulling away leaves a hanging lamp behind), the road, and every hit.
+const LAMP_G = 30;                // effective gravity over the wire's length, 1/s²
+const LAMP_C = 1.6;               // 1/s, damping
+const LAMP_ACCEL = 0.9;           // rad/s² per u/s² of the car's acceleration
+const LAMP_ROAD_KICK = 3;         // rad/s per road kick at full speed
+const LAMP_HIT_KICK = 6;          // rad/s, on every hit
+// It swings freely outward, away from the car, and only a little way back in before it clacks off
+// the bumper face it hangs in front of. A symmetric limit let it swing clean through the body.
+const LAMP_OUT = 1.2;             // rad, away from the car
+const LAMP_IN = 0.35;             // rad, toward it
+const LAMP_CLACK = 0.45;          // of the swing kept off the bumper
 
 // The boot lid is a damped spring on its hinge, not a sine: it rides open at BOOT_REST, gets kicked
 // by the road, by the car braking and accelerating, and by every hit, and when it swings shut it
@@ -78,8 +89,6 @@ const LEAN = 0.07;                // rad of list toward the damaged side
 const LEAN_SINK = 0.05;           // units the body drops on that side
 const RATTLE = 0.035;             // rad of shake at speed
 const RATTLE_BOB = 0.03;          // units
-const FLICKER_MEAN = 0.5;         // s between sputters
-const FLICKER_OUT = [0.04, 0.14]; // s each dropout lasts
 
 export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roadY, rng = Math.random }) {
   const smokeLight = color('damageSmokeLight');
@@ -89,7 +98,7 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
 
   let hits = 0;
   // Hits per corner, keyed `${end},${side}` — end +1 the nose, side +1 the right. The bumper hangs
-  // off the worst one, its free end dragging at that corner, and the list and the sign lean that
+  // off the worst one, its free end dragging at that corner, and the list leans that
   // way; a tie goes to the corner hit last.
   const corners = new Map();
   let worst = { end: -1, side: 1 };
@@ -98,8 +107,8 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
   let sparkIn = 0;
   let smokeIn = 0;
   let plumeIn = 0;
-  let flickerIn = FLICKER_MEAN;
-  let flickerOut = 0;
+  // Loose lamps by corner key, each its own pendulum.
+  const lamps = new Map();
   // One spring per lid. Separate road-kick clocks, so the two do not flap in step.
   const boot = { angle: BOOT_REST, v: 0, roadIn: 0, rest: BOOT_REST };
   const hood = { angle: 0, v: 0, roadIn: 0.1, rest: HOOD_REST, open: false };
@@ -157,9 +166,34 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
       hood.angle = 0;
       hood.v = HOOD_POP;
     }
-    // Knocked the way the blow came from, a little further each time.
-    const roll = Math.min(SIGN_ROLL_MAX, SIGN_ROLL + SIGN_ROLL_STEP * (hits - 1));
-    damage.setSignTilt(-side * roll, (lx >= 0 ? 1 : -1) * SIGN_YAW);
+    // The lamp at the struck corner comes loose — and one already loose takes the knock.
+    const lamp = lamps.get(key);
+    if (lamp) {
+      lamp.v += (rng() - 0.5) * 2 * LAMP_HIT_KICK;
+    } else {
+      // Out of the socket with a fling away from the car, so it swings out, comes back and clacks.
+      const [end, s] = key.split(',').map(Number);
+      lamps.set(key, { end, side: s, angle: 0, v: end * LAMP_HIT_KICK, roadIn: rng() * 0.3 });
+    }
+  }
+
+  function stepLamps(dt, moving, accel) {
+    for (const lamp of lamps.values()) {
+      lamp.roadIn -= dt;
+      if (lamp.roadIn <= 0 && moving > 0.05) {
+        lamp.roadIn = BOOT_ROAD[0] + (BOOT_ROAD[1] - BOOT_ROAD[0]) * rng();
+        lamp.v += (rng() - 0.5) * 2 * LAMP_ROAD_KICK * moving;
+      }
+      const a = Math.max(-40, Math.min(40, accel));
+      lamp.v += (-LAMP_G * Math.sin(lamp.angle) - LAMP_C * lamp.v - a * LAMP_ACCEL * Math.cos(lamp.angle)) * dt;
+      lamp.angle += lamp.v * dt;
+      // Angles are + toward the nose, so outward is +end.
+      const lo = lamp.end > 0 ? -LAMP_IN : -LAMP_OUT;
+      const hi = lamp.end > 0 ? LAMP_OUT : LAMP_IN;
+      if (lamp.angle < lo) { lamp.angle = lo; lamp.v = -lamp.v * LAMP_CLACK; }
+      if (lamp.angle > hi) { lamp.angle = hi; lamp.v = -lamp.v * LAMP_CLACK; }
+      damage.setLamp(lamp.end, lamp.side, lamp.angle);
+    }
   }
 
   /**
@@ -175,6 +209,7 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
 
     const accel = dt > 1e-6 ? (v - lastV) / dt : 0;
     lastV = v;
+    stepLamps(dt, moving, accel);
     if (hood.open) {
       stepLid(hood, dt, moving, accel);
       damage.setHood(hood.angle);
@@ -228,32 +263,17 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
         }
       }
 
-      // The sign sputters — out for a few frames, back, out again.
-      if (flickerOut > 0) {
-        flickerOut -= dt;
-        if (flickerOut <= 0) damage.setSignOut(false);
-      } else {
-        flickerIn -= dt;
-        if (flickerIn <= 0) {
-          flickerIn = FLICKER_MEAN * (0.3 + 1.4 * rng());
-          flickerOut = FLICKER_OUT[0] + (FLICKER_OUT[1] - FLICKER_OUT[0]) * rng();
-          damage.setSignOut(true);
-        }
-      }
-
       // Low on the damaged side, and rattling. Roll + tips the top toward the car's right (see the
       // lean notes in sim/traffic.js), so the list toward `side` is +side.
       const shake = RATTLE * moving * (Math.sin(phase * 7.3) * 0.6 + Math.sin(phase * 11.1) * 0.4);
       group.rotation.x += side * LEAN + shake;
       group.position.y += -LEAN_SINK + RATTLE_BOB * moving * Math.sin(phase * 9.7);
-    } else if (flickerOut > 0) {
-      flickerOut = 0;
-      damage.setSignOut(false);
     }
   }
 
   function reset() {
     hits = 0;
+    lamps.clear();
     boot.angle = BOOT_REST;
     boot.v = 0;
     hood.open = false;
@@ -269,5 +289,6 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
     hit, update, reset, tier,
     bootAngle: () => boot.angle,
     hoodAngle: () => (hood.open ? hood.angle : null),
+    lampAngle: (end, s) => lamps.get(`${end},${s}`)?.angle ?? null,
   };
 }
