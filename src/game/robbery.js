@@ -249,8 +249,9 @@ const BLOCK_NEAR = 12;
 const BLOCK_HOLD = 4;
 
 /**
- * How close to the taxi's lane a cop's path through the junction has to come for it to count as
- * across it, in world units.
+ * How close to the blocking line — halfway between the taxi's lane and the road's centre, see
+ * `acrossPoint` — a cop's path through the junction has to come for it to count as across it, in
+ * world units.
  *
  * A cop turning right from the far side of a junction sweeps its own corner and never comes near
  * the taxi's approach lane, and stopping it there would be a cop parked in a corner looking busy.
@@ -503,8 +504,13 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
   function acrossPoint(cop, at) {
     const lane = cityNetwork().laneByGrid(at.enter, at.i, at.j);
     if (!lane) return null;
+    // Halfway between the lane's centre and the road's: the cop swings to 45° as it stops
+    // (SLEW_* in sim/traffic.js), and centred here the diagonal body covers the taxi's lane and
+    // reaches across into the other — where centred on the lane it covered only the lane, and on
+    // the centreline it left an arterial's 3.33-unit lane a body's width of daylight.
     const end = lane.path.at(lane.length);
-    const offLine = (p) => (isXAxis(at.enter) ? p.z - end.z : p.x - end.x);
+    const mid = isXAxis(at.enter) ? (end.z + lineZ(at.j)) / 2 : (end.x + lineX(at.i)) / 2;
+    const offLine = (p) => (isXAxis(at.enter) ? p.z - mid : p.x - mid);
     let best = null;
     // The start excluded, and the last third: a stop late in the arc has the car's nose out of the
     // box and in its exit lane, where the lane bookkeeping lists it only as a phantom short of the
@@ -587,6 +593,7 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
       if (traffic.cars.some((other) => other !== cop && !other.crashed && other.state === 'turn'
         && other.i === cop.i && other.j === cop.j)) continue;
       cop.roadblock = BLOCK_HOLD;
+      cop.blockAxis = at.enter;
       cop.blocking = key;
       cop.blockSpent = key;
       state.roadblocks += 1;

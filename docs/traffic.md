@@ -2165,9 +2165,20 @@ round) or after `BLOCK_HOLD` (4s); one at a time, `BLOCK_GAP` (8s) apart.
 
 Where it stops is measured, not wherever the brake happens to finish. `turnPointAt` samples the cop's
 arc on the same Bézier the render pass draws, and the cop brakes on the frame `stopDistance(v)`
-lands it on the point nearest the taxi's lane. On an arterial the difference is the whole feature: a
-lane there is 3.33 off the middle, so a cop stopped dead centre leaves daylight and the taxi drives
-past it.
+lands it on the point nearest a line **halfway between the taxi's lane and the road's centre**. On an
+arterial that is the whole feature: a lane there is 3.33 off the middle, so a cop stopped dead centre
+leaves daylight and the taxi drives past it.
+
+**And it stops at 45°, across the road** (`SLEW_*`). A blocking cop — the roadblock and the brake
+check both — skids round to the nearest diagonal of the road it is blocking over `SLEW_TIME` (0.4s)
+and drives back out of it over `SLEW_RECOVER` (2.5 units of road) when let go. Render-only, like the
+knock; `sim/collisions.js` reads the drawn pose, so the angle is real to the taxi. On a lane the
+brake check also slides half a lane toward the centreline: centred 1 unit off the middle of an
+ordinary street, the diagonal body reaches 0.8 into the oncoming lane — clear of an oncoming car's
+flank at 1.15, so ambient traffic still passes it — while a taxi going round it in the oncoming lane
+meets its nose inside the collision envelope. So the one way round a brake check on the pill is
+through it. The recovery was 5 units first and was too slow: a cop pulling away into a left turn was
+still half swung when it crossed the box, and overlapped whatever was in it.
 
 **Only a crossing car blocks.** Every clause of the gate was a measured overlap first, because
 ambient traffic is never collision-tested and a cop stopped in the wrong place is a car drawn
@@ -2206,7 +2217,9 @@ Abandoned only from **a body length behind** the taxi — tucking in from alongs
 centre to centre — so a pass that goes wrong stays out until the taxi pulls clear or the cop gets
 ahead. The swing is paced by the road the cop actually covered, not `v · dt`: a cop held up behind
 the taxi keeps its speed and gets no road, and speed-pacing slid it sideways into the taxi while it
-stood still. While out and committed, a cop is skipped as anyone's leader (`outOfLane`), so the taxi
+stood still. Anything coming the other way within 25 units brakes for a cop out in its lane — one
+in 46 passes, a cop that was alongside when a car turned into the road met it head on as it cut back
+in. While out and committed, a cop is skipped as anyone's leader (`outOfLane`), so the taxi
 it is drawing level with does not brake for a car in the other lane — and it stops being skipped the
 moment it is past, because a cop that slows while cutting back in was caught and cut into by the
 taxi it had just passed.

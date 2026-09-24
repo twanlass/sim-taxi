@@ -38,7 +38,7 @@ import { createDust } from '../src/game/dust.js';
 import { createSparks } from '../src/game/sparks.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
 import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, laneCost } from '../src/game/route.js';
-import { createCollisions, TAXI_HP, bumpDamage } from '../src/sim/collisions.js';
+import { createCollisions, TAXI_HP, bumpDamage, penetration } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
 import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET, CHASE_SPEED } from '../src/sim/police.js';
 import { sirenOn } from '../src/geometry/lights.js';
@@ -154,7 +154,7 @@ import {
 } from '../src/game/route.js';
 import { GRAB_RADIUS } from '../src/game/pathdrag.js';
 import { nearestJunction, nextIntersection } from '../src/city/grid.js';
-import { DIR, laneOffsetCoord } from '../src/city/grid.js';
+import { DIR, dirYaw, laneOffsetCoord } from '../src/city/grid.js';
 import { PALETTE, BUILDING_COLORS, color } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
 import { createWreckage } from '../src/game/wreckage.js';
@@ -13691,6 +13691,7 @@ let chopperOrder; // likewise
       {
         let roadblocks = 0; let passes = 0; let checks = 0; let violations = 0;
         let stoppedOverlap = 0; let oncomingOverlap = 0; let taxiGap = Infinity; let events = 0;
+        const slewed = [];
         for (let k = 0; k < 6; k++) {
           const s3 = new THREE.Scene();
           const t3 = createTraffic(makeRng(seed + 300 + k * 17), s3, 18, 30);
@@ -13719,11 +13720,23 @@ let chopperOrder; // likewise
               if (cop.crashed) continue;
               if (cop.passing) went.add(cop);
               if (cop.roadblock > 0 && !cop.blocking) checked.add(cop);
+              // Fully swung across the road it is blocking: 45° off it, give or take whatever the
+              // arc was still doing when the diagonal was latched.
+              if (cop.slew === 1 && !cop.knock && cop.blockAxis != null) {
+                const off = Math.abs(Math.atan2(Math.sin(cop.yaw - dirYaw(cop.blockAxis)),
+                  Math.cos(cop.yaw - dirYaw(cop.blockAxis))));
+                slewed.push(Math.abs((off % (Math.PI / 2)) - Math.PI / 4));
+              }
               if (cop.pass > 0) taxiGap = Math.min(taxiGap, Math.hypot(cop.x - tx.x, cop.z - tx.z));
               for (const other of t3.cars) {
                 if (other === cop || other.crashed) continue;
                 const d = Math.hypot(other.x - cop.x, other.z - cop.z);
-                if (cop.roadblock > 0 && d < 2.2) stoppedOverlap += 1;
+                // Against the drawn pose, since a blocking cop is swung to 45°: centre distance
+                // stops meaning anything once the bodies are not parallel. Half a unit of the
+                // circle envelope is a real overlap rather than two bumpers touching.
+                if ((cop.roadblock > 0 || cop.slew > 0) && (penetration(cop, other)?.depth ?? 0) > 0.5) {
+                  stoppedOverlap += 1;
+                }
                 if (cop.passOffset > 2 && !other.isTaxi && d < 2.3) oncomingOverlap += 1;
               }
             }
@@ -13736,6 +13749,9 @@ let chopperOrder; // likewise
         check('the police box the taxi in: roadblocks, overtakes and brake checks',
           events > 0 && roadblocks > 0 && passes > 0 && checks > 0,
           `${events} getaways: ${roadblocks} roadblocks, ${passes} passes, ${checks} brake checks`);
+        check('...and a blocking cop stands at 45° across the road, not square in its lane',
+          slewed.length > 0 && Math.max(...slewed) < 0.05,
+          `${slewed.length} frames fully swung, worst ${(Math.max(0, ...slewed) * 180 / Math.PI).toFixed(1)}° off the diagonal`);
         check('...a stopped cop never has a car drawn through it',
           stoppedOverlap === 0, `${stoppedOverlap} frames of overlap`);
         check('...an overtaking cop never meets anything coming the other way',
