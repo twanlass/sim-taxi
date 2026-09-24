@@ -558,11 +558,11 @@ const robbery = city.bank && !shot
       if (burgerRun?.active()) burgerRun.send();
       // A full tank for the getaway, poured the way a VIP's reward is: exactly what is missing,
       // read when the bits land. The event is imposed — it takes the seat whatever the meter says —
-      // and a getaway opened on a dry pill is a slow chase the player never chose, with every cop
-      // on the street cruising faster than an unboosted taxi.
+      // and a getaway opened on an empty tank is a slow chase the player never chose, with every
+      // cop on the street cruising faster than an unboosted taxi.
       flyEnergyToBoost({
         from: taxiScreenPos,
-        to: boostScreenPos,
+        to: locoBarScreenPos,
         onArrive: () => boost.topUp(1 - boost.fraction()),
       });
       // Not the depot, though: a repair is refused with anyone aboard, so the drop-off just

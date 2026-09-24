@@ -1835,7 +1835,7 @@ the one place a slot changes hands.
 
 The frame the robber is in the car, the boost meter is poured full — the VIP's reward, paid up
 front (`onBoard` in `main.js`). The event is imposed: it takes the seat whatever the meter holds,
-and a getaway that opened on a dry pill was a chase the taxi could not win on speed, against cops
+and a getaway that opened on an empty bar was a chase the taxi could not win on speed, against cops
 whose cruise ceiling sits above an unboosted taxi's. Filling it keeps the event's choice — boost
 and risk the wreck, or hold off and risk the clock — a choice.
 
