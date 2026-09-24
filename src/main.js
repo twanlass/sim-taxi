@@ -21,11 +21,12 @@ import {
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import {
-  createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE,
+  createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
 } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
 import { createDriveThru } from './game/drivethru.js';
 import { createBurgerRun } from './game/burgerrun.js';
+import { createDepotRun } from './game/depotrun.js';
 import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
@@ -62,7 +63,7 @@ import { createRiderFinder } from './game/riderfinder.js';
 import { createTaxiFinder } from './game/taxifinder.js';
 import { createCargoChip } from './game/cargochip.js';
 import { createTutorial, LOCO_HINT_HOLD } from './game/tutorial.js';
-import { createOpening } from './game/opening.js';
+import { createOpening, entryPath } from './game/opening.js';
 import { createWipe } from './game/wipe.js';
 import { createFarePointers } from './game/farepointers.js';
 import { createSirenGlow } from './game/sirenglow.js';
@@ -348,6 +349,9 @@ const garage = layout.garageBlock ? createGarage(layout.garageBlock, makeRng(see
 if (garage) {
   scene.add(garage.group);
   garage.meshes.forEach(markOccluder);
+  // ...and tappable, on the burger joint's terms (see below): a damaged taxi sent back here is
+  // repaired, by the opening vignette played backwards and forwards again. See game/depotrun.js.
+  garage.group.userData.pickable = 'depot';
 }
 
 // The burger joint — the second block `createLayout` took out of the tower generator's hands, and
@@ -470,7 +474,51 @@ const burgerRun = driveThru
       if (paid > 0) popEarning(-paid);
       haptic('burger');
     },
-    onFinish: (handBack) => resumeAfterBurger(handBack),
+    onFinish: (handBack) => resumeJob(handBack),
+  })
+  : null;
+
+// ...and the trip back to the depot for repairs, which is the tap on the garage. Same shape as the
+// burger run: it owns the route to the driveway and catches the taxi there, and the visit itself is
+// the opening vignette played backwards and then forwards again (`enter` in game/opening.js).
+// Nothing in shot mode, where the vignette is never built.
+//
+// The fare board's clocks are held for the whole visit, from the turn in off the lane to the camera
+// being handed back — the cost of a repair is the drive there, not the cut scene. See
+// `holdFareClocks`.
+const depotRun = garage && !shot
+  ? createDepotRun({
+    site: garage.site,
+    mouth: entryPath(garage.site).mouth,
+    taxi: traffic.taxi,
+    routeTo,
+    onArrive: (s0, handBack) => {
+      if (!opening?.enter(s0, {
+        // Behind the shut door, so nobody sees the damage go.
+        onRepair: () => {
+          traffic.taxi.hp = TAXI_HP;
+          taxiDamage.reset();
+        },
+        // The car is back on the lane, 5.5 units short of a junction: put a job under it before it
+        // gets there. A route the player planned while it was inside stands — `stageCar` never saw
+        // it, and the lane it was planned from is the one the car is released onto.
+        onRelease: () => {
+          if (!traffic.taxi.pendingTarget) resumeJob(handBack);
+          // The bill, as the car comes back out onto the road: the red `−$25` rises off the taxi
+          // and flies to the counter, the burger's charge on a bigger number. Here rather than
+          // behind the door so the player sees what the repair cost on the car it bought. See
+          // REPAIR_PRICE in game/fares.js.
+          const paid = fares.charge(REPAIR_PRICE);
+          if (paid > 0) popEarning(-paid);
+        },
+        onDone: holdFareClocks,
+      })) return false;
+      // `stageCar` has already emptied the route; the target goes with it, so the band comes down
+      // and nothing reads the depot as still being where the taxi is headed.
+      traffic.taxi.pendingTarget = null;
+      holdFareClocks();
+      return true;
+    },
   })
   : null;
 
@@ -500,6 +548,7 @@ const robbery = city.bank && !shot
       // what to return to — the same line the `'pickup'` handler runs, and for the same reason: a
       // detour the player asked for is still their standing instruction.
       if (burgerRun?.active()) burgerRun.send();
+      if (depotRun?.active()) depotRun.send();
       haptic('pick');
     },
   })
@@ -636,6 +685,18 @@ let tutorial = null;
 // in the garage, and the warm-up would drive it straight back out. Null in shot mode and on a
 // city with no depot. See game/opening.js.
 let opening = null;
+// Is the tutorial talking? One of the two things that hold the board's clocks — see holdFareClocks.
+let tutorialTalking = false;
+
+/**
+ * Freeze or free every fare's countdown. Two things hold it and either is enough: the tutorial
+ * while it talks, and a repair visit to the depot. One place decides, so neither can release a
+ * hold the other still wants — a visit landing mid-lesson would otherwise start the clocks the
+ * tutorial had stopped.
+ */
+function holdFareClocks() {
+  fares.setPaused(tutorialTalking || Boolean(opening?.visiting()));
+}
 const releaseCameraToPlayer = () => {
   cameraTakenOver = true;
   // A swipe during the tutorial takes the framing off it too. It keeps talking — the lesson is
@@ -1347,7 +1408,21 @@ function sendForBurger() {
 }
 
 /**
- * The trip is over — put the taxi back on the job it was taken off.
+ * A tap on the depot: in for repairs. Refused on an undamaged car — there is nothing to fix, and a
+ * visit holds every clock on the board, so a free one would be a pause button with a garage on it.
+ * Refused as well while the depot is busy, which covers the run's own opening.
+ */
+function sendForRepairs() {
+  if (!depotRun || !opening || opening.running() || opening.visiting()) return;
+  // Nor while anything else is driving the car — the drive-through, mostly. A route planned under a
+  // staged taxi would be overwritten by the job that trip hands back on the way out.
+  if (traffic.taxi.staged || traffic.taxi.hp >= TAXI_HP) return;
+  if (depotRun.send()) haptic('pick');
+}
+
+/**
+ * The trip is over — put the taxi back on the job it was taken off. A burger run and a repair
+ * visit both end here.
  *
  * The seat outranks whatever was remembered at the tap. A rider who boarded *during* the detour
  * (the fare loop resolves a pickup on proximity, and the joint's block can be a corner away from a
@@ -1359,7 +1434,7 @@ function sendForBurger() {
  * window — so it is matched by *identity* against the boards rather than trusted, and a target that
  * has gone leaves the taxi cruising with an empty route, exactly as a delivery does.
  */
-function resumeAfterBurger(handBack) {
+function resumeJob(handBack) {
   const riding = fares.carrying();
   if (riding) {
     if (routeTo(riding.target)) fares.markDirected(riding, { pop: false });
@@ -1377,12 +1452,16 @@ createPicker(
   camera,
   renderer.domElement,
   () => [traffic.taxiGroup, ...fares.pickables(), ...(parcels?.pickables() ?? []),
-    ...(burger ? [burger.group] : [])],
+    ...(burger ? [burger.group] : []), ...(garage ? [garage.group] : [])],
   (kind, hit) => {
     if (fares.state.gameOver) return;
 
     if (kind === 'burger') {
       sendForBurger();
+      return;
+    }
+    if (kind === 'depot') {
+      sendForRepairs();
       return;
     }
 
@@ -1441,12 +1520,15 @@ pathDrag = createPathDrag({
   // the module that owns the constraint owns the re-plan too. Everything else is the plain one.
   reroute: (via) => (burgerRun?.active()
     ? burgerRun.reroute(via)
-    : routeTo(traffic.taxi.pendingTarget, { via })),
+    : depotRun?.active()
+      ? depotRun.reroute(via)
+      : routeTo(traffic.taxi.pendingTarget, { via })),
   // `pause` is declared further down and only ever read from a pointer handler, which is long
   // after this module has finished evaluating — same as `homeTip` in the tutorial's guards.
   canGrab: () => Boolean(
     !shot && selected && traffic.taxi.pendingTarget
-    && !fares.state.gameOver && !traffic.taxi.crashed && !pause?.state.paused,
+    && !fares.state.gameOver && !traffic.taxi.crashed && !traffic.taxi.staged
+    && !pause?.state.paused,
   ),
 });
 
@@ -1691,7 +1773,8 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // Hold every fare's countdown for as long as the tutorial is talking. It ends on the player's
   // tap, so the clock they are taught with is the full sixty seconds.
   onRunning: (running) => {
-    fares.setPaused(running);
+    tutorialTalking = running;
+    holdFareClocks();
     if (!running) revealHud();
   },
 });
@@ -1815,7 +1898,7 @@ function rollMoneyTo(target, up = true) {
 /**
  * The flying number, off the taxi and onto the counter.
  *
- * Negative is a **charge** — the burger's `BURGER_PRICE`, and so far the only one. It takes the same
+ * Negative is a **charge** — the burger's `BURGER_PRICE` and the depot's `REPAIR_PRICE`. It takes the same
  * flight rather than one of its own, because it is the same claim: this car, here, is what moved the
  * counter. What changes is the sign, the colour (red, `.is-charge`) and nothing else — including the
  * direction, which stays taxi → counter. A charge flown counter → taxi would read as the player
@@ -2065,6 +2148,8 @@ function holdLocoMode() {
   // Nothing to press against: the drive-through has the wheel and the car is between two kerbs.
   // See the release beside `boost.update` in the frame loop.
   if (burgerRun?.holdsTaxi()) return false;
+  // ...and the same in the depot, where the car is a cut scene rather than a car.
+  if (opening?.visiting()) return false;
   // Still called on the press, and still explicit rather than left to the tutorial's window-level
   // tap handler, because the preventDefault in either caller can suppress the click the gesture
   // would otherwise synthesise (on a phone for the pill, on every device for the key, which
@@ -2744,7 +2829,9 @@ function frame() {
   // every frame rather than once on the way in, for the reason the flags below are written every
   // frame: a thumb that never comes back up must not be able to leave the pedal stuck down. The
   // press itself is refused for the same window, in `holdLocoMode`.
-  if (burgerRun?.holdsTaxi()) boost.release();
+  // A repair visit is the same claim for longer: from the turn in off the lane until the camera
+  // is handed back, the taxi is being driven by the vignette.
+  if (burgerRun?.holdsTaxi() || opening?.visiting()) boost.release();
   boost.update(dt);
   // Latched here rather than on the press, because the whole point of it is that it cannot be
   // answered by one — see `locoHeld` where it is declared. Read every frame off the same hold clock
@@ -2757,7 +2844,10 @@ function frame() {
   // that's only true during that tail; traffic.js reads it to ease the speed cap back down instead
   // of holding full boost speed for the whole cooldown window.
   if (!traffic.taxi.crashed) {
-    traffic.taxi.boost = boost.isEngaged();
+    // Never on a staged taxi: the cooldown tail outlasts the turn in off the lane at the depot, and
+    // collisions would otherwise test a car a cut scene is driving over a kerb. `taxi.boost` is what
+    // sim/collisions.js keys the whole check off.
+    traffic.taxi.boost = boost.isEngaged() && !traffic.taxi.staged;
     traffic.taxi.boostEasing = boost.isCoolingDown();
     // Written every frame rather than on the press, so the flag cannot be left stuck on by a
     // pointer that never came back up — a run ending under the player's thumb takes the button off
@@ -2817,6 +2907,9 @@ function frame() {
   // the call above, and this is what puts a route back under it before `traffic.update` asks which
   // way to go at the next junction.
   burgerRun?.update(dt);
+  // ...and the depot's catch at its driveway, on the same timing: it reads where last frame's
+  // `traffic.update` left the taxi, and a car taken here is staged before this frame's render pass.
+  depotRun?.update(dt);
 
   police.update(dt);   // may flip a whole corridor green before traffic reads the signals
   traffic.update(dt);
@@ -2951,6 +3044,8 @@ function frame() {
       // lot, where the route above is the one that will be planned again on the way out anyway.
       // See game/burgerrun.js.
       if (burgerRun?.active()) burgerRun.send();
+      // ...and the same for a taxi on its way in for repairs.
+      if (depotRun?.active()) depotRun.send();
     } else if (type === 'delivered') {
       popEarning(fare.value);
       updateStreak(difficulty.payoutMultiplier(fares.state.delivered));
@@ -3643,6 +3738,9 @@ if (shot) {
       // Off the kerb. The same pool and the same call the boost trail uses, at about half a
       // barricade's power — two wheels coming off a 0.35-unit lip, not a car landing off a ramp.
       onDrop: () => dust.burst(traffic.taxi.x, traffic.taxi.z, traffic.taxi.yaw, 7, 0.5),
+      // The cut between going in for repairs and coming back out: a fade to black once the door
+      // is down, the same one the opening's skip uses.
+      cut: wipe ? (atBlack) => wipe.cut(atBlack) : null,
     });
     // `?vignette=off`, the same escape hatch `?tutorial=off` is: the opening is seven seconds
     // long and nobody iterating on the fare loop wants it on every reload. The module is
@@ -3814,6 +3912,9 @@ window.__taxi = {
    * without having to land a synthesised click on a building.
    */
   burgerRun,
+  /** The trip back to the depot for repairs — `depotRun.send()` is the tap on the garage. */
+  depotRun,
+  sendForRepairs,
   /** The opening rise-out-of-the-ground animation. `cityEntry.replay()` reruns it on demand. */
   cityEntry,
   // Every flock in the city, in build order — `flocks[0]` is the one shot 18 frames.

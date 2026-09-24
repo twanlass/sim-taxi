@@ -85,6 +85,18 @@ export const FARE_PER_BLOCK = 3;
  */
 export const BURGER_PRICE = 10;
 
+/**
+ * What a repair at the depot costs, off the run's cash (see game/depotrun.js).
+ *
+ * The visit holds every clock on the board, so without a price its only cost is the drive there —
+ * and a player at a fifth of their HP with time in hand got a whole car back for fifteen seconds of
+ * driving. $25 is a median fare and change early on, and less than a single fare by the last shift:
+ * a real decision at the start of a run, a routine one at the end. Flat, like the burger, and for
+ * the burger's reason. Taken through `charge`, so an empty till pays what it has rather than
+ * refusing the repair or going into debt.
+ */
+export const REPAIR_PRICE = 25;
+
 /** Blocks between two intersections. */
 export const blockDistance = (a, b) => Math.abs(a.i - b.i) + Math.abs(a.j - b.j);
 

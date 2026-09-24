@@ -1448,6 +1448,9 @@ out. Ramming is the fallback, not the policy.
   overlap between the deepest pair of circles, not the midpoint of the two cars' centres, sprays sparks out
   sideways along the seam, and shakes the camera a fraction of the wreck's amount.
 
+**The depot puts it right.** Tap the garage with a damaged taxi and it drives back in and comes out
+repaired, HP full and every part back on — see [repairs at the depot](gameplay.md#repairs-at-the-depot).
+
 **The car wears its damage, and that is the only health display there is** (`game/taxidamage.js`
 driving `buildDamage` in `geometry/taxi.js`). There was an HP bar in the HUD under the cash total and
 it came out: the point is that the player reads how hurt the car is off the car, without looking

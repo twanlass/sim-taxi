@@ -1910,6 +1910,9 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // Which indicator a staged car is running: 'left', 'right' or null. Ignored for a car in
       // traffic, which reads the hand off the turn it has committed to.
       stageSignal: null,
+      // ...and whether it has its engine off: a staged car parked with this set shows no brake
+      // lights. See the depot visit in game/opening.js.
+      stageLampsOff: false,
       // Frantic reaction to a nearby police siren. Eased toward panicTargetFor() each frame and
       // applied at render as an outward shove, a yaw wobble, and a mild speed dip.
       panic: 0,
@@ -2027,6 +2030,7 @@ export function stageCar(car, x, z, yaw) {
   car.prevSteerYaw = yaw;
   car.kerbLift = 0;
   car.stageSignal = null;
+  car.stageLampsOff = false;
   car.knock = null;
   if (car.stun) { car.stun = 0; car.braking = false; }
 }
@@ -2041,6 +2045,7 @@ export function releaseCar(car, d, i, j, back) {
   car.staged = false;
   car.kerbLift = 0;
   car.stageSignal = null;
+  car.stageLampsOff = false;
   return true;
 }
 
@@ -4586,7 +4591,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // accel settles back to zero. Eased rather than snapped straight to the target — see
       // BRAKE_LIGHT_RISE/FALL — which is what keeps a one-frame gap in `accel` from reading as a
       // flicker: the level doesn't have time to fall before the target is true again.
-      const brakeTarget = accel < -BRAKE_ACCEL || car.v < BRAKE_STOP_V ? 1 : 0;
+      //
+      // Except a staged car whose engine has been switched off. The taxi parked nose-in at the
+      // depot has its tail a few tenths of a unit behind a shut door, and a lit pod that close gets
+      // under the bloom's depth bias (DEPTH_BIAS in game/bloom.js, 0.28 units) and glows through it.
+      const brakeTarget = car.staged && car.stageLampsOff ? 0
+        : accel < -BRAKE_ACCEL || car.v < BRAKE_STOP_V ? 1 : 0;
       car.brakeLevel += (brakeTarget - car.brakeLevel)
         * Math.min(1, dt * (brakeTarget > car.brakeLevel ? BRAKE_LIGHT_RISE : BRAKE_LIGHT_FALL));
 
