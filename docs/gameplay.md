@@ -2568,13 +2568,40 @@ length* to say how much is missing, and either colour a track could be disappear
 city: a pale wash is the value of pale asphalt, a dark one is the value of the road. An outline
 works because it is a contrast rather than a colour.
 
-**The meter never refills on its own.** The run opens with **a third of a tank**, each successful
-drop-off pours in **another third**, a [delivered package](#the-rest-of-it) pours in **a sixth**, and
-a [burger run](#the-burger-run) pours in **15%** — that is the whole list of sources, and the first
-three are jobs done. The fourth is the one you buy: $10 off the counter at the window. Spend it all
-and the pill goes grey and dead (`.is-empty`, `disabled`) until you deliver something, or go and buy
-a burger. A top-up that lands while you're still holding the button rolls straight back into boost
-rather than making you press again.
+**Every drop of it is earned, except the way back out of empty.** The run opens with **a third of a tank**, each
+successful drop-off pours in **another third**, a [delivered package](#the-rest-of-it) pours in **a
+sixth**, and a [burger run](#the-burger-run) pours in **15%** — that is the whole list of sources,
+and the first three are jobs done. The fourth is the one you buy: $10 off the counter at the window.
+A top-up that lands while you're still holding the button rolls straight back into boost rather than
+making you press again.
+
+**An empty tank climbs back to a quarter, so the pill is never dead for good.** Spend it all and
+the pill goes grey and dead (`.is-empty`, `disabled`) — and then the tank starts climbing behind it
+at `BOOST_FLOOR_FRACTION / BOOST_REGEN_SECONDS`, a quarter of a tank over **five seconds**, with the
+button coming alive on the frame it lands. Four things make it a recovery rather than a refill:
+
+- **Only `'empty'` recharges.** Not a partial tank, not a tank being spent, not one frozen inside
+  the `'cooldown'` momentum window. A player who let go with a sliver left keeps the sliver and gets
+  no trickle; the climb answers a dead button, and running the tank out is what asks the question.
+  (Spending that sliver is what runs it out, so the sliver is never a trap — just not a head start.)
+- **It stops at a quarter.** 3.75 seconds of boost, half what a fare pays and a package and a half.
+  Waiting is the worst rate in the game and it caps out immediately; deliveries are still the only
+  way to a full tank, and a tank above zero never moves on its own.
+- **The pill stays dead for the whole five seconds** rather than waking on the first frame with a
+  sixtieth of a second in it and going grey again under the player's thumb. A delivery outranks the
+  climb: a pour lights the button on the frame it starts.
+- **The climb is shown** — on the bar, not on the button. This state was built when the dial still
+  lived on the pill, and `.is-empty` painting a flat grey plate over it is why the first cut was
+  five seconds of nothing: the fuel was moving and nothing drew it. Now that the fill is
+  [up at the top](#crazy-taxi-mode) the bar is already drawing it, and what `.is-charging` adds is
+  the two qualifications the state came with. The fuel goes **muted gold** rather than the live
+  `#F5C130`, because it is not spendable yet and painting it at full strength beside a button that
+  refuses the press is the one combination that reads as broken — the colour arriving *with* the
+  button waking is what the end of the climb is for. And the pour's **flutter comes out**, with the
+  glow down to about a third: that throb is the reward gesture a delivery lands with, and a tank
+  crawling out of empty has earned nothing. Everything else is reuse — `updateBoostButton` feeds the
+  recharge to `game/boostmeter.js` as an ordinary pour, so the climb gets the leading edge, the
+  envelope and the spring at the end for free, and the spring fires on the frame the button wakes.
 
 Both ways out of a boost — letting go, and running the tank dry — pass through the one-second
 `'cooldown'` momentum window first, so `'empty'` is where a drained tank lands *after* that tail
@@ -2589,11 +2616,13 @@ question to answer: taps are frequent here by design, so a jab must be allowed t
 fuel without the view reacting to it.
 
 That is a deliberate replacement for the old economy, which handed back 15% per drop-off but also
-fast-recharged from empty in 15s and trickled a partial tank back up at a fifth of that rate. Under
+fast-recharged from empty in 15s and trickled a *whole* tank back up at a fifth of that rate. Under
 those rules waiting was a valid way to get boost back, so the meter said nothing about how the run
-was going; now every second of it was earned by a fare, and three deliveries is a full tank.
-Opening with a third rather than empty keeps the toy in reach on the first fare — an empty start
-leaves the button dead in the hand until the first drop-off lands.
+was going; now all but the bottom quarter of it was earned by a fare, and three deliveries is a full
+tank. Opening with a third rather than empty keeps the toy in reach on the first fare — an empty
+start leaves the button dead in the hand until the first drop-off lands, which is the same reason
+the recharge exists at all: a run that has spent its tank and is between fares should still have one
+straightaway's worth of Loco Mode within five seconds of asking.
 
 **There is no longer a case where holding it does nothing.** A taxi that had just picked someone up
 used to be `parked` — waiting at the kerb for you to tap a destination — and `parked` sets

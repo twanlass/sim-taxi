@@ -2062,20 +2062,34 @@ const boostMeter = createBoostMeter();
 
 function updateBoostButton(dt) {
   const mode = boost.state.mode;
-  boostMeter.update(dt, boost.fraction(), boost.state.pending > 0);
+  // The recharge out of 'empty' is fed to the meter as a pour, because to the player it is one:
+  // fuel is arriving and the bar is moving. That buys the climb the leading edge and the glow for
+  // free, and — the part worth the reuse — the spring on the end, which fires on the frame the
+  // trickle stops and the button wakes. What it must NOT buy is the 4Hz flutter: that throb is the
+  // *reward* gesture a delivery lands with, and a tank crawling back out of empty is not a reward.
+  // `#loco-bar.is-charging` takes the movement back out and mutes the rest.
+  const charging = boost.isCharging();
+  boostMeter.update(dt, boost.fraction(), boost.state.pending > 0 || charging);
 
-  // The pedal. Two states and no numbers: pressed, and dead until a drop-off pours fuel back in —
-  // nothing refills on its own, so a pressable-looking pill on an empty tank would be a lie.
+  // The pedal. Two states and no numbers: pressed, and dead until there is something worth pressing
+  // for — a drop-off pouring fuel back in, or the trickle finishing its climb to a quarter tank
+  // (game/boost.js). A pressable-looking pill over a tank with a sixtieth of a second in it would
+  // be a lie, so 'empty' covers the whole recharge and the bar climbing above it is what says the
+  // fuel is coming back. The pill itself stays flat grey throughout: it has no fill to dress any
+  // more, which is the whole point of the split.
   if (boostButton) {
     boostButton.classList.toggle('is-active', mode === 'active');
     boostButton.classList.toggle('is-empty', mode === 'empty');
     boostButton.disabled = mode === 'empty';
   }
 
-  // ...and the tank, up under the counters. Everything the meter computes is painted here now: the
-  // level and its overshoot on `--pct`, and the pour's envelope on the other two.
+  // ...and the tank, up under the counters. Everything the meter computes is painted here: the
+  // level and its overshoot on `--pct`, and the pour's envelope on the other two. `is-charging`
+  // is the recharge's own dressing — the same fill, muted and held still, because this fuel is
+  // not spendable yet (see #loco-bar.is-charging).
   if (locoBar) {
     locoBar.classList.toggle('is-active', mode === 'active');
+    locoBar.classList.toggle('is-charging', charging);
     locoBar.classList.toggle('is-filling', boostMeter.state.fill > 0);
     locoBar.style.setProperty('--pct', `${(boostMeter.state.pct * 100).toFixed(1)}%`);
     locoBar.style.setProperty('--fill', boostMeter.state.fill.toFixed(3));

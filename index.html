@@ -247,6 +247,26 @@
         background: linear-gradient(90deg, #FFE873 var(--pct, 100%), rgba(255, 255, 255, 0.3) 0);
         box-shadow: 0 0 0 1.5px rgba(22, 18, 10, 0.55), 0 2px 6px rgba(20, 40, 55, 0.5), 0 0 22px rgba(255, 232, 115, 0.8);
       }
+      /* Climbing back out of empty — the five-second trickle to a quarter tank (game/boost.js),
+         which `updateBoostButton` feeds to the meter as an ordinary pour so the climb gets the
+         leading edge, the glow and the spring on the end for free.
+         Muted gold rather than the live #F5C130, and the reasoning is the one this state arrived
+         with: that fuel is not spendable yet, and painting it at full strength beside a button that
+         refuses the press is the one combination that reads as broken. The colour arriving *with*
+         the button waking is what the end of the climb is for. Two classes plus the id, so it beats
+         the plain fill above whatever the source order. */
+      #loco-bar.is-charging {
+        background: linear-gradient(90deg, #cdb46a var(--pct, 0%), rgba(255, 255, 255, 0.3) 0);
+      }
+      /* ...and the pour's envelope, damped to match. The throb below is the *reward* gesture — it
+         is what a delivery lands with — and a tank crawling back out of empty has earned nothing,
+         so the movement goes and the spill comes down to about a third. `--fill` still rides the
+         climb, so it fades in and out with it. */
+      #loco-bar.is-charging.is-filling {
+        box-shadow: 0 0 0 1.5px rgba(22, 18, 10, 0.55), 0 2px 6px rgba(20, 40, 55, 0.5),
+          0 0 calc(8px + 8px * var(--fill, 0)) rgba(205, 180, 106, calc(0.5 * var(--fill, 0)));
+        transform: none;
+      }
       /* Fuel arriving — the reward animation for a drop-off, and the same envelope the pill used to
          wear: `--fill` is 0..1 for "a top-up is pouring" and `--pulse` is the throb inside it, both
          from game/boostmeter.js. The flutter is translated from a scale to a *thickness*, because
@@ -758,19 +778,21 @@
         background: #FFE873;
         box-shadow: 0 0 30px rgba(255, 232, 115, 0.85);
       }
-      /* Empty tank. Nothing refills on its own, so this greyed-out state persists until the next
-         drop-off tops it up — it reads as "go earn it", not "wait for it". Grey rather than a dimmed
-         yellow, and the black outline drops out too: every other state of this pill reads as "press
-         me", so disabled has to read unambiguously as the opposite rather than as a tired version of
-         the same button. */
+      /* Empty tank, and the five seconds it spends climbing back to a quarter (game/boost.js).
+         Grey rather than a dimmed yellow, and the black outline drops out too: every other state of
+         this pill reads as "press me", so disabled has to read unambiguously as the opposite rather
+         than as a tired version of the same button. It looks the same for the whole recharge — the
+         pill has no fill of its own to dress any more, and what says the fuel is coming back is the
+         bar climbing at the top of the screen (#loco-bar.is-charging). */
       #boost.is-empty {
         cursor: default; color: #6b6f73; border-color: transparent;
         background: #b9c0c4;
       }
       /* Where the pour went. The overshoot, the flutter and the leading edge a top-up lands with
          all used to be painted on this pill, along with the fill they were animating; they moved to
-         #loco-bar with it. Nothing about a drop-off shows on the button any more — the reward is a
-         fact about the tank, and the tank is up at the top of the screen.
+         #loco-bar with it, and so has the recharge's own dressing (see #loco-bar.is-charging).
+         Nothing about a drop-off shows on the button any more — the reward is a fact about the
+         tank, and the tank is up at the top of the screen.
          The sparks a delivery throws (game/energybits.js) fly to the bar too, and to the *front of
          its fill* rather than its middle: see `locoBarScreenPos` in main.js. */
       /* Last of the #boost rules on purpose: the press dip is the one piece of feedback that has to
