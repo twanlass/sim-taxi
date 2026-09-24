@@ -12135,8 +12135,14 @@ let chopperOrder; // likewise
     check('...turns in off it with no kink, onto the driveway heading into the bay',
       Math.abs(t0.x) < 1e-9 && Math.abs(t0.z - 1) < 1e-9
       && Math.hypot(a.x - b.x, a.z - b.z) < 1e-3 && Math.abs(tEnd.x + 1) < 1e-9);
-    check('...and parks on the very spot the opening drives out of',
-      Math.hypot(last.x - parked.x, last.z - parked.z) < 1e-9);
+    // Nose-in at the back of the bay, with the tail lamps well clear of the door. Within the bloom's
+    // depth bias of the curtain (0.28, DEPTH_BIAS in game/bloom.js) a lit pod glows through it,
+    // which is how the first cut — parked on the opening's own spot, tail 0.25 behind the door —
+    // was reported.
+    const tailGap = site.curtainX - (last.x + TAXI_TAILPIPE_BACK);
+    check('...and parks nose-in at the back of the bay, its tail well behind the door',
+      last.x - TAXI_TAILPIPE_BACK > site.bayX + 0.2 && tailGap > 0.5 && Math.abs(last.z - parked.z) < 1e-9,
+      `nose ${(last.x - TAXI_TAILPIPE_BACK - site.bayX).toFixed(2)} off the back wall, tail ${tailGap.toFixed(2)} behind the curtain`);
   }
 
   // And a whole visit, end to end, in a live city: the taxi is sent from a handful of jobs, driven
@@ -12150,9 +12156,13 @@ let chopperOrder; // likewise
     const controller = createCityCamera(1.6, { zoom: PLAY_ZOOM });
     let door = 0;
     const setDoor = (k) => { door = k; garage.setDoor(k); };
+    let blackIn = null;
     const opening = createOpening({
       site, setDoor, taxi, taxiGroup: vTraffic.taxiGroup, cars: vTraffic.cars, controller,
       aspect: () => 1.6, playZoom: PLAY_ZOOM, restFraming: () => ({ x: 0, z: 0 }),
+      // A stand-in for game/wipe.js: black a quarter of a second after it is asked for, the way
+      // the real one lands on a wall-clock timer rather than inside the frame that asked.
+      cut: (atBlack) => { blackIn = { atBlack, frames: 15 }; return true; },
     });
     opening.settle();
 
@@ -12195,6 +12205,7 @@ let chopperOrder; // likewise
 
     const S = 1 / 60;
     const tick = () => {
+      if (blackIn && --blackIn.frames <= 0) { blackIn.atBlack(); blackIn = null; }
       depot.update(S);
       opening.update(S);
       opening.frameCamera(S);
@@ -12212,6 +12223,7 @@ let chopperOrder; // likewise
     let wrongJob = 0;
     let longestVisit = 0;
     let longestDrive = 0;
+    let brakeAtShut = 0;
     const phasesSeen = new Set();
     for (const job of jobs) {
       routeTo(job);
@@ -12228,6 +12240,7 @@ let chopperOrder; // likewise
       let t = 0;
       while (opening.visiting() && t < 30) {
         phasesSeen.add(opening.phase());
+        if (opening.phase() === 'black') brakeAtShut = Math.max(brakeAtShut, taxi.brakeLevel);
         tick();
         t += S;
       }
@@ -12243,8 +12256,12 @@ let chopperOrder; // likewise
       trips === jobs.length && caught === trips,
       `${caught}/${trips} caught at the mouth, slowest drive ${longestDrive.toFixed(1)}s`);
     check('...plays the vignette backwards and then forwards',
-      ['enter', 'shut', 'repair', 'door', 'reveal', 'roll', 'release'].every((p) => phasesSeen.has(p)),
+      ['enter', 'shut', 'black', 'repair', 'door', 'reveal', 'roll', 'release'].every((p) => phasesSeen.has(p)),
       [...phasesSeen].join(' → '));
+    // Engine off once it is parked: the tail lamps face the door, and a lit one that close glows
+    // through it (the depth bias note on the park check above).
+    check('...with its brake lamps dark by the time the door is down',
+      brakeAtShut < 0.05, `brake level ${brakeAtShut.toFixed(3)} under a shut door`);
     check('...repairs it once per visit, behind a shut door',
       repairs === caught && repairedOpen === 0 && taxi.hp === TAXI_HP,
       `${repairs} repairs over ${caught} visits, ${repairedOpen} with the door up`);

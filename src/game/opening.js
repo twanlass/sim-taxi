@@ -126,6 +126,10 @@ const RISE_PITCH = 0.6;
 // geometry/taxi.js for the exhaust. The clearance on top of it covers the curtain's own 0.08.
 const NOSE_BEHIND = 0.25;
 const parkedX = (site) => site.curtainX - TAXI_TAILPIPE_BACK - NOSE_BEHIND;
+// ...and where it parks nose-in on a repair visit: the same clearance off the *back* wall, which
+// puts the tail 0.64 behind the curtain rather than 0.25. Every tenth of a unit counts there — the
+// tail lamps face the door, and the bloom lets a lamp within 0.28 of a surface glow through it.
+const parkedInX = (site) => site.bayX + TAXI_TAILPIPE_BACK + NOSE_BEHIND;
 
 // --- The way back in (see `enter`) --------------------------------------------
 
@@ -148,8 +152,9 @@ const MOUNT_SETTLE = 0.4;
 // The door coming back down behind the car. Quicker than DOOR_CLOSE_TIME on the way out: there it
 // is scenery behind a camera that has moved on, and here it is the beat the camera is waiting on.
 const DOOR_SHUT = 0.9;
-// Held on the shut door while the car is put right behind it. Only long enough to be a pause
-// between the door landing and going back up — the repair is what the door coming down *means*.
+// Held on the shut door after the repair, counted from the fade to black starting to lift — so it
+// has to outlast the wipe's own fade in (IN_MS in game/wipe.js, 0.3s) or the door starts going up
+// while the screen is still coming back. Without a wipe it is the whole beat on the shut door.
 const REPAIR = 0.45;
 
 const smoothstep = (k) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k));
@@ -186,15 +191,15 @@ export function exitPath(site) {
  *
  * The exit's fillet mirrored about the driveway — same radius, same tangency argument — so it
  * leaves the near lane `turnR` short of the driveway heading +Z and arrives on it heading −X. It
- * ends on the very point the exit path starts from, facing the other way: the taxi is parked
- * nose-in, and turned round behind the shut door (see the header note).
+ * parks nose-in at the back of the bay (`parkedInX`), and the car is put on the exit's start pose
+ * behind the shut door (see the header note).
  *
  * `mouth` is where the car leaves the lane, which is where game/depotrun.js catches it.
  */
 export function entryPath(site) {
   const { exitZ, kerbX, turnR } = site;
   const fillet = arcCurve({ x: kerbX, z: exitZ - turnR }, turnR, 0, Math.PI / 2);
-  const run = lineCurve({ x: kerbX, z: exitZ }, { x: parkedX(site), z: exitZ });
+  const run = lineCurve({ x: kerbX, z: exitZ }, { x: parkedInX(site), z: exitZ });
   return {
     fillet,
     run,
@@ -221,12 +226,15 @@ export function entryPath(site) {
  *                    main.js owns that decision, not this module.
  * @param isBlocked   () => boolean — something in front of this is still holding the run
  * @param onDrop      fires once, on the frame the taxi's rear axle comes off the kerb
+ * @param cut         (atBlack) => boolean — game/wipe.js's `cut`, or null. A repair visit fades to
+ *                    black once the door is down and runs the repair under it; false (a wipe
+ *                    already running) or no wipe at all and the repair just happens.
  *
  * The returned `enter()` replays the whole thing for a repair — see the header note.
  */
 export function createOpening({
   site, setDoor, taxi, taxiGroup, cars, controller, aspect, playZoom,
-  restFraming, isBlocked = () => false, onDrop = () => {},
+  restFraming, isBlocked = () => false, onDrop = () => {}, cut = null,
 }) {
   const path = exitPath(site);
   const merge = path.at(path.total);
@@ -240,7 +248,7 @@ export function createOpening({
   // 'enter' → 'shut' → 'repair' and then the opening's own phases from 'door' on.
   let mode = 'opening';
   // 'wait' | 'approach' | 'settle' | 'door' | 'reveal' | 'roll' | 'release' | 'done', plus the
-  // visit's 'enter' | 'shut' | 'repair'
+  // visit's 'enter' | 'shut' | 'black' | 'repair'
   let phase = 'wait';
   let clock = 0;
   let held = 0;               // seconds spent waiting for a gap at the kerb
@@ -338,7 +346,11 @@ export function createOpening({
       climbed = true;
       taxi.pitchV -= MOUNT_SETTLE;      // rear follows it up, and the nose comes back down
     }
-    return sIn >= inPath.total - 1e-6 && taxi.v < 0.05;
+    const parkedIn = sIn >= inPath.total - 1e-6 && taxi.v < 0.05;
+    // Engine off. The brake lamps would otherwise stay lit at a standstill, and they are facing a
+    // door that is about to come down a few tenths of a unit in front of them.
+    if (parkedIn) taxi.stageLampsOff = true;
+    return parkedIn;
   }
 
   /**
@@ -362,6 +374,9 @@ export function createOpening({
     taxi.pitchV = 0;
     taxi.kerbLift = PAVEMENT_Y;
     taxi.stageSignal = null;
+    // Facing out again, with the tail at the back of the bay: the opening runs from here exactly
+    // as it did at the top of the run, brake lamps and all.
+    taxi.stageLampsOff = false;
     visit.onRepair();
   }
 
@@ -450,7 +465,20 @@ export function createOpening({
     if (phase === 'shut') {
       const k = Math.min(1, clock / DOOR_SHUT);
       setDoor(1 - k);
-      if (k >= 1) { phase = 'repair'; clock = 0; repair(); }
+      if (k >= 1) {
+        // Down to black, and the repair happens under it — the fade is the cut between going in
+        // and coming out. `REPAIR` then counts from the black *lifting*, so the door does not
+        // start up until the screen is back. Without a wipe it is simply a beat on the shut door.
+        phase = 'black';
+        clock = 0;
+        const atBlack = () => {
+          if (phase !== 'black') return;
+          repair();
+          phase = 'repair';
+          clock = 0;
+        };
+        if (!cut?.(atBlack)) atBlack();
+      }
     }
     if (phase === 'repair' && clock >= REPAIR) { phase = 'door'; clock = 0; }
     if (phase === 'door') {

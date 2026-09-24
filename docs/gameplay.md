@@ -2836,8 +2836,9 @@ and the door comes down behind it — and from behind the shut door the opening 
 | Phase | What happens | Length |
 |---|---|---|
 | `enter` | Off the lane round the mirrored fillet and up the kerb, the door winding up on the opening's own ease from the frame the car turns in. The camera eases onto the door at `DOOR_ZOOM` | ~2.5s |
-| `shut` | The door comes down behind the car | 0.9s |
-| `repair` | A beat on the shut door. The car is fixed and turned round at the start of it | 0.45s |
+| `shut` | The door comes down behind the car, its brake lamps going dark as it does | 0.9s |
+| `black` | A fade to black (`game/wipe.js`, the opening skip's cut). The car is fixed and turned round under it | ~0.25s |
+| `repair` | The black lifts on the shut door, and a beat before it goes back up | 0.45s |
 | `door` … `release` | The opening, unchanged | ~6s |
 
 Measured end to end in `tools/probe.mjs`: **10s** from the turn-in to the camera handed back.

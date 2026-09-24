@@ -3721,6 +3721,9 @@ if (shot) {
       // Off the kerb. The same pool and the same call the boost trail uses, at about half a
       // barricade's power — two wheels coming off a 0.35-unit lip, not a car landing off a ramp.
       onDrop: () => dust.burst(traffic.taxi.x, traffic.taxi.z, traffic.taxi.yaw, 7, 0.5),
+      // The cut between going in for repairs and coming back out: a fade to black once the door
+      // is down, the same one the opening's skip uses.
+      cut: wipe ? (atBlack) => wipe.cut(atBlack) : null,
     });
     // `?vignette=off`, the same escape hatch `?tutorial=off` is: the opening is seven seconds
     // long and nobody iterating on the fare loop wants it on every reload. The module is
