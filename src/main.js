@@ -397,6 +397,11 @@ const traffic = createTraffic(
   pinnedCars ?? difficulty.carCount(Infinity),
   TRUCK_CHANCE,
 );
+// Experiment: the stop bars are the only thing on screen that shows a signal, so hiding them
+// leaves the traffic model obeying lights the player cannot see. Hidden by default while we look
+// at the city without them; `?stopbars=on` brings them back for an A/B. `visible` rather than
+// removing the mesh: the per-frame colour writes keep running and nothing else has to know.
+traffic.barMesh.visible = new URLSearchParams(window.location.search).get('stopbars') === 'on';
 // `reserved` is how the fare loop learns about the courier's corners without importing it. `parcels`
 // is declared just below and this closure is only ever *called* from the frame loop, long after — the
 // same forward reference `pathDrag`'s `canGrab` makes to `pause`.
