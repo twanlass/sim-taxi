@@ -18,7 +18,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, SPEED, ROAD_Y,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
 } from './sim/traffic.js';
-import { createCollisions } from './sim/collisions.js';
+import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import {
   createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE,
@@ -30,6 +30,8 @@ import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
+import { createImpact } from './game/impact.js';
+import { createTaxiDamage } from './game/taxidamage.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
@@ -878,7 +880,8 @@ roadwork.onPlaced(({ ends }) => { fares.aimNextDropoff(ends); });
 const carGhosts = createCarGhosts(scene, traffic);
 
 // Collision detection between the taxi and ambient cars. Only fires while boosting — see
-// src/sim/collisions.js. On impact *both* cars are wrecked: each detonates where it stands and
+// src/sim/collisions.js. Every hit but the one that empties the taxi's HP is a bump (`onBump`,
+// below the handler); on the last one *both* cars are wrecked: each detonates where it stands and
 // each shell slides out of the blast, crumples and is left lying in the road, the camera shakes and
 // pulls into a close-up, the sim drops into slow-mo, boost is released, and the fare system flips
 // into game-over — but the run-end banner is held for CRASH_BANNER_DELAY (wallclock, so the delay
@@ -971,6 +974,43 @@ const SHELL_SPIN = 0.6;
 const STRUCK_SPIN = 1.9;
 
 const collisions = createCollisions(traffic.cars, traffic.taxi);
+
+// Hit points. Arming `hp` is what turns every contact but the last into a bump rather than the
+// wreck — see TAXI_HP in sim/collisions.js. A retry reloads the page, so this is also the refill.
+traffic.taxi.hp = TAXI_HP;
+const impact = createImpact(scene, camera);
+// What the car wears for it — a crushed corner and a crooked sign, then a boot lid up and a bumper
+// dragging sparks, then smoke, a sputtering sign and a list. Tiered off the HP bar's own steps; see
+// game/taxidamage.js.
+const taxiDamage = createTaxiDamage({
+  damage: traffic.taxiDamage, group: traffic.taxiGroup, taxi: traffic.taxi, maxHp: TAXI_HP,
+  sparks, dust, roadY: ROAD_Y,
+});
+
+// A survivable hit: the struck car is launched or spun off its line (sim/collisions.js `bump`),
+// the taxi loses most of its speed, and here is the noise — a comic starburst on the contact
+// point (game/impact.js), a shake a fraction of the wreck's, sparks sprayed out along the contact
+// normal and a small puff. Sized off the closing speed so a nudge and a T-bone are told apart
+// without the bar.
+const BUMP_SHAKE = 0.35;
+const BUMP_SHAKE_PER_UNIT = 0.03;
+collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd }) => {
+  const yaw = traffic.taxi.yaw;
+  controller.kickShake(BUMP_SHAKE + closing * BUMP_SHAKE_PER_UNIT);
+  // At the point of contact (`cx/cz` off the deepest pair of circles in sim/collisions.js), not
+  // the midpoint of the two cars' centres — on a T-bone that midpoint sits inside the struck car,
+  // a unit and a half from the door the sparks should be coming off.
+  impact.fire(x, z, closing);
+  // Two sprays fanning out either side of the contact normal, so the sparks come off the seam
+  // sideways rather than trailing behind the taxi like a landing's.
+  const normalYaw = Math.atan2(-nz, nx);
+  const count = 8 + Math.round(closing * 0.5);
+  sparks.burst(x, ROAD_Y + 0.6, z, normalYaw + Math.PI / 2, count, speed * 0.5);
+  sparks.burst(x, ROAD_Y + 0.6, z, normalYaw - Math.PI / 2, count, speed * 0.5);
+  dust.burst(x, z, yaw, 8, 0.5, { tint: PALETTE.wreckSmoke, linger: 0.7 });
+  taxiDamage.hit(x, z, { rearEnd });
+});
+
 collisions.onImpact(({ x, z, speed, other }) => {
   // One detonation per car — a shockwave ring on the tarmac, a fireball and a scatter of shards,
   // all of it inside game/blast.js. It used to be four effects stacked at each point plus a third
@@ -2816,7 +2856,10 @@ function frame() {
   // what the two wreck shells are copied out of. A detected impact takes both cars out of the
   // sim from this frame on; the loops in traffic.js already skip a crashed car, so no further
   // plumbing is needed here.
-  collisions.update();
+  collisions.update(dt);
+  impact.update(dt);
+  // After traffic has written the taxi's transform: the lean and the rattle ride on top of it.
+  taxiDamage.update(dt);
   checkPoliceBust();
   // Last of the three, and both halves of that matter. It copies the matrices traffic composed
   // *this* frame, so running it any earlier would slide every outline off its own car by a couple
@@ -3300,6 +3343,8 @@ if (shot) {
     traffic.update(1 / 60);
     traffic.taxi.staged = false;
     traffic.taxi.boost = true;
+    // One hit from the end, so the staged contact is the wreck rather than a bump.
+    traffic.taxi.hp = 1;
     for (let guard = 0; guard < 90 && !traffic.taxi.crashed; guard++) {
       collisions.update();
       traffic.update(1 / 60);
@@ -3722,6 +3767,10 @@ window.__taxi = {
   traffic,
   daylight,
   boost,
+  // The bump's starburst, so a check can fire one where it can see it — see game/impact.js.
+  impact,
+  // And the tiers of damage the car wears, so a check can stage one — see game/taxidamage.js.
+  taxiDamage,
   /**
    * Loco Mode's speed ramp — `get`, `set`, `reset`, `ramp`, `defaults`. The ⚙️ panel's sliders
    * drive the same handle, so this is where you go for a value past the end of one of them.

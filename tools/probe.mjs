@@ -38,7 +38,8 @@ import { createDust } from '../src/game/dust.js';
 import { createSparks } from '../src/game/sparks.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
 import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, laneCost } from '../src/game/route.js';
-import { createCollisions } from '../src/sim/collisions.js';
+import { createCollisions, TAXI_HP, bumpDamage } from '../src/sim/collisions.js';
+import { createTaxiDamage } from '../src/game/taxidamage.js';
 import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET, CHASE_SPEED } from '../src/sim/police.js';
 import { sirenOn } from '../src/geometry/lights.js';
 import {
@@ -5808,6 +5809,265 @@ check('the taxi is an ordinary car in the traffic array',
   check('no collisions fire while the taxi is not boosting', quietHits === 0,
     `${quietHits} impacts over 30s`);
 }
+
+// --- Hit points: a bump is not a wreck ------------------------------------
+// With `taxi.hp` armed (main.js does), every contact but the last is survivable. What can go
+// quietly wrong: the bump wrecks anyway, the struck car is left stunned forever or never stops, its
+// shove is never eased back out so it drives on a unit off its lane, the taxi takes the same hit
+// every frame while the two still overlap, or running out of HP fails to hand over to the wreck.
+{
+  const hScene = new THREE.Scene();
+  const hTraffic = createTraffic(makeRng(seed + 45), hScene, CARS_DEFAULT);
+  const hTaxi = hTraffic.taxi;
+  const hCollisions = createCollisions(hTraffic.cars, hTaxi);
+  const bumps = [];
+  let wrecks = 0;
+  hCollisions.onBump((event) => bumps.push(event));
+  hCollisions.onImpact(() => { wrecks += 1; });
+  hTaxi.hp = TAXI_HP;
+  hTraffic.warmup(3);
+
+  const target = hTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive' && c.v > 1);
+  hTaxi.staged = true;
+  // Square into its door: the taxi's nose on the car's centre, coming in at right angles.
+  hTaxi.yaw = target.yaw + Math.PI / 2;
+  hTaxi.x = target.x - Math.cos(hTaxi.yaw) * 1.6;
+  hTaxi.z = target.z + Math.sin(hTaxi.yaw) * 1.6;
+  hTaxi.v = 19;
+  hTaxi.boost = true;
+  hCollisions.update(1 / 60);
+  // Hold the pair on top of each other for a while: the grace has to stop this being many hits.
+  for (let f = 0; f < 20; f++) { hTraffic.update(1 / 60); hCollisions.update(1 / 60); }
+  hTaxi.staged = false;
+
+  const first = bumps[0];
+  check('a boosting contact with HP to spare is a bump, not a wreck',
+    bumps.length === 1 && wrecks === 0 && !hTaxi.crashed && !target.crashed,
+    `${bumps.length} bumps, ${wrecks} wrecks`);
+  check('the bump costs HP priced off the closing speed',
+    first && first.damage === bumpDamage(first.closing) && hTaxi.hp === TAXI_HP - first.damage
+      && first.damage > 12,
+    first && `closing ${first.closing.toFixed(1)} → ${first.damage} HP, ${hTaxi.hp} left`);
+  // The effects fire where the bodies touch: on this T-bone that is the taxi's nose against the
+  // car's door, well away from the midpoint of the two centres, which sits inside the struck car.
+  const noseX = hTaxi.x + Math.cos(hTaxi.yaw) * 1.6;
+  const noseZ = hTaxi.z - Math.sin(hTaxi.yaw) * 1.6;
+  const offNose = first ? Math.hypot(first.x - noseX, first.z - noseZ) : Infinity;
+  check('a bump reports the point of contact, not the midpoint of the two cars',
+    offNose < 0.8, `${offNose.toFixed(2)} units from the taxi's nose`);
+  check('the taxi loses most of its speed to it', first && hTaxi.v < first.speed * 0.5,
+    first && `${first.speed.toFixed(1)} → ${hTaxi.v.toFixed(1)}`);
+  check('a car struck in the side is shoved and stunned',
+    Boolean(target.knock) && target.stun > 0 && target.braking,
+    `knock ${Boolean(target.knock)}, stun ${target.stun.toFixed(2)}`);
+
+  // And it gathers itself: back on its lane, off the brakes, driving again.
+  // Six seconds, because the recovery is driven rather than timed: the car sits askew through its
+  // 1.4s stun, pulls away, and steers back in over the road it covers — on this staging about 20
+  // units, with a heading swing either side of straight on the way.
+  let steered = 0;
+  for (let f = 0; f < 60 * 6; f++) {
+    hTraffic.update(1 / 60);
+    if (target.knock) steered = Math.max(steered, Math.abs(target.wheelAngle));
+  }
+  const onLane = target.state === 'drive' ? target.lane.path.at(target.s) : null;
+  const drift = onLane ? Math.hypot(target.x - onLane.x, target.z - onLane.z) : 0;
+  check('the struck car recovers onto its lane and drives on',
+    !target.knock && target.stun === 0 && !target.braking && drift < 1.5,
+    `knock ${Boolean(target.knock)}, stun ${target.stun}, ${drift.toFixed(2)} off the lane`);
+  // And it steers there: the front wheels take real lock during the recovery, which they cannot if
+  // the car is being translated back into place.
+  check('it steers back into the lane rather than sliding into it', steered > 0.3,
+    `${(steered * 180 / Math.PI).toFixed(0)}° of lock at most`);
+
+  // Out of HP, the next contact is the wreck through the old path.
+  hTaxi.hp = 1;
+  const next = hTraffic.cars.find((c) => !c.isTaxi && !c.knock && !c.crashed);
+  hTaxi.staged = true;
+  hTaxi.x = next.x;
+  hTaxi.z = next.z;
+  hTaxi.v = 19;
+  hTaxi.boost = true;
+  for (let f = 0; f < 60 && !hTaxi.crashed; f++) hCollisions.update(1 / 60);
+  check('the hit that empties the bar is the wreck', hTaxi.crashed && next.crashed && wrecks === 1
+    && hTaxi.hp === 0, `crashed ${hTaxi.crashed}, ${wrecks} wrecks, hp ${hTaxi.hp}`);
+}
+
+// --- The taxi wearing its damage -------------------------------------------
+// Steps down the car's HP (game/taxidamage.js over buildDamage in geometry/taxi.js). The silent
+// failures: a loose lamp that leaves its pods behind at the socket, so it hangs dark while the
+// indicator blinks in mid-air where the lamp used to be; a boot lid
+// that is open but does not move, which is what the first cut's ±0.2 rad wobble read as; a bumper
+// whose "dragging" end is in the air or under the road; the lean piling up frame on frame; and a
+// reset that leaves any of it behind.
+{
+  const dScene = new THREE.Scene();
+  const dTraffic = createTraffic(makeRng(seed + 46), dScene, CARS_DEFAULT);
+  const dTaxi = dTraffic.taxi;
+  const group = dTraffic.taxiGroup;
+  const bursts = [];
+  const smokes = [];
+  const damageRng = makeRng(seed + 47);
+  const dDamage = createTaxiDamage({
+    damage: dTraffic.taxiDamage, group, taxi: dTaxi, maxHp: TAXI_HP, roadY: ROAD_Y,
+    sparks: { burst: (...a) => bursts.push(a) }, dust: { add: (...a) => smokes.push(a) },
+    // Seeded rather than Math.random, so the check sees the same kicks every run. Not a hand-rolled
+    // LCG: the first one here fell into a short cycle that fed the lid the same few kicks forever.
+    rng: () => damageRng.next(),
+  });
+  dTraffic.warmup(2);
+  dTaxi.hp = TAXI_HP;
+  check('an undamaged taxi wears nothing', dDamage.tier() === 0);
+
+  // In the car's frame as it stands *now* — it keeps driving between hits, so a heading read once at
+  // the top would aim every later hit at the wrong corner.
+  const hitAt = (a, b, opts) => {
+    const f = { x: Math.cos(dTaxi.yaw), z: -Math.sin(dTaxi.yaw) };
+    const r = { x: Math.sin(dTaxi.yaw), z: Math.cos(dTaxi.yaw) };
+    dDamage.hit(dTaxi.x + f.x * a + r.x * b, dTaxi.z + f.z * a + r.z * b, opts);
+  };
+  dTaxi.hp = 80;
+  hitAt(1.5, 0.7);
+
+  // The lamp at the struck corner — the front right — is out of its socket, and the pods that live
+  // there ride it: they still light and blink, from down on the wire. The other three corners have
+  // not moved. Pods are the meshes wearing the brake or indicator material; their corner is the
+  // sign of where they sit.
+  const pods = group.children.filter((c) => c.isMesh && c.material.emissiveIntensity > 1);
+  const homes = new Map(pods.map((pod) => [pod, pod.position.clone()]));
+  for (let n = 0; n < 30; n++) { dTraffic.update(1 / 60); dTaxi.v = 10; dDamage.update(1 / 60); }
+  const frontRight = pods.filter((pod) => homes.get(pod).x > 0 && homes.get(pod).z > 0);
+  const others = pods.filter((pod) => !frontRight.includes(pod));
+  const hung = frontRight.every((pod) => pod.position.y < homes.get(pod).y - 0.2);
+  const stayed = others.every((pod) => pod.position.distanceTo(homes.get(pod)) === 0);
+  check('the first hit shakes the struck corner\'s lamp loose, and only that one',
+    dDamage.tier() === 1 && frontRight.length === 1 && hung && stayed
+    && dDamage.lampAngle(1, 1) !== null && dDamage.lampAngle(-1, -1) === null,
+    `${frontRight.length} pod at the front right, hanging ${hung}, others untouched ${stayed}`);
+  const lampSwing = [];
+  for (let n = 0; n < 90; n++) {
+    dTraffic.update(1 / 60); dTaxi.v = n < 45 ? 4 : 14; dDamage.update(1 / 60);
+    lampSwing.push(dDamage.lampAngle(1, 1));
+  }
+  const lampRange = Math.max(...lampSwing) - Math.min(...lampSwing);
+  // Freely out, and only a little way back in before the bumper stops it — never through the body.
+  check('and it swings on its wire, out from the car but not back through it',
+    lampRange > 0.3 && Math.min(...lampSwing) >= -0.35 - 1e-9,
+    `swung through ${lampRange.toFixed(2)} rad, ${Math.min(...lampSwing).toFixed(2)} at its furthest in`);
+
+  check('a hit that is not a rear-end leaves the bonnet shut', dDamage.hoodAngle() === null);
+
+  // Rear-ending a car pops the bonnet, whatever tier the bar is in, and it flaps from then on.
+  hitAt(1.7, 0, { rearEnd: true });
+  const hoods = [];
+  for (let n = 0; n < 90; n++) {
+    dTraffic.update(1 / 60);
+    dTaxi.v = 10;
+    dDamage.update(1 / 60);
+    hoods.push(dDamage.hoodAngle());
+  }
+  const hoodSwing = Math.max(...hoods) - Math.min(...hoods.slice(30));
+  check('rear-ending a car pops the bonnet, and it flaps like the boot',
+    dDamage.tier() === 1 && Math.max(...hoods.slice(0, 20)) > 0.6 && hoodSwing > 0.4,
+    `up to ${Math.max(...hoods).toFixed(2)} rad, swinging ${hoodSwing.toFixed(2)} once settled`);
+
+  // Amber: the boot and the bumper, sparking while the car moves.
+  dTaxi.hp = 60;
+  dTaxi.hopFrom = null;
+  const boots = [];
+  let slams = 0;
+  const drive = (frames, speed) => {
+    for (let n = 0; n < frames; n++) {
+      dTraffic.update(1 / 60);
+      dTaxi.v = typeof speed === 'function' ? speed(n) : speed;
+      dDamage.update(1 / 60);
+      const a = dDamage.bootAngle();
+      if (boots.length && boots.at(-1) > 0 && a === 0) slams += 1;
+      boots.push(a);
+    }
+  };
+  drive(120, 10);
+  const swing = Math.max(...boots) - Math.min(...boots);
+  check('at amber the bumper hangs off and drags sparks',
+    dDamage.tier() === 2 && bursts.length > 5 && smokes.length === 0,
+    `${bursts.length} spark bursts, ${smokes.length} puffs`);
+  check('and the boot lid flaps with the road rather than sitting open',
+    swing > 0.6, `lid swung through ${swing.toFixed(2)} rad in two seconds at speed`);
+  const slamsBefore = slams;
+  const mark = boots.length;
+  hitAt(-1.5, -0.7);
+  drive(40, 10);
+  // Bounced back up: the highest the lid gets after the slam, not wherever one frame catches it.
+  const firstSlam = boots.findIndex((a, n) => n > mark && a === 0);
+  const rebound = firstSlam < 0 ? 0 : Math.max(...boots.slice(firstSlam));
+  check('a hit slams the lid shut and it bounces back up', slams > slamsBefore && rebound > 0.3,
+    `${slams - slamsBefore} slams, back up to ${rebound.toFixed(2)} rad`);
+
+  // Its end on the road: measured in the car's own frame, where the road is y = 0 — in world space
+  // the car may be pitched over an arch or bouncing on its suspension, which is not the bumper's
+  // doing. Put down with no bounce, it has to land on the floor to the centimetre.
+  // And it hangs at the corner that took the hits. Two of the three so far were the front right
+  // (hitAt(1.5, 0.7) before amber, and one more below), so the dragging end is there: nose-side in
+  // the car's frame and to its right.
+  hitAt(1.5, 0.7);
+  drive(1, 10);
+  group.updateMatrixWorld(true);
+  const dragAt = group.worldToLocal(dTraffic.taxiDamage.bumperTip(new THREE.Vector3()));
+  check('the bumper drags at the corner that took the hits', dragAt.x > 1 && dragAt.z > 0.3,
+    `free end at (${dragAt.x.toFixed(2)}, ${dragAt.z.toFixed(2)}) in the car's frame`);
+  dTraffic.taxiDamage.setBumper(1, -1, 0);
+  group.updateMatrixWorld(true);
+  const tipLocal = group.worldToLocal(dTraffic.taxiDamage.bumperTip(new THREE.Vector3()));
+  check('the bumper\'s free end is down on the road', Math.abs(tipLocal.y) < 0.02,
+    `tip ${tipLocal.y.toFixed(3)} off the car's floor`);
+
+  // Red: smoke, and a list that does not pile up. Just above the critical line first, so the
+  // plume's own check below can tell the two apart.
+  dTaxi.hp = 30;
+  // What the damage layer *adds* each frame, since the car underneath is still driving and rolls
+  // through its own corners. With the speed it reads at zero there is no rattle, so the added roll
+  // has to be the list and nothing else — the same every frame, which is also what shows it is not
+  // piling up on top of the last frame's.
+  const added = [];
+  for (let n = 0; n < 120; n++) {
+    dTraffic.update(1 / 60);
+    dTaxi.v = 0;
+    const before = group.rotation.x;
+    dDamage.update(1 / 60);
+    added.push(group.rotation.x - before);
+  }
+  const spread = Math.max(...added) - Math.min(...added);
+  check('at red it smokes and lists, and the list holds rather than piling up',
+    dDamage.tier() === 3 && smokes.length > 3 && Math.abs(added.at(-1)) > 0.04 && spread < 1e-9,
+    `${smokes.length} puffs, list ${added.at(-1).toFixed(3)} rad, spread ${spread.toExponential(1)}`);
+
+  // Critical: a steady plume on top of the billows, standing still, every frame's worth of it.
+  const beforePlume = smokes.length;
+  dTaxi.hp = 30;
+  for (let n = 0; n < 60; n++) { dTraffic.update(1 / 60); dTaxi.v = 0; dDamage.update(1 / 60); }
+  const aboveLine = smokes.length - beforePlume;
+  dTaxi.hp = 15;
+  const atCritical = smokes.length;
+  for (let n = 0; n < 60; n++) { dTraffic.update(1 / 60); dTaxi.v = 0; dDamage.update(1 / 60); }
+  const belowLine = smokes.length - atCritical;
+  check('under a fifth of its HP the car never stops smoking, even standing still',
+    belowLine >= aboveLine + 20, `${aboveLine} puffs a second above the line, ${belowLine} below`);
+  // Off the bonnet: ahead of the car's centre and above its roofline-level deck, not inside the
+  // body. The first cut spawned at road + 1.1 — inside the car — and not a puff was ever seen.
+  const [sx, sz, , , , , sy] = smokes.at(-1);
+  const ahead = (sx - dTaxi.x) * Math.cos(dTaxi.yaw) - (sz - dTaxi.z) * Math.sin(dTaxi.yaw);
+  check('the smoke comes off the bonnet, clear of the body', ahead > 0.8 && sy > TAXI_DECK_Y,
+    `${ahead.toFixed(2)} ahead of centre, ${sy.toFixed(2)} up against a deck at ${TAXI_DECK_Y.toFixed(2)}`);
+
+  dDamage.reset();
+  dTaxi.hp = TAXI_HP;
+  dDamage.update(1 / 60);
+  check('reset puts every part back', dDamage.tier() === 0 && dDamage.bootAngle() === 0.6
+    && dDamage.hoodAngle() === null && dDamage.lampAngle(1, 1) === null
+    && pods.every((pod) => pod.position.distanceTo(homes.get(pod)) === 0));
+}
+
+
 
 // --- Box trucks --------------------------------------------------------------
 // A purely opt-in ambient variant — every scenario in this file runs with truckChance at its

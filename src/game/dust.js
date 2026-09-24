@@ -181,7 +181,11 @@ export function createDust(scene, camera, rng) {
    * Returns the slot, so a caller that wants a different *shape* of throw — the burst below — can
    * overwrite the velocity it was given rather than needing a second spawn path.
    */
-  function add(x, z, yaw, scale = 1, spread = 0.35, tint = null, y = DUST_ROAD_Y) {
+  //
+  // `drift` scales the backward throw alone, leaving the rise: 1 is the trail's own, and a caller
+  // whose puffs are coming off something standing still — the damaged taxi's bonnet smoke — turns
+  // it down so the puffs climb as a column instead of streaming off the back of a parked car.
+  function add(x, z, yaw, scale = 1, spread = 0.35, tint = null, y = DUST_ROAD_Y, drift = 1) {
     const slot = next;
     next = (next + 1) % MAX_PUFFS;
     mesh.setColorAt(slot, tint ? tintColor.set(tint) : WHITE);
@@ -194,9 +198,9 @@ export function createDust(scene, camera, rng) {
     pz[slot] = z + rng.jitter(spread);
 
     // Drifts backwards from the car and rises.
-    vx[slot] = (-Math.cos(yaw) * rng.range(0.6, 1.6) + rng.jitter(0.7)) * scale;
+    vx[slot] = (-Math.cos(yaw) * rng.range(0.6, 1.6) + rng.jitter(0.7)) * scale * drift;
     vy[slot] = rng.range(0.7, 1.5) * scale;
-    vz[slot] = (Math.sin(yaw) * rng.range(0.6, 1.6) + rng.jitter(0.7)) * scale;
+    vz[slot] = (Math.sin(yaw) * rng.range(0.6, 1.6) + rng.jitter(0.7)) * scale * drift;
 
     spin[slot] = rng.range(0, Math.PI * 2);
     tilt[slot] = rng.range(-1, 1);

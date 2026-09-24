@@ -1414,6 +1414,117 @@ each in its own paint — see [nearby-traffic ghost outlines](rendering.md#nearb
 It fades in and out with the boost rather than being always on, and follows `taxi.boost` rather
 than the speed cap, so like every other hazard rule it stays up through the cooldown tail.
 
+## Bumps and hit points
+
+The taxi has **100 HP** (`TAXI_HP` in `sim/collisions.js`), and every contact but the one that
+empties it is a **bump** rather than [the wreck](#the-wreck). Collisions are still armed only
+while boosting — outside Loco Mode the lane model keeps the taxi off everything by construction, so
+there is nothing for HP to mean there.
+
+**What a hit costs is the closing speed**, not a flat count: `10 + 1.3 × closing`, clamped 12–60.
+Rear-ending a car at boost cruise closes at ~10.5 u/s and costs 24; T-boning cross traffic at boost
+cruise closes at ~21 and costs 37; anything in the overdrive band costs 49–55. So a sloppy tailgate
+is forgiven about four times and a red run flat out about twice.
+
+**The taxi rams — when it cannot pass.** A boosting taxi with `hp` that has no way round the car in
+front stops following it: no `BOOST_GAP`, no moving-leader cap, in lanes or junctions (`rams()` in
+`traffic.js`). Held to those rules it lifted off in the last few units before every rear-end, which
+read as the taxi flinching. Where a pass *is* on — the route carries straight on, there is an oncoming
+lane, the leader is not mid-turn and the borrowed lane is clear (`canPass`, the overtake's own test) —
+it tailgates exactly as before, because the tailgate is what brings it inside `PASS_TRIGGER` to pull
+out. Ramming is the fallback, not the policy.
+
+**What a bump does:**
+
+- **Rear-end** (headings within ~45°, struck car in front): the car is *launched* — it takes 90% of
+  the taxi's arrival speed and pulls away, which is what separates the two. No stun: a car stopped
+  dead in front of a boosting taxi would be hit again as soon as the contact ended.
+- **Side hit**: the car is shoved along the contact normal and slewed off its line (`knockCar`), then
+  sits on its brakes for 1.4s (`stun`, which drives the existing `braking` flag, so a car stunned
+  inside a junction box holds cross traffic exactly as the brake pedal does).
+- The taxi keeps 45% of its speed and recoils a little the other way.
+- `main.js` pops a comic starburst on the contact point (`game/impact.js`) — the middle of the
+  overlap between the deepest pair of circles, not the midpoint of the two cars' centres, sprays sparks out
+  sideways along the seam, and shakes the camera a fraction of the wreck's amount.
+
+**The car wears its damage, and that is the only health display there is** (`game/taxidamage.js`
+driving `buildDamage` in `geometry/taxi.js`). There was an HP bar in the HUD under the cash total and
+it came out: the point is that the player reads how hurt the car is off the car, without looking
+away from it, and a bar beside it made the car decoration for a number. So each step has to read at
+play zoom on its own. Each adds a distinct ingredient rather than turning the last one up:
+
+1. **Any hit**: the lamp at the struck corner comes out of its socket and hangs on a wire, swinging
+   fore and aft — flung outward when it comes loose, free to swing away from the car but clacking off
+   the bumper on the way back in. Each corner comes loose on its own first hit. The brake and
+   indicator pods at that corner ride the hanging housing, so the lamp still lights, blinks and brakes
+   from down on the wire; the housing (a white lens at the front, red at the back) is what shows while
+   the lamp is off, since the pods themselves only exist while lit.
+2. **≤ 67%**: the boot lid is up over a dark opening and a bumper hangs off the car, its
+   free end on the road throwing sparks while the car moves — at the corner that has taken the most
+   hits, nose or tail, so the sparks come off where the damage is. The lid is a
+   damped spring on its hinge, kicked by the road, by the car's own acceleration and by every hit;
+   it slams against the body and bounces back up. A first cut that wobbled it ±0.2 rad on a sine
+   read as a lid that was simply open.
+3. **≤ 34%**: smoke off the bonnet walking from steam (`damageSmokeLight`) to black
+   (`damageSmokeDark`) and getting faster, and the car sitting low on its damaged side and rattling
+   with speed. One more T-bone at boost cruise (37) is the wreck from here.
+4. **≤ 20%**: under all of that, a thin dark plume that never stops — a small puff every 0.04s,
+   standing or driving — so a car one hit from the end is never seen without it. The billows above
+   come and go; this is the one thing that is always there.
+
+And one piece off the tiers: **rear-ending a car pops the bonnet**, however much HP is left. It is the
+boot's mirror image, hinged at the foot of the windscreen, and it flaps on the same spring for the
+rest of the run — first kick *up*, the catch letting go, where every later hit slams it. It belongs to
+the kind of hit rather than to the running total, and it gives a rear-end something louder than a
+swinging lamp when the first hit is the commonest one in Loco Mode.
+
+Everything is sized for silhouette, because at play zoom the taxi is ~30px long and nothing finer
+reads. It is all render-only; the lean and rattle are added to the group after the sim writes its
+transform each frame, so nothing accumulates and nothing reaches the sim. The parts are built at boot
+and hidden by a zero scale, so `markOccluder`, the cartoon outline and the ghost outline all see them.
+
+The roof sign used to be knocked crooked and then sputter at low HP, and both came out: the tilt read
+as the sign wobbling rather than as damage, and the flicker made the one lamp that says whether a rider
+is aboard unreliable. There was also a crushed corner, and it came out too: the struck corner of the shell crushed in, down and
+darkened by displacing the merged body's vertices. It looked wrong — a box with a corner sheared
+off, which reads as a modelling fault rather than as a dent. The damage now says itself through
+parts that come *off* the car, not through the car changing shape.
+
+**Contact is resolved every frame and charged once.** For as long as the two bodies overlap, the
+struck car is pushed out along the deepest circle pair's normal (`shoveCar`): the part along its own
+lane goes into `s`, so a rear-ended car is bulldozed down the road in the sim; the rest goes into the
+knock offset. A contact only costs HP when it *starts* — the two have to be apart for 0.35s
+(`REHIT`) before touching again counts as a new hit. The first cut of this switched collisions off
+instead (a grace period, and knocked cars skipped outright), and the taxi drove straight through a
+car it had just tapped. `tools/lab.mjs` asserts the overlap never gets deeper than one frame of
+travel at the overdrive top.
+
+A truck is tested at its own length now — three circles out to `TRUCK_LEN` rather than a car's two,
+which left 0.7 units of cab and of box at each end that nothing tested.
+
+**The shove never leaves the lane model.** It is a render offset layered on like the weave and the
+pull-over, while the sim holds the car at its lane coordinate. It has two phases. First a 0.45s
+**slide** — world-space velocity and spin under drag, nobody at the wheel. Then the driver **steers
+back**, paced by the road the car covers rather than by a clock: a stunned car sits askew where it
+stopped until it pulls away, then turns its nose toward the lane (aiming 3.5 units ahead, at most
+~34° off the lane, on a 3-unit turning circle), drives in along that heading, and straightens as it
+arrives, with the front wheels showing the lock. The first cut eased the offset and the spin to zero
+on a timer, independently, which translated the car sideways into its lane while it unwound on the
+spot. The old stun (see below) snapped a car back onto the grid from wherever the drift left it, which
+is the class of `releaseCar` site the CLAUDE.md trap about stop lines is warning about. This one has
+no hand-back to get wrong: the queue behind a shunted car forms where the car nominally is, and it
+pulls back into its own lane because it never left it.
+
+**Why survivable bumps don't bring back the problem the stun was removed for.** That complaint was
+the *asymmetry*: one car scrap, the other shrugging it off. Here the outcome is symmetric — a bump
+leaves both cars on the road and a wreck destroys both — so the wreck still reads as the crash that
+finally mattered rather than as a rule firing.
+
+**`hp` is opt-in on the car.** A taxi with no `hp` keeps the old first-contact-is-the-wreck rule,
+and that is on purpose: `tools/lab.mjs` and `tools/probe.mjs` measure Loco Mode by when it first
+touches something, and every crash rate on this page is in that currency. `onImpact` still means
+"the wreck"; bumps come out of `onBump`.
+
 ## The wreck
 
 `sim/collisions.js` detects the impact, `main.js` stages it, `game/wreckage.js` leaves the two
