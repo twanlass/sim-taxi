@@ -2924,8 +2924,7 @@ Measured end to end in `tools/probe.mjs`: **10.2s** from the turn-in to the came
 **The clocks stop for it.** Every fare on the board holds its countdown from the turn-in to the
 camera being handed back — `holdFareClocks` in `main.js`, which is also where the tutorial's hold
 lives, so neither can release a hold the other still wants. What a repair costs in time is the
-**drive there**, on whatever clock is running, which is the decision: a rider in the back is paying for the
-trip to the depot but not for the cut scene.
+**drive there**, on the waiting riders' clocks, which is the decision.
 
 **It costs $25** (`REPAIR_PRICE`, `game/fares.js`), taken on the frame the car is back on the
 road: a red `−$25` rises off the repaired taxi and flies to the counter, the burger's charge on a
@@ -2937,6 +2936,10 @@ has and is never refused.
 **Refused on an undamaged car.** There is nothing to fix, and a visit holds every clock on the board
 — a free one is a pause button with a garage on it. Refused while anything else is driving the taxi
 (the drive-through) and while the depot is busy, which covers the run's own opening.
+
+**Refused with a rider aboard.** A fare doesn't ride along to the garage — and before this rule they
+did, with the visit's held clocks freezing the very countdown in the back, so a damaged car could
+buy ten seconds on a running fare. Drop them off first.
 
 **It drives in nose first, not in reverse.** The literal reverse of the opening is the taxi backing
 in, and backing in means stopping on the live lane past the driveway first. A staged car is invisible
@@ -2959,8 +2962,10 @@ off the near lane of the road the door faces, running +Z, so the route is `findR
 and the band is trimmed at the mouth by `endAt`. The taxi stays in the traffic model right up to the
 mouth and is caught on the frame it reaches it — a taxi that went past, boosting or weaving wide, is
 sent round the block for one more go. The same identity rule as the burger holds too: anything else
-the player aims the taxi at takes the wheel back, and a rider boarding en route is dispatched and
-then handed straight back to the depot with their drop-off as the job to return to.
+the player aims the taxi at takes the wheel back — including a rider boarding en route, who is
+dispatched to their drop-off and ends the trip there (the burger run hands the wheel back to the
+joint; the depot doesn't, because a repair is refused with anyone aboard). A taxi already turning
+into the driveway when the pickup lands finishes its visit and drives the drop-off on the way out.
 
 **The job comes back on the way out**, on the frame the car is back in the traffic model rather
 than when the camera lets go — the handover is 5.5 units short of a junction, and a car with no
