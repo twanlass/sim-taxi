@@ -1827,6 +1827,14 @@ out at the far end — and a kit that came off there would take the mask off hal
 event. What owns it is the spawn: `spawnRobber` puts it on, and `spawnFare` takes it off, which is
 the one place a slot changes hands.
 
+### A full tank for the getaway
+
+The frame the robber is in the car, the boost meter is poured full — the VIP's reward, paid up
+front (`onBoard` in `main.js`). The event is imposed: it takes the seat whatever the meter holds,
+and a getaway that opened on a dry pill was a chase the taxi could not win on speed, against cops
+whose cruise ceiling sits above an unboosted taxi's. Filling it keeps the event's choice — boost
+and risk the wreck, or hold off and risk the clock — a choice.
+
 ### Dispatch breaks in
 
 `game/radio.js`. On the frame the robber is in the car, a bubble drops in under the HUD: a police

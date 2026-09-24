@@ -24,7 +24,9 @@ import { POLICE_FLEET, SPAWN_CLEARANCE, stopDistance, turnPointAt } from '../sim
 //     and its own scripted chase, is touched by any of this.
 //   - Loco Mode is untouched. It is still a finite tank spent in a hold, and the choice the event
 //     poses is the one the tank already poses, now with something on the other side of it: boost
-//     past the traffic and risk the wreck, or hold off and risk the clock.
+//     past the traffic and risk the wreck, or hold off and risk the clock. The one thing the event
+//     does to it is fill it when the robber gets in (`onBoard` in main.js), so that choice is
+//     always there to make rather than decided by whatever the meter held at the bank.
 //   - The fail state is untouched. Crashing into a cop car is crashing into a car —
 //     sim/collisions.js does not know what livery anything is wearing and is not told.
 //   - **And they get in your way.** A cop crossing a junction on the taxi's route stops across it
