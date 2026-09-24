@@ -2148,6 +2148,75 @@ That is the number the event is tuned against. Lift off and a cop is within half
 that falls to 12%. Before the acceleration fix it read 31% against 12%, which is a chase that is
 merely *there* rather than one worth spending anything to escape.
 
+### The box-in: roadblocks, the overtake and the brake check
+
+A chase that only ever converges has nothing for the taxi to *do* about it but outrun it. Since the
+taxi has [hit points](#bumps-and-hit-points), the police also try to stop it, in two ways that are
+each an existing piece of the sim pointed somewhere new.
+
+**A roadblock is a car braking inside a box** (`holdRoadblocks` in `game/robbery.js`). A cop already
+crossing one of the next few junctions on the taxi's route, with the taxi 12–50 units off, brakes so
+that it comes to rest *across the taxi's approach lane* and holds there on `car.roadblock` — a timer
+beside `stun` that drives the same `braking` flag. Nothing else makes it a roadblock: a car braking
+mid-turn is already what the junction logic calls stranded (`heldAt`), so cross traffic is held, a
+taxi off the pill is refused at its line, and a boosting one barges in and meets the cop as a bump.
+Let go when the junction is no longer on the taxi's way (driven through, rammed through, routed
+round) or after `BLOCK_HOLD` (4s); one at a time, `BLOCK_GAP` (8s) apart.
+
+Where it stops is measured, not wherever the brake happens to finish. `turnPointAt` samples the cop's
+arc on the same Bézier the render pass draws, and the cop brakes on the frame `stopDistance(v)`
+lands it on the point nearest the taxi's lane. On an arterial the difference is the whole feature: a
+lane there is 3.33 off the middle, so a cop stopped dead centre leaves daylight and the taxi drives
+past it.
+
+**Only a crossing car blocks.** Every clause of the gate was a measured overlap first, because
+ambient traffic is never collision-tested and a cop stopped in the wrong place is a car drawn
+*through* another one:
+
+- not a cop out of the taxi's **own** lane, straight or turning. Stopped mid-box it is a car in front
+  of the taxi, and the lane bookkeeping counts a crossing as 5 units of an 8-unit box — the following
+  taxi closed to 2.2 centre to centre. A cop turning off is handed to its exit lane part way round
+  and then is not the taxi's leader at all. Stopping in front of the taxi is the brake check's job,
+  and that happens on a lane, where the arithmetic is exact;
+- not in the last third of the arc, where the nose is in the exit lane and a car landing there hits it;
+- not into a box something else is already crossing, since a committed car cannot be asked to stop;
+- not with the taxi inside 12 units, where off the pill it has already committed to the box.
+
+**And the arrival test on an unsignalised junction now reads `heldAt`.** The approach always did,
+so a car stopped at the line — and then the arrival, asking only about the priority street, waved it
+into the stopped car. That hole was there for a stranded car on the ring too; a roadblock just stands
+long enough to find it.
+
+**The overtake is the taxi's own**, run for a cop that has caught the taxi from behind (the cop-pass
+block in `update`): the same `pass`/`passOffset`/`passSlope`, the same smoothstep paced by road, the
+same `PASS_CLEAR` before cutting back in. `seesLeader` already reads the offset, so a cop out of its
+lane stops following the taxi without being told. Once back in front it brakes for `BRAKE_CHECK`
+(2.5s) — with the stern-chase cops arriving behind, that is the box. The gate is fussier than the
+taxi's, for the same reason as the roadblock's:
+
+- the taxi is slow (under 70% of the cop's ceiling) and not boosting, or the cop parks in the
+  oncoming lane beside a car it cannot out-run;
+- both routes carry straight on for **two** junctions, and `steerChase` leaves a cop's route alone
+  while it is out. A re-aim mid-pass handed one a turn with the cop still in the oncoming lane;
+- the borrowed lane is clear for 90 units, counting cars **turning into** it. 60 let an oncoming
+  cop, closing at 40 u/s, meet one head on;
+- there is road to cut into in front of the taxi, and no other cop is already out there.
+
+Abandoned only from **a body length behind** the taxi — tucking in from alongside measured 1.7 units
+centre to centre — so a pass that goes wrong stays out until the taxi pulls clear or the cop gets
+ahead. The swing is paced by the road the cop actually covered, not `v · dt`: a cop held up behind
+the taxi keeps its speed and gets no road, and speed-pacing slid it sideways into the taxi while it
+stood still. While out and committed, a cop is skipped as anyone's leader (`outOfLane`), so the taxi
+it is drawing level with does not brake for a car in the other lane — and it stops being skipped the
+moment it is past, because a cop that slows while cutting back in was caught and cut into by the
+taxi it had just passed.
+
+Measured over 58 staged getaways on 60 seeds, with a taxi that drives its route off the pill and
+never re-routes: 56 roadblocks, 45 overtakes, 27 brake checks, no violations and no overlap of any
+kind. The taxi was stopped for 23% of the time against 16% on the same seeds without the box-in,
+and behind a cop for 6% of it. `tools/probe.mjs` asserts the geometry over six getaways, and that a boosting taxi meets a
+roadblock as a bump rather than a wreck.
+
 ### Standing down
 
 A getaway used to end with every cop car blinking out of existence, including whichever ones were in

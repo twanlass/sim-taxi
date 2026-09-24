@@ -84,8 +84,9 @@ masked robber comes down the steps with a sack and gets in, on the tightest cloc
 for the far side of the city. Four of the cars already on the road turn blue, put flashing bars on,
 and **start driving at you** — at twice the speed of the traffic and under the speed of a boosting
 taxi, which is the whole of the decision the event offers. They are still ordinary cars: they queue,
-they stop at reds, none of them can arrest you, and what they are is four more things to hit while
-you are in a hurry. Lean on the pill and the loot comes streaming out of the back. It pays a bonus
+they stop at reds, none of them can arrest you — but they **box you in**: a cop stops across a
+junction up your route, or goes round you and brake-checks you. Wait, route round, or ram it for a
+bump that costs hit points. Lean on the pill and the loot comes streaming out of the back. It pays a bonus
 scaled to the clock you land it with, and missing one never ends a run: the event is imposed rather
 than chosen, so it is not allowed to cost the player the game. See
 [the bank robbery](gameplay.md#the-bank-robbery).

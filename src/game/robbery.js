@@ -1,7 +1,8 @@
-import { GRID_I, GRID_J, dirSign, isXAxis, lineX, lineZ } from '../city/grid.js';
+import { GRID_I, GRID_J, dirSign, isXAxis, lineX, lineZ, opposite } from '../city/grid.js';
+import { cityNetwork } from '../city/roadnet.js';
 import { URGENCY_SEGMENTS, urgencyLevel } from './urgency.js';
 import { findRoute, planOrigin } from './route.js';
-import { POLICE_FLEET, SPAWN_CLEARANCE } from '../sim/traffic.js';
+import { POLICE_FLEET, SPAWN_CLEARANCE, stopDistance, turnPointAt } from '../sim/traffic.js';
 
 // The bank robbery: the empty taxi drives past the bank, somebody gets in with a bag, and the
 // streets fill with police for as long as it takes to get them where they are going.
@@ -26,9 +27,14 @@ import { POLICE_FLEET, SPAWN_CLEARANCE } from '../sim/traffic.js';
 //     past the traffic and risk the wreck, or hold off and risk the clock.
 //   - The fail state is untouched. Crashing into a cop car is crashing into a car —
 //     sim/collisions.js does not know what livery anything is wearing and is not told.
+//   - **And they get in your way.** A cop crossing a junction on the taxi's route stops across it
+//     (`holdRoadblocks` below), and one that catches the taxi goes round it and brake-checks it
+//     (sim/traffic.js). Both are a car braking — the same `braking` a stunned car uses — so the
+//     taxi meets them on the terms it meets everything: wait, go round, or ram it for a bump that
+//     costs hit points.
 //
 // So the whole of this module is a trigger, a cooldown, and the bookkeeping that keeps the police
-// near the player while it runs.
+// near — and in front of — the player while it runs.
 
 /**
  * How near the bank's door the taxi has to get, in world units.
@@ -200,6 +206,70 @@ export const STAND_DOWN_RANGE = 62;
  */
 export const STAND_DOWN_TIMEOUT = 12;
 
+/**
+ * How many junctions down the taxi's route a cop may throw a roadblock across.
+ *
+ * The cut-off cops are sent three and five ahead (`CUT_OFF_AHEAD`), so this is the band where they
+ * actually arrive. Further out than that the taxi is a long way from arriving and the hold would
+ * run out first — see `BLOCK_REACH`, which is the tighter of the two in practice.
+ */
+const BLOCK_AHEAD = 3;
+
+/**
+ * How near the taxi has to be, in world units of Manhattan distance, for a cop crossing one of
+ * those junctions to stop in it.
+ *
+ * A roadblock the taxi never reaches is a cop parked in a junction for no reason, holding the
+ * city's cross traffic. Two and a half blocks: about three seconds at ordinary cruise, so a taxi
+ * driving at the block reaches it well inside `BLOCK_HOLD`, and one that has stopped or turned
+ * off lets it go (`holdRoadblocks`).
+ */
+const BLOCK_REACH = 50;
+
+/**
+ * How near is too near, for the same measure.
+ *
+ * A taxi inside its own stopping distance of the line has in effect already entered: off the pill
+ * it is committed to the box, and the sim has no collision test for a taxi that is not boosting, so
+ * a cop stopping across it then would be two cars drawn through each other. The hold line is 7.4
+ * from the junction's centre and the lane 2 off it, and an ordinary brake from cruise takes 2.1
+ * units — so 12 is the nearest a taxi can be and still be asked to stop.
+ */
+const BLOCK_NEAR = 12;
+
+/**
+ * The longest a cop stands across a junction, in seconds.
+ *
+ * It is let go sooner the moment the junction stops being on the taxi's way — driven through,
+ * rammed through or routed round — so this is only the bound on a taxi that sits and waits. Five
+ * seconds is a real cost against a robber's clock, which is budgeted at a slack factor of 0.62 and
+ * has perhaps twenty seconds of margin in it, without being a wall: waiting is always an answer,
+ * just an expensive one. The other two answers are to route round it and to ram it.
+ */
+const BLOCK_HOLD = 4;
+
+/**
+ * How close to the taxi's lane a cop's path through the junction has to come for it to count as
+ * across it, in world units.
+ *
+ * A cop turning right from the far side of a junction sweeps its own corner and never comes near
+ * the taxi's approach lane, and stopping it there would be a cop parked in a corner looking busy.
+ * One unit is under a third of a body length off the lane's centre line, so anything inside it is
+ * a car the taxi cannot get past in its own lane.
+ */
+const BLOCK_ACROSS = 1;
+
+/**
+ * Seconds from one roadblock going up to the next being allowed, and only one standing at a time.
+ *
+ * Without either, a getaway was a string of them. Measured over 12 staged events with a taxi that
+ * drives its route off the pill and never re-routes: 42 roadblocks in 360 seconds, one standing
+ * for 40% of the event, and the taxi stopped behind one for a quarter of it — against 18% of the
+ * time stopped *at all* with no roadblocks. That is a city that has been shut, not a chase.
+ * Spaced out, a block is an event the player meets and answers rather than the weather.
+ */
+const BLOCK_GAP = 8;
+
 /** The junction nearest a world point, clamped onto the grid. */
 function nearestJunction(x, z) {
   let best = { i: 0, j: 0 };
@@ -240,6 +310,10 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
     standingDown: 0,
     /** How many have happened this run, for the tools. */
     count: 0,
+    /** How many junction roadblocks the police have thrown this run, for the tools. */
+    roadblocks: 0,
+    /** Seconds since a roadblock last went up — see BLOCK_GAP. Starts clear. */
+    sinceBlock: BLOCK_GAP,
   };
 
   /** How far the taxi is from the bank's door, in world units. */
@@ -345,12 +419,11 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
    *   - A cop whose route has run dry gets a fresh one even if the taxi has not moved, which is
    *     what happens when it arrives at its cut-off and the taxi has not got there yet.
    *
-   * What it deliberately does **not** do is give a cop any licence an ordinary car lacks. It does
-   * not run reds, it does not ignore queues, and it cannot be crashed into by anything but the
-   * player — `sim/collisions.js` only ever tests the taxi. A cop let through a red would drive
-   * *through* the cross traffic rather than into it, which is the trap `releaseCar` already
-   * records. That licence was measured (see CUT_OFF_AHEAD) and bought nothing, which is the
-   * happier half of this: the version that reads best is also the one that keeps every rule.
+   * What it deliberately does **not** do is give a cop an unfenced licence. It does not ignore
+   * queues, and it cannot be crashed into by anything but the player — `sim/collisions.js` only
+   * ever tests the taxi. A cop let through a red would drive *through* the cross traffic rather
+   * than into it, which is the trap `releaseCar` already records; the one red it may cross is a
+   * provably empty junction (sim/traffic.js), and the roadblock below is fenced the same way.
    */
   function steerChase() {
     // What the aim is keyed on: the junction the taxi is heading into, **and the route it is
@@ -373,6 +446,11 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
       const steps = CUT_OFF_AHEAD[nth % CUT_OFF_AHEAD.length];
       nth += 1;
       if (!moved && car.route?.length) continue;
+      // Not while it is out overtaking the taxi. The pass was only offered because this route
+      // carried straight on (sim/traffic.js), and a re-aim mid-manoeuvre handed it a turn with the
+      // cop still in the oncoming lane — frozen out there through the corner, and cutting back in
+      // on the far side across whatever was coming. It is re-aimed on the next junction instead.
+      if (car.pass > 0) continue;
       // An **empty** route is a cop already standing on the junction it was sent to, and leaving
       // it there is the one thing that undoes the whole idea: a car with no route rolls the
       // ordinary dice at its next junction, so the cop that got there first then wanders off the
@@ -389,6 +467,131 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
       car.routeConsumed = false;
     }
     aimedAt = at;
+  }
+
+  /**
+   * The junctions the taxi is about to drive through, nearest first — the one its lane runs into,
+   * then `BLOCK_AHEAD` more down its route — each with the heading the taxi will enter it on.
+   *
+   * A taxi mid-turn is *inside* `taxi.i/j` already, and its route has had that turn taken off the
+   * front, so the next junction is one step along `dOut` rather than along `route[0]`.
+   */
+  function upcoming() {
+    let { i, j } = taxi;
+    const out = [{ i, j, enter: taxi.d, inside: taxi.state === 'turn' }];
+    const steps = [];
+    if (taxi.state === 'turn' && taxi.dOut != null) steps.push(taxi.dOut);
+    for (const d of taxi.route ?? []) steps.push(d);
+    for (let k = 0; k < Math.min(BLOCK_AHEAD, steps.length); k++) {
+      const d = steps[k];
+      if (isXAxis(d)) i += dirSign(d); else j += dirSign(d);
+      out.push({ i, j, enter: d, inside: false });
+    }
+    return out;
+  }
+
+  /**
+   * Where on its turn a cop has to stop to be standing across the taxi's lane, or null if its path
+   * never comes near it.
+   *
+   * Measured against the lane the taxi will *enter* by rather than against the junction's centre,
+   * and it matters most on an arterial: a lane there is 3.3 units off the middle rather than 2, so
+   * a cop crossing straight over and stopping dead centre leaves a car's width of daylight to the
+   * taxi's lane and the taxi simply drives past it. The turn is sampled along the same Bézier the
+   * render pass draws it on, so the point found here is where the car is actually drawn.
+   */
+  function acrossPoint(cop, at) {
+    const lane = cityNetwork().laneByGrid(at.enter, at.i, at.j);
+    if (!lane) return null;
+    const end = lane.path.at(lane.length);
+    const offLine = (p) => (isXAxis(at.enter) ? p.z - end.z : p.x - end.x);
+    let best = null;
+    // The start excluded, and the last third: a stop late in the arc has the car's nose out of the
+    // box and in its exit lane, where the lane bookkeeping lists it only as a phantom short of the
+    // lane's start — a car was measured landing on a cop stopped at 0.84 of a right turn.
+    for (let n = 1; n <= 11; n++) {
+      const p = turnPointAt(cop, n / 16);
+      const off = Math.abs(offLine(p));
+      if (!best || off < best.off) best = { off, travelled: p.travelled };
+    }
+    return best && best.off <= BLOCK_ACROSS ? best.travelled : null;
+  }
+
+  /**
+   * **Stop across the junction the taxi is about to drive through.** The box-in's junction half;
+   * the other half — a cop overtaking the taxi and brake-checking it — lives in sim/traffic.js,
+   * because it needs the lane bookkeeping only the sim has.
+   *
+   * A cop already crossing a junction on the taxi's way, with the taxi near enough to arrive while
+   * it holds, brakes so that it comes to rest across the taxi's lane and holds there on
+   * `roadblock`. Nothing else is needed to make it a roadblock, which is the point of doing it this
+   * way: a car braking inside a box is already what the sim calls a stranded junction (`heldAt`),
+   * so the cross traffic is held, a taxi off the pill is refused entry at its line exactly as it
+   * would be by a stalled car, and a boosting one barges through — into the cop, which is a bump
+   * that costs hit points (sim/collisions.js) and the wreck once they are gone.
+   *
+   * Let go the moment the junction stops being on the taxi's way (driven or rammed through,
+   * routed round) or after `BLOCK_HOLD`, whichever is first. A cop only ever blocks a given
+   * crossing once, so one that has been let go carries on through rather than stopping again a
+   * frame later.
+   */
+  function holdRoadblocks(dt) {
+    state.sinceBlock += dt;
+    const path = upcoming();
+    const onPath = new Map(path.map((at) => [`${at.i},${at.j}`, at]));
+    for (const cop of traffic.policeCars) {
+      if (cop.crashed) continue;
+      if (cop.blocking) {
+        // Out of the box is out of the roadblock, however it got there.
+        if (!onPath.has(cop.blocking) || cop.roadblock <= 0 || taxi.crashed
+          || cop.state !== 'turn') {
+          cop.roadblock = 0;
+          cop.blocking = null;
+        }
+        continue;
+      }
+      if (cop.state !== 'turn') { cop.blockSpent = null; continue; }
+      const key = `${cop.i},${cop.j}`;
+      if (cop.blockSpent === key || cop.roadblock > 0) continue;
+      if (state.sinceBlock < BLOCK_GAP
+        || traffic.policeCars.some((other) => other.blocking)) continue;
+      const at = onPath.get(key);
+      // The taxi already in the box has driven past the point a block could stop it.
+      if (!at || at.inside) continue;
+      // Straight through against the taxi's own heading is the other carriageway: it never
+      // crosses the taxi's lane, so there is nothing for it to block.
+      if (cop.turn?.hand === 'straight' && cop.d === opposite(at.enter)) continue;
+      // Nor anything out of the taxi's own lane, whichever way it goes: that is a car *in front
+      // of* the taxi, not across it, and the lane bookkeeping handles it badly stopped in a box.
+      // It counts a crossing as 5 units of lane for an 8-unit junction, so a taxi following a cop
+      // that stops dead in the middle closes to 2.2 units centre to centre (measured, 3 events in
+      // 12), and a cop turning off is handed to its exit lane part way round — after which it is a
+      // car the taxi no longer sees, stopped on the corner of the lane it is about to drive through.
+      // The cop that stops in front of the taxi in its own lane is the brake check's job
+      // (sim/traffic.js), and that one happens on a lane, where the bookkeeping is exact.
+      if (cop.d === at.enter) continue;
+      // Nor half way through an overtake: the swing is frozen through a corner, so the body is
+      // drawn off the arc this point is measured on.
+      if (cop.pass > 0) continue;
+      const reach = Math.abs(lineX(at.i) - taxi.x) + Math.abs(lineZ(at.j) - taxi.z);
+      if (reach > BLOCK_REACH || reach < BLOCK_NEAR) continue;
+      const stopAt = acrossPoint(cop, at);
+      const travelled = cop.turnT * cop.turnLen;
+      if (stopAt == null || travelled > stopAt) { cop.blockSpent = key; continue; }
+      // Brake on the frame the remaining road equals the stopping distance, so it comes to rest
+      // on the point rather than short of it or through it.
+      if (travelled + stopDistance(cop.v) < stopAt) continue;
+      // Not into a box something else is already crossing. The hold keeps anyone new out, but a
+      // car already committed to its turn cannot be asked to stop, and it drives through a cop
+      // that has stopped across its path — traffic is never collision-tested against traffic.
+      if (traffic.cars.some((other) => other !== cop && !other.crashed && other.state === 'turn'
+        && other.i === cop.i && other.j === cop.j)) continue;
+      cop.roadblock = BLOCK_HOLD;
+      cop.blocking = key;
+      cop.blockSpent = key;
+      state.roadblocks += 1;
+      state.sinceBlock = 0;
+    }
   }
 
   function eligible() {
@@ -474,6 +677,11 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
       // loses the bar, because that is what it was *doing*.
       cop.siren = false;
       cop.chase = 0;
+      // Out of any roadblock too. The overtake lets itself go once `chase` is 0; a junction hold
+      // is this module's and is let go here, or the stand-down would begin with a cop parked
+      // across a box holding the city's traffic for the rest of its `BLOCK_HOLD`.
+      cop.roadblock = 0;
+      cop.blocking = null;
       // **Routed out rather than simply unrouted**, and the difference is not cosmetic. A car with
       // no route rolls the ordinary dice at every junction, so a "departing" cop wanders — it
       // circles the block the taxi is parked on as often as it leaves, and then the backstop below
@@ -590,6 +798,7 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
       }
       recyclePolice(dt);
       steerChase();
+      holdRoadblocks(dt);
       return;
     }
 
