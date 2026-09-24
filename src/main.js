@@ -84,6 +84,7 @@ import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getA
   getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
+import { createRadio } from './game/radio.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders } from './game/sightline.js';
@@ -530,6 +531,9 @@ const depotRun = garage && !shot
 // Off in shot mode alongside the courier, for the same reason that one is: a screenshot warms the
 // sim forward on a scripted path, and an event that fires off *where the taxi happens to be* would
 // put a robber in half the shot list at random.
+// Dispatch breaking in when the robber gets in — the one thing that says this pickup is not a fare
+// on the frame it happens. See game/radio.js.
+const radio = city.bank && !shot ? createRadio({ lights: { sun, hemi } }) : null;
 const robbery = city.bank && !shot
   ? createRobbery({
     site: city.bank,
@@ -550,6 +554,7 @@ const robbery = city.bank && !shot
       if (burgerRun?.active()) burgerRun.send();
       if (depotRun?.active()) depotRun.send();
       haptic('pick');
+      radio.show();
     },
   })
   : null;
@@ -3024,6 +3029,7 @@ function frame() {
   // Held by the same gate the fare loop is: the opening vignette, the wipe and the Home Screen tip
   // each stop the world, and an event firing behind any of them is one the player never saw.
   if (!fareLoopHeld()) robbery?.update(dt);
+  radio?.update(dt, { over: fares.state.gameOver });
 
   // More than one thing can land in a frame now — delivering the last fare clears the board and
   // spawns the next one in the same tick — so this is a list rather than a single event.
@@ -3859,6 +3865,8 @@ window.__taxi = {
   bloom,
   hdr,
   tutorial,
+  /** The robbery's dispatch bubble, or null where there is no bank. See game/radio.js. */
+  radio,
   carGhosts,
   skids,
   police,

@@ -1802,8 +1802,8 @@ the VIP's version that is absent here rather than shared.
 `geometry/person.js`. A mask right across the eyes, a cap over the hair, a dark jacket pulled over
 the torso, the sleeves tinted to match, and a pale sack swinging off the left hand.
 
-**It is the figure that has to say this is not an ordinary fare**, because nothing else does: a
-robber's crystal is on the ordinary urgency scale on purpose — the clock is the drama, and a fixed
+**It is the figure that has to say this is not an ordinary fare** — that and
+[the radio call](#dispatch-breaks-in), and nothing else: a robber's crystal is on the ordinary urgency scale on purpose — the clock is the drama, and a fixed
 hue like [a VIP's](#vip-pickups) would trade that away to say something the building and the police
 cars are already saying.
 
@@ -1826,6 +1826,30 @@ rig. `rest()` runs mid-fare — a robber is rested on the frame they appear, and
 out at the far end — and a kit that came off there would take the mask off halfway through the
 event. What owns it is the spawn: `spawnRobber` puts it on, and `spawnFare` takes it off, which is
 the one place a slot changes hands.
+
+### Dispatch breaks in
+
+`game/radio.js`. On the frame the robber is in the car, a bubble drops in under the HUD: a police
+car turning in the avatar — the robbery's own cop car, `carGeometry()` in `policeBody` with its bar
+flashing — over "DISPATCH / All units respond! Robbery in progress."
+
+The figure alone was not enough, and the reason is the trigger. A robbery fires on a drive-*past*,
+so the player is watching the taxi or the next rider, not a 20px figure on the bank's steps, and the
+cop cars that also say it come in off screen a beat later. What the player saw was a crystal over
+their roof they had not asked for.
+
+It borrows the coach bubble's card and drops everything that asks something of the player:
+
+- **No spotlight.** The tightest clock in the game has just started; dimming the city over the
+  getaway spends it.
+- **No tap.** `pointer-events: none`, and it leaves on its own after `RADIO_LINGER` (3.2s of game
+  time, so a pause holds it). The next tap is on the road, routing the getaway, and a bubble that
+  caught it would cost the second this event is about.
+- **Top, not bottom.** The coach speaks for the taxi from above the controls, and its Loco Mode
+  beat can still be cycling when a robbery lands. The radio is another channel breaking in, so it
+  sits under the money/pause/streak row instead, with a police-blue edge the coach does not have.
+
+Its WebGL context is built on the first robbery rather than at boot — most runs never meet one.
 
 ### The clock, and the bonus that reads it
 

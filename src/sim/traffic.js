@@ -1549,7 +1549,7 @@ const CABIN_Y = 1.45 + CHASSIS_LIFT;         // its centre
 /** The roof: what a light bar is bolted to. */
 export const CABIN_TOP = CABIN_Y + CABIN_H / 2;
 
-function carGeometry() {
+export function carGeometry() {
   // Body is left white so the per-instance colour tints it; the glass is dark enough that the
   // same multiply leaves it dark whatever colour the car is.
   const parts = [];
