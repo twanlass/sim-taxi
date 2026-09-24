@@ -1194,8 +1194,15 @@
          sits where the coach does: the tutorial's Loco Mode beat can still be cycling at the
          bottom when a robbery lands, and the two are different voices. The coach's z (22), under
          the pause veil (23) — a pause holds the bubble's clock, so it should cover it too. */
+      /* The offset is derived, not typed. This card was placed at 78px, which was "just under the
+         counters" on a HUD whose top row ended with them — and the fuel bar has since moved into
+         that slot (77 to 85, see #loco-bar). A literal put the bubble across it with 7px of overlap
+         and a z-index that wins, so the bar showed as two stubs poking out either side of the card.
+         Hanging this off the bar's own two variables puts it 8px clear and keeps it there if the
+         bar ever moves or changes height. */
       #radio {
-        position: fixed; left: 0; right: 0; top: calc(78px + var(--safe-top)); z-index: 22;
+        position: fixed; left: 0; right: 0; z-index: 22;
+        top: calc(var(--loco-bar-top) + var(--loco-bar-h) + 8px);
         display: flex; justify-content: center;
         pointer-events: none; user-select: none; -webkit-user-select: none;
       }
