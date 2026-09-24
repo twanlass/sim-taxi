@@ -21,7 +21,7 @@ import {
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import {
-  createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE,
+  createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
 } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
 import { createDriveThru } from './game/drivethru.js';
@@ -502,7 +502,15 @@ const depotRun = garage && !shot
         // The car is back on the lane, 5.5 units short of a junction: put a job under it before it
         // gets there. A route the player planned while it was inside stands — `stageCar` never saw
         // it, and the lane it was planned from is the one the car is released onto.
-        onRelease: () => { if (!traffic.taxi.pendingTarget) resumeJob(handBack); },
+        onRelease: () => {
+          if (!traffic.taxi.pendingTarget) resumeJob(handBack);
+          // The bill, as the car comes back out onto the road: the red `−$25` rises off the taxi
+          // and flies to the counter, the burger's charge on a bigger number. Here rather than
+          // behind the door so the player sees what the repair cost on the car it bought. See
+          // REPAIR_PRICE in game/fares.js.
+          const paid = fares.charge(REPAIR_PRICE);
+          if (paid > 0) popEarning(-paid);
+        },
         onDone: holdFareClocks,
       })) return false;
       // `stageCar` has already emptied the route; the target goes with it, so the band comes down
@@ -1890,7 +1898,7 @@ function rollMoneyTo(target, up = true) {
 /**
  * The flying number, off the taxi and onto the counter.
  *
- * Negative is a **charge** — the burger's `BURGER_PRICE`, and so far the only one. It takes the same
+ * Negative is a **charge** — the burger's `BURGER_PRICE` and the depot's `REPAIR_PRICE`. It takes the same
  * flight rather than one of its own, because it is the same claim: this car, here, is what moved the
  * counter. What changes is the sign, the colour (red, `.is-charge`) and nothing else — including the
  * direction, which stays taxi → counter. A charge flown counter → taxi would read as the player

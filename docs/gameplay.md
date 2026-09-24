@@ -2845,9 +2845,16 @@ Measured end to end in `tools/probe.mjs`: **10.2s** from the turn-in to the came
 
 **The clocks stop for it.** Every fare on the board holds its countdown from the turn-in to the
 camera being handed back — `holdFareClocks` in `main.js`, which is also where the tutorial's hold
-lives, so neither can release a hold the other still wants. What a repair costs is the **drive
-there**, on whatever clock is running, which is the decision: a rider in the back is paying for the
+lives, so neither can release a hold the other still wants. What a repair costs in time is the
+**drive there**, on whatever clock is running, which is the decision: a rider in the back is paying for the
 trip to the depot but not for the cut scene.
+
+**It costs $25** (`REPAIR_PRICE`, `game/fares.js`), taken on the frame the car is back on the
+road: a red `−$25` rises off the repaired taxi and flies to the counter, the burger's charge on a
+bigger number. Before the price the only cost was the drive there, and a player on a fifth of their
+HP with time in hand got a whole car back for fifteen seconds of driving. $25 is more than a median
+fare early in a run and less than one by the last shift. Like the burger, an empty till pays what it
+has and is never refused.
 
 **Refused on an undamaged car.** There is nothing to fix, and a visit holds every clock on the board
 — a free one is a pause button with a garage on it. Refused while anything else is driving the taxi
