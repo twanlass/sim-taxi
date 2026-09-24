@@ -2841,7 +2841,7 @@ and the door comes down behind it — and from behind the shut door the opening 
 | `repair` | The black lifts on the shut door, and a beat before it goes back up | 0.45s |
 | `door` … `release` | The opening, unchanged | ~6s |
 
-Measured end to end in `tools/probe.mjs`: **10s** from the turn-in to the camera handed back.
+Measured end to end in `tools/probe.mjs`: **10.2s** from the turn-in to the camera handed back.
 
 **The clocks stop for it.** Every fare on the board holds its countdown from the turn-in to the
 camera being handed back — `holdFareClocks` in `main.js`, which is also where the tutorial's hold
@@ -2857,11 +2857,17 @@ trip to the depot but not for the cut scene.
 in, and backing in means stopping on the live lane past the driveway first. A staged car is invisible
 to the lane bookkeeping (see the note at the top of `game/drivethru.js`), so anything behind the taxi
 would drive straight through it while it stood there. Turning in off the lane clears the carriageway
-in about half a second, the same trade the drive-through's entry arc makes. The car is then turned
-round on the spot while the door is shut — nobody can see it, and the curtain is what the opening
-already hid the car behind. The entry path is the exit's fillet mirrored about the driveway, and it
-ends on the very point the exit starts from; the probe asserts that, and that the mouth is exactly
-where `placeCar` has the car on the merge lane.
+in about half a second, the same trade the drive-through's entry arc makes. The car is then put on the
+opening's start pose facing out, under the black and behind the shut door. The entry path is the
+exit's fillet mirrored about the driveway; the probe asserts the mouth is exactly where `placeCar`
+has the car on the merge lane.
+
+**Nose-in, it parks at the back of the bay, and switches its lamps off.** The first cut parked it
+on the opening's own spot, which put the tail 0.25 behind the curtain — inside the bloom's depth
+bias (0.28, `DEPTH_BIAS` in `game/bloom.js`), so the brake lamps, lit at any standstill, glowed
+straight through the door as it came down. It now parks 0.25 off the back wall instead (tail 0.64
+behind the curtain), and `stageLampsOff` in `sim/traffic.js` takes the brake lamps down once it has
+stopped — a loose rear lamp hangs on a 0.6 wire, so distance alone is not enough margin.
 
 **The destination is a lane**, for [the burger run's reasons](#the-burger-run): the driveway opens
 off the near lane of the road the door faces, running +Z, so the route is `findRouteOnto` that lane
