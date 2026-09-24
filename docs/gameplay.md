@@ -2822,6 +2822,67 @@ Two consequences worth knowing:
   the tank into a car that cannot move — fifteen seconds of it if the queue in front is two cars
   deep — so the press is refused and a held one is released for as long as the visit lasts.
 
+## Repairs at the depot
+
+**Tap the depot with a damaged taxi** and it drives itself back to its garage, goes in, and comes
+back out with its [hit points](traffic.md#bumps-and-hit-points) full and every piece of
+[damage](traffic.md#bumps-and-hit-points) gone. The visit is
+[the opening vignette](#the-opening-vignette) played backwards and then forwards: the camera comes
+down onto the door as the taxi turns in off the lane, the door rolls up, the car drives into the bay
+and the door comes down behind it — and from behind the shut door the opening itself runs from
+`door` on, a clean car in a lit doorway, out, down the kerb and back into traffic.
+`game/depotrun.js` is the trip there; `enter()` in `game/opening.js` is everything from the lane on.
+
+| Phase | What happens | Length |
+|---|---|---|
+| `enter` | Off the lane round the mirrored fillet and up the kerb, the door winding up on the opening's own ease from the frame the car turns in. The camera eases onto the door at `DOOR_ZOOM` | ~2.5s |
+| `shut` | The door comes down behind the car | 0.9s |
+| `repair` | A beat on the shut door. The car is fixed and turned round at the start of it | 0.45s |
+| `door` … `release` | The opening, unchanged | ~6s |
+
+Measured end to end in `tools/probe.mjs`: **10s** from the turn-in to the camera handed back.
+
+**The clocks stop for it.** Every fare on the board holds its countdown from the turn-in to the
+camera being handed back — `holdFareClocks` in `main.js`, which is also where the tutorial's hold
+lives, so neither can release a hold the other still wants. What a repair costs is the **drive
+there**, on whatever clock is running, which is the decision: a rider in the back is paying for the
+trip to the depot but not for the cut scene.
+
+**Refused on an undamaged car.** There is nothing to fix, and a visit holds every clock on the board
+— a free one is a pause button with a garage on it. Refused while anything else is driving the taxi
+(the drive-through) and while the depot is busy, which covers the run's own opening.
+
+**It drives in nose first, not in reverse.** The literal reverse of the opening is the taxi backing
+in, and backing in means stopping on the live lane past the driveway first. A staged car is invisible
+to the lane bookkeeping (see the note at the top of `game/drivethru.js`), so anything behind the taxi
+would drive straight through it while it stood there. Turning in off the lane clears the carriageway
+in about half a second, the same trade the drive-through's entry arc makes. The car is then turned
+round on the spot while the door is shut — nobody can see it, and the curtain is what the opening
+already hid the car behind. The entry path is the exit's fillet mirrored about the driveway, and it
+ends on the very point the exit starts from; the probe asserts that, and that the mouth is exactly
+where `placeCar` has the car on the merge lane.
+
+**The destination is a lane**, for [the burger run's reasons](#the-burger-run): the driveway opens
+off the near lane of the road the door faces, running +Z, so the route is `findRouteOnto` that lane
+and the band is trimmed at the mouth by `endAt`. The taxi stays in the traffic model right up to the
+mouth and is caught on the frame it reaches it — a taxi that went past, boosting or weaving wide, is
+sent round the block for one more go. The same identity rule as the burger holds too: anything else
+the player aims the taxi at takes the wheel back, and a rider boarding en route is dispatched and
+then handed straight back to the depot with their drop-off as the job to return to.
+
+**The job comes back on the way out**, on the frame the car is back in the traffic model rather
+than when the camera lets go — the handover is 5.5 units short of a junction, and a car with no
+route there turns at random. A rider aboard outranks whatever was remembered at the tap
+(`resumeJob`, shared with the burger run). A tap on a rider *during* the visit stands: `stageCar`
+never saw that route, and the lane it was planned from is the one the car is released onto.
+
+**Loco Mode is dead for the whole visit**, and `taxi.boost` is forced off while the car is staged —
+boost's one-second cooldown tail outlasts the turn-in, and `sim/collisions.js` keys everything off
+that flag, so a car arriving on the pill could otherwise wreck on the kerb it was driving over.
+
+There is no tap-to-skip. The opening's skip works because nothing else on the map is tappable while
+it runs; during a repair the board is live, and a tap on a rider has to mean the rider.
+
 ## The brake
 
 The **Brake** button, to the right of the Loco Mode pill and sharing the bottom row with it:

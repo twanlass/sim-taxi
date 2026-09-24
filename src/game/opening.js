@@ -28,6 +28,19 @@ import { aimAtHeight } from './camera.js';
 //     up waiting after HOLD_MAX, because a run that will not start is worse than a near miss.
 //   - it does not brake for the junction it hands off short of. `releaseCar` puts the taxi on the
 //     lane with its speed intact and the traffic model takes over from there, red light included.
+//
+// **And it plays backwards for repairs.** `enter()` runs the same shot the other way round: the
+// camera comes down onto the door as the taxi turns in off the lane, the door rolls up, the car
+// drives into the bay and the door comes down behind it — and then, from behind the shut door, the
+// opening itself plays forward from `door`, with the damage gone. game/depotrun.js is what gets the
+// car to the driveway; everything from the lane onward is here, because it is this shot.
+//
+// It drives in **nose first**, not in reverse. Backing in means stopping on the live lane past the
+// driveway, and a staged car is invisible to the lane bookkeeping (see the note at the top of
+// game/drivethru.js): anything behind the taxi would drive straight through it while it stood
+// there. Turning in off the lane clears the carriageway in about half a second, the same trade the
+// drive-through's entry arc makes. The car is then turned round on the spot while the door is
+// shut, which nobody can see — and the curtain is what the whole opening already hid it behind.
 
 // --- The camera -------------------------------------------------------------
 
@@ -114,6 +127,31 @@ const RISE_PITCH = 0.6;
 const NOSE_BEHIND = 0.25;
 const parkedX = (site) => site.curtainX - TAXI_TAILPIPE_BACK - NOSE_BEHIND;
 
+// --- The way back in (see `enter`) --------------------------------------------
+
+// Speeds on the way in, u/s. The fillet is the same 2-unit radius the exit takes, at the same speed
+// the drive-through takes its own, and a car arriving faster than `ENTRY_CAP` sheds the difference
+// in one step at the driveway — see the note on `ENTRY_CAP` in game/drivethru.js, which is the same
+// constraint: nothing out here can slow a car down while it is still in the traffic model.
+const ENTRY_CAP = 5.2;
+const ENTER_V = 4.6;
+// Across the forecourt and into the bay: the crawl it comes back out at.
+const IN_CREEP = CREEP;
+// How far short of the curtain the nose waits if the door is not up yet. The door starts moving on
+// the frame the car turns in and is normally open well before it gets here; this is for the car
+// that arrived fast.
+const DOOR_CLEAR = 0.3;
+// And the kerb going up, mirrored: the front wheels climb first and put the nose up, the rear
+// follows and brings it down. Smaller than the drop off it, because climbing a kerb is slower.
+const MOUNT_PITCH = 0.6;
+const MOUNT_SETTLE = 0.4;
+// The door coming back down behind the car. Quicker than DOOR_CLOSE_TIME on the way out: there it
+// is scenery behind a camera that has moved on, and here it is the beat the camera is waiting on.
+const DOOR_SHUT = 0.9;
+// Held on the shut door while the car is put right behind it. Only long enough to be a pause
+// between the door landing and going back up — the repair is what the door coming down *means*.
+const REPAIR = 0.45;
+
 const smoothstep = (k) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k));
 
 /**
@@ -144,6 +182,30 @@ export function exitPath(site) {
 }
 
 /**
+ * The path in: a quarter circle off the lane onto the driveway, then straight into the bay.
+ *
+ * The exit's fillet mirrored about the driveway — same radius, same tangency argument — so it
+ * leaves the near lane `turnR` short of the driveway heading +Z and arrives on it heading −X. It
+ * ends on the very point the exit path starts from, facing the other way: the taxi is parked
+ * nose-in, and turned round behind the shut door (see the header note).
+ *
+ * `mouth` is where the car leaves the lane, which is where game/depotrun.js catches it.
+ */
+export function entryPath(site) {
+  const { exitZ, kerbX, turnR } = site;
+  const fillet = arcCurve({ x: kerbX, z: exitZ - turnR }, turnR, 0, Math.PI / 2);
+  const run = lineCurve({ x: kerbX, z: exitZ }, { x: parkedX(site), z: exitZ });
+  return {
+    fillet,
+    run,
+    mouth: fillet.at(0),
+    total: fillet.length + run.length,
+    at: (s) => (s <= fillet.length ? fillet.at(s) : run.at(s - fillet.length)),
+    tangentAt: (s) => (s <= fillet.length ? fillet.tangentAt(s) : run.tangentAt(s - fillet.length)),
+  };
+}
+
+/**
  * @param site        the depot's geometry — see `garageSite` in city/garage.js
  * @param setDoor     (open01) => void, the curtain
  * @param taxi        the player's car, as a traffic-model car
@@ -159,6 +221,8 @@ export function exitPath(site) {
  *                    main.js owns that decision, not this module.
  * @param isBlocked   () => boolean — something in front of this is still holding the run
  * @param onDrop      fires once, on the frame the taxi's rear axle comes off the kerb
+ *
+ * The returned `enter()` replays the whole thing for a repair — see the header note.
  */
 export function createOpening({
   site, setDoor, taxi, taxiGroup, cars, controller, aspect, playZoom,
@@ -166,8 +230,17 @@ export function createOpening({
 }) {
   const path = exitPath(site);
   const merge = path.at(path.total);
+  const inPath = entryPath(site);
+  // The nose's hold point on the way in, if the door is still coming up: DOOR_CLEAR short of the
+  // curtain, as arc length along the entry path.
+  const doorHoldS = inPath.fillet.length
+    + (site.kerbX - (site.curtainX + TAXI_TAILPIPE_BACK + DOOR_CLEAR));
 
-  // 'wait' | 'approach' | 'settle' | 'door' | 'reveal' | 'roll' | 'release' | 'done'
+  // 'opening' is the run's first seven seconds; 'visit' is a trip back in for repairs, which runs
+  // 'enter' → 'shut' → 'repair' and then the opening's own phases from 'door' on.
+  let mode = 'opening';
+  // 'wait' | 'approach' | 'settle' | 'door' | 'reveal' | 'roll' | 'release' | 'done', plus the
+  // visit's 'enter' | 'shut' | 'repair'
   let phase = 'wait';
   let clock = 0;
   let held = 0;               // seconds spent waiting for a gap at the kerb
@@ -176,6 +249,14 @@ export function createOpening({
   let landed = false;
   let closing = 0;            // 0 = still up, 1 = shut again behind the car
   let released = false;       // is the taxi back in the traffic model
+  // The visit's own: arc length along the entry path, how far the door has got, the kerb going up,
+  // and the two callbacks `enter` was handed.
+  let sIn = 0;
+  let opened = 0;
+  let mounted = false;
+  let climbed = false;
+  let repaired = false;
+  let visit = null;
 
   const parked = path.at(0);
   const startTangent = path.tangentAt(0);
@@ -207,6 +288,81 @@ export function createOpening({
     const v = taxi.v;
     released = releaseCar(taxi, site.merge.d, site.merge.i, site.merge.j, site.merge.back);
     if (released) taxi.v = v;
+    // A repaired taxi is on the road again, and the job it left needs putting back under it *now*:
+    // the handover lands it 5.5 units short of a junction, and a car with no route there turns at
+    // random.
+    if (released && mode === 'visit') visit.onRelease();
+  }
+
+  /** Write a staged car's pose and the per-frame bookkeeping the loops it is out of would do. */
+  function place(p, t, dt) {
+    taxi.x = p.x;
+    taxi.z = p.z;
+    taxi.yaw = Math.atan2(-t.z, t.x);
+    taxi.travelled += taxi.v * dt;
+    taxi.speedFactor = taxi.v / SPEED;
+  }
+
+  /** Ease the speed toward `target` at the opening's own rates. */
+  function drive(target, dt) {
+    taxi.v = target < taxi.v
+      ? Math.max(target, taxi.v - BRAKE * dt)
+      : Math.min(target, taxi.v + ACCEL * dt);
+  }
+
+  /**
+   * One step in off the lane and into the bay. Returns true once the car is parked.
+   *
+   * Every target speed is capped by the speed it can still stop from before wherever it has to
+   * stop — the curtain if the door is not up yet, otherwise the end of the path — so it rolls up to
+   * both rather than arriving and standing on the brakes.
+   */
+  function rollIn(dt) {
+    const stopAt = opened < 1 ? doorHoldS : inPath.total;
+    const room = Math.max(0, stopAt - sIn);
+    const cruise = sIn < inPath.fillet.length ? ENTER_V : IN_CREEP;
+    drive(Math.min(cruise, Math.sqrt(2 * BRAKE * room)), dt);
+    sIn = Math.min(sIn + taxi.v * dt, stopAt);
+    place(inPath.at(sIn), inPath.tangentAt(sIn), dt);
+    // Indicating off the road, and not once it is on the forecourt.
+    taxi.stageSignal = sIn < inPath.fillet.length ? 'right' : null;
+
+    // Up the dropped kerb: the same band the drop off it is measured on, read the other way.
+    const drop = smoothstep((taxi.x - (site.kerbX + DROP_FROM)) / (DROP_TO - DROP_FROM));
+    taxi.kerbLift = PAVEMENT_Y * (1 - drop);
+    if (!mounted && drop < 1) {
+      mounted = true;
+      taxi.pitchV += MOUNT_PITCH;       // front wheels onto the ramp: nose up
+    }
+    if (!climbed && drop <= 0) {
+      climbed = true;
+      taxi.pitchV -= MOUNT_SETTLE;      // rear follows it up, and the nose comes back down
+    }
+    return sIn >= inPath.total - 1e-6 && taxi.v < 0.05;
+  }
+
+  /**
+   * Behind the shut door: the car is put right and turned round to face out, which is the pose the
+   * opening starts from. Written by hand rather than through `stageCar`, which would also clear a
+   * route the player may have planned while the car was in here.
+   */
+  function repair() {
+    if (repaired) return;
+    repaired = true;
+    const t = path.tangentAt(0);
+    taxi.x = parked.x;
+    taxi.z = parked.z;
+    taxi.yaw = Math.atan2(-t.z, t.x);
+    // Primed with the yaw, or the steering differencer reads a half turn out of one frame and
+    // slams the front wheels lock to lock.
+    taxi.prevSteerYaw = taxi.yaw;
+    taxi.v = 0;
+    taxi.prevV = 0;
+    taxi.pitch = 0;
+    taxi.pitchV = 0;
+    taxi.kerbLift = PAVEMENT_Y;
+    taxi.stageSignal = null;
+    visit.onRepair();
   }
 
   /** Drive the taxi one step along the exit path. Returns true once it has reached the lane. */
@@ -282,6 +438,21 @@ export function createOpening({
       clock = 0;
     }
     if (phase === 'settle' && clock >= SETTLE) { phase = 'door'; clock = 0; }
+
+    // --- The visit's half, which ends by handing over to 'door' below.
+    if (phase === 'enter') {
+      // The door is already going up — it starts on the frame the car turns in, on the opening's
+      // own ease, and is normally open before the car reaches it.
+      opened = Math.min(1, opened + dt / DOOR_TIME);
+      setDoor(1 - (1 - opened) * (1 - opened));
+      if (rollIn(dt)) { phase = 'shut'; clock = 0; }
+    }
+    if (phase === 'shut') {
+      const k = Math.min(1, clock / DOOR_SHUT);
+      setDoor(1 - k);
+      if (k >= 1) { phase = 'repair'; clock = 0; repair(); }
+    }
+    if (phase === 'repair' && clock >= REPAIR) { phase = 'door'; clock = 0; }
     if (phase === 'door') {
       // Ease-out rather than linear: a roller door leaves fast under its own counterweight and
       // creeps the last few inches, and a constant rate reads as a lift rather than a door.
@@ -348,6 +519,8 @@ export function createOpening({
 
   function finish() {
     if (phase === 'done') return;
+    // A visit landed early (`settle`) still has to have fixed the car.
+    if (mode === 'visit') repair();
     phase = 'done';
     handOff();
     // Shut, not open. The car is out and the door came down behind it — that is the state a run is
@@ -361,6 +534,52 @@ export function createOpening({
     setDoor(0);
     taxi.stageSignal = null;
     setGhostOutlines(taxiGroup, true);
+    if (mode === 'visit') visit.onDone();
+  }
+
+  /**
+   * Take the taxi off the lane and into the depot for repairs, then send it back out.
+   *
+   * `s0` is how far past the mouth the car got on the frame it was caught — the fillet leaves
+   * tangent to the lane, so that overshoot is the same distance along the path, exactly as the
+   * drive-through takes its cars.
+   *
+   * @param onRepair   fires once, behind the shut door: the moment to put the car right
+   * @param onRelease  fires once, on the frame the car is back in the traffic model
+   * @param onDone     fires once, when the camera has been handed back
+   * Returns false, and does nothing, if the depot is already busy.
+   */
+  function enter(s0, { onRepair = () => {}, onRelease = () => {}, onDone = () => {} } = {}) {
+    if (phase !== 'done') return false;
+    mode = 'visit';
+    visit = { onRepair, onRelease, onDone };
+    phase = 'enter';
+    clock = 0;
+    sIn = Math.min(Math.max(0, s0), inPath.fillet.length);
+    opened = 0;
+    mounted = false;
+    climbed = false;
+    repaired = false;
+    // ...and the exit's own state, which the forward half runs on exactly as the opening did.
+    s = 0;
+    held = 0;
+    dropped = false;
+    landed = false;
+    closing = 0;
+    released = false;
+
+    const v = Math.min(taxi.v, ENTRY_CAP);
+    const p = inPath.at(sIn);
+    const t = inPath.tangentAt(sIn);
+    // Staged at its pose, and the speed and its differencer restored together — the reasons are
+    // the ones on `take` in game/drivethru.js.
+    stageCar(taxi, p.x, p.z, Math.atan2(-t.z, t.x));
+    taxi.v = v;
+    taxi.prevV = v;
+    taxi.kerbLift = 0;
+    taxi.stageSignal = 'right';
+    setGhostOutlines(taxiGroup, false);
+    return true;
   }
 
   /**
@@ -370,6 +589,7 @@ export function createOpening({
    * be a second opening to keep working.
    */
   function settle() {
+    if (phase === 'done') return;
     // Straight to the end of the path, so the handover lands the car on the lane rather than
     // wherever it had crept to.
     s = path.total;
@@ -396,12 +616,20 @@ export function createOpening({
    * and the settle above is what puts the car on the road.
    */
   function skip() {
-    if (phase === 'done') return;
+    if (phase === 'done' || mode !== 'opening') return;
     settle();
     const rest = restFraming();
     controller.focusOn(rest.x, rest.z, playZoom, 999, aspect());
   }
 
-  return { update, frameCamera, holdsCamera, settle, skip, running: () => phase !== 'done',
-    phase: () => phase };
+  return {
+    update, frameCamera, holdsCamera, settle, skip, enter,
+    /** The run's own opening is still playing. A repair visit is not this — see `visiting`. */
+    running: () => mode === 'opening' && phase !== 'done',
+    /** A repair visit is in progress, from the turn in off the lane to the camera handed back. */
+    visiting: () => mode === 'visit' && phase !== 'done',
+    phase: () => phase,
+    /** Where a visit takes the car off the lane — game/depotrun.js catches the taxi here. */
+    mouth: inPath.mouth,
+  };
 }

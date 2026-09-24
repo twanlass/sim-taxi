@@ -29,7 +29,8 @@ import {
 } from '../src/city/burgerjoint.js';
 import { createDriveThru } from '../src/game/drivethru.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
-import { createOpening, exitPath } from '../src/game/opening.js';
+import { createOpening, exitPath, entryPath } from '../src/game/opening.js';
+import { createDepotRun } from '../src/game/depotrun.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, setPriorityCorridor, policeRoads, setPoliceRoads, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
@@ -12106,6 +12107,155 @@ let chopperOrder; // likewise
       + `target ${Math.hypot(onDoor.x - rest.x, onDoor.z - rest.z).toFixed(1)} units off rest`);
     check('...and the camera handed back with it',
       !opening.holdsCamera());
+  }
+
+  // --- The way back in, for repairs (`enter` in game/opening.js, game/depotrun.js).
+  //
+  // The entry path is the exit's fillet mirrored, and it has to leave the lane exactly where the
+  // traffic model has the car — the same agreement the exit's landing is held to, the other way
+  // round. It is checked against `placeCar` on the merge lane, counted back by the fillet's own
+  // span: the mouth is 2·turnR short of where the exit lands.
+  const inPath = entryPath(site);
+  {
+    const mouthStand = traffic.cars.find((c) => !c.isTaxi);
+    const was = { lane: mouthStand.lane, s: mouthStand.s, state: mouthStand.state, turn: mouthStand.turn };
+    const onLane = placeCar(mouthStand, site.merge.d, site.merge.i, site.merge.j,
+      site.merge.back + 2 * site.turnR);
+    const at = onLane ? mouthStand.lane.path.at(mouthStand.s) : { x: Infinity, z: Infinity };
+    check('the way in leaves the merge lane exactly where the traffic model has the car',
+      onLane && mouthStand.s > 0 && Math.hypot(at.x - inPath.mouth.x, at.z - inPath.mouth.z) < 1e-9,
+      `mouth ${inPath.mouth.x.toFixed(3)},${inPath.mouth.z.toFixed(3)} vs lane ${at.x.toFixed(3)},${at.z.toFixed(3)}`
+      + `, ${onLane ? mouthStand.s.toFixed(2) : '—'} units into it`);
+    Object.assign(mouthStand, was);
+    const t0 = inPath.tangentAt(0);
+    const a = inPath.tangentAt(inPath.fillet.length - 1e-6);
+    const b = inPath.tangentAt(inPath.fillet.length + 1e-6);
+    const last = inPath.at(inPath.total);
+    const tEnd = inPath.tangentAt(inPath.total);
+    check('...turns in off it with no kink, onto the driveway heading into the bay',
+      Math.abs(t0.x) < 1e-9 && Math.abs(t0.z - 1) < 1e-9
+      && Math.hypot(a.x - b.x, a.z - b.z) < 1e-3 && Math.abs(tEnd.x + 1) < 1e-9);
+    check('...and parks on the very spot the opening drives out of',
+      Math.hypot(last.x - parked.x, last.z - parked.z) < 1e-9);
+  }
+
+  // And a whole visit, end to end, in a live city: the taxi is sent from a handful of jobs, driven
+  // there by the router, caught at the mouth, taken in, repaired behind a shut door, and driven back
+  // out — and each of the claims the visit makes has to hold on every trip.
+  {
+    const vScene = new THREE.Scene();
+    const vTraffic = createTraffic(makeRng(seed + 44), vScene, 12);
+    vTraffic.warmup(10);
+    const taxi = vTraffic.taxi;
+    const controller = createCityCamera(1.6, { zoom: PLAY_ZOOM });
+    let door = 0;
+    const setDoor = (k) => { door = k; garage.setDoor(k); };
+    const opening = createOpening({
+      site, setDoor, taxi, taxiGroup: vTraffic.taxiGroup, cars: vTraffic.cars, controller,
+      aspect: () => 1.6, playZoom: PLAY_ZOOM, restFraming: () => ({ x: 0, z: 0 }),
+    });
+    opening.settle();
+
+    const routeTo = (target, { via = null, maxDetour, onto = null } = {}) => {
+      const route = via
+        ? findRouteVia(planOrigin(taxi), via, target, { maxDetour, onto })
+        : onto !== null
+          ? findRouteOnto(planOrigin(taxi), target, onto)
+          : findRoute(planOrigin(taxi), target);
+      if (!route) return false;
+      taxi.route = route;
+      taxi.routeConsumed = false;
+      taxi.pendingTarget = target;
+      taxi.parked = false;
+      return true;
+    };
+
+    let repairs = 0;
+    let repairedOpen = 0;
+    let releases = 0;
+    let dones = 0;
+    let handedBack = 0;
+    let visit = null;
+    const depot = createDepotRun({
+      site, mouth: inPath.mouth, taxi, routeTo,
+      onArrive: (s0, handBack) => opening.enter(s0, {
+        onRepair: () => {
+          repairs += 1;
+          if (door > 1e-9) repairedOpen += 1;
+          taxi.hp = TAXI_HP;
+        },
+        onRelease: () => {
+          releases += 1;
+          visit.landed = taxi.lane?.path.at(taxi.s) ?? null;
+          if (handBack && routeTo(handBack)) handedBack += 1;
+        },
+        onDone: () => { dones += 1; },
+      }),
+    });
+
+    const S = 1 / 60;
+    const tick = () => {
+      depot.update(S);
+      opening.update(S);
+      opening.frameCamera(S);
+      vTraffic.update(S);
+    };
+    const merge = exitPath(site).at(exitPath(site).total);
+    const jobs = [
+      { i: 0, j: 0 }, { i: GRID_I, j: GRID_J }, { i: site.merge.i, j: site.merge.j - 1 },
+      { i: 0, j: GRID_J },
+    ];
+    let trips = 0;
+    let caught = 0;
+    let badLanding = 0;
+    let stillStaged = 0;
+    let wrongJob = 0;
+    let longestVisit = 0;
+    let longestDrive = 0;
+    const phasesSeen = new Set();
+    for (const job of jobs) {
+      routeTo(job);
+      for (let n = 0; n < 120; n++) tick();
+      taxi.hp = 10;
+      if (!depot.send()) continue;
+      trips += 1;
+      visit = { landed: null };
+      let drive = 0;
+      while (depot.active() && drive < 150) { tick(); drive += S; }
+      longestDrive = Math.max(longestDrive, drive);
+      if (!opening.visiting()) continue;
+      caught += 1;
+      let t = 0;
+      while (opening.visiting() && t < 30) {
+        phasesSeen.add(opening.phase());
+        tick();
+        t += S;
+      }
+      longestVisit = Math.max(longestVisit, t);
+      if (!visit.landed || Math.hypot(visit.landed.x - merge.x, visit.landed.z - merge.z) > 1e-9) {
+        badLanding += 1;
+      }
+      if (taxi.staged) stillStaged += 1;
+      if (taxi.pendingTarget !== job) wrongJob += 1;
+    }
+
+    check('a tap on the depot gets the taxi to its driveway and in',
+      trips === jobs.length && caught === trips,
+      `${caught}/${trips} caught at the mouth, slowest drive ${longestDrive.toFixed(1)}s`);
+    check('...plays the vignette backwards and then forwards',
+      ['enter', 'shut', 'repair', 'door', 'reveal', 'roll', 'release'].every((p) => phasesSeen.has(p)),
+      [...phasesSeen].join(' → '));
+    check('...repairs it once per visit, behind a shut door',
+      repairs === caught && repairedOpen === 0 && taxi.hp === TAXI_HP,
+      `${repairs} repairs over ${caught} visits, ${repairedOpen} with the door up`);
+    check('...lands it back on the merge lane, to the bit, in the traffic model',
+      badLanding === 0 && stillStaged === 0 && releases === caught && dones === caught,
+      `${badLanding} bad landings, ${stillStaged} left staged, ${releases} releases, ${dones} done`);
+    // Measured on this seed: 9.9s, turn-in to camera handed back — enter 2.5, shut 0.9, repair 0.45,
+    // and the opening's own forward half is the other six.
+    check('...in under a dozen seconds, and hands the job it interrupted back',
+      longestVisit < 12 && wrongJob === 0 && handedBack === caught,
+      `longest visit ${longestVisit.toFixed(1)}s, ${handedBack}/${caught} jobs handed back`);
   }
 
   // --- The livery, and the mast over it.
