@@ -6,7 +6,7 @@ import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT } from './wh
 import {
   lightPodGeometry, brakeLightAnchors, turnSignalAnchors, brakeLightMaterial, turnSignalMaterial,
 } from './lights.js';
-import { addGhostOutline } from './ghostoutline.js';
+import { addGhostOutline, addGhostMask } from './ghostoutline.js';
 
 // The player's taxi. Built as its own Group rather than an instance in the traffic InstancedMesh
 // because it needs to be raycast against for picking, and because it wears things the ambient cars
@@ -435,6 +435,14 @@ function buildDamage(group, lightPods) {
   bumperHinge.scale.setScalar(0);
   group.add(bumperHinge);
   // Angle that puts the free end's underside on the road: the hinge is BUMPER_Y up.
+  // Every piece in the ghost stencil mask, or it counts as an occluder of the shell's rim: a lid
+  // swung up sits inside the shell's 0.3 hull, and the rim traced itself right across it — the
+  // wheels' rocker-panel streak again (see addGhostOutline(shell)). Mask only, no rim: a thin panel
+  // cannot carry a hull (see addGhostMask), and each mask inherits its part's zero scale while the
+  // part is put away, so an undamaged car stamps nothing extra.
+  for (const part of [lid, hole, hood, bay, bar]) addGhostMask(part);
+  for (const lamp of lamps.values()) { addGhostMask(lamp.housing); addGhostMask(lamp.wire); }
+
   const droopToRoad = Math.asin(Math.min(1, (BUMPER_Y - BUMPER_T / 2) / BUMPER_LEN));
   const tipLocal = new THREE.Vector3(0, -BUMPER_T / 2, -BUMPER_LEN);
 
