@@ -156,6 +156,10 @@ const DOOR_SHUT = 0.9;
 // has to outlast the wipe's own fade in (IN_MS in game/wipe.js, 0.3s) or the door starts going up
 // while the screen is still coming back. Without a wipe it is the whole beat on the shut door.
 const REPAIR = 0.45;
+// How long the repair visit sits on full black between going in and coming out. The skip's own
+// 90ms hold makes a cut; this one is a beat — long enough that the car has plainly been in the
+// shop, rather than the two fades reading as one blink.
+const REPAIR_BLACK_MS = 1000;
 
 const smoothstep = (k) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k));
 
@@ -226,8 +230,9 @@ export function entryPath(site) {
  *                    main.js owns that decision, not this module.
  * @param isBlocked   () => boolean — something in front of this is still holding the run
  * @param onDrop      fires once, on the frame the taxi's rear axle comes off the kerb
- * @param cut         (atBlack) => boolean — game/wipe.js's `cut`, or null. A repair visit fades to
- *                    black once the door is down and runs the repair under it; false (a wipe
+ * @param cut         (atBlack, holdMs) => boolean — game/wipe.js's `cut`, or null. A repair visit
+ *                    fades to black once the door is down, holds it for REPAIR_BLACK_MS and runs
+ *                    the repair under it; false (a wipe
  *                    already running) or no wipe at all and the repair just happens.
  *
  * The returned `enter()` replays the whole thing for a repair — see the header note.
@@ -477,7 +482,7 @@ export function createOpening({
           phase = 'repair';
           clock = 0;
         };
-        if (!cut?.(atBlack)) atBlack();
+        if (!cut?.(atBlack, REPAIR_BLACK_MS)) atBlack();
       }
     }
     if (phase === 'repair' && clock >= REPAIR) { phase = 'door'; clock = 0; }
