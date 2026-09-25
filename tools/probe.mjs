@@ -29,7 +29,7 @@ import {
 } from '../src/city/burgerjoint.js';
 import { createDriveThru } from '../src/game/drivethru.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
-import { createOpening, exitPath, entryPath } from '../src/game/opening.js';
+import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, setPriorityCorridor, policeRoads, setPoliceRoads, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE } from '../src/sim/traffic.js';
@@ -37,6 +37,7 @@ import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/loc
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
 import { createSparks } from '../src/game/sparks.js';
+import { createRepairFx } from '../src/game/repairfx.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
 import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, laneCost } from '../src/game/route.js';
 import { createCollisions, TAXI_HP, bumpDamage, penetration } from '../src/sim/collisions.js';
@@ -12458,13 +12459,15 @@ let chopperOrder; // likewise
     const controller = createCityCamera(1.6, { zoom: PLAY_ZOOM });
     let door = 0;
     const setDoor = (k) => { door = k; garage.setDoor(k); };
-    let blackIn = null;
+    // A stand-in for game/repairfx.js that records what the door was doing while the shop worked.
+    let working = false;
+    let starts = 0;
+    let doorWhileWorking = 0;
+    const workshop = { start: () => { working = true; starts += 1; }, stop: () => { working = false; } };
     const opening = createOpening({
       site, setDoor, taxi, taxiGroup: vTraffic.taxiGroup, cars: vTraffic.cars, controller,
       aspect: () => 1.6, playZoom: PLAY_ZOOM, restFraming: () => ({ x: 0, z: 0 }),
-      // A stand-in for game/wipe.js: black a quarter of a second after it is asked for, the way
-      // the real one lands on a wall-clock timer rather than inside the frame that asked.
-      cut: (atBlack) => { blackIn = { atBlack, frames: 15 }; return true; },
+      workshop,
     });
     opening.settle();
 
@@ -12493,7 +12496,7 @@ let chopperOrder; // likewise
       onArrive: (s0, handBack) => opening.enter(s0, {
         onRepair: () => {
           repairs += 1;
-          if (door > 1e-9) repairedOpen += 1;
+          if (door > REPAIR_GAP + 1e-9) repairedOpen += 1;
           taxi.hp = TAXI_HP;
         },
         onRelease: () => {
@@ -12507,7 +12510,7 @@ let chopperOrder; // likewise
 
     const S = 1 / 60;
     const tick = () => {
-      if (blackIn && --blackIn.frames <= 0) { blackIn.atBlack(); blackIn = null; }
+      if (working) doorWhileWorking = Math.max(doorWhileWorking, door);
       depot.update(S);
       opening.update(S);
       opening.frameCamera(S);
@@ -12525,8 +12528,10 @@ let chopperOrder; // likewise
     let wrongJob = 0;
     let longestVisit = 0;
     let longestDrive = 0;
-    let brakeAtShut = 0;
+    let lampsOnInShut = 0;
+    let shortestVisit = Infinity;
     const phasesSeen = new Set();
+    const phaseTime = {};
     for (const job of jobs) {
       routeTo(job);
       for (let n = 0; n < 120; n++) tick();
@@ -12542,11 +12547,13 @@ let chopperOrder; // likewise
       let t = 0;
       while (opening.visiting() && t < 30) {
         phasesSeen.add(opening.phase());
-        if (opening.phase() === 'black') brakeAtShut = Math.max(brakeAtShut, taxi.brakeLevel);
+        phaseTime[opening.phase()] = (phaseTime[opening.phase()] ?? 0) + S;
+        if (opening.phase() === 'shut' && !taxi.stageLampsOff) lampsOnInShut += 1;
         tick();
         t += S;
       }
       longestVisit = Math.max(longestVisit, t);
+      shortestVisit = Math.min(shortestVisit, t);
       if (!visit.landed || Math.hypot(visit.landed.x - merge.x, visit.landed.z - merge.z) > 1e-9) {
         badLanding += 1;
       }
@@ -12558,23 +12565,104 @@ let chopperOrder; // likewise
       trips === jobs.length && caught === trips,
       `${caught}/${trips} caught at the mouth, slowest drive ${longestDrive.toFixed(1)}s`);
     check('...plays the vignette backwards and then forwards',
-      ['enter', 'shut', 'black', 'repair', 'door', 'reveal', 'roll', 'release'].every((p) => phasesSeen.has(p)),
+      ['enter', 'shut', 'repair', 'door', 'reveal', 'roll', 'release'].every((p) => phasesSeen.has(p)),
       [...phasesSeen].join(' → '));
     // Engine off once it is parked: the tail lamps face the door, and a lit one that close glows
-    // through it (the depth bias note on the park check above).
-    check('...with its brake lamps dark by the time the door is down',
-      brakeAtShut < 0.05, `brake level ${brakeAtShut.toFixed(3)} under a shut door`);
-    check('...repairs it once per visit, behind a shut door',
-      repairs === caught && repairedOpen === 0 && taxi.hp === TAXI_HP,
-      `${repairs} repairs over ${caught} visits, ${repairedOpen} with the door up`);
+    // through it (the depth bias note on the park check above). The door no longer comes all the
+    // way down — the car is turned round, lamps to the back wall, the frame it reaches its gap —
+    // so what is left to hold is that they are switched off for the whole of the way down.
+    check('...with its brake lamps switched off while the door comes down',
+      lampsOnInShut === 0, `${lampsOnInShut} frames of 'shut' with the lamps on`);
+    // The door stops a fifth short of the floor for the repair (REPAIR_GAP), and the shop works
+    // behind it — never with it any further up, or the car being turned round is in plain view.
+    check('...repairs it once per visit, with the door down to its gap and the shop working',
+      repairs === caught && repairedOpen === 0 && taxi.hp === TAXI_HP
+      && starts === caught && !working && doorWhileWorking <= REPAIR_GAP + 1e-9,
+      `${repairs} repairs over ${caught} visits, ${repairedOpen} with the door further up, `
+      + `${starts} shifts, door ${doorWhileWorking.toFixed(2)} at most while working`);
     check('...lands it back on the merge lane, to the bit, in the traffic model',
       badLanding === 0 && stillStaged === 0 && releases === caught && dones === caught,
       `${badLanding} bad landings, ${stillStaged} left staged, ${releases} releases, ${dones} done`);
-    // Measured on this seed: 9.9s, turn-in to camera handed back — enter 2.5, shut 0.9, repair 0.45,
-    // and the opening's own forward half is the other six.
-    check('...in under a dozen seconds, and hands the job it interrupted back',
-      longestVisit < 12 && wrongJob === 0 && handedBack === caught,
-      `longest visit ${longestVisit.toFixed(1)}s, ${handedBack}/${caught} jobs handed back`);
+    // Measured on this seed: 11.6s, turn-in to camera handed back — enter 2.7, shut 0.7, repair
+    // 2.4, door 0.8, reveal 0.35, roll 2.7, release 1.9 — with one of the four visits at 15.6,
+    // which is the same visit waiting four seconds at the kerb for a gap (HOLD_MAX in
+    // game/opening.js is 5). Hence two bounds: a dozen seconds for a visit that gets a clear road,
+    // and that plus HOLD_MAX for one that does not.
+    const mean = Object.entries(phaseTime).map(([p, t]) => `${p} ${(t / Math.max(1, caught)).toFixed(2)}`);
+    check('...in about a dozen seconds, and hands the job it interrupted back',
+      shortestVisit < 12 && longestVisit < 17 && wrongJob === 0 && handedBack === caught,
+      `visits ${shortestVisit.toFixed(1)}–${longestVisit.toFixed(1)}s, ${handedBack}/${caught} jobs handed back; `
+      + `mean ${mean.join(', ')}`);
+
+    // And the tap that skips it: sent in again, skipped mid-repair, and the visit has to land
+    // exactly as the end of the sequence would have — fixed, on the lane, the shop gone quiet.
+    routeTo(jobs[0]);
+    for (let n = 0; n < 120; n++) tick();
+    taxi.hp = 10;
+    const before = { repairs, releases, dones };
+    let reached = false;
+    if (depot.send()) {
+      let t = 0;
+      while (t < 150 && !(opening.visiting() && opening.phase() === 'repair' && working)) { tick(); t += S; }
+      reached = opening.phase() === 'repair';
+      opening.skip();
+    }
+    check('...and a tap mid-repair lands the visit: fixed, back in traffic, the shop stopped',
+      reached && !opening.visiting() && !taxi.staged && !working && taxi.hp === TAXI_HP && door === 0
+      && repairs === before.repairs + 1 && releases === before.releases + 1 && dones === before.dones + 1,
+      `reached repair ${reached}, visiting ${opening.visiting()}, staged ${taxi.staged}, `
+      + `working ${working}, door ${door}`);
+  }
+
+  // The shop at work behind the door's gap (game/repairfx.js). The two glow quads are three's own
+  // planes turned into place, and turned is exactly how a quad ends up facing the wrong way — on an
+  // unlit material that is not a wrong-looking glow but none at all (the boat-wake trap in
+  // CLAUDE.md). So the normal is taken from the index winding, for every triangle.
+  {
+    const rScene = new THREE.Scene();
+    const rSparks = createSparks(rScene, makeRng(seed + 135));
+    const rDust = createDust(rScene, null, makeRng(seed + 136));
+    const fx = createRepairFx({ scene: rScene, site, sparks: rSparks, dust: rDust, rng: makeRng(seed + 137) });
+    const facing = (mesh, axis) => {
+      const pos = mesh.geometry.attributes.position;
+      const idx = mesh.geometry.index;
+      const a = new THREE.Vector3();
+      const b = new THREE.Vector3();
+      const c = new THREE.Vector3();
+      let worst = Infinity;
+      for (let t = 0; t < idx.count; t += 3) {
+        a.fromBufferAttribute(pos, idx.getX(t));
+        b.fromBufferAttribute(pos, idx.getX(t + 1));
+        c.fromBufferAttribute(pos, idx.getX(t + 2));
+        const n = b.sub(a).cross(c.sub(a)).normalize();
+        worst = Math.min(worst, n.dot(axis));
+      }
+      return worst;
+    };
+    const poolUp = facing(fx.pool, new THREE.Vector3(0, 1, 0));
+    const gapOut = facing(fx.gap, new THREE.Vector3(1, 0, 0));
+    check('the repair glow faces the camera: the pool up off the forecourt, the gap out of the door',
+      poolUp > 0.999 && gapOut > 0.999, `pool ${poolUp.toFixed(3)} up, gap ${gapOut.toFixed(3)} out`);
+
+    fx.start();
+    let peakSparks = 0;
+    let lit = 0;
+    const T = 1 / 60;
+    for (let n = 0; n < 150; n++) {
+      fx.update(T);
+      rSparks.update(T);
+      rDust.update(T);
+      peakSparks = Math.max(peakSparks, rSparks.live());
+      if (fx.gap.visible) lit += 1;
+    }
+    fx.stop();
+    for (let n = 0; n < 60; n++) { fx.update(T); rSparks.update(T); }
+    check('...and while it works it welds: sparks out of the gap, the arc strobing on and off',
+      peakSparks > 10 && peakSparks < 64 && lit > 50 && lit < 135,
+      `${peakSparks} sparks at once, lit ${lit}/150 frames`);
+    check('...and stopping it lets the last of it die out',
+      !fx.working() && !fx.gap.visible && !fx.pool.visible && rSparks.live() === 0,
+      `gap ${fx.gap.visible}, pool ${fx.pool.visible}, ${rSparks.live()} sparks`);
   }
 
   // --- The livery, and the mast over it.

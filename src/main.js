@@ -40,6 +40,7 @@ import { createCityEntry } from './game/cityentry.js';
 import { createBlast } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createSparks } from './game/sparks.js';
+import { createRepairFx } from './game/repairfx.js';
 import { createLocoFlame } from './game/locoflame.js';
 import { createWreckage } from './game/wreckage.js';
 import { carrySpeed } from './util/carry.js';
@@ -795,6 +796,12 @@ const flames = createFlames(scene, makeRng(runSeed + 133));
 // below. Run seed, like the flames: which way a shower scatters is part of the situation, and a
 // stunt landing is not something a screenshot is ever staged on.
 const sparks = createSparks(scene, makeRng(runSeed + 134));
+// The depot at work during a repair visit: arc light, sparks and grit out from under a door left a
+// fifth open. Off the same two pools as everything else — see game/repairfx.js. Not in shot mode,
+// which never builds the vignette that drives it.
+const repairFx = garage && !shot
+  ? createRepairFx({ scene, site: garage.site, sparks, dust, rng: makeRng(runSeed + 135) })
+  : null;
 // The red and blue a cop car throws on the road during a robbery — the half of a siren that the
 // bar on the roof cannot do. Two point lights, parked on the nearest cop cars each frame; off
 // under `?safe`, where the bars keep flashing on their own. See game/coplights.js.
@@ -1513,6 +1520,10 @@ function resumeJob(handBack) {
   if (live.includes(handBack)) routeTo(handBack);
 }
 
+// The pickables a tap during a repair visit still answers to rather than skipping it — see the top
+// of the picker below.
+const JOB_KINDS = new Set(['passenger', 'destination', 'parcel', 'parcel-dropoff']);
+
 createPicker(
   camera,
   renderer.domElement,
@@ -1520,6 +1531,16 @@ createPicker(
     ...(burger ? [burger.group] : []), ...(garage ? [garage.group] : [])],
   (kind, hit) => {
     if (fares.state.gameOver) return;
+
+    // **A tap skips a repair visit**, behind the opening's own cut to black — unless it lands on a
+    // rider, a drop-off or a package. The board is live through a visit (only its clocks are
+    // held), and a tap on a rider has to keep meaning the rider: it plans the job the car comes
+    // back out to. Anything else — the sky, the depot, the taxi — is the player asking to be let
+    // out of the wait. Only once the vignette owns the camera, as the opening's skip is.
+    if (opening?.visiting() && opening.holdsCamera() && !JOB_KINDS.has(kind)) {
+      if (wipe) wipe.cut(() => opening.skip()); else opening.skip();
+      return;
+    }
 
     if (kind === 'burger') {
       sendForBurger();
@@ -2953,6 +2974,7 @@ function frame() {
   blast.update(dt);
   flames.update(dt);
   sparks.update(dt);
+  repairFx?.update(dt);
   wreckage.update(dt);
   flyover.update(dt);
   chopper.update(dt);
@@ -3846,9 +3868,8 @@ if (shot) {
       // Off the kerb. The same pool and the same call the boost trail uses, at about half a
       // barricade's power — two wheels coming off a 0.35-unit lip, not a car landing off a ramp.
       onDrop: () => dust.burst(traffic.taxi.x, traffic.taxi.z, traffic.taxi.yaw, 7, 0.5),
-      // The cut between going in for repairs and coming back out: a fade to black once the door
-      // is down, the same one the opening's skip uses.
-      cut: wipe ? (atBlack, holdMs) => wipe.cut(atBlack, holdMs) : null,
+      // What a repair visit shows while the door is down to its gap. See game/repairfx.js.
+      workshop: repairFx,
     });
     // `?vignette=off`, the same escape hatch `?tutorial=off` is: the opening is seven seconds
     // long and nobody iterating on the fare loop wants it on every reload. The module is

@@ -39,8 +39,13 @@ import { aimAtHeight } from './camera.js';
 // driveway, and a staged car is invisible to the lane bookkeeping (see the note at the top of
 // game/drivethru.js): anything behind the taxi would drive straight through it while it stood
 // there. Turning in off the lane clears the carriageway in about half a second, the same trade the
-// drive-through's entry arc makes. The car is then turned round on the spot while the door is
-// shut, which nobody can see — and the curtain is what the whole opening already hid it behind.
+// drive-through's entry arc makes. The car is then turned round on the spot behind a door that is
+// down to a fifth open — see REPAIR_GAP for why nobody can see that happen.
+//
+// **The door stops short for the repair.** It comes down to REPAIR_GAP rather than to the floor,
+// and the `workshop` (game/repairfx.js) throws a welder's arc, sparks and grit out from under it
+// for REPAIR seconds. This beat used to be a fade to black, which said "time passed" and nothing
+// about what it was spent on. A tap skips the visit the way it skips the opening — see `skip`.
 
 // --- The camera -------------------------------------------------------------
 
@@ -152,14 +157,17 @@ const MOUNT_SETTLE = 0.4;
 // The door coming back down behind the car. Quicker than DOOR_CLOSE_TIME on the way out: there it
 // is scenery behind a camera that has moved on, and here it is the beat the camera is waiting on.
 const DOOR_SHUT = 0.9;
-// Held on the shut door after the repair, counted from the fade to black starting to lift — so it
-// has to outlast the wipe's own fade in (IN_MS in game/wipe.js, 0.3s) or the door starts going up
-// while the screen is still coming back. Without a wipe it is the whole beat on the shut door.
-const REPAIR = 0.45;
-// How long the repair visit sits on full black between going in and coming out. The skip's own
-// 90ms hold makes a cut; this one is a beat — long enough that the car has plainly been in the
-// shop, rather than the two fades reading as one blink.
-const REPAIR_BLACK_MS = 1000;
+// How far the door is left open while the car is worked on: a fifth of DOOR_H, 0.68 units. Enough
+// of a slot for the arc light and the sparks to come out of, and not enough to see the car turned
+// round. The camera looks down at 33°, so a 0.68 gap shows about a unit of floor behind the
+// curtain — the bumper and the tops of the near wheels — and the swap moves the near bumper by
+// 0.39 units, from the tail to the nose (NOSE_BEHIND against `parkedInX`'s 0.64), under the first
+// flash of the arc.
+export const REPAIR_GAP = 0.2;
+// The repair itself, on the door at REPAIR_GAP: the welding in game/repairfx.js runs for exactly
+// this long. Three or four welds' worth — long enough to read as work being done, and about what
+// the fade to black it replaced cost in wall-clock time (160 + 1000 + 300 ms, then a 0.45 beat).
+const REPAIR = 2.4;
 
 const smoothstep = (k) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k));
 
@@ -230,16 +238,14 @@ export function entryPath(site) {
  *                    main.js owns that decision, not this module.
  * @param isBlocked   () => boolean — something in front of this is still holding the run
  * @param onDrop      fires once, on the frame the taxi's rear axle comes off the kerb
- * @param cut         (atBlack, holdMs) => boolean — game/wipe.js's `cut`, or null. A repair visit
- *                    fades to black once the door is down, holds it for REPAIR_BLACK_MS and runs
- *                    the repair under it; false (a wipe
- *                    already running) or no wipe at all and the repair just happens.
+ * @param workshop    { start(), stop() } — game/repairfx.js, or null. Started on the frame the door
+ *                    reaches REPAIR_GAP on a visit, stopped as it goes back up.
  *
  * The returned `enter()` replays the whole thing for a repair — see the header note.
  */
 export function createOpening({
   site, setDoor, taxi, taxiGroup, cars, controller, aspect, playZoom,
-  restFraming, isBlocked = () => false, onDrop = () => {}, cut = null,
+  restFraming, isBlocked = () => false, onDrop = () => {}, workshop = null,
 }) {
   const path = exitPath(site);
   const merge = path.at(path.total);
@@ -253,7 +259,7 @@ export function createOpening({
   // 'enter' → 'shut' → 'repair' and then the opening's own phases from 'door' on.
   let mode = 'opening';
   // 'wait' | 'approach' | 'settle' | 'door' | 'reveal' | 'roll' | 'release' | 'done', plus the
-  // visit's 'enter' | 'shut' | 'black' | 'repair'
+  // visit's 'enter' | 'shut' | 'repair'
   let phase = 'wait';
   let clock = 0;
   let held = 0;               // seconds spent waiting for a gap at the kerb
@@ -261,6 +267,7 @@ export function createOpening({
   let dropped = false;        // has the nose gone over the lip yet
   let landed = false;
   let closing = 0;            // 0 = still up, 1 = shut again behind the car
+  let doorFrom = 0;           // where `door` winds up from: shut, or a visit's REPAIR_GAP
   let released = false;       // is the taxi back in the traffic model
   // The visit's own: arc length along the entry path, how far the door has got, the kerb going up,
   // and the two callbacks `enter` was handed.
@@ -359,7 +366,7 @@ export function createOpening({
   }
 
   /**
-   * Behind the shut door: the car is put right and turned round to face out, which is the pose the
+   * Behind the door: the car is put right and turned round to face out, which is the pose the
    * opening starts from. Written by hand rather than through `stageCar`, which would also clear a
    * route the player may have planned while the car was in here.
    */
@@ -468,29 +475,29 @@ export function createOpening({
       if (rollIn(dt)) { phase = 'shut'; clock = 0; }
     }
     if (phase === 'shut') {
-      const k = Math.min(1, clock / DOOR_SHUT);
-      setDoor(1 - k);
+      // Down to REPAIR_GAP rather than the floor, over the same share of DOOR_SHUT the travel is.
+      const k = Math.min(1, clock / (DOOR_SHUT * (1 - REPAIR_GAP)));
+      setDoor(1 - k * (1 - REPAIR_GAP));
       if (k >= 1) {
-        // Down to black, and the repair happens under it — the fade is the cut between going in
-        // and coming out. `REPAIR` then counts from the black *lifting*, so the door does not
-        // start up until the screen is back. Without a wipe it is simply a beat on the shut door.
-        phase = 'black';
+        // The shop goes to work, and the car is turned round under the first flash of it.
+        repair();
+        workshop?.start();
+        phase = 'repair';
         clock = 0;
-        const atBlack = () => {
-          if (phase !== 'black') return;
-          repair();
-          phase = 'repair';
-          clock = 0;
-        };
-        if (!cut?.(atBlack, REPAIR_BLACK_MS)) atBlack();
       }
     }
-    if (phase === 'repair' && clock >= REPAIR) { phase = 'door'; clock = 0; }
+    if (phase === 'repair' && clock >= REPAIR) {
+      workshop?.stop();
+      doorFrom = REPAIR_GAP;
+      phase = 'door';
+      clock = 0;
+    }
     if (phase === 'door') {
       // Ease-out rather than linear: a roller door leaves fast under its own counterweight and
-      // creeps the last few inches, and a constant rate reads as a lift rather than a door.
-      const k = Math.min(1, clock / DOOR_TIME);
-      setDoor(1 - (1 - k) * (1 - k));
+      // creeps the last few inches, and a constant rate reads as a lift rather than a door. From a
+      // visit's gap it covers the rest of the travel at the same rate.
+      const k = Math.min(1, clock / (DOOR_TIME * (1 - doorFrom)));
+      setDoor(doorFrom + (1 - doorFrom) * (1 - (1 - k) * (1 - k)));
       if (k >= 1) { phase = 'reveal'; clock = 0; }
     }
     if (phase === 'reveal' && clock >= REVEAL) {
@@ -552,8 +559,11 @@ export function createOpening({
 
   function finish() {
     if (phase === 'done') return;
-    // A visit landed early (`settle`) still has to have fixed the car.
+    // A visit landed early (`settle`, `skip`) still has to have fixed the car, and has to leave the
+    // shop quiet — a skip from mid-repair would otherwise leave it welding behind a shut door.
     if (mode === 'visit') repair();
+    workshop?.stop();
+    doorFrom = 0;
     phase = 'done';
     handOff();
     // Shut, not open. The car is out and the door came down behind it — that is the state a run is
@@ -599,6 +609,7 @@ export function createOpening({
     dropped = false;
     landed = false;
     closing = 0;
+    doorFrom = 0;
     released = false;
 
     const v = Math.min(taxi.v, ENTRY_CAP);
@@ -633,6 +644,8 @@ export function createOpening({
 
   /**
    * The player's skip — a tap during the sequence, from behind a black screen (see game/wipe.js).
+   * The run's opening and a repair visit alike: landing a visit fixes the car and puts it on the
+   * lane, exactly as the end of the sequence would have (`finish`).
    *
    * `settle` plus the camera, and the camera is the whole of the difference. `?vignette=off` lands
    * the module before the shot has moved anywhere, so there is nothing to put back; a tap lands it
@@ -649,7 +662,7 @@ export function createOpening({
    * and the settle above is what puts the car on the road.
    */
   function skip() {
-    if (phase === 'done' || mode !== 'opening') return;
+    if (phase === 'done') return;
     settle();
     const rest = restFraming();
     controller.focusOn(rest.x, rest.z, playZoom, 999, aspect());
