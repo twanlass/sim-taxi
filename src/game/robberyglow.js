@@ -19,7 +19,7 @@ import { RADIUS_FRAC, SIREN_DIM } from './sirenglow.js';
 // **Soft, on purpose, and in the siren wash's own terms.** The first cut was an 0.85 band at the
 // hunting rate (11Hz) and it was too much: a whole perimeter at that strength is several times the
 // light a single cruiser's bloom puts on screen, strobing for the length of a getaway. So it takes
-// the wash's falloff (full at the edge, 45% halfway in, nothing at `RADIUS_FRAC`), its patrol rate
+// the wash's falloff (full at the edge, 45% halfway in, nothing at `RADIUS_FRAC`, pulled in by `DEPTH`), its patrol rate
 // (`sirenOn(time)`, 6Hz) and a peak well under the wash's own, because it covers four edges and
 // the wash covers a spot on one.
 //
@@ -34,6 +34,10 @@ export const FALL = 1.2;
 /** Peak alpha of the lit colour at the very edge of the frame — about the siren wash's own floor
  *  (`GLOW_FLOOR` = 0.35), which is how a cruiser on the far side of the city reads. */
 export const PEAK = 0.38;
+/** How far in the glow reaches: the siren wash's radius less a fifth. At the full `RADIUS_FRAC` it
+ *  read well but crept too far into the play view — four edges at that depth leave a phone with
+ *  only the middle 16% of its width untinted. At 0.8 that is 33%. */
+export const DEPTH = 0.8;
 
 const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
 
@@ -107,7 +111,7 @@ export function createRobberyGlow({ viewport = null } = {}) {
 
     const w = viewport ? viewport.width() : window.innerWidth;
     const h = viewport ? viewport.height() : window.innerHeight;
-    const band = Math.round(Math.min(w, h) * RADIUS_FRAC);
+    const band = Math.round(Math.min(w, h) * RADIUS_FRAC * DEPTH);
     if (band !== paintedW) {
       el.style.setProperty('--rob-w', `${band}px`);
       paintedW = band;
