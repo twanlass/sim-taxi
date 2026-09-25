@@ -3782,7 +3782,7 @@ if (shot) {
       onDrop: () => dust.burst(traffic.taxi.x, traffic.taxi.z, traffic.taxi.yaw, 7, 0.5),
       // The cut between going in for repairs and coming back out: a fade to black once the door
       // is down, the same one the opening's skip uses.
-      cut: wipe ? (atBlack) => wipe.cut(atBlack) : null,
+      cut: wipe ? (atBlack, holdMs) => wipe.cut(atBlack, holdMs) : null,
     });
     // `?vignette=off`, the same escape hatch `?tutorial=off` is: the opening is seven seconds
     // long and nobody iterating on the fare loop wants it on every reload. The module is
