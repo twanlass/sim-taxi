@@ -1932,6 +1932,9 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // filled in by the game layer; see the turn decision below.
       route: [],
       routeConsumed: false,
+      // A route planned from the junction the car is crossing straight over, offered by the game
+      // layer while the car is still in the run-up to it — see `retakeCrossing` in `update`.
+      lateTurn: null,
       // A taxi with a fare aboard waits at the kerb until the player says where to. Releasing on
       // "has a route" rather than on an explicit call means every caller — the game, the probe,
       // the auto-play soak — releases it just by giving the car somewhere to go.
@@ -2080,6 +2083,7 @@ export function stageCar(car, x, z, yaw) {
   car.turn = null;
   car.turnT = 0;
   car.route = [];
+  car.lateTurn = null;
   car.parked = false;
   car.lateral = 0;
   car.steer = 0;
@@ -3629,6 +3633,49 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     const bargesThrough = (car) => car.boost;
 
     /**
+     * Swap a straight-on crossing for the turn `car.lateTurn` asks for, if it still can be.
+     *
+     * The hold line is where a car commits, but it sits `STOP_SETBACK` short of the junction and the
+     * run-up from one to the other is the same straight line whatever the car does next. So a
+     * crossing still in its `leadIn` can become a turn by replacing everything *after* the run-up:
+     * the arc, the exit, `dOut`. `hold` and `entry` are untouched and `turnT` is rescaled so the
+     * distance travelled is too — the car does not move on the frame it changes its mind.
+     *
+     * Everything the line would have asked of that turn is asked again here, because skipping it is
+     * the one way this could let the taxi do something the line would have refused: the left-turn
+     * yield and don't-block-the-box, both waived for a boosting taxi exactly as at the line. The
+     * signal needs no second look — the car crossed on the green for its approach, and a turn out of
+     * that approach runs on the same one. A refusal leaves the crossing and the fallback route
+     * `main.js` already installed, which plans from the junction after this one.
+     */
+    const retakeCrossing = (car) => {
+      const late = car.lateTurn;
+      car.lateTurn = null;
+      if (car.turn?.hand !== 'straight') return;
+      const travelled = Math.min(car.turnT, 1) * car.turnLen;
+      if (travelled >= car.leadIn) return;
+      const next = exitToward(net, car.lane, late[0]);
+      if (!next || next.hand === 'straight' || closedLanes.has(next.outLane)) return;
+      const exitLane = net.laneById.get(next.outLane);
+      if (!bargesThrough(car)) {
+        if (next.hand === 'left' && leftYieldBlocked(car)) return;
+        if (exitLaneFull(car, exitLane)) return;
+      }
+      car.turn = next;
+      car.exit = exitLane.path.at(0);
+      car.control = next.control;
+      car.dOut = net.dirOfLane(exitLane);
+      car.turnLen = car.leadIn + Math.max(
+        0.1,
+        Math.hypot(car.control.x - car.entry.x, car.control.z - car.entry.z)
+        + Math.hypot(car.exit.x - car.control.x, car.exit.z - car.control.z),
+      );
+      car.turnT = travelled / car.turnLen;
+      car.route = late.slice(1);
+      car.routeConsumed = false;
+    };
+
+    /**
      * Everything that can refuse this car at the line *other* than the signal, asked while it is
      * still far enough out to stop for the answer.
      *
@@ -4539,6 +4586,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         stats.distance += step;
         if (step > 0.0001) stats.moving += 1; else stats.waiting += 1;
       } else {
+        if (car.lateTurn) retakeCrossing(car);
         // --- Mid-turn: follow the arc through the intersection.
         // Corners are taken slower, and the car has to spend real time getting back up to speed
         // on the way out.
