@@ -1866,7 +1866,7 @@ their roof they had not asked for.
 
 It borrows the coach bubble's card and drops everything that asks something of the player:
 
-- **No spotlight.** The tightest clock in the game has just started; dimming the city over the
+- **No spotlight.** The getaway's clock has just started; dimming the city over the
   getaway spends it.
 - **No tap.** `pointer-events: none`, and it leaves on its own after `RADIO_LINGER` (3.2s of game
   time, so a pause holds it). The next tap is on the road, routing the getaway, and a bubble that
@@ -1879,7 +1879,8 @@ Its WebGL context is built on the first robbery rather than at boot — most run
 
 ### The clock, and the bonus that reads it
 
-The tightest fare in the game, and it gets there twice over.
+A loose clock, on purpose: the getaway is the longest drive in the game and the point of it is the
+police, so the clock is there to pay the bonus rather than to threaten the trip.
 
 **The queue behind it is empty.** Every ordinary rider's clock is budgeted over the whole chain the
 taxi must clear before reaching them — the rider aboard, then everyone on the kerb in urgency order
@@ -1888,9 +1889,13 @@ nothing else, because a robbery cannot start with somebody in the seat. That is 
 VIP gets and for the same reason, and on its own it would buy a robber a *longer* clock than an
 ordinary rider on the same trip.
 
-**So the slack factor is turned down further than the VIP's.** `ROBBER_SLACK_FACTOR` is 0.62 against
-`VIP_SLACK_FACTOR`'s 0.8, floored at 1.05 against the VIP's 1.15 — still slack, not a deficit, and
-`tools/probe.mjs` holds the invariant that every fare's clock covers its own driving.
+**And the slack factor is turned up on top of that.** `ROBBER_SLACK_FACTOR` is 1.3, floored at 1.6,
+so a getaway always has at least 60% more clock than driving — measured on the probe's staged event,
+118s against 60.8s of driving, where an ordinary rider on the same trip would get 91s.
+
+It used to be the tightest clock in the game: 0.62 floored at 1.05, which is `work × 1.05` from the
+very first robbery since the run's slack starts at 1.7. That left no seconds to spend on a roadblock,
+a detour or a ram, and made the chase something to escape rather than something to play with.
 
 **And the payout is the one price in this game not settled at spawn.** Every other fare is stamped
 when its trip is decided, because a meter that ticked while driving "would punish traffic and reward
@@ -1942,10 +1947,12 @@ is about once a run either way.
 
 ### The getaway runs across town
 
-`ROBBER_DROPOFF_DARTS` draws the drop-off **eight times over the whole map and keeps the furthest
-from the bank**. Measured over 55 cities that is a median of **7 blocks against a 10-block
-diameter**, range 5 to 9 — so a getaway is reliably a run to the far side of the city, and never a
-hop round the corner. It is the one event in this game whose whole point is the drive.
+`pickFarthest` scores every free junction by block distance from the bank and draws the drop-off
+from the furthest band — the furthest, or `ROBBER_DROPOFF_SPREAD` = 1 short of it, so one city's
+robberies do not all end on the same kerb. It is filtered through the same predicate as every other
+drop-off, so the only thing it changes is that the distance is no longer left to chance. It used to
+be eight random darts with the furthest kept: a median of 7 blocks over 55 cities, but as few as 5.
+It is the one event in this game whose whole point is the drive.
 
 That distance is not free, and the mechanism is not subtle once it is named: a robbery takes the
 seat for the length of its trip, and every rider standing on a kerb while it runs is spending a
@@ -1959,6 +1966,13 @@ one running out. 30 paired runs per cell through `tools/autoplay.mjs`:
 | **across town, with the calm gate** | **12.4 fares · $309** | **8.6 fares · $211** |
 | across town, no gate at all | 9.8 fares · $239 | 8.4 fares · $206 |
 
+Re-measured when the drop-off went to the far corner and the clock was loosened (30 paired runs,
+same harness): **11.9 fares · $287** at 1.5s against 11.0 · $251 before, and **10.5 · $256** at 4s
+against 11.2 · $265. The fast player comes out ahead — the loose clock means the bonus lands — and
+the slower one pays about another two thirds of a fare, because a longer getaway eats more of the
+kerb's clocks and nothing about the robber's own clock helps with that. Eleven robberies per
+thirty runs in each cell, so read these as a direction rather than a digit.
+
 The bottom row is what [the calm gate](#the-gate-that-makes-it-fair) is buying: without it a long
 getaway is the difference between a 14-fare run and a 10-fare one. With it, a fast player pays about
 a fare and a half for the event.
@@ -1969,7 +1983,7 @@ little shorter. A player who is already behind cannot absorb a sixty-second hija
 for, and the gate only checks the board at the moment the event *starts*.
 
 Two levers if that is ever judged too steep, and they are the two constants in this feature that
-were measured rather than chosen. `ROBBER_DROPOFF_DARTS` is the distance — capped at four blocks
+were measured rather than chosen. `ROBBER_DROPOFF_SPREAD` is the distance — capped at four blocks
 from the bank, the same sweep reads 12.6 / $314 and 11.4 / $276, which is about a fare cheaper at
 either speed and a materially shorter event. And `CALM_LEVEL` is the frequency, but only in one
 direction: tightened to the top step it fires **twice in thirty runs**, which is not a rarer event,
@@ -2129,8 +2143,8 @@ already had.
 **And [the corridor cruiser](traffic.md#the-bust-chase) does not bust you during one.** That rule —
 boost within a block of the cruiser and the run ends — is a good one, and its legibility rests
 entirely on there being *one* police car on the street and it being obvious which. A robbery puts
-four more on the street in the same paint under the same flashing bar, and hands the player the
-tightest clock in the game so that boosting is the only way to make it. So the event asks for Loco
+four more on the street in the same paint under the same flashing bar, and pays a bonus on the
+clock that boosting is the way to earn. So the event asks for Loco
 Mode and an unrelated patrol ends the run for using it, and at a glance there is no telling which of
 the five blue cars is the one that does that. It was found the way these things are found: a real
 run ended that way, with the note that none of the *other* police had so much as moved.
@@ -2163,7 +2177,7 @@ in [the box-in](traffic.md#the-box-in-roadblocks-the-overtake-and-the-brake-chec
   arriving behind you. Angled across both lanes, it cannot be gone round on the pill — only rammed.
 
 Each poses the same three-way choice, and all three are things the game already had. **Wait** — it
-costs the robber's clock, which is the tightest in the game. **Route round** — redraw the route and
+costs the robber's clock, and with it the bonus. **Route round** — redraw the route and
 the roadblock is let go. **Ram it** — on the pill the taxi barges in, and the cop is a bump that
 costs 12–60 hit points by closing speed; enough of them and it is the wreck.
 

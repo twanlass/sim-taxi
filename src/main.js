@@ -1206,8 +1206,8 @@ function checkPoliceBust() {
   // (sim/police.js) ends the run for boosting within a block of it — a rule about reckless driving
   // in front of a cop, and a good one, whose whole legibility rests on there being one police car
   // on the street and it being obvious. A robbery puts **four more** on the street, wearing the
-  // same paint and the same flashing bar, and then hands the player the tightest clock in the game
-  // so that boosting is the only way to make it. So the event asks you to use Loco Mode and the
+  // same paint and the same flashing bar, and then puts a clock and a
+  // bonus on the getaway that boosting is the way to beat. So the event asks you to use Loco Mode and the
   // cruiser ends your run for using it, and at a glance you cannot tell which of the five blue cars
   // is the one that does that. Reported from a real run, which is how this was found: "I got busted
   // by the actual cop car; none of the other police actually moved or followed me."
