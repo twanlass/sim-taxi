@@ -939,6 +939,16 @@ every later turn lands one intersection early. Planning starts from the intersec
 *heading toward*, plus its current heading — the first point at which it can still make a choice.
 It finds that intersection by asking the network where the lane the turn is landing on ends.
 
+**Except in the run-up.** The car commits at the hold line, but that line is `STOP_SETBACK` (3.4)
+short of the junction and the stretch between them is the same straight whichever way the car goes
+next. So `routeTo` also plans from `crossingOrigin(car)` — the junction being crossed — while a
+straight-on crossing is still in that stretch, and if turning there saves a leg it offers the plan
+on `car.lateTurn`. `retakeCrossing` in `sim/traffic.js` swaps the arc for the turn, re-asking the
+left-turn yield and the full-exit-lane checks the line would have asked, or refuses and leaves the
+fallback plan from the next junction. Before this, a tap in that window with the rider round the
+corner came back as a lap: over 480 sampled taps landing there, 44% had a shorter route by
+turning, and taking it cut the mean trip from 19.4s to 16.5s. Asserted in `tools/probe.mjs`.
+
 The route it hands back is still a list of grid directions, because `traffic.js` still stores
 `car.d` and drives `(i, j)` to `(i, j)`. That conversion (`laneDir`) is the one piece of `route.js`
 that only works while the city is a grid, and it comes out when the sim drives lanes directly.

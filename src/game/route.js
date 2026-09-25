@@ -305,6 +305,29 @@ export function planOrigin(car) {
   return { i: car.i, j: car.j, d: car.d };
 }
 
+/**
+ * The junction a car is crossing, if it could still be talked out of going straight over it.
+ *
+ * `planOrigin` above is right that a committed car cannot change its mind — but "committed" starts
+ * at the hold line, and the first `leadIn` (STOP_SETBACK, 3.4) units of the arc are still straight
+ * lane *in front of* the junction. The run-up is the same line whichever way the car goes on to
+ * turn, so a straight-on crossing that has not reached the junction boundary can still be swapped
+ * for a turn with nothing to see but the turn. Without this, a tap in that window planned from the
+ * *next* junction and, when the rider was round the corner the taxi was about to pass, answered
+ * with a lap: measured over 1,691 sampled taps landing in the window, half came back longer than
+ * turning there would have been, by 2.4 legs each when they did. It reads to the player as the
+ * router choosing to overshoot a corner the taxi was sitting right in front of.
+ *
+ * Null when there is nothing to reconsider — not mid-crossing, already turning, or past the
+ * boundary. A route planned from here is a *proposal*: the swap happens in sim/traffic.js
+ * (`lateTurn`), which can still refuse it (a left with oncoming traffic, a full exit lane).
+ */
+export function crossingOrigin(car) {
+  if (car.state !== 'turn' || car.turn?.hand !== 'straight') return null;
+  if (Math.min(car.turnT, 1) * car.turnLen >= car.leadIn) return null;
+  return { i: car.i, j: car.j, d: car.d };
+}
+
 // --- How long a route takes ---------------------------------------------------
 //
 // The router costs a route in dimensionless weights; the fare system needs *seconds*, because a

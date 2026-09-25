@@ -134,7 +134,7 @@ import {
 } from '../src/game/scene.js';
 import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
-import { planOrigin } from '../src/game/route.js';
+import { planOrigin, crossingOrigin } from '../src/game/route.js';
 import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, BLOCK, HALF_ROAD, HALF_ARTERIAL, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, riverBanks, riverRow } from '../src/city/grid.js';
 import {
   waterEdges, bridgeSpan, bridgeLines, riverCrossing, archAt, deckHeightAt, createRiver, waterHeightAt,
@@ -5269,6 +5269,55 @@ check('the taxi is an ordinary car in the traffic array',
     `${aFares.state.delivered} delivered after ${elapsed.toFixed(1)}s`);
   check('a carried rider never leaves the taxi parked', parkedWhileCarrying === 0,
     `${parkedWhileCarrying} frames held at the kerb`);
+}
+
+// --- A tap in the run-up can still take the corner ------------------------------------------
+// The hold line commits a car, but it sits STOP_SETBACK short of the junction, and a tap in that
+// window used to plan from the junction *after* — so a rider round the corner the taxi was right
+// in front of came back as a lap. Mirrors main.js:routeTo: the plan from `crossingOrigin` goes on
+// `lateTurn` and the sim swaps the crossing for the turn, or refuses and keeps the fallback.
+// Asserted: the swap is taken, it does not move the car, and every trip still lands.
+{
+  const lTraffic = createTraffic(makeRng(seed + 44), new THREE.Scene(), CARS_DEFAULT);
+  const lTaxi = lTraffic.taxi;
+  lTraffic.warmup(5);
+  const lRng = makeRng(seed + 91);
+  const ints = allIntersections();
+  let taps = 0, offered = 0, swapped = 0, arrived = 0, jumps = 0, stale = 0;
+  for (let k = 0; k < 30; k++) {
+    lTaxi.route = findRoute(planOrigin(lTaxi), ints[lRng.int(0, ints.length - 1)]) ?? [];
+    lTaxi.routeConsumed = false;
+    for (let g = 0; g < 3000 && !crossingOrigin(lTaxi); g++) lTraffic.update(1 / 60);
+    const from = crossingOrigin(lTaxi);
+    if (!from) continue;
+    const t = ints[lRng.int(0, ints.length - 1)];
+    if (t.i === from.i && t.j === from.j) continue;
+    const route = findRoute(planOrigin(lTaxi), t);
+    const late = findRoute(from, t);
+    lTaxi.route = route; lTaxi.routeConsumed = false;
+    taps += 1;
+    lTaxi.lateTurn = late[0] !== lTaxi.d && late.length < route.length + 1 ? late : null;
+    if (lTaxi.lateTurn) {
+      offered += 1;
+      const before = { x: lTaxi.x, z: lTaxi.z };
+      lTraffic.update(1 / 60);
+      if (lTaxi.dOut !== lTaxi.d) swapped += 1;
+      if (Math.hypot(lTaxi.x - before.x, lTaxi.z - before.z) > lTaxi.v / 60 + 0.05) jumps += 1;
+      if (lTaxi.lateTurn) stale += 1;
+    }
+    const c = intersectionCentre(t.i, t.j);
+    for (let e = 0; e < 120 * 60; e++) {
+      lTraffic.update(1 / 60);
+      if (Math.hypot(lTaxi.x - c.x, lTaxi.z - c.z) < ARRIVE_RADIUS) { arrived += 1; break; }
+    }
+  }
+  check('a tap in the run-up takes the corner in front of the taxi',
+    offered > 5 && swapped >= offered * 0.8 && stale === 0,
+    `${swapped} of ${offered} swapped`);
+  check('swapping a crossing for a turn does not move the taxi', jumps === 0, `${jumps} jumps`);
+  check('every late-turn trip still arrives, cleanly',
+    arrived === taps && lTraffic.stats.routeDesync === 0 && lTraffic.stats.violations === 0,
+    `${arrived} of ${taps} arrived, ${lTraffic.stats.routeDesync} desyncs, ${lTraffic.stats.violations} violations`);
 }
 
 // --- Running out of time ends the run on its own beat ----------------------

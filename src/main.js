@@ -77,7 +77,7 @@ import { setAmbientOcclusion, setCrayon, setCartoon, propMaterial } from './util
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createPause } from './game/pause.js';
-import { findRoute, findRouteVia, findRouteOnto, planOrigin } from './game/route.js';
+import { findRoute, findRouteVia, findRouteOnto, planOrigin, crossingOrigin } from './game/route.js';
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
@@ -1314,15 +1314,24 @@ const selected = true;
  */
 function routeTo(target, { via = null, maxDetour, onto = null } = {}) {
   const car = traffic.taxi;
-  const route = via
+  const plan = (from) => (via
     // `undefined` falls through to `findRouteVia`'s own default rather than reading as "no cap".
-    ? findRouteVia(planOrigin(car), via, target, { maxDetour, onto })
+    ? findRouteVia(from, via, target, { maxDetour, onto })
     : onto !== null
-      ? findRouteOnto(planOrigin(car), target, onto)
-      : findRoute(planOrigin(car), target);
+      ? findRouteOnto(from, target, onto)
+      : findRoute(from, target));
+  const route = plan(planOrigin(car));
   if (!route) return false;
   car.route = route;
   car.routeConsumed = false;
+  // A taxi that has only just crossed the hold line going straight can still take the corner in
+  // front of it (see `crossingOrigin`). Offered only when turning there saves a whole leg: the
+  // late plan's first step is the crossing itself, so it is compared against `route` plus one.
+  // `route` stays as the fallback — the swap is the sim's to refuse — so the band is right on
+  // every frame whichever way that goes.
+  const crossing = crossingOrigin(car);
+  const late = crossing && plan(crossing);
+  car.lateTurn = late && late[0] !== car.d && late.length < route.length + 1 ? late : null;
   car.pendingTarget = target;
   // The player has just directed the taxi somewhere, so release the kerb hold even if the route
   // is empty (destination equals the intersection the taxi is already heading toward). Without
