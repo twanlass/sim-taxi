@@ -348,8 +348,12 @@ function nearestJunction(x, z) {
  * @param onBoard  `(fare) => void`, fired on the frame the robber is in the car. main.js aims the
  *                 taxi at the getaway and lights the roof sign, which is exactly what it does on an
  *                 ordinary `'pickup'` — this module knows a fare started, not what a roof sign is.
+ * @param holdAlarm  true to board the robber *without* the police, and wait for `raiseAlarm()`.
+ *                 main.js holds it for the robber's line (game/robberline.js): the world stops, the
+ *                 robber shouts, and the cops arrive on the tap that clears it. False — the tools'
+ *                 default — raises it on the same frame, as it always did.
  */
-export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }) {
+export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {}, holdAlarm = false }) {
   // The junction the bank's door belongs to, worked out once: the city does not move, and this is a
   // thirty-six-cell scan.
   const junction = nearestJunction(site.door.x, site.door.z);
@@ -357,6 +361,8 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
   const state = {
     /** Is one running right now? */
     active: false,
+    /** ...and are the police out for it yet? Lags `active` by the robber's line — see holdAlarm. */
+    alarmed: false,
     /** Sim seconds since the last one ended. Starts clear, so the gates below are the only bar. */
     since: COOLDOWN,
     /** Seconds since a cop last came onto the map — see REENTRY_GAP. */
@@ -900,26 +906,38 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
     if (!fare) return;
 
     state.active = true;
+    state.alarmed = false;
     state.count += 1;
     state.sinceEntry = 0;
     state.standingDown = 0;
+    // `onBoard` before the police either way, and the order matters. It is what dispatches the taxi
+    // to the getaway (main.js), so it is what puts a route on the car — and the police are sent to
+    // junctions on *that* route. Aiming before it ran left the whole set converging on the taxi's
+    // own junction until it next crossed one, which is the stern chase this event was taken off.
+    onBoard(fare);
+    if (!holdAlarm) raiseAlarm();
+  }
+
+  /**
+   * The police come on. Its own step so main.js can hold it behind the robber's line; everything
+   * else about the event — the fare, the clock, the getaway route — is already running by now.
+   */
+  function raiseAlarm() {
+    if (!state.active || state.alarmed) return;
+    state.alarmed = true;
+    state.sinceEntry = 0;
     // Anything still driving off from the last event goes now rather than being adopted by this
     // one — it has no chase and no route, so it would sit in the fleet as a cop that never
     // converges and never leaves. The cooldown makes this all but unreachable; it is here because
     // "all but" is not a guarantee.
     traffic.clearPolice();
-    // The traffic first, so the police are already on the road on the frame the player looks up
-    // from the crystal appearing over their roof. They come in off screen near the bank —
+    // The traffic first, so the police are already on the road on the frame the lights come back
+    // up after the robber's line. They come in off screen near the bank —
     // `enterPolice` in sim/traffic.js owns where, and why "near the bank" and "off screen" have to
     // be traded off against each other.
     traffic.enterPolice(POLICE_CARS, site.door);
-    // `onBoard` first, and the order matters now. It is what dispatches the taxi to the getaway
-    // (main.js), so it is what puts a route on the car — and the police are sent to junctions on
-    // *that* route. Aiming before it ran left the whole set converging on the taxi's own junction
-    // until it next crossed one, which is the stern chase this event was just taken off.
-    onBoard(fare);
     // Pointed down the getaway on the frame they arrive rather than on the next tick, so the road
-    // is already filling up as the robber is still getting in.
+    // is already filling up on the first frame the player can drive it.
     steerChase();
   }
 
@@ -934,6 +952,7 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
   function stop() {
     if (!state.active) return;
     state.active = false;
+    state.alarmed = false;
     state.since = 0;
     state.standingDown = 0;
     aimedAt = null;
@@ -1069,6 +1088,8 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
       // as the same fact, which is why this is a poll on the fare loop rather than three callbacks
       // that each have to remember to take the cars off.
       if (!fares.robbing()) { stop(); return; }
+      // Boarded, but the robber's line is still up — nobody has called the police yet.
+      if (!state.alarmed) return;
       // Top the fleet up first: a saturated network can leave `enterPolice` short, and a robbery
       // that opened with three cop cars should not run with three for the whole getaway.
       if (traffic.policeCars.length < POLICE_CARS && state.sinceEntry >= REENTRY_GAP) {
@@ -1096,6 +1117,7 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
     site,
     junction,
     range,
+    raiseAlarm,
     /**
      * Called off a run ending, so an event cannot outlive the run it happened during — the same
      * contract `burgerRun.abandon` keeps. The fare loop has already cleared the board by then
