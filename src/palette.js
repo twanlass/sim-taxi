@@ -581,6 +581,13 @@ export const PALETTE = {
   // gone. Roughly 1.8× the road's value is what it takes to be seen against it. Warm and well
   // short of the dust's pure white: white here is a dust cloud, and this is what is burning.
   wreckSmoke: '#C9C2BB',
+  // The depot at work, behind a door left a fifth open — game/repairfx.js. The arc is a welder's
+  // blue-white rather than the sparks' warm white: the flash is the one thing in the shot that has
+  // to read as *electric* rather than as fire, and a warm glow under a yellow building reads as the
+  // building's own paint lit up. The grit is the collar's warm grey a step darker, because it comes
+  // out onto the pale forecourt asphalt low and thin rather than as a wall of smoke.
+  weldFlash: '#BCD6FF',
+  repairDust: '#B3ACA4',
   // The damaged taxi's bonnet smoke — game/taxidamage.js — walked from the first stop to the second
   // as the last third of its hit points goes. Both are set against the **road**, because that is
   // what a puff over a moving car is seen against from this camera: the first cut ran to #45403D,

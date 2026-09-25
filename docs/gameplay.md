@@ -2947,19 +2947,31 @@ back out with its [hit points](traffic.md#bumps-and-hit-points) full and every p
 [damage](traffic.md#bumps-and-hit-points) gone. The visit is
 [the opening vignette](#the-opening-vignette) played backwards and then forwards: the camera comes
 down onto the door as the taxi turns in off the lane, the door rolls up, the car drives into the bay
-and the door comes down behind it — and from behind the shut door the opening itself runs from
-`door` on, a clean car in a lit doorway, out, down the kerb and back into traffic.
+and the door comes down behind it — **to a fifth open**, with a welder's arc, sparks and grit
+spilling out from under it while the shop works — and then the opening itself runs from `door` on,
+a clean car in a lit doorway, out, down the kerb and back into traffic.
 `game/depotrun.js` is the trip there; `enter()` in `game/opening.js` is everything from the lane on.
 
 | Phase | What happens | Length |
 |---|---|---|
 | `enter` | Off the lane round the mirrored fillet and up the kerb, the door winding up on the opening's own ease from the frame the car turns in. The camera eases onto the door at `DOOR_ZOOM` | ~2.5s |
-| `shut` | The door comes down behind the car, its brake lamps going dark as it does | 0.9s |
-| `black` | A fade to black (`game/wipe.js`, the opening skip's cut). The car is fixed and turned round under it | ~0.25s |
-| `repair` | The black lifts on the shut door, and a beat before it goes back up | 0.45s |
-| `door` … `release` | The opening, unchanged | ~6s |
+| `shut` | The door comes down behind the car to `REPAIR_GAP` (a fifth open), its brake lamps going dark as it does | 0.72s |
+| `repair` | The car is fixed and turned round under the first flash, and the shop works: arc light strobing in the gap and across the forecourt, sparks skittering out from the weld, grit drifting out low (`game/repairfx.js`) | 2.4s |
+| `door` … `release` | The opening, except the door winds up from the gap rather than the floor | ~6s |
 
-Measured end to end in `tools/probe.mjs`: **10.2s** from the turn-in to the camera handed back.
+Measured end to end in `tools/probe.mjs`: **11.6s** from the turn-in to the camera handed back on a
+clear road, plus up to `HOLD_MAX` (5s) when the car has to wait at the kerb for a gap.
+
+**The repair beat is the door left open, not a fade to black.** The first version cut to black for
+a second, which said "time passed" and nothing about what it was spent on. A roller door stopped
+short of the floor with a welder going behind it says *repairs* on its own. The gap is a fifth of
+the door for a measured reason: the camera looks down at 33°, so 0.68 units of gap shows about a
+unit of floor behind the curtain — enough for the light and the sparks to come out of, and not
+enough to see the car turned round (the near bumper moves 0.39 units, under the arc's first
+flash). The arc light is two additive quads, not a `PointLight`, for the program-cache reason in
+CLAUDE.md; the sparks and the grit are the existing pools in `game/sparks.js` and `game/dust.js`.
+In real time it costs about half a second more than the fade did (160 + 1000 + 300 ms of wipe and
+a 0.45s beat, against 2.4s of work).
 
 **The clocks stop for it.** Every fare on the board holds its countdown from the turn-in to the
 camera being handed back — `holdFareClocks` in `main.js`, which is also where the tutorial's hold
@@ -3018,8 +3030,14 @@ boost's one-second cooldown tail outlasts the turn-in, and `sim/collisions.js` c
 that flag, so a car arriving on the pill could otherwise wreck on the kerb it was driving over. The
 unarmed shove is closed on `staged` for the same reason: a cut scene owns the taxi's position.
 
-There is no tap-to-skip. The opening's skip works because nothing else on the map is tappable while
-it runs; during a repair the board is live, and a tap on a rider has to mean the rider.
+**A tap skips it** — the opening's own cut to black (`game/wipe.js`), with the visit landed
+underneath: fixed, back on the lane, the job handed back and the $25 charged, exactly as the end of
+the sequence would have. With one exception, which is why it is not the opening's `window`
+listener: the board is live during a visit (only its clocks are held), so a tap on a **rider, a
+drop-off or a package** keeps meaning that and plans the job the car comes back out to. Anything
+else — the sky, the depot, the taxi — skips. It is wired at the top of the picker in `main.js`
+(`JOB_KINDS`) and on `click` rather than the opening's `pointerdown`, so a drag across the map
+during a visit is not a skip either.
 
 ## The brake
 

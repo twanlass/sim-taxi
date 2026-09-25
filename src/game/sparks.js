@@ -140,8 +140,13 @@ export function createSparks(scene, rng) {
    * `speed` is how fast the car was going, in u/s: it sets how far forward the spray is carried
    * before it is left behind, and nothing else. Left at 0 the sparks fly off a stationary point,
    * which is what a headless check wants.
+   *
+   * `reach` and `lift` scale the throw back and up, for a caller whose sparks are not coming off a
+   * car bottoming out — the depot's welder (game/repairfx.js) wants a shower that arcs out across
+   * the forecourt rather than one that skims the road. Multipliers on the same draws, so the
+   * defaults leave every landing exactly as it was.
    */
-  function burst(x, y, z, yaw, count = 5, speed = 0) {
+  function burst(x, y, z, yaw, count = 5, speed = 0, { reach = 1, lift = 1 } = {}) {
     // `yaw` is a sim heading, so forward is (cos yaw, −sin yaw) and right is (sin yaw, cos yaw).
     const fx = Math.cos(yaw);
     const fz = -Math.sin(yaw);
@@ -156,9 +161,9 @@ export function createSparks(scene, rng) {
       // Back hard, out a little, up least of all. Sparks off a car that has just bottomed out come
       // off along the road rather than up off it — thrown up as hard as they go back, they arc over
       // the roof and read as a firework going off under the car.
-      const back = rng.range(3.5, 9.5);
+      const back = rng.range(3.5, 9.5) * reach;
       const side = rng.jitter(3.2);
-      const up = rng.range(1.2, 4.2);
+      const up = rng.range(1.2, 4.2) * lift;
 
       life[slot] = LIFE * rng.range(0.65, 1.15);
       life0[slot] = life[slot];
