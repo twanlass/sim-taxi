@@ -1655,8 +1655,15 @@ VIP" is never confused with how much time they have left, and every other surfac
 through follows it: the ring on the road at the far end of their trip, the route band driving at it,
 and the off-screen arrow.
 
+**They do not wear a crystal.** Where every other rider has a plumbob, a VIP has a chunky purple
+**question mark** (`geometry/questionmark.js`) in the same slot, rocking slowly so its extrusion
+shows. A plumbob that never drains is a timer-shaped thing refusing to tell the time; the question
+mark says what is actually true — you do not know how long this one gives you — and says it with the
+silhouette, which carries further than a hue. It copies the hidden crystal's pose every frame, so
+the bounce, kick, pulse, pop and refusal shake all land on it unchanged.
+
 **And that is the whole of what they will tell you.** A VIP's clock is not shown anywhere: the
-crystal is a solid purple gem that never drains, and the rider-finder chip's ring — the last surface
+question mark is solid purple and never drains, and the rider-finder chip's ring — the last surface
 that still reported the seconds, back when the chips were on — was held full and purple as well.
 You know one is worth three fares
 and you do not know how long you have, which is what makes taking one a gamble instead of a sum. The

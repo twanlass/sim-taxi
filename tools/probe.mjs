@@ -83,6 +83,7 @@ import {
   DIAMOND_HALF_H, BOUNCE_HEIGHT,
 } from '../src/geometry/diamond.js';
 import { CRYSTAL_TOP } from '../src/game/faremarker.js';
+import { QUESTION_GEO } from '../src/geometry/questionmark.js';
 import { createPerson, HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
 import { POP_SCALE_DIAMOND, POP_SCALE_RIDER, POP_TIME } from '../src/game/selectpop.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
@@ -3645,6 +3646,52 @@ check('no two cars occupy the same space', worst > 1.6,
       }
       check('every facet of the crystal faces outwards',
         faces === 8 && inward === 0, `${faces} faces, ${inward} wound inside out`);
+    }
+
+    // --- The VIP's question mark (geometry/questionmark.js).
+    //
+    // Extruded rather than hand-wound, but it is concave and `flatShading`, so the winding is
+    // asserted anyway, from the winding: the glyph is centred on z = 0, so every cap triangle's
+    // normal must point away from that plane and every wall's must lie in it. The origin test the
+    // crystal uses above cannot work on a hook.
+    {
+      const pos = QUESTION_GEO.attributes.position;
+      const a = new THREE.Vector3();
+      const b = new THREE.Vector3();
+      const c = new THREE.Vector3();
+      const edge = new THREE.Vector3();
+      const n = new THREE.Vector3();
+      let caps = 0;
+      let walls = 0;
+      let wrong = 0;
+      for (let i = 0; i < pos.count; i += 3) {
+        a.fromBufferAttribute(pos, i);
+        b.fromBufferAttribute(pos, i + 1);
+        c.fromBufferAttribute(pos, i + 2);
+        n.copy(b).sub(a).cross(edge.copy(c).sub(a)).normalize();
+        const z = (a.z + b.z + c.z) / 3;
+        if (Math.abs(a.z - b.z) < 1e-6 && Math.abs(a.z - c.z) < 1e-6) {
+          caps += 1;
+          if (n.z * z <= 0.99 * Math.abs(z)) wrong += 1;
+        } else {
+          walls += 1;
+          if (Math.abs(n.z) > 1e-6) wrong += 1;
+        }
+      }
+      check('every face of the VIP question mark faces outwards',
+        caps > 0 && walls > 0 && wrong === 0, `${caps} cap, ${walls} wall, ${wrong} wrong`);
+
+      // It stands in the crystal's slot rather than beside it: a VIP shows the question mark and
+      // not the crystal, an ordinary fare the other way round — and a slot reused across the two
+      // must not carry either over.
+      diamond.showAt(URGENCY_SEGMENTS, 0, 0, true);
+      diamond.update(0.5);
+      const vipShows = !diamond.mesh.visible && diamond.mystery.visible
+        && diamond.mystery.position.distanceTo(diamond.mesh.position) < 1e-9;
+      diamond.showAt(URGENCY_SEGMENTS, 0, 0, false);
+      const plainShows = diamond.mesh.visible && !diamond.mystery.visible;
+      check('a VIP wears the question mark in the crystal\'s place, and only a VIP',
+        vipShows && plainShows, `vip ${vipShows}, ordinary ${plainShows}`);
     }
 
     // --- The level change kicks.
