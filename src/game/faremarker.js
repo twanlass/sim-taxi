@@ -5,8 +5,9 @@ import {
   createDiamond, DIAMOND_HALF_H, bounceOffset, BOUNCE_HEIGHT,
   kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
 } from '../geometry/diamond.js';
+import { createQuestionMark, ROCK_ANGLE, ROCK_RATE } from '../geometry/questionmark.js';
 import { createTargetRing, RING_Y } from '../geometry/targetring.js';
-import { RIGHT } from './camera.js';
+import { RIGHT, BILLBOARD } from './camera.js';
 import { markEmissive, setEmissiveScale } from './bloom.js';
 import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './selectpop.js';
 
@@ -33,6 +34,13 @@ import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './select
 // **A VIP's crystal opts out of all of it.** Fixed purple, always full — see setUrgency and
 // setFill. The fixed hue is already the one thing it needs to say ("this is a VIP"), and a second
 // colour language draining underneath would read as the marker disagreeing with itself.
+//
+// **And a VIP does not wear a crystal at all** — it wears a question mark (geometry/questionmark.js)
+// in the same slot. A plumbob that never drains is still a timer-shaped thing refusing to tell the
+// time; the question mark says what is actually true of a VIP, that you do not know how long you
+// have. The crystal is still built and still coloured underneath, just hidden, so everything that
+// reads the marker's hue or fill keeps reading it; the question mark copies the crystal's pose every
+// frame, so every gesture below (bounce, kick, pulse, pop, shake) lands on it unchanged.
 //
 // **A disc under the rider's feet says it a second time, on the ground.** Same hue, same clock, the
 // drop-off's own shape (geometry/targetring.js) — so a trip is marked the same way at both ends and
@@ -180,9 +188,28 @@ export function createFareMarker(scene, phase = 0) {
   diamond.mesh.raycast = () => {};
   diamond.rim.raycast = () => {};
 
+  const mystery = createQuestionMark(fareColor(URGENCY_SEGMENTS, true));
+  mystery.mesh.raycast = () => {};
+  mystery.rim.raycast = () => {};
+  mystery.mesh.visible = false;
+
   const group = new THREE.Group();
   group.visible = false;
   group.add(diamond.mesh);
+  // Added before `markEmissive` below, which walks the group once at construction.
+  group.add(mystery.mesh);
+
+  // The question mark's rock, about world Y on top of the billboard turn.
+  const rock = new THREE.Quaternion();
+  const WORLD_Y = new THREE.Vector3(0, 1, 0);
+  /** Put the question mark where the crystal is, at the same size, turned to face the camera. */
+  function poseMystery(elapsed) {
+    if (!mystery.mesh.visible) return;
+    mystery.mesh.position.copy(diamond.mesh.position);
+    mystery.mesh.scale.copy(diamond.mesh.scale);
+    rock.setFromAxisAngle(WORLD_Y, Math.sin((elapsed + phase) * ROCK_RATE) * ROCK_ANGLE);
+    mystery.mesh.quaternion.multiplyQuaternions(rock, BILLBOARD);
+  }
 
   scene.add(group);
 
@@ -312,6 +339,8 @@ export function createFareMarker(scene, phase = 0) {
     /** Put the kerb disc straight into its arrived state — shot mode. See targetring.js. */
     settleRing: () => ring.settle(),
     isVip: () => vipMarked,
+    /** The VIP's question mark, shown in the crystal's place — for the headless tools. */
+    mystery: mystery.mesh,
     setUrgency,
     setFill,
     /** What the crystal is showing, for tools with no GL context to read it back from. */
@@ -382,6 +411,9 @@ export function createFareMarker(scene, phase = 0) {
       const openColour = fareColor(nextLevel, vip);
       diamond.setColor(openColour);
       ring.setColor(openColour);
+      // One or the other, never both — see the header.
+      diamond.mesh.visible = !vip;
+      mystery.mesh.visible = vip;
       // Full, whatever the level says. A rider appears with their whole clock, and the first tick
       // is a frame away — a crystal that drew empty for that frame would flash the wrong news. A
       // VIP's crystal stays at this fill forever — see setFill — so this is also where it settles.
@@ -395,6 +427,7 @@ export function createFareMarker(scene, phase = 0) {
       // `update` only puts the light back on a frame it runs, and a marker hidden mid-flash never
       // gets one.
       diamond.setHighlight(0);
+      mystery.setHighlight(0);
       transferAt = null;
       transferPending = false;
       refuseAt = null;
@@ -418,6 +451,7 @@ export function createFareMarker(scene, phase = 0) {
       // loop exactly once, so a rider appearing while the seat is full would render one frame, or
       // one screenshot, mid-hop.
       diamond.mesh.position.set(0, bounceOffset(phase) * (1 - bg), 0);
+      poseMystery(0);
       group.visible = true;
     },
 
@@ -527,6 +561,7 @@ export function createFareMarker(scene, phase = 0) {
       // one that has to put the light back, and unconditional is one less way to leave a crystal
       // burning.
       diamond.setHighlight(glow);
+      mystery.setHighlight(glow);
 
       if (refusePending) {
         refuseAt = elapsed;
@@ -568,6 +603,7 @@ export function createFareMarker(scene, phase = 0) {
       // backgrounded rider still kicks, pulses and pops at exactly the size the eye has learned
       // those gestures at.
       diamond.mesh.scale.setScalar(1 + kick * KICK_SCALE + pulse + pop * POP_SCALE_DIAMOND);
+      poseMystery(elapsed);
     },
   };
 }
