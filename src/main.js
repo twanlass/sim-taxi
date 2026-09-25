@@ -67,6 +67,7 @@ import { createOpening, entryPath } from './game/opening.js';
 import { createWipe } from './game/wipe.js';
 import { createFarePointers } from './game/farepointers.js';
 import { createSirenGlow } from './game/sirenglow.js';
+import { createRobberyGlow } from './game/robberyglow.js';
 import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
 import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
 import { createBloom, markEmissive } from './game/bloom.js';
@@ -1716,6 +1717,9 @@ const farePointers = createFarePointers({
 // The other half of the same problem, aimed the other way: the drop-off is somewhere the player is
 // driving to, and the police car is something driving at them. See game/sirenglow.js.
 const sirenGlow = createSirenGlow({ camera, viewport });
+// The robbery's version of the same light: round every edge at once while a getaway runs, since
+// four cop cars on every side have no one bearing to point at. See game/robberyglow.js.
+const robberyGlow = createRobberyGlow({ viewport });
 
 // --- Opening tutorial -------------------------------------------------------
 
@@ -3286,6 +3290,9 @@ function frame() {
   // After the police update above, so the wash is aimed at where the cruiser is this frame rather
   // than trailing it by one.
   sirenGlow.update(police, traffic.taxi);
+  // Wall clock for the envelope, so the crash's slow-motion does not hold the frame up; the strobe
+  // stays on the sim clock the cop cars' own bars run off.
+  robberyGlow.update(wallDt, !!robbery?.state.active && !fares.state.gameOver, traffic.stats.time);
   // Undilated: the slow-motion ramp at the end of a run is a statement about the sim, and a
   // drawing does not slow down because a taxi did. Skipped entirely on a paused frame above, which
   // is right — a held frame is a held drawing.

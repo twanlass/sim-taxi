@@ -47,6 +47,9 @@ import {
   edgeGlow, sirenWash, GLOW_NEAR, GLOW_FAR, GLOW_FLOOR, SIREN_DIM,
 } from '../src/game/sirenglow.js';
 import {
+  stepLevel, frameWash, RISE as ROB_RISE, FALL as ROB_FALL,
+} from '../src/game/robberyglow.js';
+import {
   createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES,
   ARRIVE_RADIUS, onSameBlock, CURSE_LIFT, BURGER_PRICE,
 } from '../src/game/fares.js';
@@ -7254,6 +7257,39 @@ check('the taxi is an ordinary car in the traffic array',
   check('and neither half ever goes fully dark', dark === 0, `${dark} frames`);
   check('the strobe speeds up once the cruiser has locked on', huntDiffers > 0,
     `${huntDiffers} of 120 frames differ from the corridor rate`);
+}
+
+// --- The robbery's frame ---------------------------------------------------
+// game/robberyglow.js rings the whole screen in red and blue while a getaway runs. Checked as
+// numbers: it has to rise and fall rather than pop, trade sides on the beat, and never go dark.
+{
+  let lvl = 0;
+  let frames = 0;
+  while (lvl < 1 && frames < 600) { lvl = stepLevel(lvl, true, 1 / 60); frames += 1; }
+  check('the robbery frame rises over RISE', Math.abs(frames / 60 - ROB_RISE) < 2 / 60,
+    `${(frames / 60).toFixed(2)}s`);
+  frames = 0;
+  while (lvl > 0 && frames < 600) { lvl = stepLevel(lvl, false, 1 / 60); frames += 1; }
+  check('and falls over FALL once the getaway ends', Math.abs(frames / 60 - ROB_FALL) < 2 / 60,
+    `${(frames / 60).toFixed(2)}s`);
+
+  let swaps = 0;
+  let dark = 0;
+  let prev = null;
+  for (let f = 0; f < 120; f++) {
+    const w = frameWash(1, f / 120);
+    if (Math.max(w.a.red, w.a.blue) <= 0 || Math.max(w.b.red, w.b.blue) <= 0) dark += 1;
+    // The two sides always show opposite colours on top.
+    if ((w.a.red > w.a.blue) === (w.b.red > w.b.blue)) dark += 1;
+    const redA = w.a.red > w.a.blue;
+    if (prev !== null && redA !== prev) swaps += 1;
+    prev = redA;
+  }
+  // 11Hz (`SIREN_HUNT_HZ`) crosses ten half-period boundaries in the first second.
+  check('the frame trades sides on the hunting beat', swaps >= 10, `${swaps} swaps in 1s`);
+  check('with the two sides always opposite and never dark', dark === 0, `${dark} bad frames`);
+  const off = frameWash(0, 0.3);
+  check('and nothing at all at zero level', off.a.red + off.a.blue + off.b.red + off.b.blue === 0);
 }
 
 // --- The bust chase --------------------------------------------------------
