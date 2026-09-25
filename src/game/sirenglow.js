@@ -51,7 +51,7 @@ export const SIREN_DIM = 14 / 90;
 // Radius of the bloom, as a fraction of the short side of the viewport. Measured against the
 // viewport rather than the world because it is light spilling past the edge of the *frame* — the
 // same reason the tutorial spotlight sizes its pools in pixels.
-const RADIUS_FRAC = 0.42;
+export const RADIUS_FRAC = 0.42;
 
 const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
 

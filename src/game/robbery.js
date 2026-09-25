@@ -1,8 +1,14 @@
-import { GRID_I, GRID_J, dirSign, isXAxis, lineX, lineZ, opposite } from '../city/grid.js';
+import {
+  GRID_I, GRID_J, LANE, dirSign, dirYaw, halfRoadX, halfRoadZ, isXAxis, laneOffsetFor, leftOf,
+  lineX, lineZ, opposite, rightOf,
+} from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 import { URGENCY_SEGMENTS, urgencyLevel } from './urgency.js';
-import { findRoute, planOrigin } from './route.js';
-import { POLICE_FLEET, SPAWN_CLEARANCE, stopDistance, turnPointAt } from '../sim/traffic.js';
+import { findRoute, findRouteOnto, planOrigin } from './route.js';
+import {
+  CAR_LEN, CIRCLE_OFFSET, CIRCLE_R, POLICE_FLEET, SPAWN_CLEARANCE, plannedTurn, stopDistance,
+  turnPointAt,
+} from '../sim/traffic.js';
 
 // The bank robbery: the empty taxi drives past the bank, somebody gets in with a bag, and the
 // streets fill with police for as long as it takes to get them where they are going.
@@ -213,20 +219,25 @@ export const STAND_DOWN_TIMEOUT = 12;
  *
  * The cut-off cops are sent three and five ahead (`CUT_OFF_AHEAD`), so this is the band where they
  * actually arrive. Further out than that the taxi is a long way from arriving and the hold would
- * run out first — see `BLOCK_REACH`, which is the tighter of the two in practice.
+ * run out first — see `BLOCK_REACH`, which is the tighter of the two in practice. Four, up from
+ * three, loosened along with `BLOCK_REACH` and `BLOCK_GAP` to make roadblocks more common: the three
+ * together moved them from 33 to 38 over 60 staged getaways (`tools/probe.mjs` with the box-in
+ * loop at 60). Small, because the gate that binds is none of these — it is whether a cop happens to
+ * be crossing the route at all, and routing the cut-off cops in from a side street to make them
+ * cross moved it by nothing (37).
  */
-const BLOCK_AHEAD = 3;
+const BLOCK_AHEAD = 4;
 
 /**
  * How near the taxi has to be, in world units of Manhattan distance, for a cop crossing one of
  * those junctions to stop in it.
  *
  * A roadblock the taxi never reaches is a cop parked in a junction for no reason, holding the
- * city's cross traffic. Two and a half blocks: about three seconds at ordinary cruise, so a taxi
- * driving at the block reaches it well inside `BLOCK_HOLD`, and one that has stopped or turned
- * off lets it go (`holdRoadblocks`).
+ * city's cross traffic. Three blocks: about seven seconds at ordinary cruise, which is past
+ * `BLOCK_HOLD` on its own but inside it once `PAIR_WAIT` is added — and one that has stopped or
+ * turned off lets it go (`holdRoadblocks`). Was 50; see `BLOCK_AHEAD`.
  */
-const BLOCK_REACH = 50;
+const BLOCK_REACH = 60;
 
 /**
  * How near is too near, for the same measure.
@@ -251,7 +262,7 @@ const BLOCK_NEAR = 12;
 const BLOCK_HOLD = 4;
 
 /**
- * How close to the blocking line — halfway between the taxi's lane and the road's centre, see
+ * How close to the blocking line — the centreline of the road the taxi is on, see
  * `acrossPoint` — a cop's path through the junction has to come for it to count as across it, in
  * world units.
  *
@@ -269,9 +280,50 @@ const BLOCK_ACROSS = 1;
  * drives its route off the pill and never re-routes: 42 roadblocks in 360 seconds, one standing
  * for 40% of the event, and the taxi stopped behind one for a quarter of it — against 18% of the
  * time stopped *at all* with no roadblocks. That is a city that has been shut, not a chase.
- * Spaced out, a block is an event the player meets and answers rather than the weather.
+ * Spaced out, a block is an event the player meets and answers rather than the weather. Was 8,
+ * and cut to 5 to make them more common (see `BLOCK_AHEAD`); still one standing at a time.
  */
-const BLOCK_GAP = 8;
+const BLOCK_GAP = 5;
+
+/**
+ * How far from a roadblock, in world units of Manhattan distance, a second cop may be summoned
+ * to stand beside it. At 50 a third of roadblocks had nobody in range; at 80 it is about one in
+ * five. The cost is arrival: a partner from that far takes longer than `BLOCK_HOLD` plus
+ * `PAIR_WAIT`, and roughly half of the summoned arrive after the first cop has been let go.
+ */
+const PAIR_REACH = 80;
+
+/**
+ * Extra seconds the first cop holds once a partner has been sent for, so the partner has a box to
+ * arrive at. Only granted when one is actually on its way.
+ */
+const PAIR_WAIT = 3;
+
+/**
+ * Daylight a partner keeps from the cop it joins, beyond the two collision circles touching. The
+ * plan is a prediction: a cop braking from chase speed lands a frame's travel either side of its
+ * point, and the diagonal it swings to is latched off its heading on the frame the brake goes on.
+ * Planned with no margin, the pair stood 0.53 into each other (measured).
+ */
+const PAIR_MARGIN = 0.6;
+
+/** How far past its planned point a partner is also checked standing, for the same reason. */
+const PAIR_OVERSHOOT = 0.75;
+
+/** Two car bodies — `{ x, z, yaw }`, the circles sim/collisions.js tests — at least `margin` apart. */
+function apart(a, b, margin) {
+  const reach = 2 * CIRCLE_R + margin;
+  for (const sa of [1, -1]) {
+    for (const sb of [1, -1]) {
+      const dx = (b.x + sb * Math.cos(b.yaw) * CIRCLE_OFFSET)
+        - (a.x + sa * Math.cos(a.yaw) * CIRCLE_OFFSET);
+      const dz = (b.z - sb * Math.sin(b.yaw) * CIRCLE_OFFSET)
+        - (a.z - sa * Math.sin(a.yaw) * CIRCLE_OFFSET);
+      if (dx * dx + dz * dz < reach * reach) return false;
+    }
+  }
+  return true;
+}
 
 /** The junction nearest a world point, clamped onto the grid. */
 function nearestJunction(x, z) {
@@ -317,7 +369,14 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
     roadblocks: 0,
     /** Seconds since a roadblock last went up — see BLOCK_GAP. Starts clear. */
     sinceBlock: BLOCK_GAP,
+    /** How many roadblocks were joined by a second cop, for the tools. */
+    pairs: 0,
   };
+
+  // The cop summoned to stand beside the current roadblock, and the one it is joining. At most one
+  // of each, because only one roadblock stands at a time.
+  let partner = null;
+  let partnerLead = null;
 
   /** How far the taxi is from the bank's door, in world units. */
   const range = () => Math.hypot(taxi.x - site.door.x, taxi.z - site.door.z);
@@ -454,6 +513,8 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
       // cop still in the oncoming lane — frozen out there through the corner, and cutting back in
       // on the far side across whatever was coming. It is re-aimed on the next junction instead.
       if (car.pass > 0) continue;
+      // Nor while it is on its way to join a roadblock: its route is `summonPartner`'s.
+      if (car.summoned) continue;
       // An **empty** route is a cop already standing on the junction it was sent to, and leaving
       // it there is the one thing that undoes the whole idea: a car with no route rolls the
       // ordinary dice at its next junction, so the cop that got there first then wanders off the
@@ -494,24 +555,32 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
   }
 
   /**
-   * Where on its turn a cop has to stop to be standing across the taxi's lane, or null if its path
-   * never comes near it.
+   * Where on its turn a cop has to stop to be standing across the taxi's road, or null if its path
+   * never comes near the middle of it.
    *
-   * Measured against the lane the taxi will *enter* by rather than against the junction's centre,
-   * and it matters most on an arterial: a lane there is 3.3 units off the middle rather than 2, so
-   * a cop crossing straight over and stopping dead centre leaves a car's width of daylight to the
-   * taxi's lane and the taxi simply drives past it. The turn is sampled along the same Bézier the
-   * render pass draws it on, so the point found here is where the car is actually drawn.
+   * On the centreline of the road the taxi enters by, so the cop skids to rest across both lanes:
+   * swung to 45° (SLEW_* in sim/traffic.js) the body is 3.6 across, 1.8 either side of the middle.
+   * It used to stop halfway between the taxi's lane and the centreline, which covered the taxi's
+   * lane and 0.8 of the other and read as a cop parked askew in one lane. The oncoming half needs
+   * no yielding of its own here: the box is held (`heldAt`) while the cop stands in it, so nothing
+   * new enters from any arm.
+   *
+   * Except on an arterial, which keeps the halfway point. Its lane is 3.33 off the middle, so a cop
+   * centred on the middle leaves the taxi's flank (2.33 off it) half a unit clear of the body's 1.8
+   * and a boosting taxi drives past without touching it; halfway, at 1.67, the body reaches 3.47
+   * and the kerb side is 1.86 wide against a 2-unit taxi. Same rule as the brake check's
+   * `blocksOnCentreline` in sim/traffic.js.
+   *
+   * The turn is sampled along the same Bézier the render pass draws it on, so the point found here
+   * is where the car is actually drawn.
    */
   function acrossPoint(cop, at) {
     const lane = cityNetwork().laneByGrid(at.enter, at.i, at.j);
     if (!lane) return null;
-    // Halfway between the lane's centre and the road's: the cop swings to 45° as it stops
-    // (SLEW_* in sim/traffic.js), and centred here the diagonal body covers the taxi's lane and
-    // reaches across into the other — where centred on the lane it covered only the lane, and on
-    // the centreline it left an arterial's 3.33-unit lane a body's width of daylight.
     const end = lane.path.at(lane.length);
-    const mid = isXAxis(at.enter) ? (end.z + lineZ(at.j)) / 2 : (end.x + lineX(at.i)) / 2;
+    const centre = isXAxis(at.enter) ? lineZ(at.j) : lineX(at.i);
+    const laneLine = isXAxis(at.enter) ? end.z : end.x;
+    const mid = laneOffsetFor(at.enter, at.i, at.j) <= LANE + 1e-9 ? centre : (laneLine + centre) / 2;
     const offLine = (p) => (isXAxis(at.enter) ? p.z - mid : p.x - mid);
     let best = null;
     // The start excluded, and the last third: a stop late in the arc has the car's nose out of the
@@ -550,14 +619,23 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
     for (const cop of traffic.policeCars) {
       if (cop.crashed) continue;
       if (cop.blocking) {
-        // Out of the box is out of the roadblock, however it got there.
-        if (!onPath.has(cop.blocking) || cop.roadblock <= 0 || taxi.crashed
-          || cop.state !== 'turn') {
+        // Out of the box is out of the roadblock, however it got there. A partner goes when the
+        // cop it joined does — they were stood down on the same clock — but not until that cop
+        // has driven out of the box: its path out was checked clear of the partner, the
+        // partner's path on was not checked against the first cop's stopping point.
+        const lead = cop.partnerOf;
+        const over = !onPath.has(cop.blocking) || cop.roadblock <= 0 || taxi.crashed
+          || cop.state !== 'turn' || (lead != null && !lead.blocking);
+        if (over && lead && cop.state === 'turn' && inBox(lead, cop.blocking)) {
+          cop.roadblock = Math.max(cop.roadblock, 2 * dt);
+        } else if (over) {
           cop.roadblock = 0;
           cop.blocking = null;
+          cop.partnerOf = null;
         }
         continue;
       }
+      if (cop.summoned) continue;
       if (cop.state !== 'turn') { cop.blockSpent = null; continue; }
       const key = `${cop.i},${cop.j}`;
       if (cop.blockSpent === key || cop.roadblock > 0) continue;
@@ -594,13 +672,201 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
       // that has stopped across its path — traffic is never collision-tested against traffic.
       if (traffic.cars.some((other) => other !== cop && !other.crashed && other.state === 'turn'
         && other.i === cop.i && other.j === cop.j)) continue;
+      // Nor one a car has only just left, with its tail still in the box. It is a lane's car by
+      // then, not a turning one, so the test above lets it by — and with the cop now braking onto
+      // the centreline its arc swept the oncoming exit behind a car pulling out of it: 7 frames
+      // deep by up to 0.92 on `tools/probe.mjs 8`, the only overlap across seeds 1-8.
+      const cx = lineX(cop.i);
+      const cz = lineZ(cop.j);
+      if (traffic.cars.some((other) => other !== cop && !other.crashed
+        && Math.abs(other.x - cx) < halfRoadZ(cop.i) + CAR_LEN / 2
+        && Math.abs(other.z - cz) < halfRoadX(cop.j) + CAR_LEN / 2)) continue;
       cop.roadblock = BLOCK_HOLD;
       cop.blockAxis = at.enter;
       cop.blocking = key;
       cop.blockSpent = key;
+      cop.partnerOf = null;
       state.roadblocks += 1;
       state.sinceBlock = 0;
+      summonPartner(cop, at);
     }
+    pairUp(onPath);
+  }
+
+  /** A car's heading part way round a turn — the same easing the render pass draws it with. */
+  function turnYaw(d, dOut, t) {
+    const a = dirYaw(d);
+    const delta = ((dirYaw(dOut) - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    return a + delta * t;
+  }
+
+  /** Is this car still inside the junction `key`, on its arc? */
+  const inBox = (car, key) => !car.crashed && car.state === 'turn' && `${car.i},${car.j}` === key;
+
+  /** Call a summoned cop off: it goes back to the chase on the next re-aim. */
+  function dismiss(cop) {
+    cop.summoned = null;
+    cop.joinBlock = null;
+    cop.partnerStop = null;
+    if (partner === cop) { partner = null; partnerLead = null; }
+    aimedAt = null;
+  }
+
+  /**
+   * **Send a second cop to the roadblock that just went up**, so the two of them stand across both
+   * halves of the road. One 45° body is 3.6 across against an 8-unit street and a 10.67 arterial,
+   * so a lone cop only ever closes part of it — on a street it stands on the centreline and
+   * leaves 2.2 at each kerb, on an arterial it stands across the taxi's half.
+   *
+   * The nearest free cop within `PAIR_REACH` is routed *through* the junction rather than to it:
+   * a route that ends at a junction leaves the car rolling the ordinary dice there, and the
+   * partner's stop is planned off the turn its route calls for (`pairUp`). Straight on first, since
+   * a straight crossing is the one that sweeps the whole width of the taxi's road; then either
+   * turn. Never a cop arriving down the taxi's own lane — that is the taxi's following car, and
+   * the lane bookkeeping handles a car stopped in front of it badly (see `holdRoadblocks`).
+   */
+  function summonPartner(lead, at) {
+    const J = { i: at.i, j: at.j };
+    const jx = lineX(J.i);
+    const jz = lineZ(J.j);
+    const free = traffic.policeCars
+      .filter((c) => c !== lead && !c.crashed && !c.blocking && !c.passing && c.pass === 0
+        && c.roadblock === 0 && c.state === 'drive')
+      .map((c) => ({ c, d: Math.abs(c.x - jx) + Math.abs(c.z - jz) }))
+      .filter((e) => e.d <= PAIR_REACH)
+      .sort((a, b) => a.d - b.d);
+    for (const { c } of free) {
+      const from = planOrigin(c);
+      // Onto the junction down any arm but the taxi's own, shortest first.
+      let best = null;
+      for (const last of [0, 1, 2, 3]) {
+        if (last === at.enter || !cityNetwork().laneByGrid(last, J.i, J.j)) continue;
+        // `findRouteOnto` answers a lap for a car already on that lane (see CLAUDE.md) — and the
+        // nearest free cop is often exactly that, already on its way in.
+        const toJ = from.i === J.i && from.j === J.j && from.d === last
+          ? [] : findRouteOnto(from, J, last);
+        if (toJ && (!best || toJ.length < best.toJ.length)) best = { toJ, last };
+      }
+      if (!best) continue;
+      const { toJ, last } = best;
+      for (const e of [last, leftOf(last), rightOf(last)]) {
+        const nb = {
+          i: J.i + (isXAxis(e) ? dirSign(e) : 0),
+          j: J.j + (isXAxis(e) ? 0 : dirSign(e)),
+        };
+        if (nb.i < 0 || nb.i > GRID_I || nb.j < 0 || nb.j > GRID_J) continue;
+        const onward = findRoute({ i: J.i, j: J.j, d: last }, nb);
+        if (onward?.[0] !== e) continue;
+        c.route = [...toJ, ...onward];
+        c.routeConsumed = false;
+        c.summoned = lead.blocking;
+        lead.roadblock += PAIR_WAIT;
+        partner = c;
+        partnerLead = lead;
+        return;
+      }
+    }
+  }
+
+  /**
+   * Where on its planned arc a partner should stop, or null if there is nowhere safe.
+   *
+   * The line it stops on is the other half of the road from the first cop: a cop on the
+   * centreline (an ordinary street) is joined on either lane's centre, a cop off it (an arterial,
+   * halfway to the taxi's lane) on its mirror image. The stop is the first point on the arc near
+   * one of those lines that is `PAIR_CLEAR` from the first cop *and* from every point of the first
+   * cop's own way out of the box, and the arc up to it has to stay that clear too — nothing
+   * between two cops is collision-tested, so anything short of that is one drawn through the
+   * other. Sampled to the same 11/16 of the arc as `acrossPoint`, for the same reason.
+   */
+  function partnerStop(g, lead, at, d) {
+    if (!g) return null;
+    const x = isXAxis(at.enter);
+    const centre = x ? lineZ(at.j) : lineX(at.i);
+    const lat = (p) => (x ? p.z : p.x) - centre;
+    const aLat = lat(lead);
+    const laneOff = laneOffsetFor(at.enter, at.i, at.j);
+    const lines = Math.abs(aLat) < 0.5 ? [laneOff, -laneOff] : [-aLat];
+    const dOut = cityNetwork().dirOfLane(cityNetwork().laneById.get(g.turn.outLane));
+    // Poses in the shape `penetration` reads: the same two circles the taxi is tested with.
+    const pose = (car, t) => ({ ...turnPointAt(car, t), yaw: turnYaw(car.d, car.dOut, t) });
+    const road = dirYaw(at.enter);
+    // A stopped blocker is swung to one of the road's two diagonals. The first cop's is already
+    // latched; the partner's is chosen here, as whichever of the two clears (sim/traffic.js
+    // latches it off the heading otherwise, and a car crossing square to the road is a tie).
+    const diagonals = [road + Math.PI / 4, road - Math.PI / 4];
+    const swung = (p, yaws = diagonals) => yaws.map((yaw) => ({ x: p.x, z: p.z, yaw }));
+    const hits = (a, b) => !apart(a, b, PAIR_MARGIN);
+    const leadAt = swung(lead, lead.slewTarget != null ? [lead.slewTarget] : diagonals);
+    const span = lead.turnLen - lead.leadIn;
+    const from = Math.max(0, (lead.turnT * lead.turnLen - lead.leadIn) / span);
+    const leadOut = [];
+    for (let k = 0; k <= 16; k++) leadOut.push(pose(lead, from + (1 - from) * (k / 16)));
+    const arc = { ...g, d, dOut };
+    for (let n = 1; n <= 22; n++) {
+      const p = pose(arc, n / 32);
+      if (leadAt.some((q) => hits(p, q))) return null;
+      const off = Math.min(...lines.map((l) => Math.abs(lat(p) - l)));
+      if (off > BLOCK_ACROSS) continue;
+      const past = pose(arc, n / 32 + PAIR_OVERSHOOT / (arc.turnLen - arc.leadIn));
+      for (const yaw of diagonals) {
+        const stood = [{ x: p.x, z: p.z, yaw }, { x: past.x, z: past.z, yaw }];
+        if (stood.some((a) => leadAt.some((q) => hits(a, q)) || leadOut.some((q) => hits(a, q)))) continue;
+        // The representative of that diagonal nearest the heading, so it swings the short way.
+        const toward = [0, 1, 2, 3].map((k) => yaw + k * Math.PI)
+          .reduce((a, b) => (Math.abs(Math.atan2(Math.sin(b - p.yaw), Math.cos(b - p.yaw)))
+            < Math.abs(Math.atan2(Math.sin(a - p.yaw), Math.cos(a - p.yaw))) ? b : a));
+        return { travelled: p.travelled, yaw: toward };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Bring the summoned partner in. On its approach it is planned (`partnerStop`) once the first
+   * cop has come to rest, and only a partner with a plan is let into the held box (`joinBlock`,
+   * sim/traffic.js); in the box it brakes onto its stop exactly as the first cop did, and holds on
+   * the first cop's clock. Called off the moment the first cop is let go before it has entered.
+   */
+  function pairUp(onPath) {
+    const cop = partner;
+    if (!cop) return;
+    const lead = partnerLead;
+    const key = cop.summoned;
+    if (!traffic.policeCars.includes(cop) || cop.crashed || !lead || taxi.crashed) {
+      dismiss(cop);
+      return;
+    }
+    const at = onPath.get(key);
+    if (cop.state === 'drive') {
+      if (!lead.blocking || lead.blocking !== key || !at || !inBox(lead, key)) { dismiss(cop); return; }
+      if (cop.joinBlock || `${cop.i},${cop.j}` !== key || lead.v > 0.05) return;
+      const stop = cop.d === at.enter ? null : partnerStop(plannedTurn(cop), lead, at, cop.d);
+      if (stop == null) { dismiss(cop); return; }
+      cop.partnerStop = stop.travelled;
+      cop.partnerYaw = stop.yaw;
+      cop.joinBlock = key;
+      return;
+    }
+    // In a turn. At some other junction on the way it is simply still coming — unless the first
+    // cop has been let go meanwhile. In this one it must have been planned: a partner that got
+    // into the box without a plan (a green before the first cop settled) just drives on.
+    if (`${cop.i},${cop.j}` !== key) {
+      if (!lead.blocking || lead.blocking !== key) dismiss(cop);
+      return;
+    }
+    if (cop.partnerStop == null) { dismiss(cop); return; }
+    const travelled = cop.turnT * cop.turnLen;
+    if (travelled + stopDistance(cop.v) < cop.partnerStop) return;
+    cop.roadblock = Math.max(lead.roadblock, 1);
+    cop.blockAxis = lead.blockAxis;
+    cop.slewTarget = cop.partnerYaw;
+    cop.slewLat = 0;
+    cop.blocking = key;
+    cop.blockSpent = key;
+    cop.partnerOf = lead;
+    state.pairs += 1;
+    dismiss(cop);
   }
 
   function eligible() {
@@ -671,6 +937,8 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
     state.since = 0;
     state.standingDown = 0;
     aimedAt = null;
+    partner = null;
+    partnerLead = null;
     // The corner of the map furthest from the taxi, worked out once: every cop is sent there, so
     // they leave *together and away*, which is both how a police response actually disperses and
     // the only version that reliably gets them out of shot.
@@ -691,6 +959,10 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
       // across a box holding the city's traffic for the rest of its `BLOCK_HOLD`.
       cop.roadblock = 0;
       cop.blocking = null;
+      cop.partnerOf = null;
+      cop.summoned = null;
+      cop.joinBlock = null;
+      cop.partnerStop = null;
       // **Routed out rather than simply unrouted**, and the difference is not cosmetic. A car with
       // no route rolls the ordinary dice at every junction, so a "departing" cop wanders — it
       // circles the block the taxi is parked on as often as it leaves, and then the backstop below

@@ -431,6 +431,13 @@ export function setPolicePresence(next) {
   policePresence = next;
 }
 
+// Cops standing across a street on a brake check, rebuilt each frame — `{ axis, line, s, dir }`,
+// the same shape as the presence above. A brake check skids to rest on the road's centreline
+// (see SLEW_* below), and a 45° body there reaches 1.8 into the oncoming lane against an oncoming
+// car's flank at 1.15: nothing but the taxi is collision-tested, so without this the oncoming
+// queue drove through it. The oncoming car pulls over for it exactly as it would for a siren.
+let laneBlocks = [];
+
 // Every road a live run will use — the leg the cruiser is on first, then the legs a jog still has
 // ahead of it. Separate from the presence above, which is one road because it is one *car*.
 //
@@ -759,6 +766,32 @@ function panicTargetFor(car) {
  * same strip of tarmac. A car pointed the other way is in the opposing lane and is left to panic.
  */
 function pulloverTargetFor(car) {
+  return Math.max(sirenPulloverFor(car), blockPulloverFor(car));
+}
+
+/**
+ * Is a brake-checking cop standing across this car's road, ahead of it and in its way? The same
+ * ramp as the siren's, run the other way: the cop is *oncoming*, so it is in front rather than
+ * behind, and the car is let go once it is PULLOVER_CLEAR past.
+ */
+function blockPulloverFor(car) {
+  if (!laneBlocks.length || car.isTaxi || car.crashed || car.police) return 0;
+  if (car.state === 'turn' && car.dOut !== car.d) return 0;
+  const carAxis = isXAxis(car.d) ? 'x' : 'z';
+  const line = carAxis === 'x' ? car.j : car.i;
+  const pos = along(car.d, car.lane.path.at(car.s));
+  let best = 0;
+  for (const block of laneBlocks) {
+    if (block.axis !== carAxis || block.line !== line || block.dir === dirSign(car.d)) continue;
+    // Signed gap along the car's own heading: negative while the cop is still ahead of it.
+    const rel = dirSign(car.d) * (pos - block.s);
+    if (rel > PULLOVER_CLEAR || rel < -PULLOVER_RANGE) continue;
+    best = Math.max(best, rel >= 0 ? 1 : 1 + rel / PULLOVER_RANGE);
+  }
+  return best;
+}
+
+function sirenPulloverFor(car) {
   if (!policePresence || car.isTaxi || car.crashed) return 0;
   // Not while actually turning. Held sideways off a Bézier the car would cut the near corner's
   // pavement on a right and swing wide into the far lane on a left, and a mid-arc offset reads as
@@ -1151,20 +1184,28 @@ const BRAKE_CHECK = 2.5;
 // park. Render-only like the knock and the pull-over, so the lane model is untouched; but
 // `sim/collisions.js` reads the drawn pose, so the angle is real to the one car that is tested.
 //
-// On a lane (the brake check) it also slides half a lane toward the centreline, which is what puts
-// the body across both lanes in collision terms. On an ordinary street that centres it 1 unit off
-// the middle: a 45° body there reaches 0.8 into the oncoming lane, clear of an oncoming car's flank
-// at 1.15 — so ambient traffic, which is never collision-tested, still drives past without passing
-// through it — while a boosting taxi going round in the oncoming lane (at 2 off the middle) meets
-// its nose at 1.7 units against a 2.31 envelope. Taking it further, to the centreline, would put
-// it through the oncoming queue. In a junction the cop is already stopped on the right line
-// (`acrossPoint` in game/robbery.js), so it only turns.
+// On a lane (the brake check) it also slides onto the road's centreline, so the body stands across
+// both lanes: a 45° body is (CAR_LEN + CAR_W)·0.707 = 3.6 across, reaching 1.8 either side of the
+// middle. The first cut slid only half a lane, to 1 off the middle, which kept it clear of an
+// oncoming car's flank at 1.15 and read on screen as a cop parked askew in one lane. On the
+// centreline it is 0.65 into that flank, and ambient traffic is never collision-tested — so the
+// oncoming car pulls over for it (`laneBlocks`, up by the pull-over), which puts its flank at 2.65.
+// An arterial keeps the half-lane slide: its centreline is the median (`blocksOnCentreline`).
+// In a junction the cop is already stopped on the centreline (`acrossPoint` in game/robbery.js),
+// so it only turns.
 //
 // Swung over SLEW_TIME seconds, which is a skid: the car is stopping anyway, and a rotation paced
 // by the road it covers would never finish on a cop that stops in two units. Undone over
 // SLEW_RECOVER units of road as it pulls away, so it drives out of the pose instead.
 const SLEW_TIME = 0.4;
 const SLEW_RECOVER = 2.5;
+
+/**
+ * Does a cop braking on this lane slide all the way to the centreline? On an ordinary street, yes.
+ * An arterial's centreline is the planted median, which already closes the far carriageway, so
+ * there it keeps to the half-lane slide and stands across its own side of the road.
+ */
+const blocksOnCentreline = (car) => laneOffsetFor(car.d, car.i, car.j) <= LANE + 1e-9;
 const YIELD_RANGE = 15;          // how far ahead oncoming traffic blocks a left turn
 const TURN_WEIGHTS = [0.62, 0.24, 0.14]; // straight, right, left
 
@@ -2305,6 +2346,30 @@ function bezier(p0, p1, p2, t) {
  * Read by game/robbery.js to stop a cop across the taxi's lane rather than wherever it happens to
  * finish braking.
  */
+/**
+ * The arc a car on its approach lane *will* drive through the junction ahead, in the shape
+ * `turnPointAt` reads — built exactly as the arrival below builds it, off the turn `car.route[0]`
+ * calls for. Null for a car already in a junction, without a route, or whose next step is not a
+ * legal exit. game/robbery.js plans a paired roadblock with it before the cop reaches the line,
+ * because by the time the sim has committed the car to its arc it is too late to decide the arc
+ * runs through a cop already standing in the box.
+ */
+export function plannedTurn(car) {
+  if (car.state !== 'drive' || !car.route?.length) return null;
+  const net = cityNetwork();
+  const turn = exitToward(net, car.lane, car.route[0]);
+  if (!turn) return null;
+  const entry = car.lane.path.at(car.lane.length);
+  const exit = net.laneById.get(turn.outLane).path.at(0);
+  const control = turn.control;
+  const turnLen = STOP_SETBACK + Math.max(
+    0.1,
+    Math.hypot(control.x - entry.x, control.z - entry.z)
+    + Math.hypot(exit.x - control.x, exit.z - control.z),
+  );
+  return { entry, control, exit, leadIn: STOP_SETBACK, turnLen, turn };
+}
+
 export function turnPointAt(car, t) {
   return {
     ...bezier(car.entry, car.control, car.exit, t),
@@ -3633,6 +3698,17 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     const bargesThrough = (car) => car.boost;
 
     /**
+     * A cop summoned to stand beside one already blocking this junction (`joinBlock`, set by
+     * game/robbery.js) is let into the held box, on any light. That is the one car the hold is
+     * *for*: nothing else can have entered since the first cop stopped — `heldAt` refused them and
+     * the roadblock itself was refused while anything was mid-turn — so the box holds only that
+     * cop, and robbery.js only sets `joinBlock` on a car whose arc it has already checked clear of
+     * it. Counted with the chase's sanctioned reds, not as a violation.
+     */
+    const joinsBlock = (car) => car.joinBlock != null && car.joinBlock === `${car.i},${car.j}`
+      && heldAt.has(car.joinBlock);
+
+    /**
      * Swap a straight-on crossing for the turn `car.lateTurn` asks for, if it still can be.
      *
      * The hold line is where a car commits, but it sits `STOP_SETBACK` short of the junction and the
@@ -3697,7 +3773,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     const entryRefused = (car) => {
       if (bargesThrough(car)) return false;
       // A car stranded mid-turn: cross traffic released into the junction drives through it.
-      if (heldAt.has(`${car.i},${car.j}`)) return true;
+      if (heldAt.has(`${car.i},${car.j}`) && !joinsBlock(car)) return true;
 
       const routed = car.route?.length ? exitToward(net, car.lane, car.route[0]) : null;
       if (routed) {
@@ -4150,6 +4226,20 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       car.scatter += (target - car.scatter) * Math.min(1, dt * (target > car.scatter ? 12 : 1.2));
     }
 
+    // Published before anyone moves, so every car this frame yields to the same set — see
+    // `laneBlocks` above. Only a stop on a lane: a junction block holds the box instead (`heldAt`).
+    laneBlocks = [];
+    for (const cop of policeCars) {
+      if (cop.crashed || cop.staged || cop.roadblock <= 0 || cop.state !== 'drive') continue;
+      if (!blocksOnCentreline(cop)) continue;
+      laneBlocks.push({
+        axis: isXAxis(cop.d) ? 'x' : 'z',
+        line: isXAxis(cop.d) ? cop.j : cop.i,
+        s: along(cop.d, cop.lane.path.at(cop.s)),
+        dir: dirSign(cop.d),
+      });
+    }
+
     stats.moving = 0;
     stats.waiting = 0;
 
@@ -4346,10 +4436,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
             // — and then the arrival, asking only about the priority street, waved it through into
             // the stopped car. A stranded car on the ring had the same hole; a roadblock just
             // stands there long enough to find it.
-            const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car);
+            const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car) && !joinsBlock(car);
             green = (arrive.open || ringGapClear(car, approaching)) && !held;
           } else {
-            const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car);
+            const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car) && !joinsBlock(car);
             green = (arrive.open || taxiClearsYellow(car, arrive, distToLine)) && !held;
 
             // Right on red. Permitted only as a right turn, only with a gap in the traffic that
@@ -4390,6 +4480,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
               green = true;
               viaChaseOnRed = true;
             }
+          }
+          if (!green && joinsBlock(car)) {
+            green = true;
+            viaRightOnRed = false;
+            viaChaseOnRed = arrive.signalised;
           }
 
           let chosen = null;
@@ -4889,7 +4984,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
               }
             }
             car.slewTarget = best.target;
-            car.slewLat = car.state === 'drive' ? laneOffsetFor(car.d, car.i, car.j) / 2 : 0;
+            const lane = laneOffsetFor(car.d, car.i, car.j);
+            car.slewLat = car.state !== 'drive' ? 0 : blocksOnCentreline(car) ? lane : lane / 2;
           }
           car.slew = Math.min(1, car.slew + dt / SLEW_TIME);
         } else {
