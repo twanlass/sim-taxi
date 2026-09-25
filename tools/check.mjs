@@ -25,7 +25,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/flames.js', '../src/game/locoflame.js', '../src/game/sparks.js',
   '../src/game/daylight.js', '../src/game/riderfinder.js',
   '../src/game/taxifinder.js',
-  '../src/game/farepointers.js', '../src/game/sirenglow.js',
+  '../src/game/farepointers.js', '../src/game/sirenglow.js', '../src/game/robberyglow.js',
   '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/runend.js',
   '../src/game/impact.js', '../src/game/taxidamage.js',
   '../src/util/viewport.js',
