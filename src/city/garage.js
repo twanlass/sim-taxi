@@ -152,7 +152,7 @@ export const PAVEMENT_Y = KERB_H + 0.01;
 // nudged as literals, the way `city/burgerjoint.js` names its apron levels: two flat surfaces at
 // the same height is a shimmer, not a touch, and the level anything standing on the forecourt
 // wants is the one the forecourt itself lays.
-const APRON_Y = PAVEMENT_Y + 0.01;
+export const APRON_Y = PAVEMENT_Y + 0.01;
 const PAINT_Y = APRON_Y + 0.015;
 // How far back from the lip the dropped kerb starts falling — `dropKerb`'s own run, and therefore
 // also where anything laid flat on the forecourt has to stop. One constant rather than two because
