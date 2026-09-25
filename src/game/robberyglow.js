@@ -3,25 +3,27 @@ import { PALETTE } from '../palette.js';
 import { sirenOn } from '../geometry/lights.js';
 import { RADIUS_FRAC, SIREN_DIM } from './sirenglow.js';
 
-// The robbery's frame: red and blue burning in round **every** edge of the screen for as long as
-// the getaway runs, trading sides on the siren's beat like the two halves of a light bar.
+// The robbery's frame: six soft blooms of red and blue spaced round the edge of the screen for as
+// long as the getaway runs, trading colours on the siren's beat like the two halves of a light bar.
 //
 // The same light as game/sirenglow.js — the same two colours, the same `screen` blend, the same
 // dim floor on the off colour — put to the opposite use. That wash is a *bearing*: one cruiser, one
 // edge, "it is coming from over there". During a robbery there are four cop cars hunting the taxi
 // from every side, so a bearing would be noise; what the player needs told is *which mode the game
-// is in*, and a frame round the whole screen says that without pointing anywhere.
+// is in*, and blooms on every side of the frame say that without pointing anywhere.
 //
-// Left and top are one side of the bar, right and bottom the other, so the colours chase round the
-// frame diagonally rather than the whole border blinking as one — a single-colour flash reads as a
-// warning light, the alternation reads as police.
+// Each bloom is the siren wash's own: a radial gradient centred *on* the edge so half of it shows,
+// full at the edge, 45% halfway out, clear at its radius. Going round the frame they alternate
+// between the two sides of the bar (`a`, `b`), so neighbours are always opposite colours and swap
+// together — a single-colour flash reads as a warning light, the alternation reads as police.
+// Where they sit is in the CSS (index.html, `#robbery-glow`); this module only drives colour.
 //
-// **Soft, on purpose, and in the siren wash's own terms.** The first cut was an 0.85 band at the
-// hunting rate (11Hz) and it was too much: a whole perimeter at that strength is several times the
-// light a single cruiser's bloom puts on screen, strobing for the length of a getaway. So it takes
-// the wash's falloff (full at the edge, 45% halfway in, nothing at `RADIUS_FRAC`, pulled in by `DEPTH`), its patrol rate
-// (`sirenOn(time)`, 6Hz) and a peak well under the wash's own, because it covers four edges and
-// the wash covers a spot on one.
+// **Spots, not a band, and that took three tries.** An 0.85 band round the whole perimeter at the
+// hunting rate (11Hz) was far too much. Softened to the wash's falloff, the patrol rate
+// (`sirenOn(time)`, 6Hz) and 0.38 it read well, but still crept into the play view from every side
+// at once, and pulling it in by a fifth did not change that. Six blooms leave most of the edge
+// and all of the middle clear, which is also what lets each one burn a little harder than the band
+// could.
 //
 // Enveloped rather than switched: it rises over `RISE` when the robber gets in and falls over
 // `FALL` after the drop-off, so the chase arrives as a moment and leaves as a release rather than
@@ -31,12 +33,11 @@ import { RADIUS_FRAC, SIREN_DIM } from './sirenglow.js';
 export const RISE = 0.8;
 /** Seconds back to nothing after it ends. Slower: the cops standing down is a come-down. */
 export const FALL = 1.2;
-/** Peak alpha of the lit colour at the very edge of the frame — about the siren wash's own floor
- *  (`GLOW_FLOOR` = 0.35), which is how a cruiser on the far side of the city reads. */
-export const PEAK = 0.38;
-/** How far in the glow reaches: the siren wash's radius less a fifth. At the full `RADIUS_FRAC` it
- *  read well but crept too far into the play view — four edges at that depth leave a phone with
- *  only the middle 16% of its width untinted. At 0.8 that is 33%. */
+/** Peak alpha of the lit colour at a bloom's centre. Between the siren wash's floor (0.35, a
+ *  cruiser across the city) and its full strength: six of them are on screen at once. */
+export const PEAK = 0.5;
+/** Each bloom's radius, as a fraction of the siren wash's (`RADIUS_FRAC`). A fifth smaller, from
+ *  when this was still a band and reached too far in. */
 export const DEPTH = 0.8;
 
 const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -51,7 +52,7 @@ export function stepLevel(level, active, dt) {
  *
  * @param level  the envelope, 0..1
  * @param time   the sim clock the cop cars' bars strobe on (`traffic.stats.time`)
- * @returns {{a: {red, blue}, b: {red, blue}}} — `a` is left + top, `b` right + bottom
+ * @returns {{a: {red, blue}, b: {red, blue}}} — `a` and `b` are the two alternating sets of blooms
  */
 export function frameWash(level, time) {
   const s = PEAK * level;

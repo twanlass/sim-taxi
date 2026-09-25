@@ -1000,25 +1000,26 @@
       body.shot-mode #siren-glow, body.game-over #siren-glow { display: none; }
 
       /* --- the robbery's frame ------------------------------------------------
-         The same red and blue as #siren-glow, round every edge at once for as long as a getaway
-         runs. Left + top carry --rob-a and right + bottom --rob-b, and robberyglow.js swaps the two
-         on the siren's beat so the colours chase round the frame. --rob-a2/--rob-b2 are the same
-         colours at 45%, the shoulder #siren-glow's gradient has, and --rob-w is the depth — the
-         wash's own radius — so the two fall off alike. Same z-index and blend as the siren wash, for the
-         same reasons. See src/game/robberyglow.js. */
+         Six soft blooms of the #siren-glow's red and blue, spaced round the edge for as long as a
+         getaway runs: top centre, then clockwise two down the right, bottom centre, two up the
+         left. They alternate between --rob-a and --rob-b going round, so neighbours are always
+         opposite colours, and robberyglow.js swaps the two on the siren's beat. --rob-a2/--rob-b2
+         are the same colours at the 45% shoulder #siren-glow's gradient has, and --rob-w is the
+         radius. Each is centred *on* the edge, so half of it shows. Same z-index and blend as the
+         siren wash, for the same reasons. See src/game/robberyglow.js. */
       #robbery-glow {
+        --rob-bloom-a: var(--rob-a, transparent) 0%, var(--rob-a2, transparent) 45%, transparent 100%;
+        --rob-bloom-b: var(--rob-b, transparent) 0%, var(--rob-b2, transparent) 45%, transparent 100%;
         position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 8;
         pointer-events: none; user-select: none;
         mix-blend-mode: screen;
         background:
-          linear-gradient(to right, var(--rob-a, transparent), var(--rob-a2, transparent) calc(var(--rob-w, 160px) * 0.45),
-            transparent var(--rob-w, 160px)),
-          linear-gradient(to bottom, var(--rob-a, transparent), var(--rob-a2, transparent) calc(var(--rob-w, 160px) * 0.45),
-            transparent var(--rob-w, 160px)),
-          linear-gradient(to left, var(--rob-b, transparent), var(--rob-b2, transparent) calc(var(--rob-w, 160px) * 0.45),
-            transparent var(--rob-w, 160px)),
-          linear-gradient(to top, var(--rob-b, transparent), var(--rob-b2, transparent) calc(var(--rob-w, 160px) * 0.45),
-            transparent var(--rob-w, 160px));
+          radial-gradient(circle var(--rob-w, 130px) at 50% 0%, var(--rob-bloom-a)),
+          radial-gradient(circle var(--rob-w, 130px) at 100% 28%, var(--rob-bloom-b)),
+          radial-gradient(circle var(--rob-w, 130px) at 100% 72%, var(--rob-bloom-a)),
+          radial-gradient(circle var(--rob-w, 130px) at 50% 100%, var(--rob-bloom-b)),
+          radial-gradient(circle var(--rob-w, 130px) at 0% 72%, var(--rob-bloom-a)),
+          radial-gradient(circle var(--rob-w, 130px) at 0% 28%, var(--rob-bloom-b));
       }
       #robbery-glow[hidden] { display: none; }
       body.shot-mode #robbery-glow, body.game-over #robbery-glow { display: none; }
