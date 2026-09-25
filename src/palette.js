@@ -605,6 +605,9 @@ export const PALETTE = {
   // bodywork. `game/sirenglow.js` washes both over the frame edge while the cruiser is off-screen,
   // so the same two colours have to be nameable from more than one place.
   sirenBlue: '#4D9BFF',
+  // The box a cop car's bar is bolted into — what stays on the roof once the lamps go off, so a
+  // stood-down cop still reads as police. See sirenHousingGeometry() in geometry/lights.js.
+  sirenHousing: '#23262D',
   lightYellow: '#F0B23A',
   lightGreen: '#4FBF63',
   // An ambient car's turn signal — deliberately more orange than lightYellow above so a blinking

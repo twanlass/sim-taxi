@@ -10,6 +10,7 @@ import {
   lightPodGeometry, brakeLightAnchors, turnSignalAnchors, LIGHT_PODS,
   brakeLightMaterial, turnSignalMaterial,
   sirenPodGeometry, sirenBarAnchors, sirenRedMaterial, sirenBlueMaterial, sirenOn,
+  sirenHousingGeometry, sirenHousingAnchor,
 } from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
@@ -2556,6 +2557,21 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const sirenBlueMesh = lightMesh(
     'carSirenBlue', sirenBlueMaterial, sirenBarAnchors(CABIN_X, CABIN_TOP), ambient,
     sirenPodGeometry, 'siren');
+  // ...and the box they are bolted into, which is **not** a lamp and so is not in `lightMeshes`:
+  // it is drawn by `police` rather than by `siren`, so it stays on the roof for the whole
+  // stand-down, when the pods have gone dark. Without it a cop driving away from a finished
+  // robbery was an ordinary blue car — see sirenHousingGeometry(). One per car, scaled to zero on
+  // everything that is not police, on the same terms as the pods above.
+  const sirenHousingMesh = neverCull(new THREE.InstancedMesh(
+    bakeColor(sirenHousingGeometry(), color('sirenHousing')), propMaterial(), MAX_AMBIENT,
+  ));
+  sirenHousingMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  sirenHousingMesh.castShadow = true;
+  sirenHousingMesh.receiveShadow = true;
+  sirenHousingMesh.name = 'carSirenHousing';
+  sirenHousingMesh.count = ambient.length;
+  const SIREN_HOUSING_AT = sirenHousingAnchor(CABIN_X, CABIN_TOP);
+  sirenHousingMesh.userData.anchor = SIREN_HOUSING_AT;
 
   const tint = new THREE.Color();
   // A cop car is an ordinary car wearing `policeBody` instead of its own draw from `PALETTE.carBody`
@@ -2640,6 +2656,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       turnRightMesh.count = ambient.length * LIGHT_PODS;
       sirenRedMesh.count = ambient.length * LIGHT_PODS;
       sirenBlueMesh.count = ambient.length * LIGHT_PODS;
+      sirenHousingMesh.count = ambient.length;
     }
   }
 
@@ -2774,6 +2791,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       turnRightMesh.count = ambient.length * LIGHT_PODS;
       sirenRedMesh.count = ambient.length * LIGHT_PODS;
       sirenBlueMesh.count = ambient.length * LIGHT_PODS;
+      sirenHousingMesh.count = ambient.length;
     }
     return added;
   }
@@ -2808,6 +2826,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     turnRightMesh.count = ambient.length * LIGHT_PODS;
     sirenRedMesh.count = ambient.length * LIGHT_PODS;
     sirenBlueMesh.count = ambient.length * LIGHT_PODS;
+    sirenHousingMesh.count = ambient.length;
     return true;
   }
 
@@ -2856,6 +2875,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   scene.add(truckMesh);
   scene.add(truckWheelMesh);
   scene.add(truckBoxMesh);
+  scene.add(sirenHousingMesh);
   for (const light of lightMeshes) scene.add(light);
 
   // --- Stop bars ------------------------------------------------------------
@@ -2995,7 +3015,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // Baked vertex colours multiply by material.color exactly as they did by instanceColor, so
     // the copy comes out the same car in the same paint.
     const material = propMaterial();
-    material.color.set(PALETTE.carBody[car.colorIndex]);
+    // `bodyColor`, not `carBody` directly: a wrecked cop car is still a cop car, and a shell
+    // painted from its `colorIndex` turned it back into whatever ordinary car it was drawn as.
+    material.color.set(bodyColor(car));
 
     const shell = new THREE.Group();
     bodyInst.getMatrixAt(car.instanceIndex, matrix);
@@ -3055,6 +3077,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         sirenRedMesh.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
         sirenBlueMesh.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
       }
+    }
+    // The housing goes with it — the shell is a body and two wheels, and a dark box left standing
+    // where the roof used to be would hang in the air over the wreck.
+    if (!car.isTruck) {
+      sirenHousingMesh.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
+      sirenHousingMesh.instanceMatrix.needsUpdate = true;
     }
     brakeInst.instanceMatrix.needsUpdate = true;
     turnLeftInst.instanceMatrix.needsUpdate = true;
@@ -3156,6 +3184,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       const red = sirenOn(stats.time, car.chase > 0) ? lit : 0;
       writeLight(sirenRedMesh, car, red);
       writeLight(sirenBlueMesh, car, lit - red);
+      // The housing by `police`, not `siren` — it is the paint's half of the bar, not the lamps'.
+      lightLocal.compose(SIREN_HOUSING_AT, LIGHT_QUAT, lightScale.setScalar(car.police ? 1 : 0));
+      lightMatrix.multiplyMatrices(matrix, lightLocal);
+      sirenHousingMesh.setMatrixAt(car.instanceIndex, lightMatrix);
     }
   }
 
@@ -5060,6 +5092,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     truckMesh.instanceMatrix.needsUpdate = true;
     truckWheelMesh.instanceMatrix.needsUpdate = true;
     truckBoxMesh.instanceMatrix.needsUpdate = true;
+    sirenHousingMesh.instanceMatrix.needsUpdate = true;
     for (const light of lightMeshes) light.instanceMatrix.needsUpdate = true;
 
     // --- Stop bar colours, one per approach.
@@ -5133,6 +5166,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // prepass — but not folded into `ambient`/`wheelsPerCar` above, since those are index-aligned
     // with the *car* meshes and game/carghosts.js reads them as such.
     truckMesh, truckWheelMesh, truckBoxMesh, trucks, truckWheelsPerCar: TRUCK_FRONT.length,
+    // The unlit box under a cop car's bar, one instance per ambient car. Out for the probe.
+    sirenHousingMesh,
     /**
      * Every self-lit mesh this module owns — the fleet's six instanced pod meshes and the taxi's
      * six ordinary ones — for `main.js` to put in the bloom (`markEmissive` in game/bloom.js).
