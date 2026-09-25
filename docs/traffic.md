@@ -2165,7 +2165,24 @@ beside `stun` that drives the same `braking` flag. Nothing else makes it a roadb
 mid-turn is already what the junction logic calls stranded (`heldAt`), so cross traffic is held, a
 taxi off the pill is refused at its line, and a boosting one barges in and meets the cop as a bump.
 Let go when the junction is no longer on the taxi's way (driven through, rammed through, routed
-round) or after `BLOCK_HOLD` (4s); one at a time, `BLOCK_GAP` (8s) apart.
+round) or after `BLOCK_HOLD` (4s); one at a time, `BLOCK_GAP` (5s) apart. The gap was 8s and the
+look-ahead three junctions and 50 units; loosening all three moved roadblocks from 33 to 38 over 60
+staged getaways, because none of them is the gate that binds — a cop has to happen to be crossing
+the route at all, and routing cut-off cops in from a side street so that they would moved it by
+nothing (37).
+
+**A second cop is sent to stand beside it** (`summonPartner` / `pairUp`). The nearest free cop within
+`PAIR_REACH` (80) is routed onto the junction down any arm but the taxi's, and through it, and the
+first cop holds `PAIR_WAIT` (3s) longer while it comes. Once the first cop is at rest, the partner's
+arc is planned before it reaches the line (`plannedTurn`): a stop on the other half of the road — a
+lane centre if the first cop is on the centreline, the mirror image if it is not — whose body, at
+the diagonal chosen for it, clears the first cop and the first cop's way out by `PAIR_MARGIN` (0.6)
+beyond the collision circles, as does the arc up to it. Only a planned partner is let into the held
+box (`joinBlock`, on any light — nothing else can be in there), and it holds on the first cop's clock
+but does not leave until the first cop has driven out. Pairs are rare — 1 to 3 per 35-odd blocks over 60 getaways: a
+fifth of blocks have nobody in reach, half of the summoned arrive after the first cop is let go, and
+most of the rest find the first cop's body across their own arm as they enter the 8-unit box. Planned
+with no margin the pair stood 0.53 into each other.
 
 Where it stops is measured, not wherever the brake happens to finish. `turnPointAt` samples the cop's
 arc on the same Bézier the render pass draws, and the cop brakes on the frame `stopDistance(v)`

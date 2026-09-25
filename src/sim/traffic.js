@@ -2346,6 +2346,30 @@ function bezier(p0, p1, p2, t) {
  * Read by game/robbery.js to stop a cop across the taxi's lane rather than wherever it happens to
  * finish braking.
  */
+/**
+ * The arc a car on its approach lane *will* drive through the junction ahead, in the shape
+ * `turnPointAt` reads — built exactly as the arrival below builds it, off the turn `car.route[0]`
+ * calls for. Null for a car already in a junction, without a route, or whose next step is not a
+ * legal exit. game/robbery.js plans a paired roadblock with it before the cop reaches the line,
+ * because by the time the sim has committed the car to its arc it is too late to decide the arc
+ * runs through a cop already standing in the box.
+ */
+export function plannedTurn(car) {
+  if (car.state !== 'drive' || !car.route?.length) return null;
+  const net = cityNetwork();
+  const turn = exitToward(net, car.lane, car.route[0]);
+  if (!turn) return null;
+  const entry = car.lane.path.at(car.lane.length);
+  const exit = net.laneById.get(turn.outLane).path.at(0);
+  const control = turn.control;
+  const turnLen = STOP_SETBACK + Math.max(
+    0.1,
+    Math.hypot(control.x - entry.x, control.z - entry.z)
+    + Math.hypot(exit.x - control.x, exit.z - control.z),
+  );
+  return { entry, control, exit, leadIn: STOP_SETBACK, turnLen, turn };
+}
+
 export function turnPointAt(car, t) {
   return {
     ...bezier(car.entry, car.control, car.exit, t),
@@ -3674,6 +3698,17 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     const bargesThrough = (car) => car.boost;
 
     /**
+     * A cop summoned to stand beside one already blocking this junction (`joinBlock`, set by
+     * game/robbery.js) is let into the held box, on any light. That is the one car the hold is
+     * *for*: nothing else can have entered since the first cop stopped — `heldAt` refused them and
+     * the roadblock itself was refused while anything was mid-turn — so the box holds only that
+     * cop, and robbery.js only sets `joinBlock` on a car whose arc it has already checked clear of
+     * it. Counted with the chase's sanctioned reds, not as a violation.
+     */
+    const joinsBlock = (car) => car.joinBlock != null && car.joinBlock === `${car.i},${car.j}`
+      && heldAt.has(car.joinBlock);
+
+    /**
      * Swap a straight-on crossing for the turn `car.lateTurn` asks for, if it still can be.
      *
      * The hold line is where a car commits, but it sits `STOP_SETBACK` short of the junction and the
@@ -3738,7 +3773,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     const entryRefused = (car) => {
       if (bargesThrough(car)) return false;
       // A car stranded mid-turn: cross traffic released into the junction drives through it.
-      if (heldAt.has(`${car.i},${car.j}`)) return true;
+      if (heldAt.has(`${car.i},${car.j}`) && !joinsBlock(car)) return true;
 
       const routed = car.route?.length ? exitToward(net, car.lane, car.route[0]) : null;
       if (routed) {
@@ -4401,10 +4436,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
             // — and then the arrival, asking only about the priority street, waved it through into
             // the stopped car. A stranded car on the ring had the same hole; a roadblock just
             // stands there long enough to find it.
-            const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car);
+            const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car) && !joinsBlock(car);
             green = (arrive.open || ringGapClear(car, approaching)) && !held;
           } else {
-            const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car);
+            const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car) && !joinsBlock(car);
             green = (arrive.open || taxiClearsYellow(car, arrive, distToLine)) && !held;
 
             // Right on red. Permitted only as a right turn, only with a gap in the traffic that
@@ -4445,6 +4480,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
               green = true;
               viaChaseOnRed = true;
             }
+          }
+          if (!green && joinsBlock(car)) {
+            green = true;
+            viaRightOnRed = false;
+            viaChaseOnRed = arrive.signalised;
           }
 
           let chosen = null;
