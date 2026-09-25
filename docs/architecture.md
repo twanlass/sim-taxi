@@ -71,6 +71,7 @@ src/
     clouds.js           the weather ringing the island — placed on the screen, never over the city
     robbery.js          the bank robbery: who gets in outside the bank, and the cops that come with them
     radio.js            the dispatch bubble that says the fare who just got in is a robber
+    robberline.js       the robber's line: the world stops, the taxi is spotlit, the robber shouts
     coplights.js        the red and blue a cop car throws on the road while a robbery runs
     cashtrail.js        banknotes out of the back of a boosting getaway
     opening.js          the opening vignette: camera onto the garage door, door up, taxi out

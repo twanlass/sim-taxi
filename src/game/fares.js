@@ -228,21 +228,26 @@ const ROBBER_CLOCK_FLOOR = 20;
 const ROBBER_DROPOFF_SPREAD = 1;
 
 /**
- * The bonus, as a multiple of the trip's own distance price, paid in full at a full clock and
- * nothing at all at an empty one.
+ * What a getaway pays, in dollars: a flat base stamped at spawn, and a bonus paid in full at a full
+ * clock and nothing at all at an empty one. $150 for a clean getaway, $100 for one landed on the
+ * last second — so the event always pays, and how much is the whole of what the player is driving
+ * for.
  *
  * **This is the one price in the game that is not settled at spawn**, and the exception is the
  * point rather than an oversight. Every other fare is stamped when its trip is decided, because
  * metering during the trip "would punish traffic and reward Loco Mode for the wrong reasons" — and
- * for the robbery, rewarding Loco Mode is exactly the ask. The base half of the payout is still
- * stamped like everyone else's; only the bonus reads the clock, and it reads it once, on the frame
- * the drop-off resolves.
+ * for the robbery, rewarding Loco Mode is exactly the ask. The base is still stamped like everyone
+ * else's; only the bonus reads the clock, and it reads it once, on the frame the drop-off resolves.
  *
- * At 1.5 a getaway landed with the clock nearly full is worth two and a half ordinary fares of the
- * same length, and one landed on the last second is worth one — so the event always pays, and how
- * much is the whole of what the player is driving for.
+ * **Flat rather than a multiple of the trip's distance price**, which is what it was: 1.5× a
+ * five-plus-block trip on top of its own base came to about $50–75, two or three ordinary fares for
+ * the one event in the game that takes the wheel, fills the streets with police and cannot be
+ * declined. It read as a slightly better fare. At $100–150 it is five or six ordinary fares' worth —
+ * a jackpot, which is what an event this loud should pay. Flat also keeps it off
+ * `payoutMultiplier`, so it is the same number every time and a player can learn it.
  */
-const ROBBER_BONUS = 1.5;
+const ROBBER_PAYOUT = 100;
+const ROBBER_BONUS = 50;
 
 // Cadence and placement of every fare beyond the first.
 //
@@ -1137,7 +1142,6 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // is nobody in the seat for it to queue behind — the trigger refuses while there is — and it
     // certainly cannot be budgeted to wait behind the kerb, since it is already driving.
     const budget = budgetFor(taxiCar, at, dropoff, { jumpsQueue: true });
-    const base = Math.round(priceFor(at, dropoff) * difficulty.payoutMultiplier(state.delivered));
     const fare = {
       slot,
       stage: 'riding',
@@ -1161,10 +1165,10 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
       popAt: undefined,
       ridingFor: 0,
       vipMultiplier: 1,
-      value: base,
-      // The urgency-scaled half of the payout, stamped as a ceiling here and cashed at the
-      // drop-off. See ROBBER_BONUS.
-      bonusMax: Math.round(base * ROBBER_BONUS),
+      value: ROBBER_PAYOUT,
+      // The clock-scaled part of the payout, stamped as a ceiling here and cashed at the
+      // drop-off. See ROBBER_PAYOUT.
+      bonusMax: ROBBER_BONUS,
       // The run from the bank's steps into the moving cab, which is the ordinary boarding animation
       // with a door in place of a kerb corner.
       boardingFrom: { x: from.x, z: from.z },
@@ -1697,7 +1701,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
         // than at spawn. It is folded into `fare.value` before anything reads it, so the pop that
         // flies off the taxi, the counter it rolls into and the run-end card's "Cash" all say the
         // same number — the alternative was a second, smaller flight arriving from nowhere for a
-        // reason the screen never explains. See ROBBER_BONUS.
+        // reason the screen never explains. See ROBBER_PAYOUT.
         if (fare.bonusMax) fare.value += Math.round(fare.bonusMax * urgencyOf(fare));
         state.money += fare.value;
         state.delivered += 1;
