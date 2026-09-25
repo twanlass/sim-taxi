@@ -13524,6 +13524,46 @@ let chopperOrder; // likewise
     check('a car that is not a cop has no bar on it at all',
       civilianLit === 0, `${civilianLit} lit pod-frames on civilian cars`);
 
+    // Standing down. `stop` in game/robbery.js switches the bar off and leaves the car on the road,
+    // and with nothing but lamps on the roof that frame turned every cop into an ordinary blue
+    // car — reported as the police "turning into normal cars" at the end of a robbery. The housing
+    // is drawn by `police`, not `siren`, so it has to outlast the lamps.
+    for (const car of copTraffic.policeCars) car.siren = false;
+    copTraffic.update(1 / 60);
+    const housingScale = (index) => {
+      const m = new THREE.Matrix4();
+      copTraffic.sirenHousingMesh.getMatrixAt(index, m);
+      return new THREE.Vector3().setFromMatrixScale(m).x;
+    };
+    const darkBars = copTraffic.policeCars.filter((car) =>
+      housingScale(car.instanceIndex) > 0.99
+        && podScale(redMesh, car.instanceIndex, 0) === 0
+        && podScale(blueMesh, car.instanceIndex, 0) === 0).length;
+    check('a stood-down cop keeps its bar, dark, rather than turning back into a hatchback',
+      darkBars === copTraffic.policeCars.length,
+      `${darkBars} of ${copTraffic.policeCars.length} with an unlit bar on the roof`);
+    const civilianHousings = copTraffic.ambient.filter((car) =>
+      !car.police && !car.crashed && housingScale(car.instanceIndex) > 0).length;
+    check('...and nothing else in the city wears one',
+      civilianHousings === 0, `${civilianHousings} civilian cars with a bar housing`);
+    check('...and the housing sits inside the pods, so a lit bar never fights it',
+      (() => {
+        const housing = new THREE.Box3().setFromBufferAttribute(
+          copTraffic.sirenHousingMesh.geometry.attributes.position);
+        const pod = new THREE.Box3().setFromBufferAttribute(redMesh.geometry.attributes.position);
+        const [a, b] = redMesh.userData.podAnchors;
+        const at = copTraffic.sirenHousingMesh.userData.anchor;
+        housing.translate(at);
+        return [a, b].every((anchor) => {
+          const box = pod.clone().translate(anchor);
+          const shared = housing.clone().intersect(box);
+          return shared.max.x < box.max.x && shared.min.x > box.min.x
+            && shared.max.y < box.max.y && Math.abs(shared.min.y - box.min.y) < 1e-6
+            && shared.max.z <= box.max.z && shared.min.z >= box.min.z
+            && (anchor.z > 0 ? housing.max.z < box.max.z : housing.min.z > box.min.z);
+        });
+      })());
+
     // Taking them off. The cars leave the map with the event rather than turning back into
     // hatchbacks, and the fleet the city was driving before is exactly as it was.
     copTraffic.clearPolice();

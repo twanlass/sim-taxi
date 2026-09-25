@@ -225,6 +225,31 @@ export function sirenBarAnchors(roofX, roofY) {
   return [sirenPodAnchor(-1, roofX, roofY), sirenPodAnchor(1, roofX, roofY)];
 }
 
+/**
+ * The bar's housing: the dark box the two pods are bolted into, and the part of the bar that is
+ * still there when it is switched off.
+ *
+ * **Without it a stood-down cop car is an ordinary car.** The bar is two lamps and nothing else,
+ * and a lamp's off is a zero scale — so the frame a robbery ended, every cop car lost the only
+ * thing on it that was not a car body, and `policeBody` (#2E5FA8) is a few steps off the
+ * ordinary blue in `carBody` (#4E7FC0). At play zoom the fleet driving off read as the police
+ * turning back into traffic. The housing is how a car with its lights off still says police.
+ *
+ * Inset from the pods on every side they share — 0.02 along the car and across, 0.04 lower — so a
+ * lit pod wholly encloses its end of the housing and the two never draw a face on the same plane.
+ * The one face they do share is the bottom, on the roof, and that faces down and is culled. What
+ * shows while the bar is lit is the strip between the pods, which is what a real bar looks like.
+ */
+export function sirenHousingGeometry() {
+  const span = 2 * (SIREN_SPREAD + SIREN_W / 2) - 0.04;
+  return new THREE.BoxGeometry(SIREN_D - 0.04, SIREN_H - 0.04, span);
+}
+
+/** Where the housing sits in car-local space: on the roof, between the two pod anchors. */
+export function sirenHousingAnchor(roofX, roofY) {
+  return new THREE.Vector3(roofX, roofY + (SIREN_H - 0.04) / 2, 0);
+}
+
 /** The red half of the bar. Same `lightRed` the brake pods and the cruiser's own bar wear. */
 export function sirenRedMaterial() {
   return new THREE.MeshLambertMaterial({

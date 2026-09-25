@@ -2260,6 +2260,17 @@ from a finished scene goes dark, together, a beat before it leaves the map. Read
 bar meant the fleet drove off with its lights still going, which reads as an event that has not
 actually ended.
 
+**Paint alone did not say police, so the bar has a housing that reads `police`.** The bar used to
+be two lamps and nothing else, and a lamp's off is a zero scale — so the frame the event ended every
+cop lost the only thing on it that was not a car body, and `policeBody` (#2E5FA8) is a few steps off
+the ordinary blue in `carBody` (#4E7FC0). At play zoom the fleet driving off read as the police
+turning back into traffic. `sirenHousingMesh` is a dark box under the pods (`sirenHousingGeometry`
+in `geometry/lights.js`), not a lamp and not in the bloom, drawn off `police`: lit, it is the strip
+between the pods; dark, it is a cop car with its lights off. It is inset from the pods on every
+shared side so a lit pod encloses it rather than fighting it, and the probe asserts all three. A
+wrecked cop's shell had the same hole one layer over — it was tinted from `carBody[colorIndex]` —
+and goes through `bodyColor` now.
+
 Routing them out is not cosmetic. The first cut merely *cleared* their routes, and a car with no
 route rolls the ordinary dice at every junction — so a "departing" cop circled the block the taxi
 was parked on as often as it left, and the backstop then deleted it in full view. Measured: nearest

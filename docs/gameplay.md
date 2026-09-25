@@ -1771,7 +1771,8 @@ description, and it is worth listing what is *not* new, because none of it is:
   from off screen and stands them down again at the drop-off, driving off under their own steam. The
   first version repainted the ambient cars nearest the taxi and deleted them at the end, which reads
   exactly as badly as it sounds at both ends: a car you have been following turns into a police car,
-  and a police car in your mirror stops existing. See
+  and a police car in your mirror stops existing. A stood-down cop keeps a dark bar on its roof,
+  so it still reads as police with its lights off rather than as a blue hatchback. See
   [cop cars in ambient traffic](traffic.md#they-are-spawned-not-repainted) and
   [standing down](traffic.md#standing-down).
 
