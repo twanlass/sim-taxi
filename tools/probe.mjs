@@ -7765,6 +7765,22 @@ check('the taxi is an ordinary car in the traffic array',
     !stillPanning && !cam.isGliding() && cam.state.target.equals(afterDrag),
     stillPanning ? 'the pan kept writing the target' : 'ok');
 
+  // ...and so does a *tap*. The fare-pointer arrow glides the camera onto a rider, and the player
+  // taps the rider the moment they come into frame — mid-glide. The picker raycasts on `click`,
+  // after the finger lifts, so a glide still running under the press moved the rider out from
+  // under it and the tap missed. The camera has to hold still from the press on.
+  cam.cancelGlide();
+  cam.state.target.set(0, 0, 0);
+  cam.glideTo(40, 0);
+  cam.updateGlide(STEP, 1.5);
+  fire('pointerdown', 400, 300);
+  const underFinger = cam.state.target.clone();
+  const tapStillPanning = cam.updateGlide(STEP, 1.5);
+  fire('pointerup', 400, 300);
+  check('a tap freezes a pan in flight, so the pick sees the frame it landed on',
+    !tapStillPanning && !cam.isGliding() && cam.state.target.equals(underFinger),
+    tapStillPanning ? 'the pan kept moving under the press' : 'ok');
+
   // Same for the follow-cams: a boost chase or a wreck focus starting mid-pan takes the camera
   // over, rather than the two easing the target to different places on alternate frames.
   cam.cancelGlide();
