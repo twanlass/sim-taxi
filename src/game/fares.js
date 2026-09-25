@@ -177,29 +177,35 @@ const VIP_CLOCK_FLOOR = 10;
 // A robber who gets into the taxi outside the bank — see `spawnRobber` below and game/robbery.js
 // for what puts one there. From this file's point of view they are an ordinary fare that skipped
 // the kerb: already aboard on the frame they appear, already `directed`, with a drop-off drawn at
-// the far end of the map and a clock cut tighter than anybody else's.
+// the far end of the map and a clock loose enough to spend on the police.
 //
 // Three numbers, and each of them has a different job.
 
-// How much of the run's own slack a robber's clock gets. Tighter than a VIP's 0.8 because the trip
-// is the only thing in the chain — there is no pickup leg to drive and no kerb queue to pay for
-// (see `budgetFor`), so the same factor would have bought a *longer* clock than an ordinary rider
-// on the same trip. What is being asked for is the opposite: the shortest clock on the board.
-const ROBBER_SLACK_FACTOR = 0.62;
-// ...and never below this. `tools/probe.mjs` asserts every fare's clock covers its own driving, and
-// a getaway is meant to be urgent rather than arithmetically impossible. It is under the VIP's 1.15
-// on purpose — this is the tightest fare in the game — and it is still slack, not a deficit.
-const ROBBER_MIN_SLACK = 1.05;
-const ROBBER_CLOCK_FLOOR = 12;
+// How much of the run's own slack a robber's clock gets. **Generous on purpose**: the getaway is the
+// longest drive in the game and the point of it is the police, so the clock is there to pay the
+// bonus rather than to threaten the trip. It used to be 0.62 floored at 1.05 — in practice
+// `work × 1.05` from the very first robbery, since the run's slack starts at 1.7 and 1.7 × 0.62 is
+// 1.05 — which left no seconds to spend on a roadblock, a detour or a ram, and turned the chase
+// into something to get away from rather than something to play with. At 1.3 over a floor of 1.6
+// a getaway always has at least 60% more clock than driving, and more than an ordinary rider on
+// the same trip would get.
+const ROBBER_SLACK_FACTOR = 1.3;
+// ...and never below this, however late in the run. `tools/probe.mjs` asserts every fare's clock
+// covers its own driving, and this one covers it with room to spare.
+const ROBBER_MIN_SLACK = 1.6;
+const ROBBER_CLOCK_FLOOR = 20;
 
 /**
- * How many junctions are drawn for the getaway before the furthest from the bank is kept.
+ * How many blocks short of the furthest free corner from the bank the getaway may land.
  *
- * **A getaway runs across town.** It is drawn over the whole map and biased hard toward the far
- * side. Measured over 55 cities: **median 7 blocks, range 5 to 9**, against a grid whose diameter
- * is 10 — so the drop-off is reliably somewhere on the far side of the city from the bank, and it
- * is never next door. A short hop is not a getaway, and this is the one event in the game whose
- * whole point is the drive.
+ * **A getaway runs to the far side of the map.** Every free junction is scored by block distance
+ * from the bank and the drop-off is drawn from the furthest band — the furthest, or one short of
+ * it, so a city's robberies do not all end on the same kerb. It was eight random darts with the
+ * furthest kept (median 7 blocks, range 5 to 9 over 55 cities), which still let a getaway end
+ * five blocks out; the point of the event is the chase, and a chase wants the longest road the
+ * city has. `pickFarthest` uses the same predicate as every other draw, so the rules a drop-off
+ * obeys (claimed corners, river, sightline, the bank's own block) are unchanged — it only stops
+ * leaving the distance to chance.
  *
  * It shipped capped at four blocks for one revision, and the measurement behind that cap is worth
  * keeping because it names what a long getaway actually costs. A robbery takes the seat for the
@@ -215,12 +221,11 @@ const ROBBER_CLOCK_FLOOR = 12;
  * a long getaway spends are ones that had room to spare. The table on that constant is the
  * measurement, and it is the one to move if this number is ever turned down again.
  *
- * The darts are a *bias*, not a floor: a minimum block distance is another rule
- * `pickIntersection` would have to be able to satisfy, and on a board already holding four fares
- * and a courier's two corners it is a rule that can fail — at which point the honest answer is a
- * short trip, not no robbery.
+ * Still not a floor: it is the furthest *free* band, so on a board already holding four fares and
+ * a courier's two corners it is whatever is left — the honest answer there is a shorter trip, not
+ * no robbery.
  */
-const ROBBER_DROPOFF_DARTS = 8;
+const ROBBER_DROPOFF_SPREAD = 1;
 
 /**
  * The bonus, as a multiple of the trip's own distance price, paid in full at a full clock and
@@ -643,38 +648,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
    * doesn't catch near the map's origin edge.
    */
   function pickIntersection(taxiCar, near = null, maxBlocks = null, avoidBlockOf = null) {
-    // Every junction already spoken for, which is now both ends of every live fare: a waiting
-    // rider's drop-off pin is on the map from the moment they appear, so dropping a second rider
-    // (or a second drop-off) on top of it would put two markers on one kerb corner.
-    const avoid = [{ i: taxiCar.i, j: taxiCar.j }];
-    for (const f of state.fares) {
-      avoid.push(f.target);
-      if (f.dropoff) avoid.push(f.dropoff);
-    }
-    // ...and every junction another *system* has spoken for — the package courier's two ends
-    // (game/parcels.js), through the injected `reserved` above.
-    //
-    // **This is the half that was missing.** The courier already refused to spawn on a fare's corner,
-    // which made the rule look enforced while only one direction of it was: a package sits on its
-    // corner indefinitely, so given long enough a later fare would land on top of one. Two jobs in one
-    // 20-unit hit box is a tap that resolves to whichever the raycast reached first, and at play zoom
-    // the player cannot see there are two.
-    //
-    // Blocks as well as junctions, matching what the courier does in the other direction, so the
-    // invariant is symmetric and can be asserted as one: `cornerFor` flips its corner inward at
-    // `i === 0`, so two intersections a whole block apart can still park their markers on one slab.
-    const held = reserved();
-    // ...and every corner the camera cannot see (`cornerSeen`). A rider behind a tower is a rider
-    // the player hunts for with a clock draining, and their drop-off ring is the only thing saying
-    // where the trip ends. Unlike the rest of this predicate it is a fact about the *city* rather
-    // than about what is on the board, so it never changes during a run.
-    // ...and every corner standing in the river (`onWaterBlock`), which is the same kind of fact
-    // about the city as the sightline above it and is filtered in the same breath.
-    const free = (i, j) => !avoid.some((a) => a.i === i && a.j === j)
-      && !held.some((a) => (a.i === i && a.j === j) || onSameBlock({ i, j }, a))
-      && (!avoidBlockOf || !onSameBlock({ i, j }, avoidBlockOf))
-      && !onWaterBlock({ i, j })
-      && cornerSeen(i, j);
+    const free = freeCorner(taxiCar, avoidBlockOf);
 
     if (near) {
       const options = [];
@@ -708,6 +682,8 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // building is hard to find; two markers on one corner is a tap that answers for the wrong job.
     // This is the same ordering the courier applies to its own park filter — the rule that only
     // makes a job worse yields before the rule that makes it ambiguous.
+    const held = reserved();
+    const avoid = spokenFor(taxiCar);
     for (let i = 0; i <= GRID_I; i++) {
       for (let j = 0; j <= GRID_J; j++) {
         if (!avoid.some((a) => a.i === i && a.j === j)
@@ -716,6 +692,70 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     }
     // Genuinely nowhere left. Deterministic rather than random so the failure is reproducible.
     return { i: 0, j: 0 };
+  }
+
+  /**
+   * The free junction furthest from `from` by block distance, ties broken at random — or null if
+   * nothing on the board is free. Same predicate as `pickIntersection`, so it respects every rule
+   * an ordinary drop-off does; it just stops leaving the distance to chance. See
+   * ROBBER_DROPOFF_SPREAD.
+   */
+  function pickFarthest(taxiCar, from, spread = 0) {
+    const free = freeCorner(taxiCar, from);
+    const options = [];
+    for (let i = 0; i <= GRID_I; i++) {
+      for (let j = 0; j <= GRID_J; j++) {
+        if (free(i, j)) options.push({ i, j, d: blockDistance({ i, j }, from) });
+      }
+    }
+    if (!options.length) return null;
+    const far = Math.max(...options.map((o) => o.d));
+    const pool = options.filter((o) => o.d >= far - spread);
+    const { i, j } = pool[rng.int(0, pool.length - 1)];
+    return { i, j };
+  }
+
+  /** The taxi's next junction and both ends of every live fare. */
+  function spokenFor(taxiCar) {
+    const avoid = [{ i: taxiCar.i, j: taxiCar.j }];
+    for (const f of state.fares) {
+      avoid.push(f.target);
+      if (f.dropoff) avoid.push(f.dropoff);
+    }
+    return avoid;
+  }
+
+  /** The predicate every drop-off and pickup draw is filtered through. */
+  function freeCorner(taxiCar, avoidBlockOf = null) {
+    // Every junction already spoken for, which is now both ends of every live fare: a waiting
+    // rider's drop-off pin is on the map from the moment they appear, so dropping a second rider
+    // (or a second drop-off) on top of it would put two markers on one kerb corner.
+    const avoid = spokenFor(taxiCar);
+    // ...and every junction another *system* has spoken for — the package courier's two ends
+    // (game/parcels.js), through the injected `reserved` above.
+    //
+    // **This is the half that was missing.** The courier already refused to spawn on a fare's corner,
+    // which made the rule look enforced while only one direction of it was: a package sits on its
+    // corner indefinitely, so given long enough a later fare would land on top of one. Two jobs in one
+    // 20-unit hit box is a tap that resolves to whichever the raycast reached first, and at play zoom
+    // the player cannot see there are two.
+    //
+    // Blocks as well as junctions, matching what the courier does in the other direction, so the
+    // invariant is symmetric and can be asserted as one: `cornerFor` flips its corner inward at
+    // `i === 0`, so two intersections a whole block apart can still park their markers on one slab.
+    const held = reserved();
+    // ...and every corner the camera cannot see (`cornerSeen`). A rider behind a tower is a rider
+    // the player hunts for with a clock draining, and their drop-off ring is the only thing saying
+    // where the trip ends. Unlike the rest of this predicate it is a fact about the *city* rather
+    // than about what is on the board, so it never changes during a run.
+    // ...and every corner standing in the river (`onWaterBlock`), which is the same kind of fact
+    // about the city as the sightline above it and is filtered in the same breath.
+    const free = (i, j) => !avoid.some((a) => a.i === i && a.j === j)
+      && !held.some((a) => (a.i === i && a.j === j) || onSameBlock({ i, j }, a))
+      && (!avoidBlockOf || !onSameBlock({ i, j }, avoidBlockOf))
+      && !onWaterBlock({ i, j })
+      && cornerSeen(i, j);
+    return free;
   }
 
   /**
@@ -860,14 +900,14 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
   }
 
   /**
-   * A robber's clock: the same shape as a VIP's, turned one notch further.
+   * A robber's clock: the same shape as a VIP's, with a far looser factor — see
+   * ROBBER_SLACK_FACTOR.
    *
    * The reaction allowance is still the ordinary one and is still charged, even though a robbery
    * needs no reaction at all — nobody has to be spotted or tapped, the rider is simply in the car.
    * Charging it anyway is what keeps the two clocks comparable: `ROBBER_SLACK_FACTOR` is then a
    * number that can be read against `VIP_SLACK_FACTOR` rather than one that also quietly absorbed a
-   * term the other one carries. What makes this the tightest fare on the board is the factor and
-   * the empty queue behind it, which is where it should be.
+   * term the other one carries.
    */
   function robberLimitFor(work) {
     const slackMul = Math.max(ROBBER_MIN_SLACK,
@@ -892,7 +932,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // A robber never has one: `spawnRobber` refuses outright while the seat is full, which is the
     // trigger's own rule (game/robbery.js) rather than something to reason about here. So the chain
     // it is budgeted over is its own trip and nothing else — the shortest chain any fare in this
-    // game gets, which is half of why its clock is the tightest.
+    // game gets.
     const riding = carrying();
     if (riding) stops.push(riding.dropoff);
     // Then everyone already on the kerb, most urgent first — the same order `waiting()` hands
@@ -1085,16 +1125,12 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
       && !exits.some((e) => e.slot === s));
     if (!slot) return null;
 
-    // The getaway: across town. Drawn `ROBBER_DROPOFF_DARTS` times over the whole map and the
-    // furthest from the bank kept — see that constant for why this is a bias and not a floor.
-    // Every draw goes through `pickIntersection` unbiased, so the getaway respects exactly the same
-    // rules every other drop-off does: not a corner another fare or the courier has claimed, not in
-    // the river, not behind a building, and not on the bank's own block.
-    let dropoff = null;
-    for (let k = 0; k < ROBBER_DROPOFF_DARTS; k++) {
-      const spot = pickIntersection(taxiCar, null, null, at);
-      if (!dropoff || blockDistance(spot, at) > blockDistance(dropoff, at)) dropoff = spot;
-    }
+    // The getaway: the far side of the map — see ROBBER_DROPOFF_SPREAD. Filtered through the same
+    // predicate as every other drop-off: not a corner another fare or the courier has claimed, not
+    // in the river, not behind a building, and not on the bank's own block. `pickIntersection` is
+    // the fallback for a board with nothing free, and has its own last resorts.
+    const dropoff = pickFarthest(taxiCar, at, ROBBER_DROPOFF_SPREAD)
+      ?? pickIntersection(taxiCar, null, null, at);
 
     // `jumpsQueue` rather than `vip`: a robber is not a VIP and must not be priced or coloured as
     // one, but its clock covers its own trip and nothing else for exactly the VIP's reason. There

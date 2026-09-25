@@ -48,7 +48,7 @@ import {
 } from '../src/game/sirenglow.js';
 import {
   createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES,
-  ARRIVE_RADIUS, onSameBlock, CURSE_LIFT, BURGER_PRICE,
+  ARRIVE_RADIUS, onSameBlock, onWaterBlock, CURSE_LIFT, BURGER_PRICE,
 } from '../src/game/fares.js';
 import { createCurseBubble, TAIL_DROP } from '../src/geometry/cursebubble.js';
 import {
@@ -13862,17 +13862,25 @@ let chopperOrder; // likewise
       // arithmetically impossible.
       check('a robber’s clock still covers the driving it pays for',
         robber.limit > robber.work, `${robber.limit}s against ${robber.work.toFixed(1)}s of driving`);
-      // ...and it is the tightest on the board. Budgeted over its own trip alone and at a slack
-      // factor under the VIP's, so an ordinary rider on the same trip gets strictly longer.
+      // ...with room to play with the police. See ROBBER_SLACK_FACTOR: at least 60% over the
+      // driving, and more than an ordinary rider on the same trip would get.
       const ordinary = difficulty.fareLimit(robber.work, fired.fares.state.delivered);
-      check('...and is tighter than an ordinary rider’s on the same trip',
-        robber.limit < ordinary, `${robber.limit}s against ${ordinary.toFixed(0)}s`);
-      // Across town, which is the event's whole drama. Drawn over the whole map and biased hard
-      // to the far side — see ROBBER_DROPOFF_DARTS. Measured over 55 cities the median is 7 on a
-      // 10-block diameter; the bar here is only that it is not a hop, since the draw is a bias
-      // rather than a floor and a crowded board can legitimately produce a near one.
-      check('the getaway runs across town rather than round the corner',
-        robber.blocks >= 4, `${robber.blocks} blocks of a 10-block diameter`);
+      check('...with room to spare for the chase',
+        robber.limit >= robber.work * 1.6 && robber.limit >= ordinary,
+        `${robber.limit}s against ${robber.work.toFixed(1)}s of driving, ${ordinary.toFixed(0)}s ordinary`);
+      // The far side of the map, which is the event's whole drama — see ROBBER_DROPOFF_SPREAD.
+      // Checked against every free-looking corner off the bank: the drop-off is within a block of
+      // the furthest one on the map that is not in the river or on the bank's own block.
+      let furthest = 0;
+      for (let i = 0; i <= GRID_I; i++) {
+        for (let j = 0; j <= GRID_J; j++) {
+          if (onWaterBlock({ i, j }) || !cornerSeen(i, j)) continue;
+          furthest = Math.max(furthest, Math.abs(i - robber.pickup.i) + Math.abs(j - robber.pickup.j));
+        }
+      }
+      check('the getaway runs to the far side of the map',
+        robber.blocks >= furthest - 1 && robber.blocks >= 5,
+        `${robber.blocks} blocks, furthest corner ${furthest}`);
       // The bonus is a ceiling stamped at spawn and cashed against the clock at the drop-off — the
       // one price in the game not settled when the trip is.
       check('the bonus is stamped as a ceiling, not paid up front',
