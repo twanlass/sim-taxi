@@ -2874,15 +2874,15 @@ function frame() {
   // the camera's push-in uses, which stops with a paused run rather than banking the pause.
   if (!locoHeld && boost.isEngaged() && boost.heldSeconds() >= LOCO_HINT_HOLD) locoHeld = true;
   // Never re-arm boost on a wrecked taxi — the flag would flick on the next frame otherwise and
-  // the collision detector already only checks `if (taxi.boost)`. `taxi.boost` covers the hold
+  // the collision detector only charges hits `if (taxi.boost)`. `taxi.boost` covers the hold
   // *and* the one-second cooldown tail after release — collision, police bust range and running
   // reds all key off it, see BOOST_COOLDOWN in game/boost.js. `boostEasing` is the narrower flag
   // that's only true during that tail; traffic.js reads it to ease the speed cap back down instead
   // of holding full boost speed for the whole cooldown window.
   if (!traffic.taxi.crashed) {
     // Never on a staged taxi: the cooldown tail outlasts the turn in off the lane at the depot, and
-    // collisions would otherwise test a car a cut scene is driving over a kerb. `taxi.boost` is what
-    // sim/collisions.js keys the whole check off.
+    // collisions would otherwise charge a car a cut scene is driving over a kerb. `taxi.boost` is
+    // what sim/collisions.js charges hits off; the unarmed shove is closed on `staged` there.
     traffic.taxi.boost = boost.isEngaged() && !traffic.taxi.staged;
     traffic.taxi.boostEasing = boost.isCoolingDown();
     // Written every frame rather than on the press, so the flag cannot be left stuck on by a

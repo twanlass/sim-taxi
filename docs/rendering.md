@@ -2927,7 +2927,7 @@ material recipes so the two paths cannot drift apart.
 ### Nearby-traffic ghost outlines — `game/carghosts.js`
 
 The same outline, worn by the handful of ambient vehicles nearest the taxi. It exists because
-`sim/collisions.js` is armed *only* while boosting: the one moment a car hidden behind a tower is a
+`sim/collisions.js` only charges a contact while boosting: the one moment a car hidden behind a tower is a
 crash rather than a surprise is the one moment the player cannot see it. The taxi's outline says
 where the player is; this says what they are about to drive into. It lives in `game/` rather than
 `sim/` because it is a readout of a player-layer concept — the boost — and because `main.js` is the
@@ -2935,7 +2935,7 @@ only place allowed to know about both.
 
 It runs whether or not the taxi is currently boosting, and deliberately so: gating it on
 `taxi.boost` would only ever confirm a decision already made, since the collision test it is
-warning about only arms once the button is down. Showing it beforehand is what lets the player spot
+warning about only starts charging once the button is down. Showing it beforehand is what lets the player spot
 the hidden car and choose *not* to press the button — see `update()`'s `want` in `carghosts.js`,
 which only drops to 0 once the taxi is `crashed`.
 

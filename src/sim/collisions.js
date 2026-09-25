@@ -3,9 +3,20 @@ import {
 } from './traffic.js';
 
 // Collision detection between the taxi and ambient cars. Deliberately narrow: only the taxi is
-// checked, and only while boosting — everywhere else the lane bookkeeping and following-distance
-// rules keep cars apart by construction, so a global pairwise sweep would only ever fire on false
-// positives (a car queued behind another at MIN_GAP is *almost* touching by design).
+// checked — ambient-vs-ambient is kept apart by the lane bookkeeping and following-distance rules,
+// so a global pairwise sweep would only ever fire on false positives (a car queued behind another
+// at MIN_GAP is *almost* touching by design).
+//
+// Contact is resolved all the time; it is only *charged* while boosting. Outside Loco Mode the
+// taxi drives itself by the same rules as everything else, and those rules are not tight against
+// this envelope: the perfect-player harness (tools/autoplay.mjs, which never boosts) grazed a car
+// once every ~100s over 56 simulated minutes — 34 contacts, every one in a junction, 23 of them two
+// turn arcs brushing, at 5–12 u/s of closing speed, which `bumpDamage` would price at 17–25 HP.
+// Charging those is a wreck every five minutes the player did nothing to cause. So off boost a
+// contact is a shove and nothing else. Unresolved, the same contacts drove on through each other to
+// 2.29 units deep; shoved, the worst is 0.20, with deliveries identical run for run. Bodies cannot
+// pass through each other (a car knocked spinning into the taxi's path, a cop boxing it in after
+// the cooldown lapses), and the only crash the player can have is one they pressed the button for.
 //
 // Bodies are approximated as a pair of circles per car, offset ±CAR_LEN/4 along the yaw axis.
 // A full OBB SAT test would be more accurate at odd angles, but cars are axis-aligned almost all
@@ -134,10 +145,15 @@ export function createCollisions(cars, taxi) {
 
   function update(dt = 1 / 60) {
     clock += dt;
-    // Nothing to detect unless the taxi has left the safety of its lane. A crashed taxi is done
-    // for good, and so is anything it has already hit.
+    // A crashed taxi is done for good, and so is anything it has already hit.
     if (taxi.crashed) return;
-    if (!taxi.boost) return;
+    const armed = taxi.boost;
+    // A staged taxi is being driven by a cut scene (the depot, the drive-through) that owns its
+    // position — over kerbs, across the apron — and nothing it passes is a contact. main.js already
+    // forces `boost` off while staged, so this only has to close the unarmed path. It must not
+    // close the armed one: tools/probe.mjs stages the taxi *with* boost on to place a hit by hand,
+    // and so does shot mode's wreck.
+    if (!armed && taxi.staged) return;
 
     for (const other of cars) {
       if (other === taxi) continue;
@@ -147,6 +163,14 @@ export function createCollisions(cars, taxi) {
       if (Math.abs(other.x - taxi.x) > reach || Math.abs(other.z - taxi.z) > reach) continue;
       const pen = penetration(taxi, other);
       if (!pen) continue;
+
+      // Off boost: push it clear and charge nothing (see the header). Not recorded in `lastTouch`
+      // either, so a press of the button while already touching is a fresh hit rather than a
+      // continuation of one the taxi never paid for. A staged car belongs to its cut scene.
+      if (!armed) {
+        if (!other.staged) shoveCar(other, pen.nx * pen.depth, pen.nz * pen.depth);
+        continue;
+      }
 
       const touched = lastTouch.get(other);
       lastTouch.set(other, clock);
