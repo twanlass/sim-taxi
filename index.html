@@ -1002,18 +1002,23 @@
       /* --- the robbery's frame ------------------------------------------------
          The same red and blue as #siren-glow, round every edge at once for as long as a getaway
          runs. Left + top carry --rob-a and right + bottom --rob-b, and robberyglow.js swaps the two
-         on the siren's beat so the colours chase round the frame. --rob-w is the band's depth,
-         sized off the short side of the viewport. Same z-index and blend as the siren wash, for the
+         on the siren's beat so the colours chase round the frame. --rob-a2/--rob-b2 are the same
+         colours at 45%, the shoulder #siren-glow's gradient has, and --rob-w is the depth — the
+         wash's own radius — so the two fall off alike. Same z-index and blend as the siren wash, for the
          same reasons. See src/game/robberyglow.js. */
       #robbery-glow {
         position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 8;
         pointer-events: none; user-select: none;
         mix-blend-mode: screen;
         background:
-          linear-gradient(to right, var(--rob-a, transparent), transparent var(--rob-w, 120px)),
-          linear-gradient(to bottom, var(--rob-a, transparent), transparent var(--rob-w, 120px)),
-          linear-gradient(to left, var(--rob-b, transparent), transparent var(--rob-w, 120px)),
-          linear-gradient(to top, var(--rob-b, transparent), transparent var(--rob-w, 120px));
+          linear-gradient(to right, var(--rob-a, transparent), var(--rob-a2, transparent) calc(var(--rob-w, 160px) * 0.45),
+            transparent var(--rob-w, 160px)),
+          linear-gradient(to bottom, var(--rob-a, transparent), var(--rob-a2, transparent) calc(var(--rob-w, 160px) * 0.45),
+            transparent var(--rob-w, 160px)),
+          linear-gradient(to left, var(--rob-b, transparent), var(--rob-b2, transparent) calc(var(--rob-w, 160px) * 0.45),
+            transparent var(--rob-w, 160px)),
+          linear-gradient(to top, var(--rob-b, transparent), var(--rob-b2, transparent) calc(var(--rob-w, 160px) * 0.45),
+            transparent var(--rob-w, 160px));
       }
       #robbery-glow[hidden] { display: none; }
       body.shot-mode #robbery-glow, body.game-over #robbery-glow { display: none; }

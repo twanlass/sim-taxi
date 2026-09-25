@@ -7285,8 +7285,9 @@ check('the taxi is an ordinary car in the traffic array',
     if (prev !== null && redA !== prev) swaps += 1;
     prev = redA;
   }
-  // 11Hz (`SIREN_HUNT_HZ`) crosses ten half-period boundaries in the first second.
-  check('the frame trades sides on the hunting beat', swaps >= 10, `${swaps} swaps in 1s`);
+  // The patrol rate, 6Hz (`SIREN_HZ`), crosses 5 half-period boundaries in the first second — the
+  // hunting rate was tried first and was too much.
+  check('the frame trades sides on the patrol beat', swaps === 5, `${swaps} swaps in 1s`);
   check('with the two sides always opposite and never dark', dark === 0, `${dark} bad frames`);
   const off = frameWash(0, 0.3);
   check('and nothing at all at zero level', off.a.red + off.a.blue + off.b.red + off.b.blue === 0);
