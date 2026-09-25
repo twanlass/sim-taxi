@@ -1857,16 +1857,43 @@ and a getaway that opened on an empty bar was a chase the taxi could not win on 
 whose cruise ceiling sits above an unboosted taxi's. Filling it keeps the event's choice — boost
 and risk the wreck, or hold off and risk the clock — a choice.
 
+### The robber's line
+
+`game/robberline.js`. The event used to go straight from a drive-past to four cop cars and the radio
+call on one frame — the whole thing arriving at once, while the player was looking at something
+else. It read as traffic changing colour rather than as the game changing mode, so it now has a
+setup, in three beats:
+
+1. **The robber gets in and the world stops.** Once the figure has finished running for the cab
+   (`BOARD_SECONDS`), the city dims around the taxi (`#robber-spot`, the tutorial's gradient and pool
+   size) and the robber shouts from a bubble at the bottom — the coach's card in the coach's place,
+   with the masked figure in the avatar and a red edge. The line is one of `ROBBER_LINES`, drawn off
+   the run seed.
+2. **The next tap clears it** and calls the police (`raiseAlarm` in game/robbery.js — the fare, its
+   clock and the getaway route are already running; only the cop cars wait). A tap mid-type finishes
+   the line first, the coach's convention. Space and Enter answer it too.
+3. **`RADIO_DELAY` (1.5s of game time) later, dispatch breaks in** — below.
+
+**The world stops rather than runs on under it.** It is the pause's own early return in `frame()`,
+and for the same reason a pause is: this lands mid-run with the taxi moving, and a bubble that
+waited for a tap over a live city would either eat a routing tap meant for the road or let the
+getaway start behind it. Frozen, the tap has one meaning and nothing is lost while the line is read.
+The element is a full-screen catcher while it is up, so the tap never reaches the canvas — the picker
+and the route drag both only take presses whose target is the canvas.
+
+Its own element and pool rather than `#coach` and `#spotlight`: the tutorial's Loco Mode beat can be
+mid-showing when a robbery lands, and `body.robber-talk` hides it meanwhile. The tools construct the
+robbery without `holdAlarm`, so the headless suite still sees the police on the frame it fires.
+
 ### Dispatch breaks in
 
-`game/radio.js`. On the frame the robber is in the car, a bubble drops in under the HUD: a police
+`game/radio.js`. A beat after the robber's line is cleared, a bubble drops in under the HUD: a police
 car turning in the avatar — the robbery's own cop car, `carGeometry()` in `policeBody` with its bar
 flashing — over "DISPATCH / All units respond! Robbery in progress."
 
 The figure alone was not enough, and the reason is the trigger. A robbery fires on a drive-*past*,
-so the player is watching the taxi or the next rider, not a 20px figure on the bank's steps, and the
-cop cars that also say it come in off screen a beat later. What the player saw was a crystal over
-their roof they had not asked for.
+so the player is watching the taxi or the next rider, not a 20px figure on the bank's steps. The
+robber's line now says *who* got in; this says what it means — the police are coming.
 
 It borrows the coach bubble's card and drops everything that asks something of the player:
 
@@ -1904,11 +1931,14 @@ a detour or a ram, and made the chase something to escape rather than something 
 **And the payout is the one price in this game not settled at spawn.** Every other fare is stamped
 when its trip is decided, because a meter that ticked while driving "would punish traffic and reward
 Loco Mode for the wrong reasons" ([Priced by the trip](#priced-by-the-trip)). For a getaway,
-rewarding Loco Mode is exactly the ask. So the base half is stamped like everybody else's, and a
-bonus of up to `ROBBER_BONUS` = 1.5× that base is paid on the *fraction of clock left at the
-drop-off* — read once, on the frame the arrival resolves. Land it with the crystal nearly full and
-the job is worth two and a half ordinary fares of the same length; land it on the last second and it
-is worth one. The event always pays, and how much is the whole of what the player is driving for.
+rewarding Loco Mode is exactly the ask. So a flat `ROBBER_PAYOUT` = $100 is stamped like everybody
+else's price, and a bonus of up to `ROBBER_BONUS` = $50 is paid on the *fraction of clock left at the
+drop-off* — read once, on the frame the arrival resolves. $150 for a clean getaway, $100 on the last
+second. The event always pays, and how much is the whole of what the player is driving for.
+
+It was 1.5× the trip's own distance price on top of that price, which came to $50–75 — two or three
+ordinary fares for the one event that takes the wheel and cannot be declined, and it read as a
+slightly better fare. Flat, it is a jackpot worth five or six, and the same number every time.
 
 The bonus is folded into the fare's own `value` before anything reads it, so the pop that flies off
 the taxi, the counter it rolls into and the run-end card's "Cash" all say the same number. A second,
@@ -3057,8 +3087,9 @@ route there turns at random. A rider aboard outranks whatever was remembered at 
 never saw that route, and the lane it was planned from is the one the car is released onto.
 
 **Loco Mode is dead for the whole visit**, and `taxi.boost` is forced off while the car is staged —
-boost's one-second cooldown tail outlasts the turn-in, and `sim/collisions.js` keys everything off
-that flag, so a car arriving on the pill could otherwise wreck on the kerb it was driving over.
+boost's one-second cooldown tail outlasts the turn-in, and `sim/collisions.js` charges hits off
+that flag, so a car arriving on the pill could otherwise wreck on the kerb it was driving over. The
+unarmed shove is closed on `staged` for the same reason: a cut scene owns the taxi's position.
 
 There is no tap-to-skip. The opening's skip works because nothing else on the map is tappable while
 it runs; during a repair the board is live, and a tap on a rider has to mean the rider.

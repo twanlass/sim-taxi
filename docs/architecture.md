@@ -34,7 +34,7 @@ src/
     traffic.js          signals + car physics + the single routing branch. The largest file.
                         Cars drive lanes off the road network; `car.s` is arc length along one.
     police.js           the priority-corridor car
-    collisions.js       taxi-vs-car impact test, boost only — bumps cost HP, the last one wrecks both
+    collisions.js       taxi-vs-car impact test — always shoved apart, charged only on boost; the last bump wrecks both
 
   game/                 the player's layer
     fares.js            fare state machine, spawning, scoring
@@ -71,6 +71,7 @@ src/
     clouds.js           the weather ringing the island — placed on the screen, never over the city
     robbery.js          the bank robbery: who gets in outside the bank, and the cops that come with them
     radio.js            the dispatch bubble that says the fare who just got in is a robber
+    robberline.js       the robber's line: the world stops, the taxi is spotlit, the robber shouts
     coplights.js        the red and blue a cop car throws on the road while a robbery runs
     cashtrail.js        banknotes out of the back of a boosting getaway
     opening.js          the opening vignette: camera onto the garage door, door up, taxi out

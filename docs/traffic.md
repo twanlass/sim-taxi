@@ -1408,7 +1408,7 @@ approaches passed 130 and wrecked 0 both before and after.
 
 ### Seeing what you're about to hit
 
-Because collision detection is armed only while boosting, the one moment a car hidden behind a
+Because a contact only costs anything while boosting, the one moment a car hidden behind a
 tower is a crash rather than a surprise is the one moment the player can't see it. The nearest
 handful of ambient cars therefore wear the taxi's own occluded-only outline while Loco Mode is up,
 each in its own paint — see [nearby-traffic ghost outlines](rendering.md#nearby-traffic-ghost-outlines--gamecarghostsjs).
@@ -1418,9 +1418,19 @@ than the speed cap, so like every other hazard rule it stays up through the cool
 ## Bumps and hit points
 
 The taxi has **100 HP** (`TAXI_HP` in `sim/collisions.js`), and every contact but the one that
-empties it is a **bump** rather than [the wreck](#the-wreck). Collisions are still armed only
-while boosting — outside Loco Mode the lane model keeps the taxi off everything by construction, so
-there is nothing for HP to mean there.
+empties it is a **bump** rather than [the wreck](#the-wreck). Hits are only **charged** while
+boosting. Contact itself is resolved all the time: outside Loco Mode an overlap is shoved apart
+(`shoveCar`) and costs nothing.
+
+That split is measured, not assumed. The lane model does *not* keep a lawful taxi off everything:
+over 56 simulated minutes of the never-boosting perfect player (`tools/autoplay.mjs`, 9 runs × 40
+fares) it grazed a car **once every ~100s**, all 34 times in a junction, 23 of them two turn arcs
+brushing. Left unresolved, those contacts drove on through each other to **2.29 units** deep. With
+the shove the worst is 0.20, and deliveries are identical run for run. Charging those grazes would
+price them at 17–25 HP each (closing 5–12 u/s), a wreck every five minutes of driving the player
+had no hand in. So the only crash on offer is one the button was pressed for, and the only thing
+off boost is that bodies stop passing through each other: a car knocked spinning into the lane
+after the cooldown lapses, or a cop parked across the road.
 
 **What a hit costs is the closing speed**, not a flat count: `10 + 1.3 × closing`, clamped 12–60.
 Rear-ending a car at boost cruise closes at ~10.5 u/s and costs 24; T-boning cross traffic at boost

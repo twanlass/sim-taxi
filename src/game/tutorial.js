@@ -382,12 +382,13 @@ function createAvatar(sun, hemi) {
  * The tap does not have to land on the bubble; see the window listener in createTutorial. Which is
  * why `tap()` is a method rather than a click handler bound in here.
  */
-function createBubble(root, { sun, hemi }, onDismiss) {
+export function createBubble(root, { sun, hemi }, onDismiss, avatar = createAvatar(sun, hemi)) {
   const ghost = root.querySelector('.coach-ghost');
   const typed = root.querySelector('.coach-typed');
   const avatarSlot = root.querySelector('.coach-avatar');
 
-  const avatar = createAvatar(sun, hemi);
+  // The taxi/rider pair by default. The robber's bubble (game/robberline.js) hands in its own
+  // figure and reuses everything else here — the typewriter, the tap, the open and close.
   avatarSlot.appendChild(avatar.canvas);
 
   let text = '';
@@ -466,8 +467,8 @@ function createBubble(root, { sun, hemi }, onDismiss) {
 // subject and the kerb it stands on" and no more; the fade runs out over about half a block.
 // Both were half again as wide at first, which lit most of a 5x5 city and made the pool read as
 // general gloom rather than as a light pointed at one thing.
-const POOL_CLEAR = 6;
-const POOL_EDGE = 17;
+export const POOL_CLEAR = 6;
+export const POOL_EDGE = 17;
 // The pool around the Loco Mode pill runs out to this multiple of its clear radius. Wider in
 // proportion than the world one, because it sits in a screen corner: half the falloff is off the
 // edge of the glass, so a ratio that looks right in the middle of the city reads as a hard-edged

@@ -86,6 +86,7 @@ import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getA
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio } from './game/radio.js';
+import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders } from './game/sightline.js';
@@ -544,12 +545,40 @@ const depotRun = garage && !shot
 // Dispatch breaking in when the robber gets in — the one thing that says this pickup is not a fare
 // on the frame it happens. See game/radio.js.
 const radio = city.bank && !shot ? createRadio({ lights: { sun, hemi } }) : null;
+// Seconds of game time until dispatch breaks in, once the robber's line has been cleared; 0 when
+// nothing is pending. A beat after the police come on rather than with them, so the tap that
+// clears the robber's bubble does not also land a second bubble on the same frame.
+const RADIO_DELAY = 1.5;
+let radioIn = 0;
+// The robber boarded and is still running for the cab — the robber's line opens the frame they are
+// in. Null when nothing is waiting on it.
+let robberBoarding = null;
+// The robber's line: the world stops while it is up — see game/robberline.js and the early return
+// in `frame()`. Its dismissal is what calls the police.
+const robberLine = city.bank && !shot
+  ? createRobberLine({
+    lights: { sun, hemi },
+    taxi: traffic.taxi,
+    project: projectToScreen,
+    pixelsPerUnit: () => viewport.height() / (2 * controller.viewZoom()),
+    pickLine: (() => {
+      const rng = makeRng(runSeed + 419);
+      return () => rng.pick(ROBBER_LINES);
+    })(),
+    onDone: () => {
+      robbery?.raiseAlarm();
+      radioIn = RADIO_DELAY;
+    },
+  })
+  : null;
 const robbery = city.bank && !shot
   ? createRobbery({
     site: city.bank,
     taxi: traffic.taxi,
     fares,
     traffic,
+    // The police wait for the robber's line to be cleared — see `robberLine` above.
+    holdAlarm: true,
     // The frame the robber is in the car. It is the ordinary `'pickup'` handler's job, said once
     // here rather than smuggled into the event loop: the seat is full, the route the taxi was
     // driving is void, and the getaway dispatches itself exactly as any other drop-off does.
@@ -574,7 +603,10 @@ const robbery = city.bank && !shot
       // Not the depot, though: a repair is refused with anyone aboard, so the drop-off just
       // dispatched stands and `depotRun.update` sees its target gone and stands down.
       haptic('pick');
-      radio.show();
+      // Not the radio, and not the robber's line yet: the figure is still running down the bank's
+      // steps for the cab (BOARD_SECONDS in game/fares.js), and the line is about them being *in*
+      // it. The frame loop opens it once they are.
+      robberBoarding = fare;
     },
   })
   : null;
@@ -2578,6 +2610,9 @@ window.addEventListener('keydown', (event) => {
   // Same guard the tutorial uses (`isBlocked`): the press that clears that screen must not also
   // spend fuel on a taxi that is parked behind it.
   if (homeTip?.state.holding) return;
+  // The robber's line takes Space as its own answer (game/robberline.js). Registered after this
+  // one, so this has to stand down for it rather than the other way round.
+  if (robberLine?.isOpen()) return;
   // A paused run takes no input at all. `frame()` returns before `boost.update`, so a press behind
   // the veil would sit in 'active' burning nothing and then resume into a launch the player never
   // asked for — the mirror image of the release `createPause`'s `onChange` does on the way in. The
@@ -2607,7 +2642,7 @@ window.addEventListener('keydown', (event) => {
   if (event.code !== 'KeyB' || event.repeat) return;
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   if (keyIsSpokenFor(event.target, brakeButton)) return;
-  if (homeTip?.state.holding || pause?.state.paused) return;
+  if (homeTip?.state.holding || pause?.state.paused || robberLine?.isOpen()) return;
   event.preventDefault();
   brakeKeyHeld = true;
   holdBrake();
@@ -2891,6 +2926,15 @@ function frame() {
     return;
   }
 
+  // The robber's line is up. The world stops exactly as it does for the pause — nothing updates,
+  // the frame is still drawn — and only the bubble ticks, on wall time, since there is no game time
+  // passing. See game/robberline.js for why this beat stops the world rather than running over it.
+  if (robberLine?.isOpen()) {
+    robberLine.update(dt);
+    renderFrame();
+    return;
+  }
+
   // Time dilation for the crash. Scale the whole frame's dt so the blast, the camera pull-in and
   // the shake decay all slow together — that's what sells it as a single cinematic beat rather than
   // one element being pushed around while everything else runs normally. Ramps linearly from
@@ -2920,15 +2964,15 @@ function frame() {
   // the camera's push-in uses, which stops with a paused run rather than banking the pause.
   if (!locoHeld && boost.isEngaged() && boost.heldSeconds() >= LOCO_HINT_HOLD) locoHeld = true;
   // Never re-arm boost on a wrecked taxi — the flag would flick on the next frame otherwise and
-  // the collision detector already only checks `if (taxi.boost)`. `taxi.boost` covers the hold
+  // the collision detector only charges hits `if (taxi.boost)`. `taxi.boost` covers the hold
   // *and* the one-second cooldown tail after release — collision, police bust range and running
   // reds all key off it, see BOOST_COOLDOWN in game/boost.js. `boostEasing` is the narrower flag
   // that's only true during that tail; traffic.js reads it to ease the speed cap back down instead
   // of holding full boost speed for the whole cooldown window.
   if (!traffic.taxi.crashed) {
     // Never on a staged taxi: the cooldown tail outlasts the turn in off the lane at the depot, and
-    // collisions would otherwise test a car a cut scene is driving over a kerb. `taxi.boost` is what
-    // sim/collisions.js keys the whole check off.
+    // collisions would otherwise charge a car a cut scene is driving over a kerb. `taxi.boost` is
+    // what sim/collisions.js charges hits off; the unarmed shove is closed on `staged` there.
     traffic.taxi.boost = boost.isEngaged() && !traffic.taxi.staged;
     traffic.taxi.boostEasing = boost.isCoolingDown();
     // Written every frame rather than on the press, so the flag cannot be left stuck on by a
@@ -3107,6 +3151,12 @@ function frame() {
   // each stop the world, and an event firing behind any of them is one the player never saw.
   if (!fareLoopHeld()) robbery?.update(dt);
   radio?.update(dt, { over: fares.state.gameOver });
+  if (radioIn > 0) {
+    radioIn -= dt;
+    // A getaway over before dispatch got a word in — a wreck in the first second and a half — has
+    // nothing left to call in.
+    if (radioIn <= 0 && robbery?.state.alarmed && !fares.state.gameOver) radio?.show();
+  }
 
   // More than one thing can land in a frame now — delivering the last fare clears the board and
   // spawns the next one in the same tick — so this is a list rather than a single event.
@@ -3187,6 +3237,22 @@ function frame() {
         traffic.taxi.pendingTarget = null;
       }
       if (fare.stage === 'riding') traffic.setTaxiOccupied(false);
+    }
+  }
+
+  // The robber has finished running for the cab: stop the world and let them speak. Read off the
+  // fare's own boarding animation (`fare.boarding` goes undefined on the frame the figure is in),
+  // with `ridingFor` as the backstop so a figure that somehow never finishes cannot leave the
+  // police waiting forever. A getaway gone before the line opened — a run over mid-boarding — is
+  // dropped rather than shouted about over a retry screen.
+  if (robberBoarding) {
+    const f = robberBoarding;
+    if (fares.state.gameOver || !robbery?.state.active || !fares.state.fares.includes(f)) {
+      robberBoarding = null;
+    } else if (f.boarding === undefined || f.ridingFor > 1.5) {
+      robberBoarding = null;
+      // No bubble to show (its markup missing) is no reason to have no police.
+      if (!robberLine.open()) { robbery.raiseAlarm(); radioIn = RADIO_DELAY; }
     }
   }
 
@@ -3338,7 +3404,7 @@ function frame() {
   sirenGlow.update(police, traffic.taxi);
   // Wall clock for the envelope, so the crash's slow-motion does not hold the frame up; the strobe
   // stays on the sim clock the cop cars' own bars run off.
-  robberyGlow.update(wallDt, !!robbery?.state.active && !fares.state.gameOver, traffic.stats.time);
+  robberyGlow.update(wallDt, !!robbery?.state.alarmed && !fares.state.gameOver, traffic.stats.time);
   // Undilated: the slow-motion ramp at the end of a run is a statement about the sim, and a
   // drawing does not slow down because a taxi did. Skipped entirely on a paused frame above, which
   // is right — a held frame is a held drawing.
@@ -3828,7 +3894,7 @@ if (shot) {
       onDrop: () => dust.burst(traffic.taxi.x, traffic.taxi.z, traffic.taxi.yaw, 7, 0.5),
       // The cut between going in for repairs and coming back out: a fade to black once the door
       // is down, the same one the opening's skip uses.
-      cut: wipe ? (atBlack) => wipe.cut(atBlack) : null,
+      cut: wipe ? (atBlack, holdMs) => wipe.cut(atBlack, holdMs) : null,
     });
     // `?vignette=off`, the same escape hatch `?tutorial=off` is: the opening is seven seconds
     // long and nobody iterating on the fare loop wants it on every reload. The module is

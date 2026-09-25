@@ -15,7 +15,8 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 // docs/gameplay.md#the-robber) — so the figure coming down the bank's steps was the only thing
 // saying this pickup is different, and it is a 20px figure the player was not looking at, because a
 // robbery triggers on a drive-*past*. The police arriving says it too, but a beat later and off
-// screen. This says it on the frame it happens.
+// screen. This says it a beat after the robber's own line (game/robberline.js) is cleared —
+// `RADIO_DELAY` in main.js — so the robber says who got in and this says what that means.
 //
 // Deliberately **not** the tutorial's coach bubble, though it borrows its look:
 //

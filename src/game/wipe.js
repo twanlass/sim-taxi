@@ -41,8 +41,11 @@ export function createWipe(root) {
    *
    * Returns false if a wipe is already running — a second tap during the fade is swallowed rather
    * than restarting it, so a double tap cannot land the skip twice.
+   *
+   * `holdMs` is how long the screen sits fully black. The default is the skip's: just long enough
+   * to read as a cut. A caller that wants the black to be a beat of its own passes more.
    */
-  function cut(atBlack) {
+  function cut(atBlack, holdMs = HOLD_MS) {
     if (covering) return false;
     covering = true;
     anim?.cancel();
@@ -75,12 +78,12 @@ export function createWipe(root) {
       return true;
     }
 
-    // `fill: 'forwards'` is what holds the black through `HOLD_MS` — without it the element drops
+    // `fill: 'forwards'` is what holds the black through `holdMs` — without it the element drops
     // back to its own `opacity: 0` the instant the fade ends and the city flashes back for the
     // exact frames the skip is supposed to happen behind.
     anim = root.animate([{ opacity: 0 }, { opacity: 1 }],
       { duration: OUT_MS, easing: 'ease-in', fill: 'forwards' });
-    anim.onfinish = () => setTimeout(reveal, HOLD_MS);
+    anim.onfinish = () => setTimeout(reveal, holdMs);
     return true;
   }
 

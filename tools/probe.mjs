@@ -5896,18 +5896,45 @@ check('the taxi is an ordinary car in the traffic array',
       !fading.visible && fading.scale.x === 0 && cVanish.pending() === 0);
   }
 
-  // A non-boosting taxi must never trigger a collision — normal lane logic keeps them apart.
+  // A non-boosting taxi must never be *charged* for a contact. It is not kept out of them — lawful
+  // junction traffic grazes the envelope about once every 100s (sim/collisions.js) — so it is
+  // shoved clear instead, and neither a bump nor a wreck may come of it.
   const qScene = new THREE.Scene();
   const qTraffic = createTraffic(makeRng(seed + 44), qScene, CARS_DEFAULT);
   const qCollisions = createCollisions(qTraffic.cars, qTraffic.taxi);
+  qTraffic.taxi.hp = TAXI_HP;
   let quietHits = 0;
   qCollisions.onImpact(() => { quietHits += 1; });
+  qCollisions.onBump(() => { quietHits += 1; });
   for (let step = 0; step < 60 * 30; step++) {
     qCollisions.update();
     qTraffic.update(1 / 60);
   }
   check('no collisions fire while the taxi is not boosting', quietHits === 0,
     `${quietHits} impacts over 30s`);
+
+  // And a contact placed by hand: the taxi's nose square in a car's door at cruise, boost off. The
+  // car has to be pushed out — that is the whole point of arming the test off boost — and the taxi
+  // has to come out of it with every hit point.
+  const qVictim = qTraffic.cars.find((c) => !c.isTaxi && !c.crashed && c.state === 'drive');
+  const qTaxi = qTraffic.taxi;
+  qTaxi.boost = false;
+  qTaxi.yaw = qVictim.yaw + Math.PI / 2;
+  qTaxi.x = qVictim.x - Math.cos(qTaxi.yaw) * 1.6;
+  qTaxi.z = qVictim.z + Math.sin(qTaxi.yaw) * 1.6;
+  qTaxi.v = 8.5;
+  const pushedBefore = Math.hypot(qVictim.knock?.x ?? 0, qVictim.knock?.z ?? 0);
+  qCollisions.update(1 / 60);
+  const pushed = Math.hypot(qVictim.knock?.x ?? 0, qVictim.knock?.z ?? 0) - pushedBefore;
+  check('an unboosted contact shoves the car clear and costs nothing',
+    quietHits === 0 && qTaxi.hp === TAXI_HP && !qTaxi.crashed && !qVictim.crashed && pushed > 0.1,
+    `${quietHits} hits, hp ${qTaxi.hp}, pushed ${pushed.toFixed(2)}`);
+  qTaxi.staged = true;
+  const stagedBefore = Math.hypot(qVictim.knock.x, qVictim.knock.z);
+  qCollisions.update(1 / 60);
+  check('a staged, unboosted taxi touches nothing — the depot drives it over kerbs',
+    Math.hypot(qVictim.knock.x, qVictim.knock.z) === stagedBefore);
+  qTaxi.staged = false;
 }
 
 // --- Hit points: a bump is not a wreck ------------------------------------

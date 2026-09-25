@@ -9,7 +9,7 @@ import {
 // per-mesh outline the taxi wears (geometry/ghostoutline.js, which owns the stencil recipe both
 // paths share).
 //
-// Why it exists: sim/collisions.js is armed *only* while boosting, and in Loco Mode the taxi runs
+// Why it exists: sim/collisions.js only charges a contact while boosting, and in Loco Mode the taxi runs
 // at 2.2× through junctions it has flipped green. The one moment a car hidden behind a tower
 // matters is the one moment the player cannot see it. The taxi's own outline says where the player
 // is; this says what they are about to drive into.
@@ -417,7 +417,7 @@ export function createCarGhosts(scene, traffic) {
    * at the top of overdrive), which reads as the outline being broken rather than as lag.
    */
   function update(dt) {
-    // Not gated on `taxi.boost`. The collision test is only armed while boosting, but the whole
+    // Not gated on `taxi.boost`. A contact only costs anything while boosting, but the whole
     // point of a warning is to inform the decision to press the button, not just to accompany it —
     // a player who never sees the hidden car until they're already committed gets no benefit from
     // the outline. `crashed` still cuts it: a wrecked taxi has nothing left to warn — and so does
