@@ -3014,8 +3014,9 @@ route there turns at random. A rider aboard outranks whatever was remembered at 
 never saw that route, and the lane it was planned from is the one the car is released onto.
 
 **Loco Mode is dead for the whole visit**, and `taxi.boost` is forced off while the car is staged —
-boost's one-second cooldown tail outlasts the turn-in, and `sim/collisions.js` keys everything off
-that flag, so a car arriving on the pill could otherwise wreck on the kerb it was driving over.
+boost's one-second cooldown tail outlasts the turn-in, and `sim/collisions.js` charges hits off
+that flag, so a car arriving on the pill could otherwise wreck on the kerb it was driving over. The
+unarmed shove is closed on `staged` for the same reason: a cut scene owns the taxi's position.
 
 There is no tap-to-skip. The opening's skip works because nothing else on the map is tappable while
 it runs; during a repair the board is live, and a tap on a rider has to mean the rider.

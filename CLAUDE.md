@@ -520,7 +520,7 @@ Omit the whole section if there's nothing to note.
   stops it.** `placeCar` will happily put one anywhere on a lane, `STOP_SETBACK` is 3.4, and there
   is no `distToLine > 0` guard on the stop decision — so a car released nearer than that is past
   its hold line before it can see the signal. The half that makes it invisible rather than loud is
-  `sim/collisions.js`: it only ever tests the **taxi**, and only while it is boosting, so the car
+  `sim/collisions.js`: it only ever tests the **taxi**, never ambient against ambient, so the car
   does not crash into the cross traffic it just drove into. It drives *through* it. This is what
   costs the drive-through its short exit and buys it two quarter turns (`EXIT_LIFT` in
   `city/burgerjoint.js`), and it is the question to ask of any new `releaseCar` site: how far back
