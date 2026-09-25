@@ -14142,9 +14142,13 @@ let chopperOrder; // likewise
       // Measured over 58 events on 60 seeds while this was built: 56 roadblocks, 45 passes, 27
       // brake checks, and after the fixes each of these clauses records, zero of every overlap.
       {
-        let roadblocks = 0; let passes = 0; let checks = 0; let violations = 0;
+        let roadblocks = 0; let pairs = 0; let passes = 0; let checks = 0; let violations = 0;
         let stoppedOverlap = 0; let oncomingOverlap = 0; let taxiGap = Infinity; let events = 0;
         const slewed = [];
+        // How far a fully swung cop on an ordinary street stands off the middle of the road it is
+        // blocking — on a lane (the brake check) and in a box (the junction block). Arterials keep
+        // the half-lane placement (`blocksOnCentreline`) and are left out.
+        const offLane = []; const offBox = [];
         for (let k = 0; k < 6; k++) {
           const s3 = new THREE.Scene();
           const t3 = createTraffic(makeRng(seed + 300 + k * 17), s3, 18, 30);
@@ -14179,6 +14183,13 @@ let chopperOrder; // likewise
                 const off = Math.abs(Math.atan2(Math.sin(cop.yaw - dirYaw(cop.blockAxis)),
                   Math.cos(cop.yaw - dirYaw(cop.blockAxis))));
                 slewed.push(Math.abs((off % (Math.PI / 2)) - Math.PI / 4));
+                // Only while holding: a partner (`partnerOf`) stands on a lane centre beside the first
+                // cop by design, and stays swung for a moment after it is let go.
+                if (cop.roadblock > 0 && !cop.partnerOf
+                  && laneOffsetFor(cop.blockAxis, cop.i, cop.j) <= LANE + 1e-9) {
+                  const lat = isXAxis(cop.blockAxis) ? cop.z - lineZ(cop.j) : cop.x - lineX(cop.i);
+                  (cop.state === 'drive' ? offLane : offBox).push(Math.abs(lat));
+                }
               }
               if (cop.pass > 0) taxiGap = Math.min(taxiGap, Math.hypot(cop.x - tx.x, cop.z - tx.z));
               for (const other of t3.cars) {
@@ -14195,16 +14206,22 @@ let chopperOrder; // likewise
             }
           }
           roadblocks += r3.state.roadblocks;
+          pairs += r3.state.pairs;
           passes += went.size;
           checks += checked.size;
           violations += t3.stats.violations;
         }
         check('the police box the taxi in: roadblocks, overtakes and brake checks',
           events > 0 && roadblocks > 0 && passes > 0 && checks > 0,
-          `${events} getaways: ${roadblocks} roadblocks, ${passes} passes, ${checks} brake checks`);
+          `${events} getaways: ${roadblocks} roadblocks (${pairs} paired), ${passes} passes, ${checks} brake checks`);
         check('...and a blocking cop stands at 45° across the road, not square in its lane',
           slewed.length > 0 && Math.max(...slewed) < 0.05,
           `${slewed.length} frames fully swung, worst ${(Math.max(0, ...slewed) * 180 / Math.PI).toFixed(1)}° off the diagonal`);
+        check('...skidded to rest on the centreline, across both lanes',
+          offLane.length + offBox.length > 0
+            && Math.max(0, ...offLane) < 0.05 && Math.max(0, ...offBox) < 1,
+          `${offLane.length} frames on a lane, worst ${Math.max(0, ...offLane).toFixed(2)} off the middle; `
+            + `${offBox.length} in a box, worst ${Math.max(0, ...offBox).toFixed(2)}`);
         check('...a stopped cop never has a car drawn through it',
           stoppedOverlap === 0, `${stoppedOverlap} frames of overlap`);
         check('...an overtaking cop never meets anything coming the other way',
