@@ -2169,18 +2169,22 @@ round) or after `BLOCK_HOLD` (4s); one at a time, `BLOCK_GAP` (8s) apart.
 
 Where it stops is measured, not wherever the brake happens to finish. `turnPointAt` samples the cop's
 arc on the same Bézier the render pass draws, and the cop brakes on the frame `stopDistance(v)`
-lands it on the point nearest a line **halfway between the taxi's lane and the road's centre**. On an
-arterial that is the whole feature: a lane there is 3.33 off the middle, so a cop stopped dead centre
-leaves daylight and the taxi drives past it.
+lands it on the point nearest the **centreline of the taxi's road**, so the 45° body below stands
+across both lanes. It used to stop halfway between the taxi's lane and the centre, which covered the
+taxi's lane and 0.8 of the other and read on screen as a cop parked askew in one lane. An
+**arterial** keeps the halfway line: its lane is 3.33 off the middle, so a cop centred there leaves
+the taxi's flank half a unit clear of its body and a boosting taxi drives past without touching it.
 
 **And it stops at 45°, across the road** (`SLEW_*`). A blocking cop — the roadblock and the brake
 check both — skids round to the nearest diagonal of the road it is blocking over `SLEW_TIME` (0.4s)
 and drives back out of it over `SLEW_RECOVER` (2.5 units of road) when let go. Render-only, like the
 knock; `sim/collisions.js` reads the drawn pose, so the angle is real to the taxi. On a lane the
-brake check also slides half a lane toward the centreline: centred 1 unit off the middle of an
-ordinary street, the diagonal body reaches 0.8 into the oncoming lane — clear of an oncoming car's
-flank at 1.15, so ambient traffic still passes it — while a taxi going round it in the oncoming lane
-meets its nose inside the collision envelope. So the one way round a brake check on the pill is
+brake check also slides onto the centreline of an ordinary street (an arterial's centreline is the
+median, so there it slides half a lane — `blocksOnCentreline`). The diagonal body is 3.6 across, 1.8
+either side of the middle, which is 0.65 into an oncoming car's flank: ambient traffic is never
+collision-tested, so an oncoming car within `PULLOVER_RANGE` pulls over for it exactly as it would
+for a siren (`laneBlocks`), putting its flank at 2.65. A taxi going round it in the oncoming lane
+meets its nose inside the collision envelope, so the one way round a brake check on the pill is
 through it. The recovery was 5 units first and was too slow: a cop pulling away into a left turn was
 still half swung when it crossed the box, and overlapped whatever was in it.
 
@@ -2194,7 +2198,9 @@ ambient traffic is never collision-tested and a cop stopped in the wrong place i
   and then is not the taxi's leader at all. Stopping in front of the taxi is the brake check's job,
   and that happens on a lane, where the arithmetic is exact;
 - not in the last third of the arc, where the nose is in the exit lane and a car landing there hits it;
-- not into a box something else is already crossing, since a committed car cannot be asked to stop;
+- not into a box something else is already crossing, since a committed car cannot be asked to stop —
+  nor one a car has just left with its tail still inside it, which the centreline stop made the cop's
+  arc sweep through;
 - not with the taxi inside 12 units, where off the pill it has already committed to the box.
 
 **And the arrival test on an unsignalised junction now reads `heldAt`.** The approach always did,

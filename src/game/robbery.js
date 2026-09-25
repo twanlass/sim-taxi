@@ -1,8 +1,13 @@
-import { GRID_I, GRID_J, dirSign, isXAxis, lineX, lineZ, opposite } from '../city/grid.js';
+import {
+  GRID_I, GRID_J, LANE, dirSign, halfRoadX, halfRoadZ, isXAxis, laneOffsetFor, lineX, lineZ,
+  opposite,
+} from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 import { URGENCY_SEGMENTS, urgencyLevel } from './urgency.js';
 import { findRoute, planOrigin } from './route.js';
-import { POLICE_FLEET, SPAWN_CLEARANCE, stopDistance, turnPointAt } from '../sim/traffic.js';
+import {
+  CAR_LEN, POLICE_FLEET, SPAWN_CLEARANCE, stopDistance, turnPointAt,
+} from '../sim/traffic.js';
 
 // The bank robbery: the empty taxi drives past the bank, somebody gets in with a bag, and the
 // streets fill with police for as long as it takes to get them where they are going.
@@ -251,7 +256,7 @@ const BLOCK_NEAR = 12;
 const BLOCK_HOLD = 4;
 
 /**
- * How close to the blocking line — halfway between the taxi's lane and the road's centre, see
+ * How close to the blocking line — the centreline of the road the taxi is on, see
  * `acrossPoint` — a cop's path through the junction has to come for it to count as across it, in
  * world units.
  *
@@ -494,24 +499,32 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
   }
 
   /**
-   * Where on its turn a cop has to stop to be standing across the taxi's lane, or null if its path
-   * never comes near it.
+   * Where on its turn a cop has to stop to be standing across the taxi's road, or null if its path
+   * never comes near the middle of it.
    *
-   * Measured against the lane the taxi will *enter* by rather than against the junction's centre,
-   * and it matters most on an arterial: a lane there is 3.3 units off the middle rather than 2, so
-   * a cop crossing straight over and stopping dead centre leaves a car's width of daylight to the
-   * taxi's lane and the taxi simply drives past it. The turn is sampled along the same Bézier the
-   * render pass draws it on, so the point found here is where the car is actually drawn.
+   * On the centreline of the road the taxi enters by, so the cop skids to rest across both lanes:
+   * swung to 45° (SLEW_* in sim/traffic.js) the body is 3.6 across, 1.8 either side of the middle.
+   * It used to stop halfway between the taxi's lane and the centreline, which covered the taxi's
+   * lane and 0.8 of the other and read as a cop parked askew in one lane. The oncoming half needs
+   * no yielding of its own here: the box is held (`heldAt`) while the cop stands in it, so nothing
+   * new enters from any arm.
+   *
+   * Except on an arterial, which keeps the halfway point. Its lane is 3.33 off the middle, so a cop
+   * centred on the middle leaves the taxi's flank (2.33 off it) half a unit clear of the body's 1.8
+   * and a boosting taxi drives past without touching it; halfway, at 1.67, the body reaches 3.47
+   * and the kerb side is 1.86 wide against a 2-unit taxi. Same rule as the brake check's
+   * `blocksOnCentreline` in sim/traffic.js.
+   *
+   * The turn is sampled along the same Bézier the render pass draws it on, so the point found here
+   * is where the car is actually drawn.
    */
   function acrossPoint(cop, at) {
     const lane = cityNetwork().laneByGrid(at.enter, at.i, at.j);
     if (!lane) return null;
-    // Halfway between the lane's centre and the road's: the cop swings to 45° as it stops
-    // (SLEW_* in sim/traffic.js), and centred here the diagonal body covers the taxi's lane and
-    // reaches across into the other — where centred on the lane it covered only the lane, and on
-    // the centreline it left an arterial's 3.33-unit lane a body's width of daylight.
     const end = lane.path.at(lane.length);
-    const mid = isXAxis(at.enter) ? (end.z + lineZ(at.j)) / 2 : (end.x + lineX(at.i)) / 2;
+    const centre = isXAxis(at.enter) ? lineZ(at.j) : lineX(at.i);
+    const laneLine = isXAxis(at.enter) ? end.z : end.x;
+    const mid = laneOffsetFor(at.enter, at.i, at.j) <= LANE + 1e-9 ? centre : (laneLine + centre) / 2;
     const offLine = (p) => (isXAxis(at.enter) ? p.z - mid : p.x - mid);
     let best = null;
     // The start excluded, and the last third: a stop late in the arc has the car's nose out of the
@@ -594,6 +607,15 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
       // that has stopped across its path — traffic is never collision-tested against traffic.
       if (traffic.cars.some((other) => other !== cop && !other.crashed && other.state === 'turn'
         && other.i === cop.i && other.j === cop.j)) continue;
+      // Nor one a car has only just left, with its tail still in the box. It is a lane's car by
+      // then, not a turning one, so the test above lets it by — and with the cop now braking onto
+      // the centreline its arc swept the oncoming exit behind a car pulling out of it: 7 frames
+      // deep by up to 0.92 on `tools/probe.mjs 8`, the only overlap across seeds 1-8.
+      const cx = lineX(cop.i);
+      const cz = lineZ(cop.j);
+      if (traffic.cars.some((other) => other !== cop && !other.crashed
+        && Math.abs(other.x - cx) < halfRoadZ(cop.i) + CAR_LEN / 2
+        && Math.abs(other.z - cz) < halfRoadX(cop.j) + CAR_LEN / 2)) continue;
       cop.roadblock = BLOCK_HOLD;
       cop.blockAxis = at.enter;
       cop.blocking = key;

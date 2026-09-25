@@ -2156,7 +2156,7 @@ than only converge on it. Two moves, both ordinary traffic behaviour pointed at 
 in [the box-in](traffic.md#the-box-in-roadblocks-the-overtake-and-the-brake-check)):
 
 - **Roadblocks.** A cop crossing a junction a block or two up your route skids to a stop at 45°
-  *across your lane* and holds it for up to four seconds, or until you have got past it. One at a
+  *across the middle of your road* and holds it for up to four seconds, or until you have got past it. One at a
   time, eight seconds apart.
 - **The overtake and the brake check.** A cop that catches you from behind goes round you in the
   oncoming lane, cuts in and slews across the road for 2.5 seconds, with the rest of the chase
