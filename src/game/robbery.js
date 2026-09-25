@@ -12,7 +12,7 @@ import { POLICE_FLEET, SPAWN_CLEARANCE, stopDistance, turnPointAt } from '../sim
 //
 //   - The robber is an ordinary fare that skipped the kerb — `spawnRobber` in game/fares.js. Same
 //     crystal, same ring, same band of paint, same arrival test, same payout flight. What differs
-//     is the clock (the tightest in the game) and a bonus that reads it at the drop-off.
+//     is the clock (generous, so there is time to play with the police) and a bonus that reads it at the drop-off.
 //   - The cop cars are ordinary ambient traffic wearing police livery — `setPoliceCars` in
 //     sim/traffic.js. They queue, indicate, stop at reds, yield and can be crashed into exactly
 //     like the cars they were a moment before.
@@ -94,7 +94,7 @@ const COOLDOWN = 70;
  * and a half fares to a fast player, which is most of what a cross-town getaway costs. And it has
  * **no usable room above it**: at the top step the event fires twice in thirty runs at 1.5s and
  * never at all at 4s, which is not a rarer event, it is no event. What is left is the distance
- * itself (`ROBBER_DROPOFF_DARTS` in game/fares.js), and that one is a design choice rather than a
+ * itself (`ROBBER_DROPOFF_SPREAD` in game/fares.js), and that one is a design choice rather than a
  * tuning knob.
  *
  * The cooldown is not a third lever, though it looks like one — see COOLDOWN above.
@@ -115,7 +115,7 @@ const CALM_LEVEL = URGENCY_SEGMENTS / 2 + 1;
  * an event that overrides the loop is only legible to somebody who has one.
  *
  * It was measured as a difficulty knob too, since a cross-town getaway costs a slower player more
- * than a fast one (see ROBBER_DROPOFF_DARTS in game/fares.js). At 4 it buys back 0.8 of a fare at a
+ * than a fast one (see ROBBER_DROPOFF_SPREAD in game/fares.js). At 4 it buys back 0.8 of a fare at a
  * 4s reaction — and halves how often the event happens, from 14 robberies in 30 runs to 8. That is
  * not a gentler event, it is less of one, which is why it stays at 2.
  */
@@ -244,9 +244,9 @@ const BLOCK_NEAR = 12;
  *
  * It is let go sooner the moment the junction stops being on the taxi's way — driven through,
  * rammed through or routed round — so this is only the bound on a taxi that sits and waits. Five
- * seconds is a real cost against a robber's clock, which is budgeted at a slack factor of 0.62 and
- * has perhaps twenty seconds of margin in it, without being a wall: waiting is always an answer,
- * just an expensive one. The other two answers are to route round it and to ram it.
+ * seconds is a cost against a robber's clock without being a wall — the clock is budgeted at 60%
+ * or more over the driving (ROBBER_SLACK_FACTOR in game/fares.js), so waiting is always an answer,
+ * it just eats into the bonus. The other two answers are to route round it and to ram it.
  */
 const BLOCK_HOLD = 4;
 

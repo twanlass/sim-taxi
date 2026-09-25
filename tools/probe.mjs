@@ -48,7 +48,7 @@ import {
 } from '../src/game/sirenglow.js';
 import {
   createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES,
-  ARRIVE_RADIUS, onSameBlock, CURSE_LIFT, BURGER_PRICE,
+  ARRIVE_RADIUS, onSameBlock, onWaterBlock, CURSE_LIFT, BURGER_PRICE,
 } from '../src/game/fares.js';
 import { createCurseBubble, TAIL_DROP } from '../src/geometry/cursebubble.js';
 import {
@@ -135,7 +135,7 @@ import {
 } from '../src/game/scene.js';
 import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
-import { planOrigin } from '../src/game/route.js';
+import { planOrigin, crossingOrigin } from '../src/game/route.js';
 import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, BLOCK, HALF_ROAD, HALF_ARTERIAL, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, riverBanks, riverRow } from '../src/city/grid.js';
 import {
   waterEdges, bridgeSpan, bridgeLines, riverCrossing, archAt, deckHeightAt, createRiver, waterHeightAt,
@@ -5318,6 +5318,55 @@ check('the taxi is an ordinary car in the traffic array',
     `${parkedWhileCarrying} frames held at the kerb`);
 }
 
+// --- A tap in the run-up can still take the corner ------------------------------------------
+// The hold line commits a car, but it sits STOP_SETBACK short of the junction, and a tap in that
+// window used to plan from the junction *after* — so a rider round the corner the taxi was right
+// in front of came back as a lap. Mirrors main.js:routeTo: the plan from `crossingOrigin` goes on
+// `lateTurn` and the sim swaps the crossing for the turn, or refuses and keeps the fallback.
+// Asserted: the swap is taken, it does not move the car, and every trip still lands.
+{
+  const lTraffic = createTraffic(makeRng(seed + 44), new THREE.Scene(), CARS_DEFAULT);
+  const lTaxi = lTraffic.taxi;
+  lTraffic.warmup(5);
+  const lRng = makeRng(seed + 91);
+  const ints = allIntersections();
+  let taps = 0, offered = 0, swapped = 0, arrived = 0, jumps = 0, stale = 0;
+  for (let k = 0; k < 30; k++) {
+    lTaxi.route = findRoute(planOrigin(lTaxi), ints[lRng.int(0, ints.length - 1)]) ?? [];
+    lTaxi.routeConsumed = false;
+    for (let g = 0; g < 3000 && !crossingOrigin(lTaxi); g++) lTraffic.update(1 / 60);
+    const from = crossingOrigin(lTaxi);
+    if (!from) continue;
+    const t = ints[lRng.int(0, ints.length - 1)];
+    if (t.i === from.i && t.j === from.j) continue;
+    const route = findRoute(planOrigin(lTaxi), t);
+    const late = findRoute(from, t);
+    lTaxi.route = route; lTaxi.routeConsumed = false;
+    taps += 1;
+    lTaxi.lateTurn = late[0] !== lTaxi.d && late.length < route.length + 1 ? late : null;
+    if (lTaxi.lateTurn) {
+      offered += 1;
+      const before = { x: lTaxi.x, z: lTaxi.z };
+      lTraffic.update(1 / 60);
+      if (lTaxi.dOut !== lTaxi.d) swapped += 1;
+      if (Math.hypot(lTaxi.x - before.x, lTaxi.z - before.z) > lTaxi.v / 60 + 0.05) jumps += 1;
+      if (lTaxi.lateTurn) stale += 1;
+    }
+    const c = intersectionCentre(t.i, t.j);
+    for (let e = 0; e < 120 * 60; e++) {
+      lTraffic.update(1 / 60);
+      if (Math.hypot(lTaxi.x - c.x, lTaxi.z - c.z) < ARRIVE_RADIUS) { arrived += 1; break; }
+    }
+  }
+  check('a tap in the run-up takes the corner in front of the taxi',
+    offered > 5 && swapped >= offered * 0.8 && stale === 0,
+    `${swapped} of ${offered} swapped`);
+  check('swapping a crossing for a turn does not move the taxi', jumps === 0, `${jumps} jumps`);
+  check('every late-turn trip still arrives, cleanly',
+    arrived === taps && lTraffic.stats.routeDesync === 0 && lTraffic.stats.violations === 0,
+    `${arrived} of ${taps} arrived, ${lTraffic.stats.routeDesync} desyncs, ${lTraffic.stats.violations} violations`);
+}
+
 // --- Running out of time ends the run on its own beat ----------------------
 // The third ending has nothing happening to the taxi to look at, so the rider is the event: they
 // get out where they are, swear about it and go, on the same `beginBail` a missed VIP gets, while
@@ -7764,6 +7813,22 @@ check('the taxi is an ordinary car in the traffic array',
   check('a drag kills a pan in flight',
     !stillPanning && !cam.isGliding() && cam.state.target.equals(afterDrag),
     stillPanning ? 'the pan kept writing the target' : 'ok');
+
+  // ...and so does a *tap*. The fare-pointer arrow glides the camera onto a rider, and the player
+  // taps the rider the moment they come into frame — mid-glide. The picker raycasts on `click`,
+  // after the finger lifts, so a glide still running under the press moved the rider out from
+  // under it and the tap missed. The camera has to hold still from the press on.
+  cam.cancelGlide();
+  cam.state.target.set(0, 0, 0);
+  cam.glideTo(40, 0);
+  cam.updateGlide(STEP, 1.5);
+  fire('pointerdown', 400, 300);
+  const underFinger = cam.state.target.clone();
+  const tapStillPanning = cam.updateGlide(STEP, 1.5);
+  fire('pointerup', 400, 300);
+  check('a tap freezes a pan in flight, so the pick sees the frame it landed on',
+    !tapStillPanning && !cam.isGliding() && cam.state.target.equals(underFinger),
+    tapStillPanning ? 'the pan kept moving under the press' : 'ok');
 
   // Same for the follow-cams: a boost chase or a wreck focus starting mid-pan takes the camera
   // over, rather than the two easing the target to different places on alternate frames.
@@ -13797,17 +13862,25 @@ let chopperOrder; // likewise
       // arithmetically impossible.
       check('a robber’s clock still covers the driving it pays for',
         robber.limit > robber.work, `${robber.limit}s against ${robber.work.toFixed(1)}s of driving`);
-      // ...and it is the tightest on the board. Budgeted over its own trip alone and at a slack
-      // factor under the VIP's, so an ordinary rider on the same trip gets strictly longer.
+      // ...with room to play with the police. See ROBBER_SLACK_FACTOR: at least 60% over the
+      // driving, and more than an ordinary rider on the same trip would get.
       const ordinary = difficulty.fareLimit(robber.work, fired.fares.state.delivered);
-      check('...and is tighter than an ordinary rider’s on the same trip',
-        robber.limit < ordinary, `${robber.limit}s against ${ordinary.toFixed(0)}s`);
-      // Across town, which is the event's whole drama. Drawn over the whole map and biased hard
-      // to the far side — see ROBBER_DROPOFF_DARTS. Measured over 55 cities the median is 7 on a
-      // 10-block diameter; the bar here is only that it is not a hop, since the draw is a bias
-      // rather than a floor and a crowded board can legitimately produce a near one.
-      check('the getaway runs across town rather than round the corner',
-        robber.blocks >= 4, `${robber.blocks} blocks of a 10-block diameter`);
+      check('...with room to spare for the chase',
+        robber.limit >= robber.work * 1.6 && robber.limit >= ordinary,
+        `${robber.limit}s against ${robber.work.toFixed(1)}s of driving, ${ordinary.toFixed(0)}s ordinary`);
+      // The far side of the map, which is the event's whole drama — see ROBBER_DROPOFF_SPREAD.
+      // Checked against every free-looking corner off the bank: the drop-off is within a block of
+      // the furthest one on the map that is not in the river or on the bank's own block.
+      let furthest = 0;
+      for (let i = 0; i <= GRID_I; i++) {
+        for (let j = 0; j <= GRID_J; j++) {
+          if (onWaterBlock({ i, j }) || !cornerSeen(i, j)) continue;
+          furthest = Math.max(furthest, Math.abs(i - robber.pickup.i) + Math.abs(j - robber.pickup.j));
+        }
+      }
+      check('the getaway runs to the far side of the map',
+        robber.blocks >= furthest - 1 && robber.blocks >= 5,
+        `${robber.blocks} blocks, furthest corner ${furthest}`);
       // The bonus is a ceiling stamped at spawn and cashed against the clock at the drop-off — the
       // one price in the game not settled when the trip is.
       check('the bonus is stamped as a ceiling, not paid up front',

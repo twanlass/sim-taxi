@@ -82,8 +82,8 @@ because nobody is stopping you taking a rider through a drive-through. See
 
 One block of every city is a **bank** — low and wide under a colonnade, with a patinated dome behind
 it, the one curved mass and the one gap in the skyline. Drive past it with an **empty cab** and a
-masked robber comes down the steps with a sack and gets in, on the tightest clock in the game, bound
-for the far side of the city. Four of the cars already on the road turn blue, put flashing bars on,
+masked robber comes down the steps with a sack and gets in, bound for the far side of the
+city with a loose clock and a bonus for beating it. Four of the cars already on the road turn blue, put flashing bars on,
 and **start driving at you** — at twice the speed of the traffic and under the speed of a boosting
 taxi, which is the whole of the decision the event offers. They are still ordinary cars: they queue,
 they stop at reds, none of them can arrest you — but they **box you in**: a cop stops across a
