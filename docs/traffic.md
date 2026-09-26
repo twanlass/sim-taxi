@@ -1454,6 +1454,14 @@ out. Ramming is the fallback, not the policy.
   sits on its brakes for 1.4s (`stun`, which drives the existing `braking` flag, so a car stunned
   inside a junction box holds cross traffic exactly as the brake pedal does).
 - The taxi keeps 45% of its speed and recoils a little the other way.
+- **A truck outweighs the taxi** (`TRUCK_MASS` = 2.5 in `sim/collisions.js`): what the struck
+  vehicle takes — knock, slew, a rear-end's launch — is divided by it, and what the taxi takes —
+  recoil, spin, lost speed — is multiplied by it. The same T-bone at boost cruise knocks a car at
+  8.0 u/s (the cap) and a truck at 3.4, and bounces the taxi back at 5.2 u/s rather than 2.1 with
+  3.4 u/s kept rather than 8.6. A rear-ended truck is launched at 0.36 of the taxi's speed while the
+  taxi keeps 0.18, so the taxi is still the slower of the two and they separate. And a boosting taxi
+  still leaning on a truck is held to `TRUCK_PUSH_V` (1.5 u/s) over the truck's own speed, so it
+  shoves a truck at a crawl rather than bulldozing it down the road the way it can a car.
 - `main.js` pops a comic starburst on the contact point (`game/impact.js`) — the middle of the
   overlap between the deepest pair of circles, not the midpoint of the two cars' centres, sprays sparks out
   sideways along the seam, and shakes the camera a fraction of the wreck's amount.

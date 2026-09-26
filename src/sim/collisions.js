@@ -85,6 +85,17 @@ const STRUCK_SPIN_BASE = 1.6;
 const STRUCK_SPIN_PER_UNIT = 0.1;
 const TAXI_RECOIL = 0.25;
 const TAXI_SPIN = 0.9;
+// A box truck outweighs the taxi, so a hit on one is shared out the other way round: everything
+// the struck vehicle takes (the knock, the slew, a rear-end's launch) is divided by this, and
+// everything the taxi takes (its recoil, its spin, the speed it loses) is multiplied by it. A
+// rear-ended truck is launched at 0.36 of the taxi's speed while the taxi keeps 0.18 — still the
+// taxi slower than the thing it hit, which is what separates the two, so it cannot be hit again
+// the moment the contact lapses. Recoil and spin come out under KNOCK_MAX_V / KNOCK_MAX_SPIN.
+const TRUCK_MASS = 2.5;
+// While a boosting taxi stays leaning on a truck it has already paid for, it is held to this much
+// over the truck's own speed rather than bulldozing it down the road at boost pace. A car can
+// still be bulldozed; a truck is pushed at a crawl.
+const TRUCK_PUSH_V = 1.5;          // u/s
 
 // A truck is 5.6 long against a car's 3.4, and the two circles used to sit at the car's offsets
 // on it too — which left 0.7 of cab and 0.7 of cargo box at either end that nothing tested, and
@@ -180,6 +191,7 @@ export function createCollisions(cars, taxi) {
       // Every frame of contact does this, which is what stops the taxi ever passing through a car.
       if (!fresh && taxi.hp != null) {
         shoveCar(other, pen.nx * pen.depth, pen.nz * pen.depth);
+        if (other.isTruck) taxi.v = Math.min(taxi.v, Math.max(0, other.v) + TRUCK_PUSH_V);
         continue;
       }
 
@@ -247,17 +259,19 @@ export function createCollisions(cars, taxi) {
     const rearEnd = fx * ofx + fz * ofz > REAR_END
       && (other.x - taxi.x) * ofx + (other.z - taxi.z) * ofz > 0;
     const square = Math.max(0, nx * ofx + nz * ofz);
-    if (rearEnd) other.v = Math.max(other.v, speed * LAUNCH);
+    const mass = other.isTruck ? TRUCK_MASS : 1;
+    if (rearEnd) other.v = Math.max(other.v, speed * LAUNCH / mass);
     const shove = SHOVE_BASE + closing * SHOVE_PER_UNIT;
     // The launch already carries a rear-ended car down its lane, so only the sideways part of the
     // normal is left for the knock to throw — shoving it forward as well would double the push.
     const lx = rearEnd ? nx - ofx * square : nx;
     const lz = rearEnd ? nz - ofz * square : nz;
-    knockCar(other, lx * shove, lz * shove,
-      side * (STRUCK_SPIN_BASE + closing * STRUCK_SPIN_PER_UNIT) * (rearEnd ? 0.4 : 1),
+    knockCar(other, lx * shove / mass, lz * shove / mass,
+      side * (STRUCK_SPIN_BASE + closing * STRUCK_SPIN_PER_UNIT) * (rearEnd ? 0.4 : 1) / mass,
       rearEnd ? 0 : STRUCK_STUN);
-    knockCar(taxi, -nx * shove * TAXI_RECOIL, -nz * shove * TAXI_RECOIL, -side * TAXI_SPIN);
-    taxi.v *= BUMP_KEEP;
+    const recoil = shove * TAXI_RECOIL * mass;
+    knockCar(taxi, -nx * recoil, -nz * recoil, -side * TAXI_SPIN * mass);
+    taxi.v *= BUMP_KEEP / mass;
     for (const cb of bumpListeners) {
       cb({ x: px, z: pz, speed, closing, damage, hp: taxi.hp, taxi, other, nx, nz, rearEnd });
     }
