@@ -36,7 +36,11 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/parcel.js', '../src/geometry/parcelpad.js', '../src/game/parcels.js',
   '../src/game/cargochip.js',
   '../src/game/tutorial.js', '../src/game/highscores.js', '../src/game/locostash.js',
-  '../src/util/platform.js', '../src/util/haptics.js',
+  '../src/util/platform.js', '../src/util/haptics.js', '../src/util/feedback.js',
+  // The audio core. `clips.js` and `lab.js` are deliberately absent: the first is Vite-only
+  // syntax (`import.meta.glob`) that node cannot evaluate, and the second touches `document` at
+  // module scope. Both are covered from the outside by `tools/audio.mjs` instead.
+  '../src/audio/events.js', '../src/audio/mix.js', '../src/audio/index.js', '../src/audio/cue.js',
   '../src/lab/labroad.js'];
 
 const TOOLS = [
@@ -64,6 +68,10 @@ const TOOLS = [
   // The passing lab at /lab/. Nothing else imports `src/lab/`, so without this the one page in
   // the project whose entire job is to be looked at could stop working silently.
   { name: 'lab',     args: ['tools/lab.mjs'],          pick: /(\d+\/\d+) checks passed/ },
+  // Audio is the one output silence cannot be told apart from success on — no pixel changes, nothing
+  // is logged, and the only witness is an ear that is not in CI. So this asserts the manifest, the
+  // clips folder, the call sites and the credits all still describe the same set of sounds.
+  { name: 'audio',   args: ['tools/audio.mjs'],        pick: /(\d+\/\d+) checks passed/ },
 ];
 
 let failed = 0;

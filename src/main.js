@@ -76,7 +76,8 @@ import { findRoute, findRouteVia, findRouteOnto, planOrigin } from './game/route
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr,
+  getMuted } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { setCityOccluders } from './game/sightline.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
@@ -84,6 +85,10 @@ import { createDiagnostics } from './game/diag.js';
 import { createViewport } from './util/viewport.js';
 import { isNative } from './util/platform.js';
 import { tap as haptic } from './util/haptics.js';
+import { cue } from './util/feedback.js';
+import { createAudio } from './audio/index.js';
+import { CLIP_URLS, CLIP_COUNT } from './audio/clips.js';
+import { install as installAudio } from './audio/cue.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
@@ -440,7 +445,7 @@ const burgerRun = driveThru
         to: boostScreenPos,
         onArrive: () => boost.topUp(BOOST_BURGER_REWARD),
       });
-      haptic('burger');
+      cue('burger');
     },
     onFinish: (handBack) => resumeAfterBurger(handBack),
   })
@@ -1166,7 +1171,7 @@ function divertToParcel(parcel) {
   // Keyed on `taken`, not on the tap. A refused detour already answers itself visually — the corner
   // flinches instead of swelling (see `acknowledge`) — and a confirming buzz on top of a refusal
   // says the opposite of what the animation does.
-  if (taken) haptic('pick');
+  if (taken) cue('pick');
   parcels?.acknowledge(parcel, taken);
 }
 
@@ -1182,7 +1187,7 @@ function sendForBurger() {
   if (!burgerRun) return;
   // Same rule as the fare and package taps: the buzz reports that the taxi is now going somewhere
   // else, so it is gated on the route actually being taken.
-  if (burgerRun.send()) haptic('pick');
+  if (burgerRun.send()) cue('pick');
 }
 
 /**
@@ -1253,7 +1258,7 @@ createPicker(
     // else, so it is gated on the route actually being taken. The two refusals above this line —
     // a second rider while carrying, a pin with no fare behind it — return without one.
     if (routeTo(fare.target)) {
-      haptic('pick');
+      cue('pick');
       fares.markDirected(fare);
     }
   },
@@ -1857,7 +1862,7 @@ function kickLocoMode() {
   // Above the `crashed` bail deliberately: the press was accepted either way — `boost.press()`
   // already returned true and the fuel is already committed — so the hand should be told even when
   // the wrecked car has no wheelie left to answer with.
-  haptic('loco');
+  cue('loco');
   const car = traffic.taxi;
   if (car.crashed) return;
   car.wheelieT = 0;
@@ -1946,7 +1951,7 @@ function holdBrake() {
   // Unconditional on speed, unlike the skid stamp two lines down: the pedal has a detent whether or
   // not the car was moving fast enough to lock a wheel, and a control that answers only sometimes
   // reads as a control that is broken.
-  haptic('brake');
+  cue('brake');
   // Gas and brake are one pedal each and the last one pressed wins. Releasing Loco Mode here rather
   // than letting the two fight it out means a stab of the brake mid-boost doesn't sit there quietly
   // burning fuel against a speed target of zero — the tank keeps whatever is left in it.
@@ -2424,6 +2429,36 @@ const fareLoopHeld = () => Boolean(homeTip?.state.holding) || Boolean(opening?.r
 // the early return in `frame()`), because a pause the player asked for has to give back a city in
 // the state they left it — a fare clock held while the traffic kept driving would hand the taxi's
 // own junction back with a car in it.
+/**
+ * The audio player, and the three places the browser will only let it work from.
+ *
+ * Built unconditionally — it is inert until a gesture, costs nothing while silent, and validating the
+ * manifest on every boot is how a typo'd event name becomes a thrown error rather than a sound nobody
+ * notices is missing. Muted by default under a pinned shot, because `tools/shoot.mjs` drives a real
+ * browser and a suite that beeps through 900 checks is a suite nobody runs twice (`getMuted`).
+ *
+ * `CLIP_COUNT` is 0 today: no sample has been chosen for any of the eight events, so every `cue()` is
+ * a buzz and a silence and the game sounds exactly as it did before. Drop files into
+ * `src/audio/clips/` and they play with no change here — see that folder's README.
+ */
+const audio = createAudio({ clips: CLIP_URLS, muted: getMuted() });
+installAudio(audio);
+
+// **Every engine starts a context suspended and keeps it that way until a real user interaction.**
+// So this is not a nicety, it is the only route to sound. On `window` in the capture phase because
+// the first gesture of a session is not something to identify in advance — it might be the vignette
+// skip, a pedal, a fare tap or the Home Screen tip — and `unlock()` is idempotent, so being called on
+// every press for the rest of the run is the cheap way to be certain it was called on the first.
+// `pointerdown` rather than `click`: a press that never becomes a click still counts as the gesture.
+window.addEventListener('pointerdown', () => { audio.unlock(); }, { capture: true });
+
+// A tab the player has switched away from should not keep droning. The iOS shell already routes
+// backgrounding through `pause.setPaused(true)` (docs/ios.md), so the shell arrives at the same pair
+// through `onChange` below; this is the browser's half, which has no pause to hang it on.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) audio.suspend(); else if (!pause?.state.paused) audio.resume();
+});
+
 const pause = shot ? null : createPause({
   button: document.getElementById('pause'),
   veil: document.getElementById('pause-veil'),
@@ -2438,6 +2473,9 @@ const pause = shot ? null : createPause({
     // `dropPedalGesture` covers a thumb that was on the row when the veil went up; the two explicit
     // releases beside it are for the keyboard's holds, which it knows nothing about.
     if (paused) { boost.release(); releaseBrake(); dropPedalGesture(); }
+    // The whole loop stops on a pause — `frame()` returns before a single `update()` — so a bus still
+    // sounding over a frozen city is the one thing that would give the freeze away.
+    if (paused) audio.suspend(); else audio.resume();
   },
 });
 
@@ -2755,7 +2793,7 @@ function frame() {
       // the pad and the frame the flourish plays, and the two want to be the same beat. `'loaded'`
       // is the *chip's* cue — the tail of an animation the player is watching finish, not the
       // moment anything happened.
-      haptic('parcel-in');
+      cue('parcel-in');
     } else if (type === 'loaded') {
       // The lift is nearly done and the box is nearly transparent. `at` is where it had got to, in the
       // world, on *this* frame — `parcels.js` owns that fact; turning it into a pixel is this module's
@@ -2780,7 +2818,7 @@ function frame() {
       // On the delivery itself, not on either bonus arriving. The two flights below take about a
       // second to reach the counter and the pill, and a buzz that waited for them would land on a
       // frame the player has already stopped associating with the pad they just left.
-      haptic('parcel-out');
+      cue('parcel-out');
       // Cash and fuel, the same two currencies a drop-off pays, and both take the same two-phase
       // flight a fare's does — off the taxi, then to the counter and to the pill — because it is the
       // same kind of event arriving from the same place, and a bonus that landed in either place
@@ -3509,6 +3547,21 @@ window.__taxi = {
    * iPad, and on those the whole path runs correctly and produces nothing.
    */
   haptic,
+  /**
+   * The audio player — `state`, `play(event)`, `unlock()`, `setMix()`, `resolved`.
+   *
+   * Here for the same reason `haptic` is: a sound is the other thing this game does that **cannot be
+   * observed** from the outside. No pixel changes and nothing is logged, so "is the audio path alive?"
+   * has no answer from a screenshot, and answering it by playing until the right event happens
+   * conflates a dead player with a game that never fired one. `window.__taxi.audio.play('loco')` in a
+   * console separates the two in one line — and `audio.state.missing` says which events have no sample
+   * yet, which is all eight of them today.
+   *
+   * Note the gesture requirement is real: a `play()` typed into a console before anything has been
+   * pressed returns false with `state.ready` still false, because no interaction has unlocked the
+   * context. Press something first.
+   */
+  audio,
   /**
    * Draw one frame on demand.
    *

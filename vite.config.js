@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 
-// Two pages, not one. The game is `/` and the passing lab is `/lab/` — see docs/lab.md for what
-// the lab is and why it isn't reachable from the game.
+// Three pages, not one. The game is `/`, the passing lab is `/lab/` (docs/lab.md) and the sound lab
+// is `/audio/` (docs/audio.md). Neither workbench is reachable from the game, by design.
 //
 // The dev server finds `lab/index.html` on its own; this file exists for `npm run build`, which
 // only walks `index.html` unless it is told about the others, and would otherwise ship a `dist/`
@@ -14,6 +14,7 @@ export default defineConfig({
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
         lab: fileURLToPath(new URL('./lab/index.html', import.meta.url)),
+        audio: fileURLToPath(new URL('./audio/index.html', import.meta.url)),
       },
       output: {
         // Two entries sharing three.js means Rollup extracts a common chunk whether or not it is

@@ -25,6 +25,10 @@ const DEST = path.resolve('ios/SimTaxi/web');
 /**
  * What `dist/` contains that the app must not ship.
  *
+ * - **`audio`** — the sound lab (`/audio/`), the other developer workbench. Same reasoning as `lab`
+ *   below, with one addition: the *clips* it auditions are imported through `src/audio/clips.js`, so
+ *   they are ordinary hashed `assets/` and travel into the .ipa as they should. Only the workbench
+ *   page is dropped, never the audio.
  * - **`lab`** — the passing lab (`/lab/`), a developer workbench with no route into it from the
  *   game and `robots: noindex` on it. It exists as a second Vite entry, so it lands in `dist/`
  *   whether or not anyone wants it in the .ipa. Excluded here rather than in `vite.config.js`
@@ -35,7 +39,7 @@ const DEST = path.resolve('ios/SimTaxi/web');
  *   old game to someone who just installed the new one). Nothing would load it, but shipping the
  *   file anyway invites a future reader to wire it back up.
  */
-const EXCLUDE = new Set(['lab', 'sw.js']);
+const EXCLUDE = new Set(['lab', 'audio', 'sw.js']);
 
 /**
  * The lab's *code*, which is a separate problem from the lab's page.
@@ -49,7 +53,7 @@ const EXCLUDE = new Set(['lab', 'sw.js']);
  * this stops matching, the silence would read exactly like success — so the report below always
  * says what went and what stayed.
  */
-const EXCLUDE_ASSET = /^lab-[^/]*\.js$/;
+const EXCLUDE_ASSET = /^(lab|audio)-[^/]*\.js$/;
 
 if (!existsSync(SRC)) {
   console.error('No dist/ — run `vite build` first (or use `npm run build:ios`, which does both).');

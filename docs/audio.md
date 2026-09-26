@@ -1,10 +1,40 @@
 # Audio
 
-**Not built yet.** This is the plan, written before the first line of it exists, because the
-decisions below are the kind that are expensive to reverse once a sound artist is working against
-them and a hundred call sites name events.
+**The system is built; there are no sounds in it yet.** The player, the manifest, the eight wired
+call sites, the lab at `/audio/` and the headless checks all exist and are green. What does not exist
+is a single audio file: `src/audio/clips/` is empty, so every cue resolves to nothing and the game is
+exactly as silent as it was before.
 
-The game is silent today. There is no `AudioContext` anywhere in `src/`.
+That split is deliberate and it is the useful state to be in. Filling the folder needs no JavaScript —
+drop a file in, name it in `events.js` — and until then the lab lists all eight slots as empty rather
+than hiding them, so what is missing is the thing you look at first.
+
+## Status
+
+| Piece | Where | State |
+|---|---|---|
+| Event manifest and allow-list | `src/audio/events.js` | built — 8 events |
+| The mix, as data | `src/audio/mix.js` | built |
+| Player: buses, voices, ducking, pan | `src/audio/index.js` | built |
+| Clip resolution through Vite | `src/audio/clips.js` | built |
+| One call, every output device | `src/util/feedback.js` | built — all 8 sites |
+| Sound lab | `/audio/`, `src/audio/lab.js` | built |
+| Headless checks | `tools/audio.mjs` | built — 21 checks in `npm run check` |
+| **The clips themselves** | `src/audio/clips/` | **empty** |
+| Parametric loops (engine, siren) | — | not started |
+| iOS audio session | `ios/SimTaxi/GameViewController.swift` | not started |
+
+### On sourcing the clips
+
+Worth writing down, because it will come up again: **this repo's cloud sessions cannot reach any of
+the openly-licensed audio libraries.** `freesound.org`, `commons.wikimedia.org`, `archive.org` and
+`opengameart.org` are all refused at the network gateway, and the only audio packages reachable
+through npm — `uisfx`, `@foleyjs/core` — are *procedurally generated*, which both say plainly in
+their own licence files. They are CC0 and perfectly legal; they are also not what this game is
+having.
+
+So the clips arrive one of two ways: someone drops them into `src/audio/clips/`, or the environment's
+network policy is widened to let a session fetch them. Neither is a code change.
 
 ## The doctrine, amended
 
@@ -207,17 +237,37 @@ rather than after.
 
 ## Phasing
 
-0. **Decide** the audio session category and the format. (Doctrine: settled above.)
-1. **The core**, plus exactly one placeholder sound end to end through the real pipeline — in
-   `BOOT`, with `tools/audio.mjs` green.
-2. **The `/audio/` lab**, with JSON export.
-3. **Wire the eight existing haptic sites.** They are already at the right moments.
-4. **The parametric loops** — engine first. Most artist back-and-forth by a distance; budget for it.
-5. **The iOS session**, verified on a real phone with the switch both ways.
+0. ~~Decide the audio session category and the format.~~ Settled above.
+1. ~~The core, plus one sound end to end through the real pipeline — in `BOOT`, with
+   `tools/audio.mjs` green.~~ **Done.** The end-to-end proof was a generated blip used as a throwaway
+   fixture and then deleted: it confirmed glob → hashed URL → `fetch` → `decodeAudioData` →
+   `BufferSource.start()`, plus cooldown, the voice caps, mute, and pause suspending the graph. A
+   test fixture is the one place generated audio is fine, and it is not in the repo.
+2. ~~The `/audio/` lab, with JSON export.~~ **Done.**
+3. ~~Wire the eight existing haptic sites.~~ **Done**, through `util/feedback.js` so the two channels
+   cannot drift apart.
+4. **Real clips in `src/audio/clips/`.** Blocked on sourcing, not on code — see above.
+5. **The parametric loops** — engine first. Most artist back-and-forth by a distance.
+6. **The iOS session**, verified on a real phone with the ringer switch both ways.
 
-**Step 1 before step 2**, and the temptation is to do it the other way round because the lab is the
+**Step 1 went before step 2**, against the temptation to build the lab first because the lab is the
 fun part. A lab built against a pipeline that does not exist yet bakes in assumptions the real
-pipeline then has to honour, and unpicking that costs more than the week it saved.
+pipeline then has to honour.
+
+## Adding a sound
+
+No JavaScript, and the check will tell you if you get it wrong.
+
+1. Put the file in `src/audio/clips/`. `.m4a` (AAC) is what to deliver; `.mp3`, `.wav`, `.ogg`,
+   `.aac` and `.flac` are accepted so a take can be auditioned without converting first.
+2. Add its **basename without the extension** to that event's `clips` array in `events.js`. Two or
+   more is a round robin, and the lab shows which one fired so "it sounds repetitive" is checkable.
+3. Add a row to `src/audio/clips/CREDITS.md` — source, author, licence. `npm run check` fails on a
+   clip with no row, because a game heading for the App Store cannot carry audio whose licence
+   nobody wrote down.
+
+To try something without committing it, `npm run dev` and **drag the file onto a card at `/audio/`**.
+It plays from a `blob:` URL, never touches the repo, and is gone on reload.
 
 ## Open questions for the artist
 
