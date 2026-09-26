@@ -105,8 +105,12 @@ export function createCopLights(scene, { enabled = true } = {}) {
     // released from a finished robbery keeps its paint and loses its lights, and a wash still
     // playing on the tarmac under a dark bar is the one place this would show as a disagreement
     // between the two. Same reason the bar itself is written off `siren` in sim/traffic.js.
+    //
+    // Not a car wearing somebody else's mesh (`skin`): that is the patrol cruiser after it has
+    // joined traffic, and it carries its own two lamps (sim/police.js) — a wash here as well would
+    // light it twice.
     const near = [...cars]
-      .filter((car) => !car.crashed && car.siren)
+      .filter((car) => !car.crashed && car.siren && !car.skin)
       .sort((a, b) => Math.hypot(a.x - taxi.x, a.z - taxi.z) - Math.hypot(b.x - taxi.x, b.z - taxi.z))
       .slice(0, LIGHTS);
 

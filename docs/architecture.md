@@ -33,7 +33,7 @@ src/
   sim/                  things that move on their own
     traffic.js          signals + car physics + the single routing branch. The largest file.
                         Cars drive lanes off the road network; `car.s` is arc length along one.
-    police.js           the priority-corridor car
+    police.js           the priority-corridor car, its lock-on, and its hand-off into traffic
     collisions.js       taxi-vs-car impact test — always shoved apart, charged only on boost; the last bump wrecks both
 
   game/                 the player's layer
@@ -70,6 +70,7 @@ src/
     ducks.js            the birds on the pond: paddle, sit, dabble, never leave
     clouds.js           the weather ringing the island — placed on the screen, never over the city
     robbery.js          the bank robbery: who gets in outside the bank, and the cops that come with them
+    pursuit.js          the patrol cruiser's chase once it is a car in traffic: caught, or lost
     radio.js            the dispatch bubble that says the fare who just got in is a robber
     robberline.js       the robber's line: the world stops, the taxi is spotlit, the robber shouts
     coplights.js        the red and blue a cop car throws on the road while a robbery runs

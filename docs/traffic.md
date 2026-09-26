@@ -579,7 +579,7 @@ They can't ride in the body geometry, which is one shared matrix per car. The ta
 meshes on its group, since it is drawn as a group anyway.
 
 The rule itself is `steerToward()`, exported because the police cruiser runs it too — see
-[The bust chase](#the-bust-chase).
+[The patrol chase](#the-patrol-chase).
 
 ### None of the vehicle meshes frustum-cull
 
@@ -770,9 +770,9 @@ back within a couple of units of a corner exit, and the band still costs 55+ uni
 between the cap and the top. That second check used to measure "distance since the last corner",
 which stopped meaning anything the moment a right turn stopped resetting the speed.
 
-4.0 rather than something rounder because [the bust chase](#the-bust-chase) has to stay faster than
-the quarry on its best day; the cruiser runs at 37, which leaves it 3 u/s to close with. Those two
-numbers move together — raise this one and the chase becomes an escort.
+The overdrive's 4.0 (34 u/s) used to be pinned to the patrol cruiser's chase, which ran at 37 to stay
+3 u/s faster than it. [The patrol chase](#the-patrol-chase) is deliberately the other way round now —
+a cop cruises at 21.7, under even the mode's own 22.1 — so this number no longer drags anything.
 
 ### The ramp is live tuning
 
@@ -2453,7 +2453,7 @@ response or queueing; what keeps that from showing is the corridor holding the r
 and the lane clearing itself. Both need a road named in advance, and a corner is the one moment the
 road being cleared changes — so both roads a jog uses are checked end to end at `start()`, against
 the same closures the straight line already had to pass. Routing junction by junction is
-[the chase](#the-bust-chase)'s job, and the chase is allowed to look reckless because it is
+[the patrol chase](#the-patrol-chase)'s job, and the chase is allowed to look reckless because it is
 supposed to.
 
 **The corner is driven, not snapped.** The chase turns its rail square and lets `CHASE_SMOOTH` bend
@@ -2565,7 +2565,7 @@ so it covers entry as well as exit; the pop existed at both ends.
 **The light bar runs for the whole of a run; the bust arms a block in from the edge** —
 `BUST_ARM_INSET`, which is `PITCH`. The gap between the two is deliberate: about two seconds of
 visible siren before the cruiser can take a run off you. See
-[the bust chase](#arming-it-where-it-can-be-seen) for why that number is the bust radius rather
+[the patrol chase](#arming-it-where-it-can-be-seen) for why that number is the bust radius rather
 than a tuned one.
 
 `propMaterial()` returns a fresh instance per call, which is what makes this safe — turning on
@@ -2587,8 +2587,8 @@ It looks in four places now, one per way a cruiser can reach a dug-up street:
   shut. It is the same check as the line's, applied to the roads a run has committed to but is not
   on yet.
 - **Every junction of a chase.** `turnAt` filters dug exits out in a first pass — only a first
-  pass, because a chase that found every exit closed should drive through the cones rather than
-  abandon the bust over a traffic cone.
+  pass, because a lock-on that found every exit closed should drive through the cones rather than
+  abandon the chase over a traffic cone.
 - **Placing the zone.** `eligible` in `roadwork.js` declines an edge on any road of a live run —
   `policeRoads()`, so the roads a jog has ahead of it as well as the one under it — which closes
   the one case the others cannot: a zone rising underneath a run already in progress.
@@ -2600,13 +2600,116 @@ currently on.
 
 > Once fixed: the police car drove straight through a park. It now respects closed segments.
 
-## The bust chase
+## The patrol chase
 
-Boost within `POLICE_BUST_RANGE` (20 — one block) of an **armed** corridor run and the run is over:
-`bustByPolice()` in `main.js` freezes the taxi, drops into slow-mo and holds the run-end banner,
-same beat as a wreck. What it adds is `police.chase(taxi)`.
+Boost within `POLICE_BUST_RANGE` (20 — one block) of an **armed** corridor run and the cruiser comes
+after you: `police.chase(taxi)` from `checkPoliceBust()` in `main.js`, with dispatch saying so in the
+radio bubble (`PURSUIT_LINE` in `game/radio.js`). It **used to end the run on the spot** and then
+send the cruiser after a taxi that was already frozen, so the chase was a cut scene for a verdict
+already given. Now the chase is the part the player plays, and it ends one of two ways:
+
+- **Caught** — a cop on the taxi long enough (`CATCH_*` in `game/pursuit.js`): the run ends
+  **Busted!**, on the same cinematic a wreck gets.
+- **Lost** — the taxi gets `ESCAPE_BLOCKS` (3) blocks clear: the bar goes dark, dispatch says
+  `LOST_LINE`, and the cruiser drives off and back onto its cycle.
+
+It is **the robbery's chase with one cop in it**, deliberately. Comparing the two is what this came
+out of: the robbery's cops are cars in traffic that the pill can outrun and a cruising taxi cannot,
+and the patrol cruiser was a rail at 37 u/s that nothing could outrun and nothing could touch. So
+the cruiser now *becomes* one of the robbery's kind of car, and inherits every finding in
+[cop cars in ambient traffic](#cop-cars-in-ambient-traffic) — the speed ordering, the one licence on
+a provably empty red, the overtake and the brake check, being rammable — without a line of new
+behaviour in `sim/traffic.js`.
+
+### Two phases: the lock-on and the hand-off
+
+**The lock-on** is the old chase's opening beat, kept on the rail (`driveChase`): the `CHASE_KICK`
+surge, the wheelie, the pitch spring, and the hard **U-turn** if the taxi is behind it. That beat is
+what says the siren has stopped being scenery, and a traffic car cannot do it — a U-turn is not a
+legal exit. It routes greedily toward the taxi at every junction it reaches, as the whole chase used
+to, so a lock-on that has to wait a block for somewhere to join is still heading the right way. What
+it dropped is the Loco Mode weave: the car it becomes drives its lane centre, and a weave still
+running on the frame it joins is a sideways jump.
+
+**The hand-off** (`handOff` in `sim/police.js`) is the first lane it can join safely, through
+`traffic.enterPoliceAt`. From that frame on it is an ordinary cop in `traffic.policeCars` (with
+`car.patrol` set, so the robbery's stand-down leaves it alone) and `game/pursuit.js` drives it: a
+stern chase at the taxi's junction, re-aimed only when the taxi's junction or next step changes. The
+clauses on joining are each a way the frame could show, or a way two traffic cars could end up
+inside each other with nothing to say so:
+
+- **Sideways, the drawn car has to be on its lane** (`HANDOFF_SNAP`, 0.25) with its nose on the
+  road's heading, no U-turn, wheelie or dodge still on it. *Along* the road it joins where it is
+  drawn, not where the rail is: the ease trails the rail by `v / CHASE_SMOOTH`, 1.8 units even on a
+  straight, and the first cut compared the two and never handed off at all.
+- **One frame of travel back**, because the traffic model moves the car again on the same frame.
+  Joined where it was drawn it covered 0.72 units on the frame it joined; now 0.39, which is a frame.
+- **Short of its hold line** — a car released past it runs the light — but only by `HANDOFF_LINE`
+  (0.5), not by a stopping distance. At 21.7 u/s stopping takes 13.4 units, more than a lane, and a
+  three-unit margin left a quarter-second window per block that the wheelie could miss outright. It
+  does not need to stop: the corridor is held down the lane it joined on until it is off it
+  (`graceLane`), so the junction the rail was promised stays green for the car that inherits it.
+- **Clear of every other car in the lane** (`HANDOFF_AHEAD`/`BEHIND`), and of anything turning in.
+
+Measured over 48 lock-ons on 12 seeds: median **0.82s** to join, p90 1.37s, slowest 1.75s.
+
+**The mesh stays the cruiser's.** `car.skin` in `sim/traffic.js` hands the composed pose to a
+callback and collapses the instance, so what is on screen is the same model before and after — a
+police car turning into a different police car is the repaint's bug in a smaller hat. The cruiser's
+own lamps come with it, which is why `game/coplights.js` skips a skinned car. And the shell is not
+hidden between the two phases; the lamps are never removed (see the shell note in `createPolice`).
+
+**It locks on at a cop's cruise** (`LOCK_SPEED` = `COP_CRUISE` = 21.7), so neither end of the
+hand-off is a step in speed. That is the ordering reversed on purpose: the rail chase ran at 37,
+three over the overdrive top, because an escapable *bust* was a chase that could not end. An
+escapable *chase* is the design now, and the probe asserts the opposite ordering (`a boosting taxi
+out-runs the patrol cruiser's chase`).
+
+### Caught, or lost
+
+Measured in `tools/probe.mjs` over ten seeds each, with the taxi placed where the trigger can
+catch it and driving wherever the dice take it:
+
+| | caught | lost | median time |
+|---|---|---|---|
+| off the pill | **9/10** | 1/10 | 16.6s to the catch |
+| holding the pill | 0/10 | **10/10** | 5.0s to three blocks clear |
+
+Five seconds is most of a full tank (6s), which is the tension: being spotted on a half-empty
+meter is a real problem.
+
+**The catch is a meter, and it fills at two rates.** Within `CATCH_RANGE` (8, a car length of
+daylight) of a taxi doing under `CATCH_SPEED` (4) it fills in `CATCH_TIME` — one second: queued at a
+red with the siren behind, pinned behind a brake check, pulled in at a kerb. Of a taxi still moving
+it fills at `TAIL_RATE`, a quarter of that, so four seconds on your bumper is an arrest too. The
+first cut had only the first rate, and the soak found why that was wrong: a taxi cruising the ring
+road — no lights, so it never stops — had a cop three to eight units behind it for forty seconds and
+was then "lost" by the backstop. It went from 2/10 caught off the pill to 9/10. Out of range the
+meter drains rather than resetting. Neither rate is instant because distance alone busts the wrong
+things: a cop drawing past in the oncoming lane, or a taxi ramming one (a bump, not an arrest).
+
+**Lost is distance between the two cars, not distance driven.** Three blocks is 60 units, just past
+the robbery's `LOST_RANGE` (56) — "out of the picture" on a phone at play zoom — so the rule the
+player learns is the one they can see. "Survive three blocks of driving" was the other reading of
+the brief, and it would let a cop sitting on your bumper let you go.
+
+**The stand-down is the robbery's**, for one car: bar dark, chase off, routed to the corner furthest
+from the taxi, retired once `STAND_DOWN_RANGE` clear (`SPAWN_CLEARANCE` past the timeout, never
+less). When it leaves the road the cruiser notices (`!cop.police`), goes back to its cooldown, and
+the next corridor run is an ordinary one. `PURSUIT_MAX` (40s) calls off a pursuit neither car can
+finish.
+
+**A robbery waits for it, and it waits for a robbery.** `createRobbery({ busy })` refuses to start
+while a patrol cop is chasing or driving off — `raiseAlarm` clears the fleet it inherits, which would
+delete the cruiser in front of the player — and `checkPoliceBust` still does nothing during a
+getaway, nor while the getaway's cops are driving off afterwards.
 
 ### Arming it where it can be seen
+
+Everything in the next two subsections calls the trigger "the bust", which is what it was when
+they were measured. It starts a chase now rather than ending the run; the arithmetic about when a
+cruiser may take an interest in you is unchanged.
+
 
 The bust radius is a block (20) and `FADE_BAND` is 18, so for a while the cruiser was **lethal
 before it was drawn**. For a taxi `e` units in from the map edge, the bust fired with the cruiser
@@ -2667,88 +2770,49 @@ strobing off this same `sirenOn()`, so the whole rule stays one rule — the gra
 See
 [rendering.md](rendering.md#off-screen-police-warning).
 
-**Why it exists.** The corridor run is scenery — it drives its line and never acknowledges the
-player. So the bust used to land with the cruiser sailing obliviously past, and being busted read
-as a rule firing somewhere off-screen rather than as a cop catching you. The chase makes the car
-break off, come about, and pull up alongside.
-
-**It drives the taxi's Loco Mode.** Same weave, shared out of `traffic.js` as `locoWeave()` so
-there is one definition of it: the offset is a function of distance driven, so its slope *is* the
-tangent of the steering angle. On top of that, `CHASE_SPEED = 26` (the boosting taxi tops out at
-18.7, so the gap actually closes), a `CHASE_KICK` step in speed the frame it decides — the
-cruiser's `BOOST_KICK` — and a hard **U-turn** if the taxi is behind it: a left-hand swing across
-the full width of the road, braking in at `UTURN_BRAKE` and powering out, which is the beat that
-sells the lock-on. The light bar goes double-time, 11 changes a second instead of 6, and that rate
-change is the only cue the player gets that the run has become about them.
+### How the lock-on carries itself
 
 **Half of "aggressive" is the body, not the routing.** A car that tracks a perfect line at a
-constant speed reads as a machine however fast it is going. So the cruiser carries itself the way
+constant speed reads as a machine however fast it is going. So the lock-on carries itself the way
 the boosting taxi does, off the same shapes:
 
-- **Pitch** is the taxi's spring-damper on longitudinal acceleration, same constants. The kick, the
-  dive into the U-turn and the stand-on-the-brakes arrival all arrive as Δv and come out as the
-  body rocking, ending each event on a small bounce because it is underdamped.
-- **A kickoff wheelie** on lock-on, `locoWheelie()` shared with the taxi.
+- **Pitch** is the taxi's spring-damper on longitudinal acceleration, same constants. The kick and
+  the dive into the U-turn arrive as Δv and come out as the body rocking, ending each on a small
+  bounce because it is underdamped.
+- **A kickoff wheelie** on lock-on, `locoWheelie()` shared with the taxi. The hand-off waits for it
+  to finish, which is the most common reason a lock-on misses its first lane.
 - **Roll** leans *outward* — weight transfer; leaning inward reads as a motorbike. It comes off yaw
-  rate × speed rather than off the geometry of a turn, since this car has no Bézier to ask. Going
-  through the motion means the weave leans it as well as the corners do, in proportion, for free.
+  rate × speed rather than off the geometry of a turn, since the rail has no Bézier to ask.
 - **Rubber and dust**, laid from `main.js` where the effect pools live, off the yaw rate and
-  distance `police.js` publishes. The slide threshold sits above the weave and below a corner
-  (`POLICE_SLIDE_RATE`); below that gap the cruiser laid a continuous streak down every straight,
-  which reads as permanently out of control rather than as being thrown about.
+  distance `police.js` publishes, for the length of the lock-on (`POLICE_SLIDE_RATE`).
 
-Both tilts pivot on the car's origin at road level, so each one alone drives an edge under the
-tarmac; the same sagitta lift the ambient cars use keeps the low corner on the road. The body keeps
-ticking after it parks, so the dive it stops on settles back to level instead of freezing nose-down.
+Once it has joined traffic the traffic model's own pitch spring, lean and steering take over.
 
 **Routing** is greedy Manhattan, decided one junction at a time and scored on where each road
 *goes* — the distance from the far end of the segment to the taxi — rather than on which way the
-bonnet ends up pointing. Exits come from `legalExits`, so park closures and the map edge are
-handled for free. Straight carries a small bonus, without which two equal-cost exits alternate at
-every junction and the chase visibly dithers down a road it should just be driving down.
-
-The priority corridor follows each leg. That is not a courtesy: the cruiser has no collision or
-queueing coupling at all, so an un-yielded cross car is a car it drives through at 26 units/s.
+bonnet ends up pointing. Exits come from `legalExits`, so park closures and the map edge are handled
+for free, and dug-up exits are filtered in a first pass. Straight carries a small bonus, without
+which two equal-cost exits alternate at every junction and the car visibly dithers. The priority
+corridor follows each leg: the rail has no collision or queueing coupling at all, so an un-yielded
+cross car is a car it drives through.
 
 **The rail is not what you see.** Position and heading come off an exact (axis, line, s) rail whose
 corners are square and whose U-turn flips a whole road width at once. The drawn car eases toward it
-(`CHASE_SMOOTH`), which is what turns each 90° snap into an arc — the steady-state lag of ~2.2
-units *is* the corner radius. Two bounds on top, both of which were visible before they were added:
-the ease is capped at `CHASE_SPEED * 1.2` (the corner snap otherwise spiked the car to 50 units/s
-for a frame, and the apex of every corner read as a skip), and the nose eases toward the rail
-heading over `YAW_EASE` rather than snapping the full 90°.
+(`CHASE_SMOOTH`), which is what turns each 90° snap into an arc. Two bounds on top, both of which
+were visible before they were added: the ease is capped at `LOCK_TOP * 1.2` (the corner snap
+otherwise spiked the car to 50 units/s for a frame), and the nose eases toward the rail heading over
+`YAW_EASE` rather than snapping the full 90°.
 
 > Once fixed: heading was read off the smoothed motion instead of the rail. The frame after a
 > corner snap the rail can sit *behind* the drawn car, so the step pointed back down the road and
 > the nose flicked through 160° in one frame.
 
-**Its front wheels steer too**, on the same `steerToward()` every car in `traffic.js` runs — the
-cruiser is not in the `cars` array (no lane, no turn state, no collision coupling), so that
-function is the only thing the two can share, and sharing it is what keeps the cruiser's wheels
-from drifting out of step the next time the gain is touched. The difference is taken over the
-**drawn** position and heading rather than the rail's, because the arc the player sees is the eased
-one. Measured across five seeds:
+**Its front wheels steer too**, on the same `steerToward()` every car in `traffic.js` runs, over the
+**drawn** position and heading rather than the rail's. A corridor straight with nothing in its lane
+is a flat zero, which is why the probe's corridor check is taken before the run's first corner.
+After the hand-off the wheels are the traffic car's `wheelAngle`, set through the skin.
 
-| | p50 | max |
-|---|---|---|
-| corridor straight | 0° | 12.2° (the dodge) |
-| corridor corner | 28.2° | 34.2° (on the clamp) |
-| chase | 5.2° | 34° (on the clamp) |
-| U-turn | 25.8° | 33° |
-| parked after the arrest | 2.8° | 3.3° |
-
-A corridor straight with nothing in its lane is a flat zero, which is exactly why the cruiser had
-no business having steered wheels before the chase existed. It is not the whole of a corridor run
-any more — [the jog](#the-jog) puts two real corners in most of them — but it is still not the
-assertion that matters, because it is satisfied by a car that never turns its wheels at all. That
-one is the chase's. The probe's corridor check is therefore taken **before the run's first
-corner**: `!state.corner` alone would sample the half second the lock takes to unwind after one,
-which peaks at 34° and is not a straight.
-
-**The banner waits for the arrest.** `BUST_BANNER_DELAY` is a floor, not the schedule — the retry
-screen holds until the cruiser stops, plus a beat. A park district can close the one road between
-the two cars and leave the only legal route three sides of a block long (68 units, 3.5s on seed
-8888), and cutting away mid-chase throws out the one beat the feature exists for.
-`BUST_BANNER_MAX` caps the wait. The bust also runs a much shallower slow-mo than a wreck
-(`BUST_SLOW_MO_MIN = 0.42` against 0.18): at wreck depth the chase waded through treacle, which is
-the opposite of "it came after you".
+**The banner no longer waits for anyone.** `BUST_BANNER_DELAY` (2000ms) is the pull-in and nothing
+else: the cop that made the arrest is already there, braked (`roadblock`) where it caught you. The
+bust keeps its shallower slow-mo than a wreck (`BUST_SLOW_MO_MIN = 0.42` against 0.18) — there is no
+blast to stretch out.

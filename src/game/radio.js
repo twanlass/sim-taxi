@@ -36,6 +36,15 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 export const RADIO_LINE = 'All units respond! Robbery in progress.';
 
 /**
+ * ...and what it says about the patrol cruiser's chase (game/pursuit.js). The same channel, because
+ * it is the same police: the bubble is how the game says "the cops are talking about *you*", and
+ * the chase is the one other time that is true. The second line is the only word the player gets
+ * that they got away — the bar going dark says it too, but only to somebody looking at the car.
+ */
+export const PURSUIT_LINE = 'Unit in pursuit of a speeding cab!';
+export const LOST_LINE = 'Suspect lost. Resuming patrol.';
+
+/**
  * How long it stays up, in seconds of game time. Long enough to read the line twice at a glance
  * (39 characters), short enough that it is gone before the first cop car is on screen to take over
  * saying it. Game time rather than wall time, so a pause holds it rather than eating it.
@@ -137,7 +146,8 @@ export function createRadio({ lights }) {
   if (!root) return idle;
 
   const avatarSlot = root.querySelector('.radio-avatar');
-  root.querySelector('.radio-line').textContent = RADIO_LINE;
+  const lineEl = root.querySelector('.radio-line');
+  lineEl.textContent = RADIO_LINE;
 
   // Built on the first robbery rather than at boot. Most runs never meet one, and a WebGL context
   // nobody looks at is still one of the browser's small budget of them.
@@ -159,8 +169,9 @@ export function createRadio({ lights }) {
 
   return {
     state,
-    /** The robber is in the car. */
-    show() {
+    /** Dispatch breaks in: the robber is in the car, by default, or `line` for anything else. */
+    show(line = RADIO_LINE) {
+      lineEl.textContent = line;
       if (!avatar) {
         avatar = createAvatar(lights.sun, lights.hemi);
         avatarSlot.appendChild(avatar.canvas);

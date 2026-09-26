@@ -371,7 +371,7 @@ ones, because it is a cut scene rather than a driving aid. Only three numbers di
 | Ending | Where it looks | Zoom | Slow-mo floor | Banner waits |
 |---|---|---|---|---|
 | **Wrecked** | the impact point | 26 | 0.18 | 2600ms |
-| **Busted** | the taxi, so the cruiser swings into a held shot | 26 | 0.42 | until the cop pulls up, 3400–4800ms |
+| **Busted** | the taxi, with the cop that caught it already alongside | 26 | 0.42 | 2000ms |
 | **Too Slow** | `fares.state.failSpot` — wherever the rider gets out | 30 | 0.40 | 3000ms |
 
 The timeout is the odd one out and it is what the third row is for: nothing happens *to the taxi*, so

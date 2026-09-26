@@ -348,12 +348,18 @@ function nearestJunction(x, z) {
  * @param onBoard  `(fare) => void`, fired on the frame the robber is in the car. main.js aims the
  *                 taxi at the getaway and lights the roof sign, which is exactly what it does on an
  *                 ordinary `'pickup'` — this module knows a fare started, not what a roof sign is.
+ * @param busy     `() => boolean` — true while the patrol cruiser is chasing somebody in traffic
+ *                 (game/pursuit.js). A robbery waits it out: it would bring four cars in the same
+ *                 paint onto a street with a pursuit already on it, and `raiseAlarm` clears the
+ *                 fleet it inherits, which would delete the patrol car in front of the player.
  * @param holdAlarm  true to board the robber *without* the police, and wait for `raiseAlarm()`.
  *                 main.js holds it for the robber's line (game/robberline.js): the world stops, the
  *                 robber shouts, and the cops arrive on the tap that clears it. False — the tools'
  *                 default — raises it on the same frame, as it always did.
  */
-export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {}, holdAlarm = false }) {
+export function createRobbery({
+  site, taxi, fares, traffic, onBoard = () => {}, holdAlarm = false, busy = () => false,
+}) {
   // The junction the bank's door belongs to, worked out once: the city does not move, and this is a
   // thirty-six-cell scan.
   const junction = nearestJunction(site.door.x, site.door.z);
@@ -895,6 +901,8 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {}, 
       && urgencyLevel(f.timeLeft / f.limit) < CALM_LEVEL)) return false;
     // A crashed or staged taxi is not driving past anything — it is in a wreck or in its garage.
     if (taxi.crashed || taxi.staged) return false;
+    // ...and not with a patrol car already after the taxi — see `busy`.
+    if (busy()) return false;
     return range() <= TRIGGER_RANGE;
   }
 
@@ -1010,6 +1018,8 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {}, 
     const bar = state.standingDown >= STAND_DOWN_TIMEOUT ? SPAWN_CLEARANCE : STAND_DOWN_RANGE;
     for (let k = traffic.policeCars.length - 1; k >= 0; k--) {
       const cop = traffic.policeCars[k];
+      // The patrol cruiser, if it is in traffic chasing somebody, is game/pursuit.js's to retire.
+      if (cop.patrol) continue;
       // A wreck is not going to drive anywhere, and its shell has already been handed to the
       // effects — so it leaves the fleet on distance alone, with no route to wait on.
       if (Math.hypot(cop.x - taxi.x, cop.z - taxi.z) < bar) continue;
@@ -1021,7 +1031,7 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {}, 
     // by the time it reaches the corner, and an unrouted car rolls dice.
     if (state.standingDown >= STAND_DOWN_TIMEOUT) {
       for (const cop of traffic.policeCars) {
-        if (cop.route?.length || cop.crashed) continue;
+        if (cop.route?.length || cop.crashed || cop.patrol) continue;
         const out = {
           i: cop.i > GRID_I / 2 ? 0 : GRID_I,
           j: cop.j > GRID_J / 2 ? 0 : GRID_J,
