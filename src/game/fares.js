@@ -350,7 +350,7 @@ export const ARRIVE_RADIUS = 9.6;
 // and the marker's flight to the taxi all start immediately. This only defers the moment the rider
 // figure physically hides, so a run-and-jump animation gets to play across it. Tuned against that
 // flight's 0.65s so the clock lands on the taxi a beat before the rider disappears into it.
-const BOARD_SECONDS = 0.9;
+export const BOARD_SECONDS = 0.9;
 
 // How long the delivered rider is visible for after they leave the cab. Longer than BOARD_SECONDS
 // because the animation carries an extra beat — a fade after the run — so a departing rider is
