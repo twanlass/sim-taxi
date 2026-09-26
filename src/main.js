@@ -469,14 +469,18 @@ const burgerRun = driveThru
     // game, see BOOST_BURGER_REWARD — and the money leaves on the same flight a fare's payout
     // arrives on, just wearing the other sign.
     //
-    // The two travel in opposite directions across the screen on purpose: the bit flies *to* the
-    // pill and the price flies *to* the counter, and a player who never reads a number still sees
-    // one thing bought with another. `charge` returns what it could actually take (see fares.js), so
-    // a near-empty till pops the number that really left rather than the price on the board.
+    // The two used to travel in opposite corners of the screen, which is no longer true and never
+    // was the point: the bit flies to the fuel bar and the price flies to the counter, and now that
+    // the bar sits directly under that counter both go up-screen and land a few dozen pixels apart.
+    // What sells the trade is that they are a pair — one thing bought with another — and what keeps
+    // them apart is what always did: green text against yellow sparks, and the bit's 1s handoff, so
+    // the coin has landed and gone before the first spark leaves the car. `charge` returns what it
+    // could actually take (see fares.js), so a near-empty till pops the number that really left
+    // rather than the price on the board.
     onServed: () => {
       flyEnergyToBoost({
         from: taxiScreenPos,
-        to: boostScreenPos,
+        to: locoBarScreenPos,
         onArrive: () => boost.topUp(BOOST_BURGER_REWARD),
       });
       const paid = fares.charge(BURGER_PRICE);
@@ -590,11 +594,11 @@ const robbery = city.bank && !shot
       if (burgerRun?.active()) burgerRun.send();
       // A full tank for the getaway, poured the way a VIP's reward is: exactly what is missing,
       // read when the bits land. The event is imposed — it takes the seat whatever the meter says —
-      // and a getaway opened on a dry pill is a slow chase the player never chose, with every cop
-      // on the street cruising faster than an unboosted taxi.
+      // and a getaway opened on an empty tank is a slow chase the player never chose, with every
+      // cop on the street cruising faster than an unboosted taxi.
       flyEnergyToBoost({
         from: taxiScreenPos,
-        to: boostScreenPos,
+        to: locoBarScreenPos,
         onArrive: () => boost.topUp(1 - boost.fraction()),
       });
       // Not the depot, though: a repair is refused with anyone aboard, so the drop-off just
@@ -1905,10 +1909,11 @@ function taxiScreenPos() {
 }
 
 /**
- * Centre of the Punch It pill, and the radius of a circle that clears it. The centre is where a
- * delivery's boost sparks are pulled to; the radius is what the tutorial's third beat sizes its
- * spotlight from. Read fresh on every call rather than cached, because the pill's own fill flutter
- * scales it and a resize moves it.
+ * Centre of the Punch It pill, and the radius of a circle that clears it — what the tutorial's
+ * third beat sizes its spotlight from, and the only thing that still asks. The delivery sparks used
+ * to fly here too; they go to the fuel bar now (`locoBarScreenPos`), which is where the fuel they
+ * are carrying actually lands. Read fresh on every call rather than cached, because the press dip
+ * scales the pill and a resize moves it.
  */
 function boostScreenPos() {
   if (!boostButton) return null;
@@ -1923,6 +1928,32 @@ function boostScreenPos() {
     // Half the pill's diagonal plus a margin, so the clear centre of a pool sitting on it leaves
     // some air around the outline rather than cropping it at the border.
     r: Math.hypot(r.width, r.height) / 2 + 20,
+  };
+}
+
+/**
+ * Where a delivery's boost sparks are pulled to: the *front of the fill* on the Loco bar, not the
+ * middle of it. A bar the width of the screen has no single point that means "the tank" the way a
+ * button does, and the one point that does mean something is the place the fuel is about to appear.
+ *
+ * `flyEnergyToBoost` resolves this at burst time — a second after the drop-off, and before the pour
+ * starts (the pour is what `onArrive` kicks off) — so the reading is the level the bar is sitting
+ * at, and the sparks land exactly on the edge that then starts moving.
+ */
+function locoBarScreenPos() {
+  if (!locoBar) return null;
+  const r = locoBar.getBoundingClientRect();
+  // A hidden bar measures 0x0 — shot mode and the run-end blackout both hide it, same as the pill.
+  // Null rather than a rect at the origin, or a delivery landing next to a crash fires its sparks
+  // at the top-left corner of the screen. energybits.js hands the fuel over regardless.
+  if (!r.width) return null;
+  // Held off the rounded caps: at an empty or a full tank the front sits on the very end of the
+  // bar, and a spark converging on a point outside the stroke reads as a near miss.
+  const CAP = 5;
+  const front = r.left + r.width * Math.max(0, Math.min(1, boostMeter.state.pct));
+  return {
+    x: Math.max(r.left + CAP, Math.min(r.right - CAP, front)),
+    y: r.top + r.height / 2,
   };
 }
 
@@ -2190,37 +2221,52 @@ viewport.onChange((w, h) => {
 // --- Crazy taxi button ------------------------------------------------------
 
 const boostButton = document.getElementById('boost');
+// The tank's read-out, and a separate element from the button that spends it — see #loco-bar in
+// index.html for why the two were split apart.
+const locoBar = document.getElementById('loco-bar');
 
 // A drop-off is the only thing that ever puts fuel in the tank (see game/boost.js), so the pour is
-// the reward animation and it gets three layers: the bar overruns its new mark and eases back, the
-// pill pulses yellow the whole time fuel is arriving, and a blurred bright edge rides the front of
-// the fill. game/boostmeter.js owns the timing of all three; this just hands it the clock and the
-// fuel level and paints what comes back onto three CSS variables.
+// the reward animation and it gets three layers: the bar overruns its new mark and eases back, it
+// pulses yellow the whole time fuel is arriving, and a blurred bright edge rides the front of the
+// fill. game/boostmeter.js owns the timing of all three; this just hands it the clock and the fuel
+// level and paints what comes back onto three CSS variables.
 const boostMeter = createBoostMeter();
 
 function updateBoostButton(dt) {
-  if (!boostButton) return;
   const mode = boost.state.mode;
   // The recharge out of 'empty' is fed to the meter as a pour, because to the player it is one:
   // fuel is arriving and the bar is moving. That buys the climb the leading edge and the glow for
   // free, and — the part worth the reuse — the spring on the end, which fires on the frame the
-  // trickle stops and the button wakes. What it must NOT buy is the pill's 4Hz flutter; a dead
-  // button bouncing reads as pressable, so `#boost.is-charging` takes the movement back out.
+  // trickle stops and the button wakes. What it must NOT buy is the 4Hz flutter: that throb is the
+  // *reward* gesture a delivery lands with, and a tank crawling back out of empty is not a reward.
+  // `#loco-bar.is-charging` takes the movement back out and mutes the rest.
   const charging = boost.isCharging();
   boostMeter.update(dt, boost.fraction(), boost.state.pending > 0 || charging);
 
-  boostButton.classList.toggle('is-active', mode === 'active');
-  boostButton.classList.toggle('is-empty', mode === 'empty');
-  boostButton.classList.toggle('is-charging', charging);
-  boostButton.classList.toggle('is-filling', boostMeter.state.fill > 0);
-  boostButton.style.setProperty('--pct', `${(boostMeter.state.pct * 100).toFixed(1)}%`);
-  boostButton.style.setProperty('--fill', boostMeter.state.fill.toFixed(3));
-  boostButton.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
-  // Dead until there is something worth pressing for: a drop-off pouring fuel back in, or the
-  // trickle finishing its climb to a quarter tank (game/boost.js). A pressable-looking pill over a
-  // tank with a sixtieth of a second in it would be a lie, so 'empty' covers the whole recharge and
-  // the bar climbing behind the dead button is what says it is coming back.
-  boostButton.disabled = mode === 'empty';
+  // The pedal. Two states and no numbers: pressed, and dead until there is something worth pressing
+  // for — a drop-off pouring fuel back in, or the trickle finishing its climb to a quarter tank
+  // (game/boost.js). A pressable-looking pill over a tank with a sixtieth of a second in it would
+  // be a lie, so 'empty' covers the whole recharge and the bar climbing above it is what says the
+  // fuel is coming back. The pill itself stays flat grey throughout: it has no fill to dress any
+  // more, which is the whole point of the split.
+  if (boostButton) {
+    boostButton.classList.toggle('is-active', mode === 'active');
+    boostButton.classList.toggle('is-empty', mode === 'empty');
+    boostButton.disabled = mode === 'empty';
+  }
+
+  // ...and the tank, up under the counters. Everything the meter computes is painted here: the
+  // level and its overshoot on `--pct`, and the pour's envelope on the other two. `is-charging`
+  // is the recharge's own dressing — the same fill, muted and held still, because this fuel is
+  // not spendable yet (see #loco-bar.is-charging).
+  if (locoBar) {
+    locoBar.classList.toggle('is-active', mode === 'active');
+    locoBar.classList.toggle('is-charging', charging);
+    locoBar.classList.toggle('is-filling', boostMeter.state.fill > 0);
+    locoBar.style.setProperty('--pct', `${(boostMeter.state.pct * 100).toFixed(1)}%`);
+    locoBar.style.setProperty('--fill', boostMeter.state.fill.toFixed(3));
+    locoBar.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
+  }
 }
 
 // The press itself, with no idea what pressed it — the pill, the spacebar and a thumb sliding onto
@@ -3167,7 +3213,7 @@ function frame() {
       // tank that drained (or filled) during the flight still tops out exactly full.
       flyEnergyToBoost({
         from: taxiScreenPos,
-        to: boostScreenPos,
+        to: locoBarScreenPos,
         onArrive: () => boost.topUp(fare.vip ? 1 - boost.fraction() : BOOST_FARE_REWARD),
       });
       traffic.taxi.route = [];
@@ -3309,7 +3355,7 @@ function frame() {
       popEarning(parcel.value);
       flyEnergyToBoost({
         from: taxiScreenPos,
-        to: boostScreenPos,
+        to: locoBarScreenPos,
         onArrive: () => boost.topUp(BOOST_PARCEL_REWARD),
       });
     }
