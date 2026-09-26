@@ -22,6 +22,7 @@ import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import {
   createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
+  BOARD_SECONDS,
 } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
 import { createDriveThru } from './game/drivethru.js';
@@ -96,6 +97,7 @@ import { createDiagnostics } from './game/diag.js';
 import { createViewport } from './util/viewport.js';
 import { isNative } from './util/platform.js';
 import { tap as haptic } from './util/haptics.js';
+import { createSfx } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
@@ -600,6 +602,7 @@ const robbery = city.bank && !shot
       // Not the depot, though: a repair is refused with anyone aboard, so the drop-off just
       // dispatched stands and `depotRun.update` sees its target gone and stands down.
       haptic('pick');
+      boardSound();
       // Not the radio, and not the robber's line yet: the figure is still running down the bank's
       // steps for the cab (BOARD_SECONDS in game/fares.js), and the line is about them being *in*
       // it. The frame loop opens it once they are.
@@ -610,6 +613,38 @@ const robbery = city.bank && !shot
 
 // Given the cars array so the cruiser can see who is in its lane and move over for them — see
 // DODGE_* in sim/police.js. It never mutates it.
+/**
+ * A rider getting in: the door opens on the frame the taxi reaches them and shuts once they are in,
+ * which is the BOARD_SECONDS run from the kerb (game/fares.js). Scheduled on the audio clock, so a
+ * pause mid-boarding holds the door open with the rest of the world.
+ */
+function boardSound() {
+  sfx?.play('doorOpen');
+  sfx?.play('doorClose', { delay: BOARD_SECONDS });
+}
+
+// The sound — see game/sfx.js. Silent in shot mode, which renders stills and has nobody listening.
+// Its own stream: which idle and which Loco loop a run gets is part of the situation.
+const sfx = shot ? null : createSfx({ rng: makeRng(runSeed + 811) });
+
+// The switch lives on the pause screen, with M for a keyboard. The choice is remembered
+// (localStorage, soft — see game/sfx.js).
+const soundButton = document.querySelector('#pause-veil .pause-sound');
+function paintSound() {
+  if (!soundButton || !sfx) return;
+  soundButton.textContent = sfx.state.muted ? 'Sound: Off' : 'Sound: On';
+  soundButton.setAttribute('aria-pressed', String(!sfx.state.muted));
+}
+soundButton?.addEventListener('click', () => { sfx?.toggleMuted(); paintSound(); });
+window.addEventListener('keydown', (event) => {
+  if (event.key !== 'm' && event.key !== 'M') return;
+  // Not while typing initials, where M is a letter — the pause key's rule.
+  if (event.target instanceof HTMLInputElement) return;
+  sfx?.toggleMuted();
+  paintSound();
+});
+paintSound();
+
 const police = createPolice(makeRng(runSeed + 66), scene, traffic.cars);
 // The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
@@ -932,6 +967,8 @@ roadwork.onSmash(({ x, z }) => {
   // a trestle exploding across the windscreen, and the camera has to admit that something happened.
   // Still short of the wreck, because the wreck ends the run and this does not.
   controller.kickShake(1.1);
+  // The crash, turned down and pitched up: a trestle going, not a car.
+  sfx?.play('crash', { gain: 0.5, rate: 1.25 });
   // A proper burst. Two ordinary puffs was what a boosting taxi lays down in two frames, so the
   // impact read as exhaust rather than as hitting something. See `dust.burst`.
   dust.burst(x, z, traffic.taxi.yaw);
@@ -956,6 +993,7 @@ traffic.onTaxiLand(({ x, z, yaw, v, deck }) => {
   // ends of the slider.
   const hit = Math.max(0, Math.min(1, (v - SPEED) / Math.max(1e-6, boostCruise() - SPEED)));
   controller.kickShake(0.7 + hit * 0.3);
+  sfx?.play('land', { gain: 0.7 + hit * 0.3 });
   // The same burst the smash throws, turned down rather than a smaller hand-tuned one, and lifted
   // onto the deck: a landing on the hump of a bridge that puffed at road level would leave its dust
   // hanging in the channel two units under the car.
@@ -1114,6 +1152,9 @@ const BUMP_SHAKE_PER_UNIT = 0.03;
 collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd }) => {
   const yaw = traffic.taxi.yaw;
   controller.kickShake(BUMP_SHAKE + closing * BUMP_SHAKE_PER_UNIT);
+  // The wreck's own recording, scaled by the same closing speed the shake is: a survivable hit is
+  // the same noise, smaller and a touch higher. 0.3 at a nudge, full at a T-bone at the Loco top.
+  sfx?.play('crash', { gain: Math.min(1, 0.3 + closing * 0.04), rate: 1.15 });
   // At the point of contact (`cx/cz` off the deepest pair of circles in sim/collisions.js), not
   // the midpoint of the two cars' centres — on a T-bone that midpoint sits inside the struck car,
   // a unit and a half from the door the sparks should be coming off.
@@ -1142,6 +1183,8 @@ collisions.onImpact(({ x, z, speed, other }) => {
   const yaw = traffic.taxi.yaw;
   blast.fire(x, z, PALETTE.taxiBody, yaw, speed);
   controller.kickShake(2.4);
+  sfx?.play('crash');
+  sfx?.locoOff();
 
   // The car that was hit detonates at its own centre rather than at the shared impact point. The
   // two are only a couple of units apart, but that is enough to spread the blast across both
@@ -2272,6 +2315,7 @@ function kickLocoMode() {
   haptic('loco');
   const car = traffic.taxi;
   if (car.crashed) return;
+  sfx?.locoOn();
   car.wheelieT = 0;
   const bx = -Math.cos(car.yaw);
   const bz = Math.sin(car.yaw);
@@ -2364,6 +2408,11 @@ function holdBrake() {
   // not the car was moving fast enough to lock a wheel, and a control that answers only sometimes
   // reads as a control that is broken.
   haptic('brake');
+  // Only when there is speed to shed — the pedal's detent is the haptic's job, and a brake noise
+  // from a car at a standstill is a car that is not doing what the sound says. From above cruise
+  // it is the Loco stop; from cruise it is the ordinary one.
+  if (traffic.taxi.v > SPEED * 1.1) sfx?.play('locoBrake');
+  else if (traffic.taxi.v > BRAKE_SKID_V) sfx?.play('brake');
   // Gas and brake are one pedal each and the last one pressed wins. Releasing Loco Mode here rather
   // than letting the two fight it out means a stab of the brake mid-boost doesn't sit there quietly
   // burning fuel against a speed target of zero — the tank keeps whatever is left in it.
@@ -2656,6 +2705,7 @@ let lastSkidAt = 0;
 // rubber, which reads as a chirp off the line without turning every tap into a burnout.
 const LAUNCH_SKID_TIME = 0.5;
 let launchSkidT = 0;
+let wasSliding = false;
 
 /** One pair of marks under the rear wheels, at the car's current pose. */
 function stampRearRubber(car) {
@@ -2722,6 +2772,12 @@ function layRubber(dt) {
   // cruise is as much a skid as one from the overdrive top, just a shorter one (1.0 unit of rubber
   // against 16.5 — see HARD_BRAKE in sim/traffic.js).
   const skidding = car.braking && car.v > BRAKE_SKID_V;
+
+  // The screech, once per slide rather than per stamp: on the frame a corner or a lane swap starts
+  // breaking traction. Not the launch or the brake, which each already have a sound of their own.
+  const sliding = cornering || swapping;
+  if (sliding && !wasSliding) sfx?.play('skid');
+  wasSliding = sliding;
 
   if (!cornering && !launching && !swapping && !skidding) { lastSkidAt = car.travelled; return; }
   // Closer than one mark length, so consecutive stamps overlap into a continuous streak.
@@ -2896,6 +2952,8 @@ function frame() {
   // Paused. Nothing updates — not the traffic, not the clocks, not the sky — but the frame is still
   // drawn: with `preserveDrawingBuffer` off, a resize or a rotation with the veil up repaints the
   // canvas from an empty buffer, and the city would blink out until the player resumed.
+  // The sound stops with the world — both of the early returns below — and starts with it again.
+  sfx?.hold(Boolean(pause?.state.paused || robberLine?.isOpen()));
   if (pause?.state.paused) {
     renderFrame();
     return;
@@ -3015,6 +3073,12 @@ function frame() {
 
   police.update(dt);   // may flip a whole corridor green before traffic reads the signals
   traffic.update(dt);
+  sfx?.update(dt, traffic.taxi, {
+    cruise: SPEED,
+    top: boostCruise(),
+    holding: boost.isEngaged() && !boost.isCoolingDown(),
+    over: fares.state.gameOver,
+  });
   // After traffic has settled positions for the frame — that's what the overlap check reads, and
   // what the two wreck shells are copied out of. A detected impact takes both cars out of the
   // sim from this frame on; the loops in traffic.js already skip a crashed car, so no further
@@ -3139,6 +3203,7 @@ function frame() {
   for (const { type, fare } of
     (fareLoopHeld() ? NO_FARE_EVENTS : fares.update(dt, traffic.taxi))) {
     if (type === 'pickup') {
+      boardSound();
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       // The roof sign lights up while the rider is aboard.
@@ -3158,6 +3223,9 @@ function frame() {
       // target and `depotRun.update` stands down on the next frame. A car already staged in the
       // driveway finishes its visit and `resumeJob` hands it the drop-off on the way out.
     } else if (type === 'delivered') {
+      // Out they get: open, and shut a beat later once they are clear of the car.
+      sfx?.play('doorOpen');
+      sfx?.play('doorClose', { delay: 0.7 });
       popEarning(fare.value);
       updateStreak(difficulty.payoutMultiplier(fares.state.delivered));
       // A third of a tank of boost fuel as the ordinary delivery reward — the only way any fuel
@@ -4097,6 +4165,12 @@ window.__taxi = {
    * iPad, and on those the whole path runs correctly and produces nothing.
    */
   haptic,
+  /**
+   * The sound — `state` says whether the context is up and how many of the files decoded, and
+   * `play('crash')` fires any one-shot by name (see SFX_EVENTS in game/sfx.js). Null in shot mode.
+   * A decode that failed is otherwise a single console warning and a silent event.
+   */
+  sfx: sfx ? { state: sfx.state, play: (name) => sfx.play(name) } : null,
   /**
    * Draw one frame on demand.
    *
