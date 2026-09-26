@@ -1,6 +1,8 @@
 node_modules
 dist
 shots
+# The trailer's footage and renders — see tools/hype/README.md. ~700MB of JPEGs.
+/hype
 .netlify
 .DS_Store
 

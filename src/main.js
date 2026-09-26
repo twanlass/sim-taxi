@@ -4053,6 +4053,9 @@ window.__taxi = {
   /** The birds on the park pond, and `ducks.pond` the water they are on — null if the city has none. */
   ducks,
   roadwork,
+  /** The lifting span and the boats it lifts for, or null on a city with no river. */
+  drawbridge,
+  boats,
   pause,
   routeTo,
   findRoute,
