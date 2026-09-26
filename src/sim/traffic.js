@@ -544,6 +544,11 @@ const SCATTER_STRAIGHT_W = 0.04;  // what the "carry straight on" turn weight co
 // frightened. Anything that clears a lane has to be able to outrun what it clears. 2.4 is the
 // midpoint of the only band that satisfies both ends, and both ends are asserted in the probe.
 const CHASE_SPEED = 2.55;
+/**
+ * What a chasing cop cruises at, in units/s. The patrol cruiser (sim/police.js) locks on at this
+ * speed so that the frame it hands itself to traffic is not a step in speed either way.
+ */
+export const COP_CRUISE = SPEED * CHASE_SPEED;
 
 /**
  * How many cop cars a robbery puts on the road, and therefore how much buffer headroom the
@@ -2057,6 +2062,11 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // is a `route`, which is the same mechanism that drives the player's own taxi, and every
       // other rule of the road applies to it unchanged.
       chase: 0,
+      // Someone else's mesh drawn in this car's place: `(pos, quat, car) => void`, handed the pose
+      // the render pass composed, with the instance itself collapsed. Only the patrol cruiser sets
+      // it (sim/police.js), on the cop it becomes when it gives chase — the car is the cruiser, so
+      // the thing on screen stays the cruiser rather than turning into a different model of car.
+      skin: null,
     });
   }
 
@@ -2824,45 +2834,78 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         });
       }
       if (cars.length === before) break;
-
-      const car = cars[cars.length - 1];
-      // A cop is never a truck. `spawnCars` rolls `isTruck` off the `truckChance` it is handed and
-      // this call passes none, so this is belt and braces — but the bar's anchor is measured off a
-      // car's roof and a police box truck is not a thing.
-      car.isTruck = false;
-      car.police = true;
-      car.siren = true;
-      car.chase = 1;
-      // Put it where it actually is, now, rather than leaving it at the origin until the first
-      // physics tick writes a position. `spawnCars` builds a car at `x: 0, z: 0` because every
-      // other caller either runs a warm-up or spawns before the first frame — this one spawns
-      // *mid-run*, so an unplaced car is a cop car drawn at the middle of the map for one frame,
-      // and anything measuring where it arrived (the probe's off-screen check, the wash in
-      // game/coplights.js) reads the origin instead of the street.
-      const at = car.lane.path.at(car.s);
-      car.x = at.x;
-      car.z = at.z;
-      car.yaw = dirYaw(car.d);
-      car.instanceIndex = ambient.length;
-      ambient.push(car);
-      policeCars.push(car);
-      paint(car, car.instanceIndex);
+      enlist(cars[cars.length - 1]);
       added += 1;
     }
 
-    if (added) {
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      if (wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
-      mesh.count = ambient.length;
-      wheelMesh.count = ambient.length * FRONT.length;
-      brakeMesh.count = ambient.length * LIGHT_PODS;
-      turnLeftMesh.count = ambient.length * LIGHT_PODS;
-      turnRightMesh.count = ambient.length * LIGHT_PODS;
-      sirenRedMesh.count = ambient.length * LIGHT_PODS;
-      sirenBlueMesh.count = ambient.length * LIGHT_PODS;
-      sirenHousingMesh.count = ambient.length;
-    }
+    if (added) countPolice();
     return added;
+  }
+
+  /**
+   * Make a freshly built car a cop and put it on the end of the instance buffer. Shared by both
+   * ways a cop comes onto the road — `enterPolice` from off screen, `enterPoliceAt` on a lane the
+   * patrol cruiser is already driving — so a cop is the same object whichever door it came in by.
+   */
+  function enlist(car) {
+    // A cop is never a truck. `spawnCars` rolls `isTruck` off the `truckChance` it is handed and
+    // neither caller passes one, so this is belt and braces — but the bar's anchor is measured off
+    // a car's roof and a police box truck is not a thing.
+    car.isTruck = false;
+    car.police = true;
+    car.siren = true;
+    car.chase = 1;
+    // Put it where it actually is, now, rather than leaving it at the origin until the first
+    // physics tick writes a position. `spawnCars` builds a car at `x: 0, z: 0` because every
+    // other caller either runs a warm-up or spawns before the first frame — this one spawns
+    // *mid-run*, so an unplaced car is a cop car drawn at the middle of the map for one frame,
+    // and anything measuring where it arrived (the probe's off-screen check, the wash in
+    // game/coplights.js) reads the origin instead of the street.
+    const at = car.lane.path.at(car.s);
+    car.x = at.x;
+    car.z = at.z;
+    car.yaw = dirYaw(car.d);
+    car.prevSteerYaw = car.yaw;
+    car.instanceIndex = ambient.length;
+    ambient.push(car);
+    policeCars.push(car);
+    paint(car, car.instanceIndex);
+  }
+
+  function countPolice() {
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
+    mesh.count = ambient.length;
+    wheelMesh.count = ambient.length * FRONT.length;
+    brakeMesh.count = ambient.length * LIGHT_PODS;
+    turnLeftMesh.count = ambient.length * LIGHT_PODS;
+    turnRightMesh.count = ambient.length * LIGHT_PODS;
+    sirenRedMesh.count = ambient.length * LIGHT_PODS;
+    sirenBlueMesh.count = ambient.length * LIGHT_PODS;
+    sirenHousingMesh.count = ambient.length;
+  }
+
+  /**
+   * Put one cop car on the lane approaching (i, j) travelling `d`, `back` units short of the
+   * junction, doing `v`. Answers the car, or null if there is no such lane or no room in the buffer.
+   *
+   * This is how the patrol cruiser (sim/police.js) stops being a rail and becomes traffic when it
+   * gives chase: it hands over the exact spot it is driving through, and from this frame on it
+   * queues, stops at reds and can be rammed like a robbery's cop — see `pursue` there. Whether the
+   * spot is *safe* to hand over (clear of other cars, short of the hold line) is the caller's
+   * question, because only the caller knows how far it is willing to wait for a better one.
+   */
+  function enterPoliceAt({ d, i, j, back, v }) {
+    if (ambient.length >= MAX_AMBIENT) return null;
+    // `spawnCars` is the car factory; the random spot it draws is thrown away by `placeCar`.
+    const [car] = spawnCars(rng, 1, [], null);
+    if (!car || !placeCar(car, d, i, j, back)) return null;
+    car.v = v;
+    car.prevV = v;
+    cars.push(car);
+    enlist(car);
+    countPolice();
+    return car;
   }
 
   /**
@@ -2887,15 +2930,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     car.police = false;
     car.siren = false;
     car.chase = 0;
+    car.skin = null;
+    car.patrol = false;
     if (car.route?.length) car.route.length = 0;
-    mesh.count = ambient.length;
-    wheelMesh.count = ambient.length * FRONT.length;
-    brakeMesh.count = ambient.length * LIGHT_PODS;
-    turnLeftMesh.count = ambient.length * LIGHT_PODS;
-    turnRightMesh.count = ambient.length * LIGHT_PODS;
-    sirenRedMesh.count = ambient.length * LIGHT_PODS;
-    sirenBlueMesh.count = ambient.length * LIGHT_PODS;
-    sirenHousingMesh.count = ambient.length;
+    countPolice();
     return true;
   }
 
@@ -5229,6 +5267,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // lab — a road running due east — could never have caught this.)
       quat.setFromEuler(euler.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER));
       matrix.compose(pos, quat, scl);
+      // Drawn by somebody else's mesh: hand it the pose, and collapse this car's instance — body,
+      // wheels, pods and bar all compose through `matrix`, so zeroing it hides every part at once.
+      if (car.skin) {
+        car.skin(pos, quat, car);
+        matrix.copy(ZERO_MATRIX);
+      }
       writeAmbient(car);
     }
     mesh.instanceMatrix.needsUpdate = true;
@@ -5266,6 +5310,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
      * ambient cars repainted; see the cop-car section for why that distinction is the whole point.
      */
     enterPolice,
+    /** One cop car on a given lane at a given speed: the patrol cruiser joining traffic. */
+    enterPoliceAt,
     /** Take one cop car off the road. Only the last one placed — see the function itself. */
     leavePolice,
     /** Exchange two cop cars' places in the instance buffer, so either can be made the last. */

@@ -1777,8 +1777,8 @@ description, and it is worth listing what is *not* new, because none of it is:
 - The cop cars are **ordinary cars**. They queue, indicate, stop at reds, yield and can be crashed
   into like anything else on the road — and they **come after you**, which is a route, a speed and
   an acceleration rather than an AI. See [the chase](#the-chase).
-  [The corridor cruiser's own chase](traffic.md#the-bust-chase) is a different module and is not
-  touched by any of this.
+  [The patrol cruiser's chase](traffic.md#the-patrol-chase) now borrows all of this: when it gives
+  chase it becomes one of these cars, and a patrol chase is this chase with one cop in it.
 
   They **arrive and leave, rather than transforming**. A robbery brings four vehicles onto the map
   from off screen and stands them down again at the drop-off, driving off under their own steam. The
@@ -2170,8 +2170,8 @@ braking in your lane having just gone round you. Ramming one is a bump that cost
 ([bumps](traffic.md#bumps-and-hit-points)), and the one that empties them is the wreck the game
 already had.
 
-**And [the corridor cruiser](traffic.md#the-bust-chase) does not bust you during one.** That rule —
-boost within a block of the cruiser and the run ends — is a good one, and its legibility rests
+**And [the corridor cruiser](traffic.md#the-patrol-chase) does not come after you during one.** That
+rule — boost within a block of the cruiser and it gives chase (it used to end the run) — is a good one, and its legibility rests
 entirely on there being *one* police car on the street and it being obvious which. A robbery puts
 four more on the street in the same paint under the same flashing bar, and pays a bonus on the
 clock that boosting is the way to earn. So the event asks for Loco
@@ -2880,7 +2880,7 @@ the holds were rare enough to cost the mode its feel without protecting it.
 
 **Releasing isn't an instant off.** For `BOOST_COOLDOWN` (1s) after the button comes up — or the
 tank runs dry — the taxi is still exposed to everything Loco Mode was: it can still crash into
-traffic, still gets caught if a cop is in bust range, still forces the next light. What it loses
+traffic, still sets a patrol cruiser after it if one is in range, still forces the next light. What it loses
 immediately is the speed — the cap drops back to cruise the moment the hold ends, and ordinary
 braking (the same constant every other stop uses) hauls it down from 22.1 to 8.5 in under a
 second, nose dipping hard the whole way. So letting go a beat too late doesn't buy safety; it buys

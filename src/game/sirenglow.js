@@ -122,7 +122,7 @@ export function sirenWash(state, sx, sy, w, h, distance) {
   if (!glow) return null;
 
   // The rate change is the cruiser's, not this module's — see `siren()` in sim/police.js.
-  const lit = sirenOn(state.flash, state.chasing || state.arrived);
+  const lit = sirenOn(state.flash, state.chasing || state.cop?.chase > 0);
   return {
     x: glow.x,
     y: glow.y,
