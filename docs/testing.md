@@ -96,6 +96,7 @@ node tools/links.mjs --url http://localhost:5173   # shaders compiled *during* a
 node tools/smoke.mjs --url http://localhost:4173   # real browser, real DOM
 node tools/native-smoke.mjs --url http://localhost:4173   # the iOS fork, both ways
 ./shots.sh                                    # render the screenshot set
+./hype.sh                                     # record and cut the trailer — tools/hype/README.md
 ```
 
 `native-smoke.mjs` is the regression test for the one behavioural difference between the web build

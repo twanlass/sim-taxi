@@ -1,0 +1,165 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: Anton; src: url(fonts/anton.woff2) format('woff2'); font-display: block; }
+  @font-face { font-family: Bungee; src: url(fonts/bungee.woff2) format('woff2'); font-display: block; }
+  :root { --taxi: #ffc61a; --ink: #111; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+  #stage { position: absolute; inset: 0; overflow: hidden; }
+  #frame {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    /* The game is graded for a phone in daylight; a trailer wants a little more punch. */
+    filter: saturate(1.22) contrast(1.1) brightness(1.04);
+    transform-origin: 50% 50%;
+  }
+  #vignette {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.45) 100%);
+  }
+  #flash { position: absolute; inset: 0; background: #fff; opacity: 0; }
+  #dim { position: absolute; inset: 0; background: #000; opacity: 0; }
+
+  .line {
+    position: absolute; left: 0; right: 0; text-align: center;
+    font-family: Anton, Impact, sans-serif; text-transform: uppercase; letter-spacing: 0.01em;
+    color: #fff; line-height: 0.95;
+    text-shadow: 0 0.06em 0 var(--ink), 0 0 0.35em rgba(0,0,0,0.55);
+    -webkit-text-stroke: 0.028em var(--ink); paint-order: stroke fill;
+    opacity: 0; will-change: transform, opacity;
+  }
+  .line em { font-style: normal; color: var(--taxi); }
+  .line .sub {
+    display: block; font-size: 0.34em; letter-spacing: 0.08em; margin-top: 0.25em; color: #fff;
+  }
+
+  .checker {
+    height: 24px;
+    background: repeating-conic-gradient(var(--ink) 0 25%, var(--taxi) 0 50%) 0 0 / 24px 24px;
+    box-shadow: 0 4px 0 rgba(0,0,0,0.35);
+  }
+  .logo {
+    position: absolute; left: 50%; top: 50%; opacity: 0;
+    transform: translate(-50%, -50%);
+    text-align: center; will-change: transform, opacity;
+  }
+  .logo .word {
+    font-family: Bungee, Impact, sans-serif; color: var(--taxi); font-size: 150px; line-height: 1;
+    padding: 18px 40px 8px;
+    text-shadow: 0 8px 0 var(--ink), 0 0 40px rgba(0,0,0,0.6);
+    -webkit-text-stroke: 5px var(--ink); paint-order: stroke fill;
+    white-space: nowrap;
+  }
+  .logo .checker { width: 100%; }
+  .logo .tag {
+    font-family: Anton, Impact, sans-serif; color: #fff; font-size: 34px; letter-spacing: 0.12em;
+    text-transform: uppercase; margin-top: 18px;
+    text-shadow: 0 3px 0 var(--ink); -webkit-text-stroke: 1px var(--ink); paint-order: stroke fill;
+  }
+  #end { position: absolute; inset: 0; background: radial-gradient(ellipse at center, #1e2a3a 0%, #070a10 80%); opacity: 0; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <img id="frame">
+  <div id="vignette"></div>
+  <div id="end"></div>
+  <div id="dim"></div>
+  <div id="titles"></div>
+  <div id="flash"></div>
+</div>
+<script>
+  // Everything here is a pure function of t — the recorder calls render(t) once per output frame
+  // and screenshots the result, so there is no animation clock to fall out of step with.
+  const frame = document.getElementById('frame');
+  const titles = document.getElementById('titles');
+  const flash = document.getElementById('flash');
+  const dim = document.getElementById('dim');
+  const end = document.getElementById('end');
+
+  let EDIT = null;
+  const els = [];
+
+  const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+  const easeOutBack = (x) => { const c = 1.9; return 1 + (c + 1) * (x - 1) ** 3 + c * (x - 1) ** 2; };
+  const easeOut = (x) => 1 - (1 - x) ** 3;
+
+  window.setup = (edit) => {
+    EDIT = edit;
+    for (const t of edit.titles) {
+      let el;
+      if (t.kind === 'logo') {
+        el = document.createElement('div');
+        el.className = 'logo';
+        el.innerHTML = `<div class="checker"></div><div class="word">${t.text}</div><div class="checker"></div>`
+          + (t.sub ? `<div class="tag">${t.sub}</div>` : '');
+        if (t.scale) el.dataset.scale = t.scale;
+      } else {
+        el = document.createElement('div');
+        el.className = 'line';
+        el.innerHTML = t.text + (t.sub ? `<span class="sub">${t.sub}</span>` : '');
+        el.style.fontSize = `${t.size ?? 120}px`;
+        el.style.top = `${t.y ?? 38}%`;
+      }
+      titles.appendChild(el);
+      els.push({ t, el });
+    }
+    return document.fonts.ready.then(() => document.fonts.size);
+  };
+
+  /** Show footage frame `src` at edit time `t`. Resolves once the image has decoded. */
+  window.render = async (t, src) => {
+    const { beat, sections, flashes } = EDIT;
+    if (src) {
+      if (frame.getAttribute('src') !== src) {
+        frame.src = src;
+        await frame.decode().catch(() => {});
+      }
+      frame.style.visibility = 'visible';
+    } else {
+      frame.style.visibility = 'hidden';
+    }
+
+    // A punch-in on every beat of the sections that have a kick under them.
+    const sec = sections.find((s) => t >= s.start && t < s.end) ?? sections.at(-1);
+    const phase = (t % beat) / beat;
+    const punch = sec.punch ? sec.punch * Math.exp(-phase * 6) : 0;
+    const drift = 1 + 0.02 * ((t - sec.start) / (sec.end - sec.start));
+    frame.style.transform = `scale(${(drift + punch).toFixed(4)})`;
+
+    // White flashes on the hits.
+    let f = 0;
+    for (const at of flashes) if (t >= at) f = Math.max(f, 0.9 * Math.exp(-(t - at) * 7));
+    flash.style.opacity = f.toFixed(3);
+
+    // Fade from and to black at the ends.
+    const total = EDIT.total;
+    dim.style.opacity = Math.max(clamp(1 - t / 0.6), 0).toFixed(3);
+    end.style.opacity = (clamp((t - EDIT.endCard) / 0.25) * (EDIT.endDim ?? 1)).toFixed(3);
+    // ...and out to black over the last second.
+    dim.style.opacity = Math.max(Number(dim.style.opacity), clamp((t - (total - 1)) / 0.9)).toFixed(3);
+
+    for (const { t: title, el } of els) {
+      const u = t - title.at;
+      const d = title.dur;
+      if (u < 0 || u > d) { el.style.opacity = 0; continue; }
+      const inT = clamp(u / 0.22);
+      const outT = clamp((d - u) / 0.15);
+      if (title.kind === 'logo') {
+        const s = (title.scale ?? 1) * (0.4 + 0.6 * easeOutBack(inT)) * (1 + 0.025 * (u / d));
+        el.style.opacity = (Math.min(1, inT * 3) * outT).toFixed(3);
+        el.style.transform = `translate(-50%, -50%) scale(${s.toFixed(4)}) rotate(${(-3 * (1 - easeOut(inT))).toFixed(2)}deg)`;
+      } else {
+        const s = 1.5 - 0.5 * easeOutBack(inT) + 0.04 * (u / d);
+        const rot = title.rot ?? -3;
+        const slide = (1 - outT) * -60;
+        el.style.opacity = (Math.min(1, inT * 2.5) * outT).toFixed(3);
+        el.style.transform = `translateX(${slide}px) rotate(${rot}deg) scale(${s.toFixed(4)})`;
+      }
+    }
+    return true;
+  };
+</script>
+</body>
+</html>
