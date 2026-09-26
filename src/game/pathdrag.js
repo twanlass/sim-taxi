@@ -4,7 +4,7 @@ import { unlitMaterial } from '../util/geo.js';
 import { nearestJunction } from '../city/grid.js';
 import { planOrigin } from './route.js';
 import { routePath, nearestOnPath, HEAD_GAP } from './routeline.js';
-import { tap as haptic } from '../util/haptics.js';
+import { cue } from '../util/feedback.js';
 
 /**
  * Drag the route band to re-route the taxi.
@@ -427,7 +427,7 @@ export function createPathDrag({
     // nothing about the feedback can come between the grab and the propagation stop that makes it
     // one. A press four pixels off the band falls out above and pans the city in silence, which is
     // exactly the distinction the buzz exists to draw.
-    haptic('grab');
+    cue('grab');
   }, { capture: true });
 
   window.addEventListener('pointermove', (event) => {
@@ -494,7 +494,7 @@ export function createPathDrag({
             // the route already ran through — the finger pressed *on* the band, so the nearest
             // junction to it tends to be one of its own — and a buzz there would announce a detour
             // that isn't on screen, immediately after the `grab` that already fired.
-            if (routeSig(car) !== before) haptic('snap');
+            if (routeSig(car) !== before) cue('snap');
           }
         }
       }

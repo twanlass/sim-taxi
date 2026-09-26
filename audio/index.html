@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sim Taxi — sound lab</title>
+    <!-- Deliberately no manifest, no icons and no service worker, for the reason /lab/ has none:
+         this is a workbench, not a thing to install. `public/sw.js` precaches the game's shell and
+         knows nothing about this page, which is exactly right. See docs/audio.md. -->
+    <meta name="robots" content="noindex" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #eef3f7;
+        --dim: #9fb0bf;
+        --panel: rgba(22, 30, 38, 0.72);
+        --edge: rgba(158, 182, 202, 0.22);
+        --live: #7fd4a0;
+        --empty: #e0a45c;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; touch-action: manipulation; }
+      html, body {
+        min-height: 100%; background: #10181f; color: var(--ink);
+        font: 500 13px/1.5 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        -webkit-tap-highlight-color: transparent;
+      }
+      body { padding: 20px 20px 64px; max-width: 1100px; margin: 0 auto; }
+      h1 { font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.62; font-weight: 700; }
+      h2 { font-size: 12px; letter-spacing: 0.07em; text-transform: uppercase; opacity: 0.5; font-weight: 700; margin: 26px 0 10px; }
+      a { color: #8fc6ea; }
+      .note { color: var(--dim); max-width: 74ch; margin-top: 8px; }
+      .note code { background: rgba(255,255,255,0.07); padding: 1px 5px; border-radius: 4px; }
+
+      #gate {
+        margin: 16px 0; padding: 12px 14px; border-radius: 10px;
+        background: rgba(224, 164, 92, 0.13); border: 1px solid rgba(224, 164, 92, 0.4);
+      }
+      #gate[hidden] { display: none !important; }
+      #gate button {
+        margin-top: 8px; font: inherit; font-weight: 700; color: #10181f; background: var(--empty);
+        border: 0; border-radius: 8px; padding: 7px 14px; cursor: pointer;
+      }
+
+      /* The board. One card per event in the manifest — the cards are the taxonomy, so an event
+         with no sample still gets one, marked empty. That is the whole point right now. */
+      #board { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); }
+      .cue {
+        border: 1px solid var(--edge); border-radius: 12px; padding: 12px; background: var(--panel);
+        display: grid; gap: 8px; align-content: start;
+      }
+      .cue.drop { border-color: var(--live); background: rgba(127, 212, 160, 0.12); }
+      .cue header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+      .cue .name { font-weight: 700; font-size: 14px; }
+      .cue .bus { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.5; }
+      .cue .status { font-size: 11px; }
+      .cue .status.empty { color: var(--empty); }
+      .cue .status.live { color: var(--live); }
+      .cue button.fire {
+        font: inherit; font-weight: 700; color: var(--ink); background: rgba(255,255,255,0.08);
+        border: 1px solid var(--edge); border-radius: 8px; padding: 8px; cursor: pointer;
+      }
+      .cue button.fire:hover { background: rgba(255,255,255,0.14); }
+      .cue button.fire.is-held { transform: translateY(1px); }
+      .cue .knobs { display: grid; gap: 4px; }
+      .cue label { display: grid; grid-template-columns: 58px 1fr 42px; align-items: center; gap: 6px; font-size: 11px; opacity: 0.8; }
+      .cue input[type=range] { width: 100%; }
+      .cue em { font-style: normal; font-variant-numeric: tabular-nums; opacity: 0.75; text-align: right; }
+      .cue .rr { font-size: 10px; opacity: 0.55; font-variant-numeric: tabular-nums; min-height: 14px; }
+
+      /* The mix console. Master + the four buses, and the readout of what is actually sounding. */
+      #mix { display: grid; gap: 8px; max-width: 520px; }
+      #mix label { display: grid; grid-template-columns: 96px 1fr 46px 58px; align-items: center; gap: 8px; }
+      #mix .cap { font-size: 10px; opacity: 0.5; text-align: right; }
+      #out { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+      #out span {
+        font-size: 11px; padding: 3px 8px; border-radius: 999px;
+        background: rgba(255,255,255,0.07); border: 1px solid var(--edge); font-variant-numeric: tabular-nums;
+      }
+      #actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+      #actions button {
+        font: inherit; font-weight: 700; color: var(--ink); background: rgba(255,255,255,0.08);
+        border: 1px solid var(--edge); border-radius: 8px; padding: 8px 14px; cursor: pointer;
+      }
+      #actions button:hover { background: rgba(255,255,255,0.14); }
+      #json {
+        margin-top: 10px; width: 100%; min-height: 150px; resize: vertical;
+        background: #0b1218; color: #cfe3f1; border: 1px solid var(--edge); border-radius: 10px;
+        padding: 10px; font: 12px/1.5 ui-monospace, "SF Mono", monospace;
+      }
+      #error {
+        position: fixed; inset: 0; z-index: 99; padding: 20px; overflow: auto; display: none;
+        background: #1b232b; color: #ffd7d0; font: 12px/1.5 ui-monospace, monospace; white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Sim Taxi — sound lab</h1>
+    <p class="note" id="intro">Loading…</p>
+
+    <!-- Web Audio starts suspended everywhere until a real gesture. Rather than have the first click
+         on a cue be silently swallowed, the gate says so and takes the gesture itself. -->
+    <div id="gate" hidden>
+      <strong>Audio is asleep.</strong> Every browser keeps a new audio context suspended until a real
+      user gesture — so nothing can sound until you press this.
+      <br /><button id="gate-go" type="button">Wake audio</button>
+    </div>
+
+    <h2>Cues</h2>
+    <div id="board"></div>
+
+    <h2>Mix</h2>
+    <div id="mix"></div>
+    <div id="out"></div>
+    <div id="actions">
+      <button id="copy" type="button">Copy mix as JSON</button>
+      <button id="apply" type="button">Apply pasted JSON</button>
+      <button id="reset" type="button">Reset to shipped</button>
+    </div>
+    <textarea id="json" spellcheck="false" aria-label="Mix as JSON"></textarea>
+    <p class="note">
+      Tuning here is not saved to the repo. <strong>Copy the JSON and paste it into
+      <code>src/audio/mix.js</code></strong> (or send it over) — that is the hand-off, and it is why the
+      mix is data rather than numbers spread through the code.
+    </p>
+
+    <div id="error"></div>
+    <script>
+      /* The same boot trap the game page and /lab/ install, for the same reason: on a phone there is
+         no console to read a boot failure out of, and a module that throws while evaluating leaves a
+         blank page that looks identical to a page that loaded and did nothing. */
+      const errorPanel = () => {
+        const el = document.getElementById('error');
+        el.style.display = 'block';
+        return el;
+      };
+      window.addEventListener('error', (e) => {
+        if (!e.filename && !e.lineno && !e.error) return;
+        errorPanel().textContent += `${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack ?? ''}\n\n`;
+      });
+      window.addEventListener('unhandledrejection', (e) => {
+        errorPanel().textContent += `Unhandled rejection: ${e.reason?.stack ?? e.reason}\n\n`;
+      });
+    </script>
+    <script type="module" src="/src/audio/lab.js"></script>
+  </body>
+</html>

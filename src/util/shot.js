@@ -563,6 +563,25 @@ export function getDiagnostics() {
   return !isOff(params.get('diag'));
 }
 
+/**
+ * Silence, via `?mute` — and the default for anything that is not a person playing.
+ *
+ * Shot mode and the headless tools must never make a sound: `tools/shoot.mjs` renders frames in a
+ * browser that may well have speakers, and a suite that beeps its way through 900 probe checks is a
+ * suite nobody runs twice. So the fallback is "muted whenever a shot is pinned", and `?mute=off`
+ * exists for the one case where somebody wants to hear a shot being set up.
+ *
+ * Audio is the one output in this game that cannot be seen in a screenshot, which is why the flag is
+ * here in the shot-mode file rather than beside the mix: it is part of what makes a capture
+ * reproducible, not part of the sound design. See docs/audio.md.
+ */
+export function getMuted(fallback = Boolean(getActiveShot())) {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('mute');
+  if (raw === null) return fallback;
+  return !isOff(raw);
+}
+
 /** `off` / `0` / `false` — the spelling every switch above takes. */
 function isOff(raw) {
   return raw === 'off' || raw === '0' || raw === 'false';
