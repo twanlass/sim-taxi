@@ -127,7 +127,21 @@ export const PALETTE = {
   // envelope stays *outside* BUILDING_COLORS on purpose: a depot is a shed among offices, and
   // giving it a family of its own is what stops it reading as one more block of flats with a hole
   // in the front.
-  garageWall: '#8C8D8A',
+  //
+  // It is painted in the company's colours, which is the biggest exception in this file to "yellow
+  // is reserved for the taxi" below — a whole building of it. The rule survives because of what it
+  // is actually protecting: the read of a *yellow car on a road*, which is a small moving rectangle
+  // at play zoom. This is a static mass sitting up on a block, and every seed puts it somewhere
+  // different, so there is no learned "the yellow thing is the taxi" to break.
+  //
+  // What it does have to survive is the opening vignette, where a yellow car drives out of this
+  // building — and that is the whole of why it is **#DDA62F and not `taxiBody`'s #F5C130**. Ten
+  // points of lightness and four degrees of hue below the car, measured where `getHSL` does (the
+  // working space, not the colour picker's — see the long note on `door`), which is enough for the
+  // taxi to read as a separate object against its own depot rather than as a hole in it. The bay
+  // itself stays `garageBay` dark for the same reason it always did: the reveal is a bright thing
+  // coming out of a dark hole, and the hole is what the wall's colour must not become.
+  garageWall: '#DDA62F',
   // Parapet cap, door frame, shutter drum. One dark for every piece of the building's ironwork,
   // the same argument as `rooftopIron` above.
   garageTrim: '#5E6167',
@@ -142,10 +156,34 @@ export const PALETTE = {
   // The strip light on the bay ceiling. Unlit (see `unlitMaterial`) — it *is* a light source, and
   // a pale box standing in its own shadow reads as grey paint.
   garageLight: '#FFE7B8',
-  // The fascia band over the door, and a deliberate exception to "yellow is reserved for the taxi"
-  // below. It is reserved for the taxi; this is the taxi's building, and a band 0.45 units tall on
-  // a vertical face four units up is not mistakable for a car on the road.
+  // The paint on the forecourt: two guide lines out of the bay, and the only thing left wearing
+  // this since the envelope above went yellow. It was a fascia band over the door for a long time
+  // and then a course under the coping; on a yellow wall a yellow band is not a band.
+  //
+  // A stop brighter and more saturated than `garageWall`, because it has to be paint rather than a
+  // patch of the building lying down — and it is on asphalt rather than on the wall, so the two
+  // never touch. This *is* `taxiBody`'s own hex, which the wall deliberately is not: two lines on
+  // the ground under a car, where the car is about to be, are the one place in this city where
+  // reading the taxi's yellow is the point.
   garageSign: '#F5C130',
+  // The chequer course under the parapet, and the depot's one nod at a cab company's own livery.
+  //
+  // An off-white and a charcoal rather than #FFF and #000. A true black square against a true white
+  // one is the highest-contrast pair available anywhere in this game, and each of these squares is
+  // about three and a half pixels wide at play zoom — at that size maximum contrast does not read
+  // as a chequer, it fizzes. These two are 0.80 apart in lightness where `getHSL` measures (the
+  // working space, not the colour picker's — see the long note on `door`) against the 1.00 they
+  // would be, which is still the widest pair on the building and a step back off the edge.
+  //
+  // Both carry the ironwork's own blue cast — 216° and 217° against `garageTrim`'s 221° — rather
+  // than being neutral greys. That was contrast against a grey wall and it is complement against a
+  // yellow one: a warm chequer on `garageWall` would read as two more shades of the building.
+  //
+  // The pale one doubles as the radio dish on the roof, and that is consolidation rather than
+  // coincidence — the same argument `rooftopIron` makes. There is one white thing on this
+  // building and it is used twice.
+  garageWhite: '#E9EBEE',
+  garageCheck: '#33373D',
 
   // --- The burger joint -------------------------------------------------------
   // The city's one drive-through (city/burgerjoint.js). Like the depot above it, its envelope
@@ -198,6 +236,73 @@ export const PALETTE = {
   cheese: '#F7C63C',
   lettuce: '#7FB050',
   sesame: '#F7EDD6',
+
+  // The cash a getaway throws out of the back of the taxi (game/cashtrail.js). Two colours because
+  // a note tumbles: one instance is one colour, so rolling between a face and a back across the
+  // shower is what stops a stream of them reading as a stencil — the same reason the sparks spread
+  // their hue across a spray rather than walking it over one spark's life.
+  //
+  // Keyed off the HUD's own earnings green (#6BE08A, `.earning` in index.html) so the notes and the
+  // number that flies to the counter are visibly the same currency.
+  //
+  // **Saturated rather than duller, which is a reversal.** The first cut pulled the hue toward a
+  // paper green on the argument that the HUD's is 27px of type on a dark scrim while these are
+  // small objects on a road — and the result was notes nobody could find. What that argument missed
+  // is the ground they are landing on: `asphalt` is luma 104 and the lane dashes painted all over
+  // it are 210, so a note at 174 sat between the road and the paint it was competing with. At 179
+  // with the saturation back it separates from both — it is nowhere near the dashes in hue, and
+  // half again the road in value.
+  cashNote: '#5FD182',
+  // The back of the note, and it has to be *pale* rather than a second green: what makes a tumble
+  // read is the value flipping, not the hue. At 232 it is brighter than the lane dashes, which is
+  // the point — the flash as a note turns over is the thing that catches an eye that is on the road
+  // ahead rather than on the trail.
+  cashBack: '#EDE9CF',
+  // The pale end of the *face*, which is a different job from `cashBack` and was at first confused
+  // with it. The back is a flash — a value flip as a note turns over — and there is one of it. This
+  // is a **spread**: every note rolls its own face somewhere between `cashNote` and here, so the
+  // shower is a family of greens rather than 160 copies of one swatch. Kept green rather than run
+  // all the way to white, because the hue is the only thing on the road saying what these are; at
+  // 214 luma it is still under the lane dashes' 210-ish paint in saturation while being clearly a
+  // lighter note of the same colour.
+  cashPale: '#C3EFD0',
+
+  // --- The bank ---------------------------------------------------------------
+  // The city's one bank (city/bank.js), and the third building the tower generator does not draw.
+  // Unlike the depot and the burger joint its envelope stays **inside** the muted family every
+  // other building is in: it is a bank among offices, not a shed or a roadside box, and the thing
+  // that has to make it findable from across the map is its *silhouette* — a colonnade under a
+  // pediment with a dome behind it — rather than a colour nothing else is wearing. A bank painted
+  // to shout would have read as one more special-case block and taken the shape's job away from it.
+  //
+  // So the stonework is `pale` (#D2CFC5) pushed a little lighter and warmer, which puts it at the
+  // top of the building range without leaving it: luma 214.2 against pale's 206.9 and concrete's
+  // 178.2.
+  bankStone: '#DCD6C7',
+  // The columns and the pediment a shade lighter again, because a colonnade is only a colonnade if
+  // the gaps between the columns read — and what reads at play zoom, where a column is three pixels
+  // wide, is the column standing *against* the wall behind it rather than the shadow between them.
+  // Seventeen points of luma (231.2 against 214.2) is the whole of that separation, and it survives
+  // the sun moving because it is a difference in the paint rather than in the shading.
+  bankColumn: '#EDE7D8',
+  // The steps and the plinth, darker than both so the building looks like it is standing on
+  // something. Off `statuePlinth` (#8E8A80) deliberately — a stone base under a pale stone object
+  // is the same problem the statue already solved, and solving it twice with two colours is two
+  // things to keep in step.
+  bankStep: '#A9A499',
+  // The dome: patinated copper. The statue's note (`statueStone`) records why a verdigris bronze
+  // was refused there — the obvious patina (~#7A8B6E) lands a few points off `park` (#6F9A5A), and
+  // a figure standing on grass in the colour of grass is a figure nobody sees. A dome stands on a
+  // roof, so that particular collision cannot happen; what is still true is that a yellow-green
+  // reads as foliage wherever it is. This one is pulled round to the **blue** side of green —
+  // 158.7° against park's 104.6°, measured where `getHSL` measures — so it reads as weathered metal
+  // against sky and never as a tree that has got onto a roof.
+  bankDome: '#7FA89B',
+  // The doorway under the portico, and the one dark thing on the building. `window` (#3A424C) is
+  // the city's own glass, and this is darker and flatter than it — luma 48.9 against 65.0 at
+  // saturation 0.18 against 0.26 — because a bank's door is a shadowed reveal rather than a pane
+  // with a room behind it.
+  bankDoor: '#2E3138',
 
   // Yellow is reserved for the taxi. An amber car used to sit in this list and was genuinely
   // mistakable for the player's vehicle at play zoom, where both are a few pixels of warm colour.
@@ -366,6 +471,23 @@ export const PALETTE = {
   parcelTape: '#DED6C4',
   parcelLabel: '#F2F0E8',
 
+  // The courier's other load: an oversized burger and a soda cup (geometry/food.js). **Two colours,
+  // and neither of them is the burger's** — that whole stack is the drive-through's own mesh and
+  // arrives already painted out of `bunTop`/`bunBase`/`patty`/`cheese`/`lettuce`/`sesame` above. The
+  // city has one burger, tuned once; a second set of slice colours mixed for the same object at half
+  // the size is how two things that should match drift apart.
+  //
+  // The cup: an off-white body under a **red** lid, and the lid is the working half. Paper and bun
+  // are near neighbours under this sun, so an off-white cap on an off-white cup was one shade of one
+  // colour and the drink did not read at all until the thing capping it was neither. It is a shade
+  // off `burgerBand` rather than the same red, so the lid and the pale straw coming out of it stay
+  // two objects at 10px.
+  //
+  // The body is kept off pure white for the reason the parcel's label is: white belongs to the
+  // waiting rider, and nothing else in the game should reach for it.
+  foodCup: '#EFEBDF',
+  foodCupLid: '#B0433B',
+
   // Urgency, indexed by how much of the clock is left, in quarters. Deliberately not a ramp: a
   // colour that changes imperceptibly tells the player nothing, so it snaps at each quarter lost.
   // 1 and 0 share red — by then there is nothing redder to go to.
@@ -443,6 +565,13 @@ export const PALETTE = {
   // paint coming off.
   sparkHot: '#FFF8E2',
   sparkTail: '#FF9A22',
+  // The comic starburst a bump pops at the point of contact — see game/impact.js. A warm yellow
+  // body round a near-white core, the "POW" of a cartoon rather than anything physical, so it is
+  // kept off both spark stops above: a burst the same hue as the sparks under it reads as more
+  // sparks. The rim is a dark warm brown, the one thing that holds its edge against pale asphalt.
+  impactBody: '#FFD23F',
+  impactCore: '#FFFBEA',
+  impactRim: '#6B2E12',
   // The collar of smoke thrown out around a wreck — the construction zone's dust, tinted. It is
   // set against the **road**, not against `blastSmoke` beside it, and that is the whole of why it
   // is this light. The fireball is unlit, so its smoke stop can be a dark #4B4B55 and still read;
@@ -452,6 +581,30 @@ export const PALETTE = {
   // gone. Roughly 1.8× the road's value is what it takes to be seen against it. Warm and well
   // short of the dust's pure white: white here is a dust cloud, and this is what is burning.
   wreckSmoke: '#C9C2BB',
+  // The depot at work, behind a door left a fifth open — game/repairfx.js. The arc is a welder's
+  // blue-white rather than the sparks' warm white: the flash is the one thing in the shot that has
+  // to read as *electric* rather than as fire, and a warm glow under a yellow building reads as the
+  // building's own paint lit up. The grit is the collar's warm grey a step darker, because it comes
+  // out onto the pale forecourt asphalt low and thin rather than as a wall of smoke.
+  weldFlash: '#BCD6FF',
+  repairDust: '#B3ACA4',
+  // The damaged taxi's bonnet smoke — game/taxidamage.js — walked from the first stop to the second
+  // as the last third of its hit points goes. Both are set against the **road**, because that is
+  // what a puff over a moving car is seen against from this camera: the first cut ran to #45403D,
+  // "burning oil", and on dark asphalt that is no smoke at all — the red tier's billows and the
+  // critical plume were both drawn and neither could be found in a screenshot. So the dark end is a
+  // grey that still clears the asphalt by a clear step in lightness, and "worse" reads as denser and
+  // faster rather than as blacker.
+  damageSmokeLight: '#F4F1ED',
+  damageSmokeDark: '#A8A19B',
+
+  // What a wreck's paint is pulled toward as it scorches — see SCORCH_MIX in game/wreckage.js. Only
+  // a fifth of the way, and behind a plain multiply that does most of the darkening, because the
+  // whole reason the two cars are left lying on the road is so the player can see *what they hit*:
+  // a lerp far enough to read as charred takes the hue with it and both wrecks come out the same
+  // dark grey. Warm rather than neutral — this is soot over paint, and the pull is doing the last
+  // fifth of the work on top of a multiply that has already taken a third of the value off.
+  wreckChar: '#3A322C',
 
   lightRed: '#E24B3C',
   // The blue half of a police light bar, paired with `lightRed` above. Brighter and bluer than
@@ -459,6 +612,9 @@ export const PALETTE = {
   // bodywork. `game/sirenglow.js` washes both over the frame edge while the cruiser is off-screen,
   // so the same two colours have to be nameable from more than one place.
   sirenBlue: '#4D9BFF',
+  // The box a cop car's bar is bolted into — what stays on the roof once the lamps go off, so a
+  // stood-down cop still reads as police. See sirenHousingGeometry() in geometry/lights.js.
+  sirenHousing: '#23262D',
   lightYellow: '#F0B23A',
   lightGreen: '#4FBF63',
   // An ambient car's turn signal — deliberately more orange than lightYellow above so a blinking

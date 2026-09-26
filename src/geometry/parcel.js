@@ -4,8 +4,12 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 
 // A parcel waiting to be couriered: a taped cardboard box on a kerb corner, where a rider would
-// otherwise be standing. The same rig serves the small one riding on the taxi's rear deck and the
-// one that flies between the two (game/parcels.js), scaled down by its caller.
+// otherwise be standing. The same rig serves the copy in the HUD's cargo chip and the one that flies
+// between the two (game/parcels.js), scaled down by its caller.
+//
+// **One of two loads a courier job can be carrying**, the other being the food order in
+// geometry/food.js. Neither knows about the other: geometry/cargo.js is the rig that holds both and
+// switches between them, and it is also where the shared envelope and the idle spin live.
 //
 // **Built to read as 📦.** Four parts, and each is doing one job at the ~10px this ends up:
 //
@@ -18,9 +22,11 @@ import { PALETTE } from '../palette.js';
 //     the part that survives longest as the box shrinks.
 //
 // Scale is the same deliberate lie geometry/person.js tells. A real parcel beside a 3.4-unit car would
-// be about half a unit, which is four pixels at play zoom — invisible. This is a crate a bit over a
-// unit, which reads as an object on the corner rather than as grit on the screen, and as *not a person*
-// at a glance: squat and wide where the figure is tall and thin. See BOX_W for why it is not larger.
+// be about half a unit, which is four pixels at play zoom — invisible. This is a crate two units
+// across, which reads as an object on the corner rather than as grit on the screen, and as *not a
+// person* at a glance: squat and wide where the figure is tall and thin. Every number below is a
+// **proportion**; `CARGO_SCALE` is the one that turns them into a size, and it is where the argument
+// about how large a load should read now lives.
 //
 // One merged mesh with one material, like every other prop here — colour rides in the geometry via
 // bakeColor, so the whole box is one draw call however many colours the tape and label add.
@@ -32,11 +38,43 @@ import { PALETTE } from '../palette.js';
 // actually measures — a 2.4 crate beside a rider read as a shipping container beside a person. At 1.35
 // the box is a shade smaller than the figure on the axis that matters (apparent area) while still
 // clearing the ~10px floor a shape needs to be a shape at play zoom rather than a smudge.
+//
+// It is a proportion now rather than a width: `CARGO_SCALE` multiplies it, and the box is drawn 1.96
+// across (2.0 at the lid) — still comfortably under the 2.4 that failed, and the shape is untouched.
 const BOX_W = 1.35;
 const BOX_H = 1.07;
 const LID_H = 0.09;
 const TAPE_W = 0.24;
 const TAPE_PROUD = 0.024;  // how far the strip stands off the card it is stuck to
+
+/**
+ * How much bigger a load is drawn than the numbers above say — **the one knob for how large cargo
+ * reads on the board**, applied to the finished mesh here and in geometry/food.js alike.
+ *
+ * A separate factor rather than new literals because those literals are *proportions*: every
+ * comment in this file and in food.js argues one part against another (the label against the strip,
+ * the burger against the cup, the straw against the lid), and multiplying twenty tuned numbers by
+ * hand would leave every one of those arguments quoting a size that no longer exists. Scaling the
+ * merged geometry once keeps the shapes exactly as they were argued and moves only how big they are.
+ *
+ * **It is set by the food order, not by the box.** At 1.0 a load stands 1.38 across and is about
+ * 11px at play zoom — which is the floor a shape needs to be a shape, and the box clears it because
+ * it is 1.38 of solid card with a white label on it. The order is the same envelope with most of the
+ * air: a burger and a cup share that width between them and neither is more than half of it, and on
+ * a phone it reads as a smudge on a 6.4-unit pad rather than as food. Reported as exactly that —
+ * "hard to read". 1.45 puts a load at 2.0 across (~15px), which is the burger back over the floor
+ * the box was tuned to.
+ *
+ * **Both kinds move together and that is not a compromise**, it is the envelope (geometry/cargo.js):
+ * three things measure a load without asking which kind it is, and they all read numbers derived
+ * from this file. A factor on one kind alone would be three bugs.
+ *
+ * The ceiling is the prior this walks back toward, and it is worth keeping written down: the box was
+ * **2.4 across once and read about twice too big** — a shipping container beside a rider. That was
+ * measured against the figure on a bare corner, before either load stood on a 6.4-unit pad, but it
+ * is still the wall. 1.45 stops a third of the way short of it.
+ */
+export const CARGO_SCALE = 1.45;
 
 /**
  * Scale a parcel is drawn at when it is riding on the taxi's rear deck.
@@ -47,7 +85,7 @@ const TAPE_PROUD = 0.024;  // how far the strip stands off the card it is stuck 
  * the box is resized, and resizing the box is exactly what just happened. Derived from `BOX_W` so it
  * follows automatically.
  */
-export const PARCEL_DECK_SCALE = 0.53 / BOX_W;
+export const PARCEL_DECK_SCALE = 0.53 / (BOX_W * CARGO_SCALE);
 
 /**
  * Half the box's standing height — the point a picture of it should be centred on.
@@ -58,7 +96,7 @@ export const PARCEL_DECK_SCALE = 0.53 / BOX_W;
  * *jumps* on the frame the world hands it to the corner, and a box resized on one side of that seam
  * would open a gap nothing asserts.
  */
-export const PARCEL_CENTRE_Y = (BOX_H + LID_H) / 2;
+export const PARCEL_CENTRE_Y = ((BOX_H + LID_H) / 2) * CARGO_SCALE;
 
 /**
  * @param pickable  the `userData.pickable` kind, or null for a parcel that is scenery. The picker
@@ -108,27 +146,23 @@ export function createParcel({ pickable = 'parcel' } = {}) {
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
+  // Every number above is a proportion; this is the only place the box is given a size. See
+  // `CARGO_SCALE` — and note it goes on the *geometry* rather than on the group, so everything that
+  // measures a load (the probe's envelope check, the HUD chip's framing, the pickup's hand-off point)
+  // reads a mesh that is already the size it will be drawn at, with no factor to remember.
+  merged.scale(CARGO_SCALE, CARGO_SCALE, CARGO_SCALE);
 
   const mesh = new THREE.Mesh(merged, propMaterial());
   mesh.castShadow = true;
   if (pickable) mesh.userData.pickable = pickable;
   group.add(mesh);
 
-  /**
-   * Waiting on the corner: a slow spin and a gentle bob.
-   *
-   * The rider's answer to "come and get me" is a raised, waving arm. A box has no arm, so the motion
-   * carries the whole of it — a slow turn is the universal "this is a thing to pick up", and it is
-   * deliberately slower than the rider's wave: a parcel is not impatient, it has no clock. The square
-   * footprint means the spin never changes the silhouette's width, so it reads as turning rather than
-   * as pulsing, and it brings the label and the tape past the camera in turn.
-   *
-   * `t` is sim time, never an accumulated dt — a frozen shot has to render the same frame every time.
-   */
-  function idle(t) {
-    group.rotation.y = t * 0.55;
-    group.position.y = Math.sin(t * 1.6) * 0.07;
-  }
+  // **The idle spin is not here.** It used to be, and it moved to geometry/cargo.js when the courier
+  // gained a second load to carry: a box and a food order turning at two rates would be two answers
+  // to "this is a thing to pick up", where the rate is the whole of what that motion says. What the
+  // box still contributes to it is the reason it works — a square footprint means the spin never
+  // changes the silhouette's width, so it reads as turning rather than as pulsing, and it brings the
+  // label and the tape past the camera in turn.
 
   /**
    * Set the box's opacity, 0..1 — the fade on the flight to and from the taxi.
@@ -161,5 +195,5 @@ export function createParcel({ pickable = 'parcel' } = {}) {
   }
 
   rest();
-  return { group, mesh, idle, setOpacity, rest };
+  return { group, mesh, setOpacity, rest };
 }

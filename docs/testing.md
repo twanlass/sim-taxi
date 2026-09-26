@@ -54,6 +54,14 @@ the survival curve — p10 is the "did anyone die during the tutorial" number an
 It also reports how much of its budget the average fare ate, bucketed along the ramp, which is the
 direct read on whether the ramp is ramping: 50% → 56% → 73% → 87% is what the shipped curve does.
 
+**The harness plays the game as shipped, including the bank robbery.** `autoplay.mjs` builds the
+city's buildings as well as its layout (about 30ms a run) so the [bank](city.md#the-bank) exists, and
+runs [the robbery](gameplay.md#the-bank-robbery) exactly the way `main.js` does. That is not a
+cosmetic inclusion: an event that takes the seat for a getaway spends the clock of every rider
+standing on a kerb while it runs, which is a difficulty change whether or not anybody tuned it as
+one, and a harness that skipped it would report the survival curve of a game nobody plays. `play()`
+takes `{ robbery: false }` to measure what it costs, which is the only reason the switch exists.
+
 `difficulty-sweep.mjs` is what the numbers in [difficulty.md](difficulty.md#what-the-sweep-found)
 came from. It plays the same cities and situations through several tunings at three reaction times,
 so the comparison is paired. Both drive `tools/autoplay.mjs`, which holds the perfect-player harness
@@ -83,6 +91,8 @@ node tools/signals.mjs                        # signal metrics, incl. cycle-leng
 node tools/lab.mjs                            # the passing lab's road and its overtake
 node tools/roadwork-pull.mjs                  # how often a run actually meets the construction zone
 node tools/diag.mjs                           # ad-hoc scratch diagnostics
+node tools/alloc.mjs 6000 110                 # bytes of garbage per simulated frame
+node tools/links.mjs --url http://localhost:5173   # shaders compiled *during* a run
 node tools/smoke.mjs --url http://localhost:4173   # real browser, real DOM
 node tools/native-smoke.mjs --url http://localhost:4173   # the iOS fork, both ways
 ./shots.sh                                    # render the screenshot set
@@ -104,6 +114,50 @@ the wrong reason. And **both probes spoof an iPhone UA**, because `game/homescre
 most important assertion in the file passes against a completely broken build.
 
 Like `smoke.mjs`, it needs a browser and a served bundle, so it is not in `npm run check`.
+
+### The two performance tools
+
+They answer the two halves of "the game hitches", and they are worth running in that order, because
+the first one almost always rules itself out.
+
+`alloc.mjs` runs the headless simulation under V8's allocation sampler and reports **bytes per
+frame**. A full city allocates around 60 of them — call it 4 KiB a second, which is a young-generation
+scavenge about once an hour. Stutter in a browser game reads as garbage collection whether or not it
+is one, and this is how to find out in ten seconds rather than by reading the sim looking for object
+literals. A number in this range means the problem is on the GPU side.
+
+`links.mjs` is the GPU side, and it counts one specific thing: **shader programs linked after the
+game has started**. Three compiles a material's program on the frame that first draws it, and a link
+is a synchronous stall — a few milliseconds on a desktop, tens of them on a phone. Compiled at boot
+it is free, because the player is looking at a wipe; compiled ninety seconds in it is a hitch, and by
+construction it arrives at the moment something interesting started happening. The tool wraps
+`linkProgram` before the page's first script runs, so nothing in `src/` knows it exists, and it exits
+non-zero past `--budget` (12 by default).
+
+It runs under SwiftShader like every other headless browser tool here, so its **wallclock is
+meaningless** — a couple of frames a second, and a run stretched into slow motion. The count is not:
+what compiles, and whether it compiles before or after the game starts, is the same on any GPU.
+
+Two things it caught, both of which had been shipping for a long time and neither of which is visible
+in a profile of the frame loop, because the work happens inside the driver:
+
+  - **A light inside a group that gets hidden.** The police cruiser's two siren lamps used to sit
+    under the group that `group.visible = false` hid between runs. Three collects the scene's lights
+    with `traverseVisible`, so hiding the car did not dim them, it *removed* them — and the light
+    count is part of every lit material's program cache key. Every lit material in the city relinked
+    on the frame the cop appeared, and again on the frame it left: 22 programs, then 9. The fix is in
+    `sim/police.js`: the group stays visible, a `shell` one level in carries everything that draws,
+    and the lamps sit outside it at `intensity = 0`.
+  - **A program cache key that was unique per material.** `game/bloom.js` keyed each lamp's emissive
+    copy off a counter, so every lamp in the game had a program to itself — and three deletes a
+    program when its last material is disposed, which `unmarkEmissive` does. Every pooled marker
+    relinked a shader each time it came back. It is keyed off the source material's own
+    `customProgramCacheKey` now, so lamps that compile to the same source share one program.
+
+Together those took a run from 35 mid-run links to 8, and took 11 programs out of the boot as well.
+The third piece is the `renderer.compile(scene, camera)` at the bottom of `main.js`: `compile()`
+walks the scene with `traverse` rather than `traverseVisible`, so it reaches the pooled effects that
+are sitting there invisible, and moves another six links out of the run.
 
 `roadwork-pull.mjs` is deliberately **not** in `npm run check`. What it measures is a distribution —
 the share of runs in which the taxi is routed through the closed street — and the honest assertion
@@ -130,7 +184,7 @@ playing ten fares to reach it. It exists because "can you read this board" is th
 screenshot answers better than an assertion — and because the board was capped at three for years
 on a readability judgement made against a marker that no longer exists.
 
-Shots 22–23 (`parcel`, `parcel-board`) are the only ones that need a **query param to work at all**: the
+Shots 27–28 (`parcel`, `parcel-board`) and 36 (`food`) are the only ones that need a **query param to work at all**: the
 package courier is off in shot mode by default, so both want `?parcels=1`. Every framing
 in the sweep was composed before packages existed, and a cyan pad wandering into one is a change to a
 reference image that has nothing to do with whatever is being looked at — so the layer stays out
@@ -141,13 +195,25 @@ read as a *parcel* and does the tape cross survive; at play zoom, is the pad's r
 distinguishable from a fare's disc. That second one is the whole of "shape says what a thing is" and
 is the one claim no assertion can make.
 
-Shot 24 (`clouds`) frames the map's **far corner** rather than the middle of it, which is the whole
+`food` is the [other load](gameplay.md#two-kinds-of-load-and-one-of-them-has-an-address) on the same pad, and it is a separate shot
+rather than a re-run of `parcel` at a lucky seed because which load a package carries is a coin flip
+inside the run seed: without the `cargoKind` pin half of every sweep photographs a box under a name
+that says food. One framing rather than the usual pair — the play-zoom question is about the *pad*,
+and both loads stand on the same one, so `parcel-board` already answers it. What only a close-up can
+answer is this shot's own question: do a burger and a cup read as food at all at this size, and does
+the straw survive being two pixels. It frames itself on the **drive-through** without being asked to,
+because a food order is collected at the burger joint and nowhere else
+([gameplay.md](gameplay.md#two-kinds-of-load-and-one-of-them-has-an-address)) — so the second thing it
+answers for free is whether a cyan pad on that lot reads as part of the restaurant or as litter on
+it.
+
+Shot 29 (`clouds`) frames the map's **far corner** rather than the middle of it, which is the whole
 point of it: the clouds ring the island (see [rendering.md](rendering.md#clouds--gamecloudsjs-geometrycloudjs)),
 so a framing centred on the city photographs the one part of the sky they are never in. It is also
 why they turn up in the corners of every *other* shot — that is the band doing its job, not a shot
 that needs recomposing.
 
-Shots 25–26 (`pond`, `pond-far`) are the [duck pond](rendering.md#the-duck-pond--citypondjs-gameducksjs),
+Shots 30–31 (`pond`, `pond-far`) are the [duck pond](rendering.md#the-duck-pond--citypondjs-gameducksjs),
 close and at play zoom, and neither stages anything — a pond has no moment, and the ducks are posed
 the instant they are built precisely so a frozen frame has birds sitting on the water rather than a
 default pose. Both aim at the same water, which is the point of having two: the close one asks
@@ -156,7 +222,7 @@ and the far one whether it is a landmark you notice while driving past or a blue
 The close framing is what caught the first two versions — ducks floating half-submerged, and a mix of
 plumage balanced against grass rather than against water.
 
-Shots 27–28 (`burger`, `burger-far`) are the
+Shots 32–33 (`burger`, `burger-far`) are the
 [burger joint](city.md#the-burger-joint-and-its-drive-through), close and at play zoom, and they are
 the pond's pair with one difference: this one *is* staged. A shot ticks the world once, and a
 drive-through left to fill itself is a drive-through photographed empty — so `driveThru.settle()`
@@ -170,6 +236,16 @@ crown and wider fillings, so a ring of cheese and lettuce shows past the dome fr
 down at 33°) is a judgement only a picture could make — and whether the car at the window is still
 visible from under its own canopy, which is a clearance worked out on paper in `CANOPY_Y`. The far
 one asks whether any of it is a landmark you notice while driving past.
+
+Shots 34–35 (`depot`, `depot-far`) are the [depot](city.md#the-depot-block), on the same pair of
+distances and staging nothing — a depot has no moment either, and the door is shut in both because
+shot mode never puts the taxi in the bay. They are newer than the building: for as long as the only
+reason to look at the depot was the vignette, the vignette framed itself. It wears a livery now, so
+there is something to look at from outside the cut scene. Close: does the chequer read as a
+**chequer** — it did not at first, being square on the wall and therefore a row of narrow bars in a
+foreshortened frame — and does a tilted frustum on a mast read as a dish. At play zoom: is the
+depot a block you can pick out of a city of muted concrete, which is what the yellow is for, and is
+it still distinguishable from the taxi, which is the thing that yellow costs.
 
 There were two more, `parcel-aboard` and `parcel-flight`, and both photographed a load that has since
 left the world: a collected box no longer rides on the taxi's rear deck and no longer crosses the road
@@ -187,8 +263,7 @@ Shot 12 (`wreck`) is the other exception, and for the opposite reason: everythin
 has a steady state to point a camera at, and the crash does not — it fires once, ends the run and is
 over in about a second and a half. So the shot **stages a real one**: the taxi is parked on an
 ambient car with boost on, `collisions.update()` detonates it through the same handler a live run
-uses, and then only the blast and the two shrinking shells are stepped forward, to `wreckAt`
-seconds. Traffic is deliberately *not* stepped with them — the rest of the city driving on under a
+uses, and then only the blast and the two wrecks are stepped forward, to `wreckAt` seconds. Traffic is deliberately *not* stepped with them — the rest of the city driving on under a
 frozen wreck is a different picture. Driving the real path rather than firing the effects by hand is
 what stops the framing drifting away from the thing it exists to review; move `wreckAt` to look at a
 different beat of the explosion (0.08 is the flash, 0.22 the peak, 0.9 the embers).
@@ -200,6 +275,23 @@ framed on has gone out entirely. At `wreckAt` 1.15 the fire is a couple of frame
 smoke is what is left, which is what the player is actually looking at while the retry banner comes
 up. The dust pool is stepped alongside the blast in this staging; left out, the collar would freeze
 stacked on the impact point at zero age.
+
+Shot 37 (`wreck-rest`) is the third of the set and the one the other two now exist against. It is
+the same staging at `wreckAt` 3.2, by which point the fire, the shards and the collar are all
+spent and what is left on the road is the two cars themselves —
+[crumpled and scorched](rendering.md#the-wrecks-that-stay) rather than faded out from under their
+own fireballs. 12 and 17 ask whether the crash reads as an *event*; this one asks whether the wreck
+reads as a *pair of cars*, which is only askable once the fire is out. It is appended at the end of
+the list rather than filed beside 17 because inserting an entry renumbers every shot after it.
+
+Shot 38 (`median`) is the arterial's planted island at `zoom: 11`, and it is close for the reason
+`mouth` is close: everything on a median is decided by a sightline measured in fractions of a unit
+— how far a bed sits off the island's spine, whether a
+[small tree's crown](city.md#and-a-small-tree-in-some-of-the-bedding) reaches the far carriageway —
+and at play zoom the whole island is a green smudge fourteen pixels long. The probe asserts every
+one of those clearances; this is for looking at the planting. It frames an 8.4-unit run, the length
+that carries two trees rather than one, with a park across the road, so the ornamental and the
+broadleaf it is deliberately *not* are in the same frame. Appended, same rule as 37.
 
 Shot 13 (`flyover`) has the wreck's problem without the wreck's drama: the
 [ambient plane](rendering.md#the-flyover--gameflyoverjs) is up for six seconds every minute or so,

@@ -322,6 +322,40 @@ About 1.5–3% of ground speed, for not driving into the back of the car in fron
 small — eight cities, each ending at its first wreck — so read the direction rather than the
 decimals.
 
+### A car entering a junction used to teleport 3.4 units forward
+
+`state` flips to `turn` the moment a car is cleared to go, and the first `leadIn` (= `STOP_SETBACK`,
+3.4) units of the arc are the **straight run-up from the hold line to the junction boundary** — the
+car is still physically in the lane for all of it. The bookkeeping that puts a mid-turn car back in
+its follower's view charged the crossing from `lane.length` regardless, so on the frame the leader
+crossed its own hold line it jumped 3.4 units forward and handed whoever was queued behind it 3.4
+units of road that did not exist.
+
+It never showed on ambient traffic. A car pulling away from a red is accelerating from a standstill
+at `ACCEL`, so the phantom gap is spent long before the follower — also pulling away from a
+standstill — could close it. A boosting taxi is a different animal: `BOOST_KICK` puts it at 10.6 u/s
+on the frame the button goes down, and 3.4 units of phantom road reads into `leadCap` as
+`sqrt(2 · BRAKE · 3.4)` ≈ 11 u/s of permission to use it. **Pressing boost while queued at a red
+wrecked the taxi within 13 frames on 12 of 12 sampled city runs**, at a real separation of 3.35
+units against the 2.31 envelope — which is the whole of what "hitting boost at a light" did, and
+nothing to do with the overtake it looked like.
+
+The fix moves where the crossing *starts*, not what it costs: 5 units of lane coordinate for the
+junction is still a fiction (the box is 8 wide and a left turn's arc is 15), and the defect was the
+discontinuity at `turnT === 0`. A car at the line now reads at `lane.length - STOP_SETBACK` in both
+states, so the handover is exact.
+
+What it costs, because it is real road the taxi no longer gets for free: ground covered over a run
+of routed boosting at `?cars=22` goes **24.46 → 23.86 u/s**, and the taxi now spends 0.43% of frames
+crawling behind a leader where it used to spend none. The probe's own `taxiFloor` — the boosting
+taxi's slowest moment behind a fleeing car — drops from 1.09× to 0.93× cruise on two seeds of five
+and is unchanged on the other three. That floor *is* the leader's speed as it sheds for a corner
+4.5 units ahead, which is the rule the rest of this page asserts everywhere else.
+
+> The second half of the crossing keeps its own fiction — `-(1 - turnT) * 5` on the lane the car is
+> landing in — and it is wrong in the safe direction: it reports a turner as *closer* to its exit
+> lane than it is, so `exitLaneFull` holds cars slightly longer than it needs to. Untouched.
+
 > Watch out: a distance short of a junction can land *inside a junction box*, which no lane
 > position can express. The infinite row could, and one probe scenario relied on it — staging a car
 > 18 units back on a 12-unit lane, and the boosting taxi 30 units back from a junction one block
@@ -1034,7 +1068,8 @@ watching the green path open ahead of the siren is the whole effect.
 
 The meter itself lives in `game/boost.js` as a pure clock with no knowledge of the taxi or the
 DOM. Hold-to-enable: the tank drains only while the button is held (15s from full) and releasing
-just pauses it. Nothing refills it but a drop-off — see
+just pauses it. Nothing refills it but a delivery, with one exception: a tank that has run *out*
+climbs back to a quarter over five seconds, so the pill is never dead for good — see
 [gameplay.md](gameplay.md#crazy-taxi-mode) for the economy.
 
 **Releasing doesn't switch it off.** It used to — the taxi went from full boost to ordinary traffic
@@ -1299,19 +1334,215 @@ and never been passed at all. The cars the taxi goes round are the ones stuck be
 telling them to floor it does nothing. Sizing the manoeuvre to the road is what made passing
 possible; the flee was never in the way.
 
+#### Out of a queue, from a dead stop
+
+Rolling up to a red behind a car and pressing the button is the moment Loco Mode is most obviously
+*for*, and it was the one moment it could not do anything. Three things stood in the way, and only
+the first is about passing at all.
+
+**The phantom gap.** [A car entering a junction used to teleport 3.4 units
+forward](#a-car-entering-a-junction-used-to-teleport-34-units-forward) in its follower's view, so a
+taxi that pressed boost at a red drove into the back of the car in front within 13 frames, on 12 of
+12 runs. That is a following bug rather than a passing one and it is fixed as one; nothing below
+works until it is.
+
+**The brake came off on the decision, not on the position.** `seesLeader` read
+`!car.passing && passOffset < laneOffset` — an AND, whose first term is exactly the rule the second
+was written to replace. On a moving pass the difference is invisible: the taxi pulls out at
+`PASS_TRIGGER` (10 units) with 4.2 units of envelope to spend and never closes far enough to care.
+From a standing start behind a queue it is fatal — `allowed` goes to Infinity with `BOOST_KICK`
+already on the car, and the taxi covers the whole 4.5 units in a quarter of a second with the lane
+change 0.18 of the way done. The term is gone, and the release point is `max(ENVELOPE, laneOffset)`:
+half a lane is 2.0 on an ordinary street and the envelope is 2.31, so half a lane was a shade too
+early to stop looking.
+
+**The tailgate is now shaped like the collision envelope.** `boostGap` is `BOOST_GAP` in lane and,
+while the taxi is *leaving* the lane, whatever the envelope still needs at the offset reached so
+far — 4.22 at zero, falling to **zero** at a full `ENVELOPE` across, which is the point past which
+no pair of collision circles can meet however far forward the taxi goes. So the taxi noses up
+alongside as it swings, ending level with the car it is passing rather than a body-length behind
+it, and it cannot reach a position the detector calls a crash: the constraint *is* the detector's
+own geometry. `CIRCLE_OFFSET`/`CIRCLE_R` moved into `traffic.js` for this — the overtake has to
+steer by them and `collisions.js` already imports from there, so the other way round is a cycle and
+two copies is two numbers that drift.
+
+**And the swing had no road to happen in.** The offset is paced by distance travelled, which is the
+right rule and has one hole: a taxi pinned behind a stopped car has no distance, so the swing that
+would free it can never begin. It cannot leave the lane because it cannot move, and it cannot move
+because it has not left the lane. So while the ramp is *in flight*, it is credited with road at
+`SPEED` however slowly the taxi is really going — the full lane takes about 0.8s whether the car is
+doing 22 u/s or standing still.
+
+> That is the one place a lane-relative offset may advance without the car moving, and the
+> distinction from the weave — which learned this lesson the other way round, twice — is that the
+> weave is *involuntary*. A settled `pass` of 0 or 1 has nothing in flight and gets no credit
+> either, so a taxi held at a red with the button down and no reason to pull out sits exactly on
+> its lane centre. What moves is a lane change the player is holding the button for.
+
+Two things ride along with the credited road rather than being written twice. The crab angle comes
+off `step / ds` as it always did, so a standing swing produces **the same 30° of lock and the same
+roll** a rolling one does instead of needing a clamp. And the front wheels are paced by the same
+number, through `passCredit` — `steerToward` is distance-paced too, for its own good reason (a car
+held at a red keeps the lock it rolled up with), and a standing lane change is the one thing that
+falsifies it. Without that the body slews thirty degrees across the road with the wheels pointing
+dead ahead.
+
+It is not a hovercraft in practice: `boostGap` gives the taxi real road as the offset grows, and the
+queue is usually pulling away by then, so the credited part covers about the first tenth of a
+second. Measured over the city, taking the first moment in each run where the taxi is stopped behind
+a stopped car and pressing the button then:
+
+| | before | after |
+|---|---|---|
+| lane change completed | 0 of 8 eligible (peak 0.18) | **8 of 8** |
+| closest approach to the car being passed | 3.28 | **4.03** (envelope 2.31) |
+| wrecked inside 3s | 12 of 12 | 10 of 16 |
+| ground covered in the first second | 13.6 units | 9.6 |
+
+The residual wrecks are the mode behaving as designed rather than the launch failing: they land 1–2.5
+seconds later, mostly with `pass` at 0, and they are the taxi barging a junction into cross traffic
+that has a green — which is what [nothing stops the taxi](#nothing-stops-the-taxi) buys and costs.
+
+**The rolling pass is untouched**, which is the check that matters most here: the lab's 130 staged
+approaches passed 130 and wrecked 0 both before and after.
+
 ### Seeing what you're about to hit
 
-Because collision detection is armed only while boosting, the one moment a car hidden behind a
+Because a contact only costs anything while boosting, the one moment a car hidden behind a
 tower is a crash rather than a surprise is the one moment the player can't see it. The nearest
 handful of ambient cars therefore wear the taxi's own occluded-only outline while Loco Mode is up,
 each in its own paint — see [nearby-traffic ghost outlines](rendering.md#nearby-traffic-ghost-outlines--gamecarghostsjs).
 It fades in and out with the boost rather than being always on, and follows `taxi.boost` rather
 than the speed cap, so like every other hazard rule it stays up through the cooldown tail.
 
+## Bumps and hit points
+
+The taxi has **100 HP** (`TAXI_HP` in `sim/collisions.js`), and every contact but the one that
+empties it is a **bump** rather than [the wreck](#the-wreck). Hits are only **charged** while
+boosting. Contact itself is resolved all the time: outside Loco Mode an overlap is shoved apart
+(`shoveCar`) and costs nothing.
+
+That split is measured, not assumed. The lane model does *not* keep a lawful taxi off everything:
+over 56 simulated minutes of the never-boosting perfect player (`tools/autoplay.mjs`, 9 runs × 40
+fares) it grazed a car **once every ~100s**, all 34 times in a junction, 23 of them two turn arcs
+brushing. Left unresolved, those contacts drove on through each other to **2.29 units** deep. With
+the shove the worst is 0.20, and deliveries are identical run for run. Charging those grazes would
+price them at 17–25 HP each (closing 5–12 u/s), a wreck every five minutes of driving the player
+had no hand in. So the only crash on offer is one the button was pressed for, and the only thing
+off boost is that bodies stop passing through each other: a car knocked spinning into the lane
+after the cooldown lapses, or a cop parked across the road.
+
+**What a hit costs is the closing speed**, not a flat count: `10 + 1.3 × closing`, clamped 12–60.
+Rear-ending a car at boost cruise closes at ~10.5 u/s and costs 24; T-boning cross traffic at boost
+cruise closes at ~21 and costs 37; anything in the overdrive band costs 49–55. So a sloppy tailgate
+is forgiven about four times and a red run flat out about twice.
+
+**The taxi rams — when it cannot pass.** A boosting taxi with `hp` that has no way round the car in
+front stops following it: no `BOOST_GAP`, no moving-leader cap, in lanes or junctions (`rams()` in
+`traffic.js`). Held to those rules it lifted off in the last few units before every rear-end, which
+read as the taxi flinching. Where a pass *is* on — the route carries straight on, there is an oncoming
+lane, the leader is not mid-turn and the borrowed lane is clear (`canPass`, the overtake's own test) —
+it tailgates exactly as before, because the tailgate is what brings it inside `PASS_TRIGGER` to pull
+out. Ramming is the fallback, not the policy.
+
+**What a bump does:**
+
+- **Rear-end** (headings within ~45°, struck car in front): the car is *launched* — it takes 90% of
+  the taxi's arrival speed and pulls away, which is what separates the two. No stun: a car stopped
+  dead in front of a boosting taxi would be hit again as soon as the contact ended.
+- **Side hit**: the car is shoved along the contact normal and slewed off its line (`knockCar`), then
+  sits on its brakes for 1.4s (`stun`, which drives the existing `braking` flag, so a car stunned
+  inside a junction box holds cross traffic exactly as the brake pedal does).
+- The taxi keeps 45% of its speed and recoils a little the other way.
+- `main.js` pops a comic starburst on the contact point (`game/impact.js`) — the middle of the
+  overlap between the deepest pair of circles, not the midpoint of the two cars' centres, sprays sparks out
+  sideways along the seam, and shakes the camera a fraction of the wreck's amount.
+
+**The depot puts it right.** Tap the garage with a damaged taxi and it drives back in and comes out
+repaired, HP full and every part back on — see [repairs at the depot](gameplay.md#repairs-at-the-depot).
+
+**The car wears its damage, and that is the only health display there is** (`game/taxidamage.js`
+driving `buildDamage` in `geometry/taxi.js`). There was an HP bar in the HUD under the cash total and
+it came out: the point is that the player reads how hurt the car is off the car, without looking
+away from it, and a bar beside it made the car decoration for a number. So each step has to read at
+play zoom on its own. Each adds a distinct ingredient rather than turning the last one up:
+
+1. **Any hit**: the lamp at the struck corner comes out of its socket and hangs on a wire, swinging
+   fore and aft — flung outward when it comes loose, free to swing away from the car but clacking off
+   the bumper on the way back in. Each corner comes loose on its own first hit. The brake and
+   indicator pods at that corner ride the hanging housing, so the lamp still lights, blinks and brakes
+   from down on the wire; the housing (a white lens at the front, red at the back) is what shows while
+   the lamp is off, since the pods themselves only exist while lit.
+2. **≤ 67%**: the boot lid is up over a dark opening and a bumper hangs off the car, its
+   free end on the road throwing sparks while the car moves — at the corner that has taken the most
+   hits, nose or tail, so the sparks come off where the damage is. The lid is a
+   damped spring on its hinge, kicked by the road, by the car's own acceleration and by every hit;
+   it slams against the body and bounces back up. A first cut that wobbled it ±0.2 rad on a sine
+   read as a lid that was simply open.
+3. **≤ 34%**: smoke off the bonnet walking from steam (`damageSmokeLight`) to black
+   (`damageSmokeDark`) and getting faster, and the car sitting low on its damaged side and rattling
+   with speed. One more T-bone at boost cruise (37) is the wreck from here.
+4. **≤ 20%**: under all of that, a thin dark plume that never stops — a small puff every 0.04s,
+   standing or driving — so a car one hit from the end is never seen without it. The billows above
+   come and go; this is the one thing that is always there.
+
+And one piece off the tiers: **rear-ending a car pops the bonnet**, however much HP is left. It is the
+boot's mirror image, hinged at the foot of the windscreen, and it flaps on the same spring for the
+rest of the run — first kick *up*, the catch letting go, where every later hit slams it. It belongs to
+the kind of hit rather than to the running total, and it gives a rear-end something louder than a
+swinging lamp when the first hit is the commonest one in Loco Mode.
+
+Everything is sized for silhouette, because at play zoom the taxi is ~30px long and nothing finer
+reads. It is all render-only; the lean and rattle are added to the group after the sim writes its
+transform each frame, so nothing accumulates and nothing reaches the sim. The parts are built at boot
+and hidden by a zero scale, so `markOccluder`, the cartoon outline and the ghost outline all see them.
+
+The roof sign used to be knocked crooked and then sputter at low HP, and both came out: the tilt read
+as the sign wobbling rather than as damage, and the flicker made the one lamp that says whether a rider
+is aboard unreliable. There was also a crushed corner, and it came out too: the struck corner of the shell crushed in, down and
+darkened by displacing the merged body's vertices. It looked wrong — a box with a corner sheared
+off, which reads as a modelling fault rather than as a dent. The damage now says itself through
+parts that come *off* the car, not through the car changing shape.
+
+**Contact is resolved every frame and charged once.** For as long as the two bodies overlap, the
+struck car is pushed out along the deepest circle pair's normal (`shoveCar`): the part along its own
+lane goes into `s`, so a rear-ended car is bulldozed down the road in the sim; the rest goes into the
+knock offset. A contact only costs HP when it *starts* — the two have to be apart for 0.35s
+(`REHIT`) before touching again counts as a new hit. The first cut of this switched collisions off
+instead (a grace period, and knocked cars skipped outright), and the taxi drove straight through a
+car it had just tapped. `tools/lab.mjs` asserts the overlap never gets deeper than one frame of
+travel at the overdrive top.
+
+A truck is tested at its own length now — three circles out to `TRUCK_LEN` rather than a car's two,
+which left 0.7 units of cab and of box at each end that nothing tested.
+
+**The shove never leaves the lane model.** It is a render offset layered on like the weave and the
+pull-over, while the sim holds the car at its lane coordinate. It has two phases. First a 0.45s
+**slide** — world-space velocity and spin under drag, nobody at the wheel. Then the driver **steers
+back**, paced by the road the car covers rather than by a clock: a stunned car sits askew where it
+stopped until it pulls away, then turns its nose toward the lane (aiming 3.5 units ahead, at most
+~34° off the lane, on a 3-unit turning circle), drives in along that heading, and straightens as it
+arrives, with the front wheels showing the lock. The first cut eased the offset and the spin to zero
+on a timer, independently, which translated the car sideways into its lane while it unwound on the
+spot. The old stun (see below) snapped a car back onto the grid from wherever the drift left it, which
+is the class of `releaseCar` site the CLAUDE.md trap about stop lines is warning about. This one has
+no hand-back to get wrong: the queue behind a shunted car forms where the car nominally is, and it
+pulls back into its own lane because it never left it.
+
+**Why survivable bumps don't bring back the problem the stun was removed for.** That complaint was
+the *asymmetry*: one car scrap, the other shrugging it off. Here the outcome is symmetric — a bump
+leaves both cars on the road and a wreck destroys both — so the wreck still reads as the crash that
+finally mattered rather than as a rule firing.
+
+**`hp` is opt-in on the car.** A taxi with no `hp` keeps the old first-contact-is-the-wreck rule,
+and that is on purpose: `tools/lab.mjs` and `tools/probe.mjs` measure Loco Mode by when it first
+touches something, and every crash rate on this page is in that currency. `onImpact` still means
+"the wreck"; bumps come out of `onBump`.
+
 ## The wreck
 
-`sim/collisions.js` detects the impact, `main.js` stages it, `game/vanish.js` clears the bodywork
-away.
+`sim/collisions.js` detects the impact, `main.js` stages it, `game/wreckage.js` leaves the two
+cars lying in the road.
 
 **Both cars are destroyed.** The one the taxi hits used to be *stunned*: kicked sideways under a
 little drift-physics packet, spun out, then snapped back onto the lane grid and driven off. Two
@@ -1348,34 +1579,42 @@ car** on top — a pool re-shot its own pieces on every call, so one shared pool
 the taxi's wreckage across to the other car's the instant the second burst fired. All of that is
 one module now, and the pool-per-car problem is gone with it: nothing in `blast.js` is re-shot from
 a stored position, so a second call cannot drag the first one's wreckage anywhere. See
-[rendering.md](rendering.md#wreck--gameblastjs-gamevanishjs).
+[rendering.md](rendering.md#wreck--gameblastjs-gamewreckagejs).
 
-**The shells shrink and fade into the fireballs** rather than being hidden. The old version cut:
-`taxiGroup.visible = false` fired on the impact frame, one frame before the fireball had grown
-large enough to hide anything, so the eye read a car blinking out and then, separately, a bang.
-`vanish.take()` collapses each shell over 0.34s of sim time instead — stepped with the frame's
-already-slowed `dt`, so it stretches to nearly two seconds on screen under the crash slow-mo,
-which is exactly how long the fireball is at its biggest. The fade leads the collapse (halfway
-through: three-quarters size, a quarter opaque), because matching the two curves left a small,
-solid, brightly lit nugget riding the middle of the fireball to the last frame.
+**Both cars are left lying in the road.** They used to be taken away: the first version cut
+outright (`taxiGroup.visible = false` on the impact frame, one frame before the fireball had grown
+large enough to hide anything, so the eye read a car blinking out and then, separately, a bang) and
+the second shrank and faded each shell into its own fireball over a third of a second. That second
+one sells the bang and leaves nothing behind it — the run-end banner is held for 2.6 seconds and the
+fire is out after one, so most of the beat was a close-up of empty tarmac with the question the
+crash exists to pose, *what did I just hit*, already off screen. `wreckage.take()` slides each shell
+out of the impact, crumples it, scorches it and stops. See
+[rendering.md](rendering.md#the-wrecks-that-stay) for the crumple, the multiply that does the
+scorching, and why neither can be a lerp toward grey.
 
-They also collapse while still **moving** — `take()` takes a drift and a slew, on the same decaying
-curve the rest of the wreck's momentum rides. This is where the momentum reads hardest, because a
-shell is the only recognisable object in the picture: a fireball is an abstraction and can be
-forgiven for standing still, a car cannot. The two are given deliberately different numbers — the
-taxi keeps less for having hit something, the car it hit is shoved harder — and are slewed in
-opposite directions, taken from which side of the taxi's line it was sitting on. Matched, the pair
-travels as a rigid unit, which reads as a wreck being panned across rather than as one car hitting
-another.
+They slide while still **moving** — `take()` takes a drift and a slew, on the same decaying curve
+the rest of the wreck's momentum rides. This is where the momentum reads hardest, because a shell
+is the only recognisable object in the picture: a fireball is an abstraction and can be forgiven for
+standing still, a car cannot. The two are given deliberately different numbers — the taxi keeps less
+for having hit something, the car it hit is shoved harder — and are slewed in opposite directions,
+taken from which side of the taxi's line it was sitting on. Matched, the pair travels as a rigid
+unit, which reads as a wreck being panned across rather than as one car hitting another.
 
-The taxi has its own group to fade, steered wheels and all. An ambient car is spread across two
+**A wrecked car's lamps go out.** A crashed car never reaches the render pass again, so whatever
+brake level it last wrote would sit there for the rest of the run — and the frame this fires on is
+exactly the one anything is hardest on the brakes. The ambient car's pods are collapsed to zero in
+`wreckShell()`; so are the taxi's, which went unnoticed for as long as its shell disappeared inside
+a third of a second and became the brightest thing in the close-up the moment it stopped.
+
+The taxi has its own group to hand over, steered wheels and all. An ambient car is spread across two
 `InstancedMesh`es — the body, plus one instance per steered front wheel — and neither has anywhere
 to put a per-instance opacity, since `instanceColor` is RGB only. So `wreckShell()` copies the car
 out into a standalone group (body plus both wheels at the lock the impact caught them at) sharing
-one tinted, fadeable material, and collapses **every** instance behind it to zero scale. Collapsing
-only the body would leave two wheels parked on the road; `tools/probe.mjs` asserts all three. This
-is cheaper than the alternative — a custom alpha attribute plus an `onBeforeCompile` patch on the
-traffic material — for something that happens once per run.
+one tinted material, and collapses **every** instance behind it to zero scale. Collapsing only the
+body would leave two wheels parked on the road; `tools/probe.mjs` asserts all three. The copy is
+what makes the wreck's paint writable at all: `instanceColor` is RGB and shared with every other
+car in the mesh, so there is nowhere on an instance to put the scorch — or, in the fade this
+replaced, an opacity.
 
 ## Roadworks: a street closed at both ends
 
@@ -1499,6 +1738,33 @@ Placement (`roadwork.js`) refuses a segment unless all of:
 The zone then **rises out of the road** over 1.1s rather than appearing on it. The slab is opaque
 and drawn first, so the part still below y = 0 fails the depth test — which is what makes the rise
 free, and what covers the desktop case where nothing can be set up off-screen.
+
+### Everything is placed off a lane, and a lane is not the middle of the road
+
+Two frames put the zone down, and both start from a *lane*: `laneFrame` for the two barricades and
+their ramps, `roadPoint` for the cones, the spoil heap, the trench and the workers. A lane centre is
+`LANE` off the road's own centreline, so both have to take that offset back out — and the direction
+they take it out in is the whole of this section.
+
+`laneFrame`'s basis is `makeBasis(across, up, forward)` with **+Z forward**, and it has to stay
+right-handed or every stripe on the barricade mirrors and the ramp lands on the wrong side. With +Y
+up and +Z forward there is exactly one axis left for +X, and it is the driver's **left**. There is no
+arrangement of this frame in which +X is their right. Traffic here drives on the right, so the road
+centreline is a lane to the left of a lane centre: local X = **`+LANE`**, and `roadPoint`'s offset is
+`side + LANE`.
+
+Reading that axis as "right" and writing `-LANE` does not nudge the zone, it moves it `2 · LANE` — a
+whole road's half-width. Both frames had it, both in the same direction, so the site stayed
+internally consistent and simply sat four units off the middle of the street: one row of cones on the
+pavement, one end of each trestle past the far kerb. On 24 of the 25 blocks that reads as a wide site
+and nothing more. On the street along the **riverbank**, whose far kerb is the channel, it reads as a
+construction site standing on the water, which is how it was eventually reported.
+
+`tools/probe.mjs` now walks every vertex the zone draws — not just the cones — against the road
+centreline it is supposed to be centred on, and separately stages zones on riverbank streets across
+eight cities to assert none of it ends up in the channel. The cone check that existed before this
+missed it because it derived the centreline with the *same* flipped sign, and so measured from the
+line the bug had put everything on.
 
 ### The ramp
 
@@ -1758,15 +2024,407 @@ Three things the invitation changes, all of them at the mouth:
   ambient cars pull in again afterwards.
 - **There is no roll.** `ENTER_CHANCE` and `FED_COOLDOWN` are how ambient traffic decides; the tap
   is the decision, and the taxi is not put on the cooldown on the way out either. Doing laps of a
-  restaurant is a choice the player is paying a fare's clock for.
+  restaurant is a choice the player is paying a fare's clock — and $10 a burger — for.
 - **It eats faster.** 0.6s at the board and 1.0s at the window, against 2.6 and 3.8 plus jitter. An
   ambient car's dwell is scenery and has to *read* from across the city; the player's is a clock
   they are paying. 1.6s of standing still out of the **8.0s** the lot takes end to end — measured
   mouth to kerb with the lane empty — is enough to make the visit read as a visit, and short enough
-  that it is not what the detour costs. What the detour costs is the driving either side of it.
+  that it is not what the detour costs. What the detour costs is the driving either side of it, and
+  the tenner that comes off the counter at the window.
 
 A wreck in the lot — the run ending while the player is at the window — stops where it is, and the
 queue behind it holds, because each car's limit comes from its leader's position.
+
+## Cop cars in ambient traffic
+
+`enterPolice(n, near)` in `sim/traffic.js`, driven by [the bank robbery](gameplay.md#the-police). It
+brings `n` cop cars onto the map — real vehicles, painted `policeBody` with a light bar on the roof —
+entering from off screen as near the bank as the camera allows. `clearPolice()` takes them off again.
+
+### They are spawned, not repainted
+
+The first version took the `n` ambient cars nearest the taxi and turned them blue for the length of
+the event. It is cheap, it needs no buffer headroom, and it reads **wrong**: a car the player has
+been following for half a block becomes a police car in front of them, and a police car that falls
+behind turns back into a hatchback. Nothing in a world should change species, and there is no
+version of the repaint that fixes it — the repaint *is* the bug.
+
+So a robbery brings its own cars. Three things follow, and each is load-bearing:
+
+- **They live at the tail of `ambient`.** Removing a car out of the *middle* of an instance buffer
+  is the thing `setCarCount` refuses to do — every index after it shifts and the car vanishes off a
+  road it was visibly driving down. At the tail there is no index after it: the count comes down and
+  nothing else moves. `swapAmbient` is what lets the caller choose *which* cop leaves, by moving it
+  to the tail first; it is only ever used between two police cars, which are a contiguous block.
+- **`setCarCount` will not grow the fleet while they are out.** A density car appended behind the
+  police would break that contiguity and then be stranded above `mesh.count` the moment the event
+  ended — still in `cars`, still driving, still collidable, no longer drawn. The ramp catches up on
+  the next call.
+- **`POLICE_FLEET` is buffer headroom, not density.** The vehicle meshes are sized for the
+  difficulty ramp's ceiling *plus* the cop fleet, so a robbery at full density still has somewhere
+  to put its cars. `game/robbery.js` imports the constant rather than keeping its own, because the
+  fleet size and the reservation are the same fact.
+
+A cop is also **placed** on arrival — `spawnCars` builds a car at the origin, and every other caller
+either runs a warm-up or spawns before the first frame. This one spawns mid-run, so an unplaced car
+is a cop car drawn at the middle of the map for a frame.
+
+### Off screen, and as near the bank as that allows
+
+Two conditions that pull against each other. It has to be far enough from the taxi that the player
+does not watch it appear — `SPAWN_CLEARANCE` is the 50 units this file already uses for exactly
+that — and it should be near the bank, because a police response arriving from the far side of the
+city is one nobody sees.
+
+They cannot both be satisfied, and it is worth being plain about why: **the taxi is at the bank when
+a robbery starts.** "Within two blocks" is 40 units and "off screen" is 50, so on the frame the
+event fires the two sets do not intersect. The off-screen constraint is taken as hard — a car
+appearing out of nothing in frame is the one failure with no defence — and distance to the bank is
+minimised subject to it, by a search that relaxes one requirement at a time. `ENTRY_SPREAD` keeps
+four arrivals from stacking onto one street.
+
+### What actually made them fast: acceleration
+
+Three constants were raised in order, and **the first two measured as nothing** — which is the
+useful part of the story, because each looked obviously right.
+
+| | before | after | effect on a cop's mean speed |
+|---|---|---|---|
+| `CHASE_SPEED` (ceiling) | 1.9 → 16.2 | 2.55 → 21.7 | none |
+| `CHASE_CORNER_SPEED` | 5.95 | 15.6 | none |
+| `CHASE_ACCEL` | `ACCEL`, 6 | **15** | **6.6 → 8.8** |
+
+Splitting a cop's speed by what the car was doing is what found it:
+
+| | target | actually reached |
+|---|---|---|
+| mid-corner | 15.6 | 9.4 |
+| on a lane | 21.7 | 10.9 |
+
+It never got near either. Junctions are 20 units apart, so from 9 u/s over the ~12 units of lane
+between two boxes at `ACCEL` a cop reaches 15 and then has to brake for the next corner. **A cop
+with a doubled ceiling and a hatchback's engine spends the whole chase accelerating and arrives at
+none of it.** Measured per state over 40 seeds: 42% of a chase is mid-corner, 30% stopped, and only
+10% flowing — so the ceiling applies to a tenth of the event and the acceleration to all of it.
+`chaseAccelFor` composes it the same way the flee's is composed, and at both acceleration sites,
+because a rate that differs between the turn branch and the drive branch is a rate that jumps at
+every junction boundary.
+
+### The one licence: a red on a provably empty junction
+
+A chasing cop crosses a red when the junction is demonstrably clear (`CHASE_RED_YIELD`). This is
+the licence this file spent a long time refusing, and the fencing is the interesting part —
+`sim/collisions.js` only tests the **taxi**, so an unsafe crossing is not a crash, it is a cop
+driving *through* a car in full view with nothing logged. Five clauses, all load-bearing:
+
+- the crossing street clear by 30 units, via `streetIsClear` — the same test right-on-red and the
+  ring both use;
+- **nothing mid-turn in the box**, which that test cannot see: a car part-way round its arc is past
+  its lane's end, so it is in neither `approaching` nor `heldAt`. This is the clause whose absence
+  would have made the whole thing unshippable;
+- nothing stranded or braking in the junction (`held`);
+- no emergency corridor through it, so the cruiser still owns any box it wants;
+- and a legal, open exit.
+
+Counted as `stats.chaseOnRed` rather than `stats.violations`, like right-on-red: it is sanctioned,
+and folding it in would hide a real violation. Over 40 seeds a getaway produces about one crossing
+per event and **zero** violations.
+
+### They are recycled, because a slower car cannot stay in the picture
+
+A cop that falls more than `LOST_RANGE` (56, just past the frame) behind is taken off the map and
+another comes in **behind the taxi**, on the straight it is already driving. That is not a
+concession, it is the only thing that works: a cop's *ceiling* is 20.4 against a boosting taxi's
+22.1, but cornering and queueing put its mean over a getaway at about 9 against the taxi's 27, so
+one simply left to drive recedes and keeps receding. Recycled, the road behind a getaway keeps
+refilling. `REENTRY_GAP` spaces the replacements so they arrive one at a time rather than as a rank.
+
+Measured over 40 seeds with the player boosting, against the same event without recycling: a cop is
+in frame for **89%** of a getaway rather than 85%, and there are two of them at a time rather than
+1.8. Swept at 72 and 52 as well — 72 leaves the fleet strung out and 52 buys nothing while cutting
+into the margin that keeps a retirement out of sight.
+
+### Which is the whole shape of the event, in one table
+
+Over 40 seeds, with and without the player holding the pill:
+
+| | not boosting | boosting |
+|---|---|---|
+| nearest cop, median | **12.0** | 27.1 |
+| inside one block | **67%** | 32% |
+| inside half a block | **42%** | 12% |
+| a cop behind you, in frame | 73% | 46% |
+| cop mean speed | 8.8 | 11.2 |
+| taxi mean speed | 5.0 | 25.5 |
+
+That is the number the event is tuned against. Lift off and a cop is within half a block of you
+**42%** of the time — and a cop is a wall, so that is the crash the run ends on. Hold the pill and
+that falls to 12%. Before the acceleration fix it read 31% against 12%, which is a chase that is
+merely *there* rather than one worth spending anything to escape.
+
+### The box-in: roadblocks, the overtake and the brake check
+
+A chase that only ever converges has nothing for the taxi to *do* about it but outrun it. Since the
+taxi has [hit points](#bumps-and-hit-points), the police also try to stop it, in two ways that are
+each an existing piece of the sim pointed somewhere new.
+
+**A roadblock is a car braking inside a box** (`holdRoadblocks` in `game/robbery.js`). A cop already
+crossing one of the next few junctions on the taxi's route, with the taxi 12–50 units off, brakes so
+that it comes to rest *across the taxi's approach lane* and holds there on `car.roadblock` — a timer
+beside `stun` that drives the same `braking` flag. Nothing else makes it a roadblock: a car braking
+mid-turn is already what the junction logic calls stranded (`heldAt`), so cross traffic is held, a
+taxi off the pill is refused at its line, and a boosting one barges in and meets the cop as a bump.
+Let go when the junction is no longer on the taxi's way (driven through, rammed through, routed
+round) or after `BLOCK_HOLD` (4s); one at a time, `BLOCK_GAP` (5s) apart. The gap was 8s and the
+look-ahead three junctions and 50 units; loosening all three moved roadblocks from 33 to 38 over 60
+staged getaways, because none of them is the gate that binds — a cop has to happen to be crossing
+the route at all, and routing cut-off cops in from a side street so that they would moved it by
+nothing (37).
+
+**A second cop is sent to stand beside it** (`summonPartner` / `pairUp`). The nearest free cop within
+`PAIR_REACH` (80) is routed onto the junction down any arm but the taxi's, and through it, and the
+first cop holds `PAIR_WAIT` (3s) longer while it comes. Once the first cop is at rest, the partner's
+arc is planned before it reaches the line (`plannedTurn`): a stop on the other half of the road — a
+lane centre if the first cop is on the centreline, the mirror image if it is not — whose body, at
+the diagonal chosen for it, clears the first cop and the first cop's way out by `PAIR_MARGIN` (0.6)
+beyond the collision circles, as does the arc up to it. Only a planned partner is let into the held
+box (`joinBlock`, on any light — nothing else can be in there), and it holds on the first cop's clock
+but does not leave until the first cop has driven out. Pairs are rare — 1 to 3 per 35-odd blocks over 60 getaways: a
+fifth of blocks have nobody in reach, half of the summoned arrive after the first cop is let go, and
+most of the rest find the first cop's body across their own arm as they enter the 8-unit box. Planned
+with no margin the pair stood 0.53 into each other.
+
+Where it stops is measured, not wherever the brake happens to finish. `turnPointAt` samples the cop's
+arc on the same Bézier the render pass draws, and the cop brakes on the frame `stopDistance(v)`
+lands it on the point nearest the **centreline of the taxi's road**, so the 45° body below stands
+across both lanes. It used to stop halfway between the taxi's lane and the centre, which covered the
+taxi's lane and 0.8 of the other and read on screen as a cop parked askew in one lane. An
+**arterial** keeps the halfway line: its lane is 3.33 off the middle, so a cop centred there leaves
+the taxi's flank half a unit clear of its body and a boosting taxi drives past without touching it.
+
+**And it stops at 45°, across the road** (`SLEW_*`). A blocking cop — the roadblock and the brake
+check both — skids round to the nearest diagonal of the road it is blocking over `SLEW_TIME` (0.4s)
+and drives back out of it over `SLEW_RECOVER` (2.5 units of road) when let go. Render-only, like the
+knock; `sim/collisions.js` reads the drawn pose, so the angle is real to the taxi. On a lane the
+brake check also slides onto the centreline of an ordinary street (an arterial's centreline is the
+median, so there it slides half a lane — `blocksOnCentreline`). The diagonal body is 3.6 across, 1.8
+either side of the middle, which is 0.65 into an oncoming car's flank: ambient traffic is never
+collision-tested, so an oncoming car within `PULLOVER_RANGE` pulls over for it exactly as it would
+for a siren (`laneBlocks`), putting its flank at 2.65. A taxi going round it in the oncoming lane
+meets its nose inside the collision envelope, so the one way round a brake check on the pill is
+through it. The recovery was 5 units first and was too slow: a cop pulling away into a left turn was
+still half swung when it crossed the box, and overlapped whatever was in it.
+
+**Only a crossing car blocks.** Every clause of the gate was a measured overlap first, because
+ambient traffic is never collision-tested and a cop stopped in the wrong place is a car drawn
+*through* another one:
+
+- not a cop out of the taxi's **own** lane, straight or turning. Stopped mid-box it is a car in front
+  of the taxi, and the lane bookkeeping counts a crossing as 5 units of an 8-unit box — the following
+  taxi closed to 2.2 centre to centre. A cop turning off is handed to its exit lane part way round
+  and then is not the taxi's leader at all. Stopping in front of the taxi is the brake check's job,
+  and that happens on a lane, where the arithmetic is exact;
+- not in the last third of the arc, where the nose is in the exit lane and a car landing there hits it;
+- not into a box something else is already crossing, since a committed car cannot be asked to stop —
+  nor one a car has just left with its tail still inside it, which the centreline stop made the cop's
+  arc sweep through;
+- not with the taxi inside 12 units, where off the pill it has already committed to the box.
+
+**And the arrival test on an unsignalised junction now reads `heldAt`.** The approach always did,
+so a car stopped at the line — and then the arrival, asking only about the priority street, waved it
+into the stopped car. That hole was there for a stranded car on the ring too; a roadblock just stands
+long enough to find it.
+
+**The overtake is the taxi's own**, run for a cop that has caught the taxi from behind (the cop-pass
+block in `update`): the same `pass`/`passOffset`/`passSlope`, the same smoothstep paced by road, the
+same `PASS_CLEAR` before cutting back in. `seesLeader` already reads the offset, so a cop out of its
+lane stops following the taxi without being told. Once back in front it brakes for `BRAKE_CHECK`
+(2.5s) — with the stern-chase cops arriving behind, that is the box. The gate is fussier than the
+taxi's, for the same reason as the roadblock's:
+
+- the taxi is slow (under 70% of the cop's ceiling) and not boosting, or the cop parks in the
+  oncoming lane beside a car it cannot out-run;
+- both routes carry straight on for **two** junctions, and `steerChase` leaves a cop's route alone
+  while it is out. A re-aim mid-pass handed one a turn with the cop still in the oncoming lane;
+- the borrowed lane is clear for 90 units, counting cars **turning into** it. 60 let an oncoming
+  cop, closing at 40 u/s, meet one head on;
+- there is road to cut into in front of the taxi, and no other cop is already out there.
+
+Abandoned only from **a body length behind** the taxi — tucking in from alongside measured 1.7 units
+centre to centre — so a pass that goes wrong stays out until the taxi pulls clear or the cop gets
+ahead. The swing is paced by the road the cop actually covered, not `v · dt`: a cop held up behind
+the taxi keeps its speed and gets no road, and speed-pacing slid it sideways into the taxi while it
+stood still. Anything coming the other way within 25 units brakes for a cop out in its lane — one
+in 46 passes, a cop that was alongside when a car turned into the road met it head on as it cut back
+in. While out and committed, a cop is skipped as anyone's leader (`outOfLane`), so the taxi
+it is drawing level with does not brake for a car in the other lane — and it stops being skipped the
+moment it is past, because a cop that slows while cutting back in was caught and cut into by the
+taxi it had just passed.
+
+Measured over 58 staged getaways on 60 seeds, with a taxi that drives its route off the pill and
+never re-routes: 56 roadblocks, 45 overtakes, 27 brake checks, no violations and no overlap of any
+kind. The taxi was stopped for 23% of the time against 16% on the same seeds without the box-in,
+and behind a cop for 6% of it. `tools/probe.mjs` asserts the geometry over six getaways, and that a boosting taxi meets a
+roadblock as a bump rather than a wreck.
+
+### Standing down
+
+A getaway used to end with every cop car blinking out of existence, including whichever ones were in
+frame at the drop-off. That is the repaint's failure at the other end of the event, and just as bad.
+
+So the drop-off **stands the police down**: on the frame the event ends each one switches its bar
+off, loses its chase, and is routed to the map corner furthest from the taxi. `driveOff` takes it
+off only once it is `STAND_DOWN_RANGE` (62 units, three blocks) away. `STAND_DOWN_TIMEOUT` relaxes
+that bar to `SPAWN_CLEARANCE` after twelve seconds, and **never below it** — a cop standing down is
+ordinary traffic, so it can end up queued behind a red two blocks from a taxi that has itself
+stopped at a kerb, but "a car the player is watching does not blink out" is the rule the phase
+exists to keep.
+
+62 rather than the 90 the first cut used. At 90 a cop driving away at ordinary cruise takes eleven
+seconds to qualify, so the *backstop* retired most of them rather than the distance, and the police
+hung around long after the event they belonged to. Three blocks clears the frame by a quarter of a
+block and is reached in about seven seconds.
+
+**`car.siren` is a separate flag from `car.police`, and the stand-down is the only stretch where
+they differ.** `police` is the paint, and paint does not switch off — a stood-down cop is still a
+police car, because that is what it *is*. `siren` is what it was *doing*. The light bar in
+`writeAmbient` and the road wash in `game/coplights.js` both read `siren`, so a car driving away
+from a finished scene goes dark, together, a beat before it leaves the map. Reading `police` for the
+bar meant the fleet drove off with its lights still going, which reads as an event that has not
+actually ended.
+
+**Paint alone did not say police, so the bar has a housing that reads `police`.** The bar used to
+be two lamps and nothing else, and a lamp's off is a zero scale — so the frame the event ended every
+cop lost the only thing on it that was not a car body, and `policeBody` (#2E5FA8) is a few steps off
+the ordinary blue in `carBody` (#4E7FC0). At play zoom the fleet driving off read as the police
+turning back into traffic. `sirenHousingMesh` is a dark box under the pods (`sirenHousingGeometry`
+in `geometry/lights.js`), not a lamp and not in the bloom, drawn off `police`: lit, it is the strip
+between the pods; dark, it is a cop car with its lights off. It is inset from the pods on every
+shared side so a lit pod encloses it rather than fighting it, and the probe asserts all three. A
+wrecked cop's shell had the same hole one layer over — it was tinted from `carBody[colorIndex]` —
+and goes through `bodyColor` now.
+
+Routing them out is not cosmetic. The first cut merely *cleared* their routes, and a car with no
+route rolls the ordinary dice at every junction — so a "departing" cop circled the block the taxi
+was parked on as often as it left, and the backstop then deleted it in full view. Measured: nearest
+departure **5 units** from the taxi. Given somewhere to be, they drive there; the probe asserts the
+nearest departure is outside the frame, and that they leave with a route rather than with dice.
+
+`abandon` is immediate by contrast — a wreck puts a retry screen over the city, so there is nobody
+to watch them go.
+
+**Half of them cut you off and half come after you.** `car.chase` lifts that car's cruise ceiling
+by `CHASE_SPEED` and its cornering by `CHASE_CORNER_SPEED`, and `car.route` is a plain `findRoute` to
+a junction **on the taxi's own route** — for two of the four that is the junction the taxi is at
+(a stern chase) and for the other two it is three or five ahead of it (`CUT_OFF_AHEAD` in
+`game/robbery.js`). After that [the one routing branch](#the-one-routing-branch) does everything. A
+chasing cop *is* a routed car, which is the same thing the player's own taxi is.
+
+The split is the point. A cop aimed down the road is doing the useful work and is usually off to the
+side doing it; a cop aimed at the taxi is *behind* the taxi, in the mirror, on the same straight,
+which is what a chase looks like from the driver's seat. Sending every car to a cut-off made the
+getaway read as an empty road with the occasional cop appearing at a junction. What makes the stern
+half viable at all is the recycling above.
+
+### Why it is not a pursuit
+
+The first version sent every cop to the junction the taxi was *at*, which is the obvious design and
+is arithmetically unwinnable. A cop cruises at 20.4 and a boosting taxi at 22.1 — but a cop is
+cornering and queueing, so its **mean speed over a getaway is 9**, against a boosting taxi's 27. It
+is being sent to a point the taxi left a second ago, so the gap grows every frame it drives.
+Measured over 40 seeds, the nearest cop sat at a median of **28 units** and was inside half a block
+for 13% of the chase. On screen that is four blue cars milling about somewhere behind you, which is
+exactly how it was reported.
+
+It is not a tuning problem, and that was established by tuning it. The chase was given three
+advantages, each measured separately: traffic that scatters out of its lane, corners taken at nearly
+twice an ordinary car's speed, and — as an experiment, *not shipped* — every red light in the city
+turned green for it. All three together lifted a cop's mean speed from 6.8 to 13.6 and moved the
+distance to the taxi **by nothing**. A pursuer slower than its quarry does not catch it, however
+much licence it is given.
+
+So the cops stop chasing and start intercepting. The taxi's route is a list of the junctions it is
+about to drive through and it is already on `taxi.route`, because the player drew it; aiming at one
+of them is the same `findRoute` to a different target. A cop only has to beat the taxi to **one**
+junction on its way, and the taxi has announced which ones those are. Over the same 40 seeds:
+
+| | pursuit | interception |
+|---|---|---|
+| nearest cop, median | 28.3 | **21.6** |
+| inside one block (20u) | 31% | **47%** |
+| inside half a block | 13% | **20%** |
+| a cop in the road *ahead* of the taxi | 30% | **38%** |
+| cop mean speed | 6.8 | **9.1** |
+| at or above ordinary cruise | 29% | **55%** |
+
+The aim is keyed on the taxi's junction **and the first few steps of its route**, so redrawing the
+route re-aims the police on the same frame. Keyed on the junction alone they went on converging on
+a road the taxi had stopped driving down.
+
+Three to five junctions, dealt round-robin. A block is about 0.75s at the Loco top, so one ahead
+lands the cop behind the taxi again and ten ahead puts it somewhere the run may never reach. They
+are spread rather than stacked so the road is seeded rather than barricaded at one point. Six cop
+cars instead of four buys 4 points of "a cop ahead" and nothing else, which is why it is still four.
+
+### The speeds, and the ordering between them
+
+`CHASE_SPEED` is **2.4**, so a cop cruises at 20.4: over the flee's 2.0, under a boosting taxi's
+2.6. It was 1.9, and the *ordering* was the bug rather than the magnitude — a cop now clears its own
+lane with the same `scatter` the boosting taxi uses, and a car told to flee runs at `SCATTER_SPEED`,
+so a ceiling below that meant the cop opened a gap in front of itself and then could not drive into
+it. Anything that clears a lane has to be able to outrun what it clears; the probe asserts both ends.
+
+`CHASE_CORNER_SPEED` is **0.55 of the cop's own cruise**, 11.2 against an ordinary car's 5.95. A
+corner rather than a straight is what the chase was really losing to, and it hid because every
+number anyone would look at is a straight-line number: `CORNER_SPEED` is a flat constant that
+`cruiseCapFor` never reaches, because the cap is the *drive* branch's ceiling and the turn branch
+has its own target that no per-car factor composes into. A cop whose ceiling had just been doubled
+still went round every junction at 5.95 — and a chase to a moving target turns at nearly every
+junction.
+
+That gap between 20.4 and 22.1 is the mode: the pill outruns them in a straight line and lifting off
+does not, so Loco Mode is the answer to the event and the wreck is what makes it a gamble. What it
+cannot outrun is a cop already parked across the junction ahead.
+
+**It grants a cop no licence an ordinary car lacks**, and that is the part that makes it safe to
+ship rather than merely dramatic. A chasing cop queues, indicates, stops at reds, yields and can be
+crashed into exactly like the car it was a moment before. Letting one through a red is the obvious
+next step and it is the one thing that must not happen: `sim/collisions.js` only ever tests the
+**taxi**, so a cop that ran a light would drive *through* the cross traffic rather than into it —
+the same trap `releaseCar` and the drive-through's exit already record (see
+[the drive-through](#the-drive-through)). `tools/probe.mjs` asserts the whole chase runs at zero signal violations.
+
+The plan is **keyed on the taxi's junction and route**, not on a clock and not per frame.
+Re-planning a route every frame is a standing trap here: the turn a car has committed to never
+retires from its route, so it sits at the junction re-deciding the same turn. Re-aimed per junction,
+it converges. A cop whose route comes back *empty* has arrived at its cut-off; it is sent further
+down the same road rather than left there, because a car with no route rolls the ordinary dice at
+its next junction and would wander off the getaway a beat before the taxi arrived.
+
+A chasing cop also strobes at the cruiser's **hunting rate** — eleven changes a second against six.
+That is the same cue and the same constant `sim/police.js` uses for its own lock-on, where it is
+described as the only thing telling the player the run has become about them. A cop car cruising past
+on its own business and one that has turned to come after you are otherwise the same blue car.
+
+Three things worth knowing about how it is drawn:
+
+- **The livery is a tint, not a mesh.** An ambient car's body is baked white and multiplied by its
+  instance colour (see `carGeometry`), so a cop car is one `setColorAt` away from an ordinary one.
+  Its `colorIndex` is never overwritten, which is what makes handing the paint back free rather than
+  something to remember.
+- **The bar is two pods on the roof**, off the same `lightPodGeometry` machinery the brake and
+  turn-signal pods use — one fixed emissive material per colour, and on/off as a scale about each
+  pod's own origin (`geometry/lights.js`). Both pods flash together, so the whole bar goes red then
+  blue: a pod is 3.5px across at play zoom, and a bar split by colour alternates two specks a colour
+  apart and reads as a flicker.
+- **Every ambient car writes the bar every frame**, not just the police ones — a car that is not a cop
+  writes a level of zero and its pods collapse. A loop that skipped the others would leave whatever
+  they last wrote standing on the road, which is the trap `game/bloom.js` records one layer up: in a
+  pass keyed on something other than the material, skipping the write does not skip the draw.
+
+`sirenOn()` moved out of `sim/police.js` into `geometry/lights.js` when this arrived. It stopped being
+the cruiser's own the moment there was a second kind of police car, and two clocks would have had the
+two blinking out of step on the same street.
 
 ## Police priority corridor
 
@@ -1778,6 +2436,69 @@ being touched at all.
 It drives its **lane** — right-hand traffic, one `LANE` off the road centreline — at `SPEED = 19`
 (about twice traffic). It skips the lane-following and collision machinery entirely, so it never
 queues behind anyone. A red/blue point light rides with it.
+
+### The jog
+
+A run used to be one straight line from one edge of the map to the other, which is the whole of
+what a rail is: eight seconds with no decision anywhere in them, and the cruiser reading as a tram
+rather than as a car. `JOG_CHANCE` of runs now take a **one-block sidestep** — two corners at the
+same junction index somewhere in the middle, a short leg across, and back onto the heading it set
+out on, one road over from where it was pointed. It still enters at one edge and leaves by the
+opposite one; the only thing that moves is which road it spends its second half on. Measured over
+152 runs on 8 seeds: 80 jogged, every one of them two corners onto the neighbouring road, and none
+stopped short of the far edge.
+
+**Planned before the run starts, not decided at each junction.** Nothing here has collision
+response or queueing; what keeps that from showing is the corridor holding the road *ahead* green
+and the lane clearing itself. Both need a road named in advance, and a corner is the one moment the
+road being cleared changes — so both roads a jog uses are checked end to end at `start()`, against
+the same closures the straight line already had to pass. Routing junction by junction is
+[the chase](#the-bust-chase)'s job, and the chase is allowed to look reckless because it is
+supposed to.
+
+**The corner is driven, not snapped.** The chase turns its rail square and lets `CHASE_SMOOTH` bend
+the drawn car round it, which works because a chase is meant to look like a car being thrown at a
+corner; at corridor speed the same trick has the cruiser cutting across the junction on a lag it
+never recovers. So a jog's corner is the exact quadratic Bezier every ambient car turns on —
+`entryPoint` to `exitPoint` about `turnControl` — and it joins the two straights with no
+discontinuity in position *or* heading, because its two ends **are** the lane centrelines the rail
+already sits on. Two things fall out of it that did not look like they would:
+
+- **A quadratic Bezier's parameter is not its arc length.** Both of this one's legs are as long as
+  the junction is deep, but the entry leg carries the lane offset as well (`reach + laneOff`
+  against `reach`), so `|B'|` runs 17.3 down to 8 across an arterial corner. Driving `t` at a
+  constant rate takes the cruiser *into* the junction half as fast again as its own 19 and out of
+  it at two thirds. `ARC_CHORDS` carries a cumulative length and `t` is looked up against a
+  distance.
+- **The dodge makes the car drive a different curve from the arc.** An offset curve is `1 - w·k` of
+  the length of the curve it is offset from — a rounding error on a straight, and not one on a
+  **right** turn, whose arc is only 3.25 units long (its legs are `reach - laneOff` apart where a
+  left turn's are `reach + laneOff`), so 0.9 of dodge is an appreciable fraction of the radius. The
+  cruiser covered 0.54 units in a frame, 32 units/s of ground, against the 0.32 and 19 the rail can
+  produce. `arcScale()` paces the arc by the ground the car covers instead.
+
+  Coming off the dodge *before* the corner is the obvious alternative and is worse: it leaves the
+  cruiser square in its lane for the last half second before a junction, which is exactly where the
+  queue it was squeezing past is standing. Same seeds and same draws, one constant apart: 27 frames
+  inside a driving body against 14.
+
+**What a corner costs is warning.** `PULLOVER_RANGE` is 34 units and a jog's cross leg is 9-12, so
+the road turned onto has had only the corner's own length to get out of the way, and a car standing
+near its far junction is one the cruiser can still meet square. That is arithmetic rather than a
+measurement, and deliberately written as such: the probe's overlap counter is too coarse to
+separate it out. Reshuffling the cruiser's own rng with the jog switched off moves that number
+further than the jog does — 23 frames against 14 on the same three seeds — so the honest claim is
+the arithmetic, and the category is the one [the wreck](#the-wreck) and the junction boxes already
+leave standing.
+
+**The roads of a run are published, not just the leg it is on.** `policeRoads()` lists the current
+leg first and then whatever the plan has left. It is a different list from the priority corridor,
+which is one road because it is one set of lights and holding two would stop the cross traffic on a
+road the cruiser has not reached yet. What reads it is everything that *closes* a road — the
+roadworks placement veto and the drawbridge — and those have to know about a corner before it is
+taken. Reading the presence for this was the same answer for as long as a run was a straight line;
+it is not any more, and a leaf coming up under a committed corner is a cruiser driving through a
+raised bridge.
 
 ### Nothing crashes into it, so the lane has to clear
 
@@ -1857,15 +2578,25 @@ trees. A [roadworks closure](#the-closure-is-soft-and-that-is-not-a-shortcut) is
 ids in a set, nothing removed from the graph — so nothing stops a car that does not look, and the
 police car was that car: it drove through the barricades, the cones and the hole.
 
-It looks in three places now, one per way a cruiser can reach a dug-up street:
+It looks in four places now, one per way a cruiser can reach a dug-up street:
 
 - **Drawing a corridor.** `lineIsClear` walks the whole line and rejects it if any segment is
   closed, by a park or by a zone. Six of forty draws used to land on the closed line.
+- **Planning a jog.** `planJog` runs the same test over the segment it steps across and the whole
+  of the road it steps onto — `hopClear` and `runClear` — and gives up on that hand if either is
+  shut. It is the same check as the line's, applied to the roads a run has committed to but is not
+  on yet.
 - **Every junction of a chase.** `turnAt` filters dug exits out in a first pass — only a first
   pass, because a chase that found every exit closed should drive through the cones rather than
   abandon the bust over a traffic cone.
-- **Placing the zone.** `eligible` in `roadwork.js` declines an edge on a live siren's road, which
-  closes the one case the other two cannot: a zone rising underneath a run already in progress.
+- **Placing the zone.** `eligible` in `roadwork.js` declines an edge on any road of a live run —
+  `policeRoads()`, so the roads a jog has ahead of it as well as the one under it — which closes
+  the one case the others cannot: a zone rising underneath a run already in progress.
+
+The drawbridge comes through the same two doors and needs no case of its own: it shuts its span by
+putting two lane ids in the same closed set a zone uses, so `hopClear` sees it, and `sirenOnLine`
+in `drawbridge.js` reads `policeRoads()` rather than hold off only for the leg the cruiser is
+currently on.
 
 > Once fixed: the police car drove straight through a park. It now respects closed segments.
 
@@ -2000,15 +2731,19 @@ one. Measured across five seeds:
 
 | | p50 | max |
 |---|---|---|
-| corridor run | 0° | 0° |
+| corridor straight | 0° | 12.2° (the dodge) |
+| corridor corner | 28.2° | 34.2° (on the clamp) |
 | chase | 5.2° | 34° (on the clamp) |
 | U-turn | 25.8° | 33° |
 | parked after the arrest | 2.8° | 3.3° |
 
-The corridor run is a flat zero because it is a straight rail — which is exactly why the cruiser
-had no business having steered wheels before the chase existed. It also means the assertion that
-matters is the chase one: a corridor-only check would pass an implementation that never turned
-them at all.
+A corridor straight with nothing in its lane is a flat zero, which is exactly why the cruiser had
+no business having steered wheels before the chase existed. It is not the whole of a corridor run
+any more — [the jog](#the-jog) puts two real corners in most of them — but it is still not the
+assertion that matters, because it is satisfied by a car that never turns its wheels at all. That
+one is the chase's. The probe's corridor check is therefore taken **before the run's first
+corner**: `!state.corner` alone would sample the half second the lock takes to unwind after one,
+which peaks at 34° and is not a straight.
 
 **The banner waits for the arrest.** `BUST_BANNER_DELAY` is a floor, not the schedule — the retry
 screen holds until the cruiser stops, plus a beat. A park district can close the one road between

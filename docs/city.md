@@ -126,19 +126,53 @@ asserts that nothing but a passing taxi is ever over one.
 The ends are **stadium caps**, not square corners. At 2.4 across and eight long, a square-ended
 planter reads as a kerbstone dropped in the road.
 
-### Flowers, not trees
+### Flowers, not park trees
 
-Trees were the first thing planted there and the camera is why they are not there now. It looks
-down at 33°, so anything of height h hides the ground within `1.54h` behind it — and what sits
-behind a median is the far carriageway of the road the player is most likely to be driving down.
-That lane centre is 3.33 across, which is 4.71 along the view diagonal; even a stunted 2.9-unit
-tree with a 0.9 crown reaches about 5.7, so it passed in front of cars over there for roughly half
-of every block. Shortening it further just made it a shrub on a stick.
+The *park* tree was the first thing planted there and the camera is why it is not there now. It
+looks down at 33°, so anything of height h hides the ground within `1.54h` behind it — and what
+sits behind a median is the far carriageway of the road the player is most likely to be driving
+down. That lane centre is 3.33 across, which is 4.71 along the view diagonal; even a stunted
+2.9-unit tree with a 0.9 crown reaches about 5.7, so it passed in front of cars over there for
+roughly half of every block.
 
 A flower bed tops out **0.54 above the island**, 0.89 above the road, which casts 1.4 of occlusion
 against the 4.71 it would have to reach to touch the far lane. The question stops being "how often
 does this hide a car" and simply goes away. It also suits the strip better: a median is a planter,
 not a verge, and bedding is what a city puts in one.
+
+### And a small tree in some of the bedding
+
+Sixty per cent of islands carry one or two small ornamentals standing in the flowers — two on an
+8.4-unit run, one on a 7.07 — planted on the island's **spine** rather than at their host bed's own
+centre, because a bed may wander up to `BED_ROOM - footprint` off the middle and every unit of that
+spent toward the far carriageway comes straight off the sightline budget below. They are the park's
+tree (`treeParts`), on a leggier `0.5` trunk so the canopy clears the mound it grows out of, at
+`MEDIAN_TREE_H` = **1.65–1.95** against the park's 3.4–5.6.
+
+That height range is the whole feature. It is set off a measurement of the *built geometry* rather
+than off `treeShape`, because two things reach further than `crownReach` reports — the crown's
+extra lobes sit up to `0.5r` out with a radius of their own, and `jitterVertices` throws every
+corner another `0.1r` — and together they are worth about a fifth of the clearance.
+
+**A jitter tail has to be found by sampling the generator, not by looking at a city.** The lobe
+offsets and the vertex jitter are three independent draws deep, so the furthest vertex the
+generator *can* produce sits a long way out from the furthest one twelve cities happen to contain:
+116 real trees reach 2.98, a thousand at the top of the range reach 3.20, twenty thousand reach
+3.23. The first cut took the 12-city figure for the worst case and set the range at 2.1 — where the
+tail casts **3.45** and crosses the lane, on a city nobody had generated yet. `tools/probe.mjs`
+therefore checks both: the real planting over 12 cities, and a thousand trees built at the top of
+the range.
+
+What it holds to is better than the lane centre anyway. The bar the range was picked against is
+ground at 3.33; the number that matters is that nothing a whole unit above the road is shaded past
+**2.15**, while the far lane's near flank is **2.48** out. No part of a car above knee height is
+ever behind one of these. The crown stays over the island too — 0.75 off the spine at its widest
+against 1.05 of grass — so it never hangs over a passing truck.
+
+The trees are drawn in a **second pass**, after every bed in the city has been planned. Not for
+readability: a draw taken inside the bed loop would have reshuffled every bed downstream of the
+first island to grow one, and this way the bedding a seed already had stayed exactly where it was.
+Same argument the beds themselves are planted after the parks for.
 
 **A single flower is not a thing this game can draw.** At play zoom 1 world unit is 7.7px, so even
 a scaled-up bloom is three or four pixels and a stem is nothing at all. What has to read is the
@@ -216,7 +250,9 @@ extra width out of the blocks either side of it and `blockBounds` cannot answer 
 of the tower generator's hands (`createBuildings` only walks `'built'` blocks) and leaves it for the
 taxi's own depot: a single-storey shed at the back of the block with a roller door on the street, a
 3-unit asphalt forecourt, and a dropped kerb the taxi comes off in
-[the opening vignette](gameplay.md#the-opening-vignette).
+[the opening vignette](gameplay.md#the-opening-vignette). It is painted in the cab company's own
+colours and carries a radio mast — see [the livery](#the-livery-and-the-mast-on-the-roof) and
+[the mast](#the-mast-and-what-is-derived-from-the-dish) below.
 
 **A whole block, not a lot.** The depot needs a forecourt to pull out of, and the generated city
 only leaves 0.85 units of pavement between a façade and the kerb — a car pulling out of a door that
@@ -229,6 +265,91 @@ it free: nothing in layout.js reads `rng` after it, and every generator downstre
 offset stream — so adding the depot moved no park, no arterial and no building. `blocks.garageBlock`
 is the answer, and it may be **null**: a city with nowhere to put one opens without the vignette
 rather than not opening.
+
+### The livery, and the mast on the roof
+
+The depot is the one building the player owns, and it is painted like it. **The envelope itself is
+yellow** — `garageWall`, the biggest exception in `palette.js` to "yellow is reserved for the taxi",
+and the note there carries the audit. The short version is that the rule protects the read of a
+*yellow car on a road*, which is a small moving rectangle at play zoom; this is a static mass on a
+block, and every seed puts it somewhere different, so there is no learned "the yellow thing is the
+taxi" to break.
+
+What it does have to survive is the opening vignette, where a yellow car drives out of this
+building. Which is why it is **#DDA62F rather than `taxiBody`'s #F5C130** — ten points of lightness
+and four degrees of hue below the car, enough for the taxi to read as a separate object against its
+own depot. The bay behind the door stays `garageBay` dark for the reason it always did: the reveal
+is a bright thing coming out of a dark hole, and the wall's colour must not become the hole.
+
+Under the parapet runs one **black-and-white chequer course**, on the two elevations this camera can
+ever see. Four shapes of the same trap here, each worth knowing before moving any of it:
+
+- **The course is boxes standing `PAINT_PROUD` off the wall**, not a colour baked into the wall's
+  own vertices. A stripe painted onto a face is two front-facing surfaces on one plane, and an exact
+  tie resolves differently on different hardware — see [the coplanar note in CLAUDE.md](../CLAUDE.md).
+  The paint is proud of the wall and the coping is proud of the paint, so the parapet still reads as
+  a lid; `tools/probe.mjs` measures both.
+- **It hangs `CHECK_DROP` below the coping rather than flush against it,** and the gap is the
+  building's own yellow doing a job. The coping is dark and every other square is nearly as dark, so
+  a flush course loses half of itself into the parapet. (That gap used to be a *yellow band*, back
+  when the wall was grey. On a yellow wall a yellow band is not a band, so the wall does it
+  directly.) **0.17 of the drop is spent before it shows**: the coping overhangs by 0.18 and this
+  camera looks down at 0.92 of rise per unit of x, so its lip hides the top 0.17 of everything under
+  it. The probe asserts the *visible* remainder, not the nominal drop.
+- **The squares are wider than they are tall,** and that is the difference between square on the
+  wall and square in the frame. A face running along z is seen at 45° to the view, so its horizontal
+  extent is foreshortened by about 1/√2 while its height is not: at 0.46 square the course drew as a
+  row of narrow vertical bars.
+- **Each elevation is sized to a whole number of squares**, not to a fixed pitch. The two faces are
+  different lengths and neither divides by anything, so a fixed pitch ends a run on half a square at
+  the corner. The probe walks the squares and demands the colour flips at every step, because a
+  course that stopped alternating is still a course of squares from far enough away.
+
+The forecourt gets **two guide lines** out of the bay — the last thing still wearing `garageSign`,
+which is `taxiBody`'s own hex, because two lines on the ground where the car is about to be are the
+one place reading the taxi's yellow is the point. They are a third level on the block: `PAVEMENT_Y`
+is the paving, `APRON_Y` the asphalt on it, `PAINT_Y` the paint on that, named off each other the
+way [the burger joint](#the-burger-joint-and-its-drive-through) names its apron. They also stop
+`KERB_RUN` short of the lip, where the dropped kerb starts falling away — a level strip carried out
+over a ramp is buried in it at one end and hanging over it at the other.
+
+### The mast, and what is derived from the dish
+
+On the roof, a **radio mast** with a **dish sweeping on it** — dispatch has to reach the car
+somehow, and it is the only moving part on the building other than the door. The mast is static and
+rides in the shell's merge like everything else. The dish cannot: the city's entrance wave is a
+vertex shader whose anchor is a *world* coordinate, and a world coordinate in a turning object's
+local space is not a coordinate, so it grows on the CPU through `createCityEntry`'s `objects` list
+exactly as the burger over the drive-through does.
+
+Where its pivot sits is the subtle part. The CPU path owns nothing but `object.scale`, and the
+shader scales the shell about `KERB_H` — so the pivot stands at the **mast's foot, on the kerb**,
+not at the mast's head. A uniform scale about a point on that plane is the same arithmetic the
+shader is doing, and the dish rides up the mast as the mast grows. Put the pivot at the head and it
+shrinks toward a point two seconds of animation away from where the mast actually is.
+
+**Almost nothing else up here is a literal, and that is the lesson rather than the style.** The dish
+has been resized twice, and both times what broke was a hand-tuned number *around* it. So they are
+derived from its built geometry instead:
+
+- **The arm** it orbits on is `DISH_R · cos(DISH_TILT) + 0.26`. The disc is tilted about the z axis,
+  so its nearest point to the mast is `arm − DISH_R · cos(DISH_TILT)`; at a fixed arm, doubling the
+  radius put that on the far side of the pole and ran the mast through the dish.
+- **The crossbars** hang off the dish's measured underside with a fixed clearance, rather than at a
+  fraction of `MAST_H`. The dish orbits, so it passes over them once a revolution — a clearance that
+  holds in one pose is not a clearance.
+- **The mast's standoff from the roof corner** is the radius the dish actually sweeps — the furthest
+  any vertex gets from the pivot *axis*, which is not `boundingBox.max.x`, because the box measures
+  a pose the dish holds for an instant — plus a margin. One number answers both things it must not
+  reach: the +Z parapet it could swing out over, and the **curtain plane**, since every sightline
+  out of the door starts there and runs +X, so anything wholly behind it cannot occlude the door at
+  any height.
+
+One thing that is *not* derived and cost a probe failure to find: the rooftop plant. Its two boxes
+were placed one offset from the back of the roof in x and one from the front in z, which only ever
+stayed clear of the mast because an ordinary block is 12 wide. A block squeezed between two
+arterials is 9.33, and the mast walked into a box with nothing in the geometry to say so. Both are
+measured off the back corner now, and the probe measures the gap.
 
 ### The site filter is a sightline
 
@@ -429,6 +550,72 @@ coordinates** — and a world coordinate in a rotating object's local space is n
 all. So `createCityEntry` grew an `objects` list: a handful of transforms scaled on the CPU, on the
 same easeOutBack over the same delay, so the sign comes up with the building under it instead of
 hanging in the air over a hole in the ground.
+
+## The bank
+
+`src/city/bank.js`. One per city: a low, wide stone building with a colonnade under a pediment and a
+patinated dome behind it. It is the third building the tower generator does not draw, and the first
+of the three that is **a lot rather than a whole block** — the depot needs a forecourt to pull out of
+and the burger joint needs a drive-through lane, both of which are ground `splitLot` would divide out
+from under them. A bank is a building with a door on the street.
+
+It is placed from `createBuildings` alongside the courtyard rather than from `createLayout`
+alongside the other two, because which *lot* it takes is a fact about the tower generator's own
+draw. Same discipline either way: it is drawn last, with the courtyard's lot already excluded, so
+adding it cannot reshuffle a park, an arterial, a tower or the depot. `null` is a real answer —
+**38 cities in 40 have somewhere to put one**, and the two that do not simply never have a bank
+robbery ([gameplay.md](gameplay.md#the-bank-robbery)).
+
+### The silhouette is the feature
+
+A [robbery](gameplay.md#the-bank-robbery) starts when the empty taxi drives past this building, on a
+trigger the player never presses. So a player who has had one happen has to be able to find the thing
+that caused it, from across a five-block city, at play zoom, on a phone — which is a tighter brief
+than "a distinctive building" and is the whole of why it is shaped the way it is.
+
+| | |
+|---|---|
+| **Low and wide** | Roofline a flat 6.95, dome to 9.59 on average (9.39–9.73 over 40 seeds), against neighbours that run 5 to 16. The bank is a gap in the skyline before it is anything else — and the roofline is [derived rather than drawn](#the-roofline-is-derived-not-drawn). |
+| **A colonnade** | The one vertical rhythm in a city of plain boxes. `bankColumn` is a paler stone than `bankStone` for this: at play zoom a column is about three pixels, and what reads is the column against the wall rather than the shadow between them. |
+| **A pediment** | The one triangle at street level. Pitched roofs exist (`pitchedRoof`) but they sit on low-rise and never at the front. |
+| **A dome** | The one curved mass in the city, in the one colour nothing else wears. |
+
+The envelope stays **inside** the muted building family, unlike the depot's and the joint's. A bank
+is a bank among offices rather than a shed or a roadside box, and painting it to shout would have
+taken the shape's job away from it.
+
+**The front is not a choice**, for the same reason the drive-through's orientation is not: the camera
+looks down the +X+Z diagonal and never rotates, so of a building's four faces only +X and +Z are ever
+visible. `chooseBankLot` only offers lots with a +X or +Z street side, and the portico faces whichever
+of the two the lot has. The frontage measures 10.19 across on a 40-seed sweep, which is very nearly a
+whole block: the minimums (7.0 across, 5.5 back) are met by an undivided block and by essentially
+nothing else.
+
+### The roofline is derived, not drawn
+
+The one number on this building that was measured. A bank takes a whole block, so its **back wall** is
+a single flat 10-unit occluder standing directly up-screen of a kerb corner — and that corner is one a
+rider or a courier pad can be placed on ([the visible-corner filter](gameplay.md#corners-the-camera-cannot-see)).
+
+The geometry is fixed. A kerb corner stands `HALF_ROAD + 0.5` out from its junction, the block starts
+`HALF_ROAD` the other side of it, and the buildable rectangle is `INSET` inside that — so the back
+wall is **9.35 units away** on an ordinary street. The sightline climbs 0.92 per unit travelled, so it
+is 7.64 up when it reaches the nearest part of the mark and 10.86 by the furthest.
+
+Anything between those two **cuts the mark in half**, which is the one outcome `cornerSeen` cannot
+express: it scores six samples and a half-hidden corner comes out at three of six, on the wrong side
+of a threshold calibrated against towers that hide a mark outright or not at all. Measured over 840
+corners in 20 cities against real rays:
+
+| Bank roofline | Corners left on the board with <60% of their mark visible |
+|---|---|
+| 7.75 (the first draw) | **3**, and the score-4 bucket's worst case at 0.56 |
+| 6.95 (shipped) | **0**, worst corner kept 0.64 — where every other city already sat |
+
+So the mass ducks **under** 7.64 with margin rather than clearing 10.86: a taller bank would hide the
+corner honestly and cost the board a junction, and a low wide bank is what the silhouette wanted
+anyway. Everything at the front is then sized down to stay under the roof behind it, because a
+pediment poking above its own roofline is a gable rather than a portico.
 
 ## Park districts close roads
 

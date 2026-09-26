@@ -27,13 +27,14 @@ src/
     props.js            trees, street furniture
     pond.js             the one duck pond: which park it lands in, and the water itself
     garage.js           the taxi's depot: which block it takes, and the roller door on the front
+    bank.js             the city's one bank: which lot it takes, its portico, and where its door is
     burgerjoint.js      the burger joint: its block, its drive-through lane, and the turning sign
 
   sim/                  things that move on their own
     traffic.js          signals + car physics + the single routing branch. The largest file.
                         Cars drive lanes off the road network; `car.s` is arc length along one.
     police.js           the priority-corridor car
-    collisions.js       taxi-vs-car impact test, boost only — wrecks both cars
+    collisions.js       taxi-vs-car impact test — always shoved apart, charged only on boost; the last bump wrecks both
 
   game/                 the player's layer
     fares.js            fare state machine, spawning, scoring
@@ -42,7 +43,8 @@ src/
     routeline.js        the route band painted down the taxi's lane
     pick.js             raycast click picking
     sightline.js        which kerb corners the camera can see, settled once per city
-    farepointers.js     one edge arrow per off-frame fare — direction and clock, nothing more
+    farepointers.js     edge arrows — every off-frame rider, or just the drop-off while carrying;
+                        tap one on a phone to ride the camera to it
     riderfinder.js      the HUD chips that used to do that job, now behind `?chips=on`
     taxifinder.js       the chip that comes up when the taxi is off-frame — tap to ride back to it
     faremarker.js       the fare clock, as a physical object: kerb, flight, taxi
@@ -59,13 +61,19 @@ src/
     blast.js            the crash detonation whole — shockwave, fireball, shards; one per wrecked car
     flames.js           the tailpipe bark on the press that engages Loco Mode
     locoflame.js        the flat stylized plume that burns out of it for the whole hold
-    vanish.js           shrink-and-fade for wrecked bodywork, so it is consumed not deleted
+    wreckage.js         wrecked bodywork left on the road — carried out, crumpled, scorched, kept
+    vanish.js           shrink-and-fade for the same, now only the passing lab's ending
     carghosts.js        occluded-only outlines on the traffic nearest the taxi, faded in with boost
     flyover.js          the ambient plane that crosses the city every so often — scenery, nothing more
     chopper.js          the helicopter that lands on the city's rooftop helipad, idles and leaves
     birds.js            the park flocks: walk the grass, startled up by the taxi, come back; two per city
     ducks.js            the birds on the pond: paddle, sit, dabble, never leave
     clouds.js           the weather ringing the island — placed on the screen, never over the city
+    robbery.js          the bank robbery: who gets in outside the bank, and the cops that come with them
+    radio.js            the dispatch bubble that says the fare who just got in is a robber
+    robberline.js       the robber's line: the world stops, the taxi is spotlit, the robber shouts
+    coplights.js        the red and blue a cop car throws on the road while a robbery runs
+    cashtrail.js        banknotes out of the back of a boosting getaway
     opening.js          the opening vignette: camera onto the garage door, door up, taxi out
     drivethru.js        who pulls into the burger joint, what they do in there, how they leave
     burgerrun.js        the secret: a tap on the joint sends the taxi through it for a splash of boost
@@ -201,7 +209,7 @@ isn't caching anything.
 ## Testing hooks
 
 `main.js` exposes `window.__taxi` with `traffic`, `boost`, `skids`, `police`, `fares`, `daylight`,
-`routeTo`, `findRoute`, `isSelected`, `flyover`, `chopper`, `flocks` (every park flock, in build order), `clouds` and `redraw`. The headless tools in `tools/` drive the game
+`routeTo`, `findRoute`, `isSelected`, `flyover`, `chopper`, `flocks` (every park flock, in build order), `clouds`, `robbery` (the bank event, null in shot mode and on a city with no bank) and `redraw`. The headless tools in `tools/` drive the game
 through this instead of through the DOM, which is what makes the whole suite run in about a second.
 
 `redraw()` draws one frame on demand. Shot mode never starts the render loop — it warms the sim,

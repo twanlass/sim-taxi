@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ROUTE_OPACITY } from '../game/routeline.js';
+import { popEnvelope, POP_TIME } from '../game/selectpop.js';
 import { unlitMaterial } from '../util/geo.js';
 
 // The disc a fare marks its ground with: a filled circle inside a solid rim, lying flat on the
@@ -28,6 +29,31 @@ const RING_TUBE = 0.16;
 // z-fighting with it. Shared by both ends of the trip, which is part of what keeps them reading as
 // one object that moved rather than two that happen to match.
 export const RING_Y = 0.2;
+
+// --- Backgrounded, while a rider is aboard ----------------------------------
+//
+// You cannot take a kerbside fare while carrying one (`markDirected` in game/fares.js refuses), and
+// playtesters kept trying to anyway. So a waiting rider's disc steps back while the seat is full:
+// same shape, same place, darker, with the sweep switched off.
+//
+// **Darker rather than smaller or absent**, and the choice is load-bearing. The disc is the half of
+// the mark that survives this camera — a rider whose crystal is behind a tower still has colour on
+// the tarmac — and the colour it is carrying is that rider's clock, which the player still has to
+// read: a waiting fare running out ends the run, and `budgetFor` deliberately charges every new
+// arrival for the whole waiting queue ahead of it. Hiding the disc would take the ordering puzzle
+// off the road at exactly the moment the player is driving it. What can go is the *sweep* — the
+// beam circling the rim is the "this is a live target" cue and nothing else, so it is the one layer
+// that is saying something untrue while the seat is full.
+const DIM_COLOR = 0.42;        // multiplier on the rim and fill's hue, fully backgrounded
+const DIM_FILL_OPACITY = 0.5;  // ...on top of the fill's own ROUTE_OPACITY
+
+// The drop-off's disc swells once when a tap on a kerbside rider is refused — see `pulse` below.
+// Half the crystal's own select pop, because the two are wildly different sizes on screen and the
+// gesture has to read as the same one: at play zoom the disc is a 27px radius, so the envelope's
+// 0.944 peak here is ~+4px of radius, against the crystal's 29px going to 38px on its 0.34. Taken
+// up from a first cut at 0.12 (+3px), which on something this large was a wobble rather than an
+// answer — the amplitude that reads on a marker is not the one that reads on a disc.
+const PULSE_SCALE = 0.16;
 
 // One rim and one fill shape for every disc on the board — only the colour ever differs. The fill
 // overlaps into the rim's tube rather than stopping at its inner edge, so no hairline of road shows
@@ -201,19 +227,76 @@ export function createTargetRing(colorHex) {
   const sweep = createSweepFor(SWEEP_GEO, colorHex);
   group.add(sweep.mesh);
 
+  // How far this disc has stepped back, 0..1 — see DIM_COLOR above. Eased by the caller
+  // (game/faremarker.js), which owns the clock; this only ever applies whatever it is handed.
+  let dim = 0;
+
+  /**
+   * Restate the hue on all three layers at the current dim.
+   *
+   * One function rather than three assignments in `setColor`, because the dim and the clock write
+   * the *same* channel: a level change while backgrounded would otherwise repaint the disc at full
+   * brightness and undo the step-back, and it would do it four times a fare.
+   *
+   * The colour is scaled rather than the material faded, because two of the three layers are opaque
+   * `unlitMaterial`s whose colour *is* their light — turning them transparent to dim them would move
+   * them into three's transparent queue for a look change. The sweep is already additive and
+   * transparent, so it fades on `opacity` and stops being drawn at all once it is out.
+   */
+  function paint() {
+    const k = THREE.MathUtils.lerp(1, DIM_COLOR, dim);
+    rim.material.color.copy(color).multiplyScalar(k);
+    fill.material.color.copy(color).multiplyScalar(k);
+    fill.material.opacity = ROUTE_OPACITY * THREE.MathUtils.lerp(1, DIM_FILL_OPACITY, dim);
+    sweep.material.color.copy(color);
+    sweep.material.opacity = 1 - dim;
+    sweep.mesh.visible = dim < 1;
+  }
+
   // Growth/exit state. `pending` is a call waiting to be stamped; the stamp happens in `update` so
   // both are functions of one frame's sim time — see the note above RING_GROW_TIME.
   let grewAt = null;
   let goneAt = null;
   let pending = null;      // 'grow' | 'shrink'
+  // The refusal swell, on the same deferred stamp as everything else here — see `pulse`.
+  let pulseAt = null;
+  let pulsePending = false;
 
   return {
     group,
     /** All three layers together — they are one mark at three weights, never different colours. */
     setColor(value) {
-      rim.material.color.set(value);
-      fill.material.color.set(value);
-      sweep.material.color.set(value);
+      color.set(value);
+      paint();
+    },
+    /**
+     * Step this disc back behind the fare in the car, 0..1. See DIM_COLOR above.
+     *
+     * A scalar rather than a flag so the caller can ease it: the transition lands on the pickup
+     * frame, which already has a crystal flying to the roof and two discs trading places, and a
+     * board of markers snapping darker in the middle of that reads as a glitch.
+     */
+    setDim(amount) {
+      const next = THREE.MathUtils.clamp(amount, 0, 1);
+      if (next === dim) return;
+      dim = next;
+      paint();
+    },
+    /**
+     * Swell once and settle — the "not that one, *this* one" half of a refused tap.
+     *
+     * Fired on the **drop-off's** disc when the player taps a kerbside rider while carrying
+     * (`refuse` in game/fares.js). The refusal shakes the crystal over the rider that was tapped;
+     * this answers it by pointing at the thing that has to happen first, which is the half a player
+     * who has just learned there is one seat actually needs.
+     *
+     * Scale only, and it borrows the select pop's envelope rather than inventing a second one: an
+     * acknowledgement is an acknowledgement, and the two should read as the same gesture at
+     * different sizes. A no-op on a disc that is not on screen.
+     */
+    pulse() {
+      if (!group.visible) return;
+      pulsePending = true;
     },
     /**
      * Arrive: grow out of the centre. Sets the scale to nothing *now* as well as flagging the
@@ -254,6 +337,8 @@ export function createTargetRing(colorHex) {
       grewAt = null;
       goneAt = null;
       pending = null;
+      pulseAt = null;
+      pulsePending = false;
     },
     /** Whether the exit is still playing, so a caller can hold a slot until it finishes. */
     isLeaving: () => pending === 'shrink' || goneAt !== null,
@@ -262,20 +347,35 @@ export function createTargetRing(colorHex) {
      * Cheap enough to call every frame the disc is visible.
      */
     update(elapsed) {
-      sweep.update(elapsed);
+      // Still advanced while backgrounded, because `dim` is eased rather than switched: a beam
+      // frozen mid-fade would sit as a bright arc on the rim for the length of the ease.
+      if (sweep.mesh.visible) sweep.update(elapsed);
 
       if (pending === 'grow') { grewAt = elapsed; pending = null; }
       else if (pending === 'shrink') { goneAt = elapsed; pending = null; }
+      if (pulsePending) { pulseAt = elapsed; pulsePending = false; }
 
+      // The arrival/exit animation and the refusal swell share one channel and *multiply*: a disc
+      // pulsed on the frame it is still growing in should swell out of wherever it has got to, not
+      // jump to full size and back.
+      let size = 1;
       if (goneAt !== null) {
         const t = (elapsed - goneAt) / RING_SHRINK_TIME;
-        group.scale.setScalar(ringShrinkScale(t));
-        if (t >= 1) { group.visible = false; goneAt = null; group.scale.setScalar(1); }
+        size = ringShrinkScale(t);
+        if (t >= 1) { group.visible = false; goneAt = null; size = 1; }
       } else if (grewAt !== null) {
         const t = (elapsed - grewAt) / RING_GROW_TIME;
-        group.scale.setScalar(ringGrowScale(t));
+        size = ringGrowScale(t);
         if (t >= 1) grewAt = null;
       }
+      if (pulseAt !== null) {
+        const since = elapsed - pulseAt;
+        // Retired on the clock, not on the value — the envelope passes through 0 on its way to the
+        // undershoot, the same reason every other pop in this project is timed rather than tested.
+        if (since >= POP_TIME) pulseAt = null;
+        else size *= 1 + popEnvelope(since) * PULSE_SCALE;
+      }
+      group.scale.setScalar(size);
     },
   };
 }

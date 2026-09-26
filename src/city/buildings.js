@@ -5,6 +5,7 @@ import { BUILDING_COLORS, color, jitterColor } from '../palette.js';
 import { valueNoise2D } from '../util/rng.js';
 import { KERB_H } from './ground.js';
 import { treeParts, treeShape } from './props.js';
+import { buildBank, chooseBankLot } from './bank.js';
 
 const FLOOR_H = 2.6;
 // The ground floor is its own storey height. A shopfront is taller than the flats above it, and
@@ -718,8 +719,14 @@ function streetSidesOf(lot, bounds) {
   return sides;
 }
 
-/** The buildable rectangle inside a lot: the lot minus the setback off every line. */
-const INSET = 0.85;
+/**
+ * The buildable rectangle inside a lot: the lot minus the setback off every line.
+ *
+ * Exported because city/bank.js's door point is placed *in* that setback — on the pavement in front
+ * of the steps — and `tools/probe.mjs` has to be able to say so against the real number rather than
+ * against a copy of it.
+ */
+export const INSET = 0.85;
 function buildableOf(lot) {
   const x0 = lot.x0 + INSET;
   const z0 = lot.z0 + INSET;
@@ -1013,6 +1020,18 @@ export function createBuildings(rng, blocks) {
   });
   const yard = roomy.length ? rng.pick(roomy) : null;
 
+  // ...and the bank, the other one-per-city massing, drawn after the courtyard with the courtyard's
+  // own lot taken out of the running. Same discipline as `chooseGarageBlock`/`chooseBurgerBlock` in
+  // city/layout.js and for the same reason: a one-per-city draw goes **last**, so adding it cannot
+  // reshuffle anything already decided. `null` is a real answer — a city with nowhere to put one
+  // gets no bank, and the whole robbery layer switches off behind that (see main.js).
+  //
+  // It is a lot rather than a whole block, unlike the depot and the burger joint. Those two need a
+  // forecourt and a drive-through lane respectively, which is a thing `splitLot` would divide out
+  // from under them; a bank is a building with a door on the street and needs no ground of its own.
+  // See city/bank.js.
+  const bankLot = chooseBankLot(rng, lots, buildableOf, yard);
+
   // Every part a lot builds is stamped with that lot's ground anchor, which is what lets the
   // entrance animation (game/cityentry.js) grow whole buildings out of the one merged mesh. The
   // jitter is a hash of the anchor rather than a draw from `rng`, so the stamping is provably
@@ -1020,9 +1039,13 @@ export function createBuildings(rng, blocks) {
   // is the same anchors handed back as a list, for the dust each building kicks up as it lands.
   const entrySites = [];
   let court = null;
+  let bank = null;
   for (const entry of lots) {
     const from = parts.length;
     if (entry === yard) court = buildCourtyard(entry.lot, entry.block, rng, parts);
+    else if (entry === bankLot) {
+      bank = buildBank(buildableOf(entry.lot), entry.lot, entry.block.bounds, parts);
+    }
     else buildTower(entry.lot, entry.block, rng, parts, stats);
     if (parts.length === from) continue;      // a lot too narrow to build stamps nothing
     const b = buildableOf(entry.lot);
@@ -1079,6 +1102,10 @@ export function createBuildings(rng, blocks) {
   mesh.name = 'buildings';
   return {
     mesh, count: parts.length, courtyards, court, pad, entrySites,
+    // Where the bank stands, or null if this city has nowhere for one. See city/bank.js — the door
+    // point on it is what `game/robbery.js` measures the trigger range from, and what the robber
+    // comes running out of.
+    bank,
     pitched: stats.pitched, helipads: stats.helipads,
   };
 }

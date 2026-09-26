@@ -108,12 +108,44 @@ Omit the whole section if there's nothing to note.
   as "is turning" is what made the overtake refuse every leader that happened to be inside a
   junction — 40% of the time on a 20-unit grid — and cost a quarter of all passes. Whenever this
   flag gates a *danger*, ask which `hand` the danger actually belongs to.
+- **A car's `state` flips to `turn` at the hold line, not at the junction, and the first
+  `STOP_SETBACK` of the arc is still in the lane.** So the bookkeeping that puts a mid-turn car back
+  in its follower's view has to start the crossing from `lane.length - leadIn`; starting it from
+  `lane.length` *teleports the leader 3.4 units forward* on the frame it sets off and hands whoever
+  is behind it 3.4 units of road that does not exist. It hid for as long as it did because ambient
+  traffic cannot spend it — a car pulling away from a red is accelerating from a standstill and so
+  is the car behind it — and it was lethal for exactly one vehicle: `BOOST_KICK` puts the taxi at
+  10.6 u/s on the frame the button goes down, and 3.4 phantom units read into `leadCap` as another
+  11 u/s of permission. Pressing boost while queued at a red wrecked the taxi within 13 frames on
+  **12 of 12** sampled runs, at 3.35 units against a 2.31 envelope, and it looked like a bug in the
+  overtake. Anywhere a car is projected back onto a lane it is no longer strictly on, check the two
+  states agree at the frame they hand over.
 - **No `distToLine > 0` guard on the stop decision.** A car spawning within `STOP_SETBACK` of its
   target starts past the hold line; that guard once sent cars off the map to x = −1064.
 - **An `onBeforeCompile` patch needs `customProgramCacheKey`.** Three builds the cache key from the
   material's parameters *before* the patch runs, so a patched material collides with every unpatched
   one sharing those parameters and gets handed whichever program compiled first. The diamond's fill
   drew with a building's shader and went missing with nothing logged.
+- **A light under a hidden group is not dim, it is gone — and its absence recompiles the whole
+  city.** Three collects the scene's lights with `traverseVisible`, so `group.visible = false` on
+  something carrying a `PointLight` drops `numPointLights`, and the light counts are part of every
+  lit material's program cache key. The police cruiser hid that way between runs, and the frame it
+  appeared on relinked **22 programs** — the buildings, the ground, the river, the garage, the
+  traffic, none of which it has anything to do with — with another 9 on the frame it left. A link is
+  a synchronous stall inside the driver, so it shows up as a hitch exactly when the interesting
+  thing happens and in no profile of the frame loop. Hence the `shell` in `sim/police.js`: the group
+  stays visible, everything that *draws* sits one level in, and the lamps stay counted at
+  `intensity = 0`. Anything that hides a subtree has to ask what else is in it.
+- **A `customProgramCacheKey` that is unique per material gives every object its own shader.** The
+  key is a promise about *source*, not an id — two materials that compile to the same thing should
+  answer the same string, or each of them links a program of its own. That is only a little wasteful
+  while they all live forever, and it is a per-event stall once they don't: three deletes a program
+  when its last material is disposed, so a **pooled** object that is created and freed as it is
+  reused relinks a shader every time it comes back. `game/bloom.js` keyed off a counter and paid it
+  on every fare marker. Key off the source material's own `customProgramCacheKey` instead — three
+  gives every material one, defaulting to `onBeforeCompile.toString()`, which is content rather than
+  identity and is exactly the right answer for an unpatched material. `tools/links.mjs` counts what
+  is still compiling mid-run; the budget is 12 and the honest number is under 10.
 - **On an unlit material a reversed triangle does not draw wrong, it does not draw.** The winding
   trap below has a nastier second form. `MeshBasicMaterial` (everything through `unlitMaterial`) is
   `FrontSide` like everything else, but it has no lighting to go strange — so where the roadworks
@@ -320,6 +352,20 @@ Omit the whole section if there's nothing to note.
   without moving it in depth. And check the *screen* separations before sizing one: neighbouring
   junctions are 14.1 screen units apart sideways and 15.4 down the diagonal, which is the whole
   budget.
+- **A building at the wrong height does not hide a ground mark, it halves it — and the visibility
+  filter cannot say so.** `cornerSeen` scores six samples across a kerb mark and keeps the corner at
+  three of six, a threshold calibrated against towers, which hide a mark outright or not at all. A
+  *whole-block* building is a different shape of occluder: one flat wall 10 units wide standing
+  directly up-screen of a corner, at one height all the way along. The sightline climbs 0.92 per
+  unit and a mark is 3.5 across, so there is a 3.2-unit band of roof height that cuts the mark
+  clean in two — and three of six is exactly what that scores. The bank's first draw sat in it: a
+  roofline of 7.75 against a back wall 9.35 units from the corner (`HALF_ROAD + 0.5` out, `HALF_ROAD`
+  back, `INSET` further in) put **three corners in 20 cities** on the board with under 60% of their
+  mark visible, and the probe's own gap between the two populations — 0 or 1 for a hidden corner, 4+
+  for a visible one — stopped existing. The fix is to size the building off the arithmetic
+  (`city/bank.js`, and `tools/probe.mjs` asserts it against the grid constants rather than against
+  the number), and the lesson is that the filter answers "how much of this is hidden" with a yes or
+  a no. Anything that takes a whole block has to land clear of the band rather than inside it.
 - **A mark on the ground can be behind a building, and that is a fact about the *city*.** The view
   never rotates and the projection is orthographic, so what occludes what does not change when the
   player pans or zooms — a corner hidden on one frame is hidden for the whole run. Which is what
@@ -428,6 +474,20 @@ Omit the whole section if there's nothing to note.
   light's own rays** instead; a directional light's rays are parallel, so its silhouette on every
   receiver is unchanged and only the recorded depth moves. Under an orthographic shadow camera that
   direction is free — it is view-space −Z, so `mvPosition.z -=` needs no uniform.
+- **A frame with +Z forward and +Y up has +X on the driver's *left*, and no amount of naming makes
+  it the right.** `makeBasis(r, up, f)` has to stay right-handed or the geometry it carries mirrors,
+  and that fixes the third axis. The roadworks zone is placed off two such frames — `laneFrame` for
+  the barricades, `roadPoint` for the cones, spoil, trench and workers — and both called that axis
+  "right" and took the lane's `LANE` of offset back out toward it. Traffic drives on the right, so
+  the road centreline is a lane to the *left*: the sign was inverted, and an inverted sign here is
+  not a nudge, it is `2 · LANE`. The whole site sat four units off the middle of the street with one
+  row of cones on the pavement and one end of each trestle past the far kerb — and stayed internally
+  consistent, so it read as a wide site on 24 of the 25 blocks. The block it did not read as a wide
+  site on was the **riverbank**, whose far kerb is the channel: reported as "construction site
+  floating over river". The check that should have caught it derived the centreline with the same
+  flipped sign and measured from the line the bug had put everything on, which is the second half of
+  the lesson — a lateral check has to build its centreline from the *lane offset the traffic model
+  uses*, not from the code under test.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and
@@ -464,7 +524,7 @@ Omit the whole section if there's nothing to note.
   stops it.** `placeCar` will happily put one anywhere on a lane, `STOP_SETBACK` is 3.4, and there
   is no `distToLine > 0` guard on the stop decision — so a car released nearer than that is past
   its hold line before it can see the signal. The half that makes it invisible rather than loud is
-  `sim/collisions.js`: it only ever tests the **taxi**, and only while it is boosting, so the car
+  `sim/collisions.js`: it only ever tests the **taxi**, never ambient against ambient, so the car
   does not crash into the cross traffic it just drove into. It drives *through* it. This is what
   costs the drive-through its short exit and buys it two quarter turns (`EXIT_LIFT` in
   `city/burgerjoint.js`), and it is the question to ask of any new `releaseCar` site: how far back
@@ -510,6 +570,18 @@ Omit the whole section if there's nothing to note.
   light on its roof, and it looks like the strength being too high, so the instinct is to turn down
   the one knob that was not the problem. Each level has to come in at a fraction of the one below
   (`LEVEL_WEIGHT` in `game/bloom.js`); it is the same thing `UnrealBloomPass` spells as `radius`.
+- **A launch the OS refuses leaves no crash report, and `git bisect` clears every commit.** iOS 27
+  made the UIScene lifecycle mandatory: an app linked against that SDK with no
+  `UIApplicationSceneManifest` and no `UIWindowSceneDelegate` is terminated before
+  `didFinishLaunchingWithOptions` runs. Nothing crashed, so `idevicecrashreport` has no entry for
+  the bundle and `devicectl` reports a clean `exit code 0` rather than a signal — it reads as "the
+  app isn't even starting", which sends you at the install, the signing and the bundle layout, all
+  of which verify fine. The trap inside the trap is the bisect: the trigger is the **SDK you link
+  against**, so rebuilding an older commit picks up the new SDK too and it fails identically — which
+  looks like proof the code is innocent *and* like proof the OS upgrade broke everything, when the
+  variable that actually moved was Xcode. Whenever an app dies at launch with no crash report and no
+  commit in between, ask what the toolchain did, and check the shell against the SDK's current
+  requirements before reading any of your own code. See [docs/ios.md](docs/ios.md#the-scene-lifecycle-and-the-launch-that-leaves-no-crash-report).
 - **Never name a Rollup chunk after anything under `src/`.** `vite.config.js` has two entries now
   (the game and `/lab/`), and a `manualChunks` rule that swept `src/main.js` into a shared chunk
   made every page importing that chunk *boot the game* — `/lab/` came up with the city's road

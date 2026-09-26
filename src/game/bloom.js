@@ -263,17 +263,40 @@ float bloomUnpackDepth(vec4 rgba) {
 
 const REJECT = `\tif (gl_FragCoord.z > bloomUnpackDepth(texture2D(tBloomDepth, gl_FragCoord.xy * uBloomDepthTexel)) + uBloomDepthBias) discard;`;
 
-let patchSeq = 0;
+/**
+ * What to call the patch `inherited` applies, as far as three's program cache is concerned.
+ *
+ * The source material's own `customProgramCacheKey` is the answer, and every material has one:
+ * where this project has set it (the rule in CLAUDE.md — every `onBeforeCompile` carries a key),
+ * it is the module's own claim that *this* string names the source its patch produces, so a lamp
+ * lit by `propMaterial()` reports `prop-ssao` whichever lamp it is. Where nothing has set it,
+ * three's default returns `onBeforeCompile.toString()`, which is content rather than identity: two
+ * unpatched materials stringify the same empty stub and share a program, two different patches
+ * cannot. Either way materials that compile to the same source land on the same key.
+ *
+ * `null` for the case there is no source to ask — `setEmissiveMaterial`, where the caller hands in
+ * a material of its own. Those are hand-written shaders, and three keys *those* by their own source
+ * (`customVertexShaderID`), so a shared string here cannot collide two of them either.
+ */
+function inheritedKey(source) {
+  const own = source?.customProgramCacheKey;
+  return own ? `k:${own.call(source)}` : 'plain';
+}
 
-function patchEmissiveDepth(material, inherited = null) {
+function patchEmissiveDepth(material, inherited = null, source = null) {
   // Three builds the program cache key from the material's parameters, *before* `onBeforeCompile`
   // runs, so a patched basic material collides with every unpatched one sharing those parameters
   // and `acquireProgram` hands back whichever compiled first — the trap that once drew the
   // diamond's fill with a building's shader. See CLAUDE.md.
   //
-  // Unique per material rather than one constant for the pass, because `inherited` means two of
-  // these can carry *different* source patches while sharing every parameter three hashes.
-  const key = `bloom-emissive-${patchSeq++}`;
+  // Keyed by the *patch*, not by the material. One constant for the whole pass would be wrong —
+  // `inherited` means two of these can carry different source patches while sharing every parameter
+  // three hashes — but a counter bumped per material was wrong in the other direction, and
+  // expensively: it gave every lamp in the game a program of its own, and a program is deleted the
+  // moment its last material is (`unmarkEmissive` disposes), so a **pooled** lamp that is marked and
+  // unmarked as it is reused relinked a shader every time it came back. Measured at
+  // `tools/links.mjs`: 7 of the 11 shader links left in a run after the police fix were this.
+  const key = `bloom-emissive-${inheritedKey(source)}`;
   material.customProgramCacheKey = () => key;
   material.onBeforeCompile = (shader, renderer) => {
     // The source's own patch first, so this runs on top of whatever it did rather than being
@@ -344,7 +367,11 @@ export function refreshEmissive(mesh, master = 1) {
   const bloom = mesh.userData.bloomMaterial;
   const live = mesh.material;
   if (!bloom || !live || live === bloom) return bloom;
-  const intensity = (BLOOM_INTENSITY[mesh.userData.bloomKind] ?? 1) * master;
+  // `bloomScale` is a per-mesh dimmer on top of its kind — see `setEmissiveScale`. Folded into
+  // the intensity rather than applied to the colour afterwards, so a scale of 0 goes down the
+  // switched-off path below and out of the draw list entirely instead of drawing black.
+  const intensity = (BLOOM_INTENSITY[mesh.userData.bloomKind] ?? 1) * master
+    * (mesh.userData.bloomScale ?? 1);
 
   // **A kind dialled to zero is switched off on the material, never by skipping the swap.**
   //
@@ -434,7 +461,7 @@ export function markEmissive(root, kind = 'pod') {
       blending: live.blending,
       depthWrite: live.depthWrite,
       transparent: live.transparent,
-    }), live.onBeforeCompile || null);
+    }), live.onBeforeCompile || null, live);
     object.userData.bloomKind = kind;
     object.userData.bloomSync = null;
     object.layers.enable(BLOOM_LAYER);
@@ -473,6 +500,32 @@ export function setEmissiveMaterial(mesh, material, kind = 'pod', sync = null) {
   emissive.add(mesh);
   refreshEmissive(mesh);
   return mesh;
+}
+
+/**
+ * Turn one marked object's glow up or down, 0..1, without unmarking it.
+ *
+ * For a lamp that is *still a lamp* but should not be spilling light right now — a fare marker
+ * stepped back behind the rider in the car (game/faremarker.js) is the case this exists for. The
+ * alternative is `unmarkEmissive` and a re-`markEmissive` when it comes back, which disposes and
+ * rebuilds a material per transition on objects that are **pooled** and switch several times a run.
+ *
+ * A scalar rather than a flag because it is meant to be *eased*: a halo that vanishes on one frame
+ * reads as the marker having been switched off, where a fade reads as it turning down. At exactly
+ * 0 the mesh leaves the pass properly — `refreshEmissive` folds this into the intensity, so the
+ * zero goes through `material.visible` like a kind dialled to zero, never through a skipped swap.
+ * See the note in `refreshEmissive` about why that distinction is the whole of "off".
+ *
+ * Applied to every marked mesh under `root`, so a caller can hand it the same group it marked.
+ * Silent on anything unmarked: a traversal over a group legitimately meets meshes that are not
+ * lamps, which is the rule `markEmissive` itself works by.
+ */
+export function setEmissiveScale(root, scale) {
+  root.traverse((object) => {
+    if (!emissive.has(object)) return;
+    object.userData.bloomScale = scale;
+  });
+  return root;
 }
 
 /** Take it back out again, and free the materials — the same contract `unmarkOccluder` has. */

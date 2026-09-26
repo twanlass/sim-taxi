@@ -172,6 +172,62 @@ export const SHOTS = [
   // the road to get there — it flies into the HUD (game/cargochip.js), and shot mode hides the HUD.
   // Removed from the **end** of the list rather than blanked in place, which is the one edit the
   // index-addressing rule above allows without renumbering anything that survived.
+  //
+  // The depot (city/garage.js), which had no shot of its own for as long as the only thing anybody
+  // looked at it for was the vignette — and the vignette frames itself. It has a livery now, so
+  // there is something to look at from outside the cut scene. Same pair as everything else here.
+  // Close: do the yellow band and the chequer course under it read as a *livery* rather than as a
+  // stripe, and does a frustum on a mast read as a dish. At play zoom: is the depot a block you can
+  // pick out of the skyline, which is what all that paint is for.
+  //
+  // The door is shut in both. Shot mode never stages the taxi, so `setDoor(0)` is what main.js
+  // leaves it at — see the note there.
+  { name: 'depot', description: 'the taxi depot, close', target: [0, 0], zoom: 11, warmup: 12, atDepot: true },
+  { name: 'depot-far', description: 'the depot at play zoom', target: [0, 0], zoom: 52, warmup: 12, atDepot: true },
+  // The courier's other load: a food order on its pad (geometry/food.js). Appended, for the
+  // index-addressing reason stated above the `birds` entry — and **needs `?parcels=1`**, like the two
+  // `parcel` framings it is the sibling of.
+  //
+  // `cargoKind` is the whole reason this is a separate entry rather than a re-run of `parcel` at a
+  // lucky seed: which load a package is carrying is a coin flip inside the run seed, so without a pin
+  // half of every sweep photographs a box under a name that says food.
+  //
+  // One framing rather than the usual pair. The play-zoom question — is a courier pad tellable from a
+  // fare's disc — is about the *pad*, and both loads stand on the same one, so `parcel-board` already
+  // answers it. What is only answerable close up is this shot's own question: do a burger and a cup
+  // read as food at all at this size, and does the straw survive being two pixels.
+  //
+  // It frames itself on the **drive-through**, without being asked to: a food order is collected at
+  // the burger joint and nowhere else (game/parcels.js), and `untilParcel` points the camera at
+  // whichever corner the package landed on. So the second thing this shot answers for free is
+  // whether a cyan pad sitting on that lot reads as part of the restaurant or as litter on it.
+  { name: 'food', description: 'a food order waiting on its pad — needs ?parcels=1', target: [0, 0], zoom: 11, warmup: 12, untilParcel: true, cargoKind: 'food' },
+  // The third of the wreck's shots, and the one the other two exist against now. 12 freezes the
+  // flash and 17 the smoke; this is what is left once both have gone — two crumpled, scorched cars
+  // lying in the road, which is the whole of what game/wreckage.js was written to put there.
+  //
+  // It has to be a separate entry because it answers a different question. 12 and 17 ask whether
+  // the crash reads as an *event*; this one asks whether the wreck reads as a *pair of cars* — can
+  // you tell, from the still, which car you hit and what colour it was — and that is only askable
+  // once the fire is out. At `wreckAt` 3.2 the fireball, the shards and the collar are all spent,
+  // the settle is long finished, and what is on screen is what the player looks at for the rest of
+  // the run-end hold.
+  //
+  // Appended rather than filed beside 17 because inserting one renumbers every shot after it, and
+  // those numbers are what docs/testing.md and every review habit refer to.
+  { name: 'wreck-rest', description: 'the two wrecks lying in the road, after the fire', target: [0, 0], zoom: 26, warmup: 12, wreckAt: 3.2 },
+  // An arterial's planted island, close enough to see what is standing on it. Worth a framing of
+  // its own for the reason `mouth` is: everything on a median is decided by a sightline measured in
+  // fractions of a unit — how far a bed sits off the spine, whether a small tree's crown reaches
+  // the far lane — and at play zoom the whole island is a green smudge fourteen pixels long.
+  // The probe asserts the clearances; this is for looking at the planting.
+  //
+  // Pinned on the +x end of the x-line-3 arterial in the shot city, which is one of the 8.4-unit
+  // runs — the length that carries two trees rather than one — with a park across the road, so the
+  // ornamental and the broadleaf it is deliberately not are in the same frame.
+  //
+  // Appended, for the reason given above `parcel` and `wreck-rest`: shots are addressed by index.
+  { name: 'median', description: 'the arterial median, its bedding and its small trees', target: [20, 0], zoom: 11, warmup: 12 },
 ];
 
 export function getActiveShot() {

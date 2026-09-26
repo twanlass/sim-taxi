@@ -67,11 +67,12 @@ Three departures, all so a scenario can be run twice.
 - **The tank is bottomless.** `boost.state.fuel` is pinned full every frame rather than topped up
   through `topUp()`, which queues fuel to *pour* in over ~0.7s and lights the pill's
   delivery-reward flutter while it does — right in the game, a strobe here.
-- **A wreck doesn't consume the taxi.** The game hands both shells to `game/vanish.js`, which says
-  up front that it never restores anything: a wreck ends the run and Retry reloads the page. The lab
-  resets in place a beat later, and leaves the taxi standing where it stopped — in a lab the useful
-  thing about a wreck is *where it happened*. The car it hit still gets the full treatment, since
-  that one is re-staged from the pool anyway. For the same reason the lab passes no impact speed to
+- **A wreck doesn't consume the taxi.** The game leaves both cars lying in the road
+  (`game/wreckage.js`); the lab hands the car it hit to `game/vanish.js` instead — the older
+  shrink-and-fade, which the lab is now the only caller of — and leaves the taxi standing where it
+  stopped, because in a lab the useful thing about a wreck is *where it happened* and a crumpled
+  shell in the way of the next staged approach is not. That one is re-staged from the pool a beat
+  later anyway. For the same reason the lab passes no impact speed to
   `blast.fire` or `dust.wreckSmoke`, so its wrecks detonate on the spot rather than carrying
   downfield the way the game's do (see [rendering.md](rendering.md#momentum)) — a blast that slid
   away from a taxi standing still would separate the one thing this view is for from the mark it
@@ -101,6 +102,7 @@ midpoint, how far the body is leaning, where the rubber went.
 | Cars ahead | `ahead` | 1 | a queue one gap apart, so passing the first puts you on the run-up to the next |
 | Gap | `gap` | 22 | comfortably outside `PASS_TRIGGER` (10), so the run-up is part of what you watch |
 | Oncoming | `oncoming` | 0 | spread down the other carriageway. `PASS_SIGHT` (35 units) decides whether the taxi pulls out with one in view — that gate is the whole reason this slider exists |
+| Standing | `standing` | 0 | the queue at a red: everything stopped, the taxi one following distance behind it. See below |
 | Seed | `seed` | random | paint colours and the tree scatter; the manoeuvre itself is deterministic |
 
 The pool is allocated once — an `InstancedMesh` cannot be resized — so the sliders top out at three
@@ -112,6 +114,28 @@ two cars on different lanes and walking it costs the junction's own 8 units at e
 first version quietly turned a requested 22 into 28. The one place world x isn't a legal position is
 *inside* a junction box, which no lane position can express, so a car that lands in one is clamped
 to the nearer end of its block: up to `HALF_ROAD` out, and the readout is what tells you.
+
+### Standing
+
+There are no lights on this road to hold anyone, so the cars ahead are `parked` instead — the sim's
+own "this car is going nowhere", a positional budget of zero — and stay put for as long as you want
+to look at them. It is a separate scenario rather than `Gap` going lower because the interesting
+variable is the **speed**, not the distance: at 8 units and cruising the taxi has forty units of
+road to make its swing in, and from a standstill it has none at all until it has made some. `Gap` is
+disabled while it is ticked, because a queue's spacing is `MIN_GAP` and not a knob.
+
+It is also the one scenario staged by walking arc length rather than in world x, and it has to be.
+A queue is stacked **back from a hold line**, and laying cars out forward at `MIN_GAP` puts the
+second one inside a junction box, where the clamp above folds it back onto the first: a 5.3-unit
+queue came out 4.0 apart, which is already inside the collision envelope, so the button wrecked the
+taxi on the opening frame against a scenario that had never been legal.
+
+**One stopped car per junction, not one queue**, and that is a fact about the road rather than a
+simplification. A 12-unit lane holds a hold line, a car on it, and exactly one more behind; a third
+would want `s = −2`, and a queue backing through a junction is a thing no lane coordinate can
+express — the cars in the box are in the `turn` state, which is a position on an arc. So `Cars
+ahead` walks *down the road* here: the first pass is the standing one, and each junction after it is
+the same manoeuvre arrived at under power, into a car that is stopped rather than cruising.
 
 ## What to look at
 
@@ -135,6 +159,11 @@ out whether they feel right.
 - **Letting go mid-pass.** Releasing the button is a real abort — it is the one rule in `traffic.js`
   that reads `boost && !boostEasing` rather than `car.boost`, because it is an input rather than a
   hazard.
+- **The standing start**, with the box ticked. The swing is credited with road at `SPEED` while the
+  taxi has none of its own, so it comes out at the same crab angle and the same roll as a rolling
+  one — and the tailgate shrinks with the offset (`boostGap`), so the taxi noses up alongside as it
+  swings rather than waiting a body-length back. `P` on the first frames of it is the way to see
+  both. See [traffic.md](traffic.md#out-of-a-queue-from-a-dead-stop).
 
 ## What it found on its first day
 

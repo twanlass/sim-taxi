@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createParcel, PARCEL_CENTRE_Y } from '../geometry/parcel.js';
+import { createCargo, CARGO_CENTRE_Y, CARGO_SCALE } from '../geometry/cargo.js';
 import { mirrorSceneLights } from './avatarlights.js';
 import { VIEW_DIR } from './camera.js';
 import { getMsaa, getPixelRatioCap } from '../util/shot.js';
@@ -15,10 +15,15 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 // mesh followed by a chip popping up somewhere else.
 //
 // Same rig as the rider-finder chips and the tutorial bubble — a 42px WebGL context lit by the city's
-// own sun (`mirrorSceneLights`) drawing `createParcel`, the real box rather than a picture of one, so
-// it cannot drift out of step when the box is restyled. That the chip draws the *same mesh* is what
-// makes the arrival below work at all: the thing that grows into the corner is the thing that left the
-// kerb, not a picture standing in for it.
+// own sun (`mirrorSceneLights`) drawing `createCargo`, the real load rather than a picture of one, so
+// it cannot drift out of step when either kind is restyled. That the chip draws the *same mesh* is
+// what makes the arrival below work at all: the thing that grows into the corner is the thing that
+// left the kerb, not a picture standing in for it.
+//
+// Which is also why the chip is told the **kind** on the way in and not left to guess. A courier job
+// carries a box or a food order (game/parcels.js), the cargo rig holds both, and a chip that raised
+// the box while a burger was still fading out over the kerb would break the one continuity this whole
+// hand-off is built to keep.
 //
 // ## Why it sits with the money and not with the rider chips
 //
@@ -60,20 +65,29 @@ const SIZE = 42;
  */
 const CHIP_VIEW = new THREE.Vector3(-VIEW_DIR.x, VIEW_DIR.y, VIEW_DIR.z);
 
-// Framing, measured off the mesh rather than guessed. The box stands 1.16 tall (BOX_H + LID_H) and
+// Framing, measured off the mesh rather than guessed — and it is one frustum for both kinds, because
+// the food order is built to the box's own envelope for exactly this reason (geometry/cargo.js). In
+// the envelope's own units the box stands 1.16 tall (BOX_H + LID_H) and
 // 1.384 across at the lid, so at 45° its half-diagonal is 0.979 and its screen half-height is
 // 1.16·cos33/2 + 0.979·sin33 = 1.02 — near enough the same number as the half-width, so one square
-// frustum covers both. FIT is that plus 13%, which is margin for the drop shadow and for nothing
+// frustum covers both. The 1.15 is that plus 13%, which is margin for the drop shadow and for nothing
 // else: a *square* canvas has no corner for the box to foul. It was 1.42 while there was a disc
 // behind it, because a box framed to a circle's inscribed square has its corners hard against the
 // rim twice a turn — 25% of the frame was air paid to a plate that has since gone, and the box was
 // the thing that got smaller for it.
 //
+// **`CARGO_SCALE` is in the mesh, so it has to be in the frustum.** How large a load is drawn in the
+// *city* is one knob (geometry/parcel.js) and it moves the vertices themselves; a fixed half-height
+// here would mean the day that knob is turned up, the chip crops the load it is a picture of — the
+// straw out of the top of a 42px canvas, which nothing headless renders. Multiplying through keeps
+// this readout pixel-identical whatever the board does, which is right: 42px is 42px, and the chip's
+// job is to show the whole of what is aboard rather than to report how big it is.
+//
 // The centre is the mesh's own half-height, imported rather than the 0.58 it used to be typed as: the
 // point the world half of a pickup reports is the middle of the box (game/parcels.js), and the two
 // ends of that line should be the same point on it.
-const CENTRE_Y = PARCEL_CENTRE_Y;
-const FIT = 1.15;
+const CENTRE_Y = CARGO_CENTRE_Y;
+const FIT = 1.15 * CARGO_SCALE;
 
 // --- Riding along -----------------------------------------------------------------------------
 //
@@ -95,9 +109,11 @@ const FIT = 1.15;
 // The bob is in world units against a frustum half-height of FIT, so 0.03 is ~0.5px of travel at the
 // chip's 42px — which is the point. Anything you can measure by eye at this size is a jitter. The
 // headroom is 0.13 (FIT less the box's 1.02 screen half-height), so the box cannot bob out of frame.
+// Both numbers are in the envelope's units and both are scaled by `CARGO_SCALE` with it, so the
+// ~0.5px and the headroom are what they say however large a load is drawn out in the city.
 const SPIN_MS = 20000;
 const BOB_MS = 4600;
-const BOB = 0.03;
+const BOB = 0.03 * CARGO_SCALE;
 
 // --- Coming in from the city ------------------------------------------------------------------
 //
@@ -151,8 +167,8 @@ export function createCargoChip({ sun, hemi }) {
   // it is the slow one. The flight in rides on top of that: it *inherits* the spin the world copy
   // was turning at and eases the excess away, leaving the box on the idle turn rather than stopping
   // it dead — see `flyIn`.
-  const parcel = createParcel({ pickable: null });
-  scene.add(parcel.group);
+  const cargo = createCargo({ pickable: null });
+  scene.add(cargo.group);
 
   const camera = new THREE.OrthographicCamera(-FIT, FIT, FIT, -FIT, 0.1, 60);
   camera.position.set(0, CENTRE_Y, 0).addScaledVector(CHIP_VIEW, 20);
@@ -181,7 +197,8 @@ export function createCargoChip({ sun, hemi }) {
      *
      * A pickup goes through `flyIn` instead, which raises the chip itself.
      */
-    setCarrying(on) {
+    setCarrying(on, kind) {
+      if (kind) cargo.setKind(kind);
       if (on === carrying) return;
       carrying = on;
       carryAt = performance.now();
@@ -189,8 +206,8 @@ export function createCargoChip({ sun, hemi }) {
         spin = null;
         flight?.cancel();
         flight = null;
-        parcel.group.rotation.y = 0;
-        parcel.group.position.y = 0;
+        cargo.group.rotation.y = 0;
+        cargo.group.position.y = 0;
         el.classList.remove('is-flying');
       }
       el.classList.toggle('is-on', on);
@@ -208,7 +225,8 @@ export function createCargoChip({ sun, hemi }) {
      * frame. What has to be right is the **direction** — a chip that slid in from the opposite corner
      * would read as a different object arriving.
      */
-    flyIn({ x, y, yaw = 0 }) {
+    flyIn({ x, y, yaw = 0, kind }) {
+      if (kind) cargo.setKind(kind);
       if (carrying) return;
       carrying = true;
       carryAt = performance.now();
@@ -293,12 +311,12 @@ export function createCargoChip({ sun, hemi }) {
       // than once at construction, so a preference changed mid-run takes effect on the next draw, and
       // so the box does not stop mid-turn at whatever angle it happened to be at.
       if (reducedMotion?.matches) {
-        parcel.group.rotation.y = 0;
-        parcel.group.position.y = 0;
+        cargo.group.rotation.y = 0;
+        cargo.group.position.y = 0;
       } else {
         const t = now - carryAt;
-        parcel.group.rotation.y = (t / SPIN_MS) * Math.PI * 2;
-        parcel.group.position.y = Math.sin((t / BOB_MS) * Math.PI * 2) * BOB;
+        cargo.group.rotation.y = (t / SPIN_MS) * Math.PI * 2;
+        cargo.group.position.y = Math.sin((t / BOB_MS) * Math.PI * 2) * BOB;
       }
 
       if (spin) {
@@ -306,7 +324,7 @@ export function createCargoChip({ sun, hemi }) {
         // duration, so the extra speed bleeds off as the travel does rather than finishing early and
         // leaving the box riding in at a different rate from the one it lands on.
         const t = Math.min(1, (now - spin.at) / FLY_MS);
-        parcel.group.rotation.y += spin.from * (1 - t) ** 3;
+        cargo.group.rotation.y += spin.from * (1 - t) ** 3;
       }
       syncLights();
       renderer.render(scene, camera);

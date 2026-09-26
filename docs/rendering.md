@@ -1273,6 +1273,17 @@ Where to call it from is the same split `markOccluder` has. Anything `sim/` or `
 marked from `main.js`, because neither may import from `game/`; anything already in `game/` marks
 itself, the way `game/roadwork.js` marks its own slab.
 
+**`setEmissiveScale(root, 0..1)`** turns a marked object's glow down without unmarking it — for a
+lamp that is still a lamp but should not be spilling right now. The one caller today is the fare
+marker stepping back behind the rider in the car
+([gameplay.md](gameplay.md#the-board-steps-back-while-the-seat-is-full)), and both of its properties
+are the reason it exists rather than an `unmarkEmissive`/`markEmissive` pair: the markers are
+**pooled** and switch several times a run, so a pair would dispose and rebuild a material per
+transition; and it is a *scalar*, so the halo can be eased out rather than vanishing on one frame,
+which reads as the marker being switched off rather than turned down. It folds into the pass's
+intensity, so a scale of 0 leaves the draw list through `material.visible` exactly the way a kind
+dialled to zero does — never by skipping the swap, which is the trap the next paragraph is about.
+
 **What is in it today:** every vehicle's brake pods and indicators, the cruiser's light bar, the
 drive-through's lit windows and menu board, the depot's strip light, the Loco plume and its kickoff
 burst, the wreck's fireball, and — quietly — a fare's crystal and the disc under it.
@@ -1630,7 +1641,7 @@ as flat stickers next to the faceted cars.
 
 **Three effects come out of this one pool** — the boost trail, the wall a barricade throws
 (`burst`, [below](#roadworks--gameroadworkjs-geometryroadworksjs)) and the smoke collar around a
-wreck (`wreckSmoke`, [below](#wreck--gameblastjs-gamevanishjs)) — plus the rotor wash off a helipad
+wreck (`wreckSmoke`, [below](#wreck--gameblastjs-gamewreckagejs)) — plus the rotor wash off a helipad
 and the puff under a landing — and the differences between them
 are options on `burst` rather than three sets of hand-picked numbers: `tint`, `ring` (start each
 puff that far out along its own bearing), `linger` (stretch the life) and `startSize` (begin as a
@@ -1675,6 +1686,117 @@ opposite reason: a shard is a piece of the car and goes with it, a spark is sepa
 0.45 an overdrive landing throws sparks that creep forward for a tenth of a second and are then left
 behind as the taxi drives out from under them.
 
+### The getaway's cash trail — `game/cashtrail.js`
+
+Banknotes off the back of the taxi while it boosts with a robber aboard
+([the bank robbery](gameplay.md#the-bank-robbery)). The gate is the robbery and not the boost:
+money off the back of any boosting taxi is a fun effect with nothing behind it, and the game already
+has a flying `$20` that means something precise.
+
+It is a **flutter** pool, and every difference from the three above follows from paper being light:
+
+- **Low gravity, heavy drag on *both* axes.** A note thrown back at 9 u/s is doing 2 by the time it
+  has left the bumper and travels 2.6 units of its own — most of a car length and no more. What
+  makes the *trail* long is the car, not the note: measured at the Loco top, the live notes run
+  from the tailpipe back some 36 units, the better part of two blocks of streamer. The sideways
+  throw was widened from 2.4 to 4.2 when the stream got dense, because a narrow one stacked the
+  notes into a single line down the middle of the lane; at a lane's width it reads as a mess being
+  left behind rather than a rope being paid out. The drag on the *fall* is what makes a note
+  flutter rather than rain: without it they reached terminal speed and dropped straight down.
+- **It tumbles**, about a random fixed axis per note, winding down with the rest. That is the whole
+  reason a note is a thin **box** rather than a plane: a plane is one-sided, and half of every
+  tumble would be a note that is simply not drawn — the trap the boats' wake sat in for weeks.
+- **Unlit, not additive, not bloomed.** Money reflects light rather than emitting it. Additive over
+  dark asphalt came out as a glowing sliver, and a glowing banknote is a firefly.
+- **It settles rather than bounces**, and onto a floor passed in per note the way a spark's is, so a
+  getaway over a bridge drops its notes on the **deck**.
+
+**It was rebuilt once for being too subtle, and every number moved.** The first cut ran 14 notes a
+second at 0.62 × 0.34 units into a pool of 48 — 22 notes in the air, each a 4.8 × 2.6px rectangle,
+on a road already painted with lane dashes. That is a scattering you have to go looking for, and
+the whole of this effect is that it should be impossible to miss. What changed, and why:
+
+| | first cut | second | now | why |
+|---|---|---|---|---|
+| Size | 0.62 × 0.34 (4.8 × 2.6px) | 1.15 × 0.62 | **0.88 × 0.48** (6.8 × 3.7px) | It has been both too small and too big. 1.15 is *a third of the drawn taxi's length* — at that size the notes stop reading as a shower of small things and start reading as a few large ones. What made the big size necessary was never the size; it was the density and the alpha, and with those fixed a note can look like paper again. |
+| Rate | 14/s | 40/s flat | **a gust clock** | A flat rate is a rope paid out of the back of the car, and a constant anything reads as a machine. 78/s for 0.16–0.44s, then 7/s for 0.14–0.42s, each drawn fresh. Same mean density (~44/s); the *distribution* is the whole change. The lull is a trickle rather than silence — at zero the stream visibly stops, which reads as the effect switching off. |
+| Pool | 48 | 160 | 160 | ~105 in the air at steady state, plus the gust peak and the kick. |
+| Life | 1.6s | 2.4s, fading from 74% | 2.4s, fading from 74% | Money should hang, and still be lying there when the player looks back. Fading from 55% spent most of the effect half-transparent, which was the other half of why it was hard to see. |
+| Tumble | 7.5 rad/s | 4.2 | 4.2 | A note is a 0.02 plate and is **invisible edge-on**. At 1.2 revolutions a second every note was strobing through its own edge on the way down, which reads as flicker and costs a large fraction of the effect's frames. |
+| Colour | one swatch, #7FC08A | one swatch, #5FD182 | **a spread**, `cashNote` → `cashPale` | See below. |
+| The press | nothing | a 24-note kick | a 24-note kick | An effect that only ramps up says nothing on the frame the button went down, and that is the frame the player is looking at. |
+
+The **colour** is a reversal worth recording. The first cut pulled the hue toward a paper green on
+the argument that the HUD's earnings green is 27px of type on a dark scrim while these are small
+objects on a road. What that missed is the ground they land on: `asphalt` is luma 104 and the lane
+dashes painted all over it are 210, so a note at 174 sat *between* the road and the paint it was
+competing with. At 179 with the saturation back it is nowhere near the dashes in hue and half again
+the road in value. The pale back went to 232 — brighter than the dashes — because the flash as a
+note turns over is what catches an eye that is on the road ahead.
+
+**And the face is now a spread rather than a swatch.** Every note rolls its own colour between
+`cashNote` and `cashPale`, which is a separate roll from the one toward `cashBack` — and the
+distinction is the whole reason there are two. `cashBack` is a near-white *flip*, there so a
+tumbling note flashes; the face spread is there so 160 notes are 160 slightly different notes rather
+than 160 copies of one colour, which at this size is the difference between a shower and a texture.
+The roll is **squared** toward the saturated end: a uniform draw puts as much of the shower at the
+pale end as the green one and the trail washes out, where `t²` keeps the mass on `cashNote` and lets
+the pale ones be the highlights they are meant to be.
+
+Measured on a rendered frame rather than argued: counting pixels that are bright green with more
+blue than red (which separates a banknote from park grass, whose blue sits *below* its red), a
+getaway frame scores **937** against **0** on a frame with no robbery in it — and that is with the
+headless page throttled to a fraction of the note count a real 60fps hold produces.
+
+**Fed before it is ticked**, which is the one ordering that matters here. The pool writes an
+instance matrix only in its update pass, so a stream fed after it draws every note one frame late —
+0.57 units of road at the Loco top, which reads as the trail starting a car length back from the
+bumper.
+
+### Cop cars' sirens — `geometry/lights.js`, `game/coplights.js`
+
+A cop car in ambient traffic ([the police](gameplay.md#the-police)) gets its siren from three
+places, and the split is worth knowing because the first two alone were not enough.
+
+The **bar** is two instanced emissive pods on the roof, off the same machinery every brake light in
+the game uses — one fixed material per colour, and on/off as a scale about each pod's own origin.
+Both pods flash together, so the whole bar goes red and then blue rather than one lamp lighting at
+each end. That is arithmetic rather than taste: a pod is 4px across at play zoom, and a bar split by
+colour alternates two specks a colour apart and reads as a flicker. Together they are one 9.9px mark
+changing colour six times a second.
+
+The **bloom** carries it the rest of the way at distance, and it took a fix: `main.js` marks every
+lamp `sim/traffic.js` owns in a single loop, and marking them all `pod` gave a cop car's bar a brake
+light's 3.4 against the cruiser's 4.2 — dimmer than the police car parked beside it, for no reason
+on screen. The kind now rides on the mesh (`userData.bloomKind`) and the loop reads it, so a new
+lamp arrives at the right strength by being built rather than by being remembered in a second list.
+
+And the **wash on the road** is `game/coplights.js`, which is the part neither of the other two can
+do. The cruiser has had a real `PointLight` per colour since it existed, for the reason stated
+there: the bar alone is a couple of pixels, and what sells a siren is the colour washing across the
+tarmac and the fronts of nearby buildings as it goes past.
+
+**Both read `car.siren`, not `car.police`.** The two flags differ for exactly one stretch — the
+stand-down after a drop-off, when the cars are still on the road driving themselves off the map. The
+paint is what a cop car *is* and does not switch off; the bar is what it was *doing*. Keying the bar
+on the paint sent the whole fleet away with its lights still going, which reads as an event that has
+not actually ended, and a wash still playing on the tarmac under a dark bar is the one place the two
+would visibly disagree on the same vehicle. See
+[standing down](traffic.md#standing-down).
+
+**Two lights against four cars in livery**, and that asymmetry is the design. A point light is a
+uniform slot and a per-fragment term on every lit material in the scene, paid every frame whether or
+not a robbery is running — so the count is fixed at construction and small, and two is exactly what
+the cruiser already costs. Which two is re-picked every frame: the nearest to the taxi, so the wash
+is always on the cars the player can see while the further ones still flash their bars. `?safe`
+builds none of them.
+
+`PEAK` is 62 against the cruiser's 90, because there can be two of these at once and the cruiser is
+one car: at 90 apiece a pair of cop cars a block apart washed the road between them into a flat
+purple, which reads as a lighting bug rather than as two sirens. The off colour holds the cruiser's
+own 14/90 floor rather than going dark, for the reason stated there — a hard on/off strobe reads as
+flicker.
+
 ### Loco Mode kickoff — `game/flames.js`, plus a wheelie in `sim/traffic.js`
 
 Two effects on the press that first engages Loco Mode — as against
@@ -1704,7 +1826,7 @@ The burst above is the *bark* on the press. This is the flame that burns for as 
 is held, and it is the only thing on screen that says Loco Mode is still on other than the pill
 draining in the corner.
 
-**A flat stylized cutout, not a particle system** — the same argument [the wreck](#wreck--gameblastjs-gamevanishjs)
+**A flat stylized cutout, not a particle system** — the same argument [the wreck](#wreck--gameblastjs-gamewreckagejs)
 makes at length. Three nested tongues of flat unlit colour — `locoFlameOuter` outside,
 `locoFlameMid` under it, `locoFlameCore` at the pipe — and it flickers by cycling **four hand-shaped
 silhouettes at 16fps**, which is a flipbook and reads as drawn fire rather than as a blob being
@@ -1756,7 +1878,7 @@ Its envelope is 0.05s up and 0.16s down — the attack answers a button press, a
 well inside `BOOST_COOLDOWN` so the flame never outlasts the mode. A wrecked taxi drops it
 immediately, the same bail `traffic.taxi.boost` gets.
 
-### Wreck — `game/blast.js`, `game/vanish.js`, plus a smoke collar out of `game/dust.js`
+### Wreck — `game/blast.js`, `game/wreckage.js`, plus a smoke collar out of `game/dust.js`
 
 The crash is **one call per car** — `blast.fire(x, z, tint, yaw, speed)` — and everything *it* puts on the road
 lives in one module: a shockwave ring on the tarmac, a fireball, a scatter of shards in that car's
@@ -1802,8 +1924,54 @@ one. Fourteen segments, so the flat sides show at the wreck zoom.
 
 Shards are the whole of what is left of the old debris: seven per car, one tetrahedron squashed
 per instance into plates and chunks, tinted with that car's paint so a two-car wreck comes apart in
-two colours. They no longer bounce, settle or come to rest — wreckage on the tarmac is a detail for
-a camera that stays, and this one pulls into a close-up and then cuts to the retry screen.
+two colours. They no longer bounce, settle or come to rest: a shard is a piece of the *moment* of
+coming apart, and the thing that is left on the tarmac afterwards is the two cars themselves —
+[below](#the-wrecks-that-stay).
+
+#### The wrecks that stay
+
+The two cars do not go anywhere. `traffic.wreckShell(car)` takes each one off the road for good and
+hands its bodywork to `game/wreckage.js` — the taxi's own group for the taxi, and for an ambient car
+a standalone copy wearing one tinted material, since `instanceColor` is RGB and an `InstancedMesh`
+has nowhere to put the rest of this. Each shell slides out of the impact, crumples, scorches, and is
+still lying there when the retry card slides over it.
+
+It used to be consumed instead: both shells shrank and faded into their own fireballs over 0.34s
+(`game/vanish.js`, which is now only the [passing lab's](lab.md) ending). That sells the *bang* and
+leaves nothing behind it. The run-end hold is `CRASH_BANNER_DELAY` = 2.6 seconds and the fireball is
+out after one, so more than half the beat was a held close-up of bare tarmac — and the one question
+a crash has to answer, **what did I just hit**, was only ever answerable from the half-second of
+flame that had already gone past.
+
+Three things happen at once, on two clocks, and all of them are the same **closed form** the rest of
+the wreck is built on — evaluated from scratch off the shell's age, so a frame under the crash
+slow-mo, a full-speed frame and a shot-mode frame stepped by hand at 1/60 are all the same shape.
+
+- **The carry**, on `util/carry.js`'s drag, exactly as the fade had it: the taxi hit something and
+  keeps less of its speed, the car it hit is shoved and keeps more. See [Momentum](#momentum) below
+  for what the numbers had to become when the shells stopped disappearing partway along the curve.
+- **The crumple**, a non-uniform scale in the *body* frame — 0.86 along its own long axis, 1.07
+  across and 0.9 tall, plus a lean and a nose-down settle. This is the whole of what says wrecked
+  rather than parked: a drawn car is 4.01 units long, 55 pixels at the wreck's zoom of 26, so 0.86
+  takes nearly eight pixels out of its silhouette. The wheels are inside the same group and squash
+  with it; that is a pixel and a half on an 11-pixel black disc, which is cheaper than carrying a
+  list of which children are bodywork through two very different hierarchies.
+- **The scorch**, a **multiply** on each material's colour rather than a lerp to a soot grey, with
+  only a fifth of a pull toward `wreckChar` on top. A multiply preserves hue exactly, which is the
+  property the whole feature rests on — the red car ends at L 0.18 from 0.32 with its hue moved by
+  three thousandths, so it is a burnt red car and not a dark shape. Lerped far enough to read as
+  charred, both wrecks come out the same grey and the crash stops answering its own question.
+
+Two smaller things travel with it. The settle is **lifted by the sagitta of its own tilt**, because
+roll and pitch pivot on an origin at road level and a tilt with nothing done about it drives a
+corner underground — the same arithmetic as the `lift` beside `taxiGroup.position` in
+`sim/traffic.js`, and worth 0.21 of a unit here, three pixels of a wheel. And a **smoulder**: one
+wisp into the dust pool every 0.3s for six and a half seconds, because a completely static object at
+the middle of a held close-up reads as a prop rather than as something that just happened.
+
+Nothing is restored, and nothing needs to be: a wreck ends the run and Retry reloads the page. It
+also costs no shader recompile, which the fade did — `transparent` is part of the program cache key
+and flipping it at runtime needs `needsUpdate`.
 
 #### Momentum
 
@@ -1831,7 +1999,7 @@ What is per-effect is the fraction, and the ordering is about weight rather than
 | | keeps | measured drift at 22.1 u/s |
 |---|---|---|
 | Shards | 0.70 | 7.8 units, on top of their own 6–12 of fan |
-| Shells (`vanish`) | 0.62, ×0.8 taxi / ×1.25 struck | ~3.5 units over the 0.34s they take to collapse |
+| Shells (`wreckage`) | 0.26, ×0.8 taxi / ×1.25 struck | 2.7 units for the taxi, 4.2 for the car it shunted, both to rest |
 | Smoke collar (`dust`) | 0.50 | 3.2 units |
 | Fireball | 0.42 | 4.5 units |
 | Shockwave ring | 0.30 | 2.0 units |
@@ -1952,28 +2120,32 @@ Five numbers, and none of them is free:
   road's value, and still well short of the dust's pure white, because white here is a dust cloud
   and this is what is burning.
 
-`vanish.js` owns the disappearance: each shell shrinks and fades into its own fireball over 0.34s
-of sim time rather than being switched off. It steps on the frame's already-slowed `dt`, so it
-runs at the same rate as the blast through the crash slow-mo — as does the collar, which is stepped
-by the same `dust.update(dt)` the boost trail is.
+`wreckage.js` owns [the two cars themselves](#the-wrecks-that-stay). It steps on the frame's
+already-slowed `dt`, so the crumple and the slide run at the same rate as the blast through the
+crash slow-mo — as does the collar, which is stepped by the same `dust.update(dt)` the boost trail
+is.
 
-`take()` also accepts a **drift and a slew** ([above](#momentum)), and this is where the momentum
-reads hardest: the shells are the only recognisable objects in the wreck, and a car that freezes on
-the spot and collapses reads as a car that stopped however much its explosion is moving. The two are
-given deliberately different shares — the taxi keeps 0.8 of the base for having hit something, the
-car it hit 1.25 — and are slewed in opposite directions (about 9° and 28°, spent almost entirely in
-the first third of a second) off which side of the taxi's line it was sitting on. Matched, the pair
-travels as a rigid unit, which reads as a wreck being panned across rather than as one car hitting
-another. The slew is applied by **premultiplying** a world-Y rotation onto the pose the shell was
-caught in, not by writing `rotation.y`: a shell arrives holding a quaternion decomposed out of a
-car's body matrix — corner lean, pitch rock and all — and the Euler that comes back out of that is
-in XYZ order, where `.y` is not the car's yaw.
+`take()` accepts a **drift and a slew** ([above](#momentum)), and this is where the momentum reads
+hardest: the shells are the only recognisable objects in the wreck, and a car that freezes on the
+spot reads as a car that stopped however much its explosion is moving. The two are given
+deliberately different shares — the taxi keeps 0.8 of the base for having hit something, the car it
+hit 1.25 — and are slewed in opposite directions (run to rest, about 20° and 64°) off which side of
+the taxi's line it was sitting on. Matched, the pair travels as a rigid unit, which reads as a wreck
+being panned across rather than as one car hitting another.
 
-Both default to nothing, which is what keeps [the passing lab](lab.md) detonating its wrecks on the
-spot: there the useful thing about a wreck is *where it happened*. See
-[traffic.md](traffic.md#the-wreck) for the rest of the staging, and
-[testing.md](testing.md#screenshots) for `?shot=12` and `?shot=17`, which stage a real crash and
-freeze it at the fire and at the smoke respectively.
+The slew is applied by **premultiplying** a world-Y rotation onto the pose the shell was caught in,
+not by writing `rotation.y`; the crumple's lean and nose-down are **post**-multiplied onto the same
+pose, so they land in the body's own frame. Neither can be an Euler component: a shell arrives
+holding a quaternion decomposed out of a car's body matrix — corner lean, pitch rock and all — and
+that already has both a roll and a pitch in it. See the note on `BODY_EULER_ORDER` in `util/geo.js`
+for the shape of the trap.
+
+Everything defaults to nothing, which is what keeps [the passing lab](lab.md) detonating its wrecks
+on the spot and clearing them away with the older `vanish.js` fade: there the useful thing about a
+wreck is *where it happened*, and a crumpled shell left in the way of the next staged approach is
+not. See [traffic.md](traffic.md#the-wreck) for the rest of the staging, and
+[testing.md](testing.md#screenshots) for `?shot=12`, `?shot=17` and `?shot=37`, which stage a real
+crash and freeze it at the fire, at the smoke, and at the two wrecks left in the road.
 
 ### Roadworks — `game/roadwork.js`, `geometry/roadworks.js`
 
@@ -2756,7 +2928,7 @@ material recipes so the two paths cannot drift apart.
 ### Nearby-traffic ghost outlines — `game/carghosts.js`
 
 The same outline, worn by the handful of ambient vehicles nearest the taxi. It exists because
-`sim/collisions.js` is armed *only* while boosting: the one moment a car hidden behind a tower is a
+`sim/collisions.js` only charges a contact while boosting: the one moment a car hidden behind a tower is a
 crash rather than a surprise is the one moment the player cannot see it. The taxi's outline says
 where the player is; this says what they are about to drive into. It lives in `game/` rather than
 `sim/` because it is a readout of a player-layer concept — the boost — and because `main.js` is the
@@ -2764,7 +2936,7 @@ only place allowed to know about both.
 
 It runs whether or not the taxi is currently boosting, and deliberately so: gating it on
 `taxi.boost` would only ever confirm a decision already made, since the collision test it is
-warning about only arms once the button is down. Showing it beforehand is what lets the player spot
+warning about only starts charging once the button is down. Showing it beforehand is what lets the player spot
 the hidden car and choose *not* to press the button — see `update()`'s `want` in `carghosts.js`,
 which only drops to 0 once the taxi is `crashed`.
 
@@ -3034,11 +3206,31 @@ beam of the same hue as the rim beneath it read as brighter rather than merely t
 Because the patch changes what the material draws without changing its constructor parameters, it
 carries its own `customProgramCacheKey` — see the trap in [CLAUDE.md](../CLAUDE.md) about
 `onBeforeCompile` and three's program cache. `setColor` paints it the same colour as the rim and
-fill; `tools/probe.mjs` reads all three back together and expects one hex, repeated three times.
+fill; `tools/probe.mjs` reads all three back together and expects one hex, repeated three times —
+except on a **backgrounded** disc, below, where only the rim and fill carry the dim.
 
 The beam has to be told to spin: `ring.update(elapsed)` is called from `game/faremarker.js`'s own
 per-frame `update` while the rider's disc is visible, and from `game/fares.js`'s fare loop while a
 fare is `riding`, for the drop-off's. Neither ring ticks while hidden.
+
+**`setDim(0..1)` steps a disc back behind the fare in the car.** A waiting rider cannot be picked up
+while the seat is full, so their mark turns down for as long as that holds — see
+[gameplay.md](gameplay.md#the-board-steps-back-while-the-seat-is-full) for why the disc *darkens*
+rather than disappearing. Mechanically it is a colour scale (0.42× on the rim and fill) plus half
+again off the fill's opacity, with the sweep fading on `opacity` and then dropping out of the draw
+entirely. Scaling the colour rather than fading the material is what keeps it cheap: two of the three
+layers are opaque `unlitMaterial`s whose colour *is* their light, and turning them transparent to dim
+them would move them into three's transparent queue for a look change. The dim and the clock write
+the same channel, so both go through one `paint()` — otherwise a level change would repaint a
+backgrounded disc at full brightness four times a fare. The caller (`game/faremarker.js`) owns the
+easing; this only ever applies the number it is handed.
+
+**`pulse()` swells a disc once and settles**, borrowing the select pop's own envelope at
+`PULSE_SCALE = 0.16` — about +4px of radius on a 27px disc, half the crystal's 0.34 because the two
+are wildly different sizes on screen and the gesture has to read as the same one. It is fired on the
+**drop-off's** disc when a tap on a kerbside rider is refused, as the "that one first" half of the
+answer. The swell *multiplies* whatever the arrival/exit animation has got to rather than replacing
+it, so a disc pulsed mid-grow swells out of where it is instead of jumping to full size.
 
 ### The courier pad — `geometry/parcelpad.js`
 
@@ -3093,7 +3285,7 @@ Nothing calls `setColor`: a package has no clock to repaint for.
 A kraft box with a darker lid slab and a tape cross on top, merged into one mesh with one material
 the way every prop here is. Scale is the same deliberate lie [the
 figure](gameplay.md#the-taxis-roof-sign) tells: a real parcel beside a 3.4-unit car would be half a
-unit, which is four pixels at play zoom, so this is a crate a bit over one unit — squat and wide where
+unit, which is four pixels at play zoom, so this is a crate two units across — squat and wide where
 the figure is tall and thin.
 
 **It was 2.4 units and read about twice too big.** The mistake was matching the rider's 3.3-unit
@@ -3102,15 +3294,40 @@ is a tall thin sliver, so a 2.4 crate beside a rider read as a shipping containe
 1.35 the two have roughly the same apparent area, with the box a shade under — which is what "the same
 size" means for shapes this different.
 
+**Every number in the two load modules is a proportion, and `CARGO_SCALE` is the one that turns them
+into a size.** It multiplies the finished geometry in `geometry/parcel.js` and `geometry/food.js`
+alike, and it is the only knob for how large cargo reads on the board. A factor rather than new
+literals because those literals argue one part against another — the label against the tape strip, the
+burger against the cup, the straw against the lid — and multiplying twenty tuned numbers by hand would
+leave every one of those arguments quoting a size that no longer exists.
+
+It is **set by the food order, not by the box**. At 1.0 a load stands 1.38 across, ~11px at play zoom,
+and the box clears the floor because it spends that width on solid card with a white label on it. The
+order spends most of it on air between two halves, and on a phone it read as a smudge on a 6.4-unit
+pad — reported as exactly that. At 1.45 a load is 2.0 across (~15px), which puts the burger back over
+the floor the box was tuned to and still stops a third of the way short of the 2.4 that failed. Both
+kinds move together because that is what the shared envelope *is*: a factor on one kind alone would be
+the three bugs below.
+
+The HUD chip's frustum carries the same factor (`FIT` in `game/cargochip.js`), so the readout is
+pixel-identical whatever the board does — 42px is 42px, and the chip's job is to show the whole of
+what is aboard rather than to report how big it is. The deck scale divides it back out, so the size a
+flight opens at is unchanged at 0.53.
+
 The cross is on the **top** face because the camera looks down the +X+Z diagonal, which makes the top
 the largest face on screen; a band around the girth would be mostly hidden. It is what says *parcel*
 rather than *crate*.
 
-`idle(t)` is a slow Y spin plus a gentle bob, off sim time. The rider's answer to "come and get me" is
-a raised waving arm; a box has no arm, so the motion carries all of it — and it is deliberately
-slower than the wave, because a parcel is not impatient, it has no clock. The footprint is square so
-the spin never changes the silhouette's width, which is what makes it read as turning rather than as
-pulsing.
+**A courier job carries one of two loads**, this box or the [food order](#the-food-order--geometryfoodjs)
+below, and `geometry/cargo.js` is the rig that holds both and switches between them. Both are built
+once per slot and one is shown, because a slot is built once and reused for the whole run.
+
+`idle(t)` is a slow Y spin plus a gentle bob, off sim time, and it lives on that rig rather than in
+either geometry module — two loads turning at two rates would be two answers to the one thing the
+motion says. The rider's answer to "come and get me" is a raised waving arm; a load has no arm, so the
+motion carries all of it — and it is deliberately slower than the wave, because a courier job is not
+impatient, it has no clock. The box's footprint is square so the spin never changes the silhouette's
+width, which is what makes it read as turning rather than as pulsing.
 
 **It is built to read as 📦**, and each of the four parts is doing one job at ~15px: a kraft body; a
 darker lid slab so the top seam is a plane rather than a stripe; **one** semi-white tape strip; and a
@@ -3205,7 +3422,7 @@ the same one the digits above it wear. Three things about the view:
   42px square with no ground under it, half a black box is a smudge. From the −X +Z quadrant the visible
   X face is at +0.78 and the Z face stays at +0.40, and the visible Z face is the one carrying the strip
   and a label — the pair 📦 shows.
-- **The frustum is computed, not eyeballed.** The box stands 1.16 tall and 1.384 across at the lid, so
+- **The frustum is computed, not eyeballed — once, for both loads.** The box stands 1.16 tall and 1.384 across at the lid, so
   at 45° its half-diagonal is 0.979 and its screen half-height is 1.16·cos33/2 + 0.979·sin33 = 1.02 —
   near enough the same number as the half-width, so one square frustum covers both. `FIT` is 1.15, that
   plus 13% for the drop shadow and nothing else, because a *square* canvas has no corner for the box to
@@ -3256,6 +3473,74 @@ The deck copy those numbers were first written for is gone — the taxi carries 
 drops out of the ghost-outline stencil mask, which is seven parts rather than eight (`tools/probe.mjs`
 counts them, because a part left *out* of the mask counts as an occluder of the rim behind it).
 
+### The food order — `geometry/food.js`
+
+The courier's other load: an oversized burger with a soda cup standing behind it. Same pad, same
+cyan, same money — it differs in what it *is*, and in one thing that is not cosmetic: it is collected
+at the [burger joint](gameplay.md#two-kinds-of-load-and-one-of-them-has-an-address) and nowhere else.
+
+**Two objects and no container, and that is the whole design.** The first cut put both of them in a
+takeaway bag, which is what a real order comes in and which cost the order the only thing it had: the
+bag is a squat tapered block, it took two thirds of the envelope, and it left the burger and the cup
+as trinkets balanced on top of something that reads at ten pixels as *another box*. Cargo on this
+board is already a box. What is worth having here is the pair of shapes nothing else in the game has,
+at the size they can be recognised at — so both are several sizes too big, the same deliberate lie
+[the figure](gameplay.md#the-taxis-roof-sign) and the parcel both tell. The burger is 1.24 of the
+envelope's 1.35, nearly the box's own width, and the finished pair is multiplied by `CARGO_SCALE` like
+the box — **the order is what set that factor**, because the proportions here were right and the drawn
+size was not.
+
+**A different silhouette, not a different colour.** Hue on this board is spent: shape says what a
+thing is and hue says whose clock is paying for it, and a courier job has no clock — so a second load
+arriving as a second cyan would be saying something the board cannot mean. What is left is the
+outline: a round stack and a tall tapered cup against a squat square, plus the **straw**, which is the
+only part of any load in the game that breaks the outline at the top and is what makes the spin
+legible the way the tape strip is for the box.
+
+**The burger is the drive-through's own mesh**, `burgerGeometry()` from
+[city/burgerjoint.js](city.md#the-burger-joint-and-its-drive-through), shrunk — not a second recipe
+for one. That sign is fourteen pixels on a pole and solved this exact problem once already: which
+slices read at that size, how much of each has to stand out past the crown, why the cheese is a square
+turned 45°. Rebuilding it here would put two burgers in one city, tuned twice, drifting apart on the
+first change to either. It is scaled and stood on the ground **by its own measured bounding box**
+rather than by arithmetic off `BURGER_R`, so it follows any re-tune of the sign.
+
+**It shares the box's envelope, and that is a hard constraint.** Three things measure a load without
+asking which kind it is: the chip frames one square frustum around whatever is aboard, a pickup hands
+the chip a point on the load's own middle, and the outbound flight opens at "cargo, at the scale the
+car handles cargo at". A taller second load overflows the first, sits off-centre in the second and
+opens at the wrong size in the third — three bugs out of one dimension. So the straw's tip lands on
+the box's 1.16 and the pair stays inside its sweep, and `tools/probe.mjs` asserts that against the two
+meshes that actually get built rather than against the numbers meant to produce them. The width there
+is measured as the **furthest vertex from the spin axis**, not off a bounding box: a box's corners are
+real vertices, a burger and a cup on a diagonal have nothing at the corners of theirs, and what both
+the chip's frustum and the spin care about is the radius.
+
+Three things were measured rather than guessed:
+
+- **The tall one goes up-screen, and the pair sits on the diagonal.** −X−Z is away from the eye and up
+  the frame, so cup behind and burger in front is the one arrangement where the burger cannot cover
+  the cup's body. On the diagonal rather than side by side for a second reason: two objects strung out
+  along one axis swing between their full width and nothing as the order turns.
+- **The pair is centred on its own plan extents, after the fact.** The offsets are chosen to balance,
+  but the burger carries a scatter of sesame seeds that is deliberately *not* symmetric, so the pair
+  as built leans a few hundredths — and the idle spin is about this mesh's Y axis, where a lopsided
+  plan reads as an orbit rather than a turn.
+- **The cup's body stops well short of the lid line.** Drawn up to it, the straw gets a tenth of a
+  unit of air and is a nub; at 0.78 the body is still half again as tall as it is wide, which is all a
+  cup needs to be a cup, and the straw gets a third of a unit to stand up in. The lid is **red** for
+  the other half of the same read: paper and bun are near neighbours under this sun, so an off-white
+  cap on an off-white cup was one shade of one colour.
+
+> **Trap.** `BufferGeometry.scale` goes through `applyMatrix4`, which **recomputes a bounding box that
+> already exists**. So a box read off the sign before the scale and held by reference has silently had
+> the scale applied to it by the time it is used, and standing the mesh on the ground with it applies
+> the scale twice — it sank the burger a quarter of a unit into the pavement. `.clone()` the reading.
+
+Everything is a cylinder, a box or a squashed hemisphere — nothing here is hand-wound, which is what
+keeps it clear of [the winding trap](#the-courier-pad--geometryparcelpadjs) the pad next door fell
+into.
+
 ### The drop-off ring — `geometry/marker.js`
 
 The drop-off is a **filled disc on the kerb corner and nothing else** — no head, no post. It was a
@@ -3293,12 +3578,26 @@ the fare it stands in for, which is that rider's clock: the colour is written fr
 wrapper's `color` and the polygon fills with `currentColor`, so a level change is one style write.
 The value in the stylesheet is only what one opens on before its first write.
 
-**Two kinds, one arrow.** The drop-off gets one while a fare is aboard, and *every rider still on a
-kerb* gets one — which is new, and is what replaced the [rider-finder
-chips](gameplay.md#finding-the-next-rider). The drop-off's is drawn a size up (`.is-dropoff`, 42px
-against 35px), because while carrying there can be four arrows on the edge at once and only one of
-them is the trip under way; colour cannot carry that distinction, being already spoken for by the
-clocks.
+**Two kinds, one arrow, and they are exclusive.** With the seat free, *every rider still on a kerb*
+gets one — which replaced the [rider-finder chips](gameplay.md#finding-the-next-rider). With a rider
+aboard there is exactly **one** arrow on the whole frame and it is the drop-off's.
+
+That exclusivity is the [step-back](gameplay.md#the-board-steps-back-while-the-seat-is-full) reaching
+the frame edge. An arrow is a *go here*, and a kerbside rider is the one thing on the board a player
+carrying someone may not go to — so a ring of three or four of them is that many invitations to do
+the thing the game refuses, spent on the only channel that has no room for nuance: an arrow has a
+direction and a hue and nothing else to say "not yet" with. The rule lives in `update` rather than in
+the caller passing an empty list, because it is one rule about arrows.
+
+It costs something real. A waiting rider off the side of the frame now has *no* mark at all while you
+are carrying — their disc is still on the tarmac at their corner, and the arrow returns the instant
+the seat empties, but on a phone mid-trip "off frame" and "invisible" are the same thing, so the
+board's ordering puzzle is readable only by panning. That is the deliberate price of the frame saying
+one thing at a time.
+
+The drop-off's is still drawn a size up (`.is-dropoff`, 42px against 35px) even now that it is alone
+while carrying: the sizes have to keep meaning what they mean across the transition, and a lone arrow
+that shrank when the seat filled would read as the trip mattering less.
 
 The drop-off's arrow carries more weight since the head came off. A crystal at rooftop height stayed
 visible over the skyline for a beat after the ring had gone behind a tower; the arrow only covers the
@@ -3306,13 +3605,80 @@ visible over the skyline for a beat after the ring had gone behind a tower; the 
 at `y = 0.1` — the mark on the road — where it used to aim halfway up the pin's post.
 
 The pool grows on demand and is never shrunk: `maxFares` riders plus one drop-off, so it tops out at
-five divs. `tools/smoke.mjs` asserts the bookkeeping — as many arrows up as there are marks outside
-the band, each coloured and each inside the frame — through `__taxi.projectToScreen` and
-`__taxi.cornerFor`, which are the same functions the HUD itself aims with.
+five divs. `tools/smoke.mjs` asserts the bookkeeping — as many arrows up as there are marks *eligible*
+to raise one and outside the band, each coloured and each inside the frame — through
+`__taxi.projectToScreen` and `__taxi.cornerFor`, which are the same functions the HUD itself aims
+with. It mirrors the exclusivity rule rather than reading it off the module, so the two have to agree
+rather than agreeing by construction, and it reports whether the sample it passed on actually
+*reached* a board with someone aboard and a kerbside rider off-frame — the state is a fact about
+where the taxi has driven by then, and a pass that never met it says so rather than looking like
+proof.
 
 The third thing the map outgrowing the frame can lose is the **taxi itself**, and that one gets a
 chip rather than an arrow: a direction is enough when you already know what is over there, and not
 enough when what is missing is your own car. See [getting back to the taxi](#getting-back-to-the-taxi).
+
+#### Tapping an edge arrow
+
+On a narrow viewport a press on an arrow glides the camera onto the mark it is pointing at, and the
+arrow then takes itself down because the thing it stood in for is in frame. `onTap` in
+`game/farepointers.js`, `lookAtMark` in `main.js`, and it is a two-line handler on top of the same
+`glideTo` [the rider peek](#the-rider-peek) travels on — the interesting part is all in what it
+deliberately does not do.
+
+**It moves the camera and nothing else.** Dispatching in the same tap is exactly what the
+[rider-finder chips](gameplay.md#finding-the-next-rider) did, and what the board was rebuilt without:
+the player still has to read the corner, judge whether the fare is worth the drive, and tap the
+rider. What the arrow hands over is the *pan* — dragging the map in a direction it was already
+naming, guessing when to stop, on a clock that is draining — which was never the decision.
+
+**It keeps the camera.** A [chip tap](#the-rider-peek) peeked and rode home, because it was a glance
+at a rider the taxi was already driving at. This is the player asking to *look* somewhere and then
+act there, so it takes the camera the way a swipe does (`releaseCameraToPlayer`) and stays. The way
+back is the taxi-finder chip, which comes up 0.4s after the car goes fully off-frame — the two
+affordances are each other's return leg.
+
+**Narrow only,** for the reason drag-to-pan and both follow-cams are: above `NARROW_VIEWPORT` the
+whole city is in frame, so nothing is ever off it and there is no pan to save. The gate is a
+`can-tap` class on the host, set from `isNarrow` every frame so a resize flips it without a reload,
+and while it is off the arrows keep `pointer-events: none` — which matters for more than tidiness:
+an arrow that answered a pointer on a desktop would be an invisible hole in the map at each point
+around the frame, eating clicks meant for the city.
+
+Three details that are each a bug if they go the other way:
+
+- **The hit area is a pad, not the shape.** The art is 35px, under the 44 a thumb wants, so
+  `.fare-pointer::before` runs `inset: -8px` for a 51px square about the same centre. A pad rather
+  than a bigger box, so `EDGE_MARGIN`'s clamp arithmetic and the drop-off's size step keep meaning
+  what they say.
+- **The destination is read at press time**, off `atX`/`atZ` on the pool slot. One pooled div
+  answers for a different fare from one frame to the next, so a listener closed over whoever held
+  the slot when it was created would ride the camera to a rider who was picked up two blocks ago.
+  `aimed` is cleared whenever an arrow goes down, so a hidden slot cannot answer with a stale mark.
+- **A `pointerdown`/`pointerup` pair, not a `click`.** WebKit only synthesises a click on a bare div
+  that passes its own "is this clickable" test, and the pair also has to reject two things a naive
+  handler accepts: a drag that began on the map and merely *finished* over an arrow (hence pairing at
+  all), and a press that slid away to mean *no* — a touch pointer is implicitly captured to the
+  element it landed on, so the `pointerup` arrives here regardless and only a `TAP_SLOP` travel test
+  tells the two apart. The press dip is an `is-held` class for the same reason `:active` fails on
+  [the pedals](gameplay.md#the-pedal-slide), arriving by a different route: `:active` would stay lit
+  on an arrow the finger had already abandoned.
+
+What it costs is that an arrow outranks the canvas under it. A press within ~25px of one belongs to
+the arrow, so the [route band](#route-band--gameroutelinejs) is that much harder to grab out at the frame edge,
+and a swipe that *starts* on an arrow does not pan the map at all — the capture means the canvas
+never sees the rest of the gesture. Four 51px squares against a whole frame of map, and the swipe is
+still there one thumb-width away. It sits at z-index 18, under the pedals (20) and the pause button
+(24), so a thumb sliding onto the brake still gets the brake.
+
+`tools/smoke.mjs` presses one with a real `Input.dispatchTouchEvent` rather than a synthesised click
+— for the reason the initials check does (see the caret trap in `CLAUDE.md`): a
+`dispatchEvent(new MouseEvent)` runs the
+handler whatever the hit-testing says, so it passes just as happily against an arrow that is
+`pointer-events: none`, buried under the HUD, or too small for a thumb, and every one of those is the
+bug. It asserts the camera *landed on a mark* — compared against the corners the board was offering,
+read in the same task as the arrow's rect — that the taxi was **not** dispatched, and that the host
+carries no `can-tap` at 900px wide.
 
 ### Off-screen police warning
 

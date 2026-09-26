@@ -116,6 +116,17 @@
         40%  { transform: scale(1.14); color: #6BE08A; }
         100% { transform: scale(1);    color: #fff;    }
       }
+      /* ...and the same bump for money going the other way — the burger's counter charge, which is
+         the only thing in the game that takes cash off the player. Red rather than green, and it
+         dips *in* rather than swelling: the payout's 1.14 is the counter reacting to something
+         arriving, so a charge that used it would say the same thing about a total going down. */
+      #hud .money.money-charged { animation: money-charge 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
+      @keyframes money-charge {
+        0%   { transform: scale(1);    color: #fff;    }
+        40%  { transform: scale(0.92); color: #FF7A6B; }
+        100% { transform: scale(1);    color: #fff;    }
+      }
+
 
       /* Cargo chip — the courier box, pictured under the cash total while a package is aboard. See
          src/game/cargochip.js for what is inside it and why it lives up here rather than at the end
@@ -281,6 +292,10 @@
         color: #6BE08A; text-shadow: 0 2px 10px rgba(10, 30, 20, 0.65);
         transform: translate(-50%, -50%);
       }
+      /* A charge — the burger at the drive-through window, and nothing else so far. Same flight,
+         same size, same anchor on the taxi: only the sign and the colour say which way the money
+         went, which is the whole point of reusing the pop rather than inventing a second one. */
+      .earning.is-charge { color: #FF7A6B; text-shadow: 0 2px 10px rgba(40, 12, 10, 0.65); }
 
       /* The boost half of a drop-off's payout — see src/game/energybits.js. Small, bright and
          round, so it reads as *energy* against the flying "$20"'s green text: the two currencies
@@ -560,33 +575,50 @@
       body.game-over #boost, body.game-over #brake,
       body.game-over #dbg-toggle, body.game-over #dbg-panel { display: none; }
 
-      /* The bottom control row: Loco Mode and the brake, sharing the 3/4-width band the pill used to
-         have to itself, 60/40 with a gap between them.
+      /* The bottom control row: Loco Mode and the brake, sharing the band the pill used to have to
+         itself, 60/40 with a gap between them.
          The two buttons stay independently `position: fixed` rather than becoming flex children of a
          row, because a wrapper would be a new element between them and the viewport — and `#boost`
          is measured (game/tutorial.js aims its third bubble at `getBoundingClientRect`), animated
          (`translate` on the HUD entrance), and pressed through pointer capture. Two `calc()`s cost
          less than re-testing all of that.
-         The shares are of the *band*, not of the screen: 40% of 75% is the 30% below, so the split
-         survives any change to the band's own margins as long as these two numbers do. */
+         The row sits in one inset, the same on all three sides it touches, so the band reads as a
+         panel resting in the corner of the screen rather than a stripe floating in from nowhere.
+         That inset is *derived*, not typed, and the reason is the home indicator. The row used to
+         stand 26px clear of the layout viewport plus whatever `--safe-bottom` was, which is 26 on
+         a desktop and 60pt on a notched iPhone — one constant, two very different gaps. Halving
+         the gap the player actually sees therefore has to halve the sum: 13px on a desktop, 30pt
+         on a phone, and the sides take the same number so the three gaps match on either.
+         30pt still clears the home indicator (~21pt of edge-protect at the bottom), which is why
+         the bottom can spend part of the safe area rather than sitting on top of all of it — but
+         only at the bottom. Landscape puts 47pt of notch on one side, and no derived inset is
+         going to beat that, so the sides floor at their own `env()`.
+         The shares are of the *band*, not of the screen — the brake is 40% of whatever width the
+         margins leave — so the split survives any change to those margins. `--ctl-band` is why the
+         brake's percentage can't be a literal any more: with the margins in px, 40% of the band is
+         not a round fraction of the viewport. */
       :root {
-        --ctl-side: 12.5%;            /* band margin, left and right — also #rider-finder-stack's */
+        --ctl-inset: calc((26px + var(--safe-bottom)) / 2);
+        --ctl-bottom: var(--ctl-inset);
+        --ctl-left: max(var(--ctl-inset), var(--safe-left));
+        --ctl-right: max(var(--ctl-inset), var(--safe-right));
         --ctl-gap: 8px;
-        --brake-w: 30%;               /* 40% of the 75% band */
+        --ctl-band: calc(100% - var(--ctl-left) - var(--ctl-right));
+        --brake-w: calc(0.4 * var(--ctl-band));
       }
 
       body.shot-mode #hud, body.shot-mode #run-end { display: none; }
 
       #boost {
-        /* The left 60% of the control row above — 45% of the screen. It was the whole 3/4-width band
-           before the brake arrived, wide enough that a thumb pressing it no longer covers the whole
-           pill, which is what let the mirror bar above it (see the removed #boost::before) retire;
-           the fill is still visible past the thumb on either side at this width. */
-        position: fixed; bottom: calc(26px + var(--safe-bottom)); z-index: 20;
-        left: var(--ctl-side); right: calc(var(--ctl-side) + var(--brake-w) + var(--ctl-gap));
+        /* The left 60% of the control row above. It was the whole band before the brake arrived,
+           wide enough that a thumb pressing it no longer covers the whole pill, which is what let
+           the mirror bar above it (see the removed #boost::before) retire; the fill is still
+           visible past the thumb on either side at this width. */
+        position: fixed; bottom: var(--ctl-bottom); z-index: 20;
+        left: var(--ctl-left); right: calc(var(--ctl-right) + var(--brake-w) + var(--ctl-gap));
         text-align: center;
         /* 16px of side padding rather than the 26 this had at full width: "Loco Mode™" is ~100px
-           of 800-weight 17px text, and at 45% of a 320px screen the box is 144px. */
+           of 800-weight 17px text, and the box is 168px on a 320px screen. */
         padding: 14px 16px; border-radius: 999px; cursor: pointer;
         /* Black outline so the pill holds its shape against pale asphalt and the yellow taxi. */
         border: 2px solid #16120a;
@@ -626,14 +658,36 @@
         background: linear-gradient(90deg, #FFE873 var(--pct, 100%), #fff 0);
         box-shadow: 0 0 30px rgba(255, 232, 115, 0.85);
       }
-      /* Empty tank. Nothing refills on its own, so this greyed-out state persists until the next
-         drop-off tops it up — it reads as "go earn it", not "wait for it". Flat grey rather than the
-         usual dial gradient, and the black outline drops out too: every other state of this pill
-         reads as "press me", so disabled has to read unambiguously as the opposite rather than as a
-         drained version of the same button. */
+      /* Empty tank. Flat grey rather than the usual dial gradient, and the black outline drops out
+         too: every other state of this pill reads as "press me", so disabled has to read
+         unambiguously as the opposite rather than as a drained version of the same button. */
       #boost.is-empty {
         cursor: default; color: #6b6f73; border-color: transparent;
         background: #b9c0c4;
+      }
+      /* ...and the five seconds it spends climbing back to a quarter (game/boost.js). The pill is
+         still dead — same grey plate, same grey label, still `disabled` — but the dial comes back
+         so the wait has something to watch: a muted gold creeping across the left quarter of the
+         pill, under the same bright leading edge a delivery's pour rides. Muted rather than the
+         live #F5C130 on purpose. This fuel is not spendable yet, and a full-strength fill on a
+         button that refuses the press is the one combination that reads as broken; the colour
+         arriving *with* the button waking is what the end of the climb is for.
+
+         Specificity: two classes plus the id beats the `#boost.is-empty` grey above it whatever the
+         source order, and ties with `#boost.is-empty:active` at the bottom of the block — which is
+         fine, since that one only takes the transform, and both want it gone. */
+      #boost.is-empty.is-charging {
+        background: linear-gradient(90deg, #cdb46a var(--pct, 0%), #b9c0c4 0);
+      }
+      /* The glow, dimmed to match, and the flutter taken out. `.is-filling` below is written for a
+         pour landing on a live button: full-strength yellow at 0.95 alpha, and a 4Hz scale throb.
+         Both are wrong here — the throb because a dead button that bounces reads as pressable, the
+         glow because it would be the brightest thing on screen while saying "not yet". This keeps
+         the envelope (`--fill`, so it still fades in and out with the climb) at about a third of
+         the spill and none of the movement. */
+      #boost.is-charging.is-filling {
+        box-shadow: 0 0 calc(8px + 8px * var(--fill, 0)) rgba(205, 180, 106, calc(0.5 * var(--fill, 0)));
+        transform: none;
       }
       /* Delivery bonus. Fuel is now *only* ever earned, so the pour is the reward animation and it
          gets the full treatment: the bar overshoots its new mark and springs back, the pill pulses,
@@ -701,8 +755,8 @@
          No dial and no meter: this costs nothing to use and has nothing to run out of, so a pill
          with a fill on it would promise a resource that isn't there. */
       #brake {
-        position: fixed; bottom: calc(26px + var(--safe-bottom)); z-index: 20;
-        left: calc(100% - var(--ctl-side) - var(--brake-w)); right: var(--ctl-side);
+        position: fixed; bottom: var(--ctl-bottom); z-index: 20;
+        left: calc(100% - var(--ctl-right) - var(--brake-w)); right: var(--ctl-right);
         text-align: center;
         padding: 14px 16px; border-radius: 999px; cursor: pointer;
         border: 2px solid #16120a;
@@ -751,7 +805,11 @@
          clock — same four-stage colour as the in-world timer — and a mini three.js canvas drawing
          the figure. */
       #rider-finder-stack {
-        position: fixed; left: 12.5%; bottom: calc(95px + var(--safe-bottom)); z-index: 20;
+        /* Stacked on the pill rather than placed on its own: the left edge is the pill's, and the
+           bottom is the pill's own inset plus its 49px height plus a 20px gap — so the row follows
+           whatever `--ctl-bottom` and `--ctl-left` are set to rather than drifting apart from it. */
+        position: fixed; left: var(--ctl-left);
+        bottom: calc(var(--ctl-bottom) + 69px); z-index: 20;
         display: flex; flex-direction: row; align-items: center; gap: 8px;
         pointer-events: none;
       }
@@ -797,9 +855,10 @@
          opposite end of the bottom row from the rider chips. See src/game/taxifinder.js for when it
          is up; a tap rides the camera back to the taxi.
 
-         Mirrored on the rider row's own geometry — 49px, the same distance up, and inset 12.5% from
-         its own edge, which is the edge of the Loco Mode pill — so the two bottom corners read as a
-         matched pair either side of it. One is "who is waiting", the other is "where am I".
+         Mirrored on the rider row's own geometry — 49px, the same distance up, and inset by the
+         control row's own margin from its own edge, which is the edge of the brake — so the two
+         bottom corners read as a matched pair either side of it. One is "who is waiting", the
+         other is "where am I".
 
          **A disc and nothing else.** No ring: a rider chip's ring is a clock, and the taxi has none
          — it is not going anywhere and nothing about it expires. So the ring's 49px outer diameter
@@ -811,7 +870,8 @@
          rules competing for that property would mean whichever landed last silently killed the
          other. `scale` composes with `transform` instead. */
       #taxi-finder {
-        position: fixed; right: 12.5%; bottom: calc(95px + var(--safe-bottom)); z-index: 20;
+        position: fixed; right: var(--ctl-right);
+        bottom: calc(var(--ctl-bottom) + 69px); z-index: 20;
         width: 49px; height: 49px; padding: 0; border: 0; border-radius: 50%;
         display: grid; place-items: center; cursor: pointer; overflow: hidden;
         background: rgba(24, 44, 58, 0.72);
@@ -858,8 +918,38 @@
          edge at once and colour is already spoken for by the clocks. */
       .fare-pointer.is-dropoff { width: 42px; height: 42px; }
       .fare-pointer[hidden] { display: none; }
-      .fare-pointer svg { display: block; width: 100%; height: 100%;
+      /* The art, in a wrapper of its own so the press dip has something to scale that JS is not
+         already writing a transform to. The arrow div's `transform` carries the clamp point and the
+         rotation and is rewritten every frame; the individual `scale` property composes *after* it,
+         so a scale on the div would be taken about a point half a box from its centre and the arrow
+         would slide as it dipped. Both layers are `pointer-events: none` so the press lands on the
+         div the listener is on and has no inner node to hit-test onto. */
+      .fare-pointer > span {
+        display: block; width: 100%; height: 100%; pointer-events: none;
+        transition: scale 0.09s ease;
+      }
+      .fare-pointer svg { display: block; width: 100%; height: 100%; pointer-events: none;
         filter: drop-shadow(0 2px 4px rgba(10, 20, 30, 0.45)); }
+      /* --- tappable, on a narrow viewport only -------------------------------
+         `can-tap` is set on the host from `isNarrow` — see src/game/farepointers.js for why a press
+         pans the camera and stops there, and why it is off above NARROW_VIEWPORT (there is nothing
+         off-frame to point at, and an inert arrow is one the map's drag handlers still see through).
+
+         The visible arrow is 35px, under the 44 a thumb wants, so the hit area is a pad rather than
+         the shape: `inset: -8px` makes it 51px square about the same centre — big enough to press
+         at the edge of the frame, and still small enough that two arrows on the same side of the
+         screen stay separately pressable. Pseudo-element rather than a bigger box so the clamp
+         arithmetic and the drop-off's size step keep meaning what they say. */
+      #fare-pointers.can-tap .fare-pointer { pointer-events: auto; cursor: pointer; }
+      #fare-pointers.can-tap .fare-pointer::before { content: ''; position: absolute; inset: -8px; }
+      /* `is-held` rather than `:active`, for the pedals' reason arriving by a different route: a
+         touch pointer is implicitly captured to the element it pressed, so `:active` stays lit on an
+         arrow the finger has already slid away from and abandoned. The class is dropped on the frame
+         the travel passes the tap slop — see the press handlers in src/game/farepointers.js. */
+      #fare-pointers.can-tap .fare-pointer.is-held > span { scale: 0.86; }
+      @media (prefers-reduced-motion: reduce) {
+        .fare-pointer > span { transition: none; }
+      }
       /* Outlined to the same weight as the markers in the world, so an arrow reads as the same
          graphic vocabulary. `currentColor` is what lets one style write on the wrapper repaint it
          as the fare's clock drains. */
@@ -909,6 +999,31 @@
          run-end card is not a moment to still be warning about traffic. */
       body.shot-mode #siren-glow, body.game-over #siren-glow { display: none; }
 
+      /* --- the robbery's frame ------------------------------------------------
+         Six soft blooms of the #siren-glow's red and blue, spaced round the edge for as long as a
+         getaway runs: top centre, then clockwise two down the right, bottom centre, two up the
+         left. They alternate between --rob-a and --rob-b going round, so neighbours are always
+         opposite colours, and robberyglow.js swaps the two on the siren's beat. --rob-a2/--rob-b2
+         are the same colours at the 45% shoulder #siren-glow's gradient has, and --rob-w is the
+         radius. Each is centred *on* the edge, so half of it shows. Same z-index and blend as the
+         siren wash, for the same reasons. See src/game/robberyglow.js. */
+      #robbery-glow {
+        --rob-bloom-a: var(--rob-a, transparent) 0%, var(--rob-a2, transparent) 45%, transparent 100%;
+        --rob-bloom-b: var(--rob-b, transparent) 0%, var(--rob-b2, transparent) 45%, transparent 100%;
+        position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 8;
+        pointer-events: none; user-select: none;
+        mix-blend-mode: screen;
+        background:
+          radial-gradient(circle var(--rob-w, 130px) at 50% 0%, var(--rob-bloom-a)),
+          radial-gradient(circle var(--rob-w, 130px) at 100% 28%, var(--rob-bloom-b)),
+          radial-gradient(circle var(--rob-w, 130px) at 100% 72%, var(--rob-bloom-a)),
+          radial-gradient(circle var(--rob-w, 130px) at 50% 100%, var(--rob-bloom-b)),
+          radial-gradient(circle var(--rob-w, 130px) at 0% 72%, var(--rob-bloom-a)),
+          radial-gradient(circle var(--rob-w, 130px) at 0% 28%, var(--rob-bloom-b));
+      }
+      #robbery-glow[hidden] { display: none; }
+      body.shot-mode #robbery-glow, body.game-over #robbery-glow { display: none; }
+
       /* --- coach bubble ---------------------------------------------------
          The opening tutorial: a speech bubble from the taxi itself, bottom centre, with the car
          turning slowly in a round avatar and the line typing itself out. Two beats, and that is
@@ -923,9 +1038,10 @@
          into four, while the same markup looked right on a desktop. The max-width below is the
          only thing that should be setting this bubble's width. */
       #coach {
-        position: fixed; left: 0; right: 0; bottom: calc(104px + var(--safe-bottom)); z-index: 22;
+        position: fixed; left: 0; right: 0;
+        bottom: calc(var(--ctl-bottom) + 78px); z-index: 22;
         display: flex; justify-content: center;
-        /* Clear of the Loco Mode pill (26px up, 49px tall) with room for the bubble's tail, so the
+        /* Clear of the Loco Mode pill (its own inset up, 49px tall) with room for the tail, so the
            only control on screen while this is up isn't underneath it. The rider-finder chips
            would still collide, so they are hidden outright — see body.coach-open below. */
         pointer-events: none; user-select: none; -webkit-user-select: none;
@@ -933,9 +1049,12 @@
       #coach[hidden] { display: none; }
       /* The third beat is about a control rather than about something in the city, so it sits
          directly over that control with its tail pointing down at it — left-aligned to the Loco
-         Mode pill's own left edge, just clear of the pill's top edge (26 + 49 = 75). The other
-         two hang centred with the tail up, because what they are talking about is up there. */
-      #coach.at-boost { bottom: calc(94px + var(--safe-bottom)); justify-content: flex-start; padding-left: 12.5%; }
+         Mode pill's own left edge, just clear of the pill's top edge (its inset + 49, then 19 of
+         air). The other two hang centred with the tail up, because what they talk about is up. */
+      #coach.at-boost {
+        bottom: calc(var(--ctl-bottom) + 68px);
+        justify-content: flex-start; padding-left: var(--ctl-left);
+      }
       /* Grows up out of the tail, which is now underneath it. */
       #coach.at-boost .coach-bubble {
         transform-origin: 45px 100%;
@@ -1030,6 +1149,55 @@
         #coach.is-closing .coach-bubble { transform: none; transition: opacity 0.2s ease; }
       }
 
+      /* --- police radio -----------------------------------------------------
+         The robber is in the car: a bubble from dispatch, with the robbery's own cop car turning
+         in the avatar. The coach bubble's card, minus everything that asks something of the
+         player — no tail, no spotlight, no tap. It times itself out (game/radio.js) and lets every
+         touch through, because the tap about to happen is on the road, routing the getaway.
+
+         Top centre, under the money / pause / streak row (18px inset + a 51px line), so it never
+         sits where the coach does: the tutorial's Loco Mode beat can still be cycling at the
+         bottom when a robbery lands, and the two are different voices. The coach's z (22), under
+         the pause veil (23) — a pause holds the bubble's clock, so it should cover it too. */
+      #radio {
+        position: fixed; left: 0; right: 0; top: calc(78px + var(--safe-top)); z-index: 22;
+        display: flex; justify-content: center;
+        pointer-events: none; user-select: none; -webkit-user-select: none;
+      }
+      #radio[hidden] { display: none; }
+      body.shot-mode #radio, body.game-over #radio { display: none; }
+      .radio-bubble {
+        display: flex; align-items: center; gap: 10px;
+        max-width: min(300px, calc(100vw - 32px));
+        padding: 9px 18px 9px 9px; border-radius: 22px;
+        background: #FFFDF7; color: #16120a;
+        /* A police-blue edge is what makes this card someone else's channel rather than the
+           taxi's voice — the coach has no border at all. */
+        box-shadow: inset 0 0 0 2.5px #2E5FA8, 0 10px 28px rgba(8, 20, 30, 0.4);
+        font: 700 15px/1.3 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        /* Drops in from the HUD above it. */
+        transform-origin: 50% 0;
+        opacity: 0; transform: scale(0.85) translateY(-12px);
+        transition: opacity 0.18s ease, transform 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      #radio.is-open .radio-bubble { opacity: 1; transform: scale(1) translateY(0); }
+      #radio.is-closing .radio-bubble {
+        opacity: 0; transform: scale(0.94) translateY(-6px);
+        transition: opacity 0.2s ease, transform 0.2s ease;
+      }
+      .radio-avatar { flex: none; display: flex; }
+      .radio-avatar canvas { display: block; }
+      .radio-text { display: flex; flex-direction: column; }
+      .radio-from {
+        font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+        color: #2E5FA8;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .radio-bubble,
+        #radio.is-open .radio-bubble,
+        #radio.is-closing .radio-bubble { transform: none; transition: opacity 0.2s ease; }
+      }
+
       /* The spotlight. Darkens the whole city except a soft pool around whatever the bubble is
          talking about — the taxi on the first beat, the rider on the second. It is what actually
          answers "which one is mine": the bubble can say it, but only this points at it.
@@ -1046,7 +1214,7 @@
          rather than as a hole cut in a dark sheet — the darkening alone left the subject merely
          *not dimmed*, which at this contrast is not the same as lit. It dies by --r0 so it only
          ever touches the clear centre and never washes out the falloff. */
-      #spotlight {
+      #spotlight, #robber-spot {
         position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 21; pointer-events: none;
         opacity: 0; transition: opacity 0.45s ease;
         background:
@@ -1061,6 +1229,47 @@
       }
       body.spotlight-on #spotlight { opacity: 1; }
       body.shot-mode #spotlight, body.game-over #spotlight { display: none; }
+
+      /* --- the robber's line ---------------------------------------------------
+         The robber is in the car and the world has stopped (game/robberline.js): the coach's card
+         in the coach's place, with the robber in the avatar and a red edge to say this is not the
+         taxi talking. Its own pool on the taxi, the same gradient as #spotlight.
+
+         Unlike the coach, the whole element is a full-screen tap catcher while it is up: the next
+         tap anywhere clears it, and it must not also route the taxi or grab the route band. It sits
+         at the coach's z (22), under the pause button (24), so the run can still be paused over it.
+         The coach itself is hidden meanwhile — the tutorial's Loco Mode beat can be mid-showing,
+         and two bubbles in one place is neither. */
+      body.robber-talk #robber-spot { opacity: 1; }
+      body.shot-mode #robber-spot, body.game-over #robber-spot { display: none; }
+      body.robber-talk #coach, body.robber-talk #spotlight { visibility: hidden; }
+      #robber-talk {
+        position: fixed; inset: 0; z-index: 22;
+        display: flex; justify-content: center; align-items: flex-end;
+        padding-bottom: calc(var(--ctl-bottom) + 78px);
+        pointer-events: none; user-select: none; -webkit-user-select: none;
+      }
+      #robber-talk[hidden] { display: none; }
+      body.robber-talk #robber-talk { pointer-events: auto; cursor: pointer; }
+      body.shot-mode #robber-talk, body.game-over #robber-talk { display: none; }
+      #robber-talk .coach-bubble {
+        box-shadow: inset 0 0 0 2.5px #C8372D, 0 10px 28px rgba(8, 20, 30, 0.4);
+        /* Grows up from the bottom: nothing it talks about is below it. */
+        transform-origin: 50% 100%;
+        transform: scale(0.8) translateY(10px);
+      }
+      /* No tail: the robber is in the back of the car, not pointing at it. */
+      #robber-talk .coach-bubble::after { display: none; }
+      #robber-talk.is-open .coach-bubble { opacity: 1; transform: scale(1) translateY(0); }
+      #robber-talk.is-closing .coach-bubble {
+        opacity: 0; transform: scale(0.9) translateY(4px);
+        transition: opacity 0.2s ease, transform 0.2s ease;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #robber-talk .coach-bubble,
+        #robber-talk.is-open .coach-bubble,
+        #robber-talk.is-closing .coach-bubble { transform: none; transition: opacity 0.2s ease; }
+      }
 
       /* --- the HUD's entrance ------------------------------------------------
          Everything the player will need but cannot use yet starts off its own screen edge, and
@@ -1383,6 +1592,7 @@
          needs no layout of its own. See src/game/farepointers.js. -->
     <div id="fare-pointers" aria-hidden="true"></div>
     <div id="siren-glow" aria-hidden="true" hidden></div>
+    <div id="robbery-glow" aria-hidden="true" hidden></div>
     <div id="spotlight" aria-hidden="true"></div>
     <div id="coach" hidden>
       <button class="coach-bubble" type="button">
@@ -1391,6 +1601,24 @@
           <span class="coach-ghost"></span><span class="coach-typed"></span>
         </span>
       </button>
+    </div>
+    <div id="robber-spot" aria-hidden="true"></div>
+    <div id="robber-talk" hidden>
+      <button class="coach-bubble" type="button">
+        <span class="coach-avatar"></span>
+        <span class="coach-text">
+          <span class="coach-ghost"></span><span class="coach-typed"></span>
+        </span>
+      </button>
+    </div>
+    <div id="radio" role="status" aria-live="polite" hidden>
+      <div class="radio-bubble">
+        <span class="radio-avatar"></span>
+        <span class="radio-text">
+          <span class="radio-from">Dispatch</span>
+          <span class="radio-line"></span>
+        </span>
+      </div>
     </div>
     <div id="home-tip" hidden></div>
     <div id="wipe" aria-hidden="true" hidden></div>

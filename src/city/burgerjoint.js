@@ -211,6 +211,15 @@ const POLE_H = 3.6;              // parapet to the middle of the burger
 export const BURGER_R = 1.9;
 
 /**
+ * How far the crown is squashed, as a fraction of the dome's own radius — see the note beside the
+ * dome in `burgerGeometry`. It is here rather than inline because the sesame seeds are placed on
+ * the dome's *surface* and have to be squashed by the same amount: a seed left on the unsquashed
+ * curve floats a third of a unit off the bun at the middle of it, which at this camera reads as
+ * the seeds having come unstuck rather than as the dome having moved.
+ */
+export const DOME_SQUASH = 0.80;
+
+/**
  * How far the sign leans, and which way — and the direction is the surprising half.
  *
  * It leans **away** from the camera. That reads backwards and is not: this camera sits 33° above
@@ -603,8 +612,9 @@ export function burgerGeometry() {
   };
 
   // Stacked upward from zero and centred at the end — see the note by the return. It comes out
-  // 1.36·R tall against 1.34·R of radius at the widest, so it is very nearly twice as wide as it is
-  // tall: the proportion a burger is *drawn* in, rather than the proportion one is.
+  // 1.53·R tall against 1.34·R of radius at the widest, so it stays comfortably wider than it is
+  // tall: the proportion a burger is *drawn* in, rather than the proportion one is. Nearly half of
+  // that height is the crown — the arc is the stylised part, and the stack under it is unchanged.
   //
   // The stack is deliberately **bottom-heavy**, and the fillings are deliberately **wider than the
   // crown**. Both come from the same fact about this camera: it looks down at 33°, so what it
@@ -632,10 +642,15 @@ export function burgerGeometry() {
   parts.push(disc(R * 1.20, R * 1.12, R * 0.14, y, color('lettuce')));
   y += R * 0.14;
 
-  // The crown: a hemisphere squashed to 0.72 of its radius. A full one reads as a ball balanced on
-  // a stack, and the whole silhouette has to stay wider than it is tall to be a burger at all.
+  // The crown: a hemisphere squashed to `DOME_SQUASH` of its radius. A full one reads as a ball
+  // balanced on a stack, and the whole silhouette has to stay wider than it is tall to be a burger
+  // at all — which is the constraint the squash is set against, not a flat cap. At 0.62 the dome
+  // was 1.06 units of rise over a 5.09-unit stack and read as a lid; at 0.80 it is 1.37 over 5.09,
+  // still 0.57 as tall as it is wide, and the arc is a shape rather than a slight curvature. Going
+  // further is available and was rejected: 0.95 puts the silhouette at 0.62 and the dome starts
+  // winning the outline off the fillings, which are the pieces that say burger from up here.
   const dome = new THREE.SphereGeometry(R * 0.90, 12, 5, 0, Math.PI * 2, 0, Math.PI / 2);
-  dome.scale(1, 0.62, 1);
+  dome.scale(1, DOME_SQUASH, 1);
   dome.translate(0, y, 0);
   parts.push(bakeColor(dome, color('bunTop')));
 
@@ -645,7 +660,7 @@ export function burgerGeometry() {
   const seeds = [[0.30, 0.9], [1.55, 0.55], [2.6, 0.95], [3.8, 0.4], [5.2, 0.75]];
   for (const [angle, out] of seeds) {
     const r = R * 0.90 * out;
-    const h = Math.sqrt(Math.max(0, 1 - out * out)) * R * 0.90 * 0.62;
+    const h = Math.sqrt(Math.max(0, 1 - out * out)) * R * 0.90 * DOME_SQUASH;
     const seed = new THREE.BoxGeometry(R * 0.18, R * 0.075, R * 0.105);
     seed.rotateY(-angle);
     seed.translate(Math.cos(angle) * r, y + h, Math.sin(angle) * r);

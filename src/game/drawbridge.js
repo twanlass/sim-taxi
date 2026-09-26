@@ -7,7 +7,7 @@ import { bridgeSpan, drawbridgeLine, WATER_Y, RAIL_W } from '../city/river.js';
 import { DIR } from '../city/grid.js';
 import { KERB_H } from '../city/ground.js';
 import { createBridge, abutmentParts } from '../geometry/bridge.js';
-import { setClosedLanes, policeRoad } from '../sim/traffic.js';
+import { setClosedLanes, policeRoads } from '../sim/traffic.js';
 import { setBlockedLanes } from './route.js';
 import { sinkShadowCaster } from './scene.js';
 
@@ -216,10 +216,13 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null } = 
 
   const smooth = (t) => t * t * (3 - 2 * t);
 
-  /** Is the police corridor currently running down the road this span carries? */
+  /**
+   * Is a police run using the road this span carries? Every road of the run, not just the leg the
+   * cruiser is on: a jog turns onto its next road with the corner already committed, so a leaf
+   * that started rising on the strength of "not the current leg" would come up under it.
+   */
   function sirenOnLine() {
-    const siren = policeRoad();
-    return Boolean(siren) && siren.axis === 'z' && siren.line === line;
+    return policeRoads().some((siren) => siren.axis === 'z' && siren.line === line);
   }
 
   /** Is anything at all standing on either lane of the span? The taxi counts. */

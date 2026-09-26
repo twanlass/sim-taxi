@@ -309,14 +309,33 @@ every extra beat is one more thing between the player and the game.
 
 The first two stand in front of the game: the clocks are held, the camera is theirs, and each waits
 to be answered. The third runs *alongside* a live run — the player is driving, the clocks are
-counting — so it gates nothing, holds nothing, and times itself out after
-`BOOST_HINT_LINGER` rather than sitting over the road until someone taps it. Pressing Punch It
-dismisses it too, since doing the thing it asks for answers it. (That call is explicit rather than
-left to the window tap handler: `pressBoost` calls `preventDefault`, which can suppress the click a
-touch would otherwise synthesise, so on a phone the hint would outstay its own lesson.)
+counting — so it gates nothing, holds nothing, and a showing of it times itself out after
+`BOOST_HINT_LINGER` rather than sitting over the road until someone taps it.
+
+**And a tap does not answer it — a hold does.** This is the one beat whose lesson is a *gesture*
+rather than a target, and the gesture it is teaching is the one the player is least likely to try:
+Loco Mode is hold-to-enable, so a jab spends a slice of fuel and hands it straight back a second
+later. A hint that retired on the first press therefore closed itself on the exact input it exists
+to correct — the player saw the pill flicker, and nothing ever told them again. What retires it now
+is `boostHeld`: `main.js` latches `locoHeld` the frame the pill has been down for `LOCO_HINT_HOLD`
+with the boost engaged, checked every frame off `boost.heldSeconds()` rather than on the press,
+because a press is not evidence of anything. `locoUsed` — the old flag, still set on the transition
+into boost — now only picks *which line* a repeat says.
+
+So the beat is not dismissible. Tapping anywhere leaves it up, and so does pressing the pill (which
+routes through `tutorial.dismiss()` explicitly — `holdLocoMode` calls `preventDefault`, which can
+suppress the click a touch would otherwise synthesise — so that call now clears the first two beats
+and deliberately does nothing to the third). Instead it comes *back*: `BOOST_HINT_SHOWS` showings,
+`BOOST_HINT_REPEAT_GAP` apart, with the step falling back to `toBoost` in between so the same
+countdown serves as both the first delay and every gap after it. The budget is there because the
+spotlight dims the whole city by 78% while a showing is up, and this beat is over a live run: three
+showings is 18 seconds of dark city across a whole run, and a player who has not taken it by the
+third is not going to. A repeat says `LINES.boostAgain` — "Hold it down — don't tap" — whenever
+`boostUsed` is true, since repeating the original line at someone who is jabbing the pill is a
+louder version of a sentence they have already read and acted on.
 
 It is also the only one that points at a **control** rather than at the city, so it is placed
-differently: `#coach.at-boost` drops it onto the Loco Mode pill's own 26px gutter just above the
+differently: `#coach.at-boost` drops it into the gutter just above the Loco Mode
 pill, flips the tail to the bottom, and grows the entrance upward out of it. The other two hang
 centred with the tail up, because what they are talking about is up there.
 
@@ -341,10 +360,19 @@ right way round — there is no point selling a way to drive faster to someone w
 the driving. The countdown is ticked through the `restore` glide as well as `toBoost`, since on a
 desktop that glide can still be running when the delivery lands.
 
-**And it never appears if Loco Mode has already been fired.** `main.js` sets `locoUsed` on the
-transition into boost — `kickLocoMode`, which by construction runs exactly once per press-from-rest
-— and the tutorial reads it at the moment the delay elapses. Explaining a control the player is
-mid-way through using is worse than saying nothing.
+**And it never appears if Loco Mode has already been held.** The tutorial reads `boostHeld` at the
+moment the delay elapses and at the top of every frame a showing is up, so a hold taken mid-line
+ends the beat there and then — explaining a control the player is mid-way through using is worse
+than saying nothing, and the pool over the pill is dimming a city they are now driving through at
+full tilt. A player who has only ever *pressed* it gets the hint, which is the whole point of the
+two flags being separate.
+
+`LOCO_HINT_HOLD` is 0.75s — three times `LOCO_PUNCH_HOLD`, the camera push-in's threshold, because
+the two ask different questions. That one is a gesture test ("tap or hold?") and 0.25 is the right
+line for a frame that must not pop on a jab; this one asks whether the player has felt the boost
+*keep going* because they kept pressing, and a quarter second is over before the wheelie has
+finished playing. It is read against `isEngaged` rather than `isActive`, so a hold that ran the tank
+dry still counts: the fuel ending is not the player letting go.
 
 ### It does not spend the player's clock
 
@@ -535,7 +563,8 @@ why the cell is half a unit.
 
 The taxi has **one seat**, so any extra fare beyond the one aboard is someone *waiting* — a clock
 draining on the kerb while you decide who to grab. Tapping a waiting rider while already carrying
-one is refused outright, rather than driving there and quietly not picking anyone up.
+one is refused outright, rather than driving there and quietly not picking anyone up — and the
+board says so on both sides of the tap, see [the board steps back](#the-board-steps-back-while-the-seat-is-full).
 
 Two waiting riders on the board at the same time is the whole difficulty of the game: you can't
 take both, and the wrong pick loses one of the two clocks. `fares.waiting()` returns the *most
@@ -579,6 +608,76 @@ of them independent of the difficulty curve, and all of them binding on the run'
 | `FIRST_FARE_MAX_TRIP_BLOCKS` | 2 blocks | Manhattan distance from that rider to their drop-off — the one time a drop-off is drawn near its own pickup instead of unbiased. |
 | `FIRST_FARE_MIN_CLOCK` | 45s | A floor under the budgeted clock, because the caps above would otherwise issue a short one. |
 
+### The board steps back while the seat is full
+
+Play tests kept showing the same thing: with someone aboard, players tapped a rider on the kerb
+anyway. The rule had always been enforced — `markDirected` refuses and `main.js` returns before the
+route is planned — but it was enforced in *silence*, and a tap that does nothing at all is
+indistinguishable from a tap that missed. So the board now says the rule twice, once before the tap
+and once after it.
+
+**Before.** A waiting rider's mark steps back for as long as the seat is full: the **glow goes off
+both halves of it**, the crystal's **bounce damps to a stop**, and the disc under their feet darkens
+(0.42× on the rim and fill, half opacity on the fill) and drops its sweep — all of it eased over
+0.3s, because a halo that vanishes on one frame reads as the marker being switched off rather than
+turned down. The bounce is *damped* rather than stopped, and it settles onto a
+height the eye already knows: `bounceOffset` is `abs(sin)` and touches 0 once a cycle, so the rest
+position is a place the marker has been landing on all along — it reads as stopping, not dropping.
+
+**And it reaches the frame edge.** The off-screen pointer arrows
+([rendering.md](rendering.md#off-screen-fare-pointers)) go the whole way rather than dimming: with a
+rider aboard there is exactly one arrow on screen and it is the drop-off's. An arrow is a *go here*
+and has no vocabulary for "not yet" — it is a direction and a hue — so three of them around the frame
+are three invitations to do the one thing the game refuses. The cost is that a waiting rider off the
+side of the frame has no mark at all until the seat empties.
+
+**Two things deliberately keep moving.** The panic pulse under five seconds, because a rider about
+to give up is exactly as urgent whether or not the seat is full; and the level-change kick, because
+a still marker that knocks once is a clock stepping down. Both ride channels the step-back doesn't
+touch — the pulse and the kick's swell are on scale, the kick's hop is added after the damping —
+which is what lets "you can't take this one" and "this one is in trouble" both be true at once. `setBackgrounded` on the marker is reconciled every frame
+from `carrying()` rather than latched at the pickup, because the seat empties through four different
+exits — a drop-off, a crash, a VIP expiring, the run ending — and only one of them is somewhere a
+latch could be released. A rider who *spawns* while the seat is full opens already stepped back:
+that is the fifth argument to `showAt`, passed rather than set afterwards because these markers are
+pooled and the loop does not tick a fare on the frame it spawns.
+
+**The crystal keeps its size and its hue; the glow and the bounce are what go.** It was shrunk to half for a
+first cut and that came back wrong: it read as a *different, smaller kind of marker* rather than as
+the same one turned down, and it took the hue — which is the clock — down with it in screen area.
+The glow is the right thing to spend instead, because the bloom's spill is an order of magnitude
+wider than the thing spilling ([rendering.md](rendering.md#bloom--gamebloomjs-and-the-comparison-in-gamehdrjs)), so it is most of
+what makes a marker carry across the city. The hop is the other half of the same claim — a thing that moves on its own is a thing asking to be
+pressed — so it damps out on the same curve. Between them they are the loudest pair available that
+doesn't touch what the marker *says*. `setEmissiveScale` is how the glow goes, rather than
+`unmarkEmissive`/`markEmissive` per transition: these markers are pooled and switch several times a
+run, and the scalar can be eased where a flag cannot.
+
+**The disc darkens rather than disappearing, and that is the whole design decision.** The disc is
+the half of the mark that survives this camera — a rider whose crystal is behind a tower still has
+colour on the tarmac ([corners the camera cannot see](#corners-the-camera-cannot-see)) — and the
+colour it is carrying is that rider's clock. A waiting fare running out **ends the run**, and
+[the clock is budgeted](#the-clock-is-budgeted) so that every new arrival pays for the whole waiting
+queue ahead of it: which rider is closest to the edge is exactly what the player should be reading
+on the way to a drop-off. Hiding the disc would take the ordering puzzle off the road at the moment
+it is being driven. What *can* go is the sweep — the beam circling the rim means "this is a live
+target" and nothing else, so it is the one layer that was saying something untrue.
+
+**After.** A refused tap gets an answer: the tapped rider's crystal shakes sideways (three swings
+over 0.34s, damped, along the screen's own right) and the **drop-off's disc swells** — "not this
+one; that one first". Pointing at the drop-off is the half that teaches, because it names the thing
+standing between the player and the rider they just asked for. Both are pushed rather than
+reconciled: a second refused tap on the same rider has to shake again, or it reads as the tap having
+been swallowed, which is the complaint in the first place. `fares.refuse()` owns both halves, and
+the picker and the rider-finder chip both call it, so the rule never looks conditional on which
+control you used.
+
+The refusal is deliberately **silent on the hand** and **colourless on the crystal**. Every haptic
+in the game reports an *accepted* input ([ios.md](ios.md), `src/util/haptics.js`) — a confirming buzz
+on a refusal would say the opposite of what the screen is saying — and the crystal's hue is the
+clock while its highlight channel belongs to the select pop, so a refusal that lit it up would read
+as the tap having worked.
+
 ### Finding the next rider
 
 **The rider-finder chips are off.** They were a row above the Loco Mode pill, one per waiting fare:
@@ -605,6 +704,13 @@ reach, the [rider peek](rendering.md#the-rider-peek) has no trigger left on an o
 crystal behind a tower has nothing else speaking for it (see [corners the camera cannot
 see](#corners-the-camera-cannot-see)). The [taxi finder](rendering.md#getting-back-to-the-taxi)
 stays — losing your own car is not a decision, it is a lost tool.
+
+The pan itself is the one part of that cost that was handed back: on a phone, **tapping an arrow
+rides the camera to the mark it points at** ([tapping an edge
+arrow](rendering.md#tapping-an-edge-arrow)). Dragging the map in a direction an arrow was already
+naming, guessing when to stop, was never a decision the board was asking about — where to go is the
+decision, and it is still made by looking at the corner once you get there and tapping the rider.
+The arrow still says nothing about whether to take them.
 
 ### Why the first fare is close, and why that alone made it harder
 
@@ -833,6 +939,16 @@ every later turn lands one intersection early. Planning starts from the intersec
 *heading toward*, plus its current heading — the first point at which it can still make a choice.
 It finds that intersection by asking the network where the lane the turn is landing on ends.
 
+**Except in the run-up.** The car commits at the hold line, but that line is `STOP_SETBACK` (3.4)
+short of the junction and the stretch between them is the same straight whichever way the car goes
+next. So `routeTo` also plans from `crossingOrigin(car)` — the junction being crossed — while a
+straight-on crossing is still in that stretch, and if turning there saves a leg it offers the plan
+on `car.lateTurn`. `retakeCrossing` in `sim/traffic.js` swaps the arc for the turn, re-asking the
+left-turn yield and the full-exit-lane checks the line would have asked, or refuses and leaves the
+fallback plan from the next junction. Before this, a tap in that window with the rider round the
+corner came back as a lap: over 480 sampled taps landing there, 44% had a shorter route by
+turning, and taking it cut the mean trip from 19.4s to 16.5s. Asserted in `tools/probe.mjs`.
+
 The route it hands back is still a list of grid directions, because `traffic.js` still stores
 `car.d` and drives `(i, j)` to `(i, j)`. That conversion (`laneDir`) is the one piece of `route.js`
 that only works while the city is a grid, and it comes out when the sim drives lanes directly.
@@ -939,6 +1055,72 @@ That last figure is also a warning about how to test this: "the waypoint is not 
 is *not* the same claim as "the waypoint costs a detour", and a cap check written against the first
 one goes red for a reason nobody can act on. It is asserted against real leg counts instead.
 
+#### Double tap the band to throw the detour away
+
+**Two presses on the band in a third of a second re-plan it the shortest way** — no waypoint at
+all, the route the taxi would have been given if nothing had ever been dragged. Same destination,
+same fare, same clock, same `directed`; only the *way there* is replaced, which is the one thing
+the drag ever changed.
+
+It exists because the gesture above has a failure mode that is not a bug in it. The band lies
+across the road, its grab radius is a fingertip wide (`GRAB_RADIUS = 6` units, ~46px), and
+**panning the map is a drag on the same surface** — so a player reaching past the taxi to see what
+is coming up lands on the band about as often as they mean to. The press is spoken for, the city
+does not move, and the route quietly grows a loop. Everything behaved; the player did not ask for
+any of it, and getting back meant dragging a waypoint onto a line they could no longer see the
+shape of.
+
+**It is an undo without an undo stack**, and deliberately. There is no history here: a route has
+one canonical shape — whatever `findRoute` answers with from where the car is *now* — and every
+detour is a departure from it, so "put it back" has one meaning however many waypoints were dragged
+through on the way. A stack would have to decide what a step even is on a route re-planned every
+frame of a gesture, and would restore a shortest path computed from a junction the taxi drove past
+ten seconds ago.
+
+The second press is an ordinary press on the band, and three things follow from that:
+
+- **It opens a grab like any other**, handle and bloom and all, so a reset can run straight into a
+  fresh drag without lifting. That is the recovery the pair is for: throw the accident away, then
+  aim properly.
+- **It answers on the press**, like the grab and the snap. Held back until the finger lifts, the
+  band would sit in the wrong shape under a thumb that has already asked twice.
+- **It swallows the click**, through the same `didDrag()` guard a drag uses, and it does so whether
+  or not the route actually moved. The band runs *through* other markers' tap targets on its way
+  into the drop-off ring, so a reset near the far end would otherwise also dispatch the taxi at
+  whatever pin the second press landed on — abandoning the fare it was trying to help with. "The
+  route was already the shortest way" is no comfort there, because that is exactly the case the
+  player cannot see before they act.
+
+`DOUBLE_TAP_MS` is **320** and `DOUBLE_TAP_SLOP` is **32px**. The window is short for a reason
+specific to this band: unlike most double taps, the *first* tap here is a live gesture in its own
+right — it takes hold — so a generous window would read a deliberate press, look, press-and-drag as
+a reset. The slop is not about aim (both presses have to hit the band anyway); it is about a band
+that can run the length of the screen, where two presses a hundred pixels apart are two grabs at
+two different places.
+
+**The band replays its rollout sweep**, and it has to be asked to. The sweep is keyed on
+`pendingTarget`'s *identity* — which is exactly right for every re-plan the game does on its own,
+since the drawbridge's replan and the drag's per-frame re-stitch both pass the same target object
+precisely so the draw doesn't restart on every frame. A reset passes it too, and is the one
+re-plan that wants the animation anyway: the destination is unchanged but the way there has just
+been re-laid, and a band that silently snaps into a different shape under a finger reads as a
+glitch rather than as an answer. Hence `routeLine.replaySweep()`, which is a statement about the
+drawing and so lives in `routeline.js` rather than being faked with a fresh target object.
+
+**One press, one buzz.** A reset that fired `grab` for the press *and* `pick` for the re-plan would
+put two transients ~30ms apart, which a thumb reads as one smeared buzz rather than as two events.
+So the second press fires whichever is the truer account of it: `pick` when the route actually
+changed — a tap that re-aimed the taxi, which is what `pick` has always meant — and the plain
+`grab` when it did not, because a double tap on a route that was already the shortest way is a
+press that took hold of the band and nothing more. Same gate as `snap`: the buzz reports a route
+the player actually caused, never one the router declined to change.
+
+`tools/smoke.mjs` is the only place this can be checked, because the whole of it is event handling
+and there is no DOM in the node suite. It dispatches the gesture in **one synchronous burst**,
+which is what makes the assertion exact rather than tolerant: no frame runs between building the
+detour and resetting it, so the taxi has not moved and the route afterwards is compared against the
+direct plan character for character instead of against a leg count that shrinks on its own.
+
 #### The grab flourish
 
 A finger landing on the band has to be answered **on the band**, and answered before anything has
@@ -987,7 +1169,8 @@ the pair: a drag on the band re-routes and does not pan, and a drag anywhere els
 
 The click the browser synthesises after a drag is swallowed by the same `didDrag()` guard the
 camera's `didPan()` uses, so a pull that happens to finish over a rider does not also dispatch the
-taxi at them.
+taxi at them. A [double-tap reset](#double-tap-the-band-to-throw-the-detour-away) raises the same
+flag, for the same reason one layer along: it is the other gesture this band answers by itself.
 
 ## Picking
 
@@ -1177,9 +1360,9 @@ none of that apparatus is needed.
 
 `src/geometry/diamond.js`. The diamond is a **vessel**, and the clock is the liquid in it. Below the
 surface the urgency colour is opaque, saturated and self-lit — exactly what the whole crystal used
-to be. Above it the same hue is emptied glass: the city visible straight through it at just under
-half alpha, most of the emissive lift gone, and a sheen on the facets turned edge-on to the camera.
-A pale band rides the line between them, and that band is the part the eye actually reads.
+to be. Above it is emptied glass: the city visible straight through it at 0.15 alpha, darker than
+the liquid and mostly drained of its hue, with a sheen on the facets turned edge-on to the camera. A
+pale band rides the line between them, and that band is the part the eye actually reads.
 
 So the two hands of the clock are on one object. The **colour** steps in quarters and kicks, which
 is the alarm; the **level** moves every frame, which is where inside that quarter the fare actually
@@ -1221,16 +1404,71 @@ opposite of the usual habit.
 
 Three numbers were measured and moved:
 
-- The empty glass was **desaturated** at first (`s × 0.55`), and the empty half of a nearly-dead
-  marker came out a dusty rose — the most urgent state on the scale rendering as the least red thing
-  on the board. It keeps 90% of its saturation now, and alpha does the emptying rather than the
-  tint, which is what glass and liquid actually differ by.
 - The **sheen exponent** went from 2.5 to 5. At 2.5 it was not a highlight but a wash: very little
   of the crystal is truly head-on at this camera angle, so every visible facet picked up most of the
   lift. At 5 it stays on the two flanks either side of the front ridge.
-- The **emissive** above the line holds at 0.6 before alpha takes its share, so about 0.2 of the
-  liquid's reaches the frame. At 0.22 opaque the shape survived after dark but a nearly-drained
-  rider was genuinely hard to find on a night board.
+- The empty glass was **desaturated** at first (`s × 0.55`), and the empty half of a nearly-dead
+  marker came out a dusty rose — the most urgent state on the scale rendering as the least red thing
+  on the board. That measurement stood for a long time and the rule drawn from it has since been
+  overturned; see the next section, which is the story of why.
+- The **emissive** above the line, and the **alpha**, move as a pair. See below.
+
+### Why alpha is the contrast knob, and what it cost to find out
+
+The first shipped vessel put the glass at `0.45` alpha, `s × 0.9`, `l × 0.6`. At play zoom an amber
+crystal in front of a **tan roof** read as one solid amber diamond: the level was in there, and you
+could not see it. It took two passes to fix, and the second one reversed a rule the first one had
+just written down.
+
+**Pass one** went to `0.28` alpha and `l × 0.42`, widened the surface band from 0.32 to 0.40 local
+units (2.5px to 3.1px), and left the saturation alone on this argument:
+
+> The two halves are the same hue **by design** — the alarm has to carry across the whole
+> silhouette, which is what the dusty-rose failure above is about. So every other knob here
+> separates the halves by *value*, and a value gap can be swallowed whole by whatever the marker
+> happens to be floating over. **Alpha cannot.** What alpha lets through is the city behind the
+> crystal, which is by definition not the liquid's colour, so lowering it widens the gap whichever
+> direction the backdrop happens to lie in.
+
+That half of it is still right and is still the reason alpha gets turned first. The tan roof was
+fixed. On a phone it was still called too subtle, and the reason is in the sentence the argument
+opens with rather than anywhere in the numbers.
+
+**Pass two** is `0.15` alpha, `s × 0.3`, `l × 0.38`. The rule about the hue carrying across the
+whole silhouette was written against an **opaque** build, and it was never re-tested at a third of
+that alpha. It does not survive the re-test: at 0.15 there is almost no ink in the empty half to be
+dusty-rose *with*. So what a saturation cut buys there is not a second hue competing with the alarm.
+It is a **segmentation** — the crystal splits into a saturated part and a glassy grey part, and the
+eye makes a categorical judgement at a glance where it has to *measure* a value difference. Value
+comparisons are precisely what kept failing at 22 pixels.
+
+The alarm still carries. It carries on the liquid, which is the dominant mass for three quarters of
+every clock, on the [disc on the kerb](#the-disc-says-it-again-on-the-ground) under the rider, and on the route band
+— all three at full hue. What it no longer has to do is carry on the part of the marker whose entire
+job is to look empty.
+
+**The emissive moves against the alpha, not with it**, and that is a correction rather than an
+inconsistency. What reaches the frame is the product of the two, and the product is what has to hold
+still: alpha does the separating by day, when there is a lit city behind the glass to separate
+against; after dark there is no city, the black rim is invisible on a black road, and the emissive
+is the only thing drawing the empty half at all. Each cut to the alpha has to be paid back, or the
+night marker loses its top half entirely — a worse bug than the one being fixed. `0.6` at α 0.45,
+`0.45` at α 0.28, `0.8` at α 0.15: all three land within a couple of hundredths of the same 0.12.
+
+Two notes on the band. Its extra half-pixel was **not** free, and the price is paid at the ends of
+the clock: the fill overshoots the tips by exactly one band at each end (so no highlight is ever
+stranded on a vertex), which costs about 8% of the travel at each extreme rather than the old 7%.
+Nobody reads a clock at "full" or "empty" — the colour says that — so it is a cheap place to spend,
+but past about 0.22 the band stops reading as a surface in the crystal and starts reading as a
+stripe across it. Which is why pass two spent the **core** instead (`0.4 → 0.65`): two thirds of the
+band held flat with a third left to feather arrives as an edge with a shoulder rather than as a
+gradient with a bright middle, and unlike the width it costs nothing at the ends.
+
+**What is still unspent.** The level is [linear in height](#the-crystal-is-a-glass-of-time), and the
+plumbob is widest two thirds of the way up with a long taper below — so the *area* below the line is
+not proportional to the fraction, and the back half of every clock lives in the narrow part. That is
+a deliberate trade (equal time has to be equal travel, and volume-true is much worse), but it is the
+remaining reason a half-spent fare looks emptier than it is, and no amount of contrast addresses it.
 
 ### The far wall, and why it isn't there
 
@@ -1352,6 +1590,15 @@ the same animation at the new total instead of two counters racing. Roll length 
 payout (~50ms per dollar, clamped) so a `$8` hop reads as a quick bump and a `$35` haul as a
 longer roll.
 
+**It runs backwards too.** The [burger](#the-burger-run) is the one thing that takes cash off the
+player, and it takes the same two phases wearing the other sign: a red `−$10` off the taxi, the same
+flight to the counter, the same roll, and a red dip on the counter instead of the green swell
+(`.money-charged` against `.money-bumped`). Same direction across the screen, deliberately — a
+number flying from the counter *to* the taxi would read as the player being handed something.
+`rollMoneyTo()` used to snap on any non-positive delta, which was invisible while nothing could
+charge; it tweens either way now, and the total never goes below zero (see `charge()` in
+`game/fares.js`).
+
 ### The multiplier counter
 
 `N×` at top-right, opposite the money counter, and on screen from the first frame reading `1×` —
@@ -1414,8 +1661,15 @@ VIP" is never confused with how much time they have left, and every other surfac
 through follows it: the ring on the road at the far end of their trip, the route band driving at it,
 and the off-screen arrow.
 
+**They do not wear a crystal.** Where every other rider has a plumbob, a VIP has a chunky purple
+**question mark** (`geometry/questionmark.js`) in the same slot, rocking slowly so its extrusion
+shows. A plumbob that never drains is a timer-shaped thing refusing to tell the time; the question
+mark says what is actually true — you do not know how long this one gives you — and says it with the
+silhouette, which carries further than a hue. It copies the hidden crystal's pose every frame, so
+the bounce, kick, pulse, pop and refusal shake all land on it unchanged.
+
 **And that is the whole of what they will tell you.** A VIP's clock is not shown anywhere: the
-crystal is a solid purple gem that never drains, and the rider-finder chip's ring — the last surface
+question mark is solid purple and never drains, and the rider-finder chip's ring — the last surface
 that still reported the seconds, back when the chips were on — was held full and purple as well.
 You know one is worth three fares
 and you do not know how long you have, which is what makes taking one a gamble instead of a sum. The
@@ -1504,6 +1758,465 @@ only when the board is about to refill and no other VIP is already on it. Both a
 the fare soak (`tools/soak.mjs`): frequent enough to be a real event, not so frequent that
 forgiving misses meaningfully padded the survival curve. Never on the tutorial fare
 (`VIP_MIN_DELIVERED`) — nothing on the board yet for a purple diamond to be distinguished *from*.
+
+## The bank robbery
+
+`src/game/robbery.js`, `src/city/bank.js`, `src/game/fares.js` (`spawnRobber`), `sim/traffic.js`
+(`setPoliceCars`). One city block is a [bank](city.md#the-bank) — a low stone building under a
+colonnade with a dome behind it. Drive past it **with an empty cab** and somebody comes down the
+steps with a bag, gets in, and the streets go blue for as long as it takes to get them where they
+are going.
+
+**Everything about it is the existing loop turned up.** That is a constraint rather than a
+description, and it is worth listing what is *not* new, because none of it is:
+
+- The robber is an ordinary fare that skipped the kerb. Same crystal over the roof, same ring on the
+  road, same band of paint between them, same arrival test, same payout flight to the counter. Two
+  things differ: the clock, and a bonus that reads it. What *looks* different is the figure — see
+  [the robber](#the-robber).
+- The cop cars are **ordinary cars**. They queue, indicate, stop at reds, yield and can be crashed
+  into like anything else on the road — and they **come after you**, which is a route, a speed and
+  an acceleration rather than an AI. See [the chase](#the-chase).
+  [The corridor cruiser's own chase](traffic.md#the-bust-chase) is a different module and is not
+  touched by any of this.
+
+  They **arrive and leave, rather than transforming**. A robbery brings four vehicles onto the map
+  from off screen and stands them down again at the drop-off, driving off under their own steam. The
+  first version repainted the ambient cars nearest the taxi and deleted them at the end, which reads
+  exactly as badly as it sounds at both ends: a car you have been following turns into a police car,
+  and a police car in your mirror stops existing. A stood-down cop keeps a dark bar on its roof,
+  so it still reads as police with its lights off rather than as a blue hatchback. See
+  [cop cars in ambient traffic](traffic.md#they-are-spawned-not-repainted) and
+  [standing down](traffic.md#standing-down).
+
+  The one thing they are allowed that an ordinary car is not is **a red light on a junction that is
+  provably empty** — fenced on five sides, because `sim/collisions.js` only tests the taxi, so an
+  unsafe crossing would be a cop driving *through* a car rather than into it. See
+  [the licence](traffic.md#the-one-licence-a-red-on-a-provably-empty-junction).
+- Loco Mode is untouched — the same finite tank, spent in a hold.
+- The fail state is untouched. Crashing into a cop car is crashing into a car:
+  [`sim/collisions.js`](../src/sim/collisions.js) does not know what livery anything is wearing and
+  is not told. What changed is that the police now **put themselves in your way** — see
+  [they box you in](#they-box-you-in) — so ramming one is a bump that costs hit points, and the
+  last one is the wreck.
+
+So the whole feature is a trigger, a clock, a bonus, and some paint.
+
+### It is imposed, so it cannot cost the run
+
+A [VIP](#vip-pickups) is *taken on*: it appears on the kerb, the player chooses to jump the queue
+for it, and it can stay optional-but-hard only because missing one is never worse than never having
+seen it. A robbery is not taken on at all — it walks out of a building because the taxi drove past,
+on a trigger the player never pressed.
+
+An imposed event that can end a run is the one thing a score-attack cannot have. So a robber whose
+clock runs out does exactly what a missed VIP does: gets out mid-street, swears about it
+([the outburst bubble](#they-leave-and-they-let-you-know)) and goes. The event costs the bonus and
+the seat it was occupying, and nothing else. There is no streak to lose, which is the one line of
+the VIP's version that is absent here rather than shared.
+
+### The robber
+
+`geometry/person.js`. A mask right across the eyes, a cap over the hair, a dark jacket pulled over
+the torso, the sleeves tinted to match, and a pale sack swinging off the left hand.
+
+**It is the figure that has to say this is not an ordinary fare** — that and
+[the radio call](#dispatch-breaks-in), and nothing else: a robber's crystal is on the ordinary urgency scale on purpose — the clock is the drama, and a fixed
+hue like [a VIP's](#vip-pickups) would trade that away to say something the building and the police
+cars are already saying.
+
+It is **additive and switchable**, not a second person, and the reason is the pool. There is one
+figure per fare slot, built once and handed to every fare that occupies it, so a robber cannot be a
+differently-coloured `createPerson`. Nor can the base figure simply be repainted: its torso, head
+and hair are merged into one mesh with the colours baked into the vertices, so tinting the jacket
+tints the face with it. Five boxes that start hidden sidestep both — and the two that *are* a
+repaint (the sleeves) are separate meshes in one flat colour each, where `material.color` multiplies
+cleanly with nothing else on that mesh to spoil.
+
+The jacket was added after looking at the first build. A mask and a cap on a figure still wearing
+the board's pale shirt read as **a man in a hat**: at 24px the torso is the largest thing on the
+figure, and it was still saying "ordinary fare" louder than the head was saying anything. The sack
+is the opposite problem and the reason it is pale — against a black mask, a black cap and a black
+jacket, a dark bag is invisible, and it is the one part of the kit that says *why*.
+
+The kit is deliberately **not** cleared by `rest()`, unlike every other piece of pooled state on the
+rig. `rest()` runs mid-fare — a robber is rested on the frame they appear, and again when they get
+out at the far end — and a kit that came off there would take the mask off halfway through the
+event. What owns it is the spawn: `spawnRobber` puts it on, and `spawnFare` takes it off, which is
+the one place a slot changes hands.
+
+### A full tank for the getaway
+
+The frame the robber is in the car, the boost meter is poured full — the VIP's reward, paid up
+front (`onBoard` in `main.js`). The event is imposed: it takes the seat whatever the meter holds,
+and a getaway that opened on a dry pill was a chase the taxi could not win on speed, against cops
+whose cruise ceiling sits above an unboosted taxi's. Filling it keeps the event's choice — boost
+and risk the wreck, or hold off and risk the clock — a choice.
+
+### The robber's line
+
+`game/robberline.js`. The event used to go straight from a drive-past to four cop cars and the radio
+call on one frame — the whole thing arriving at once, while the player was looking at something
+else. It read as traffic changing colour rather than as the game changing mode, so it now has a
+setup, in three beats:
+
+1. **The robber gets in and the world stops.** Once the figure has finished running for the cab
+   (`BOARD_SECONDS`), the city dims around the taxi (`#robber-spot`, the tutorial's gradient and pool
+   size) and the robber shouts from a bubble at the bottom — the coach's card in the coach's place,
+   with the masked figure in the avatar and a red edge. The line is one of `ROBBER_LINES`, drawn off
+   the run seed.
+2. **The next tap clears it** and calls the police (`raiseAlarm` in game/robbery.js — the fare, its
+   clock and the getaway route are already running; only the cop cars wait). A tap mid-type finishes
+   the line first, the coach's convention. Space and Enter answer it too.
+3. **`RADIO_DELAY` (1.5s of game time) later, dispatch breaks in** — below.
+
+**The world stops rather than runs on under it.** It is the pause's own early return in `frame()`,
+and for the same reason a pause is: this lands mid-run with the taxi moving, and a bubble that
+waited for a tap over a live city would either eat a routing tap meant for the road or let the
+getaway start behind it. Frozen, the tap has one meaning and nothing is lost while the line is read.
+The element is a full-screen catcher while it is up, so the tap never reaches the canvas — the picker
+and the route drag both only take presses whose target is the canvas.
+
+Its own element and pool rather than `#coach` and `#spotlight`: the tutorial's Loco Mode beat can be
+mid-showing when a robbery lands, and `body.robber-talk` hides it meanwhile. The tools construct the
+robbery without `holdAlarm`, so the headless suite still sees the police on the frame it fires.
+
+### Dispatch breaks in
+
+`game/radio.js`. A beat after the robber's line is cleared, a bubble drops in under the HUD: a police
+car turning in the avatar — the robbery's own cop car, `carGeometry()` in `policeBody` with its bar
+flashing — over "DISPATCH / All units respond! Robbery in progress."
+
+The figure alone was not enough, and the reason is the trigger. A robbery fires on a drive-*past*,
+so the player is watching the taxi or the next rider, not a 20px figure on the bank's steps. The
+robber's line now says *who* got in; this says what it means — the police are coming.
+
+It borrows the coach bubble's card and drops everything that asks something of the player:
+
+- **No spotlight.** The getaway's clock has just started; dimming the city over the
+  getaway spends it.
+- **No tap.** `pointer-events: none`, and it leaves on its own after `RADIO_LINGER` (3.2s of game
+  time, so a pause holds it). The next tap is on the road, routing the getaway, and a bubble that
+  caught it would cost the second this event is about.
+- **Top, not bottom.** The coach speaks for the taxi from above the controls, and its Loco Mode
+  beat can still be cycling when a robbery lands. The radio is another channel breaking in, so it
+  sits under the money/pause/streak row instead, with a police-blue edge the coach does not have.
+
+Its WebGL context is built on the first robbery rather than at boot — most runs never meet one.
+
+### The clock, and the bonus that reads it
+
+A loose clock, on purpose: the getaway is the longest drive in the game and the point of it is the
+police, so the clock is there to pay the bonus rather than to threaten the trip.
+
+**The queue behind it is empty.** Every ordinary rider's clock is budgeted over the whole chain the
+taxi must clear before reaching them — the rider aboard, then everyone on the kerb in urgency order
+([the clock is budgeted](#the-clock-is-budgeted)). A robber's is budgeted over its own trip and
+nothing else, because a robbery cannot start with somebody in the seat. That is the same exemption a
+VIP gets and for the same reason, and on its own it would buy a robber a *longer* clock than an
+ordinary rider on the same trip.
+
+**And the slack factor is turned up on top of that.** `ROBBER_SLACK_FACTOR` is 1.3, floored at 1.6,
+so a getaway always has at least 60% more clock than driving — measured on the probe's staged event,
+118s against 60.8s of driving, where an ordinary rider on the same trip would get 91s.
+
+It used to be the tightest clock in the game: 0.62 floored at 1.05, which is `work × 1.05` from the
+very first robbery since the run's slack starts at 1.7. That left no seconds to spend on a roadblock,
+a detour or a ram, and made the chase something to escape rather than something to play with.
+
+**And the payout is the one price in this game not settled at spawn.** Every other fare is stamped
+when its trip is decided, because a meter that ticked while driving "would punish traffic and reward
+Loco Mode for the wrong reasons" ([Priced by the trip](#priced-by-the-trip)). For a getaway,
+rewarding Loco Mode is exactly the ask. So a flat `ROBBER_PAYOUT` = $100 is stamped like everybody
+else's price, and a bonus of up to `ROBBER_BONUS` = $50 is paid on the *fraction of clock left at the
+drop-off* — read once, on the frame the arrival resolves. $150 for a clean getaway, $100 on the last
+second. The event always pays, and how much is the whole of what the player is driving for.
+
+It was 1.5× the trip's own distance price on top of that price, which came to $50–75 — two or three
+ordinary fares for the one event that takes the wheel and cannot be declined, and it read as a
+slightly better fare. Flat, it is a jackpot worth five or six, and the same number every time.
+
+The bonus is folded into the fare's own `value` before anything reads it, so the pop that flies off
+the taxi, the counter it rolls into and the run-end card's "Cash" all say the same number. A second,
+smaller flight arriving from nowhere is exactly the side effect the two-phase payout exists to
+prevent.
+
+### The gate that makes it fair
+
+A robbery takes the seat, and every rider already waiting when it starts is spending a clock that
+was budgeted without it ([the clock is budgeted](#the-clock-is-budgeted)). A rider who was
+comfortable can usually absorb that. A rider who was already in trouble cannot — and *their* clock
+running out ends the run. So the event that is
+[not allowed to end a run](#it-is-imposed-so-it-cannot-cost-the-run) was ending runs by proxy.
+
+`CALM_LEVEL` closes it: a robbery will not start while any waiting rider has dropped below half
+their clock. It is expressed as a **level** rather than a fraction so the rule is one the player can
+read off the board — the urgency scale is four even quarters
+([urgency is one scale](#urgency-is-one-scale)), so this is "every crystal on the kerb is still on
+one of its top two steps". A number like 0.45 would measure the same thing and mean nothing on
+screen.
+
+Measured over 30 paired runs per cell, against a no-robbery baseline of a 13.9-fare mean on $339 at
+a 1.5s reaction and 11.2 on $264 at 4s:
+
+| | perfect player (1.5s) | slower player (4s) | robberies (1.5s) |
+|---|---|---|---|
+| no gate at all | 9.8 fares · $239 | 8.4 · $206 | 28 |
+| **this gate** | **12.4 fares · $309** | **8.6 · $211** | 18 |
+| tightened to the top step | 14.0 fares · $349 | 11.2 · $264 | **2** |
+
+Two findings, and the second is why the gate is not simply turned up further. It is worth two and a
+half fares to a fast player, which is most of what a cross-town getaway costs. And there is **no
+usable room above it**: at the top step the event fires twice in thirty runs at 1.5s and never at
+all at 4s, which is not a rarer event, it is no event.
+
+The cooldown is not a third lever, though it looks like one. Nearly doubling it moved the count of
+robberies from 33 to 34, because the cooldown is not what limits the event — what limits it is the
+taxi happening to drive past the bank with an empty cab and a calm kerb, which on a five-block city
+is about once a run either way.
+
+### The getaway runs across town
+
+`pickFarthest` scores every free junction by block distance from the bank and draws the drop-off
+from the furthest band — the furthest, or `ROBBER_DROPOFF_SPREAD` = 1 short of it, so one city's
+robberies do not all end on the same kerb. It is filtered through the same predicate as every other
+drop-off, so the only thing it changes is that the distance is no longer left to chance. It used to
+be eight random darts with the furthest kept: a median of 7 blocks over 55 cities, but as few as 5.
+It is the one event in this game whose whole point is the drive.
+
+That distance is not free, and the mechanism is not subtle once it is named: a robbery takes the
+seat for the length of its trip, and every rider standing on a kerb while it runs is spending a
+clock that was budgeted without it. The longer the getaway, the more of other people's clocks it
+eats — and nothing about the robber's own clock touches that, because the robber's clock is not the
+one running out. 30 paired runs per cell through `tools/autoplay.mjs`:
+
+| | perfect player (1.5s) | slower player (4s) |
+|---|---|---|
+| no robbery | 13.9 fares · $339 | 11.2 fares · $264 |
+| **across town, with the calm gate** | **12.4 fares · $309** | **8.6 fares · $211** |
+| across town, no gate at all | 9.8 fares · $239 | 8.4 fares · $206 |
+
+Re-measured when the drop-off went to the far corner and the clock was loosened (30 paired runs,
+same harness): **11.9 fares · $287** at 1.5s against 11.0 · $251 before, and **10.5 · $256** at 4s
+against 11.2 · $265. The fast player comes out ahead — the loose clock means the bonus lands — and
+the slower one pays about another two thirds of a fare, because a longer getaway eats more of the
+kerb's clocks and nothing about the robber's own clock helps with that. Eleven robberies per
+thirty runs in each cell, so read these as a direction rather than a digit.
+
+The bottom row is what [the calm gate](#the-gate-that-makes-it-fair) is buying: without it a long
+getaway is the difference between a 14-fare run and a 10-fare one. With it, a fast player pays about
+a fare and a half for the event.
+
+**The slower player pays more, and that is the honest read on this.** At a 4s reaction the cost is
+2.6 fares — the p10 drops from 6 to 1, which is runs ending early rather than everyone landing a
+little shorter. A player who is already behind cannot absorb a sixty-second hijack they did not ask
+for, and the gate only checks the board at the moment the event *starts*.
+
+Two levers if that is ever judged too steep, and they are the two constants in this feature that
+were measured rather than chosen. `ROBBER_DROPOFF_SPREAD` is the distance — capped at four blocks
+from the bank, the same sweep reads 12.6 / $314 and 11.4 / $276, which is about a fare cheaper at
+either speed and a materially shorter event. And `CALM_LEVEL` is the frequency, but only in one
+direction: tightened to the top step it fires **twice in thirty runs**, which is not a rarer event,
+it is no event. Everything else was measured and does nothing — see the cooldown.
+
+### What it costs, as shipped
+
+The whole event, measured end to end through `tools/autoplay.mjs` over 30 paired runs per cell —
+same cities, same situations, the robbery layer the only difference:
+
+| | perfect player (1.5s) | slower player (4s) |
+|---|---|---|
+| no robbery | 13.9 fares · $339 | 11.2 fares · $264 |
+| across town, no chase | 12.4 fares · $309 | 8.6 fares · $211 |
+| **shipped, with the chase** | **10.9 fares · $268** | **9.6 fares · $235** |
+
+The event costs a fast player three fares of survival and a slower one about one and a half. That is
+a real price and it is a deliberate one: two rounds of "make it more dramatic" bought a cross-town
+getaway and four cars hunting you, and both are paid for out of the same clock.
+
+**One large caveat on those numbers.** `tools/autoplay.mjs`'s perfect player **never uses Loco
+Mode** — it drives everywhere at cruise. So the harness measures the chase purely as extra traffic
+in the way, and cannot measure the thing the chase is actually for: a player on the pill outruns
+cop cars, and the decision the event poses is whether to spend the tank doing it. The real event is
+a risk/reward the soak has no way to play. Treat these as the cost to somebody who ignores the
+mechanic.
+
+One thing to know when reading `npm run check`: the suite's `fares` line runs the soak over **nine**
+seeds, which is a small enough sample that the first nine happen to be unlucky here — it reads a
+median of 6 against 10 before. The 30-run paired numbers above are the ones to believe, and the gate
+is a band (3–20) rather than the number itself, for exactly this reason.
+
+### The trigger
+
+`TRIGGER_RANGE` is 12 world units from the bank's door, and it is arithmetic rather than a number.
+The door point sits 0.5 out from the building's setback; the near lane is `LANE` = 2 off the kerb,
+so a taxi passing the middle of the frontage is 2.9 units out, and passing its far end on the
+*oncoming* side is hypot(6.9, 5.1) = 8.6 — which has still driven past the bank, so it counts. What
+12 deliberately does not reach is the street on the other side of the block, whose nearest
+carriageway is 18 units away.
+
+Six gates on top of the range, and each is there for its own reason:
+
+- **An empty cab.** A robbery takes the seat, so there has to be one. A player mid-delivery has a
+  clock running that this event would spend on somebody else's trip.
+- **Nobody on the kerb is already in trouble** — every waiting rider's crystal still on one of its
+  top two steps. This is [the gate that makes the event fair](#the-gate-that-makes-it-fair), and the
+  only one that was measured rather than argued.
+- **`MIN_DELIVERED` = 2.** `VIP_MIN_DELIVERED` is 1, on the grounds that a purple diamond needs
+  something to be distinguished *from*. This is higher for a different reason: a robbery takes the
+  wheel, and an event that overrides the loop is only legible to somebody who has one.
+- **No VIP on the board.** The one interaction that would be unfair rather than merely busy: a VIP's
+  clock is budgeted to be served *next*, so a robber taking the seat for a cross-town getaway does
+  not make a VIP harder, it makes it arithmetically impossible. Nothing breaks — missing one is only
+  the bonus — but it would be the game quietly cancelling a fare it had just offered.
+- **A cooldown**, from the **end** of the last event rather than its start, so two can never run into
+  each other however short the getaway was. Longer than `VIP_COOLDOWN` because this event cannot be
+  walked past.
+- **A free slot on the fare board.** The figure, the pins and the crystal come out of the same pool
+  every rider uses. A full board refuses, and nothing is spent when it does — the cooldown has not
+  been reset, so the next pass down the same street tries again.
+
+### The police
+
+`setPoliceCars(n)` in `sim/traffic.js` takes the `n` ambient cars nearest the taxi, paints them
+`policeBody` and puts a light bar on their roofs. `setPoliceCars(0)` hands every one of them back its
+own `colorIndex`, which is left untouched throughout — that is what makes ending the event free
+rather than something to remember.
+
+**The set follows the player; the cars do not.** It is re-run every two seconds, so a cop car that has
+driven off across town is handed back its paint and a nearer one turns blue. That is the closest the
+event comes to the traffic acknowledging the taxi and it is deliberately as far as it goes. Two
+seconds because `SPEED` is 8.5, so a car covers 17 units in that time — most of a 20-unit block —
+and anything that turns over between two re-picks has been out of the frame it was last seen in for
+most of it.
+
+**Four cars, flat, not on the difficulty ramp.** The event already tightens with the run — a robber's
+clock is budgeted off `difficulty.slack`, so the same getaway is a harder drive on delivery forty than
+on delivery three — and hanging a second knob off the same ramp would make the event's difficulty a
+product of two curves neither of which could then be read on its own. Four is also what a five-block
+city can show at once: a block is about a third of a phone's frame at play zoom, so four cars spread
+around the taxi puts one or two in shot without the road reading as a parade.
+
+**And two more cars actually arrive**, which is the half that adds traffic rather than repainting it.
+`setCarCount` only ever grows and is capped at the pool the difficulty ramp's own ceiling sized, so
+what a robbery does is spend that ramp's headroom *early*: the cars it brings forward are cars the run
+was going to get a shift or two later, and no run can end up with more traffic in it than one that
+never met a robbery. They are not painted and they are not un-spawned at the end — a fleet that shrank
+on the frame an event ended would mean deleting cars out of the middle of an instance buffer while the
+player watched.
+
+**Every one of them flashes, and the nearest two glow.** The siren comes from three places and the
+split matters, because the first two alone did not read:
+
+- **The bar**, two instanced emissive pods on the roof off the same machinery the brake and
+  turn-signal pods use (`geometry/lights.js`). Both pods flash together — the whole bar goes red,
+  then blue — rather than one lamp lighting at each end, which is what a real bar does: a pod is 4px
+  across at play zoom, and a bar split by colour alternates two specks a colour apart and reads as a
+  flicker. Together they are one 9.9px mark changing colour six times a second.
+- **The bloom**, which carries it at distance and took a fix. `main.js` marks every lamp the sim
+  owns in one loop, and marking them all `pod` gave a cop car's bar a brake light's 3.4 against the
+  cruiser's 4.2 — dimmer than the police car parked beside it, for no reason on screen. The kind
+  rides on the mesh now and the loop reads it.
+- **The wash on the road** (`game/coplights.js`), which is the part neither of the others can do —
+  two real point lights, parked on the nearest two cop cars and re-picked every frame. See
+  [cop cars' sirens](rendering.md#cop-cars-sirens---geometrylightsjs-gamecoplightsjs) for why it is
+  two lights against four cars, and what `?safe` drops.
+
+The rate is `sirenOn()`, shared with [the corridor cruiser](traffic.md#police-priority-corridor) and
+[the off-screen wash](rendering.md#off-screen-police-warning), so a city with both in it strobes on
+one clock.
+
+### The chase
+
+The one thing the original brief ruled out, and now the point of the event. It is **two lines of
+behaviour**: `car.chase` lifts that cop's cruise ceiling and its cornering, and `car.route` is a
+plain route to a junction on the taxi's own route, three to five ahead of it — after which
+[the one routing branch](traffic.md#the-one-routing-branch) does the rest. A chasing cop *is* a
+routed car, the same thing the player's own taxi is.
+
+**Half cut you off, half come after you, and all of them get recycled.** A cop's mean speed over a
+getaway is 9 against a boosting taxi's 27, because it is cornering and queueing where the taxi is
+flat out; sent to where the taxi *is*, it is aimed at a point already a second old and loses ground
+every frame. Tuning could not save it — scattering the traffic in front of it, doubling its
+cornering speed and (as an experiment) turning every light in the city green for it lifted its mean
+speed from 6.8 to 13.6 and moved its distance to the taxi by nothing at all.
+
+Two answers, and the event needs both. Two of the four are sent three or five junctions down the
+**route the player drew**, which is a race a slower car can actually win: it only has to beat the
+taxi to one junction, and the taxi has announced which ones those are. The other two are sent
+straight at the taxi, and when one of them falls out of the picture it is taken off the map and
+another comes in **behind you on the straight you are already driving**. That is what a pursuit
+looks like from the driver's seat, and it is the half a cut-off cannot supply — see
+[the chase](traffic.md#they-are-recycled-because-a-slower-car-cannot-stay-in-the-picture). Measured
+over 40 seeds, a cop is in frame for 89% of a getaway, two at a time.
+
+A cop cruises at **20.4** against a boosting taxi's 22.1 and the traffic's 8.5. That gap is the
+mode — the pill outruns them in a straight line and lifting off does not — so Loco Mode becomes the
+answer to the event and [the wreck](traffic.md#the-wreck) is what makes it a gamble. What Loco Mode
+cannot outrun is the cop already sitting in the junction it is about to take. And they strobe at the
+cruiser's **hunting rate** while chasing, which is the same cue that module uses for its own
+lock-on: a cop cruising past on its own business and one that has turned to come after you are
+otherwise the same blue car.
+
+**Every licence they have is fenced**, which is what makes this safe rather than merely loud.
+`sim/collisions.js` only ever tests the taxi, so a cop let through a light, stopped in the wrong
+place or out in the wrong lane would drive *through* another car rather than into it. The red on a
+provably empty junction, the roadblock and the overtake are each gated on every overlap that was
+measured on the way to them, and the probe holds the whole chase to zero signal violations.
+
+**Nothing about the fail state changed — but a cop catching you is no longer nothing.** There is no
+bust and no new ending. What there is instead is a cop in the way: across the junction ahead, or
+braking in your lane having just gone round you. Ramming one is a bump that costs hit points
+([bumps](traffic.md#bumps-and-hit-points)), and the one that empties them is the wreck the game
+already had.
+
+**And [the corridor cruiser](traffic.md#the-bust-chase) does not bust you during one.** That rule —
+boost within a block of the cruiser and the run ends — is a good one, and its legibility rests
+entirely on there being *one* police car on the street and it being obvious which. A robbery puts
+four more on the street in the same paint under the same flashing bar, and pays a bonus on the
+clock that boosting is the way to earn. So the event asks for Loco
+Mode and an unrelated patrol ends the run for using it, and at a glance there is no telling which of
+the five blue cars is the one that does that. It was found the way these things are found: a real
+run ended that way, with the note that none of the *other* police had so much as moved.
+
+It restores a rule this event already states. A robbery is **imposed** — it walks out of a building
+because the taxi drove past — which is why a robber who runs out of clock bails rather than ending
+the run. Letting a patrol end it instead is that same rule going out the side door. The honest cost
+is that Loco Mode has no downside but the wreck for the length of a getaway; the chase is what pays
+that back, and it now drives cop cars into the road *ahead* of the taxi rather than trailing it.
+
+**And a boosting getaway throws cash out of the back.** `game/cashtrail.js` — banknotes tumbling out
+behind the taxi for as long as the pill is held with a robber aboard. It is the one part of the event
+that pays the player back *while* the risk is being taken: the bonus is real and the player does not
+see a penny of it until the drop-off resolves, and everything in between is a tight clock and four
+more cars to hit. The gate is the robbery rather than the boost, because money off the back of any
+boosting taxi is a fun effect with nothing behind it — and it is one condition, so widening it is one
+word. See [the cash trail](rendering.md#the-getaways-cash-trail---gamecashtrailjs).
+
+### They box you in
+
+Since the taxi has [hit points](traffic.md#bumps-and-hit-points), the police try to stop it rather
+than only converge on it. Two moves, both ordinary traffic behaviour pointed at the taxi (mechanics
+in [the box-in](traffic.md#the-box-in-roadblocks-the-overtake-and-the-brake-check)):
+
+- **Roadblocks.** A cop crossing a junction a block or two up your route skids to a stop at 45°
+  *across the middle of your road* and holds it for up to four seconds, or until you have got past it. One at a
+  time, eight seconds apart.
+- **The overtake and the brake check.** A cop that catches you from behind goes round you in the
+  oncoming lane, cuts in and slews across the road for 2.5 seconds, with the rest of the chase
+  arriving behind you. Angled across both lanes, it cannot be gone round on the pill — only rammed.
+
+Each poses the same three-way choice, and all three are things the game already had. **Wait** — it
+costs the robber's clock, and with it the bonus. **Route round** — redraw the route and
+the roadblock is let go. **Ram it** — on the pill the taxi barges in, and the cop is a bump that
+costs 12–60 hit points by closing speed; enough of them and it is the wreck.
+
+That last one is the line this section used to hold: that an imposed event could not cost the run.
+It still cannot *directly* — a robber who runs out of clock still bails, and there is still no bust.
+But the event now puts things in the road that the player can choose to drive through, and what that
+costs is paid in the currency every other crash is. The fairness lives in the choice being real:
+every roadblock is let go when the taxi routes round it or waits it out, so ramming is never the only
+way past.
 
 ## The package courier
 
@@ -1694,6 +2407,59 @@ who takes the occasional two-leg detour clears the slot and sees three, which is
 pacing assumes. If it plays too quiet, the lever is not `MAX_PARCELS`: it is giving a long-ignored
 box permission to move, which needs to happen without a countdown and without anything vanishing
 from under a player already driving at it.
+
+### Two kinds of load, and one of them has an address
+
+A courier job is carrying a **box** or a **food order** — an oversized burger with a soda cup behind
+it (`geometry/parcel.js`, `geometry/food.js`), drawn per package at even odds (`FOOD_CHANCE`).
+Everything about the errand is the same either way — same pad, same cyan, same gestures, same money,
+same fuel, same absence of a clock — with **one** exception, and it is the reason the second kind is
+worth having at all:
+
+**A food order is collected at the [burger joint](#the-burger-run).** Not at a corner the draw
+liked: at the one place in the city that sells food. The junction is the joint's own +X+Z corner, so
+the pad lands on the lot itself, by the drive-through's exit — `cornerFor` puts a kerb pin on the
+−X−Z side of its junction, which makes `(bi + 1, bj + 1)` the one corner of that block whose pin
+stands on the joint's slab rather than across the road from it. `main.js` derives it and injects it;
+`parcels.js` holds no reference to the city layout, the same one-way arrangement `reserved` keeps in
+the other direction.
+
+The drive-through has been scenery with one secret in it for a long time. This makes it an
+**address** — a building whose position the player learns because jobs come out of it — and the
+delivery end is still drawn from anywhere, which is what a food delivery *is*: one origin, and the
+whole map to take it to.
+
+It costs something honest, and the trade is the same one the drive-through itself already makes. A
+box is an errand between two corners the draw put near the taxi's route; a food order always starts
+in the same place, so how good a job it is depends on where the taxi happens to be — and in a run
+that never goes near that block, the food half of the board is not for you. That is a landmark
+working, not a bug in the placement.
+
+**A food order that cannot be collected is served as a box.** The joint's corner is unusable in three
+ordinary ways — a rider is standing on it, the taxi is parked on it, or the city failed to place a
+joint at all — and none of them is a reason for the board to sit empty. So `FOOD_CHANCE` is the
+chance of *asking* for food, and what actually gets served is measured in `tools/probe.mjs` rather
+than assumed to match it (43 of 80 on the probe's city). The one thing that would make the whole
+feature vanish silently is a joint whose corner the camera cannot see — the
+[sightline filter](#corners-the-camera-cannot-see) would drop it and the board would
+serve boxes for the entire run, in a city that looks perfectly normal — so that is swept across
+cities and asserted too.
+
+**Everything else about the second kind is flavour, deliberately.** A second load is the obvious
+place to hang a second *rule* — food that goes cold, an order worth more, one that has to be
+delivered before the box the taxi is also carrying — and every one of those wants the thing this
+layer does not have and [cannot grow](#a-package-has-no-clock-and-so-has-no-diamond): a clock. A
+fixed origin is the one mechanic that costs the layer nothing it is built on. It takes no deadline,
+it cannot fail, and it spends nothing but the map.
+
+**Both kinds are common on purpose.** They pay the same and are collected the same way, so there is
+no reason for the draw to favour either and every reason for both to be seen. A rare variant on a
+board that shows one job every twenty to forty-five seconds is something a player meets twice in a
+run and reads as a glitch — the courier layer is not a collection, and a load you have to be lucky to
+see is one nobody learns is there.
+
+How the two are drawn, and why the order had to be built into the box's envelope, is in
+[rendering.md](rendering.md#the-food-order--geometryfoodjs).
 
 ### A package has no clock, and so has no diamond
 
@@ -1900,12 +2666,35 @@ short slice, a long hold flows until the tank is empty. Full tank is 15 seconds 
 decision is now *how long* to press as well as *when*. The button doubles as the dial: a `--pct`
 CSS variable tracks the fuel level, dropping as you drain and climbing as a drop-off pours fuel in.
 
-**The meter never refills on its own.** The run opens with **a third of a tank**, each successful
-drop-off pours in **another third**, a [delivered package](#the-rest-of-it) pours in **a sixth**, and
-a [burger run](#the-burger-run) pours in **15%** — that is the whole list of sources, and the first
-three are jobs done. Spend it all and the pill goes grey and dead (`.is-empty`, `disabled`) until you
-deliver something, or go and buy a burger. A top-up that lands while
-you're still holding the button rolls straight back into boost rather than making you press again.
+**Every drop of it is earned, except the way back out of empty.** The run opens with **a third of a tank**, each
+successful drop-off pours in **another third**, a [delivered package](#the-rest-of-it) pours in **a
+sixth**, and a [burger run](#the-burger-run) pours in **15%** — that is the whole list of sources,
+and the first three are jobs done. The fourth is the one you buy: $10 off the counter at the window.
+A top-up that lands while you're still holding the button rolls straight back into boost rather than
+making you press again.
+
+**An empty tank climbs back to a quarter, so the pill is never dead for good.** Spend it all and
+the pill goes grey and dead (`.is-empty`, `disabled`) — and then the tank starts climbing behind it
+at `BOOST_FLOOR_FRACTION / BOOST_REGEN_SECONDS`, a quarter of a tank over **five seconds**, with the
+button coming alive on the frame it lands. Four things make it a recovery rather than a refill:
+
+- **Only `'empty'` recharges.** Not a partial tank, not a tank being spent, not one frozen inside
+  the `'cooldown'` momentum window. A player who let go with a sliver left keeps the sliver and gets
+  no trickle; the climb answers a dead button, and running the tank out is what asks the question.
+  (Spending that sliver is what runs it out, so the sliver is never a trap — just not a head start.)
+- **It stops at a quarter.** 3.75 seconds of boost, half what a fare pays and a package and a half.
+  Waiting is the worst rate in the game and it caps out immediately; deliveries are still the only
+  way to a full tank, and a tank above zero never moves on its own.
+- **The pill stays dead for the whole five seconds** rather than waking on the first frame with a
+  sixtieth of a second in it and going grey again under the player's thumb. A delivery outranks the
+  climb: a pour lights the button on the frame it starts.
+- **The climb is shown.** `.is-empty` paints a flat grey plate, which is why the first cut of this
+  was five seconds of nothing — the dial the fuel was moving wasn't being drawn. `.is-charging`
+  brings it back in a muted gold across the left quarter of the pill, under the same bright leading
+  edge a pour rides: `updateBoostButton` feeds the recharge to `game/boostmeter.js` as a pour, so
+  the climb gets that envelope and the spring at the end of it for free, and `#boost.is-charging.is-filling` takes back the two things written for a live button
+  — full-strength yellow and the 4Hz flutter, both of which read as "press me" on a button that
+  refuses. The spring fires on the frame the button wakes.
 
 Both ways out of a boost — letting go, and running the tank dry — pass through the one-second
 `'cooldown'` momentum window first, so `'empty'` is where a drained tank lands *after* that tail
@@ -1920,11 +2709,13 @@ question to answer: taps are frequent here by design, so a jab must be allowed t
 fuel without the view reacting to it.
 
 That is a deliberate replacement for the old economy, which handed back 15% per drop-off but also
-fast-recharged from empty in 15s and trickled a partial tank back up at a fifth of that rate. Under
+fast-recharged from empty in 15s and trickled a *whole* tank back up at a fifth of that rate. Under
 those rules waiting was a valid way to get boost back, so the meter said nothing about how the run
-was going; now every second of it was earned by a fare, and three deliveries is a full tank.
-Opening with a third rather than empty keeps the toy in reach on the first fare — an empty start
-leaves the button dead in the hand until the first drop-off lands.
+was going; now all but the bottom quarter of it was earned by a fare, and three deliveries is a full
+tank. Opening with a third rather than empty keeps the toy in reach on the first fare — an empty
+start leaves the button dead in the hand until the first drop-off lands, which is the same reason
+the recharge exists at all: a run that has spent its tank and is between fares should still have one
+straightaway's worth of Loco Mode within five seconds of asking.
 
 **There is no longer a case where holding it does nothing.** A taxi that had just picked someone up
 used to be `parked` — waiting at the kerb for you to tap a destination — and `parked` sets
@@ -2110,24 +2901,46 @@ press; this is what says the mode is *still on*, which nothing but the draining 
 
 **Tap the burger joint.** The taxi drives itself round to the drive-through, crawls the lane, stops
 at the menu board and again at the pickup window, and comes back out onto the road with **15% of a
-tank** of boost — 2.25 seconds of it, the smallest top-up in the game and the only one that was not
-paid for a job.
+tank** of boost — 2.25 seconds of it, the smallest top-up in the game and the only one that isn't
+paid out for a job. It is the only one the player pays *for*: **$10** off the run's cash
+(`BURGER_PRICE`, `game/fares.js`), taken at the window on the frame the order is handed over.
 
 It is a secret rather than a mechanic, and everything about it is sized to keep it one. Nothing on
 screen advertises it, nothing in the tutorial mentions it, and the reward is small enough that a
-player who finds it has found a treat rather than a strategy. What it costs is **time on whatever
-clock is already running**: the rider in the back keeps counting down the whole way there, through
-both windows and back out again. Measured tap to kerb, the trip is **12s** when the taxi is already
-coming down the joint's own street, **28s** for a lap of the block, and **38s** from the far side of
-the city — against 2.25s of boost. So it is a bad trade taken on purpose and a good one when the
-taxi was going that way anyway, which is the whole of the decision on offer.
+player who finds it has found a treat rather than a strategy. What it costs is that tenner and
+**time on whatever clock is already running**: the rider in the back keeps counting down the whole
+way there, through both windows and back out again. Measured tap to kerb, the trip is **12s** when
+the taxi is already coming down the joint's own street, **28s** for a lap of the block, and **38s**
+from the far side of the city — against 2.25s of boost. So it is a bad trade taken on purpose and a
+good one when the taxi was going that way anyway, which is the whole of the decision on offer.
 
-Nothing refuses the tap. A rider in the back does not refuse it, a full tank does not refuse it, and
-no clock is consulted first — the same rule [a package detour](#what-the-detour-actually-costs)
-follows, for the same reason: it is the player's call, and the band redraws through the joint on the
-same frame so the cost is visible before a wheel has turned. Tapping a rider, tapping a package, or picking a rider off a
-finder chip all take the wheel back, and the burger is off — silently, because the player has just
-said what they want instead.
+**Why it is not free.** It was, and free made it a strictly-better detour once found: the only price
+was a clock the player was already spending, so every tap taken on a route that passed the joint was
+pure profit and the decision stopped being one after the first time. Ten dollars is about half a
+median fare early in a run and loose change by the last shift, which is the right way round — the
+tank is worth most when the multiplier is small, and so is the money. It does **not** scale with the
+multiplier: the tank it buys is a flat 2.25 seconds at every point in the run, and a price that
+climbed would quietly make the same purchase worse for no reason on screen.
+
+**The counter goes down, visibly.** The charge takes the payout's own flight in reverse sign — a red
+`−$10` rises off the taxi, flies to the counter, and the total *rolls* down and bumps red when it
+lands (see [Economy](#economy)). Digits dropping on their own is the exact side effect the two-phase
+flight exists to prevent, and it does not become acceptable because the number is going the other
+way. The boost bit flies to the pill on the same frame, so a player who reads neither number still
+sees one thing bought with another.
+
+**An empty till is not refused; it is emptied.** A run's cash is its score — the counter prints it,
+the run-end card prints it as "Cash", the score table sorts on it — and none of the three has any
+idea what a negative total means, so a player who taps the joint on $4 pays $4 and still gets the
+boost. Debt is not a thing this game has, and the secret is not the place to introduce it.
+
+Nothing refuses the tap. A rider in the back does not refuse it, a full tank does not refuse it, an
+empty till does not refuse it, and no clock is consulted first — the same rule
+[a package detour](#what-the-detour-actually-costs) follows, for the same reason: it is the player's
+call, and the band redraws through the joint on the same frame so the cost is visible before a wheel
+has turned. Tapping a rider, tapping a package, or picking a rider off a finder chip all take the
+wheel back, and the burger is off — silently, because the player has just said what they want
+instead.
 
 **The destination is a lane, not a junction.** The lot can only take a car off one kerbside lane —
 the one running −X along the block's +Z edge — so a route planned to the junction at either end of
@@ -2140,6 +2953,14 @@ reaches the right corner from the wrong side. See
 [the drive-through](traffic.md#the-players-own-visit) for what happens once the taxi is in the lot,
 and `game/burgerrun.js` for the trip.
 
+That has a tail the player can see: a lane is driven to its *end*, and the trip ends at the
+driveway part-way down it. Drawn literally, the route band ran on to the junction the lane leaves —
+**13.7 units past the joint**, three-quarters of a block of paint pointing down an empty road at
+nothing, which reads as the tap having aimed at the wrong thing. So the target the taxi is sent at
+carries an `endAt` point as well as its junction, and `routePath` (`game/routeline.js`) trims the
+drawn path to it. It is on the target rather than passed in so that the band, the drag's hit test
+and shot mode all get the same path without any of them knowing which kind of trip is running.
+
 Two consequences worth knowing:
 
 - **A taxi that has just gone past the driveway is sent round the block.** There is one way into a
@@ -2149,10 +2970,109 @@ Two consequences worth knowing:
   the tank into a car that cannot move — fifteen seconds of it if the queue in front is two cars
   deep — so the press is refused and a held one is released for as long as the visit lasts.
 
+## Repairs at the depot
+
+**Tap the depot with a damaged taxi** and it drives itself back to its garage, goes in, and comes
+back out with its [hit points](traffic.md#bumps-and-hit-points) full and every piece of
+[damage](traffic.md#bumps-and-hit-points) gone. The visit is
+[the opening vignette](#the-opening-vignette) played backwards and then forwards: the camera comes
+down onto the door as the taxi turns in off the lane, the door rolls up, the car drives into the bay
+and the door comes down behind it — **to a fifth open**, with a welder's arc, sparks and grit
+spilling out from under it while the shop works — and then the opening itself runs from `door` on,
+a clean car in a lit doorway, out, down the kerb and back into traffic.
+`game/depotrun.js` is the trip there; `enter()` in `game/opening.js` is everything from the lane on.
+
+| Phase | What happens | Length |
+|---|---|---|
+| `enter` | Off the lane round the mirrored fillet and up the kerb, the door winding up on the opening's own ease from the frame the car turns in. The camera eases onto the door at `DOOR_ZOOM` | ~2.5s |
+| `shut` | The door comes down behind the car to `REPAIR_GAP` (a fifth open), its brake lamps going dark as it does | 0.72s |
+| `repair` | The car is fixed and turned round under the first flash, and the shop works: arc light strobing in the gap and across the forecourt, sparks skittering out from the weld, grit drifting out low (`game/repairfx.js`) | 2.4s |
+| `door` … `release` | The opening, except the door winds up from the gap rather than the floor | ~6s |
+
+Measured end to end in `tools/probe.mjs`: **11.6s** from the turn-in to the camera handed back on a
+clear road, plus up to `HOLD_MAX` (5s) when the car has to wait at the kerb for a gap.
+
+**The repair beat is the door left open, not a fade to black.** The first version cut to black for
+a second, which said "time passed" and nothing about what it was spent on. A roller door stopped
+short of the floor with a welder going behind it says *repairs* on its own. The gap is a fifth of
+the door for a measured reason: the camera looks down at 33°, so 0.68 units of gap shows about a
+unit of floor behind the curtain — enough for the light and the sparks to come out of, and not
+enough to see the car turned round (the near bumper moves 0.39 units, under the arc's first
+flash). The arc light is two additive quads, not a `PointLight`, for the program-cache reason in
+CLAUDE.md; the sparks and the grit are the existing pools in `game/sparks.js` and `game/dust.js`.
+In real time it costs about half a second more than the fade did (160 + 1000 + 300 ms of wipe and
+a 0.45s beat, against 2.4s of work).
+
+**The clocks stop for it.** Every fare on the board holds its countdown from the turn-in to the
+camera being handed back — `holdFareClocks` in `main.js`, which is also where the tutorial's hold
+lives, so neither can release a hold the other still wants. What a repair costs in time is the
+**drive there**, on the waiting riders' clocks, which is the decision.
+
+**It costs $25** (`REPAIR_PRICE`, `game/fares.js`), taken on the frame the car is back on the
+road: a red `−$25` rises off the repaired taxi and flies to the counter, the burger's charge on a
+bigger number. Before the price the only cost was the drive there, and a player on a fifth of their
+HP with time in hand got a whole car back for fifteen seconds of driving. $25 is more than a median
+fare early in a run and less than one by the last shift. Like the burger, an empty till pays what it
+has and is never refused.
+
+**Refused on an undamaged car.** There is nothing to fix, and a visit holds every clock on the board
+— a free one is a pause button with a garage on it. Refused while anything else is driving the taxi
+(the drive-through) and while the depot is busy, which covers the run's own opening.
+
+**Refused with a rider aboard.** A fare doesn't ride along to the garage — and before this rule they
+did, with the visit's held clocks freezing the very countdown in the back, so a damaged car could
+buy ten seconds on a running fare. Drop them off first.
+
+**It drives in nose first, not in reverse.** The literal reverse of the opening is the taxi backing
+in, and backing in means stopping on the live lane past the driveway first. A staged car is invisible
+to the lane bookkeeping (see the note at the top of `game/drivethru.js`), so anything behind the taxi
+would drive straight through it while it stood there. Turning in off the lane clears the carriageway
+in about half a second, the same trade the drive-through's entry arc makes. The car is then put on the
+opening's start pose facing out, under the black and behind the shut door. The entry path is the
+exit's fillet mirrored about the driveway; the probe asserts the mouth is exactly where `placeCar`
+has the car on the merge lane.
+
+**Nose-in, it parks at the back of the bay, and switches its lamps off.** The first cut parked it
+on the opening's own spot, which put the tail 0.25 behind the curtain — inside the bloom's depth
+bias (0.28, `DEPTH_BIAS` in `game/bloom.js`), so the brake lamps, lit at any standstill, glowed
+straight through the door as it came down. It now parks 0.25 off the back wall instead (tail 0.64
+behind the curtain), and `stageLampsOff` in `sim/traffic.js` takes the brake lamps down once it has
+stopped — a loose rear lamp hangs on a 0.6 wire, so distance alone is not enough margin.
+
+**The destination is a lane**, for [the burger run's reasons](#the-burger-run): the driveway opens
+off the near lane of the road the door faces, running +Z, so the route is `findRouteOnto` that lane
+and the band is trimmed at the mouth by `endAt`. The taxi stays in the traffic model right up to the
+mouth and is caught on the frame it reaches it — a taxi that went past, boosting or weaving wide, is
+sent round the block for one more go. The same identity rule as the burger holds too: anything else
+the player aims the taxi at takes the wheel back — including a rider boarding en route, who is
+dispatched to their drop-off and ends the trip there (the burger run hands the wheel back to the
+joint; the depot doesn't, because a repair is refused with anyone aboard). A taxi already turning
+into the driveway when the pickup lands finishes its visit and drives the drop-off on the way out.
+
+**The job comes back on the way out**, on the frame the car is back in the traffic model rather
+than when the camera lets go — the handover is 5.5 units short of a junction, and a car with no
+route there turns at random. A rider aboard outranks whatever was remembered at the tap
+(`resumeJob`, shared with the burger run). A tap on a rider *during* the visit stands: `stageCar`
+never saw that route, and the lane it was planned from is the one the car is released onto.
+
+**Loco Mode is dead for the whole visit**, and `taxi.boost` is forced off while the car is staged —
+boost's one-second cooldown tail outlasts the turn-in, and `sim/collisions.js` charges hits off
+that flag, so a car arriving on the pill could otherwise wreck on the kerb it was driving over. The
+unarmed shove is closed on `staged` for the same reason: a cut scene owns the taxi's position.
+
+**A tap skips it** — the opening's own cut to black (`game/wipe.js`), with the visit landed
+underneath: fixed, back on the lane, the job handed back and the $25 charged, exactly as the end of
+the sequence would have. With one exception, which is why it is not the opening's `window`
+listener: the board is live during a visit (only its clocks are held), so a tap on a **rider, a
+drop-off or a package** keeps meaning that and plans the job the car comes back out to. Anything
+else — the sky, the depot, the taxi — skips. It is wired at the top of the picker in `main.js`
+(`JOB_KINDS`) and on `click` rather than the opening's `pointerdown`, so a drag across the map
+during a visit is not a skip either.
+
 ## The brake
 
 The **Brake** button, to the right of the Loco Mode pill and sharing the bottom row with it:
-**60% Loco Mode, 40% brake**, of the same 3/4-width band the pill used to have to itself. Hold it
+**60% Loco Mode, 40% brake**, of the same band the pill used to have to itself. Hold it
 and the taxi hauls itself to a stop wherever it is; let go and it drives itself again, because
 driving itself is the game's resting state and the brake never took that away — it only outranked
 it while held. The physics is in
@@ -2172,9 +3092,21 @@ taxi's own lamps are coming on out on the road at the same moment.
 Both buttons stay independently `position: fixed` rather than becoming flex children of a row. A
 wrapper would put a new element between `#boost` and the viewport, and that pill is measured
 (the tutorial aims its third bubble at its `getBoundingClientRect`), animated (`translate` on the
-HUD entrance) and pressed through pointer capture. Two `calc()`s against `--ctl-side` / `--ctl-gap`
-/ `--brake-w` cost less than re-testing all of that. The shares are of the *band*, not of the
-screen, so the 60/40 survives any change to the band's own margins.
+HUD entrance) and pressed through pointer capture. Two `calc()`s against `--ctl-left` /
+`--ctl-right` / `--ctl-gap` / `--brake-w` cost less than re-testing all of that. The shares are
+of the *band*, not of the screen, so the 60/40 survives any change to the band's own margins.
+
+**The row sits in one inset, and that inset is derived rather than typed.** The same gap left,
+right and underneath, so the pair reads as a panel resting in the corner of the screen. The
+number cannot be a constant, because the gap the player sees at the bottom is the constant plus
+`env(safe-area-inset-bottom)` — 26px on a desktop and 60pt on a notched iPhone, from one
+declaration. So `--ctl-inset` halves the *sum* (`(26px + var(--safe-bottom)) / 2`), which is
+13px on a desktop and 30pt on a phone, and the sides take the same number. 30pt still clears
+the home indicator's ~21pt of edge protection, which is why the bottom may spend part of the
+safe area rather than sitting on top of all of it — but only the bottom. Landscape puts 47pt of
+notch beside the row and no derived inset beats that, so `--ctl-left` / `--ctl-right` floor at
+their own `env()`. The rider-finder chips, the taxi finder and the coach bubble are all stacked
+on `--ctl-bottom` rather than placed on their own, so the whole bottom cluster moves together.
 
 **Last pedal pressed wins.** Pressing the brake releases Loco Mode and pressing Loco Mode releases
 the brake, so a two-thumbed player never ends up spending fuel against a speed target of zero — the

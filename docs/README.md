@@ -6,13 +6,13 @@ behind it that aren't obvious from the code.
 | Doc | Covers | Main files |
 |---|---|---|
 | [architecture.md](architecture.md) | Module map, the frame loop, seeding and determinism, how a change flows through the app, offline support | `src/main.js` |
-| [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts and the duck pond, the depot and the burger joint, ground/buildings/props | `src/city/` |
+| [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts and the duck pond, the depot, the burger joint and the bank, ground/buildings/props | `src/city/` |
 | [river.md](river.md) | The river, its three bridges, the span that lifts and the boats it lifts for | `src/city/river.js`, `src/game/drawbridge.js` |
 | [roadnet.md](roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces | `src/city/roadnet.js`, `src/city/curves.js` |
-| [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the drive-through, the police corridor and the bust chase | `src/sim/` |
-| [gameplay.md](gameplay.md) | The opening vignette, the opening tutorial, the fare loop, routing, dragging the route, the package courier, picking, the travelling clock, economy, crazy-taxi mode, pause | `src/game/` |
+| [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the drive-through, cop cars in ambient traffic, the police corridor and the bust chase | `src/sim/` |
+| [gameplay.md](gameplay.md) | The opening vignette, the opening tutorial, the fare loop, routing, dragging the route, the bank robbery, the package courier, picking, the travelling clock, economy, crazy-taxi mode, the burger run, repairs at the depot, pause | `src/game/` |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
-| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, Crayon and Cartoon Mode, bloom, effects | `src/game/scene.js`, `src/geometry/` |
+| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, Crayon and Cartoon Mode, bloom, effects, sirens | `src/game/scene.js`, `src/geometry/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 | [lab.md](lab.md) | The passing lab at `/lab/` — one straight road with no lights, for watching Loco Mode overtake | `src/lab/`, `lab/` |
 | [audio.md](audio.md) | Music and effects: the event model, the mix as data, the sound lab at `/audio/`, the iOS audio session. **The system is built; `src/audio/clips/` is still empty** | `src/audio/`, `audio/` |
@@ -23,7 +23,9 @@ behind it that aren't obvious from the code.
 A run opens on the taxi's **garage**: the camera comes down onto a roller door, the door goes up, the
 car drives out and bumps down the kerb into traffic, and the camera pulls back to the game. One block
 of every city is the depot rather than a block of towers. See
-[the opening vignette](gameplay.md#the-opening-vignette).
+[the opening vignette](gameplay.md#the-opening-vignette). Tap it later with a damaged taxi and the same
+shot plays backwards and forwards again: the car drives back in, the door comes down, and it comes
+out repaired — see [repairs at the depot](gameplay.md#repairs-at-the-depot).
 
 After that, three speech bubbles from the taxi — "this car is you", "tap that rider", and a
 nod at the boost pill a couple of seconds after the first drop-off — and that is the whole tutorial;
@@ -47,7 +49,7 @@ delivery pays by distance, $8 for a one-block hop up to $35 across town, times t
 
 Everything **ramps with the deliveries you land**: the board grows from one rider to four, clocks
 tighten from twice the driving they cost down to 1.15×, traffic thickens, the police come round more
-often, and fares pay up to double. A perfect player survives a median of 15.
+often, and fares pay up to double. A perfect player survives a median of 14.
 
 A **river** runs east–west through the middle of the city, so every trip across town has to pick a
 crossing. Three of the six roads that meet it carry a bridge; the other three just stop at the
@@ -72,11 +74,25 @@ another — a third of the time there is one in there.
 
 **And you can tap it.** The taxi drives itself round to the mouth, crawls the lane, stops at the
 board and again at the window, and comes back out with a splash of boost in the tank — 15% of it,
-the smallest top-up in the game, and the only one that isn't paid for a job. It costs whatever the
-clock in the back seat is worth: nobody is stopping you taking a rider through a drive-through. See
+the smallest top-up in the game, and the only one you *buy* rather than earn: **$10** off the
+counter, taken at the window. The rest of the price is whatever the clock in the back seat is worth,
+because nobody is stopping you taking a rider through a drive-through. See
 [the burger run](gameplay.md#the-burger-run),
 [the burger joint](city.md#the-burger-joint-and-its-drive-through) and
 [the drive-through](traffic.md#the-drive-through).
+
+One block of every city is a **bank** — low and wide under a colonnade, with a patinated dome behind
+it, the one curved mass and the one gap in the skyline. Drive past it with an **empty cab** and a
+masked robber comes down the steps with a sack and gets in, bound for the far side of the
+city with a loose clock and a bonus for beating it. Four of the cars already on the road turn blue, put flashing bars on,
+and **start driving at you** — at twice the speed of the traffic and under the speed of a boosting
+taxi, which is the whole of the decision the event offers. They are still ordinary cars: they queue,
+they stop at reds, none of them can arrest you — but they **box you in**: a cop stops across a
+junction up your route, or goes round you and brake-checks you. Wait, route round, or ram it for a
+bump that costs hit points. Lean on the pill and the loot comes streaming out of the back. It pays a bonus
+scaled to the clock you land it with, and missing one never ends a run: the event is imposed rather
+than chosen, so it is not allowed to cost the player the game. See
+[the bank robbery](gameplay.md#the-bank-robbery).
 
 Once a run, a side street closes for **roadworks** — barricades at both ends, cones, a hole in the
 road and two workers standing over it. Ambient traffic routes around it while the taxi's own router

@@ -17,8 +17,8 @@
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { setCityNetwork } from '../src/city/roadnet.js';
-import { createTraffic, placeCar, SPEED, laysPassRubber } from '../src/sim/traffic.js';
-import { createCollisions } from '../src/sim/collisions.js';
+import { createTraffic, placeCar, SPEED, MIN_GAP, laysPassRubber } from '../src/sim/traffic.js';
+import { createCollisions, TAXI_HP, penetration } from '../src/sim/collisions.js';
 import { DIR, dirSign, PITCH, HALF_ROAD, LANE } from '../src/city/grid.js';
 import { labNetwork, labRoadLength, labNodeX, labTreeBlocks, LAB_BLOCKS } from '../src/lab/labroad.js';
 
@@ -258,6 +258,145 @@ check('and never just sits behind it', stuck === 0,
 // relative to the lane change, and the freeze only showed on the ones that lined up.
 check('and never parks half way across the road', stalls === 0,
   `${stalls} frames displaced but going nowhere sideways, over ${runs} runs`);
+
+// --- The standing start -----------------------------------------------------
+//
+// The lab's `Standing` box, which is the scenario the page gained for the queue-at-a-red case:
+// everyone stopped, the taxi one following distance behind, and the button held. The staging is
+// the same shape `stage()` uses — `parked` with no route is the sim's own "this car is going
+// nowhere", and there are no signals on this road to hold anyone.
+//
+// It is asserted here as well as in `tools/probe.mjs` because the two ask different questions.
+// The probe asks whether the sim can do it; this asks whether it still *looks* like driving when
+// it does, which is what the lab is for — the shape checks above (the eased crab, the bank rocking
+// both ways, the rubber) all run against a taxi that arrives with 22 units of run-up, and a
+// standing pass is the one case where the manoeuvre is credited with road it did not cover.
+function standingApproach() {
+  const scene = new THREE.Scene();
+  const traffic = createTraffic(makeRng(4242), scene, 2, 2, 0);
+  const taxi = traffic.taxi;
+  const leader = traffic.cars.find((c) => !c.isTaxi);
+  const collisions = createCollisions(traffic.cars, taxi);
+  let wrecked = false;
+  collisions.onImpact(() => { wrecked = true; });
+
+  placeAtX(leader, DIR.PX, labNodeX(0) + 30);
+  placeAtX(taxi, DIR.PX, labNodeX(0) + 30 - MIN_GAP);
+  taxi.v = 0;
+  leader.v = 0;
+  leader.parked = true;
+  leader.route = [];
+
+  const out = {
+    passed: false, wrecked: false, minApproach: Infinity, peak: 0,
+    slopeJump: 0, bankHigh: 0, bankLow: 0, drift: 0, wheel: 0,
+  };
+  for (let n = 0; n < 60 * 12; n++) {
+    taxi.boost = true;
+    taxi.boostEasing = false;
+    while (taxi.route.length < 3) taxi.route.push(taxi.d);
+    const wasSlope = taxi.passSlope;
+    traffic.update(STEP);
+    collisions.update();
+    if (wrecked) { out.wrecked = true; break; }
+    out.peak = Math.max(out.peak, taxi.pass);
+    out.slopeJump = Math.max(out.slopeJump, Math.abs(taxi.passSlope - wasSlope));
+    out.bankHigh = Math.max(out.bankHigh, taxi.passBank);
+    out.bankLow = Math.min(out.bankLow, taxi.passBank);
+    // The front wheels have to come round with the body. `steerToward` is distance-paced, so a
+    // standing lane change is exactly the case that leaves them pointing dead ahead while the
+    // nose slews 30-odd degrees across the road.
+    if (taxi.pass > 0.1 && taxi.pass < 0.9) out.wheel = Math.max(out.wheel, Math.abs(taxi.wheelAngle));
+    out.minApproach = Math.min(out.minApproach, Math.hypot(taxi.x - leader.x, taxi.z - leader.z));
+    if (taxi.x > leader.x + 4) out.passed = true;
+  }
+  return out;
+}
+
+const standing = standingApproach();
+check('a stopped taxi gets out from behind a stopped car and past it',
+  standing.passed && standing.peak > 0.95,
+  `reached ${(standing.peak * 2 * LANE).toFixed(2)} of ${2 * LANE} units across`);
+check('without driving into the back of it on the way out',
+  !standing.wrecked && standing.minApproach > 2.31,
+  `closest approach ${standing.minApproach.toFixed(2)} units against a 2.31 envelope`);
+// The same shape the moving pass is held to. A standing swing is credited with road at `SPEED`,
+// so the crab angle and the roll come out at exactly the values a rolling one produces — if this
+// ever went to a raw time ramp instead, the slope would step and this is where it would show.
+check('and the standing swing has the same shape as a rolling one',
+  standing.slopeJump < 0.3 && standing.bankHigh > 0.25 && standing.bankLow < -0.25,
+  `biggest one-frame crab change ${standing.slopeJump.toFixed(3)}, `
+  + `roll ran ${standing.bankLow.toFixed(2)} to ${standing.bankHigh.toFixed(2)}`);
+check('with the front wheels turned into it rather than pointing dead ahead',
+  standing.wheel > 0.1, `${(standing.wheel * 180 / Math.PI).toFixed(1)}° of lock at the peak`);
+
+// --- Ramming: with hit points, the boosting taxi drives into the car ahead and never through it.
+// Two things a player reported on the first cut of HP. The taxi lifted off in the last few units
+// before every rear-end, because it was still held to the leader by tailgate rules written for a
+// taxi that must never touch anything; and a car it had just tapped was switched out of the
+// collision test for a couple of seconds, so it drove clean through it. With no route handed over
+// the overtake is never offered (see `approach` above), so the leader is the only answer and the
+// taxi rams it. With the road's one exit handed over as a route and the oncoming lane empty, a pass
+// *is* on, and the taxi must take it rather than ram — ramming is the fallback, not the policy.
+//
+// "Through" is measured as overlap, not as which centre ends up in front. The weave carries the
+// taxi a unit or so sideways, so a hit often turns into a glance: the car is shoved aside and the
+// taxi slides past it, which is a collision resolved, not one missed. What must never happen is
+// the two bodies sinking into each other — contact is resolved a frame late by construction, so
+// the bar is one frame's travel at the top of the overdrive band (34 u/s / 60 ≈ 0.57).
+function ram(parked, route = false) {
+  const scene = new THREE.Scene();
+  const traffic = createTraffic(makeRng(4242), scene, 2, 2, 0);
+  const taxi = traffic.taxi;
+  const leader = traffic.cars.find((c) => !c.isTaxi);
+  const collisions = createCollisions(traffic.cars, taxi);
+  const hits = [];
+  collisions.onBump((event) => hits.push(event));
+  taxi.hp = TAXI_HP;
+  placeAtX(taxi, DIR.PX, labNodeX(0) + 6);
+  placeAtX(leader, DIR.PX, labNodeX(0) + 24);
+  leader.route = [];
+  leader.parked = parked;
+  leader.v = parked ? 0 : SPEED;
+  taxi.route = [];
+  taxi.v = 17;
+  const out = { hits, minV: Infinity, deepest: 0, leader, passed: false, passing: false };
+  // A pass is ~32 units of road at a closing speed of ~10 u/s, so it wants longer than a ram.
+  for (let n = 0; n < (route ? 240 : 120); n++) {
+    taxi.boost = true;
+    taxi.boostEasing = false;
+    if (route) while (taxi.route.length < 3) taxi.route.push(taxi.d);
+    traffic.update(STEP);
+    collisions.update(STEP);
+    if (!hits.length) out.minV = Math.min(out.minV, taxi.v);
+    out.deepest = Math.max(out.deepest, penetration(taxi, leader)?.depth ?? 0);
+    if (taxi.passing) out.passing = true;
+    if (taxi.x > leader.x + 4) out.passed = true;
+  }
+  return out;
+}
+
+{
+  const r = ram(false, true);
+  check('with a pass on, a taxi with HP goes round the car rather than ramming it',
+    r.passing && r.passed && r.hits.length === 0,
+    `pulled out ${r.passing}, got past ${r.passed}, ${r.hits.length} hits`);
+}
+
+for (const parked of [true, false]) {
+  const what = parked ? 'a parked car' : 'a car at cruise';
+  const r = ram(parked);
+  check(`a boosting taxi with HP does not lift off before hitting ${what}`,
+    r.hits.length >= 1 && r.minV >= 16.9,
+    `slowest before contact ${r.minV.toFixed(2)} u/s, ${r.hits.length} hits`);
+  check(`and it shoves ${what} rather than sinking into it`, r.deepest < 0.57,
+    `deepest overlap ${r.deepest.toFixed(3)} units`);
+  if (!parked) {
+    check('a rear-end launches the car down its lane rather than stunning it',
+      r.hits[0]?.rearEnd === true && r.leader.stun === 0,
+      `rearEnd ${r.hits[0]?.rearEnd}, stun ${r.leader.stun}`);
+  }
+}
 
 const failed = results.filter((r) => !r.pass).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);

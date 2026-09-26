@@ -30,6 +30,52 @@ const LEGS = '#3C3A45';
 // still visibly lights up, which is the whole ask.
 export const HIGHLIGHT_EMISSIVE = 0.3;
 
+// --- The robber's kit ---------------------------------------------------------
+//
+// A bank robbery (game/robbery.js) puts a rider in the taxi who has to read as *not an ordinary
+// fare* from the moment they come down the steps. The marker over their head cannot do it — a
+// robber's crystal is on the ordinary urgency scale on purpose, because the clock is the whole
+// drama — so it falls to the figure.
+//
+// It is **additive and switchable**, not a second person. The slots in game/fares.js are pooled:
+// one figure per slot, built once and handed to every fare that occupies it, so a robber cannot be
+// a differently-coloured `createPerson`. Nor can the base figure be recoloured for one — its torso,
+// head and hair are merged into a single mesh with the colours baked into the vertices, so tinting
+// the jacket tints the face with it. Three extra boxes that start hidden sidestep both.
+//
+// What the three are, and why each earns its place at a figure that is ~24px tall at play zoom:
+//
+//   - **The mask**, which is what was asked for and does most of the work. A band right across the
+//     head at eye level rather than a patch on one face: the figure yaws — it scans the street
+//     while it waits and turns as it runs — so a mask on the front alone is a mask the camera sees
+//     for part of a turn and loses for the rest.
+//   - **A cap** over the hair, because a dark band on a head with ordinary hair over it reads at
+//     this size as a shadow. Two dark courses stacked read as a disguise.
+//   - **A jacket**, a box a hair larger than the torso and pulled over it. This one was added
+//     after looking at the first build: a mask and a cap on a figure still wearing the board's pale
+//     shirt reads as *a man in a hat*, because at 24px the torso is the largest thing on the
+//     figure and it was still saying "ordinary fare" louder than the head was saying anything. It
+//     has to be a box over the top rather than a repaint, because the torso, the head and the hair
+//     are merged into one mesh with their colours in the vertices — tinting the jacket tints the
+//     face with it.
+//   - **The sleeves**, which are the one part that *is* a repaint: an arm is its own mesh in one
+//     flat colour, so `material.color` multiplies it dark with nothing else on that mesh to spoil.
+//     `highlight()` writes `emissive` and `setOpacity()` writes `opacity`, so neither collides.
+//     The legs need nothing — they are already the board's dark trouser colour.
+//   - **A sack**, hung off the left hand, which is the only part that says *why*. It swings with
+//     the arm for free: it is parented to the limb, and a limb pivots at its shoulder.
+const MASK = '#1A1A1E';
+const CAP = '#23232A';
+const JACKET = '#2B2E38';
+/** What an arm's own colour is multiplied by. Dark enough to match the jacket over any `body`. */
+const SLEEVE_TINT = 0.28;
+const SACK = '#DDD6C0';
+/** Eye level on a 0.62 head centred at 2.75. */
+const MASK_Y = 2.82;
+const MASK_H = 0.17;
+/** Proud of the 0.62 head on both axes, so the band is never coplanar with the face it sits on. */
+const MASK_W = 0.68;
+
 const SHOULDER_Y = 2.25;
 const HIP_Y = 1.15;
 const LEG_LEN = 1.15;
@@ -104,6 +150,43 @@ export function createPerson({
   const armL = limb(0.26, ARM_LEN, 0.26, body, -0.72, SHOULDER_Y);
   const armR = limb(0.26, ARM_LEN, 0.26, body, 0.72, SHOULDER_Y);
 
+  // --- The robber's kit, built hidden --------------------------------------
+  //
+  // Built for every figure rather than only the ones that will wear it, and that is the cheaper
+  // answer rather than the lazy one: three boxes is 36 triangles against a figure that is already
+  // several hundred, and building them on demand would mean allocating geometry on the frame a
+  // robbery fires. `visible = false` costs nothing — three skips a hidden mesh before it reaches
+  // the render list.
+  //
+  // The mask and the cap hang off `group` rather than off the torso mesh, since neither the head
+  // nor the hair articulates and `group` is what the animations yaw and lean. The sack hangs off
+  // the left arm, whose origin is its own shoulder — so `-ARM_LEN` is the hand.
+  const kit = (w, h, d, x, y, z, col, parent) => {
+    const geo = new THREE.BoxGeometry(w, h, d);
+    geo.translate(x, y, z);
+    const mesh = new THREE.Mesh(bakeColor(geo, new THREE.Color(col)), propMaterial());
+    mesh.castShadow = true;
+    // Deliberately *not* tagged `pickable`. The mask is the widest thing on the head and a raycast
+    // that found it instead of the torso would report a hit on a mesh no fare owns.
+    mesh.visible = false;
+    parent.add(mesh);
+    return mesh;
+  };
+  const mask = kit(MASK_W, MASK_H, MASK_W, 0, MASK_Y, 0, MASK, group);
+  const cap = kit(0.72, 0.26, 0.72, 0, HAIR_Y + 0.05, 0, CAP, group);
+  // Over the torso, which is 1.0 x 1.3 x 0.6 at y 1.8. Proud on all three axes so no face of it is
+  // ever coplanar with the one underneath — two surfaces on one plane is the tie this project has
+  // been bitten by before, and a jacket that z-fought with the shirt it covers would flicker on
+  // exactly the figure the player is being asked to look at.
+  const jacket = kit(1.07, 1.37, 0.67, 0, 1.8, 0, JACKET, group);
+  // A swag sack: a fat cube at the end of the arm with a pinched neck above it, so the silhouette
+  // is a bag being carried rather than a brick being held. Pale, because it is the one part of the
+  // kit that is *not* dark — against a black mask, a black cap and a black jacket, a dark bag is
+  // invisible and the figure has nothing saying what it just did.
+  const sackBag = kit(0.52, 0.50, 0.46, 0, -ARM_LEN - 0.22, 0.08, SACK, armL);
+  const sackNeck = kit(0.20, 0.18, 0.20, 0, -ARM_LEN + 0.04, 0.08, SACK, armL);
+  const robberKit = [mask, cap, jacket, sackBag, sackNeck];
+
   /**
    * One frame of the run cycle, returning the body bob that goes with it.
    *
@@ -129,7 +212,7 @@ export function createPerson({
   // Every mesh on the figure carries its own material (torso + four limbs), so the exit fade can
   // dim all of them together. Collected up front rather than walked from `group.children` on every
   // frame — the set is fixed for the lifetime of the person.
-  const meshes = [torso, legL, legR, armL, armR];
+  const meshes = [torso, legL, legR, armL, armR, ...robberKit];
 
   /**
    * Set the whole figure's opacity. `1` returns the meshes to opaque (no blend cost).
@@ -178,6 +261,26 @@ export function createPerson({
     // Slot reuse: a rider tapped in the last third of a second of their life would otherwise hand
     // the next figure on this rig a flash nobody asked for.
     highlight(0);
+  }
+
+  /**
+   * Wear the mask, the cap and the sack — or take them off again.
+   *
+   * Deliberately **not** reset by `rest()`, unlike every other piece of pooled state on this rig.
+   * `rest()` runs mid-fare (a robber is rested on the frame they appear, and again when they get
+   * out at the far end) and a kit that came off there would take the mask off the figure halfway
+   * through its own event. What owns it is the spawn: `game/fares.js` sets it true in
+   * `spawnRobber` and false for every ordinary rider in `spawnFare`, which is the one place a slot
+   * changes hands.
+   */
+  function setRobber(on) {
+    for (const mesh of robberKit) mesh.visible = on;
+    // The sleeves. A tint rather than a fifth box: an arm is one mesh in one flat colour, so
+    // multiplying it is exact and costs nothing, and it keeps the jacket's own colour reading as
+    // the *same* garment whatever `body` this figure was built with.
+    const sleeve = on ? SLEEVE_TINT : 1;
+    armL.material.color.setScalar(sleeve);
+    armR.material.color.setScalar(sleeve);
   }
 
   /**
@@ -392,5 +495,5 @@ export function createPerson({
 
   rest();
   wave(0);
-  return { group, wave, board, exit, bail, rest, idle, flee, highlight };
+  return { group, wave, board, exit, bail, rest, idle, flee, highlight, setRobber };
 }

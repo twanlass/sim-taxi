@@ -610,9 +610,8 @@ export function attachDragPan(controller, domElement, getAspect, isEnabled = () 
   let clearPanned = null;
 
   function panBy(right, up) {
-    // A finger on the map beats a pan already in flight. Cancelled here rather than from the
-    // `onPan` handover callback so it holds for every caller of panBy, not just the drag that
-    // happens to cross the slop.
+    // A finger on the map beats a pan already in flight. The drag's own press has already
+    // cancelled it (see pointerdown); this covers every other caller of panBy.
     controller.cancelGlide();
     const target = controller.state.target;
     target.addScaledVector(RIGHT, right).addScaledVector(UP, up);
@@ -626,6 +625,13 @@ export function attachDragPan(controller, domElement, getAspect, isEnabled = () 
     // drag makes the map jump to wherever that finger landed.
     if (!event.isPrimary) return;
     if (!isEnabled()) return;
+    // A finger on the map stops a glide on *touch*, not only once it becomes a drag. The picker
+    // raycasts on `click`, which lands after the finger lifts — ~100ms of tap later — and a glide
+    // peaks near 2000px/s on a phone, so a rider tapped mid-pan had moved a couple of hundred pixels
+    // out from under the finger by then. That is the fare-pointer arrow's own pan: the rider comes
+    // into frame early in it, the player taps them at once, and the tap missed every time and had to
+    // be made again. Freezing here makes the pick answer the frame the player was looking at.
+    controller.cancelGlide();
     clearTimeout(clearPanned);
     drag = { x: event.clientX, y: event.clientY, moved: 0 };
     panned = false;
