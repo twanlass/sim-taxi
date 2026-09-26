@@ -6021,6 +6021,48 @@ check('the taxi is an ordinary car in the traffic array',
     && hTaxi.hp === 0, `crashed ${hTaxi.crashed}, ${wrecks} wrecks, hp ${hTaxi.hp}`);
 }
 
+// --- A truck outweighs the taxi ---------------------------------------------
+// The same square T-bone at boost cruise, once into a car and once into a truck (TRUCK_MASS in
+// sim/collisions.js). The truck has to come off the lighter of the two — knocked less far, slewed
+// less — and the taxi has to come off worse: more recoil, less speed kept.
+{
+  const tBone = (asTruck) => {
+    const tTraffic = createTraffic(makeRng(seed + 45), new THREE.Scene(), CARS_DEFAULT);
+    const tTaxi = tTraffic.taxi;
+    const tCollisions = createCollisions(tTraffic.cars, tTaxi);
+    let event = null;
+    tCollisions.onBump((e) => { event ??= e; });
+    tTaxi.hp = TAXI_HP;
+    tTraffic.warmup(3);
+    const target = tTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive' && c.v > 1);
+    target.isTruck = asTruck;
+    tTaxi.staged = true;
+    tTaxi.yaw = target.yaw + Math.PI / 2;
+    tTaxi.x = target.x - Math.cos(tTaxi.yaw) * 1.6;
+    tTaxi.z = target.z + Math.sin(tTaxi.yaw) * 1.6;
+    tTaxi.v = 19;
+    tTaxi.boost = true;
+    tCollisions.update(1 / 60);
+    return {
+      event,
+      struck: Math.hypot(target.knock?.vx ?? 0, target.knock?.vz ?? 0),
+      spin: Math.abs(target.knock?.spin ?? 0),
+      recoil: Math.hypot(tTaxi.knock?.vx ?? 0, tTaxi.knock?.vz ?? 0),
+      kept: tTaxi.v,
+    };
+  };
+  const car = tBone(false);
+  const truck = tBone(true);
+  check('a truck is knocked and slewed less than a car by the same hit',
+    car.event && truck.event && truck.struck < car.struck * 0.6 && truck.spin < car.spin * 0.6,
+    `knock ${car.struck.toFixed(2)} → ${truck.struck.toFixed(2)} u/s, `
+      + `spin ${car.spin.toFixed(2)} → ${truck.spin.toFixed(2)} rad/s`);
+  check('the taxi bounces off a truck harder and keeps less speed',
+    truck.recoil > car.recoil * 1.5 && truck.kept < car.kept * 0.6,
+    `recoil ${car.recoil.toFixed(2)} → ${truck.recoil.toFixed(2)} u/s, `
+      + `kept ${car.kept.toFixed(1)} → ${truck.kept.toFixed(1)} u/s`);
+}
+
 // --- The taxi wearing its damage -------------------------------------------
 // Steps down the car's HP (game/taxidamage.js over buildDamage in geometry/taxi.js). The silent
 // failures: a loose lamp that leaves its pods behind at the socket, so it hangs dark while the
