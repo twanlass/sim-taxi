@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
+import { propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import {
   DIR, GRID_I, GRID_J, HALF_SPAN_X, HALF_SPAN_Z, PITCH, dirSign, isXAxis, laneOffX, laneOffZ,
@@ -9,7 +9,7 @@ import {
   isSegmentClosed, nextIntersection, opposite,
 } from '../city/grid.js';
 import {
-  sirenOn, sirenPodGeometry, sirenBarAnchors, sirenHousingGeometry, sirenHousingAnchor,
+  sirenOn, sirenPodGeometry, sirenBarAnchors, sirenBaseGeometry, sirenBaseAnchor,
   sirenRedMaterial, sirenBlueMaterial,
 } from '../geometry/lights.js';
 import { deckHeightAt } from '../city/river.js';
@@ -19,7 +19,7 @@ import {
   sirenLaneAhead,
   locoWeaveFade, WHEELIE_DUR, ROAD_Y,
   wheelAnchors, wheelGeometry, steerToward, CHASSIS_LIFT,
-  carGeometry, CAR_LEN, CAR_W, CABIN_X, CABIN_TOP,
+  carGeometry, policeCabGeometry, CAR_LEN, CAR_W, CABIN_X, CABIN_TOP,
 } from './traffic.js';
 
 // A police car running a priority corridor across the city: every signal on its road goes green,
@@ -239,7 +239,8 @@ function edgeFade(s, axis) {
 }
 
 // The cruiser is drawn as the same car the robbery's cop cars are: an ambient body off
-// `carGeometry()` wearing `policeBody`, with the same siren bar and housing (geometry/lights.js).
+// `carGeometry()` wearing `policeBody` under the baby-blue `policeCabGeometry()`, with the same
+// siren bar (geometry/lights.js).
 // It used to be its own model — 3.6 x 1.8, a white roof and a white waist stripe, and a smaller
 // bar split red one side, blue the other — which left the city with two police liveries once the
 // robbery put its fleet on the road. The dimensions are imported rather than restated for the
@@ -251,15 +252,21 @@ const WHEELBASE = CAR_LEN * 0.6;
  * An ambient car, painted. `carGeometry()` bakes its body white and its glass dark so the fleet's
  * `instanceColor` can tint it; this is that same multiply done once into the vertex colours, so a
  * cruiser and a cop car in livery come out the same colour on every part, glass and tyres included.
+ * The cab shell the fleet draws as a second instanced mesh is simply merged in here — it is never
+ * switched separately from the body on a car there is only one of.
  */
 function policeGeometry() {
-  const geometry = carGeometry();
+  const car = carGeometry();
   const tint = color('policeBody');
-  const colors = geometry.attributes.color;
+  const colors = car.attributes.color;
   for (let i = 0; i < colors.count; i++) {
     colors.setXYZ(i, colors.getX(i) * tint.r, colors.getY(i) * tint.g, colors.getZ(i) * tint.b);
   }
-  return geometry;
+  const cab = policeCabGeometry();
+  const merged = mergeGeometries([car, cab], false);
+  car.dispose();
+  cab.dispose();
+  return merged;
 }
 
 /**
@@ -299,12 +306,10 @@ function lightBar(shell, carrier) {
     return mesh;
   };
 
-  // ...and the dark box they are bolted into, which is what still reads as a light bar on the
-  // frame neither colour is lit.
-  const housing = new THREE.Mesh(
-    bakeColor(sirenHousingGeometry(), color('sirenHousing')), propMaterial(),
-  );
-  housing.position.copy(sirenHousingAnchor(CABIN_X, CABIN_TOP));
+  // ...and the bar as it stands unlit — the housing and its red and blue lenses — which the lit pods
+  // enclose. Always shown while the cruiser is.
+  const housing = new THREE.Mesh(sirenBaseGeometry(), propMaterial());
+  housing.position.copy(sirenBaseAnchor(CABIN_X, CABIN_TOP));
   housing.receiveShadow = true;
   shell.add(housing);
 

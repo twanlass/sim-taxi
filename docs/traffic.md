@@ -2046,7 +2046,8 @@ queue behind it holds, because each car's limit comes from its leader's position
 ## Cop cars in ambient traffic
 
 `enterPolice(n, near)` in `sim/traffic.js`, driven by [the bank robbery](gameplay.md#the-police). It
-brings `n` cop cars onto the map — real vehicles, painted `policeBody` with a light bar on the roof —
+brings `n` cop cars onto the map — real vehicles in the police two-tone (a white `policeBody` under a
+baby-blue `policeCabMesh`) with a light bar on the roof —
 entering from off screen as near the bank as the camera allows. `clearPolice()` takes them off again.
 
 ### They are spawned, not repainted
@@ -2305,12 +2306,21 @@ actually ended.
 be two lamps and nothing else, and a lamp's off is a zero scale — so the frame the event ended every
 cop lost the only thing on it that was not a car body, and `policeBody` (#2E5FA8) is a few steps off
 the ordinary blue in `carBody` (#4E7FC0). At play zoom the fleet driving off read as the police
-turning back into traffic. `sirenHousingMesh` is a dark box under the pods (`sirenHousingGeometry`
-in `geometry/lights.js`), not a lamp and not in the bloom, drawn off `police`: lit, it is the strip
-between the pods; dark, it is a cop car with its lights off. It is inset from the pods on every
-shared side so a lit pod encloses it rather than fighting it, and the probe asserts all three. A
-wrecked cop's shell had the same hole one layer over — it was tinted from `carBody[colorIndex]` —
-and goes through `bodyColor` now.
+turning back into traffic. `sirenHousingMesh` is the bar as it stands unlit (`sirenBaseGeometry`
+in `geometry/lights.js`): a dark housing and two painted lenses, deep red on the car's left and deep
+blue on its right — not a lamp and not in the bloom, drawn off `police`. Lit, the emissive pods
+enclose the lenses and the whole bar strobes red then blue; dark, it is a cop car with its lights
+off that still says red-and-blue. Everything is nested inside the pods on every shared side so a lit
+pod encloses it rather than fighting it, and the probe asserts it. A wrecked cop's shell had the
+same hole one layer over — it was tinted from `carBody[colorIndex]` — and goes through `bodyColor`
+now, and carries its cab.
+
+**The two-tone.** A cop is a white body under a baby-blue cab, old-school, where it used to be a
+solid blue (#2E5FA8) a few steps off the ordinary blue car — one blue car among several at play
+zoom. `instanceColor` paints a whole car one colour, so the cab is a second instanced shell
+(`policeCabMesh`, `policeCabGeometry()`) laid 0.02 proud over the glass cabin and switched by
+`police` like the bar. The corridor cruiser (`sim/police.js`) is built from the same parts, so the
+city has one police livery.
 
 Routing them out is not cosmetic. The first cut merely *cleared* their routes, and a car with no
 route rolls the ordinary dice at every junction — so a "departing" cop circled the block the taxi

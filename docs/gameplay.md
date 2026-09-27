@@ -1884,7 +1884,7 @@ robbery without `holdAlarm`, so the headless suite still sees the police on the 
 ### Dispatch breaks in
 
 `game/radio.js`. A beat after the robber's line is cleared, a bubble drops in under the HUD: a police
-car turning in the avatar — the robbery's own cop car, `carGeometry()` in `policeBody` with its bar
+car turning in the avatar — the robbery's own cop car, `carGeometry()` in the police two-tone with its bar
 flashing — over "DISPATCH / All units respond! Robbery in progress."
 
 The figure alone was not enough, and the reason is the trigger. A robbery fires on a drive-*past*,
@@ -2079,7 +2079,7 @@ Six gates on top of the range, and each is there for its own reason:
 ### The police
 
 `setPoliceCars(n)` in `sim/traffic.js` takes the `n` ambient cars nearest the taxi, paints them
-`policeBody` and puts a light bar on their roofs. `setPoliceCars(0)` hands every one of them back its
+in the police two-tone (white `policeBody`, baby-blue cab) and puts a light bar on their roofs. `setPoliceCars(0)` hands every one of them back its
 own `colorIndex`, which is left untouched throughout — that is what makes ending the event free
 rather than something to remember.
 

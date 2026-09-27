@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { color } from '../palette.js';
+import { bakeColor } from '../util/geo.js';
 import { CHASSIS_LIFT } from './wheels.js';
 
 // Brake and turn-signal light pods — the geometry and material both the ambient fleet
@@ -213,7 +215,9 @@ export function sirenPodAnchor(sz, roofX, roofY) {
  * arithmetic rather than taste: a pod is 4px across at play zoom, so a bar split by colour
  * alternates two specks a colour apart and reads as a flicker. Flashing both pods together is one
  * mark 9.9px wide changing colour six times a second, which is what actually announces a police
- * car from across a five-block city.
+ * car from across a five-block city. (The *unlit* bar is split — red lens left, blue right, see
+ * `sirenBaseGeometry` — because standing still it has no flicker to cause, and the split is what
+ * says police on a parked car.)
  *
  * It also keeps `LIGHT_PODS` honest as the instance stride, which is the half that would have
  * bitten: a one-pod anchor list leaves the second slot of every car's stride untouched, and an
@@ -225,28 +229,52 @@ export function sirenBarAnchors(roofX, roofY) {
 }
 
 /**
- * The bar's housing: the dark box the two pods are bolted into, and the part of the bar that is
- * still there when it is switched off.
+ * The bar as it stands with the siren **off**: a dark housing and two painted lenses, red on the
+ * car's left and blue on its right — the part of the bar that is on the roof for as long as the car
+ * is police, lit or not.
  *
- * **Without it a stood-down cop car is an ordinary car.** The bar is two lamps and nothing else,
- * and a lamp's off is a zero scale — so the frame a robbery ended, every cop car lost the only
- * thing on it that was not a car body, and `policeBody` (#2E5FA8) is a few steps off the
- * ordinary blue in `carBody` (#4E7FC0). At play zoom the fleet driving off read as the police
- * turning back into traffic. The housing is how a car with its lights off still says police.
+ * **Without it a stood-down cop car is an ordinary car.** A lamp's off is a zero scale, so the
+ * frame a robbery ended every cop lost the only thing on it that was not a car body and read as
+ * the police turning back into traffic. It was a bare dark box for a while; the lenses are there
+ * so a parked cop's roof still says red-and-blue rather than "something on the roof".
  *
- * Inset from the pods on every side they share — 0.02 along the car and across, 0.04 lower — so a
- * lit pod wholly encloses its end of the housing and the two never draw a face on the same plane.
- * The one face they do share is the bottom, on the roof, and that faces down and is culled. What
- * shows while the bar is lit is the strip between the pods, which is what a real bar looks like.
+ * Nested inside the lit pods on every side but the bottom, so a lit pod wholly encloses its lens
+ * and the two never draw a face on the same plane: each lens is 0.02 in from its pod along the car,
+ * across it and at the top. The housing is nested again inside the lenses (another 0.02, and
+ * short of each lens's outer end), and passes *through* their inner faces rather than meeting them.
+ * The one face everything shares is the bottom, on the roof, and that faces down and is culled.
+ * While the bar is lit what shows is the two lamps and the dark strip between them.
+ *
+ * Built roof-local — origin on the roof at the bar's centre — with the offsets in the vertices,
+ * which is safe for exactly one reason: this is only ever switched whole, scale 0 or 1, and never
+ * dimmed, so there is no in-between frame for anything to slide toward the pivot on.
  */
-export function sirenHousingGeometry() {
-  const span = 2 * (SIREN_SPREAD + SIREN_W / 2) - 0.04;
-  return new THREE.BoxGeometry(SIREN_D - 0.04, SIREN_H - 0.04, span);
+export function sirenBaseGeometry() {
+  const lensD = SIREN_D - 0.04;
+  const lensH = SIREN_H - 0.02;
+  const lensW = SIREN_W - 0.04;
+  const housingH = SIREN_H - 0.06;
+  const housing = new THREE.BoxGeometry(SIREN_D - 0.06, housingH,
+    2 * (SIREN_SPREAD + SIREN_W / 2) - 0.08);
+  housing.translate(0, housingH / 2, 0);
+  const lens = (sz, name) => {
+    const box = new THREE.BoxGeometry(lensD, lensH, lensW);
+    box.translate(0, lensH / 2, sz * SIREN_SPREAD);
+    return bakeColor(box, color(name));
+  };
+  const parts = [
+    bakeColor(housing, color('sirenHousing')),
+    lens(-1, 'sirenRedOff'),
+    lens(1, 'sirenBlueOff'),
+  ];
+  const merged = mergeGeometries(parts, false);
+  parts.forEach((p) => p.dispose());
+  return merged;
 }
 
-/** Where the housing sits in car-local space: on the roof, between the two pod anchors. */
-export function sirenHousingAnchor(roofX, roofY) {
-  return new THREE.Vector3(roofX, roofY + (SIREN_H - 0.04) / 2, 0);
+/** Where the base sits in car-local space: on the roof, centred between the two pod anchors. */
+export function sirenBaseAnchor(roofX, roofY) {
+  return new THREE.Vector3(roofX, roofY, 0);
 }
 
 /** The red half of the bar. Same `lightRed` the brake pods and the cruiser's own bar wear. */
@@ -259,7 +287,7 @@ export function sirenRedMaterial() {
   });
 }
 
-/** ...and the blue half. `sirenBlue` is deliberately brighter and bluer than `policeBody`. */
+/** ...and the blue half. `sirenBlue` is deliberately brighter and bluer than `policeCab`. */
 export function sirenBlueMaterial() {
   return new THREE.MeshLambertMaterial({
     color: color('sirenBlue'),

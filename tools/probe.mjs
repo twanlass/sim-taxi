@@ -32,7 +32,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, setPriorityCorridor, policeRoads, setPoliceRoads, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
-  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE } from '../src/sim/traffic.js';
+  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
@@ -13884,6 +13884,40 @@ let chopperOrder; // likewise
       !car.police && !car.crashed && housingScale(car.instanceIndex) > 0).length;
     check('...and nothing else in the city wears one',
       civilianHousings === 0, `${civilianHousings} civilian cars with a bar housing`);
+
+    // The two-tone. `instanceColor` paints a whole car one colour, so the baby-blue cab is a second
+    // instanced shell laid over the glass cabin — on police only, and proud of the glass on every
+    // side a camera can see, or the two fight over the roof.
+    const cabScale = (index) => {
+      const m = new THREE.Matrix4();
+      copTraffic.policeCabMesh.getMatrixAt(index, m);
+      return new THREE.Vector3().setFromMatrixScale(m).x;
+    };
+    const cabbed = copTraffic.policeCars.filter((car) => cabScale(car.instanceIndex) > 0.99).length;
+    const civilianCabs = copTraffic.ambient.filter((car) =>
+      !car.police && !car.crashed && cabScale(car.instanceIndex) > 0).length;
+    check('every cop wears the baby-blue cab, and no civilian does',
+      cabbed === copTraffic.policeCars.length && civilianCabs === 0,
+      `${cabbed} of ${copTraffic.policeCars.length} cops, ${civilianCabs} civilians`);
+    check('...and the cab stands proud of the glass it covers rather than on it',
+      (() => {
+        const cab = new THREE.Box3().setFromBufferAttribute(
+          copTraffic.policeCabMesh.geometry.attributes.position);
+        const car = carGeometry();
+        // The glass is the only part of the car standing clear of the body, so its roof vertices
+        // are the only ones within a few tenths of `CABIN_TOP` (the body's own top is 0.57 below).
+        const pos = car.attributes.position;
+        const glass = new THREE.Box3();
+        for (let i = 0; i < pos.count; i++) {
+          const v = new THREE.Vector3().fromBufferAttribute(pos, i);
+          if (v.y > CABIN_TOP - 0.3) glass.expandByPoint(v);
+        }
+        car.dispose();
+        return Math.abs(glass.max.y - CABIN_TOP) < 1e-6
+          && cab.max.y > glass.max.y + 0.01
+          && cab.max.x > glass.max.x + 0.01 && cab.min.x < glass.min.x - 0.01
+          && cab.max.z > glass.max.z + 0.01 && cab.min.z < glass.min.z - 0.01;
+      })());
     check('...and the housing sits inside the pods, so a lit bar never fights it',
       (() => {
         const housing = new THREE.Box3().setFromBufferAttribute(

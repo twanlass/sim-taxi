@@ -10,7 +10,7 @@ import {
   lightPodGeometry, brakeLightAnchors, turnSignalAnchors, LIGHT_PODS,
   brakeLightMaterial, turnSignalMaterial,
   sirenPodGeometry, sirenBarAnchors, sirenRedMaterial, sirenBlueMaterial, sirenOn,
-  sirenHousingGeometry, sirenHousingAnchor,
+  sirenBaseGeometry, sirenBaseAnchor,
 } from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
@@ -1612,6 +1612,28 @@ export function carGeometry() {
   return merged;
 }
 
+/**
+ * The top half of the police two-tone: a baby-blue shell over the cabin, car-local.
+ *
+ * A cop car is an ordinary car underneath, and an ordinary car is one instanced mesh tinted by one
+ * `instanceColor` — which can paint a body white but has no way to make its cabin a different
+ * colour from it, since the glass is the same buffer multiplied by the same tint. So the cab is a
+ * second shape laid over the first, drawn only on police (see `policeCabMesh` in createTraffic).
+ *
+ * `CAB_SKIN` proud of the cabin on its top, sides and ends, so it wholly encloses the glass and no
+ * face of one lies on a face of the other. Its bottom stays level with the cabin's, which is already
+ * sunk 0.03 into the body — so the one open seam is inside the car. The siren bar stands on
+ * `CABIN_TOP` and so sits `CAB_SKIN` into this shell's roof, which is a buried bottom face and not a
+ * coplanar pair.
+ */
+const CAB_SKIN = 0.02;
+export function policeCabGeometry() {
+  const cab = new THREE.BoxGeometry(
+    CAR_LEN * 0.5 + 2 * CAB_SKIN, CABIN_H + CAB_SKIN, CAR_W * 0.86 + 2 * CAB_SKIN);
+  cab.translate(CABIN_X, CABIN_Y + CAB_SKIN / 2, 0);
+  return bakeColor(cab, color('policeCab'));
+}
+
 // Shared by truckCabGeometry() and truckBoxGeometry() so the two pieces — drawn from separate
 // InstancedMeshes, see the note by TRUCK_LEN/TRUCK_W and createTraffic below — line up on one
 // chassis line without either function guessing the other's numbers.
@@ -2626,25 +2648,36 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const sirenBlueMesh = lightMesh(
     'carSirenBlue', sirenBlueMaterial, sirenBarAnchors(CABIN_X, CABIN_TOP), ambient,
     sirenPodGeometry, 'siren');
-  // ...and the box they are bolted into, which is **not** a lamp and so is not in `lightMeshes`:
-  // it is drawn by `police` rather than by `siren`, so it stays on the roof for the whole
-  // stand-down, when the pods have gone dark. Without it a cop driving away from a finished
-  // robbery was an ordinary blue car — see sirenHousingGeometry(). One per car, scaled to zero on
-  // everything that is not police, on the same terms as the pods above.
+  // ...and the bar as it stands unlit — the housing and its two painted lenses — which is **not** a
+  // lamp and so is not in `lightMeshes`: it is drawn by `police` rather than by `siren`, so it
+  // stays on the roof for the whole stand-down, when the pods have gone dark. Without it a cop
+  // driving away from a finished robbery was an ordinary car — see sirenBaseGeometry(). One per
+  // car, scaled to zero on everything that is not police. The scale is only ever 0 or 1, so the
+  // base keeps its offsets in its vertices and its anchor is the roof.
   const sirenHousingMesh = neverCull(new THREE.InstancedMesh(
-    bakeColor(sirenHousingGeometry(), color('sirenHousing')), propMaterial(), MAX_AMBIENT,
+    sirenBaseGeometry(), propMaterial(), MAX_AMBIENT,
   ));
   sirenHousingMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   sirenHousingMesh.castShadow = true;
   sirenHousingMesh.receiveShadow = true;
   sirenHousingMesh.name = 'carSirenHousing';
   sirenHousingMesh.count = ambient.length;
-  const SIREN_HOUSING_AT = sirenHousingAnchor(CABIN_X, CABIN_TOP);
+  const SIREN_HOUSING_AT = sirenBaseAnchor(CABIN_X, CABIN_TOP);
   sirenHousingMesh.userData.anchor = SIREN_HOUSING_AT;
+  // The baby-blue cab, on exactly the same switch. Car-local, so its matrix is the body's own.
+  const policeCabMesh = neverCull(new THREE.InstancedMesh(
+    policeCabGeometry(), propMaterial(), MAX_AMBIENT,
+  ));
+  policeCabMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  policeCabMesh.castShadow = true;
+  policeCabMesh.receiveShadow = true;
+  policeCabMesh.name = 'carPoliceCab';
+  policeCabMesh.count = ambient.length;
 
   const tint = new THREE.Color();
   // A cop car is an ordinary car wearing `policeBody` instead of its own draw from `PALETTE.carBody`
-  // — the same blue the cruiser is built in, so the two read as the same force. Its `colorIndex` is
+  // — the same white the cruiser is built in, so the two read as the same force; the cab's blue is
+  // `policeCabMesh`, laid over the top. Its `colorIndex` is
   // left alone, so a cop car still carries the ordinary draw it would have had — which costs
   // nothing and means a cop is never the only car in the city with no colour of its own.
   const bodyColor = (car) => (car.police ? PALETTE.policeBody : PALETTE.carBody[car.colorIndex]);
@@ -2726,6 +2759,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       sirenRedMesh.count = ambient.length * LIGHT_PODS;
       sirenBlueMesh.count = ambient.length * LIGHT_PODS;
       sirenHousingMesh.count = ambient.length;
+      policeCabMesh.count = ambient.length;
     }
   }
 
@@ -2861,6 +2895,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       sirenRedMesh.count = ambient.length * LIGHT_PODS;
       sirenBlueMesh.count = ambient.length * LIGHT_PODS;
       sirenHousingMesh.count = ambient.length;
+      policeCabMesh.count = ambient.length;
     }
     return added;
   }
@@ -2896,6 +2931,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     sirenRedMesh.count = ambient.length * LIGHT_PODS;
     sirenBlueMesh.count = ambient.length * LIGHT_PODS;
     sirenHousingMesh.count = ambient.length;
+    policeCabMesh.count = ambient.length;
     return true;
   }
 
@@ -2945,6 +2981,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   scene.add(truckWheelMesh);
   scene.add(truckBoxMesh);
   scene.add(sirenHousingMesh);
+  scene.add(policeCabMesh);
   for (const light of lightMeshes) scene.add(light);
 
   // --- Stop bars ------------------------------------------------------------
@@ -3119,6 +3156,15 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       box.receiveShadow = true;
       shell.add(box);
     }
+    // A cop's baby-blue cab, on the same terms as the cargo box: its own mesh and its own material,
+    // so the wreck scorches it in step. Left out, a wrecked cop lay in the road as a white hatchback
+    // with a glass roof.
+    if (car.police && !car.isTruck) {
+      const cab = new THREE.Mesh(policeCabMesh.geometry, propMaterial());
+      cab.castShadow = true;
+      cab.receiveShadow = true;
+      shell.add(cab);
+    }
     scene.add(shell);
 
     // Collapse everything the copy replaces — body instance and both wheel instances.
@@ -3147,11 +3193,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         sirenBlueMesh.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
       }
     }
-    // The housing goes with it — the shell is a body and two wheels, and a dark box left standing
-    // where the roof used to be would hang in the air over the wreck.
+    // The bar goes with it — the shell is a body, two wheels and (on a cop) its cab, and a bar left
+    // standing where the roof used to be would hang in the air over the wreck.
     if (!car.isTruck) {
       sirenHousingMesh.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
       sirenHousingMesh.instanceMatrix.needsUpdate = true;
+      // The cab is in the shell now (above), so the instance goes like the body's.
+      policeCabMesh.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
+      policeCabMesh.instanceMatrix.needsUpdate = true;
     }
     brakeInst.instanceMatrix.needsUpdate = true;
     turnLeftInst.instanceMatrix.needsUpdate = true;
@@ -3257,6 +3306,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       lightLocal.compose(SIREN_HOUSING_AT, LIGHT_QUAT, lightScale.setScalar(car.police ? 1 : 0));
       lightMatrix.multiplyMatrices(matrix, lightLocal);
       sirenHousingMesh.setMatrixAt(car.instanceIndex, lightMatrix);
+      lightLocal.makeScale(car.police ? 1 : 0, car.police ? 1 : 0, car.police ? 1 : 0);
+      lightMatrix.multiplyMatrices(matrix, lightLocal);
+      policeCabMesh.setMatrixAt(car.instanceIndex, lightMatrix);
     }
   }
 
@@ -5237,6 +5289,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     truckWheelMesh.instanceMatrix.needsUpdate = true;
     truckBoxMesh.instanceMatrix.needsUpdate = true;
     sirenHousingMesh.instanceMatrix.needsUpdate = true;
+    policeCabMesh.instanceMatrix.needsUpdate = true;
     for (const light of lightMeshes) light.instanceMatrix.needsUpdate = true;
 
     // --- Stop bar colours, one per approach.
@@ -5310,8 +5363,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // prepass — but not folded into `ambient`/`wheelsPerCar` above, since those are index-aligned
     // with the *car* meshes and game/carghosts.js reads them as such.
     truckMesh, truckWheelMesh, truckBoxMesh, trucks, truckWheelsPerCar: TRUCK_FRONT.length,
-    // The unlit box under a cop car's bar, one instance per ambient car. Out for the probe.
-    sirenHousingMesh,
+    // The unlit bar under a cop car's lamps, and its baby-blue cab, one instance per ambient car.
+    // Out for the probe.
+    sirenHousingMesh, policeCabMesh,
     /**
      * Every self-lit mesh this module owns — the fleet's six instanced pod meshes and the taxi's
      * six ordinary ones — for `main.js` to put in the bloom (`markEmissive` in game/bloom.js).
