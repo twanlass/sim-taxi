@@ -52,8 +52,14 @@ const FLAT_BEHIND = 7;
 const RIVER_MARGIN = 6;
 
 const BUMP_GAP = [0.9, 2.1];   // seconds between jolts while shedding
-const DROP_CHANCE = 0.55;      // per jolt...
-const FORCE_AFTER = 2;         // ...but never more than this many jolts in a row without one going
+
+// Road the truck covers between one crate going and the next, measured in distance rather than
+// jolts. It was a 55% chance per jolt with at most two dry jolts in a row, which shed a crate
+// every ~2s — the whole load inside a block and a half, in a heap. At 16–28 units a crate goes
+// every one and a half to two and a half blocks (3–5s at truck cruise), so the load is strewn
+// down a street or two and the taxi meets them one at a time. The jolts in between still happen;
+// most of them just don't shake anything loose.
+const DROP_SPACING = [16, 28];
 
 // The jolt: a damped bounce, and the load hops a beat behind the chassis, which is what sells a
 // crate as loose rather than bolted on. Amplitudes are in world units / radians; at play zoom
@@ -181,7 +187,8 @@ export function createFlatbed(rng, scene, traffic, camera = null, { soon = false
     bumpIn: 0,
     bumpAt: -Infinity,
     bumpRoll: 1,
-    dry: 0,                 // jolts in a row that shed nothing
+    rolled: 0,              // road covered since the last crate went, while shedding is live
+    spacing: 0,             // ...and how much it has to be before the next one does (0: first)
     next: 0,                // index into SLOTS of the next crate to go
     truck: null,
   };
@@ -273,13 +280,11 @@ export function createFlatbed(rng, scene, traffic, camera = null, { soon = false
   function bump() {
     state.bumpAt = state.t;
     state.bumpRoll = rng.chance(0.5) ? 1 : -1;
-    const shed = state.dry + 1 >= FORCE_AFTER || rng.chance(DROP_CHANCE);
-    if (shed && state.next < crates.length) {
+    if (state.rolled >= state.spacing && state.next < crates.length) {
       startSlide(crates[state.next]);
       state.next += 1;
-      state.dry = 0;
-    } else {
-      state.dry += 1;
+      state.rolled = 0;
+      state.spacing = rng.range(DROP_SPACING[0], DROP_SPACING[1]);
     }
   }
 
@@ -606,6 +611,9 @@ export function createFlatbed(rng, scene, traffic, camera = null, { soon = false
       const near = soon || Math.hypot(truck.x - taxi.x, truck.z - taxi.z) <= DROP_RANGE;
       const rolling = Math.abs(truck.v) > MOVING_V && !truck.crashed;
       if (rolling && near && onFlat(truck) && !offScreen(truck.x, truck.z)) {
+        // Only road covered where a drop could happen counts, so a stretch spent off screen or
+        // over the river does not bank a crate to drop the instant the truck comes back.
+        state.rolled += Math.abs(truck.v) * dt;
         state.bumpIn -= dt;
         if (state.bumpIn <= 0) {
           bump();

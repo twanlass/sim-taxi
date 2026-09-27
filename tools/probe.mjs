@@ -15789,20 +15789,23 @@ let chopperOrder; // likewise
     truck ? `box scale ${boxScale}` : 'no truck claimed');
 
   // Where every crate lands, measured against the truck at that instant.
+  // `odo` is the truck's odometer at the moment, for the spacing check below.
   const landings = [];
+  let odo = 0;
   flatbed.onLand(({ x, z }) => {
     const fx = Math.cos(truck.yaw);
     const fz = -Math.sin(truck.yaw);
-    landings.push({ along: (x - truck.x) * fx + (z - truck.z) * fz, x, z });
+    landings.push({ along: (x - truck.x) * fx + (z - truck.z) * fz, x, z, odo });
   });
 
   let steps = 0;
   let deckDrift = 0;
   const truckM = new THREE.Matrix4();
-  for (; steps < 60 * 150 && flatbed.loaded() + flatbed.crates.filter((c) => c.phase === 'slide' || c.phase === 'air' || c.phase === 'skid').length > 0; steps++) {
+  for (; steps < 60 * 300 && flatbed.loaded() + flatbed.crates.filter((c) => c.phase === 'slide' || c.phase === 'air' || c.phase === 'skid').length > 0; steps++) {
     fTraffic.update(1 / 60);
     shadow.x = truck.x;
     shadow.z = truck.z;
+    odo += Math.abs(truck.v) / 60;
     flatbed.update(1 / 60, shadow, []);
     fTraffic.truckMesh.getMatrixAt(truck.instanceIndex, truckM);
     for (let e = 0; e < 16; e++) {
@@ -15810,7 +15813,7 @@ let chopperOrder; // likewise
     }
   }
   check('the deck rides the truck\'s own transform', deckDrift < 1e-9, `worst element ${deckDrift}`);
-  check('the whole load comes off within a couple of minutes of shedding', flatbed.loaded() === 0
+  check('the whole load comes off within a few minutes of shedding', flatbed.loaded() === 0
     && landings.length === CRATES,
     `${CRATES - flatbed.loaded()} of ${CRATES} off, ${landings.length} landed, after ${(steps / 60).toFixed(1)}s`);
 
@@ -15819,9 +15822,20 @@ let chopperOrder; // likewise
     landings.length > 0 && worstAlong < -TRUCK_LEN / 2,
     `nearest landing ${worstAlong.toFixed(2)} along (tail at ${(-TRUCK_LEN / 2).toFixed(2)})`);
 
+  // Strewn down the street rather than dumped in a heap. The drop is spaced 16–28 units of road
+  // apart; a landing is a little later than its drop by a slide time that differs between the
+  // top and bottom rows (~0.3s, ~1.7 units at truck cruise), hence the slack under 16.
+  const gaps = landings.slice(1).map((l, n) => l.odo - landings[n].odo);
+  const tightest = Math.min(...gaps);
+  check('the crates come off a street or so apart, not in a heap', gaps.length === CRATES - 1 && tightest > 13,
+    `tightest gap ${tightest.toFixed(1)} units of road, all: ${gaps.map((g) => g.toFixed(0)).join(' ')}`);
+
   const banks = riverBanks();
   const wet = banks ? flatbed.crates.filter((c) => c.z > banks.z0 - 1 && c.z < banks.z1 + 1).length : 0;
-  const unsettled = flatbed.crates.filter((c) => c.phase !== 'rest' || c.y !== CRATE_REST_Y).length;
+  // With the drops a street apart the early crates have lain their REST_LIFE out and sunk by the
+  // time the last one lands, so `sink` and `gone` count as having rested; only `rest` is at a height.
+  const unsettled = flatbed.crates.filter((c) => !['rest', 'sink', 'gone'].includes(c.phase)
+    || (c.phase === 'rest' && c.y !== CRATE_REST_Y)).length;
   check('they come to rest square on the road, and none of them over the river',
     unsettled === 0 && wet === 0, `${unsettled} not resting at road level, ${wet} between the banks`);
 

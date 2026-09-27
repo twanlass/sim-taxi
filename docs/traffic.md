@@ -1975,13 +1975,23 @@ by it.
 
 `src/game/flatbed.js` and `src/geometry/crate.js`. One ambient truck carries an open deck stacked
 with eight timber crates. 35–75 seconds into the run it starts going over bumps: it jolts, the load
-hops a beat behind the chassis, and on most jolts one crate slides off the back, tumbles into the
-road, skids and lies there for 22 seconds before sinking away. Anything that drives into one
+hops a beat behind the chassis, and every 16–28 units of road (`DROP_SPACING`, one and a half to
+two and a half blocks) one of those jolts shakes a crate loose. It slides off the back, tumbles
+into the road, skids and lies there for 22 seconds before sinking away. The spacing is by distance
+rather than a chance per jolt: that first version shed a crate every two seconds or so and heaped
+the whole load inside a block and a half. Spread down a street or two, the taxi meets them one at a
+time. Anything that drives into one
 smashes it into a spray of splinters — the taxi with a small shake and a crunch, ambient cars
 quietly. **It costs the taxi nothing.** The crates are not in `sim/collisions.js` and the module
 never calls into it.
 
 ### It is a real truck with its box taken off
+
+**It wears no ghost outline.** `game/carghosts.js` traces a truck as one hull over cab *and* box,
+and hides the rim wherever the vehicle's own masks stamp it — so with the box collapsed, the box
+half of the rim had nothing hiding it and drew in the open, round the crates, all the time. The
+flatbed is skipped in the scan rather than given a cab-only pool of its own for one vehicle; the
+cost is that it is the one truck with no outline when it is behind a tower.
 
 Rather than a second vehicle kept in step with a first, `flatbed.js` *claims* an existing ambient
 truck and sets `car.flatbed`, which is the one thing `writeAmbient` reads to collapse that
