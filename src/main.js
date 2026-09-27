@@ -1641,6 +1641,7 @@ createPicker(
     if (routeTo(fare.target)) {
       haptic('pick');
       fares.markDirected(fare);
+      if (fare.stage === 'waiting') rideHomeAfterPick();
     }
   },
   // A gesture that moved the map, or one that pulled the route round, is not also a tap on
@@ -1743,6 +1744,8 @@ function selectRider(fare) {
 // home was to drag the map until the yellow car turned up. See game/taxifinder.js for when the chip
 // that calls this is up.
 function panToTaxi() {
+  // Already home, by the player's own hand — an arrow's look has nothing left to come back from.
+  arrowLookOut = false;
   // Tracked rather than aimed once, for the same reason a peek's ride home is: the car has been
   // driving the whole time the chip was up, and a leg fixed at the tap would land on the road it
   // left. The landing is on the car and already travelling with it, so clearing `cameraTakenOver`
@@ -1770,15 +1773,41 @@ function panToTaxi() {
 //
 // It does *not* dispatch the taxi. An arrow answers "where", and answering "shall I take it" in the
 // same press is what the rider-finder chips did and what the board was deliberately rebuilt without
-// (see `wantsRiderChips` below). Nor does it come back, unlike `panToRider`: a chip tap was a glance
-// at a rider the taxi was already driving at, where this is the player asking to look somewhere and
-// then act there — a camera that rode home a beat later would undo the press. The way back is
-// `panToTaxi`, which the taxi-finder chip offers as soon as the car is off-frame.
+// (see `wantsRiderChips` below). Nor does it come back on its own, unlike `panToRider`: a chip tap
+// was a glance at a rider the taxi was already driving at, where this is the player asking to look
+// somewhere and then act there — a camera that rode home on a timer would undo the press.
+//
+// It comes back on the *act* instead. The arrow leaves `arrowLookOut` set, and the pick that takes a
+// rider off the board after it (see `rideHomeAfterPick`) rides the camera home to the car: the
+// player went out to find a fare, found it, and the trip they just started begins at the taxi —
+// which is where every one of those players then dragged the map back to by hand.
+let arrowLookOut = false;
 function lookAtMark(x, z) {
   // Same as a swipe, and for the same reason it is in `panToRider`: without it the opening
   // follow-cam would tow the framing back onto the taxi *during* the pan.
   releaseCameraToPlayer();
   controller.glideTo(x, z);
+  arrowLookOut = true;
+}
+
+// The second half of an arrow's look: a rider was just dispatched to, so take the camera home.
+// A peek at where the camera already *is* — a zero-length travel (see camera.js's updateGlide) —
+// so it holds the same `PEEK_HOLD` beat on the rider first: the pick's feedback (the crystal
+// flipping to directed, the route band drawing out of the taxi) lands on screen before the map
+// moves, rather than the press appearing to have thrown the camera somewhere. Then it is the chip
+// peek's ride home, and lands the same way `panToTaxi` does.
+//
+// Consumed by one pick, and only by a pickup: a drop-off pin is not a fare being found, and a
+// refused tap (carrying already) sent the taxi nowhere, so there is no trip to go and watch.
+function rideHomeAfterPick() {
+  if (!arrowLookOut) return;
+  arrowLookOut = false;
+  if (!isNarrow()) return;
+  const t = controller.state.target;
+  controller.peekAt(t.x, t.z, () => traffic.taxi, () => {
+    cameraTakenOver = false;
+    flashTaxi();
+  });
 }
 
 // The rider-finder chips, off by default — `?chips=on` brings them back to compare against.
