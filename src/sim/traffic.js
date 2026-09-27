@@ -1654,8 +1654,11 @@ const TRUCK_BASE_Y = 0.78 + CHASSIS_LIFT;     // top of the chassis a car's body
 const TRUCK_CAB_LEN = TRUCK_LEN * 0.3;
 const TRUCK_CAB_X = TRUCK_LEN / 2 - TRUCK_CAB_LEN / 2 - 0.1; // 0.1 nose gap
 const TRUCK_CAB_Y = TRUCK_BASE_Y + 0.4 + 0.55;
-const TRUCK_BOX_LEN = TRUCK_LEN * 0.58;
-const TRUCK_BOX_X = -(TRUCK_LEN / 2) + TRUCK_BOX_LEN / 2 + 0.15; // 0.15 tail gap
+// Exported for game/flatbed.js, which swaps one truck's box for an open deck in exactly this
+// footprint: the deck has to sit on the chassis top the box sat on, or it floats or sinks.
+export const TRUCK_BOX_LEN = TRUCK_LEN * 0.58;
+export const TRUCK_BOX_X = -(TRUCK_LEN / 2) + TRUCK_BOX_LEN / 2 + 0.15; // 0.15 tail gap
+export const TRUCK_CHASSIS_TOP = TRUCK_BASE_Y + 0.4;
 
 /**
  * A box truck's chassis and cab. Built at TRUCK_LEN/TRUCK_W rather than CAR_LEN/CAR_W — see the
@@ -2446,8 +2449,14 @@ function lerpAngle(a, b, t) {
  *                  unused slot, which is nothing next to rebuilding the mesh mid-run.
  * @param truckChance  see spawnCars — defaults to 0 so every existing caller is unaffected; main.js
  *                     passes TRUCK_CHANCE for the real game.
+ * @param minTrucks    open with at least this many trucks, whatever the dice said. main.js asks
+ *                     for one: game/flatbed.js needs a truck to load, and at TRUCK_CHANCE a
+ *                     12-vehicle opener has none about a third of the time (measured: 2 runs in 6),
+ *                     leaving the vignette to wait on the density ramp to roll one — minutes, or
+ *                     never. Only honoured when `truckChance` is above zero, since that is what
+ *                     makes spawnCars leave truck-sized gaps round every car.
  */
-export function createTraffic(rng, scene, count = 24, maxCars = count, truckChance = 0) {
+export function createTraffic(rng, scene, count = 24, maxCars = count, truckChance = 0, minTrucks = 0) {
   const net = cityNetwork();
   const cars = spawnCars(rng, count, [], null, truckChance);
   const MAX_CARS = Math.max(count, maxCars);
@@ -2486,6 +2495,18 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // and pitch damping below, and the player's own car has to run at car physics whatever colour
   // its unused truck roll came up.
   taxi.isTruck = false;
+
+  // Promoted from the back of the draw rather than rolled again, for the reason the taxi pick
+  // above gives: this closure's `rng` has to stay byte-for-byte what it was. Safe to lengthen a
+  // car here because spawnCars' clash check already cleared every car as if it might be a truck.
+  if (truckChance > 0) {
+    let short = minTrucks - cars.filter((c) => c.isTruck).length;
+    for (let k = cars.length - 1; k > 0 && short > 0; k--) {
+      if (cars[k].isTruck) continue;
+      cars[k].isTruck = true;
+      short -= 1;
+    }
+  }
 
   const {
     group: taxiGroup, setOccupied: setTaxiOccupied, lights: taxiLights,
@@ -3227,7 +3248,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // The cargo box: its own mesh, its own fixed-colour material — never tinted by colorIndex, on
     // the road or in the wreck. game/wreckage.js collects every distinct material under the shell,
     // so a second material here scorches in step with the cab's without extra wiring.
-    if (car.isTruck) {
+    // Not for the flatbed: its box was never drawn, and its load belongs to game/flatbed.js.
+    if (car.isTruck && !car.flatbed) {
       const boxMaterial = propMaterial();
       boxMaterial.color.set(PALETTE.truckBox);
       const box = new THREE.Mesh(truckBoxMesh.geometry, boxMaterial);
@@ -3339,7 +3361,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     bodyInst.setMatrixAt(car.instanceIndex, matrix);
     // The cargo box rides the identical transform — its offset from the cab is baked into its own
     // geometry (see truckBoxGeometry()), not carried as a separate local matrix.
-    if (car.isTruck) truckBoxMesh.setMatrixAt(car.instanceIndex, matrix);
+    //
+    // The flatbed (game/flatbed.js) writes a collapsed box instead: its open deck and its load are
+    // drawn by that module, off this same matrix, and the box has to be absent for them to show.
+    // A scale rather than a hole in the index space, for the reason every retired instance here is.
+    if (car.isTruck) truckBoxMesh.setMatrixAt(car.instanceIndex, car.flatbed ? ZERO_MATRIX : matrix);
     wheelQuat.setFromAxisAngle(UP, car.wheelAngle);
     for (let w = 0; w < front.length; w++) {
       const anchor = front[w];
@@ -5392,7 +5418,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // Positive is nose-up, the same sense as `locoWheelie` and the ramp's `airPitch`.
       const deckPitch = Math.atan2(nose.y - tail.y, 2 * ahead);
 
-      const shownPitch = car.pitch + wheelieBoost + airPitch + deckPitch;
+      // A pothole, faked. game/flatbed.js writes these on the one truck it owns to jolt it over
+      // bumps that are not in the road; render-only like everything else in this block, and 0 (or
+      // absent) on every other car.
+      roll += car.joltRoll || 0;
+      const shownPitch = car.pitch + wheelieBoost + airPitch + deckPitch + (car.joltPitch || 0);
 
       // Roll and pitch both pivot on the car's origin at road level, so tilting drives one edge
       // underground. Lifting by the sagitta of each keeps the low edge on the tarmac and reads as
@@ -5415,7 +5445,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         continue;
       }
 
-      pos.set(car.x, ROAD_Y + bob + lift + mount + deckY, car.z);
+      pos.set(car.x, ROAD_Y + bob + lift + mount + deckY + (car.jolt || 0), car.z);
       // The order is load-bearing and the default is wrong here. Three composes 'XYZ' as
       // Rx·Ry·Rz, so the roll lands *outside* the yaw and turns about the world X axis — which is
       // the car's own long axis only when the car is driving east. Head north or south and the

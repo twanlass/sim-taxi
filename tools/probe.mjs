@@ -35,6 +35,9 @@ import { createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsigna
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
+import { createFlatbed, CRATES, LOAD_YAW } from '../src/game/flatbed.js';
+import { TRUCK_LEN, TRUCK_BOX_LEN } from '../src/sim/traffic.js';
+import { CRATE, CRATE_REST_Y, CRATE_CHIP_REST_Y, DECK_TOP, DECK_REAR } from '../src/geometry/crate.js';
 import { createDust } from '../src/game/dust.js';
 import { createSparks } from '../src/game/sparks.js';
 import { createRepairFx } from '../src/game/repairfx.js';
@@ -15488,6 +15491,144 @@ let chopperOrder; // likewise
       + ` ${boats.state.tugs} tugs and ${boats.state.barges} barges`);
     bridge.dispose();
   }
+}
+
+// --- The flatbed that sheds its load -------------------------------------------
+// Three ways this can fail with nothing thrown: the load drawn through the deck or the side rails
+// (it is placed by hand in the truck's frame), crates landing somewhere other than the road behind
+// the truck — on it, in front of it, over the river — and the jolt left standing on the truck
+// after the bumps stop, which would tilt one vehicle in the city for the rest of the run.
+{
+  setClosedLanes([]);
+  const fScene = new THREE.Scene();
+  const fTraffic = createTraffic(makeRng(seed + 520), fScene, 24, 24, 0.5);
+  for (let step = 0; step < 120; step++) fTraffic.update(1 / 60);
+
+  const flatbed = createFlatbed(makeRng(seed + 523), fScene, fTraffic, null, { soon: true });
+
+  // The stack, against the deck it stands on. Each crate is an axis-aligned cube in the truck's
+  // frame before its hand-loaded yaw, which turns it by at most LOAD_YAW — so the footprint test
+  // pads by what that yaw adds to a half-width. Stacked crates are exactly CRATE apart in y, which
+  // float arithmetic lands a hair either side of, hence the epsilon on every "overlapping" test.
+  const yawPad = (CRATE / 2) * (Math.cos(LOAD_YAW) + Math.sin(LOAD_YAW) - 1);
+  const EPS = 1e-6;
+  const half = CRATE / 2 + yawPad;
+  const slots = flatbed.crates.map((c) => c.slot);
+  const offDeck = slots.filter((c) => c.x - half < DECK_REAR || c.x + half > DECK_REAR + TRUCK_BOX_LEN - 0.12
+    || Math.abs(c.z) + half > TRUCK_W / 2 - 0.08).length;
+  let overlaps = 0;
+  for (let a = 0; a < slots.length; a++) {
+    for (let b = a + 1; b < slots.length; b++) {
+      const A = slots[a];
+      const B = slots[b];
+      if (Math.abs(A.x - B.x) < 2 * half - EPS && Math.abs(A.y - B.y) < CRATE - EPS
+        && Math.abs(A.z - B.z) < 2 * half - EPS) overlaps += 1;
+    }
+  }
+  const floating = slots.filter((c) => !c.top && Math.abs(c.y - (DECK_TOP + CRATE / 2)) > 1e-9).length;
+  check('the flatbed\'s load sits inside its rails, on the deck, no two crates in one another',
+    offDeck === 0 && overlaps === 0 && floating === 0 && slots.length === CRATES,
+    `${offDeck} over an edge, ${overlaps} overlapping, ${floating} off the planking`);
+
+  // Order matters: a crate can only slide off the back through space that has already emptied.
+  let blocked = 0;
+  slots.forEach((c, n) => {
+    for (const later of slots.slice(n + 1)) {
+      if (later.x < c.x && Math.abs(later.z - c.z) < CRATE - EPS
+        && Math.abs(later.y - c.y) < CRATE - EPS) blocked += 1;
+    }
+  });
+  check('each crate comes off with nothing still loaded behind it', blocked === 0,
+    `${blocked} crates would slide through one still on the deck`);
+
+  // A stand-in taxi that shadows the truck, so the range gate is always open; the real taxi is
+  // somewhere in the city and has nothing to do with the shedding.
+  const shadow = { x: 0, z: 0, yaw: 0, v: 0 };
+  flatbed.update(1 / 60, shadow, []);
+  const truck = flatbed.state.truck;
+  const boxMatrix = new THREE.Matrix4();
+  fTraffic.update(1 / 60);
+  fTraffic.truckBoxMesh.getMatrixAt(truck?.instanceIndex ?? 0, boxMatrix);
+  const boxScale = new THREE.Vector3().setFromMatrixScale(boxMatrix).length();
+  check('the flatbed is one of the city\'s trucks, with its box taken off',
+    !!truck && truck.isTruck && truck.flatbed === true && boxScale === 0,
+    truck ? `box scale ${boxScale}` : 'no truck claimed');
+
+  // Where every crate lands, measured against the truck at that instant.
+  // `odo` is the truck's odometer at the moment, for the spacing check below.
+  const landings = [];
+  let odo = 0;
+  flatbed.onLand(({ x, z }) => {
+    const fx = Math.cos(truck.yaw);
+    const fz = -Math.sin(truck.yaw);
+    landings.push({ along: (x - truck.x) * fx + (z - truck.z) * fz, x, z, odo });
+  });
+
+  let steps = 0;
+  let deckDrift = 0;
+  const truckM = new THREE.Matrix4();
+  for (; steps < 60 * 300 && flatbed.loaded() + flatbed.crates.filter((c) => c.phase === 'slide' || c.phase === 'air' || c.phase === 'skid').length > 0; steps++) {
+    fTraffic.update(1 / 60);
+    shadow.x = truck.x;
+    shadow.z = truck.z;
+    odo += Math.abs(truck.v) / 60;
+    flatbed.update(1 / 60, shadow, []);
+    fTraffic.truckMesh.getMatrixAt(truck.instanceIndex, truckM);
+    for (let e = 0; e < 16; e++) {
+      deckDrift = Math.max(deckDrift, Math.abs(truckM.elements[e] - flatbed.group.children[0].matrix.elements[e]));
+    }
+  }
+  check('the deck rides the truck\'s own transform', deckDrift < 1e-9, `worst element ${deckDrift}`);
+  check('the whole load comes off within a few minutes of shedding', flatbed.loaded() === 0
+    && landings.length === CRATES,
+    `${CRATES - flatbed.loaded()} of ${CRATES} off, ${landings.length} landed, after ${(steps / 60).toFixed(1)}s`);
+
+  const worstAlong = Math.max(...landings.map((l) => l.along));
+  check('every crate lands behind the truck, not on it or ahead of it',
+    landings.length > 0 && worstAlong < -TRUCK_LEN / 2,
+    `nearest landing ${worstAlong.toFixed(2)} along (tail at ${(-TRUCK_LEN / 2).toFixed(2)})`);
+
+  // Strewn down the street rather than dumped in a heap. The drop is spaced 16–28 units of road
+  // apart; a landing is a little later than its drop by a slide time that differs between the
+  // top and bottom rows (~0.3s, ~1.7 units at truck cruise), hence the slack under 16.
+  const gaps = landings.slice(1).map((l, n) => l.odo - landings[n].odo);
+  const tightest = Math.min(...gaps);
+  check('the crates come off a street or so apart, not in a heap', gaps.length === CRATES - 1 && tightest > 13,
+    `tightest gap ${tightest.toFixed(1)} units of road, all: ${gaps.map((g) => g.toFixed(0)).join(' ')}`);
+
+  const banks = riverBanks();
+  const wet = banks ? flatbed.crates.filter((c) => c.z > banks.z0 - 1 && c.z < banks.z1 + 1).length : 0;
+  // With the drops a street apart the early crates have lain their REST_LIFE out and sunk by the
+  // time the last one lands, so `sink` and `gone` count as having rested; only `rest` is at a height.
+  const unsettled = flatbed.crates.filter((c) => !['rest', 'sink', 'gone'].includes(c.phase)
+    || (c.phase === 'rest' && c.y !== CRATE_REST_Y)).length;
+  check('they come to rest square on the road, and none of them over the river',
+    unsettled === 0 && wet === 0, `${unsettled} not resting at road level, ${wet} between the banks`);
+
+  for (let step = 0; step < 90; step++) {
+    fTraffic.update(1 / 60);
+    flatbed.update(1 / 60, shadow, []);
+  }
+  check('the truck stops jolting once the bumps do',
+    Math.abs(truck.jolt) < 1e-6 && Math.abs(truck.joltRoll) < 1e-6 && Math.abs(truck.joltPitch) < 1e-6,
+    `jolt ${truck.jolt}, roll ${truck.joltRoll}, pitch ${truck.joltPitch}`);
+
+  // Driving into one. The taxi is not in any damage path here — this module never calls into
+  // sim/collisions.js — so what is checked is that the crate goes, the chips fly and come down.
+  const crate = flatbed.crates.find((c) => c.phase === 'rest');
+  const hits = [];
+  flatbed.onSmash((e) => hits.push(e));
+  const taxi = fTraffic.taxi;
+  const hpBefore = taxi.hp;
+  const rammer = { x: crate.x - 1.5, z: crate.z, yaw: 0, v: 9, isTaxi: true };
+  flatbed.update(1 / 60, rammer, [rammer]);
+  const flying = flatbed.chips.filter((c) => c.live).length;
+  for (let step = 0; step < 120; step++) flatbed.update(1 / 60, rammer, [rammer]);
+  const chipsDown = flatbed.chips.filter((c) => c.live).every((c) => c.age >= c.dur && c.y === CRATE_CHIP_REST_Y);
+  check('the taxi smashes a crate it drives into, and the pieces come down on the road',
+    crate.phase === 'smashed' && hits.length === 1 && hits[0].byTaxi && flying > 0 && chipsDown
+    && taxi.hp === hpBefore,
+    `${crate.phase}, ${hits.length} smash events, ${flying} chips`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
