@@ -2304,6 +2304,28 @@ taxi's, for the same reason as the roadblock's:
   cop, closing at 40 u/s, meet one head on;
 - there is road to cut into in front of the taxi, and no other cop is already out there.
 
+**A cop already in front brake-checks too** (`COP_AHEAD_*`). The overtake used to be the only way
+to arm the brake check, so a cut-off cop that turned onto the taxi's road ahead of it — or one the
+taxi turned in behind — drove on down the straight at chase speed, and read as police that had not
+seen the taxi or were leaving. Now a hunting cop that is the taxi's direct leader, same heading,
+within 36 units, arms the same brake check, holding `BRAKE_CHECK` plus the time the taxi needs to
+close the gap at cruise (capped at 2.5s) so it is still standing when the taxi gets there. Once per
+cop per 8s, or a cop caught again on the next block stops in front of the taxi on every lane. Two
+fences on top of the lane-room one, each a measured overlap first: the taxi must be on a lane and
+at least `MIN_GAP + 2` back (a taxi tailgating the cop through a junction was 2.1 off it, mid-arc,
+when it stopped), and the cop must come to rest at least `STOP_SETBACK + CAR_LEN` into its lane
+(stopped 0.9 in, its 45° body reached across the box's mouth and a car turning out of the oncoming
+lane swept through it — a turning car does not pull over). Over probe seeds 1–12 it took brake
+checks from about one per six getaways to about three.
+
+It also put more stopped cops on roads other cops drive, which found two holes. **Another cop now
+pulls over for a brake check** — `blockPulloverFor` used to exempt `car.police`, which held while the
+rest of the fleet was always behind the taxi — and keeps pulling over while the blocker is still
+swung (`slew > 0`), since an oncoming cop at chase speed met the body as it straightened. And **a cop
+cutting back in follows its leader** (`followsLeader`): `seesLeader` kept it blind for as long as its
+offset was past `ENVELOPE`, so a pass abandoned six units behind the taxi swung back across a junction
+at 13 u/s against 8.5 and was 3.2 off the taxi's tail before it could see it.
+
 Abandoned only from **a body length behind** the taxi — tucking in from alongside measured 1.7 units
 centre to centre — so a pass that goes wrong stays out until the taxi pulls clear or the cop gets
 ahead. The swing is paced by the road the cop actually covered, not `v · dt`: a cop held up behind
@@ -2469,6 +2491,14 @@ A chasing cop also strobes at the cruiser's **hunting rate** — eleven changes 
 A cop car cruising past on its own business and one that has turned to come after you are
 otherwise the same blue car. The patrol cruiser's bar runs at the same rate, and only while it is
 chasing.
+
+**It drives like the taxi, too.** A chasing cop gets the taxi's sprung corner lean
+(`CORNER_ROLL_*` — the early window on a right-hander and the gain included, with `chase` standing in
+for the pill), and lays rubber and squeals where the taxi would: a real corner past the lead-in at
+`COP_SKID_V` or better, its own overtake's crab angle, and the swing into a roadblock
+(`copLaysRubber`, drawn from `copRubber` in `main.js`). The spring is keyed on `police` rather than
+`chase` so a cop standing down mid-corner settles instead of snapping. The squeal is `copSkid`, faded
+by distance from the taxi and gapped fleet-wide — see [audio.md](audio.md#what-plays-when).
 
 Three things worth knowing about how it is drawn:
 

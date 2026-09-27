@@ -15,7 +15,8 @@ import { createProps } from './city/props.js';
 import { createGarage } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import {
-  createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, SPEED, ROAD_Y,
+  createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
+  ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
   configureSignals,
 } from './sim/traffic.js';
@@ -1507,12 +1508,16 @@ function sendForBurger() {
  * fare that is in the back.
  */
 function sendForRepairs() {
-  if (!depotRun || !opening || opening.running() || opening.visiting()) return;
+  if (canRepair() && depotRun.send()) haptic('pick');
+}
+
+/** Whether a tap on the depot would be taken right now — `sendForRepairs`'s refusals, and the picker's. */
+function canRepair() {
+  if (!depotRun || !opening || opening.running() || opening.visiting()) return false;
   // Nor while anything else is driving the car — the drive-through, mostly. A route planned under a
   // staged taxi would be overwritten by the job that trip hands back on the way out.
-  if (traffic.taxi.staged || traffic.taxi.hp >= TAXI_HP) return;
-  if (fares.carrying()) return;
-  if (depotRun.send()) haptic('pick');
+  if (traffic.taxi.staged || traffic.taxi.hp >= TAXI_HP) return false;
+  return !fares.carrying();
 }
 
 /**
@@ -1614,6 +1619,10 @@ createPicker(
   // A gesture that moved the map, or one that pulled the route round, is not also a tap on
   // whatever it happened to finish over.
   () => Boolean(pan?.didPan() || pathDrag?.didDrag()),
+  // A tap on the depot's or the joint's own wall is a tap on the building, even where a rider's
+  // invisible hit box stands in front of it — see the stand-in rule in game/pick.js. The depot only
+  // while it would take the car: a tap it would refuse keeps meaning the rider.
+  (kind) => (kind === 'depot' ? canRepair() : kind === 'burger' && Boolean(burgerRun)),
 );
 
 // The band is only draggable once there is one: a destination is set, the run is live, and the
@@ -1817,6 +1826,10 @@ const wantsVignette = new URLSearchParams(window.location.search).get('vignette'
 // bubble that started typing under the black would have spent half its line by the time the screen
 // came back. Null in shot mode, which has no vignette to skip. See game/wipe.js.
 const wipe = shot ? null : createWipe(document.getElementById('wipe'));
+// The pedals come in on their own cue, ahead of the rest of the HUD — see `pedalsDue` in the
+// frame loop. `hud-ready` implies them (in the stylesheet), so a run with no tutorial gets
+// everything on frame one.
+const revealPedals = () => document.body.classList.add('pedals-ready');
 const revealHud = () => document.body.classList.add('hud-ready');
 
 // Set on the first successful press of Loco Mode, and never cleared. The tutorial's third beat
@@ -1891,11 +1904,12 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   },
 });
 
-// The money counter, the streak counter, the Loco Mode pill and the rider chips all start off
-// their own screen edge and slide in together — see the HUD entrance block in index.html. A run
-// used to open with all four already lit, every one of them reading zero and answering a question
-// nobody had asked yet. They arrive when the tutorial stops talking; with no tutorial to wait for
-// (`?tutorial=off`, shot mode) they are simply there from the first frame.
+// The money counter, the streak counter and the rider chips start off their own screen edge and
+// slide in together — see the HUD entrance block in index.html. A run used to open with all of them
+// already lit, every one reading zero and answering a question nobody had asked yet. They arrive
+// when the tutorial stops talking; with no tutorial to wait for (`?tutorial=off`, shot mode) they
+// are simply there from the first frame. The two pedals are the exception and come in earlier —
+// see `pedalsDue` in the frame loop.
 if (!tutorial) revealHud();
 
 // --- HUD --------------------------------------------------------------------
@@ -2808,6 +2822,48 @@ function spillCash(dt) {
   cashTrail.feed(dt, spilling, car, TAXI_TAILPIPE_HEIGHT + deckHeightAt(car.x, car.z).y);
 }
 
+// A police squeal, heard from where the taxi is. The camera follows the taxi, so distance from it
+// is distance from the middle of the screen: full level inside COP_SQUEAL_NEAR, gone by
+// COP_SQUEAL_FAR, which is about where a car leaves the frame on a phone at play zoom. Past that
+// it is a car the player cannot see, and a squeal with nothing to hang it on reads as the taxi's.
+// A touch of pitch spread so a fleet cornering in turn is four cars rather than one sample.
+const COP_SQUEAL_NEAR = 18;
+const COP_SQUEAL_FAR = 55;
+function copSquealAt(x, z) {
+  const d = Math.hypot(x - traffic.taxi.x, z - traffic.taxi.z);
+  const level = Math.min(1, Math.max(0, (COP_SQUEAL_FAR - d) / (COP_SQUEAL_FAR - COP_SQUEAL_NEAR)));
+  if (level > 0) sfx?.play('copSkid', { gain: level, rate: 0.94 + Math.random() * 0.12 });
+}
+
+// Cops in a chase — the robbery's and the patrol's — lay rubber and squeal the way the taxi does — corners carried at
+// speed, their own overtake, and the swing into a roadblock. The rule is `copLaysRubber` in
+// sim/traffic.js; this is only the pools. Rear wheels off the anchors the ambient body is built
+// at, and per car, so spacing and the once-per-slide squeal each follow their own car.
+const COP_REAR = wheelAnchors(CAR_LEN, CAR_W).find((w) => !w.front && w.z > 0);
+const copSkidAt = new WeakMap();
+const copWasSliding = new WeakSet();
+function copRubber() {
+  for (const car of traffic.policeCars) {
+    const sliding = copLaysRubber(car);
+    if (sliding && !copWasSliding.has(car)) copSquealAt(car.x, car.z);
+    if (sliding) copWasSliding.add(car); else copWasSliding.delete(car);
+    if (!sliding) { copSkidAt.set(car, car.travelled); continue; }
+    if (car.travelled - (copSkidAt.get(car) ?? -Infinity) < 0.42) continue;
+    copSkidAt.set(car, car.travelled);
+    const fx = Math.cos(car.yaw);
+    const fz = -Math.sin(car.yaw);
+    const rx = Math.sin(car.yaw);
+    const rz = Math.cos(car.yaw);
+    for (const side of [-1, 1]) {
+      skids.add(
+        car.x + fx * COP_REAR.x + rx * side * COP_REAR.z,
+        car.z + fz * COP_REAR.x + rz * side * COP_REAR.z,
+        car.yaw,
+      );
+    }
+  }
+}
+
 // The "add it to your Home Screen" screen, on iOS in a browser tab — the one platform with no
 // install affordance of its own. See game/homescreen.js for the detection and for why it is worth
 // showing. It bows out on every other platform and on a device that already launched from the Home
@@ -2838,6 +2894,16 @@ const homeTip = shot ? null : createHomeScreenTip(document.getElementById('home-
 // for a beat after that, and a board seeded under it opens the run with a rider whose entrance the
 // player never saw.
 const NO_FARE_EVENTS = [];
+/**
+ * Is the taxi on the road and the screen the player's to see? Not before the vignette's handover
+ * (a staged car has nowhere to boost to, and fuel spent on one is simply lost), not behind a
+ * skip's black or the Home Screen tip, and not while the city is still building itself, which
+ * `?vignette=off` would otherwise put the pedals on top of.
+ */
+let pedalsShown = false;
+const pedalsDue = () => !cityEntry.running() && !homeTip?.state.holding && !wipe?.covering()
+  && !(opening?.running() && opening.phase() !== 'release');
+
 const fareLoopHeld = () => Boolean(homeTip?.state.holding) || Boolean(opening?.running())
   || Boolean(wipe?.covering());
 
@@ -2983,6 +3049,14 @@ function frame() {
   // the car's position, heading and speed by hand, and the render pass inside `traffic.update`
   // reads them on the same frame. See game/opening.js for the staging split.
   opening?.update(dt);
+  // The pedals arrive the moment the taxi is the player's to drive — on the lane, with the
+  // vignette's pull-back still running — rather than with the rest of the HUD. They used to wait
+  // for `hud-ready`, which is the *tutorial's* second beat being answered: the pull-back, a
+  // breath, a pan to the rider, a bubble typing itself out and a tap. Several seconds of a live
+  // taxi on a live road with nothing to press, which read as the game not having started yet.
+  // The counters can wait for the lesson; a control cannot, because it is the thing the lesson is
+  // standing in front of. A press during the rider beat ends it, by design (`holdLocoMode`).
+  if (!pedalsShown && pedalsDue()) { pedalsShown = true; revealPedals(); }
   // ...and the drive-through is the same claim about somebody else's car: while one is in the lot
   // this is its physics, so it has to have written the position before the render pass reads it.
   driveThru?.update(dt);
@@ -3355,7 +3429,10 @@ function frame() {
   // behind. At the Loco Mode top the taxi covers 0.57 units in a frame, so a plume ticked before
   // `traffic.update` would sit visibly off the back of the bumper the whole time it burned.
   locoFlame.update(dt, traffic.taxi, boost.isActive());
-  // `sim/` publishes where its cars are and this side owns anything that reaches into the scene. Off the sim clock the bars strobe on
+  copRubber();
+  // `sim/` publishes where its cars are and this side owns anything that reaches into the scene
+  // — the patrol cruiser's rubber included, since it is one of `traffic.policeCars` now. Off the
+  // sim clock the bars strobe on
   // (`stats.time`), so the wash on the road and the lamp over it are one siren.
   copLights.update(traffic.policeCars, traffic.taxi, traffic.stats.time);
   // Fed and then ticked, in that order and on this side of `traffic.update`: the pool only writes

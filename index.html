@@ -1336,7 +1336,10 @@
          rest of the run. `translate` composes with `transform` instead of competing with it.
 
          main.js adds `hud-ready`: the moment the last bubble is dismissed, or immediately when
-         there is no tutorial (`?tutorial=off`, shot mode). */
+         there is no tutorial (`?tutorial=off`, shot mode). The two pedals answer to their own
+         `pedals-ready`, which lands earlier — as the taxi joins the lane at the end of the opening
+         vignette — because a control the player cannot reach is a wait, not an instrument that has
+         nothing to say yet. `hud-ready` implies it, here rather than in main.js. */
       #hud, #streak, #pause, #boost, #brake, #rider-finder-stack {
         opacity: 0;
         transition: opacity 0.45s ease, translate 0.55s cubic-bezier(0.22, 1, 0.36, 1);
@@ -1347,10 +1350,11 @@
          rider behind it. (#hud and #streak are already pointer-events: none.) The pause button
          rides in the same group for the same reason it waits at all: there is nothing to pause
          while the tutorial is still holding the clocks. */
-      body:not(.hud-ready) #pause, body:not(.hud-ready) #boost,
-      body:not(.hud-ready) #brake, body:not(.hud-ready) #rider-finder-stack { pointer-events: none; }
+      body:not(.hud-ready) #pause, body:not(.hud-ready):not(.pedals-ready) #boost,
+      body:not(.hud-ready):not(.pedals-ready) #brake,
+      body:not(.hud-ready) #rider-finder-stack { pointer-events: none; }
       body.hud-ready #hud, body.hud-ready #streak, body.hud-ready #pause,
-      body.hud-ready #boost, body.hud-ready #brake,
+      body.hud-ready #boost, body.hud-ready #brake, body.pedals-ready #boost, body.pedals-ready #brake,
       body.hud-ready #rider-finder-stack { opacity: 1; translate: 0 0; }
       /* Staggered, top corners first then the bottom ones, so four elements arriving at once read
          as a HUD assembling rather than as a single fade. */
@@ -1376,6 +1380,8 @@
          HUD dealing itself out rather than arriving. */
       body.hud-ready #streak, body.hud-ready #pause { transition-delay: 0.07s; }
       body.hud-ready #boost, body.hud-ready #brake { transition-delay: 0.14s; }
+      /* ...but on their own cue there is nothing to stagger against. */
+      body.pedals-ready:not(.hud-ready) #boost, body.pedals-ready:not(.hud-ready) #brake { transition-delay: 0s; }
       body.hud-ready #rider-finder-stack { transition-delay: 0.21s; }
       @media (prefers-reduced-motion: reduce) {
         #hud, #streak, #pause, #boost, #brake, #rider-finder-stack { translate: none; }
