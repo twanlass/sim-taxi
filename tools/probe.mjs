@@ -4594,6 +4594,44 @@ check('no two cars occupy the same space', worst > 1.6,
   setPriorityJunction(null);
 }
 
+// --- The boosted corner leans on a spring ------------------------------------
+// A right-hander cuts the near corner, and at the speed a boosting taxi arrives at the arc is over
+// in 7 frames — a lean locked to position was a twitch there, against 34 frames for a left. The
+// taxi's lean now runs through a spring (CORNER_ROLL_OMEGA in sim/traffic.js), so it has to hold
+// long enough to read and then rock back through level on the way out.
+{
+  const traces = { right: [], left: [] };
+  for (let r = 0; r < 4; r++) {
+    const lScene = new THREE.Scene();
+    const lTraffic = createTraffic(makeRng(seed + 900 + r), lScene, 1);
+    const taxi = lTraffic.taxi;
+    const body = lScene.children.find((c) => c.rotation && c.rotation.order === 'YXZ');
+    let cur = null;
+    for (let f = 0; f < 60 * 30; f++) {
+      taxi.boost = true;
+      taxi.boostEasing = false;
+      lTraffic.update(1 / 60);
+      const turning = taxi.state === 'turn' && taxi.turn && taxi.turn.hand !== 'straight';
+      if (turning && !cur) cur = { hand: taxi.turn.hand, roll: [], after: 0 };
+      if (!cur) continue;
+      cur.roll.push(body.rotation.x);
+      if (!turning && ++cur.after > 40) { traces[cur.hand].push(cur.roll); cur = null; }
+    }
+  }
+  const median = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)] ?? 0;
+  const held = traces.right.map((t) => t.filter((x) => Math.abs(x) > 0.1).length);
+  // Rights lean left (negative), so the rock back is the positive swing after it.
+  const rock = traces.right.map((t) => Math.max(0, ...t));
+  check('a boosted right-hander holds its lean long enough to read',
+    traces.right.length > 5 && median(held) >= 25,
+    `${traces.right.length} rights, median ${median(held)} frames over 0.1 rad (was 12)`);
+  check('...and rocks back through level on the way out', median(rock) > 0.08,
+    `median ${median(rock).toFixed(2)} rad the other way`);
+  const leftPeak = traces.left.map((t) => Math.max(...t));
+  check('a boosted left still leans out as hard as it did', traces.left.length > 2
+    && median(leftPeak) > 0.6, `median peak ${median(leftPeak).toFixed(2)} rad`);
+}
+
 // --- Loco Mode momentum cooldown --------------------------------------------
 // Letting go used to drop every boost-only rule in the same frame — collision detection, the
 // police bust range, running reds — so tapping off a beat before impact was a free escape. The
