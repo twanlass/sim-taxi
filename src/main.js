@@ -1536,12 +1536,16 @@ function sendForBurger() {
  * fare that is in the back.
  */
 function sendForRepairs() {
-  if (!depotRun || !opening || opening.running() || opening.visiting()) return;
+  if (canRepair() && depotRun.send()) haptic('pick');
+}
+
+/** Whether a tap on the depot would be taken right now — `sendForRepairs`'s refusals, and the picker's. */
+function canRepair() {
+  if (!depotRun || !opening || opening.running() || opening.visiting()) return false;
   // Nor while anything else is driving the car — the drive-through, mostly. A route planned under a
   // staged taxi would be overwritten by the job that trip hands back on the way out.
-  if (traffic.taxi.staged || traffic.taxi.hp >= TAXI_HP) return;
-  if (fares.carrying()) return;
-  if (depotRun.send()) haptic('pick');
+  if (traffic.taxi.staged || traffic.taxi.hp >= TAXI_HP) return false;
+  return !fares.carrying();
 }
 
 /**
@@ -1643,6 +1647,10 @@ createPicker(
   // A gesture that moved the map, or one that pulled the route round, is not also a tap on
   // whatever it happened to finish over.
   () => Boolean(pan?.didPan() || pathDrag?.didDrag()),
+  // A tap on the depot's or the joint's own wall is a tap on the building, even where a rider's
+  // invisible hit box stands in front of it — see the stand-in rule in game/pick.js. The depot only
+  // while it would take the car: a tap it would refuse keeps meaning the rider.
+  (kind) => (kind === 'depot' ? canRepair() : kind === 'burger' && Boolean(burgerRun)),
 );
 
 // The band is only draggable once there is one: a destination is set, the run is live, and the

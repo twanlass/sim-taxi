@@ -2204,7 +2204,9 @@ in [the box-in](traffic.md#the-box-in-roadblocks-the-overtake-and-the-brake-chec
   time, eight seconds apart.
 - **The overtake and the brake check.** A cop that catches you from behind goes round you in the
   oncoming lane, cuts in and slews across the road for 2.5 seconds, with the rest of the chase
-  arriving behind you. Angled across both lanes, it cannot be gone round on the pill — only rammed.
+  arriving behind you. A cop that is already ahead of you on your road skips the overtake and does
+  the same — it does not drive on away from you. Angled across both lanes, it cannot be gone round
+  on the pill — only rammed.
 
 Each poses the same three-way choice, and all three are things the game already had. **Wait** — it
 costs the robber's clock, and with it the bonus. **Route round** — redraw the route and
@@ -3018,6 +3020,15 @@ has and is never refused.
 **Refused on an undamaged car.** There is nothing to fix, and a visit holds every clock on the board
 — a free one is a pause button with a garage on it. Refused while anything else is driving the taxi
 (the drive-through) and while the depot is busy, which covers the run's own opening.
+
+**A rider waiting in front of it does not hide it.** A rider's tap target is an invisible quad
+11 screen units across (`geometry/marker.js`), and on a corner in front of the depot it covers
+half the building's front — nearest-hit, so every tap there answered the rider. `choosePick` in
+`game/pick.js` now lets an invisible stand-in yield to the first *drawn* surface along the ray when
+that surface is the depot (or the burger joint) and the tap would be taken; the rider's own figure,
+crystal and disc are drawn and in front, so they still mean the rider. While a repair would be
+refused — undamaged car, rider aboard — the margin stays the rider's, since the alternative is a
+tap that does nothing.
 
 **Refused with a rider aboard.** A fare doesn't ride along to the garage — and before this rule they
 did, with the visit's held clocks freezing the very countdown in the back, so a damaged car could

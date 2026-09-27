@@ -79,7 +79,7 @@ import {
 } from '../src/game/bloom.js';
 import { LIGHT_EMISSIVE, LIGHT_PODS } from '../src/geometry/lights.js';
 import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
-import { createPicker } from '../src/game/pick.js';
+import { createPicker, choosePick } from '../src/game/pick.js';
 import { setCityOccluders, sightlineClear } from '../src/game/sightline.js';
 import {
   createDiamond,
@@ -12362,6 +12362,83 @@ let chopperOrder; // likewise
   const garage = createGarage(layout.garageBlock, makeRng(seed + 99));
   const head = KERB_H + site.doorH;
 
+  // A rider waiting in front of the depot must not make it untappable. Reported from a phone: the
+  // rider's invisible tap quad (geometry/marker.js) stood over half the depot's front, and the
+  // picker's nearest-hit rule gave every tap there to the rider. Driven through `choosePick` on a
+  // phone-shaped frame, with a rider on each of the block's four corners — whichever of them the
+  // camera sees in front of the building is the case that was reported.
+  {
+    const W = 390;
+    const H = 844;
+    const mid = [(bounds.x0 + bounds.x1) / 2, (bounds.z0 + bounds.z1) / 2];
+    const dCam = createCityCamera(W / H, { zoom: PLAY_ZOOM, target: mid });
+    dCam.camera.updateMatrixWorld(true);
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    const v = new THREE.Vector3();
+    const screenOf = (x, y, z) => {
+      v.set(x, y, z).project(dCam.camera);
+      return { x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H };
+    };
+    const hitsAt = (px, py, roots) => {
+      ray.setFromCamera(ndc.set((px / W) * 2 - 1, -(py / H) * 2 + 1), dCam.camera);
+      return ray.intersectObjects(roots, true);
+    };
+    const firstDrawn = (hits) => hits.find((h) => {
+      if (h.object.material?.visible === false) return false;
+      for (let n = h.object; n; n = n.parent) if (!n.visible) return false;
+      return true;
+    });
+    const isDepot = (o) => { for (let n = o ?? null; n; n = n.parent) if (n === garage.group) return true; return false; };
+    garage.group.userData.pickable = 'depot';
+    garage.group.updateMatrixWorld(true);
+
+    // Depot pixels the rider's stand-in takes when the depot does not claim them — which is also
+    // the case of a depot that would refuse the tap: those keep answering the rider.
+    let stolen = 0;
+    let wrong = 0;        // ...still not answered 'depot' when the depot claims them
+    const riderMiss = [];
+    for (const [cx, cz] of [[bounds.x0, bounds.z0], [bounds.x0, bounds.z1],
+      [bounds.x1, bounds.z0], [bounds.x1, bounds.z1]]) {
+      const pin = createPassengerPin(createPerson);
+      pin.group.position.set(cx, 0.12, cz);
+      pin.postGroup.position.set(0, KERB_H, 0);
+      pin.group.updateMatrixWorld(true);
+      const roots = [pin.group, garage.group];
+      const c = screenOf(cx, KERB_H, cz);
+      const perUnit = H / (2 * PLAY_ZOOM);   // CSS pixels per screen unit on this frame
+      for (let dy = -12; dy <= 4; dy += 0.5) {
+        for (let dx = -8; dx <= 8; dx += 0.5) {
+          const sx = c.x + dx * perUnit;
+          const sy = c.y + dy * perUnit;
+          const hits = hitsAt(sx, sy, roots);
+          const raw = choosePick(hits, () => false);
+          const seen = firstDrawn(hits);
+          if (raw?.kind !== 'passenger' || !seen || !isDepot(seen.object)) continue;
+          stolen += 1;
+          if (choosePick(hits, (k) => k === 'depot')?.kind !== 'depot') wrong += 1;
+        }
+      }
+      // And the rider's own drawn figure still means the rider, depot claiming or not.
+      for (const [what, y] of [['head', KERB_H + 2.9], ['crystal', KERB_H + CRYSTAL_TOP - DIAMOND_HALF_H]]) {
+        const s = screenOf(cx, y, cz);
+        const hits = hitsAt(s.x, s.y, roots);
+        // A corner the building hides is one the board never uses (`cornerSeen` in game/fares.js),
+        // and there the wall *is* what is under the finger.
+        if (isDepot(firstDrawn(hits)?.object)) continue;
+        const got = choosePick(hits, (k) => k === 'depot')?.kind;
+        if (got !== 'passenger') riderMiss.push(`(${cx},${cz}) ${what} -> ${got}`);
+      }
+      pin.group.traverse((o) => o.geometry?.dispose());
+    }
+    check('a rider on a depot corner stands in front of the building somewhere', stolen > 0,
+      `${stolen} depot samples under a rider's tap quad`);
+    check('a tap on the depot wall behind a rider\'s tap quad reaches the depot', wrong === 0,
+      `${wrong}/${stolen} still answered by the rider`);
+    check('a tap on the rider in front of the depot still means the rider', riderMiss.length === 0,
+      riderMiss.join(', ') || 'every visible corner, head and crystal');
+  }
+
   // The bay is a hole, not a dark patch painted on a wall. Tested as a box strictly inside the
   // opening, clear of every lining panel: a solid mass would have vertices in it.
   check('the bay is genuinely hollow', (() => {
@@ -14457,7 +14534,7 @@ let chopperOrder; // likewise
       // Measured over 58 events on 60 seeds while this was built: 56 roadblocks, 45 passes, 27
       // brake checks, and after the fixes each of these clauses records, zero of every overlap.
       {
-        let roadblocks = 0; let pairs = 0; let passes = 0; let checks = 0; let violations = 0;
+        let roadblocks = 0; let pairs = 0; let passes = 0; let checks = 0; let aheadChecks = 0; let violations = 0;
         let stoppedOverlap = 0; let oncomingOverlap = 0; let taxiGap = Infinity; let events = 0;
         const slewed = [];
         // How far a fully swung cop on an ordinary street stands off the middle of the road it is
@@ -14483,6 +14560,7 @@ let chopperOrder; // likewise
           events += 1;
           const went = new Set();
           const checked = new Set();
+          const checkedAhead = new Set();
           for (let f = 0; f < 60 * 25 && r3.state.active; f++) {
             if (!tx.route?.length) {
               const far = { i: tx.i > GRID_I / 2 ? 0 : GRID_I, j: tx.j > GRID_J / 2 ? 0 : GRID_J };
@@ -14511,6 +14589,7 @@ let chopperOrder; // likewise
               } else sliding.delete(cop);
               if (cop.passing) went.add(cop);
               if (cop.roadblock > 0 && !cop.blocking) checked.add(cop);
+              if (cop.roadblock > 0 && !cop.blocking && cop.brakeCheckAhead) checkedAhead.add(cop);
               // Fully swung across the road it is blocking: 45° off it, give or take whatever the
               // arc was still doing when the diagonal was latched.
               if (cop.slew === 1 && !cop.knock && cop.blockAxis != null) {
@@ -14543,11 +14622,18 @@ let chopperOrder; // likewise
           pairs += r3.state.pairs;
           passes += went.size;
           checks += checked.size;
+          aheadChecks += checkedAhead.size;
           violations += t3.stats.violations;
         }
         check('the police box the taxi in: roadblocks, overtakes and brake checks',
           events > 0 && roadblocks > 0 && passes > 0 && checks > 0,
           `${events} getaways: ${roadblocks} roadblocks (${pairs} paired), ${passes} passes, ${checks} brake checks`);
+        // A cop already in front on the taxi's road stops across it too, without going round first
+        // (COP_AHEAD_* in sim/traffic.js). Before it, a cop ahead drove on down the straight and read
+        // as police that had not seen the taxi. Over seeds 1-12 it lifted brake checks from ~1 per six
+        // getaways to ~3, with no overlap and no red run.
+        check('...and a cop already ahead of the taxi brake-checks it without overtaking first',
+          aheadChecks > 0, `${aheadChecks} of ${checks} brake checks from a cop already in front`);
         check('chasing cops lay rubber and lean like the taxi — corners, passes, and into a roadblock',
           slides.corner > 0 && slides.pass > 0 && ambientRubber === 0 && copRoll > 0.2,
           `${slides.corner} of ${corners} corners, ${slides.pass} pass, ${slides.slew} roadblock slides `
