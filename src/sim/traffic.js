@@ -1003,7 +1003,19 @@ const vehicleHalfLen = (car) => (car?.isTruck ? TRUCK_LEN : CAR_LEN) / 2;
  * correct whichever of the two (or both, or neither) is a truck. `leader` may be undefined (no one
  * ahead), in which case it falls back to a car-sized assumption same as MIN_GAP always did.
  */
-const followGap = (follower, leader) => vehicleHalfLen(follower) + vehicleHalfLen(leader) + BUMPER_GAP;
+const followGap = (follower, leader) => (follower.ram && leader?.isTaxi
+  ? RAM_GAP
+  : vehicleHalfLen(follower) + vehicleHalfLen(leader) + BUMPER_GAP);
+
+/**
+ * What a patrol chasing the taxi keeps behind it instead: nothing. Centre to centre, two cars nose
+ * to tail touch at `2 * CIRCLE_OFFSET + ENVELOPE` — 4.22 — so 3.9 has the cop's front circle 0.3
+ * into the taxi's rear one, which is contact rather than a near miss. Being touched by the cop is
+ * the bust (game/patrol.js), and a cop that queued politely a car length back could only ever
+ * catch a taxi that drove into *it*. Only the patrol sets `ram`: a robbery's cops box the taxi in,
+ * which is a different game.
+ */
+const RAM_GAP = 3.9;
 
 // What a boosting taxi keeps instead. It stays in its lane now, so a leader it doesn't see is a
 // leader it rear-ends — but queueing at the ambient distance would read as the maniac politely
@@ -1214,7 +1226,7 @@ const cruiseCapFor = (car) => (car.isTruck ? TRUCK_SPEED : SPEED)
 /**
  * How much further a chasing patrol cruiser lifts its ceiling when it is falling behind — set per
  * frame as `car.pursuit` (0..1) by game/patrol.js off the gap to the taxi. At full lift a cop
- * cruises at 21.7 × 1.25 = 27 u/s: over a boosting taxi's own 22.1, under the 34 of the overdrive
+ * cruises at 21.7 × 1.15 = 25 u/s: over a boosting taxi's own 22.1, under the 34 of the overdrive
  * band the taxi only reaches on a long straight.
  *
  * Reported from play before it existed: boost past a patrol and it was lost in a second or two,
@@ -1226,9 +1238,12 @@ const cruiseCapFor = (car) => (car.isTruck ? TRUCK_SPEED : SPEED)
  *
  * Swept at 1.15, 1.25 and 1.38 against how much of a tank the taxi spends (game/patrol.js has the
  * table). At 1.38 a full tank still got caught five times in twelve, which is a cop you cannot
- * outrun; at 1.15 the tank size barely mattered. 1.25 is where it decides the chase.
+ * outrun. It shipped at 1.25 and was reported as "a touch too hard"; re-swept once a touch became
+ * the bust, the lift turned out to matter less than the escape line (ESCAPE_BLOCKS): 1.0, 1.15 and
+ * 1.25 all caught 11 of 16 taxis on 5s of boost at three blocks. At the shorter line 1.15 is what
+ * lets 8s of boost mostly get away (13/16, against 10/16 at 1.25).
  */
-const PURSUIT_LIFT = 1.25;
+const PURSUIT_LIFT = 1.15;
 /** ...and how hard it pulls away while lifted, so the ceiling is one it can actually reach. */
 const PURSUIT_ACCEL = 24;
 
@@ -2010,6 +2025,8 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       chase: 0,
       // The patrol cruiser's catch-up, 0..1 — see PURSUIT_LIFT. Only ever set by game/patrol.js.
       pursuit: 0,
+      // A chasing patrol drives into the taxi rather than queueing behind it — see RAM_GAP.
+      ram: false,
       // Someone else's mesh drawn in this car's place: `(pos, quat, car) => void`, handed the pose
       // the render pass composed, with the instance itself collapsed. Only the patrol cruiser sets
       // it (sim/police.js), on the cop it becomes when it gives chase — the car is the cruiser, so
@@ -2897,6 +2914,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     car.siren = false;
     car.chase = 0;
     car.pursuit = 0;
+    car.ram = false;
     car.skin = null;
     car.patrol = false;
     if (car.route?.length) car.route.length = 0;

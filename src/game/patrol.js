@@ -1,5 +1,6 @@
 import { GRID_I, GRID_J, PITCH, dirSign, isXAxis, lineX, lineZ } from '../city/grid.js';
 import { SPAWN_CLEARANCE } from '../sim/traffic.js';
+import { touching } from '../sim/collisions.js';
 import { SPOT_RANGE } from '../sim/police.js';
 import { findRoute, planOrigin } from './route.js';
 import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
@@ -35,8 +36,8 @@ import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
 // **Spotted** is the rule the old bust was: boost within SPOT_RANGE (one block) of it. What
 // changed is what happens next.
 //
-//   - **Caught** — see CATCH_RANGE. The run ends "Busted!", as it always did; it just takes a cop
-//     actually getting to you now, and staying on you.
+//   - **Caught** — the cop touches the taxi (see TOUCH_SLACK). The run ends "Busted!", as it always
+//     did; it just takes a cop actually getting to you now.
 //   - **Lost** — see ESCAPE_BLOCKS. The bar goes dark and the cruiser drives off, the same
 //     stand-down a robbery's cops do.
 
@@ -72,41 +73,45 @@ const PATROL_REACH = 1;
 /**
  * How far ahead, in blocks, the taxi has to get before the cop gives up.
  *
- * Straight-line distance, three blocks: 60 units, which is just past `LOST_RANGE` (56) — the
- * distance the robbery measured as "out of the picture" on a phone at play zoom. So the rule the
- * player learns is the one they can see: get the siren out of frame and you are clear.
+ * Straight-line distance, two and a half blocks: 50 units, a little inside `LOST_RANGE` (56) — the
+ * distance the robbery measured as "out of the picture" on a phone at play zoom — so the cop is at
+ * the edge of the frame as it gives up. It was three (60) and reported as "a touch too hard": the
+ * catches that decided it came *after* the tank ran out, the cop reeling in a taxi that had nearly
+ * made it. The table below is why 2.5.
  *
  * Distance *between the two cars* rather than distance *driven*, on purpose. "Survive three blocks
  * of driving" would let a cop sitting on your bumper let you go, and would ask nothing of the
  * player but patience; this asks them to actually open a gap, which a boosting taxi can do and a
  * cruising one cannot.
  */
-export const ESCAPE_BLOCKS = 3;
+export const ESCAPE_BLOCKS = 2.5;
 const ESCAPE_RANGE = ESCAPE_BLOCKS * PITCH;
 
 /**
- * ...and for how long, in seconds. The gap has to *hold*: a taxi that pops three blocks clear and
- * is caught back up has not got away, and with the cop flooring it to close (PURSUIT_*) a single
+ * ...and for how long, in seconds. The gap has to *hold*: a taxi that pops clear and is caught
+ * back up has not got away, and with the cop flooring it to close (PURSUIT_*) a single
  * frame over the line is exactly what a straight followed by a corner produces. Out of range the
  * clock runs; back inside it, it runs down at the same rate rather than resetting, so an escape
- * that was nearly made still counts for something.
+ * that was nearly made still counts for something. 2.5 at first; 1.5 alongside the shorter line.
  */
-export const ESCAPE_HOLD = 2.5;
+export const ESCAPE_HOLD = 1.5;
 
-// Where those two land, measured over twelve staged chases per row with the taxi driving a route
-// across town (not rolling dice at junctions — nobody plays like that, and a taxi that turns at
-// random never reaches the overdrive band that is the real way out), boosting for the first N
-// seconds of the chase and cruising after:
+// Where those land, measured over sixteen staged chases per row with the taxi driving a route across
+// town (not rolling dice at junctions — nobody plays like that, and a taxi that turns at random
+// never reaches the overdrive band that is the real way out), boosting for the first N seconds of
+// the chase and cruising after, a touch being the bust (TOUCH_SLACK):
 //
-//   | boost spent       | caught | lost  | median time to lose it |
-//   |-------------------|--------|-------|------------------------|
-//   | none              | 12/12  | 0/12  | —                      |
-//   | 5s (a third tank) | 9/12   | 3/12  | 5.2s                   |
-//   | 10s               | 6/12   | 6/12  | 7.3s                   |
-//   | 15s (full tank)   | 1/12   | 11/12 | 9.9s                   |
+//   | boost spent       | 3 blocks, 2.5s, lift 1.25 | 2.5 blocks, 1.5s, lift 1.15 (now)        |
+//   |-------------------|---------------------------|------------------------------------------|
+//   | none              | 16/16 caught              | 15/16 caught, median 7.5s                |
+//   | 3s                | 3/16 lost                 | 4/16 lost                                |
+//   | 5s (a third tank) | 5/16 lost                 | 8/16 lost, median 4.8s — the coin flip    |
+//   | 8s                | 9/16 lost (at 1.25 & 1.5s)| 13/16 lost                               |
+//   | 15s (full tank)   | 14/16 lost                | 14/16 lost, median 6.2s                  |
 //
+// The two full-tank catches are both at 0.6s: taxis staged boosting straight into the cop's side.
 // Before the catch-up and the hold, a taxi on the pill lost the cop in a median 4.2s on 5s of boost,
-// the same as on 15 — the blip that was reported. The tank now decides it.
+// the same as on 15 — the blip that was reported. The tank decides it.
 
 /**
  * The catch-up: how far behind the cop has to be before it starts flooring it, and where it is
@@ -122,37 +127,21 @@ const PURSUIT_FROM = 14;
 const PURSUIT_FULL = 34;
 
 /**
- * How a cop catches the taxi: by being on it — within CATCH_RANGE, centre to centre — for long
- * enough. It is a meter rather than a line, and it fills at two rates.
+ * How a cop catches the taxi: it touches it. Rammed from behind, sideswiped on a pass, or driven into
+ * by a taxi that went for the gap and missed — any contact at all, and that is the arrest.
  *
- * **A taxi that has stopped with a cop on it fills it in CATCH_TIME** — one second. Queued at a red
- * with the siren behind, pinned behind a brake check, pulled in at a kerb for a fare. One second is
- * long enough that a taxi that stops for a red and immediately boosts through it gets away, and
- * short enough that sitting there does not.
+ * It used to be a meter: a cop within 8 units for a second of a stopped taxi, or two of a moving
+ * one. Reported from play as the fail state being soft — a cop sitting a car length back and filling
+ * a bar is not being caught, it is a timer. A chasing patrol now drives *into* the taxi rather than
+ * queueing behind it (`ram`, RAM_GAP in sim/traffic.js), so the cop on your bumper is exactly the
+ * thing that ends the run.
  *
- * **A taxi still moving with a cop on its bumper fills it at TAIL_RATE**, so two seconds of being
- * tailed is an arrest too. The first cut had only the stopped rate, and the probe is why it has
- * both: a taxi cruising the ring road — which has no lights, so it never stops — had a cop three to
- * eight units behind it for forty seconds and was then "lost" by the backstop. A cop glued to you
- * is not a cop you have outrun. It was a quarter at first (four seconds) and measured too lenient
- * alongside the half-speed drain below: 5 of 10 cruising taxis caught, against 10 of 10 with this
- * and the siren hold (`sirenHold` in sim/traffic.js).
- *
- * Distance alone would bust the wrong things, which is why neither rate is instant: a cop drawing
- * past in the oncoming lane is inside a car length for a beat and has caught nobody, and a taxi
- * rammed into a cop is inside it too — that is a bump, not an arrest. Out of range the meter drains
- * at half the rate it fills, rather than resetting, so a cop that drops back a length for a moment
- * — as a following car does at every junction — has not started again.
- *
- * 8 units is a car length of daylight either way: a cop queued behind the taxi sits ~5.5 back, one
- * slewed across the road in front of it ~5-6. 4 u/s is a crawl, well under the 8.5 cruise, so a
- * taxi pulling away from a light is not "stopped" on the frame it starts moving.
+ * `slack` because contact is resolved before this reads it: off boost sim/collisions.js shoves the
+ * struck car out to the envelope every frame, so two cars that touched are sitting *at* it. 0.15 is
+ * well under the 0.3 the ram gap drives into, and nowhere near a car passing in the next lane (the
+ * envelope is 2.3; lanes are 4 apart).
  */
-export const CATCH_RANGE = 8;
-export const CATCH_SPEED = 4;
-export const CATCH_TIME = 1;
-const TAIL_RATE = 0.5;
-const DRAIN_RATE = 0.5;
+export const TOUCH_SLACK = 0.15;
 
 /**
  * The longest a chase runs, in seconds, before the cop is called off anyway. A chase with neither
@@ -192,9 +181,7 @@ export function createPatrol({
     cop: null,
     /** Seconds this chase has run. */
     elapsed: 0,
-    /** The catch meter, in seconds of a cop on a stopped taxi — see CATCH_TIME. */
-    held: 0,
-    /** The escape clock, in seconds of the taxi three blocks clear — see ESCAPE_HOLD. */
+    /** The escape clock, in seconds of the taxi ESCAPE_BLOCKS clear — see ESCAPE_HOLD. */
     clear: 0,
     /** Seconds since it started leaving — see STAND_DOWN_TIMEOUT. */
     standingDown: 0,
@@ -341,10 +328,10 @@ export function createPatrol({
     cop.siren = true;
     police.setBar('strobe');
     cop.chase = 1;
+    cop.ram = true;
     cop.route = [];
     state.phase = 'chase';
     state.elapsed = 0;
-    state.held = 0;
     state.clear = 0;
     state.spotted += 1;
     aimedAt = null;
@@ -362,6 +349,7 @@ export function createPatrol({
     police.setBar('off');
     cop.chase = 0;
     cop.pursuit = 0;
+    cop.ram = false;
     cop.roadblock = 0;
     cop.route = [];
     routeTo(cop, { i: taxi.i > GRID_I / 2 ? 0 : GRID_I, j: taxi.j > GRID_J / 2 ? 0 : GRID_J });
@@ -442,15 +430,14 @@ export function createPatrol({
     state.elapsed += dt;
     steer(cop);
     cop.pursuit = Math.max(0, Math.min(1, (near - PURSUIT_FROM) / (PURSUIT_FULL - PURSUIT_FROM)));
-    if (near < CATCH_RANGE) state.held += dt * (taxi.v < CATCH_SPEED ? 1 : TAIL_RATE);
-    else state.held = Math.max(0, state.held - dt * DRAIN_RATE);
-    if (state.held >= CATCH_TIME) {
+    if (touching(taxi, cop, TOUCH_SLACK)) {
       state.caught += 1;
       // Pull up where it is. `roadblock` is the chosen stop the box-in already uses — it rides the
       // braking flag — and it is what keeps the cop from driving on into a taxi the traffic model
       // has stopped counting as a car in its lane.
       cop.roadblock = Infinity;
       cop.pursuit = 0;
+      cop.ram = false;
       state.phase = 'arrest';
       onCaught(cop);
       return;

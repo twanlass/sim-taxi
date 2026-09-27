@@ -2575,47 +2575,52 @@ cop talking to the player, where [dispatch's card](gameplay.md#dispatch-breaks-i
 talking about them. A DOM bubble projected over the car every frame, not geometry: this one has to
 be read, and there is no font in the scene.
 
-**Caught** is a meter (`CATCH_*` in `game/patrol.js`). Within `CATCH_RANGE` (8, a car length of
-daylight) of a taxi doing under `CATCH_SPEED` (4) it fills in `CATCH_TIME` — one second: queued at a
-red with the siren behind, pinned behind a brake check, pulled in at a kerb for a fare. Of a taxi
-still moving it fills at `TAIL_RATE` (half that), so two seconds on your bumper is an arrest too. Out
-of range it drains at half speed. Neither rate is instant, because distance alone busts a cop drawing
-past in the oncoming lane, or a taxi that rammed one. The run ends **Busted!**, and the banner only
-waits for the camera (`BUST_BANNER_DELAY`, 2s) — the cop that made the arrest is already there,
-braked where it caught you.
+**Caught** is a touch. Any contact between the cop and the taxi — rammed from behind, sideswiped on
+a pass, or a taxi that went for the gap and clipped it — is the arrest (`touching` in
+`sim/collisions.js`, with `TOUCH_SLACK` of 0.15 because off boost contact is resolved by shoving the
+struck car out to the envelope before anything later in the frame can read it). To make that the
+thing a chase is about, a chasing patrol sets `car.ram` and follows the taxi at `RAM_GAP` (3.9
+centre to centre, 0.3 inside the envelope) instead of the ordinary following gap: a cop that queued
+a car length back could only ever catch a taxi that reversed into it. It used to be a meter — within
+8 units for a second of a stopped taxi, two of a moving one — and was reported as a soft fail
+state: a cop filling a bar a car length back is a timer, not a catch. The run ends **Busted!**, and
+the banner only waits for the camera (`BUST_BANNER_DELAY`, 2s).
 
-**Lost** is the gap between the two cars holding past `ESCAPE_BLOCKS` (3 blocks, 60 units) for
-`ESCAPE_HOLD` (2.5s) — just past the robbery's `LOST_RANGE`, which is "out of the picture" on a
-phone at play zoom, so the rule is the one the player can see. Distance *between the cars* rather
-than distance *driven*, because the other reading lets a cop sitting on your bumper let you go. The
-clock runs down rather than resetting when the cop closes back in. The bar goes dark, dispatch says
-`LOST_LINE`, and the car leaves. `CHASE_MAX` (40s) calls off a chase neither car can finish.
+**Lost** is the gap between the two cars holding past `ESCAPE_BLOCKS` (2.5 blocks, 50 units) for
+`ESCAPE_HOLD` (1.5s) — a little inside the robbery's `LOST_RANGE`, which is "out of the picture" on
+a phone at play zoom, so the cop is at the edge of the frame as it gives up. Distance *between the
+cars* rather than distance *driven*, because the other reading lets a cop sitting on your bumper let
+you go. The clock runs down rather than resetting when the cop closes back in. The bar goes dark,
+dispatch says `LOST_LINE`, and the car leaves. `CHASE_MAX` (40s) calls off a chase neither car can
+finish.
 
 ### It floors it when it falls behind
 
 `car.pursuit` (0..1), set by the patrol each frame off the gap — nothing inside `PURSUIT_FROM` (14),
-flat out by `PURSUIT_FULL` (34) — lifts the chasing cop's ceiling by `PURSUIT_LIFT` (1.25, so 27
+flat out by `PURSUIT_FULL` (34) — lifts the chasing cop's ceiling by `PURSUIT_LIFT` (1.15, so 25
 u/s) and its pull-away to `PURSUIT_ACCEL` (24). That is over a boosting taxi's 22.1 and under the
 overdrive band's 34, which the taxi only reaches on a long straight.
 
 Reported from play without it: boost past a patrol and the chase was a blip — "Pull over!" came and
 went, and the cop might never be on screen. A chasing cop at 21.7 is slower than the pill, so the gap
-only ever grew, and a single frame past three blocks was a clean escape: a median 4.2s whatever the
-tank held. Swept over twelve staged chases per row, with the taxi driving a route across town (a
+only ever grew: a median 4.2s to lose it whatever the tank held. The lift fixed that, and at 1.25
+with the line at three blocks held 2.5s it overshot — reported as "a touch too hard". Re-swept over
+sixteen staged chases per row once a touch was the bust, with the taxi driving a route across town (a
 dice-driven taxi turns at random and never reaches overdrive, which is the real way out, so it
 measures nothing):
 
-| boost spent | caught | lost | median time to lose it |
-|---|---|---|---|
-| none | 12/12 | 0/12 | — |
-| 5s (a third of a tank) | 9/12 | 3/12 | 5.2s |
-| 10s | 6/12 | 6/12 | 7.3s |
-| 15s (a full tank) | 1/12 | 11/12 | 9.9s |
+| boost spent | 3 blocks / 2.5s / lift 1.25 | 2.5 blocks / 1.5s / lift 1.15 (now) |
+|---|---|---|
+| none | 16/16 caught | 15/16 caught, median 7.5s |
+| 3s | 3/16 lost | 4/16 lost |
+| 5s (a third of a tank) | 5/16 lost | **8/16 lost** — the coin flip |
+| 8s | 9/16 lost | 13/16 lost |
+| 15s (a full tank) | 14/16 lost | 14/16 lost, median 6.2s |
 
-At a lift of 1.38 a full tank was still caught five times in twelve — a cop you cannot outrun — and
-at 1.15 the tank size barely mattered. At 1.25 the tank decides the chase. The robbery's cops do not
-get the lift: a getaway is about the drive and they are its weather; a patrol chase is about one
-car.
+The lift turned out to be the smaller lever: at three blocks, 1.0, 1.15 and 1.25 all caught 11 of 16
+on 5s of boost, because the catches that decide it come *after* the tank runs out, the cop reeling
+in a taxi that nearly made it. The line is what moves them. The robbery's cops get neither the lift
+nor the ram: a getaway is about the drive and they are its weather; a patrol chase is about one car.
 
 ### A siren gets the lights
 

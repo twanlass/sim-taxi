@@ -1278,7 +1278,7 @@ collisions.onImpact(({ x, z, speed, other }) => {
  * taxi is flagged crashed so it freezes on the spot for the pull-in, and the fare system's
  * title/reason drive the "Busted!" banner.
  *
- * Called by game/patrol.js, once a chasing cop has been on the taxi for CATCH_TIME. It used to
+ * Called by game/patrol.js, the moment a chasing cop touches the taxi (TOUCH_SLACK). It used to
  * fire the moment the taxi boosted within a block of the cruiser, and then send the cruiser after a
  * taxi that was already frozen; the chase is now the part the player gets to play.
  */

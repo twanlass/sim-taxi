@@ -71,7 +71,8 @@ import { createFoodOrder } from '../src/geometry/food.js';
 import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createRobbery, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
-import { createPatrol, ESCAPE_BLOCKS, CATCH_RANGE } from '../src/game/patrol.js';
+import { createPatrol, ESCAPE_BLOCKS, TOUCH_SLACK } from '../src/game/patrol.js';
+import { touching } from '../src/sim/collisions.js';
 import { createCashTrail } from '../src/game/cashtrail.js';
 import { createCopLights } from '../src/game/coplights.js';
 import {
@@ -7365,7 +7366,7 @@ check('the taxi is an ordinary car in the traffic array',
       traffic: pTraffic,
       taxi,
       onCaught: (cop) => {
-        result = { how: 'caught', gap: Math.hypot(cop.x - taxi.x, cop.z - taxi.z), braking: cop.roadblock > 0 };
+        result = { how: 'caught', touched: touching(taxi, cop, TOUCH_SLACK), braking: cop.roadblock > 0 };
         taxi.crashed = true;
       },
       onLost: () => { result = { how: 'lost' }; },
@@ -7470,12 +7471,15 @@ check('the taxi is an ordinary car in the traffic array',
   // The blip that was reported: on the pill the cop used to be gone in ~4s whatever the tank held.
   check('...and not in a blip: the cop keeps up for a while first', median(boostLost.map((r) => r.t)) >= 6,
     `median ${median(boostLost.map((r) => r.t)).toFixed(1)}s to lose it`);
-  // And the tank is what decides it: a third of one is not enough on most seeds.
-  check('a third of a tank mostly is not enough', count(runs.third, 'caught') > runs.third.length / 2,
+  // And the tank is what decides it: a third of one is the coin flip — some get away, some do not.
+  check('a third of a tank is a coin flip', count(runs.third, 'caught') >= runs.third.length * 0.2
+    && count(runs.third, 'lost') >= runs.third.length * 0.2,
     `${count(runs.third, 'caught')}/${runs.third.length} caught on ${BOOST_DURATION / 3}s of boost`);
   const all = [...runs.cruising, ...runs.boosting, ...runs.third];
-  check('a catch is a cop actually on the taxi, pulled up', cruiseCaught.every((r) => r.gap < CATCH_RANGE && r.braking),
-    `widest ${Math.max(0, ...cruiseCaught.map((r) => r.gap)).toFixed(2)} of ${CATCH_RANGE}`);
+  // A touch is the bust (TOUCH_SLACK): the cop rams rather than tails.
+  check('a catch is the cop touching the taxi, pulled up', cruiseCaught.length > 0
+    && cruiseCaught.every((r) => r.touched && r.braking),
+    `${cruiseCaught.filter((r) => r.touched).length}/${cruiseCaught.length} touching`);
   check('the chase runs no reds', all.every((r) => r.violations === 0),
     `${all.reduce((n, r) => n + r.violations, 0)} violations`);
   check('a robbery sees the chase as busy for all of it', all.every((r) => r.busyThroughout));
