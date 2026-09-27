@@ -77,7 +77,7 @@ import {
   markEmissive, unmarkEmissive, emissiveList, BLOOM_LAYER, BLOOM_ORDER, BLOOM_INTENSITY,
   BLOOM_UNIFORMS, BLOOM_KINDS, refreshEmissive as bloomRefreshFor,
 } from '../src/game/bloom.js';
-import { LIGHT_EMISSIVE } from '../src/geometry/lights.js';
+import { LIGHT_EMISSIVE, LIGHT_PODS } from '../src/geometry/lights.js';
 import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
 import { createPicker } from '../src/game/pick.js';
 import { setCityOccluders, sightlineClear } from '../src/game/sightline.js';
@@ -9227,7 +9227,9 @@ check('the taxi is an ordinary car in the traffic array',
         // Each fleet mesh serves one vehicle class; a car's index is not a truck's.
         if (light.name.startsWith('truck') !== !!car.isTruck) continue;
         for (let n = 0; n < anchors.length; n++) {
-          light.getMatrixAt(car.instanceIndex * anchors.length + n, podM);
+          // The stride is LIGHT_PODS, not the anchor count: a siren mesh carries one lamp in a
+          // two-slot stride and leaves the spare slot collapsed.
+          light.getMatrixAt(car.instanceIndex * LIGHT_PODS + n, podM);
           podLocal.multiplyMatrices(inverse, podM);
           offset.setFromMatrixPosition(podLocal);
           fleetDrift = Math.max(fleetDrift, offset.distanceTo(anchors[n]));
@@ -13812,7 +13814,7 @@ let chopperOrder; // likewise
       before.every(({ car, lane, colorIndex }) => car.lane.id === lane && car.colorIndex === colorIndex),
       `${before.length} cars, same lanes and same underlying paint`);
 
-    // The bar. One mesh per colour, both pods of a car switching together, and exactly one of the
+    // The bar. One mesh per colour, one lamp per side, and exactly one of the
     // two colours up on any frame — a bar showing both at once is a lamp, not a siren.
     const redMesh = copTraffic.emissiveMeshes.find((m) => m.name === 'carSirenRed');
     const blueMesh = copTraffic.emissiveMeshes.find((m) => m.name === 'carSirenBlue');
@@ -13840,18 +13842,20 @@ let chopperOrder; // likewise
     let civilianLit = 0;
     let sawRed = 0;
     let sawBlue = 0;
+    let strayPods = 0;
     for (let f = 0; f < 120; f++) {
       copTraffic.update(1 / 60);
       for (const car of copTraffic.ambient) {
         const red = podScale(redMesh, car.instanceIndex, 0);
         const blue = podScale(blueMesh, car.instanceIndex, 0);
-        // Both pods of a colour move together — that is what makes the whole bar change colour
-        // rather than two specks alternating across the roof.
-        const redPair = podScale(redMesh, car.instanceIndex, 1);
+        // One lamp per colour, one per side: the second slot of each stride is never used and has
+        // to stay collapsed, or it is a lit pod parked at the world origin.
+        const spare = podScale(redMesh, car.instanceIndex, 1) + podScale(blueMesh, car.instanceIndex, 1);
+        if (spare !== 0) strayPods += 1;
         if (car.police) {
           litFrames += 1;
           if (red > 0 && blue > 0) bothUp += 1;
-          if (red > 0) { sawRed += 1; if (redPair === 0) bothUp += 1; }
+          if (red > 0) sawRed += 1;
           if (blue > 0) sawBlue += 1;
         } else if (red > 0 || blue > 0) civilianLit += 1;
       }
@@ -13861,6 +13865,11 @@ let chopperOrder; // likewise
       `${sawRed} red and ${sawBlue} blue pod-frames of ${litFrames}, ${bothUp} showing both`);
     check('a car that is not a cop has no bar on it at all',
       civilianLit === 0, `${civilianLit} lit pod-frames on civilian cars`);
+    check('...and the unused half of each lamp stride stays collapsed',
+      strayPods === 0, `${strayPods} car-frames with a pod in the spare slot`);
+    check('red lamp on the left, blue on the right',
+      redMesh.userData.podAnchors.length === 1 && blueMesh.userData.podAnchors.length === 1
+        && redMesh.userData.podAnchors[0].z < 0 && blueMesh.userData.podAnchors[0].z > 0);
 
     // Standing down. `stop` in game/robbery.js switches the bar off and leaves the car on the road,
     // and with nothing but lamps on the roof that frame turned every cop into an ordinary blue
@@ -13923,7 +13932,7 @@ let chopperOrder; // likewise
         const housing = new THREE.Box3().setFromBufferAttribute(
           copTraffic.sirenHousingMesh.geometry.attributes.position);
         const pod = new THREE.Box3().setFromBufferAttribute(redMesh.geometry.attributes.position);
-        const [a, b] = redMesh.userData.podAnchors;
+        const [a, b] = [redMesh.userData.podAnchors[0], blueMesh.userData.podAnchors[0]];
         const at = copTraffic.sirenHousingMesh.userData.anchor;
         housing.translate(at);
         return [a, b].every((anchor) => {

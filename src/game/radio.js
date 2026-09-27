@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { carGeometry, policeCabGeometry, CABIN_X, CABIN_TOP } from '../sim/traffic.js';
 import {
-  sirenOn, sirenPodGeometry, sirenBarAnchors, sirenRedMaterial, sirenBlueMaterial,
+  sirenOn, sirenPodGeometry, sirenRedAnchor, sirenBlueAnchor, sirenRedMaterial, sirenBlueMaterial,
   sirenBaseGeometry, sirenBaseAnchor,
 } from '../geometry/lights.js';
 import { propMaterial } from '../util/geo.js';
@@ -92,20 +92,16 @@ function createAvatar(sun, hemi) {
   base.position.copy(sirenBaseAnchor(CABIN_X, CABIN_TOP));
   pivot.add(base);
 
-  // The bar: two pods per colour, the whole bar flashing red then blue as it does on the street.
-  // Switched by `visible` here rather than by scale — nothing in this scene is instanced.
-  const bar = (material) => {
-    const group = new THREE.Group();
-    for (const at of sirenBarAnchors(CABIN_X, CABIN_TOP)) {
-      const pod = new THREE.Mesh(sirenPodGeometry(), material);
-      pod.position.copy(at);
-      group.add(pod);
-    }
-    pivot.add(group);
-    return group;
+  // The bar: one lamp per colour, red left and blue right, lighting alternately as it does on the
+  // street. Switched by `visible` here rather than by scale — nothing in this scene is instanced.
+  const lamp = (material, at) => {
+    const pod = new THREE.Mesh(sirenPodGeometry(), material);
+    pod.position.copy(at);
+    pivot.add(pod);
+    return pod;
   };
-  const red = bar(sirenRedMaterial());
-  const blue = bar(sirenBlueMaterial());
+  const red = lamp(sirenRedMaterial(), sirenRedAnchor(CABIN_X, CABIN_TOP));
+  const blue = lamp(sirenBlueMaterial(), sirenBlueAnchor(CABIN_X, CABIN_TOP));
 
   // Framed on what the car sweeps as it turns, as the coach frames the taxi. Measured off
   // `carGeometry()` projected through this camera over a full turn: ±1.92 across, and −1.66 to

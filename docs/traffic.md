@@ -2309,7 +2309,7 @@ the ordinary blue in `carBody` (#4E7FC0). At play zoom the fleet driving off rea
 turning back into traffic. `sirenHousingMesh` is the bar as it stands unlit (`sirenBaseGeometry`
 in `geometry/lights.js`): a dark housing and two painted lenses, deep red on the car's left and deep
 blue on its right — not a lamp and not in the bloom, drawn off `police`. Lit, the emissive pods
-enclose the lenses and the whole bar strobes red then blue; dark, it is a cop car with its lights
+enclose the lenses and the two sides strobe alternately, red left and blue right; dark, it is a cop car with its lights
 off that still says red-and-blue. Everything is nested inside the pods on every shared side so a lit
 pod encloses it rather than fighting it, and the probe asserts it. A wrecked cop's shell had the
 same hole one layer over — it was tinted from `carBody[colorIndex]` — and goes through `bodyColor`
@@ -2433,9 +2433,9 @@ Three things worth knowing about how it is drawn:
   something to remember.
 - **The bar is two pods on the roof**, off the same `lightPodGeometry` machinery the brake and
   turn-signal pods use — one fixed emissive material per colour, and on/off as a scale about each
-  pod's own origin (`geometry/lights.js`). Both pods flash together, so the whole bar goes red then
-  blue: a pod is 3.5px across at play zoom, and a bar split by colour alternates two specks a colour
-  apart and reads as a flicker.
+  pod's own origin (`geometry/lights.js`). Red is the left pod and blue the right, lighting
+  alternately over their painted lenses. A whole-bar strobe was the earlier choice and read as two
+  red lights on a phone; see `sirenRedAnchor`.
 - **Every ambient car writes the bar every frame**, not just the police ones — a car that is not a cop
   writes a level of zero and its pods collapse. A loop that skipped the others would leave whatever
   they last wrote standing on the road, which is the trap `game/bloom.js` records one layer up: in a

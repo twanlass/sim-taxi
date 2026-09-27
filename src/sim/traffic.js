@@ -9,7 +9,7 @@ import {
 import {
   lightPodGeometry, brakeLightAnchors, turnSignalAnchors, LIGHT_PODS,
   brakeLightMaterial, turnSignalMaterial,
-  sirenPodGeometry, sirenBarAnchors, sirenRedMaterial, sirenBlueMaterial, sirenOn,
+  sirenPodGeometry, sirenRedAnchor, sirenBlueAnchor, sirenRedMaterial, sirenBlueMaterial, sirenOn,
   sirenBaseGeometry, sirenBaseAnchor,
 } from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
@@ -2635,7 +2635,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     'truckTurnSignalsRight', turnSignalMaterial, turnSignalAnchors(TRUCK_LEN, TRUCK_W, 1), trucks);
 
   // The siren bar a cop car wears while a bank robbery is running — two more of exactly the same
-  // thing, one mesh per colour, so the strobe is one pod appearing as the other collapses. Cars
+  // thing, one mesh per colour and one lamp per mesh (red left, blue right), so the strobe is one
+  // side lighting as the other collapses back to its painted lens. Cars
   // only: the robbery never paints a box truck, because a police box truck is not a thing and the
   // bar's anchor is measured off `CABIN_TOP`, which is a car's roof.
   //
@@ -2643,11 +2644,20 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // bar is a zero-scale matrix in a buffer that is already there, so the cost of a fleet that is
   // mostly *not* police is a matrix write per car per frame and nothing on screen.
   const sirenRedMesh = lightMesh(
-    'carSirenRed', sirenRedMaterial, sirenBarAnchors(CABIN_X, CABIN_TOP), ambient,
+    'carSirenRed', sirenRedMaterial, [sirenRedAnchor(CABIN_X, CABIN_TOP)], ambient,
     sirenPodGeometry, 'siren');
   const sirenBlueMesh = lightMesh(
-    'carSirenBlue', sirenBlueMaterial, sirenBarAnchors(CABIN_X, CABIN_TOP), ambient,
+    'carSirenBlue', sirenBlueMaterial, [sirenBlueAnchor(CABIN_X, CABIN_TOP)], ambient,
     sirenPodGeometry, 'siren');
+  // One lamp in a stride of `LIGHT_PODS`, so the second slot of every car is never written — and an
+  // InstancedMesh starts at the identity, which would park a lit pod at the world origin. Zeroed
+  // once here; nothing writes those slots afterwards except the wreck, which writes zero too.
+  {
+    const collapsed = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (const siren of [sirenRedMesh, sirenBlueMesh]) {
+      for (let i = 0; i < MAX_AMBIENT * LIGHT_PODS; i++) siren.setMatrixAt(i, collapsed);
+    }
+  }
   // ...and the bar as it stands unlit — the housing and its two painted lenses — which is **not** a
   // lamp and so is not in `lightMeshes`: it is drawn by `police` rather than by `siren`, so it
   // stays on the roof for the whole stand-down, when the pods have gone dark. Without it a cop

@@ -9,7 +9,7 @@ import {
   isSegmentClosed, nextIntersection, opposite,
 } from '../city/grid.js';
 import {
-  sirenOn, sirenPodGeometry, sirenBarAnchors, sirenBaseGeometry, sirenBaseAnchor,
+  sirenOn, sirenPodGeometry, sirenRedAnchor, sirenBlueAnchor, sirenBaseGeometry, sirenBaseAnchor,
   sirenRedMaterial, sirenBlueMaterial,
 } from '../geometry/lights.js';
 import { deckHeightAt } from '../city/river.js';
@@ -211,7 +211,7 @@ export const BUST_ARM_INSET = PITCH;
 // The strobe rate and `sirenOn` itself moved to geometry/lights.js, which is where the siren bar's
 // geometry and materials live. It stopped being the cruiser's own the moment a second kind of
 // police car existed: the bank robbery puts cop cars into ambient traffic wearing an instanced bar
-// off that module (see `sirenBarAnchors` there, and sim/traffic.js), and two clocks would have the
+// off that module (see `sirenRedAnchor` there, and sim/traffic.js), and two clocks would have the
 // two blinking out of step on the same street. `game/sirenglow.js` reads it from there as well.
 
 // The car used to appear and vanish at full opacity out past the edge of the asphalt, against
@@ -293,15 +293,12 @@ function steeredWheels(group) {
 }
 
 function lightBar(shell, carrier) {
-  // One mesh per colour holding *both* pods, so the whole bar goes red and then blue — the same
-  // strobe the robbery's cop cars run (see `sirenBarAnchors`). Merged with the offsets in the
-  // vertices, which is safe here and would not be on the fleet: this bar is switched by
-  // `visible`, never by a scale, so there is no pivot for the pods to slide toward.
-  const make = (material) => {
-    const pods = sirenBarAnchors(CABIN_X, CABIN_TOP)
-      .map((at) => sirenPodGeometry().translate(at.x, at.y, at.z));
-    const mesh = new THREE.Mesh(mergeGeometries(pods, false), material);
-    pods.forEach((p) => p.dispose());
+  // One lamp per colour, red over the left lens and blue over the right, so the strobe alternates
+  // sides — the same strobe the robbery's cop cars run (see `sirenRedAnchor`). Switched by
+  // `visible`, never by a scale.
+  const make = (material, at) => {
+    const mesh = new THREE.Mesh(sirenPodGeometry(), material);
+    mesh.position.copy(at);
     shell.add(mesh);
     return mesh;
   };
@@ -329,8 +326,8 @@ function lightBar(shell, carrier) {
   };
 
   return {
-    red: make(sirenRedMaterial()),
-    blue: make(sirenBlueMaterial()),
+    red: make(sirenRedMaterial(), sirenRedAnchor(CABIN_X, CABIN_TOP)),
+    blue: make(sirenBlueMaterial(), sirenBlueAnchor(CABIN_X, CABIN_TOP)),
     housing,
     redLamp: lamp(PALETTE.lightRed, -0.42),
     blueLamp: lamp(PALETTE.sirenBlue, 0.42),

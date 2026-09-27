@@ -208,24 +208,27 @@ export function sirenPodAnchor(sz, roofX, roofY) {
 }
 
 /**
- * The bar's two pods — the same pair for both colours, so the **whole bar** goes red, then blue,
- * rather than one lamp lighting at each end.
+ * Where each colour's one lamp sits: red over the car's left lens, blue over its right, so the
+ * strobe alternates *sides* — red lamp lit with the blue lens dark, then the other way round.
  *
- * A real bar does the second thing and this one deliberately does not, for a reason that is
- * arithmetic rather than taste: a pod is 4px across at play zoom, so a bar split by colour
- * alternates two specks a colour apart and reads as a flicker. Flashing both pods together is one
- * mark 9.9px wide changing colour six times a second, which is what actually announces a police
- * car from across a five-block city. (The *unlit* bar is split — red lens left, blue right, see
- * `sirenBaseGeometry` — because standing still it has no flicker to cause, and the split is what
- * says police on a parked car.)
+ * It used to flash the **whole bar** one colour at a time, both pods red and then both blue, on the
+ * argument that a bar split by colour alternates two 4px specks and reads as a flicker. That held
+ * while an unlit pod was a zero scale and the off side was simply *gone*. Once the painted lenses
+ * arrived (`sirenBaseGeometry`) the off side is a deep red or deep blue lens rather than nothing, so
+ * alternating sides is a change of brightness between two coloured lamps and not a speck blinking
+ * out — and the whole-bar version, seen on a phone, read as **two red lights** on half its frames,
+ * with nothing on the roof saying blue at all.
  *
- * It also keeps `LIGHT_PODS` honest as the instance stride, which is the half that would have
- * bitten: a one-pod anchor list leaves the second slot of every car's stride untouched, and an
- * `InstancedMesh` initialises its matrices to the **identity** — so every ambient car in the city
- * would have parked a siren pod at the world origin.
+ * One anchor per colour, which leaves the second slot of `LIGHT_PODS` unused on both meshes. An
+ * `InstancedMesh` starts every matrix at the **identity**, so an unwritten slot is a pod parked at
+ * the world origin — sim/traffic.js zeroes both meshes at construction for exactly that reason.
  */
-export function sirenBarAnchors(roofX, roofY) {
-  return [sirenPodAnchor(-1, roofX, roofY), sirenPodAnchor(1, roofX, roofY)];
+export function sirenRedAnchor(roofX, roofY) {
+  return sirenPodAnchor(-1, roofX, roofY);
+}
+
+export function sirenBlueAnchor(roofX, roofY) {
+  return sirenPodAnchor(1, roofX, roofY);
 }
 
 /**
