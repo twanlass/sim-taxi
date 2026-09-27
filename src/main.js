@@ -25,6 +25,7 @@ import {
   BOARD_SECONDS,
 } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
+import { createAudioPanel } from './game/audiopanel.js';
 import { createDriveThru } from './game/drivethru.js';
 import { createBurgerRun } from './game/burgerrun.js';
 import { createDepotRun } from './game/depotrun.js';
@@ -3513,6 +3514,9 @@ function frame() {
 // URL, either present with no value needed.
 const debugParams = new URLSearchParams(window.location.search);
 const wantsDebugPanel = debugParams.has('debug') || debugParams.has('settings');
+// The sound designer's panel is its own flag, so it comes up without the rest — see
+// game/audiopanel.js. `?debug&audio` shows both.
+const wantsAudioPanel = debugParams.has('audio');
 
 // The Loco Mode ramp. Pushed into the panel rather than imported by it for the same reason the
 // difficulty knobs are pushed into `sim/` — the sim owns these numbers, and the panel is one more
@@ -4072,6 +4076,8 @@ if (!shot && wantsDebugPanel) {
   });
 }
 
+if (sfx && wantsAudioPanel) createAudioPanel({ sfx });
+
 window.__taxi = {
   traffic,
   daylight,
@@ -4215,8 +4221,12 @@ window.__taxi = {
    * The sound — `state` says whether the context is up and how many of the files decoded, and
    * `play('crash')` fires any one-shot by name (see SFX_EVENTS in game/sfx.js). Null in shot mode.
    * A decode that failed is otherwise a single console warning and a silent event.
+   * `tuning()`/`tune(partial)`/`reset()` are the mix the `?audio` panel edits (assets/audio/mix.json).
    */
-  sfx: sfx ? { state: sfx.state, play: (name) => sfx.play(name) } : null,
+  sfx: sfx ? {
+    state: sfx.state, play: (name) => sfx.play(name),
+    tuning: sfx.tuning, tune: sfx.tune, reset: sfx.reset,
+  } : null,
   /**
    * Draw one frame on demand.
    *
