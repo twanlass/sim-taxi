@@ -253,7 +253,7 @@ export function addToonOutline(mesh, { rim = HERO_RIM } = {}) {
  *
  * The same shape as `markOccluder`'s rule and for the same reason. Everything that fails it would
  * get a hull around something with no silhouette to trace — the taxi's invisible raycast box, the
- * ghost outline's own mask and rim, the unlit siren lamps on the cruiser's roof.
+ * ghost outline's own mask and rim, the unlit lamps on the garage ceiling.
  */
 function outlinable(object) {
   const material = object.material;

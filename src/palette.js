@@ -87,8 +87,9 @@ export const PALETTE = {
   // all the way to this at the top still averages darker than the old flat `window` did, because
   // the streak that reaches full strength covers about a fifth of a face.
   //
-  // It has two blues to stay clear of and clears both on saturation rather than hue: `policeBody`
-  // (#2E5FA8) at 226° and the blue car (#4E7FC0) at 222°, against this one's 217°. Nine degrees and
+  // It had two blues to stay clear of and cleared both on saturation rather than hue: the old
+  // `policeBody` (#2E5FA8, since repainted white) at 226° and the blue car (#4E7FC0) at 222°, against
+  // this one's 217°. Nine degrees and
   // five is nothing — what separates them is 0.47 saturation against 0.87 and 0.75, and the fact
   // that both of those are *moving boxes on a road* while this is a grid of eight-pixel rectangles
   // ruled across a wall. A first pass at 0.33 was safer still and read as grey lightening rather
@@ -339,8 +340,16 @@ export const PALETTE = {
 
   // --- Game entities. Deliberately higher-chroma than anything in the city so they read
   // instantly against the muted buildings and grey roads.
-  policeBody: '#2E5FA8',
-  policeRoof: '#F2F4F7',
+  // The police two-tone, after the 1980s NYPD cruiser: a light-blue body under a white cab. It
+  // used to be a solid blue (#2E5FA8) a few steps off the ordinary blue car (#4E7FC0), which at
+  // play zoom made a cop one blue car among several. This blue is lighter and a good deal more
+  // cyan than that civilian, but the body alone still would not carry it — the white cab is the
+  // half no civilian has (every other car's cabin is dark glass), and it is what says police.
+  // See policeCabGeometry() in sim/traffic.js. (A first pass ran it the other way round, white
+  // under baby blue; a pastel cab rendered grey-teal under the low warm sun.)
+  policeBody: '#55A8E6',
+  // Cooler and brighter than the two cream civilians (#E4E1DA, #D9D2C3).
+  policeCab: '#F2F4F7',
 
   // The ambient flyover — see geometry/plane.js. A white aeroplane against a pale sky is a blank
   // shape, so it carries a cheatline; red because it is the one hue in the game with nothing else
@@ -613,8 +622,13 @@ export const PALETTE = {
   // so the same two colours have to be nameable from more than one place.
   sirenBlue: '#4D9BFF',
   // The box a cop car's bar is bolted into — what stays on the roof once the lamps go off, so a
-  // stood-down cop still reads as police. See sirenHousingGeometry() in geometry/lights.js.
+  // stood-down cop still reads as police. See sirenBaseGeometry() in geometry/lights.js.
   sirenHousing: '#23262D',
+  // The bar's two lenses while it is *off*: red one side, blue the other, painted rather than lit.
+  // Deep enough that a lit lamp is plainly a change of state and not the same colour a bit brighter,
+  // saturated enough that a parked cop's roof still says red-and-blue at 4px a lens.
+  sirenRedOff: '#8E2A22',
+  sirenBlueOff: '#23489A',
   lightYellow: '#F0B23A',
   lightGreen: '#4FBF63',
   // An ambient car's turn signal — deliberately more orange than lightYellow above so a blinking
