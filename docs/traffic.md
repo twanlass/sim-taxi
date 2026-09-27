@@ -38,6 +38,45 @@ this `rng` — consumes a different number of random values than before.
 
 ## Signals
 
+### All-way stops: the default while the lamps are hidden
+
+The stop bars are the only thing that ever drew a signal, and they are hidden by default
+(`?stopbars=on` in main.js). That left cars sitting at an empty junction for most of a 16s cycle
+with nothing on screen to say why, which reads as a bug. So every junction the plan below would
+put a light on runs as an **all-way stop** instead (`SIGNAL.stopSigns`, `?lights=on` puts the sim
+back on the plan). The plan is still baked and `lightPhase` still answers for the tools; only
+`approachSignal` and the stop-bar colours stop reading it.
+
+A stop approach reports `{ stop: true, open: false, signalised: false }`: `open: false` so the car
+brakes to its line exactly as for a red, `signalised: false` so crossing it is never counted as a
+violation or offered a right-on-red. Whether it may go is decided at the line by `stopSignClear`:
+
+1. **It has stopped**, and stood for `STOP_DWELL` (0.8s). A police car only has to touch the
+   line — its licence here, as the chase-on-red is at a light. Standing down included: a full stop
+   at every junction on the way out left 3–4 of the fleet in shot past `STAND_DOWN_TIMEOUT` on four
+   seeds of five.
+2. **The box holds nobody from another street.** The same street runs both ways at once, as it did
+   on a shared green; a left across it still yields through `leftYieldBlocked`. This reads live
+   state, so two cars cleared on the same frame cannot both enter.
+3. **It is its turn**: no front car on another street stopped before it. First-come-first-served is
+   courtesy, not safety, so a car stuck for `STOP_PATIENCE` (3s) past its dwell — a full exit lane,
+   a left waiting on oncoming — stops holding everyone else up.
+
+The ring, its corners and anything unsignalised are untouched, and so are the overrides above the
+plan: the boosting taxi's priority hold and the chasing patrol's siren hold still resolve first.
+
+Measured on the check suite's own runs against the lights: `tools/signals.mjs` throughput
+7.44 → 7.14 units/s per car; `tools/eta.mjs` trip-time MAE **4.57s → 2.33s**, because the wait is
+now a small fixed cost per junction rather than whichever phase the taxi happened to meet. The
+longest any car sits still in five minutes drops from ~11s to 4–8s (24 and 40 cars, six seeds), with
+no car ever stuck past 30s.
+
+**It makes the game easier, and nothing has been re-tuned for that.** The soak's fares delivered
+went p10 0 · median 4 · p90 16 → p10 5 · median 11 · p90 12, and `SEC_PER_BLOCK`/`SEC_PER_TURN` now
+score a +0.45s bias (a fit gives 2.86 / 1.49). Both were left alone so `?lights=on` is still the
+game it was; if the stops stay, re-fit and look at the slack curve in
+[difficulty.md](difficulty.md).
+
 The scheme that shipped first was `phaseOffset = ((i + j) % 4) * (CYCLE / 4)` on a 16.2s cycle.
 Measured, that was **4** distinct timings across 36 junctions, **18 of 36** flipping within the
 same half-second, and green-on-arrival at exactly **50%** — pure chance. It waved along the
@@ -734,6 +773,14 @@ right-hand traffic they cut the near corner instead of sweeping the far diagonal
 the arc is over in ~0.35s against a left's ~0.7s and reads as *sped up*. 0.75× cruise gives the
 tight arc its weight back. It is the only deliberate speed drop left in the mode, and it accounts
 for ~9% of boosted frames.
+
+**The speed drop alone does not give a right-hander weight.** A boosting taxi mostly arrives in the
+overdrive band (~30 u/s) and has no room to shed it before a 4-unit arc, so a lean locked to the
+arc's position lasted **7 frames** against a left's 34 — same peak, read as a twitch. The taxi's
+corner lean now runs through an underdamped spring (`CORNER_ROLL_OMEGA`, ζ = 0.40), and on a right
+its window opens at the hold line rather than the junction boundary so the spring's lag lands the
+peak inside the arc. Measured over 6 runs: 38 frames over 0.1 rad, then a 0.18 rad rock back through
+level as it straightens. A left gets the same round out at ~0.12. Taxi only and render-only.
 
 ### Overdrive: only on a straightaway
 
@@ -2483,8 +2530,11 @@ only a shell one level in is hidden, so the two lamps stay in the scene's light 
 **It arrives off screen**, through `enterPolice` — `SPAWN_CLEARANCE` from the taxi and as near it as
 that allows, which puts it just outside the frame. **It cruises near you, not at you**: a patrol
 with no route rolls the ordinary dice and would spend its visit wherever they took it, so each time
-it runs out of road it is pointed at a random corner within two blocks of the taxi. Measured on the
-probe's seed: within three blocks of the taxi for 63% of a patrol.
+it runs out of road it is pointed at a corner within two blocks of the taxi — the one of six drawn
+that is the **shortest route** away, and re-drawn whenever the taxi drives more than three blocks off
+the corner it was headed for. Both halves were measured: the first corner that merely routed was a
+six-leg lap for a cop heading the wrong way (it cannot U-turn), and on the probe's seed after the
+all-way stops landed that left it within three blocks of the taxi for **25%** of a patrol. Now 100%.
 
 **It leaves the way a robbery's cops stand down**: bar dark, routed to the corner furthest from the
 taxi, taken off only once `STAND_DOWN_RANGE` clear (`SPAWN_CLEARANCE` past the timeout, never

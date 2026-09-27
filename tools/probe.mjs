@@ -3813,9 +3813,11 @@ check('no two cars occupy the same space', worst > 1.6,
   // Measured to the frame the lamp changes rather than to the frame it goes dark, so a landing
   // straight into the next junction's indication ends this tail rather than extending it. The
   // median is a couple of frames under SIGNAL_LINGER because the frame that spends the last of it
-  // is the frame the hand clears.
+  // is the frame the hand clears. The floor is a sample size, not a claim: all-way stops cost every
+  // car a pause at each junction, and two minutes now holds 270-298 landings across five seeds
+  // where it held over 300 under the lights.
   check('and it keeps indicating after it lands',
-    gTails.length > 300 && Math.abs(gMedian(gTails) - SIGNAL_LINGER) < 0.1,
+    gTails.length > 250 && Math.abs(gMedian(gTails) - SIGNAL_LINGER) < 0.1,
     `${gTails.length} landings, median ${gMedian(gTails).toFixed(2)}s of lamp after the arc `
     + `against SIGNAL_LINGER ${SIGNAL_LINGER}`);
 }
@@ -4411,6 +4413,44 @@ check('no two cars occupy the same space', worst > 1.6,
     `reached ${(noReason.peak * 2 * LANE).toFixed(2)} units across`);
 
   setPriorityJunction(null);
+}
+
+// --- The boosted corner leans on a spring ------------------------------------
+// A right-hander cuts the near corner, and at the speed a boosting taxi arrives at the arc is over
+// in 7 frames — a lean locked to position was a twitch there, against 34 frames for a left. The
+// taxi's lean now runs through a spring (CORNER_ROLL_OMEGA in sim/traffic.js), so it has to hold
+// long enough to read and then rock back through level on the way out.
+{
+  const traces = { right: [], left: [] };
+  for (let r = 0; r < 4; r++) {
+    const lScene = new THREE.Scene();
+    const lTraffic = createTraffic(makeRng(seed + 900 + r), lScene, 1);
+    const taxi = lTraffic.taxi;
+    const body = lScene.children.find((c) => c.rotation && c.rotation.order === 'YXZ');
+    let cur = null;
+    for (let f = 0; f < 60 * 30; f++) {
+      taxi.boost = true;
+      taxi.boostEasing = false;
+      lTraffic.update(1 / 60);
+      const turning = taxi.state === 'turn' && taxi.turn && taxi.turn.hand !== 'straight';
+      if (turning && !cur) cur = { hand: taxi.turn.hand, roll: [], after: 0 };
+      if (!cur) continue;
+      cur.roll.push(body.rotation.x);
+      if (!turning && ++cur.after > 40) { traces[cur.hand].push(cur.roll); cur = null; }
+    }
+  }
+  const median = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)] ?? 0;
+  const held = traces.right.map((t) => t.filter((x) => Math.abs(x) > 0.1).length);
+  // Rights lean left (negative), so the rock back is the positive swing after it.
+  const rock = traces.right.map((t) => Math.max(0, ...t));
+  check('a boosted right-hander holds its lean long enough to read',
+    traces.right.length > 5 && median(held) >= 25,
+    `${traces.right.length} rights, median ${median(held)} frames over 0.1 rad (was 12)`);
+  check('...and rocks back through level on the way out', median(rock) > 0.08,
+    `median ${median(rock).toFixed(2)} rad the other way`);
+  const leftPeak = traces.left.map((t) => Math.max(...t));
+  check('a boosted left still leans out as hard as it did', traces.left.length > 2
+    && median(leftPeak) > 0.6, `median peak ${median(leftPeak).toFixed(2)} rad`);
 }
 
 // --- Loco Mode momentum cooldown --------------------------------------------
@@ -13913,9 +13953,12 @@ let chopperOrder; // likewise
       // Measured over 12 events on 12 seeds: the set opens a mean of 42 units out and every one of
       // them closes to 5 or better, with a mean closest of 3 — and a cop is inside one block for
       // 57% of the chase and inside half a block for 28% of it. Eight is the loosest bar that still
-      // means "arrived" rather than "passing": a junction is 8 across.
+      // means "arrived" rather than "passing": a junction is 8 across. A set that *opens* inside
+      // that already has a cop at the taxi's junction and has nothing left to close: on the probe's
+      // own seed, once the junctions became all-way stops, the nearest spawned 7.3 out and held
+      // within 8 of a taxi driving away from it, which failed `closest < before` and nothing else.
       check('...and they close on the taxi rather than wander',
-        closest < before && closest < 8,
+        (closest < before || before < 8) && closest < 8,
         `nearest cop ${before.toFixed(0)} units out, ${closest.toFixed(0)} at its closest`);
 
       // The licence check, and the reason the chase is safe to ship: a chasing cop is still in the

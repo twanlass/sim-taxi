@@ -134,6 +134,12 @@ const SIGNAL = {
   arterialZ: new Set(),         // i values: roads running along Z
   dirX: new Map(),              // j -> +1 / -1, the coordinated direction of travel
   dirZ: new Map(),
+  // Every junction the plan would put a light on runs as an **all-way stop** instead. The lamps
+  // are hidden now (main.js hides the stop bars), and a car sitting at an empty junction for
+  // most of a 16s cycle reads as broken when there is nothing on screen telling it to wait. A
+  // stop reads correctly with nothing drawn: pull up, pause, go. The phase plan is still baked
+  // and still answers `lightPhase` for the tools; `?lights=on` puts the sim back on it.
+  stopSigns: true,
 };
 
 export function configureSignals(config) {
@@ -141,6 +147,21 @@ export function configureSignals(config) {
 }
 
 export const signalCycle = () => SIGNAL.cycle;
+
+/**
+ * How long a car sits at a stop line before it may go, in seconds, once it has come to rest.
+ * Long enough to read as a stop at play zoom rather than a brake-dab; short enough that a
+ * crossing with nothing else at it costs the car about what a green used to.
+ */
+export const STOP_DWELL = 0.8;
+
+/**
+ * How long a car that stopped first keeps its turn at an all-way stop before the others stop
+ * waiting for it. First-come-first-served is courtesy, not safety — the box check is what keeps
+ * two crossings apart — so a car that cannot take its turn (a full exit lane, a left waiting on
+ * oncoming) must not hold up every other street behind it indefinitely.
+ */
+export const STOP_PATIENCE = 3;
 
 /**
  * Road hierarchy of the edge you get by leaving (i, j) in direction d.
@@ -590,6 +611,32 @@ const passEaseSlope = (t) => 6 * t * (1 - t);
  * 0.09 first, which was too polite to read at the speed the manoeuvre happens.
  */
 const PASS_BANK = 0.14;
+
+// The taxi's corner lean runs through a spring rather than straight off the arc, and the reason is
+// the boosted **right** turn. Right-hand traffic cuts the near corner, so the arc is ~4 units
+// against a left's ~12, and at the speed a boosting taxi actually arrives at (median ~30 u/s, the
+// overdrive band — the 0.75× right-turn clamp is a target it rarely has time to reach) that is
+// **7 frames** of lean against the left's 34, measured over 6 runs. Same peak, so it was never
+// the size of the lean that was missing: a lean locked to position is over the moment the arc is,
+// and a body that goes over and comes back in an eighth of a second reads as a twitch.
+//
+// A spring decouples the body from the path: it loads up behind the arc and then rocks back
+// through level once as the car straightens, which is what gives a corner its weight on the way
+// out. Underdamped like the pitch spring and for the same reason — the overshoot *is* the round
+// out. ζ = DAMP / (2·ω) = 0.40.
+//
+// For a right-hander the target also opens at the **hold line** instead of the junction boundary —
+// the lean starts through the `STOP_SETBACK` run-up — because the spring lags by about a tenth of
+// a second, which is most of a 4-unit arc at 30 u/s; opened at the boundary, the lean would peak
+// after the car had already straightened. A left's arc is long enough to absorb the lag and keeps
+// its window. Render-only, like the rest of the body motion: nothing in the sim reads it.
+//
+// Taxi only. Ambient cars corner at CORNER_SPEED, where the arc is slow enough that position and
+// time agree, and a sprung body under 24 cars is 24 more things rocking in the corner of the eye.
+const CORNER_ROLL_OMEGA = 13;    // rad/s — a period of ~0.5s, one visible rock back after the exit
+const CORNER_ROLL_DAMP = 10.4;   // 1/s, against ω = 13: ζ = 0.40, the pitch spring's
+const CORNER_ROLL_GAIN = 1.25;   // boosted rights only: a spring's peak lands under a pulse this short
+const CORNER_ROLL_LIMIT = 0.72;  // rad — the overshoot is capped, not the target
 const PASS_BANK_EASE = 2.5;      // units of road for the roll to reach its target — suspension, not a hinge
 /**
  * How much crab angle counts as breaking traction, for the rubber laid during a lane change.
@@ -788,7 +835,11 @@ export const displayPhase = (i, j, t) => lightPhase(i, j, t, true);
  * exactly as `displayPhase` does and for the reason above it.
  */
 function displaySignal(lane, t) {
-  return cityNetwork().laneSignal(lane, t);
+  const net = cityNetwork();
+  const node = net.nodeById.get(lane.to);
+  // A stop line is a stop line for everyone; nothing cycles.
+  if (SIGNAL.stopSigns && node.signal) return { open: false, yellow: false };
+  return net.laneSignal(lane, t);
 }
 
 /**
@@ -831,6 +882,16 @@ function approachSignal(car, t) {
     return {
       signalised: true, open: sirenHold.axis === mine, yellow: false, remaining: Infinity,
       street: streetOnAxis(sirenHold.axis),
+    };
+  }
+  // An all-way stop. `open` is false so the approach brakes to the line exactly as it would for a
+  // red; whether the car may then go is decided at the line (`stopSignClear`), because it
+  // depends on how long it has stood there and on who else has. Not `signalised`: nothing here
+  // is a red, so nothing crossing it is a violation or a right-on-red.
+  if (SIGNAL.stopSigns && node.signal) {
+    return {
+      signalised: false, stop: true, open: false, yellow: false, remaining: Infinity,
+      street: car.lane.phase,
     };
   }
   return cityNetwork().laneSignal(car.lane, t);
@@ -1790,6 +1851,9 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // Longitudinal-accel rocking. Spring-damped, so both a stop and a pull-away end on a bounce.
       pitch: 0,
       pitchV: 0,
+      // The taxi's corner lean, sprung — see CORNER_ROLL_OMEGA. Ambient cars never touch these.
+      cornerRoll: 0,
+      cornerRollV: 0,
       // 0..1 brightness for the brake and turn-signal light pods. brakeLevel is eased (see
       // BRAKE_LIGHT_RISE/FALL) — off frame one along with prevV/v agreeing there is no accel yet.
       // The turn-signal levels are not eased; they jump straight to their blink target.
@@ -1965,6 +2029,7 @@ export function placeCar(car, d, i, j, back) {
   car.turn = null;
   car.state = 'drive';
   car.turnT = 0;
+  car.stopAt = null;
   syncGrid(car);
   car.dOut = car.d;
   return true;
@@ -2019,6 +2084,8 @@ export function stageCar(car, x, z, yaw) {
   car.intentTurn = null;
   car.pitch = 0;
   car.pitchV = 0;
+  car.cornerRoll = 0;
+  car.cornerRollV = 0;
   car.wheelAngle = 0;
   // Both differencers the render pass keeps, primed so the first staged frame reports no step.
   // `prevTravelled` feeds the steering ease and `prevSteerYaw` the wheel angle — a stale pair
@@ -3214,6 +3281,52 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     return streetIsClear(car, sig.street, RIGHT_ON_RED_YIELD, approaching);
   }
 
+  /**
+   * May a car standing at an all-way stop go?
+   *
+   * Three things, in the order a driver asks them. It has **stopped**, and stood for `STOP_DWELL`
+   * — a police car only has to touch the line, which is its licence here the way the chase-on-red
+   * is at a light. The **box** holds nobody from another street: the same street may run both
+   * ways at once, exactly as it did on a shared green, and the left turn across it still yields
+   * through `leftYieldBlocked`. And it is **its turn**: no front car on another street stopped
+   * before it, unless that car has been stuck there for `STOP_PATIENCE` and cannot be what
+   * everyone is waiting for.
+   *
+   * The box test reads live state, so two cars cleared on the same frame cannot both enter: the
+   * first one is already `turn` by the time the second one asks.
+   */
+  function stopSignClear(car, t, approaching) {
+    const node = net.nodeById.get(car.lane.to);
+    if (car.stopAt && car.stopAt.node !== node.id) car.stopAt = null;
+    if (car.v > 0.05) return false;
+    if (!car.stopAt) car.stopAt = { node: node.id, t };
+    // Any police car rolls it, standing down included: a cop leaving the scene has a backstop to
+    // clear the map by (`STAND_DOWN_TIMEOUT`), and a full stop at every junction on the way out
+    // left 3 or 4 of the fleet still in shot after it on four seeds out of five.
+    const dwell = car.police ? 0 : STOP_DWELL;
+    if (t - car.stopAt.t < dwell) return false;
+
+    const street = car.lane.phase;
+    for (const other of cars) {
+      if (other === car || other.crashed || other.staged) continue;
+      if (other.state !== 'turn' || other.turn?.node !== node.id) continue;
+      if (net.laneById.get(other.turn.inLane)?.phase !== street) return false;
+    }
+
+    for (const lane of node.inbound) {
+      if (lane.phase === street) continue;
+      let front = null;
+      for (const other of approaching.get(lane.id) ?? []) {
+        if (!front || other.s > front.s) front = other;
+      }
+      const since = front?.stopAt?.node === node.id ? front.stopAt.t : Infinity;
+      if (t - since > STOP_DWELL + STOP_PATIENCE) continue;
+      if (since < car.stopAt.t) return false;
+      if (since === car.stopAt.t && cars.indexOf(front) < cars.indexOf(car)) return false;
+    }
+    return true;
+  }
+
   /** The ring never stops, so a car joining it has to find a real gap. */
   function ringGapClear(car, approaching) {
     const node = net.nodeById.get(car.lane.to);
@@ -4327,7 +4440,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           // A chasing cop waved through a red on a clear box — see the gate below. Tracked so the
           // crossing is counted as sanctioned rather than as a signal violation.
           let viaChaseOnRed = false;
-          if (!arrive.signalised) {
+          if (arrive.stop) {
+            // An all-way stop: see `stopSignClear`. Same `held` guard as every other branch.
+            const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car) && !joinsBlock(car);
+            green = stopSignClear(car, t, approaching) && !held;
+          } else if (!arrive.signalised) {
             // No signal here. The priority street runs; anyone joining waits for a real gap.
             //
             // ...and nobody drives into a box something is stopped in, which this branch did not
@@ -4581,6 +4698,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
             + Math.hypot(car.exit.x - car.control.x, car.exit.z - car.control.z),
           );
           car.state = 'turn';
+          car.stopAt = null;
           stats.moving += 1;
           continue;
         }
@@ -4904,14 +5022,25 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // Body roll through a corner. Leans *outward* — away from the turn centre — because that
       // is what weight transfer does, and leaning inward reads as a motorbike.
       let roll = 0;
+      // The taxi's right-hander opens its window at the hold line — see CORNER_ROLL_OMEGA.
+      const early = car.isTaxi && car.state === 'turn' && car.turn.hand === 'right';
       if (car.state === 'turn') {
-        const along01 = (Math.min(car.turnT, 1) * car.turnLen - car.leadIn)
-          / Math.max(1e-6, car.turnLen - car.leadIn);
+        const start = early ? 0 : car.leadIn;
+        const along01 = (Math.min(car.turnT, 1) * car.turnLen - start)
+          / Math.max(1e-6, car.turnLen - start);
         if (along01 > 0) {
           const turnDir = car.turn.hand === 'right' ? 1 : car.turn.hand === 'left' ? -1 : 0;
           const lean = 0.3 * Math.min(2.2, Math.max(0.7, car.v / SPEED));
           roll = -turnDir * lean * Math.sin(Math.PI * Math.min(1, along01));
         }
+      }
+      if (car.isTaxi) {
+        // Semi-implicit Euler, as the pitch spring below: stable at any frame rate this game sees.
+        const target = roll * (early && car.boost ? CORNER_ROLL_GAIN : 1);
+        car.cornerRollV += ((target - car.cornerRoll) * CORNER_ROLL_OMEGA * CORNER_ROLL_OMEGA
+          - car.cornerRollV * CORNER_ROLL_DAMP) * dt;
+        car.cornerRoll += car.cornerRollV * dt;
+        roll = Math.max(-CORNER_ROLL_LIMIT, Math.min(CORNER_ROLL_LIMIT, car.cornerRoll));
       }
 
       // And the lane change leans too — but the *other way* from the corner above it, and that is a

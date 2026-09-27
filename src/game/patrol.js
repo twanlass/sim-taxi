@@ -221,16 +221,36 @@ export function createPatrol({
     state.patrols += 1;
   }
 
-  /** Out of road: pick a corner near the taxi to drive to next. */
+  // The corner the patrol is cruising to. Kept so a stale one can be dropped — see `cruise`.
+  let cruisingTo = null;
+
+  /**
+   * Out of road, or heading somewhere the taxi has since left: pick a corner near the taxi to drive
+   * to next. The re-aim is keyed on the target falling out of reach rather than done every frame
+   * (see `aimedAt`), and it is not optional: a corner picked near where the taxi *was* can be a
+   * six-leg route away, and the probe's patrol spent three quarters of its visit more than three
+   * blocks off a taxi that simply drove on.
+   */
   function cruise(cop) {
-    if (cop.route?.length) return;
+    const stale = cruisingTo && Math.max(
+      Math.abs(cruisingTo.i - taxi.i), Math.abs(cruisingTo.j - taxi.j)) > PATROL_REACH + 1;
+    if (cop.route?.length && !stale) return;
+    // The nearest of a few, by route rather than by grid: a cop heading away from a corner cannot
+    // U-turn, so the first corner that merely *routes* was a six-leg lap round the far side of town
+    // often enough to matter.
+    let best = null;
     for (let attempt = 0; attempt < 6; attempt++) {
       const target = {
         i: clampI(taxi.i + rng.int(-PATROL_REACH, PATROL_REACH)),
         j: clampJ(taxi.j + rng.int(-PATROL_REACH, PATROL_REACH)),
       };
-      if (routeTo(cop, target)) return;
+      const route = findRoute(planOrigin(cop), target);
+      if (route?.length && (!best || route.length < best.route.length)) best = { target, route };
     }
+    if (!best) return;
+    cop.route = best.route;
+    cop.routeConsumed = false;
+    cruisingTo = best.target;
   }
 
   /**
