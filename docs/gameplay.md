@@ -289,14 +289,25 @@ invisible to everything else.
 
 ### The HUD arrives afterwards
 
-The money counter, the [multiplier counter](#the-multiplier-counter), the Loco Mode pill and the
-brake all start off their own screen edge and slide in together the moment the last bubble is
-dismissed (the [rider chips](#finding-the-next-rider) rode in with them, and still do under
-`?chips=on`). A run used to open with all of them already lit, every one reading zero and answering
-a question nobody had asked yet. `main.js` adds `body.hud-ready`; with no tutorial to wait for (`?tutorial=off`, shot mode) they
-are simply there from the first frame.
+The money counter, the [multiplier counter](#the-multiplier-counter) and the ⏸ start off their own
+screen edge and slide in together the moment the last bubble is dismissed (the
+[rider chips](#finding-the-next-rider) rode in with them, and still do under `?chips=on`). A run used
+to open with all of them already lit, every one reading zero and answering a question nobody had
+asked yet. `main.js` adds `body.hud-ready`; with no tutorial to wait for (`?tutorial=off`, shot mode)
+they are simply there from the first frame.
 
-The offset is the standalone `translate` property, **not** a transform. Three of those four already
+**The two pedals come in earlier**, on `body.pedals-ready`: the frame the
+[opening vignette](#the-opening-vignette) hands the taxi back to the lane, with its pull-back still
+running (`pedalsDue` in `main.js`). They used to wait for `hud-ready` too, which meant the pull-back,
+the tutorial's breath, the pan to the rider, the line typing itself out and the tap that answers it —
+several seconds of a live taxi with nothing to press, which read as the game not having started. A
+counter can wait for a lesson; a control is the thing the lesson is standing in front of. A press on
+the pill during the rider beat ends that beat (`holdLocoMode` calls `tutorial.dismiss()`), which was
+already true for the spacebar. Not before the handover — a staged car burns fuel going nowhere — and
+not under a skip's black, the Home Screen tip or the city's own entrance. The stylesheet treats
+`hud-ready` as implying `pedals-ready`, so nothing that sets the one has to know about the other.
+
+The offset is the standalone `translate` property, **not** a transform. Three of the HUD's pieces already
 animate their own transform — the money bump, the streak bump, the Loco Mode press dip and its
 top-up flutter — and a `body.hud-ready #boost { transform: none }` outranks `#boost:active` on
 specificity, which would quietly kill the press feedback for the rest of the run.

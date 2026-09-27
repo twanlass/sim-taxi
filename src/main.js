@@ -1845,6 +1845,10 @@ const wantsVignette = new URLSearchParams(window.location.search).get('vignette'
 // bubble that started typing under the black would have spent half its line by the time the screen
 // came back. Null in shot mode, which has no vignette to skip. See game/wipe.js.
 const wipe = shot ? null : createWipe(document.getElementById('wipe'));
+// The pedals come in on their own cue, ahead of the rest of the HUD — see `pedalsDue` in the
+// frame loop. `hud-ready` implies them (in the stylesheet), so a run with no tutorial gets
+// everything on frame one.
+const revealPedals = () => document.body.classList.add('pedals-ready');
 const revealHud = () => document.body.classList.add('hud-ready');
 
 // Set on the first successful press of Loco Mode, and never cleared. The tutorial's third beat
@@ -1919,11 +1923,12 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   },
 });
 
-// The money counter, the streak counter, the Loco Mode pill and the rider chips all start off
-// their own screen edge and slide in together — see the HUD entrance block in index.html. A run
-// used to open with all four already lit, every one of them reading zero and answering a question
-// nobody had asked yet. They arrive when the tutorial stops talking; with no tutorial to wait for
-// (`?tutorial=off`, shot mode) they are simply there from the first frame.
+// The money counter, the streak counter and the rider chips start off their own screen edge and
+// slide in together — see the HUD entrance block in index.html. A run used to open with all of them
+// already lit, every one reading zero and answering a question nobody had asked yet. They arrive
+// when the tutorial stops talking; with no tutorial to wait for (`?tutorial=off`, shot mode) they
+// are simply there from the first frame. The two pedals are the exception and come in earlier —
+// see `pedalsDue` in the frame loop.
 if (!tutorial) revealHud();
 
 // --- HUD --------------------------------------------------------------------
@@ -2923,6 +2928,16 @@ const homeTip = shot ? null : createHomeScreenTip(document.getElementById('home-
 // for a beat after that, and a board seeded under it opens the run with a rider whose entrance the
 // player never saw.
 const NO_FARE_EVENTS = [];
+/**
+ * Is the taxi on the road and the screen the player's to see? Not before the vignette's handover
+ * (a staged car has nowhere to boost to, and fuel spent on one is simply lost), not behind a
+ * skip's black or the Home Screen tip, and not while the city is still building itself, which
+ * `?vignette=off` would otherwise put the pedals on top of.
+ */
+let pedalsShown = false;
+const pedalsDue = () => !cityEntry.running() && !homeTip?.state.holding && !wipe?.covering()
+  && !(opening?.running() && opening.phase() !== 'release');
+
 const fareLoopHeld = () => Boolean(homeTip?.state.holding) || Boolean(opening?.running())
   || Boolean(wipe?.covering());
 
@@ -3068,6 +3083,14 @@ function frame() {
   // the car's position, heading and speed by hand, and the render pass inside `traffic.update`
   // reads them on the same frame. See game/opening.js for the staging split.
   opening?.update(dt);
+  // The pedals arrive the moment the taxi is the player's to drive — on the lane, with the
+  // vignette's pull-back still running — rather than with the rest of the HUD. They used to wait
+  // for `hud-ready`, which is the *tutorial's* second beat being answered: the pull-back, a
+  // breath, a pan to the rider, a bubble typing itself out and a tap. Several seconds of a live
+  // taxi on a live road with nothing to press, which read as the game not having started yet.
+  // The counters can wait for the lesson; a control cannot, because it is the thing the lesson is
+  // standing in front of. A press during the rider beat ends it, by design (`holdLocoMode`).
+  if (!pedalsShown && pedalsDue()) { pedalsShown = true; revealPedals(); }
   // ...and the drive-through is the same claim about somebody else's car: while one is in the lot
   // this is its physics, so it has to have written the position before the render pass reads it.
   driveThru?.update(dt);
