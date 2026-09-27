@@ -32,7 +32,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, setPriorityCorridor, policeRoads, setPoliceRoads, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
-  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP } from '../src/sim/traffic.js';
+  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
@@ -14464,6 +14464,10 @@ let chopperOrder; // likewise
         // blocking — on a lane (the brake check) and in a box (the junction block). Arterials keep
         // the half-lane placement (`blocksOnCentreline`) and are left out.
         const offLane = []; const offBox = [];
+        // The cops drive like the taxi: rubber and a squeal (`copLaysRubber`), and the taxi's
+        // sprung corner lean. Counted per slide rather than per frame, the way the squeal fires.
+        const slides = { corner: 0, pass: 0, slew: 0 }; const sliding = new Set();
+        let ambientRubber = 0; let copRoll = 0; let heard = 0; let corners = 0; const inTurn = new Set();
         for (let k = 0; k < 6; k++) {
           const s3 = new THREE.Scene();
           const t3 = createTraffic(makeRng(seed + 300 + k * 17), s3, 18, 30);
@@ -14488,8 +14492,23 @@ let chopperOrder; // likewise
             }
             t3.update(1 / 60);
             r3.update(1 / 60);
+            for (const car of t3.cars) if (!car.police && copLaysRubber(car)) ambientRubber += 1;
             for (const cop of t3.policeCars) {
               if (cop.crashed) continue;
+              copRoll = Math.max(copRoll, Math.abs(cop.cornerRoll));
+              if (cop.state === 'turn' && cop.dOut !== cop.d) {
+                if (!inTurn.has(cop)) { inTurn.add(cop); corners += 1; }
+              } else inTurn.delete(cop);
+              if (copLaysRubber(cop)) {
+                if (!sliding.has(cop)) {
+                  sliding.add(cop);
+                  // COP_SQUEAL_FAR in main.js: past it the squeal is silent.
+                  if (Math.hypot(cop.x - tx.x, cop.z - tx.z) < 55) heard += 1;
+                  if (cop.state === 'turn' && cop.dOut !== cop.d) slides.corner += 1;
+                  else if (cop.roadblock > 0) slides.slew += 1;
+                  else slides.pass += 1;
+                }
+              } else sliding.delete(cop);
               if (cop.passing) went.add(cop);
               if (cop.roadblock > 0 && !cop.blocking) checked.add(cop);
               // Fully swung across the road it is blocking: 45° off it, give or take whatever the
@@ -14529,6 +14548,11 @@ let chopperOrder; // likewise
         check('the police box the taxi in: roadblocks, overtakes and brake checks',
           events > 0 && roadblocks > 0 && passes > 0 && checks > 0,
           `${events} getaways: ${roadblocks} roadblocks (${pairs} paired), ${passes} passes, ${checks} brake checks`);
+        check('chasing cops lay rubber and lean like the taxi — corners, passes, and into a roadblock',
+          slides.corner > 0 && slides.pass > 0 && ambientRubber === 0 && copRoll > 0.2,
+          `${slides.corner} of ${corners} corners, ${slides.pass} pass, ${slides.slew} roadblock slides `
+          + `(${heard} in earshot); `
+          + `${ambientRubber} ambient frames; peak sprung lean ${copRoll.toFixed(2)} rad`);
         check('...and a blocking cop stands at 45° across the road, not square in its lane',
           slewed.length > 0 && Math.max(...slewed) < 0.05,
           `${slewed.length} frames fully swung, worst ${(Math.max(0, ...slewed) * 180 / Math.PI).toFixed(1)}° off the diagonal`);

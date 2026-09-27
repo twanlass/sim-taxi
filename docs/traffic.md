@@ -2472,6 +2472,14 @@ That is the same cue and the same constant `sim/police.js` uses for its own lock
 described as the only thing telling the player the run has become about them. A cop car cruising past
 on its own business and one that has turned to come after you are otherwise the same blue car.
 
+**It drives like the taxi, too.** A chasing cop gets the taxi's sprung corner lean
+(`CORNER_ROLL_*` — the early window on a right-hander and the gain included, with `chase` standing in
+for the pill), and lays rubber and squeals where the taxi would: a real corner past the lead-in at
+`COP_SKID_V` or better, its own overtake's crab angle, and the swing into a roadblock
+(`copLaysRubber`, drawn from `copRubber` in `main.js`). The spring is keyed on `police` rather than
+`chase` so a cop standing down mid-corner settles instead of snapping. The squeal is `copSkid`, faded
+by distance from the taxi and gapped fleet-wide — see [audio.md](audio.md#what-plays-when).
+
 Three things worth knowing about how it is drawn:
 
 - **The livery is a tint, not a mesh.** An ambient car's body is baked white and multiplied by its

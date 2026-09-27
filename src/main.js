@@ -15,7 +15,8 @@ import { createProps } from './city/props.js';
 import { createGarage } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import {
-  createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, SPEED, ROAD_Y,
+  createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
+  ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
   configureSignals,
 } from './sim/traffic.js';
@@ -2862,9 +2863,10 @@ function spillCash(dt) {
 const POLICE_SLIDE_RATE = 2.6;
 let lastPoliceSkidAt = 0;
 let lastPoliceDustAt = 0;
+let policeWasSliding = false;
 function policeRubber() {
   const p = police.state;
-  if (!p.chasing) return;
+  if (!p.chasing) { policeWasSliding = false; return; }
 
   const yaw = police.group.rotation.y;
   const fx = Math.cos(yaw);
@@ -2873,6 +2875,8 @@ function policeRubber() {
   const rz = Math.cos(yaw);
 
   const sliding = p.uturn !== null || Math.abs(p.yawRate) > POLICE_SLIDE_RATE;
+  if (sliding && !policeWasSliding) copSquealAt(police.group.position.x, police.group.position.z);
+  policeWasSliding = sliding;
   if (!sliding) {
     lastPoliceSkidAt = p.travelled;
   } else if (p.travelled - lastPoliceSkidAt >= 0.42) {
@@ -2891,6 +2895,48 @@ function policeRubber() {
   if (p.travelled - lastPoliceDustAt < 0.47) return;
   lastPoliceDustAt = p.travelled;
   dust.add(police.group.position.x - fx * 1.9, police.group.position.z - fz * 1.9, yaw);
+}
+
+// A police squeal, heard from where the taxi is. The camera follows the taxi, so distance from it
+// is distance from the middle of the screen: full level inside COP_SQUEAL_NEAR, gone by
+// COP_SQUEAL_FAR, which is about where a car leaves the frame on a phone at play zoom. Past that
+// it is a car the player cannot see, and a squeal with nothing to hang it on reads as the taxi's.
+// A touch of pitch spread so a fleet cornering in turn is four cars rather than one sample.
+const COP_SQUEAL_NEAR = 18;
+const COP_SQUEAL_FAR = 55;
+function copSquealAt(x, z) {
+  const d = Math.hypot(x - traffic.taxi.x, z - traffic.taxi.z);
+  const level = Math.min(1, Math.max(0, (COP_SQUEAL_FAR - d) / (COP_SQUEAL_FAR - COP_SQUEAL_NEAR)));
+  if (level > 0) sfx?.play('copSkid', { gain: level, rate: 0.94 + Math.random() * 0.12 });
+}
+
+// The robbery's cops in a chase lay rubber and squeal the way the taxi does — corners carried at
+// speed, their own overtake, and the swing into a roadblock. The rule is `copLaysRubber` in
+// sim/traffic.js; this is only the pools. Rear wheels off the anchors the ambient body is built
+// at, and per car, so spacing and the once-per-slide squeal each follow their own car.
+const COP_REAR = wheelAnchors(CAR_LEN, CAR_W).find((w) => !w.front && w.z > 0);
+const copSkidAt = new WeakMap();
+const copWasSliding = new WeakSet();
+function copRubber() {
+  for (const car of traffic.policeCars) {
+    const sliding = copLaysRubber(car);
+    if (sliding && !copWasSliding.has(car)) copSquealAt(car.x, car.z);
+    if (sliding) copWasSliding.add(car); else copWasSliding.delete(car);
+    if (!sliding) { copSkidAt.set(car, car.travelled); continue; }
+    if (car.travelled - (copSkidAt.get(car) ?? -Infinity) < 0.42) continue;
+    copSkidAt.set(car, car.travelled);
+    const fx = Math.cos(car.yaw);
+    const fz = -Math.sin(car.yaw);
+    const rx = Math.sin(car.yaw);
+    const rz = Math.cos(car.yaw);
+    for (const side of [-1, 1]) {
+      skids.add(
+        car.x + fx * COP_REAR.x + rx * side * COP_REAR.z,
+        car.z + fz * COP_REAR.x + rz * side * COP_REAR.z,
+        car.yaw,
+      );
+    }
+  }
 }
 
 // The "add it to your Home Screen" screen, on iOS in a browser tab — the one platform with no
@@ -3428,6 +3474,7 @@ function frame() {
   // `traffic.update` would sit visibly off the back of the bumper the whole time it burned.
   locoFlame.update(dt, traffic.taxi, boost.isActive());
   policeRubber();
+  copRubber();
   // Beside the cruiser's own rubber and for the same reason: `sim/` publishes where its cars are
   // and this side owns anything that reaches into the scene. Off the sim clock the bars strobe on
   // (`stats.time`), so the wash on the road and the lamp over it are one siren.

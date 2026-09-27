@@ -671,8 +671,14 @@ const PASS_BANK = 0.14;
 // after the car had already straightened. A left's arc is long enough to absorb the lag and keeps
 // its window. Render-only, like the rest of the body motion: nothing in the sim reads it.
 //
-// Taxi only. Ambient cars corner at CORNER_SPEED, where the arc is slow enough that position and
-// time agree, and a sprung body under 24 cars is 24 more things rocking in the corner of the eye.
+// The taxi and the police. Ambient cars corner at CORNER_SPEED, where the arc is slow enough that
+// position and time agree, and a sprung body under 24 cars is 24 more things rocking in the corner
+// of the eye. A chasing cop is not one of them: it takes a corner at CHASE_CORNER_SPEED (15.6),
+// which puts it in the taxi's regime — a right-hander over in a quarter of a second — and the
+// point of the chase is that the police are driving the way the player is. So a cop gets the
+// taxi's spring, early window and gain while `chase` is on. Keyed on `police` for the spring
+// itself rather than on `chase`, so a cop that stands down mid-corner keeps its spring and settles
+// rather than snapping from the sprung roll to the raw one; at most POLICE_FLEET of them exist.
 const CORNER_ROLL_OMEGA = 13;    // rad/s — a period of ~0.5s, one visible rock back after the exit
 const CORNER_ROLL_DAMP = 10.4;   // 1/s, against ω = 13: ζ = 0.40, the pitch spring's
 const CORNER_ROLL_GAIN = 1.25;   // boosted rights only: a spring's peak lands under a pulse this short
@@ -698,6 +704,38 @@ export const PASS_RUBBER_SLOPE = 0.2;
  */
 export const laysPassRubber = (car) => Boolean(car.boost)
   && Math.abs(car.passSlope) > PASS_RUBBER_SLOPE;
+
+/**
+ * How fast a chasing cop has to be taking a real corner before it lays rubber and squeals.
+ *
+ * Above the 5.95 an ordinary car corners at, so a cop turning away from a red at the pace of
+ * everybody else stays quiet, and well under the 15.6 a chase takes a corner at. It is not what
+ * thins the squeals out and cannot be: measured over the probe's six getaways, 162 of 175 chase
+ * corners clear 9, 152 clear 12 and 148 still clear 14 — a chasing cop carries speed into nearly
+ * every corner, which is the point of it. The fleet's squeal is thinned by `copSkid`'s `minGap`
+ * in assets/audio/mix.json instead, and the rubber goes down on every one. The taxi needs no such
+ * floor: it only squeals on the pill, and the pill is speed.
+ */
+export const COP_SKID_V = 9;
+
+/**
+ * Is this cop sliding hard enough to leave rubber — the taxi's cornering, overtake and brake
+ * rules, pointed at a police car in a chase?
+ *
+ * Three ways, each one the taxi already has: a real turn (`dOut !== d`, not a straight crossing —
+ * see the trap in CLAUDE.md) past the lead-in, at `COP_SKID_V` or better; the crab angle of the
+ * cop's own overtake past `PASS_RUBBER_SLOPE`; and the swing to 45° into a roadblock or a brake
+ * check while the car is still moving, which the robbery docs already describe as the cop skidding
+ * to rest. Exported for the same reason as `laysPassRubber`: `main.js` owns the effect pools and
+ * cannot be imported headlessly, so the rule lives where the probe can ask it.
+ */
+export function copLaysRubber(car) {
+  if (!car.police || !(car.chase > 0) || car.crashed || car.staged) return false;
+  if (car.state === 'turn' && car.dOut !== car.d && car.v > COP_SKID_V
+    && Math.min(car.turnT, 1) * car.turnLen > car.leadIn) return true;
+  if (Math.abs(car.passSlope) > PASS_RUBBER_SLOPE) return true;
+  return car.roadblock > 0 && car.slew > 0 && car.slew < 1 && car.v > 2;
+}
 
 /**
  * Is the car in front actually in front of *this* car — i.e. in the lane it is occupying?
@@ -5195,8 +5233,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // Body roll through a corner. Leans *outward* — away from the turn centre — because that
       // is what weight transfer does, and leaning inward reads as a motorbike.
       let roll = 0;
-      // The taxi's right-hander opens its window at the hold line — see CORNER_ROLL_OMEGA.
-      const early = car.isTaxi && car.state === 'turn' && car.turn.hand === 'right';
+      // The taxi's right-hander opens its window at the hold line — see CORNER_ROLL_OMEGA. So does
+      // a chasing cop's, which arrives at the same kind of speed.
+      const hard = car.isTaxi ? car.boost : car.chase > 0;
+      const early = (car.isTaxi || car.chase > 0) && car.state === 'turn' && car.turn.hand === 'right';
       if (car.state === 'turn') {
         const start = early ? 0 : car.leadIn;
         const along01 = (Math.min(car.turnT, 1) * car.turnLen - start)
@@ -5207,9 +5247,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           roll = -turnDir * lean * Math.sin(Math.PI * Math.min(1, along01));
         }
       }
-      if (car.isTaxi) {
+      if (car.isTaxi || car.police) {
         // Semi-implicit Euler, as the pitch spring below: stable at any frame rate this game sees.
-        const target = roll * (early && car.boost ? CORNER_ROLL_GAIN : 1);
+        const target = roll * (early && hard ? CORNER_ROLL_GAIN : 1);
         car.cornerRollV += ((target - car.cornerRoll) * CORNER_ROLL_OMEGA * CORNER_ROLL_OMEGA
           - car.cornerRollV * CORNER_ROLL_DAMP) * dt;
         car.cornerRoll += car.cornerRollV * dt;
