@@ -651,6 +651,32 @@ const passEaseSlope = (t) => 6 * t * (1 - t);
  * 0.09 first, which was too polite to read at the speed the manoeuvre happens.
  */
 const PASS_BANK = 0.14;
+
+// The taxi's corner lean runs through a spring rather than straight off the arc, and the reason is
+// the boosted **right** turn. Right-hand traffic cuts the near corner, so the arc is ~4 units
+// against a left's ~12, and at the speed a boosting taxi actually arrives at (median ~30 u/s, the
+// overdrive band — the 0.75× right-turn clamp is a target it rarely has time to reach) that is
+// **7 frames** of lean against the left's 34, measured over 6 runs. Same peak, so it was never
+// the size of the lean that was missing: a lean locked to position is over the moment the arc is,
+// and a body that goes over and comes back in an eighth of a second reads as a twitch.
+//
+// A spring decouples the body from the path: it loads up behind the arc and then rocks back
+// through level once as the car straightens, which is what gives a corner its weight on the way
+// out. Underdamped like the pitch spring and for the same reason — the overshoot *is* the round
+// out. ζ = DAMP / (2·ω) = 0.40.
+//
+// For a right-hander the target also opens at the **hold line** instead of the junction boundary —
+// the lean starts through the `STOP_SETBACK` run-up — because the spring lags by about a tenth of
+// a second, which is most of a 4-unit arc at 30 u/s; opened at the boundary, the lean would peak
+// after the car had already straightened. A left's arc is long enough to absorb the lag and keeps
+// its window. Render-only, like the rest of the body motion: nothing in the sim reads it.
+//
+// Taxi only. Ambient cars corner at CORNER_SPEED, where the arc is slow enough that position and
+// time agree, and a sprung body under 24 cars is 24 more things rocking in the corner of the eye.
+const CORNER_ROLL_OMEGA = 13;    // rad/s — a period of ~0.5s, one visible rock back after the exit
+const CORNER_ROLL_DAMP = 10.4;   // 1/s, against ω = 13: ζ = 0.40, the pitch spring's
+const CORNER_ROLL_GAIN = 1.25;   // boosted rights only: a spring's peak lands under a pulse this short
+const CORNER_ROLL_LIMIT = 0.72;  // rad — the overshoot is capped, not the target
 const PASS_BANK_EASE = 2.5;      // units of road for the roll to reach its target — suspension, not a hinge
 /**
  * How much crab angle counts as breaking traction, for the rubber laid during a lane change.
@@ -1955,6 +1981,9 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // Longitudinal-accel rocking. Spring-damped, so both a stop and a pull-away end on a bounce.
       pitch: 0,
       pitchV: 0,
+      // The taxi's corner lean, sprung — see CORNER_ROLL_OMEGA. Ambient cars never touch these.
+      cornerRoll: 0,
+      cornerRollV: 0,
       // 0..1 brightness for the brake and turn-signal light pods. brakeLevel is eased (see
       // BRAKE_LIGHT_RISE/FALL) — off frame one along with prevV/v agreeing there is no accel yet.
       // The turn-signal levels are not eased; they jump straight to their blink target.
@@ -2182,6 +2211,8 @@ export function stageCar(car, x, z, yaw) {
   car.intentTurn = null;
   car.pitch = 0;
   car.pitchV = 0;
+  car.cornerRoll = 0;
+  car.cornerRollV = 0;
   car.wheelAngle = 0;
   // Both differencers the render pass keeps, primed so the first staged frame reports no step.
   // `prevTravelled` feeds the steering ease and `prevSteerYaw` the wheel angle — a stale pair
@@ -5102,14 +5133,25 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // Body roll through a corner. Leans *outward* — away from the turn centre — because that
       // is what weight transfer does, and leaning inward reads as a motorbike.
       let roll = 0;
+      // The taxi's right-hander opens its window at the hold line — see CORNER_ROLL_OMEGA.
+      const early = car.isTaxi && car.state === 'turn' && car.turn.hand === 'right';
       if (car.state === 'turn') {
-        const along01 = (Math.min(car.turnT, 1) * car.turnLen - car.leadIn)
-          / Math.max(1e-6, car.turnLen - car.leadIn);
+        const start = early ? 0 : car.leadIn;
+        const along01 = (Math.min(car.turnT, 1) * car.turnLen - start)
+          / Math.max(1e-6, car.turnLen - start);
         if (along01 > 0) {
           const turnDir = car.turn.hand === 'right' ? 1 : car.turn.hand === 'left' ? -1 : 0;
           const lean = 0.3 * Math.min(2.2, Math.max(0.7, car.v / SPEED));
           roll = -turnDir * lean * Math.sin(Math.PI * Math.min(1, along01));
         }
+      }
+      if (car.isTaxi) {
+        // Semi-implicit Euler, as the pitch spring below: stable at any frame rate this game sees.
+        const target = roll * (early && car.boost ? CORNER_ROLL_GAIN : 1);
+        car.cornerRollV += ((target - car.cornerRoll) * CORNER_ROLL_OMEGA * CORNER_ROLL_OMEGA
+          - car.cornerRollV * CORNER_ROLL_DAMP) * dt;
+        car.cornerRoll += car.cornerRollV * dt;
+        roll = Math.max(-CORNER_ROLL_LIMIT, Math.min(CORNER_ROLL_LIMIT, car.cornerRoll));
       }
 
       // And the lane change leans too — but the *other way* from the corner above it, and that is a
