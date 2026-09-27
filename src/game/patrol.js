@@ -73,6 +73,43 @@ export const ESCAPE_BLOCKS = 3;
 const ESCAPE_RANGE = ESCAPE_BLOCKS * PITCH;
 
 /**
+ * ...and for how long, in seconds. The gap has to *hold*: a taxi that pops three blocks clear and
+ * is caught back up has not got away, and with the cop flooring it to close (PURSUIT_*) a single
+ * frame over the line is exactly what a straight followed by a corner produces. Out of range the
+ * clock runs; back inside it, it runs down at the same rate rather than resetting, so an escape
+ * that was nearly made still counts for something.
+ */
+export const ESCAPE_HOLD = 2.5;
+
+// Where those two land, measured over twelve staged chases per row with the taxi driving a route
+// across town (not rolling dice at junctions — nobody plays like that, and a taxi that turns at
+// random never reaches the overdrive band that is the real way out), boosting for the first N
+// seconds of the chase and cruising after:
+//
+//   | boost spent       | caught | lost  | median time to lose it |
+//   |-------------------|--------|-------|------------------------|
+//   | none              | 12/12  | 0/12  | —                      |
+//   | 5s (a third tank) | 9/12   | 3/12  | 5.2s                   |
+//   | 10s               | 6/12   | 6/12  | 7.3s                   |
+//   | 15s (full tank)   | 1/12   | 11/12 | 9.9s                   |
+//
+// Before the catch-up and the hold, a taxi on the pill lost the cop in a median 4.2s on 5s of boost,
+// the same as on 15 — the blip that was reported. The tank now decides it.
+
+/**
+ * The catch-up: how far behind the cop has to be before it starts flooring it, and where it is
+ * flat out — `car.pursuit`, 0..1, which lifts its ceiling by PURSUIT_LIFT in sim/traffic.js.
+ *
+ * Reported from play without it: boost past a patrol and the chase was a blip — "Pull over!" came
+ * and went and the car might never be on screen, because a cop at 21.7 u/s is slower than the pill
+ * and the gap only ever grew. Close in, it drives at an ordinary chasing cop's pace, so a taxi off
+ * the pill still meets the same car it always did; a block and more back, it is the fastest thing
+ * on the road short of the overdrive band.
+ */
+const PURSUIT_FROM = 14;
+const PURSUIT_FULL = 34;
+
+/**
  * How a cop catches the taxi: by being on it — within CATCH_RANGE, centre to centre — for long
  * enough. It is a meter rather than a line, and it fills at two rates.
  *
@@ -140,6 +177,8 @@ export function createPatrol({
     elapsed: 0,
     /** The catch meter, in seconds of a cop on a stopped taxi — see CATCH_TIME. */
     held: 0,
+    /** The escape clock, in seconds of the taxi three blocks clear — see ESCAPE_HOLD. */
+    clear: 0,
     /** Seconds since it started leaving — see STAND_DOWN_TIMEOUT. */
     standingDown: 0,
     /** Tallies, for the tools. */
@@ -227,6 +266,7 @@ export function createPatrol({
     state.phase = 'chase';
     state.elapsed = 0;
     state.held = 0;
+    state.clear = 0;
     state.spotted += 1;
     aimedAt = null;
     steer(cop);
@@ -241,6 +281,7 @@ export function createPatrol({
   function leave(cop) {
     cop.siren = false;
     cop.chase = 0;
+    cop.pursuit = 0;
     cop.roadblock = 0;
     cop.route = [];
     routeTo(cop, { i: taxi.i > GRID_I / 2 ? 0 : GRID_I, j: taxi.j > GRID_J / 2 ? 0 : GRID_J });
@@ -310,6 +351,7 @@ export function createPatrol({
     // --- chase
     state.elapsed += dt;
     steer(cop);
+    cop.pursuit = Math.max(0, Math.min(1, (near - PURSUIT_FROM) / (PURSUIT_FULL - PURSUIT_FROM)));
     if (near < CATCH_RANGE) state.held += dt * (taxi.v < CATCH_SPEED ? 1 : TAIL_RATE);
     else state.held = Math.max(0, state.held - dt * DRAIN_RATE);
     if (state.held >= CATCH_TIME) {
@@ -318,11 +360,13 @@ export function createPatrol({
       // braking flag — and it is what keeps the cop from driving on into a taxi the traffic model
       // has stopped counting as a car in its lane.
       cop.roadblock = Infinity;
+      cop.pursuit = 0;
       state.phase = 'arrest';
       onCaught(cop);
       return;
     }
-    if (near > ESCAPE_RANGE || state.elapsed > CHASE_MAX) {
+    state.clear = near > ESCAPE_RANGE ? state.clear + dt : Math.max(0, state.clear - dt);
+    if (state.clear >= ESCAPE_HOLD || state.elapsed > CHASE_MAX) {
       state.lost += 1;
       leave(cop);
       onLost(cop);

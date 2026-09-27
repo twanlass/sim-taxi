@@ -1147,7 +1147,29 @@ const CHASE_ACCEL = 15;
 const cruiseCapFor = (car) => (car.isTruck ? TRUCK_SPEED : SPEED)
   * (1 + (SCATTER_SPEED - 1) * car.scatter)
   * (1 + (CHASE_SPEED - 1) * car.chase)
+  * (1 + (PURSUIT_LIFT - 1) * car.pursuit)
   * (1 - PULLOVER_BRAKE * car.pullover);
+
+/**
+ * How much further a chasing patrol cruiser lifts its ceiling when it is falling behind — set per
+ * frame as `car.pursuit` (0..1) by game/patrol.js off the gap to the taxi. At full lift a cop
+ * cruises at 21.7 × 1.25 = 27 u/s: over a boosting taxi's own 22.1, under the 34 of the overdrive
+ * band the taxi only reaches on a long straight.
+ *
+ * Reported from play before it existed: boost past a patrol and it was lost in a second or two,
+ * the "Pull over!" came and went, and the cop car itself might never be on screen. A chasing cop at
+ * 21.7 is simply slower than the pill, so the gap only ever grew. Lifted, a cop that has dropped
+ * back floors it and closes; what actually loses it is holding the pill long enough to reach the
+ * overdrive band and taking corners it has to brake for. The robbery's cops do not get this — a
+ * getaway is about the drive and they are its weather, where a patrol chase is about this one car.
+ *
+ * Swept at 1.15, 1.25 and 1.38 against how much of a tank the taxi spends (game/patrol.js has the
+ * table). At 1.38 a full tank still got caught five times in twelve, which is a cop you cannot
+ * outrun; at 1.15 the tank size barely mattered. 1.25 is where it decides the chase.
+ */
+const PURSUIT_LIFT = 1.25;
+/** ...and how hard it pulls away while lifted, so the ceiling is one it can actually reach. */
+const PURSUIT_ACCEL = 24;
 
 // Overdrive — the band above BOOST_SPEED, and the one part of the mode that has to be *driven*
 // for rather than pressed for. Holding the button still buys 18.7 u/s in 7.3 units, well under a
@@ -1313,7 +1335,7 @@ const scatterAccel = () => loco.accel;
  */
 const chaseAccelFor = (car) => Math.max(
   ACCEL + (scatterAccel() - ACCEL) * car.scatter,
-  ACCEL + (CHASE_ACCEL - ACCEL) * car.chase,
+  ACCEL + (CHASE_ACCEL - ACCEL) * car.chase + (PURSUIT_ACCEL - CHASE_ACCEL) * car.pursuit,
 );
 
 /**
@@ -1900,6 +1922,8 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // is a `route`, which is the same mechanism that drives the player's own taxi, and every
       // other rule of the road applies to it unchanged.
       chase: 0,
+      // The patrol cruiser's catch-up, 0..1 — see PURSUIT_LIFT. Only ever set by game/patrol.js.
+      pursuit: 0,
       // Someone else's mesh drawn in this car's place: `(pos, quat, car) => void`, handed the pose
       // the render pass composed, with the instance itself collapsed. Only the patrol cruiser sets
       // it (sim/police.js), on the cop it becomes when it gives chase — the car is the cruiser, so
@@ -2760,6 +2784,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     car.police = false;
     car.siren = false;
     car.chase = 0;
+    car.pursuit = 0;
     car.skin = null;
     car.patrol = false;
     if (car.route?.length) car.route.length = 0;

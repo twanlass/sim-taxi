@@ -7243,11 +7243,21 @@ check('the taxi is an ordinary car in the traffic array',
 
 // --- The patrol's chase: caught, or lost -----------------------------------
 // game/patrol.js. Once a patrol spots the taxi the chase is the robbery's with one car in it, and
-// the whole design rests on one ordering: a taxi off the pill gets caught, a taxi on it gets away.
-// Measured rather than argued, over a spread of seeds, with the taxi driving wherever the dice take
-// it and the patrol wherever its patrol happens to have got to.
+// the whole design rests on one ordering: a taxi off the pill gets caught, and one that spends a
+// full tank gets away — and does not get away in a blip (PURSUIT_* and ESCAPE_HOLD). Measured over
+// a spread of seeds, with the taxi driving a route across town the way a fare would take it —
+// dice-driven, it turns at random and never reaches the overdrive band that is the real way out.
 {
-  const outcome = (s, boosting) => {
+  // Across town and back: whichever map corner is further, re-planned when the route runs out.
+  const driveOn = (taxi) => {
+    if (taxi.route?.length) return;
+    const target = { i: taxi.i > GRID_I / 2 ? 0 : GRID_I, j: taxi.j > GRID_J / 2 ? 0 : GRID_J };
+    const route = planRoute(planOrigin(taxi), target);
+    if (route?.length) { taxi.route = route; taxi.routeConsumed = false; }
+  };
+  // `tank`: seconds of Loco Mode the taxi spends from the moment it is spotted — 0 is off the pill,
+  // BOOST_DURATION a full tank.
+  const outcome = (s, tank) => {
     createLayout(makeRng(s));
     const pScene = new THREE.Scene();
     const pTraffic = createTraffic(makeRng(s + 44), pScene, CARS_DEFAULT);
@@ -7303,10 +7313,12 @@ check('the taxi is an ordinary car in the traffic array',
     // Spotted on the pill, whichever way the chase is then driven.
     pursuit.update(1 / 60, { boosting: true });
     if (pursuit.state.phase !== 'chase') return null;
-    taxi.boost = boosting;
     let t = 0;
     let busyThroughout = true;
     for (; t < 45 && !result; t += 1 / 60) {
+      const boosting = t < tank;
+      taxi.boost = boosting;
+      driveOn(taxi);
       pTraffic.update(1 / 60);
       pursuit.update(1 / 60, { boosting });
       pPolice.update(1 / 60);
@@ -7339,12 +7351,14 @@ check('the taxi is an ordinary car in the traffic array',
     return out;
   };
 
-  const runs = { cruising: [], boosting: [] };
+  const runs = { cruising: [], boosting: [], third: [] };
   for (let k = 0; k < 10; k++) {
-    const a = outcome(seed + 500 + k, false);
-    const b = outcome(seed + 500 + k, true);
+    const a = outcome(seed + 500 + k, 0);
+    const b = outcome(seed + 500 + k, BOOST_DURATION);
+    const c = outcome(seed + 500 + k, BOOST_DURATION / 3);
     if (a) runs.cruising.push(a);
     if (b) runs.boosting.push(b);
+    if (c) runs.third.push(c);
   }
   createLayout(makeRng(seed));   // createLayout installs the network it builds — put ours back
 
@@ -7356,9 +7370,15 @@ check('the taxi is an ordinary car in the traffic array',
     `${runs.cruising.length} cruising, ${runs.boosting.length} boosting of 10`);
   check('a taxi off the pill gets caught', count(runs.cruising, 'caught') >= runs.cruising.length * 0.7,
     `${count(runs.cruising, 'caught')}/${runs.cruising.length} caught, median ${median(cruiseCaught.map((r) => r.t)).toFixed(1)}s`);
-  check('a taxi on the pill gets away', count(runs.boosting, 'lost') >= runs.boosting.length * 0.7,
+  check('a full tank of Loco Mode gets away', count(runs.boosting, 'lost') >= runs.boosting.length * 0.7,
     `${count(runs.boosting, 'lost')}/${runs.boosting.length} lost ${ESCAPE_BLOCKS} blocks clear, median ${median(boostLost.map((r) => r.t)).toFixed(1)}s`);
-  const all = [...runs.cruising, ...runs.boosting];
+  // The blip that was reported: on the pill the cop used to be gone in ~4s whatever the tank held.
+  check('...and not in a blip: the cop keeps up for a while first', median(boostLost.map((r) => r.t)) >= 6,
+    `median ${median(boostLost.map((r) => r.t)).toFixed(1)}s to lose it`);
+  // And the tank is what decides it: a third of one is not enough on most seeds.
+  check('a third of a tank mostly is not enough', count(runs.third, 'caught') > runs.third.length / 2,
+    `${count(runs.third, 'caught')}/${runs.third.length} caught on ${BOOST_DURATION / 3}s of boost`);
+  const all = [...runs.cruising, ...runs.boosting, ...runs.third];
   check('a catch is a cop actually on the taxi, pulled up', cruiseCaught.every((r) => r.gap < CATCH_RANGE && r.braking),
     `widest ${Math.max(0, ...cruiseCaught.map((r) => r.gap)).toFixed(2)} of ${CATCH_RANGE}`);
   check('the chase runs no reds', all.every((r) => r.violations === 0),
