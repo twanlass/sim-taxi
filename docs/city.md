@@ -83,7 +83,7 @@ strip with nothing driving on it.
 **Measuring from the kerb rather than from the centreline is what makes this cheap.** Every tuned
 number in the sim that involves the edge of the road is a distance from the lane centre outward —
 the pull-over that rides a car up onto the kerb at 1.15, the 2 units of weave room, the façade line
-a panicking car must not reach — and all of them survive untouched. `LANE_TO_KERB` is the invariant,
+a pulled-over car must not reach — and all of them survive untouched. `LANE_TO_KERB` is the invariant,
 and `tools/roadnet.mjs` asserts it on every edge in the network. What did have to move are the
 numbers measured *across* the middle: the overtake
 ([traffic.md](traffic.md#on-a-divided-arterial-it-is-a-wider-swing)) and the police dodge.

@@ -476,7 +476,15 @@ const PULSE_BOOST = 0.5;
 // the same pace, so the far one just keeps going a little longer rather than visibly rushing to
 // catch up. No easing on top of it — the head fade already hides the first few units of the sweep,
 // so the constant rate is all that's ever visible, and it stays that one rate the whole way out.
+//
+// Up to a point: ROLLOUT_MAX caps how long any sweep may take, and a route too long to finish
+// inside it sweeps faster instead. At a pure 110 u/s a fare across the map took ~2s to arrive, and
+// with the taxi off screen the tapped rider sat unanswered for most of that — the tap read as
+// nothing happening. The cap only engages past ROLLOUT_SPEED * ROLLOUT_MAX (~40 units, two
+// blocks), so nearby fares keep the steady pace. The speed is latched when the sweep starts, since
+// `total` shrinks as the taxi drives and a live recompute would slow the edge mid-sweep.
 const ROLLOUT_SPEED = 110;
+const ROLLOUT_MAX = 0.35;
 
 // --- The grab flourish ------------------------------------------------------
 //
@@ -687,6 +695,7 @@ export function createRouteLine(scene) {
   // so identity is all this needs — no route contents to compare.
   let revealTarget = null;
   let revealElapsed = 0;
+  let revealSpeed = 0; // 0 = not yet latched for this sweep
 
   // How hard the band is being held, and where. `grabWant` is the instruction (0 or 1) and `grab`
   // is what is drawn — eased, so nothing about the flourish steps.
@@ -724,6 +733,7 @@ export function createRouteLine(scene) {
    */
   function replaySweep() {
     revealElapsed = 0;
+    revealSpeed = 0;
   }
 
   function update(car, route, dt = 0) {
@@ -739,6 +749,7 @@ export function createRouteLine(scene) {
     if (car.pendingTarget !== revealTarget) {
       revealTarget = car.pendingTarget;
       revealElapsed = 0;
+      revealSpeed = 0;
     }
     // Always folded in, including the frame a new target starts on — a shot mode frame is a
     // single call with dt=999 standing in for "let it settle", and that dt has to count even
@@ -770,7 +781,8 @@ export function createRouteLine(scene) {
     // `total`, so the reveal edge fully clears the destination and leaves no soft seam sitting
     // partway down the band once the animation settles.
     const cap = total + FADE_TAIL * squeeze;
-    material.uniforms.uReveal.value = Math.min(cap, ROLLOUT_SPEED * revealElapsed);
+    if (revealSpeed === 0) revealSpeed = Math.max(ROLLOUT_SPEED, cap / ROLLOUT_MAX);
+    material.uniforms.uReveal.value = Math.min(cap, revealSpeed * revealElapsed);
 
     // Offset each point along its mitre rather than offsetting each segment independently.
     // Independent segments leave a wedge of empty road on the outside of every join — invisible

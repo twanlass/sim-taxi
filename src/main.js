@@ -21,7 +21,7 @@ import {
   configureSignals,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
-import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
+import { createPolice } from './sim/police.js';
 import {
   createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
   BOARD_SECONDS,
@@ -90,7 +90,9 @@ import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getA
   getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
-import { createRadio } from './game/radio.js';
+import { createRadio, LOST_LINE } from './game/radio.js';
+import { createPatrol } from './game/patrol.js';
+import { createCopShout } from './game/copshout.js';
 import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
@@ -555,8 +557,10 @@ const depotRun = garage && !shot
 // sim forward on a scripted path, and an event that fires off *where the taxi happens to be* would
 // put a robber in half the shot list at random.
 // Dispatch breaking in when the robber gets in — the one thing that says this pickup is not a fare
-// on the frame it happens. See game/radio.js.
-const radio = city.bank && !shot ? createRadio({ lights: { sun, hemi } }) : null;
+// on the frame it happens. See game/radio.js. Built whether or not the city has a bank, because the
+// patrol cruiser's chase talks on the same channel (game/patrol.js); its avatar's WebGL context is
+// still only made the first time it opens.
+const radio = !shot ? createRadio({ lights: { sun, hemi } }) : null;
 // Seconds of game time until dispatch breaks in, once the robber's line has been cleared; 0 when
 // nothing is pending. A beat after the police come on rather than with them, so the tap that
 // clears the robber's bubble does not also land a second bubble on the same frame.
@@ -591,6 +595,8 @@ const robbery = city.bank && !shot
     traffic,
     // The police wait for the robber's line to be cleared — see `robberLine` above.
     holdAlarm: true,
+    // ...and the robbery waits for a patrol chase to be over — see `busy` in game/robbery.js.
+    busy: () => patrol.busy(),
     // The frame the robber is in the car. It is the ordinary `'pickup'` handler's job, said once
     // here rather than smuggled into the event loop: the seat is full, the route the taxi was
     // driving is void, and the getaway dispatches itself exactly as any other drop-off does.
@@ -624,8 +630,6 @@ const robbery = city.bank && !shot
   })
   : null;
 
-// Given the cars array so the cruiser can see who is in its lane and move over for them — see
-// DODGE_* in sim/police.js. It never mutates it.
 /**
  * A rider getting in: the door opens on the frame the taxi reaches them and shuts once they are in,
  * which is the BOARD_SECONDS run from the kerb (game/fares.js). Scheduled on the audio clock, so a
@@ -658,7 +662,26 @@ window.addEventListener('keydown', (event) => {
 });
 paintSound();
 
-const police = createPolice(makeRng(runSeed + 66), scene, traffic.cars);
+// The patrol cruiser's look (sim/police.js) and its life (game/patrol.js): a police car that
+// crosses town edge to edge with its bar swinging red and blue, and comes after you if you boost in
+// front of it. "Pull over!" goes up over its roof the moment it does (game/copshout.js).
+const police = createPolice(scene);
+const copShout = shot ? null : createCopShout({ project: projectToScreen });
+const patrol = createPatrol({
+  rng: makeRng(runSeed + 66),
+  police,
+  traffic,
+  taxi: traffic.taxi,
+  // A robbery owns the streets while it runs, and its cops are still in the shared fleet while
+  // they drive off afterwards — see `busy` in game/robbery.js for the other half of this.
+  blocked: () => Boolean(robbery?.state.active) || traffic.policeCars.some((cop) => !cop.patrol),
+  onSpotted: (cop) => {
+    copShout?.show(cop);
+    haptic('pick');
+  },
+  onCaught: () => bustByPolice(),
+  onLost: () => { if (!fares.state.gameOver) radio?.show(LOST_LINE); },
+});
 // The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
 // contact. The ghost outlines hung off the taxi are filtered out inside `markOccluder`.
@@ -1059,21 +1082,12 @@ const WRECK_ZOOM = 26;
 const SLOW_MO_MIN = 0.18;                // sim runs at this fraction of real time at impact
 const SLOW_MO_DURATION = 2100;           // ms wallclock to ramp back to 1.0
 
-// The bust runs the same cinematic on its own dial. It has something to show that a wreck does
-// not — the cruiser breaking off its corridor run and coming for you — so the banner waits about
-// a second longer, and the sim runs at less than half the slow-mo depth: at 0.18 the chase was
-// wading through treacle, which is the opposite of "it came after you". BUST_BANNER_DELAY buys
-// ~2.8s of sim time, against ~1.2s for the longest approach the bust range can set up (a 28-unit
-// dog-leg at CHASE_SPEED) plus the 0.45s U-turn.
-//
-// But the delay is a floor, not the schedule: the banner waits for the cruiser to actually pull
-// up. A park district can close the one road between the two cars and leave the only legal route
-// three sides of a block long — 68 units and 3.5s on seed 8888 — and cutting to the retry screen
-// mid-chase throws away the one beat this whole thing exists for. BUST_BANNER_MAX caps the wait
-// for the pathological case; BUST_BANNER_HOLD is the beat after it stops, alongside.
-const BUST_BANNER_DELAY = 3400;
-const BUST_BANNER_MAX = 4800;
-const BUST_BANNER_HOLD = 500;
+// The bust runs the same cinematic on its own dial, and a shallower one: nothing hit the taxi, so
+// there is no blast to stretch out, and the thing worth a look is the cop that has just pulled it
+// over. It used to hold the banner for the cruiser to *drive* to the arrest (up to 4.8s); the
+// arrest is now the end of a chase the player watched, so the cop is already there when it fires
+// (game/patrol.js) and the banner only has to wait for the camera to come in.
+const BUST_BANNER_DELAY = 2000;
 const BUST_SLOW_MO_MIN = 0.42;
 
 // And the third ending gets the same beat on its own dial again. A fare's clock running out has
@@ -1106,7 +1120,6 @@ let endZoom = WRECK_ZOOM;
 let crashBannerAt = null;
 let slowMoUntil = 0;
 let slowMoMin = SLOW_MO_MIN;
-let bustAt = 0;              // wallclock ms of the bust, while the banner is still waiting on the cop
 
 // What the two shells keep of the taxi's speed as they slide out of the impact — the drift and the
 // slew in game/wreckage.js, both on util/carry.js's drag.
@@ -1265,70 +1278,29 @@ collisions.onImpact(({ x, z, speed, other }) => {
 });
 
 /**
- * Boost past a cop and you're done — reuses the wreck cinematic (zoom, slow-mo, delayed banner)
- * so the beat is the same as a collision, but the taxi stays visible (no blast) since nothing hit
- * it. The taxi is flagged crashed so it freezes on the spot for the pull-in, and the
- * fare system's title/reason drive the "Busted!" banner.
+ * The patrol car has caught you — reuses the wreck cinematic (zoom, slow-mo, delayed banner) so the
+ * beat is the same as a collision, but the taxi stays visible (no blast) since nothing hit it. The
+ * taxi is flagged crashed so it freezes on the spot for the pull-in, and the fare system's
+ * title/reason drive the "Busted!" banner.
  *
- * The cruiser abandons its corridor run here and comes for the taxi — see `chase()` in
- * sim/police.js. That is the whole point of the delay before the banner: without it the cop sailed
- * on down its road as if nothing had happened, and being busted read as a rule firing somewhere
- * off-screen rather than as a cop noticing you. The camera frames the *taxi*, not the midpoint of
- * the two, so the siren swings into a held shot instead of the shot chasing the siren.
+ * Called by game/patrol.js, the moment a chasing cop touches the taxi (TOUCH_SLACK). It used to
+ * fire the moment the taxi boosted within a block of the cruiser, and then send the cruiser after a
+ * taxi that was already frozen; the chase is now the part the player gets to play.
  */
 function bustByPolice() {
   if (fares.state.gameOver || traffic.taxi.crashed) return;
   controller.kickShake(0.9);
   endSpot = { x: traffic.taxi.x, z: traffic.taxi.z };
   endZoom = WRECK_ZOOM;
-  bustAt = performance.now();
-  crashBannerAt = bustAt + BUST_BANNER_DELAY;
+  crashBannerAt = performance.now() + BUST_BANNER_DELAY;
   slowMoUntil = performance.now() + SLOW_MO_DURATION;
   slowMoMin = BUST_SLOW_MO_MIN;
   traffic.taxi.crashed = true;
   traffic.taxi.v = 0;
   boost.release();
-  police.chase(traffic.taxi);
   fares.crash("The fuzz caught you slippin'.", 'Busted!');
 }
 
-function checkPoliceBust() {
-  // Engaged, not just active — the bust range still catches the taxi through the cooldown tail,
-  // so braking off Loco Mode a beat too close to a cruiser doesn't buy a free pass.
-  if (!boost.isEngaged()) return;
-  // **Not during a getaway**, and this is a design call rather than a special case.
-  //
-  // Two systems own a police car and they were asking for opposite things. The corridor cruiser
-  // (sim/police.js) ends the run for boosting within a block of it — a rule about reckless driving
-  // in front of a cop, and a good one, whose whole legibility rests on there being one police car
-  // on the street and it being obvious. A robbery puts **four more** on the street, wearing the
-  // same paint and the same flashing bar, and then puts a clock and a
-  // bonus on the getaway that boosting is the way to beat. So the event asks you to use Loco Mode and the
-  // cruiser ends your run for using it, and at a glance you cannot tell which of the five blue cars
-  // is the one that does that. Reported from a real run, which is how this was found: "I got busted
-  // by the actual cop car; none of the other police actually moved or followed me."
-  //
-  // The event already states the principle this restores — see the note on the timeout in
-  // game/robbery.js. A robbery is *imposed*: it walks out of a building because the taxi drove
-  // past, so a robber who runs out of clock bails rather than ending the run. Letting an unrelated
-  // patrol end it instead is that same rule going out the side door.
-  //
-  // What it costs is real and worth stating: Loco Mode has no downside but the wreck for the length
-  // of a getaway. The event pays that back with the chase, which now drives cop cars *into the road
-  // ahead of the taxi* rather than trailing behind it (`CUT_OFF_AHEAD` in game/robbery.js) — so the
-  // risk on the pill during a robbery is the one the pill has always had, and there is more of it.
-  if (robbery?.state.active) return;
-  // Armed, not merely active. A cruiser still fading in at the edge of the map used to be able to
-  // end the run before it had drawn a pixel — see BUST_ARM_INSET in sim/police.js. The light bar
-  // runs a block ahead of this on purpose: the siren says a cop is here, and the gap between the
-  // two is the beat the player gets to lift off before one can bust them.
-  if (!police.state.armed) return;
-  if (fares.state.gameOver || traffic.taxi.crashed) return;
-  const dx = traffic.taxi.x - police.group.position.x;
-  const dz = traffic.taxi.z - police.group.position.z;
-  if (dx * dx + dz * dz > POLICE_BUST_RANGE * POLICE_BUST_RANGE) return;
-  bustByPolice();
-}
 
 // Orthographic camera: the vertical world span is exactly 2 * zoom, so world-units-per-pixel
 // falls straight out of the frustum height.
@@ -2155,7 +2127,7 @@ function updateStreak(multiplier, bump = true) {
 updateStreak(difficulty.payoutMultiplier(0), false);
 
 /**
- * Push the world half of the difficulty curve into the sim: more traffic, and a police corridor
+ * Push the world half of the difficulty curve into the sim: more traffic, and a police patrol
  * that comes round more often.
  *
  * A pinned `?cars=N` opts out of the density ramp entirely — the pool was sized to that number, so
@@ -2165,7 +2137,7 @@ updateStreak(difficulty.payoutMultiplier(0), false);
 function applyWorldPressure() {
   const delivered = fares.state.delivered;
   if (pinnedCars === null) traffic.setCarCount(difficulty.carCount(delivered));
-  police.setCooldownRange(difficulty.policeCooldown(delivered));
+  patrol.setCooldownRange(difficulty.policeCooldown(delivered));
 }
 
 /** Total seconds as `m:ss` + a trailing `s`, e.g. `1:03s` — the run-end screen's Time stat. */
@@ -2222,23 +2194,9 @@ function collectScores() {
 function updateHud(dt) {
   const s = fares.state;
 
-  // A bust holds the banner until the cruiser is alongside — see the BUST_BANNER_* block. The
-  // floor keeps a chase that ends in half a block from cutting to the retry screen while the
-  // camera is still moving; the ceiling covers a route the park closures made long.
-  if (bustAt) {
-    const elapsed = performance.now() - bustAt;
-    if (police.state.arrived || elapsed >= BUST_BANNER_MAX) {
-      crashBannerAt = bustAt + Math.min(BUST_BANNER_MAX,
-        Math.max(BUST_BANNER_DELAY, elapsed + BUST_BANNER_HOLD));
-      bustAt = 0;
-    } else {
-      crashBannerAt = Infinity;
-    }
-  }
-
   if (s.gameOver && hud.banner && hud.banner.hidden) {
     // Every ending holds the banner while its own closing beat plays — CRASH_BANNER_DELAY for the
-    // blast, the cruiser's arrival for a bust, TIMEOUT_BANNER_DELAY for the pull-in on the corner a
+    // blast, BUST_BANNER_DELAY for the pull-in on a bust, TIMEOUT_BANNER_DELAY for the pull-in on the corner a
     // fare's clock ran out on. All three are wallclock, so the slow-mo doesn't stretch the wait.
     // `crashBannerAt` is null only for a run ended from outside the game (the console hook), which
     // has nothing to wait for.
@@ -2264,9 +2222,9 @@ function updateHud(dt) {
         { label: 'Cash', value: s.money, format: (n) => `$${n}` },
       ],
       // Recorded here rather than the moment the run ended, so the write happens on the frame the
-      // screen is actually built — a bust holds this block for up to BUST_BANNER_MAX while the
-      // cruiser closes, and a score saved during that hold would be sitting in storage before the
-      // player had been told the run was over.
+      // screen is actually built — every ending holds this block for a beat, and a score saved
+      // during that hold would be sitting in storage before the player had been told the run was
+      // over.
       scores: collectScores(),
       onRetry: () => location.reload(),
     });
@@ -2910,52 +2868,6 @@ function spillCash(dt) {
   cashTrail.feed(dt, spilling, car, TAXI_TAILPIPE_HEIGHT + deckHeightAt(car.x, car.z).y);
 }
 
-// The cruiser gets the same treatment while it is running the taxi down — rubber when it throws
-// the car sideways, dust off the back the whole way. Driven from here rather than from
-// sim/police.js because the effect pools live on this side; police.js publishes the yaw rate and
-// the distance travelled and this reads them.
-//
-// 2.6 rad/s is chosen to sit above the weave and below a corner: the Loco Mode wave peaks at about
-// 1.4 rad/s of yaw through the eased nose, a junction taken at chase speed hits 4.5, and the
-// U-turn always counts. Below the gap the cruiser laid a continuous streak down every straight,
-// which reads as a car that is permanently out of control rather than one being thrown about.
-const POLICE_SLIDE_RATE = 2.6;
-let lastPoliceSkidAt = 0;
-let lastPoliceDustAt = 0;
-let policeWasSliding = false;
-function policeRubber() {
-  const p = police.state;
-  if (!p.chasing) { policeWasSliding = false; return; }
-
-  const yaw = police.group.rotation.y;
-  const fx = Math.cos(yaw);
-  const fz = -Math.sin(yaw);
-  const rx = Math.sin(yaw);
-  const rz = Math.cos(yaw);
-
-  const sliding = p.uturn !== null || Math.abs(p.yawRate) > POLICE_SLIDE_RATE;
-  if (sliding && !policeWasSliding) copSquealAt(police.group.position.x, police.group.position.z);
-  policeWasSliding = sliding;
-  if (!sliding) {
-    lastPoliceSkidAt = p.travelled;
-  } else if (p.travelled - lastPoliceSkidAt >= 0.42) {
-    lastPoliceSkidAt = p.travelled;
-    // Rear wheels, at the offsets policeGeometry() puts them.
-    for (const side of [-1, 1]) {
-      skids.add(
-        police.group.position.x - fx * 1.08 + rx * side * 0.88,
-        police.group.position.z - fz * 1.08 + rz * side * 0.88,
-        yaw,
-      );
-    }
-  }
-
-  if (p.v < 2) { lastPoliceDustAt = p.travelled; return; }
-  if (p.travelled - lastPoliceDustAt < 0.47) return;
-  lastPoliceDustAt = p.travelled;
-  dust.add(police.group.position.x - fx * 1.9, police.group.position.z - fz * 1.9, yaw);
-}
-
 // A police squeal, heard from where the taxi is. The camera follows the taxi, so distance from it
 // is distance from the middle of the screen: full level inside COP_SQUEAL_NEAR, gone by
 // COP_SQUEAL_FAR, which is about where a car leaves the frame on a phone at play zoom. Past that
@@ -2969,7 +2881,7 @@ function copSquealAt(x, z) {
   if (level > 0) sfx?.play('copSkid', { gain: level, rate: 0.94 + Math.random() * 0.12 });
 }
 
-// The robbery's cops in a chase lay rubber and squeal the way the taxi does — corners carried at
+// Cops in a chase — the robbery's and the patrol's — lay rubber and squeal the way the taxi does — corners carried at
 // speed, their own overtake, and the swing into a roadblock. The rule is `copLaysRubber` in
 // sim/traffic.js; this is only the pools. Rear wheels off the anchors the ambient body is built
 // at, and per car, so spacing and the once-per-slide squeal each follow their own car.
@@ -3202,7 +3114,6 @@ function frame() {
   // `traffic.update` left the taxi, and a car taken here is staged before this frame's render pass.
   depotRun?.update(dt);
 
-  police.update(dt);   // may flip a whole corridor green before traffic reads the signals
   traffic.update(dt);
   sfx?.update(dt, traffic.taxi, {
     cruise: SPEED,
@@ -3218,7 +3129,20 @@ function frame() {
   impact.update(dt);
   // After traffic has written the taxi's transform: the lean and the rattle ride on top of it.
   taxiDamage.update(dt);
-  checkPoliceBust();
+  // After the physics, like the collision check: it measures where traffic left the cop and the
+  // taxi this frame, and a catch ends the run the same way a wreck does. Engaged rather than held —
+  // the cooldown tail after release still counts, so braking off Loco Mode a beat too close to a
+  // patrol doesn't buy a free pass.
+  //
+  // **Not during a getaway**, and that is a design call rather than a special case. A robbery puts
+  // four cop cars on the street in the same paint, and pays a bonus on the clock that boosting is
+  // how you beat — so the patrol stands down while one runs (`blocked` above) rather than being a
+  // fifth blue car that punishes the thing the event asks for. Reported from a real run before the
+  // rule existed: "I got busted by the actual cop car; none of the other police actually moved."
+  patrol.update(dt, { boosting: boost.isEngaged() && !fares.state.gameOver });
+  // The cruiser's mesh and lamps, after the traffic car it wears has moved and after the patrol
+  // has decided whether its bar is on.
+  police.update(dt);
   // Last of the three, and both halves of that matter. It copies the matrices traffic composed
   // *this* frame, so running it any earlier would slide every outline off its own car by a couple
   // of pixels at boost speed; and it runs after collisions so a car wrecked on this frame is
@@ -3322,6 +3246,7 @@ function frame() {
   // each stop the world, and an event firing behind any of them is one the player never saw.
   if (!fareLoopHeld()) robbery?.update(dt);
   radio?.update(dt, { over: fares.state.gameOver });
+  copShout?.update(dt, { over: fares.state.gameOver });
   if (radioIn > 0) {
     radioIn -= dt;
     // A getaway over before dispatch got a word in — a wreck in the first second and a half — has
@@ -3550,10 +3475,10 @@ function frame() {
   // behind. At the Loco Mode top the taxi covers 0.57 units in a frame, so a plume ticked before
   // `traffic.update` would sit visibly off the back of the bumper the whole time it burned.
   locoFlame.update(dt, traffic.taxi, boost.isActive());
-  policeRubber();
   copRubber();
-  // Beside the cruiser's own rubber and for the same reason: `sim/` publishes where its cars are
-  // and this side owns anything that reaches into the scene. Off the sim clock the bars strobe on
+  // `sim/` publishes where its cars are and this side owns anything that reaches into the scene
+  // — the patrol cruiser's rubber included, since it is one of `traffic.policeCars` now. Off the
+  // sim clock the bars strobe on
   // (`stats.time`), so the wash on the road and the lamp over it are one siren.
   copLights.update(traffic.policeCars, traffic.taxi, traffic.stats.time);
   // Fed and then ticked, in that order and on this side of `traffic.update`: the pool only writes
@@ -3693,16 +3618,19 @@ if (shot) {
     }
   }
 
-  // Run forward until the police car is mid-city, so the shot shows a live corridor. `armed` is
-  // the same "a block in from the edge" test this used to spell out as `|s| < 30`, and asking for
-  // it by name keeps the shot from drifting off the arming line: armed is exactly the band where
-  // the cruiser is fully opaque with its bar running, which is the car worth photographing.
+  // Run forward until the patrol cruiser has been in town for a few seconds, so the shot shows it
+  // out on patrol — in traffic, bar swinging red and blue, which is how a player meets it. It comes in
+  // at the island's edge dissolving in (FADE_TIME in sim/police.js), so the first frames of a patrol
+  // are exactly the ones not worth photographing — and four seconds is well past the fade.
   if (shot.untilPolice) {
-    for (let guard = 0; guard < 90 * 60; guard++) {
-      police.update(1 / 60);
+    patrol.state.cooldown = 0;
+    let onPatrol = 0;
+    for (let guard = 0; guard < 90 * 60 && onPatrol < 4 * 60; guard++) {
       traffic.update(1 / 60);
+      patrol.update(1 / 60);
+      police.update(1 / 60);
       fares.update(1 / 60, traffic.taxi);
-      if (police.state.armed) break;
+      if (patrol.state.phase === 'patrol') onPatrol += 1;
     }
     // Follow the car rather than hoping it drives through the middle of the frame.
     const pos = police.group.position;
@@ -4193,11 +4121,13 @@ window.__taxi = {
   bloom,
   hdr,
   tutorial,
-  /** The robbery's dispatch bubble, or null where there is no bank. See game/radio.js. */
+  /** Dispatch's bubble — the robbery's and the patrol chase's — or null in shot mode. See game/radio.js. */
   radio,
   carGhosts,
   skids,
   police,
+  /** The patrol cruiser's life — patrol, chase, leave. See game/patrol.js. */
+  patrol,
   fares,
   /** The package courier, or null under `?parcels=0` and in shot mode. See game/parcels.js. */
   parcels,

@@ -187,6 +187,22 @@ export function sirenOn(flash, hunting = false) {
 }
 
 /**
+ * The patrol's bar: a slow red-to-blue swing, one full cycle a second. Asked for as "gently strobe
+ * its lights red and blue" — the steady bar before it announced a cop on the board but did not look
+ * alive, and the hunting strobe (11 changes a second, `sirenOn`) is kept for a chase so the change
+ * is the thing the player reads.
+ */
+export const PATROL_SWING_HZ = 1;
+
+/**
+ * Where the patrol swing is: 1 all red, 0 all blue, a sine in between. One clock for the bar, its two
+ * lamps and the off-screen wash (game/sirenglow.js), the way `sirenOn` above is one clock for the strobe.
+ */
+export function patrolSwing(flash) {
+  return 0.5 + 0.5 * Math.sin(2 * Math.PI * PATROL_SWING_HZ * flash);
+}
+
+/**
  * One siren pod, centred on its own origin — the same contract `lightPodGeometry()` keeps, and for
  * the same reason: on/off here is a scale, and a scale is about the origin of whatever carries it.
  * A pod holding its roof offset in its vertices would slide down into the cabin as it dimmed.

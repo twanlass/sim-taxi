@@ -7,7 +7,7 @@ import { bridgeSpan, drawbridgeLine, WATER_Y, RAIL_W } from '../city/river.js';
 import { DIR } from '../city/grid.js';
 import { KERB_H } from '../city/ground.js';
 import { createBridge, abutmentParts } from '../geometry/bridge.js';
-import { setClosedLanes, policeRoads } from '../sim/traffic.js';
+import { setClosedLanes } from '../sim/traffic.js';
 import { setBlockedLanes } from './route.js';
 import { sinkShadowCaster } from './scene.js';
 
@@ -216,15 +216,6 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null } = 
 
   const smooth = (t) => t * t * (3 - 2 * t);
 
-  /**
-   * Is a police run using the road this span carries? Every road of the run, not just the leg the
-   * cruiser is on: a jog turns onto its next road with the corner already committed, so a leaf
-   * that started rising on the strength of "not the current leg" would come up under it.
-   */
-  function sirenOnLine() {
-    return policeRoads().some((siren) => siren.axis === 'z' && siren.line === line);
-  }
-
   /** Is anything at all standing on either lane of the span? The taxi counts. */
   function deckClear(cars) {
     const ids = new Set(laneIds);
@@ -259,12 +250,11 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null } = 
     switch (state.phase) {
       case 'open':
         state.barrier = 0;
-        // Not while a siren is running down this line. The corridor holds every light on its road
-        // green and the cruiser neither queues nor brakes, so dropping a barrier in front of one is
-        // the one closure it cannot answer — the same courtesy `roadwork.js` extends when it
-        // declines to dig up a road a run is already on. A corridor crosses the map in about eight
-        // seconds, so this costs the boat a beat at most.
-        if (state.requested && !sirenOnLine()) enter('closing');
+        // No police hold on this any more. It used to wait out a siren running down the line —
+        // the patrol cruiser was a scripted car that could not stop for a barrier — and the
+        // cruiser is an ordinary car in traffic now (game/patrol.js), which stops for one like
+        // anybody else.
+        if (state.requested) enter('closing');
         break;
       case 'closing':
         state.barrier = Math.min(1, state.t / BARRIER_SECONDS);
