@@ -3502,4 +3502,12 @@ flight, with no handoff delay since there is no cash payout to queue behind. `ga
   segment in either direction takes it. The orb is pulled into the car on pickup so a pass beside
   it still reads as collecting it.
 - **Held with the fare loop** (vignette, Home Screen tip) and after the run ends.
+- **Tappable.** A tap on an orb (`divertToOrb` in main.js) routes the taxi *through* its segment
+  with `findRouteThrough` (game/route.js), which plans onto either of the segment's two lanes and
+  keeps the shorter. If the taxi is already aimed at a live job — a rider, a drop-off, a package —
+  the orb is bent into that route as a detour and `pendingTarget` keeps the job's identity.
+  Otherwise the orb *is* the destination: a target on the segment's far junction with `endAt` on
+  the orb, retired when the orb is collected. A burger run or a depot visit is replaced, as a
+  package tap replaces one. The tap target is a 6×6 screen-plane quad (`HIT_SIZE`); the orb swells
+  on an accepted tap and shivers on a refused one.
 - **Off in shot mode**; `?orbs=0` / `?orbs=1` overrides either way.

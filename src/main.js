@@ -83,7 +83,9 @@ import { setAmbientOcclusion, setCrayon, setCartoon, propMaterial } from './util
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createPause } from './game/pause.js';
-import { findRoute, findRouteVia, findRouteOnto, planOrigin, crossingOrigin } from './game/route.js';
+import {
+  findRoute, findRouteVia, findRouteOnto, findRouteThrough, planOrigin, crossingOrigin,
+} from './game/route.js';
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
@@ -102,7 +104,7 @@ import { isNative } from './util/platform.js';
 import { tap as haptic } from './util/haptics.js';
 import { createSfx } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
-import { isCityConnected, GRID_I, GRID_J } from './city/grid.js';
+import { isCityConnected, GRID_I, GRID_J, isXAxis, dirSign } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
 import { PALETTE } from './palette.js';
 
@@ -1521,6 +1523,49 @@ function divertToParcel(parcel) {
 }
 
 /**
+ * A tap on a boost orb: drive through it. See game/orbs.js.
+ *
+ * **A detour when there is somewhere to be, a destination when there is not.** If the taxi is
+ * already aimed at a live job — a rider's kerb, their drop-off, a package — the orb is bent into
+ * that route (`findRouteThrough`, uncapped like a package tap: a tap cannot slip) and
+ * `pendingTarget` keeps the job's identity, so the band keeps that job's colour and the job still
+ * resolves on arrival. Otherwise the route ends at the orb: a fresh target on the segment's far
+ * junction with `endAt` on the orb, so the band stops where the tap landed rather than a
+ * half-block past it. A burger run or a repair visit is not a job in that sense — it plans onto a
+ * lane this cannot carry — so a tap during one replaces it, exactly as a tap on a package does.
+ *
+ * Not the ordinary `routeTo`: its plan is always to a junction, and an orb is two lanes.
+ */
+function divertToOrb(orb) {
+  if (!orb) return;
+  const car = traffic.taxi;
+  const live = [
+    ...fares.state.fares.map((f) => f.target),
+    ...(parcels?.state.parcels.map((p) => p.target) ?? []),
+  ];
+  const job = live.includes(car.pendingTarget) ? car.pendingTarget : null;
+  const slot = orb.slot;
+  // Already driving down one of the orb's two lanes with it still in front: that way costs nothing.
+  // `planOrigin` names the junction the car is heading at (or landing on, mid-turn), which is
+  // exactly how `slot.ends` names a lane.
+  const from = planOrigin(car);
+  const onLane = slot.ends.find((e) => e.i === from.i && e.j === from.j && e.d === from.d
+    && (isXAxis(e.d) ? slot.x - car.x : slot.z - car.z) * dirSign(e.d) > 0)?.d ?? null;
+  const plan = findRouteThrough(from, slot.ends, job, { maxDetour: TAP_MAX_DETOUR, onLane });
+  if (plan) {
+    car.route = plan.route;
+    car.routeConsumed = false;
+    car.lateTurn = null;
+    car.pendingTarget = job ?? {
+      i: plan.end.i, j: plan.end.j, endAt: { x: slot.x, z: slot.z }, orbSlot: slot,
+    };
+    car.parked = false;
+    haptic('pick');
+  }
+  boostOrbs.acknowledge(orb, Boolean(plan));
+}
+
+/**
  * A tap on the burger joint. The one thing on the map that is not a job.
  *
  * It reads like every other dispatch — the taxi is re-aimed and the band redraws on the same frame —
@@ -1587,6 +1632,7 @@ createPicker(
   camera,
   renderer.domElement,
   () => [traffic.taxiGroup, ...fares.pickables(), ...(parcels?.pickables() ?? []),
+    ...(boostOrbs?.pickables() ?? []),
     ...(burger ? [burger.group] : []), ...(garage ? [garage.group] : [])],
   (kind, hit) => {
     if (fares.state.gameOver) return;
@@ -1615,6 +1661,10 @@ createPicker(
     // below this line would find one.
     if (kind === 'parcel' || kind === 'parcel-dropoff') {
       divertToParcel(parcels?.parcelFor(hit.object));
+      return;
+    }
+    if (kind === 'orb') {
+      divertToOrb(boostOrbs?.orbFor(hit.object));
       return;
     }
 
@@ -3406,6 +3456,13 @@ function frame() {
     enabled: !fareLoopHeld() && !fares.state.gameOver,
   }) ?? [];
   if (orbsTaken.length) {
+    // A drive sent *at* an orb retires on collection, the way a package dispatch does on
+    // `'pickup'` — otherwise the band stays live to a junction with nothing on it. Keyed on
+    // identity, so an orb bent into a fare's route leaves the fare's route alone.
+    if (orbsTaken.some((o) => traffic.taxi.pendingTarget?.orbSlot === o.slot)) {
+      traffic.taxi.route = [];
+      traffic.taxi.pendingTarget = null;
+    }
     haptic('parcel-in');
     flyEnergyToBoost({
       from: taxiScreenPos,
@@ -4286,6 +4343,12 @@ window.__taxi = {
     if (!parcel) return null;
     const c = cornerFor(parcel.target.i, parcel.target.j);
     return projectToScreen(c.x, KERB_H, c.z);
+  },
+  /** Screen point of a boost orb, for tapping it from a harness. */
+  orbScreenPosition: (orb = boostOrbs?.orbs[0]) => {
+    if (!orb) return null;
+    const p = orb.mesh.group.position;
+    return projectToScreen(p.x, p.y, p.z);
   },
 };
 

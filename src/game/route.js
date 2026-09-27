@@ -285,6 +285,40 @@ export function findRouteVia(from, via, target, { maxDetour = MAX_VIA_DETOUR, on
 }
 
 /**
+ * The route that drives **along a road segment**, in either direction, and then on to `target` —
+ * or stops at the far end of the segment when `target` is null. A boost orb (game/orbs.js) sits
+ * mid-segment and is taken from either lane, so "go through the orb" is two lanes, not a junction.
+ *
+ * `ends` is the segment's two ways through, each named by the junction it arrives at and the
+ * heading it arrives on (`slot.ends` in game/orbs.js). Each is planned with `findRouteOnto`, so
+ * the arrival *is* the lane and not merely the corner, and the shorter whole route wins.
+ *
+ * `onLane` is the heading of an `ends` entry the car is already driving down with the orb still in
+ * front of it. That way costs no legs at all — `findRouteOnto` would answer it with a lap of the
+ * block, because from inside the router "on it" and "just passed it" are the same state (see its
+ * own note) and only the caller has the car's position.
+ *
+ * With a target the result is capped like a dragged waypoint: `maxDetour` legs over the direct
+ * route, null past that. Returns `{ route, end }` or null.
+ */
+export function findRouteThrough(from, ends, target, { maxDetour = MAX_VIA_DETOUR, onLane = null } = {}) {
+  const direct = target ? findRoute(from, target) : null;
+  if (target && direct === null) return null;
+  let best = null;
+  for (const end of ends) {
+    const leg = end.d === onLane ? [] : findRouteOnto(from, end, end.d);
+    if (leg === null) continue;
+    const onward = target ? findRoute({ i: end.i, j: end.j, d: end.d }, target) : [];
+    if (onward === null) continue;
+    const route = [...leg, ...onward];
+    if (!best || route.length < best.route.length) best = { route, end };
+  }
+  if (!best) return null;
+  if (target && best.route.length > direct.length + maxDetour) return null;
+  return best;
+}
+
+/**
  * Where planning must start from for a given car.
  *
  * A car in the middle of a turn has *already* committed its choice at (i, j), so planning from

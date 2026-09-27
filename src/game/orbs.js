@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
 import { unlitMaterial } from '../util/geo.js';
 import { markEmissive } from './bloom.js';
+import { BILLBOARD } from './camera.js';
 import {
   DIR, GRID_I, GRID_J, halfRoadX, halfRoadZ, isRiverGap, isSegmentClosed, lineX, lineZ,
 } from '../city/grid.js';
@@ -41,6 +42,17 @@ const BOB_HZ = 0.55;
 const PULSE_HZ = 1.3;
 const COLLECT_TIME = 0.22; // seconds the pull into the car takes
 const APPEAR_TIME = 0.45;
+// The tap's answer: a swell for a route taken through the orb, a shiver for one refused — the same
+// two replies a package's corner gives (`acknowledge` in game/parcels.js).
+const ACK_TIME = 0.35;
+
+// The tap target: a square in the screen plane over the orb (see the long note on BILLBOARD in
+// geometry/marker.js for why never a box). 6 screen units is ~46px at play zoom, a fingertip with
+// margin, and well under the 14.1 that separates two junctions' targets — an orb is mid-segment,
+// half that from either end, so a rider's 11-wide target can still meet it at the edge. The nearer
+// hit wins there, same as between any two markers.
+const HIT_SIZE = 6;
+const hitGeo = new THREE.PlaneGeometry(HIT_SIZE, HIT_SIZE);
 
 /**
  * Every open road segment that could hold an orb: interior roads only (the ring road is where the
@@ -53,13 +65,19 @@ function candidateSegments() {
   for (let j = 1; j < GRID_J; j++) {
     for (let i = 0; i < GRID_I; i++) {
       if (isSegmentClosed(i, j, DIR.PX)) continue;
-      out.push({ axis: 'x', x: (lineX(i) + lineX(i + 1)) / 2, z: lineZ(j), half: halfRoadX(j) });
+      out.push({
+        axis: 'x', x: (lineX(i) + lineX(i + 1)) / 2, z: lineZ(j), half: halfRoadX(j),
+        ends: [{ i: i + 1, j, d: DIR.PX }, { i, j, d: DIR.NX }],
+      });
     }
   }
   for (let i = 1; i < GRID_I; i++) {
     for (let j = 0; j < GRID_J; j++) {
       if (isRiverGap(j) || isSegmentClosed(i, j, DIR.PZ)) continue;
-      out.push({ axis: 'z', x: lineX(i), z: (lineZ(j) + lineZ(j + 1)) / 2, half: halfRoadZ(i) });
+      out.push({
+        axis: 'z', x: lineX(i), z: (lineZ(j) + lineZ(j + 1)) / 2, half: halfRoadZ(i),
+        ends: [{ i, j: j + 1, d: DIR.PZ }, { i, j, d: DIR.NZ }],
+      });
     }
   }
   return out;
@@ -111,6 +129,13 @@ function buildOrb() {
   }));
   group.add(core, halo);
   markEmissive(group, 'orb');
+  // After the bloom marks the group, so the invisible target is not handed a lamp of its own.
+  // DoubleSide for the reason marker.js gives: a quad facing the camera exactly is one rounding
+  // away from being culled out of the raycast.
+  const hit = new THREE.Mesh(hitGeo, new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }));
+  hit.quaternion.copy(BILLBOARD);
+  hit.userData.pickable = 'orb';
+  group.add(hit);
   return { group, core, halo };
 }
 
@@ -131,6 +156,7 @@ export function createBoostOrbs(rng, scene, { count = ORB_SLOTS } = {}) {
       state: 'live',       // 'live' | 'collecting' | 'gone'
       t: APPEAR_TIME,      // seconds since the current state began
       from: new THREE.Vector3(),
+      ack: null,           // { taken, t } while a tap's answer is playing
     };
   });
   let clock = 0;
@@ -159,8 +185,16 @@ export function createBoostOrbs(rng, scene, { count = ORB_SLOTS } = {}) {
     // Live: bob, breathe, and grow in if it has just come back.
     const grow = Math.min(1, orb.t / APPEAR_TIME);
     const pop = grow < 1 ? 1 - (1 - grow) ** 3 : 1;
-    group.position.set(orb.slot.x, HOVER + bob, orb.slot.z);
-    group.scale.setScalar(pop);
+    let kick = 1;
+    let shiver = 0;
+    if (orb.ack) {
+      const u = orb.ack.t / ACK_TIME;
+      if (u >= 1) orb.ack = null;
+      else if (orb.ack.taken) kick = 1 + 0.45 * Math.sin(u * Math.PI);
+      else shiver = Math.sin(u * Math.PI * 6) * (1 - u) * 0.35;
+    }
+    group.position.set(orb.slot.x + shiver, HOVER + bob, orb.slot.z - shiver);
+    group.scale.setScalar(pop * kick);
     core.material.opacity = 1;
     halo.scale.setScalar(1 + 0.12 * pulse);
     halo.material.opacity = 0.22 + 0.16 * pulse;
@@ -182,6 +216,7 @@ export function createBoostOrbs(rng, scene, { count = ORB_SLOTS } = {}) {
       const taken = [];
       for (const orb of orbs) {
         orb.t += dt;
+        if (orb.ack) orb.ack.t += dt;
         if (orb.state === 'live' && enabled && taxi && !taxi.crashed
           && inCatch(orb.slot, taxi.x, taxi.z)) {
           orb.state = 'collecting';
@@ -198,6 +233,25 @@ export function createBoostOrbs(rng, scene, { count = ORB_SLOTS } = {}) {
         pose(orb, taxi ?? orb.slot);
       }
       return taken;
+    },
+
+    /** The tap targets of every orb that can still be collected. A taken one answers nothing. */
+    pickables() {
+      return orbs.filter((o) => o.state === 'live').map((o) => o.mesh.group);
+    },
+
+    /** The orb a picked mesh belongs to, or null. */
+    orbFor(object) {
+      for (let node = object; node; node = node.parent) {
+        const orb = orbs.find((o) => o.mesh.group === node);
+        if (orb) return orb;
+      }
+      return null;
+    },
+
+    /** Answer a tap: swell if the taxi is now routed through it, shiver if the router refused. */
+    acknowledge(orb, taken) {
+      orb.ack = { taken, t: 0 };
     },
 
     /** Land every orb in its finished pose — shot mode ticks the world once. */

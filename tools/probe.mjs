@@ -142,7 +142,7 @@ import {
 } from '../src/game/scene.js';
 import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
-import { planOrigin, crossingOrigin } from '../src/game/route.js';
+import { planOrigin, crossingOrigin, findRouteThrough } from '../src/game/route.js';
 import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, BLOCK, HALF_ROAD, HALF_ARTERIAL, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, riverBanks, riverRow } from '../src/city/grid.js';
 import {
   waterEdges, bridgeSpan, bridgeLines, riverCrossing, archAt, deckHeightAt, createRiver, waterHeightAt,
@@ -252,6 +252,32 @@ const traffic = time('traffic init', () => createTraffic(makeRng(seed + 44), sce
   for (let t = 0; t < ORB_RESPAWN + 1; t += 1 / 60) {
     if (orbs.update(1 / 60, { x: 1e3, z: 1e3 }) && orbs.orbs[0].state === 'live') { back = t; break; }
   }
+  // A tapped orb is driven *through*, from either side and on to a job beyond it. Driven for real
+  // rather than checked against the plan, because the plan is what is under test: a route that
+  // reaches the right junction down the wrong road would pass any check that only read it back.
+  {
+    const oTraffic = createTraffic(makeRng(seed + 991), new THREE.Scene(), 4);
+    const far = { i: 0, j: 0 };
+    let drove = 0;
+    let passed = 0;
+    for (const slot of slots) {
+      for (const target of [null, far]) {
+        const car = oTraffic.taxi;
+        const plan = findRouteThrough(planOrigin(car), slot.ends, target, { maxDetour: Infinity });
+        if (!plan) continue;
+        drove += 1;
+        car.route = plan.route;
+        car.routeConsumed = false;
+        for (let f = 0; f < 60 * 90; f++) {
+          oTraffic.update(1 / 60);
+          if (inCatch(slot, car.x, car.z)) { passed += 1; break; }
+        }
+      }
+    }
+    check('a route through a tapped orb drives through its catch box', drove === 2 * slots.length
+      && passed === drove, `${passed} of ${drove} routes, ${2 * slots.length} planned`);
+  }
+
   check('a taken orb comes back to its own slot', back > ORB_RESPAWN - 0.5
     && orbs.orbs[0].mesh.group.position.x === s0.x && orbs.orbs[0].mesh.group.position.z === s0.z,
     `back after ${back.toFixed(1)}s`);
