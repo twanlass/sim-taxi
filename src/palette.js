@@ -340,7 +340,6 @@ export const PALETTE = {
   // --- Game entities. Deliberately higher-chroma than anything in the city so they read
   // instantly against the muted buildings and grey roads.
   policeBody: '#2E5FA8',
-  policeRoof: '#F2F4F7',
 
   // The ambient flyover — see geometry/plane.js. A white aeroplane against a pale sky is a blank
   // shape, so it carries a cheatline; red because it is the one hue in the game with nothing else

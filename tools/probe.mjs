@@ -14804,10 +14804,14 @@ let chopperOrder; // likewise
     podBloom.color.getHexString() === podWant.getHexString(),
     `${podBloom.color.getHexString()} at ${LIGHT_EMISSIVE} x ${BLOOM_INTENSITY.pod}`);
 
+  // The cruiser's bar is the robbery fleet's bar now — the same Lambert pods — so it takes the
+  // emissive path too, at the siren's strength rather than the pod's.
   const barMesh = blPolice.emissiveMeshes[0];
-  const barWant = barMesh.material.color.clone().multiplyScalar(BLOOM_INTENSITY.siren);
-  check("a bar lamp's is its colour, which is what an unlit material means by light",
-    barMesh.userData.bloomMaterial.color.getHexString() === barWant.getHexString());
+  const barWant = barMesh.material.emissive.clone()
+    .multiplyScalar(barMesh.material.emissiveIntensity * BLOOM_INTENSITY.siren);
+  check("the cruiser's bar blooms its emissive, at the siren's strength",
+    barMesh.userData.bloomMaterial.color.getHexString() === barWant.getHexString(),
+    `${barMesh.userData.bloomMaterial.color.getHexString()} against ${barWant.getHexString()}`);
 
   // The headroom itself: past 1 in at least one channel is the entire difference between a bloom
   // with a shape and a blur of clipped pixels. `THREE.Color` does not clamp and `diffuse` is a

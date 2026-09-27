@@ -136,22 +136,21 @@ export function turnSignalMaterial() {
 // the only thing that makes one read as a police car at play zoom is the livery underneath and
 // this alternating on the roof.
 //
-// It is **not** the cruiser's bar. `sim/police.js` builds its own, as two ordinary Meshes on a
-// group with a real PointLight behind each, because there is exactly one cruiser and it can afford
-// them. There can be half a dozen cop cars in ambient traffic and a point light each is not free,
-// so these are instanced and their spill is the bloom's (`emissiveMeshes` in sim/traffic.js) rather
-// than a light's. What the two *do* share is the rate below, so a city with both in it strobes on
-// one clock.
+// The cruiser (`sim/police.js`) wears the same bar — same pods, same housing, same materials — but
+// builds it as ordinary Meshes on its own group, with a real PointLight behind each colour, because
+// there is exactly one cruiser and it can afford them. There can be half a dozen cop cars in
+// ambient traffic and a point light each is not free, so theirs are instanced and their spill is
+// the bloom's (`emissiveMeshes` in sim/traffic.js) rather than a light's. The cruiser used to carry
+// a smaller bar of its own, split red one side and blue the other, over a white roof; with the
+// robbery's fleet on the road that was two police liveries in one city, so it is one now.
 
 /**
  * Fore-aft, vertical and across.
  *
- * A shade larger than the cruiser's own 0.55/0.26/0.5, which is the opposite of what a cop car in
- * ambient traffic looks like it should get. The cruiser is one car the player is *hunting for* and
- * it arrives with a screen-edge wash announcing it (game/sirenglow.js); these are four cars in the
- * middle of ordinary traffic with nothing announcing them, so the bar is the entire cue and it has
- * to survive being one vehicle among a dozen. At 7.7px per unit the pair spans 9.9px across the
- * roof — two 4.5 x 4.0px lamps 5.9px apart — which is about a third of the car's drawn width.
+ * Sized for a car in the middle of ordinary traffic with nothing announcing it, so the bar is the
+ * entire cue and it has to survive being one vehicle among a dozen. At 7.7px per unit the pair
+ * spans 9.9px across the roof — two 4.5 x 4.0px lamps 5.9px apart — which is about a third of the
+ * car's drawn width. (The cruiser's old bespoke bar was 0.55/0.26/0.5.)
  */
 const SIREN_D = 0.58;
 const SIREN_H = 0.30;

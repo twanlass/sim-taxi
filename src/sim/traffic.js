@@ -1585,7 +1585,7 @@ export function steerToward(angle, yaw, prevYaw, ds, wheelbase = WHEELBASE) {
 // a cop car wears has to stand on its roof and nothing else in the file knew where that was. Same
 // habit city/burgerjoint.js has for the three surfaces stacked on its lot: the module that *lays* a
 // surface exports the height anything standing on it needs.
-const CABIN_X = -0.2;                        // set back from the car's own centre
+export const CABIN_X = -0.2;                 // set back from the car's own centre
 const CABIN_H = 0.6;
 const CABIN_Y = 1.45 + CHASSIS_LIFT;         // its centre
 /** The roof: what a light bar is bolted to. */
