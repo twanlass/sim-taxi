@@ -79,7 +79,7 @@ import {
 } from '../src/game/bloom.js';
 import { LIGHT_EMISSIVE, LIGHT_PODS } from '../src/geometry/lights.js';
 import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
-import { createPicker } from '../src/game/pick.js';
+import { createPicker, choosePick } from '../src/game/pick.js';
 import { setCityOccluders, sightlineClear } from '../src/game/sightline.js';
 import {
   createDiamond,
@@ -12361,6 +12361,83 @@ let chopperOrder; // likewise
 
   const garage = createGarage(layout.garageBlock, makeRng(seed + 99));
   const head = KERB_H + site.doorH;
+
+  // A rider waiting in front of the depot must not make it untappable. Reported from a phone: the
+  // rider's invisible tap quad (geometry/marker.js) stood over half the depot's front, and the
+  // picker's nearest-hit rule gave every tap there to the rider. Driven through `choosePick` on a
+  // phone-shaped frame, with a rider on each of the block's four corners — whichever of them the
+  // camera sees in front of the building is the case that was reported.
+  {
+    const W = 390;
+    const H = 844;
+    const mid = [(bounds.x0 + bounds.x1) / 2, (bounds.z0 + bounds.z1) / 2];
+    const dCam = createCityCamera(W / H, { zoom: PLAY_ZOOM, target: mid });
+    dCam.camera.updateMatrixWorld(true);
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    const v = new THREE.Vector3();
+    const screenOf = (x, y, z) => {
+      v.set(x, y, z).project(dCam.camera);
+      return { x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H };
+    };
+    const hitsAt = (px, py, roots) => {
+      ray.setFromCamera(ndc.set((px / W) * 2 - 1, -(py / H) * 2 + 1), dCam.camera);
+      return ray.intersectObjects(roots, true);
+    };
+    const firstDrawn = (hits) => hits.find((h) => {
+      if (h.object.material?.visible === false) return false;
+      for (let n = h.object; n; n = n.parent) if (!n.visible) return false;
+      return true;
+    });
+    const isDepot = (o) => { for (let n = o ?? null; n; n = n.parent) if (n === garage.group) return true; return false; };
+    garage.group.userData.pickable = 'depot';
+    garage.group.updateMatrixWorld(true);
+
+    // Depot pixels the rider's stand-in takes when the depot does not claim them — which is also
+    // the case of a depot that would refuse the tap: those keep answering the rider.
+    let stolen = 0;
+    let wrong = 0;        // ...still not answered 'depot' when the depot claims them
+    const riderMiss = [];
+    for (const [cx, cz] of [[bounds.x0, bounds.z0], [bounds.x0, bounds.z1],
+      [bounds.x1, bounds.z0], [bounds.x1, bounds.z1]]) {
+      const pin = createPassengerPin(createPerson);
+      pin.group.position.set(cx, 0.12, cz);
+      pin.postGroup.position.set(0, KERB_H, 0);
+      pin.group.updateMatrixWorld(true);
+      const roots = [pin.group, garage.group];
+      const c = screenOf(cx, KERB_H, cz);
+      const perUnit = H / (2 * PLAY_ZOOM);   // CSS pixels per screen unit on this frame
+      for (let dy = -12; dy <= 4; dy += 0.5) {
+        for (let dx = -8; dx <= 8; dx += 0.5) {
+          const sx = c.x + dx * perUnit;
+          const sy = c.y + dy * perUnit;
+          const hits = hitsAt(sx, sy, roots);
+          const raw = choosePick(hits, () => false);
+          const seen = firstDrawn(hits);
+          if (raw?.kind !== 'passenger' || !seen || !isDepot(seen.object)) continue;
+          stolen += 1;
+          if (choosePick(hits, (k) => k === 'depot')?.kind !== 'depot') wrong += 1;
+        }
+      }
+      // And the rider's own drawn figure still means the rider, depot claiming or not.
+      for (const [what, y] of [['head', KERB_H + 2.9], ['crystal', KERB_H + CRYSTAL_TOP - DIAMOND_HALF_H]]) {
+        const s = screenOf(cx, y, cz);
+        const hits = hitsAt(s.x, s.y, roots);
+        // A corner the building hides is one the board never uses (`cornerSeen` in game/fares.js),
+        // and there the wall *is* what is under the finger.
+        if (isDepot(firstDrawn(hits)?.object)) continue;
+        const got = choosePick(hits, (k) => k === 'depot')?.kind;
+        if (got !== 'passenger') riderMiss.push(`(${cx},${cz}) ${what} -> ${got}`);
+      }
+      pin.group.traverse((o) => o.geometry?.dispose());
+    }
+    check('a rider on a depot corner stands in front of the building somewhere', stolen > 0,
+      `${stolen} depot samples under a rider's tap quad`);
+    check('a tap on the depot wall behind a rider\'s tap quad reaches the depot', wrong === 0,
+      `${wrong}/${stolen} still answered by the rider`);
+    check('a tap on the rider in front of the depot still means the rider', riderMiss.length === 0,
+      riderMiss.join(', ') || 'every visible corner, head and crystal');
+  }
 
   // The bay is a hole, not a dark patch painted on a wall. Tested as a box strictly inside the
   // opening, clear of every lining panel: a solid mass would have vertices in it.
