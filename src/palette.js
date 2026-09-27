@@ -337,6 +337,15 @@ export const PALETTE = {
   // whole vehicle as one hull in one colour (carBodyGhost at the cab's index), because the outline
   // says "there is a vehicle there", not "these are its panels".
   truckBox: '#DDD4BE',
+  // The flatbed that sheds its load (game/flatbed.js). Timber crates rather than cardboard on
+  // purpose: the courier's parcels are cardboard browns (parcelBox below), and a box lying in the
+  // road that looked like one would read as a package to collect. Slatted pine with darker
+  // battens is a different object at a glance. The deck is weathered planking, the headboard dark
+  // steel like the cab it guards.
+  flatbedDeck: '#8A6E52',
+  flatbedRail: '#3C434C',
+  crate: '#D9B477',
+  crateBatten: '#9C7445',
 
   // --- Game entities. Deliberately higher-chroma than anything in the city so they read
   // instantly against the muted buildings and grey roads.

@@ -54,6 +54,7 @@ import { createDucks } from './game/ducks.js';
 import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
+import { createFlatbed } from './game/flatbed.js';
 import { showRunEnd } from './game/runend.js';
 import { recordRun, lastName, clearScores, loadScores } from './game/highscores.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from './game/locostash.js';
@@ -403,6 +404,8 @@ const traffic = createTraffic(
   pinnedCars ?? difficulty.carCount(0),
   pinnedCars ?? difficulty.carCount(Infinity),
   TRUCK_CHANCE,
+  // At least one, so the flatbed (game/flatbed.js) always has a truck to load. See createTraffic.
+  1,
 );
 // Experiment: the stop bars are the only thing on screen that shows a signal, so hiding them
 // leaves the traffic model obeying lights the player cannot see. Hidden by default while we look
@@ -1037,6 +1040,30 @@ traffic.onTaxiLand(({ x, z, yaw, v, deck }) => {
 // The player is still not being steered: what moved is where the rider wants to go, not how the
 // taxi chooses to get there, and they can take any route to it they like.
 roadwork.onPlaced(({ ends }) => { fares.aimNextDropoff(ends); });
+
+// A flatbed shedding its load — see game/flatbed.js. One of the city's trucks carries a stack of
+// crates, and some while in it starts going over bumps and dropping them. Anything that drives
+// into one smashes it; the taxi does too, for free — the crates are not in sim/collisions.js.
+// Run seed like the roadworks: which truck and when is the situation. `?flatbed=soon` starts the
+// shedding three seconds in, for looking at it.
+const flatbed = createFlatbed(makeRng(runSeed + 523), scene, traffic, camera, {
+  soon: new URLSearchParams(window.location.search).get('flatbed') === 'soon',
+});
+flatbed.onSmash(({ x, z, yaw, byTaxi }) => {
+  if (byTaxi) {
+    // Well under the barricade's 1.1: a crate is a lighter thing than a trestle, and it happens
+    // eight times rather than once. Enough that the taxi feels it went through something.
+    controller.kickShake(0.45);
+    sfx?.play('crash', { gain: 0.3, rate: 1.6 });
+    dust.burst(x, z, yaw, 12, 0.6);
+  } else {
+    // Ambient cars smash them too — it is that or drive through them — but quietly: the city's
+    // business, not the player's.
+    dust.burst(x, z, yaw, 6, 0.4);
+  }
+});
+// A crate hitting the road kicks up a little of what it lands on.
+flatbed.onLand(({ x, z }) => { dust.burst(x, z, 0, 5, 0.3); });
 
 // Occluded-only outlines on the traffic nearest the taxi, faded in with Loco Mode — the one mode
 // where a car hidden behind a tower is a crash rather than a surprise. See game/carghosts.js.
@@ -3119,6 +3146,9 @@ function frame() {
   boats?.update(dt);
   drawbridge?.update(dt, traffic.cars);
   roadwork.update(dt, traffic.taxi, traffic.cars, fares.occupiedSpots());
+  // After the traffic step for the same reason: it rides the truck's instance matrix, which has to
+  // be this frame's, and it tests crates against the cars where they now are.
+  flatbed.update(dt, traffic.taxi, traffic.cars);
 
   tutorial?.update(dt);
 
@@ -4134,6 +4164,8 @@ window.__taxi = {
   /** The birds on the park pond, and `ducks.pond` the water they are on — null if the city has none. */
   ducks,
   roadwork,
+  /** The truck that sheds crates. `flatbed.stage()` starts it now; `state`, `crates`, `loose()`. */
+  flatbed,
   pause,
   routeTo,
   findRoute,

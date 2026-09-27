@@ -66,6 +66,7 @@ src/
     carghosts.js        occluded-only outlines on the traffic nearest the taxi, faded in with boost
     flyover.js          the ambient plane that crosses the city every so often — scenery, nothing more
     chopper.js          the helicopter that lands on the city's rooftop helipad, idles and leaves
+    flatbed.js          one truck carries crates, hits fake bumps, drops them; anything can smash them
     birds.js            the park flocks: walk the grass, startled up by the taxi, come back; two per city
     ducks.js            the birds on the pond: paddle, sit, dabble, never leave
     clouds.js           the weather ringing the island — placed on the screen, never over the city
@@ -84,7 +85,7 @@ src/
 
   geometry/             one-off models, all procedural
     taxi.js  wheels.js  diamond.js  targetring.js  marker.js  person.js  riderdiamond.js
-    plane.js bird.js helicopter.js cursebubble.js cloud.js
+    plane.js bird.js helicopter.js cursebubble.js cloud.js crate.js
 
   util/
     rng.js              seeded RNG (mulberry32) + value noise
