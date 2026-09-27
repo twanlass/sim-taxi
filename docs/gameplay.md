@@ -3484,3 +3484,22 @@ that cannot be undone.
 runs apart, and the row is too narrow to carry it — four columns is already what fits at the top of
 the font-size clamp — so it is kept only so a future row can show it without orphaning every
 existing score.
+
+## Boost orbs
+
+**A prototype.** Glowing yellow orbs hover over a few road segments; drive through one and a sixth
+of a tank (`ORB_REWARD`, the parcel's share) flies into the Punch It pill on the energy bit's
+flight, with no handoff delay since there is no cash payout to queue behind. `game/orbs.js`.
+
+- **Fixed slots, chosen per city.** `ORB_SLOTS` (3) segments off the *city* seed (`seed + 188`),
+  spread by farthest-point selection so they pull the taxi to different parts of the map. A taken
+  orb comes back to the same slot after `ORB_RESPAWN` (25s). The intent is something to learn and
+  route through, not something found by accident — which is why the slots are not near riders.
+- **Interior roads only, no bridges, no closed segments.** The ring road is off to the side of
+  every trip, and an orb over the drawbridge would be unreachable while the span is up.
+- **Caught from either lane.** The orb sits on the centreline and the catch box is the whole road
+  width (`halfRoadX/Z`) by `ORB_CATCH_ALONG` either side of the midpoint, so a route through the
+  segment in either direction takes it. The orb is pulled into the car on pickup so a pass beside
+  it still reads as collecting it.
+- **Held with the fare loop** (vignette, Home Screen tip) and after the run ends.
+- **Off in shot mode**; `?orbs=0` / `?orbs=1` overrides either way.

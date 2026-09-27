@@ -37,6 +37,7 @@ import { createBoostMeter } from './game/boostmeter.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage } from './game/taxidamage.js';
 import { flyEnergyToBoost } from './game/energybits.js';
+import { createBoostOrbs, ORB_REWARD } from './game/orbs.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
 import { createCityEntry } from './game/cityentry.js';
@@ -140,6 +141,10 @@ const runSeed = getRunSeed(seed, Boolean(shot));    // this run's situation — 
 // The courier layer: on in an ordinary run, off in shot mode, and `?parcels=0`/`?parcels=1` beats
 // both — see getParcelsPin for why the default is not a constant.
 const parcelsEnabled = getParcelsPin() ?? !shot;
+// Boost orbs — a prototype, see game/orbs.js. On in play and off in shot mode so the screenshots
+// don't move under it; `?orbs=0`/`?orbs=1` beats both.
+const orbsParam = new URLSearchParams(window.location.search).get('orbs');
+const orbsEnabled = orbsParam === null ? !shot : orbsParam !== '0';
 
 // `?d=0..1` freezes the difficulty curve, so the late game can be looked at without playing ten
 // fares to reach it. Applied before anything constructs, because the car count is read off the
@@ -442,6 +447,9 @@ const parcels = parcelsEnabled
     foodPickup: burger ? { i: burger.site.bi + 1, j: burger.site.bj + 1 } : null,
   })
   : null;
+// Boost orbs on fixed road segments — see game/orbs.js. On the **city** seed rather than the run's:
+// where the orbs sit is a fact about the map a player can learn and route for, not a roll per run.
+const boostOrbs = orbsEnabled ? createBoostOrbs(makeRng(seed + 188), scene) : null;
 // Sim time the taxi's flourish was stamped at, or null when it is not running. See the frame loop —
 // it lights the whole car for the length of a select pop.
 //
@@ -3391,6 +3399,22 @@ function frame() {
     }
   }
 
+  // Boost orbs. Held with the fare loop (the vignette, the Home Screen tip) and once the run is
+  // over, but still drawn and bobbing through both. The fuel leaves the car on the frame it is
+  // touched — no cash payout to queue behind, so no handoff delay.
+  const orbsTaken = boostOrbs?.update(dt, traffic.taxi, {
+    enabled: !fareLoopHeld() && !fares.state.gameOver,
+  }) ?? [];
+  if (orbsTaken.length) {
+    haptic('parcel-in');
+    flyEnergyToBoost({
+      from: taxiScreenPos,
+      to: boostScreenPos,
+      delay: 0,
+      onArrive: () => boost.topUp(ORB_REWARD * orbsTaken.length),
+    });
+  }
+
   // The taxi's flourish, on the select pop's own envelope (game/selectpop.js) so a package landing in
   // the car — or the camera landing back on it — reads as the same *kind* of acknowledgement a tapped
   // rider gets rather than as a new effect to learn. Written every frame while it runs, so the frame
@@ -3906,6 +3930,7 @@ if (shot) {
   }
   fares.settleMarkers();
   parcels?.settleMarkers();
+  boostOrbs?.settle();
   // The river's own two, for the drive-through's reason: a shot ticks the world once, so a boat
   // that has not been spawned yet never will be and every screenshot of the river is of an empty
   // one. `settle` places one of each beside the lifting span instead of waiting a minute for a tug.
@@ -4077,6 +4102,8 @@ window.__taxi = {
   fares,
   /** The package courier, or null under `?parcels=0` and in shot mode. See game/parcels.js. */
   parcels,
+  /** The boost orbs, or null under `?orbs=0` and in shot mode. See game/orbs.js. */
+  boostOrbs,
   /**
    * The HUD's courier box, for `tools/smoke.mjs` — null whenever `parcels` is. Everything about this
    * chip is browser-only (a WebGL context in a DOM node, and now a Web Animation carrying it in from

@@ -37,8 +37,11 @@ const scatter = (i) => {
  * Fire the sparks. Both `from` and `to` are functions returning viewport `{x, y}` — see above.
  * `onArrive` fires once, when the first spark reaches the pill, and is what should actually hand
  * the fuel over: the meter starting to fill before the energy lands reads exactly backwards.
+ *
+ * `delay` defaults to HANDOFF, which exists to queue the sparks behind a cash payout. A boost orb
+ * (game/orbs.js) pays no cash, so it passes 0 and the sparks leave on the frame it is touched.
  */
-export function flyEnergyToBoost({ from, to, onArrive }) {
+export function flyEnergyToBoost({ from, to, onArrive, delay = HANDOFF }) {
   setTimeout(() => {
     const start = from();
     const target = to();
@@ -85,5 +88,5 @@ export function flyEnergyToBoost({ from, to, onArrive }) {
         };
       };
     }
-  }, HANDOFF);
+  }, delay);
 }

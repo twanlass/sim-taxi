@@ -61,6 +61,9 @@ import {
   PARCEL_PAD_LIFT, LIFT_TIME, TAP_MAX_DETOUR,
 } from '../src/game/parcels.js';
 import {
+  createBoostOrbs, inCatch, ORB_SLOTS, ORB_RESPAWN, ORB_CATCH_ALONG,
+} from '../src/game/orbs.js';
+import {
   createTargetRing, ringGrowScale, ringShrinkScale, RING_R, RING_Y,
 } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
@@ -210,6 +213,49 @@ const buildings = time('buildings', () => createBuildings(makeRng(seed + 22), la
 const propsBuild = time('props', () => createProps(makeRng(seed + 33), layout));
 const props = propsBuild.mesh;
 const traffic = time('traffic init', () => createTraffic(makeRng(seed + 44), scene, 24));
+
+// --- Boost orbs (game/orbs.js). Up here, beside the one layout this file measures against, because
+// the slots are read off the grid's closures and a later `createLayout` replaces those.
+{
+  const orbs = createBoostOrbs(makeRng(seed + 188), new THREE.Scene());
+  const { slots } = orbs;
+  check('the orbs get their full count of slots', slots.length === ORB_SLOTS,
+    `${slots.length} of ${ORB_SLOTS}`);
+  // Both lanes of the road the orb hovers over, at its midpoint: an orb that only one direction of
+  // travel can take is missed by half the routes through it.
+  const bothLanes = slots.every((s) => {
+    const dA = s.axis === 'x' ? DIR.PX : DIR.PZ;
+    const i = Math.round((s.x + HALF_SPAN_X) / PITCH - (s.axis === 'x' ? 0.5 : 0));
+    const j = Math.round((s.z + HALF_SPAN_Z) / PITCH - (s.axis === 'z' ? 0.5 : 0));
+    return [dA, (dA + 2) % 4].every((d) => {
+      const off = laneOffsetCoord(d, i, j);
+      return s.axis === 'x' ? inCatch(s, s.x, off) : inCatch(s, off, s.z);
+    });
+  });
+  check('an orb is taken from either lane of its road', bothLanes);
+  // The fastest thing on the road cannot step over the catch box between two frames.
+  const topStep = 34 / 60;
+  check('the catch box is longer than a top-speed frame', 2 * ORB_CATCH_ALONG > topStep,
+    `${(2 * ORB_CATCH_ALONG).toFixed(1)} units against ${topStep.toFixed(2)} a frame`);
+  const nearest = Math.min(...slots.flatMap((a, k) => slots.slice(k + 1)
+    .map((b) => Math.hypot(a.x - b.x, a.z - b.z))));
+  check('the slots are spread across the map', nearest >= 2 * PITCH,
+    `closest pair ${nearest.toFixed(0)} units apart`);
+
+  const s0 = slots[0];
+  const held = orbs.update(1 / 60, { x: s0.x, z: s0.z }, { enabled: false });
+  const took = orbs.update(1 / 60, { x: s0.x, z: s0.z });
+  const again = orbs.update(1 / 60, { x: s0.x, z: s0.z });
+  check('an orb pays once, and not while pickups are held',
+    held.length === 0 && took.length === 1 && again.length === 0);
+  let back = 0;
+  for (let t = 0; t < ORB_RESPAWN + 1; t += 1 / 60) {
+    if (orbs.update(1 / 60, { x: 1e3, z: 1e3 }) && orbs.orbs[0].state === 'live') { back = t; break; }
+  }
+  check('a taken orb comes back to its own slot', back > ORB_RESPAWN - 0.5
+    && orbs.orbs[0].mesh.group.position.x === s0.x && orbs.orbs[0].mesh.group.position.z === s0.z,
+    `back after ${back.toFixed(1)}s`);
+}
 
 // Where a food order is collected — the burger joint's +X+Z corner junction, exactly as `main.js`
 // derives it (see game/parcels.js). Every courier board in this file is built with it, because a

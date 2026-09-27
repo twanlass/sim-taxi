@@ -840,6 +840,13 @@ export const PALETTE = {
   // hole rather than as a line. Two points of warmth and a lift off zero is enough to stop that
   // without ever reading as brown.
   toonInk: '#141110',
+
+  // A boost orb (game/orbs.js). The energy bit's own yellow (`.energy-bit` in index.html), because
+  // an orb *is* that fuel sitting on the road before it is collected — and the flight it takes to
+  // the pill on pickup is the same spark. It borrows the taxi's hue on purpose: yellow already means
+  // "this is Loco Mode fuel" on the pill, and the orb should say the same word.
+  boostOrb: '#FFD84D',
+  boostOrbHalo: '#FFE98A',
 };
 
 export function color(value) {
