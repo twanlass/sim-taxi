@@ -2204,7 +2204,9 @@ in [the box-in](traffic.md#the-box-in-roadblocks-the-overtake-and-the-brake-chec
   time, eight seconds apart.
 - **The overtake and the brake check.** A cop that catches you from behind goes round you in the
   oncoming lane, cuts in and slews across the road for 2.5 seconds, with the rest of the chase
-  arriving behind you. Angled across both lanes, it cannot be gone round on the pill — only rammed.
+  arriving behind you. A cop that is already ahead of you on your road skips the overtake and does
+  the same — it does not drive on away from you. Angled across both lanes, it cannot be gone round
+  on the pill — only rammed.
 
 Each poses the same three-way choice, and all three are things the game already had. **Wait** — it
 costs the robber's clock, and with it the bonus. **Route round** — redraw the route and

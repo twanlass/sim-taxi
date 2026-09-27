@@ -14534,7 +14534,7 @@ let chopperOrder; // likewise
       // Measured over 58 events on 60 seeds while this was built: 56 roadblocks, 45 passes, 27
       // brake checks, and after the fixes each of these clauses records, zero of every overlap.
       {
-        let roadblocks = 0; let pairs = 0; let passes = 0; let checks = 0; let violations = 0;
+        let roadblocks = 0; let pairs = 0; let passes = 0; let checks = 0; let aheadChecks = 0; let violations = 0;
         let stoppedOverlap = 0; let oncomingOverlap = 0; let taxiGap = Infinity; let events = 0;
         const slewed = [];
         // How far a fully swung cop on an ordinary street stands off the middle of the road it is
@@ -14556,6 +14556,7 @@ let chopperOrder; // likewise
           events += 1;
           const went = new Set();
           const checked = new Set();
+          const checkedAhead = new Set();
           for (let f = 0; f < 60 * 25 && r3.state.active; f++) {
             if (!tx.route?.length) {
               const far = { i: tx.i > GRID_I / 2 ? 0 : GRID_I, j: tx.j > GRID_J / 2 ? 0 : GRID_J };
@@ -14569,6 +14570,7 @@ let chopperOrder; // likewise
               if (cop.crashed) continue;
               if (cop.passing) went.add(cop);
               if (cop.roadblock > 0 && !cop.blocking) checked.add(cop);
+              if (cop.roadblock > 0 && !cop.blocking && cop.brakeCheckAhead) checkedAhead.add(cop);
               // Fully swung across the road it is blocking: 45° off it, give or take whatever the
               // arc was still doing when the diagonal was latched.
               if (cop.slew === 1 && !cop.knock && cop.blockAxis != null) {
@@ -14601,11 +14603,18 @@ let chopperOrder; // likewise
           pairs += r3.state.pairs;
           passes += went.size;
           checks += checked.size;
+          aheadChecks += checkedAhead.size;
           violations += t3.stats.violations;
         }
         check('the police box the taxi in: roadblocks, overtakes and brake checks',
           events > 0 && roadblocks > 0 && passes > 0 && checks > 0,
           `${events} getaways: ${roadblocks} roadblocks (${pairs} paired), ${passes} passes, ${checks} brake checks`);
+        // A cop already in front on the taxi's road stops across it too, without going round first
+        // (COP_AHEAD_* in sim/traffic.js). Before it, a cop ahead drove on down the straight and read
+        // as police that had not seen the taxi. Over seeds 1-12 it lifted brake checks from ~1 per six
+        // getaways to ~3, with no overlap and no red run.
+        check('...and a cop already ahead of the taxi brake-checks it without overtaking first',
+          aheadChecks > 0, `${aheadChecks} of ${checks} brake checks from a cop already in front`);
         check('...and a blocking cop stands at 45° across the road, not square in its lane',
           slewed.length > 0 && Math.max(...slewed) < 0.05,
           `${slewed.length} frames fully swung, worst ${(Math.max(0, ...slewed) * 180 / Math.PI).toFixed(1)}° off the diagonal`);
