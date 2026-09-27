@@ -403,6 +403,11 @@ export function createCarGhosts(scene, traffic) {
     const limit = GHOST_RADIUS * GHOST_RADIUS;
     for (const car of vehicles) {
       if (car.crashed) continue;
+      // The flatbed (game/flatbed.js) has its cargo box collapsed to zero scale, and the truck
+      // rim is one hull over cab *and* box — so the box's mask stamped nothing and the box-shaped
+      // half of the rim drew in the open, round the crates, all the time. It sits out of the
+      // outlines rather than getting a cab-only pool of its own for one vehicle.
+      if (car.flatbed) continue;
       const dx = car.x - taxi.x;
       const dz = car.z - taxi.z;
       const d2 = dx * dx + dz * dz;

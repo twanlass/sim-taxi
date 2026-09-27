@@ -1970,6 +1970,69 @@ not been told what scene it is in. They reach the kerb, turn to look back, hold 
 reads as having got there. Their alpha multiplies into the zone's rather than being overwritten
 by it.
 
+## The flatbed that sheds its load
+
+`src/game/flatbed.js` and `src/geometry/crate.js`. One ambient truck carries an open deck stacked
+with eight timber crates. 35–75 seconds into the run it starts going over bumps: it jolts, the load
+hops a beat behind the chassis, and every 16–28 units of road (`DROP_SPACING`, one and a half to
+two and a half blocks) one of those jolts shakes a crate loose. It slides off the back, tumbles
+into the road, skids and lies there for 22 seconds before sinking away. The spacing is by distance
+rather than a chance per jolt: that first version shed a crate every two seconds or so and heaped
+the whole load inside a block and a half. Spread down a street or two, the taxi meets them one at a
+time. Anything that drives into one
+smashes it into a spray of splinters — the taxi with a small shake and a crunch, ambient cars
+quietly. **It costs the taxi nothing.** The crates are not in `sim/collisions.js` and the module
+never calls into it.
+
+### It is a real truck with its box taken off
+
+**It wears no ghost outline.** `game/carghosts.js` traces a truck as one hull over cab *and* box,
+and hides the rim wherever the vehicle's own masks stamp it — so with the box collapsed, the box
+half of the rim had nothing hiding it and drew in the open, round the crates, all the time. The
+flatbed is skipped in the scan rather than given a cab-only pool of its own for one vehicle; the
+cost is that it is the one truck with no outline when it is behind a tower.
+
+Rather than a second vehicle kept in step with a first, `flatbed.js` *claims* an existing ambient
+truck and sets `car.flatbed`, which is the one thing `writeAmbient` reads to collapse that
+instance's cargo box to `ZERO_MATRIX`. The deck and the load are drawn off the same instance
+matrix (`truckMesh.getMatrixAt`), so the flatbed queues, signals, turns and pitches exactly as the
+truck it was. `TRUCK_BOX_LEN`, `TRUCK_BOX_X` and `TRUCK_CHASSIS_TOP` are exported from traffic.js
+so the deck lands in the box's footprint rather than guessing it. A wreck shell leaves the box out
+for a flatbed, for the same reason.
+
+The truck is claimed at the start of the run and only the *shedding* is scheduled, so it drives
+round loaded for a while first. **Which needs a truck to exist**: at `TRUCK_CHANCE` a 12-vehicle
+opener had none in 2 of 6 sampled runs, and the vignette then waited on the density ramp to roll one
+— minutes, or never. `createTraffic` takes a `minTrucks` now (main.js passes 1), promoted from the
+back of the draw rather than rolled again so the stream stays byte-for-byte what it was; it is only
+honoured when `truckChance > 0`, because that is what makes `spawnCars` leave a truck-sized gap
+round every car.
+
+### The bumps are not in the road
+
+`car.jolt`, `car.joltRoll` and `car.joltPitch` are added into the ambient pose and nowhere else —
+render-only, like the ramp's hop and the bridge arch, so a pothole cannot move a car's `s`, its
+following distance or its signal decision. The front wheels are composed through the body matrix,
+so they leave the road with it, which is what makes it read as a wheel going over something.
+
+### Where it sheds, and where it doesn't
+
+Only while the truck is moving, in frame, within 55 units of the taxi — and **never between the
+river banks, bank roads included** (`RIVER_MARGIN`). A fixed span arches 1.1 above the road and a
+crate would rest half inside it; the drawbridge is flat but lifts, and would leave a crate hanging
+where the road had been; and a bank road's far kerb is the channel wall. Lateral scatter is 0.9 so a
+crate thrown sideways cannot land half on a kerb.
+
+The load comes off in an order: top pair first, then the bottom row tail-first. A crate slides back
+along the deck in the truck's frame until its centre passes whatever holds it up, then is handed to
+world space with the truck's velocity less its own slide — so at truck cruise it lands a little
+behind the truck and the truck drives on. `tools/probe.mjs` asserts the stack fits inside the side
+rails with the hand-loaded yaw included (at `CRATE = 0.9` it did not), that nothing slides through a
+crate still loaded, that every landing is behind the truck's tail (nearest measured −4.0 against a
+tail at −2.8), and that the jolt returns to exactly zero.
+
+`?flatbed=soon` starts the shedding three seconds in and lifts the range gate, for looking at it.
+
 ## The drive-through
 
 `game/drivethru.js`. The lot, the lane and the building are the city's — see
