@@ -742,6 +742,11 @@ const seesLeader = (car) => car.passOffset
 // back, a cop that slowed for the next junction was caught and cut into by the very taxi it had
 // just passed (0.7 units centre to centre, measured).
 const outOfLane = (car) => car.police && car.passing && !seesLeader(car);
+// ...and the same goes for the cop's own following. `seesLeader` alone keeps a cop blind to the
+// car in its lane for as long as its offset is out past ENVELOPE, which is right while committed and
+// wrong on the way back in: a pass abandoned 6 units behind the taxi swung back across a junction at
+// 13 u/s against the taxi's 8.5 and was 3.2 off its tail by the time the offset let it see it.
+const followsLeader = (car) => seesLeader(car) || (car.police && !car.passing);
 // A boosting taxi with hit points that *cannot* get round the car in front rams it. Everything
 // above about the tailgate gap and the moving-leader cap is how Loco Mode avoided the car in front,
 // which was the right call while any contact was the end of the run. Now a contact is a bump
@@ -822,7 +827,11 @@ function pulloverTargetFor(car) {
  * behind, and the car is let go once it is PULLOVER_CLEAR past.
  */
 function blockPulloverFor(car) {
-  if (!laneBlocks.length || car.isTaxi || car.crashed || car.police) return 0;
+  // Another cop pulls over too. It used to be exempt, which held while the only brake check was
+  // the one after an overtake — the rest of the fleet was behind the taxi, not coming the other
+  // way. A cop already in front brake-checks anywhere on the taxi's road, and an oncoming cop at
+  // chase speed then drove through its flank (0.98 deep, `tools/probe.mjs`).
+  if (!laneBlocks.length || car.isTaxi || car.crashed || car.roadblock > 0) return 0;
   if (car.state === 'turn' && car.dOut !== car.d) return 0;
   const carAxis = isXAxis(car.d) ? 'x' : 'z';
   const line = carAxis === 'x' ? car.j : car.i;
@@ -1235,6 +1244,28 @@ const COP_PASS_CUT_IN = PASS_CLEAR + 2 * CAR_LEN + 4;
 // a second) and the stern-chase cops have a moment to arrive behind; short enough that a player who
 // neither rams nor goes round has lost a couple of seconds of the robber's clock, not the fare.
 const BRAKE_CHECK = 2.5;
+// A cop that is *already* in front of the taxi on its road brake-checks too, without going round
+// it first. Only the overtake used to arm the brake check, so a cut-off cop that turned onto the
+// taxi's road ahead of it — or one the taxi turned in behind — drove on down the straight at chase
+// speed, and read as police that had not seen the taxi or were leaving. Within COP_AHEAD_REACH of
+// the taxi's nose, because further out the cop would be stood down before the taxi got there; and
+// it waits the time the taxi needs to cover the gap at cruise on top of BRAKE_CHECK, capped at
+// COP_AHEAD_WAIT, so the block is still standing when the taxi arrives. Once per cop per
+// COP_AHEAD_GAP seconds: a cop that pulls away and is caught on the next block would otherwise
+// stop in front of the taxi on every lane, which is a wall rather than a chase.
+//
+// Two more fences, each an overlap `tools/probe.mjs` measured first. The taxi has to be on a lane
+// and at least COP_AHEAD_NEAR back when the brake goes on: a taxi tailgating the cop through a
+// junction was 2.1 units behind it, still mid-arc, when it stopped. And the cop comes to rest no
+// nearer the junction it has just left than COP_AHEAD_MOUTH: stopped 0.9 into the lane, its 45°
+// body reached across the mouth of the box, and a car turning out of the oncoming lane swept
+// through it — a turning car does not pull over. Past a queued car's hold line plus a body, it
+// clears both.
+const COP_AHEAD_REACH = 36;
+const COP_AHEAD_NEAR = MIN_GAP + 2;
+const COP_AHEAD_MOUTH = STOP_SETBACK + CAR_LEN;
+const COP_AHEAD_WAIT = 2.5;
+const COP_AHEAD_GAP = 8;
 
 // --- A cop across the road ----------------------------------------------------
 //
@@ -2071,6 +2102,11 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // A cop that has cut in front of the taxi and is due to brake check it once its swing back
       // into the lane finishes. See the cop-pass block in `update`.
       brakeCheckArmed: false,
+      // Sim time of this cop's last brake check, and how long the one being armed holds — see
+      // COP_AHEAD_*. A brake check armed by going round the taxi holds plain BRAKE_CHECK.
+      brakeCheckAt: -Infinity,
+      brakeCheckHold: BRAKE_CHECK,
+      brakeCheckAhead: false,
       isTaxi: false,
       instanceIndex: -1,
       x: 0, z: 0, yaw: dirYaw(d),
@@ -4202,14 +4238,36 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // lane is 12, so a cop that finishes its swing late would otherwise come to rest inside
         // the next junction, where a car turning across it drove straight through it (measured).
         // Short of room it waits for the next lane, still armed.
-        if (was && !cop.passing && rel >= PASS_CLEAR) cop.brakeCheckArmed = true;
+        if (was && !cop.passing && rel >= PASS_CLEAR) {
+          cop.brakeCheckArmed = true;
+          cop.brakeCheckHold = BRAKE_CHECK;
+          cop.brakeCheckAhead = false;
+        }
+        // Already in front, having never gone round: the same brake check — see COP_AHEAD_*.
+        // Read off `leaderOf` rather than `rel`, so nothing is between the two and the cop is on
+        // the taxi's own lane or the one it runs on into, never a parallel street.
+        if (hunting && !cop.passing && cop.pass === 0 && !cop.brakeCheckArmed
+            && cop.d === taxi.d && leaderOf.get(taxi) === cop
+            && leaderDist.get(taxi) < COP_AHEAD_REACH
+            && t - cop.brakeCheckAt > COP_AHEAD_GAP) {
+          cop.brakeCheckArmed = true;
+          cop.brakeCheckHold = BRAKE_CHECK
+            + Math.min(COP_AHEAD_WAIT, leaderDist.get(taxi) / Math.max(taxi.v, SPEED));
+          cop.brakeCheckAhead = true;
+        }
         if (!cop.passing && cop.pass === 0 && cop.brakeCheckArmed) {
+          const stopS = cop.s + stopDistance(cop.v);
           if (!hunting || leaderOf.get(taxi) !== cop) {
             cop.brakeCheckArmed = false;
+          } else if (cop.brakeCheckAhead && (taxi.state !== 'drive'
+              || leaderDist.get(taxi) < COP_AHEAD_NEAR || stopS < COP_AHEAD_MOUTH)) {
+            // Not yet — see COP_AHEAD_NEAR/MOUTH. Still armed, so it goes on the first frame
+            // both hold, or is dropped with the rest above when the taxi turns off.
           } else if (cop.lane.length - STOP_SETBACK - cop.s > stopDistance(cop.v) + 1) {
             cop.brakeCheckArmed = false;
-            cop.roadblock = BRAKE_CHECK;
+            cop.roadblock = cop.brakeCheckHold;
             cop.blockAxis = cop.d;
+            cop.brakeCheckAt = t;
           }
         }
         if (!cop.passing && cop.pass === 0) cop.passTarget = null;
@@ -4341,7 +4399,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // `laneBlocks` above. Only a stop on a lane: a junction block holds the box instead (`heldAt`).
     laneBlocks = [];
     for (const cop of policeCars) {
-      if (cop.crashed || cop.staged || cop.roadblock <= 0 || cop.state !== 'drive') continue;
+      // Still swung counts: a cop let go drives out of its 45° over SLEW_RECOVER, and an oncoming
+      // cop at chase speed met the body while it was still straightening (0.5 deep, one frame).
+      if (cop.crashed || cop.staged || cop.state !== 'drive') continue;
+      if (cop.roadblock <= 0 && !(cop.slew > 0)) continue;
       if (!blocksOnCentreline(cop)) continue;
       laneBlocks.push({
         axis: isXAxis(cop.d) ? 'x' : 'z',
@@ -4459,7 +4520,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // so queueing at a red — which everything else here is tuned around — is untouched.
         //
         let leadCap = Infinity;
-        const ahead = seesLeader(car) && !rams(car) ? leaderDist.get(car) : undefined;
+        const ahead = followsLeader(car) && !rams(car) ? leaderDist.get(car) : undefined;
         if (ahead !== undefined) {
           const leader = leaderOf.get(car);
           const gap = car.boost ? boostGap(car) : followGap(car, leader);
@@ -4864,7 +4925,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // hold. That is what keeps `bargesThrough`'s guarantee intact: nothing stops the taxi
         // inside a junction.
         let target = cornerTarget;
-        const lead = seesLeader(car) && !rams(car) ? leaderOf.get(car) : undefined;
+        const lead = followsLeader(car) && !rams(car) ? leaderOf.get(car) : undefined;
         const leadGap = lead === undefined ? undefined : leaderDist.get(car);
         if (leadGap !== undefined) {
           const room = Math.max(0, leadGap - (car.boost ? boostGap(car) : followGap(car, lead)));
