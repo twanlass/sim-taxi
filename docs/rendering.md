@@ -1,7 +1,7 @@
 # Rendering
 
-Three.js r0.180. **Zero external assets** — every mesh is generated in code, there is no loader,
-no texture and no model file.
+Three.js r0.180. **Every visual is generated in code** — there is no loader, no texture file and no
+model file. (The sound effects are the project's only loaded assets; see [audio.md](audio.md).)
 
 ## The low-poly look
 
@@ -872,7 +872,7 @@ its hue is the time remaining; a beige wash over it reports the wrong one.
 ### The page — one tile, baked in code
 
 `bakePaper()` writes a 256² RGBA8 `DataTexture`, which is the project's first texture. The
-zero-external-assets claim survives — it is generated in code like every mesh — and it is baked
+nothing-visual-is-loaded rule survives — it is generated in code like every mesh — and it is baked
 from `valueNoise2D`/`fbm` in `util/rng.js` at a **fixed seed of its own**: the page does not reseed
 when the city does, so a screenshot pair taken across a change to the buildings differs by the
 buildings.

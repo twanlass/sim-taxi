@@ -175,7 +175,7 @@ responses would serve stale code back mid-session. It only runs against a real b
 build` + `preview`, or the deployed site).
 
 The worker's job is one thing: a Home Screen launch has to work with no connection, which nothing
-gave it for free. The city has zero external assets already (see the docs index), but the *shell*
+gave it for free. The city is generated in code (see the docs index), but the *shell*
 — `index.html` and the Vite-built JS bundle — still has to be fetched over the network on first
 paint like any other page, and a browser that fails that fetch offline just fails to load.
 

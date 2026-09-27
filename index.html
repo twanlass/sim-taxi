@@ -282,6 +282,18 @@
         transition: transform 0.1s ease;
       }
       #pause-veil .pause-resume:active { transform: scale(0.95); }
+      /* The sound switch, under Resume and deliberately quieter than it: an outline rather than the
+         yellow, because it changes a setting rather than handing the game back. Here rather than on
+         the HUD because it is set once and left, and the HUD's top edge has no room to spare. M
+         toggles it from a keyboard (main.js). */
+      #pause-veil .pause-sound {
+        margin-top: 14px; padding: 10px 20px; border-radius: 999px; cursor: pointer;
+        border: 2px solid rgba(255, 255, 255, 0.7); background: transparent; color: #fff;
+        font: 700 15px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        letter-spacing: 0.02em; white-space: nowrap;
+        transition: transform 0.1s ease;
+      }
+      #pause-veil .pause-sound:active { transform: scale(0.95); }
 
       /* Earnings fly off the taxi so the payout is visibly connected to the drop-off; the flight
          itself (rise, then travel to the counter) is driven from JS so it can aim at the counter's
@@ -573,7 +585,8 @@
       /* The Loco Mode pill and the ⚙️ tweak toggle are gameplay controls; once the run is over
          they are noise behind the retry pill. */
       body.game-over #boost, body.game-over #brake,
-      body.game-over #dbg-toggle, body.game-over #dbg-panel { display: none; }
+      body.game-over #dbg-toggle, body.game-over #dbg-panel,
+      body.game-over #aud-toggle, body.game-over #aud-panel { display: none; }
 
       /* The bottom control row: Loco Mode and the brake, sharing the band the pill used to have to
          itself, 60/40 with a gap between them.
@@ -1530,6 +1543,45 @@
       }
       body.shot-mode #dbg-toggle, body.shot-mode #dbg-panel { display: none; }
 
+      /* --- audio panel (`?audio`, src/game/audiopanel.js) ---
+         Borrows the tweak panel's rows and buttons; beside the ⚙️ when both are up. */
+      #aud-toggle, #aud-panel { font: 500 12px/1.4 ui-rounded, "SF Pro Rounded", system-ui, sans-serif; }
+      #aud-toggle {
+        position: fixed; top: calc(16px + var(--safe-top)); right: calc(16px + var(--safe-right)); z-index: 20;
+        width: 38px; height: 38px; border: 0; border-radius: 10px; cursor: pointer;
+        font-size: 18px; line-height: 1; background: rgba(20, 34, 44, 0.72); color: #fff;
+      }
+      #aud-toggle:hover { background: rgba(20, 34, 44, 0.9); }
+      #aud-panel {
+        position: fixed; top: calc(62px + var(--safe-top)); right: calc(16px + var(--safe-right));
+        z-index: 21; width: 300px; box-sizing: border-box;
+        padding: 12px 14px 14px; border-radius: 12px;
+        background: rgba(18, 30, 39, 0.94); color: #e8eef2;
+        max-height: calc(100vh - 90px - var(--safe-top) - var(--safe-bottom)); overflow: auto;
+      }
+      #aud-panel[hidden] { display: none; }
+      #aud-panel h4 {
+        margin: 12px 0 6px; font-size: 11px; text-transform: uppercase;
+        letter-spacing: 0.08em; opacity: 0.55; font-weight: 700;
+      }
+      #aud-panel h4:first-of-type { margin-top: 4px; }
+      #aud-panel .dbg-row { grid-template-columns: 104px 1fr; }
+      body.aud-beside-dbg #aud-toggle { right: calc(62px + var(--safe-right)); }
+      .aud-sound {
+        margin: 8px 0; padding: 7px 8px 2px; border-radius: 8px; background: rgba(0, 0, 0, 0.22);
+        border-left: 3px solid transparent;
+      }
+      .aud-sound.is-edited { border-left-color: #F5C130; }
+      .aud-name { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; }
+      .aud-name strong { font-weight: 700; }
+      .aud-name span { font-size: 10px; opacity: 0.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .aud-play {
+        flex: none; width: 24px; height: 22px; border: 0; border-radius: 6px; cursor: pointer;
+        background: #F5C130; color: #23303a; font: 700 10px/1 inherit; align-self: center;
+      }
+      #aud-panel .dbg-out { box-sizing: border-box; }
+      body.shot-mode #aud-toggle, body.shot-mode #aud-panel { display: none; }
+
       /* The renderer readout — `?diag`, see src/game/diag.js. Bottom-left rather than top, which
          is where the money counter and the streak live, and above the boost pill's own corner.
          It has to survive being photographed on a phone in one hand, so: monospace, a solid
@@ -1608,6 +1660,7 @@
     <div id="pause-veil" role="dialog" aria-modal="true" aria-label="Paused" aria-hidden="true" hidden>
       <div class="pause-title">Paused</div>
       <button class="pause-resume" type="button">Resume</button>
+      <button class="pause-sound" type="button" aria-pressed="true" aria-keyshortcuts="M">Sound: On</button>
     </div>
 
     <!-- `aria-keyshortcuts` is how the spacebar hold announces itself; nothing is painted on the

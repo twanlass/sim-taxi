@@ -8,7 +8,9 @@ Guidance for Claude Code when working in this repository.
 5-by-6 block city with a river down the middle of it, ambient traffic obeying real signals, and one
 taxi you route by tapping fares.
 
-Three.js r0.180 + Vite 7. **Zero external assets** — every mesh is generated in code.
+Three.js r0.180 + Vite 7. **Every mesh is generated in code** — no models, no loader. The one
+exception is **audio**: a sound designer's recordings, shipped as `assets/audio/*.m4a`
+([docs/audio.md](docs/audio.md)).
 
 ## Read the docs first
 
@@ -26,6 +28,7 @@ about to change.
 | [docs/gameplay.md](docs/gameplay.md) | Opening vignette, fare loop, routing, picking, timer ring, economy |
 | [docs/difficulty.md](docs/difficulty.md) | The ramp: budgeted clocks, board size, shifts, the sweeps behind the numbers |
 | [docs/rendering.md](docs/rendering.md) | Low-poly technique, camera, lighting, day/night, effects |
+| [docs/audio.md](docs/audio.md) | The taxi's sound: the files, what plays when, the tap unlock, mute, the `?audio` mix panel |
 | [docs/testing.md](docs/testing.md) | `npm run check`, the headless tools, screenshots |
 | [docs/lab.md](docs/lab.md) | The passing lab at `/lab/` — a straight road with no lights, for watching Loco Mode |
 | [docs/ios.md](docs/ios.md) | The App Store build: the WKWebView shell, the custom URL scheme, `window.__native` |

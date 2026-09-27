@@ -171,6 +171,8 @@ import {
   BOOST_COOLDOWN, BOOST_FLOOR_FRACTION, BOOST_REGEN_SECONDS,
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
+import { createSfx, SHIPPED_MIX, SFX_EVENTS } from '../src/game/sfx.js';
+import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
 const seed = Number(process.argv[2] ?? 71624);
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
@@ -5842,6 +5844,48 @@ check('the taxi is an ordinary car in the traffic array',
     && hTaxi.hp === 0, `crashed ${hTaxi.crashed}, ${wrecks} wrecks, hp ${hTaxi.hp}`);
 }
 
+// --- A truck outweighs the taxi ---------------------------------------------
+// The same square T-bone at boost cruise, once into a car and once into a truck (TRUCK_MASS in
+// sim/collisions.js). The truck has to come off the lighter of the two — knocked less far, slewed
+// less — and the taxi has to come off worse: more recoil, less speed kept.
+{
+  const tBone = (asTruck) => {
+    const tTraffic = createTraffic(makeRng(seed + 45), new THREE.Scene(), CARS_DEFAULT);
+    const tTaxi = tTraffic.taxi;
+    const tCollisions = createCollisions(tTraffic.cars, tTaxi);
+    let event = null;
+    tCollisions.onBump((e) => { event ??= e; });
+    tTaxi.hp = TAXI_HP;
+    tTraffic.warmup(3);
+    const target = tTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive' && c.v > 1);
+    target.isTruck = asTruck;
+    tTaxi.staged = true;
+    tTaxi.yaw = target.yaw + Math.PI / 2;
+    tTaxi.x = target.x - Math.cos(tTaxi.yaw) * 1.6;
+    tTaxi.z = target.z + Math.sin(tTaxi.yaw) * 1.6;
+    tTaxi.v = 19;
+    tTaxi.boost = true;
+    tCollisions.update(1 / 60);
+    return {
+      event,
+      struck: Math.hypot(target.knock?.vx ?? 0, target.knock?.vz ?? 0),
+      spin: Math.abs(target.knock?.spin ?? 0),
+      recoil: Math.hypot(tTaxi.knock?.vx ?? 0, tTaxi.knock?.vz ?? 0),
+      kept: tTaxi.v,
+    };
+  };
+  const car = tBone(false);
+  const truck = tBone(true);
+  check('a truck is knocked and slewed less than a car by the same hit',
+    car.event && truck.event && truck.struck < car.struck * 0.6 && truck.spin < car.spin * 0.6,
+    `knock ${car.struck.toFixed(2)} → ${truck.struck.toFixed(2)} u/s, `
+      + `spin ${car.spin.toFixed(2)} → ${truck.spin.toFixed(2)} rad/s`);
+  check('the taxi bounces off a truck harder and keeps less speed',
+    truck.recoil > car.recoil * 1.5 && truck.kept < car.kept * 0.6,
+    `recoil ${car.recoil.toFixed(2)} → ${truck.recoil.toFixed(2)} u/s, `
+      + `kept ${car.kept.toFixed(1)} → ${truck.kept.toFixed(1)} u/s`);
+}
+
 // --- The taxi wearing its damage -------------------------------------------
 // Steps down the car's HP (game/taxidamage.js over buildDamage in geometry/taxi.js). The silent
 // failures: a loose lamp that leaves its pods behind at the socket, so it hangs dark while the
@@ -8254,6 +8298,36 @@ check('the taxi is an ordinary car in the traffic array',
   check('and the tuning is back to shipped for the rest of the suite',
     overdriveTop() === SPEED * 4.0 && locoWeave(4.5).lateral > 0,
     `${overdriveTop().toFixed(2)} u/s`);
+}
+
+// --- The audio mix ----------------------------------------------------------
+//
+// `assets/audio/mix.json` is a file a sound designer replaces wholesale (the `?audio` panel
+// downloads it), so it is checked as input rather than trusted: a mix missing an engine knob would
+// hand `setTargetAtTime` an `undefined` and the engine would go silent without a word logged.
+{
+  const ENGINE_KEYS = ['idleRateLo', 'idleRateHi', 'locoRateLo', 'locoRateHi', 'idleUnderLoco',
+    'locoLoopAt', 'locoLoopFade', 'pitchGlide', 'release', 'selfBrakeGain', 'pullAwayHold'];
+  const missing = ENGINE_KEYS.filter((k) => !Number.isFinite(MIX_FILE.engine?.[k]));
+  check('mix.json names every engine knob sfx.js reads', missing.length === 0, missing.join(', '));
+  const fileKeys = Object.keys(MIX_FILE.sounds ?? {});
+  const noSound = Object.keys(SHIPPED_MIX.sounds).filter((k) => !fileKeys.includes(k));
+  check('mix.json has a level for every file', noSound.length === 0, noSound.join(', '));
+  const noGap = [...SFX_EVENTS].filter((k) => !Number.isFinite(MIX_FILE.minGap?.[k]));
+  check('mix.json has a min gap for every one-shot', noGap.length === 0, noGap.join(', '));
+  check('the shipped mix reads mix.json unchanged',
+    JSON.stringify(SHIPPED_MIX) === JSON.stringify(MIX_FILE));
+
+  const sfx = createSfx();
+  sfx.tune({ master: 9, sounds: { crash: { gain: -1, rate: 'x' }, nope: { gain: 1 } },
+    engine: { idleRateHi: 2, bogus: 3 }, minGap: { skid: NaN } });
+  const t = sfx.tuning();
+  check('a tuned mix is clamped and cleaned, not taken on trust',
+    t.master === 4 && t.sounds.crash.gain === 0 && t.sounds.crash.rate === 1 && !t.sounds.nope
+      && t.engine.idleRateHi === 2 && !('bogus' in t.engine) && t.minGap.skid === SHIPPED_MIX.minGap.skid,
+    JSON.stringify({ master: t.master, crash: t.sounds.crash }));
+  sfx.reset();
+  check('and reset puts the shipped mix back', JSON.stringify(sfx.tuning()) === JSON.stringify(SHIPPED_MIX));
 }
 
 // --- The Loco tuning stash --------------------------------------------------

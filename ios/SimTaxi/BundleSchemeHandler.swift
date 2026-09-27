@@ -127,8 +127,8 @@ final class BundleSchemeHandler: NSObject, WKURLSchemeHandler {
     /// HTML spec now names for this.
     ///
     /// The list is deliberately short: `npm run build` emits HTML, JS and the handful of icons in
-    /// `public/`, and there are no fonts, no CSS files (all styles are inline in `index.html`) and
-    /// no media, because the project ships zero external assets.
+    /// `public/`, the sound effects (`.m4a`, see `src/game/sfx.js`), and no fonts and no CSS files
+    /// (all styles are inline in `index.html`).
     private static func mimeType(for url: URL) -> String {
         switch url.pathExtension.lowercased() {
         case "html", "htm":     return "text/html; charset=utf-8"
@@ -139,6 +139,7 @@ final class BundleSchemeHandler: NSObject, WKURLSchemeHandler {
         case "svg":             return "image/svg+xml"
         case "png":             return "image/png"
         case "ico":             return "image/x-icon"
+        case "m4a":             return "audio/mp4"
         default:                return "application/octet-stream"
         }
     }
