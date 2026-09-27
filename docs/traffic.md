@@ -2435,7 +2435,7 @@ two blinking out of step on the same street.
 ## The patrol cruiser
 
 `game/patrol.js` for its life, `sim/police.js` for its look. A police car comes into town, drives
-around with its lights off, and comes after you if you boost within a block of it.
+around with its bar lit steady, and comes after you — strobing — if you boost within a block of it.
 
 It went through three shapes, and the two it left behind are the reasons for the one it has:
 
@@ -2447,8 +2447,11 @@ It went through three shapes, and the two it left behind are the reasons for the
    as one of the robbery's kind of cop, and could be outrun. That fixed the bust and exposed the
    rest: a cop car blitzing through town with its siren on from the moment it appears is not a
    patrol, and a car that is always in pursuit mode has nothing to *change* when it spots you.
-3. **A patrol.** A car in traffic for the whole of its visit, bar dark, and the siren is what
-   spotting you looks like.
+3. **A patrol.** A car in traffic for the whole of its visit, bar lit **steady**, and the strobe is
+   what spotting you looks like. It was dark at first, and a playtest found the problem with that at
+   once: the siren run had at least announced itself, flashing and washing the screen edge, and a
+   dark patrol was hard to spot until it had already spotted you. The steady bar and a steady blue
+   edge wash (`game/sirenglow.js`) are the telegraph; the strobe is the change.
 
 ### A car in traffic, wearing the cruiser
 
@@ -2461,8 +2464,8 @@ because those are behaviours of any chasing cop rather than of the robbery.
 render pass composed to a callback and collapses the car's own instance; `police.wear(car)` draws
 the cruiser there instead — its stripe, its `policeRoof`, and a real light bar with two point lights
 on it, which an instanced pod cannot be. `game/coplights.js` skips a skinned car for that reason:
-it brings its own lamps. The bar has a dark housing baked into the body, because it is dark for
-most of the car's life now and two lamps and nothing else was no bar at all.
+it brings its own lamps. The bar has a dark housing baked into the body, because it goes dark when
+the car drives off after losing you, and two lamps and nothing else was no bar at all.
 
 The shell trick is unchanged and still load-bearing: the group stays visible for the whole run and
 only a shell one level in is hidden, so the two lamps stay in the scene's light count at
@@ -2473,7 +2476,7 @@ only a shell one level in is hidden, so the two lamps stay in the scene's light 
 | Phase | What it is doing |
 |---|---|
 | `off` | a cooldown off the difficulty ramp (`policeCooldown`, 16–30s falling to 8–14s) |
-| `patrol` | in town for `PATROL_TIME` (25s), bar dark, cruising to corners within `PATROL_REACH` (2 blocks) of the taxi |
+| `patrol` | in town for `PATROL_TIME` (25s), bar steady, cruising to corners within `PATROL_REACH` (2 blocks) of the taxi |
 | `chase` | it spotted you — bar lit at the hunting rate, driving at you |
 | `leaving` | routed to the far corner, retired by `retirePolice` once out of sight |
 

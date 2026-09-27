@@ -6933,14 +6933,15 @@ check('the taxi is an ordinary car in the traffic array',
     const gap = Math.hypot(cop.x - taxi.x, cop.z - taxi.z);
     tick(gap > SPOT_RANGE + 6);
     frames += 1;
-    if (cop.siren || pPolice.state.lit) lit += 1;
+    // Steady, never strobing: lit so it can be seen, and not after anybody.
+    if (!cop.siren && pPolice.state.lit && !pPolice.state.chasing && pPolice.state.bar === 'steady') lit += 1;
     if (cop.chase > 0) chasing += 1;
     const g = pPolice.group.position;
     if (Math.hypot(g.x - cop.x, g.z - cop.z) > 0.6) adrift += 1;
     nearest = Math.min(nearest, gap);
     if (gap < 3 * PITCH) within += 1;
   }
-  check('on patrol its bar is dark', lit === 0, `${lit} lit frames of ${frames}`);
+  check('on patrol its bar is lit steady, not strobing', lit === frames, `${lit} steady frames of ${frames}`);
   check('...and it is not after anybody', chasing === 0 && spotted === 0,
     `${chasing} chasing frames, ${spotted} spotted`);
   check('the cruiser\'s mesh rides the traffic car', adrift === 0, `${adrift} frames adrift`);
@@ -7126,19 +7127,26 @@ check('the taxi is an ordinary car in the traffic array',
   let huntDiffers = 0;
   // Parked far off the frame at close range, so the strength is a flat 1 and the only thing moving
   // is the strobe.
+  // A chasing cop strobes; a patrolling one holds steady blue — the telegraph, and the change the
+  // player has to read when it spots them is the strobe starting.
   const strobing = (flash, hunting) => sirenWash(
     { lit: true, flash, chasing: hunting, cop: null }, W * 2, H / 2, W, H, GLOW_NEAR,
   );
+  let steadyChanged = 0;
+  const steady0 = strobing(0, false);
   for (let f = 0; f < 120; f++) {
     const flash = f / 120;
-    const wash = strobing(flash, false);
+    const wash = strobing(flash, true);
     if (wash.red > wash.blue) redPeaks += 1;
     if (wash.blue > wash.red) bluePeaks += 1;
     if (wash.red <= 0 || wash.blue <= 0) dark += 1;
-    const hunt = strobing(flash, true);
-    if ((hunt.red > hunt.blue) !== (wash.red > wash.blue)) huntDiffers += 1;
+    const calm = strobing(flash, false);
+    if ((calm.red > calm.blue) !== (wash.red > wash.blue)) huntDiffers += 1;
+    if (calm.red !== steady0.red || calm.blue !== steady0.blue) steadyChanged += 1;
   }
-  const held = strobing(0.5, false);
+  check('a patrolling cop washes the edge steady blue, without a strobe', steadyChanged === 0
+    && steady0.blue > steady0.red, `${steadyChanged} frames moved`);
+  const held = strobing(0.5, true);
   check('the off half of the strobe holds the light bar\'s own low glow',
     Math.abs(Math.min(held.red, held.blue) - SIREN_DIM) < 1e-9
     && Math.abs(Math.max(held.red, held.blue) - 1) < 1e-9,
@@ -7146,8 +7154,8 @@ check('the taxi is an ordinary car in the traffic array',
   check('the wash alternates red and blue', redPeaks > 20 && bluePeaks > 20,
     `${redPeaks} red / ${bluePeaks} blue frames of 120`);
   check('and neither half ever goes fully dark', dark === 0, `${dark} frames`);
-  check('the strobe runs at the hunting rate once a cop is after you', huntDiffers > 0,
-    `${huntDiffers} of 120 frames differ from the cruising rate`);
+  check('the strobe only starts once a cop is after you', huntDiffers > 0,
+    `${huntDiffers} of 120 frames differ from the steady patrol wash`);
 }
 
 // --- The robbery's frame ---------------------------------------------------

@@ -12,9 +12,9 @@ import { sirenOn } from '../geometry/lights.js';
 //
 // **It is on exactly when the light bar is on**, which is the whole reason it can be trusted:
 // `state.lit` gates both, so the wash is the same announcement seen through the frame edge rather
-// than a second rule with its own opinion. The bar is dark for the whole of an ordinary patrol
-// (game/patrol.js) and lights only when the cruiser gives chase — so the wash never warns about a
-// cop that is merely driving around, and never stays quiet about one that is after you.
+// than a second rule with its own opinion. On patrol the bar is lit steady and so is this — blue, no
+// strobe: a cop is on the board. Once it gives chase both strobe. Driving off after losing you, both
+// are dark (game/patrol.js).
 //
 // The strobe comes off `sirenOn()` rather than a clock of its own, so the wash and the bar are the
 // same siren seen from two places and cannot drift apart.
@@ -117,8 +117,12 @@ export function sirenWash(state, sx, sy, w, h, distance) {
   const glow = edgeGlow(sx, sy, w, h, distance);
   if (!glow) return null;
 
+  // Steady on patrol, as the bar is: blue, not strobing — a cop on the board that is not after you.
+  if (!state.chasing) {
+    return { x: glow.x, y: glow.y, radius: glow.radius, red: glow.strength * SIREN_DIM, blue: glow.strength };
+  }
   // The rate change is the cruiser's, not this module's — see `siren()` in sim/police.js.
-  const lit = sirenOn(state.flash, state.chasing || state.cop?.chase > 0);
+  const lit = sirenOn(state.flash, true);
   return {
     x: glow.x,
     y: glow.y,

@@ -3689,11 +3689,11 @@ Same problem as the pointer above and aimed the other way. The drop-off is somew
 driving *to*, and a pointer is navigation; the siren is something driving *at* them, and this is a
 threat they cannot see yet: a patrol that spotted the taxi and is coming for it from wherever it was.
 
-**It is on exactly when the light bar is on.** `state.lit` gates both, and the bar is dark for the
-whole of an ordinary patrol ([the patrol cruiser](traffic.md#the-patrol-cruiser)) — so the rule is
-*lights on means a cop is after you*, and it extends to the edge of the screen without needing a
-second rule. The probe asserts both halves directly: nothing with a dark bar ever lights the edge,
-and nothing lit and off-frame ever fails to.
+**It is on exactly when the light bar is on, and does what the bar does.** `state.lit` gates both.
+On patrol ([the patrol cruiser](traffic.md#the-patrol-cruiser)) the bar is steady and the wash is a
+steady blue — *a cop is on the board*. Once it gives chase both strobe red and blue — *it is after
+you*. Driving off after losing you, both are dark. The probe asserts it directly: nothing with a dark
+bar ever lights the edge, nothing lit and off-frame ever fails to, and the steady wash never moves.
 
 The strobe comes off `sirenOn()` in `geometry/lights.js` rather than a clock of its own, which is
 the only reason the two stay in step. The off colour holds the same low

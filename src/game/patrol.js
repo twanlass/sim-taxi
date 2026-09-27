@@ -4,7 +4,7 @@ import { SPOT_RANGE } from '../sim/police.js';
 import { findRoute, planOrigin } from './route.js';
 import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
 
-// The patrol cruiser: a police car that comes into town, drives around it with its lights off, and
+// The patrol cruiser: a police car that comes into town, drives around it with its bar lit steady, and
 // comes after you if you boost in front of it.
 //
 // **It used to be a siren run.** A scripted car crossed the map on a rail with its bar going and
@@ -12,8 +12,9 @@ import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
 // Two rounds of feedback moved it here. The first: being busted on sight is a rule firing, not a
 // chase, so the cruiser now gives chase and can be outrun. The second: a cop car blitzing through
 // town with its siren on from the moment it appears is not a patrol — and a car that is always in
-// pursuit mode has nothing to *change* when it spots you. So it drives as ordinary traffic with a
-// dark bar, and the siren is what spotting you looks like.
+// pursuit mode has nothing to *change* when it spots you. So it drives as ordinary traffic with its
+// bar lit steady, and the strobe is what spotting you looks like. (It was dark at first; a playtest
+// found it hard to spot before it had spotted you, so the steady bar is the telegraph.)
 //
 // **It is a car in traffic for the whole of its life**, the same kind a bank robbery brings (see
 // "Cop cars in ambient traffic" in docs/traffic.md): it queues, stops at reds, yields, can be
@@ -24,9 +25,9 @@ import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
 // The life of one patrol, a phase at a time:
 //
 //   off       waiting out a cooldown, which the difficulty ramp shortens (`setCooldownRange`)
-//   patrol    on the map, bar dark, cruising the streets near the taxi for PATROL_TIME
+//   patrol    on the map, bar steady, cruising the streets near the taxi for PATROL_TIME
 //   chase     it spotted you: bar on, driving at you — ends caught, or lost
-//   leaving   done here, driving off the map; retired once out of sight
+//   leaving   done here, bar dark, driving off the map; retired once out of sight
 //
 // **Spotted** is the rule the old bust was: boost within SPOT_RANGE (one block) of it. What
 // changed is what happens next.
@@ -213,6 +214,7 @@ export function createPatrol({
     cop.chase = 0;
     cop.route = [];
     police.wear(cop);
+    police.setBar('steady');
     state.cop = cop;
     state.phase = 'patrol';
     state.patrolLeft = PATROL_TIME;
@@ -261,6 +263,7 @@ export function createPatrol({
   /** Lights on, and after the taxi. */
   function spot(cop) {
     cop.siren = true;
+    police.setBar('strobe');
     cop.chase = 1;
     cop.route = [];
     state.phase = 'chase';
@@ -280,6 +283,7 @@ export function createPatrol({
    */
   function leave(cop) {
     cop.siren = false;
+    police.setBar('off');
     cop.chase = 0;
     cop.pursuit = 0;
     cop.roadblock = 0;
