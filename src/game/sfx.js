@@ -43,6 +43,10 @@ const FILES = {
   locoLaunch: new URL('../../assets/audio/07_LOCO_launch_01.m4a', import.meta.url).href,
   locoBrake: new URL('../../assets/audio/08_LOCO_brake_hard_01.m4a', import.meta.url).href,
   skid: new URL('../../assets/audio/09_LOCO_skid_turn_01.m4a', import.meta.url).href,
+  // The same take for a chasing cop's squeal. A key of its own, not a second call to `skid`: it
+  // wants its own level (it is somebody else's car, somewhere else on the screen) and its own
+  // `minGap`, or four cops cornering would spend the taxi's gap and swallow its own squeal.
+  copSkid: new URL('../../assets/audio/09_LOCO_skid_turn_01.m4a', import.meta.url).href,
   doorOpen: new URL('../../assets/audio/10_DOOR_open_01.m4a', import.meta.url).href,
   doorClose: new URL('../../assets/audio/11_DOOR_close_01.m4a', import.meta.url).href,
   crash: new URL('../../assets/audio/12_IMPACT_crash_01.m4a', import.meta.url).href,
@@ -53,7 +57,7 @@ const FILES = {
 
 /** What `play()` accepts — the one-shots. A typo throws here rather than going silent. */
 export const SFX_EVENTS = new Set(['accel', 'brake', 'locoActivate', 'locoLaunch', 'locoBrake',
-  'skid', 'doorOpen', 'doorClose', 'crash', 'takeoff', 'land']);
+  'skid', 'copSkid', 'doorOpen', 'doorClose', 'crash', 'takeoff', 'land']);
 
 // The loops' true lengths, from the masters (afinfo). A decoder that does not trim AAC's 2112
 // frames of encoder priming hands back a buffer that long *plus* the pad, and looping the whole

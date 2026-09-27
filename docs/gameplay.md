@@ -289,12 +289,29 @@ invisible to everything else.
 
 ### The HUD arrives afterwards
 
-The money counter, the [multiplier counter](#the-multiplier-counter), the
-[fuel bar](#crazy-taxi-mode), the Loco Mode pill and the brake all start off their own screen edge
-and slide in together the moment the last bubble is dismissed (the [rider chips](#finding-the-next-rider) rode in with them, and still do under
-`?chips=on`). A run used to open with all of them already lit, every one reading zero and answering
-a question nobody had asked yet. `main.js` adds `body.hud-ready`; with no tutorial to wait for (`?tutorial=off`, shot mode) they
-are simply there from the first frame.
+The money counter, the [multiplier counter](#the-multiplier-counter) and the ⏸ start off their own
+screen edge and slide in together the moment the last bubble is dismissed (the
+[rider chips](#finding-the-next-rider) rode in with them, and still do under `?chips=on`). A run used
+to open with all of them already lit, every one reading zero and answering a question nobody had
+asked yet. `main.js` adds `body.hud-ready`; with no tutorial to wait for (`?tutorial=off`, shot mode)
+they are simply there from the first frame.
+
+**The two pedals come in earlier**, on `body.pedals-ready`: the frame the
+[opening vignette](#the-opening-vignette) hands the taxi back to the lane, with its pull-back still
+running (`pedalsDue` in `main.js`). They used to wait for `hud-ready` too, which meant the pull-back,
+the tutorial's breath, the pan to the rider, the line typing itself out and the tap that answers it —
+several seconds of a live taxi with nothing to press, which read as the game not having started. A
+counter can wait for a lesson; a control is the thing the lesson is standing in front of. A press on
+the pill during the rider beat ends that beat (`holdLocoMode` calls `tutorial.dismiss()`), which was
+already true for the spacebar. Not before the handover — a staged car burns fuel going nowhere — and
+not under a skip's black, the Home Screen tip or the city's own entrance. The stylesheet treats
+`hud-ready` as implying `pedals-ready`, so nothing that sets the one has to know about the other.
+
+**The [fuel bar](#crazy-taxi-mode) comes with them**, and is the one piece of the top edge that
+does. It reads as a counter and it is not one: the pill carries no fill of its own any more, so the
+bar *is* Loco Mode's gauge, and a reachable pill over a bar still off the top edge is a pedal with
+no meter. The recharge settles it — the energy poured out of the taxi flies at `locoBarScreenPos`,
+which with the bar still parked above the screen is a target the player cannot see.
 
 The offset is the standalone `translate` property, **not** a transform. Most of those already
 animate their own transform — the money bump, the streak bump, the Loco Mode press dip, the bar's
@@ -2208,7 +2225,9 @@ in [the box-in](traffic.md#the-box-in-roadblocks-the-overtake-and-the-brake-chec
   time, eight seconds apart.
 - **The overtake and the brake check.** A cop that catches you from behind goes round you in the
   oncoming lane, cuts in and slews across the road for 2.5 seconds, with the rest of the chase
-  arriving behind you. Angled across both lanes, it cannot be gone round on the pill — only rammed.
+  arriving behind you. A cop that is already ahead of you on your road skips the overtake and does
+  the same — it does not drive on away from you. Angled across both lanes, it cannot be gone round
+  on the pill — only rammed.
 
 Each poses the same three-way choice, and all three are things the game already had. **Wait** — it
 costs the robber's clock, and with it the bonus. **Route round** — redraw the route and
@@ -3061,6 +3080,15 @@ has and is never refused.
 **Refused on an undamaged car.** There is nothing to fix, and a visit holds every clock on the board
 — a free one is a pause button with a garage on it. Refused while anything else is driving the taxi
 (the drive-through) and while the depot is busy, which covers the run's own opening.
+
+**A rider waiting in front of it does not hide it.** A rider's tap target is an invisible quad
+11 screen units across (`geometry/marker.js`), and on a corner in front of the depot it covers
+half the building's front — nearest-hit, so every tap there answered the rider. `choosePick` in
+`game/pick.js` now lets an invisible stand-in yield to the first *drawn* surface along the ray when
+that surface is the depot (or the burger joint) and the tap would be taken; the rider's own figure,
+crystal and disc are drawn and in front, so they still mean the rider. While a repair would be
+refused — undamaged car, rider aboard — the margin stays the rider's, since the alternative is a
+tap that does nothing.
 
 **Refused with a rider aboard.** A fare doesn't ride along to the garage — and before this rule they
 did, with the visit's held clocks freezing the very countdown in the back, so a damaged car could

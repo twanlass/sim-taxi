@@ -110,6 +110,7 @@ event starts a bed, so no event can leave one stuck on.
 | `locoBrake` | The brake pedal above 1.1 × cruise |
 | `accel` | Pulling away after at least 0.35 s stood still, but not during Loco (the launch covers that) |
 | `skid` | The first frame of a boosted corner or an overtake lane swap. Once per slide, not once per rubber stamp |
+| `copSkid` | The same take, for police in a chase: a robbery cop starting to slide (`copLaysRubber` in sim/traffic.js) or the corridor cruiser in the bust chase. Faded by distance from the taxi and silent past about a screen away; its own key so it has its own level and does not spend the taxi's `skid` gap. Its `minGap` of 1s is fleet-wide and is what keeps a chase from squealing constantly: the cops carry speed into nearly every corner (162 of 175 over the probe's six getaways) |
 | `doorOpen` → `doorClose` | Pickup (the close is `BOARD_SECONDS` later, once the rider is in) and the robber boarding. Drop-off (the close is 0.7 s later) |
 | `takeoff` / `land` | `taxi.hopFrom` turning non-null / `traffic.onTaxiLand`, with the land scaled by the same `hit` that scales the shake |
 | `crash` | The wreck at full volume. A bump reuses it, scaled by closing speed and pitched up a touch; the roadworks smash reuses it at half volume |
