@@ -1759,10 +1759,10 @@ places, and the split is worth knowing because the first two alone were not enou
 
 The **bar** is two instanced emissive pods on the roof, off the same machinery every brake light in
 the game uses — one fixed material per colour, and on/off as a scale about each pod's own origin.
-Both pods flash together, so the whole bar goes red and then blue rather than one lamp lighting at
-each end. That is arithmetic rather than taste: a pod is 4px across at play zoom, and a bar split by
-colour alternates two specks a colour apart and reads as a flicker. Together they are one 9.9px mark
-changing colour six times a second.
+Red sits over the left lens and blue over the right, and they light alternately. a whole-bar strobe (both pods red, then both blue) was the earlier choice, on the grounds that
+a split bar alternates two 4px specks and flickers — true while an unlit pod was simply gone, and
+wrong once the painted lenses meant the dark side still shows its colour. On a phone the whole-bar
+version read as two red lights.
 
 The **bloom** carries it the rest of the way at distance, and it took a fix: `main.js` marks every
 lamp `sim/traffic.js` owns in a single loop, and marking them all `pod` gave a cop car's bar a brake

@@ -9,8 +9,8 @@ import {
 import {
   lightPodGeometry, brakeLightAnchors, turnSignalAnchors, LIGHT_PODS,
   brakeLightMaterial, turnSignalMaterial,
-  sirenPodGeometry, sirenBarAnchors, sirenRedMaterial, sirenBlueMaterial, sirenOn,
-  sirenHousingGeometry, sirenHousingAnchor,
+  sirenPodGeometry, sirenRedAnchor, sirenBlueAnchor, sirenRedMaterial, sirenBlueMaterial, sirenOn,
+  sirenBaseGeometry, sirenBaseAnchor,
 } from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
@@ -651,6 +651,32 @@ const passEaseSlope = (t) => 6 * t * (1 - t);
  * 0.09 first, which was too polite to read at the speed the manoeuvre happens.
  */
 const PASS_BANK = 0.14;
+
+// The taxi's corner lean runs through a spring rather than straight off the arc, and the reason is
+// the boosted **right** turn. Right-hand traffic cuts the near corner, so the arc is ~4 units
+// against a left's ~12, and at the speed a boosting taxi actually arrives at (median ~30 u/s, the
+// overdrive band — the 0.75× right-turn clamp is a target it rarely has time to reach) that is
+// **7 frames** of lean against the left's 34, measured over 6 runs. Same peak, so it was never
+// the size of the lean that was missing: a lean locked to position is over the moment the arc is,
+// and a body that goes over and comes back in an eighth of a second reads as a twitch.
+//
+// A spring decouples the body from the path: it loads up behind the arc and then rocks back
+// through level once as the car straightens, which is what gives a corner its weight on the way
+// out. Underdamped like the pitch spring and for the same reason — the overshoot *is* the round
+// out. ζ = DAMP / (2·ω) = 0.40.
+//
+// For a right-hander the target also opens at the **hold line** instead of the junction boundary —
+// the lean starts through the `STOP_SETBACK` run-up — because the spring lags by about a tenth of
+// a second, which is most of a 4-unit arc at 30 u/s; opened at the boundary, the lean would peak
+// after the car had already straightened. A left's arc is long enough to absorb the lag and keeps
+// its window. Render-only, like the rest of the body motion: nothing in the sim reads it.
+//
+// Taxi only. Ambient cars corner at CORNER_SPEED, where the arc is slow enough that position and
+// time agree, and a sprung body under 24 cars is 24 more things rocking in the corner of the eye.
+const CORNER_ROLL_OMEGA = 13;    // rad/s — a period of ~0.5s, one visible rock back after the exit
+const CORNER_ROLL_DAMP = 10.4;   // 1/s, against ω = 13: ζ = 0.40, the pitch spring's
+const CORNER_ROLL_GAIN = 1.25;   // boosted rights only: a spring's peak lands under a pulse this short
+const CORNER_ROLL_LIMIT = 0.72;  // rad — the overshoot is capped, not the target
 const PASS_BANK_EASE = 2.5;      // units of road for the roll to reach its target — suspension, not a hinge
 /**
  * How much crab angle counts as breaking traction, for the rubber laid during a lane change.
@@ -1618,7 +1644,7 @@ export function steerToward(angle, yaw, prevYaw, ds, wheelbase = WHEELBASE) {
 // a cop car wears has to stand on its roof and nothing else in the file knew where that was. Same
 // habit city/burgerjoint.js has for the three surfaces stacked on its lot: the module that *lays* a
 // surface exports the height anything standing on it needs.
-const CABIN_X = -0.2;                        // set back from the car's own centre
+export const CABIN_X = -0.2;                 // set back from the car's own centre
 const CABIN_H = 0.6;
 const CABIN_Y = 1.45 + CHASSIS_LIFT;         // its centre
 /** The roof: what a light bar is bolted to. */
@@ -1643,6 +1669,28 @@ export function carGeometry() {
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
   return merged;
+}
+
+/**
+ * The top half of the police two-tone: a white shell over the cabin, car-local.
+ *
+ * A cop car is an ordinary car underneath, and an ordinary car is one instanced mesh tinted by one
+ * `instanceColor` — which can paint a body white but has no way to make its cabin a different
+ * colour from it, since the glass is the same buffer multiplied by the same tint. So the cab is a
+ * second shape laid over the first, drawn only on police (see `policeCabMesh` in createTraffic).
+ *
+ * `CAB_SKIN` proud of the cabin on its top, sides and ends, so it wholly encloses the glass and no
+ * face of one lies on a face of the other. Its bottom stays level with the cabin's, which is already
+ * sunk 0.03 into the body — so the one open seam is inside the car. The siren bar stands on
+ * `CABIN_TOP` and so sits `CAB_SKIN` into this shell's roof, which is a buried bottom face and not a
+ * coplanar pair.
+ */
+const CAB_SKIN = 0.02;
+export function policeCabGeometry() {
+  const cab = new THREE.BoxGeometry(
+    CAR_LEN * 0.5 + 2 * CAB_SKIN, CABIN_H + CAB_SKIN, CAR_W * 0.86 + 2 * CAB_SKIN);
+  cab.translate(CABIN_X, CABIN_Y + CAB_SKIN / 2, 0);
+  return bakeColor(cab, color('policeCab'));
 }
 
 // Shared by truckCabGeometry() and truckBoxGeometry() so the two pieces — drawn from separate
@@ -1955,6 +2003,9 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // Longitudinal-accel rocking. Spring-damped, so both a stop and a pull-away end on a bounce.
       pitch: 0,
       pitchV: 0,
+      // The taxi's corner lean, sprung — see CORNER_ROLL_OMEGA. Ambient cars never touch these.
+      cornerRoll: 0,
+      cornerRollV: 0,
       // 0..1 brightness for the brake and turn-signal light pods. brakeLevel is eased (see
       // BRAKE_LIGHT_RISE/FALL) — off frame one along with prevV/v agreeing there is no accel yet.
       // The turn-signal levels are not eased; they jump straight to their blink target.
@@ -2182,6 +2233,8 @@ export function stageCar(car, x, z, yaw) {
   car.intentTurn = null;
   car.pitch = 0;
   car.pitchV = 0;
+  car.cornerRoll = 0;
+  car.cornerRollV = 0;
   car.wheelAngle = 0;
   // Both differencers the render pass keeps, primed so the first staged frame reports no step.
   // `prevTravelled` feeds the steering ease and `prevSteerYaw` the wheel angle — a stale pair
@@ -2647,7 +2700,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     'truckTurnSignalsRight', turnSignalMaterial, turnSignalAnchors(TRUCK_LEN, TRUCK_W, 1), trucks);
 
   // The siren bar a cop car wears while a bank robbery is running — two more of exactly the same
-  // thing, one mesh per colour, so the strobe is one pod appearing as the other collapses. Cars
+  // thing, one mesh per colour and one lamp per mesh (red left, blue right), so the strobe is one
+  // side lighting as the other collapses back to its painted lens. Cars
   // only: the robbery never paints a box truck, because a police box truck is not a thing and the
   // bar's anchor is measured off `CABIN_TOP`, which is a car's roof.
   //
@@ -2655,30 +2709,50 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // bar is a zero-scale matrix in a buffer that is already there, so the cost of a fleet that is
   // mostly *not* police is a matrix write per car per frame and nothing on screen.
   const sirenRedMesh = lightMesh(
-    'carSirenRed', sirenRedMaterial, sirenBarAnchors(CABIN_X, CABIN_TOP), ambient,
+    'carSirenRed', sirenRedMaterial, [sirenRedAnchor(CABIN_X, CABIN_TOP)], ambient,
     sirenPodGeometry, 'siren');
   const sirenBlueMesh = lightMesh(
-    'carSirenBlue', sirenBlueMaterial, sirenBarAnchors(CABIN_X, CABIN_TOP), ambient,
+    'carSirenBlue', sirenBlueMaterial, [sirenBlueAnchor(CABIN_X, CABIN_TOP)], ambient,
     sirenPodGeometry, 'siren');
-  // ...and the box they are bolted into, which is **not** a lamp and so is not in `lightMeshes`:
-  // it is drawn by `police` rather than by `siren`, so it stays on the roof for the whole
-  // stand-down, when the pods have gone dark. Without it a cop driving away from a finished
-  // robbery was an ordinary blue car — see sirenHousingGeometry(). One per car, scaled to zero on
-  // everything that is not police, on the same terms as the pods above.
+  // One lamp in a stride of `LIGHT_PODS`, so the second slot of every car is never written — and an
+  // InstancedMesh starts at the identity, which would park a lit pod at the world origin. Zeroed
+  // once here; nothing writes those slots afterwards except the wreck, which writes zero too.
+  {
+    const collapsed = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (const siren of [sirenRedMesh, sirenBlueMesh]) {
+      for (let i = 0; i < MAX_AMBIENT * LIGHT_PODS; i++) siren.setMatrixAt(i, collapsed);
+    }
+  }
+  // ...and the bar as it stands unlit — the housing and its two painted lenses — which is **not** a
+  // lamp and so is not in `lightMeshes`: it is drawn by `police` rather than by `siren`, so it
+  // stays on the roof for the whole stand-down, when the pods have gone dark. Without it a cop
+  // driving away from a finished robbery was an ordinary car — see sirenBaseGeometry(). One per
+  // car, scaled to zero on everything that is not police. The scale is only ever 0 or 1, so the
+  // base keeps its offsets in its vertices and its anchor is the roof.
   const sirenHousingMesh = neverCull(new THREE.InstancedMesh(
-    bakeColor(sirenHousingGeometry(), color('sirenHousing')), propMaterial(), MAX_AMBIENT,
+    sirenBaseGeometry(), propMaterial(), MAX_AMBIENT,
   ));
   sirenHousingMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   sirenHousingMesh.castShadow = true;
   sirenHousingMesh.receiveShadow = true;
   sirenHousingMesh.name = 'carSirenHousing';
   sirenHousingMesh.count = ambient.length;
-  const SIREN_HOUSING_AT = sirenHousingAnchor(CABIN_X, CABIN_TOP);
+  const SIREN_HOUSING_AT = sirenBaseAnchor(CABIN_X, CABIN_TOP);
   sirenHousingMesh.userData.anchor = SIREN_HOUSING_AT;
+  // The white cab, on exactly the same switch. Car-local, so its matrix is the body's own.
+  const policeCabMesh = neverCull(new THREE.InstancedMesh(
+    policeCabGeometry(), propMaterial(), MAX_AMBIENT,
+  ));
+  policeCabMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  policeCabMesh.castShadow = true;
+  policeCabMesh.receiveShadow = true;
+  policeCabMesh.name = 'carPoliceCab';
+  policeCabMesh.count = ambient.length;
 
   const tint = new THREE.Color();
   // A cop car is an ordinary car wearing `policeBody` instead of its own draw from `PALETTE.carBody`
-  // — the same blue the cruiser is built in, so the two read as the same force. Its `colorIndex` is
+  // — the same white the cruiser is built in, so the two read as the same force; the cab's blue is
+  // `policeCabMesh`, laid over the top. Its `colorIndex` is
   // left alone, so a cop car still carries the ordinary draw it would have had — which costs
   // nothing and means a cop is never the only car in the city with no colour of its own.
   const bodyColor = (car) => (car.police ? PALETTE.policeBody : PALETTE.carBody[car.colorIndex]);
@@ -2760,6 +2834,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       sirenRedMesh.count = ambient.length * LIGHT_PODS;
       sirenBlueMesh.count = ambient.length * LIGHT_PODS;
       sirenHousingMesh.count = ambient.length;
+      policeCabMesh.count = ambient.length;
     }
   }
 
@@ -2895,6 +2970,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       sirenRedMesh.count = ambient.length * LIGHT_PODS;
       sirenBlueMesh.count = ambient.length * LIGHT_PODS;
       sirenHousingMesh.count = ambient.length;
+      policeCabMesh.count = ambient.length;
     }
     return added;
   }
@@ -2930,6 +3006,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     sirenRedMesh.count = ambient.length * LIGHT_PODS;
     sirenBlueMesh.count = ambient.length * LIGHT_PODS;
     sirenHousingMesh.count = ambient.length;
+    policeCabMesh.count = ambient.length;
     return true;
   }
 
@@ -2979,6 +3056,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   scene.add(truckWheelMesh);
   scene.add(truckBoxMesh);
   scene.add(sirenHousingMesh);
+  scene.add(policeCabMesh);
   for (const light of lightMeshes) scene.add(light);
 
   // --- Stop bars ------------------------------------------------------------
@@ -3153,6 +3231,15 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       box.receiveShadow = true;
       shell.add(box);
     }
+    // A cop's white cab, on the same terms as the cargo box: its own mesh and its own material,
+    // so the wreck scorches it in step. Left out, a wrecked cop lay in the road as a blue hatchback
+    // with a glass roof.
+    if (car.police && !car.isTruck) {
+      const cab = new THREE.Mesh(policeCabMesh.geometry, propMaterial());
+      cab.castShadow = true;
+      cab.receiveShadow = true;
+      shell.add(cab);
+    }
     scene.add(shell);
 
     // Collapse everything the copy replaces — body instance and both wheel instances.
@@ -3181,11 +3268,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         sirenBlueMesh.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
       }
     }
-    // The housing goes with it — the shell is a body and two wheels, and a dark box left standing
-    // where the roof used to be would hang in the air over the wreck.
+    // The bar goes with it — the shell is a body, two wheels and (on a cop) its cab, and a bar left
+    // standing where the roof used to be would hang in the air over the wreck.
     if (!car.isTruck) {
       sirenHousingMesh.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
       sirenHousingMesh.instanceMatrix.needsUpdate = true;
+      // The cab is in the shell now (above), so the instance goes like the body's.
+      policeCabMesh.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
+      policeCabMesh.instanceMatrix.needsUpdate = true;
     }
     brakeInst.instanceMatrix.needsUpdate = true;
     turnLeftInst.instanceMatrix.needsUpdate = true;
@@ -3291,6 +3381,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       lightLocal.compose(SIREN_HOUSING_AT, LIGHT_QUAT, lightScale.setScalar(car.police ? 1 : 0));
       lightMatrix.multiplyMatrices(matrix, lightLocal);
       sirenHousingMesh.setMatrixAt(car.instanceIndex, lightMatrix);
+      lightLocal.makeScale(car.police ? 1 : 0, car.police ? 1 : 0, car.police ? 1 : 0);
+      lightMatrix.multiplyMatrices(matrix, lightLocal);
+      policeCabMesh.setMatrixAt(car.instanceIndex, lightMatrix);
     }
   }
 
@@ -5102,14 +5195,25 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // Body roll through a corner. Leans *outward* — away from the turn centre — because that
       // is what weight transfer does, and leaning inward reads as a motorbike.
       let roll = 0;
+      // The taxi's right-hander opens its window at the hold line — see CORNER_ROLL_OMEGA.
+      const early = car.isTaxi && car.state === 'turn' && car.turn.hand === 'right';
       if (car.state === 'turn') {
-        const along01 = (Math.min(car.turnT, 1) * car.turnLen - car.leadIn)
-          / Math.max(1e-6, car.turnLen - car.leadIn);
+        const start = early ? 0 : car.leadIn;
+        const along01 = (Math.min(car.turnT, 1) * car.turnLen - start)
+          / Math.max(1e-6, car.turnLen - start);
         if (along01 > 0) {
           const turnDir = car.turn.hand === 'right' ? 1 : car.turn.hand === 'left' ? -1 : 0;
           const lean = 0.3 * Math.min(2.2, Math.max(0.7, car.v / SPEED));
           roll = -turnDir * lean * Math.sin(Math.PI * Math.min(1, along01));
         }
+      }
+      if (car.isTaxi) {
+        // Semi-implicit Euler, as the pitch spring below: stable at any frame rate this game sees.
+        const target = roll * (early && car.boost ? CORNER_ROLL_GAIN : 1);
+        car.cornerRollV += ((target - car.cornerRoll) * CORNER_ROLL_OMEGA * CORNER_ROLL_OMEGA
+          - car.cornerRollV * CORNER_ROLL_DAMP) * dt;
+        car.cornerRoll += car.cornerRollV * dt;
+        roll = Math.max(-CORNER_ROLL_LIMIT, Math.min(CORNER_ROLL_LIMIT, car.cornerRoll));
       }
 
       // And the lane change leans too — but the *other way* from the corner above it, and that is a
@@ -5322,6 +5426,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     truckWheelMesh.instanceMatrix.needsUpdate = true;
     truckBoxMesh.instanceMatrix.needsUpdate = true;
     sirenHousingMesh.instanceMatrix.needsUpdate = true;
+    policeCabMesh.instanceMatrix.needsUpdate = true;
     for (const light of lightMeshes) light.instanceMatrix.needsUpdate = true;
 
     // --- Stop bar colours, one per approach.
@@ -5395,8 +5500,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // prepass — but not folded into `ambient`/`wheelsPerCar` above, since those are index-aligned
     // with the *car* meshes and game/carghosts.js reads them as such.
     truckMesh, truckWheelMesh, truckBoxMesh, trucks, truckWheelsPerCar: TRUCK_FRONT.length,
-    // The unlit box under a cop car's bar, one instance per ambient car. Out for the probe.
-    sirenHousingMesh,
+    // The unlit bar under a cop car's lamps, and its white cab, one instance per ambient car.
+    // Out for the probe.
+    sirenHousingMesh, policeCabMesh,
     /**
      * Every self-lit mesh this module owns — the fleet's six instanced pod meshes and the taxi's
      * six ordinary ones — for `main.js` to put in the bloom (`markEmissive` in game/bloom.js).

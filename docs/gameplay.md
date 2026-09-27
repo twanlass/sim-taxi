@@ -1888,7 +1888,7 @@ robbery without `holdAlarm`, so the headless suite still sees the police on the 
 ### Dispatch breaks in
 
 `game/radio.js`. A beat after the robber's line is cleared, a bubble drops in under the HUD: a police
-car turning in the avatar — the robbery's own cop car, `carGeometry()` in `policeBody` with its bar
+car turning in the avatar — the robbery's own cop car, `carGeometry()` in the police two-tone with its bar
 flashing — over "DISPATCH / All units respond! Robbery in progress."
 
 The figure alone was not enough, and the reason is the trigger. A robbery fires on a drive-*past*,
@@ -2083,7 +2083,7 @@ Six gates on top of the range, and each is there for its own reason:
 ### The police
 
 `setPoliceCars(n)` in `sim/traffic.js` takes the `n` ambient cars nearest the taxi, paints them
-`policeBody` and puts a light bar on their roofs. `setPoliceCars(0)` hands every one of them back its
+in the police two-tone (light-blue `policeBody`, white cab) and puts a light bar on their roofs. `setPoliceCars(0)` hands every one of them back its
 own `colorIndex`, which is left untouched throughout — that is what makes ending the event free
 rather than something to remember.
 
@@ -2113,10 +2113,10 @@ player watched.
 split matters, because the first two alone did not read:
 
 - **The bar**, two instanced emissive pods on the roof off the same machinery the brake and
-  turn-signal pods use (`geometry/lights.js`). Both pods flash together — the whole bar goes red,
-  then blue — rather than one lamp lighting at each end, which is what a real bar does: a pod is 4px
-  across at play zoom, and a bar split by colour alternates two specks a colour apart and reads as a
-  flicker. Together they are one 9.9px mark changing colour six times a second.
+  turn-signal pods use (`geometry/lights.js`): red over the left lens, blue over the right,
+  lighting alternately six times a second, with the dark side still showing its painted lens. A
+  whole-bar strobe (both pods red, then both blue) was the earlier choice and on a phone read as
+  two red lights.
 - **The bloom**, which carries it at distance and took a fix. `main.js` marks every lamp the sim
   owns in one loop, and marking them all `pod` gave a cop car's bar a brake light's 3.4 against the
   cruiser's 4.2 — dimmer than the police car parked beside it, for no reason on screen. The kind
