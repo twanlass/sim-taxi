@@ -209,8 +209,8 @@ before and after the switch, so everything that *does* differ differs for the on
 ## What isn't done yet
 
 **`ground.js` still meshes from `blockBounds`** rather than from the faces this module already
-computes, and **`police.js`** still describes its corridor as an `{axis, line}` pair rather than a
-path through the graph.
+computes, and the two signal holds (the boosting taxi's and the chasing patrol's) still name a
+junction as an `(i, j)`.
 
 The grid-shaped view a car still carries (`car.i`, `car.j`, `car.d`) exists for those three plus
 `fares.js` and the probe. `net.dirOfLane` is the single point where it is derived, so it is also

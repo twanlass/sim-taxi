@@ -24,6 +24,7 @@ import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createTraffic } from '../src/sim/traffic.js';
 import { createPolice } from '../src/sim/police.js';
+import { createPatrol } from '../src/game/patrol.js';
 import { createFareSystem } from '../src/game/fares.js';
 import { cityFor } from './autoplay.mjs';
 
@@ -35,12 +36,14 @@ cityFor(71624);
 const scene = new THREE.Scene();
 const traffic = createTraffic(makeRng(71624 + 44), scene, CARS);
 const fares = createFareSystem(makeRng(71624 + 55), scene);
-const police = createPolice(makeRng(71624 + 66), scene);
+const police = createPolice(scene);
+const patrol = createPatrol({ rng: makeRng(71624 + 66), police, traffic, taxi: traffic.taxi });
 traffic.warmup(60);
 
 const step = () => {
-  police.update(STEP);
   traffic.update(STEP);
+  patrol.update(STEP);
+  police.update(STEP);
   fares.update(STEP, traffic.taxi);
 };
 

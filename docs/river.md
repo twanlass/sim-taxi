@@ -47,7 +47,7 @@ merged faces. `tools/roadnet.mjs` compares land against land.
 
 | | |
 |---|---|
-| **The two ring roads** | Always a bridge. The outermost roads are the signal-free ring, the police corridor drives one end to end, and traffic yields into it rather than stopping — breaking either would need a fallback in all three. |
+| **The two ring roads** | Always a bridge. The outermost roads are the signal-free ring, and traffic yields into it rather than stopping — breaking it would need a fallback. |
 | **One of the four interior lines** | The drawbridge. |
 | **The other three** | Open water. |
 
@@ -100,9 +100,8 @@ distance and the collision test all carry on as if the deck were flat, which is 
 of scenery being able to break the sim.
 
 `deckHeightAt(x, z)` is **world-space** rather than keyed by lane id, because that is the shape both
-callers already have in hand: `sim/traffic.js` poses a car from `car.x`/`car.z`, and
-`sim/police.js`'s cruiser rides a rail and has no lane at all. Declining the crossing lines was
-never an option for the corridor — every road running along Z crosses the river.
+callers already have in hand: `sim/traffic.js` poses a car from `car.x`/`car.z`, and the effects
+that come off the tarmac have a position and no lane.
 
 Sampled at the **nose and the tail**, not the centre. A rigid body pitched to the tangent under its
 own origin floats at the crest and buries its nose at the foot; two lookups cost one rectangle test
@@ -342,9 +341,9 @@ did, on a leaf that then lifted out from under it. See
 The orange boom is the bridge's only "stop", which is also the only one telling the truth: during
 `closing` and `clearing` the lane is already shut while a stop bar would happily be green.
 
-It also declines to lift while a siren is running down its line, the same courtesy `roadwork.js`
-extends before digging up a road: the corridor holds every light on its road green and the cruiser
-neither queues nor brakes, so a barrier in front of one is the single closure it cannot answer.
+It used to decline to lift while a siren was running down its line, because the patrol cruiser was
+a scripted car that could not stop for a barrier. It is a car in traffic now and stops like anybody
+else, so the hold is gone.
 
 ## Boats
 

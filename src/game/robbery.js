@@ -205,8 +205,8 @@ export const STAND_DOWN_RANGE = 62;
  *
  * The backstop, and it needs one: a cop standing down is ordinary traffic, so it can end up queued
  * behind a red two blocks from a taxi that has itself stopped at a kerb, and neither of them is
- * going anywhere. Without this the fleet would sit there indefinitely — and `setCarCount` refuses
- * to grow the city while any police are out, so the density ramp would stall behind it too.
+ * going anywhere. Without this the fleet would sit there indefinitely, and the next robbery's
+ * `raiseAlarm` would be the thing that finally deleted it — wherever it was.
  *
  * Twelve seconds is long enough that the ordinary case (a cop driving away down a clear street at
  * cruise, 8.5 u/s, covering the 90 units in about eleven) resolves on its own, and short enough
@@ -348,10 +348,11 @@ function nearestJunction(x, z) {
  * @param onBoard  `(fare) => void`, fired on the frame the robber is in the car. main.js aims the
  *                 taxi at the getaway and lights the roof sign, which is exactly what it does on an
  *                 ordinary `'pickup'` — this module knows a fare started, not what a roof sign is.
- * @param busy     `() => boolean` — true while the patrol cruiser is chasing somebody in traffic
- *                 (game/pursuit.js). A robbery waits it out: it would bring four cars in the same
- *                 paint onto a street with a pursuit already on it, and `raiseAlarm` clears the
- *                 fleet it inherits, which would delete the patrol car in front of the player.
+ * @param busy     `() => boolean` — true while the patrol cruiser is chasing the taxi, or has just
+ *                 caught it (game/patrol.js). A robbery waits that out: four more cars in the same
+ *                 paint onto a street with a chase already on it is two events talking over each
+ *                 other. A patrol that is merely cruising does not hold a robbery up — it sees one
+ *                 start and drives off.
  * @param holdAlarm  true to board the robber *without* the police, and wait for `raiseAlarm()`.
  *                 main.js holds it for the robber's line (game/robberline.js): the world stops, the
  *                 robber shouts, and the cops arrive on the tap that clears it. False — the tools'
@@ -389,6 +390,14 @@ export function createRobbery({
   // of each, because only one roadblock stands at a time.
   let partner = null;
   let partnerLead = null;
+
+  /**
+   * This event's cops: the fleet, less the patrol cruiser if it happens to be on the road
+   * (game/patrol.js). The two share `policeCars` because they share the instance buffer's police
+   * block, and everything below that walks the fleet means the robbery's own cars.
+   */
+  const fleet = () => traffic.policeCars.filter((cop) => !cop.patrol);
+  const clearFleet = () => { for (const cop of fleet()) traffic.retirePolice(cop); };
 
   /** How far the taxi is from the bank's door, in world units. */
   const range = () => Math.hypot(taxi.x - site.door.x, taxi.z - site.door.z);
@@ -514,7 +523,7 @@ export function createRobbery({
     };
     const moved = !aimedAt || aimedAt.i !== at.i || aimedAt.j !== at.j || aimedAt.plan !== at.plan;
     let nth = 0;
-    for (const car of traffic.policeCars) {
+    for (const car of fleet()) {
       if (car.crashed) continue;
       car.chase = 1;
       const steps = CUT_OFF_AHEAD[nth % CUT_OFF_AHEAD.length];
@@ -628,7 +637,7 @@ export function createRobbery({
     state.sinceBlock += dt;
     const path = upcoming();
     const onPath = new Map(path.map((at) => [`${at.i},${at.j}`, at]));
-    for (const cop of traffic.policeCars) {
+    for (const cop of fleet()) {
       if (cop.crashed) continue;
       if (cop.blocking) {
         // Out of the box is out of the roadblock, however it got there. A partner goes when the
@@ -652,7 +661,7 @@ export function createRobbery({
       const key = `${cop.i},${cop.j}`;
       if (cop.blockSpent === key || cop.roadblock > 0) continue;
       if (state.sinceBlock < BLOCK_GAP
-        || traffic.policeCars.some((other) => other.blocking)) continue;
+        || fleet().some((other) => other.blocking)) continue;
       const at = onPath.get(key);
       // The taxi already in the box has driven past the point a block could stop it.
       if (!at || at.inside) continue;
@@ -741,7 +750,7 @@ export function createRobbery({
     const J = { i: at.i, j: at.j };
     const jx = lineX(J.i);
     const jz = lineZ(J.j);
-    const free = traffic.policeCars
+    const free = fleet()
       .filter((c) => c !== lead && !c.crashed && !c.blocking && !c.passing && c.pass === 0
         && c.roadblock === 0 && c.state === 'drive')
       .map((c) => ({ c, d: Math.abs(c.x - jx) + Math.abs(c.z - jz) }))
@@ -937,8 +946,9 @@ export function createRobbery({
     // Anything still driving off from the last event goes now rather than being adopted by this
     // one — it has no chase and no route, so it would sit in the fleet as a cop that never
     // converges and never leaves. The cooldown makes this all but unreachable; it is here because
-    // "all but" is not a guarantee.
-    traffic.clearPolice();
+    // "all but" is not a guarantee. Not the patrol cruiser, which is not this event's to delete —
+    // it sees the robbery start and drives off on its own (game/patrol.js).
+    clearFleet();
     // The traffic first, so the police are already on the road on the frame the lights come back
     // up after the robber's line. They come in off screen near the bank —
     // `enterPolice` in sim/traffic.js owns where, and why "near the bank" and "off screen" have to
@@ -973,7 +983,7 @@ export function createRobbery({
       i: taxi.i > GRID_I / 2 ? 0 : GRID_I,
       j: taxi.j > GRID_J / 2 ? 0 : GRID_J,
     };
-    for (const cop of traffic.policeCars) {
+    for (const cop of fleet()) {
       // **Bar off first.** The robbery is over on this frame, and a car driving away from a
       // finished scene with its lights still going reads as an event that has not ended — which is
       // most of what "they need to turn off their lights and exit" was. `siren` is separate from
@@ -1005,8 +1015,7 @@ export function createRobbery({
   /**
    * Take the stood-down cops off the map as they get clear, and give up on the stragglers.
    *
-   * Runs on every frame there are police but no event. `leavePolice` only takes the last car in the
-   * fleet, so this walks from the tail — the same reason `clearPolice` does.
+   * Runs on every frame this event still has police but no event.
    */
   function driveOff(dt) {
     state.standingDown += dt;
@@ -1016,22 +1025,17 @@ export function createRobbery({
     // whole phase exists to keep, and a backstop that broke it would be worse than no backstop.
     // The route out (see `stop`) is what makes the floor reachable rather than a deadlock.
     const bar = state.standingDown >= STAND_DOWN_TIMEOUT ? SPAWN_CLEARANCE : STAND_DOWN_RANGE;
-    for (let k = traffic.policeCars.length - 1; k >= 0; k--) {
-      const cop = traffic.policeCars[k];
-      // The patrol cruiser, if it is in traffic chasing somebody, is game/pursuit.js's to retire.
-      if (cop.patrol) continue;
+    for (const cop of fleet()) {
       // A wreck is not going to drive anywhere, and its shell has already been handed to the
       // effects — so it leaves the fleet on distance alone, with no route to wait on.
       if (Math.hypot(cop.x - taxi.x, cop.z - taxi.z) < bar) continue;
-      // Only the tail can go, so a cop that is clear but not last waits its turn — at most a
-      // frame each, since the ones behind it are being tested on the same pass.
-      if (k === traffic.policeCars.length - 1) traffic.leavePolice(cop);
+      traffic.retirePolice(cop);
     }
     // Out of route and still hanging about: point it at the edge again. Its first plan is spent
     // by the time it reaches the corner, and an unrouted car rolls dice.
     if (state.standingDown >= STAND_DOWN_TIMEOUT) {
-      for (const cop of traffic.policeCars) {
-        if (cop.route?.length || cop.crashed || cop.patrol) continue;
+      for (const cop of fleet()) {
+        if (cop.route?.length || cop.crashed) continue;
         const out = {
           i: cop.i > GRID_I / 2 ? 0 : GRID_I,
           j: cop.j > GRID_J / 2 ? 0 : GRID_J,
@@ -1045,39 +1049,29 @@ export function createRobbery({
   /**
    * Retire the cops that have lost the taxi, and send the same number in again.
    *
-   * See `LOST_RANGE`. `leavePolice` will only take the **last** car in the fleet, because anything
-   * else is a hole in the middle of an instance buffer — so a cop that is to be retired is first
-   * swapped to the tail of `policeCars`. That swap is safe for exactly the reason the tail rule
-   * exists: the police are a contiguous block at the end of `ambient`, so exchanging two of them
-   * only ever moves police indices past each other.
+   * See `LOST_RANGE`. `retirePolice` swaps the cop to the tail of the fleet before taking it off,
+   * because anything else is a hole in the middle of an instance buffer — and that swap is safe for
+   * exactly the reason the tail rule exists: the police are a contiguous block at the end of
+   * `ambient`, so exchanging two of them only ever moves police indices past each other.
    */
   function recyclePolice(dt) {
     state.sinceEntry += dt;
     if (state.sinceEntry < REENTRY_GAP) return;
 
-    const fleet = traffic.policeCars;
     // The furthest-gone first, and one per tick: the gap is what turns four simultaneous
     // replacements into a stream arriving one at a time.
-    let worst = -1;
+    let worst = null;
     let worstD = LOST_RANGE;
-    for (let k = 0; k < fleet.length; k++) {
-      const cop = fleet[k];
+    for (const cop of fleet()) {
       const d = Math.hypot(cop.x - taxi.x, cop.z - taxi.z);
       // A crashed cop is off the road as far as the player is concerned and will never close
       // again, so it is always a candidate however near it stopped.
-      if (cop.crashed || d > worstD) { worst = k; worstD = cop.crashed ? Infinity : d; }
+      if (cop.crashed || d > worstD) { worst = cop; worstD = cop.crashed ? Infinity : d; }
     }
-    if (worst === -1) return;
+    if (!worst) return;
 
-    // Swap to the tail, retire, replace.
-    const last = fleet.length - 1;
-    const tailCar = fleet[last];
-    fleet[last] = fleet[worst];
-    fleet[worst] = tailCar;
-    // ...and the same swap in `ambient`, which is the array the instance indices actually name.
-    // `policeCars` is only a view; moving a car within it changes nothing about what is drawn.
-    traffic.swapAmbient(fleet[last], tailCar);
-    if (!traffic.leavePolice(fleet[last])) return;
+    // Retire, replace.
+    if (!traffic.retirePolice(worst)) return;
     state.sinceEntry = 0;
     // **Behind the taxi**, which is the whole point of recycling rather than simply letting a cop
     // trail away. A replacement dropped on a ring around the player is as likely to turn up beside
@@ -1102,7 +1096,7 @@ export function createRobbery({
       if (!state.alarmed) return;
       // Top the fleet up first: a saturated network can leave `enterPolice` short, and a robbery
       // that opened with three cop cars should not run with three for the whole getaway.
-      if (traffic.policeCars.length < POLICE_CARS && state.sinceEntry >= REENTRY_GAP) {
+      if (fleet().length < POLICE_CARS && state.sinceEntry >= REENTRY_GAP) {
         if (traffic.enterPolice(1, taxi, { behind: true })) {
           state.sinceEntry = 0;
           aimedAt = null;
@@ -1115,7 +1109,7 @@ export function createRobbery({
     }
 
     // Left over from the event that just ended, driving themselves off the map.
-    if (traffic.policeCars.length) driveOff(dt);
+    if (fleet().length) driveOff(dt);
 
     if (eligible()) start();
   }
@@ -1140,7 +1134,7 @@ export function createRobbery({
      */
     abandon() {
       stop();
-      traffic.clearPolice();
+      clearFleet();
     },
   };
 }

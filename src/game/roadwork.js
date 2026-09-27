@@ -9,7 +9,7 @@ import {
   coneGeometry, barricadeParts, spoilParts, mergeAll, splinterGeometry,
   CONE_REST_Y, SPLINTER_REST_Y,
 } from '../geometry/roadworks.js';
-import { launchHop, setClosedLanes, policeRoads, HOP_LEN, STOP_SETBACK } from '../sim/traffic.js';
+import { launchHop, setClosedLanes, HOP_LEN, STOP_SETBACK } from '../sim/traffic.js';
 import { setRoadworkLanes } from './route.js';
 
 // A street closed for roadworks: a striped trestle across each end, a scatter of cones, a heap of
@@ -252,16 +252,6 @@ export function createRoadwork(rng, scene, camera = null) {
     // under the tarmac at the middle and sticking out of it at both ends. There is also nothing
     // under a bridge deck to dig a hole *in*.
     if (a.gi === b.gi && isRiverGap(Math.min(a.gj, b.gj))) return false;
-
-    // Not on a road a siren is running down — every road of the run, not just the leg it is on,
-    // since a jog commits to its next road a corner ahead of reaching it. sim/police.js checks the
-    // closure before it picks a corridor and again at every chase turn, so the only way a cruiser
-    // can end up driving through a hole is if the hole opens underneath a run already in progress
-    // — and this is the end of that hole to close. A live run is two or three roads out of twelve
-    // for a few seconds at a time, so it costs the placement almost nothing.
-    if (policeRoads().some((siren) => (siren.axis === 'x'
-      ? a.gj === siren.line && b.gj === siren.line
-      : a.gi === siren.line && b.gi === siren.line))) return false;
 
     // A rider standing on a kerb corner at either end would be picked up from inside the zone.
     if (busy.some((spot) => (spot.i === a.gi && spot.j === a.gj)

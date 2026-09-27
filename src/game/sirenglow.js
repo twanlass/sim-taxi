@@ -7,21 +7,17 @@ import { sirenOn } from '../geometry/lights.js';
 // It exists for the same reason game/dropoffindicator.js does — the map is bigger than the frame on
 // a phone, and the player pans — but for the opposite kind of thing. The drop-off is somewhere you
 // are trying to get to and the arrow is navigation; the siren is something coming at you and this
-// is a threat you cannot see yet. The bust is `POLICE_BUST_RANGE` = one block, so a cruiser that is
-// one screen edge away is already close enough to end a run, and until now the only cue that it
-// existed was ambient traffic pulling over to a car that was off-frame.
+// is a threat you cannot see yet: a patrol that has spotted you and is coming, from wherever it
+// was when it did.
 //
 // **It is on exactly when the light bar is on**, which is the whole reason it can be trusted:
 // `state.lit` gates both, so the wash is the same announcement seen through the frame edge rather
-// than a second rule with its own opinion. That includes the run-up — the bar lights as the cruiser
-// spawns and the bust only arms a block in (BUST_ARM_INSET in sim/police.js), so the wash covers
-// that grace period too. Telegraphing the cop early is the point of it; what it must never do is
-// stay quiet about one that is already lethal, and being armed off the earlier of the two flags is
-// what rules that out.
+// than a second rule with its own opinion. The bar is dark for the whole of an ordinary patrol
+// (game/patrol.js) and lights only when the cruiser gives chase — so the wash never warns about a
+// cop that is merely driving around, and never stays quiet about one that is after you.
 //
 // The strobe comes off `sirenOn()` rather than a clock of its own, so the wash and the bar are the
-// same siren seen from two places and cannot drift apart — including the rate change to 11Hz once
-// the cruiser has locked on, which is the only cue that a corridor run has become about you.
+// same siren seen from two places and cannot drift apart.
 //
 // Rendered as one fixed full-screen div with two radial gradients on it, centred on the point where
 // the cruiser crosses the frame edge, so a corner approach naturally shows a quarter of the bloom

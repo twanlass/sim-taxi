@@ -36,13 +36,13 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 export const RADIO_LINE = 'All units respond! Robbery in progress.';
 
 /**
- * ...and what it says about the patrol cruiser's chase (game/pursuit.js). The same channel, because
- * it is the same police: the bubble is how the game says "the cops are talking about *you*", and
- * the chase is the one other time that is true. The second line is the only word the player gets
- * that they got away — the bar going dark says it too, but only to somebody looking at the car.
+ * ...and what it says when the patrol cruiser loses the taxi (game/patrol.js). The same channel,
+ * because it is the same police: the bubble is how the game says "the cops are talking about
+ * *you*". It is the only word the player gets that they got away — the bar going dark says it too,
+ * but only to somebody looking at the car. The start of a chase needs no line of its own here: the
+ * cop says "Pull over!" from its own roof (game/copshout.js).
  */
-export const PURSUIT_LINE = 'Unit in pursuit of a speeding cab!';
-export const LOST_LINE = 'Suspect lost. Resuming patrol.';
+export const LOST_LINE = 'Suspect lost. All units stand down.';
 
 /**
  * How long it stays up, in seconds of game time. Long enough to read the line twice at a glance
