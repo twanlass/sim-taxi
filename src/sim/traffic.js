@@ -134,6 +134,12 @@ const SIGNAL = {
   arterialZ: new Set(),         // i values: roads running along Z
   dirX: new Map(),              // j -> +1 / -1, the coordinated direction of travel
   dirZ: new Map(),
+  // Every junction the plan would put a light on runs as an **all-way stop** instead. The lamps
+  // are hidden now (main.js hides the stop bars), and a car sitting at an empty junction for
+  // most of a 16s cycle reads as broken when there is nothing on screen telling it to wait. A
+  // stop reads correctly with nothing drawn: pull up, pause, go. The phase plan is still baked
+  // and still answers `lightPhase` for the tools; `?lights=on` puts the sim back on it.
+  stopSigns: true,
 };
 
 export function configureSignals(config) {
@@ -141,6 +147,21 @@ export function configureSignals(config) {
 }
 
 export const signalCycle = () => SIGNAL.cycle;
+
+/**
+ * How long a car sits at a stop line before it may go, in seconds, once it has come to rest.
+ * Long enough to read as a stop at play zoom rather than a brake-dab; short enough that a
+ * crossing with nothing else at it costs the car about what a green used to.
+ */
+export const STOP_DWELL = 0.8;
+
+/**
+ * How long a car that stopped first keeps its turn at an all-way stop before the others stop
+ * waiting for it. First-come-first-served is courtesy, not safety — the box check is what keeps
+ * two crossings apart — so a car that cannot take its turn (a full exit lane, a left waiting on
+ * oncoming) must not hold up every other street behind it indefinitely.
+ */
+export const STOP_PATIENCE = 3;
 
 /**
  * Road hierarchy of the edge you get by leaving (i, j) in direction d.
@@ -941,6 +962,8 @@ function displaySignal(lane, t) {
     const mine = isXAxis(net.dirOfLane(lane)) ? 'x' : 'z';
     return { open: corridor.axis === mine, yellow: false };
   }
+  // A stop line is a stop line for everyone; nothing cycles.
+  if (SIGNAL.stopSigns && node.signal) return { open: false, yellow: false };
   return net.laneSignal(lane, t);
 }
 
@@ -983,6 +1006,16 @@ function approachSignal(car, t) {
     return {
       signalised: true, open: corridor.axis === mine, yellow: false, remaining: Infinity,
       street: streetOnAxis(corridor.axis),
+    };
+  }
+  // An all-way stop. `open` is false so the approach brakes to the line exactly as it would for a
+  // red; whether the car may then go is decided at the line (`stopSignClear`), because it
+  // depends on how long it has stood there and on who else has. Not `signalised`: nothing here
+  // is a red, so nothing crossing it is a violation or a right-on-red.
+  if (SIGNAL.stopSigns && node.signal) {
+    return {
+      signalised: false, stop: true, open: false, yellow: false, remaining: Infinity,
+      street: car.lane.phase,
     };
   }
   return cityNetwork().laneSignal(car.lane, t);
@@ -2093,6 +2126,7 @@ export function placeCar(car, d, i, j, back) {
   car.turn = null;
   car.state = 'drive';
   car.turnT = 0;
+  car.stopAt = null;
   syncGrid(car);
   car.dOut = car.d;
   return true;
@@ -3303,6 +3337,52 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     return streetIsClear(car, sig.street, RIGHT_ON_RED_YIELD, approaching);
   }
 
+  /**
+   * May a car standing at an all-way stop go?
+   *
+   * Three things, in the order a driver asks them. It has **stopped**, and stood for `STOP_DWELL`
+   * — a police car only has to touch the line, which is its licence here the way the chase-on-red
+   * is at a light. The **box** holds nobody from another street: the same street may run both
+   * ways at once, exactly as it did on a shared green, and the left turn across it still yields
+   * through `leftYieldBlocked`. And it is **its turn**: no front car on another street stopped
+   * before it, unless that car has been stuck there for `STOP_PATIENCE` and cannot be what
+   * everyone is waiting for.
+   *
+   * The box test reads live state, so two cars cleared on the same frame cannot both enter: the
+   * first one is already `turn` by the time the second one asks.
+   */
+  function stopSignClear(car, t, approaching) {
+    const node = net.nodeById.get(car.lane.to);
+    if (car.stopAt && car.stopAt.node !== node.id) car.stopAt = null;
+    if (car.v > 0.05) return false;
+    if (!car.stopAt) car.stopAt = { node: node.id, t };
+    // Any police car rolls it, standing down included: a cop leaving the scene has a backstop to
+    // clear the map by (`STAND_DOWN_TIMEOUT`), and a full stop at every junction on the way out
+    // left 3 or 4 of the fleet still in shot after it on four seeds out of five.
+    const dwell = car.police ? 0 : STOP_DWELL;
+    if (t - car.stopAt.t < dwell) return false;
+
+    const street = car.lane.phase;
+    for (const other of cars) {
+      if (other === car || other.crashed || other.staged) continue;
+      if (other.state !== 'turn' || other.turn?.node !== node.id) continue;
+      if (net.laneById.get(other.turn.inLane)?.phase !== street) return false;
+    }
+
+    for (const lane of node.inbound) {
+      if (lane.phase === street) continue;
+      let front = null;
+      for (const other of approaching.get(lane.id) ?? []) {
+        if (!front || other.s > front.s) front = other;
+      }
+      const since = front?.stopAt?.node === node.id ? front.stopAt.t : Infinity;
+      if (t - since > STOP_DWELL + STOP_PATIENCE) continue;
+      if (since < car.stopAt.t) return false;
+      if (since === car.stopAt.t && cars.indexOf(front) < cars.indexOf(car)) return false;
+    }
+    return true;
+  }
+
   /** The ring never stops, so a car joining it has to find a real gap. */
   function ringGapClear(car, approaching) {
     const node = net.nodeById.get(car.lane.to);
@@ -4427,7 +4507,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           // A chasing cop waved through a red on a clear box — see the gate below. Tracked so the
           // crossing is counted as sanctioned rather than as a signal violation.
           let viaChaseOnRed = false;
-          if (!arrive.signalised) {
+          if (arrive.stop) {
+            // An all-way stop: see `stopSignClear`. Same `held` guard as every other branch.
+            const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car) && !joinsBlock(car);
+            green = stopSignClear(car, t, approaching) && !held;
+          } else if (!arrive.signalised) {
             // No signal here. The priority street runs; anyone joining waits for a real gap.
             //
             // ...and nobody drives into a box something is stopped in, which this branch did not
@@ -4671,6 +4755,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
             + Math.hypot(car.exit.x - car.control.x, car.exit.z - car.control.z),
           );
           car.state = 'turn';
+          car.stopAt = null;
           stats.moving += 1;
           continue;
         }

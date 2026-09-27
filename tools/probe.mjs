@@ -3992,9 +3992,11 @@ check('no two cars occupy the same space', worst > 1.6,
   // Measured to the frame the lamp changes rather than to the frame it goes dark, so a landing
   // straight into the next junction's indication ends this tail rather than extending it. The
   // median is a couple of frames under SIGNAL_LINGER because the frame that spends the last of it
-  // is the frame the hand clears.
+  // is the frame the hand clears. The floor is a sample size, not a claim: all-way stops cost every
+  // car a pause at each junction, and two minutes now holds 270-298 landings across five seeds
+  // where it held over 300 under the lights.
   check('and it keeps indicating after it lands',
-    gTails.length > 300 && Math.abs(gMedian(gTails) - SIGNAL_LINGER) < 0.1,
+    gTails.length > 250 && Math.abs(gMedian(gTails) - SIGNAL_LINGER) < 0.1,
     `${gTails.length} landings, median ${gMedian(gTails).toFixed(2)}s of lamp after the arc `
     + `against SIGNAL_LINGER ${SIGNAL_LINGER}`);
 }
@@ -11498,6 +11500,12 @@ let chopperOrder; // likewise
     `order ${planeOrder}`);
   check('and so does the helicopter', sameEverywhere(chopperOrder),
     `order ${chopperOrder}`);
+
+  // The corridor is module state in sim/traffic.js, not this cruiser's, so a run cut off mid-siren
+  // leaves it set for every section below. It held a whole street red through the drive-through
+  // and depot trips on seed 777 once the city's junctions became all-way stops and the siren run
+  // stopped happening to finish inside these 90 seconds.
+  setPriorityCorridor(null);
 }
 
 // --- The barricade's geometry, before any of it is placed ----------------------
