@@ -239,7 +239,7 @@ function edgeFade(s, axis) {
 }
 
 // The cruiser is drawn as the same car the robbery's cop cars are: an ambient body off
-// `carGeometry()` wearing `policeBody` under the baby-blue `policeCabGeometry()`, with the same
+// `carGeometry()` wearing `policeBody` under the white `policeCabGeometry()`, with the same
 // siren bar (geometry/lights.js).
 // It used to be its own model — 3.6 x 1.8, a white roof and a white waist stripe, and a smaller
 // bar split red one side, blue the other — which left the city with two police liveries once the

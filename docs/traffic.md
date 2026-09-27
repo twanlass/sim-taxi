@@ -2046,8 +2046,8 @@ queue behind it holds, because each car's limit comes from its leader's position
 ## Cop cars in ambient traffic
 
 `enterPolice(n, near)` in `sim/traffic.js`, driven by [the bank robbery](gameplay.md#the-police). It
-brings `n` cop cars onto the map — real vehicles in the police two-tone (a white `policeBody` under a
-baby-blue `policeCabMesh`) with a light bar on the roof —
+brings `n` cop cars onto the map — real vehicles in the police two-tone (a light-blue `policeBody` under a
+white `policeCabMesh`, after the 1980s NYPD cruiser) with a light bar on the roof —
 entering from off screen as near the bank as the camera allows. `clearPolice()` takes them off again.
 
 ### They are spawned, not repainted
@@ -2315,9 +2315,10 @@ pod encloses it rather than fighting it, and the probe asserts it. A wrecked cop
 same hole one layer over — it was tinted from `carBody[colorIndex]` — and goes through `bodyColor`
 now, and carries its cab.
 
-**The two-tone.** A cop is a white body under a baby-blue cab, old-school, where it used to be a
-solid blue (#2E5FA8) a few steps off the ordinary blue car — one blue car among several at play
-zoom. `instanceColor` paints a whole car one colour, so the cab is a second instanced shell
+**The two-tone.** A cop is a light-blue body under a white cab, after the 1980s NYPD cruiser, where
+it used to be a solid blue (#2E5FA8) a few steps off the ordinary blue car — one blue car among
+several at play zoom. The body is lighter and more cyan than that civilian; the white cab over it is
+the part no civilian has, and the part that actually says police. `instanceColor` paints a whole car one colour, so the cab is a second instanced shell
 (`policeCabMesh`, `policeCabGeometry()`) laid 0.02 proud over the glass cabin and switched by
 `police` like the bar. The corridor cruiser (`sim/police.js`) is built from the same parts, so the
 city has one police livery.

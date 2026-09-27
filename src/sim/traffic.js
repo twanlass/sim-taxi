@@ -1613,7 +1613,7 @@ export function carGeometry() {
 }
 
 /**
- * The top half of the police two-tone: a baby-blue shell over the cabin, car-local.
+ * The top half of the police two-tone: a white shell over the cabin, car-local.
  *
  * A cop car is an ordinary car underneath, and an ordinary car is one instanced mesh tinted by one
  * `instanceColor` — which can paint a body white but has no way to make its cabin a different
@@ -2664,7 +2664,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   sirenHousingMesh.count = ambient.length;
   const SIREN_HOUSING_AT = sirenBaseAnchor(CABIN_X, CABIN_TOP);
   sirenHousingMesh.userData.anchor = SIREN_HOUSING_AT;
-  // The baby-blue cab, on exactly the same switch. Car-local, so its matrix is the body's own.
+  // The white cab, on exactly the same switch. Car-local, so its matrix is the body's own.
   const policeCabMesh = neverCull(new THREE.InstancedMesh(
     policeCabGeometry(), propMaterial(), MAX_AMBIENT,
   ));
@@ -3156,8 +3156,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       box.receiveShadow = true;
       shell.add(box);
     }
-    // A cop's baby-blue cab, on the same terms as the cargo box: its own mesh and its own material,
-    // so the wreck scorches it in step. Left out, a wrecked cop lay in the road as a white hatchback
+    // A cop's white cab, on the same terms as the cargo box: its own mesh and its own material,
+    // so the wreck scorches it in step. Left out, a wrecked cop lay in the road as a blue hatchback
     // with a glass roof.
     if (car.police && !car.isTruck) {
       const cab = new THREE.Mesh(policeCabMesh.geometry, propMaterial());
@@ -5363,7 +5363,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // prepass — but not folded into `ambient`/`wheelsPerCar` above, since those are index-aligned
     // with the *car* meshes and game/carghosts.js reads them as such.
     truckMesh, truckWheelMesh, truckBoxMesh, trucks, truckWheelsPerCar: TRUCK_FRONT.length,
-    // The unlit bar under a cop car's lamps, and its baby-blue cab, one instance per ambient car.
+    // The unlit bar under a cop car's lamps, and its white cab, one instance per ambient car.
     // Out for the probe.
     sirenHousingMesh, policeCabMesh,
     /**

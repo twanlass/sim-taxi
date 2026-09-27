@@ -13885,7 +13885,7 @@ let chopperOrder; // likewise
     check('...and nothing else in the city wears one',
       civilianHousings === 0, `${civilianHousings} civilian cars with a bar housing`);
 
-    // The two-tone. `instanceColor` paints a whole car one colour, so the baby-blue cab is a second
+    // The two-tone. `instanceColor` paints a whole car one colour, so the white cab is a second
     // instanced shell laid over the glass cabin — on police only, and proud of the glass on every
     // side a camera can see, or the two fight over the roof.
     const cabScale = (index) => {
@@ -13896,7 +13896,7 @@ let chopperOrder; // likewise
     const cabbed = copTraffic.policeCars.filter((car) => cabScale(car.instanceIndex) > 0.99).length;
     const civilianCabs = copTraffic.ambient.filter((car) =>
       !car.police && !car.crashed && cabScale(car.instanceIndex) > 0).length;
-    check('every cop wears the baby-blue cab, and no civilian does',
+    check('every cop wears the white cab, and no civilian does',
       cabbed === copTraffic.policeCars.length && civilianCabs === 0,
       `${cabbed} of ${copTraffic.policeCars.length} cops, ${civilianCabs} civilians`);
     check('...and the cab stands proud of the glass it covers rather than on it',

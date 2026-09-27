@@ -2079,7 +2079,7 @@ Six gates on top of the range, and each is there for its own reason:
 ### The police
 
 `setPoliceCars(n)` in `sim/traffic.js` takes the `n` ambient cars nearest the taxi, paints them
-in the police two-tone (white `policeBody`, baby-blue cab) and puts a light bar on their roofs. `setPoliceCars(0)` hands every one of them back its
+in the police two-tone (light-blue `policeBody`, white cab) and puts a light bar on their roofs. `setPoliceCars(0)` hands every one of them back its
 own `colorIndex`, which is left untouched throughout — that is what makes ending the event free
 rather than something to remember.
 

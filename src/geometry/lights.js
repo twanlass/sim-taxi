@@ -287,7 +287,7 @@ export function sirenRedMaterial() {
   });
 }
 
-/** ...and the blue half. `sirenBlue` is deliberately brighter and bluer than `policeCab`. */
+/** ...and the blue half. `sirenBlue` is deliberately brighter and bluer than `policeBody`. */
 export function sirenBlueMaterial() {
   return new THREE.MeshLambertMaterial({
     color: color('sirenBlue'),

@@ -340,15 +340,16 @@ export const PALETTE = {
 
   // --- Game entities. Deliberately higher-chroma than anything in the city so they read
   // instantly against the muted buildings and grey roads.
-  // The police two-tone, old-school: a white body under a baby-blue cab. It used to be a solid
-  // blue (#2E5FA8) a few steps off the ordinary blue car (#4E7FC0), which at play zoom made a cop
-  // one blue car among several. The white is cooler and brighter than the two cream civilians
-  // (#E4E1DA, #D9D2C3) so it does not pass for one of them, and the cab is the half no civilian
-  // has — every other car's cabin is dark glass. See policeCabGeometry() in sim/traffic.js.
-  policeBody: '#F2F4F7',
-  // Pushed past a true pastel on purpose: the first cut (#9CC8EC) rendered grey-teal under the low
-  // warm sun, with the bar's own red washing over it, and stopped reading as blue at all.
-  policeCab: '#78BDF7',
+  // The police two-tone, after the 1980s NYPD cruiser: a light-blue body under a white cab. It
+  // used to be a solid blue (#2E5FA8) a few steps off the ordinary blue car (#4E7FC0), which at
+  // play zoom made a cop one blue car among several. This blue is lighter and a good deal more
+  // cyan than that civilian, but the body alone still would not carry it — the white cab is the
+  // half no civilian has (every other car's cabin is dark glass), and it is what says police.
+  // See policeCabGeometry() in sim/traffic.js. (A first pass ran it the other way round, white
+  // under baby blue; a pastel cab rendered grey-teal under the low warm sun.)
+  policeBody: '#55A8E6',
+  // Cooler and brighter than the two cream civilians (#E4E1DA, #D9D2C3).
+  policeCab: '#F2F4F7',
 
   // The ambient flyover — see geometry/plane.js. A white aeroplane against a pale sky is a blank
   // shape, so it carries a cheatline; red because it is the one hue in the game with nothing else
@@ -616,7 +617,7 @@ export const PALETTE = {
 
   lightRed: '#E24B3C',
   // The blue half of a police light bar, paired with `lightRed` above. Brighter and bluer than
-  // `policeCab` on purpose: the bar has to read as a lamp against the car carrying it, not as more
+  // `policeBody` on purpose: the bar has to read as a lamp against the car carrying it, not as more
   // bodywork. `game/sirenglow.js` washes both over the frame edge while the cruiser is off-screen,
   // so the same two colours have to be nameable from more than one place.
   sirenBlue: '#4D9BFF',
