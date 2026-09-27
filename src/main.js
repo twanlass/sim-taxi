@@ -17,6 +17,7 @@ import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, SPEED, ROAD_Y,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
+  configureSignals,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
@@ -408,6 +409,12 @@ const traffic = createTraffic(
 // at the city without them; `?stopbars=on` brings them back for an A/B. `visible` rather than
 // removing the mesh: the per-frame colour writes keep running and nothing else has to know.
 traffic.barMesh.visible = new URLSearchParams(window.location.search).get('stopbars') === 'on';
+// Experiment, the other half of the one above: with nothing on screen showing a signal, the
+// signalised junctions run as all-way stops (see `stopSigns` in sim/traffic.js). `?lights=on` puts
+// the sim back on the phase plan — pair it with `?stopbars=on` to see the lamps it is obeying.
+if (new URLSearchParams(window.location.search).get('lights') === 'on') {
+  configureSignals({ stopSigns: false });
+}
 // `reserved` is how the fare loop learns about the courier's corners without importing it. `parcels`
 // is declared just below and this closure is only ever *called* from the frame loop, long after — the
 // same forward reference `pathDrag`'s `canGrab` makes to `pause`.
