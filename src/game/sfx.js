@@ -26,6 +26,8 @@
  * **Read the browser at call time, never at import** — the rule `haptics.js` states for the same
  * reason: check.mjs imports this in node, where there is no `window`.
  */
+// The designer's mix — see SHIPPED_MIX below.
+import MIX from '../../assets/audio/mix.json' with { type: 'json' };
 
 // The designer's files, keyed by what the game calls them. Each is a literal `new URL` so Vite can
 // see it at build time; a URL assembled from a variable is one Vite cannot find and will not ship.
@@ -57,51 +59,99 @@ export const SFX_EVENTS = new Set(['accel', 'brake', 'locoActivate', 'locoLaunch
 // frames of encoder priming hands back a buffer that long *plus* the pad, and looping the whole
 // buffer would put 44ms of silence in every cycle — a hiccup in the engine once every four
 // seconds. See `loopWindow`.
+/** The alternate takes a bed draws from, one per run. */
+export const IDLE_TAKES = ['idle1', 'idle2', 'idle3'];
+export const LOCO_TAKES = ['locoLoop1', 'locoLoop2'];
+
 const LOOP_SECONDS = { idle1: 4, idle2: 4, idle3: 4, locoLoop1: 8, locoLoop2: 8, signal: 4.53125 };
 const AAC_PRIMING = 2112 / 48000;
 
-// Per-file trim, in linear gain, so the mix is set here rather than by re-exporting masters. The
-// deliveries arrive mastered against each other (the idles and the Loco loop sit at -25 dB RMS),
-// with one exception: idle 2 is the bright, thin variant and measures 10 dB under the other two,
-// so it gets that back to sit at the same level whichever one a run draws.
-const TRIM = {
-  idle1: 0.55, idle2: 1.7, idle3: 0.55,
-  accel: 0.6, brake: 0.9,
-  locoActivate: 0.55, locoLoop1: 0.5, locoLoop2: 0.5, locoLaunch: 0.8, locoBrake: 0.75,
-  skid: 0.6, doorOpen: 0.8, doorClose: 0.8, crash: 1, takeoff: 0.7, land: 0.8, signal: 0.45,
-};
-
-// The engine idle's pitch against speed: `IDLE_RATE_LO` standing still, `IDLE_RATE_HI` at cruise.
-// A playback rate is pitch *and* tempo, which is exactly what an engine note does as it revs.
-const IDLE_RATE_LO = 0.9;
-const IDLE_RATE_HI = 1.35;
-// The Loco loop's over the overdrive band, cruise to the Loco top.
-const LOCO_RATE_LO = 0.9;
-const LOCO_RATE_HI = 1.15;
-
-// How far the idle drops while the Loco engine is up — it is still the same car underneath, so it
-// ducks rather than cutting out.
-const IDLE_UNDER_LOCO = 0.25;
-
-// When the Loco loop comes in under the activate. The activate is 11.5s: a sustained seven
-// seconds and then a four-second tail, so a hold that outlasts it needs something to carry on
-// with. Faded in across the tail rather than started with the press, where the two would stack.
-const LOCO_LOOP_AT = 6;
-const LOCO_LOOP_FADE = 2;
-
-// Time constants for `setTargetAtTime`, in seconds (~95% of the way in 3x). Short enough to track
-// a speed change, long enough that a frame's jitter in `v` is not a zipper in the pitch.
-const BED_TAU = 0.08;
-const RELEASE_TAU = 0.12;
-
-// The taxi pulling away from a standstill: stood below `STOP_V` for at least `STOP_HOLD` seconds,
-// then over `GO_V`. The hold is what keeps a car creeping in a queue from revving on every inch.
+/**
+ * The mix: every number a sound designer might want to move, kept in `assets/audio/mix.json`
+ * rather than here, so the `?audio` panel (game/audiopanel.js) can export a file that drops
+ * straight over it. Its four parts:
+ *
+ * - `master` — the whole game's level, under the mute.
+ * - `sounds` — per file, `gain` (linear) and `rate` (playback rate: pitch *and* tempo). The gain
+ *   is how the mix is set without re-exporting masters. The deliveries arrive mastered against
+ *   each other (the idles and the Loco loop sit at -25 dB RMS), with one exception: idle 2 is the
+ *   bright, thin variant and measures 10 dB under the other two, so it gets that back to sit at
+ *   the same level whichever one a run draws. `file` is the designer's name, for reading only.
+ * - `minGap` — seconds before the same one-shot may fire again: a second skid inside 0.45s is the
+ *   same skid. Zero means no limit.
+ * - `engine` — the beds' behaviour:
+ *   - `idleRateLo`/`idleRateHi`: the idle's playback rate standing still and at cruise. A rate is
+ *     pitch and tempo together, which is exactly what an engine note does as it revs.
+ *   - `locoRateLo`/`locoRateHi`: the Loco loop's, across the overdrive band (cruise to Loco top).
+ *   - `idleUnderLoco`: how far the idle ducks while the Loco engine is up — it is still the same
+ *     car underneath, so it ducks rather than cutting out.
+ *   - `locoLoopAt`/`locoLoopFade`: when the Loco loop comes in under the activate, and over how
+ *     long. The activate is 11.5s, a sustained seven seconds and then a four-second tail, so a
+ *     hold that outlasts it needs something to carry on with. Faded in across the tail rather than
+ *     started with the press, where the two would stack.
+ *   - `pitchGlide`/`release`: time constants for `setTargetAtTime`, in seconds (~95% of the way
+ *     in 3x). The glide is short enough to track a speed change and long enough that a frame's
+ *     jitter in `v` is not a zipper in the pitch.
+ *   - `selfBrakeGain`: the brake sound when the taxi slows *by itself* (a red, a queue), against
+ *     the pedal's 1.
+ *   - `pullAwayHold`: how long the taxi has to stand still before pulling away plays `accel`. The
+ *     hold is what keeps a car creeping in a queue from revving on every inch.
+ *
+ * `tune()` cleans whatever it is handed against the shape of the shipped file, so a pasted or
+ * hand-edited mix can only ever move a known number to a sane value.
+ */
+// The taxi pulling away from a standstill: below `STOP_V`, then over `GO_V`.
 const STOP_V = 0.4;
 const GO_V = 1.2;
-const STOP_HOLD = 0.35;
 
-// Keep the same one-shot from machine-gunning: a second skid within this is the same skid.
-const MIN_GAP = { skid: 0.45, brake: 1.2, accel: 1, locoBrake: 0.8, land: 0.25, takeoff: 0.25 };
+// What each knob may hold. A gain of zero is silence and is fine; a rate of zero stops the clock.
+const LIMITS = {
+  master: [0, 4],
+  gain: [0, 8],
+  rate: [0.25, 4],
+  minGap: [0, 10],
+  engine: [0, 30],
+};
+const clamp = (v, [lo, hi]) => Math.min(hi, Math.max(lo, v));
+const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/**
+ * `raw` cleaned onto the shape of `base` — only keys `base` has, only finite numbers, clamped.
+ * With `base` null this *is* the shipped file, and every key it names is taken as the shape.
+ */
+function cleanMix(raw, base) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const shape = base ?? src;
+  const out = {
+    master: clamp(num(src.master) ?? shape.master ?? 1, LIMITS.master),
+    sounds: {},
+    minGap: {},
+    engine: {},
+  };
+  for (const key of Object.keys(FILES)) {
+    const from = shape.sounds?.[key] ?? {};
+    const given = src.sounds?.[key] ?? {};
+    out.sounds[key] = {
+      file: from.file ?? key,
+      gain: clamp(num(given.gain) ?? from.gain ?? 1, LIMITS.gain),
+      rate: clamp(num(given.rate) ?? from.rate ?? 1, LIMITS.rate),
+    };
+  }
+  for (const key of SFX_EVENTS) {
+    out.minGap[key] = clamp(num(src.minGap?.[key]) ?? shape.minGap?.[key] ?? 0, LIMITS.minGap);
+  }
+  for (const key of Object.keys(shape.engine ?? {})) {
+    const v = num(src.engine?.[key]) ?? shape.engine[key];
+    if (num(v) != null) out.engine[key] = clamp(v, LIMITS.engine);
+  }
+  return out;
+}
+
+/** A deep copy, since a mix is nested and `tune` writes into it. */
+const copyMix = (mix) => JSON.parse(JSON.stringify(mix));
+
+/** The mix as shipped, from mix.json. The panel's Reset returns to this. */
+export const SHIPPED_MIX = cleanMix(MIX, null);
 
 const MUTE_KEY = 'simTaxi.muted';
 
@@ -136,15 +186,35 @@ export function createSfx({ rng } = {}) {
     total: Object.keys(FILES).length,
     held: false,
   };
-  const idleKey = rng ? rng.pick(['idle1', 'idle2', 'idle3']) : 'idle1';
-  const locoKey = rng ? rng.pick(['locoLoop1', 'locoLoop2']) : 'locoLoop1';
+  let idleKey = rng ? rng.pick(IDLE_TAKES) : IDLE_TAKES[0];
+  let locoKey = rng ? rng.pick(LOCO_TAKES) : LOCO_TAKES[0];
+  // Live, and read every frame, so the panel can move any number while the car is driving.
+  const mix = copyMix(SHIPPED_MIX);
+  const tuning = () => copyMix(mix);
+  /** Merge a partial mix in. Anything unknown or non-numeric is dropped (see `cleanMix`). */
+  function tuneMix(partial) {
+    const merged = copyMix(mix);
+    const src = partial && typeof partial === 'object' ? partial : {};
+    if ('master' in src) merged.master = src.master;
+    for (const part of ['sounds', 'minGap', 'engine']) {
+      for (const [key, value] of Object.entries(src[part] ?? {})) {
+        if (!(key in merged[part])) continue;
+        merged[part][key] = part === 'sounds' ? { ...merged[part][key], ...value } : value;
+      }
+    }
+    Object.assign(mix, cleanMix(merged, SHIPPED_MIX));
+  }
+  const beds = () => ({ idle: idleKey, loco: locoKey });
 
   if (!hasAudio) {
-    // Headless, or a browser without Web Audio: every call is a no-op.
+    // Headless, or a browser without Web Audio: every call is a no-op — except the mix, which is
+    // plain data and is what `npm run check` exercises.
     const noop = () => {};
     return {
       state, play: noop, update: noop, hold: noop, setMuted: noop, toggleMuted: () => true,
       locoOn: noop, locoOff: noop,
+      tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX), beds, setBed: noop,
+      audition: () => false, stopAuditions: noop, files: FILES,
     };
   }
 
@@ -191,7 +261,7 @@ export function createSfx({ rng } = {}) {
     return { src, gain: g };
   }
 
-  function stopVoice(v, tau = RELEASE_TAU) {
+  function stopVoice(v, tau = mix.engine.release) {
     if (!v) return;
     const t = ctx.currentTime;
     v.gain.gain.cancelScheduledValues(t);
@@ -203,7 +273,7 @@ export function createSfx({ rng } = {}) {
     const Ctor = window.AudioContext || window.webkitAudioContext;
     ctx = new Ctor({ latencyHint: 'interactive' });
     master = ctx.createGain();
-    master.gain.value = state.muted ? 0 : 1;
+    master.gain.value = state.muted ? 0 : mix.master;
     master.connect(ctx.destination);
     await Promise.all(Object.entries(bytes).map(async ([key, p]) => {
       try {
@@ -244,14 +314,14 @@ export function createSfx({ rng } = {}) {
     if (!SFX_EVENTS.has(name)) throw new Error(`unknown sound: ${name}`);
     if (!state.ready || !buffers[name] || state.muted) return null;
     const now = ctx.currentTime;
-    const gap = MIN_GAP[name];
+    const gap = mix.minGap[name];
     if (gap && lastAt[name] != null && now + delay - lastAt[name] < gap) return null;
     lastAt[name] = now + delay;
     const src = ctx.createBufferSource();
     src.buffer = buffers[name];
-    src.playbackRate.value = rate;
+    src.playbackRate.value = rate * mix.sounds[name].rate;
     const g = ctx.createGain();
-    g.gain.value = gain * (TRIM[name] ?? 1);
+    g.gain.value = gain * mix.sounds[name].gain;
     src.connect(g).connect(master);
     src.start(now + delay);
     return { src, gain: g };
@@ -296,25 +366,28 @@ export function createSfx({ rng } = {}) {
     // The engine. Pitched off speed, ducked under Loco, and gone with the run.
     const s = Math.min(1, v / cruise);
     const locoUp = alive && locoSince >= 0;
+    const e = mix.engine;
     if (idle) {
-      idle.src.playbackRate.setTargetAtTime(IDLE_RATE_LO + (IDLE_RATE_HI - IDLE_RATE_LO) * s, t,
-        BED_TAU);
-      const g = !alive ? 0 : TRIM[idleKey] * (locoUp ? IDLE_UNDER_LOCO : 1);
-      idle.gain.gain.setTargetAtTime(g, t, alive ? BED_TAU * 2 : 0.4);
+      const rate = (e.idleRateLo + (e.idleRateHi - e.idleRateLo) * s) * mix.sounds[idleKey].rate;
+      idle.src.playbackRate.setTargetAtTime(rate, t, e.pitchGlide);
+      const g = !alive ? 0 : mix.sounds[idleKey].gain * (locoUp ? e.idleUnderLoco : 1);
+      idle.gain.gain.setTargetAtTime(g, t, alive ? e.pitchGlide * 2 : 0.4);
     }
     if (loco) {
       const over01 = Math.max(0, Math.min(1, (v - cruise) / Math.max(1e-6, top - cruise)));
-      loco.src.playbackRate.setTargetAtTime(LOCO_RATE_LO + (LOCO_RATE_HI - LOCO_RATE_LO) * over01,
-        t, BED_TAU);
+      const rate = (e.locoRateLo + (e.locoRateHi - e.locoRateLo) * over01)
+        * mix.sounds[locoKey].rate;
+      loco.src.playbackRate.setTargetAtTime(rate, t, e.pitchGlide);
       const held = locoUp ? t - locoSince : 0;
-      const k = locoUp ? Math.max(0, Math.min(1, (held - LOCO_LOOP_AT) / LOCO_LOOP_FADE)) : 0;
-      loco.gain.gain.setTargetAtTime(TRIM[locoKey] * k, t, locoUp ? 0.3 : RELEASE_TAU);
+      const k = locoUp
+        ? Math.max(0, Math.min(1, (held - e.locoLoopAt) / Math.max(1e-3, e.locoLoopFade))) : 0;
+      loco.gain.gain.setTargetAtTime(mix.sounds[locoKey].gain * k, t, locoUp ? 0.3 : e.release);
     }
 
     // Pulling away from a stop. Not while the pill is up: the launch is that car's pull-away.
     if (v < STOP_V) stoppedFor += dt;
     else {
-      if (v > GO_V && stoppedFor >= STOP_HOLD && alive && !taxi.boost) play('accel');
+      if (v > GO_V && stoppedFor >= e.pullAwayHold && alive && !taxi.boost) play('accel');
       if (v > GO_V) stoppedFor = 0;
     }
 
@@ -322,7 +395,7 @@ export function createSfx({ rng } = {}) {
     // sim/traffic.js off the car's real deceleration), on its rising edge, and softer than the
     // pedal's, which is the player's own stop and has already played at the press.
     const braking = taxi.brakeLevel > 0.6 && v > 2.5;
-    if (braking && !wasBraking && alive && !taxi.braking) play('brake', { gain: 0.5 });
+    if (braking && !wasBraking && alive && !taxi.braking) play('brake', { gain: e.selfBrakeGain });
     wasBraking = braking;
 
     // Off a ramp. The landing has its own event (`traffic.onTaxiLand`); the takeoff is only
@@ -337,8 +410,13 @@ export function createSfx({ rng } = {}) {
     const hand = alive ? taxi.signalHand : null;
     if (hand !== signalHand) {
       stopVoice(signal, 0.03);
-      signal = hand && buffers.signal && !state.muted ? makeLoop('signal', TRIM.signal) : null;
+      signal = hand && buffers.signal && !state.muted ? makeLoop('signal', mix.sounds.signal.gain)
+        : null;
       signalHand = hand;
+    }
+    if (signal) {
+      signal.gain.gain.setTargetAtTime(mix.sounds.signal.gain, t, 0.02);
+      signal.src.playbackRate.setTargetAtTime(mix.sounds.signal.rate, t, 0.02);
     }
   }
 
@@ -355,13 +433,64 @@ export function createSfx({ rng } = {}) {
     state.muted = Boolean(on);
     writeMuted(state.muted);
     if (!ctx) return;
-    master.gain.setTargetAtTime(state.muted ? 0 : 1, ctx.currentTime, 0.02);
+    master.gain.setTargetAtTime(state.muted ? 0 : mix.master, ctx.currentTime, 0.02);
     if (state.muted) { stopVoice(signal, 0.02); signal = null; signalHand = null; }
+  }
+
+  function tune(partial) {
+    tuneMix(partial);
+    if (master && !state.muted) master.gain.setTargetAtTime(mix.master, ctx.currentTime, 0.02);
+  }
+
+  /**
+   * Swap which take a bed is running — `'idle'` to one of IDLE_TAKES, `'loco'` to one of
+   * LOCO_TAKES. A run draws one of each; this is so the panel can compare them on the same car.
+   */
+  function setBed(kind, key) {
+    const takes = kind === 'idle' ? IDLE_TAKES : kind === 'loco' ? LOCO_TAKES : null;
+    if (!takes?.includes(key)) return;
+    if (kind === 'idle') idleKey = key; else locoKey = key;
+    if (!state.ready || !buffers[key]) return;
+    if (kind === 'idle') { stopVoice(idle); idle = makeLoop(key); }
+    else { stopVoice(loco); loco = makeLoop(key); }
+  }
+
+  // The panel's audition voices, tracked so an 11-second activate can be stopped.
+  const auditions = new Set();
+  /**
+   * Play any file once at its mixed gain and rate, loops included and past `minGap` — the panel's
+   * ▶. Returns false when nothing could play (no tap yet, the file missing, muted or held).
+   */
+  function audition(key) {
+    if (!state.ready || !buffers[key] || state.muted || state.held) return false;
+    const src = ctx.createBufferSource();
+    src.buffer = buffers[key];
+    src.playbackRate.value = mix.sounds[key].rate;
+    const g = ctx.createGain();
+    g.gain.value = mix.sounds[key].gain;
+    src.connect(g).connect(master);
+    const voice = { src, gain: g };
+    auditions.add(voice);
+    src.onended = () => auditions.delete(voice);
+    src.start();
+    return true;
+  }
+  function stopAuditions() {
+    for (const v of auditions) stopVoice(v, 0.03);
+    auditions.clear();
   }
 
   return {
     state,
     play,
+    tuning,
+    tune,
+    reset: () => tune(SHIPPED_MIX),
+    beds,
+    setBed,
+    audition,
+    stopAuditions,
+    files: FILES,
     update,
     hold,
     locoOn,

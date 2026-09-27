@@ -7,6 +7,8 @@ every mesh and the one texture, is still generated in code.
 | File | Owns |
 |---|---|
 | `src/game/sfx.js` | The context, loading, the beds, the one-shots, mute |
+| `assets/audio/mix.json` | The mix: every level, pitch, repeat gap and engine-bed number |
+| `src/game/audiopanel.js` | The `?audio` panel that edits the mix live and exports it |
 | `assets/audio-src/*.wav` | The designer's masters, committed, never shipped |
 | `assets/audio/*.m4a` | The shipped files, one per master |
 | `tools/audio.mjs` | WAV masters → AAC |
@@ -63,12 +65,14 @@ More deliveries are coming. For each one:
 3. **A new sound needs wiring in `src/game/sfx.js`:**
    - Add it to `FILES`, as a **literal** `new URL('../../assets/audio/<name>.m4a', import.meta.url).href`.
      Don't build the path from a variable, or Vite won't ship the file.
-   - Give it a `TRIM` (its volume in the mix). Measure it against the files already there rather
-     than guessing: the first delivery's idles and Loco loop sit at about −25 dB RMS, and most
-     one-shots peak at about −7 dB.
+   - Give it an entry in `assets/audio/mix.json`'s `sounds` (its level and pitch in the mix).
+     Measure it against the files already there rather than guessing: the first delivery's idles
+     and Loco loop sit at about −25 dB RMS, and most one-shots peak at about −7 dB. `npm run check`
+     fails if a file has no entry.
    - For a **one-shot**, add its name to `SFX_EVENTS` and call `sfx?.play('<name>')` from the
      site in `main.js` that already knows the event happened. That is usually next to a `haptic(...)`,
-     a `kickShake(...)` or a fare event. A `MIN_GAP` entry stops it repeating too quickly.
+     a `kickShake(...)` or a fare event. It also needs a `minGap` in mix.json (0 for no limit),
+     which stops it repeating too quickly.
    - For a **loop**, add its true length to `LOOP_SECONDS` (`afinfo <file>.wav` prints it). That is
      what `loopWindow` uses to guard against AAC padding. Then steer it from `update()` off the
      taxi's state rather than starting it from an event.
@@ -110,8 +114,8 @@ event starts a bed, so no event can leave one stuck on.
 | `takeoff` / `land` | `taxi.hopFrom` turning non-null / `traffic.onTaxiLand`, with the land scaled by the same `hit` that scales the shake |
 | `crash` | The wreck at full volume. A bump reuses it, scaled by closing speed and pitched up a touch; the roadworks smash reuses it at half volume |
 
-`MIN_GAP` keeps a sound from repeating too quickly: a second skid within 0.45 s is the same skid.
-The per-file mix lives in `TRIM`. The masters arrive already balanced against each other, with one
+`minGap` keeps a sound from repeating too quickly: a second skid within 0.45 s is the same skid.
+The per-file levels live in `mix.json` (below). The masters arrive already balanced against each other, with one
 exception: idle 2 is the thin, bright variant and measures 10 dB below the other two, so its trim
 makes up the difference.
 
@@ -135,9 +139,45 @@ makes up the difference.
   precache can't see them. A device that has only ever been online for one visit may therefore play
   silently offline. Nothing breaks: each missing file logs one warning and its events stay quiet.
 
+## Tuning the mix: the `?audio` panel
+
+Every number a sound designer would want to move is in **`assets/audio/mix.json`**, not in code:
+
+| Key | What it is |
+|---|---|
+| `master` | The whole game's level, under the mute |
+| `sounds.<name>.gain` / `.rate` | Per file: linear gain, and playback rate (pitch and tempo together). `file` is the designer's name, for reading only |
+| `minGap.<name>` | Per one-shot: seconds before it may fire again. 0 is no limit |
+| `engine.*` | The beds: idle and Loco pitch at each end of their speed range, how far the idle ducks under Loco, when and how fast the Loco loop comes in, pitch glide and release time constants, the self-brake level, and how long the taxi must stand before pulling away plays `accel`. Each is described at `SHIPPED_MIX` in `sfx.js` |
+
+Open the game with **`?audio`** for a 🔊 button with every one of those as a live slider, levels in
+dB and pitch in semitones. It is deliberately separate from the ⚙️ panel (`?debug`), so the
+designer is not scrolling past the sun; `?debug&audio` shows both side by side.
+
+- **▶** on each file plays it once at its current level and pitch, loops included. **■ Stop
+  previews** cuts them (the Loco activate is 11.5 s). The engine beds are heard by driving.
+- **Idle take / Loco take** swap which of the alternate takes the running car is using, so they can
+  be compared on the same drive. A normal run draws one of each at random.
+- Double-click a slider to put that one knob back. A yellow edge marks a file that differs from
+  the shipped mix.
+- Edits are kept in `localStorage` (`simtaxi.audio.v1`) across reloads, since a crash and Retry is
+  a reload. The stash is only read by this panel, so a half-finished mix never reaches a normal
+  session. **Reset to shipped mix** clears it.
+- **Download mix.json** saves the whole mix; **Open file…** or **Apply pasted** loads one back.
+  An import replaces the mix outright, and anything unknown or out of range in it is dropped or
+  clamped by `sfx.tune`.
+
+**Shipping a mix** is dropping the downloaded file over `assets/audio/mix.json` and committing it.
+`npm run check` verifies the file names every knob the code reads.
+
+The panel only reaches what `sfx.js` owns. A few call sites in `main.js` scale a one-shot again
+where they fire it: a bump is `crash` at a gain set by closing speed and a rate of 1.15, the
+roadworks smash is `crash` at 0.5 and 1.25, and `land` scales with the impact. Those stay in code.
+
 ## Checking it
 
 `window.__taxi.sfx.state` reports `{ ready, loaded, total, muted, held }`. `loaded` should equal
-`total` (17) after the first tap. `window.__taxi.sfx.play('crash')` fires any one-shot by name. The
+`total` (17) after the first tap. `window.__taxi.sfx.play('crash')` fires any one-shot by name, and
+`tuning()`, `tune(partial)` and `reset()` reach the same mix the `?audio` panel edits. The
 module is in check.mjs's `BOOT` list, which proves it imports cleanly in node, where it builds a
 no-op.

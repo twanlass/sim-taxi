@@ -170,6 +170,8 @@ import {
   BOOST_COOLDOWN, BOOST_FLOOR_FRACTION, BOOST_REGEN_SECONDS,
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
+import { createSfx, SHIPPED_MIX, SFX_EVENTS } from '../src/game/sfx.js';
+import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
 const seed = Number(process.argv[2] ?? 71624);
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
@@ -8725,6 +8727,36 @@ check('the taxi is an ordinary car in the traffic array',
   check('and the tuning is back to shipped for the rest of the suite',
     overdriveTop() === SPEED * 4.0 && locoWeave(4.5).lateral > 0,
     `${overdriveTop().toFixed(2)} u/s`);
+}
+
+// --- The audio mix ----------------------------------------------------------
+//
+// `assets/audio/mix.json` is a file a sound designer replaces wholesale (the `?audio` panel
+// downloads it), so it is checked as input rather than trusted: a mix missing an engine knob would
+// hand `setTargetAtTime` an `undefined` and the engine would go silent without a word logged.
+{
+  const ENGINE_KEYS = ['idleRateLo', 'idleRateHi', 'locoRateLo', 'locoRateHi', 'idleUnderLoco',
+    'locoLoopAt', 'locoLoopFade', 'pitchGlide', 'release', 'selfBrakeGain', 'pullAwayHold'];
+  const missing = ENGINE_KEYS.filter((k) => !Number.isFinite(MIX_FILE.engine?.[k]));
+  check('mix.json names every engine knob sfx.js reads', missing.length === 0, missing.join(', '));
+  const fileKeys = Object.keys(MIX_FILE.sounds ?? {});
+  const noSound = Object.keys(SHIPPED_MIX.sounds).filter((k) => !fileKeys.includes(k));
+  check('mix.json has a level for every file', noSound.length === 0, noSound.join(', '));
+  const noGap = [...SFX_EVENTS].filter((k) => !Number.isFinite(MIX_FILE.minGap?.[k]));
+  check('mix.json has a min gap for every one-shot', noGap.length === 0, noGap.join(', '));
+  check('the shipped mix reads mix.json unchanged',
+    JSON.stringify(SHIPPED_MIX) === JSON.stringify(MIX_FILE));
+
+  const sfx = createSfx();
+  sfx.tune({ master: 9, sounds: { crash: { gain: -1, rate: 'x' }, nope: { gain: 1 } },
+    engine: { idleRateHi: 2, bogus: 3 }, minGap: { skid: NaN } });
+  const t = sfx.tuning();
+  check('a tuned mix is clamped and cleaned, not taken on trust',
+    t.master === 4 && t.sounds.crash.gain === 0 && t.sounds.crash.rate === 1 && !t.sounds.nope
+      && t.engine.idleRateHi === 2 && !('bogus' in t.engine) && t.minGap.skid === SHIPPED_MIX.minGap.skid,
+    JSON.stringify({ master: t.master, crash: t.sounds.crash }));
+  sfx.reset();
+  check('and reset puts the shipped mix back', JSON.stringify(sfx.tuning()) === JSON.stringify(SHIPPED_MIX));
 }
 
 // --- The Loco tuning stash --------------------------------------------------
