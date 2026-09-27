@@ -658,8 +658,8 @@ window.addEventListener('keydown', (event) => {
 paintSound();
 
 // The patrol cruiser's look (sim/police.js) and its life (game/patrol.js): a police car that
-// comes into town, drives around with its bar lit steady, and comes after you if you boost in front of
-// it. "Pull over!" goes up over its roof the moment it does (game/copshout.js).
+// crosses town edge to edge with its bar swinging red and blue, and comes after you if you boost in
+// front of it. "Pull over!" goes up over its roof the moment it does (game/copshout.js).
 const police = createPolice(scene);
 const copShout = shot ? null : createCopShout({ project: projectToScreen });
 const patrol = createPatrol({
@@ -3496,8 +3496,9 @@ if (shot) {
   }
 
   // Run forward until the patrol cruiser has been in town for a few seconds, so the shot shows it
-  // out on patrol — in traffic, bar lit steady, which is how a player meets it. It comes in off screen,
-  // so the first frames of a patrol are exactly the ones not worth photographing.
+  // out on patrol — in traffic, bar swinging red and blue, which is how a player meets it. It comes in
+  // at the island's edge dissolving in (FADE_TIME in sim/police.js), so the first frames of a patrol
+  // are exactly the ones not worth photographing — and four seconds is well past the fade.
   if (shot.untilPolice) {
     patrol.state.cooldown = 0;
     let onPatrol = 0;

@@ -2492,8 +2492,9 @@ two blinking out of step on the same street.
 
 ## The patrol cruiser
 
-`game/patrol.js` for its life, `sim/police.js` for its look. A police car comes into town, drives
-around with its bar lit steady, and comes after you — strobing — if you boost within a block of it.
+`game/patrol.js` for its life, `sim/police.js` for its look. A police car crosses town edge to edge
+past the taxi, its bar swinging gently red and blue, and comes after you — strobing hard, driving
+faster — if you boost within a block of it.
 
 It went through three shapes, and the two it left behind are the reasons for the one it has:
 
@@ -2505,11 +2506,15 @@ It went through three shapes, and the two it left behind are the reasons for the
    as one of the robbery's kind of cop, and could be outrun. That fixed the bust and exposed the
    rest: a cop car blitzing through town with its siren on from the moment it appears is not a
    patrol, and a car that is always in pursuit mode has nothing to *change* when it spots you.
-3. **A patrol.** A car in traffic for the whole of its visit, bar lit **steady**, and the strobe is
-   what spotting you looks like. It was dark at first, and a playtest found the problem with that at
-   once: the siren run had at least announced itself, flashing and washing the screen edge, and a
-   dark patrol was hard to spot until it had already spotted you. The steady bar and a steady blue
-   edge wash (`game/sirenglow.js`) are the telegraph; the strobe is the change.
+3. **A patrol.** A car in traffic for the whole of its visit, and the strobe is what spotting you
+   looks like. It was dark at first, and a playtest found the problem with that at once: the siren
+   run had at least announced itself, flashing and washing the screen edge, and a dark patrol was
+   hard to spot until it had already spotted you. Then steady, which announced it without looking
+   alive. Now a slow swing (`patrolSwing` in geometry/lights.js, one cycle a second, lamps and edge
+   wash at about half a chase's strength) is the telegraph, and the hard strobe is the change.
+   It also used to come in as a robbery's cop does, off screen as near the taxi as possible — which
+   is anywhere a street runs just outside the frame, and was reported as it "popping out mid city".
+   It crosses the map now.
 
 ### A car in traffic, wearing the cruiser
 
@@ -2534,20 +2539,28 @@ only a shell one level in is hidden, so the two lamps stay in the scene's light 
 | Phase | What it is doing |
 |---|---|
 | `off` | a cooldown off the difficulty ramp (`policeCooldown`, 16–30s falling to 8–14s) |
-| `patrol` | in town for `PATROL_TIME` (25s), bar steady, cruising to corners within `PATROL_REACH` (2 blocks) of the taxi |
-| `chase` | it spotted you — bar lit at the hunting rate, driving at you |
+| `patrol` | crossing: in at one edge, through a corner within `PATROL_REACH` (1 block) of the taxi (`PATROL_TIME`, 25s, caps that leg), out at the opposite edge; bar swinging |
+| `exiting` | dissolving at the far edge (`FADE_TIME`), then retired |
+| `chase` | it spotted you — bar strobing at the hunting rate, driving at you |
 | `leaving` | routed to the far corner, retired by `retirePolice` once out of sight |
 
-**It arrives off screen**, through `enterPolice` — `SPAWN_CLEARANCE` from the taxi and as near it as
-that allows, which puts it just outside the frame. **It cruises near you, not at you**: a patrol
-with no route rolls the ordinary dice and would spend its visit wherever they took it, so each time
-it runs out of road it is pointed at a corner within two blocks of the taxi — the one of six drawn
-that is the **shortest route** away, and re-drawn whenever the taxi drives more than three blocks off
-the corner it was headed for. Both halves were measured: the first corner that merely routed was a
-six-leg lap for a cop heading the wrong way (it cannot U-turn), and on the probe's seed after the
-all-way stops landed that left it within three blocks of the taxi for **25%** of a patrol. Now 100%.
+**It crosses the map.** `enter` picks an axis, puts the car on the edge of the island furthest from
+the taxi across it and level with the taxi along it (`enterPolice` handed that edge junction, which
+still never places a car in frame), and picks an exit anywhere along the opposite edge. It
+**dissolves in** over `FADE_TIME` (0.8s) and **out** at the exit, where it is retired only once the
+fade reaches zero: the materials use `alphaHash`, a define set once at construction, so the car stays
+in the opaque pass and the AO prepass and nothing relinks when it fades.
 
-**It leaves the way a robbery's cops stand down**: bar dark, routed to the corner furthest from the
+**The in leg goes past you, not at you**: routed to a corner within one block of the taxi — the one
+of six drawn that is the **shortest route** away, re-drawn whenever the taxi drives more than
+`PATROL_REACH + 1` blocks off it. Measured: the first corner that merely routed was a six-leg lap for
+a cop heading the wrong way (it cannot U-turn), and on the probe's seed that had it within three
+blocks of the taxi for 25% of a patrol. Over 12 seeds with a taxi rolling dice at junctions, a
+crossing takes 15–43s and comes within 40 units of the taxi on **9 of 12** at one block of reach,
+against 7 of 12 at two.
+
+**After a chase it leaves the way a robbery's cops stand down** (and so it does when a robbery
+starts): bar dark, routed to the corner furthest from the
 taxi, taken off only once `STAND_DOWN_RANGE` clear (`SPAWN_CLEARANCE` past the timeout, never
 less), through `traffic.retirePolice` — the swap-to-tail-and-retire the robbery's recycling used to
 spell out inline, and which both now need because both can have cars in the fleet at once.

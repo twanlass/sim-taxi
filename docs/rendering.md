@@ -3690,10 +3690,12 @@ driving *to*, and a pointer is navigation; the siren is something driving *at* t
 threat they cannot see yet: a patrol that spotted the taxi and is coming for it from wherever it was.
 
 **It is on exactly when the light bar is on, and does what the bar does.** `state.lit` gates both.
-On patrol ([the patrol cruiser](traffic.md#the-patrol-cruiser)) the bar is steady and the wash is a
-steady blue — *a cop is on the board*. Once it gives chase both strobe red and blue — *it is after
-you*. Driving off after losing you, both are dark. The probe asserts it directly: nothing with a dark
-bar ever lights the edge, nothing lit and off-frame ever fails to, and the steady wash never moves.
+On patrol ([the patrol cruiser](traffic.md#the-patrol-cruiser)) the bar swings slowly between red
+and blue and so does the wash, eased and at `PATROL_WASH` (0.6) of a chase's strength — *a cop is on
+the board*. Once it gives chase both strobe hard — *it is after you*. Driving off after losing you,
+both are dark. The probe asserts it directly: nothing with a dark bar ever lights the edge, nothing
+lit and off-frame ever fails to, and the patrol wash changes side twice a second against the hunt's
+eleven, never in a step.
 
 The strobe comes off `sirenOn()` in `geometry/lights.js` rather than a clock of its own, which is
 the only reason the two stay in step. The off colour holds the same low

@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import {
-  sirenOn, sirenPodGeometry, sirenRedAnchor, sirenBlueAnchor, sirenBaseGeometry, sirenBaseAnchor,
+  sirenOn, patrolSwing, sirenPodGeometry, sirenRedAnchor, sirenBlueAnchor, sirenBaseGeometry, sirenBaseAnchor,
   sirenRedMaterial, sirenBlueMaterial,
 } from '../geometry/lights.js';
 import {
@@ -22,8 +22,8 @@ import {
 //
 // So the cruiser is an ordinary car in traffic now, for the whole of its patrol — the same kind of
 // car a bank robbery brings (see "Cop cars in ambient traffic" in docs/traffic.md). It queues, stops
-// at reds and can be rammed, and its bar is lit **steady** until the taxi boosts near it, when it
-// strobes. The steady bar is the telegraph — see `setBar`.
+// at reds and can be rammed, and its bar swings gently red and blue until the taxi boosts near it,
+// when it strobes hard. The swing is the telegraph — see `setBar`.
 // game/patrol.js owns the car: when it comes onto the map, where it goes, when it gives chase and
 // how the chase ends. What this module does is **wear** that car: the traffic model poses it
 // through `car.skin`, and this draws the cruiser's own mesh there instead of the instance. It is the
@@ -40,6 +40,20 @@ import {
 // cruiser have to be sharing a junction, so it reads as being caught in the act rather than spotted
 // from a street over. It used to end the run on the spot; it starts a chase now (game/patrol.js).
 export const SPOT_RANGE = 20;
+
+/**
+ * How long the cruiser takes to fade in as it comes onto the map and out as it leaves it, in seconds.
+ * It enters and leaves at the edge of the island (game/patrol.js), and a car that appears there at
+ * full strength reads as popping into existence; a dissolve over about a car length of driving reads
+ * as it coming in from off the map.
+ */
+export const FADE_TIME = 0.8;
+
+/**
+ * The patrol lamps' peak, against the hunting strobe's 130: about half, so the wash says a cop is
+ * about without the road going the colour of a chase.
+ */
+const PATROL_LAMP = 70;
 
 /**
  * An ambient car, painted. `carGeometry()` bakes its body white and its glass dark so the fleet's
@@ -116,6 +130,7 @@ function lightBar(shell, carrier) {
   return {
     red: make(sirenRedMaterial(), sirenRedAnchor(CABIN_X, CABIN_TOP)),
     blue: make(sirenBlueMaterial(), sirenBlueAnchor(CABIN_X, CABIN_TOP)),
+    housing,
     redLamp: lamp(PALETTE.lightRed, -0.42),
     blueLamp: lamp(PALETTE.sirenBlue, 0.42),
   };
@@ -146,6 +161,16 @@ export function createPolice(scene) {
   shell.add(body);
   const lights = lightBar(shell, group);
   const wheels = steeredWheels(shell);
+  /**
+   * Everything that has to fade, dissolved rather than blended: `alphaHash` discards a noise-ordered
+   * share of fragments below the opacity, so the car stays in the opaque pass — it keeps its place
+   * in the AO prepass (`markOccluder` refuses a transparent material) and needs no sorting — and at
+   * opacity 1 it discards nothing. Set once, here, because it is a define: toggling it per fade would
+   * relink the program the frame the cruiser arrives.
+   */
+  const faders = [body.material, lights.housing.material, lights.red.material, lights.blue.material,
+    wheels[0].material];
+  for (const material of faders) material.alphaHash = true;
   shell.visible = false;
   // 'YXZ', not the default — see the note by the ambient euler in sim/traffic.js. The pose arrives
   // as a quaternion from the traffic model, but anything reading `rotation` back gets it in the
@@ -159,16 +184,20 @@ export function createPolice(scene) {
     /** The traffic car it is wearing, or null. */
     cop: null,
     /**
-     * The bar is up at all: steady on patrol, strobing in a chase, off while the car drives away.
+     * The bar is up at all: swinging on patrol, strobing in a chase, off while the car drives away.
      * `game/sirenglow.js` reads this too, so the off-screen wash warns about a patrol on the board
      * and says which it is doing the same way the bar does.
      */
     lit: false,
     /** Strobing — the patrol has spotted the taxi and is after it. Read by sirenglow.js. */
     chasing: false,
-    /** 'off' | 'steady' | 'strobe' — see `setBar`. */
+    /** 'off' | 'patrol' | 'strobe' — see `setBar`. */
     bar: 'off',
     flash: 0,
+    /** 0..1, how much of the car is drawn — see FADE_TIME. Also scales the lamps and the wash. */
+    fade: 1,
+    /** Which way the fade is heading: +1 in, -1 out. */
+    fading: 0,
   };
 
   const skin = (pos, quat, car) => {
@@ -184,15 +213,21 @@ export function createPolice(scene) {
     car.skin = skin;
     group.position.set(car.x, group.position.y, car.z);
     shell.visible = true;
+    fadeIn();
   }
 
+  /** Dissolve in from nothing — the frame `wear` is called on, the car is still invisible. */
+  function fadeIn() { state.fade = 0; state.fading = 1; }
+  /** ...and out. `state.fade` reaches 0 FADE_TIME later; game/patrol.js retires the car then. */
+  function fadeOut() { state.fading = -1; }
+
   /**
-   * What the bar is doing. **Steady** on patrol: both pods lit and a steady blue on the road, which is
+   * What the bar is doing. **Patrol**: a slow, soft swing from red to blue (`patrolSwing`), which is
    * the telegraph — a playtest of the first dark-bar patrol found the cop hard to spot until it had
-   * already spotted you, and the strobing siren run before it had at least announced itself. So the
-   * patrol announces itself too, without looking like it is after anybody. **Strobe** once it is: the
-   * red/blue alternation at the hunting rate, which is the change the player has to read. **Off**
-   * while it drives away after losing you — the stand-down reads as the lights going out.
+   * already spotted you, and a steady bar after it announced the car without looking alive. So the
+   * patrol announces itself, gently, without looking like it is after anybody. **Strobe** once it
+   * is: hard red/blue alternation at the hunting rate, which is the change the player has to read.
+   * **Off** while it drives away after losing you — the stand-down reads as the lights going out.
    */
   function setBar(mode) {
     state.bar = mode;
@@ -206,6 +241,8 @@ export function createPolice(scene) {
     state.active = false;
     state.lit = false;
     state.chasing = false;
+    state.fade = 1;
+    state.fading = 0;
     shell.visible = false;
     lights.redLamp.intensity = 0;
     lights.blueLamp.intensity = 0;
@@ -219,22 +256,33 @@ export function createPolice(scene) {
     // fire.
     if (cop && (!cop.police || cop.crashed)) shed();
 
+    if (state.fading) {
+      state.fade = Math.max(0, Math.min(1, state.fade + state.fading * dt / FADE_TIME));
+      if (state.fade === 1 || state.fade === 0) state.fading = 0;
+    }
+    for (const material of faders) material.opacity = state.fade;
+
     state.lit = Boolean(state.cop) && state.bar !== 'off';
     state.chasing = state.lit && state.bar === 'strobe';
-    if (!state.lit) {
+    // The pods' bloom does not fade with them (game/bloom.js draws its own material), so a bar on a
+    // car still dissolving in stays dark until the car is mostly there.
+    if (!state.lit || state.fade < 0.5) {
       lights.red.visible = false;
       lights.blue.visible = false;
       lights.redLamp.intensity = 0;
       lights.blueLamp.intensity = 0;
       return;
     }
-    // Steady: both lamps up, red left and blue right, and the road washed blue rather than both colours at once — red and blue
-    // from one point read as purple, which reads as a lighting bug (see coplights.js).
+    // Patrol: the slow swing. The lamps follow it smoothly and at a patrol's strength — the road
+    // washed softly one colour and then the other, never both at once (red and blue from one point
+    // read as purple, which reads as a lighting bug; see coplights.js). The pods can only be on or
+    // off, so they change sides where the swing crosses the middle.
     if (!state.chasing) {
-      lights.red.visible = true;
-      lights.blue.visible = true;
-      lights.redLamp.intensity = 0;
-      lights.blueLamp.intensity = 60;
+      const red = patrolSwing(state.flash);
+      lights.red.visible = red >= 0.5;
+      lights.blue.visible = red < 0.5;
+      lights.redLamp.intensity = PATROL_LAMP * red * red * state.fade;
+      lights.blueLamp.intensity = PATROL_LAMP * (1 - red) * (1 - red) * state.fade;
       return;
     }
     // Alternating sides, as the fleet's bar does — the dark side still shows its painted lens. The
@@ -253,6 +301,7 @@ export function createPolice(scene) {
     wear,
     shed,
     setBar,
+    fadeOut,
     group,
     /** Both halves of the light bar, for `main.js` to put in the bloom. See game/bloom.js. */
     emissiveMeshes: [lights.red, lights.blue],

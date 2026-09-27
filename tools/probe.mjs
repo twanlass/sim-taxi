@@ -42,10 +42,10 @@ import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINT
 import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, laneCost } from '../src/game/route.js';
 import { createCollisions, TAXI_HP, bumpDamage, penetration } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
-import { createPolice, SPOT_RANGE } from '../src/sim/police.js';
-import { sirenOn } from '../src/geometry/lights.js';
+import { createPolice, SPOT_RANGE, FADE_TIME } from '../src/sim/police.js';
+import { sirenOn, patrolSwing } from '../src/geometry/lights.js';
 import {
-  edgeGlow, sirenWash, GLOW_NEAR, GLOW_FAR, GLOW_FLOOR, SIREN_DIM,
+  edgeGlow, sirenWash, GLOW_NEAR, GLOW_FAR, GLOW_FLOOR, SIREN_DIM, PATROL_WASH,
 } from '../src/game/sirenglow.js';
 import {
   stepLevel, frameWash, RISE as ROB_RISE, FALL as ROB_FALL,
@@ -6926,21 +6926,25 @@ check('the taxi is an ordinary car in the traffic array',
 }
 
 // --- The patrol ------------------------------------------------------------
-// game/patrol.js. The patrol cruiser is a car in traffic for the whole of its visit, with its bar
-// dark — it used to cross the map on a rail with its siren going, which read as a cop that was
-// always in pursuit mode. What has to hold: it comes in out of sight, it is a real car in the fleet
-// wearing the cruiser's mesh, it stays dark and uninterested until the taxi boosts within a block of
-// it, and it leaves out of sight when its time is up.
+// game/patrol.js. The patrol cruiser is a car in traffic for the whole of its visit, crossing town:
+// in at one edge of the island, past a corner near the taxi, out at the opposite edge, its bar
+// swinging gently red and blue. What has to hold: it comes in at the edge, out of sight, dissolving
+// in; it is a real car in the fleet wearing the cruiser's mesh; it passes the taxi; it stays
+// uninterested until the taxi boosts within a block of it; and it leaves by the far edge,
+// dissolving out, before it is taken off the road.
 {
+  // How far a point is from the island's edge — the ring road's four lines.
+  const offEdge = (x, z) => Math.min(
+    Math.abs(x - lineX(0)), Math.abs(x - lineX(GRID_I)),
+    Math.abs(z - lineZ(0)), Math.abs(z - lineZ(GRID_J)));
+
   const pScene = new THREE.Scene();
   const pTraffic = createTraffic(makeRng(seed + 44), pScene, CARS_DEFAULT);
   const pPolice = createPolice(pScene);
   const taxi = pTraffic.taxi;
   let spotted = 0;
-  let blockedNow = false;
   const pPatrol = createPatrol({
     rng: makeRng(seed + 66), police: pPolice, traffic: pTraffic, taxi,
-    blocked: () => blockedNow,
     onSpotted: () => { spotted += 1; },
   });
   const tick = (boosting = false) => {
@@ -6950,86 +6954,107 @@ check('the taxi is an ordinary car in the traffic array',
   };
 
   pPatrol.state.cooldown = 0;
-  let arrivedAt = null;
   for (let step = 0; step < 60 * 60 && pPatrol.state.phase !== 'patrol'; step++) tick();
   const cop = pPatrol.state.cop;
-  if (cop) arrivedAt = Math.hypot(cop.x - taxi.x, cop.z - taxi.z);
+  const arrivedAt = cop ? Math.hypot(cop.x - taxi.x, cop.z - taxi.z) : null;
+  const cameIn = cop ? { x: cop.x, z: cop.z } : null;
+  const fadeAtArrival = pPolice.state.fade;
   check('a patrol comes into town', pPatrol.state.phase === 'patrol' && Boolean(cop));
+  check('...at the edge of the island', cop && offEdge(cop.x, cop.z) < PITCH,
+    `${cop ? offEdge(cop.x, cop.z).toFixed(1) : '-'} from the ring road`);
   check('...out of sight', arrivedAt >= SPAWN_CLEARANCE, `${arrivedAt?.toFixed(1)} from the taxi`);
   check('...as a car in traffic, in the police fleet', Boolean(cop) && pTraffic.cars.includes(cop)
     && pTraffic.policeCars.includes(cop) && cop.patrol === true);
   check('...wearing the cruiser, not an instance', typeof cop?.skin === 'function'
     && pPolice.state.active && pPolice.state.cop === cop);
 
-  // Twenty seconds of patrol, the taxi never boosting — and boosting only while it is out of range,
-  // to show that being on the pill is not itself what sets a patrol off.
-  let lit = 0;
+  // The whole crossing, the taxi never boosting within range — and boosting while it is out of
+  // range, to show that being on the pill is not itself what sets a patrol off.
+  let swinging = 0;
+  let redSide = 0;
+  let blueSide = 0;
   let chasing = 0;
   let adrift = 0;
   let nearest = Infinity;
-  let within = 0;
   let frames = 0;
-  for (let step = 0; step < 60 * 20 && pPatrol.state.phase === 'patrol'; step++) {
+  let fadedInBy = null;
+  let exitingFrom = null;
+  let fadeOnRetire = null;
+  let retiredAt = null;
+  for (let step = 0; step < 60 * 90 && pPatrol.state.phase !== 'off'; step++) {
     const gap = Math.hypot(cop.x - taxi.x, cop.z - taxi.z);
+    const was = { x: cop.x, z: cop.z, fade: pPolice.state.fade };
     tick(gap > SPOT_RANGE + 6);
+    if (!pTraffic.policeCars.includes(cop)) { retiredAt = was; fadeOnRetire = was.fade; break; }
     frames += 1;
-    // Steady, never strobing: lit so it can be seen, and not after anybody.
-    if (!cop.siren && pPolice.state.lit && !pPolice.state.chasing && pPolice.state.bar === 'steady') lit += 1;
+    if (fadedInBy === null && pPolice.state.fade === 1) fadedInBy = frames / 60;
+    if (exitingFrom === null && pPatrol.state.phase === 'exiting') exitingFrom = { x: cop.x, z: cop.z };
+    if (pPatrol.state.phase === 'patrol' && pPolice.state.fade === 1) {
+      // Swinging, never strobing: lit so it can be seen, and not after anybody.
+      if (!cop.siren && pPolice.state.lit && !pPolice.state.chasing && pPolice.state.bar === 'patrol') swinging += 1;
+      else swinging -= 1e6;
+      const [red, blue] = pPolice.emissiveMeshes;
+      if (red.visible && !blue.visible) redSide += 1;
+      if (blue.visible && !red.visible) blueSide += 1;
+    }
     if (cop.chase > 0) chasing += 1;
     const g = pPolice.group.position;
     if (Math.hypot(g.x - cop.x, g.z - cop.z) > 0.6) adrift += 1;
     nearest = Math.min(nearest, gap);
-    if (gap < 3 * PITCH) within += 1;
   }
-  check('on patrol its bar is lit steady, not strobing', lit === frames, `${lit} steady frames of ${frames}`);
+  check('it dissolves in rather than appearing', fadeAtArrival < 0.1 && fadedInBy !== null
+    && fadedInBy <= FADE_TIME + 0.1, `fade ${fadeAtArrival.toFixed(2)} on arrival, whole by ${fadedInBy?.toFixed(2)}s`);
+  check('on patrol its bar swings red and blue, never strobing', swinging > 0,
+    `${swinging} swinging frames`);
+  // One cycle a second: over a crossing, both sides get a long share each.
+  check('...both sides taking a turn', redSide > 60 && blueSide > 60,
+    `${redSide} red frames, ${blueSide} blue`);
   check('...and it is not after anybody', chasing === 0 && spotted === 0,
     `${chasing} chasing frames, ${spotted} spotted`);
   check('the cruiser\'s mesh rides the traffic car', adrift === 0, `${adrift} frames adrift`);
-  // It is pointed at corners near the taxi (PATROL_REACH), so a patrol is somewhere it can be met.
-  check('a patrol keeps to the taxi\'s part of town', within / Math.max(1, frames) > 0.4,
-    `${Math.round(100 * within / Math.max(1, frames))}% of its patrol within three blocks, nearest ${nearest.toFixed(1)}`);
+  // Routed through a corner near the taxi (PATROL_REACH) on the way in, so it can be met.
+  check('the crossing passes the taxi', nearest < 2.5 * PITCH, `nearest ${nearest.toFixed(1)}`);
+  check('it leaves by the far edge', exitingFrom !== null && cameIn !== null
+    && offEdge(exitingFrom.x, exitingFrom.z) < PITCH
+    && Math.hypot(exitingFrom.x - cameIn.x, exitingFrom.z - cameIn.z) > 3 * PITCH,
+    exitingFrom ? `${offEdge(exitingFrom.x, exitingFrom.z).toFixed(1)} from the ring, `
+      + `${Math.hypot(exitingFrom.x - cameIn.x, exitingFrom.z - cameIn.z).toFixed(0)} from where it came in` : 'never exited');
+  check('...dissolving out, and off the road only once it has', retiredAt !== null && fadeOnRetire === 0
+    && pPatrol.state.phase === 'off', `fade ${fadeOnRetire} when retired`);
+  const shellShown = pPolice.group.children.some((c) => !c.isLight && c.visible);
+  check('...and the cruiser goes dark and hidden until the next', !pPolice.state.active
+    && !pPolice.state.lit && !shellShown && pPatrol.state.cooldown >= pPatrol.state.cooldownRange[0]);
 
   // Spotted: the taxi boosting within a block. Staged by moving the taxi beside it for the one
   // frame the patrol reads, which is the whole of the rule.
-  const saved = { x: taxi.x, z: taxi.z };
-  taxi.x = cop.x + 6;
-  taxi.z = cop.z;
-  pPatrol.update(1 / 60, { boosting: true });
-  pPolice.update(1 / 60);
-  taxi.x = saved.x;
-  taxi.z = saved.z;
-  check('boosting within a block of it sets it after you', pPatrol.state.phase === 'chase'
-    && cop.siren && cop.chase === 1 && spotted === 1);
-  check('...with its bar lit, at the hunting rate', pPolice.state.lit && pPolice.state.chasing);
-
-  // A fresh patrol, sent home: its time runs out, it drives off, and it leaves the road only once
-  // it is out of sight — then the cruiser is dark and hidden and the next cooldown is drawn.
   const qScene = new THREE.Scene();
   const qTraffic = createTraffic(makeRng(seed + 44), qScene, CARS_DEFAULT);
   const qPolice = createPolice(qScene);
-  const qPatrol = createPatrol({ rng: makeRng(seed + 66), police: qPolice, traffic: qTraffic, taxi: qTraffic.taxi });
+  let qSpotted = 0;
+  const qPatrol = createPatrol({
+    rng: makeRng(seed + 66), police: qPolice, traffic: qTraffic, taxi: qTraffic.taxi,
+    onSpotted: () => { qSpotted += 1; },
+  });
   qPatrol.state.cooldown = 0;
   for (let step = 0; step < 60 * 60 && qPatrol.state.phase !== 'patrol'; step++) {
     qTraffic.update(1 / 60); qPatrol.update(1 / 60); qPolice.update(1 / 60);
   }
+  for (let step = 0; step < 60; step++) { qTraffic.update(1 / 60); qPatrol.update(1 / 60); qPolice.update(1 / 60); }
   const qCop = qPatrol.state.cop;
-  qPatrol.state.patrolLeft = 0;
-  let retiredAt = null;
-  let left = 0;
-  for (; left < 60 * 30 && qPatrol.state.phase !== 'off'; left++) {
-    const was = Math.hypot(qCop.x - qTraffic.taxi.x, qCop.z - qTraffic.taxi.z);
-    qTraffic.update(1 / 60); qPatrol.update(1 / 60); qPolice.update(1 / 60);
-    if (!qTraffic.policeCars.includes(qCop)) retiredAt = was;
-  }
-  const shellShown = qPolice.group.children.some((c) => !c.isLight && c.visible);
-  check('a patrol whose time is up drives off and leaves', qPatrol.state.phase === 'off'
-    && !qTraffic.policeCars.includes(qCop), `${(left / 60).toFixed(1)}s`);
-  check('...only once it is out of sight', retiredAt >= SPAWN_CLEARANCE - 0.5,
-    `retired ${retiredAt?.toFixed(1)} from the taxi`);
-  check('...and the cruiser goes dark and hidden until the next', !qPolice.state.active
-    && !qPolice.state.lit && !shellShown && qPatrol.state.cooldown >= qPatrol.state.cooldownRange[0]);
+  const qTaxi = qTraffic.taxi;
+  const saved = { x: qTaxi.x, z: qTaxi.z };
+  qTaxi.x = qCop.x + 6;
+  qTaxi.z = qCop.z;
+  qPatrol.update(1 / 60, { boosting: true });
+  qPolice.update(1 / 60);
+  qTaxi.x = saved.x;
+  qTaxi.z = saved.z;
+  check('boosting within a block of it sets it after you', qPatrol.state.phase === 'chase'
+    && qCop.siren && qCop.chase === 1 && qSpotted === 1);
+  check('...with its bar strobing, at the hunting rate', qPolice.state.lit && qPolice.state.chasing);
 
-  // A robbery wants the streets: a cruising patrol stands down for one.
+  // A robbery wants the streets: a crossing patrol stands down for one, drives off with its bar
+  // dark, and leaves the road only once it is out of sight.
   const rScene = new THREE.Scene();
   const rTraffic = createTraffic(makeRng(seed + 44), rScene, CARS_DEFAULT);
   const rPolice = createPolice(rScene);
@@ -7042,10 +7067,19 @@ check('the taxi is an ordinary car in the traffic array',
   for (let step = 0; step < 60 * 60 && rPatrol.state.phase !== 'patrol'; step++) {
     rTraffic.update(1 / 60); rPatrol.update(1 / 60); rPolice.update(1 / 60);
   }
+  const rCop = rPatrol.state.cop;
   robbing = true;
   rTraffic.update(1 / 60); rPatrol.update(1 / 60); rPolice.update(1 / 60);
-  check('a cruising patrol stands down when a robbery starts', rPatrol.state.phase === 'leaving');
-  blockedNow = false;
+  check('a crossing patrol stands down when a robbery starts', rPatrol.state.phase === 'leaving'
+    && !rPolice.state.lit);
+  let rRetiredAt = null;
+  for (let step = 0; step < 60 * 30 && rPatrol.state.phase !== 'off'; step++) {
+    const was = Math.hypot(rCop.x - rTraffic.taxi.x, rCop.z - rTraffic.taxi.z);
+    rTraffic.update(1 / 60); rPatrol.update(1 / 60); rPolice.update(1 / 60);
+    if (!rTraffic.policeCars.includes(rCop)) { rRetiredAt = was; break; }
+  }
+  check('...and leaves the road only once it is out of sight', rRetiredAt >= SPAWN_CLEARANCE - 0.5,
+    `retired ${rRetiredAt?.toFixed(1)} from the taxi`);
 }
 
 // --- The off-screen police warning -----------------------------------------
@@ -7167,13 +7201,17 @@ check('the taxi is an ordinary car in the traffic array',
   let huntDiffers = 0;
   // Parked far off the frame at close range, so the strength is a flat 1 and the only thing moving
   // is the strobe.
-  // A chasing cop strobes; a patrolling one holds steady blue — the telegraph, and the change the
-  // player has to read when it spots them is the strobe starting.
+  // A chasing cop strobes; a patrolling one swings slowly and softly between red and blue — the
+  // telegraph, and the change the player has to read when it spots them is the strobe starting.
   const strobing = (flash, hunting) => sirenWash(
     { lit: true, flash, chasing: hunting, cop: null }, W * 2, H / 2, W, H, GLOW_NEAR,
   );
-  let steadyChanged = 0;
-  const steady0 = strobing(0, false);
+  let calmSwaps = 0;
+  let huntSwaps = 0;
+  let calmPeak = 0;
+  let calmJump = 0;
+  let lastCalm = strobing(0, false);
+  let lastHunt = strobing(0, true);
   for (let f = 0; f < 120; f++) {
     const flash = f / 120;
     const wash = strobing(flash, true);
@@ -7182,10 +7220,19 @@ check('the taxi is an ordinary car in the traffic array',
     if (wash.red <= 0 || wash.blue <= 0) dark += 1;
     const calm = strobing(flash, false);
     if ((calm.red > calm.blue) !== (wash.red > wash.blue)) huntDiffers += 1;
-    if (calm.red !== steady0.red || calm.blue !== steady0.blue) steadyChanged += 1;
+    if ((calm.red > calm.blue) !== (lastCalm.red > lastCalm.blue)) calmSwaps += 1;
+    if ((wash.red > wash.blue) !== (lastHunt.red > lastHunt.blue)) huntSwaps += 1;
+    calmPeak = Math.max(calmPeak, calm.red, calm.blue);
+    calmJump = Math.max(calmJump, Math.abs(calm.red - lastCalm.red), Math.abs(calm.blue - lastCalm.blue));
+    lastCalm = calm;
+    lastHunt = wash;
   }
-  check('a patrolling cop washes the edge steady blue, without a strobe', steadyChanged === 0
-    && steady0.blue > steady0.red, `${steadyChanged} frames moved`);
+  // One swing a second (PATROL_SWING_HZ) against the hunt's eleven changes, eased rather than cut,
+  // and softer than a chase's wash.
+  check('a patrolling cop washes the edge red and blue, swinging slowly', calmSwaps === 2 && huntSwaps >= 10,
+    `${calmSwaps} changes a second on patrol, ${huntSwaps} hunting`);
+  check('...eased rather than switched, and softer than a chase', calmJump < 0.05
+    && calmPeak <= PATROL_WASH + 1e-9, `largest step ${calmJump.toFixed(3)}, peak ${calmPeak.toFixed(2)}`);
   const held = strobing(0.5, true);
   check('the off half of the strobe holds the light bar\'s own low glow',
     Math.abs(Math.min(held.red, held.blue) - SIREN_DIM) < 1e-9
@@ -7195,7 +7242,7 @@ check('the taxi is an ordinary car in the traffic array',
     `${redPeaks} red / ${bluePeaks} blue frames of 120`);
   check('and neither half ever goes fully dark', dark === 0, `${dark} frames`);
   check('the strobe only starts once a cop is after you', huntDiffers > 0,
-    `${huntDiffers} of 120 frames differ from the steady patrol wash`);
+    `${huntDiffers} of 120 frames differ from the patrol swing`);
 }
 
 // --- The robbery's frame ---------------------------------------------------

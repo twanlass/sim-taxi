@@ -14,7 +14,7 @@ export const SHOTS = [
   // Asset-inspection framing: close enough to judge vehicle detail that is a couple of pixels
   // wide at play zoom. Cheaper than guessing whether a change to the model actually landed.
   { name: 'vehicles', description: 'extreme close-up for vehicle detail', target: [0, 0], zoom: 9, warmup: 12, select: true, untilPickup: true },
-  { name: 'police', description: 'the patrol cruiser out on patrol, bar lit steady, in traffic', target: [0, 0], zoom: 30, warmup: 12, untilPolice: true },
+  { name: 'police', description: 'the patrol cruiser out on patrol, bar swinging red and blue, in traffic', target: [0, 0], zoom: 30, warmup: 12, untilPolice: true },
   { name: 'rider', description: 'waiting rider on the kerb', target: [0, 0], zoom: 11, warmup: 12, atPassenger: true },
   // The route band is the one element a short hop tells you nothing about: with the fare two
   // blocks away the two end fades meet in the middle. This one sends the taxi to the far corner

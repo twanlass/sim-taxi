@@ -70,7 +70,7 @@ src/
     ducks.js            the birds on the pond: paddle, sit, dabble, never leave
     clouds.js           the weather ringing the island — placed on the screen, never over the city
     robbery.js          the bank robbery: who gets in outside the bank, and the cops that come with them
-    patrol.js           the patrol cruiser's life: in, patrol with a steady bar, chase, caught or lost, out
+    patrol.js           the patrol cruiser's life: across town edge to edge, chase, caught or lost, out
     copshout.js         "Pull over!" over the patrol car's roof when it spots the taxi
     radio.js            the dispatch bubble that says the fare who just got in is a robber
     robberline.js       the robber's line: the world stops, the taxi is spotlit, the robber shouts
