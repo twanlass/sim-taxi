@@ -26,8 +26,8 @@ import {
 //     out and is now the point of it. It is still not pursuit *AI*: a chasing cop is an ordinary
 //     car with a `route` — the same single branch that drives the player's own taxi
 //     ([traffic.md](../../docs/traffic.md#the-one-routing-branch)) — and a multiplier on its cruise
-//     ceiling. See `steerChase` below. Nothing in sim/police.js, which owns the corridor cruiser
-//     and its own scripted chase, is touched by any of this.
+//     ceiling. See `steerChase` below. (The patrol cruiser, game/patrol.js, is a car in this same
+//     fleet now and routes its chase the same way.)
 //   - Loco Mode is untouched. It is still a finite tank spent in a hold, and the choice the event
 //     poses is the one the tank already poses, now with something on the other side of it: boost
 //     past the traffic and risk the wreck, or hold off and risk the clock. The one thing the event

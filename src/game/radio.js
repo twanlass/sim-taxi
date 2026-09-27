@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { carGeometry, CABIN_TOP } from '../sim/traffic.js';
+import { carGeometry, policeCabGeometry, CABIN_X, CABIN_TOP } from '../sim/traffic.js';
 import {
-  sirenOn, sirenPodGeometry, sirenBarAnchors, sirenRedMaterial, sirenBlueMaterial,
+  sirenOn, sirenPodGeometry, sirenRedAnchor, sirenBlueAnchor, sirenRedMaterial, sirenBlueMaterial,
+  sirenBaseGeometry, sirenBaseAnchor,
 } from '../geometry/lights.js';
 import { propMaterial } from '../util/geo.js';
 import { color } from '../palette.js';
@@ -66,9 +67,9 @@ const prefersReducedMotion = () =>
   window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
 /**
- * The cop car turning in the bubble. The *robbery's* cop car — the ordinary ambient car in
- * `policeBody` with the siren bar on its roof (sim/traffic.js) — not the corridor cruiser, because
- * this is the car about to be in the player's mirror.
+ * The cop car turning in the bubble — the ordinary ambient car in the police two-tone (`policeBody`
+ * under the `policeCabGeometry` shell) with the siren bar on its roof (sim/traffic.js). The same
+ * car the patrol cruiser is drawn as, so whichever one ends up in the player's mirror, it is this.
  *
  * Built from the traffic model's own `carGeometry` rather than a copy, so the car in the bubble is
  * the car on the road. That geometry leaves its body white for the instance tint; here the
@@ -93,21 +94,23 @@ function createAvatar(sun, hemi) {
   const bodyMaterial = propMaterial({ ao: false });
   bodyMaterial.color.copy(color('policeBody'));
   pivot.add(new THREE.Mesh(carGeometry(), bodyMaterial));
+  // The cab and the unlit bar carry their own baked colours, so they share a plain material.
+  const paintMaterial = propMaterial({ ao: false });
+  pivot.add(new THREE.Mesh(policeCabGeometry(), paintMaterial));
+  const base = new THREE.Mesh(sirenBaseGeometry(), paintMaterial);
+  base.position.copy(sirenBaseAnchor(CABIN_X, CABIN_TOP));
+  pivot.add(base);
 
-  // The bar: two pods per colour, the whole bar flashing red then blue as it does on the street.
-  // Switched by `visible` here rather than by scale — nothing in this scene is instanced.
-  const bar = (material) => {
-    const group = new THREE.Group();
-    for (const at of sirenBarAnchors(-0.2, CABIN_TOP)) {
-      const pod = new THREE.Mesh(sirenPodGeometry(), material);
-      pod.position.copy(at);
-      group.add(pod);
-    }
-    pivot.add(group);
-    return group;
+  // The bar: one lamp per colour, red left and blue right, lighting alternately as it does on the
+  // street. Switched by `visible` here rather than by scale — nothing in this scene is instanced.
+  const lamp = (material, at) => {
+    const pod = new THREE.Mesh(sirenPodGeometry(), material);
+    pod.position.copy(at);
+    pivot.add(pod);
+    return pod;
   };
-  const red = bar(sirenRedMaterial());
-  const blue = bar(sirenBlueMaterial());
+  const red = lamp(sirenRedMaterial(), sirenRedAnchor(CABIN_X, CABIN_TOP));
+  const blue = lamp(sirenBlueMaterial(), sirenBlueAnchor(CABIN_X, CABIN_TOP));
 
   // Framed on what the car sweeps as it turns, as the coach frames the taxi. Measured off
   // `carGeometry()` projected through this camera over a full turn: ±1.92 across, and −1.66 to

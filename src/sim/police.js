@@ -1,9 +1,15 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial, unlitMaterial, BODY_EULER_ORDER } from '../util/geo.js';
+import { propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
-import { sirenOn } from '../geometry/lights.js';
-import { wheelAnchors, wheelGeometries, wheelGeometry, CHASSIS_LIFT } from './traffic.js';
+import {
+  sirenOn, sirenPodGeometry, sirenRedAnchor, sirenBlueAnchor, sirenBaseGeometry, sirenBaseAnchor,
+  sirenRedMaterial, sirenBlueMaterial,
+} from '../geometry/lights.js';
+import {
+  wheelAnchors, wheelGeometry, CHASSIS_LIFT,
+  carGeometry, policeCabGeometry, CAR_LEN, CAR_W, CABIN_X, CABIN_TOP,
+} from './traffic.js';
 
 // The patrol cruiser's *look*: its body, its light bar and the two real lamps on it.
 //
@@ -20,13 +26,14 @@ import { wheelAnchors, wheelGeometries, wheelGeometry, CHASSIS_LIFT } from './tr
 // strobes. The steady bar is the telegraph — see `setBar`.
 // game/patrol.js owns the car: when it comes onto the map, where it goes, when it gives chase and
 // how the chase ends. What this module does is **wear** that car: the traffic model poses it
-// through `car.skin`, and this draws the cruiser's own mesh there instead of an instanced
-// hatchback in police paint. A cruiser has a stripe and a roof in `policeRoof`, which is what makes
-// it the patrol rather than one more car in a robbery's fleet.
+// through `car.skin`, and this draws the cruiser's own mesh there instead of the instance. It is the
+// *same car* the robbery's fleet drives — the ambient body in the police two-tone under the white
+// `policeCabGeometry()`, with the same siren bar (geometry/lights.js) — so the city has one police
+// livery.
 //
-// The lamps are the other half, and they are why this is a real mesh at all rather than another
-// instance: a lit bar washes red and blue across the road and the fronts of buildings as it passes,
-// and a pod on an instanced car cannot. See `lightBar`.
+// What the instance cannot do is the reason this is a real mesh at all: the lamps. A lit bar washes
+// red and blue across the road and the fronts of buildings as it passes, and a pod on an instanced
+// car cannot. See `lightBar`.
 
 // Boosting inside this radius of the patrol car is what sets it after you — reckless driving in
 // front of a cop. One block in world units (PITCH = 20 in src/city/grid.js): the taxi and the
@@ -34,55 +41,33 @@ import { wheelAnchors, wheelGeometries, wheelGeometry, CHASSIS_LIFT } from './tr
 // from a street over. It used to end the run on the spot; it starts a chase now (game/patrol.js).
 export const SPOT_RANGE = 20;
 
-// Body dimensions, used two ways: policeGeometry() builds to them, and the wheels come out of
-// traffic.js against them — which keeps the steering geometry identical in kind to every other car
-// on the road.
-const CAR_LEN = 3.6;
-const CAR_W = 1.8;
-
-// Where the bar sits, in car-local space. The housing is the bar's dark body, so a cruiser with its
-// lights off — driving away after it has lost you — still reads as police: for as long as the bar
-// was two lamps and nothing else, a dark bar was no bar — the same hole the robbery's cops had
-// (`sirenHousingMesh` in sim/traffic.js), where a stood-down cop read as the fleet turning back into
-// traffic.
-const BAR_X = -0.2;
-const BAR_Y = 1.9 + CHASSIS_LIFT;
-const BAR_H = 0.26;
-const POD_Z = 0.42;
-const POD_W = 0.5;
-
+/**
+ * An ambient car, painted. `carGeometry()` bakes its body white and its glass dark so the fleet's
+ * `instanceColor` can tint it; this is that same multiply done once into the vertex colours, so the
+ * cruiser and a cop car in the fleet come out the same colour on every part, glass and tyres
+ * included. The cab shell the fleet draws as a second instanced mesh is merged in here — it is never
+ * switched separately from the body on a car there is only one of.
+ */
 function policeGeometry() {
-  const parts = [];
-
-  const body = new THREE.BoxGeometry(CAR_LEN, 0.8, CAR_W);
-  body.translate(0, 0.78 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(body, color('policeBody')));
-
-  const roof = new THREE.BoxGeometry(1.9, 0.62, 1.6);
-  roof.translate(-0.2, 1.46 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(roof, color('policeRoof')));
-
-  const stripe = new THREE.BoxGeometry(3.62, 0.3, 1.82);
-  stripe.translate(0, 0.62 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(stripe, color('policeRoof')));
-
-  // Inset from the pods on every side they share, so a lit pod encloses it rather than fighting it
-  // — the same arrangement `sirenHousingGeometry` has on the robbery's cops.
-  const housing = new THREE.BoxGeometry(0.51, BAR_H - 0.04, 2 * (POD_Z + POD_W / 2) - 0.04);
-  housing.translate(BAR_X, BAR_Y, 0);
-  parts.push(bakeColor(housing, color('sirenHousing')));
-
-  // Rear pair only; the fronts steer, so they hang off the group as their own meshes.
-  parts.push(...wheelGeometries(CAR_LEN, CAR_W));
-
-  const merged = mergeGeometries(parts, false);
-  parts.forEach((p) => p.dispose());
+  const car = carGeometry();
+  const tint = color('policeBody');
+  const colors = car.attributes.color;
+  for (let i = 0; i < colors.count; i++) {
+    colors.setXYZ(i, colors.getX(i) * tint.r, colors.getY(i) * tint.g, colors.getZ(i) * tint.b);
+  }
+  const cab = policeCabGeometry();
+  const merged = mergeGeometries([car, cab], false);
+  car.dispose();
+  cab.dispose();
   return merged;
 }
 
 /** The steered front pair, added to `group` and handed back so the skin can turn them. */
 function steeredWheels(group) {
+  // Tinted on the material because `wheelGeometry()` is shared and baked neutral — the fleet tints
+  // its front wheels with the same instance colour as the body, so the cruiser does too.
   const material = propMaterial();
+  material.color.set(PALETTE.policeBody);
   return wheelAnchors(CAR_LEN, CAR_W)
     .filter((anchor) => anchor.front)
     .map((anchor) => {
@@ -96,15 +81,22 @@ function steeredWheels(group) {
 }
 
 function lightBar(shell, carrier) {
-  const make = (hex, z) => {
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(0.55, BAR_H, POD_W),
-      unlitMaterial({ color: new THREE.Color(hex) }),
-    );
-    mesh.position.set(BAR_X, BAR_Y, z);
+  // One lamp per colour, red over the left lens and blue over the right — the same bar the
+  // robbery's cop cars wear (see `sirenRedAnchor`). Switched by `visible`, never by a scale.
+  const make = (material, at) => {
+    const mesh = new THREE.Mesh(sirenPodGeometry(), material);
+    mesh.position.copy(at);
     shell.add(mesh);
     return mesh;
   };
+
+  // ...and the bar as it stands unlit — the housing and its red and blue lenses — which the lit pods
+  // enclose. Always shown while the cruiser is, so a cruiser driving off with its bar dark still
+  // reads as police.
+  const housing = new THREE.Mesh(sirenBaseGeometry(), propMaterial());
+  housing.position.copy(sirenBaseAnchor(CABIN_X, CABIN_TOP));
+  housing.receiveShadow = true;
+  shell.add(housing);
 
   // Actual lights, not just glowing boxes. The bar alone is a couple of pixels; what sells a
   // siren is the colour washing across the tarmac and the fronts of nearby buildings as it goes
@@ -116,16 +108,16 @@ function lightBar(shell, carrier) {
   // is absent: `numPointLights` drops to zero and every lit program in the city is rebuilt.
   const lamp = (hex, z) => {
     const light = new THREE.PointLight(new THREE.Color(hex), 0, 34, 1.7);
-    light.position.set(BAR_X, BAR_Y + 0.2, z);
+    light.position.set(CABIN_X, 2.1 + CHASSIS_LIFT, z);
     carrier.add(light);
     return light;
   };
 
   return {
-    red: make(PALETTE.lightRed, -POD_Z),
-    blue: make(PALETTE.sirenBlue, POD_Z),
-    redLamp: lamp(PALETTE.lightRed, -POD_Z),
-    blueLamp: lamp(PALETTE.sirenBlue, POD_Z),
+    red: make(sirenRedMaterial(), sirenRedAnchor(CABIN_X, CABIN_TOP)),
+    blue: make(sirenBlueMaterial(), sirenBlueAnchor(CABIN_X, CABIN_TOP)),
+    redLamp: lamp(PALETTE.lightRed, -0.42),
+    blueLamp: lamp(PALETTE.sirenBlue, 0.42),
   };
 }
 
@@ -236,7 +228,7 @@ export function createPolice(scene) {
       lights.blueLamp.intensity = 0;
       return;
     }
-    // Steady: both pods up, and the road washed blue rather than both colours at once — red and blue
+    // Steady: both lamps up, red left and blue right, and the road washed blue rather than both colours at once — red and blue
     // from one point read as purple, which reads as a lighting bug (see coplights.js).
     if (!state.chasing) {
       lights.red.visible = true;
@@ -245,8 +237,9 @@ export function createPolice(scene) {
       lights.blueLamp.intensity = 60;
       return;
     }
-    // Never fully dark on either side — a hard on/off strobe reads as flicker rather than a
-    // siren, so the off colour keeps a low glow. The hunting rate: this car is coming for you.
+    // Alternating sides, as the fleet's bar does — the dark side still shows its painted lens. The
+    // point lights never go fully dark: a hard on/off wash reads as flicker rather than a siren, so
+    // the off colour keeps a low glow. The hunting rate: this car is coming for you.
     const on = sirenOn(state.flash, true);
     lights.red.visible = on;
     lights.blue.visible = !on;

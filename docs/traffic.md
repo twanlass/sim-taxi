@@ -2092,7 +2092,8 @@ queue behind it holds, because each car's limit comes from its leader's position
 ## Cop cars in ambient traffic
 
 `enterPolice(n, near)` in `sim/traffic.js`, driven by [the bank robbery](gameplay.md#the-police). It
-brings `n` cop cars onto the map — real vehicles, painted `policeBody` with a light bar on the roof —
+brings `n` cop cars onto the map — real vehicles in the police two-tone (a light-blue `policeBody` under a
+white `policeCabMesh`, after the 1980s NYPD cruiser) with a light bar on the roof —
 entering from off screen as near the bank as the camera allows. `clearPolice()` takes them off again.
 
 ### They are spawned, not repainted
@@ -2350,12 +2351,22 @@ actually ended.
 be two lamps and nothing else, and a lamp's off is a zero scale — so the frame the event ended every
 cop lost the only thing on it that was not a car body, and `policeBody` (#2E5FA8) is a few steps off
 the ordinary blue in `carBody` (#4E7FC0). At play zoom the fleet driving off read as the police
-turning back into traffic. `sirenHousingMesh` is a dark box under the pods (`sirenHousingGeometry`
-in `geometry/lights.js`), not a lamp and not in the bloom, drawn off `police`: lit, it is the strip
-between the pods; dark, it is a cop car with its lights off. It is inset from the pods on every
-shared side so a lit pod encloses it rather than fighting it, and the probe asserts all three. A
-wrecked cop's shell had the same hole one layer over — it was tinted from `carBody[colorIndex]` —
-and goes through `bodyColor` now.
+turning back into traffic. `sirenHousingMesh` is the bar as it stands unlit (`sirenBaseGeometry`
+in `geometry/lights.js`): a dark housing and two painted lenses, deep red on the car's left and deep
+blue on its right — not a lamp and not in the bloom, drawn off `police`. Lit, the emissive pods
+enclose the lenses and the two sides strobe alternately, red left and blue right; dark, it is a cop car with its lights
+off that still says red-and-blue. Everything is nested inside the pods on every shared side so a lit
+pod encloses it rather than fighting it, and the probe asserts it. A wrecked cop's shell had the
+same hole one layer over — it was tinted from `carBody[colorIndex]` — and goes through `bodyColor`
+now, and carries its cab.
+
+**The two-tone.** A cop is a light-blue body under a white cab, after the 1980s NYPD cruiser, where
+it used to be a solid blue (#2E5FA8) a few steps off the ordinary blue car — one blue car among
+several at play zoom. The body is lighter and more cyan than that civilian; the white cab over it is
+the part no civilian has, and the part that actually says police. `instanceColor` paints a whole car one colour, so the cab is a second instanced shell
+(`policeCabMesh`, `policeCabGeometry()`) laid 0.02 proud over the glass cabin and switched by
+`police` like the bar. The patrol cruiser (`sim/police.js`) is built from the same parts, so the
+city has one police livery.
 
 Routing them out is not cosmetic. The first cut merely *cleared* their routes, and a car with no
 route rolls the ordinary dice at every junction — so a "departing" cop circled the block the taxi
@@ -2467,9 +2478,9 @@ Three things worth knowing about how it is drawn:
   something to remember.
 - **The bar is two pods on the roof**, off the same `lightPodGeometry` machinery the brake and
   turn-signal pods use — one fixed emissive material per colour, and on/off as a scale about each
-  pod's own origin (`geometry/lights.js`). Both pods flash together, so the whole bar goes red then
-  blue: a pod is 3.5px across at play zoom, and a bar split by colour alternates two specks a colour
-  apart and reads as a flicker.
+  pod's own origin (`geometry/lights.js`). Red is the left pod and blue the right, lighting
+  alternately over their painted lenses. A whole-bar strobe was the earlier choice and read as two
+  red lights on a phone; see `sirenRedAnchor`.
 - **Every ambient car writes the bar every frame**, not just the police ones — a car that is not a cop
   writes a level of zero and its pods collapse. A loop that skipped the others would leave whatever
   they last wrote standing on the road, which is the trap `game/bloom.js` records one layer up: in a
@@ -2509,10 +2520,10 @@ because those are behaviours of any chasing cop rather than of the robbery.
 
 **What makes it *the* patrol car is the mesh.** `car.skin` in `sim/traffic.js` hands the pose the
 render pass composed to a callback and collapses the car's own instance; `police.wear(car)` draws
-the cruiser there instead — its stripe, its `policeRoof`, and a real light bar with two point lights
-on it, which an instanced pod cannot be. `game/coplights.js` skips a skinned car for that reason:
-it brings its own lamps. The bar has a dark housing baked into the body, because it goes dark when
-the car drives off after losing you, and two lamps and nothing else was no bar at all.
+the cruiser there instead — the fleet's own two-tone car and bar, plus two real point lights behind
+the lamps, which an instanced pod cannot carry. `game/coplights.js` skips a skinned car for that
+reason: it brings its own lamps. The unlit bar (housing and painted lenses) stays on the roof when
+the bar goes dark as the car drives off, so it still reads as police.
 
 The shell trick is unchanged and still load-bearing: the group stays visible for the whole run and
 only a shell one level in is hidden, so the two lamps stay in the scene's light count at
