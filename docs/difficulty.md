@@ -22,7 +22,7 @@ and would make the escalation something that happens *to* you rather than someth
 | `spawnRadius` | 3 blocks | whole map | How far from the bias point an extra may land. |
 | `payoutMultiplier` | 1× | 2× | Stepped with the shift, stamped into `fare.value` at spawn. |
 | `carCount` | 12 | 22 | Ambient traffic. Pushed into `sim/traffic.js`. |
-| `policeCooldown` | 16–30s | 8–14s | Between corridor runs. Pushed into `sim/police.js`. |
+| `policeCooldown` | 16–30s | 8–14s | Between patrols. Pushed into `game/patrol.js`. |
 
 `?d=0..1` pins the curve, and the ⚙️ panel has a slider for the same handle — the late game is
 several minutes of play away otherwise, which makes the hard part of the game the awkward part to

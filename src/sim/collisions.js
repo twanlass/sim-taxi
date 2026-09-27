@@ -139,6 +139,23 @@ export function penetration(a, b) {
   return best;
 }
 
+/**
+ * Are the two bodies in contact, allowing `slack` of daylight between them? Not `penetration`,
+ * because contact here is *resolved* every frame — off boost the struck car is shoved out by exactly
+ * its depth — so by the time anything after `update` asks, two cars that touched are sitting exactly
+ * at the envelope and `penetration` answers null. game/patrol.js asks this, after the fact, to decide
+ * whether a cop has got to the taxi.
+ */
+export function touching(a, b, slack = 0) {
+  const reach = CIRCLE_R * 2 + slack;
+  for (const p of carCircles(a)) {
+    for (const q of carCircles(b)) {
+      if ((q.x - p.x) ** 2 + (q.z - p.z) ** 2 < reach * reach) return true;
+    }
+  }
+  return false;
+}
+
 // How long two bodies have to be apart before touching again counts as a new hit. Contact is one
 // hit however long it lasts — a taxi bulldozing a car down the road pays for the impact, not for
 // every frame of the shove — and a separation shorter than this is the same contact flickering.

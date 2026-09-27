@@ -371,7 +371,7 @@ ones, because it is a cut scene rather than a driving aid. Only three numbers di
 | Ending | Where it looks | Zoom | Slow-mo floor | Banner waits |
 |---|---|---|---|---|
 | **Wrecked** | the impact point | 26 | 0.18 | 2600ms |
-| **Busted** | the taxi, so the cruiser swings into a held shot | 26 | 0.42 | until the cop pulls up, 3400–4800ms |
+| **Busted** | the taxi, with the cop that caught it already alongside | 26 | 0.42 | 2000ms |
 | **Too Slow** | `fares.state.failSpot` — wherever the rider gets out | 30 | 0.40 | 3000ms |
 
 The timeout is the odd one out and it is what the third row is for: nothing happens *to the taxi*, so
@@ -3682,26 +3682,23 @@ carries no `can-tap` at 900px wide.
 ### Off-screen police warning
 
 `game/sirenglow.js`, styled under `#siren-glow` in `index.html`. Red and blue washing in over the
-viewport edge the police cruiser is coming from, strobing in step with its own light bar and gone by
-the time the car is properly in frame.
+viewport edge a chasing patrol cruiser is coming from, strobing in step with its own light bar and
+gone by the time the car is properly in frame.
 
 Same problem as the pointer above and aimed the other way. The drop-off is somewhere the player is
 driving *to*, and a pointer is navigation; the siren is something driving *at* them, and this is a
-threat they cannot see yet. `POLICE_BUST_RANGE` is one block, and a block is about a third of a
-portrait phone's frame at play zoom — so a cruiser one screen edge away is already close enough to
-end a run, and the only cue it existed was ambient traffic pulling over to a car that was off-frame.
+threat they cannot see yet: a patrol that spotted the taxi and is coming for it from wherever it was.
 
-**It is on exactly when the light bar is on.** `state.lit` gates both, so the rule the player
-already learns from a single run — [*lights on means a cop is
-here*](traffic.md#the-lights-lead-the-gate) — extends to the edge of the screen without needing a
-second rule. That includes the run-up: the bar comes on as the cruiser spawns and the bust only
-arms a block in, so the wash covers the two-second grace period as well, which is the part of it a
-player off-frame most needs. The probe asserts both halves directly: nothing with a dark bar ever
-lights the edge, and nothing lit and off-frame ever fails to.
+**It is on exactly when the light bar is on, and does what the bar does.** `state.lit` gates both.
+On patrol ([the patrol cruiser](traffic.md#the-patrol-cruiser)) the bar swings slowly between red
+and blue and so does the wash, eased and at `PATROL_WASH` (0.6) of a chase's strength — *a cop is on
+the board*. Once it gives chase both strobe hard — *it is after you*. Driving off after losing you,
+both are dark. The probe asserts it directly: nothing with a dark bar ever lights the edge, nothing
+lit and off-frame ever fails to, and the patrol wash changes side twice a second against the hunt's
+eleven, never in a step.
 
-The strobe comes off `sirenOn()` in `sim/police.js` rather than a clock of its own, which is the
-only reason the two stay in step — including the rate change to 11Hz once the cruiser has locked on,
-which is the only cue that a corridor run has become about you. The off colour holds the same low
+The strobe comes off `sirenOn()` in `geometry/lights.js` rather than a clock of its own, which is
+the only reason the two stay in step. The off colour holds the same low
 glow the lamps do (14/90 of the lit one): a hard on/off alternation reads as flicker rather than as
 a siren.
 

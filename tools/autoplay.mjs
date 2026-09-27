@@ -16,6 +16,7 @@ import { createTraffic } from '../src/sim/traffic.js';
 import { createLayout } from '../src/city/layout.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createPolice } from '../src/sim/police.js';
+import { createPatrol } from '../src/game/patrol.js';
 import { createFareSystem } from '../src/game/fares.js';
 import { createRobbery } from '../src/game/robbery.js';
 import { findRoute, planOrigin } from '../src/game/route.js';
@@ -75,8 +76,15 @@ export function play(runSeed, citySeed,
   cityFor(citySeed);
   const traffic = createTraffic(makeRng(runSeed + 44), new THREE.Scene(), CARS);
   const fares = createFareSystem(makeRng(runSeed + 55), new THREE.Scene());
-  const police = createPolice(makeRng(runSeed + 66), new THREE.Scene());
+  const police = createPolice(new THREE.Scene());
   const taxi = traffic.taxi;
+  // The patrol, which this player never boosts in front of — so it is only ever traffic to it, and
+  // a chase it cannot start is one this harness does not measure (see the Loco Mode caveat in
+  // docs/gameplay.md). `robbery` is declared below; the closure only runs once it exists.
+  const patrol = createPatrol({
+    rng: makeRng(runSeed + 66), police, traffic, taxi,
+    blocked: () => Boolean(robbery?.state.active) || traffic.policeCars.some((cop) => !cop.patrol),
+  });
   traffic.warmup(10);
 
   // The bank robbery (game/robbery.js). It is here rather than left out because it is **not** a
@@ -131,8 +139,9 @@ export function play(runSeed, citySeed,
     : null;
 
   while (fares.state.delivered < FARES && !fares.state.gameOver && elapsed < 4000) {
-    police.update(STEP);
     traffic.update(STEP);
+    patrol.update(STEP);
+    police.update(STEP);
     // Before the fare loop, same as main.js — a robber who gets in on this frame is on the board
     // before `fares.update` snapshots it.
     robbery?.update(STEP);

@@ -172,7 +172,7 @@ the table in [traffic.md](traffic.md#getting-the-player-there).
 
 `shots.sh` / `tools/shoot.mjs` drive headless Chrome over CDP. `?shot=<name>` puts the app in
 screenshot mode: the HUD hides, the day/night cycle freezes, the sim warms forward to a chosen
-moment (mid-pickup, mid-corridor, framed on the rider), and then `document.body.dataset.shotReady`
+moment (mid-pickup, mid-patrol, framed on the rider), and then `document.body.dataset.shotReady`
 is set for the capture to wait on.
 
 Rendering costs about **2s per shot** against ~1s for the entire assertion suite, so screenshots

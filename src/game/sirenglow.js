@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { sirenOn } from '../geometry/lights.js';
+import { sirenOn, patrolSwing } from '../geometry/lights.js';
 
 // Off-screen police warning: red and blue washing in over the viewport edge the cruiser is coming
 // from, strobing in step with its own light bar and fading out as it comes into frame.
@@ -7,21 +7,17 @@ import { sirenOn } from '../geometry/lights.js';
 // It exists for the same reason game/dropoffindicator.js does — the map is bigger than the frame on
 // a phone, and the player pans — but for the opposite kind of thing. The drop-off is somewhere you
 // are trying to get to and the arrow is navigation; the siren is something coming at you and this
-// is a threat you cannot see yet. The bust is `POLICE_BUST_RANGE` = one block, so a cruiser that is
-// one screen edge away is already close enough to end a run, and until now the only cue that it
-// existed was ambient traffic pulling over to a car that was off-frame.
+// is a threat you cannot see yet: a patrol that has spotted you and is coming, from wherever it
+// was when it did.
 //
 // **It is on exactly when the light bar is on**, which is the whole reason it can be trusted:
 // `state.lit` gates both, so the wash is the same announcement seen through the frame edge rather
-// than a second rule with its own opinion. That includes the run-up — the bar lights as the cruiser
-// spawns and the bust only arms a block in (BUST_ARM_INSET in sim/police.js), so the wash covers
-// that grace period too. Telegraphing the cop early is the point of it; what it must never do is
-// stay quiet about one that is already lethal, and being armed off the earlier of the two flags is
-// what rules that out.
+// than a second rule with its own opinion. On patrol the bar swings slowly between red and blue and
+// so does this, softer: a cop is on the board. Once it gives chase both strobe hard. Driving off after losing you, both
+// are dark (game/patrol.js).
 //
 // The strobe comes off `sirenOn()` rather than a clock of its own, so the wash and the bar are the
-// same siren seen from two places and cannot drift apart — including the rate change to 11Hz once
-// the cruiser has locked on, which is the only cue that a corridor run has become about you.
+// same siren seen from two places and cannot drift apart.
 //
 // Rendered as one fixed full-screen div with two radial gradients on it, centred on the point where
 // the cruiser crosses the frame edge, so a corner approach naturally shows a quarter of the bloom
@@ -47,6 +43,9 @@ export const GLOW_FLOOR = 0.35;
 // on/off strobe reads as flicker rather than as a siren. 14/90 is the ratio lightBar() runs its two
 // point lights at (see `siren()` in sim/police.js).
 export const SIREN_DIM = 14 / 90;
+
+/** A patrolling cruiser's wash, as a share of a chasing one's — the bar's PATROL_LAMP against 130. */
+export const PATROL_WASH = 0.6;
 
 // Radius of the bloom, as a fraction of the short side of the viewport. Measured against the
 // viewport rather than the world because it is light spilling past the edge of the *frame* — the
@@ -121,8 +120,19 @@ export function sirenWash(state, sx, sy, w, h, distance) {
   const glow = edgeGlow(sx, sy, w, h, distance);
   if (!glow) return null;
 
+  // On patrol, the bar's slow swing (`patrolSwing`), softer than a chase: a cop on the board that is
+  // not after you. `fade` is the cruiser dissolving on or off the map edge.
+  if (!state.chasing) {
+    const red = patrolSwing(state.flash);
+    const s = glow.strength * PATROL_WASH * (state.fade ?? 1);
+    return {
+      x: glow.x, y: glow.y, radius: glow.radius,
+      red: s * (SIREN_DIM + (1 - SIREN_DIM) * red),
+      blue: s * (SIREN_DIM + (1 - SIREN_DIM) * (1 - red)),
+    };
+  }
   // The rate change is the cruiser's, not this module's — see `siren()` in sim/police.js.
-  const lit = sirenOn(state.flash, state.chasing || state.arrived);
+  const lit = sirenOn(state.flash, true);
   return {
     x: glow.x,
     y: glow.y,
