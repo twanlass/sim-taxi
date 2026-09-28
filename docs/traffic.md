@@ -2647,7 +2647,7 @@ in the opaque pass and the AO prepass and nothing relinks when it fades.
 **The in leg goes past you, not at you**: routed to a corner within one block of the taxi — the one
 of six drawn that is the **shortest route** away, re-drawn whenever the taxi drives more than
 `PATROL_REACH + 1` blocks off it. Measured: the first corner that merely routed was a six-leg lap for
-a cop heading the wrong way (it cannot U-turn), and on the probe's seed that had it within three
+a cop heading the wrong way (it only U-turns in a chase — see below), and on the probe's seed that had it within three
 blocks of the taxi for 25% of a patrol. Over 12 seeds with a taxi rolling dice at junctions, a
 crossing takes 15–43s and comes within 40 units of the taxi on **9 of 12** at one block of reach,
 against 7 of 12 at two.
@@ -2714,6 +2714,65 @@ The lift turned out to be the smaller lever: at three blocks, 1.0, 1.15 and 1.25
 on 5s of boost, because the catches that decide it come *after* the tank runs out, the cop reeling
 in a taxi that nearly made it. The line is what moves them. The robbery's cops get neither the lift
 nor the ram: a getaway is about the drive and they are its weather; a patrol chase is about one car.
+
+### It turns round in the road
+
+A taxi that boosts past a patrol the other way used to leave the cop driving on to the next
+junction and lapping the block — the only thing the router can do with a car facing away from its
+target, and it read as a cop that had not seen you. A chasing patrol now **U-turns mid-block**
+(`UTURN_*` and `uturnWindow` in `sim/traffic.js`, asked for by `turnRound` in `game/patrol.js`).
+
+**When:** whenever turning round saves at least two legs — the lap — on the way to the junction
+after the one the taxi will next choose at, along its route (or straight on). Three earlier cuts each
+measured wrong, and each is why the rule is the shape it is:
+
+- *The taxi is behind the cop on the same road, heading away.* Lapsed within half a second on most
+  staged chases: the taxi turns off at the junction behind the cop, which is exactly when a real cop
+  still turns round to follow it. So the router is asked instead.
+- *Priced in road* — the lane left to drive plus the legs beyond, the U-turn charged a block. The two
+  sides differ by one leg as often as not, and then they break even in the middle of the lane, which
+  is where the U-turn window is: the cop braked hard for the turn and was told to drive on as it
+  arrived. A full tank's median getaway fell from 6.0s to 5.8s over the probe's 30 staged chases,
+  most of it on chases that never turned at all. In legs, the answer does not move while the cop
+  drives down the lane.
+- *Aimed at the taxi's next junction.* A taxi about to turn onto the cop's road behind it counted as
+  behind the cop, which turned round — and then wanted to turn back once the taxi came round the
+  corner after it. Aimed one junction further, along the taxi's route, and never twice within
+  `UTURN_SETTLE` (4s).
+
+Over those 30 chases, 4 now turn round; every one catches the taxi sooner or keeps up with it
+longer, and none of the other 26 changes at all. A taxi off the pill is caught in a median 6.6s
+rather than 7.6s; a full tank still gets away in 6.0s. The router also says no where it should — at
+the map's edge, driving on to the ring road is sometimes the shorter way back.
+
+**Where:** mid-block, not at a junction. The cop is driving *away* from the taxi, and waiting for the
+next box costs it most of a lane going the wrong way. The window on the lane is narrow — about 2 of a
+12-unit lane — because both ends have to stay on the street: the arc bulges forward by its radius, so
+the nose must stay out of the box ahead, and it lands on the far lane at the point directly across,
+which has to be far enough back from that lane's stop line to stop from `UTURN_SPEED` (see "a car
+handed back inside its own stop line" in CLAUDE.md). The cop brakes into the window on the hard
+brake; one already inside it too fast to stop there drives on and asks again on the next lane.
+Ordinary straight streets only — an arterial's centreline is the planted median, and a lane over the
+river is a bridge deck.
+
+**How:** the sim moves the car onto the far lane on the frame it starts and holds it at the landing
+point while the render swings the body round a semicircle (`car.uturn`) at 6 u/s — a second on an
+ordinary street. That puts it in the far lane's bookkeeping at once, so traffic coming the other way
+sees a car ahead of it from the first frame. It lays rubber the whole way round (`copLaysRubber`).
+
+**What it waits for** (`uturnClear`): the lane it is leaving loses sight of it on that first frame,
+and nothing but the taxi is collision-tested, so the cop stands in the window until nothing will
+reach the arc in the second it takes — a car coming up behind, anything in the way of the bulge,
+anything coming the other way that could not stop for it, anything crossing or turning nearby. The
+taxi gets two more units than anyone: a touch is the arrest, and a cop that U-turned into a taxi
+driving past it would be busting the player for being overtaken. In practice the cop decides the
+moment it spots a taxi coming at it, brakes, lets the taxi go by, and flips. It may arrive at up to
+`UTURN_SLACK` (2 u/s) over the arc's speed: some windows are well under a unit long, and a cop that
+braked into one a frame late could neither go nor stop, and had braked from 18 for nothing.
+
+`tools/probe.mjs` stages it on an empty ordinary street over four seeds: the cop turns round every
+time, on a continuous arc (no jump, at most 0.12 rad of yaw a frame), inside the kerbs and out of
+both boxes, at least 6 units from any car, and with no reds run after it.
 
 ### A siren gets the lights
 

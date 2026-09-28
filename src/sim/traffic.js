@@ -691,6 +691,9 @@ export const COP_SKID_V = 9;
  */
 export function copLaysRubber(car) {
   if (!car.police || !(car.chase > 0) || car.crashed || car.staged) return false;
+  // A U-turn lays it at any speed: it is a flick round on the spot, and at UTURN_SPEED it would
+  // never reach COP_SKID_V.
+  if (car.uturn && car.v > 2) return true;
   if (car.state === 'turn' && car.dOut !== car.d && car.v > COP_SKID_V
     && Math.min(car.turnT, 1) * car.turnLen > car.leadIn) return true;
   if (Math.abs(car.passSlope) > PASS_RUBBER_SLOPE) return true;
@@ -1196,6 +1199,162 @@ const SLEW_RECOVER = 2.5;
  * there it keeps to the half-lane slide and stands across its own side of the road.
  */
 const blocksOnCentreline = (car) => laneOffsetFor(car.d, car.i, car.j) <= LANE + 1e-9;
+
+// --- The U-turn ---------------------------------------------------------------
+//
+// A chasing cop that the taxi has gone past the other way flips round in the road, rather than
+// driving on to the next junction and lapping the block to come back. A patrol that spotted a taxi
+// boosting the opposite way used to do exactly that: the only thing the router can do with a car
+// facing away from its target is a three-leg lap, and a cop that drives off round the block the
+// moment it sees you reads as a cop that has not seen you.
+//
+// **Mid-block, not at a junction.** The junction is where the network could have grown a U-turn
+// for free (a fourth turn out of every lane), and it is the wrong place for this one: the cop is
+// driving *away* from the taxi, so waiting for the next box costs it most of a lane of driving the
+// wrong way before it can come back. The flip right there is the thing that sells it.
+//
+// The sim moves the car onto the opposite lane on the frame it starts, at the point directly across
+// from where it stands, and holds it there while the render swings the body round a semicircle
+// between the two (`car.uturn`). That puts it in the new lane's bookkeeping from the first frame —
+// traffic coming the other way sees a car ahead of it at once — and the drawn arc never leaves the
+// span of lane it lands on: from the landing point it bulges forward by the radius and comes back.
+//
+// What it cannot do is be seen by the lane it *left*, which is what the clearance test is for:
+// nothing but the taxi is collision-tested (sim/collisions.js), so a car behind that drove into the
+// space would drive through the cop, with nothing logged. See `uturnClear`.
+
+/** Through the arc, in u/s. A semicircle of radius 2 at 6 u/s is a second: a flick, not a crawl. */
+const UTURN_SPEED = 6;
+/** Road kept clear between the arc and anything it must not touch, the junction boxes included. */
+const UTURN_MARGIN = 1;
+/**
+ * How far over UTURN_SPEED a cop may be and still go, in u/s — the arc takes the rest off at once,
+ * which reads as the skid it is. Some windows are well under a unit long, and a cop braking into one
+ * a frame late arrived at 7.6 with 0.7 of window left: at a strict 6.5 it could neither go nor stop,
+ * drove on, and had braked from 18 for nothing.
+ */
+const UTURN_SLACK = 2;
+
+/**
+ * Where on its lane a car could U-turn, or null if it cannot turn here at all.
+ *
+ * `lo..hi` is the window of `s` it can start from, and it is narrow — under two units of a
+ * 12-unit lane — because both ends of the manoeuvre have to stay on the lane. `hi`: the arc bulges
+ * forward by its radius, and the nose must not enter the junction ahead. `lo`: the landing point
+ * is the far lane's `c - s`, and landing inside that lane's own stop line runs the light (see
+ * "A car handed back to the traffic model inside its own stop line" in CLAUDE.md), so it has to
+ * land far enough back to stop from UTURN_SPEED at an ordinary brake.
+ *
+ * Only on a straight ordinary street. An arterial's centreline is the planted median, and a lane
+ * over the river is a bridge deck — an arched one, or the drawbridge, which can open under it.
+ */
+export function uturnWindow(car) {
+  if (car.state !== 'drive' || car.pass > 0 || car.passing || car.roadblock > 0 || car.slew > 0
+    || car.pullover > 0.05 || car.knock) return null;
+  if (!blocksOnCentreline(car)) return null;
+  const net = cityNetwork();
+  const lane = car.lane;
+  const from = net.nodeById.get(lane.from);
+  const back = net.laneByGrid(opposite(car.d), from.gi, from.gj);
+  if (!back || back.degenerate || back.from !== lane.to || closedLanes.has(back.id)) return null;
+  const h = lane.path.tangentAt(0);
+  const end = lane.path.tangentAt(lane.length);
+  if (Math.abs(h.x - end.x) + Math.abs(h.z - end.z) > 1e-6) return null;
+  const banks = riverBanks();
+  if (banks) {
+    const z0 = lane.path.at(0).z;
+    const z1 = lane.path.at(lane.length).z;
+    if (Math.max(z0, z1) > banks.z0 && Math.min(z0, z1) < banks.z1) return null;
+  }
+  // The far lane runs the other way, so the landing point's `s` there is `c - s` here.
+  const p = lane.path.at(car.s);
+  const o = back.path.at(0);
+  const t = back.path.tangentAt(0);
+  const across = (p.x - o.x) * t.x + (p.z - o.z) * t.z;
+  const c = car.s + across;
+  const r = Math.abs((p.x - o.x) * t.z - (p.z - o.z) * t.x) / 2;
+  const hi = Math.min(lane.length - r - CAR_LEN / 2, c - CAR_LEN / 2) - UTURN_MARGIN;
+  const lo = c - (back.length - STOP_SETBACK - (UTURN_SPEED * UTURN_SPEED) / (2 * brake()) - UTURN_MARGIN);
+  if (car.s > hi || lo > hi) return null;
+  return { back, c, r, h, lo, hi };
+}
+
+/**
+ * Nothing on this stretch of road that the arc could meet before it is done.
+ *
+ * Measured in the cop's own frame — `along` its heading, `side` toward the far lane — against every
+ * car on the road, by where each will be over the second the arc takes rather than where it is:
+ *
+ *   - coming up behind in the lane it is leaving, which loses sight of it on the first frame;
+ *   - standing in the way of the bulge ahead of it;
+ *   - coming the other way in the lane it lands in — they see it at once, but have to be able to
+ *     stop for it from where they are;
+ *   - and anything crossing or turning near it, which the lane bookkeeping has no view of at all.
+ *
+ * The taxi is held further off than anything, because touching the taxi is the arrest: a cop that
+ * U-turned into a taxi driving past it would bust the player for being overtaken.
+ */
+function uturnClear(car, sw, cars) {
+  const p = car.lane.path.at(car.s);
+  const n = { x: -sw.h.z, z: sw.h.x };
+  // `n` is one perpendicular; point it at the far lane.
+  const toBack = sw.back.path.at(Math.max(0, Math.min(sw.back.length, sw.c - car.s)));
+  if ((toBack.x - p.x) * n.x + (toBack.z - p.z) * n.z < 0) { n.x = -n.x; n.z = -n.z; }
+  const time = (Math.PI * sw.r) / UTURN_SPEED + 0.3;
+  const body = CAR_LEN + UTURN_MARGIN;
+  for (const other of cars) {
+    if (other === car || other.crashed || other.staged) continue;
+    const dx = other.x - p.x;
+    const dz = other.z - p.z;
+    const along = dx * sw.h.x + dz * sw.h.z;
+    const side = dx * n.x + dz * n.z;
+    const reach = other.v * time + (other.isTaxi ? 2 : 0);
+    if (side < -sw.r - CAR_W || side > 3 * sw.r + CAR_W) {
+      // Off this road's width — unless it is about to turn onto it near the arc.
+      if (other.state !== 'turn' || Math.hypot(dx, dz) > 2 * sw.r + body + reach) continue;
+      return false;
+    }
+    const heading = Math.cos(other.yaw) * sw.h.x - Math.sin(other.yaw) * sw.h.z;
+    // Crossing or part way round a corner: by distance alone. Not every car in a junction — a
+    // straight-through crossing is `state === 'turn'` too (see CLAUDE.md), and the taxi that has
+    // just boosted past the cop is usually one, going straight away from it.
+    if (Math.abs(heading) < 0.7) {
+      if (Math.hypot(dx, dz) < 2 * sw.r + body + reach) return false;
+    } else if (heading > 0) {
+      if (along < 0 ? -along < body + reach : along < sw.r + body) return false;
+    } else if (along > 0 ? along < sw.r + body + reach : -along < body) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Put the car on the far lane and start the swing — see the notes above `UTURN_SPEED`. */
+function startUturn(car, sw) {
+  const p = car.lane.path.at(car.s);
+  const s = sw.c - car.s;
+  const q = sw.back.path.at(s);
+  const r = Math.hypot(q.x - p.x, q.z - p.z) / 2;
+  const n = { x: (q.x - p.x) / (2 * r), z: (q.z - p.z) / (2 * r) };
+  // Which way the body leans: toward the side of the car the turn is *not* on, like a corner. With
+  // right-hand traffic the far lane is always on the left, but reading it off the geometry costs
+  // nothing and is what a mirrored city would need. Right is (-h.z, h.x) — see the pull-over.
+  const dir = n.x * -sw.h.z + n.z * sw.h.x > 0 ? 1 : -1;
+  car.uturn = { p, n, h: sw.h, r, len: Math.PI * r, t: 0, dir };
+  car.uturnWanted = false;
+  car.lane = sw.back;
+  car.s = s;
+  car.turn = null;
+  car.stopAt = null;
+  syncGrid(car);
+  car.dOut = car.d;
+  car.intentLane = null;
+  car.intentTurn = null;
+  car.lateTurn = null;
+  car.route = [];
+  car.routeConsumed = false;
+  car.v = Math.min(car.v, UTURN_SPEED);
+}
 const YIELD_RANGE = 15;          // how far ahead oncoming traffic blocks a left turn
 const TURN_WEIGHTS = [0.62, 0.24, 0.14]; // straight, right, left
 
@@ -2104,6 +2263,11 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       pursuit: 0,
       // A chasing patrol drives into the taxi rather than queueing behind it — see RAM_GAP.
       ram: false,
+      // Asked to turn round in the road (game/patrol.js sets it, every frame of a chase), and the
+      // swing once it has — see UTURN_SPEED. `uturn` is the arc the render pass draws; the sim
+      // already has the car on the far lane.
+      uturnWanted: false,
+      uturn: null,
       // Someone else's mesh drawn in this car's place: `(pos, quat, car) => void`, handed the pose
       // the render pass composed, with the instance itself collapsed. Only the patrol cruiser sets
       // it (sim/police.js), on the cop it becomes when it gives chase — the car is the cruiser, so
@@ -2146,6 +2310,7 @@ export function placeCar(car, d, i, j, back) {
   car.state = 'drive';
   car.turnT = 0;
   car.stopAt = null;
+  car.uturn = null;
   syncGrid(car);
   car.dOut = car.d;
   return true;
@@ -3167,7 +3332,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // phase happens to be at the moment you sample it.
   const stats = {
     time: 0, violations: 0, minGap: Infinity, moving: 0, waiting: 0,
-    distance: 0, routeDesync: 0, rightOnRed: 0, chaseOnRed: 0,
+    distance: 0, routeDesync: 0, rightOnRed: 0, chaseOnRed: 0, uturns: 0,
   };
 
   const matrix = new THREE.Matrix4();
@@ -4242,7 +4407,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // the taxi — if the taxi takes off in Loco Mode or the light ahead turns before the cop is
     // level with it.
     for (const cop of policeCars) {
-      if (cop.crashed || cop.staged) continue;
+      // Mid-U-turn it is across the road with its sim position on the far lane — nothing to pass,
+      // and a brake check armed there would stop it broadside.
+      if (cop.crashed || cop.staged || cop.uturn) continue;
       const lateral = passLateralOn(cop);
       const fade = PASS_FADE * (lateral / PASS_LATERAL);
       // Signed distance the cop is ahead of the taxi, along the cop's own heading.
@@ -4510,6 +4677,23 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // directly, and from the overdrive top it is a longer, deeper one.
       const fullPower = car.boost && !car.boostEasing;
 
+      if (car.state === 'drive' && car.uturn) {
+        // --- Mid-U-turn. The car is already on the far lane, held at its landing point while the
+        // arc is driven (see UTURN_SPEED), at the arc's own speed; the brake still means stop, so a
+        // cop rammed half way round is stunned broadside like anywhere else.
+        const target = car.braking ? 0 : UTURN_SPEED;
+        car.v = car.v > target
+          ? Math.max(target, car.v - hardBrake() * dt)
+          : Math.min(target, car.v + chaseAccelFor(car) * dt);
+        car.uturn.t += (car.v * dt) / car.uturn.len;
+        car.travelled += car.v * dt;
+        car.speedFactor = car.v / SPEED;
+        stats.distance += car.v * dt;
+        if (car.v > 0.0001) stats.moving += 1; else stats.waiting += 1;
+        if (car.uturn.t >= 1) car.uturn = null;
+        continue;
+      }
+
       if (car.state === 'drive') {
         // A lane ends exactly at the junction boundary — that is where `buildLanes` trimmed it —
         // so the stop line is the lane's own length, pulled back by the crosswalk clearance. No
@@ -4591,6 +4775,27 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           else { allowed = 0; stopRoom = 0; }   // eases to a halt rather than stopping dead
         }
 
+        // A cop asked to turn round: brake into the window, go if the road is clear, and stand in
+        // the window until it is. Past the window it drives on and asks again on the next lane.
+        // Only if it can still stop inside the window, though: a cop that is asked with the window
+        // already under its wheels at chase speed was pinned to a dead stop in a fifth of a unit.
+        let swing = car.uturnWanted && !car.braking ? uturnWindow(car) : null;
+        if (swing && car.s >= swing.lo) {
+          const room = Math.max(0, swing.hi - car.s);
+          if (car.v <= UTURN_SPEED + UTURN_SLACK && uturnClear(car, swing, cars)) {
+            startUturn(car, swing);
+            stats.uturns += 1;
+            stats.moving += 1;
+            continue;
+          }
+          if (car.v * car.v <= 2 * hardBrake() * room + 1) {
+            allowed = Math.min(allowed, room);
+            stopRoom = Math.min(stopRoom, room);
+          } else {
+            swing = null;
+          }
+        }
+
         // Fastest speed still stoppable inside `allowed`, approached under real accel limits.
         // A car fleeing the boosting taxi lifts its ceiling and finds some urgency to go with it:
         // at ACCEL it would need 24 units to reach the scatter speed and the junction is 20 away,
@@ -4612,10 +4817,15 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // into an overtake while the pedal is down.
         const desired = car.braking ? 0 : Math.min(
           topSpeed, leadCap, Math.sqrt(2 * brake() * Math.max(0, stopRoom)),
+          // Arriving at the U-turn window at the arc's speed, on the hard brake: a cop at chase
+          // speed needs ~3 units to shed it that way against ~5 at an ordinary one, which is most
+          // of the way to the window on a 12-unit lane.
+          swing ? Math.sqrt(UTURN_SPEED * UTURN_SPEED
+            + 2 * hardBrake() * Math.max(0, swing.lo - UTURN_MARGIN / 2 - car.s)) : Infinity,
         );
         car.v = desired > car.v
           ? Math.min(desired, car.v + accel * dt)
-          : Math.max(desired, car.v - (car.braking ? hardBrake() : brake()) * dt);
+          : Math.max(desired, car.v - (car.braking || swing ? hardBrake() : brake()) * dt);
 
         let step = Math.min(car.v * dt, Math.max(0, allowed));
         // Braking only asymptotes toward the line; snap the last sliver so arrival happens. Keyed
@@ -5053,6 +5263,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // `x/z/yaw` come from changes: from whoever is staging it rather than from a lane.
       if (car.staged) {
         // Nothing here — the position derivation is the whole of what is skipped.
+      } else if (car.uturn) {
+        // The swing: a semicircle from where it left its old lane to where it lands on the new
+        // one, bulging forward by the radius. `h` is the old heading, `n` across to the far lane.
+        const { p, n, h, r } = car.uturn;
+        const a = Math.PI * Math.min(1, car.uturn.t);
+        car.x = p.x + n.x * r * (1 - Math.cos(a)) + h.x * r * Math.sin(a);
+        car.z = p.z + n.z * r * (1 - Math.cos(a)) + h.z * r * Math.sin(a);
+        car.yaw = yawOf({ x: h.x * Math.cos(a) + n.x * Math.sin(a), z: h.z * Math.cos(a) + n.z * Math.sin(a) });
       } else if (car.state === 'drive') {
         const p = car.lane.path.at(car.s);
         car.x = p.x;
@@ -5239,6 +5457,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           const lean = 0.3 * Math.min(2.2, Math.max(0.7, car.v / SPEED));
           roll = -turnDir * lean * Math.sin(Math.PI * Math.min(1, along01));
         }
+      } else if (car.uturn) {
+        const lean = 0.3 * Math.min(2.2, Math.max(0.7, car.v / SPEED));
+        roll = -car.uturn.dir * lean * Math.sin(Math.PI * Math.min(1, car.uturn.t));
       }
       if (car.isTaxi || car.police) {
         // Semi-implicit Euler, as the pitch spring below: stable at any frame rate this game sees.
