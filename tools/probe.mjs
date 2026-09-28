@@ -76,7 +76,7 @@ import * as difficulty from '../src/game/difficulty.js';
 import { createRobbery, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
 import { createPatrol, ESCAPE_BLOCKS, TOUCH_SLACK } from '../src/game/patrol.js';
 import { touching } from '../src/sim/collisions.js';
-import { createCashTrail } from '../src/game/cashtrail.js';
+import { createCashTrail, noteGeometry, NOTE_FOLD, BRICK_H } from '../src/game/cashtrail.js';
 import { createCopLights } from '../src/game/coplights.js';
 import {
   markEmissive, unmarkEmissive, emissiveList, BLOOM_LAYER, BLOOM_ORDER, BLOOM_INTENSITY,
@@ -13857,6 +13857,40 @@ let chopperOrder; // likewise
     kicker.kick(car, 0.74);
     check('the press that engages Loco Mode throws a burst of its own',
       kicker.live() >= 16, `${kicker.live()} notes on the press frame`);
+    check('...with a few wrapped bundles in it', kicker.bundles() >= 2,
+      `${kicker.bundles()} bundles on the press frame`);
+
+    // **Everything settles on the road, not at bumper height.** The floor used to be the tailpipe
+    // height less the lift — 0.59 above the road — so the cash "lying" behind a getaway hovered.
+    // `y` here is what main.js passes: the tailpipe height over a road at ROAD_Y.
+    {
+      const road = ROAD_Y;
+      for (let f = 0; f < 90; f++) kicker.update(1 / 60);
+      const rests = kicker.noteRest();
+      const worst = rests.reduce((m, y) => Math.max(m, y - road), 0);
+      check('a note that has come down lies on the road',
+        rests.length > 0 && worst < NOTE_FOLD + 0.05,
+        `${rests.length} down, highest ${worst.toFixed(2)} above the road`);
+      const bs = kicker.bundleState();
+      const bad = bs.filter((b) => !b.landed || Math.abs(b.y - (road + BRICK_H / 2)) > 0.05);
+      check('...and a bundle bounces and lies flat on it',
+        bs.length > 0 && bad.length === 0,
+        `${bs.length} bundles, ${bad.length} not resting at ${(road + BRICK_H / 2).toFixed(2)}`);
+    }
+
+    // **The note's front is up.** It is `DoubleSide` with the back painted pale by
+    // `gl_FrontFacing`, so a reversed triangle does not vanish — it swaps which side is green, and
+    // a note face-up on the road shows its back. Normals from the winding, every triangle.
+    {
+      const pos = noteGeometry().getAttribute('position');
+      const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+      let down = 0;
+      for (let t = 0; t < pos.count; t += 3) {
+        a.fromBufferAttribute(pos, t); b.fromBufferAttribute(pos, t + 1); c.fromBufferAttribute(pos, t + 2);
+        if (b.sub(a).cross(c.sub(a)).y <= 0) down += 1;
+      }
+      check('a banknote is wound with its green face up', down === 0, `${down} of ${pos.count / 3} face down`);
+    }
 
     // A crashed taxi stops spilling, which is the one gate the caller cannot express: a run that
     // ends mid-getaway leaves `boost.isActive()` true for a frame or two.

@@ -1702,13 +1702,43 @@ It is a **flutter** pool, and every difference from the three above follows from
   notes into a single line down the middle of the lane; at a lane's width it reads as a mess being
   left behind rather than a rope being paid out. The drag on the *fall* is what makes a note
   flutter rather than rain: without it they reached terminal speed and dropped straight down.
-- **It tumbles**, about a random fixed axis per note, winding down with the rest. That is the whole
-  reason a note is a thin **box** rather than a plane: a plane is one-sided, and half of every
-  tumble would be a note that is simply not drawn — the trap the boats' wake sat in for weeks.
-- **Unlit, not additive, not bloomed.** Money reflects light rather than emitting it. Additive over
-  dark asphalt came out as a glowing sliver, and a glowing banknote is a firefly.
+- **It falls like a leaf, not a flake.** The throw flips a note over its long axis a whole number
+  of *half* turns in its first 0.5s, easing out, so it always comes out lying flat — face up or
+  back up, never edge-on. After that it **swings**: displaced side to side across its own width
+  (0.22–0.45 units, about once a second), tilting its leading edge up at each end and scooping down
+  through the middle. That motion is what says "paper"; the random-axis tumble it replaced said
+  "flake", and a 0.02 plate tumbling freely spent a third of its frames edge-on, which is nothing.
+- **It is a shallow V, two-sided.** Two quads meeting along the long axis, each wing rising 0.09 —
+  so the outline changes as it rocks rather than being a rectangle at every angle. `DoubleSide`,
+  with the back painted 35% of the way to `cashBack` off `gl_FrontFacing`, so the pale flash is a
+  real back instead of a colour rolled per instance to fake one. That makes the winding a *colour*
+  question — a reversed triangle swaps which side is green — so `tools/probe.mjs` asserts +y is the
+  front from the winding.
+- **Lit, not additive, not bloomed.** Money reflects light rather than emitting it. Additive over
+  dark asphalt came out as a glowing sliver, and a glowing banknote is a firefly. It was *unlit* for
+  a long time on the same argument, and that is the same mistake in a quieter form: an unlit note
+  is drawn at its full palette value whatever the sun is doing, so at golden hour — road and
+  buildings gone dark and warm around it — the shower read as emissive, and was reported as such.
+  It is a Lambert like the dust, but **not** flat-shaded: a note is two-sided, and a flat-shaded
+  back face takes its normal from a screen-space derivative and lights as if the sun were behind
+  it. Real per-face normals, which Three flips for the back face itself.
 - **It settles rather than bounces**, and onto a floor passed in per note the way a spark's is, so a
-  getaway over a bridge drops its notes on the **deck**.
+  getaway over a bridge drops its notes on the **deck**. That floor was once the *tailpipe* height
+  less the lift — 0.59 above the road — so the cash "lying" behind a getaway hovered at bumper
+  height for as long as the effect existed. It is recovered from what main.js passes now
+  (`y − TAXI_TAILPIPE_HEIGHT + ROAD_Y`), and the probe checks every settled note and bundle is on it.
+
+**And a few wrapped bundles go with it.** Three with each press and one at the start of about a
+third of the gusts: a brick of notes the note's footprint and 0.26 deep, with a cream `cashBand`
+round its middle standing 0.015 proud so it never shares a plane with the brick. They are the other
+weight — gravity 24 against the notes' 7, one bounce at 0.32, then they slide to a stop and flop onto
+their broad face — and they are there because a single note at 7px can only ever be a green fleck,
+where a banded brick reads as money at any zoom. `propMaterial` rather than unlit, like the
+roadworks cones: they are solid props lying on the road. They **cast no shadow**, which was tried —
+a 0.26-tall caster at golden hour lands its shadow most of two units off its own base, detached by
+the sun's `normalBias`, and reads as a dark smudge with nothing above it. They shrink away after
+3.4s on the road rather than fading, because a translucent brick would be the one see-through
+thing on the tarmac.
 
 **It was rebuilt once for being too subtle, and every number moved.** The first cut ran 14 notes a
 second at 0.62 × 0.34 units into a pool of 48 — 22 notes in the air, each a 4.8 × 2.6px rectangle,
@@ -1721,8 +1751,8 @@ the whole of this effect is that it should be impossible to miss. What changed, 
 | Rate | 14/s | 40/s flat | **a gust clock** | A flat rate is a rope paid out of the back of the car, and a constant anything reads as a machine. 78/s for 0.16–0.44s, then 7/s for 0.14–0.42s, each drawn fresh. Same mean density (~44/s); the *distribution* is the whole change. The lull is a trickle rather than silence — at zero the stream visibly stops, which reads as the effect switching off. |
 | Pool | 48 | 160 | 160 | ~105 in the air at steady state, plus the gust peak and the kick. |
 | Life | 1.6s | 2.4s, fading from 74% | 2.4s, fading from 74% | Money should hang, and still be lying there when the player looks back. Fading from 55% spent most of the effect half-transparent, which was the other half of why it was hard to see. |
-| Tumble | 7.5 rad/s | 4.2 | 4.2 | A note is a 0.02 plate and is **invisible edge-on**. At 1.2 revolutions a second every note was strobing through its own edge on the way down, which reads as flicker and costs a large fraction of the effect's frames. |
-| Colour | one swatch, #7FC08A | one swatch, #5FD182 | **a spread**, `cashNote` → `cashPale` | See below. |
+| Tumble | 7.5 rad/s | 4.2 | **a flip, then a leaf swing** | A note is a 0.02 plate and is **invisible edge-on**. At 1.2 revolutions a second every note was strobing through its own edge on the way down, and even at 4.2 a free tumble ended wherever it stopped. The flip lands on a whole number of half turns; the swing never goes past 0.7 rad of tilt. |
+| Colour | one swatch, #7FC08A | one swatch, #5FD182 | **a spread**, `cashNote` → `cashShade` | See below. |
 | The press | nothing | a 24-note kick | a 24-note kick | An effect that only ramps up says nothing on the frame the button went down, and that is the frame the player is looking at. |
 
 The **colour** is a reversal worth recording. The first cut pulled the hue toward a paper green on
@@ -1734,9 +1764,12 @@ the road in value. The pale back went to 232 — brighter than the dashes — be
 note turns over is what catches an eye that is on the road ahead.
 
 **And the face is now a spread rather than a swatch.** Every note rolls its own colour between
-`cashNote` and `cashPale`, which is a separate roll from the one toward `cashBack` — and the
-distinction is the whole reason there are two. `cashBack` is a near-white *flip*, there so a
-tumbling note flashes; the face spread is there so 160 notes are 160 slightly different notes rather
+`cashNote` and `cashShade` — *down* from the bundles' green, not up toward `cashPale` as it first
+did. Up was right while the notes were unlit and fighting the asphalt to be seen; lit, a flat card
+square to the sun already comes out brighter than a bundle in the same green, and a spread toward
+white on top of that read as emissive even after the lighting fix. The back came down from 70% of
+the way to `cashBack` to 35% for the same reason. That is a different job from `cashBack`, which is the note's real back
+and is only ever seen when the note is turned over; the face spread is there so 160 notes are 160 slightly different notes rather
 than 160 copies of one colour, which at this size is the difference between a shower and a texture.
 The roll is **squared** toward the saturated end: a uniform draw puts as much of the shower at the
 pale end as the green one and the trail washes out, where `t²` keeps the mass on `cashNote` and lets
