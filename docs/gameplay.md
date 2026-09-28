@@ -2206,8 +2206,8 @@ the run. Letting a patrol end it instead is that same rule going out the side do
 is that Loco Mode has no downside but the wreck for the length of a getaway; the chase is what pays
 that back, and it now drives cop cars into the road *ahead* of the taxi rather than trailing it.
 
-**And a boosting getaway throws cash out of the back.** `game/cashtrail.js` — banknotes tumbling out
-behind the taxi for as long as the pill is held with a robber aboard. It is the one part of the event
+**And a boosting getaway throws cash out of the back.** `game/cashtrail.js` — banknotes fluttering out
+behind the taxi, with the odd wrapped bundle among them, for as long as the pill is held with a robber aboard. It is the one part of the event
 that pays the player back *while* the risk is being taken: the bonus is real and the player does not
 see a penny of it until the drop-off resolves, and everything in between is a tight clock and four
 more cars to hit. The gate is the robbery rather than the boost, because money off the back of any

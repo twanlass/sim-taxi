@@ -238,10 +238,9 @@ export const PALETTE = {
   lettuce: '#7FB050',
   sesame: '#F7EDD6',
 
-  // The cash a getaway throws out of the back of the taxi (game/cashtrail.js). Two colours because
-  // a note tumbles: one instance is one colour, so rolling between a face and a back across the
-  // shower is what stops a stream of them reading as a stencil — the same reason the sparks spread
-  // their hue across a spray rather than walking it over one spark's life.
+  // The cash a getaway throws out of the back of the taxi (game/cashtrail.js). A note is two-sided:
+  // the face is a green somewhere between `cashNote` and `cashPale`, and the back is mixed most of
+  // the way to `cashBack` in the shader, so a note turning over flashes pale.
   //
   // Keyed off the HUD's own earnings green (#6BE08A, `.earning` in index.html) so the notes and the
   // number that flies to the counter are visibly the same currency.
@@ -267,6 +266,13 @@ export const PALETTE = {
   // 214 luma it is still under the lane dashes' 210-ish paint in saturation while being clearly a
   // lighter note of the same colour.
   cashPale: '#C3EFD0',
+  // The dark end of a note's face spread (game/cashtrail.js). Once the notes were lit, the spread
+  // toward `cashPale` made the shower read as glowing — a card square to the sun is already the
+  // brightest surface on the road — so it runs down from `cashNote` to here instead.
+  cashShade: '#3C9A5E',
+  // The paper band round a wrapped bundle of notes. A warm cream rather than `cashBack`'s cooler
+  // off-white, so the band reads as a separate strip of paper and not as the brick's own pale edge.
+  cashBand: '#F4DDA0',
 
   // --- The bank ---------------------------------------------------------------
   // The city's one bank (city/bank.js), and the third building the tower generator does not draw.
