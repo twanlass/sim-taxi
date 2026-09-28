@@ -3633,9 +3633,17 @@ naming, guessing when to stop, on a clock that is draining — which was never t
 
 **It keeps the camera.** A [chip tap](#the-rider-peek) peeked and rode home, because it was a glance
 at a rider the taxi was already driving at. This is the player asking to *look* somewhere and then
-act there, so it takes the camera the way a swipe does (`releaseCameraToPlayer`) and stays. The way
-back is the taxi-finder chip, which comes up 0.4s after the car goes fully off-frame — the two
-affordances are each other's return leg.
+act there, so it takes the camera the way a swipe does (`releaseCameraToPlayer`) and stays.
+
+**Until the player acts.** The arrow sets `arrowLookOut`, and the next tap that dispatches the taxi
+at a *waiting* rider (`rideHomeAfterPick`) brings the camera home: a zero-length `peekAt` on where
+the camera already stands, so it holds the peek's 0.9s beat — long enough to see the crystal flip and
+the route band draw — then rides back onto the car and hands it to the follow-cam, with the same
+`flashTaxi` as the finder chip. Without it every arrow-then-pick ended in a drag back across the map
+to watch the trip the player had just started. One pick consumes it; a drop-off tap or a refused
+pickup does not (neither started a trip), and the taxi-finder chip clears it. A swipe mid-beat drops
+the ride home like any peek. The other way back remains the taxi-finder chip, which comes up 0.4s
+after the car goes fully off-frame.
 
 **Narrow only,** for the reason drag-to-pan and both follow-cams are: above `NARROW_VIEWPORT` the
 whole city is in frame, so nothing is ever off it and there is no pan to save. The gate is a
