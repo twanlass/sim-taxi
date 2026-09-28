@@ -1714,8 +1714,14 @@ It is a **flutter** pool, and every difference from the three above follows from
   real back instead of a colour rolled per instance to fake one. That makes the winding a *colour*
   question — a reversed triangle swaps which side is green — so `tools/probe.mjs` asserts +y is the
   front from the winding.
-- **Unlit, not additive, not bloomed.** Money reflects light rather than emitting it. Additive over
-  dark asphalt came out as a glowing sliver, and a glowing banknote is a firefly.
+- **Lit, not additive, not bloomed.** Money reflects light rather than emitting it. Additive over
+  dark asphalt came out as a glowing sliver, and a glowing banknote is a firefly. It was *unlit* for
+  a long time on the same argument, and that is the same mistake in a quieter form: an unlit note
+  is drawn at its full palette value whatever the sun is doing, so at golden hour — road and
+  buildings gone dark and warm around it — the shower read as emissive, and was reported as such.
+  It is a Lambert like the dust, but **not** flat-shaded: a note is two-sided, and a flat-shaded
+  back face takes its normal from a screen-space derivative and lights as if the sun were behind
+  it. Real per-face normals, which Three flips for the back face itself.
 - **It settles rather than bounces**, and onto a floor passed in per note the way a spark's is, so a
   getaway over a bridge drops its notes on the **deck**. That floor was once the *tailpipe* height
   less the lift — 0.59 above the road — so the cash "lying" behind a getaway hovered at bumper

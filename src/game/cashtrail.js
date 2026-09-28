@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { color } from '../palette.js';
-import { unlitMaterial, propMaterial, bakeColor } from '../util/geo.js';
+import { propMaterial, bakeColor } from '../util/geo.js';
 import { carrySpeed } from '../util/carry.js';
 import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../geometry/taxi.js';
 import { ROAD_Y } from '../sim/traffic.js';
@@ -25,11 +25,13 @@ import { ROAD_Y } from '../sim/traffic.js';
 //     middle, thrown heavier, tumbling, bouncing once and flopping flat. A single note at 7px can
 //     only be a green fleck; a bundle reads as money at any zoom, and it gives the stream a beat.
 //
-// The notes are **unlit, and not bloomed.** Money is not a light source — it is paper reflecting
-// one — so they take `unlitMaterial` for the night read that dust.js takes it for, and stay out of
-// the bloom's draw list entirely. A glowing banknote is a firefly. The bundles are solid props and
-// take `propMaterial`, like the roadworks cones, so they shade with the sun the way anything else
-// lying on the road does.
+// **Both pools are lit, and the notes were not at first.** Money is paper reflecting a light, not a
+// light source, and an unlit note is drawn at its full palette value whatever the sun is doing:
+// fine at noon, and at golden hour — with the road and every building around it gone dark and
+// warm — a shower of full-bright green, which reads as emissive. Reported as exactly that. The
+// notes are a Lambert like dust.js's puffs, and stay out of the bloom's draw list (a glowing
+// banknote is a firefly); the bundles are solid props and take `propMaterial`, like the roadworks
+// cones.
 
 /**
  * The note pool.
@@ -303,6 +305,8 @@ export function noteGeometry() {
   ];
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(tris.flat(), 3));
+  // Non-indexed, so this is one normal per face — the wing's own — and not a laundering average.
+  geometry.computeVertexNormals();
   return geometry;
 }
 
@@ -325,7 +329,12 @@ export function createCashTrail(scene, rng) {
   // White, so `instanceColor` multiplies cleanly onto it — the same identity dust.js and sparks.js
   // rely on. **Not** additive: additive blending is for things that emit, and a banknote reflects.
   // Over dark asphalt an additive note came out as a glowing sliver.
-  const material = unlitMaterial({
+  //
+  // Lit, and **not** `flatShading` the way dust.js is. A note is two-sided, and a flat-shaded
+  // normal comes from a screen-space derivative that points into the screen on a back face, so
+  // every note showing its back would light as if the sun were behind it (CLAUDE.md). With real
+  // per-face normals Three flips them for the back face itself.
+  const material = new THREE.MeshLambertMaterial({
     color: '#FFFFFF',
     transparent: true,
     depthWrite: false,
