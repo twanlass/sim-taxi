@@ -198,20 +198,23 @@ export const NOTE_FOLD = 0.09;
 /**
  * How much of the way to `cashBack` the back of a note is painted.
  *
- * The note is two-sided now — `DoubleSide`, with the back picked out by `gl_FrontFacing` — so the
- * pale flash is a real back rather than a colour rolled per instance to fake one. Not the whole way:
- * a pure off-white back reads as litter, and a note back-up on the road should still be *a note*.
+ * The note is two-sided — `DoubleSide`, with the back picked out by `gl_FrontFacing` — so the back
+ * is a real back rather than a colour rolled per instance to fake one. It was 0.7, chosen while the
+ * notes were unlit; lit, a near-white card square to the sun is the brightest thing on the road
+ * and the shower read as emissive again. At 0.35 the back is a lighter green, not paper-white: the
+ * turn still shows, and it no longer flashes.
  */
-const BACK_FLIP = 0.7;
+const BACK_FLIP = 0.35;
 
 /**
- * The spread of the note's own **face**, from `cashNote` to `cashPale`.
+ * The spread of the note's own **face**, from `cashNote` *down* to `cashShade`.
  *
- * So that 160 notes are 160 slightly different notes rather than 160 copies of one swatch, which
- * at this size is the difference between a shower and a texture. The roll is **squared** toward
- * the saturated end: a uniform draw between two colours puts as much of the shower at the pale end
- * as the green one and the trail washes out, where `t²` keeps the mass on `cashNote` and lets the
- * pale ones be the highlights they are meant to be.
+ * So that 160 notes are 160 slightly different notes rather than 160 copies of one swatch. It used
+ * to run *up*, toward the pale `cashPale`, which was right for an unlit note fighting to be seen on
+ * the asphalt and wrong once the notes took the sun: a flat card faces the light square-on, so a
+ * lit note already comes out brighter than the bundle beside it in the same green, and a spread
+ * toward white on top of that put the whole shower above everything around it. Rolled darker, the
+ * brightest note is `cashNote` — the bundles' own green — and the rest sit under it.
  */
 const FACE_SPREAD = 1;
 
@@ -394,7 +397,7 @@ export function createCashTrail(scene, rng) {
   dummy.rotation.order = 'YXZ';                     // heading first, then the roll about the note's own axis
   const tint = new THREE.Color();
   const FACE = color('cashNote');
-  const PALE = color('cashPale');
+  const SHADE = color('cashShade');
 
   // Collapsed and painted up front: `setColorAt` allocates `instanceColor` on its first call and
   // recompiles the material, and doing that lazily would put a shader compile on the first frame
@@ -503,10 +506,9 @@ export function createCashTrail(scene, rng) {
     freq[slot] = Math.PI * 2 * rng.range(SWING_HZ[0], SWING_HZ[1]);
     amp[slot] = rng.range(SWING_AMP[0], SWING_AMP[1]);
 
-    // Along the greens, squared toward the saturated end — see FACE_SPREAD. The pale flash is the
-    // note's real back now (see BACK_FLIP), so the face no longer rolls toward it.
+    // Along the greens, down from `cashNote` toward `cashShade` — see FACE_SPREAD.
     const t = rng.next();
-    mesh.setColorAt(slot, tint.copy(FACE).lerp(PALE, t * t * FACE_SPREAD));
+    mesh.setColorAt(slot, tint.copy(FACE).lerp(SHADE, t * FACE_SPREAD));
     alphas[slot] = 1;
   }
 
