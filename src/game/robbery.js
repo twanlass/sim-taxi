@@ -1,10 +1,10 @@
 import {
   GRID_I, GRID_J, LANE, dirSign, dirYaw, halfRoadX, halfRoadZ, isXAxis, laneOffsetFor, leftOf,
-  lineX, lineZ, opposite, rightOf,
+  lineX, lineZ, opposite, rightOf, PITCH,
 } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 import { URGENCY_SEGMENTS, urgencyLevel } from './urgency.js';
-import { findRoute, findRouteOnto, planOrigin } from './route.js';
+import { findRoute, findRouteOnto, planOrigin, junctionAhead, turnsRound } from './route.js';
 import {
   CAR_LEN, CIRCLE_OFFSET, CIRCLE_R, POLICE_FLEET, SPAWN_CLEARANCE, plannedTurn, stopDistance,
   turnPointAt,
@@ -484,6 +484,61 @@ export function createRobbery({
   }
 
   /**
+   * Should this cop turn round in the road rather than drive on? The patrol's rule (`turnRound` in
+   * game/patrol.js): only for a saving of a whole lap (`turnsRound`), never twice within
+   * UTURN_SETTLE, and decided once per lane and target so the answer cannot flip while the cop is
+   * braking into the window.
+   *
+   * Asked against the cop's own target — a cut-off cop's junction down the taxi's route, a stern
+   * cop's the taxi's — but never nearer than one junction past the taxi's next choice. A stern cop
+   * aimed at the taxi's next junction U-turned for a taxi about to turn onto its road *behind* it,
+   * and wanted to turn back once the taxi had come round the corner after it (measured on the
+   * patrol first; see `junctionAhead`).
+   *
+   * Not while it is summoned to a roadblock or standing in one: its route and its stop are
+   * `summonPartner`'s and `holdRoadblocks`', and a U-turn clears a route.
+   *
+   * **And only within UTURN_REACH of the taxi**, because recycling beats a U-turn everywhere else.
+   * A cop driving the wrong way past `LOST_RANGE` is swapped for a fresh one behind the taxi, which
+   * is faster than any driving; a U-turn costs about two seconds (a second of swing, most of one
+   * braking and waiting for a gap) and keeps the cop out of that swap. Measured over 30 staged
+   * getaways with the taxi off the pill:
+   *
+   *   | U-turns within   | U-turns | nearest cop, median | a cop within 10 | overtakes / brake checks |
+   *   |------------------|---------|---------------------|-----------------|--------------------------|
+   *   | none (before)    | 0       | 11.0                | 43%             | 15 / 17                  |
+   *   | anywhere         | 41      | 12.1                | 39%             | 10 / 14                  |
+   *   | 40 (two blocks)  | 16      | 11.1                | 43%             | 12 / 16                  |
+   *   | 30               | 6       | 11.3                | 43%             | 13 / 18                  |
+   *
+   * Unfenced, the chase got looser. Two blocks is where the U-turns the player can see are, and
+   * it leaves the getaway measuring what it did before; nothing overlapped at any reach.
+   */
+  const UTURN_REACH = 2 * PITCH;
+  const UTURN_SETTLE = 4;
+  const turning = new WeakMap();
+  // Its own clock rather than `state.since`, which restarts with every event.
+  let clock = 0;
+  function wantsToTurnRound(car, steps) {
+    if (car.state !== 'drive' || car.uturn || !car.lane) {
+      if (car.uturn) turning.set(car, { ...(turning.get(car) ?? {}), at: clock });
+      return false;
+    }
+    if (car.summoned || car.roadblock > 0 || car.blocking || car.joinBlock || car.partnerStop) return false;
+    if (Math.hypot(car.x - taxi.x, car.z - taxi.z) > UTURN_REACH) return false;
+    const memo = turning.get(car) ?? { at: -Infinity };
+    if (clock - memo.at < UTURN_SETTLE) return false;
+    const target = junctionAhead(taxi, Math.max(1, steps));
+    const key = `${car.lane.id}|${target.i},${target.j}`;
+    if (memo.key !== key) {
+      memo.key = key;
+      memo.answer = turnsRound(car, target);
+      turning.set(car, memo);
+    }
+    return memo.answer;
+  }
+
+  /**
    * Point every cop car at a junction the taxi is about to drive through.
    *
    * **The whole chase is this function**, and it is deliberately four lines of behaviour:
@@ -528,6 +583,7 @@ export function createRobbery({
       car.chase = 1;
       const steps = CUT_OFF_AHEAD[nth % CUT_OFF_AHEAD.length];
       nth += 1;
+      car.uturnWanted = wantsToTurnRound(car, steps);
       if (!moved && car.route?.length) continue;
       // Not while it is out overtaking the taxi. The pass was only offered because this route
       // carried straight on (sim/traffic.js), and a re-aim mid-manoeuvre handed it a turn with the
@@ -991,6 +1047,7 @@ export function createRobbery({
       // loses the bar, because that is what it was *doing*.
       cop.siren = false;
       cop.chase = 0;
+      cop.uturnWanted = false;
       // Out of any roadblock too. The overtake lets itself go once `chase` is 0; a junction hold
       // is this module's and is let go here, or the stand-down would begin with a cop parked
       // across a box holding the city's traffic for the rest of its `BLOCK_HOLD`.
@@ -1085,6 +1142,7 @@ export function createRobbery({
 
   function update(dt) {
     state.since += dt;
+    clock += dt;
 
     if (state.active) {
       // The event ends when the robber does, whichever way that went: delivered, clock run out

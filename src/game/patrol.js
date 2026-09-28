@@ -1,9 +1,8 @@
-import { GRID_I, GRID_J, PITCH, dirSign, isXAxis, lineX, lineZ, opposite } from '../city/grid.js';
-import { cityNetwork } from '../city/roadnet.js';
+import { GRID_I, GRID_J, PITCH, dirSign, isXAxis, lineX, lineZ } from '../city/grid.js';
 import { SPAWN_CLEARANCE } from '../sim/traffic.js';
 import { touching } from '../sim/collisions.js';
 import { SPOT_RANGE } from '../sim/police.js';
-import { findRoute, planOrigin } from './route.js';
+import { findRoute, planOrigin, junctionAhead, turnsRound } from './route.js';
 import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
 
 // The patrol cruiser: a police car that crosses town edge to edge, past the taxi, with its bar
@@ -352,18 +351,12 @@ export function createPatrol({
     // or straight on. Aimed at the next one alone, a taxi about to turn onto the cop's road behind
     // it counted as behind the cop — which turned round, and then wanted to turn back once the
     // taxi had come round the corner after it.
-    const next = planOrigin(taxi);
-    const on = taxi.route?.[0] ?? next.d;
-    const target = isXAxis(on)
-      ? { i: clampI(next.i + dirSign(on)), j: next.j }
-      : { i: next.i, j: clampJ(next.j + dirSign(on)) };
+    const target = junctionAhead(taxi, 1);
     const key = `${cop.lane.id}|${target.i},${target.j}`;
-    if (key === turnRoundKey) return turnRoundAnswer;
-    const from = cityNetwork().nodeById.get(cop.lane.from);
-    const ahead = findRoute({ i: cop.i, j: cop.j, d: cop.d }, target);
-    const round = findRoute({ i: from.gi, j: from.gj, d: opposite(cop.d) }, target);
-    turnRoundKey = key;
-    turnRoundAnswer = Boolean(round) && (!ahead || round.length + 2 <= ahead.length);
+    if (key !== turnRoundKey) {
+      turnRoundKey = key;
+      turnRoundAnswer = turnsRound(cop, target);
+    }
     return turnRoundAnswer;
   }
 

@@ -2770,6 +2770,28 @@ moment it spots a taxi coming at it, brakes, lets the taxi go by, and flips. It 
 `UTURN_SLACK` (2 u/s) over the arc's speed: some windows are well under a unit long, and a cop that
 braked into one a frame late could neither go nor stop, and had braked from 18 for nothing.
 
+**It gives up waiting after a second** (`UTURN_PATIENCE`). In a getaway's traffic the wait had a
+long tail — cops near the taxi stood 22s in all over 30 getaways for 3 U-turns — so a cop that has
+stood in the window that long drives on and asks again on the next lane.
+
+**A robbery's cops turn round too** (`wantsToTurnRound` in `game/robbery.js`), on the same rule
+(`turnsRound` and `junctionAhead` in `game/route.js`, shared with the patrol), each against its own
+target — the taxi for a stern cop, a junction down its route for a cut-off one — but **only within
+two blocks of the taxi** (`UTURN_REACH`). Everywhere else recycling beats it: a cop driving the
+wrong way past `LOST_RANGE` is swapped for a fresh one behind the taxi, which is faster than any
+driving, and a U-turn costs about two seconds and keeps the cop out of that swap. Over 30 staged
+getaways off the pill:
+
+| U-turns within | U-turns | nearest cop, median | a cop within 10 | overtakes / brake checks |
+|---|---|---|---|---|
+| none (before) | 0 | 11.0 | 43% | 15 / 17 |
+| anywhere | 41 | 12.1 | 39% | 10 / 14 |
+| **40 (two blocks)** | 16 | 11.1 | 43% | 12 / 16 |
+| 30 | 6 | 11.3 | 43% | 13 / 18 |
+
+Unfenced, the chase got looser. At two blocks the U-turns are the ones the player can see, and the
+getaway measures what it did before. Nothing overlapped at any reach.
+
 `tools/probe.mjs` stages it on an empty ordinary street over four seeds: the cop turns round every
 time, on a continuous arc (no jump, at most 0.12 rad of yaw a frame), inside the kerbs and out of
 both boxes, at least 6 units from any car, and with no reds run after it.

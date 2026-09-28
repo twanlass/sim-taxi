@@ -1234,6 +1234,13 @@ const UTURN_MARGIN = 1;
  * drove on, and had braked from 18 for nothing.
  */
 const UTURN_SLACK = 2;
+/**
+ * How long a cop stands in the window waiting for the road to clear before it gives up on this
+ * lane and drives on, in seconds. In a getaway's traffic the wait had a long tail: over 30 staged
+ * getaways, cops asked to turn round near the taxi stood for 22s in all for 3 U-turns, which is a
+ * cop parked in the road rather than a cop chasing. A second is most of what the arc itself takes.
+ */
+const UTURN_PATIENCE = 1;
 
 /**
  * Where on its lane a car could U-turn, or null if it cannot turn here at all.
@@ -2268,6 +2275,10 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // already has the car on the far lane.
       uturnWanted: false,
       uturn: null,
+      // Seconds stood in the window waiting for the road to clear, and the lane it last gave up
+      // waiting on — see UTURN_PATIENCE.
+      uturnWait: 0,
+      uturnGaveUp: null,
       // Someone else's mesh drawn in this car's place: `(pos, quat, car) => void`, handed the pose
       // the render pass composed, with the instance itself collapsed. Only the patrol cruiser sets
       // it (sim/police.js), on the cop it becomes when it gives chase — the car is the cruiser, so
@@ -4779,7 +4790,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // the window until it is. Past the window it drives on and asks again on the next lane.
         // Only if it can still stop inside the window, though: a cop that is asked with the window
         // already under its wheels at chase speed was pinned to a dead stop in a fifth of a unit.
-        let swing = car.uturnWanted && !car.braking ? uturnWindow(car) : null;
+        let swing = car.uturnWanted && !car.braking && car.uturnGaveUp !== car.lane.id
+          ? uturnWindow(car) : null;
+        if (!swing) car.uturnWait = 0;
         if (swing && car.s >= swing.lo) {
           const room = Math.max(0, swing.hi - car.s);
           if (car.v <= UTURN_SPEED + UTURN_SLACK && uturnClear(car, swing, cars)) {
@@ -4788,7 +4801,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
             stats.moving += 1;
             continue;
           }
-          if (car.v * car.v <= 2 * hardBrake() * room + 1) {
+          car.uturnWait = car.v < 0.5 ? (car.uturnWait ?? 0) + dt : 0;
+          if (car.uturnWait > UTURN_PATIENCE) {
+            car.uturnGaveUp = car.lane.id;
+            swing = null;
+          } else if (car.v * car.v <= 2 * hardBrake() * room + 1) {
             allowed = Math.min(allowed, room);
             stopRoom = Math.min(stopRoom, room);
           } else {

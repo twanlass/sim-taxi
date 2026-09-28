@@ -14362,6 +14362,9 @@ let chopperOrder; // likewise
         // sprung corner lean. Counted per slide rather than per frame, the way the squeal fires.
         const slides = { corner: 0, pass: 0, slew: 0 }; const sliding = new Set();
         let ambientRubber = 0; let copRoll = 0; let heard = 0; let corners = 0; const inTurn = new Set();
+        // A cop turning round in the road (UTURN_* in sim/traffic.js, `wantsToTurnRound` in
+        // game/robbery.js): how many, and whether the arc ever meets anything.
+        let uturns = 0; let uturnOverlap = 0; let uturnTaxi = Infinity;
         for (let k = 0; k < 6; k++) {
           const s3 = new THREE.Scene();
           const t3 = createTraffic(makeRng(seed + 300 + k * 17), s3, 18, 30);
@@ -14390,6 +14393,13 @@ let chopperOrder; // likewise
             for (const car of t3.cars) if (!car.police && copLaysRubber(car)) ambientRubber += 1;
             for (const cop of t3.policeCars) {
               if (cop.crashed) continue;
+              if (cop.uturn) {
+                for (const other of t3.cars) {
+                  if (other === cop || other.crashed) continue;
+                  if ((penetration(cop, other)?.depth ?? 0) > 0) uturnOverlap += 1;
+                  if (other.isTaxi) uturnTaxi = Math.min(uturnTaxi, Math.hypot(other.x - cop.x, other.z - cop.z));
+                }
+              }
               copRoll = Math.max(copRoll, Math.abs(cop.cornerRoll));
               if (cop.state === 'turn' && cop.dOut !== cop.d) {
                 if (!inTurn.has(cop)) { inTurn.add(cop); corners += 1; }
@@ -14441,6 +14451,7 @@ let chopperOrder; // likewise
           checks += checked.size;
           aheadChecks += checkedAhead.size;
           violations += t3.stats.violations;
+          uturns += t3.stats.uturns;
         }
         check('the police box the taxi in: roadblocks, overtakes and brake checks',
           events > 0 && roadblocks > 0 && passes > 0 && checks > 0,
@@ -14472,6 +14483,13 @@ let chopperOrder; // likewise
           taxiGap >= CAR_LEN, `closest ${taxiGap.toFixed(2)} units`);
         check('...without a red light run between them', violations === 0,
           `${violations} violations`);
+        // Over 30 getaways while this was tuned: 16 U-turns, none meeting anything, and the chase
+        // measuring what it did without them (UTURN_REACH in game/robbery.js has the table).
+        check('a cop near the taxi turns round in the road rather than lapping the block',
+          uturns > 0, `${uturns} U-turns in ${events} getaways`);
+        check('...and the arc never meets a car, or comes near the taxi',
+          uturnOverlap === 0 && uturnTaxi > CAR_LEN + 1,
+          `${uturnOverlap} frames of overlap; taxi no nearer than ${uturnTaxi.toFixed(1)}`);
       }
 
       // A roadblock is rammed, not driven through: a boosting taxi with hit points meets a cop
