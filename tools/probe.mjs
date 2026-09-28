@@ -32,7 +32,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
-  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber } from '../src/sim/traffic.js';
+  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createFlatbed, CRATES, LOAD_YAW } from '../src/game/flatbed.js';
@@ -7496,6 +7496,130 @@ check('the taxi is an ordinary car in the traffic array',
     `slowest to leave ${Math.max(...lost.map((r) => r.leftAt)).toFixed(1)}s`);
 }
 
+// --- A patrol turns round in the road ----------------------------------------
+// sim/traffic.js (UTURN_SPEED) and game/patrol.js (`turnRound`). A taxi that boosts past a patrol
+// the other way used to leave the cop driving on to lap the block, which is all the router can do
+// with a car facing away from its target. Staged on an empty ordinary street: the cop on one lane,
+// the taxi coming the other way on the lane beside it, spotted on the pill as it goes past.
+{
+  const staged = [];
+  for (let k = 0; k < 30 && staged.length < 4; k++) {
+    const s = seed + 700 + k;
+    createLayout(makeRng(s));
+    const uScene = new THREE.Scene();
+    const uTraffic = createTraffic(makeRng(s + 44), uScene, CARS_DEFAULT);
+    const uPolice = createPolice(uScene);
+    const taxi = uTraffic.taxi;
+    let caught = false;
+    const uPatrol = createPatrol({
+      rng: makeRng(s + 66), police: uPolice, traffic: uTraffic, taxi, onCaught: () => { caught = true; },
+    });
+    uPatrol.state.cooldown = 0;
+    for (let step = 0; step < 60 * 60 && uPatrol.state.phase !== 'patrol'; step++) {
+      uTraffic.update(1 / 60); uPatrol.update(1 / 60); uPolice.update(1 / 60);
+    }
+    const cop = uPatrol.state.cop;
+    if (!cop) continue;
+    // An ordinary straight street with its window open and nobody within three blocks of it.
+    const net = cityNetwork();
+    let lane = null;
+    for (const cand of net.lanes) {
+      if (cand.degenerate || isLaneClosed(cand.id) || cand.length < 10) continue;
+      const to = net.nodeById.get(cand.to);
+      const from = net.nodeById.get(cand.from);
+      const d = net.dirOfLane(cand);
+      if (!placeCar(cop, d, to.gi, to.gj, cand.length - 1)) continue;
+      cop.v = SPEED;
+      if (!uturnWindow(cop)) continue;
+      const mid = cand.path.at(cand.length / 2);
+      if (uTraffic.cars.some((c) => c !== cop && c !== taxi && Math.hypot(c.x - mid.x, c.z - mid.z) < 60)) continue;
+      // The taxi carries straight on past the junction behind the cop, so turning round is plainly
+      // the way after it — a taxi that turns there can leave driving on just as short.
+      if (!net.laneOutByGrid(opposite(d), from.gi, from.gj)) continue;
+      if (!placeCar(taxi, opposite(d), from.gi, from.gj, cand.length - 2)) continue;
+      lane = cand;
+      break;
+    }
+    if (!lane) continue;
+    for (const car of [cop, taxi]) {
+      const p = car.lane.path.at(car.s);
+      car.x = p.x;
+      car.z = p.z;
+    }
+    const d0 = cop.d;
+    taxi.route = [opposite(d0), opposite(d0)];
+    taxi.routeConsumed = false;
+    taxi.boost = true;
+    uPatrol.update(1 / 60, { boosting: true });
+    if (uPatrol.state.phase !== 'chase') continue;
+    const violations = uTraffic.stats.violations;
+    const run = { turned: false, facing: false, caughtInSwing: false, jump: 0, turnStep: 0, nearest: Infinity, offRoad: 0, inBox: 0, frames: 0, taxiNear: Infinity };
+    let prev = null;
+    let before = cop.lane;
+    let from = null;
+    for (let step = 0; step < 60 * 5 && !caught; step++) {
+      taxi.boost = step < 60 * 2;
+      if (!taxi.route?.length) {
+        const r = planRoute(planOrigin(taxi), { i: taxi.i > GRID_I / 2 ? 0 : GRID_I, j: taxi.j > GRID_J / 2 ? 0 : GRID_J });
+        if (r?.length) { taxi.route = r; taxi.routeConsumed = false; }
+      }
+      uTraffic.update(1 / 60);
+      uPatrol.update(1 / 60, { boosting: taxi.boost });
+      uPolice.update(1 / 60);
+      if (caught && cop.uturn) run.caughtInSwing = true;
+      if (prev) {
+        run.jump = Math.max(run.jump, Math.hypot(cop.x - prev.x, cop.z - prev.z) - Math.max(cop.v, prev.v) / 60);
+        run.turnStep = Math.max(run.turnStep, Math.abs(Math.atan2(Math.sin(cop.yaw - prev.yaw), Math.cos(cop.yaw - prev.yaw))));
+      }
+      // Pointing back the way it came on the frame the swing ends — not at the end of the run,
+      // by which time it has usually turned a corner after the taxi.
+      if (prev?.swinging && !cop.uturn) run.facing = cop.d === opposite(d0) && cop.state === 'drive';
+      prev = { x: cop.x, z: cop.z, yaw: cop.yaw, v: cop.v, swinging: Boolean(cop.uturn) };
+      if (!cop.uturn) { before = cop.lane; from = null; continue; }
+      // The lane it turned out of: the one it was on the frame before the swing began.
+      from ??= { lane: before, d: net.dirOfLane(before), to: net.nodeById.get(before.to) };
+      run.frames += 1;
+      // On the street it started on, between its two junction boxes, and inside the kerbs. Signed
+      // across toward the far lane (`uturn.n`), so the centreline is one lane offset over and a car
+      // out past the near kerb cannot read as one on the far side of it.
+      const a = from.lane.path.at(0);
+      const t = from.lane.path.tangentAt(0);
+      const along = (cop.x - a.x) * t.x + (cop.z - a.z) * t.z;
+      const centre = laneOffsetFor(from.d, from.to.gi, from.to.gj);
+      const side = Math.abs((cop.x - a.x) * cop.uturn.n.x + (cop.z - a.z) * cop.uturn.n.z - centre);
+      if (side > HALF_ROAD - CAR_W / 2) run.offRoad += 1;
+      if (along < CAR_LEN / 2 || along > from.lane.length - CAR_LEN / 2) run.inBox += 1;
+      for (const other of uTraffic.cars) {
+        if (other === cop || other.crashed) continue;
+        const gap = Math.hypot(other.x - cop.x, other.z - cop.z);
+        run.nearest = Math.min(run.nearest, gap);
+        if (other === taxi) run.taxiNear = Math.min(run.taxiNear, gap);
+      }
+    }
+    run.turned = uTraffic.stats.uturns > 0;
+    run.violations = uTraffic.stats.violations - violations;
+    staged.push(run);
+  }
+  createLayout(makeRng(seed));   // createLayout installs the network it builds — put ours back
+
+  check('a patrol U-turn is staged', staged.length >= 3, `${staged.length} staged`);
+  check('a patrol the taxi boosts past turns round in the road', staged.every((r) => r.turned && r.facing),
+    staged.map((r) => (r.turned ? 'turned' : 'drove on')).join(', '));
+  // The sim has the car on the far lane from the first frame; the arc is drawn. Neither end of it
+  // may jump: the start is where it stood on the old lane, the end is where the new lane has it.
+  check('...on a continuous arc, a flick rather than a snap', staged.every((r) => r.jump < 0.05 && r.turnStep < 0.2),
+    `worst jump ${Math.max(...staged.map((r) => r.jump)).toFixed(3)}, turn ${Math.max(...staged.map((r) => r.turnStep)).toFixed(3)} rad/frame`);
+  check('...that stays on its own street, inside the kerbs and out of both boxes',
+    staged.every((r) => r.frames > 0 && r.offRoad === 0 && r.inBox === 0),
+    `${staged.reduce((n, r) => n + r.offRoad, 0)} frames off the road, ${staged.reduce((n, r) => n + r.inBox, 0)} in a box`);
+  // Nothing but the taxi is collision-tested, so a car in the arc's way would be driven through.
+  check('...clear of every car, and well clear of the taxi it is turning after',
+    staged.every((r) => r.nearest > ENVELOPE + 1 && r.taxiNear > CAR_LEN + 1 && !r.caughtInSwing),
+    `nearest ${Math.min(...staged.map((r) => r.nearest)).toFixed(2)}, taxi ${Math.min(...staged.map((r) => r.taxiNear)).toFixed(2)}`);
+  check('...and runs no reds after it', staged.every((r) => r.violations === 0),
+    `${staged.reduce((n, r) => n + r.violations, 0)} violations`);
+}
+
 // --- The pan gesture, and the opening follow-cam it hands off from ----------
 // A run opens with the camera trailing the taxi and stops the moment the player swipes, so the
 // whole handover hangs on `attachDragPan` deciding a press *became* a drag — the same 8px boundary
@@ -14238,6 +14362,9 @@ let chopperOrder; // likewise
         // sprung corner lean. Counted per slide rather than per frame, the way the squeal fires.
         const slides = { corner: 0, pass: 0, slew: 0 }; const sliding = new Set();
         let ambientRubber = 0; let copRoll = 0; let heard = 0; let corners = 0; const inTurn = new Set();
+        // A cop turning round in the road (UTURN_* in sim/traffic.js, `wantsToTurnRound` in
+        // game/robbery.js): how many, and whether the arc ever meets anything.
+        let uturns = 0; let uturnOverlap = 0; let uturnTaxi = Infinity;
         for (let k = 0; k < 6; k++) {
           const s3 = new THREE.Scene();
           const t3 = createTraffic(makeRng(seed + 300 + k * 17), s3, 18, 30);
@@ -14266,6 +14393,13 @@ let chopperOrder; // likewise
             for (const car of t3.cars) if (!car.police && copLaysRubber(car)) ambientRubber += 1;
             for (const cop of t3.policeCars) {
               if (cop.crashed) continue;
+              if (cop.uturn) {
+                for (const other of t3.cars) {
+                  if (other === cop || other.crashed) continue;
+                  if ((penetration(cop, other)?.depth ?? 0) > 0) uturnOverlap += 1;
+                  if (other.isTaxi) uturnTaxi = Math.min(uturnTaxi, Math.hypot(other.x - cop.x, other.z - cop.z));
+                }
+              }
               copRoll = Math.max(copRoll, Math.abs(cop.cornerRoll));
               if (cop.state === 'turn' && cop.dOut !== cop.d) {
                 if (!inTurn.has(cop)) { inTurn.add(cop); corners += 1; }
@@ -14317,6 +14451,7 @@ let chopperOrder; // likewise
           checks += checked.size;
           aheadChecks += checkedAhead.size;
           violations += t3.stats.violations;
+          uturns += t3.stats.uturns;
         }
         check('the police box the taxi in: roadblocks, overtakes and brake checks',
           events > 0 && roadblocks > 0 && passes > 0 && checks > 0,
@@ -14348,6 +14483,13 @@ let chopperOrder; // likewise
           taxiGap >= CAR_LEN, `closest ${taxiGap.toFixed(2)} units`);
         check('...without a red light run between them', violations === 0,
           `${violations} violations`);
+        // Over 30 getaways while this was tuned: 16 U-turns, none meeting anything, and the chase
+        // measuring what it did without them (UTURN_REACH in game/robbery.js has the table).
+        check('a cop near the taxi turns round in the road rather than lapping the block',
+          uturns > 0, `${uturns} U-turns in ${events} getaways`);
+        check('...and the arc never meets a car, or comes near the taxi',
+          uturnOverlap === 0 && uturnTaxi > CAR_LEN + 1,
+          `${uturnOverlap} frames of overlap; taxi no nearer than ${uturnTaxi.toFixed(1)}`);
       }
 
       // A roadblock is rammed, not driven through: a boosting taxi with hit points meets a cop

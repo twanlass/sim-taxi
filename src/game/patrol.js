@@ -2,7 +2,7 @@ import { GRID_I, GRID_J, PITCH, dirSign, isXAxis, lineX, lineZ } from '../city/g
 import { SPAWN_CLEARANCE } from '../sim/traffic.js';
 import { touching } from '../sim/collisions.js';
 import { SPOT_RANGE } from '../sim/police.js';
-import { findRoute, planOrigin } from './route.js';
+import { findRoute, planOrigin, junctionAhead, turnsRound } from './route.js';
 import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
 
 // The patrol cruiser: a police car that crosses town edge to edge, past the taxi, with its bar
@@ -312,6 +312,54 @@ export function createPatrol({
     return { i: clampI(at.i), j: clampJ(at.j) };
   }
 
+  /**
+   * Would turning round in the road get the cop to the taxi sooner than driving on? That is the
+   * taxi that has just boosted past it the other way, and the cop U-turns after it (`uturnWanted`,
+   * see UTURN_SPEED in sim/traffic.js) rather than driving on to lap the block — which is all the
+   * router can offer a car facing away from its target, and reads as a cop that has not seen you.
+   *
+   * Asked of the router rather than of the geometry. The first cut asked whether the taxi was
+   * behind the cop on the same road, heading away, and it lapsed within half a second on most
+   * staged chases: a taxi boosting past turns off at the junction behind the cop, and is then on
+   * another road — exactly where a real cop still turns round to follow it.
+   *
+   * **In legs, and only for a saving of two** — which is the lap. The second cut priced each side in
+   * road (the lane left to drive plus the legs beyond, the U-turn charged a block) and flip-flopped:
+   * the two sides differ by a leg as often as not, and then they break even in the middle of the
+   * lane, which is exactly where the U-turn window is. The cop braked hard for the turn and was
+   * told to drive on as it arrived, over and over — no U-turn, and a chase that lost a second at a
+   * time to it (over the probe's 30 staged chases a full tank's median getaway fell from 6.0s to
+   * 5.8s, most of it on chases that never turned round at all). A leg saved is about what the brake,
+   * the swing and the pull-away cost; two is the lap, and does not change as the cop drives down
+   * the lane.
+   *
+   * Measured on those 30 chases once the target was the junction after next: 4 turn round, each of
+   * them catching the taxi sooner or keeping up with it longer, and no chase that did not turn
+   * changed at all. A taxi off the pill is caught in a median 6.6s rather than 7.6s; a full tank
+   * still gets away in 6.0s.
+   */
+  let turnRoundKey = null;
+  let turnRoundAnswer = false;
+  /** Chase time of the last U-turn, and how long before another — see `turnRound`. */
+  let turnedAt = -Infinity;
+  const UTURN_SETTLE = 4;
+  function turnRound(cop) {
+    if (cop.state !== 'drive' || cop.uturn || !cop.lane) return false;
+    // Not twice running: a cop that has just come round and is asked to go back reads as lost.
+    if (state.elapsed - turnedAt < UTURN_SETTLE) return false;
+    // Where the taxi is *going*: the junction after the one it will next choose at, along its route
+    // or straight on. Aimed at the next one alone, a taxi about to turn onto the cop's road behind
+    // it counted as behind the cop — which turned round, and then wanted to turn back once the
+    // taxi had come round the corner after it.
+    const target = junctionAhead(taxi, 1);
+    const key = `${cop.lane.id}|${target.i},${target.j}`;
+    if (key !== turnRoundKey) {
+      turnRoundKey = key;
+      turnRoundAnswer = turnsRound(cop, target);
+    }
+    return turnRoundAnswer;
+  }
+
   function steer(cop) {
     const key = `${taxi.i},${taxi.j},${taxi.route?.[0] ?? ''}`;
     if (key === aimedAt && cop.route?.length) return;
@@ -335,6 +383,7 @@ export function createPatrol({
     state.clear = 0;
     state.spotted += 1;
     aimedAt = null;
+    turnedAt = -Infinity;
     steer(cop);
     onSpotted(cop);
   }
@@ -351,6 +400,7 @@ export function createPatrol({
     cop.pursuit = 0;
     cop.ram = false;
     cop.roadblock = 0;
+    cop.uturnWanted = false;
     cop.route = [];
     routeTo(cop, { i: taxi.i > GRID_I / 2 ? 0 : GRID_I, j: taxi.j > GRID_J / 2 ? 0 : GRID_J });
     state.phase = 'leaving';
@@ -429,6 +479,10 @@ export function createPatrol({
     // --- chase
     state.elapsed += dt;
     steer(cop);
+    // Asked every frame, so it lapses the moment the taxi turns off. The U-turn re-plans nothing
+    // itself: it leaves the cop with no route, and `steer` above picks that up next frame.
+    if (cop.uturn) turnedAt = state.elapsed;
+    cop.uturnWanted = turnRound(cop);
     cop.pursuit = Math.max(0, Math.min(1, (near - PURSUIT_FROM) / (PURSUIT_FULL - PURSUIT_FROM)));
     if (touching(taxi, cop, TOUCH_SLACK)) {
       state.caught += 1;
@@ -438,6 +492,7 @@ export function createPatrol({
       cop.roadblock = Infinity;
       cop.pursuit = 0;
       cop.ram = false;
+      cop.uturnWanted = false;
       state.phase = 'arrest';
       onCaught(cop);
       return;
