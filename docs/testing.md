@@ -62,6 +62,13 @@ standing on a kerb while it runs, which is a difficulty change whether or not an
 one, and a harness that skipped it would report the survival curve of a game nobody plays. `play()`
 takes `{ robbery: false }` to measure what it costs, which is the only reason the switch exists.
 
+**Except the chase after the drop-off.** The harness's player never boosts, and the patrol chase a
+delivered robbery hands the taxi (`handOff` in game/robbery.js) is lost by boosting — a player that
+never does is caught 15 times in 16 (the table in game/patrol.js). So autoplay leaves `handOff` out:
+the arrest still plays (and seals its junction, which the harness's taxi can queue at), but nobody
+comes after the taxi. Its numbers are those of a player who gets away every time; wiring the chase
+in would report one who never does, which is no closer.
+
 `difficulty-sweep.mjs` is what the numbers in [difficulty.md](difficulty.md#what-the-sweep-found)
 came from. It plays the same cities and situations through several tunings at three reaction times,
 so the comparison is paired. Both drive `tools/autoplay.mjs`, which holds the perfect-player harness

@@ -151,6 +151,16 @@ export const TOUCH_SLACK = 0.15;
 const CHASE_MAX = 40;
 
 /**
+ * Seconds at the start of a handed-over chase in which a touch does not count and the cop does not
+ * ram — see `pursueNearest`. The robbery's nearest cop can be sitting on the taxi's bumper on the
+ * frame the robber gets out (the cut-offs and brake checks put it there on purpose), and a bust on
+ * the very frame the chase is announced is a rule firing, not a chase: the same objection that
+ * turned the old bust-on-sight into this module. A second and a half is the "Pull over!" bubble
+ * going up and one boost press.
+ */
+const HANDOFF_GRACE = 1.5;
+
+/**
  * @param rng      its own stream: where a patrol cruises, and the cooldowns between them
  * @param police   the cruiser's look (sim/police.js) — `wear`/`shed` the traffic car
  * @param traffic  the sim — `enterPolice`, `retirePolice`, `policeCars`
@@ -181,6 +191,8 @@ export function createPatrol({
     cop: null,
     /** Seconds this chase has run. */
     elapsed: 0,
+    /** Seconds left of HANDOFF_GRACE, on a chase handed over from a robbery. */
+    grace: 0,
     /** The escape clock, in seconds of the taxi ESCAPE_BLOCKS clear — see ESCAPE_HOLD. */
     clear: 0,
     /** Seconds since it started leaving — see STAND_DOWN_TIMEOUT. */
@@ -381,6 +393,7 @@ export function createPatrol({
     state.phase = 'chase';
     state.elapsed = 0;
     state.clear = 0;
+    state.grace = 0;
     state.spotted += 1;
     aimedAt = null;
     turnedAt = -Infinity;
@@ -484,7 +497,11 @@ export function createPatrol({
     if (cop.uturn) turnedAt = state.elapsed;
     cop.uturnWanted = turnRound(cop);
     cop.pursuit = Math.max(0, Math.min(1, (near - PURSUIT_FROM) / (PURSUIT_FULL - PURSUIT_FROM)));
-    if (touching(taxi, cop, TOUCH_SLACK)) {
+    if (state.grace > 0) {
+      state.grace -= dt;
+      cop.ram = state.grace <= 0;
+    }
+    if (state.grace <= 0 && touching(taxi, cop, TOUCH_SLACK)) {
       state.caught += 1;
       // Pull up where it is. `roadblock` is the chosen stop the box-in already uses — it rides the
       // braking flag — and it is what keeps the cop from driving on into a taxi the traffic model
@@ -514,6 +531,43 @@ export function createPatrol({
      * summon a cop on the spot.
      */
     setCooldownRange: ([min, max]) => { state.cooldownRange = [min, max]; },
+    /**
+     * Take over the nearest of `cops` as a chase: the robbery's getaway is over, the robber is out,
+     * and one of the cars that was after them comes after the taxi instead (game/robbery.js,
+     * `handOff`). From here it is an ordinary patrol chase — the strobe, "Pull over!", caught on a
+     * touch or lost ESCAPE_BLOCKS out — which is the point: it is the rule the player already
+     * knows, not a second one.
+     *
+     * Only a cop already inside ESCAPE_RANGE is taken. One further out has lost the taxi by this
+     * module's own definition, and handing it a chase would have it give up a second and a half
+     * later with a radio call about a car nobody saw. Answers the cop taken, or null.
+     *
+     * A cruiser still on the map from before the robbery (driving off — a robbery stands a patrol
+     * down, see `blocked`) is taken off to make room: there is one cruiser mesh. By the end of a
+     * getaway it has almost always gone on its own.
+     */
+    pursueNearest(cops) {
+      if (taxi.crashed || taxi.staged || state.phase === 'chase' || state.phase === 'arrest') return null;
+      let best = null;
+      let bestD = ESCAPE_RANGE;
+      for (const cop of cops) {
+        if (cop.crashed || cop.staged || !cop.police) continue;
+        const d = gap(cop);
+        if (d < bestD) { best = cop; bestD = d; }
+      }
+      if (!best) return null;
+      if (state.cop) {
+        if (!traffic.retirePolice(state.cop)) return null;
+        retire();
+      }
+      best.patrol = true;
+      police.wear(best, { fade: false });
+      state.cop = best;
+      spot(best);
+      state.grace = HANDOFF_GRACE;
+      best.ram = false;
+      return best;
+    },
     /** Is a patrol after the taxi, or has it just lost it? The robbery waits for both. */
     busy: () => state.phase === 'chase' || state.phase === 'arrest',
   };

@@ -1754,8 +1754,9 @@ description, and it is worth listing what is *not* new, because none of it is:
   patrol, and a patrol chase is this chase with one cop in it.
 
   They **arrive and leave, rather than transforming**. A robbery brings four vehicles onto the map
-  from off screen and stands them down again at the drop-off, driving off under their own steam. The
-  first version repainted the ambient cars nearest the taxi and deleted them at the end, which reads
+  from off screen and stands them down again at the drop-off, driving off under their own steam —
+  the ones not busy [arresting the robber or chasing you](#the-drop-off-the-arrest-and-the-tail).
+  The first version repainted the ambient cars nearest the taxi and deleted them at the end, which reads
   exactly as badly as it sounds at both ends: a car you have been following turns into a police car,
   and a police car in your mirror stops existing. A stood-down cop keeps a dark bar on its roof,
   so it still reads as police with its lights off rather than as a blue hatchback. See
@@ -1787,6 +1788,13 @@ clock runs out does exactly what a missed VIP does: gets out mid-street, swears 
 ([the outburst bubble](#they-leave-and-they-let-you-know)) and goes. The event costs the bonus and
 the seat it was occupying, and nothing else. There is no streak to lose, which is the one line of
 the VIP's version that is absent here rather than shared.
+
+**What it can cost now is the escape afterwards, and only once the job is done.** Deliver the robber
+and one cop comes after *you* as an ordinary [patrol chase](traffic.md#the-patrol-cruiser) —
+caught on a touch is "Busted!" ([the drop-off](#the-drop-off-the-arrest-and-the-tail)). That is a
+different claim from the one this section was written to defend: nothing about the event *being
+imposed* can end the run, and a player who drives the getaway has chosen to finish it. The drop-off
+fills the tank to pay for the chase, so the choice is "boost clear", not "hope".
 
 ### The robber
 
@@ -2190,6 +2198,45 @@ But the event now puts things in the road that the player can choose to drive th
 costs is paid in the currency every other crash is. The fairness lives in the choice being real:
 every roadblock is let go when the taxi routes round it or waits it out, so ramming is never the only
 way past.
+
+### The drop-off: the arrest and the tail
+
+`game/arrest.js`, `robbery.js` (`stop`, `handOff`), `patrol.js` (`pursueNearest`). The getaway
+ends in two scenes at once.
+
+**The robber stays on the corner with their hands up, and the police circle them.** The robber
+climbs out the way any rider does and stops on the kerb instead of fading (`beginExit`'s `hold` in
+`game/fares.js` hands back the figure; `surrender` in `geometry/person.js` is the pose). The cops
+near enough — up to three, and at least two, calling in the difference from off screen — are
+routed to the junction and held at its line; once the taxi is clear they are taken onto a ring
+round the junction box one at a time, sliding nose-in, bars going, each on its own wobble. After a
+few seconds one peels off, pulls up at the kerb beside the robber, and the robber runs to it and is
+gone. The rest peel off down the arms one by one and are handed back to traffic, bars off, to drive
+away the way a [stood-down](traffic.md#standing-down) cop does. A car nobody can see is simply
+retired instead — "nobody can see" asked of the camera, not of the taxi, because a player who pans
+over to watch the arrest is exactly who would otherwise see the police blink out (the first build
+did that, on the frame the robber was taken in).
+
+It is the junction they go round, not the robber, and that is geometry: a kerb corner is half a
+unit onto a block whose buildings start 0.35 further in, so no ring centred on the figure stays on
+the road. The ring is the box's own edge, and it passes about a unit off the robber's shoulder.
+
+The circling cars are **driven by hand**: nothing in the traffic model can drive a circle, so they
+are taken out of traffic the way the opening vignette takes the taxi into its garage (`stageCar`),
+and put back with `releaseCar`. Everything traffic would have done for them is the module's job —
+see its header and [traffic.md](traffic.md#the-arrest-a-junction-closed-to-traffic). A scene that
+cannot happen (no cop gets there within 14s, nowhere to pull up) lets the robber walk off.
+
+**The nearest cop comes after the taxi.** It is handed to the patrol (`pursueNearest`) and from then
+on it *is* the patrol cruiser in a chase: strobe, "Pull over!", caught on a touch or lost two and a
+half blocks out, with the patrol's catch-up. Only a cop already inside that escape range is taken —
+one further out has lost the taxi by the patrol's own rule. A touch in the first 1.5s does not
+count (`HANDOFF_GRACE`), because the box-in can have a cop on the taxi's bumper on the very frame
+the robber gets out.
+
+**The drop-off fills the tank**, where an ordinary delivery pours a third. The patrol's own table
+(game/patrol.js) is why: a third of a tank is five seconds of boost, which loses the cop 8 times in
+16; none is caught 15 in 16; a full tank gets away 14 in 16.
 
 ## The package courier
 

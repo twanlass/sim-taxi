@@ -2406,6 +2406,28 @@ kind. The taxi was stopped for 23% of the time against 16% on the same seeds wit
 and behind a cop for 6% of it. `tools/probe.mjs` asserts the geometry over six getaways, and that a boosting taxi meets a
 roadblock as a bump rather than a wreck.
 
+### The arrest: a junction closed to traffic
+
+A delivered robbery ends with the cops circling the robber in the drop-off's junction box
+([gameplay.md](gameplay.md#the-drop-off-the-arrest-and-the-tail)), driven by hand by `game/arrest.js`
+because no lane or turn goes round. A staged car is invisible to every loop in here, so the sim is
+given two things to keep traffic off them:
+
+- **`sealJunction(i, j)`** closes a box: `sealedFor` holds anyone arriving at it exactly as a
+  stranded car does (`entryRefused` and all three arrival branches). Only a boosting taxi is let
+  through, into the cops, as a bump. The patrol chasing the taxi away is held too — let through at
+  first, it followed the taxi straight through the ring. The arrest seals the box only once the taxi
+  is clear of it and the first cop is going in: sealed on the frame of the drop-off, it parked the
+  getaway car at its own arrest scene, and every arm queued back through the junction behind with
+  the police still in the queue.
+- **`car.holdAt`** is the same hold for one car. The cops being called in wait at the line for their
+  turn while the traffic keeps moving past the robber.
+
+Cars already committed to the box finish crossing (a car's `state` is `'turn'` from its hold line),
+so the arrest waits for it to be empty. It hands each cop back a few units down a lane *leaving* the
+sealed box, which is the one place `releaseCar` is safe: the next stop line is a lane's length away,
+and nothing is coming up behind a car on a lane out of a box nothing can leave.
+
 ### Standing down
 
 A getaway used to end with every cop car blinking out of existence, including whichever ones were in
@@ -2418,6 +2440,13 @@ that bar to `SPAWN_CLEARANCE` after twelve seconds, and **never below it** — a
 ordinary traffic, so it can end up queued behind a red two blocks from a taxi that has itself
 stopped at a kerb, but "a car the player is watching does not blink out" is the rule the phase
 exists to keep.
+
+**And never while it is on screen.** Distance from the taxi is a stand-in for "out of frame" that
+holds only while the camera follows the taxi, and the arrest at the drop-off is something a player
+pans away to watch. So main.js hands the robbery an `inShot(x, z)` that asks the camera (the point
+projected, with six units of margin for the car and its bar), and neither the stand-down nor the
+mid-chase recycling takes off a car it answers yes for. The tools have no camera and keep the
+distance rule.
 
 62 rather than the 90 the first cut used. At 90 a cop driving away at ordinary cruise takes eleven
 seconds to qualify, so the *backstop* retired most of them rather than the distance, and the police
@@ -2651,6 +2680,13 @@ a cop heading the wrong way (it only U-turns in a chase — see below), and on t
 blocks of the taxi for 25% of a patrol. Over 12 seeds with a taxi rolling dice at junctions, a
 crossing takes 15–43s and comes within 40 units of the taxi on **9 of 12** at one block of reach,
 against 7 of 12 at two.
+
+**A robbery's drop-off hands it a chase.** `pursueNearest` takes the nearest of the robbery's cops
+inside `ESCAPE_RANGE`, wears it as the cruiser without the dissolve (`wear(car, { fade: false })` —
+it is already on screen, and it is the same body in the same livery), and starts an ordinary chase
+with 1.5s of grace before a touch counts. A cruiser still driving off from before the robbery is
+retired to make room: there is one cruiser mesh. See
+[gameplay.md](gameplay.md#the-drop-off-the-arrest-and-the-tail).
 
 **After a chase it leaves the way a robbery's cops stand down** (and so it does when a robbery
 starts): bar dark, routed to the corner furthest from the

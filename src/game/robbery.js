@@ -4,6 +4,7 @@ import {
 } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 import { URGENCY_SEGMENTS, urgencyLevel } from './urgency.js';
+import { createArrest } from './arrest.js';
 import { findRoute, findRouteOnto, planOrigin, junctionAhead, turnsRound } from './route.js';
 import {
   CAR_LEN, CIRCLE_OFFSET, CIRCLE_R, POLICE_FLEET, SPAWN_CLEARANCE, plannedTurn, stopDistance,
@@ -40,6 +41,11 @@ import {
 //     (sim/traffic.js). Both are a car braking — the same `braking` a stunned car uses — so the
 //     taxi meets them on the terms it meets everything: wait, go round, or ram it for a bump that
 //     costs hit points.
+//
+//   - **And it ends in an arrest, and a tail.** Deliver the robber and they stand on the corner with
+//     their hands up while the cops circle them (game/arrest.js); the nearest cop comes after the
+//     taxi as an ordinary patrol chase instead (`handOff`, game/patrol.js). That chase can bust you,
+//     which the event itself never can — it is only ever the price of having finished it.
 //
 // So the whole of this module is a trigger, a cooldown, and the bookkeeping that keeps the police
 // near — and in front of — the player while it runs.
@@ -310,6 +316,23 @@ const PAIR_MARGIN = 0.6;
 /** How far past its planned point a partner is also checked standing, for the same reason. */
 const PAIR_OVERSHOOT = 0.75;
 
+/**
+ * The drop-off. How far from the robber's junction, in world units, a cop may be and still be sent
+ * to the arrest (game/arrest.js) rather than stood down — four blocks, about five seconds at a
+ * chasing cop's pace, which is inside the arrest's own `ARREST_WAIT`. The getaway keeps half the
+ * fleet on the taxi's own junction (`CUT_OFF_AHEAD`), so most of it is well inside this anyway.
+ */
+const ARREST_REACH = 80;
+
+/**
+ * How many cars circle the robber, at most and at least. Three is the fleet less the one handed to
+ * the patrol to chase the taxi (`handOff`). Two is the fewest that reads as *surrounding* anybody
+ * rather than one car doing laps, so a drop-off with fewer in reach calls the difference in from
+ * off screen, the way the event brought its police in to start with.
+ */
+const ARREST_CREW = 3;
+const ARREST_MIN = 2;
+
 /** Two car bodies — `{ x, z, yaw }`, the circles sim/collisions.js tests — at least `margin` apart. */
 function apart(a, b, margin) {
   const reach = 2 * CIRCLE_R + margin;
@@ -353,6 +376,16 @@ function nearestJunction(x, z) {
  *                 paint onto a street with a chase already on it is two events talking over each
  *                 other. A patrol that is merely cruising does not hold a robbery up — it sees one
  *                 start and drives off.
+ * @param handOff  `(cops) => cop | null`, called at a delivered drop-off with the fleet: take one
+ *                 of these and chase the taxi with it. main.js hands it to the patrol
+ *                 (`pursueNearest` in game/patrol.js), so getting away from the drop-off is an
+ *                 ordinary patrol chase. The rest go to the arrest (game/arrest.js). The tools
+ *                 leave it out, and the drop-off stands the whole fleet down as it always did.
+ * @param inShot   `(x, z) => boolean`, could the player be looking at that point — main.js asks the
+ *                 camera. A cop is never taken off the map while it is, whatever its distance from
+ *                 the taxi: the camera follows the taxi until the player pans it, and a player who
+ *                 pans over to watch the arrest would otherwise see the police blink out. Without it
+ *                 (the tools), distance from the taxi is the whole rule, as it always was.
  * @param holdAlarm  true to board the robber *without* the police, and wait for `raiseAlarm()`.
  *                 main.js holds it for the robber's line (game/robberline.js): the world stops, the
  *                 robber shouts, and the cops arrive on the tap that clears it. False — the tools'
@@ -360,6 +393,7 @@ function nearestJunction(x, z) {
  */
 export function createRobbery({
   site, taxi, fares, traffic, onBoard = () => {}, holdAlarm = false, busy = () => false,
+  handOff = () => null, inShot = null,
 }) {
   // The junction the bank's door belongs to, worked out once: the city does not move, and this is a
   // thirty-six-cell scan.
@@ -397,7 +431,18 @@ export function createRobbery({
    * block, and everything below that walks the fleet means the robbery's own cars.
    */
   const fleet = () => traffic.policeCars.filter((cop) => !cop.patrol);
-  const clearFleet = () => { for (const cop of fleet()) traffic.retirePolice(cop); };
+  const clearFleet = () => {
+    arrest.abandon();
+    for (const cop of fleet()) traffic.retirePolice(cop);
+  };
+
+  // The drop-off's scene: the robber on the corner, the cops circling them. See game/arrest.js.
+  const arrest = createArrest({ traffic, taxi, inShot });
+  /** Could the player be looking at this car? See `inShot`. */
+  const seen = (car) => Boolean(inShot?.(car.x, car.z));
+  // This event's robber, so `stop` can tell a delivery (the fare carries the figure left standing
+  // on the kerb — `beginExit` in game/fares.js) from a robber who bailed.
+  let robber = null;
 
   /** How far the taxi is from the bank's door, in world units. */
   const range = () => Math.hypot(taxi.x - site.door.x, taxi.z - site.door.z);
@@ -981,6 +1026,7 @@ export function createRobbery({
     state.active = true;
     state.alarmed = false;
     state.count += 1;
+    robber = fare;
     state.sinceEntry = 0;
     state.standingDown = 0;
     // `onBoard` before the police either way, and the order matters. It is what dispatches the taxi
@@ -1039,7 +1085,42 @@ export function createRobbery({
       i: taxi.i > GRID_I / 2 ? 0 : GRID_I,
       j: taxi.j > GRID_J / 2 ? 0 : GRID_J,
     };
+    const drop = robber?.figure ? { at: robber.target, figure: robber.figure } : null;
+    robber = null;
     for (const cop of fleet()) {
+      // Out of any roadblock, whatever happens to the car next. The overtake lets itself go once
+      // `chase` is 0; a junction hold is this module's and is let go here, or the stand-down
+      // would begin with a cop parked across a box holding the city's traffic for the rest of its
+      // `BLOCK_HOLD`.
+      cop.roadblock = 0;
+      cop.blocking = null;
+      cop.partnerOf = null;
+      cop.summoned = null;
+      cop.joinBlock = null;
+      cop.partnerStop = null;
+      cop.uturnWanted = false;
+    }
+    // **Delivered: one after the taxi, the rest after the robber.** The nearest cop becomes the
+    // patrol's chase (`handOff`), and the ones near enough to the drop-off go and surround the
+    // robber on the corner (game/arrest.js). Everyone else stands down as below. A robber whose
+    // clock ran out is not delivered, and gets none of this: they bailed mid-street and are gone.
+    if (drop && !taxi.crashed) {
+      handOff(fleet());
+      const at = { x: lineX(drop.at.i), z: lineZ(drop.at.j) };
+      const crew = fleet()
+        .filter((cop) => !cop.crashed && Math.hypot(cop.x - at.x, cop.z - at.z) <= ARREST_REACH)
+        .sort((a, b) => Math.hypot(a.x - at.x, a.z - at.z) - Math.hypot(b.x - at.x, b.z - at.z))
+        .slice(0, ARREST_CREW);
+      if (crew.length < ARREST_MIN) {
+        const n = traffic.enterPolice(ARREST_MIN - crew.length, at);
+        crew.push(...traffic.policeCars.slice(traffic.policeCars.length - n));
+      }
+      arrest.begin(drop.at, drop.figure, crew);
+    } else {
+      drop?.figure?.release({ fade: true });
+    }
+    for (const cop of fleet()) {
+      if (cop.arrest) continue;
       // **Bar off first.** The robbery is over on this frame, and a car driving away from a
       // finished scene with its lights still going reads as an event that has not ended — which is
       // most of what "they need to turn off their lights and exit" was. `siren` is separate from
@@ -1047,16 +1128,6 @@ export function createRobbery({
       // loses the bar, because that is what it was *doing*.
       cop.siren = false;
       cop.chase = 0;
-      cop.uturnWanted = false;
-      // Out of any roadblock too. The overtake lets itself go once `chase` is 0; a junction hold
-      // is this module's and is let go here, or the stand-down would begin with a cop parked
-      // across a box holding the city's traffic for the rest of its `BLOCK_HOLD`.
-      cop.roadblock = 0;
-      cop.blocking = null;
-      cop.partnerOf = null;
-      cop.summoned = null;
-      cop.joinBlock = null;
-      cop.partnerStop = null;
       // **Routed out rather than simply unrouted**, and the difference is not cosmetic. A car with
       // no route rolls the ordinary dice at every junction, so a "departing" cop wanders — it
       // circles the block the taxi is parked on as often as it leaves, and then the backstop below
@@ -1083,16 +1154,18 @@ export function createRobbery({
     // The route out (see `stop`) is what makes the floor reachable rather than a deadlock.
     const bar = state.standingDown >= STAND_DOWN_TIMEOUT ? SPAWN_CLEARANCE : STAND_DOWN_RANGE;
     for (const cop of fleet()) {
+      // The arrest's cars are the arrest's until it hands them back (game/arrest.js).
+      if (cop.arrest) continue;
       // A wreck is not going to drive anywhere, and its shell has already been handed to the
       // effects — so it leaves the fleet on distance alone, with no route to wait on.
-      if (Math.hypot(cop.x - taxi.x, cop.z - taxi.z) < bar) continue;
+      if (Math.hypot(cop.x - taxi.x, cop.z - taxi.z) < bar || seen(cop)) continue;
       traffic.retirePolice(cop);
     }
     // Out of route and still hanging about: point it at the edge again. Its first plan is spent
     // by the time it reaches the corner, and an unrouted car rolls dice.
     if (state.standingDown >= STAND_DOWN_TIMEOUT) {
       for (const cop of fleet()) {
-        if (cop.route?.length || cop.crashed) continue;
+        if (cop.route?.length || cop.crashed || cop.arrest) continue;
         const out = {
           i: cop.i > GRID_I / 2 ? 0 : GRID_I,
           j: cop.j > GRID_J / 2 ? 0 : GRID_J,
@@ -1123,7 +1196,7 @@ export function createRobbery({
       const d = Math.hypot(cop.x - taxi.x, cop.z - taxi.z);
       // A crashed cop is off the road as far as the player is concerned and will never close
       // again, so it is always a candidate however near it stopped.
-      if (cop.crashed || d > worstD) { worst = cop; worstD = cop.crashed ? Infinity : d; }
+      if (cop.crashed || (d > worstD && !seen(cop))) { worst = cop; worstD = cop.crashed ? Infinity : d; }
     }
     if (!worst) return;
 
@@ -1166,7 +1239,13 @@ export function createRobbery({
       return;
     }
 
-    // Left over from the event that just ended, driving themselves off the map.
+    // The arrest, and whatever is left over from the event that just ended driving itself off the
+    // map. The stand-down's clock is held while the arrest has cars, so the ones it hands back
+    // get the ordinary distance bar rather than inheriting a backstop that ran out meanwhile.
+    if (arrest.active()) {
+      arrest.update(dt);
+      state.standingDown = 0;
+    }
     if (fleet().length) driveOff(dt);
 
     if (eligible()) start();
@@ -1180,6 +1259,8 @@ export function createRobbery({
     junction,
     range,
     raiseAlarm,
+    /** The scene at the drop-off — see game/arrest.js. */
+    arrest,
     /**
      * Called off a run ending, so an event cannot outlive the run it happened during — the same
      * contract `burgerRun.abandon` keeps. The fare loop has already cleared the board by then

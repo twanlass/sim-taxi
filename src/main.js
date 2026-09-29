@@ -596,6 +596,13 @@ const robbery = city.bank && !shot
     holdAlarm: true,
     // ...and the robbery waits for a patrol chase to be over — see `busy` in game/robbery.js.
     busy: () => patrol.busy(),
+    // Never take a cop off the map where the player can see it — see `inShot` in game/robbery.js.
+    inShot,
+    // Delivered: the nearest cop comes after the taxi as an ordinary patrol chase — caught on a
+    // touch, lost two and a half blocks out — while the rest circle the robber on the corner
+    // (game/arrest.js). The robber is delivered, so the chase can end the run: that is the trade
+    // the drop-off asks for, and the full tank the robber boarded with is what pays for it.
+    handOff: (cops) => patrol.pursueNearest(cops),
     // The frame the robber is in the car. It is the ordinary `'pickup'` handler's job, said once
     // here rather than smuggled into the event loop: the seat is full, the route the taxi was
     // driving is void, and the getaway dispatches itself exactly as any other drop-off does.
@@ -1998,6 +2005,17 @@ function projectToScreen(x, y, z) {
   };
 }
 
+/**
+ * Could the player be looking at world point (x, z)? On screen, or within `margin` world units of its
+ * edge — enough for a car's length and the light bar standing up off its roof. For anything that
+ * wants to take a car off the map without being seen doing it (game/robbery.js).
+ */
+function inShot(x, z, margin = 6) {
+  const p = projectToScreen(x, 0, z);
+  const m = margin * viewport.height() / (2 * controller.viewZoom());
+  return p.x > -m && p.x < viewport.width() + m && p.y > -m && p.y < viewport.height() + m;
+}
+
 /** Screen position of the taxi, for anchoring the earnings pop. */
 function taxiScreenPos() {
   return projectToScreen(traffic.taxi.x, 1.4, traffic.taxi.z);
@@ -3340,10 +3358,16 @@ function frame() {
       // full rather than by a third, on the same delayed pour as everything else so it reads as
       // the same reward, just a bigger one. Read at arrival time rather than baked in now, so a
       // tank that drained (or filled) during the flight still tops out exactly full.
+      //
+      // A robber fills it too, and for a harder reason: the drop-off sets a patrol chase on the
+      // taxi (`handOff` above), and that chase is the patrol's, tank table and all (game/patrol.js)
+      // — a third of a tank is five seconds of boost, which is its coin flip, and none at all is
+      // caught 15 times in 16. Full is 14 in 16 lost. The chase is still there to lose; it is not
+      // there to end the run of a player who did everything the getaway asked.
       flyEnergyToBoost({
         from: taxiScreenPos,
         to: fuelScreenPos,
-        onArrive: () => boost.topUp(fare.vip ? 1 - boost.fraction() : BOOST_FARE_REWARD),
+        onArrive: () => boost.topUp(fare.vip || fare.robber ? 1 - boost.fraction() : BOOST_FARE_REWARD),
       });
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
