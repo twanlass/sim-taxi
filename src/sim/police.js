@@ -206,14 +206,21 @@ export function createPolice(scene) {
     wheels.forEach((wheel) => { wheel.rotation.y = car.wheelAngle; });
   };
 
-  /** Draw the cruiser wherever the traffic model puts this car, in place of its instance. */
-  function wear(car) {
+  /**
+   * Draw the cruiser wherever the traffic model puts this car, in place of its instance.
+   *
+   * `fade: false` is a car that is already on screen — a robbery's cop handed over to chase the
+   * taxi away from the drop-off (game/patrol.js, `pursueNearest`). It is the same livery on the
+   * same body, so the swap is invisible as long as nothing dissolves in.
+   */
+  function wear(car, { fade = true } = {}) {
     state.cop = car;
     state.active = true;
     car.skin = skin;
     group.position.set(car.x, group.position.y, car.z);
     shell.visible = true;
-    fadeIn();
+    if (fade) fadeIn();
+    else { state.fade = 1; state.fading = 0; }
   }
 
   /** Dissolve in from nothing — the frame `wear` is called on, the car is still invisible. */

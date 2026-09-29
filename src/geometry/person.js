@@ -493,7 +493,27 @@ export function createPerson({
     group.scale.setScalar(1);
   }
 
+  /**
+   * Hands up: the robber on the kerb at the drop-off, with the police circling (game/arrest.js).
+   *
+   * `dx`/`dz` is what to face — the middle of the junction the cars are going round — and `t` is
+   * seconds, for a nervous shuffle: the body turns a little after whichever way the noise is
+   * coming from and the raised arms tremble. Both arms go straight up past the head; the sack
+   * stays in the left hand, because a bag held up over a mask is the whole joke of the pose.
+   */
+  function surrender(t, dx, dz) {
+    legL.rotation.set(0, 0, 0);
+    legR.rotation.set(0, 0, 0);
+    armR.rotation.set(0, 0, 2.75 + Math.sin(t * 13) * 0.06);
+    armL.rotation.set(0, 0, -2.75 - Math.sin(t * 11 + 1) * 0.06);
+    group.rotation.x = 0;
+    group.rotation.y = Math.atan2(dx, dz) + Math.sin(t * 1.7) * 0.45;
+    group.position.set(0, Math.abs(Math.sin(t * 5)) * 0.04, 0);
+    group.scale.setScalar(1);
+    setOpacity(1);
+  }
+
   rest();
   wave(0);
-  return { group, wave, board, exit, bail, rest, idle, flee, highlight, setRobber };
+  return { group, wave, board, exit, bail, rest, idle, flee, surrender, highlight, setRobber };
 }

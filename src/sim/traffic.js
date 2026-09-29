@@ -690,7 +690,10 @@ export const COP_SKID_V = 9;
  * cannot be imported headlessly, so the rule lives where the probe can ask it.
  */
 export function copLaysRubber(car) {
-  if (!car.police || !(car.chase > 0) || car.crashed || car.staged) return false;
+  if (!car.police || !(car.chase > 0) || car.crashed) return false;
+  // A staged cop is being driven by hand, and only the robbery's arrest does that: it says itself
+  // when the car is sliding (`skid`, game/arrest.js), because none of the lane state below is live.
+  if (car.staged) return Boolean(car.skid) && car.v > 2;
   // A U-turn lays it at any speed: it is a flick round on the spot, and at UTURN_SPEED it would
   // never reach COP_SKID_V.
   if (car.uturn && car.v > 2) return true;
@@ -3043,6 +3046,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // the head of the police block rather than behind it.
   const policeCars = [];
 
+  // Junctions closed to traffic by the game layer, as `"i,j"` keys — see `sealedFor` in `update`.
+  const sealed = new Set();
+
   /**
    * Where a cop car may come onto the map.
    *
@@ -4084,6 +4090,25 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       && heldAt.has(car.joinBlock);
 
     /**
+     * A junction the game layer has closed outright (`sealJunction`) — the robbery's arrest, where
+     * the cops circle the robber inside the box. The circling cops are staged, so nothing in here
+     * sees them; this is what keeps traffic from driving through them. Its own set rather than more
+     * entries in `heldAt`, because a boosting taxi barges a stranded car and must not be let off a
+     * seal on the same terms — see below. The patrol chasing the taxi away from the drop-off is held
+     * like anyone else: it was let through at first, and followed the taxi straight through the
+     * circling cars (measured, on 2 seeds in 12).
+     *
+     * The game layer only closes the box once the taxi is well clear of it (`TAXI_CLEAR` in
+     * game/arrest.js), because the first cut sealed it on the frame the robber was delivered —
+     * usually with the taxi still short of the line, which parked the getaway car at the scene of
+     * its own arrest. A boosting taxi still barges through, into the cops, which is a bump.
+     */
+    const sealedFor = (car) => {
+      const key = `${car.i},${car.j}`;
+      return (sealed.has(key) && !bargesThrough(car)) || car.holdAt === key;
+    };
+
+    /**
      * Swap a straight-on crossing for the turn `car.lateTurn` asks for, if it still can be.
      *
      * The hold line is where a car commits, but it sits `STOP_SETBACK` short of the junction and the
@@ -4149,6 +4174,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       if (bargesThrough(car)) return false;
       // A car stranded mid-turn: cross traffic released into the junction drives through it.
       if (heldAt.has(`${car.i},${car.j}`) && !joinsBlock(car)) return true;
+      if (sealedFor(car)) return true;
 
       const routed = car.route?.length ? exitToward(net, car.lane, car.route[0]) : null;
       if (routed) {
@@ -4873,7 +4899,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           let viaChaseOnRed = false;
           if (arrive.stop) {
             // An all-way stop: see `stopSignClear`. Same `held` guard as every other branch.
-            const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car) && !joinsBlock(car);
+            const held = (heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car) && !joinsBlock(car))
+              || sealedFor(car);
             green = stopSignClear(car, t, approaching) && !held;
           } else if (!arrive.signalised) {
             // No signal here. The priority street runs; anyone joining waits for a real gap.
@@ -4884,10 +4911,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
             // — and then the arrival, asking only about the priority street, waved it through into
             // the stopped car. A stranded car on the ring had the same hole; a roadblock just
             // stands there long enough to find it.
-            const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car) && !joinsBlock(car);
+            const held = (heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car) && !joinsBlock(car))
+              || sealedFor(car);
             green = (arrive.open || ringGapClear(car, approaching)) && !held;
           } else {
-            const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car) && !joinsBlock(car);
+            const held = (heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car) && !joinsBlock(car))
+              || sealedFor(car);
             green = (arrive.open || taxiClearsYellow(car, arrive, distToLine)) && !held;
             // A patrol through its own siren hold waits for the box to be empty of anything
             // turning across it: the hold stops the cross traffic at its line, not a car already
@@ -5745,6 +5774,16 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     retirePolice,
     /** Every cop car off the road at once: the end of an event. */
     clearPolice,
+    /**
+     * Close junction (i, j) to traffic, or open it again. A closed box is held like one with a car
+     * stranded in it, for everyone but a boosting taxi — see `sealedFor`. Cars
+     * already inside finish their crossing; the caller waits for the box to empty.
+     */
+    sealJunction: (i, j, on = true) => {
+      if (on) sealed.add(`${i},${j}`); else sealed.delete(`${i},${j}`);
+    },
+    /** Is junction (i, j) closed? For the probe. */
+    isSealed: (i, j) => sealed.has(`${i},${j}`),
     /** The cars currently on it, for the probe and the tools. Live, not a copy. */
     policeCars,
     /**

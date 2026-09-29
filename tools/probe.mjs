@@ -14617,6 +14617,159 @@ let chopperOrder; // likewise
           `floor ${SPAWN_CLEARANCE}, ordinary bar ${STAND_DOWN_RANGE}`);
       }
     }
+
+    // --- The drop-off: the arrest, and the one who comes after you -------------------------
+    //
+    // game/arrest.js. A delivered robber stays on the kerb with their hands up, the robbery's cops
+    // circle them, one pulls up and takes them, and the rest are handed back to traffic; the
+    // nearest cop is handed to the patrol to chase the taxi (`handOff`). The cops going round are
+    // *staged* — out of traffic, driven by hand — so nothing in the sim keeps them off anything,
+    // and every clause below is a way the first builds of it put a car through something.
+    //
+    // Four traffic draws on this city, two with the taxi driving off (the scene ends out of shot,
+    // and its cars are simply retired) and two with it stopping a block away and watching (they
+    // drive out and are handed back).
+    {
+      const runs = [];
+      for (const [offset, watch] of [[0, false], [100, false], [200, true], [300, true]]) {
+        const s5 = new THREE.Scene();
+        const t5 = createTraffic(makeRng(seed + 44 + offset), s5, 18, 24);
+        const f5 = createFareSystem(makeRng(seed + 55), s5);
+        t5.warmup(3);
+        f5.state.delivered = 5;
+        const handedOver = [];
+        const rob5 = createRobbery({
+          site: bank, taxi: t5.taxi, fares: f5, traffic: t5,
+          handOff: (cops) => {
+            const near = cops.filter((c) => !c.crashed)
+              .sort((a, b) => Math.hypot(a.x - t5.taxi.x, a.z - t5.taxi.z) - Math.hypot(b.x - t5.taxi.x, b.z - t5.taxi.z))[0];
+            if (near) { near.patrol = true; handedOver.push(near); }
+            return near ?? null;
+          },
+        });
+        t5.taxi.x = bank.door.x;
+        t5.taxi.z = bank.door.z;
+        for (let f = 0; f < 5; f++) rob5.update(1 / 60);
+        const robber = f5.state.fares.find((x) => x.robber);
+        const run = { offset, watch, delivered: false };
+        runs.push(run);
+        if (!robber) continue;
+        const tgt = robber.target;
+        for (const d of [0, 1, 2, 3]) if (placeCar(t5.taxi, d, tgt.i, tgt.j, 30)) break;
+        t5.taxi.route = [];
+        robber.directed = true;
+        for (let f = 0; f < 60 * 10 && !run.delivered; f++) {
+          t5.update(1 / 60);
+          rob5.update(1 / 60);
+          for (const e of f5.update(1 / 60, t5.taxi)) {
+            if (e.type === 'delivered') { run.delivered = true; run.figure = e.fare.figure; }
+          }
+        }
+        if (!run.delivered) continue;
+        const J5 = { x: lineX(tgt.i), z: lineZ(tgt.j) };
+        run.circled = 0;
+        run.nearRobber = Infinity;
+        run.overlap = 0;
+        run.snap = 0;
+        const crewCars = new Set();
+        const last = new Map();
+        for (let f = 0; f < 60 * 45; f++) {
+          if (watch && Math.hypot(t5.taxi.x - J5.x, t5.taxi.z - J5.z) > 16) t5.taxi.braking = true;
+          t5.update(1 / 60);
+          rob5.update(1 / 60);
+          f5.update(1 / 60, t5.taxi);
+          const crew = rob5.arrest.crew();
+          if (crew.some((m) => m.mode === 'ring' && m.rail)) run.circled += 1 / 60;
+          for (const c of t5.policeCars) {
+            if (c.staged) crewCars.add(c);
+            // Handed back: where the lane puts it against where the hand-drive left it.
+            else if (crewCars.has(c) && last.has(c) && last.get(c).staged) {
+              run.snap = Math.max(run.snap, Math.hypot(c.x - last.get(c).x, c.z - last.get(c).z));
+            }
+            last.set(c, { x: c.x, z: c.z, staged: c.staged });
+            if (!c.staged) continue;
+            if (run.figure?.settled() && rob5.arrest.state.phase !== 'board') {
+              run.nearRobber = Math.min(run.nearRobber, Math.hypot(c.x - run.figure.x, c.z - run.figure.z));
+            }
+            for (const o of t5.cars) {
+              if (o === c || o.crashed || o.isTaxi) continue;
+              run.overlap = Math.max(run.overlap, penetration(c, o)?.depth ?? 0);
+            }
+          }
+          if (!rob5.arrest.active() && f > 60) break;
+        }
+        run.handed = handedOver.length;
+        run.chaserInScene = handedOver.some((c) => crewCars.has(c));
+        run.arrests = rob5.arrest.state.arrests;
+        run.over = !rob5.arrest.active();
+        run.leftStaged = t5.policeCars.filter((c) => c.staged).length;
+        run.sealed = t5.isSealed(tgt.i, tgt.j);
+        run.crew = crewCars.size;
+      }
+      const played = runs.filter((r) => r.delivered);
+      const fmt = (fn) => played.map(fn).join(' / ');
+      check('a delivered robber stays on the kerb for the police',
+        played.length >= 3 && played.every((r) => r.figure?.settled()),
+        `${played.length} of ${runs.length} delivered, ${played.filter((r) => r.figure?.settled()).length} standing`);
+      check('...and the cops circle them, and one takes them in',
+        played.every((r) => r.circled > 2 && r.arrests === 1),
+        `circled ${fmt((r) => `${r.circled.toFixed(1)}s`)}, arrests ${fmt((r) => r.arrests)}`);
+      // The robber is 6.4 from the middle of a street's box on the diagonal and the ring its edge;
+      // the car that picks them up stops beside them. Two units, centre to figure, is a car's
+      // half-width and most of a unit to spare — the first peel-off measured 0.98, on the kerb.
+      check('...without a car ever going through the robber',
+        played.every((r) => r.nearRobber >= 2),
+        `nearest ${fmt((r) => r.nearRobber.toFixed(2))}`);
+      // Nothing in the sim keeps a staged car off anything. What is allowed is the one known brush:
+      // the car queued behind a cop that has just pulled out of the line brakes onto its tail for
+      // a few frames (0.18 at worst over 38 seeds; see PULL_OUT in game/arrest.js).
+      check('...and without one going through the traffic, or through each other',
+        played.every((r) => r.overlap < 0.25),
+        `deepest ${fmt((r) => r.overlap.toFixed(2))}`);
+      check('...and every car is handed back, and the junction opened again',
+        played.every((r) => r.over && r.leftStaged === 0 && !r.sealed),
+        `${fmt((r) => `${r.over ? 'over' : 'running'}, ${r.leftStaged} staged, ${r.sealed ? 'sealed' : 'open'}`)}`);
+      // Handed back onto its lane where it already was: `releaseCar` snapping it across would be
+      // a car jumping in plain sight. A frame's travel at the ring's speed is 0.15.
+      check('...onto its lane where it was, not snapped there',
+        played.filter((r) => r.watch).every((r) => r.snap < 0.4),
+        `largest step ${fmt((r) => r.snap.toFixed(2))}`);
+      check('...while one cop goes after the taxi rather than the robber',
+        played.every((r) => r.handed === 1 && !r.chaserInScene),
+        `${fmt((r) => `${r.handed} handed over${r.chaserInScene ? ', and in the scene too' : ''}`)}`);
+    }
+
+    // The handover itself (`pursueNearest` in game/patrol.js): the cop is already on screen, so the
+    // cruiser's mesh goes on without its dissolve-in, and a touch in the first moments does not
+    // count — the nearest cop can be on the taxi's bumper on the frame the robber gets out.
+    {
+      const ev = runEvent();
+      const police5 = createPolice(new THREE.Scene());
+      const pat = createPatrol({ rng: makeRng(seed + 66), police: police5, traffic: ev.traffic, taxi: ev.traffic.taxi });
+      const cop = ev.traffic.policeCars[0];
+      const taxi5 = ev.traffic.taxi;
+      let taken = null;
+      if (cop) {
+        taxi5.x = cop.x;
+        taxi5.z = cop.z;
+        taxi5.yaw = cop.yaw;
+        taken = pat.pursueNearest(ev.traffic.policeCars);
+      }
+      const fadeAtOnce = police5.state.fade;
+      let caughtAt = null;
+      for (let f = 0; f < 60 * 3 && taken && caughtAt === null; f++) {
+        taxi5.x = cop.x;
+        taxi5.z = cop.z;
+        pat.update(1 / 60);
+        if (pat.state.phase === 'arrest') caughtAt = f / 60;
+      }
+      check('the cop handed the chase is worn as the cruiser without dissolving in',
+        taken === cop && cop.patrol && police5.state.cop === cop && fadeAtOnce === 1,
+        taken ? `fade ${fadeAtOnce}` : 'nobody taken');
+      check('...and a touch only counts once the chase has had a moment to start',
+        caughtAt !== null && caughtAt >= 1.4,
+        caughtAt === null ? 'never caught' : `caught at ${caughtAt.toFixed(2)}s`);
+    }
   }
 }
 

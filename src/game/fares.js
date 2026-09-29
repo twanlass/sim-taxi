@@ -357,6 +357,13 @@ export const BOARD_SECONDS = 0.9;
 // on-screen while the earnings pop is still travelling to the counter.
 const EXIT_SECONDS = 1.4;
 
+// A robber's exit stops where the run to the kerb ends (`exit` in geometry/person.js runs its hop
+// and sprint over the first three quarters), and waits there for the arrest. The backstop is well
+// past the longest arrest (`SCENE_MAX` in game/arrest.js) and is only there so a figure nobody
+// lets go of cannot hold its board slot for good.
+const EXIT_HOLD_AT = 0.75;
+const EXIT_HOLD_MAX = 60;
+
 // And how long a VIP whose clock ran out is visible for on their way off — the jump out of the
 // cab, the run, the fade and the outburst bubble over all of it (geometry/cursebubble.js).
 //
@@ -1307,8 +1314,11 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
    * this un-hides it, drops it onto the taxi's current position, and hands the slot to `exits`
    * where its own tick will drive it home. The fare has already been removed from `state.fares`
    * by the caller, so the slot is free to be reused as soon as the animation completes.
+   *
+   * `hold` is the robber: they get to the kerb and stop there rather than fading, and this returns
+   * a handle on the figure (null otherwise) that the arrest poses and lets go of — game/arrest.js.
    */
-  function beginExit(slot, target, taxiCar) {
+  function beginExit(slot, target, taxiCar, { hold = false } = {}) {
     place(slot.passenger, target.i, target.j);
     slot.passenger.standing?.rest?.();
     slot.passenger.group.visible = true;
@@ -1317,7 +1327,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // is about to hand back to the pavement has no deadline left.
     slot.marker.hide();
     const kerb = cornerFor(target.i, target.j);
-    exits.push({
+    const entry = {
       slot,
       bail: false,
       // Captured now rather than looked up each frame — the taxi is about to drive off, and the
@@ -1325,7 +1335,29 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
       // `exit()` runs *from* the taxi *to* the pin's own origin, so the offset points at the car.
       run: { dx: taxiCar.x - kerb.x, dz: taxiCar.z - kerb.z },
       elapsed: 0,
-    });
+      // A robber does not walk off: they get to the kerb and stay there for the police
+      // (game/arrest.js), and the handle returned below is how.
+      hold: hold ? { settled: false, done: false, fade: false, since: 0 } : null,
+    };
+    exits.push(entry);
+    if (!hold) return null;
+    return {
+      standing: slot.passenger.standing,
+      /** Where the figure's own origin stands, in world x/z — the kerb corner. */
+      x: kerb.x,
+      z: kerb.z,
+      /** Out of the cab and on the kerb: the pose is the caller's from here. */
+      settled: () => entry.hold.settled,
+      /**
+       * Finished with. `fade` plays the ordinary exit's last beat — the figure fades where it
+       * stands — for an arrest that never happened; without it the figure goes on this frame,
+       * because the caller has just put it in a police car.
+       */
+      release: ({ fade = false } = {}) => {
+        if (fade) { entry.hold.fade = true; entry.elapsed = EXIT_HOLD_AT * EXIT_SECONDS; }
+        else entry.hold.done = true;
+      },
+    };
   }
 
   /**
@@ -1413,10 +1445,20 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
         const at = standing?.group.position;
         if (at) e.slot.curse.group.position.set(at.x, CURSE_LIFT, at.z);
         e.slot.curse.update(t);
+      } else if (e.hold && !e.hold.fade) {
+        // Hop and run exactly as any rider does, and stop at the kerb rather than fading there.
+        // Past that the figure is the handle's holder's to pose, until it lets go. Backstopped,
+        // so a caller that never does cannot hold a board slot for the rest of the run.
+        const at = Math.min(t, EXIT_HOLD_AT);
+        if (!e.hold.settled) standing?.exit?.(at, e.run.dx, e.run.dz);
+        if (t >= EXIT_HOLD_AT) e.hold.settled = true;
+        e.hold.since += dt;
+        if (e.hold.since > EXIT_HOLD_MAX) e.hold.done = true;
+        if (!e.hold.done) continue;
       } else {
         standing?.exit?.(t, e.run.dx, e.run.dz);
       }
-      if (t >= 1) {
+      if (t >= 1 || e.hold?.done) {
         e.slot.passenger.group.visible = false;
         e.slot.curse.hide();
         standing?.rest?.();
@@ -1713,7 +1755,9 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
         // will skip this slot until the animation is done, so nothing lands on top of it.
         const at = state.fares.indexOf(fare);
         if (at !== -1) state.fares.splice(at, 1);
-        beginExit(fare.slot, fare.target, taxiCar);
+        // A robber stays on the kerb, and the handle on the figure rides the event out to whoever
+        // is going to arrest them — see `beginExit` above and game/arrest.js.
+        fare.figure = beginExit(fare.slot, fare.target, taxiCar, { hold: Boolean(fare.robber) });
         emit('delivered', fare);
       }
     }
