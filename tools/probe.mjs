@@ -7427,6 +7427,19 @@ check('the taxi is an ordinary car in the traffic array',
       ...(result ?? { how: 'none' }), t, busyThroughout,
       violations: pTraffic.stats.violations - violations,
     };
+    // After a catch the taxi is frozen and out of collision resolution, so the cop has to stop on
+    // the touch rather than brake through the car it just rammed (it arrives at up to 21 u/s).
+    if (out.how === 'caught') {
+      const cop = pursuit.state.cop;
+      const atCatch = penetration(taxi, cop)?.depth ?? 0;
+      out.sunk = 0;
+      for (let k = 0; k < 120; k++) {
+        pTraffic.update(1 / 60);
+        pursuit.update(1 / 60);
+        pPolice.update(1 / 60);
+        out.sunk = Math.max(out.sunk, (penetration(taxi, cop)?.depth ?? 0) - atCatch);
+      }
+    }
     // After a loss: the bar goes dark, the car drives off, and once it is out of sight it leaves
     // the road and the cruiser goes back on its cooldown.
     if (out.how === 'lost') {
@@ -7483,6 +7496,9 @@ check('the taxi is an ordinary car in the traffic array',
   check('a catch is the cop touching the taxi, pulled up', cruiseCaught.length > 0
     && cruiseCaught.every((r) => r.touched && r.braking),
     `${cruiseCaught.filter((r) => r.touched).length}/${cruiseCaught.length} touching`);
+  check('...and stops on the touch rather than driving through the taxi',
+    cruiseCaught.every((r) => r.sunk < 0.05),
+    `deepest ${Math.max(...cruiseCaught.map((r) => r.sunk)).toFixed(2)} further in after the catch`);
   check('the chase runs no reds', all.every((r) => r.violations === 0),
     `${all.reduce((n, r) => n + r.violations, 0)} violations`);
   check('a robbery sees the chase as busy for all of it', all.every((r) => r.busyThroughout));
