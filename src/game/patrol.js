@@ -489,6 +489,13 @@ export function createPatrol({
       // Pull up where it is. `roadblock` is the chosen stop the box-in already uses — it rides the
       // braking flag — and it is what keeps the cop from driving on into a taxi the traffic model
       // has stopped counting as a car in its lane.
+      //
+      // And it stops *here*, not after a braking distance. The bust freezes the taxi and flags it
+      // crashed, and a crashed taxi drops out of sim/collisions.js, so nothing shoves the cop off it
+      // any more: a ram arrives at up to 21 u/s, and braking from that at the ordinary rate carried
+      // the cop straight through — measured over 30 staged catches, 20 ended 1.2–2.3 units deep,
+      // 2.3 being the whole envelope, one car drawn on top of the other. The touch is the impact.
+      cop.v = 0;
       cop.roadblock = Infinity;
       cop.pursuit = 0;
       cop.ram = false;
