@@ -270,9 +270,11 @@ export function createSfx({ rng } = {}) {
     };
   }
 
-  // Ask iOS for the "ambient" session: mixes with the player's own music instead of stopping it,
-  // and follows the ring/silent switch. Safari 16.4+; elsewhere the property does not exist.
-  try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch { /* old */ }
+  // Ask iOS for the "playback" session: plays through the ring/silent switch, the way a music app
+  // does, because the game carries its own music as well as effects. The cost is that it stops
+  // the player's own music rather than mixing with it; "ambient" was the other way round, and a
+  // phone on silent heard nothing. Safari 16.4+; elsewhere the property does not exist.
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* old */ }
 
   // Fetched now, decoded once there is a context to decode into.
   const bytes = {};

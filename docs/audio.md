@@ -139,8 +139,10 @@ sound ships at 0 dB, as the designer recommended. The one exception is ours: `co
 - **The world stopping stops the sound.** The pause and the robber's line both call
   `sfx.hold(true)`, which suspends the context. A door scheduled to close is on the audio clock, so
   it waits with everything else. A hidden tab suspends it too.
-- **iOS**: `navigator.audioSession.type = 'ambient'` (Safari 16.4+), so the game mixes with the
-  player's music instead of stopping it, and respects the silent switch. The shell's scheme handler
+- **iOS**: `navigator.audioSession.type = 'playback'` (Safari 16.4+), so the game plays through
+  the silent switch — it carries its own music, not just effects. It stops the player's music
+  rather than mixing with it; `'ambient'` did the opposite and left a phone on silent hearing
+  nothing. The shell's scheme handler
   serves `.m4a` as `audio/mp4`.
 - **Mute** is the "Sound: On/Off" pill on the pause screen, or **M**. It is remembered in
   `localStorage`, soft-failing the way `highscores.js` does.
