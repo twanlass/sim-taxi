@@ -50,8 +50,8 @@ src/
     faremarker.js       the fare clock, as a physical object: kerb, flight, taxi
     selectpop.js        the swell-and-settle curve a tapped rider and their crystal share
     boost.js            crazy-taxi duty cycle (a pure clock, no scene knowledge)
-    boostmeter.js       how the Punch It pill reads while it refills — overfill, glow, leading edge
-    energybits.js       the sparks a drop-off throws from the taxi into the Punch It pill
+    boostmeter.js       how the fuel meter reads while it refills — overfill, glow, leading edge
+    energybits.js       the sparks a drop-off throws from the taxi into the fuel meter
     camera.js           fixed 3/4 orthographic camera
     scene.js            scene, sun, hemisphere fill, sky shader, distance haze
     daylight.js         hour → lighting curve, and the clock that can drive it
@@ -72,7 +72,9 @@ src/
     clouds.js           the weather ringing the island — placed on the screen, never over the city
     robbery.js          the bank robbery: who gets in outside the bank, and the cops that come with them
     patrol.js           the patrol cruiser's life: across town edge to edge, chase, caught or lost, out
-    copshout.js         "Pull over!" over the patrol car's roof when it spots the taxi
+    copshout.js         "Taxi: pull over now" over the patrol car's roof when it spots the taxi
+    speech.js           the one speech bubble: pinned on its target, waiting at the edge when it's off frame
+    depotcall.js        "Head to the shop for repairs." over the depot's door once the taxi starts smoking
     radio.js            the dispatch bubble that says the fare who just got in is a robber
     robberline.js       the robber's line: the world stops, the taxi is spotlit, the robber shouts
     coplights.js        the red and blue a cop car throws on the road while a robbery runs

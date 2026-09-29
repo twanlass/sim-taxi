@@ -1,8 +1,5 @@
-import * as THREE from 'three';
-import { createPerson } from '../geometry/person.js';
-import { mirrorSceneLights } from './avatarlights.js';
-import { createBubble, POOL_CLEAR, POOL_EDGE } from './tutorial.js';
-import { getMsaa, getPixelRatioCap } from '../util/shot.js';
+import { POOL_CLEAR, POOL_EDGE } from './tutorial.js';
+import { createSpeech } from './speech.js';
 
 // The robber's line: the beat between the robber getting in and the police turning up.
 //
@@ -12,11 +9,10 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 // setup, in three beats:
 //
 //   1. The robber is in the car. **The world stops**, the city dims around the taxi, and the robber
-//      shouts at the driver from a bubble at the bottom — the coach's card and the coach's place,
-//      with the robber in the avatar where the taxi would be.
+//      shouts at the driver from a bubble pinned on the taxi they are sitting in (game/speech.js).
 //   2. The next tap anywhere clears it. The lights come up and the police come on (`raiseAlarm` in
 //      game/robbery.js).
-//   3. A beat later, dispatch breaks in from the top (game/radio.js).
+//   3. A beat later, dispatch breaks in (game/radio.js).
 //
 // **The world stops rather than runs on under it**, and that is the one decision in here that was
 // weighed. The tutorial's gated beats let the traffic run, but they are at the top of a run with the
@@ -38,73 +34,27 @@ export const ROBBER_LINES = [
   "Don't just sit there — floor it!",
 ];
 
-// The avatar box, in CSS pixels: the coach's taxi square, so the two bubbles are one family.
-const AVATAR_PX = 54;
-
-const prefersReducedMotion = () =>
-  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-
-/**
- * The robber in the bubble: the real `createPerson` in the real kit (`setRobber`), so the figure
- * that shouts is the one that just ran down the bank's steps. Waving, since that is the pose that
- * already means "you, taxi" — with a sack in the other hand it reads as a demand rather than a hail.
- *
- * Framed on the rider-finder chip's camera (game/riderfinder.js), trimmed to a square: ±2.0 across
- * and −1.45 to +2.55 up the view, which puts the ground on the bottom edge and the top edge at world
- * y ≈ 4.2 — over the cap (3.4) and the raised hand, with no crystal to make room for.
- */
-function createRobberAvatar(sun, hemi) {
-  const canvas = document.createElement('canvas');
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: getMsaa(), alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, getPixelRatioCap()));
-  renderer.setClearColor(0x000000, 0);
-  renderer.setSize(AVATAR_PX, AVATAR_PX, false);
-  canvas.style.width = `${AVATAR_PX}px`;
-  canvas.style.height = `${AVATAR_PX}px`;
-
-  const scene = new THREE.Scene();
-  const syncLights = mirrorSceneLights(scene, sun, hemi);
-  const person = createPerson({ pickable: null });
-  person.setRobber(true);
-  scene.add(person.group);
-
-  const camera = new THREE.OrthographicCamera(-2.0, 2.0, 2.55, -1.45, 0.1, 40);
-  camera.position.set(0, 3.2, 4.9);
-  camera.lookAt(0, 1.55, 0);
-
-  return {
-    canvas,
-    render(elapsed) {
-      person.wave(prefersReducedMotion() ? 0 : elapsed * 1.6);
-      syncLights();
-      renderer.render(scene, camera);
-    },
-    dispose() {
-      renderer.dispose();
-      renderer.forceContextLoss?.();
-    },
-  };
-}
+// Who is talking, in the bubble's title.
+const TITLE = 'Bank robber';
+// Where the pointer touches: just over the taxi's roof, since that is where the robber is.
+const TIP_Y = 2.8;
 
 /**
- * @param lights        {sun, hemi} — the city's own rig, mirrored into the avatar
+ * @param viewport      util/viewport.js — the frame the bubble is kept inside
  * @param taxi          the player's car, which the pool is centred on
  * @param project       (x, y, z) => {x, y} — world to viewport pixels
  * @param pixelsPerUnit () => number — the camera's current scale, for sizing the pool
  * @param pickLine      () => string — which line this robbery gets
  * @param onDone        () => void — the bubble has been dismissed: raise the alarm
  */
-export function createRobberLine({ lights, taxi, project, pixelsPerUnit, pickLine, onDone }) {
+export function createRobberLine({ viewport = null, taxi, project, pixelsPerUnit, pickLine, onDone }) {
   const root = document.getElementById('robber-talk');
   const spot = document.getElementById('robber-spot');
   const idle = { isOpen: () => false, open: () => false, update: () => {}, cancel: () => {} };
   if (!root || !spot) return idle;
 
-  // Built on the first robbery rather than at boot, as the radio's is: most runs never meet one,
-  // and a WebGL context nobody looks at is still one of the browser's small budget of them.
-  let bubble = null;
   let open = false;
-  let elapsed = 0;
+  const bubble = createSpeech(root, { viewport, typing: true, onDismiss: () => close() });
 
   function aim() {
     // 1.4 up, the middle of the car's flank — the tutorial's own aim.
@@ -130,6 +80,7 @@ export function createRobberLine({ lights, taxi, project, pixelsPerUnit, pickLin
   // catcher is still there for the click that follows the press and nothing falls through to the
   // city on the way out.
   root.addEventListener('click', () => { if (open) bubble.tap(); });
+
   // Space and Enter answer it too. Space is also the Loco Mode key, whose own handler is registered
   // first and stands down while this is open (main.js), so the press that clears the bubble does
   // not also floor it.
@@ -144,23 +95,17 @@ export function createRobberLine({ lights, taxi, project, pixelsPerUnit, pickLin
     /** The robber is in the car: stop, dim, shout. */
     open() {
       if (open) return false;
-      if (!bubble) {
-        const avatar = createRobberAvatar(lights.sun, lights.hemi);
-        bubble = createBubble(root, lights, close, avatar);
-      }
       open = true;
-      elapsed = 0;
       // Aimed before the fade, or the pool blooms from wherever it was last left.
       aim();
       document.body.classList.add('robber-talk');
-      bubble.show(pickLine());
+      bubble.show(TITLE, pickLine(), () => project(taxi.x, TIP_Y, taxi.z));
       return true;
     },
     /** Wall time: the world is stopped while this is up, so there is no game time to read. */
     update(dt) {
       if (!open) return;
-      elapsed += dt;
-      bubble.update(dt, elapsed);
+      bubble.update(dt);
       // Re-aimed every frame for a resize or a rotation — the city does not move under it.
       aim();
     },

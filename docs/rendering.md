@@ -1431,10 +1431,11 @@ to be switched on by hand on the device that is hardest on them. They are indepe
 They live in `util/shot.js` beside `?seed` and `?cars`, and every getter takes its **fallback from
 safe mode rather than from a literal**, evaluated per call — so one flag moves all of them, and a
 module that opens a renderer of its own reads the effective value without anyone threading it
-through. Four do: the tutorial's avatar bubble, each rider-finder chip, the courier
+through. Three do: each rider-finder chip, the courier
 [cargo chip](gameplay.md#the-load-is-carried-into-the-hud) and the
-[taxi finder](#getting-back-to-the-taxi). They are 38px, 42px and 44px square and — for the tutorial,
-which swaps box with its subject — a 54px square or a 48 × 80 portrait. Their own cost is nothing,
+[taxi finder](#getting-back-to-the-taxi). They are 38px, 42px and 44px square. (The speech bubbles'
+avatars — the tutorial's taxi and rider, the robber, dispatch's cop car — were contexts too, and
+went with the [pinned bubbles](gameplay.md#speech-bubbles).) Their own cost is nothing,
 but each is a **WebGL context this page is holding**, and that is part of what `?safe` is asking
 about.
 
