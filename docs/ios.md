@@ -401,10 +401,9 @@ Not built yet, roughly in value-for-effort order:
   `highscores.js`'s injectable store is the seam it slots into. Keep the local top-5 and submit in
   addition.
 - **Audio — shipped, one thing to confirm on a phone.** The sound effects are in (see
-  [audio.md](audio.md)), and the page asks for `navigator.audioSession.type = 'ambient'`, so it
-  mixes with the player's music and follows the silent switch. Still to check on a device: that
-  WKWebView honours that the same way Safari does. If not, set `AVAudioSession` to `.ambient` in the
-  shell.
+  [audio.md](audio.md)), and the page asks for `navigator.audioSession.type = 'playback'`, so it
+  plays through the silent switch. Still to check on a device: that WKWebView honours that the same
+  way Safari does. If not, set `AVAudioSession` to `.playback` in the shell.
 - **App Store submission**: a privacy policy URL (required even though the app collects nothing —
   it makes no network requests at all, so the nutrition label is "Data Not Collected"), age rating,
   and screenshots. `tools/shoot.mjs` can render the required sizes — 6.9" iPhone at 1320×2868, and
