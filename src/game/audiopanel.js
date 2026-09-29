@@ -17,9 +17,11 @@
  * Levels are shown in dB and rates in semitones, because that is how a designer thinks about
  * them; the file keeps linear gain and a playback rate, because that is what Web Audio takes.
  */
-import { SFX_EVENTS, SHIPPED_MIX, IDLE_TAKES, LOCO_TAKES } from './sfx.js';
+import { SFX_EVENTS, SHIPPED_MIX, SOUNDS, LOOPS } from './sfx.js';
 
-const STASH_KEY = 'simtaxi.audio.v1';
+// v2 with Block 1: a v1 stash holds levels trimmed for the test files, keyed partly by takes that
+// no longer exist, and would quietly override the designer's 0 dB starting point.
+const STASH_KEY = 'simtaxi.audio.v2';
 
 function storage() {
   try { return globalThis.localStorage ?? null; } catch { return null; }
@@ -46,9 +48,6 @@ const stText = (rate) => {
   const st = toSemis(rate);
   return `${st >= 0 ? '+' : ''}${st.toFixed(1)} st · ×${rate.toFixed(3)}`;
 };
-
-// The beds that one-shot `minGap` does not apply to, and the files that are loops.
-const LOOPS = new Set([...IDLE_TAKES, ...LOCO_TAKES, 'signal']);
 
 // The engine knobs: label, range, step and readout. Keys match mix.json's `engine`.
 const ENGINE = [
@@ -84,7 +83,7 @@ const slider = (min, max, step, value) => el('input', { type: 'range', min, max,
 /**
  * @param {object} opts
  * @param {object} opts.sfx  The handle from createSfx — `state`, `tuning`, `tune`, `reset`,
- *   `beds`, `setBed`, `audition`, `stopAuditions`, `play`.
+ *   `audition`, `stopAuditions`, `play`.
  */
 export function createAudioPanel({ sfx }) {
   const stashed = loadStash();
@@ -146,13 +145,6 @@ export function createAudioPanel({ sfx }) {
   // --- Beds -----------------------------------------------------------------
   heading('Engine');
   note('Beds run all the time and follow the taxi. Drive to hear these.');
-  for (const [kind, takes, label] of [['idle', IDLE_TAKES, 'Idle take'], ['loco', LOCO_TAKES, 'Loco take']]) {
-    const select = el('select');
-    for (const key of takes) select.append(el('option', { value: key, textContent: `${key} · ${SHIPPED_MIX.sounds[key].file}` }));
-    row(panel, label, select);
-    select.addEventListener('change', () => sfx.setBed(kind, select.value));
-    syncs.push(() => { select.value = sfx.beds()[kind]; });
-  }
   for (const [key, label, min, max, step, show] of ENGINE) {
     const input = slider(min, max, step, sfx.tuning().engine[key]);
     const value = row(panel, label, input);
@@ -168,8 +160,10 @@ export function createAudioPanel({ sfx }) {
 
   // --- Per file -------------------------------------------------------------
   heading('Sounds');
-  note('▶ plays the file once at its level and pitch. In the game some one-shots are '
-    + 'scaled again where they fire (a bump is a quieter crash, say) — see docs/audio.md.');
+  note('▶ plays the sound once at its level and pitch. A sound with variants plays a different '
+    + 'take each press, as the game does, and names the one it played. Its level and pitch cover '
+    + 'every take. In the game some one-shots are scaled again where they fire (a bump by closing '
+    + 'speed, say) — see docs/audio.md.');
   const stopAll = el('button', { type: 'button', className: 'dbg-wide', textContent: '■ Stop previews' });
   stopAll.addEventListener('click', () => sfx.stopAuditions());
   panel.append(stopAll);
@@ -177,13 +171,17 @@ export function createAudioPanel({ sfx }) {
   for (const key of Object.keys(SHIPPED_MIX.sounds)) {
     const box = el('div', { className: 'aud-sound' });
     const play = el('button', { type: 'button', className: 'aud-play', textContent: '▶', title: `Play ${key}` });
-    const title = el('div', { className: 'aud-name' }, play,
-      el('strong', { textContent: key }),
-      el('span', { textContent: `${SHIPPED_MIX.sounds[key].file}${LOOPS.has(key) ? ' · loop' : ''}` }));
+    const takes = SOUNDS[key].length;
+    const fileText = `${SHIPPED_MIX.sounds[key].file}${LOOPS.has(key) ? ' · loop' : ''}`
+      + `${takes > 1 ? ` · ${takes} takes` : ''}`;
+    const fileLabel = el('span', { textContent: fileText });
+    const title = el('div', { className: 'aud-name' }, play, el('strong', { textContent: key }), fileLabel);
     box.append(title);
     panel.append(box);
     play.addEventListener('click', () => {
-      if (!sfx.audition(key)) paintStatus();
+      const file = sfx.audition(key);
+      if (!file) { paintStatus(); return; }
+      if (takes > 1) fileLabel.textContent = `${fileText} · played ${file.slice(-1)}`;
     });
 
     const gain = slider(-40, 18, 0.5, 0);
