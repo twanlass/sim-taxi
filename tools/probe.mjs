@@ -175,7 +175,7 @@ import {
   BOOST_COOLDOWN, BOOST_FLOOR_FRACTION, BOOST_REGEN_SECONDS,
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
-import { createSfx, SHIPPED_MIX, SFX_EVENTS } from '../src/game/sfx.js';
+import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
 const seed = Number(process.argv[2] ?? 71624);
@@ -8579,6 +8579,20 @@ check('the taxi is an ordinary car in the traffic array',
   check('mix.json has a min gap for every one-shot', noGap.length === 0, noGap.join(', '));
   check('the shipped mix reads mix.json unchanged',
     JSON.stringify(SHIPPED_MIX) === JSON.stringify(MIX_FILE));
+
+  // Every take a sound draws from is a shipped file, and every shipped file is some sound's take —
+  // a delivery that renames a variant would otherwise thin a sound's set without a word, since
+  // `pickTake` draws only from what decoded.
+  const files = createSfx().files;
+  const onDisk = fs.readdirSync(new URL('../assets/audio/', import.meta.url))
+    .filter((f) => f.endsWith('.m4a')).map((f) => f.slice(0, -4));
+  const taken = new Set(Object.values(SOUNDS).flat());
+  const unwired = [...taken].filter((f) => !(f in files) || !onDisk.includes(f));
+  check('every take a sound names is a shipped .m4a', unwired.length === 0, unwired.join(', '));
+  const orphans = onDisk.filter((f) => !taken.has(f));
+  check('every shipped .m4a is some sound\'s take', orphans.length === 0, orphans.join(', '));
+  const unsorted = Object.keys(SOUNDS).filter((k) => !SFX_EVENTS.has(k) && !LOOPS.has(k));
+  check('every sound is either a one-shot or a bed', unsorted.length === 0, unsorted.join(', '));
 
   const sfx = createSfx();
   sfx.tune({ master: 9, sounds: { crash: { gain: -1, rate: 'x' }, nope: { gain: 1 } },

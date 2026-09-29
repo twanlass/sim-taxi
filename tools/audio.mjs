@@ -5,11 +5,11 @@
  *
  * Workflow for a new delivery is in docs/audio.md#adding-or-replacing-a-sound.
  *
- * The masters are 48 kHz / 24-bit stereo WAV — 17 MB for the first delivery of seventeen files —
+ * The masters are 48 kHz / 24-bit stereo WAV — 31 MB for Block 1's forty-one files —
  * committed under `assets/audio-src/` so a re-encode never depends on someone's Downloads folder.
  * Nothing references them from `src/`, so Vite never ships them. What ships is
- * `assets/audio/<same name>.m4a`, AAC at 128 kbps: ~800 kB for the same set, a 21x cut. 96 kbps
- * was 650 kB and 64 kbps 470 kB, but these are short effects heard on a phone speaker *and* on
+ * `assets/audio/<same name>.m4a`, AAC at 128 kbps: 1,262 kB for the same set, a 25x cut. On the
+ * first (test) delivery 96 kbps was 650 kB against 800 and 64 kbps 470 kB, but these are short effects heard on a phone speaker *and* on
  * headphones, and the 150 kB is not worth a smeared transient on the door or the crash.
  *
  * AAC in an MP4 container rather than Opus or MP3: it is the one format every target decodes

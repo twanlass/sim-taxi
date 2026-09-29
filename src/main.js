@@ -647,7 +647,7 @@ function boardSound() {
 }
 
 // The sound — see game/sfx.js. Silent in shot mode, which renders stills and has nobody listening.
-// Its own stream: which idle and which Loco loop a run gets is part of the situation.
+// Its own stream, which draws the take each one-shot plays (the designer's A/B/C variants).
 const sfx = shot ? null : createSfx({ rng: makeRng(runSeed + 811) });
 
 // The switch lives on the pause screen, with M for a keyboard. The choice is remembered
@@ -1216,9 +1216,9 @@ const BUMP_SHAKE_PER_UNIT = 0.03;
 collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd }) => {
   const yaw = traffic.taxi.yaw;
   controller.kickShake(BUMP_SHAKE + closing * BUMP_SHAKE_PER_UNIT);
-  // The wreck's own recording, scaled by the same closing speed the shake is: a survivable hit is
-  // the same noise, smaller and a touch higher. 0.3 at a nudge, full at a T-bone at the Loco top.
-  sfx?.play('crash', { gain: Math.min(1, 0.3 + closing * 0.04), rate: 1.15 });
+  // The designer's bump — light hits against other cars, a recording of its own since Block 1 —
+  // scaled by the same closing speed the shake is. 0.3 at a nudge, full at a T-bone at the Loco top.
+  sfx?.play('bump', { gain: Math.min(1, 0.3 + closing * 0.04) });
   // At the point of contact (`cx/cz` off the deepest pair of circles in sim/collisions.js), not
   // the midpoint of the two cars' centres — on a T-bone that midpoint sits inside the struck car,
   // a unit and a half from the door the sparks should be coming off.
