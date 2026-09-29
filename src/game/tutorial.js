@@ -1,11 +1,4 @@
-import * as THREE from 'three';
-import { createTaxiMesh } from '../geometry/taxi.js';
-import { createPerson, PERSON_TOP_Y } from '../geometry/person.js';
-import { createDiamond, DIAMOND_HALF_H, RIM_OFFSET, bounceOffset } from '../geometry/diamond.js';
-import { fareColor, URGENCY_SEGMENTS } from './urgency.js';
-import { mirrorSceneLights } from './avatarlights.js';
-import { VIEW_DIR } from './camera.js';
-import { getMsaa, getPixelRatioCap } from '../util/shot.js';
+import { createSpeech } from './speech.js';
 
 // The opening tutorial. Two things a new player cannot work out by looking:
 //
@@ -17,7 +10,7 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 //      bubble says so, pointed at a figure that is now in the middle of the frame.
 //
 // Everything else in the game — the drop-off dispatching itself, the timer ring, Loco Mode — either
-// happens without being asked for or is a pill with a label on it. None of it is taught here.
+// happens without being asked for or is a control on the screen. None of it is taught here.
 //
 // It runs at the top of **every** run. Remembering it across loads was tried — a `localStorage`
 // flag, on the grounds that play-again is a `location.reload()` and a lesson learned once should
@@ -47,7 +40,7 @@ const TAXI_BEAT = false;
 // Every line, in the order it is spoken. Kept together so the whole script is one thing to read.
 const LINES = {
   taxi: "Let's pick up some rides and earn some cash.",
-  rider: 'Tap rider to start.',
+  rider: 'Tap rider to start',
   boost: 'Hold to floor it',
   // Said instead of the line above once the player has *pressed* the pill without ever holding it —
   // see BOOST_HINT_SHOWS. Repeating "Hold to floor it" at someone who is jabbing the pill is a
@@ -55,17 +48,14 @@ const LINES = {
   // are doing wrong, which is the only new information there is to give them.
   boostAgain: "Hold it down — don't tap",
 };
+// Who is talking, in the bubble's title. Every beat is the game giving a tip, not a character.
+const TITLE = 'Tip';
 
-// Typing speed. ~38 chars/sec — fast enough that a reader is never waiting on the machine, slow
-// enough that the line still arrives as speech rather than as a label appearing.
-const TYPE_PER_CHAR = 0.026;
-// A beat on sentence punctuation, so the line has a rhythm instead of a constant clatter.
-const TYPE_PAUSE = 0.14;
-const PAUSE_AFTER = new Set([',', '.', '!', '?']);
-
-// Matches the exit transition in index.html. The element is only hidden once the scale-down has
-// actually played — hiding it on the same frame would cut the animation the dismissal is for.
-const CLOSE_MS = 220;
+// Where the pointer touches, in world units up from the ground. A rider's crystal floats over their
+// head with its top point at ~7.4 at the peak of its bounce, so the bubble stands on that rather than
+// covering it; the taxi's is just over its roof.
+const RIDER_TIP_Y = 8;
+const TAXI_TIP_Y = 2.8;
 
 // A beat between the city finishing its entrance and the tutorial saying anything. This was a
 // full second of static city back when a run opened on one — the beat existed to establish that
@@ -133,334 +123,6 @@ export const LOCO_HINT_HOLD = 0.75;
 // without the framing whipping across the city to get there.
 const COACH_FOLLOW = 2.0;
 
-// The avatar box, in CSS pixels — one per subject, because the two are not the same shape.
-//
-// The taxi is a car turning on the spot: square, and the framing below is derived from the cylinder
-// it sweeps. The rider is a *stack* — a figure with the fare's crystal floating over its head (see
-// the rider scene) — and that does not fit a square without shrinking both halves past reading. Its
-// 48 × 80 keeps the horizontal framing exactly what the square had (±2.2 world units, the
-// rider-finder chip's own frustum) and spends every pixel it gains on sky: the figure gives up
-// about 6px of height for it (39.5 → 33.5) and the crystal arrives at ~38.
-//
-// The canvas is resized when the subject changes rather than sized once — one `setSize` per beat,
-// against a beat that lasts seconds. `.coach-avatar` in index.html is therefore shrink-to-fit and
-// takes its size from the canvas, not the other way round.
-const AVATAR_BOX = {
-  taxi: { w: 54, h: 54 },
-  rider: { w: 48, h: 80 },
-};
-// One turn every 5.5s. Quick enough to read as alive in the corner of a bubble you are reading,
-// slow enough that the car is legible as a car at every angle.
-const AVATAR_SPIN = (Math.PI * 2) / 5.5;
-
-// Where the taxi avatar is viewed from: the game camera's elevation, on the rider avatar's azimuth.
-// Derived from VIEW_DIR rather than written out, so the two stay the same height above the ground
-// if the city's camera is ever re-pitched — the framing below is computed from that angle. See the
-// note on the camera itself for why the azimuth is the one thing that moves.
-const AVATAR_VIEW = new THREE.Vector3(0, VIEW_DIR.y, Math.hypot(VIEW_DIR.x, VIEW_DIR.z)).normalize();
-
-const prefersReducedMotion = () =>
-  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-
-/**
- * The rotating taxi (and, for the second beat, the waving rider) in the bubble's avatar. Its own
- * tiny WebGL context, the same way each rider-finder chip owns one (see game/riderfinder.js) — the
- * meshes are the real `createTaxiMesh` / `createPerson`, so the figure in the bubble is the one on
- * the road rather than a drawing of it, and it cannot drift out of step when either is restyled.
- *
- * Two subjects share the one canvas — a taxi scene/camera and a rider scene/camera — and `render`
- * picks one by name each frame rather than keeping two contexts alive. Both get the game's own sun
- * and hemisphere fill, mirrored in (see `mirrorSceneLights`, shared with the rider-finder chips):
- * the bubble is a window onto this city, not a studio shot, so whichever figure is standing in it
- * should be lit by the same afternoon.
- *
- * @param sun   the city's own key light, read (not re-parented — an Object3D has one parent) so the
- *              avatar is lit by the same sun as the car it is a picture of
- * @param hemi  the city's hemisphere fill, same deal
- */
-function createAvatar(sun, hemi) {
-  const canvas = document.createElement('canvas');
-
-  // A second WebGL context, and it honours the same budget flags the main renderer does — see
-  // `util/shot.js`. Not for its own cost, which is a box under 50px on a side, but because `?safe`
-  // is asking a device "what will you render at all", and a context this page opened is part of the
-  // answer.
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: getMsaa(), alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, getPixelRatioCap()));
-  renderer.setClearColor(0x000000, 0);
-
-  // `setSize`'s third argument leaves the element's CSS size alone, so the style has to be written
-  // here too — without it the canvas would lay out at its backing-store size, which is the pixel
-  // ratio times too big.
-  let box = null;
-  const setBox = (next) => {
-    if (box === next) return;
-    box = next;
-    renderer.setSize(next.w, next.h, false);
-    canvas.style.width = `${next.w}px`;
-    canvas.style.height = `${next.h}px`;
-  };
-  setBox(AVATAR_BOX.taxi);
-
-  const scene = new THREE.Scene();
-
-  // The city's own lighting rig, mirrored into both scenes below (taxi and rider alike) via
-  // `mirrorSceneLights` — shared with the rider-finder chips, so nothing pictured out of this city
-  // is ever lit by a different afternoon than the one on screen.
-  const syncLights = mirrorSceneLights(scene, sun, hemi);
-
-  const taxi = createTaxiMesh();
-  // The ghost outline needs `stencil: true`, which this renderer does not ask for — without the
-  // buffer the stencil test passes everywhere and the "outline" fills the whole hull in solid
-  // yellow. Nothing occludes the car in a 46px disc anyway, so both passes just go.
-  taxi.group.traverse((node) => {
-    if (node.name === 'ghostMask' || node.name === 'ghostRim') node.visible = false;
-  });
-  // Sign lit. It was dark for a while on the grounds that the taxi is empty at the start of a run
-  // and the avatar is a picture of the actual car rather than a logo — but the avatar is the only
-  // place in the game where the sign is a *portrait* detail rather than a readout, nothing reads it
-  // for occupancy here, and the lit off-white is the one bright mark on a roof that is otherwise a
-  // dark cabin block. It is what makes the shape say "taxi" at 54px.
-  taxi.setOccupied(true);
-
-  // Spun about a parent rather than about the mesh itself, so the taxi keeps whatever local
-  // transform createTaxiMesh gave it (the 1.18 scale, the YXZ rotation order for roll).
-  const pivot = new THREE.Group();
-  pivot.add(taxi.group);
-  scene.add(pivot);
-
-  // Viewed at the game camera's own elevation, so the silhouette in the bubble is the silhouette on
-  // the road — which is the entire point of putting the car in the bubble — but turned 45° around
-  // to the sunlit side.
-  //
-  // It looked straight down VIEW_DIR at first, azimuth and all, and the car came out half black.
-  // The lights here are the city's own (mirrored above), and at the hour the game parks at the sun
-  // sits at azimuth 153°, elevation 28.5° — a horizontal direction of (−0.78, +0.40) in (x, z). A
-  // camera on +X +Z sees the +X faces, and those sit at n·L = −0.78: unlit at every angle of the
-  // spin, so one whole flank of the car was in shadow through the entire turn while the bubble it
-  // sits in is white. Turned to +Z the camera-facing flank is at +0.40 instead, and only the
-  // quadrant past 27° off the axis falls into shadow — 65% of the visible sweep is lit rather than
-  // 40%.
-  //
-  // +Z is not an arbitrary quarter turn: it is the azimuth the rider's camera below already uses
-  // (and the rider-finder chips with it), so both bubbles now stand in the same afternoon at the
-  // same angle to it rather than one facing the sun and one facing away.
-  //
-  // The azimuth is free to move because the car is *spinning*: turning the camera around the Y axis
-  // only offsets the phase of the spin, so every silhouette that used to come round still does. The
-  // elevation is what the framing below is derived from, and that is untouched.
-  //
-  // Framed on the cylinder the car sweeps as it turns, so nothing clips at any angle of the spin
-  // rather than a bumper being sliced off twice a turn. Measured off the built mesh: visible
-  // extents are ±2.36 long, ±1.49 wide and 3.02 tall, so the spin radius is hypot(2.36, 1.49) =
-  // 2.79. This view's elevation is atan(0.92 / √2) = 33°, which puts the screen-space half-height
-  // at 3.02·cos33/2 + 2.79·sin33 = 2.79 as well — the same number, so one square FIT covers both.
-  // Fitting the bounding *sphere* instead (3.17) was the first go and left the car visibly adrift
-  // in the middle of a 46px disc; the extra 10% is worth having at this size.
-  //
-  // Centred a little under the sweep's midpoint: only the roof sign reaches the top of that range
-  // and only a broadside bumper reaches the sides, so the honest visual centre sits lower than the
-  // geometric one.
-  const CENTRE_Y = 1.0;
-  const FIT = 2.9;               // 2.79 plus 4% air
-  const camera = new THREE.OrthographicCamera(-FIT, FIT, FIT, -FIT, 0.1, 60);
-  camera.position.set(0, CENTRE_Y, 0).addScaledVector(AVATAR_VIEW, 20);
-  camera.lookAt(0, CENTRE_Y, 0);
-
-  // A parked angle for reduced motion: three-quarters on, which is the most car-shaped view of it —
-  // and, since this one never turns away from it, the best-lit three-quarter rather than any.
-  //
-  // The car is built along X (CAR_LEN), so at rotation r its flank normal is (sin r, cos r) in
-  // (x, z). Facing the camera on +Z wants cos r > 0; catching the sun at (−0.78, +0.40) wants
-  // −0.78·sin r + 0.40·cos r > 0, i.e. r < 27°. −45° sits well inside both: the flank is at 45° to
-  // the camera (a front three-quarter, nose toward the viewer) and at 0.84 of full sun.
-  //
-  // The old +32° was a three-quarter to the old camera and lit at −0.08 — the one pose a player who
-  // asked for less motion would sit and look at, and it was the shadowed side of the car.
-  const stillAngle = -Math.PI / 4;
-
-  // The rider: same city sun/hemi as the taxi above, its own synced copy (an Object3D has one
-  // parent, so the taxi's lights can't simply be re-added here) — a figure in a tutorial bubble is
-  // being introduced as *part of this city*, so it should be lit by the same afternoon rather than
-  // by a studio light of its own.
-  const riderScene = new THREE.Scene();
-  const syncRiderLights = mirrorSceneLights(riderScene, sun, hemi);
-  const person = createPerson();
-  riderScene.add(person.group);
-
-  // **The fare's own crystal, over the figure's head.** The line says "tap rider", and what the
-  // player then has to find on a dark map is not a 20px person on a kerb — it is the green plumbob
-  // floating over them, which is the brightest thing in the spotlight and the only mark on the
-  // board that is not scenery. Putting it in the bubble makes the card a picture of the *target*
-  // rather than of a passer-by, so the glance from the bubble to the city is a match rather than a
-  // search. The real `createDiamond`, on the real top-of-the-scale hue, for the same reason the
-  // figure is the real `createPerson`: neither can drift out of step with what is on the road.
-  //
-  // Full — `createDiamond` opens at fill 1 — because the clocks are held while the tutorial runs
-  // (see the header), so a draining vessel in the card would be the one thing on screen
-  // contradicting the pause.
-  const crystal = createDiamond(fareColor(URGENCY_SEGMENTS));
-
-  // Two things are deliberately *not* the city's numbers.
-  //
-  // The **scale**: at full size the crystal is 4.5 units against a 3.24 figure, and the card would
-  // read as a crystal with a person under it — true to the city, where the marker is the larger of
-  // the two on screen, and wrong for a card whose subject is the rider. At 0.68 the two are about
-  // matched and both stay legible, which is what the composition is for. The rim scales with it and
-  // lands at 0.15 world ≈ 1.6px here, within a whisker of the 1.7px it draws at play zoom, so the
-  // weight of the outline — the part that actually says "plumbob" at this size — is unchanged.
-  //
-  // The **gap**: 0.53 rather than the marker's own 1.3 units of headroom (LIFT in
-  // game/faremarker.js). That much air in an 80px box is a third of the picture spent on nothing;
-  // half a unit still opens to ~7px at the top of the bounce, which is plainly a hovering object
-  // and not a hat.
-  const CRYSTAL_SCALE = 0.68;
-  const CRYSTAL_GAP = 0.53;
-  // Measured to the rim rather than to the crystal, since the rim is what the eye sees the bottom
-  // point end at.
-  const CRYSTAL_Y = PERSON_TOP_Y + CRYSTAL_GAP + (DIAMOND_HALF_H + RIM_OFFSET) * CRYSTAL_SCALE;
-  crystal.mesh.scale.setScalar(CRYSTAL_SCALE);
-  crystal.mesh.position.y = CRYSTAL_Y;
-  riderScene.add(crystal.mesh);
-
-  // `createPerson`'s torso is thin on Z and wide on X (shoulders either side, chest facing along
-  // Z — see `board()`'s "local +Z is treated as forward"), so the camera sits on +Z to look at the
-  // figure head-on. Same distance and elevation as the rider-finder chip's camera
-  // (game/riderfinder.js) — just turned from +X to face front.
-  //
-  // The frustum keeps that chip's ±2.2 sideways and its ground line (bottom −1.5 lands world y at
-  // −0.03, i.e. the pavement on the bottom edge) and grows *upward* to 5.83 for the crystal. That
-  // is the whole of what the portrait box buys: 4.4 × 7.33 is exactly 48 × 80, so nothing is
-  // stretched and nothing that used to be in frame has left it.
-  //
-  // 5.83 reaches world y 7.70 — the camera is pitched 18.6° down, so a world height maps to
-  // 0.9477 of itself in view space — against a crystal whose top point reaches 7.44 at the peak of
-  // its bounce. A quarter of a unit of sky, about 2.7px.
-  const riderCamera = new THREE.OrthographicCamera(-2.2, 2.2, 5.83, -1.5, 0.1, 40);
-  riderCamera.position.set(0, 3.2, 4.9);
-  riderCamera.lookAt(0, 1.55, 0);
-
-  // Reduced motion freezes the wave mid-raise (t=0 in `wave`) rather than at rest — a still figure
-  // with its arm down would no longer read as "hailing" at all.
-  const stillWaveT = 0;
-
-  return {
-    canvas,
-    /** `subject` is 'taxi' (default) or 'rider' — which scene this frame renders. */
-    render(elapsed, subject) {
-      if (subject === 'rider') {
-        setBox(AVATAR_BOX.rider);
-        const still = prefersReducedMotion();
-        person.wave(still ? stillWaveT : elapsed);
-        // The crystal's own hop, on the marker's own curve — scaled with the shape so the bounce
-        // stays the same fraction of it. Frozen at rest under reduced motion, where a still plumbob
-        // over a still figure is exactly what the marker looks like between bounces anyway.
-        crystal.mesh.position.y = CRYSTAL_Y + (still ? 0 : bounceOffset(elapsed) * CRYSTAL_SCALE);
-        syncRiderLights();
-        renderer.render(riderScene, riderCamera);
-        return;
-      }
-      setBox(AVATAR_BOX.taxi);
-      pivot.rotation.y = prefersReducedMotion() ? stillAngle : elapsed * AVATAR_SPIN;
-      syncLights();
-      renderer.render(scene, camera);
-    },
-    /** Hand the WebGL context back once the tutorial is over — it is never shown again. */
-    dispose() {
-      renderer.dispose();
-      renderer.forceContextLoss?.();
-    },
-  };
-}
-
-/**
- * The bubble itself: show a line, type it out, take a tap.
- *
- * A tap mid-type finishes the line rather than dismissing it — the standard convention, and the one
- * that stops an eager first tap throwing away a sentence nobody has read yet.
- *
- * The tap does not have to land on the bubble; see the window listener in createTutorial. Which is
- * why `tap()` is a method rather than a click handler bound in here.
- */
-export function createBubble(root, { sun, hemi }, onDismiss, avatar = createAvatar(sun, hemi)) {
-  const ghost = root.querySelector('.coach-ghost');
-  const typed = root.querySelector('.coach-typed');
-  const avatarSlot = root.querySelector('.coach-avatar');
-
-  // The taxi/rider pair by default. The robber's bubble (game/robberline.js) hands in its own
-  // figure and reuses everything else here — the typewriter, the tap, the open and close.
-  avatarSlot.appendChild(avatar.canvas);
-
-  let text = '';
-  let shown = 0;
-  let charT = 0;
-  let hold = 0;
-  let closing = null;
-  let subject = 'taxi';
-
-  const isTyping = () => shown < text.length;
-  const finishTyping = () => {
-    shown = text.length;
-    typed.textContent = text;
-  };
-
-  return {
-    avatar,
-    isTyping,
-    /**
-     * Advance. Returns false if there was nothing up to advance, so the caller can tell a tap that
-     * did something from one that fell through to the game underneath.
-     */
-    tap() {
-      if (root.hidden || !root.classList.contains('is-open')) return false;
-      if (isTyping()) { finishTyping(); return true; }
-      onDismiss();
-      return true;
-    },
-    /** `who` is 'taxi' (default) or 'rider' — which avatar the bubble shows while this line is up. */
-    show(line, who = 'taxi') {
-      if (closing) { clearTimeout(closing); closing = null; }
-      subject = who;
-      text = line;
-      shown = 0;
-      charT = 0;
-      hold = 0;
-      ghost.textContent = line;      // reserves the finished size; see index.html
-      typed.textContent = '';
-      root.hidden = false;
-      root.classList.remove('is-closing');
-      // One frame of the closed state before the open one, or the transition has nothing to run
-      // from and the bubble simply appears. Same reflow trick as the money bump in main.js.
-      void root.offsetWidth;
-      root.classList.add('is-open');
-      if (prefersReducedMotion()) finishTyping();
-    },
-    hide() {
-      if (root.hidden || closing) return;
-      root.classList.remove('is-open');
-      root.classList.add('is-closing');
-      closing = setTimeout(() => {
-        root.hidden = true;
-        root.classList.remove('is-closing');
-        closing = null;
-      }, CLOSE_MS);
-    },
-    /** Advance the typewriter and animate the avatar. `elapsed` is tutorial time, for the spin/wave. */
-    update(dt, elapsed) {
-      if (!root.hidden) avatar.render(elapsed, subject);
-      if (root.hidden || !isTyping()) return;
-      if (hold > 0) { hold -= dt; return; }
-      charT += dt;
-      while (charT >= TYPE_PER_CHAR && isTyping()) {
-        charT -= TYPE_PER_CHAR;
-        shown += 1;
-        if (PAUSE_AFTER.has(text[shown - 1])) { hold = TYPE_PAUSE; break; }
-      }
-      typed.textContent = text.slice(0, shown);
-    },
-  };
-}
-
 // The lit pool, in world units — sized here rather than in pixels because 1 world unit is only
 // ~7.7px at play zoom, so a pool measured in pixels would be a different size on every viewport.
 // The taxi is ~4 units long and a rider stands about 3 tall, so 6 units of clean centre is "the
@@ -493,11 +155,13 @@ const GATED_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider']);
  * @param isNarrow      () => boolean; on a wide viewport the whole city is framed by default, so
  *                      the tutorial puts that framing back when it is done
  * @param taxi          the live taxi car object, read for its position each frame
- * @param lights        {sun, hemi} — the city's own rig, mirrored into the avatar
+ * @param viewport      util/viewport.js — the frame the bubble is kept inside
  * @param project       (x, y, z) => {x, y} — world to viewport pixels, for aiming the spotlight
  * @param pixelsPerUnit () => number — the camera's current scale, for sizing it
- * @param boostAnchor   () => {x, y, r} | null — the Loco Mode pill's centre and radius in viewport
+ * @param boostAnchor   () => {x, y, r} | null — the gas pedal's centre and radius in viewport
  *                      pixels, for the third beat's spotlight
+ * @param boostTarget   () => {x, y} | null — the top of the gas pedal, where the third beat's bubble
+ *                      points
  * @param waitingFare   () => fare | null — whoever is on the kerb to point at
  * @param fareLocation  (fare) => {x, z} — the kerb corner to centre, not the junction
  * @param isDispatched  () => boolean — has the player sent the taxi at anyone yet
@@ -518,7 +182,8 @@ const GATED_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider']);
  *                      third beat is deliberately outside it — the run is live by then.
  */
 export function createTutorial({
-  controller, aspect, isNarrow, taxi, lights, project, pixelsPerUnit, boostAnchor = () => null,
+  controller, aspect, isNarrow, taxi, viewport = null, project, pixelsPerUnit,
+  boostAnchor = () => null, boostTarget = () => null,
   waitingFare, fareLocation, isDispatched, hasDelivered = () => false,
   boostHeld = () => false, boostUsed = () => false,
   isOver = () => false, isBlocked = () => false, shouldIgnoreTap = () => false,
@@ -546,7 +211,6 @@ export function createTutorial({
   let boostWait = 0;
   let linger = 0;
   let boostShows = 0;
-  let elapsed = 0;
   let wait = 0;
   let panned = false;
   let cameraReleased = false;
@@ -563,7 +227,11 @@ export function createTutorial({
   // a half-lit pool across the city on its way out — and then bloom from there on the next showing.
   let spotOnPill = false;
 
-  const bubble = createBubble(root, lights, () => dismiss());
+  const bubble = createSpeech(root, { viewport, typing: true, onDismiss: () => dismiss() });
+  // What each beat's bubble points at. The rider is read off the same point the spotlight is, so
+  // the two stay on one figure.
+  const atTaxi = () => project(taxi.x, TAXI_TIP_Y, taxi.z);
+  const atRider = () => (spotAt ? project(spotAt.x, RIDER_TIP_Y, spotAt.z) : null);
 
   /**
    * Aim and size the pool for this frame. Cheap — four custom properties on one div.
@@ -602,15 +270,6 @@ export function createTutorial({
     document.body.classList.remove('coach-open', 'spotlight-on', 'coach-boost');
     window.removeEventListener('click', onTap);
     onRunning(false);
-    // Both held until the exit animation has played. The context is no use to anyone once the
-    // bubble is gone for good, and the avatar is still spinning through the close; `at-boost` is
-    // what *places* the bubble over the pill, so dropping it on this frame would slide the thing
-    // sideways to the centre of the screen through its own 220ms fade rather than letting it go
-    // down where it was.
-    setTimeout(() => {
-      root.classList.remove('at-boost');
-      bubble.avatar.dispose();
-    }, CLOSE_MS + 50);
   }
 
   /** The player is done with the current beat: advance, or wind the whole thing up. */
@@ -661,8 +320,6 @@ export function createTutorial({
     spotOnPill = true;
     // Pulses the pill itself, so the bubble is not the only thing saying which control it means.
     document.body.classList.add('coach-boost');
-    // Sits higher than the first two beats — see #coach.at-boost. The rider chips are live now.
-    root.classList.add('at-boost');
     // Same treatment the taxi and the rider got. `spotOnPill` is already set, so this picks up the
     // pill's box rather than the last world subject — aim before the fade, or it blooms from
     // wherever the previous beat left it.
@@ -671,7 +328,7 @@ export function createTutorial({
     // A player who has pressed the pill and still not held it gets told what they are doing rather
     // than told the same thing twice. `boostUsed` is a press of any length, which is exactly the
     // gesture this line is about.
-    bubble.show(boostUsed() ? LINES.boostAgain : LINES.boost);
+    bubble.show(TITLE, boostUsed() ? LINES.boostAgain : LINES.boost, boostTarget);
   }
 
   /**
@@ -681,9 +338,6 @@ export function createTutorial({
    */
   function retireBoostHint() {
     bubble.hide();
-    // `at-boost` deliberately stays on: it is what places the bubble over the pill, and taking it
-    // off now would slide the bubble to the centre of the screen through the 220ms of its own
-    // closing fade. It costs nothing while the element is hidden, and the next showing wants it.
     document.body.classList.remove('spotlight-on', 'coach-boost');
     if (boostShows >= BOOST_HINT_SHOWS) { end(); return; }
     state.step = 'toBoost';
@@ -711,7 +365,7 @@ export function createTutorial({
     state.step = 'taxi';
     updateSpotlight();                    // aim it before it fades up, or it blooms from the centre
     document.body.classList.add('spotlight-on');
-    bubble.show(LINES.taxi);
+    bubble.show(TITLE, LINES.taxi, atTaxi);
   }
 
   /** Straight to the second beat: no line, just the pan setting off for the rider. */
@@ -735,8 +389,7 @@ export function createTutorial({
     // spotlight would darken a city nobody is looking at, and the first line would type itself out
     // underneath an overlay. The clocks are already held from both sides, so nothing is lost.
     if (isBlocked()) return;
-    elapsed += dt;
-    bubble.update(dt, elapsed);
+    bubble.update(dt);
     // Tracked through the restore glide too: the pool is fading out over ~0.45s and a stale centre
     // would slide it across the city as the camera moves under it.
     updateSpotlight();
@@ -785,7 +438,7 @@ export function createTutorial({
       // screen when it starts talking about them.
       if (!controller.isGliding()) {
         state.step = 'rider';
-        bubble.show(LINES.rider, 'rider');
+        bubble.show(TITLE, LINES.rider, atRider);
       }
       return;
     }

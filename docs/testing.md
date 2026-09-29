@@ -413,8 +413,8 @@ three.js page does not:
 
 `?safe` is a **playable** configuration rather than a diagnostic one — a device that only works
 this way can still be played this way. Every flag overrides it, so `?safe&msaa=on` bisects upward
-exactly as `?msaa=off` bisects down, and the flags reach the tutorial avatar's renderer, the
-courier cargo chip's, the taxi finder's and the rider-finder chips' under `?chips=on` too: each of
+exactly as `?msaa=off` bisects down, and the flags reach the
+courier cargo chip's renderer, the taxi finder's and the rider-finder chips' under `?chips=on` too: each of
 those opens a WebGL context of its own, and "how many contexts is this page holding" is part of what
 `?safe` is asking.
 

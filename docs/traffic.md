@@ -2663,7 +2663,7 @@ spell out inline, and which both now need because both can have cars in the flee
 **Spotted** is the old bust's rule: boost within `SPOT_RANGE` (20, one block) of the patrol car,
 engaged rather than held so the cooldown tail after release still counts. The bar comes up, the
 car becomes a chasing cop (`chase = 1`, a stern chase at the taxi's junction, re-aimed per
-junction), and **"Pull over!"** goes up in a speech bubble over its roof (`game/copshout.js`) — the
+junction), and **"POLICE / Taxi: pull over now"** goes up in a speech bubble over its roof (`game/copshout.js`) — the
 cop talking to the player, where [dispatch's card](gameplay.md#dispatch-breaks-in) is the police
 talking about them. A DOM bubble projected over the car every frame, not geometry: this one has to
 be read, and there is no font in the scene.

@@ -1,14 +1,4 @@
-import * as THREE from 'three';
-import { carGeometry, policeCabGeometry, CABIN_X, CABIN_TOP } from '../sim/traffic.js';
-import {
-  sirenOn, sirenPodGeometry, sirenRedAnchor, sirenBlueAnchor, sirenRedMaterial, sirenBlueMaterial,
-  sirenBaseGeometry, sirenBaseAnchor,
-} from '../geometry/lights.js';
-import { propMaterial } from '../util/geo.js';
-import { color } from '../palette.js';
-import { mirrorSceneLights } from './avatarlights.js';
-import { VIEW_DIR } from './camera.js';
-import { getMsaa, getPixelRatioCap } from '../util/shot.js';
+import { createSpeech } from './speech.js';
 
 // The police radio: a bubble that says the fare who just got in is not a fare.
 //
@@ -19,184 +9,96 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 // screen. This says it a beat after the robber's own line (game/robberline.js) is cleared —
 // `RADIO_DELAY` in main.js — so the robber says who got in and this says what that means.
 //
-// Deliberately **not** the tutorial's coach bubble, though it borrows its look:
+// The same bubble as everything else that talks (game/speech.js), pinned on a police car — the one
+// nearest the bank when the robbery call goes out, the cruiser that lost you when the chase ends.
+// The robbery's cops come in just off screen near the bank (`enterPolice` in sim/traffic.js), so
+// the call usually opens waiting at the screen's edge with its pointer aimed at them, which is the
+// first word the player gets about which way the police are coming from. It was pinned on the taxi
+// at first, on the grounds that the robbery is the one in the back seat, and that read as the taxi
+// calling the police on itself. Not answered like the tutorial's or the robber's:
 //
 //   - No spotlight. The run is live and the clock that matters most in the game has just started;
 //     dimming the city over the getaway would spend it.
 //   - Nothing to answer. It is `pointer-events: none` and times itself out, because the tap the
 //     player is about to make is on the road, routing the getaway, and a bubble that ate it would
 //     cost the one second this event is about.
-//   - Its own element and its own context. The tutorial's third beat can still be cycling when a
-//     robbery lands, and the two say different things from different places — the coach speaks for
-//     the taxi from the bottom, the radio is somebody else's channel breaking in from the top.
+//   - Its own element. The tutorial's third beat can still be cycling when a robbery lands, and
+//     the two say different things about different things.
 //
 // Named `radio` rather than anything with `alert`/`banner`/`popup` in it: ad-blocker filter lists
 // match those, and one hit takes the module graph down (see CLAUDE.md).
 
-/** What the dispatcher says. */
-export const RADIO_LINE = 'All units respond! Robbery in progress.';
+/** What the dispatcher says when the robber gets in. */
+export const ROBBERY_CALL = { title: 'Police dispatch', line: '10-65 in progress!' };
 
 /**
- * ...and what it says when the patrol cruiser loses the taxi (game/patrol.js). The same channel,
- * because it is the same police: the bubble is how the game says "the cops are talking about
- * *you*". It is the only word the player gets that they got away — the bar going dark says it too,
- * but only to somebody looking at the car. The start of a chase needs no line of its own here: the
- * cop says "Pull over!" from its own roof (game/copshout.js).
+ * ...and what the police say when the patrol cruiser loses the taxi (game/patrol.js). The same
+ * channel, because it is the same police: the bubble is how the game says "the cops are talking
+ * about *you*". It is the only word the player gets that they got away — the bar going dark says it
+ * too, but only to somebody looking at the car. The start of a chase needs no line of its own here:
+ * the cop says it from its own roof (game/copshout.js).
  */
-export const LOST_LINE = 'Suspect lost. All units stand down.';
+export const LOST_CALL = { title: 'Police', line: 'Lost the suspect. Resuming patrol.' };
 
 /**
- * How long it stays up, in seconds of game time. Long enough to read the line twice at a glance
- * (39 characters), short enough that it is gone before the first cop car is on screen to take over
- * saying it. Game time rather than wall time, so a pause holds it rather than eating it.
+ * How long it stays up, in seconds of game time. Long enough to read the line twice at a glance,
+ * short enough that it is gone before the first cop car is on screen to take over saying it. Game
+ * time rather than wall time, so a pause holds it rather than eating it.
  */
 export const RADIO_LINGER = 3.2;
 
-// Matches the exit transition in index.html, as the coach's CLOSE_MS does.
-const CLOSE_MS = 220;
-
-// The avatar box, in CSS pixels — the coach's taxi square, so the two bubbles are one family.
-const AVATAR_PX = 54;
-// One turn every 5.5s, the coach's own rate.
-const AVATAR_SPIN = (Math.PI * 2) / 5.5;
-// Viewed as the coach views the taxi: the game camera's elevation on the +Z azimuth, which is the
-// sunlit side at the hour the game parks at (see `createAvatar` in game/tutorial.js).
-const AVATAR_VIEW = new THREE.Vector3(0, VIEW_DIR.y, Math.hypot(VIEW_DIR.x, VIEW_DIR.z)).normalize();
-
-const prefersReducedMotion = () =>
-  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+// Where the pointer touches: just over a cop car's light bar — copshout.js's number.
+const TIP_Y = 2.6;
 
 /**
- * The cop car turning in the bubble — the ordinary ambient car in the police two-tone (`policeBody`
- * under the `policeCabGeometry` shell) with the siren bar on its roof (sim/traffic.js). The same
- * car the patrol cruiser is drawn as, so whichever one ends up in the player's mirror, it is this.
- *
- * Built from the traffic model's own `carGeometry` rather than a copy, so the car in the bubble is
- * the car on the road. That geometry leaves its body white for the instance tint; here the
- * material's own colour does the same multiply, glass and tyres included, which is exactly what
- * the instance colour does to them on the street.
+ * @param project   (x, y, z) => {x, y} — world to viewport pixels
+ * @param viewport  util/viewport.js — the frame the bubble is kept inside
  */
-function createAvatar(sun, hemi) {
-  const canvas = document.createElement('canvas');
-  // Same budget flags as every other context this page opens — see util/shot.js.
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: getMsaa(), alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, getPixelRatioCap()));
-  renderer.setClearColor(0x000000, 0);
-  renderer.setSize(AVATAR_PX, AVATAR_PX, false);
-  canvas.style.width = `${AVATAR_PX}px`;
-  canvas.style.height = `${AVATAR_PX}px`;
-
-  const scene = new THREE.Scene();
-  const syncLights = mirrorSceneLights(scene, sun, hemi);
-
-  const pivot = new THREE.Group();
-  scene.add(pivot);
-  const bodyMaterial = propMaterial({ ao: false });
-  bodyMaterial.color.copy(color('policeBody'));
-  pivot.add(new THREE.Mesh(carGeometry(), bodyMaterial));
-  // The cab and the unlit bar carry their own baked colours, so they share a plain material.
-  const paintMaterial = propMaterial({ ao: false });
-  pivot.add(new THREE.Mesh(policeCabGeometry(), paintMaterial));
-  const base = new THREE.Mesh(sirenBaseGeometry(), paintMaterial);
-  base.position.copy(sirenBaseAnchor(CABIN_X, CABIN_TOP));
-  pivot.add(base);
-
-  // The bar: one lamp per colour, red left and blue right, lighting alternately as it does on the
-  // street. Switched by `visible` here rather than by scale — nothing in this scene is instanced.
-  const lamp = (material, at) => {
-    const pod = new THREE.Mesh(sirenPodGeometry(), material);
-    pod.position.copy(at);
-    pivot.add(pod);
-    return pod;
-  };
-  const red = lamp(sirenRedMaterial(), sirenRedAnchor(CABIN_X, CABIN_TOP));
-  const blue = lamp(sirenBlueMaterial(), sirenBlueAnchor(CABIN_X, CABIN_TOP));
-
-  // Framed on what the car sweeps as it turns, as the coach frames the taxi. Measured off
-  // `carGeometry()` projected through this camera over a full turn: ±1.92 across, and −1.66 to
-  // +1.59 about CENTRE_Y — +1.89 with the bar's 0.3 on the roof. 2.2 is that plus a little air,
-  // the same 87–96% fill the coach's taxi gets.
-  const CENTRE_Y = 1.0;
-  const FIT = 2.2;
-  const camera = new THREE.OrthographicCamera(-FIT, FIT, FIT, -FIT, 0.1, 60);
-  camera.position.set(0, CENTRE_Y, 0).addScaledVector(AVATAR_VIEW, 20);
-  camera.lookAt(0, CENTRE_Y, 0);
-  // The coach's reduced-motion pose: a front three-quarter on the lit side.
-  const stillAngle = -Math.PI / 4;
-
-  return {
-    canvas,
-    render(elapsed) {
-      const still = prefersReducedMotion();
-      pivot.rotation.y = still ? stillAngle : elapsed * AVATAR_SPIN;
-      // Reduced motion parks the bar on red rather than strobing it — a flashing light is the one
-      // piece of motion here that is not just the car turning.
-      const onRed = still || sirenOn(elapsed);
-      red.visible = onRed;
-      blue.visible = !onRed;
-      syncLights();
-      renderer.render(scene, camera);
-    },
-  };
-}
-
-/**
- * @param lights  {sun, hemi} — the city's own rig, mirrored into the avatar as the coach's is
- */
-export function createRadio({ lights }) {
+export function createRadio({ project, viewport = null }) {
   const root = document.getElementById('radio');
   const idle = { state: { open: false }, show: () => {}, update: () => {} };
   if (!root) return idle;
 
-  const avatarSlot = root.querySelector('.radio-avatar');
-  const lineEl = root.querySelector('.radio-line');
-  lineEl.textContent = RADIO_LINE;
-
-  // Built on the first robbery rather than at boot. Most runs never meet one, and a WebGL context
-  // nobody looks at is still one of the browser's small budget of them.
-  let avatar = null;
-  const state = { open: false, left: 0, elapsed: 0 };
-  let closing = null;
+  const bubble = createSpeech(root, { viewport });
+  const state = { open: false, left: 0 };
+  // The car the call is pinned on, and where it was last seen: a cop can be retired or recycled
+  // mid-line (its `police` flag goes), and the bubble should stay where it was rather than follow
+  // the car into ordinary traffic.
+  let car = null;
+  const last = { x: 0, z: 0 };
+  const at = () => {
+    if (car?.police) { last.x = car.x; last.z = car.z; }
+    return project(last.x, TIP_Y, last.z);
+  };
 
   function hide() {
     if (!state.open) return;
     state.open = false;
-    root.classList.remove('is-open');
-    root.classList.add('is-closing');
-    closing = setTimeout(() => {
-      root.hidden = true;
-      root.classList.remove('is-closing');
-      closing = null;
-    }, CLOSE_MS);
+    bubble.hide();
   }
 
   return {
     state,
-    /** Dispatch breaks in: the robber is in the car, by default, or `line` for anything else. */
-    show(line = RADIO_LINE) {
-      lineEl.textContent = line;
-      if (!avatar) {
-        avatar = createAvatar(lights.sun, lights.hemi);
-        avatarSlot.appendChild(avatar.canvas);
-      }
-      if (closing) { clearTimeout(closing); closing = null; }
+    /**
+     * The police talk.
+     *
+     * @param call  ROBBERY_CALL or LOST_CALL
+     * @param cop   the police car to pin it on; nothing is shown without one
+     */
+    show(call, cop) {
+      if (!cop) return;
+      car = cop;
+      last.x = cop.x;
+      last.z = cop.z;
       state.open = true;
       state.left = RADIO_LINGER;
-      state.elapsed = 0;
-      avatar.render(0);
-      root.hidden = false;
-      root.classList.remove('is-closing');
-      // One frame of the closed state first, or the transition has nothing to run from — the same
-      // reflow the coach bubble uses.
-      void root.offsetWidth;
-      root.classList.add('is-open');
+      bubble.show(call.title, call.line, at);
     },
     /** Game time, so a pause holds the bubble; a run that ends takes it down at once. */
     update(dt, { over = false } = {}) {
+      bubble.update(dt);
       if (!state.open) return;
       if (over) { hide(); return; }
-      state.elapsed += dt;
-      avatar.render(state.elapsed);
       state.left -= dt;
       if (state.left <= 0) hide();
     },

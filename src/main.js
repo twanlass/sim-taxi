@@ -36,7 +36,8 @@ import {
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
 import { createImpact } from './game/impact.js';
-import { createTaxiDamage } from './game/taxidamage.js';
+import { createTaxiDamage, SMOKE_FRACTION } from './game/taxidamage.js';
+import { createDepotCall } from './game/depotcall.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
@@ -91,7 +92,7 @@ import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getA
   getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
-import { createRadio, LOST_LINE } from './game/radio.js';
+import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
 import { createPatrol } from './game/patrol.js';
 import { createCopShout } from './game/copshout.js';
 import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
@@ -492,7 +493,7 @@ const burgerRun = driveThru
     onServed: () => {
       flyEnergyToBoost({
         from: taxiScreenPos,
-        to: boostScreenPos,
+        to: fuelScreenPos,
         onArrive: () => boost.topUp(BOOST_BURGER_REWARD),
       });
       const paid = fares.charge(BURGER_PRICE);
@@ -557,9 +558,8 @@ const depotRun = garage && !shot
 // put a robber in half the shot list at random.
 // Dispatch breaking in when the robber gets in — the one thing that says this pickup is not a fare
 // on the frame it happens. See game/radio.js. Built whether or not the city has a bank, because the
-// patrol cruiser's chase talks on the same channel (game/patrol.js); its avatar's WebGL context is
-// still only made the first time it opens.
-const radio = !shot ? createRadio({ lights: { sun, hemi } }) : null;
+// patrol cruiser's chase talks on the same channel (game/patrol.js).
+const radio = !shot ? createRadio({ project: projectToScreen, viewport }) : null;
 // Seconds of game time until dispatch breaks in, once the robber's line has been cleared; 0 when
 // nothing is pending. A beat after the police come on rather than with them, so the tap that
 // clears the robber's bubble does not also land a second bubble on the same frame.
@@ -572,7 +572,7 @@ let robberBoarding = null;
 // in `frame()`. Its dismissal is what calls the police.
 const robberLine = city.bank && !shot
   ? createRobberLine({
-    lights: { sun, hemi },
+    viewport,
     taxi: traffic.taxi,
     project: projectToScreen,
     pixelsPerUnit: () => viewport.height() / (2 * controller.viewZoom()),
@@ -614,7 +614,7 @@ const robbery = city.bank && !shot
       // on the street cruising faster than an unboosted taxi.
       flyEnergyToBoost({
         from: taxiScreenPos,
-        to: boostScreenPos,
+        to: fuelScreenPos,
         onArrive: () => boost.topUp(1 - boost.fraction()),
       });
       // Not the depot, though: a repair is refused with anyone aboard, so the drop-off just
@@ -665,7 +665,14 @@ paintSound();
 // crosses town edge to edge with its bar swinging red and blue, and comes after you if you boost in
 // front of it. "Pull over!" goes up over its roof the moment it does (game/copshout.js).
 const police = createPolice(scene);
-const copShout = shot ? null : createCopShout({ project: projectToScreen });
+const copShout = shot ? null : createCopShout({ project: projectToScreen, viewport });
+// The depot calling the taxi in for repairs once it starts smoking — see game/depotcall.js. Armed
+// while the car is above the line and fired on the frame it drops below it, so it speaks once per
+// bout of damage; a repair (or anything else that puts the HP back) re-arms it.
+const depotCall = garage && !shot
+  ? createDepotCall({ site: garage.site, project: projectToScreen, viewport })
+  : null;
+let depotCallArmed = true;
 const patrol = createPatrol({
   rng: makeRng(runSeed + 66),
   police,
@@ -679,7 +686,8 @@ const patrol = createPatrol({
     haptic('pick');
   },
   onCaught: () => bustByPolice(),
-  onLost: () => { if (!fares.state.gameOver) radio?.show(LOST_LINE); },
+  // Said by the cruiser that lost you, from over its own roof.
+  onLost: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
 });
 // The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
@@ -1906,17 +1914,17 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   aspect,
   isNarrow,
   taxi: traffic.taxi,
-  // The city's own rig, so the car in the bubble is lit by the same golden hour as the car on the
-  // road. Read, not re-parented — an Object3D belongs to one scene.
-  lights: { sun, hemi },
+  viewport,
   project: projectToScreen,
   // Orthographic, so world-units-per-pixel falls straight out of the frustum height: the vertical
   // world span is exactly 2 * the drawn zoom. This is what keeps the spotlight the same size on
   // every viewport, and correct when a wreck pulls the zoom in under it or Loco Mode pushes in.
   pixelsPerUnit: () => viewport.height() / (2 * controller.viewZoom()),
   // The third beat points at a control rather than at something in the city, so its spotlight is
-  // measured off the pill's own box. Declared after this call; `function` hoisting covers it.
+  // measured off the pedal's own box, and its bubble stands on the pedal's top. Declared after this
+  // call; `function` hoisting covers both.
   boostAnchor: boostScreenPos,
+  boostTarget: gasPedalTop,
   // The one the game means by "the waiting fare" — the shortest clock on the kerb. At this point in
   // a run there is only ever one, but pointing at the same rider the rest of the HUD would is free.
   waitingFare: () => fares.waiting(),
@@ -1960,7 +1968,7 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   },
 });
 
-// The money counter, the streak counter and the rider chips start off their own screen edge and
+// The boost meter, the money counter and the rider chips start off their own screen edge and
 // slide in together — see the HUD entrance block in index.html. A run used to open with all of them
 // already lit, every one reading zero and answering a question nobody had asked yet. They arrive
 // when the tutorial stops talking; with no tutorial to wait for (`?tutorial=off`, shot mode) they
@@ -1972,8 +1980,6 @@ if (!tutorial) revealHud();
 
 const hud = {
   money: document.getElementById('money'),
-  streak: document.getElementById('streak'),
-  streakCount: document.getElementById('streak-count'),
   banner: document.getElementById('run-end'),
 };
 
@@ -1998,9 +2004,9 @@ function taxiScreenPos() {
 }
 
 /**
- * Centre of the Punch It pill, and the radius of a circle that clears it. The centre is where a
- * delivery's boost sparks are pulled to; the radius is what the tutorial's third beat sizes its
- * spotlight from. Read fresh on every call rather than cached, because the pill's own fill flutter
+ * Centre of the Punch It pill, and the radius of a circle that clears it. The radius is what the
+ * tutorial's third beat sizes its spotlight from; the sparks go to the fuel meter instead
+ * (`fuelScreenPos`) and only come here when it can't be measured. Read fresh on every call rather than cached, because the pill's own fill flutter
  * scales it and a resize moves it.
  */
 function boostScreenPos() {
@@ -2017,6 +2023,44 @@ function boostScreenPos() {
     // some air around the outline rather than cropping it at the border.
     r: Math.hypot(r.width, r.height) / 2 + 20,
   };
+}
+
+/**
+ * The robbery's cop car nearest the bank's door — the one dispatch's call is pinned on (see
+ * game/radio.js). Read when the call goes out, 1.5s after the police come on, so they are already on
+ * the road; null if there is no robbery or no cop to point at.
+ */
+function copNearestBank() {
+  const door = robbery?.site.door;
+  if (!door) return null;
+  let best = null;
+  let bestD = Infinity;
+  for (const cop of traffic.policeCars) {
+    if (cop.patrol) continue;
+    const d = Math.hypot(cop.x - door.x, cop.z - door.z);
+    if (d < bestD) { bestD = d; best = cop; }
+  }
+  return best;
+}
+
+/** The top of the gas pedal, where the tutorial's Loco Mode bubble points. Null while hidden. */
+function gasPedalTop() {
+  const r = boostButton?.getBoundingClientRect();
+  if (!r?.width) return null;
+  return { x: r.left + r.width / 2, y: r.top };
+}
+
+/**
+ * Where a delivery's boost sparks land: the bar of the fuel meter in the top-left corner, since
+ * that is what they fill. Falls back to the pill when the meter isn't measurable, so a flight
+ * always has somewhere to go. The tutorial's spotlight stays on the pill — it is pointing at the
+ * control, not the read-out.
+ */
+function fuelScreenPos() {
+  const bar = boostMeterEl?.querySelector('.boost-bar');
+  const r = bar?.getBoundingClientRect();
+  if (!r?.width) return boostScreenPos();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2, r: r.width / 2 + 20 };
 }
 
 /** Centre of the money counter in viewport coordinates — the flight's target. */
@@ -2122,34 +2166,6 @@ function popEarning(amount) {
     };
   };
 }
-
-/**
- * The multiplier counter, top right — no flight off the taxi like the payout gets, that's a later
- * concern. It is in the markup from the first frame (see index.html), so there is nothing to
- * reveal here; it bumps on every delivery whether or not the number changed, because the bump is
- * "that one counted" and the number is "and this is what they are worth now".
- *
- * It used to show `fares.state.delivered` and call that a streak, which meant the `×` was
- * decoration — the same number the run-end screen printed as "Fares", wearing a symbol that
- * implied an economy it did not have. It now shows `difficulty.payoutMultiplier`, which is the
- * real multiple every fare's price is stamped with at spawn.
- */
-function updateStreak(multiplier, bump = true) {
-  if (!hud.streak || !hud.streakCount) return;
-  // A whole number prints as "2", a step prints as "1.5" — trailing zeros on a HUD number read as
-  // precision that isn't there.
-  hud.streakCount.textContent = String(Math.round(multiplier * 100) / 100);
-  if (!bump) return;
-  // Toggle off / reflow / on, same as the money bump — a class that stays put doesn't re-fire.
-  hud.streak.classList.remove('streak-bumped');
-  void hud.streak.offsetWidth;
-  hud.streak.classList.add('streak-bumped');
-}
-
-// Paint the opening multiplier, without the bump — a counter that pops on load is announcing a
-// change that hasn't happened. Read off the curve rather than left in the markup so the two cannot
-// drift: `index.html` ships a placeholder, and the first shift's payout is what it should say.
-updateStreak(difficulty.payoutMultiplier(0), false);
 
 /**
  * Push the world half of the difficulty curve into the sim: more traffic, and a police patrol
@@ -2269,6 +2285,9 @@ viewport.onChange((w, h) => {
 // --- Crazy taxi button ------------------------------------------------------
 
 const boostButton = document.getElementById('boost');
+// The same fuel, read out in the top-left corner (see #boost-meter in index.html). It takes the
+// pill's classes and variables verbatim, so the two can never disagree about the tank.
+const boostMeterEl = document.getElementById('boost-meter');
 
 // A drop-off is the only thing that ever puts fuel in the tank (see game/boost.js), so the pour is
 // the reward animation and it gets three layers: the bar overruns its new mark and eases back, the
@@ -2288,13 +2307,19 @@ function updateBoostButton(dt) {
   const charging = boost.isCharging();
   boostMeter.update(dt, boost.fraction(), boost.state.pending > 0 || charging);
 
-  boostButton.classList.toggle('is-active', mode === 'active');
-  boostButton.classList.toggle('is-empty', mode === 'empty');
-  boostButton.classList.toggle('is-charging', charging);
-  boostButton.classList.toggle('is-filling', boostMeter.state.fill > 0);
-  boostButton.style.setProperty('--pct', `${(boostMeter.state.pct * 100).toFixed(1)}%`);
-  boostButton.style.setProperty('--fill', boostMeter.state.fill.toFixed(3));
-  boostButton.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
+  for (const el of [boostButton, boostMeterEl]) {
+    if (!el) continue;
+    el.classList.toggle('is-active', mode === 'active');
+    el.classList.toggle('is-empty', mode === 'empty');
+    el.classList.toggle('is-charging', charging);
+    el.classList.toggle('is-filling', boostMeter.state.fill > 0);
+    el.style.setProperty('--pct', `${(boostMeter.state.pct * 100).toFixed(1)}%`);
+    el.style.setProperty('--fill', boostMeter.state.fill.toFixed(3));
+    el.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
+  }
+  // The pedal sinks while it is held, however it is held — the Space key never touches the
+  // pointer's `is-held`. See "The press" in index.html.
+  boostButton.classList.toggle('is-down', boost.state.held);
   // Dead until there is something worth pressing for: a drop-off pouring fuel back in, or the
   // trickle finishing its climb to a quarter tank (game/boost.js). A pressable-looking pill over a
   // tank with a sixtieth of a second in it would be a lie, so 'empty' covers the whole recharge and
@@ -3260,11 +3285,25 @@ function frame() {
   if (!fareLoopHeld()) robbery?.update(dt);
   radio?.update(dt, { over: fares.state.gameOver });
   copShout?.update(dt, { over: fares.state.gameOver });
+  if (depotCall) {
+    const smoking = traffic.taxi.hp <= TAXI_HP * SMOKE_FRACTION;
+    if (!smoking) depotCallArmed = true;
+    else if (depotCallArmed) {
+      depotCallArmed = false;
+      // Not while the taxi is already on its way in, or inside: the advice has been taken.
+      if (!fares.state.gameOver && !depotRun?.active() && !opening?.visiting()) depotCall.show();
+    }
+    // ...and taken down the moment it is — a tap on the depot, or a run that ends.
+    if (fares.state.gameOver || depotRun?.active()) depotCall.hide();
+    depotCall.update(dt);
+  }
   if (radioIn > 0) {
     radioIn -= dt;
     // A getaway over before dispatch got a word in — a wreck in the first second and a half — has
     // nothing left to call in.
-    if (radioIn <= 0 && robbery?.state.alarmed && !fares.state.gameOver) radio?.show();
+    if (radioIn <= 0 && robbery?.state.alarmed && !fares.state.gameOver) {
+      radio?.show(ROBBERY_CALL, copNearestBank());
+    }
   }
 
   // More than one thing can land in a frame now — delivering the last fare clears the board and
@@ -3296,7 +3335,6 @@ function frame() {
       sfx?.play('doorOpen');
       sfx?.play('doorClose', { delay: 0.7 });
       popEarning(fare.value);
-      updateStreak(difficulty.payoutMultiplier(fares.state.delivered));
       // A third of a tank of boost fuel as the ordinary delivery reward — the only way any fuel
       // enters the meter otherwise. A VIP pays out bigger here too: the tank tops all the way to
       // full rather than by a third, on the same delayed pour as everything else so it reads as
@@ -3304,7 +3342,7 @@ function frame() {
       // tank that drained (or filled) during the flight still tops out exactly full.
       flyEnergyToBoost({
         from: taxiScreenPos,
-        to: boostScreenPos,
+        to: fuelScreenPos,
         onArrive: () => boost.topUp(fare.vip ? 1 - boost.fraction() : BOOST_FARE_REWARD),
       });
       traffic.taxi.route = [];
@@ -3446,7 +3484,7 @@ function frame() {
       popEarning(parcel.value);
       flyEnergyToBoost({
         from: taxiScreenPos,
-        to: boostScreenPos,
+        to: fuelScreenPos,
         onArrive: () => boost.topUp(BOOST_PARCEL_REWARD),
       });
     }
@@ -4193,6 +4231,8 @@ window.__taxi = {
   burgerRun,
   /** The trip back to the depot for repairs — `depotRun.send()` is the tap on the garage. */
   depotRun,
+  /** The depot's call in for repairs, or null — `show()` puts it up. See game/depotcall.js. */
+  depotCall,
   sendForRepairs,
   /** The opening rise-out-of-the-ground animation. `cityEntry.replay()` reruns it on demand. */
   cityEntry,
