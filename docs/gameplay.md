@@ -220,10 +220,11 @@ sideways to stay on the glass, and drops *below* a target that is up under the H
 
 **Off screen, it waits at the edge.** A target out of frame clamps the card to the nearest edge along
 the line from the middle of the screen to it — the [off-screen rider arrows'](#finding-the-next-rider)
-rule — with its pointer turned to aim at it. Pan towards it and the card slides along the edge with
-you until the target is in frame, then drops onto it. On screen the pointer leans towards its target
-but no more than 40° off square to the card's edge, so a card slid into a corner still reads as
-pointing. `placeSpeech` is the pure half of it.
+rule — with its pointer on the side facing that edge. Pan towards it and the card slides along the
+edge with you until the target is in frame, then drops onto it. The pointer always sits in the
+**middle** of its side and only turns, leaning towards its target but no more than 40° off square
+to the card's edge; it used to sit where the line to the target crossed the card, which made it
+crawl along the edge as the camera panned. `placeSpeech` is the pure half of it.
 
 There used to be four fixed places a bubble could be, and a turning 3D avatar in each (the taxi, the
 rider under their crystal, the robber, a cop car) saying who was speaking — each its own WebGL
@@ -3007,16 +3008,17 @@ a clean car in a lit doorway, out, down the kerb and back into traffic.
 Nothing used to say a repair was a tap on the depot. The car wears its damage, but a smoking car is
 a warning without an instruction, and the garage is a building like any other until you know what
 it is for. So on the frame the taxi starts smoking — `SMOKE_FRACTION`, 34% HP, the third of the
-four [damage tiers](../src/game/taxidamage.js) — the depot says **"TAXI HQ / Head to the shop for
+four [damage tiers](../src/game/taxidamage.js) — the depot says **"TAXI DEPOT / Head to the shop for
 repairs."** from a [speech bubble](#speech-bubbles) over its own door (`game/depotcall.js`). Earlier
 and it would be nagging about a swinging lamp; at the 20% plume it is one hit from too late.
 
 Pinned over the door, the bubble is also the answer to *where*: the depot is usually off frame while
 the taxi is out working, so the call opens at the screen's edge pointing at it. It speaks once per
 bout of damage — main.js re-arms it only when the HP is back above the line, which in practice means
-a repair — stays up `DEPOT_CALL_LINGER` (4.5s of game time, a little longer than dispatch because
-it is an instruction and usually pointing off screen), and comes down the moment the player taps
-the depot. Not said at all if the taxi is already on its way in or inside.
+a repair — and stays up its full `DEPOT_CALL_LINGER` (5s of game time, longer than dispatch because
+it is an instruction and usually pointing off screen). It cannot be tapped away, and tapping the
+depot no longer takes it down either: that lost it too easily before it had been read. Only the run
+ending cuts it short. Not said at all if the taxi is already on its way in or inside.
 
 | Phase | What happens | Length |
 |---|---|---|

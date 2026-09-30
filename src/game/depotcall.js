@@ -15,16 +15,18 @@ import { createSpeech } from './speech.js';
 //
 // Once per bout of damage: main.js re-arms it only when the car is back above the line, which in
 // practice means a repair. Timed rather than answered, like dispatch, because the tap the player is
-// about to make — on the depot, if they take the advice — belongs to the city.
+// about to make — on the depot, if they take the advice — belongs to the city. And it always runs
+// its full time: it used to come down the moment the player tapped the depot, which made it too easy
+// to lose before it had been read. Only the run ending takes it down early.
 
 /** Who says it, and what. The Figma file's "Frame 22". */
-export const DEPOT_CALL = { title: 'Taxi HQ', line: 'Head to the shop for repairs.' };
+export const DEPOT_CALL = { title: 'Taxi Depot', line: 'Head to the shop for repairs.' };
 
 /**
- * How long it stays up, in seconds of game time — a little longer than dispatch's 3.2, because this
- * one is an instruction the player may want to act on, and it is usually pointing off screen.
+ * How long it stays up, in seconds of game time — longer than dispatch's 3.2, because this one is
+ * an instruction the player may want to act on, and it is usually pointing off screen.
  */
-export const DEPOT_CALL_LINGER = 4.5;
+export const DEPOT_CALL_LINGER = 5;
 
 // Where the pointer touches: a little over the top of the door opening (DOOR_H in city/garage.js),
 // on the door's face, which is the part of the depot the camera is placed to see.
@@ -57,7 +59,7 @@ export function createDepotCall({ site, project, viewport = null }) {
       state.left = DEPOT_CALL_LINGER;
       bubble.show(DEPOT_CALL.title, DEPOT_CALL.line, at);
     },
-    /** Taken down early: the player has taken the advice, or the run is over. */
+    /** Taken down early: the run is over. */
     hide,
     /** Game time, so a pause holds it. */
     update(dt) {

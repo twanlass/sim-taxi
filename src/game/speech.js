@@ -14,7 +14,7 @@
 // **Off screen, it waits at the edge.** A target the camera cannot see does not take the bubble with
 // it. The card clamps to the nearest edge along the line from the middle of the screen to the
 // target, exactly the way the off-screen rider arrows do (game/farepointers.js), and its pointer
-// swings round to aim at where the target is. Pan towards it and the card slides along the edge
+// moves to the middle of the side facing that edge and turns to aim at where the target is. Pan towards it and the card slides along the edge
 // with the pan until the target comes into frame, when it drops onto it. The two placements agree
 // at the boundary — a target sitting exactly on the band's bottom edge gets the same card from both
 // — so nothing jumps as it crosses.
@@ -37,8 +37,7 @@ const PAUSE_AFTER = new Set([',', '.', '!', '?']);
 // Matches the exit transition on `.speech` in index.html.
 const CLOSE_MS = 200;
 
-// The pointer, in CSS px: the file's 17.5 × 14 at the HUD's ×0.652.
-const POINTER_W = 11.4;
+// The pointer's length, in CSS px: the file's 14 at the HUD's ×0.652.
 const POINTER_H = 9.2;
 // How far the pointer's base is sunk into the card. Its base corners are rounded, so a pointer
 // butted against the edge shows two notches and a hairline of whatever is behind — the file tucks
@@ -48,9 +47,6 @@ const POINTER_SINK = 4;
 // How far the card stands off its target: the pointer's visible length plus a hair, so the tip
 // lands just short of the point rather than on top of it.
 const POINTER_GAP = POINTER_H - POINTER_SINK + 2;
-// The card's corner radius (the file's 24). The pointer never sits on a corner: its base would
-// hang off the curve.
-const CARD_RADIUS = 16;
 // How far an on-screen pointer may lean off square to the card's edge.
 const LEAN = (40 * Math.PI) / 180;
 
@@ -110,12 +106,15 @@ export function placeSpeech(target, w, h, vw, vh, insets = safe) {
 
   let cx;
   let cy;
+  // Which edge of the card carries the pointer.
+  let side;
   if (onScreen) {
     // Above the target, slid sideways to stay on the glass. If there is no room above — a target
     // up under the HUD — below it instead, pointer on the top edge.
     cx = clamp(target.x, cx0, cx1);
     let top = target.y - POINTER_GAP - h;
-    if (top < minY) top = target.y + POINTER_GAP;
+    side = 'bottom';
+    if (top < minY) { top = target.y + POINTER_GAP; side = 'top'; }
     top = clamp(top, minY, Math.max(minY, maxY - h));
     cy = top + h / 2;
   } else {
@@ -127,40 +126,30 @@ export function placeSpeech(target, w, h, vw, vh, insets = safe) {
     const my = (cy0 + cy1) / 2;
     const dx = target.x - mx;
     const dy = target.y - my;
-    const s = Math.min(
-      Math.abs(dx) > 0.001 ? (dx > 0 ? cx1 - mx : mx - cx0) / Math.abs(dx) : Infinity,
-      Math.abs(dy) > 0.001 ? (dy > 0 ? cy1 - my : my - cy0) / Math.abs(dy) : Infinity,
-    );
+    const sx = Math.abs(dx) > 0.001 ? (dx > 0 ? cx1 - mx : mx - cx0) / Math.abs(dx) : Infinity;
+    const sy = Math.abs(dy) > 0.001 ? (dy > 0 ? cy1 - my : my - cy0) / Math.abs(dy) : Infinity;
+    const s = Math.min(sx, sy);
     cx = mx + dx * s;
     cy = my + dy * s;
+    // The pointer goes on the side facing the screen edge the card is waiting at.
+    side = sx <= sy ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'bottom' : 'top');
   }
 
-  // The pointer: where the line from the card's centre to the target leaves the card, kept off the
-  // rounded corners, aimed from there at the target.
+  // The pointer sits in the middle of its side and only turns. It used to sit where the line from
+  // the card's centre to the target left the card, which slid it along the edge every frame the
+  // target moved — a card waiting at the edge for an off-screen target had its pointer crawling
+  // along it as the camera panned.
   const hw = w / 2;
   const hh = h / 2;
-  const vx = target.x - cx;
-  const vy = target.y - cy;
-  const t = Math.min(
-    Math.abs(vx) > 0.001 ? hw / Math.abs(vx) : Infinity,
-    Math.abs(vy) > 0.001 ? hh / Math.abs(vy) : Infinity,
-  );
-  let ox = Number.isFinite(t) ? vx * t : 0;
-  let oy = Number.isFinite(t) ? vy * t : hh;
-  const inset = CARD_RADIUS + POINTER_W / 2;
-  if (Math.abs(Math.abs(ox) - hw) < 0.01) oy = clamp(oy, -hh + inset, hh - inset);
-  else ox = clamp(ox, -hw + inset, hw - inset);
-  let angle = Math.atan2(target.y - (cy + oy), target.x - (cx + ox));
-  // On screen the pointer leans towards its target but never lies along the card's edge: a target
-  // almost level with the pointer's base (a card slid sideways at the edge of the glass) would turn
-  // it flat, and it stops reading as a pointer. 40° either side of straight out.
-  if (onScreen) {
-    const side = Math.abs(Math.abs(ox) - hw) < 0.01;
-    const normal = side ? (ox > 0 ? 0 : Math.PI) : (oy > 0 ? Math.PI / 2 : -Math.PI / 2);
-    let off = angle - normal;
-    off = Math.atan2(Math.sin(off), Math.cos(off));
-    angle = normal + clamp(off, -LEAN, LEAN);
-  }
+  const ox = side === 'right' ? hw : side === 'left' ? -hw : 0;
+  const oy = side === 'bottom' ? hh : side === 'top' ? -hh : 0;
+  const normal = { right: 0, bottom: Math.PI / 2, left: Math.PI, top: -Math.PI / 2 }[side];
+  // Aimed at the target, but never lying along the card's edge: a target almost level with the
+  // pointer's base would turn it flat, and it stops reading as a pointer. 40° either side of
+  // straight out.
+  let off = Math.atan2(target.y - (cy + oy), target.x - (cx + ox)) - normal;
+  off = Math.atan2(Math.sin(off), Math.cos(off));
+  const angle = normal + clamp(off, -LEAN, LEAN);
 
   return { left: cx - hw, top: cy - hh, px: hw + ox, py: hh + oy, angle, onScreen };
 }
