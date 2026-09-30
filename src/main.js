@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { makeRng } from './util/rng.js';
 import { createScene, sinkShadowCaster, setHazeTop } from './game/scene.js';
 import { createRain, GRIP, RAIN_HAZE_TOP } from './game/rain.js';
+import { collectPanes, litWindows, streetLamps, createTaxiHeadlights } from './game/citylights.js';
 import {
   createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD,
 } from './game/camera.js';
@@ -19,7 +20,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
-  configureSignals, setGrip,
+  configureSignals, setGrip, setRunningLights,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice } from './sim/police.js';
@@ -249,7 +250,11 @@ const crayon = createCrayon(renderer, { enabled: crayonEnabled });
 // `?rain` — the wet city. An exploration, off by default; see game/rain.js. The road's grip goes with
 // it: every car brakes softer, and plans its stops against the softer brake.
 const rain = createRain(renderer, { enabled: getRain() });
-if (rain.enabled) setGrip(GRIP);
+if (rain.enabled) {
+  setGrip(GRIP);
+  // Headlights on, and a dim pair of tail lights on every car — see `setRunningLights`.
+  setRunningLights(1);
+}
 const cartoon = createCartoon({ enabled: cartoonEnabled });
 
 // `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
@@ -291,6 +296,7 @@ function renderFrame() {
   // shot mode and `__taxi.redraw()` both reach a render without ever reaching the loop.
   crayon.prepare();
   // The wet road's mirror, before anything reads it. A no-op without `?rain`.
+  rainLightsOn?.();
   rain.update(0, camera);
   rain.renderReflection(scene, camera);
   ao.render(scene, camera);
@@ -360,8 +366,24 @@ if (river) {
 }
 // Held onto for its `pad`: exactly one roof in the city carries a landing circle, and the
 // helicopter below has to be told which one — see `choosePad` in city/buildings.js.
+const stopPanes = rain.enabled ? collectPanes() : null;
 const city = createBuildings(makeRng(seed + 22), layout);
 scene.add(markOccluder(city.mesh));
+
+// Rain Mode's city lights — lit windows over the panes just built, and street lamps. A wet street
+// is a mirror for lamps, and a daytime city has almost none. See game/citylights.js. Their own
+// streams, so switching the rain on cannot move a building.
+const litPanes = stopPanes ? litWindows(makeRng(seed + 391), stopPanes()) : null;
+const lamps = rain.enabled ? streetLamps(makeRng(seed + 392), layout) : null;
+if (litPanes) scene.add(litPanes);
+if (lamps) {
+  scene.add(markOccluder(lamps.posts), lamps.heads, lamps.pools);
+  rain.hideInMirror(lamps.pools);
+}
+// Dark until the entrance wave has finished: the city arrives, then switches its lights on. Set
+// once the wave exists, at the bottom of the scenery; read in `renderFrame`.
+let rainLightsOn = null;
+for (const mesh of [litPanes, lamps?.pools]) if (mesh) mesh.visible = false;
 // Held onto for the entrance animation below — the trees rise out of the parks the same way the
 // buildings rise out of their lots — and for its `pond`: exactly one park in the city has water in
 // it, and the ducks floating on it have to be told which one. Null on a city with no park big
@@ -737,6 +759,15 @@ markOccluder(police.group);
 // cruiser's own `siren`. Read off the mesh rather than stated here, so a new lamp arrives in the
 // bloom at the right strength by being built rather than by being remembered in two places.
 for (const mesh of traffic.emissiveMeshes) markEmissive(mesh, mesh.userData.bloomKind ?? 'pod');
+if (litPanes) markEmissive(litPanes, 'window');
+// The taxi's own headlights and pools, hung on its group so they ride the body. The group is also
+// what becomes the wreck (see `wreckShell` in sim/traffic.js), so they go dark while it is one.
+const taxiHeadlights = rain.enabled ? createTaxiHeadlights() : null;
+if (taxiHeadlights) {
+  traffic.taxiGroup.add(taxiHeadlights.group);
+  markEmissive(taxiHeadlights.pods, 'pod');
+}
+if (lamps) markEmissive(lamps.heads, 'bay');
 for (const mesh of police.emissiveMeshes) markEmissive(mesh, 'siren');
 // One mesh, three lit things: the pickup window, the menu board and the neon round the roofline
 // are merged into `burger.glow` (see city/burgerjoint.js), so the neon arrived in the bloom with
@@ -876,7 +907,8 @@ const dust = createDust(scene, camera, makeRng(seed + 77));
 const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
-  meshes: [city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? [])],
+  meshes: [city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? []),
+    ...(lamps ? [lamps.posts, lamps.heads] : [])],
   // The two things in the city the wave's vertex shader cannot reach, because they turn: the
   // depot's radio dish and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
@@ -888,6 +920,13 @@ const cityEntry = createCityEntry({
   // bottom of this file, which is where the player actually first sees the car.
   from: { x: traffic.taxi.x, z: traffic.taxi.z },
 });
+if (litPanes || lamps) {
+  rainLightsOn = () => {
+    if (cityEntry.running()) return;
+    for (const mesh of [litPanes, lamps?.pools]) if (mesh) mesh.visible = true;
+    rainLightsOn = null;
+  };
+}
 // The whole crash detonation — shockwave, fireball and shards — behind one `fire()` per car. One
 // pool serves both cars: nothing here is re-shot from a stored position, so a second call cannot
 // drag the first car's wreckage across to the second the way the old debris pools could.
@@ -3148,6 +3187,7 @@ function frame() {
   chopper.update(dt);
   clouds.update(dt);
   rain.update(dt, camera);
+  if (taxiHeadlights) taxiHeadlights.group.visible = !traffic.taxi.crashed;
   // Handed last frame's taxi position, which is all a startle needs — it is a distance test with
   // eight units of slack, and running it here rather than after `traffic.update` keeps the whole
   // scenery block in one place.

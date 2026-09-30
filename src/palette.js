@@ -649,6 +649,18 @@ export const PALETTE = {
   // An ambient car's turn signal — deliberately more orange than lightYellow above so a blinking
   // indicator doesn't read as a stop-bar amber lifted onto a car.
   turnSignal: '#FF8A1E',
+  // Headlights, and the pool each one throws on the road — Rain Mode only (`?rain`). A warm white
+  // rather than a pure one: under the overcast grade a pure white lamp reads as a hole in the frame.
+  headlight: '#FFF1CF',
+  headlightBeam: '#FFE2A6',
+  // Street lamps (game/citylights.js): the post, and the sodium-ish glow of the head and its pool.
+  lampPost: '#2E3238',
+  lampHead: '#FFD38A',
+  lampPool: '#FFB85C',
+  // Lit windows, drawn from at random: mostly warm rooms, a few cool screens.
+  litWarm: '#FFC56E',
+  litPale: '#FFE4AE',
+  litCool: '#A9D2FF',
   lightOff: '#333940',
   pole: '#4C5158',
 

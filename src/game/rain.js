@@ -407,13 +407,17 @@ ${WET_ALBEDO}`, 'ground fragment');
    */
   function grade(look) {
     const bright = Math.min(1, look.fill / 1.2);
-    look.top.lerp(rainTop.clone().multiplyScalar(0.25 + 0.75 * bright), 0.85);
-    look.bottom.lerp(rainBottom.clone().multiplyScalar(0.25 + 0.75 * bright), 0.85);
+    look.top.lerp(rainTop.clone().multiplyScalar((0.25 + 0.75 * bright) * 0.8), 0.85);
+    look.bottom.lerp(rainBottom.clone().multiplyScalar((0.25 + 0.75 * bright) * 0.8), 0.85);
     look.sun.lerp(rainSun, 0.7);
     look.hemiSky.lerp(rainHemiSky.clone().multiplyScalar(0.3 + 0.7 * bright), 0.75);
     look.hemiGround.lerp(rainHemiGround, 0.6);
-    look.power *= 0.32;       // the sun is behind cloud: shadows go soft and faint
-    look.fill *= 1.15;        // and the sky does the lighting instead
+    // The sun is behind cloud: shadows go soft and faint, and the sky does what lighting is left.
+    // Darker than an honest overcast afternoon on purpose — the city's lamps (game/citylights.js)
+    // are what a wet street is a mirror for, and they only read against a dim frame. First cut
+    // was 0.32 and 1.15, and the lights looked like paint.
+    look.power *= 0.22;
+    look.fill *= 0.9;
   }
 
   // --- the loop ---------------------------------------------------------------------------------

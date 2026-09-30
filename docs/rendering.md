@@ -1221,11 +1221,41 @@ change to the physics:
   grip 0.6: 0 red-light violations, minimum gap 5.30 (5.57 dry, `MIN_GAP` 5.3), throughput 6.97
   against 7.14.
 
+### The city's lights — `game/citylights.js`, plus `setRunningLights` in `sim/traffic.js`
+
+A wet street is mostly a mirror for *lamps*, and a daytime city has almost none. The first rain
+build reflected grey buildings into grey asphalt and read as a filter. So the rain switches the
+city on:
+
+- **Lit windows.** `collectPanes()` installs a sink in `city/buildings.js` (`setPaneSink`) for one
+  `createBuildings` call and keeps every façade's openings exactly as they went to `facadeQuads`.
+  About a third of the punched and ribbon panes get a glowing quad (warm, pale or a cool
+  "screen"), as do three quarters of the shopfronts. Each quad sits `LIT_OUT` 0.045 off the wall:
+  in front of the glass at 0.03, behind a door's surround at 0.06. The sink draws no rng, so the
+  city is identical with it installed or not.
+- **Street lamps.** Two per block on random edges: a post on the pavement, an arm out over the
+  kerb, a glowing head (bloom `bay`), and an additive pool on the road. Posts and heads are stamped
+  for the entrance wave and rise with their block.
+- **Headlights and tail lights.** `setRunningLights(1)` puts two narrow white pods inboard of each
+  vehicle's turn signals. The front corners already belong to the signals. It also lays a
+  trapezoid pool seven units up the road from each pod and gives every car a 0.6 floor on its
+  brake pods, so it shows dim tail lights with a real brake still reading as a change. The pools
+  are posed flat off `x`, `z` and `yaw` rather than through the body matrix, because a pitching
+  body would dip their far end under the asphalt on every stop. The taxi gets the same pods and
+  pools on its own group (`createTaxiHeadlights`), hidden while it is a wreck.
+
+Both kinds of pool sit at 0.025, under the mirror's clip, so they do not reflect themselves. The
+windows and lamp pools stay dark until the entrance wave finishes, so the city arrives and then
+switches its lights on.
+
 ### What it is not doing yet
 
-- **No headlights.** Wet streets are mostly a mirror for *lights*, and the city has few of them:
-  brake lights, the burger joint's neon, the route band and the markers. Night plus rain plus
-  headlights is where this would really pay off.
+- **Nothing lights anything else.** The pools are additive decals, not lights, and the lamps cast
+  no light on the cars passing under them.
+- **Lamps are placed without asking what else is on the pavement,** so one can stand in a bus
+  stop, a crossing's kerb ramp or the drive-through's apron.
+- **The grade is darker than an honest overcast afternoon** (sun at 22%, fill at 90%) so the lamps
+  read. A real night key under the rain would be the next thing to try.
 - **Cost.** The mirror is a second full scene render, and the first frame with it compiles a
   clipped variant of every lit program. It has not been measured on a phone.
 - **No spray** off tyres, no wet sheen on roofs or car bodies, and no ripples on the river.
