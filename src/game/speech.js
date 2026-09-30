@@ -14,7 +14,7 @@
 // **Off screen, it waits at the edge.** A target the camera cannot see does not take the bubble with
 // it. The card clamps to the nearest edge along the line from the middle of the screen to the
 // target, exactly the way the off-screen rider arrows do (game/farepointers.js), and its pointer
-// moves to the middle of the side facing that edge and turns to aim at where the target is. Pan towards it and the card slides along the edge
+// moves to the middle of the side facing that edge and points straight out of it. Pan towards it and the card slides along the edge
 // with the pan until the target comes into frame, when it drops onto it. The two placements agree
 // at the boundary — a target sitting exactly on the band's bottom edge gets the same card from both
 // — so nothing jumps as it crosses.
@@ -173,12 +173,16 @@ export function placeSpeech(target, w, h, vw, vh, insets = safe) {
   const ox = side === 'right' ? hw : side === 'left' ? -hw : 0;
   const oy = side === 'bottom' ? hh : side === 'top' ? -hh : 0;
   const normal = { right: 0, bottom: Math.PI / 2, left: Math.PI, top: -Math.PI / 2 }[side];
-  // Aimed at the target, but never lying along the card's edge: a target almost level with the
-  // pointer's base would turn it flat, and it stops reading as a pointer. 40° either side of
-  // straight out.
-  let off = Math.atan2(target.y - (cy + oy), target.x - (cx + ox)) - normal;
-  off = Math.atan2(Math.sin(off), Math.cos(off));
-  const angle = normal + clamp(off, -LEAN, LEAN);
+  // On screen it leans towards the target (a card slid sideways to stay on the glass is no longer
+  // square over it), but never lies along the card's edge — 40° either side of straight out. Off
+  // screen it points straight out of its side: the side already says which way, and a pointer
+  // leaning off a card's side edge stopped reading as a pointer and read as a broken corner.
+  let angle = normal;
+  if (onScreen) {
+    let off = Math.atan2(target.y - (cy + oy), target.x - (cx + ox)) - normal;
+    off = Math.atan2(Math.sin(off), Math.cos(off));
+    angle += clamp(off, -LEAN, LEAN);
+  }
 
   return { left: cx - hw, top: cy - hh, px: hw + ox, py: hh + oy, angle, onScreen };
 }
