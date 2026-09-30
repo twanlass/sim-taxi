@@ -13312,6 +13312,24 @@ let chopperOrder; // likewise
       peak <= 3 && tooClose === 0 && strayed === 0,
       `peak ${peak}, ${tooClose} overlaps, ${strayed} off-path`);
     check('...and the player’s own taxi is never swept in with them', tookTaxi === 0);
+    // A cop never stops for a burger. The roll at the mouth used to skip only the taxi and trucks, so
+    // a patrol cruiser — mid-chase, strobing — could pull in and sit in the queue for its order.
+    // Every car in this sim is flagged police, which is the pointed version: anything that gets in
+    // is the bug. Two minutes is ~3 pull-ins at this density with the flag off.
+    {
+      const copTown = createTraffic(makeRng(seed + 44), new THREE.Scene(), lotCars);
+      copTown.warmup(10);
+      for (const car of copTown.cars) if (!car.isTaxi) car.police = true;
+      const copLot = createDriveThru({ site, cars: copTown.cars, rng: makeRng(seed + 311) });
+      let copsIn = 0;
+      for (let step = 0; step < 60 * 120; step++) {
+        copLot.update(1 / 60);
+        copsIn += copLot.state.queue.filter((entry) => entry.car.police).length;
+        copTown.update(1 / 60);
+      }
+      check('...and a cop car never pulls in for one', copsIn === 0,
+        `${copsIn} frames with a police car in the lot`);
+    }
     check('...and a car in the lot is out of the traffic model the whole time it is in there',
       notStaged === 0, `${notStaged} frames with a lot car still on a lane`);
     // The handover, checked against the cars that actually took it rather than against a staged
