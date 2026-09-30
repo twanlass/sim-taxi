@@ -35,6 +35,7 @@ import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
+import { bandPath as fuelBandPath, frontAt as fuelFrontAt, RIM as FUEL_RIM } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION } from './game/taxidamage.js';
 import { createDepotCall } from './game/depotcall.js';
@@ -2075,16 +2076,16 @@ function gasPedalTop() {
 }
 
 /**
- * Where a delivery's boost sparks land: the bar of the fuel meter in the top-left corner, since
- * that is what they fill. Falls back to the pill when the meter isn't measurable, so a flight
- * always has somewhere to go. The tutorial's spotlight stays on the pill — it is pointing at the
- * control, not the read-out.
+ * Where a delivery's boost sparks land: the crown of the fuel gauge arcing over the gas pedal,
+ * since that is what they fill. The track's box is the whole arc, so its top edge is the crown.
+ * Falls back to the pedal when the meter isn't measurable, so a flight always has somewhere to go.
+ * The tutorial's spotlight stays on the pedal — it is pointing at the control, not the read-out.
  */
 function fuelScreenPos() {
-  const bar = boostMeterEl?.querySelector('.boost-bar');
-  const r = bar?.getBoundingClientRect();
+  const arc = boostMeterEl?.querySelector('.boost-track');
+  const r = arc?.getBoundingClientRect();
   if (!r?.width) return boostScreenPos();
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2, r: r.width / 2 + 20 };
+  return { x: r.left + r.width / 2, y: r.top + 3, r: r.width / 2 + 20 };
 }
 
 /** Centre of the money counter in viewport coordinates — the flight's target. */
@@ -2309,8 +2310,8 @@ viewport.onChange((w, h) => {
 // --- Crazy taxi button ------------------------------------------------------
 
 const boostButton = document.getElementById('boost');
-// The same fuel, read out in the top-left corner (see #boost-meter in index.html). It takes the
-// pill's classes and variables verbatim, so the two can never disagree about the tank.
+// The same fuel, read out on a gauge arc over the gas pedal (see #boost-meter in index.html). It
+// takes the pedal's classes and variables verbatim, so the two can never disagree about the tank.
 const boostMeterEl = document.getElementById('boost-meter');
 
 // A drop-off is the only thing that ever puts fuel in the tank (see game/boost.js), so the pour is
@@ -2319,6 +2320,25 @@ const boostMeterEl = document.getElementById('boost-meter');
 // the fill. game/boostmeter.js owns the timing of all three; this just hands it the clock and the
 // fuel level and paints what comes back onto three CSS variables.
 const boostMeter = createBoostMeter();
+
+// The gauge is a tapered band, so it is geometry rather than a stroke (game/fuelarc.js): the track
+// is drawn once and the fuel re-outlined whenever the level moves by more than a hair — a pour or a
+// burn changes it every frame, a parked tank not at all.
+const fuelTrack = boostMeterEl?.querySelector('.boost-track');
+const fuelFill = boostMeterEl?.querySelector('.boost-fill');
+const fuelEdge = boostMeterEl?.querySelector('.boost-edge');
+fuelTrack?.setAttribute('d', fuelBandPath(0, 1, FUEL_RIM));
+let fuelDrawn = -1;
+function drawFuelArc(level) {
+  if (!fuelFill || Math.abs(level - fuelDrawn) < 0.0005) return;
+  fuelDrawn = level;
+  fuelFill.setAttribute('d', fuelBandPath(0, level));
+  const front = fuelFrontAt(level);
+  fuelEdge.setAttribute('cx', front.x.toFixed(2));
+  fuelEdge.setAttribute('cy', front.y.toFixed(2));
+  // Twice the band's half-width: the gradient's solid core is the band, the rest is its halo.
+  fuelEdge.setAttribute('r', front.w.toFixed(2));
+}
 
 function updateBoostButton(dt) {
   if (!boostButton) return;
@@ -2341,6 +2361,7 @@ function updateBoostButton(dt) {
     el.style.setProperty('--fill', boostMeter.state.fill.toFixed(3));
     el.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
   }
+  drawFuelArc(boostMeter.state.pct);
   // The pedal sinks while it is held, however it is held — the Space key never touches the
   // pointer's `is-held`. See "The press" in index.html.
   boostButton.classList.toggle('is-down', boost.state.held);

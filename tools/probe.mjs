@@ -175,6 +175,7 @@ import {
   BOOST_COOLDOWN, BOOST_FLOOR_FRACTION, BOOST_REGEN_SECONDS,
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
+import * as fuelArc from '../src/game/fuelarc.js';
 import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
@@ -8962,6 +8963,34 @@ check('the taxi is an ordinary car in the traffic array',
   // light would go on advertising a reward it has finished handing over.
   check('and the glow lets go afterwards', after[after.length - 1].fill === 0,
     `fill ${after[after.length - 1].fill.toFixed(3)}`);
+}
+
+// --- The fuel gauge's fit around the gas pedal --------------------------------
+//
+// The gauge is geometry in the pedal's viewBox (game/fuelarc.js), and the first build had one
+// tangent point typed 10 units wrong, which left the right leg hanging 12 units further off the
+// pedal than the left. Both halves of that are numbers: the clearance from the pedal's outline
+// has to be the same everywhere along the band, and the two ends have to stop at the same height.
+{
+  const { CAP, GAP, RIM, BASE_R, END_Y, CURVE_POINTS: pts } = fuelArc;
+  // Distance from each base point back to the pedal's outline (outer edge at CAP.r + 4): along its
+  // own inward normal, which for the cap is the radius and for a leg is square to the side.
+  const outline = CAP.r + 4;
+  let worst = 0;
+  for (const q of pts) {
+    const toCentre = (q.x - CAP.x) * q.nx + (q.y - CAP.y) * q.ny;   // projection onto the normal
+    worst = Math.max(worst, Math.abs(toCentre - RIM - GAP - outline));
+  }
+  check('fuel gauge: the same clearance off the pedal all the way round', worst < 1e-6,
+    `track inner edge sits ${GAP} off the outline, worst deviation ${worst.toExponential(1)}`);
+  const a = pts[0], b = pts[pts.length - 1];
+  check('fuel gauge: both ends stop at the same height', Math.abs(a.y - END_Y) < 1e-6 && Math.abs(b.y - END_Y) < 1e-6,
+    `left ${a.y.toFixed(3)}, right ${b.y.toFixed(3)}, END_Y ${END_Y}`);
+  check('fuel gauge: symmetric about the pedal', Math.abs((CAP.x - a.x) - (b.x - CAP.x)) < 2,
+    `left end ${(CAP.x - a.x).toFixed(2)} out, right end ${(b.x - CAP.x).toFixed(2)} out`);
+  check('fuel gauge: thicker at the full end', fuelArc.widthAt(1) > fuelArc.widthAt(0) && BASE_R > outline,
+    `${fuelArc.widthAt(0)} -> ${fuelArc.widthAt(1)}`);
+  check('fuel gauge: an empty tank draws no fuel', fuelArc.bandPath(0, 0) === '', 'bandPath(0, 0)');
 }
 
 // --- The Punch It pill's fill animation -------------------------------------
