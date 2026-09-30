@@ -3311,8 +3311,9 @@ function frame() {
       // Not while the taxi is already on its way in, or inside: the advice has been taken.
       if (!fares.state.gameOver && !depotRun?.active() && !opening?.visiting()) depotCall.show();
     }
-    // ...and taken down the moment it is — a tap on the depot, or a run that ends.
-    if (fares.state.gameOver || depotRun?.active()) depotCall.hide();
+    // Taken down early only by a run that ends. A tap on the depot used to take it down too, which
+    // lost it before it had been read; it runs its full DEPOT_CALL_LINGER either way.
+    if (fares.state.gameOver) depotCall.hide();
     depotCall.update(dt);
   }
   if (radioIn > 0) {
