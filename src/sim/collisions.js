@@ -256,6 +256,12 @@ export function createCollisions(cars, taxi) {
     // a case per angle: a rear-end pushes the car on down its lane, a T-bone pushes it sideways
     // off its line.
     const { nx, nz } = pen;
+    // Who hit whom: the taxi, if it was bringing more of the closing speed along the normal than the
+    // other car was. Read before either speed is touched below. game/patrol.js needs it — the taxi
+    // ramming a cop is a bump, a cop ramming the taxi is the arrest.
+    const taxiIn = (Math.cos(taxi.yaw) * nx - Math.sin(taxi.yaw) * nz) * taxi.v;
+    const otherIn = -(Math.cos(other.yaw) * nx - Math.sin(other.yaw) * nz) * other.v;
+    const taxiStruck = taxiIn >= otherIn;
     shoveCar(other, nx * pen.depth, nz * pen.depth);
     // Which side of the taxi's line the car was on, as in main.js's wreck: struck on its left it is
     // turned right, and the taxi recoils the other way.
@@ -290,7 +296,7 @@ export function createCollisions(cars, taxi) {
     knockCar(taxi, -nx * recoil, -nz * recoil, -side * TAXI_SPIN * mass);
     taxi.v *= BUMP_KEEP / mass;
     for (const cb of bumpListeners) {
-      cb({ x: px, z: pz, speed, closing, damage, hp: taxi.hp, taxi, other, nx, nz, rearEnd });
+      cb({ x: px, z: pz, speed, closing, damage, hp: taxi.hp, taxi, other, nx, nz, rearEnd, taxiStruck });
     }
   }
 

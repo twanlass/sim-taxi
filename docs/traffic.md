@@ -2706,8 +2706,8 @@ cop talking to the player, where [dispatch's card](gameplay.md#dispatch-breaks-i
 talking about them. A DOM bubble projected over the car every frame, not geometry: this one has to
 be read, and there is no font in the scene.
 
-**Caught** is a touch. Any contact between the cop and the taxi — rammed from behind, sideswiped on
-a pass, or a taxi that went for the gap and clipped it — is the arrest (`touching` in
+**Caught** is a touch. Any contact of the cop's making — rammed from behind, sideswiped on a pass —
+is the arrest, and so is any contact at all off the pill (`touching` in
 `sim/collisions.js`, with `TOUCH_SLACK` of 0.15 because off boost contact is resolved by shoving the
 struck car out to the envelope before anything later in the frame can read it). To make that the
 thing a chase is about, a chasing patrol sets `car.ram` and follows the taxi at `RAM_GAP` (3.9
@@ -2716,6 +2716,14 @@ a car length back could only ever catch a taxi that reversed into it. It used to
 8 units for a second of a stopped taxi, two of a moving one — and was reported as a soft fail
 state: a cop filling a bar a car length back is a timer, not a catch. The run ends **Busted!**, and
 the banner only waits for the camera (`BUST_BANNER_DELAY`, 2s).
+
+**Ramming the cop on the pill is not caught.** It is a [bump](#bumps-and-hit-points) like any other
+car — HP off, the cop knocked or launched — and buys `RAMMED_GRACE` (1.5s) in which the cop neither
+arrests nor rams. Without it the bump was a bust one frame later: a boost within `SPOT_RANGE` spots
+a patrolling cop on the very frame of the hit, the chase arms the touch, and the two cars are still
+in contact. Who hit whom is read off the contact normal before either speed is touched
+(`taxiStruck` on the bump event: the taxi brought more of the closing speed along it than the cop
+did), so a cop ramming a boosting taxi is still the arrest. The last bump is still the wreck.
 
 **Lost** is the gap between the two cars holding past `ESCAPE_BLOCKS` (2.5 blocks, 50 units) for
 `ESCAPE_HOLD` (1.5s) — a little inside the robbery's `LOST_RANGE`, which is "out of the picture" on

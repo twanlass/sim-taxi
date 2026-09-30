@@ -7513,6 +7513,83 @@ check('the taxi is an ordinary car in the traffic array',
     `slowest to leave ${Math.max(...lost.map((r) => r.leftAt)).toFixed(1)}s`);
 }
 
+// --- Ramming the patrol car is a bump, not a bust ------------------------------
+// game/patrol.js RAMMED_GRACE. A boosting taxi driving into the cruiser used to be a bust one frame
+// later: the boost spotted the cop on the frame of the hit and the chase armed the touch with the
+// two cars still in contact. The ram has to cost HP and nothing else — and a cop driving into the
+// taxi must not be read as the taxi's ram.
+{
+  const s = seed;
+  createLayout(makeRng(s));
+  const rScene = new THREE.Scene();
+  const rTraffic = createTraffic(makeRng(s + 44), rScene, CARS_DEFAULT);
+  const rPolice = createPolice(rScene);
+  const taxi = rTraffic.taxi;
+  let caught = false;
+  const rPatrol = createPatrol({
+    rng: makeRng(s + 66), police: rPolice, traffic: rTraffic, taxi,
+    onCaught: () => { caught = true; },
+  });
+  rPatrol.state.cooldown = 0;
+  for (let step = 0; step < 60 * 90 && rPatrol.state.phase !== 'patrol'; step++) {
+    rTraffic.update(1 / 60);
+    rPatrol.update(1 / 60);
+    rPolice.update(1 / 60);
+  }
+  const cop = rPatrol.state.cop;
+  const rCollisions = createCollisions(rTraffic.cars, taxi);
+  const struck = [];
+  rCollisions.onBump((e) => {
+    struck.push(e.taxiStruck);
+    if (e.taxiStruck && e.other.police) rPatrol.rammed(e.other);
+  });
+  taxi.hp = TAXI_HP;
+  // Square into its door at boost pace, the way the wreck and bump checks stage it.
+  const stageRam = (taxiV, copV, copIntoTaxi) => {
+    taxi.staged = true;
+    if (copIntoTaxi) {
+      cop.yaw = taxi.yaw + Math.PI / 2;
+      cop.x = taxi.x - Math.cos(cop.yaw) * 1.6;
+      cop.z = taxi.z + Math.sin(cop.yaw) * 1.6;
+    } else {
+      taxi.yaw = cop.yaw + Math.PI / 2;
+      taxi.x = cop.x - Math.cos(taxi.yaw) * 1.6;
+      taxi.z = cop.z + Math.sin(taxi.yaw) * 1.6;
+    }
+    taxi.v = taxiV;
+    cop.v = copV;
+    taxi.boost = true;
+    rCollisions.update(1 / 60);
+    taxi.staged = false;
+  };
+  if (cop && rPatrol.state.phase === 'patrol') {
+    stageRam(19, 0, false);
+    // The same frame's patrol pass: boosting next to it, so this is the frame it spots the taxi.
+    rPatrol.update(1 / 60, { boosting: true });
+    const spotted = rPatrol.state.phase === 'chase';
+    // Held in contact for most of the grace: still not an arrest.
+    for (let f = 0; f < 60; f++) rPatrol.update(1 / 60, { boosting: true });
+    check('boosting into the patrol car is a bump, not a bust',
+      spotted && struck[0] === true && !caught && taxi.hp < TAXI_HP && !taxi.crashed,
+      `spotted ${spotted}, taxi struck ${struck[0]}, caught ${caught}, hp ${taxi.hp}`);
+    // ...and it runs out: the cop's own touch is the arrest again once the grace is spent.
+    for (let f = 0; f < 60; f++) rPatrol.update(1 / 60, { boosting: true });
+    check('...and a touch after the grace is the arrest again', caught);
+  } else {
+    check('boosting into the patrol car is a bump, not a bust', false, 'no patrol on the map');
+  }
+  // Direction of the hit, on the event: a cop arriving at a parked taxi is the cop's ram.
+  if (cop) {
+    // Apart for longer than REHIT first, or this is the tail of the last contact rather than a hit.
+    cop.x += 50;
+    struck.length = 0;
+    for (let f = 0; f < 30; f++) rCollisions.update(1 / 60);
+    stageRam(0, 19, true);
+    check('a cop driving into the taxi is not read as the taxi\'s ram', struck[0] === false,
+      `taxiStruck ${struck[0]}`);
+  }
+}
+
 // --- A patrol turns round in the road ----------------------------------------
 // sim/traffic.js (UTURN_SPEED) and game/patrol.js (`turnRound`). A taxi that boosts past a patrol
 // the other way used to leave the cop driving on to lap the block, which is all the router can do

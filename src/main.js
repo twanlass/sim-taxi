@@ -1213,8 +1213,11 @@ const taxiDamage = createTaxiDamage({
 // without the bar.
 const BUMP_SHAKE = 0.35;
 const BUMP_SHAKE_PER_UNIT = 0.03;
-collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd }) => {
+collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck }) => {
   const yaw = traffic.taxi.yaw;
+  // Ramming the patrol car on the pill is a bump like any other, not a bust — game/patrol.js
+  // `rammed`. The collision pass runs before the patrol's, so this lands the same frame.
+  if (taxiStruck && other.police) patrol.rammed(other);
   controller.kickShake(BUMP_SHAKE + closing * BUMP_SHAKE_PER_UNIT);
   // The designer's bump — light hits against other cars, a recording of its own since Block 1 —
   // scaled by the same closing speed the shake is. 0.3 at a nudge, full at a T-bone at the Loco top.
@@ -1258,7 +1261,10 @@ collisions.onImpact(({ x, z, speed, other }) => {
   // It used to spin out, snap back onto a lane and drive away. A boosting taxi arrives at ~19 u/s
   // and the survivor shrugging that off made the player's own wreck look like a rule rather than
   // a crash.
-  blast.fire(other.x, other.z, PALETTE.carBody[other.colorIndex], yaw, speed * STRUCK_SHOVE);
+  // In the paint it was actually wearing: a cop is an ordinary car under `policeBody`, and its own
+  // `colorIndex` draw is whatever hatchback it would otherwise have been.
+  const struckPaint = other.police ? PALETTE.policeBody : PALETTE.carBody[other.colorIndex];
+  blast.fire(other.x, other.z, struckPaint, yaw, speed * STRUCK_SHOVE);
 
   // And a collar of smoke around the pair — the same lit, faceted puffs a barricade throws, tinted
   // grey and opened out into a ring (see `dust.wreckSmoke`). The fireball is unlit flat colour, so
