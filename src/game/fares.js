@@ -565,6 +565,7 @@ function createSlot(scene, index) {
   // picker already walks up parents looking for `pickable`; this rides along the same walk.
   passenger.group.userData.fareSlot = index;
   destination.group.userData.fareSlot = index;
+  stampFareMarker(marker, index);
 
   passenger.group.visible = false;
   destination.group.visible = false;
@@ -573,6 +574,26 @@ function createSlot(scene, index) {
 
   return { index, passenger, destination, marker, curse };
 }
+
+/**
+ * Make a rider's crystal and disc a tap on that rider. They live at scene level in
+ * game/faremarker.js, outside the rider's group that carries the tap quad and the figure, and
+ * `waitingTargets` hands all three to the picker. Left out, a tap on the
+ * crystal read as the quad's empty margin and the stand-in rule (game/pick.js) handed it to the
+ * building behind; a tap on the near half of the disc met the building's apron before the quad at
+ * all. Both were a tap on a rider at the burger joint sending the taxi through the drive-through.
+ * Exported for tools/probe.mjs.
+ */
+export function stampFareMarker(marker, index) {
+  // Scene-level, so they get their own stamps rather than inheriting the pin's.
+  for (const root of [marker.group, marker.ring]) {
+    root.userData.pickable = 'passenger';
+    root.userData.fareSlot = index;
+  }
+}
+
+/** A waiting fare's pick targets. See `stampFareMarker` above. */
+export const waitingTargets = (slot) => [slot.passenger.group, slot.marker.group, slot.marker.ring];
 
 /**
  * @param reserved  junctions another system has claimed and this one must not spawn on — the package
@@ -1850,9 +1871,15 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     return true;
   }
 
-  /** Objects the picker may hit — every live fare's one visible marker. */
+  /**
+   * Objects the picker may hit — every live fare's one visible marker. A waiting fare's crystal and
+   * disc go in too: they are scene-level (game/faremarker.js), so the rider's group does not carry
+   * them — see `waitingTargets`.
+   */
   function pickables() {
-    return state.fares.map((f) => (f.stage === 'waiting' ? f.slot.passenger : f.slot.destination).group);
+    return state.fares.flatMap((f) => (f.stage === 'waiting'
+      ? waitingTargets(f.slot)
+      : [f.slot.destination.group]));
   }
 
   /**

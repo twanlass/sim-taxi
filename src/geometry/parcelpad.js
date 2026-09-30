@@ -148,7 +148,8 @@ export function createParcelPad(colorHex) {
     unlitMaterial({ color: color.clone(), depthWrite: false }),
   );
   rim.renderOrder = 4;
-  rim.raycast = () => {};
+  // Raycast on purpose: the disc is part of its marker's tap target, and the near half of it lies
+  // in front of the marker's hit quad — see `postGroup` in geometry/marker.js.
   group.add(rim);
 
   const fill = new THREE.Mesh(FILL_GEO, unlitMaterial({
@@ -158,7 +159,6 @@ export function createParcelPad(colorHex) {
     depthWrite: false,
   }));
   fill.renderOrder = 3;   // under the rim, so the rim still reads as an edge
-  fill.raycast = () => {};
   group.add(fill);
 
   const sweep = createSweepFor(SWEEP_GEO, colorHex);

@@ -143,8 +143,15 @@ function marker(kind, {
   //
   // DoubleSide because a quad that faces the camera exactly is one bad sign away from being culled
   // out of the raycast, and there is nothing to gain from finding out which way that rounds.
+  // ...and everything drawn on the corner answers for the marker too — the figure, the parcel, the
+  // disc or pad under them. The quad alone is not enough: the picker takes the nearest tagged hit,
+  // and the near half of a disc lies *in front of* the quad's plane, so a tap there met the burger
+  // joint's apron (on the joint's own corner) before it met the quad, and the drive-through won.
+  if (pickable) postGroup.userData.pickable = pickable;
+
+  let hit = null;
   if (pickable) {
-    const hit = new THREE.Mesh(
+    hit = new THREE.Mesh(
       new THREE.PlaneGeometry(HIT_HALF_W * 2, hitTop - HIT_BOTTOM),
       new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }),
     );
@@ -152,11 +159,12 @@ function marker(kind, {
     // Straight up the frame. `VIEW_UP` is perpendicular to the view direction, so this is the one
     // offset that raises the target without changing how far away it is.
     hit.position.copy(VIEW_UP).multiplyScalar((hitTop + HIT_BOTTOM) / 2);
-    hit.userData.pickable = pickable;
+    // Untagged itself: it answers through `postGroup`, like everything else on the corner.
     postGroup.add(hit);
   }
 
-  return { group, ring, postGroup, standing };
+  // `hit` is the quad, or null — named for the tools, now that its tag lives on `postGroup`.
+  return { group, ring, postGroup, standing, hit };
 }
 
 export const createPassengerPin = (buildStanding) =>

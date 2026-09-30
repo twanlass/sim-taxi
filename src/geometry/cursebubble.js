@@ -256,8 +256,9 @@ export function createCurseBubble() {
       side: THREE.DoubleSide,
     }));
     mesh.renderOrder = order;
-    // The rider under it is the tap target, and their hit box already covers this airspace — see
-    // the same line on the crystal in game/faremarker.js.
+    // The rider under it is the tap target, and their hit box already covers this airspace. (The
+    // crystal used to opt out on the same grounds and no longer does — see game/faremarker.js — but
+    // this bubble only shows as the rider walks off, when there is no tap left to protect.)
     mesh.raycast = () => {};
     group.add(mesh);
     return mesh;

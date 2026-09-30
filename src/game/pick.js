@@ -21,6 +21,9 @@ import * as THREE from 'three';
  * invisible stand-in and the first *drawn* surface along the ray belongs to a kind `claims` accepts,
  * that kind wins. The rider's own figure, crystal and disc are drawn and sit in front of the
  * building, so a tap on them still means the rider; only the empty margin of their box gives way.
+ * That depends on the crystal and disc being *in the ray* and tagged as the rider's — they live at
+ * scene level, outside the rider's group, and once weren't, which sent a tap on a rider at the
+ * burger joint through the drive-through (`stampFareMarker` in game/fares.js).
  * `claims` is asked rather than assumed so a tap the building would refuse — the depot with nothing
  * to repair — keeps the rider's generous margin instead of turning into a tap on nothing.
  *
