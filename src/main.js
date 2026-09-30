@@ -35,6 +35,7 @@ import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
+import { bandPath as fuelBandPath, frontAt as fuelFrontAt, RIM as FUEL_RIM } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION } from './game/taxidamage.js';
 import { createDepotCall } from './game/depotcall.js';
@@ -2320,6 +2321,24 @@ const boostMeterEl = document.getElementById('boost-meter');
 // fuel level and paints what comes back onto three CSS variables.
 const boostMeter = createBoostMeter();
 
+// The gauge is a tapered band, so it is geometry rather than a stroke (game/fuelarc.js): the track
+// is drawn once and the fuel re-outlined whenever the level moves by more than a hair — a pour or a
+// burn changes it every frame, a parked tank not at all.
+const fuelTrack = boostMeterEl?.querySelector('.boost-track');
+const fuelFill = boostMeterEl?.querySelector('.boost-fill');
+const fuelEdge = boostMeterEl?.querySelector('.boost-edge');
+fuelTrack?.setAttribute('d', fuelBandPath(0, 1, FUEL_RIM));
+let fuelDrawn = -1;
+function drawFuelArc(level) {
+  if (!fuelFill || Math.abs(level - fuelDrawn) < 0.0005) return;
+  fuelDrawn = level;
+  fuelFill.setAttribute('d', fuelBandPath(0, level));
+  const front = fuelFrontAt(level);
+  fuelEdge.setAttribute('cx', front.x.toFixed(2));
+  fuelEdge.setAttribute('cy', front.y.toFixed(2));
+  fuelEdge.setAttribute('r', (front.w / 2).toFixed(2));
+}
+
 function updateBoostButton(dt) {
   if (!boostButton) return;
   const mode = boost.state.mode;
@@ -2341,13 +2360,7 @@ function updateBoostButton(dt) {
     el.style.setProperty('--fill', boostMeter.state.fill.toFixed(3));
     el.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
   }
-  if (boostMeterEl) {
-    // The arc's dashes are measured along `pathLength="100"`, which wants bare numbers.
-    const lvl = boostMeter.state.pct * 100;
-    boostMeterEl.style.setProperty('--lvl', lvl.toFixed(2));
-    boostMeterEl.style.setProperty('--edge', (-lvl).toFixed(2));
-    boostMeterEl.classList.toggle('is-dry', lvl < 0.05);
-  }
+  drawFuelArc(boostMeter.state.pct);
   // The pedal sinks while it is held, however it is held — the Space key never touches the
   // pointer's `is-held`. See "The press" in index.html.
   boostButton.classList.toggle('is-down', boost.state.held);

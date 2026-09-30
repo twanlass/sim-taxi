@@ -120,27 +120,24 @@
 
       /* Loco Mode's fuel, read out as a gauge arc hugging the top of the gas pedal — a tachometer
          over the control that spends it, so a thumb holding the gas can watch the tank go without
-         looking away to a corner. The arc runs from low on the pedal's left, up over its cap, and
-         down its right side; fuel fills from the left end, so burning it sweeps the front back
-         from the right, over the top, and down to the left. It is a read-out only — the pedal is
-         the control, and nothing here hit-tests.
+         looking away to a corner. The arc runs from a third of the way down the pedal's left side,
+         up over its cap, and down to the same height on the right; fuel fills from the left end,
+         so burning it sweeps the front back from the right, over the top, and down to the left.
+         It is a read-out only — the pedal is the control, and nothing here hit-tests.
 
-         The path is the pedal's own outline pushed out: the cap is the circle through the face's
-         three extremes (centre 76.13, 68.94, radius 64.94 in the pedal's viewBox) grown to 79,
-         and the two ends carry on 22 units parallel to the pedal's slanted sides. The right end
-         stops there because the brake starts below it. The box is #boost's box and the viewBox is
-         the pedal's, so the arc and the pedal are drawn in one coordinate system.
+         The shape is game/fuelarc.js, not markup: the band is thin at the empty end and thicker at
+         the full one, and a stroke cannot taper, so both the track and the fuel are filled
+         outlines that main.js writes into the two paths' `d` — the track once, the fuel whenever
+         the level moves. The box is #boost's box and the viewBox is the pedal's, so the gauge and
+         the pedal are drawn in one coordinate system.
 
          Everything the pedal's old dial did, this does too, off the same three variables
          (`updateBoostButton` in main.js sets them on both): `--pct` is the level, `--fill` is the
-         "fuel is arriving" envelope, `--pulse` is the throb inside it. `--lvl` and `--edge` are
-         `--pct` again as bare numbers along `pathLength="100"`, because a percentage in
-         `stroke-dasharray` means a fraction of the viewport diagonal, not of the path. The classes
-         mirror the pedal's — `is-active`, `is-empty`, `is-charging`, `is-filling` — plus `is-dry`
-         for a truly empty tank, where a zero-length dash would still draw its round cap as a dot.
+         "fuel is arriving" envelope, `--pulse` is the throb inside it. The classes mirror the
+         pedal's — `is-active`, `is-empty`, `is-charging`, `is-filling`.
 
-         The glow is a `drop-shadow` on the <svg>, which follows the stroke. The gradient runs
-         across the whole arc in user space, not along the fill, so a colour means a level —
+         The glow is a `drop-shadow` on the <svg>, which follows the shapes. The gradient runs
+         across the whole arc in user space, not along the fuel, so a colour means a level —
          orange is always the top of the tank. */
       #boost-meter {
         position: fixed; bottom: var(--ctl-bottom); left: var(--ctl-left); z-index: 19;
@@ -153,18 +150,14 @@
         transform-origin: 52% 32%;
         transition: filter 0.15s ease, transform 0.1s ease;
       }
-      /* The track is wider than the fuel in it, so a dark rim the colour of the pedal's own outline
-         keeps a full gold arc from melting into the orange pedal beside it. */
-      #boost-meter path { fill: none; stroke-width: 8; stroke-linecap: round; }
-      #boost-meter .boost-track { stroke: rgba(34, 21, 0, 0.8); stroke-width: 12; }
-      /* Same fallback as the pedal's, so the frame before the loop first sets --lvl doesn't flash
-         a full tank. */
-      #boost-meter .boost-fill { stroke: url(#fuel-grad); stroke-dasharray: var(--lvl, 33.3) 200; }
-      #boost-meter.is-dry .boost-fill { visibility: hidden; }
-      /* The leading edge of a pour: a blurred bright dot riding the fill front, faded in and out by
-         the same envelope. A near-zero dash with a round cap is a dot the stroke's width. */
+      /* The track pads the fuel's band by a rim the colour of the pedal's own outline, which keeps a
+         full gold arc from melting into the orange pedal beside it. */
+      #boost-meter .boost-track { fill: rgba(34, 21, 0, 0.8); }
+      #boost-meter .boost-fill { fill: url(#fuel-grad); }
+      /* The leading edge of a pour: a blurred bright dot riding the fuel's front, as wide as the band
+         is there, faded in and out by the same envelope. */
       #boost-meter .boost-edge {
-        stroke: #FFFDF2; stroke-dasharray: 0.01 200; stroke-dashoffset: var(--edge, -33.3);
+        fill: #FFFDF2;
         filter: blur(1.4px) drop-shadow(0 0 4px rgba(255, 213, 74, 0.95));
         opacity: var(--fill, 0);
       }
@@ -1452,13 +1445,14 @@
     <div id="boost-meter" aria-hidden="true">
       <svg class="boost-arc" viewBox="0 0 146.266 215.545" preserveAspectRatio="none">
         <defs>
-          <linearGradient id="fuel-grad" x1="-9" y1="0" x2="171" y2="0" gradientUnits="userSpaceOnUse">
+          <linearGradient id="fuel-grad" x1="-4" y1="0" x2="160" y2="0" gradientUnits="userSpaceOnUse">
             <stop stop-color="#FFD500" /><stop offset="1" stop-color="#FF9200" />
           </linearGradient>
         </defs>
-        <path class="boost-track" pathLength="100" d="M-4.33 84.80L-2.64 62.87A79 79 0 0 1 167.06 75.01L165.37 96.95" />
-        <path class="boost-fill" pathLength="100" d="M-4.33 84.80L-2.64 62.87A79 79 0 0 1 167.06 75.01L165.37 96.95" />
-        <path class="boost-edge" pathLength="100" d="M-4.33 84.80L-2.64 62.87A79 79 0 0 1 167.06 75.01L165.37 96.95" />
+        <!-- Both outlines are written by main.js from game/fuelarc.js. -->
+        <path class="boost-track" />
+        <path class="boost-fill" />
+        <circle class="boost-edge" r="0" />
       </svg>
     </div>
     <button id="boost" type="button" aria-label="Loco Mode" aria-keyshortcuts="Space">

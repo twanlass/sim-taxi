@@ -3179,14 +3179,18 @@ out.
 
 **The fuel gauge is an arc over the gas pedal.** It used to be a wedge-shaped bar in the top-left
 corner, which put the read-out as far from the thumb spending it as the screen allows. It is now a
-tachometer-style stroke (`#boost-meter` in `index.html`) that follows the pedal's cap: low on its
-left side, over the top, and down its right. Fuel fills from the left end, so holding the gas
-sweeps the front back from the right, over the crown, and down to the left. The path is the
-pedal's own outline grown outward in the pedal's viewBox (the cap circle, radius 64.94 → 79), and
-its right leg is cut at 22 units because the brake starts below it. It rides in with the pedals on
-`pedals-ready`, not with the top HUD, and the boost sparks land on its crown. The trade: a thumb
-on the pedal can cover part of the arc, and the last of the tank drains into the lower-left leg,
-which is the part a thumb coming in from that corner is most likely to be over.
+tachometer-style band (`#boost-meter` in `index.html`, shaped by `game/fuelarc.js`) that follows the
+pedal's cap, from a third of the way down its left side, over the top, to the same height on the
+right. Fuel fills from the left end, so holding the gas sweeps the front back from the right, over
+the crown, and down to the left. The band tapers from 8 units at the empty end to 14 at the full
+one. A stroke can't taper, so the track and the fuel are filled outlines, and `main.js` rewrites the
+fuel's outline whenever the level moves. The band's inner edge holds 4 units off the pedal's black
+outline all the way round, and the width grows outward. The first build had the right tangent point
+typed 10 units wrong, and the right leg hung visibly further off the pedal than the left, so the
+probe now checks the clearance and the matching end heights. The gauge rides in with the pedals on
+`pedals-ready`, not with the top HUD, and the boost sparks land on its crown. The trade: a thumb on
+the pedal can cover part of the arc, and the last of the tank drains into the lower-left end, which
+is the part a thumb coming in from that corner is most likely to be over.
 
 The row is **one control surface, not two buttons**. A thumb that goes down on Loco Mode and
 slides right onto the brake hands the car over as it crosses, with no lift in between, and sliding
