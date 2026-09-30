@@ -2117,7 +2117,9 @@ So a player driving past sees it running about a third of the time early in a ru
 it late, and never sees a queue standing out into the road.
 
 **Cars only.** A box truck at a drive-through is a good joke and a bad fit: it is 5.6 long against a
-2-unit turn radius, and it would ride the kerb through both arcs. The player's own taxi is never
+2-unit turn radius, and it would ride the kerb through both arcs. **And never a cop.** The patrol
+cruiser is an ordinary car in traffic, so the roll once took one mid-chase and parked it in the
+queue waiting for its order while the taxi drove off. The player's own taxi is never
 swept in with them either — the roll above skips it outright. It can be *sent*, which is the next
 section.
 
