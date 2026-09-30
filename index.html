@@ -118,80 +118,76 @@
         display: inline-block; transform-origin: right center;
       }
 
-      /* Loco Mode's fuel, read out in the top-left corner: a bar that tapers from a third of its height at the empty end to full height at the full end — a
-         wedge, so the level reads as "more" from its shape as well as its length. It is a read-out
-         only; the gas pedal at the bottom is the control.
+      /* Loco Mode's fuel, read out as a gauge arc hugging the top of the gas pedal — a tachometer
+         over the control that spends it, so a thumb holding the gas can watch the tank go without
+         looking away to a corner. The arc runs from low on the pedal's left, up over its cap, and
+         down its right side; fuel fills from the left end, so burning it sweeps the front back
+         from the right, over the top, and down to the left. It is a read-out only — the pedal is
+         the control, and nothing here hit-tests.
 
-         Everything the pill's dial did, this does too, off the same three variables
+         The path is the pedal's own outline pushed out: the cap is the circle through the face's
+         three extremes (centre 76.13, 68.94, radius 64.94 in the pedal's viewBox) grown to 79,
+         and the two ends carry on 22 units parallel to the pedal's slanted sides. The right end
+         stops there because the brake starts below it. The box is #boost's box and the viewBox is
+         the pedal's, so the arc and the pedal are drawn in one coordinate system.
+
+         Everything the pedal's old dial did, this does too, off the same three variables
          (`updateBoostButton` in main.js sets them on both): `--pct` is the level, `--fill` is the
-         "fuel is arriving" envelope, `--pulse` is the throb inside it. The classes mirror the
-         pill's as well — `is-active`, `is-empty`, `is-charging`, `is-filling`.
+         "fuel is arriving" envelope, `--pulse` is the throb inside it. `--lvl` and `--edge` are
+         `--pct` again as bare numbers along `pathLength="100"`, because a percentage in
+         `stroke-dasharray` means a fraction of the viewport diagonal, not of the path. The classes
+         mirror the pedal's — `is-active`, `is-empty`, `is-charging`, `is-filling` — plus `is-dry`
+         for a truly empty tank, where a zero-length dash would still draw its round cap as a dot.
 
-         Three layers because of how clipping works. The wedge is a `clip-path` on the track, and a
-         clip-path clips its element's own shadows and filters along with it — so the glow sits on
-         `.boost-bar` outside it, where a `drop-shadow` follows the wedge's clipped silhouette. The
-         fill is a child of the track rather than a second background on it, because the track is
-         75% black: a gradient *underneath* it would show through the empty end at a quarter
-         strength. The fill's gradient is sized to the whole track, not to the fill, so a colour
-         means a level — orange is always the top of the tank. */
+         The glow is a `drop-shadow` on the <svg>, which follows the stroke. The gradient runs
+         across the whole arc in user space, not along the fill, so a colour means a level —
+         orange is always the top of the tank. */
       #boost-meter {
-        position: fixed; top: var(--hud-top); left: calc(var(--hud-side) + var(--safe-left));
-        height: var(--hud-row);
-        display: flex; align-items: center;
+        position: fixed; bottom: var(--ctl-bottom); left: var(--ctl-left); z-index: 19;
+        width: 95px; height: 141px;
         pointer-events: none; user-select: none;
       }
-      #boost-meter .boost-bar {
-        /* 186×23 is the file's 286×36. It gives way on a narrower phone rather than running under
-           the cash total: 207px is everything else on the row at 393pt wide (both margins and room
-           for a four-digit total), so the bar is full length on anything that wide. */
-        width: clamp(96px, calc(100vw - 207px), 186px); height: 23px;
-        transform-origin: left center;
+      #boost-meter .boost-arc {
+        display: block; width: 100%; height: 100%; overflow: visible;
+        /* The cap's centre, so the throb swells the arc evenly off the pedal. */
+        transform-origin: 52% 32%;
         transition: filter 0.15s ease, transform 0.1s ease;
       }
-      #boost-meter .boost-track {
-        position: relative; width: 100%; height: 100%;
-        background: rgba(0, 0, 0, 0.75);
-        /* 13.3 of 35.9 in the file: the left end stands 37% of the bar's height. */
-        clip-path: polygon(0 37%, 100% 0, 100% 100%, 0 100%);
-      }
-      #boost-meter .boost-fill {
-        position: absolute; inset: 0;
-        background: linear-gradient(90deg, #FFD500, #FF9200);
-        /* Same fallback as the pill's, so the frame before the loop first sets --pct doesn't
-           flash a full tank. */
-        clip-path: inset(0 calc(100% - var(--pct, 33.3%)) 0 0);
-      }
-      /* The leading edge of a pour, as on the pill: a blurred bright bar riding the fill front,
-         faded in and out by the same envelope. Inside the track, so the wedge trims it too. */
+      /* The track is wider than the fuel in it, so a dark rim the colour of the pedal's own outline
+         keeps a full gold arc from melting into the orange pedal beside it. */
+      #boost-meter path { fill: none; stroke-width: 8; stroke-linecap: round; }
+      #boost-meter .boost-track { stroke: rgba(34, 21, 0, 0.8); stroke-width: 12; }
+      /* Same fallback as the pedal's, so the frame before the loop first sets --lvl doesn't flash
+         a full tank. */
+      #boost-meter .boost-fill { stroke: url(#fuel-grad); stroke-dasharray: var(--lvl, 33.3) 200; }
+      #boost-meter.is-dry .boost-fill { visibility: hidden; }
+      /* The leading edge of a pour: a blurred bright dot riding the fill front, faded in and out by
+         the same envelope. A near-zero dash with a round cap is a dot the stroke's width. */
       #boost-meter .boost-edge {
-        position: absolute; top: 0; bottom: 0;
-        left: var(--pct, 33.3%); width: 4px; margin-left: -2px;
-        background: #FFFDF2;
-        box-shadow: 0 0 9px 3px rgba(255, 213, 74, 0.95);
-        filter: blur(1.4px);
+        stroke: #FFFDF2; stroke-dasharray: 0.01 200; stroke-dashoffset: var(--edge, -33.3);
+        filter: blur(1.4px) drop-shadow(0 0 4px rgba(255, 213, 74, 0.95));
         opacity: var(--fill, 0);
       }
-      /* Burning. The bar lights up the way the pill does, so the fuel going down reads as fuel
-         being spent. */
-      #boost-meter.is-active .boost-bar { filter: drop-shadow(0 0 6px rgba(255, 200, 0, 0.9)); }
+      /* Burning. The arc lights up, so the fuel going down reads as fuel being spent. */
+      #boost-meter.is-active .boost-arc { filter: drop-shadow(0 0 6px rgba(255, 200, 0, 0.9)); }
       /* Empty, and the climb back to a quarter tank: the fuel is there to watch but not to spend
-         yet, so the gold is muted — the pill's reasoning (see `#boost.is-empty.is-charging`). */
+         yet, so the gold is muted — the pedal's reasoning (see `#boost.is-empty`). */
       #boost-meter.is-empty .boost-fill { filter: saturate(0.35) brightness(0.8); }
       /* A pour landing: the glow and a small throb, off `--fill` and `--pulse`. No transition —
          every value here is rewritten per frame, and any easing smears the 4Hz throb flat. */
-      #boost-meter.is-filling .boost-bar {
+      #boost-meter.is-filling .boost-arc {
         transition: none;
         filter: drop-shadow(0 0 calc(4px + 8px * var(--pulse, 0)) rgba(255, 190, 0, calc(0.95 * var(--fill, 0))));
         transform: scale(calc(1 + 0.035 * var(--pulse, 0)));
       }
       /* The recharge rides the pour's envelope but not its movement or its full glow: a meter
          bouncing on a pedal that refuses the press reads as pressable. */
-      #boost-meter.is-charging.is-filling .boost-bar {
+      #boost-meter.is-charging.is-filling .boost-arc {
         filter: drop-shadow(0 0 calc(3px + 3px * var(--fill, 0)) rgba(205, 180, 106, calc(0.5 * var(--fill, 0))));
         transform: none;
       }
       @media (prefers-reduced-motion: reduce) {
-        #boost-meter.is-filling .boost-bar { transform: none; }
+        #boost-meter.is-filling .boost-arc { transform: none; }
       }
       body.shot-mode #boost-meter { display: none; }
       /* A short green bump when the flying earning lands and the total ticks up, so the counter
@@ -633,7 +629,7 @@
 
       /* The Loco Mode pill and the ⚙️ tweak toggle are gameplay controls; once the run is over
          they are noise behind the retry pill. */
-      body.game-over #boost, body.game-over #brake,
+      body.game-over #boost, body.game-over #boost-meter, body.game-over #brake,
       body.game-over #dbg-toggle, body.game-over #dbg-panel,
       body.game-over #aud-toggle, body.game-over #aud-panel { display: none; }
 
@@ -1124,8 +1120,8 @@
         opacity: 0;
         transition: opacity 0.45s ease, translate 0.55s cubic-bezier(0.22, 1, 0.36, 1);
       }
-      #hud, #boost-meter { translate: 0 -160%; }
-      #pause, #boost, #brake, #rider-finder-stack { translate: 0 200%; }
+      #hud { translate: 0 -160%; }
+      #pause, #boost, #boost-meter, #brake, #rider-finder-stack { translate: 0 200%; }
       /* Invisible is not un-tappable: a 0-opacity pill still takes the tap that was aimed at the
          rider behind it. (#hud and #boost-meter are already pointer-events: none.) The pause button
          rides in the same group for the same reason it waits at all: there is nothing to pause
@@ -1135,6 +1131,7 @@
       body:not(.hud-ready) #rider-finder-stack { pointer-events: none; }
       body.hud-ready #hud, body.hud-ready #boost-meter, body.hud-ready #pause,
       body.hud-ready #boost, body.hud-ready #brake, body.pedals-ready #boost, body.pedals-ready #brake,
+      body.pedals-ready #boost-meter,
       body.hud-ready #rider-finder-stack { opacity: 1; translate: 0 0; }
       /* Staggered, top corners first then the bottom ones, so four elements arriving at once read
          as a HUD assembling rather than as a single fade. */
@@ -1158,9 +1155,10 @@
 
       /* The two top corners land together, and the pause button with the pedals it shares the
          bottom row with. */
-      body.hud-ready #boost, body.hud-ready #brake, body.hud-ready #pause { transition-delay: 0.14s; }
+      body.hud-ready #boost, body.hud-ready #boost-meter, body.hud-ready #brake, body.hud-ready #pause { transition-delay: 0.14s; }
       /* ...but on their own cue there is nothing to stagger against. */
-      body.pedals-ready:not(.hud-ready) #boost, body.pedals-ready:not(.hud-ready) #brake { transition-delay: 0s; }
+      body.pedals-ready:not(.hud-ready) #boost, body.pedals-ready:not(.hud-ready) #boost-meter,
+      body.pedals-ready:not(.hud-ready) #brake { transition-delay: 0s; }
       body.hud-ready #rider-finder-stack { transition-delay: 0.21s; }
       @media (prefers-reduced-motion: reduce) {
         #hud, #boost-meter, #pause, #boost, #brake, #rider-finder-stack { translate: none; }
@@ -1420,12 +1418,6 @@
     </style>
   </head>
   <body>
-    <!-- Loco Mode's fuel. A read-out only — the gas pedal below is the control. See #boost-meter. -->
-    <div id="boost-meter" aria-hidden="true">
-      <div class="boost-bar"><div class="boost-track">
-        <div class="boost-fill"></div><div class="boost-edge"></div>
-      </div></div>
-    </div>
     <div id="hud">
       <div class="money">$<span id="money">0</span></div>
       <!-- The courier load, drawn into by game/cargochip.js while a package is aboard. Empty here:
@@ -1455,6 +1447,20 @@
          — see "The press" in the #boost/#brake rules. The "down" filters are the file's with the
          side band thinned (28 → 11 units) and the soft shadow under the face moved to match.
          `aria-keyshortcuts` is how the Space and B holds announce themselves. -->
+    <!-- Loco Mode's fuel: a gauge arc over the gas pedal, in the pedal's own viewBox. A read-out
+         only — the pedal is the control. See #boost-meter. -->
+    <div id="boost-meter" aria-hidden="true">
+      <svg class="boost-arc" viewBox="0 0 146.266 215.545" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="fuel-grad" x1="-9" y1="0" x2="171" y2="0" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#FFD500" /><stop offset="1" stop-color="#FF9200" />
+          </linearGradient>
+        </defs>
+        <path class="boost-track" pathLength="100" d="M-4.33 84.80L-2.64 62.87A79 79 0 0 1 167.06 75.01L165.37 96.95" />
+        <path class="boost-fill" pathLength="100" d="M-4.33 84.80L-2.64 62.87A79 79 0 0 1 167.06 75.01L165.37 96.95" />
+        <path class="boost-edge" pathLength="100" d="M-4.33 84.80L-2.64 62.87A79 79 0 0 1 167.06 75.01L165.37 96.95" />
+      </svg>
+    </div>
     <button id="boost" type="button" aria-label="Loco Mode" aria-keyshortcuts="Space">
       <svg class="pedal-art" viewBox="0 0 146.266 215.545" preserveAspectRatio="none" aria-hidden="true">
         <defs>

@@ -1,4 +1,4 @@
-// The fuel meter's read-out (#boost-meter, top left): how it *looks* while fuel is arriving, kept
+// The fuel meter's read-out (#boost-meter, the gauge arc over the gas pedal): how it *looks* while fuel is arriving, kept
 // apart from both the fuel itself (game/boost.js) and the DOM it ends up on (main.js sets three CSS
 // variables from this and nothing else). Same reason boost.js is a pure clock — the animation is the reward for a
 // drop-off now that a drop-off is the only source of fuel, so it's worth being able to assert on it

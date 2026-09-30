@@ -2075,16 +2075,16 @@ function gasPedalTop() {
 }
 
 /**
- * Where a delivery's boost sparks land: the bar of the fuel meter in the top-left corner, since
- * that is what they fill. Falls back to the pill when the meter isn't measurable, so a flight
- * always has somewhere to go. The tutorial's spotlight stays on the pill — it is pointing at the
- * control, not the read-out.
+ * Where a delivery's boost sparks land: the crown of the fuel gauge arcing over the gas pedal,
+ * since that is what they fill. The track's box is the whole arc, so its top edge is the crown.
+ * Falls back to the pedal when the meter isn't measurable, so a flight always has somewhere to go.
+ * The tutorial's spotlight stays on the pedal — it is pointing at the control, not the read-out.
  */
 function fuelScreenPos() {
-  const bar = boostMeterEl?.querySelector('.boost-bar');
-  const r = bar?.getBoundingClientRect();
+  const arc = boostMeterEl?.querySelector('.boost-track');
+  const r = arc?.getBoundingClientRect();
   if (!r?.width) return boostScreenPos();
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2, r: r.width / 2 + 20 };
+  return { x: r.left + r.width / 2, y: r.top + 3, r: r.width / 2 + 20 };
 }
 
 /** Centre of the money counter in viewport coordinates — the flight's target. */
@@ -2309,8 +2309,8 @@ viewport.onChange((w, h) => {
 // --- Crazy taxi button ------------------------------------------------------
 
 const boostButton = document.getElementById('boost');
-// The same fuel, read out in the top-left corner (see #boost-meter in index.html). It takes the
-// pill's classes and variables verbatim, so the two can never disagree about the tank.
+// The same fuel, read out on a gauge arc over the gas pedal (see #boost-meter in index.html). It
+// takes the pedal's classes and variables verbatim, so the two can never disagree about the tank.
 const boostMeterEl = document.getElementById('boost-meter');
 
 // A drop-off is the only thing that ever puts fuel in the tank (see game/boost.js), so the pour is
@@ -2340,6 +2340,13 @@ function updateBoostButton(dt) {
     el.style.setProperty('--pct', `${(boostMeter.state.pct * 100).toFixed(1)}%`);
     el.style.setProperty('--fill', boostMeter.state.fill.toFixed(3));
     el.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
+  }
+  if (boostMeterEl) {
+    // The arc's dashes are measured along `pathLength="100"`, which wants bare numbers.
+    const lvl = boostMeter.state.pct * 100;
+    boostMeterEl.style.setProperty('--lvl', lvl.toFixed(2));
+    boostMeterEl.style.setProperty('--edge', (-lvl).toFixed(2));
+    boostMeterEl.classList.toggle('is-dry', lvl < 0.05);
   }
   // The pedal sinks while it is held, however it is held — the Space key never touches the
   // pointer's `is-held`. See "The press" in index.html.

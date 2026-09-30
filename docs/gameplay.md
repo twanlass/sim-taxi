@@ -261,7 +261,7 @@ invisible to everything else.
 
 ### The HUD arrives afterwards
 
-The boost meter and the money counter start off the top edge, and the ⏸ off the bottom, and they
+The money counter starts off the top edge, and the ⏸ off the bottom, and they
 slide in together the moment the last bubble is dismissed (the
 [rider chips](#finding-the-next-rider) rode in with them, and still do under `?chips=on`). A run used
 to open with all of them already lit, every one reading zero and answering a question nobody had
@@ -3174,8 +3174,19 @@ flat shape with a 28-unit inner shadow along its bottom, which reads as the side
 **sinks**: it squashes toward its own base while its filter swaps to one with a thinner band, so the
 top face comes down by what the side loses, and the icon is counter-scaled to ride down with it
 unsquashed (the "The press" rules in `index.html`). It sinks for the Space and B keys too, off
-`boost.state.held` and the brake's `is-on`, not only under a finger. Loco Mode's fuel is read out
-by the meter at the top of the screen, not on the pedal; an empty tank greys the pedal out.
+`boost.state.held` and the brake's `is-on`, not only under a finger. An empty tank greys the pedal
+out.
+
+**The fuel gauge is an arc over the gas pedal.** It used to be a wedge-shaped bar in the top-left
+corner, which put the read-out as far from the thumb spending it as the screen allows. It is now a
+tachometer-style stroke (`#boost-meter` in `index.html`) that follows the pedal's cap: low on its
+left side, over the top, and down its right. Fuel fills from the left end, so holding the gas
+sweeps the front back from the right, over the crown, and down to the left. The path is the
+pedal's own outline grown outward in the pedal's viewBox (the cap circle, radius 64.94 → 79), and
+its right leg is cut at 22 units because the brake starts below it. It rides in with the pedals on
+`pedals-ready`, not with the top HUD, and the boost sparks land on its crown. The trade: a thumb
+on the pedal can cover part of the arc, and the last of the tank drains into the lower-left leg,
+which is the part a thumb coming in from that corner is most likely to be over.
 
 The row is **one control surface, not two buttons**. A thumb that goes down on Loco Mode and
 slides right onto the brake hands the car over as it crosses, with no lift in between, and sliding
