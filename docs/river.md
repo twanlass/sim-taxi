@@ -48,7 +48,7 @@ merged faces. `tools/roadnet.mjs` compares land against land.
 | | |
 |---|---|
 | **The two ring roads** | Always a bridge. The outermost roads are the signal-free ring, and traffic yields into it rather than stopping — breaking it would need a fallback. |
-| **One of the four interior lines** | The drawbridge. |
+| **One of the two middle lines** (2 or 3) | The drawbridge — always centred on the map. |
 | **The other three** | Open water. |
 
 Three crossings, not four. The first cut bridged two interior lines as well as the ring, and playing
