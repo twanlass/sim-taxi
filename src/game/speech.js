@@ -56,13 +56,42 @@ const LEAN = (40 * Math.PI) / 180;
 const EDGE = 10;
 const HUD_TOP = 60;
 
-// The one pointer asset, the file's own, drawn tip-up; `place` rotates it to face the target.
-const POINTER_SRC = new URL('../../assets/hud/speech-pointer.svg', import.meta.url).href;
+// The pointer, the file's own path, drawn tip-up; `place` rotates it to face the target. Inline
+// rather than an <img> so it can take `currentColor`: the card is a gradient, and a pointer filled
+// the card's white stood out as a detached white triangle against the blue end of it — every
+// pointer on the right-hand side, which is where dispatch waits for a cop coming in off screen.
+const POINTER_SVG = `<svg class="speech-pointer" viewBox="0 0 17.501 14.0374" preserveAspectRatio="none" aria-hidden="true"><path fill="currentColor" d="M6.30991 1.25543C7.50644 -0.418478 9.99456 -0.418478 11.1911 1.25543L16.9363 9.29279C18.3556 11.2783 16.9363 14.0374 14.4957 14.0374H3.00529C0.564696 14.0374 -0.854561 11.2783 0.5647 9.29279L6.30991 1.25543Z"/></svg>`;
+
+// The card's fill: the file's gradient, white for the first 60% and running to a pale blue in the
+// bottom-right corner. Set on the card from here rather than in index.html because the pointer has
+// to match whatever part of it it leaves from, and one copy of the numbers can't drift from itself.
+const CARD_ANGLE = 114.9;
+const CARD_FROM = [0xff, 0xff, 0xff];
+const CARD_TO = [0xba, 0xd6, 0xff];
+const CARD_STOP0 = 0.604;
+const CARD_STOP1 = 0.999;
+const CARD_FILL = `linear-gradient(${CARD_ANGLE}deg, rgb(${CARD_FROM}) ${CARD_STOP0 * 100}%, rgb(${CARD_TO}) ${CARD_STOP1 * 100}%)`;
 
 const prefersReducedMotion = () =>
   window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+
+/**
+ * The card's colour at (x, y) in a w × h card, as CSS resolves `CARD_FILL`: the gradient line runs
+ * through the centre at `CARD_ANGLE` and is exactly long enough that its ends touch the far
+ * corners. Pure, for the probe.
+ */
+export function cardColourAt(x, y, w, h) {
+  const a = (CARD_ANGLE * Math.PI) / 180;
+  const dx = Math.sin(a);
+  const dy = -Math.cos(a);
+  const len = Math.abs(w * dx) + Math.abs(h * dy);
+  const t = len > 0 ? ((x - w / 2) * dx + (y - h / 2) * dy) / len + 0.5 : 0;
+  const k = clamp((t - CARD_STOP0) / (CARD_STOP1 - CARD_STOP0), 0, 1);
+  const c = CARD_FROM.map((v, i) => Math.round(v + (CARD_TO[i] - v) * k));
+  return `rgb(${c.join(',')})`;
+}
 
 // The notch and the home indicator, off the `--safe-*` custom properties index.html sets — computed
 // values, so `env()` has already been substituted. Re-read on resize because rotating moves them.
@@ -172,7 +201,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
           <div class="speech-title"></div>
           <div class="speech-text"><span class="speech-typed"></span><span class="speech-rest"></span></div>
         </div>
-        <img class="speech-pointer" src="${POINTER_SRC}" alt="" />
+        ${POINTER_SVG}
       </div>
     </div>`;
   const el = root.querySelector('.speech');
@@ -182,6 +211,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   const typed = root.querySelector('.speech-typed');
   const rest = root.querySelector('.speech-rest');
   const pointer = root.querySelector('.speech-pointer');
+  card.style.background = CARD_FILL;
 
   let text = '';
   let shown = 0;
@@ -220,6 +250,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
     el.style.transform = `translate(${p.left.toFixed(1)}px, ${p.top.toFixed(1)}px)`;
     pointer.style.left = `${p.px.toFixed(1)}px`;
     pointer.style.top = `${p.py.toFixed(1)}px`;
+    pointer.style.color = cardColourAt(p.px, p.py, size.w, size.h);
     // Drawn tip-up, so a heading of 0 (right) is a quarter turn clockwise. The last translate is in
     // the pointer's own turned frame, where +y is back towards its base — into the card.
     pointer.style.transform = `translate(-50%, -100%) rotate(${(p.angle + Math.PI / 2).toFixed(3)}rad) translateY(${POINTER_SINK}px)`;

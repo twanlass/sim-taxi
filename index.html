@@ -1011,7 +1011,9 @@
            gave "Head to the / shop for repairs." */
         width: max-content; max-width: min(178px, calc(100vw - 20px));
         padding: 16px; border-radius: 16px;
-        background: linear-gradient(114.9deg, #fff 60.4%, #bad6ff 99.9%);
+        /* The fill (a white-to-pale-blue gradient) is set by speech.js, which also has to colour
+           the pointer to match whatever part of it the pointer leaves from. */
+        background: #fff;
         font-family: ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
         text-align: left;
       }
@@ -1036,6 +1038,7 @@
          card's edge and it rotates about that base to face the target. */
       .speech-pointer {
         position: absolute; left: 0; top: 0; width: 11.4px; height: 9.2px;
+        display: block; overflow: visible;
         transform-origin: 50% 100%;
       }
       @media (prefers-reduced-motion: reduce) {
