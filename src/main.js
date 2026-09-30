@@ -2336,7 +2336,8 @@ function drawFuelArc(level) {
   const front = fuelFrontAt(level);
   fuelEdge.setAttribute('cx', front.x.toFixed(2));
   fuelEdge.setAttribute('cy', front.y.toFixed(2));
-  fuelEdge.setAttribute('r', (front.w / 2).toFixed(2));
+  // Twice the band's half-width: the gradient's solid core is the band, the rest is its halo.
+  fuelEdge.setAttribute('r', front.w.toFixed(2));
 }
 
 function updateBoostButton(dt) {

@@ -3171,9 +3171,10 @@ means and the brake still wins, because it replaces the target the boost ceiling
 The bottom row is two pedals — the Figma file's drawings, a tall orange gas pedal with the brake
 tucked against its lower right — and a ⏸ in the far corner. Their depth is not geometry: each is one
 flat shape with a 28-unit inner shadow along its bottom, which reads as the side. A held pedal
-**sinks**: it squashes toward its own base while its filter swaps to one with a thinner band, so the
-top face comes down by what the side loses, and the icon is counter-scaled to ride down with it
-unsquashed (the "The press" rules in `index.html`). It sinks for the Space and B keys too, off
+**sinks** into its own outline: the silhouette stays put while its filter swaps to one with a
+thinner side band and a dark inner shadow from the top edge, and the icon drops 8 units with the
+face (the "The press" rules in `index.html`). It used to squash the whole pedal toward its base, but
+that moved the cap 12px away from the fuel gauge hugging it. It sinks for the Space and B keys too, off
 `boost.state.held` and the brake's `is-on`, not only under a finger. An empty tank greys the pedal
 out.
 

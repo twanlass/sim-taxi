@@ -144,23 +144,30 @@
         width: 95px; height: 141px;
         pointer-events: none; user-select: none;
       }
+      /* The <svg> is the pedal's box grown by 40 units on every side (the viewBox in the markup
+         says the same), so the whole gauge *and* its glow sit inside it. The crown hung out over
+         the top of a box exactly the pedal's size, on `overflow: visible`, and a `filter` on an
+         element is free to clip to that element's box: when the burn glow came on, the top of the
+         arc was cut off, and it popped back as the glow went. The numbers are 40 units at the
+         pedal's scale — 95/146.266 across, 141/215.545 down. */
       #boost-meter .boost-arc {
-        display: block; width: 100%; height: 100%; overflow: visible;
-        /* The cap's centre, so the throb swells the arc evenly off the pedal. */
-        transform-origin: 52% 32%;
+        position: absolute; display: block;
+        left: calc(-40 * 95px / 146.266); top: calc(-40 * 141px / 215.545);
+        width: calc(226.266 * 95px / 146.266); height: calc(295.545 * 141px / 215.545);
+        /* The cap's centre, (76.13, 68.94), in the grown box — so the throb swells the arc evenly
+           off the pedal. */
+        transform-origin: calc(116.13 / 226.266 * 100%) calc(108.94 / 295.545 * 100%);
         transition: filter 0.15s ease, transform 0.1s ease;
       }
       /* The track pads the fuel's band by a rim the colour of the pedal's own outline, which keeps a
          full gold arc from melting into the orange pedal beside it. */
       #boost-meter .boost-track { fill: rgba(34, 21, 0, 0.8); }
       #boost-meter .boost-fill { fill: url(#fuel-grad); }
-      /* The leading edge of a pour: a blurred bright dot riding the fuel's front, as wide as the band
-         is there, faded in and out by the same envelope. */
-      #boost-meter .boost-edge {
-        fill: #FFFDF2;
-        filter: blur(1.4px) drop-shadow(0 0 4px rgba(255, 213, 74, 0.95));
-        opacity: var(--fill, 0);
-      }
+      /* The leading edge of a pour: a soft bright dot riding the fuel's front, faded in and out by
+         the same envelope. The softness is a radial gradient rather than a CSS `blur()`, because a
+         CSS filter on an element *inside* an SVG gets a filter region off that element's own tiny
+         box, and WebKit has never been dependable about the functions there at all. */
+      #boost-meter .boost-edge { fill: url(#fuel-edge); opacity: var(--fill, 0); }
       /* Burning. The arc lights up, so the fuel going down reads as fuel being spent. */
       #boost-meter.is-active .boost-arc { filter: drop-shadow(0 0 6px rgba(255, 200, 0, 0.9)); }
       /* Empty, and the climb back to a quarter tank: the fuel is there to watch but not to spend
@@ -679,35 +686,33 @@
       .pedal-art {
         display: block; width: 100%; height: 100%; overflow: visible;
         pointer-events: none;
-        transform-origin: 50% 100%;
-        transition: transform 0.07s ease-out, filter 0.15s ease;
+        transition: filter 0.15s ease;
       }
 
       /* The press. The pedal's depth is not geometry: it is an inner shadow 28 units thick along
-         the bottom of one flat shape — the dark band reads as the side, the rest as the top. So
-         pressing is two moves made together. The shape squashes toward its own base, which brings
-         the top face down while the bottom edge stays planted; and the filter swaps to one with a
-         thinner band, so the side shrinks by what the top travelled. The icon is counter-scaled
-         about its own centre so it rides down with the face without being squashed by it.
-         The travel is the same 18 units on both — about 12px — which is why the squash differs:
-         18 of the gas's 212 is 8.5%, 18 of the brake's 119 is 15%.
+         the bottom of one flat shape — the dark band reads as the side, the rest as the top. So a
+         press is drawn *inside* the silhouette rather than by moving it: the filter swaps to one
+         with the side band thinned to 11 and a dark inner shadow dropped from the top edge, so the
+         face reads as sunk into its own outline, and the icon drops with it.
+         It used to squash the whole pedal toward its base (the top came down ~12px). That read as
+         travel, but the fuel gauge now hugs the gas pedal's cap, and a cap that moves 12px away
+         from a gauge that doesn't opens a gap exactly where the thumb is looking. The outline and
+         the hit box now stay where they are.
 
          Held is a class and never `:active`, for the pedal slide's reason: the browser pins
          `:active` to the button the press *started* on, and a thumb sliding from gas to brake
          would leave the gas looking pressed and the brake it is standing on looking up.
          `is-held` is the pointer's (engagePedal in main.js); `is-down` and `is-on` are the
          pedals' own state, set however they were pressed, so the Space and B keys sink them too. */
-      #boost { --press: 0.915; }
-      #brake { --press: 0.85; }
       #boost .pedal-face { filter: url(#gas-up); }
       #brake .pedal-face { filter: url(#brake-up); }
       #boost.is-held .pedal-face, #boost.is-down .pedal-face { filter: url(#gas-down); }
       #brake.is-held .pedal-face, #brake.is-on .pedal-face { filter: url(#brake-down); }
-      #boost.is-held .pedal-art, #boost.is-down .pedal-art,
-      #brake.is-held .pedal-art, #brake.is-on .pedal-art { transform: scaleY(var(--press)); }
-      .pedal-icon { transform-box: fill-box; transform-origin: center; transition: transform 0.07s ease-out; }
+      /* In the pedal's user units: half the 17 units the side band gave up, so the icon stays
+         centred on the face as it sinks. */
+      .pedal-icon { transition: transform 0.07s ease-out; }
       #boost.is-held .pedal-icon, #boost.is-down .pedal-icon,
-      #brake.is-held .pedal-icon, #brake.is-on .pedal-icon { transform: scaleY(calc(1 / var(--press))); }
+      #brake.is-held .pedal-icon, #brake.is-on .pedal-icon { transform: translateY(8px); }
       /* Held brake lights up a touch, the way the taxi's own lamps come on out on the road. */
       #brake.is-on .pedal-art { filter: brightness(1.12); }
 
@@ -1131,9 +1136,9 @@
       /* The third beat's other half: the gas pedal pulses while the bubble talks about it, so the
          text is not the only thing saying which control it means.
 
-         A glow and nothing else, and on the button rather than the art. The art's `transform` is
-         the press, and a keyframe animation outranks it, so a pulse that scaled would silently
-         kill the press for as long as it ran. A `drop-shadow` rather than a `box-shadow`, so the
+         A glow and nothing else, and on the button rather than the art. A pulse that scaled would
+         move the pedal out from under the fuel gauge hugging its cap, and a keyframe animation
+         outranks the press's own rules for as long as it runs. A `drop-shadow` rather than a `box-shadow`, so the
          glow follows the pedal's own outline instead of the rectangle it sits in. */
       @keyframes coach-boost-pulse {
         0%, 100% { filter: drop-shadow(0 0 0 rgba(245, 193, 48, 0.5)); }
@@ -1436,15 +1441,20 @@
     </div>
 
     <!-- The two pedals are the Figma file's drawings, inline because the press reaches inside them:
-         `.pedal-face` swaps between its "up" and "down" filters and `.pedal-icon` is counter-scaled
-         — see "The press" in the #boost/#brake rules. The "down" filters are the file's with the
-         side band thinned (28 → 11 units) and the soft shadow under the face moved to match.
+         `.pedal-face` swaps between its "up" and "down" filters and `.pedal-icon` drops with it —
+         see "The press" in the #boost/#brake rules. The "down" filters are the file's with the
+         side band thinned (28 → 11 units), the soft shadow under the face moved to match, and an
+         inner shadow from the top edge added so the face reads as sunk into its outline.
          `aria-keyshortcuts` is how the Space and B holds announce themselves. -->
     <!-- Loco Mode's fuel: a gauge arc over the gas pedal, in the pedal's own viewBox. A read-out
          only — the pedal is the control. See #boost-meter. -->
     <div id="boost-meter" aria-hidden="true">
-      <svg class="boost-arc" viewBox="0 0 146.266 215.545" preserveAspectRatio="none">
+      <svg class="boost-arc" viewBox="-40 -40 226.266 295.545" preserveAspectRatio="none">
         <defs>
+          <radialGradient id="fuel-edge">
+            <stop offset="0.35" stop-color="#FFFDF2" /><stop offset="0.6" stop-color="#FFE9A0" stop-opacity="0.9" />
+            <stop offset="1" stop-color="#FFD54A" stop-opacity="0" />
+          </radialGradient>
           <linearGradient id="fuel-grad" x1="-4" y1="0" x2="160" y2="0" gradientUnits="userSpaceOnUse">
             <stop stop-color="#FFD500" /><stop offset="1" stop-color="#FF9200" />
           </linearGradient>
@@ -1496,7 +1506,15 @@
             <feGaussianBlur stdDeviation="2" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
             <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0" />
-            <feBlend in2="lit" />
+            <feBlend in2="lit" result="shaded" />
+            <!-- The well: an inner shadow dropped from the top edge, so the face reads as sunk
+                 inside its outline rather than as the whole pedal moving. -->
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="16" />
+            <feGaussianBlur stdDeviation="2.5" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0.313068 0 0 0 0 0.194996 0 0 0 0 0.00389115 0 0 0 0.9 0" />
+            <feBlend in2="shaded" />
           </filter>
           <filter id="gas-icon" x="47.784" y="65.35" width="53.055" height="61.512" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
             <feFlood flood-opacity="0" result="BackgroundImageFix" />
@@ -1558,7 +1576,15 @@
             <feGaussianBlur stdDeviation="2" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
             <feColorMatrix values="0 0 0 0 0.909804 0 0 0 0 0.203922 0 0 0 0 0.215686 0 0 0 0.28 0" />
-            <feBlend in2="lit" />
+            <feBlend in2="lit" result="shaded" />
+            <!-- The well: an inner shadow dropped from the top edge, so the face reads as sunk
+                 inside its outline rather than as the whole pedal moving. -->
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="16" />
+            <feGaussianBlur stdDeviation="2.5" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0.35 0 0 0 0 0.06 0 0 0 0 0.07 0 0 0 0.8 0" />
+            <feBlend in2="shaded" />
           </filter>
           <filter id="brake-icon" x="63.309" y="29.228" width="45.315" height="41.848" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
             <feFlood flood-opacity="0" result="BackgroundImageFix" />
