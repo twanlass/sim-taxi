@@ -451,6 +451,18 @@ export function getCrayon(fallback = false) {
 }
 
 /**
+ * The passing storm, via `?storm` — the ordinary afternoon clouds over, rains hard as night falls,
+ * and clears again, on a loop (game/storm.js). `?storm=0.6` pins it at that point instead, for a
+ * still frame. Returns null when off, `{ pin: null }` for the running cycle, `{ pin }` when pinned.
+ */
+export function getStorm() {
+  const raw = new URLSearchParams(window.location.search).get('storm');
+  if (raw === null || isOff(raw)) return null;
+  const pin = Number(raw);
+  return { pin: raw !== '' && Number.isFinite(pin) ? Math.min(1, Math.max(0, pin)) : null };
+}
+
+/**
  * Rain Mode, via `?rain` — overcast light, wet reflective streets, falling rain, drops on the lens,
  * softer brakes. Off by default: an exploration, see `game/rain.js`. A flag rather than a setting
  * because the ground's wet shader is compiled into its material before the first frame.

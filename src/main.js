@@ -1,8 +1,11 @@
 import * as THREE from 'three';
 import { makeRng } from './util/rng.js';
-import { createScene, sinkShadowCaster, setHazeTop } from './game/scene.js';
+import { createScene, sinkShadowCaster, setHazeTop, HAZE_TOP } from './game/scene.js';
 import { createRain, GRIP, RAIN_HAZE_TOP } from './game/rain.js';
-import { collectPanes, litWindows, streetLamps, createTaxiHeadlights } from './game/citylights.js';
+import { createStorm } from './game/storm.js';
+import {
+  collectPanes, litWindows, streetLamps, createTaxiHeadlights, setCityLights,
+} from './game/citylights.js';
 import {
   createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD,
 } from './game/camera.js';
@@ -91,7 +94,7 @@ import { findRoute, findRouteVia, findRouteOnto, planOrigin, crossingOrigin } fr
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -247,14 +250,12 @@ const bloom = createBloom(renderer, {
   enabled: budget.bloom, depth: ao.depth, depthSize: ao.depthSize,
 });
 const crayon = createCrayon(renderer, { enabled: crayonEnabled });
-// `?rain` — the wet city. An exploration, off by default; see game/rain.js. The road's grip goes with
-// it: every car brakes softer, and plans its stops against the softer brake.
-const rain = createRain(renderer, { enabled: getRain() });
-if (rain.enabled) {
-  setGrip(GRIP);
-  // Headlights on, and a dim pair of tail lights on every car — see `setRunningLights`.
-  setRunningLights(1);
-}
+// The weather. `?storm` runs a storm across the afternoon and back on a loop (game/storm.js);
+// `?rain` is the same storm pinned at its peak. Either way the whole wet city is built up front —
+// see game/rain.js — and `applyWeather` below turns each part of it up and down with the clock.
+const stormFlag = getStorm();
+const storm = getRain() ? createStorm({ pin: 1 }) : stormFlag ? createStorm(stormFlag) : null;
+const rain = createRain(renderer, { enabled: Boolean(storm) });
 const cartoon = createCartoon({ enabled: cartoonEnabled });
 
 // `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
@@ -275,7 +276,6 @@ if (bloom.overlay) scene.add(bloom.overlay);
 // The falling rain, and the two overlays that must stay out of its mirror pass.
 rain.addTo(scene);
 rain.hideInMirror(crayon.overlay, bloom.overlay, scene.getObjectByName('sky'));
-if (rain.enabled) setHazeTop(fog, RAIN_HAZE_TOP);
 
 // A GPU that takes the context away gets the budget turned down rather than the player getting a
 // black screen for the rest of the run — see `game/recovery.js` for the two steps and why the
@@ -326,6 +326,29 @@ const daylight = createDaylight({ sun, hemi, sky, fog, clouds });
 daylight.setDayLength(DAY_SECONDS);
 daylight.setCycling(false);
 if (rain.grade) daylight.setGrade(rain.grade);
+
+/**
+ * Hand the storm's three levels (game/storm.js) to everything that reads them. Every frame while a
+ * storm is on, and once here so a pinned `?storm=` or `?rain` is in place before the first render.
+ *
+ * - `dark` grades the sky (through `daylight.apply`, which calls `rain.grade`), thickens the haze,
+ *   switches the city's windows and lamps on one at a time, and puts the headlights on — all
+ *   together over a short stretch of it, the way drivers do once it is properly gloomy.
+ * - `rain` is the streaks, the splashes and the drops on the lens (inside `rain.setWeather`).
+ * - `wet` is the ground's gloss and the mirror pass, and the grip: every car brakes softer on a
+ *   wet road and plans its stops against the softer brake.
+ */
+function applyWeather(dt = 0) {
+  if (!storm) return;
+  const w = storm.update(dt);
+  rain.setWeather(w, dt);
+  setGrip(THREE.MathUtils.lerp(1, GRIP, w.wet));
+  setRunningLights(THREE.MathUtils.smoothstep(w.dark, 0.25, 0.42));
+  setCityLights(w.dark);
+  setHazeTop(fog, THREE.MathUtils.lerp(HAZE_TOP, RAIN_HAZE_TOP, w.dark));
+  daylight.apply();
+}
+applyWeather();
 
 // Every generator draws from its own stream so that changing one system doesn't reshuffle the
 // others — editing building code shouldn't move the parks. `layout` was already produced above
@@ -3187,6 +3210,7 @@ function frame() {
   chopper.update(dt);
   clouds.update(dt);
   rain.update(dt, camera);
+  applyWeather(dt);
   if (taxiHeadlights) taxiHeadlights.group.visible = !traffic.taxi.crashed;
   // Handed last frame's taxi position, which is all a startle needs — it is a distance test with
   // eight units of slack, and running it here rather than after `traffic.update` keeps the whole
@@ -4254,6 +4278,8 @@ window.__taxi = {
   cartoon,
   /** Rain Mode's handles — uniforms and the mirror target. Inert unless `?rain`. */
   rain,
+  /** The storm's clock — `pin(v)`, `seek(t)` and its `state`. Null unless `?storm` or `?rain`. */
+  storm,
   /**
    * The two bloom routes — `{ state, set }` each, the same handles the ⚙️ panel drives, plus
    * `target()` on the emissive one so a browser test can look at what the lamps actually wrote.

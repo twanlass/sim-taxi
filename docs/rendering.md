@@ -1221,6 +1221,39 @@ change to the physics:
   grip 0.6: 0 red-light violations, minimum gap 5.30 (5.57 dry, `MIN_GAP` 5.3), throughput 6.97
   against 7.14.
 
+### The passing storm — `?storm`, `game/storm.js`
+
+`?rain` is a still frame. `?storm` runs a storm across the ordinary afternoon on a 145-second loop:
+30 s clear, 35 s clouding over, 45 s of storm, 35 s clearing. The clock is pure and gives three
+levels, and `applyWeather` in `main.js` hands them out every frame:
+
+| level | follows | drives |
+|---|---|---|
+| `dark` | the sky's envelope | the grade (`rain.grade` via `daylight.apply`), the haze (0.19 → 0.34), the city's lights (`setCityLights`), the headlights (`setRunningLights`, on over `dark` 0.25–0.42) |
+| `rain` | the envelope read 7 s late going in and 7 s early going out, so it always trails the cloud | the streaks' opacity, the share of splash slots firing, the lens drops (which dry off over ~12 s) |
+| `wet` | the rain, up with a 5 s time constant, down with 14 s | the ground's gloss and puddles, the mirror pass, the grip (1 → 0.6) |
+
+Three things make a storm arriving read as weather rather than as a crossfade:
+
+- **The sun goes first.** Its power falls at 1.4 times the rate of `dark`, so shadows soften and
+  vanish while the sky is still only half grey.
+- **The lights come on one at a time.** Every lit pane and every lamp carries an `aLitAt` threshold
+  and switches on when `dark` passes it, over a ramp of 0.035. Shopfronts go at 0.08–0.5, street
+  lamps close together at 0.28–0.5 (a photocell), and homes and offices across 0.2–0.95. It is one
+  shared uniform, and it reaches the bloom's copies of those materials because `markEmissive` chains
+  the source's `onBeforeCompile`.
+- **The streets stay wet after the rain stops,** 20% as the sky finishes clearing, 7% halfway
+  through the sunny stretch and 2% when the next storm comes. With `DRY` at 28 they never dried at
+  all.
+
+The mirror pass and the lens copy are skipped while there is nothing for them to show. That is
+most of the cost of the mode back during the clear stretch. The mirror still renders once on the
+first frame, so its clipped programs compile before the first cloud rather than on the frame it
+arrives. The streaks and splashes are faded rather than hidden for the same reason.
+
+`?storm=0.6` pins the storm at that level for screenshots. `__taxi.storm` exposes `pin(v)`,
+`seek(t)` and `state`.
+
 ### The city's lights — `game/citylights.js`, plus `setRunningLights` in `sim/traffic.js`
 
 A wet street is mostly a mirror for *lamps*, and a daytime city has almost none. The first rain

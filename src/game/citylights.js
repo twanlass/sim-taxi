@@ -25,6 +25,52 @@ import { TAXI_SCALE } from '../geometry/taxi.js';
  * The car headlights are the third part, and live beside the brake pods in sim/traffic.js.
  */
 
+/**
+ * How far the storm has switched the city on, 0..1 — `setCityLights`, from `main.js`. Every pane and
+ * every lamp carries its own threshold (`aLitAt`) and comes on when this passes it, so the lights go
+ * on one at a time as the sky darkens and off one at a time as it clears. One uniform, shared by
+ * reference into every material that reads it, the bloom's copies included.
+ */
+const LIT_LEVEL = { value: 1 };
+export function setCityLights(level) { LIT_LEVEL.value = level; }
+
+/** How long a light takes to come up once its threshold is passed, in units of `LIT_LEVEL`. */
+const LIT_RAMP = 0.035;
+
+/** Replace one chunk, loudly. */
+function inject(source, chunk, replacement) {
+  if (!source.includes(chunk)) throw new Error(`citylights: no ${chunk} in the shader`);
+  return source.replace(chunk, replacement);
+}
+
+/** Switch an unlit material's fragments on by their `aLitAt` against `LIT_LEVEL`. */
+function litSwitch(material) {
+  material.customProgramCacheKey = () => 'lit-switch';
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uLitLevel = LIT_LEVEL;
+    shader.vertexShader = inject(shader.vertexShader, '#include <begin_vertex>', `#include <begin_vertex>
+vLitAt = aLitAt;`);
+    shader.vertexShader = `attribute float aLitAt;\nvarying float vLitAt;\n${shader.vertexShader}`;
+    shader.fragmentShader = `uniform float uLitLevel;\nvarying float vLitAt;\n${shader.fragmentShader}`;
+    shader.fragmentShader = inject(shader.fragmentShader, '#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+if (vLitAt > uLitLevel) discard;
+float litOn = smoothstep(vLitAt, vLitAt + ${LIT_RAMP.toFixed(3)}, uLitLevel);`);
+    shader.fragmentShader = inject(shader.fragmentShader, '#include <color_fragment>', `#include <color_fragment>
+diffuseColor.rgb *= litOn;`);
+  };
+  return material;
+}
+
+/** Give every vertex of `geo` the same threshold. */
+function stampLitAt(geo, at) {
+  geo.setAttribute('aLitAt', new THREE.BufferAttribute(
+    new Float32Array(geo.attributes.position.count).fill(at), 1));
+  return geo;
+}
+
+/** When a pane of each kind may come on: shops first, homes and offices through the storm. */
+const LIT_AT = { punched: [0.2, 0.92], ribbon: [0.25, 0.95], shop: [0.08, 0.5] };
+
 /** How far a lit pane stands off the façade — past the glass (0.03), short of the door (0.09). */
 const LIT_OUT = 0.045;
 
@@ -71,20 +117,28 @@ export function litWindows(rng, faces) {
   const parts = [];
   for (const { rects, side, cx, cz, hw, hd, kind } of faces) {
     const byColor = new Map();
+    const [lo, hi] = LIT_AT[kind] ?? [0.3, 0.9];
     for (const rect of rects) {
       if (!rng.chance(LIT_SHARE[kind] ?? 0)) continue;
       const name = pickColor(rng);
       if (!byColor.has(name)) byColor.set(name, []);
-      byColor.get(name).push({ u: rect.u, y: rect.y, w: rect.w * 0.92, h: rect.h * 0.9 });
+      byColor.get(name).push({
+        u: rect.u, y: rect.y, w: rect.w * 0.92, h: rect.h * 0.9, at: rng.range(lo, hi),
+      });
     }
     for (const [name, lit] of byColor) {
-      parts.push(facadeQuads(lit, side, cx, cz, hw, hd, color(name), LIT_OUT));
+      const geo = facadeQuads(lit, side, cx, cz, hw, hd, color(name), LIT_OUT);
+      // facadeQuads writes six vertices per rect, in order.
+      const at = new Float32Array(lit.length * 6);
+      lit.forEach((rect, i) => at.fill(rect.at, i * 6, i * 6 + 6));
+      geo.setAttribute('aLitAt', new THREE.BufferAttribute(at, 1));
+      parts.push(geo);
     }
   }
   if (!parts.length) return null;
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
-  const mesh = new THREE.Mesh(merged, unlitMaterial({ vertexColors: true }));
+  const mesh = new THREE.Mesh(merged, litSwitch(unlitMaterial({ vertexColors: true })));
   mesh.name = 'litWindows';
   return mesh;
 }
@@ -143,8 +197,10 @@ export function streetLamps(rng, blocks) {
       for (const g of [post, arm, hood]) {
         posts.push(stampEntry(bakeColor(g.applyMatrix4(place), postCol), px, pz, rand));
       }
-      heads.push(stampEntry(bakeColor(head.applyMatrix4(place), headCol), px, pz, rand));
-      spots.push(new THREE.Vector3(px + edge.nx * ARM_REACH, POOL_Y, pz + edge.nz * ARM_REACH));
+      // Street lamps come on early and close together, the way a city's do on a photocell.
+      const at = rng.range(0.28, 0.5);
+      heads.push(stampLitAt(stampEntry(bakeColor(head.applyMatrix4(place), headCol), px, pz, rand), at));
+      spots.push(new THREE.Vector4(px + edge.nx * ARM_REACH, POOL_Y, pz + edge.nz * ARM_REACH, at));
     }
   }
   if (!spots.length) return null;
@@ -153,7 +209,8 @@ export function streetLamps(rng, blocks) {
   postMesh.castShadow = true;
   postMesh.receiveShadow = true;
   postMesh.name = 'lampPosts';
-  const headMesh = new THREE.Mesh(mergeGeometries(heads, false), unlitMaterial({ vertexColors: true }));
+  const headMesh = new THREE.Mesh(mergeGeometries(heads, false),
+    litSwitch(unlitMaterial({ vertexColors: true })));
   headMesh.name = 'lampHeads';
   posts.forEach((p) => p.dispose());
   heads.forEach((p) => p.dispose());
@@ -161,6 +218,8 @@ export function streetLamps(rng, blocks) {
   const pools = new THREE.InstancedMesh(poolGeometry(), poolMaterial(), spots.length);
   const m = new THREE.Matrix4();
   spots.forEach((p, i) => pools.setMatrixAt(i, m.makeTranslation(p.x, p.y, p.z)));
+  pools.geometry.setAttribute('aLitAt', new THREE.InstancedBufferAttribute(
+    new Float32Array(spots.map((p) => p.w)), 1));
   pools.renderOrder = 1;
   pools.name = 'lampPools';
 
@@ -176,15 +235,21 @@ function poolGeometry() {
 
 function poolMaterial() {
   return new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: color('lampPool') }, uStrength: { value: 0.45 } },
+    uniforms: {
+      uColor: { value: color('lampPool') }, uStrength: { value: 0.45 }, uLitLevel: LIT_LEVEL,
+    },
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     vertexShader: /* glsl */ `
       #include <common>
+      attribute float aLitAt;
+      uniform float uLitLevel;
       varying vec2 vUv;
+      varying float vOn;
       void main() {
         vUv = uv;
+        vOn = smoothstep(aLitAt, aLitAt + ${LIT_RAMP.toFixed(3)}, uLitLevel);
         vec4 mvPosition = vec4(position, 1.0);
         #ifdef USE_INSTANCING
           mvPosition = instanceMatrix * mvPosition;
@@ -196,9 +261,10 @@ function poolMaterial() {
       uniform vec3 uColor;
       uniform float uStrength;
       varying vec2 vUv;
+      varying float vOn;
       void main() {
         float d = length(vUv - 0.5) * 2.0;
-        float a = pow(max(0.0, 1.0 - d), 2.2);
+        float a = pow(max(0.0, 1.0 - d), 2.2) * vOn;
         gl_FragColor = vec4(uColor * a * uStrength, 1.0);
       }
     `,

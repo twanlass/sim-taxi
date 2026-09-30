@@ -56,6 +56,7 @@ const BOX = new THREE.Vector3(220, 60, 220);
 const FALL = new THREE.Vector3(3.5, -34, 2);   // u/s, with a little wind
 const STREAK_LEN = 1.9;
 const STREAK_W = 0.07;
+const STREAK_OPACITY = 0.32;
 
 /** The crowns thrown up where drops land. */
 const SPLASHES = 2600;
@@ -65,6 +66,11 @@ const SPLASH_Y = 0.38;      // just over the pavement, so it is not buried by th
 /** How often each splash slot fires, per second, and what fraction of a cycle it is visible. */
 const SPLASH_RATE = 1.4;
 const SPLASH_LIFE = 0.16;
+
+/** The storm at its peak, as multipliers: the sky colour, the sun, the fill. See `grade`. */
+const STORM_SKY = 0.6;
+const STORM_SUN = 0.15;
+const STORM_FILL = 0.72;
 
 const Y_MIRROR = new THREE.Matrix4().makeScale(1, -1, 1);
 const FLIP_X = new THREE.Matrix4().makeScale(-1, 1, 1);
@@ -81,6 +87,7 @@ const inert = {
   wetGround: (mesh) => mesh,
   renderReflection: () => {},
   renderLens: () => {},
+  setWeather: () => {},
   update: () => {},
   addTo: () => {},
   hideInMirror: () => {},
@@ -116,10 +123,10 @@ export function createRain(renderer, { enabled = false } = {}) {
   const noReflect = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
   noReflect.needsUpdate = true;
   // What the mirror shows where nothing stands: the cloud overhead, but dark. The first cut cleared
-// to the horizon grey and drew the sky dome into the mirror too, and every wet street came out a
-// pale wash with its paint gone — an overcast sky is the brightest thing in the scene, and a
-// puddle is a mirror of it.
-const skyTint = new THREE.Color(PALETTE.rainReflectSky);
+  // to the horizon grey and drew the sky dome into the mirror too, and every wet street came out a
+  // pale wash with its paint gone — an overcast sky is the brightest thing in the scene, and a
+  // puddle is a mirror of it.
+  const skyTint = new THREE.Color(PALETTE.rainReflectSky);
   const hidden = [];
 
   const groundUniforms = {
@@ -130,7 +137,14 @@ const skyTint = new THREE.Color(PALETTE.rainReflectSky);
     uRainSheen: { value: new THREE.Color(PALETTE.rainSheen) },
   };
 
+  // The mirror is a second full render of the city, so it is skipped outright while the streets
+  // are dry — except once, on the first frame, so the clipped variant of every lit program is
+  // compiled up front and not in the middle of the run when the first cloud comes over.
+  let mirrorWarm = false;
+
   function renderReflection(scene, camera) {
+    if (weather.wet < 0.002 && mirrorWarm) return;
+    mirrorWarm = true;
     renderer.getDrawingBufferSize(drawingBuffer);
     const w = Math.max(2, Math.round(drawingBuffer.x * REFLECT_SCALE));
     const h = Math.max(2, Math.round(drawingBuffer.y * REFLECT_SCALE));
@@ -230,7 +244,7 @@ ${WET_ALBEDO}`, 'ground fragment');
     uLen: { value: STREAK_LEN },
     uWidth: { value: STREAK_W },
     uColor: { value: new THREE.Color(PALETTE.rainStreak) },
-    uOpacity: { value: 0.32 },
+    uOpacity: { value: STREAK_OPACITY },
   };
   const streaks = new THREE.Mesh(streakGeo, new THREE.ShaderMaterial({
     uniforms: streakUniforms,
@@ -295,6 +309,7 @@ ${WET_ALBEDO}`, 'ground fragment');
     uSize: { value: 9 },
     uPixelRatio: pixelRatio,
     uColor: { value: new THREE.Color(PALETTE.rainSplash) },
+    uDensity: { value: 1 },
   };
   const splashes = new THREE.Points(splashGeo, new THREE.ShaderMaterial({
     uniforms: splashUniforms,
@@ -309,6 +324,7 @@ ${WET_ALBEDO}`, 'ground fragment');
       uniform float uLife;
       uniform float uSize;
       uniform float uPixelRatio;
+      uniform float uDensity;
       varying float vAge;
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       void main() {
@@ -319,6 +335,8 @@ ${WET_ALBEDO}`, 'ground fragment');
         vec2 r = vec2(hash(position.xy + n * 0.713), hash(position.yx * 1.31 + n * 0.297));
         vec2 xz = uCentre.xz + (r - 0.5) * uBox;
         gl_Position = projectionMatrix * viewMatrix * vec4(xz.x, uY, xz.y, 1.0);
+        // A slot fires only if it is inside this moment's share of the rain.
+        if (position.x > uDensity) vAge = 1.0;
         gl_PointSize = vAge < 1.0 ? uSize * uPixelRatio * (0.45 + 0.75 * vAge) : 0.0;
       }
     `,
@@ -376,6 +394,8 @@ ${WET_ALBEDO}`, 'ground fragment');
 
   /** After the main render: copy the frame, draw it back through the drops. */
   function renderLens() {
+    // A frame copy and a fullscreen pass for nothing, while the glass is dry.
+    if (lensLevel < 0.002) return;
     renderer.getDrawingBufferSize(drawingBuffer);
     if (!frameTex || frameTex.image.width !== drawingBuffer.x || frameTex.image.height !== drawingBuffer.y) {
       frameTex?.dispose();
@@ -406,18 +426,46 @@ ${WET_ALBEDO}`, 'ground fragment');
    * `daylight.apply` is about to use.
    */
   function grade(look) {
+    const w = weather.dark;
+    if (w <= 0) return;
     const bright = Math.min(1, look.fill / 1.2);
-    look.top.lerp(rainTop.clone().multiplyScalar((0.25 + 0.75 * bright) * 0.8), 0.85);
-    look.bottom.lerp(rainBottom.clone().multiplyScalar((0.25 + 0.75 * bright) * 0.8), 0.85);
-    look.sun.lerp(rainSun, 0.7);
-    look.hemiSky.lerp(rainHemiSky.clone().multiplyScalar(0.3 + 0.7 * bright), 0.75);
-    look.hemiGround.lerp(rainHemiGround, 0.6);
-    // The sun is behind cloud: shadows go soft and faint, and the sky does what lighting is left.
-    // Darker than an honest overcast afternoon on purpose — the city's lamps (game/citylights.js)
-    // are what a wet street is a mirror for, and they only read against a dim frame. First cut
-    // was 0.32 and 1.15, and the lights looked like paint.
-    look.power *= 0.22;
-    look.fill *= 0.9;
+    // Storm-dark rather than an honest overcast afternoon, and on purpose: the city's lamps
+    // (game/citylights.js) are what a wet street is a mirror for, and they only read against a dim
+    // frame. The first cut sat at 0.32 of the sun and 1.15 of the fill and the lights looked like
+    // paint; `STORM_SKY` and friends push the peak of `?storm` most of the way to night.
+    const sky = (0.25 + 0.75 * bright) * STORM_SKY;
+    look.top.lerp(tmp.copy(rainTop).multiplyScalar(sky), 0.85 * w);
+    look.bottom.lerp(tmp.copy(rainBottom).multiplyScalar(sky), 0.85 * w);
+    look.sun.lerp(rainSun, 0.7 * w);
+    look.hemiSky.lerp(tmp.copy(rainHemiSky).multiplyScalar((0.3 + 0.7 * bright) * STORM_SKY), 0.75 * w);
+    look.hemiGround.lerp(rainHemiGround, 0.6 * w);
+    // The sun goes behind cloud first and fastest: shadows soften and fade well before the sky has
+    // finished darkening, which is most of what makes the first half of the build read as weather.
+    look.power *= THREE.MathUtils.lerp(1, STORM_SUN, Math.min(1, w * 1.4));
+    look.fill *= THREE.MathUtils.lerp(1, STORM_FILL, w);
+  }
+
+  /**
+   * Where the weather is — `{ dark, rain, wet }`, each 0..1 (game/storm.js). Everything above reads
+   * it: the grade through `dark`, the streaks, splashes and lens drops through `rain`, and the
+   * ground's gloss and the mirror pass through `wet`. Starts at the full storm, which is `?rain`.
+   */
+  const weather = { dark: 1, rain: 1, wet: 1 };
+  const tmp = new THREE.Color();
+  let lensLevel = 1;
+
+  function setWeather({ dark = weather.dark, rain = weather.rain, wet = weather.wet } = {}, dt = 0) {
+    weather.dark = dark;
+    weather.rain = rain;
+    weather.wet = wet;
+    groundUniforms.uRainWet.value = wet;
+    streakUniforms.uOpacity.value = STREAK_OPACITY * rain;
+    splashUniforms.uDensity.value = rain;
+    // Drops land on the glass with the rain and take a while to dry off once it stops.
+    lensLevel = dt > 0 && rain < lensLevel ? lensLevel + (rain - lensLevel) * Math.min(1, dt / 12) : rain;
+    lensUniforms.uAmount.value = lensLevel;
+    // The streaks and splashes are *not* hidden at zero, only faded: a mesh's program compiles on
+    // the first frame it is drawn, and that frame would be the one the storm arrives on.
   }
 
   // --- the loop ---------------------------------------------------------------------------------
@@ -442,6 +490,8 @@ ${WET_ALBEDO}`, 'ground fragment');
   return {
     enabled: true,
     grade,
+    setWeather,
+    weather,
     wetGround,
     renderReflection,
     renderLens,
