@@ -160,9 +160,14 @@ export function planRiver(rng) {
   // One interior line, and it is the one that lifts. Never a ring road: the ring is the way round
   // everything else in this game, and a lift that closed it would take the escape route away at the
   // same moment it takes the direct one.
-  const interior = [];
-  for (let i = 1; i < GRID_I; i++) interior.push(i);
-  const draw = interior.length ? interior[rng.int(0, interior.length - 1)] : null;
+  //
+  // And always one of the **middle** lines, so the drawbridge sits in the centre of the map on every
+  // seed. It used to be any of the four interior lines, and one on line 1 or 4 is a block from a
+  // ring bridge — lifting it barely moved anyone's route. With an odd column count no line sits on
+  // x = 0, so it is whichever of the two either side of it the seed picks (the same pair the
+  // arterial is drawn from in layout.js). Still one `rng.int`, so every draw after it in the layout
+  // stream — the park districts, the buildings — comes out as it did before.
+  const draw = GRID_I >= 2 ? rng.int(Math.floor(GRID_I / 2), Math.ceil(GRID_I / 2)) : null;
   if (draw !== null) crossings.set(draw, 'draw');
 
   // The crossings with no bridge are closed roads in the ordinary sense — `legalExits` drops them,
