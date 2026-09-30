@@ -37,7 +37,8 @@ import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
 // changed is what happens next.
 //
 //   - **Caught** — the cop touches the taxi (see TOUCH_SLACK). The run ends "Busted!", as it always
-//     did; it just takes a cop actually getting to you now.
+//     did; it just takes a cop actually getting to you now. The taxi ramming the cop on the pill is
+//     not that: it is a bump, and buys RAMMED_GRACE.
 //   - **Lost** — see ESCAPE_BLOCKS. The bar goes dark and the cruiser drives off, the same
 //     stand-down a robbery's cops do.
 
@@ -127,8 +128,9 @@ const PURSUIT_FROM = 14;
 const PURSUIT_FULL = 34;
 
 /**
- * How a cop catches the taxi: it touches it. Rammed from behind, sideswiped on a pass, or driven into
- * by a taxi that went for the gap and missed — any contact at all, and that is the arrest.
+ * How a cop catches the taxi: it touches it. Rammed from behind or sideswiped on a pass — any
+ * contact of the cop's making, and that is the arrest. A taxi that drives into the cop on the pill is
+ * the exception: that is a bump (RAMMED_GRACE). Off the pill even that is the arrest.
  *
  * It used to be a meter: a cop within 8 units for a second of a stopped taxi, or two of a moving
  * one. Reported from play as the fail state being soft — a cop sitting a car length back and filling
@@ -161,6 +163,17 @@ const CHASE_MAX = 40;
 const HANDOFF_GRACE = 1.5;
 
 /**
+ * The same grace after the taxi rams the cop on the pill, in seconds. A boosting hit on a cop is a
+ * bump like any other car (sim/collisions.js) — HP off, the cop knocked or launched — and it is the
+ * *taxi* driving into the cop, which is not the cop catching anybody. Without it the bump was a bust
+ * one frame later: a boost within SPOT_RANGE spots a patrolling cop on the very frame of the hit,
+ * the chase arms the touch, and the two cars are still in contact. The cop does not ram inside it
+ * either, so a taxi that loses most of its speed to the hit has a moment to get going again. A cop
+ * that drives into the taxi is still the arrest, and so is any touch off the pill.
+ */
+const RAMMED_GRACE = 1.5;
+
+/**
  * @param rng      its own stream: where a patrol cruises, and the cooldowns between them
  * @param police   the cruiser's look (sim/police.js) — `wear`/`shed` the traffic car
  * @param traffic  the sim — `enterPolice`, `retirePolice`, `policeCars`
@@ -191,8 +204,10 @@ export function createPatrol({
     cop: null,
     /** Seconds this chase has run. */
     elapsed: 0,
-    /** Seconds left of HANDOFF_GRACE, on a chase handed over from a robbery. */
+    /** Seconds left of HANDOFF_GRACE (a chase handed over from a robbery) or RAMMED_GRACE. */
     grace: 0,
+    /** RAMMED_GRACE owed by a ram this frame, spent by the next `update` — see `rammed`. */
+    rammedGrace: 0,
     /** The escape clock, in seconds of the taxi ESCAPE_BLOCKS clear — see ESCAPE_HOLD. */
     clear: 0,
     /** Seconds since it started leaving — see STAND_DOWN_TIMEOUT. */
@@ -384,16 +399,16 @@ export function createPatrol({
   }
 
   /** Lights on, and after the taxi. */
-  function spot(cop) {
+  function spot(cop, grace = 0) {
     cop.siren = true;
     police.setBar('strobe');
     cop.chase = 1;
-    cop.ram = true;
+    cop.ram = grace <= 0;
     cop.route = [];
     state.phase = 'chase';
     state.elapsed = 0;
     state.clear = 0;
-    state.grace = 0;
+    state.grace = grace;
     state.spotted += 1;
     aimedAt = null;
     turnedAt = -Infinity;
@@ -447,6 +462,9 @@ export function createPatrol({
    * @param boosting  the taxi's Loco Mode is engaged — the one thing a patrol reacts to
    */
   function update(dt, { boosting = false } = {}) {
+    // Owed by a ram in this frame's collision pass, and good for this frame only.
+    const rammedGrace = state.rammedGrace;
+    state.rammedGrace = 0;
     if (state.phase === 'off') {
       if (blocked()) return;
       state.cooldown -= dt;
@@ -467,7 +485,7 @@ export function createPatrol({
       // A robbery wants the streets: stand the patrol down rather than have a dark cop car
       // wandering through a getaway it takes no part in.
       if (blocked()) { leave(cop); return; }
-      if (sees) { spot(cop); return; }
+      if (sees) { spot(cop, rammedGrace); return; }
       if (state.leg === 'in') {
         state.legTime += dt;
         if (state.legTime > PATROL_TIME) headOut(cop);
@@ -491,6 +509,10 @@ export function createPatrol({
 
     // --- chase
     state.elapsed += dt;
+    if (rammedGrace > state.grace) {
+      state.grace = rammedGrace;
+      cop.ram = false;
+    }
     steer(cop);
     // Asked every frame, so it lapses the moment the taxi turns off. The U-turn re-plans nothing
     // itself: it leaves the cop with no route, and `steer` above picks that up next frame.
@@ -574,6 +596,14 @@ export function createPatrol({
       state.grace = HANDOFF_GRACE;
       best.ram = false;
       return best;
+    },
+    /**
+     * The taxi has just rammed `cop` on the pill — a bump, not an arrest (see RAMMED_GRACE). Called
+     * from the collision pass, which runs before `update` in the same frame. Anything but the
+     * patrol's own cop is ignored: a robbery's cops never bust anybody.
+     */
+    rammed(cop) {
+      if (cop === state.cop) state.rammedGrace = RAMMED_GRACE;
     },
     /** Is a patrol after the taxi, or has it just lost it? The robbery waits for both. */
     busy: () => state.phase === 'chase' || state.phase === 'arrest',

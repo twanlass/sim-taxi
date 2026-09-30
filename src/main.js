@@ -1213,8 +1213,11 @@ const taxiDamage = createTaxiDamage({
 // without the bar.
 const BUMP_SHAKE = 0.35;
 const BUMP_SHAKE_PER_UNIT = 0.03;
-collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd }) => {
+collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck }) => {
   const yaw = traffic.taxi.yaw;
+  // Ramming the patrol car on the pill is a bump like any other, not a bust — game/patrol.js
+  // `rammed`. The collision pass runs before the patrol's, so this lands the same frame.
+  if (taxiStruck && other.police) patrol.rammed(other);
   controller.kickShake(BUMP_SHAKE + closing * BUMP_SHAKE_PER_UNIT);
   // The designer's bump — light hits against other cars, a recording of its own since Block 1 —
   // scaled by the same closing speed the shake is. 0.3 at a nudge, full at a T-bone at the Loco top.

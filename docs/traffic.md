@@ -1478,13 +1478,6 @@ had no hand in. So the only crash on offer is one the button was pressed for, an
 off boost is that bodies stop passing through each other: a car knocked spinning into the lane
 after the cooldown lapses, or a cop parked across the road.
 
-**Except a police car, which costs everything.** A boosting hit on any cop — the patrol cruiser or
-one of a robbery's — skips the hit points and is [the wreck](#the-wreck) at full HP (`!other.police`
-gates the bump path in `sim/collisions.js`). Off boost a cop is shoved like anything else, and a
-chasing cop that reaches the taxi is still the separate "Busted!" arrest in `game/patrol.js`. The
-cost is that the box-in gets sharper: a roadblock or a brake check is now a wall rather than a dent,
-so the only answer to one is to go round it.
-
 **What a hit costs is the closing speed**, not a flat count: `10 + 1.3 × closing`, clamped 12–60.
 Rear-ending a car at boost cruise closes at ~10.5 u/s and costs 24; T-boning cross traffic at boost
 cruise closes at ~21 and costs 37; anything in the overdrive band costs 49–55. So a sloppy tailgate
@@ -2290,9 +2283,8 @@ merely *there* rather than one worth spending anything to escape.
 
 ### The box-in: roadblocks, the overtake and the brake check
 
-A chase that only ever converges has nothing for the taxi to *do* about it but outrun it. So the
-police also try to stop it — and since a boosting hit on a cop is the wreck at any HP, a block is a
-wall to route round, not a dent to pay for — in two ways that are
+A chase that only ever converges has nothing for the taxi to *do* about it but outrun it. Since the
+taxi has [hit points](#bumps-and-hit-points), the police also try to stop it, in two ways that are
 each an existing piece of the sim pointed somewhere new.
 
 **A roadblock is a car braking inside a box** (`holdRoadblocks` in `game/robbery.js`). A cop already
@@ -2300,7 +2292,7 @@ crossing one of the next few junctions on the taxi's route, with the taxi 12–5
 that it comes to rest *across the taxi's approach lane* and holds there on `car.roadblock` — a timer
 beside `stun` that drives the same `braking` flag. Nothing else makes it a roadblock: a car braking
 mid-turn is already what the junction logic calls stranded (`heldAt`), so cross traffic is held, a
-taxi off the pill is refused at its line, and a boosting one barges in and meets the cop as [the wreck](#bumps-and-hit-points).
+taxi off the pill is refused at its line, and a boosting one barges in and meets the cop as a bump.
 Let go when the junction is no longer on the taxi's way (driven through, rammed through, routed
 round) or after `BLOCK_HOLD` (4s); one at a time, `BLOCK_GAP` (5s) apart. The gap was 8s and the
 look-ahead three junctions and 50 units; loosening all three moved roadblocks from 33 to 38 over 60
@@ -2338,8 +2330,8 @@ median, so there it slides half a lane — `blocksOnCentreline`). The diagonal b
 either side of the middle, which is 0.65 into an oncoming car's flank: ambient traffic is never
 collision-tested, so an oncoming car within `PULLOVER_RANGE` pulls over for it (`laneBlocks`),
 putting its flank at 2.65. A taxi going round it in the oncoming lane
-meets its nose inside the collision envelope, so on the pill there is no way round a brake check —
-the taxi drops in behind it at `BOOST_GAP` (it never `rams()` a cop) and the player lifts off or waits. The recovery was 5 units first and was too slow: a cop pulling away into a left turn was
+meets its nose inside the collision envelope, so the one way round a brake check on the pill is
+through it. The recovery was 5 units first and was too slow: a cop pulling away into a left turn was
 still half swung when it crossed the box, and overlapped whatever was in it.
 
 **Only a crossing car blocks.** Every clause of the gate was a measured overlap first, because
@@ -2714,8 +2706,8 @@ cop talking to the player, where [dispatch's card](gameplay.md#dispatch-breaks-i
 talking about them. A DOM bubble projected over the car every frame, not geometry: this one has to
 be read, and there is no font in the scene.
 
-**Caught** is a touch. Any contact between the cop and the taxi — rammed from behind, sideswiped on
-a pass, or a taxi that went for the gap and clipped it — is the arrest (`touching` in
+**Caught** is a touch. Any contact of the cop's making — rammed from behind, sideswiped on a pass —
+is the arrest, and so is any contact at all off the pill (`touching` in
 `sim/collisions.js`, with `TOUCH_SLACK` of 0.15 because off boost contact is resolved by shoving the
 struck car out to the envelope before anything later in the frame can read it). To make that the
 thing a chase is about, a chasing patrol sets `car.ram` and follows the taxi at `RAM_GAP` (3.9
@@ -2724,6 +2716,14 @@ a car length back could only ever catch a taxi that reversed into it. It used to
 8 units for a second of a stopped taxi, two of a moving one — and was reported as a soft fail
 state: a cop filling a bar a car length back is a timer, not a catch. The run ends **Busted!**, and
 the banner only waits for the camera (`BUST_BANNER_DELAY`, 2s).
+
+**Ramming the cop on the pill is not caught.** It is a [bump](#bumps-and-hit-points) like any other
+car — HP off, the cop knocked or launched — and buys `RAMMED_GRACE` (1.5s) in which the cop neither
+arrests nor rams. Without it the bump was a bust one frame later: a boost within `SPOT_RANGE` spots
+a patrolling cop on the very frame of the hit, the chase arms the touch, and the two cars are still
+in contact. Who hit whom is read off the contact normal before either speed is touched
+(`taxiStruck` on the bump event: the taxi brought more of the closing speed along it than the cop
+did), so a cop ramming a boosting taxi is still the arrest. The last bump is still the wreck.
 
 **Lost** is the gap between the two cars holding past `ESCAPE_BLOCKS` (2.5 blocks, 50 units) for
 `ESCAPE_HOLD` (1.5s) — a little inside the robbery's `LOST_RANGE`, which is "out of the picture" on

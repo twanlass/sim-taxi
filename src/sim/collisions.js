@@ -54,9 +54,7 @@ import {
 //   rear-ending a car at boost cruise (~19 against 8.5, closing ~10.5)   → 24, four of those
 //   T-boning cross traffic at boost cruise (closing ~21)                   → 37, three
 //   anything in the overdrive band (closing 30+)                           → 49–55, two
-// so a clumsy tailgate is forgiven a few times and a red light run flat out is not. A police car —
-// the patrol cruiser or any of a robbery's — is not priced at all: a boosting hit on one is the wreck
-// at any HP.
+// so a clumsy tailgate is forgiven a few times and a red light run flat out is not.
 export const TAXI_HP = 100;
 const BUMP_BASE = 10;
 const BUMP_PER_UNIT = 1.3;       // HP per u/s of closing speed
@@ -223,11 +221,7 @@ export function createCollisions(cars, taxi) {
       // out of the sim by then.
       const speed = taxi.v;
 
-      // A police car is never a bump. Hit points are the city forgiving a clumsy tailgate; ramming
-      // a cop on the pill is the one hit it does not forgive, however full the bar. Only an armed
-      // hit gets here, so a cop nudged off boost is still a shove — and a chasing cop that gets to
-      // the taxi is the arrest, which game/patrol.js decides on its own.
-      if (taxi.hp != null && !other.police) {
+      if (taxi.hp != null) {
         // Closing speed, not the taxi's own: a car driving away from the bumper is a nudge, one
         // crossing in front of it is not.
         const rvx = Math.cos(taxi.yaw) * taxi.v - Math.cos(other.yaw) * other.v;
@@ -262,6 +256,12 @@ export function createCollisions(cars, taxi) {
     // a case per angle: a rear-end pushes the car on down its lane, a T-bone pushes it sideways
     // off its line.
     const { nx, nz } = pen;
+    // Who hit whom: the taxi, if it was bringing more of the closing speed along the normal than the
+    // other car was. Read before either speed is touched below. game/patrol.js needs it — the taxi
+    // ramming a cop is a bump, a cop ramming the taxi is the arrest.
+    const taxiIn = (Math.cos(taxi.yaw) * nx - Math.sin(taxi.yaw) * nz) * taxi.v;
+    const otherIn = -(Math.cos(other.yaw) * nx - Math.sin(other.yaw) * nz) * other.v;
+    const taxiStruck = taxiIn >= otherIn;
     shoveCar(other, nx * pen.depth, nz * pen.depth);
     // Which side of the taxi's line the car was on, as in main.js's wreck: struck on its left it is
     // turned right, and the taxi recoils the other way.
@@ -296,7 +296,7 @@ export function createCollisions(cars, taxi) {
     knockCar(taxi, -nx * recoil, -nz * recoil, -side * TAXI_SPIN * mass);
     taxi.v *= BUMP_KEEP / mass;
     for (const cb of bumpListeners) {
-      cb({ x: px, z: pz, speed, closing, damage, hp: taxi.hp, taxi, other, nx, nz, rearEnd });
+      cb({ x: px, z: pz, speed, closing, damage, hp: taxi.hp, taxi, other, nx, nz, rearEnd, taxiStruck });
     }
   }
 

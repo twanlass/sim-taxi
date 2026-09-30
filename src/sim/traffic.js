@@ -762,13 +762,7 @@ const followsLeader = (car) => seesLeader(car) || (car.police && !car.passing);
 // `canPass` is the overtake's own test (the pass block in `update`), so the two cannot disagree
 // about whether there was a way round. Keyed on `hp` so the lab and the probe, which never arm it,
 // keep measuring the avoiding taxi they were tuned against.
-//
-// Never a cop. A boosting hit on a police car is the wreck at any HP (sim/collisions.js), so ramming
-// one is not a bump the taxi can afford — and the player does not steer, so a taxi that rammed cops
-// on its own would end the run behind every patrol it happened to catch up with. Behind a cop it
-// follows at BOOST_GAP the way it did when every contact was fatal.
-const rams = (car, leader) => car.isTaxi && car.boost && car.hp != null && !car.canPass
-  && !leader?.police;
+const rams = (car) => car.isTaxi && car.boost && car.hp != null && !car.canPass;
 // Where the taxi pulls out, and the number the whole manoeuvre is sized by. Closing to a body
 // length past the leader is (PASS_TRIGGER + 5) units of relative displacement, and at the ~10 u/s
 // a boosting taxi gains on cruising traffic that is 1.83 units of road for every unit of it. At
@@ -2118,11 +2112,10 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // Is this one wearing police livery this moment? Set by `enterPolice` and cleared by
       // `leavePolice` while a
       // bank robbery is running (game/robbery.js) and false the rest of the time. It changes two
-      // things in here and nothing else: the paint (see `paint` below) and whether the siren bar on
-      // the roof is drawn. It is deliberately **not** a behaviour flag in the traffic model — a cop
-      // car queues, indicates and stops at reds exactly like the car it was a moment ago. The one
-      // place outside that reads it as more than paint is sim/collisions.js: a boosting hit on a
-      // cop skips the taxi's hit points and is the wreck outright.
+      // things and nothing else: the paint (see `paint` below) and whether the siren bar on the
+      // roof is drawn. It is deliberately **not** a behaviour flag — a cop car queues, indicates,
+      // stops at reds and can be crashed into exactly like the car it was a moment ago, which is
+      // the whole of what the event asked for.
       police: false,
       // Same index, same array, whether this is a car or a truck's cab — see PALETTE.truckBox for
       // the one part of a truck that doesn't read this.
@@ -4796,8 +4789,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // so queueing at a red — which everything else here is tuned around — is untouched.
         //
         let leadCap = Infinity;
-        const ahead = followsLeader(car) && !rams(car, leaderOf.get(car))
-          ? leaderDist.get(car) : undefined;
+        const ahead = followsLeader(car) && !rams(car) ? leaderDist.get(car) : undefined;
         if (ahead !== undefined) {
           const leader = leaderOf.get(car);
           const gap = car.boost ? boostGap(car) : followGap(car, leader);
@@ -5244,8 +5236,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // hold. That is what keeps `bargesThrough`'s guarantee intact: nothing stops the taxi
         // inside a junction.
         let target = cornerTarget;
-        const lead = followsLeader(car) && !rams(car, leaderOf.get(car))
-          ? leaderOf.get(car) : undefined;
+        const lead = followsLeader(car) && !rams(car) ? leaderOf.get(car) : undefined;
         const leadGap = lead === undefined ? undefined : leaderDist.get(car);
         if (leadGap !== undefined) {
           const room = Math.max(0, leadGap - (car.boost ? boostGap(car) : followGap(car, lead)));

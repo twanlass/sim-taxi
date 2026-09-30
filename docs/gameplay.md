@@ -1792,7 +1792,7 @@ the VIP's version that is absent here rather than shared.
 
 **What it can cost now is the escape afterwards, and only once the job is done.** Deliver the robber
 and one cop comes after *you* as an ordinary [patrol chase](traffic.md#the-patrol-cruiser) —
-caught on a touch is "Busted!" ([the drop-off](#the-drop-off-the-arrest-and-the-tail)). That is a
+caught on a touch is "Busted!", though ramming it on the pill is only a bump" ([the drop-off](#the-drop-off-the-arrest-and-the-tail)). That is a
 different claim from the one this section was written to defend: nothing about the event *being
 imposed* can end the run, and a player who drives the getaway has chosen to finish it. The drop-off
 fills the tank to pay for the chase, so the choice is "boost clear", not "hope".
