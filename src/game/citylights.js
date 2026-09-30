@@ -293,5 +293,13 @@ export function createTaxiHeadlights() {
     group.add(pool);
   }
   group.add(pods);
-  return { group, pods };
+  const parts = [...pods.children, ...group.children.filter((c) => c !== pods)];
+  /**
+   * 0..1, the same running-light level the fleet reads (`setRunningLights` in sim/traffic.js): off
+   * in the sun, on once the storm is properly gloomy. A scale about each part's own origin, as the
+   * fleet's pods are, rather than `visible` — so switching on is not the frame a program compiles.
+   */
+  const setLevel = (level) => { for (const part of parts) part.scale.setScalar(level); };
+  setLevel(0);
+  return { group, pods, setLevel };
 }

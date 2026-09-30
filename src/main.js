@@ -338,12 +338,21 @@ if (rain.grade) daylight.setGrade(rain.grade);
  * - `wet` is the ground's gloss and the mirror pass, and the grip: every car brakes softer on a
  *   wet road and plans its stops against the softer brake.
  */
+// The taxi's own headlights (game/citylights.js), and the level every set of headlights is at. Both
+// hoisted up here because the first `applyWeather` below runs before the taxi exists; the pair is
+// built with the rest of the taxi's lamps and handed this level then.
+let taxiHeadlights = null;
+let runningLevel = 0;
+
 function applyWeather(dt = 0) {
   if (!storm) return;
   const w = storm.update(dt);
   rain.setWeather(w, dt);
   setGrip(THREE.MathUtils.lerp(1, GRIP, w.wet));
-  setRunningLights(THREE.MathUtils.smoothstep(w.dark, 0.25, 0.42));
+  runningLevel = THREE.MathUtils.smoothstep(w.dark, 0.25, 0.42);
+  setRunningLights(runningLevel);
+  // The taxi's own pair on the same level as the fleet's: dark in the sun, on once it is gloomy.
+  taxiHeadlights?.setLevel(runningLevel);
   setCityLights(w.dark);
   setHazeTop(fog, THREE.MathUtils.lerp(HAZE_TOP, RAIN_HAZE_TOP, w.dark));
   daylight.apply();
@@ -785,8 +794,9 @@ for (const mesh of traffic.emissiveMeshes) markEmissive(mesh, mesh.userData.bloo
 if (litPanes) markEmissive(litPanes, 'window');
 // The taxi's own headlights and pools, hung on its group so they ride the body. The group is also
 // what becomes the wreck (see `wreckShell` in sim/traffic.js), so they go dark while it is one.
-const taxiHeadlights = rain.enabled ? createTaxiHeadlights() : null;
+taxiHeadlights = rain.enabled ? createTaxiHeadlights() : null;
 if (taxiHeadlights) {
+  taxiHeadlights.setLevel(runningLevel);
   traffic.taxiGroup.add(taxiHeadlights.group);
   markEmissive(taxiHeadlights.pods, 'pod');
 }
