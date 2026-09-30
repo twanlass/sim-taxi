@@ -1176,6 +1176,62 @@ only distinction being made.
 - **The bands are subtle at the shipped `steps` of 3**, since golden hour already puts most of a
   facade in one band. It is a slider for exactly that reason.
 
+## Rain Mode — `game/rain.js`
+
+`?rain`. An exploration and off by default: the city on a wet afternoon. Five layers, plus one
+change to the physics:
+
+- **The grade.** `daylight.setGrade(rain.grade)` grades every keyframe *before* anything reads it,
+  so the haze and the clouds follow for free. The day's own colours are pulled toward the `rain*`
+  palette entries, scaled by the day's own brightness so a rainy night is still night. The sun
+  keeps 32% of its power (soft, faint shadows) and the fill picks up 15%. The haze goes up to
+  `RAIN_HAZE_TOP` 0.34 against 0.19 dry, which is past the point where scene.js says the back of
+  the city stops reading as air and starts reading as weather. That is the point here.
+- **Wet ground.** The ground mesh's own `propMaterial`, patched on top of whatever AO or look mode
+  is already there and keyed `…-wet`. It uses a screen-space face normal (`dFdx`/`dFdy` of world
+  position, because the material is flat-shaded anyway) to find up-facing surfaces. The asphalt
+  (y below 0.08) darkens to 58%. Pavement gets about 60% of that and grass half again. A
+  two-octave noise field lays puddles on the road only.
+- **The reflection.** The whole scene is drawn a second time at half resolution through the main
+  camera mirrored about y = 0. Under an orthographic camera this is exact, with no reflector plane
+  and no oblique clip: the ground reads the mirror back at its own `gl_FragCoord`. A mirror flips
+  handedness, so the pass also flips x in the projection to keep front faces front-facing, and the
+  ground samples at `1 − u` to undo that. A global clipping plane at `CLIP_Y` 0.03 removes the road
+  and its paint, which lie *on* the mirror plane and would otherwise cover everything. The
+  pavement survives and reflects as its own kerb. The pass reuses the frame's shadow map, binds a
+  white AO texture (the real one is a map of the *main* view), and hides the sky dome, the rain
+  and the bloom/crayon overlays. Its clear colour is `rainReflectSky`, a long way darker than the
+  sky. The first cut mirrored the sky itself, and every street came out a pale wash with its paint
+  gone. The ground blurs the read over nine taps along screen y, the way lights smear on real wet
+  asphalt, and wobbles it with procedural ripple rings. A puddle is the same read with almost no
+  blur and 0.72 gloss, against 0.3 for bare asphalt.
+- **Rain and splashes.** 14,000 instanced streaks and 2,600 point-sprite crowns. Both animate
+  entirely in the vertex shader off one clock, wrapped in a box around the ground point under the
+  middle of the frame, so a pan never runs out of weather and the CPU does nothing per drop.
+  Depth-tested, so rain falls *behind* buildings.
+- **The lens.** After the main render, the frame is copied to a `FramebufferTexture` and drawn back
+  through drops on the glass: small beads that appear, sit and dry, fewer large ones, and a few
+  that stick and slip down the screen. Each is an inverted lens with a darker rim and a catch
+  light. This is a copy plus one fullscreen triangle, not a composer, so the main render keeps its
+  MSAA and its stencil. The copied frame is already display-space and the shader writes it back
+  untouched.
+- **Grip.** `setGrip(GRIP)` in `sim/traffic.js` scales `brake()` and `hardBrake()` by 0.6. Cars
+  plan their stops against the same function they brake with, so the wet lengthens every stop
+  instead of making anyone run a red. Measured with `tools/taxi.mjs 30` and `tools/signals.mjs` at
+  grip 0.6: 0 red-light violations, minimum gap 5.30 (5.57 dry, `MIN_GAP` 5.3), throughput 6.97
+  against 7.14.
+
+### What it is not doing yet
+
+- **No headlights.** Wet streets are mostly a mirror for *lights*, and the city has few of them:
+  brake lights, the burger joint's neon, the route band and the markers. Night plus rain plus
+  headlights is where this would really pay off.
+- **Cost.** The mirror is a second full scene render, and the first frame with it compiles a
+  clipped variant of every lit program. It has not been measured on a phone.
+- **No spray** off tyres, no wet sheen on roofs or car bodies, and no ripples on the river.
+- **Unlit markers on the road** (the route band, the target discs) are clipped out of the mirror
+  with the road they sit on, so they do not reflect.
+
 ## Bloom — `game/bloom.js`, and the comparison in `game/hdr.js`
 
 Spill around every self-lit thing in the game: brake pods and indicators on every vehicle, a

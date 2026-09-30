@@ -70,6 +70,7 @@ src/
     birds.js            the park flocks: walk the grass, startled up by the taxi, come back; two per city
     ducks.js            the birds on the pond: paddle, sit, dabble, never leave
     clouds.js           the weather ringing the island — placed on the screen, never over the city
+    rain.js             `?rain`: overcast grade, wet mirrored streets, rain, splashes, drops on the lens
     robbery.js          the bank robbery: who gets in outside the bank, and the cops that come with them
     arrest.js           the robbery's drop-off: the cops circle the robber on the corner and take them in
     patrol.js           the patrol cruiser's life: across town edge to edge, chase, caught or lost, out

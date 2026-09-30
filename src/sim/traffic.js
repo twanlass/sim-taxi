@@ -1615,7 +1615,17 @@ export const overdriveTop = () => SPEED * loco.overdriveSpeed;
  * What every car actually sheds speed at. `BRAKE` above stays the shipped number the comments
  * throughout this file quote; this is the one the physics reads, so the panel can move it.
  */
-const brake = () => loco.brake;
+const brake = () => loco.brake * grip;
+
+/**
+ * The road's grip, as a multiplier on every brake — 1 dry, less in the wet (`?rain`, game/rain.js).
+ * Applied inside `brake()` and `hardBrake()` rather than on the tuning, so every stop a car *plans*
+ * is planned against the same number it then brakes with: a wet road lengthens the stops, it does
+ * not make anyone run a red.
+ */
+let grip = 1;
+export const setGrip = (value) => { if (Number.isFinite(value) && value > 0) grip = value; };
+export const roadGrip = () => grip;
 
 /**
  * What a car sheds speed at with the brake pedal held — the taxi, and only ever the taxi.
@@ -1624,7 +1634,7 @@ const brake = () => loco.brake;
  * past HARD_BRAKE, at which point a "hard" brake that stops the car *slower* than simply lifting
  * off is not a brake; the max is what keeps the pedal monotonic against its own tuning.
  */
-const hardBrake = () => Math.max(HARD_BRAKE, brake());
+const hardBrake = () => Math.max(HARD_BRAKE, loco.brake) * grip;
 
 /**
  * The top of the scatter lerp: a car fleeing the boosting taxi is pushed toward the taxi's own

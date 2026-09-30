@@ -451,6 +451,17 @@ export function getCrayon(fallback = false) {
 }
 
 /**
+ * Rain Mode, via `?rain` — overcast light, wet reflective streets, falling rain, drops on the lens,
+ * softer brakes. Off by default: an exploration, see `game/rain.js`. A flag rather than a setting
+ * because the ground's wet shader is compiled into its material before the first frame.
+ */
+export function getRain(fallback = false) {
+  const raw = new URLSearchParams(window.location.search).get('rain');
+  if (raw === null) return fallback;
+  return !isOff(raw);
+}
+
+/**
  * Cartoon Mode, via `?cartoon` / `?cartoon=on` — cel-banded light and hard ink, with a thicker
  * outline on the vehicles. Off by default, same as `?crayon`, and independent of it: they are two
  * separate looks being tried, not two halves of one.

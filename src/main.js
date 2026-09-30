@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { makeRng } from './util/rng.js';
-import { createScene, sinkShadowCaster } from './game/scene.js';
+import { createScene, sinkShadowCaster, setHazeTop } from './game/scene.js';
+import { createRain, GRIP, RAIN_HAZE_TOP } from './game/rain.js';
 import {
   createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD,
 } from './game/camera.js';
@@ -18,7 +19,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
-  configureSignals,
+  configureSignals, setGrip,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice } from './sim/police.js';
@@ -89,7 +90,7 @@ import { findRoute, findRouteVia, findRouteOnto, planOrigin, crossingOrigin } fr
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -245,6 +246,10 @@ const bloom = createBloom(renderer, {
   enabled: budget.bloom, depth: ao.depth, depthSize: ao.depthSize,
 });
 const crayon = createCrayon(renderer, { enabled: crayonEnabled });
+// `?rain` — the wet city. An exploration, off by default; see game/rain.js. The road's grip goes with
+// it: every car brakes softer, and plans its stops against the softer brake.
+const rain = createRain(renderer, { enabled: getRain() });
+if (rain.enabled) setGrip(GRIP);
 const cartoon = createCartoon({ enabled: cartoonEnabled });
 
 // `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
@@ -261,6 +266,11 @@ if (crayon.overlay) scene.add(crayon.overlay);
 // The bloom composite, on the same terms and under it — an ordinary object in the main scene, not
 // a post pass. See `game/bloom.js`; null under `?bloom=off` and under `?hdr`.
 if (bloom.overlay) scene.add(bloom.overlay);
+
+// The falling rain, and the two overlays that must stay out of its mirror pass.
+rain.addTo(scene);
+rain.hideInMirror(crayon.overlay, bloom.overlay, scene.getObjectByName('sky'));
+if (rain.enabled) setHazeTop(fog, RAIN_HAZE_TOP);
 
 // A GPU that takes the context away gets the budget turned down rather than the player getting a
 // black screen for the rest of the run — see `game/recovery.js` for the two steps and why the
@@ -280,12 +290,17 @@ function renderFrame() {
   // Sized here rather than in the frame loop for the same reason the AO prepass is called here:
   // shot mode and `__taxi.redraw()` both reach a render without ever reaching the loop.
   crayon.prepare();
+  // The wet road's mirror, before anything reads it. A no-op without `?rain`.
+  rain.update(0, camera);
+  rain.renderReflection(scene, camera);
   ao.render(scene, camera);
   // After the AO prepass, which is what fills the depth buffer the lamps are rejected against.
   bloom.render(scene, camera);
   // `?hdr` takes the whole frame through a composer instead; a no-op without the flag, and it
   // returns false so the ordinary path below still runs.
   if (!hdr.render(scene, camera)) renderer.render(scene, camera);
+  // Drops on the glass, over the finished frame.
+  rain.renderLens();
 }
 
 // Weather, ringing the island — see game/clouds.js. Scenery on the same terms as the aeroplane and
@@ -304,6 +319,7 @@ const clouds = createClouds(scene, makeRng(runSeed + 277));
 const daylight = createDaylight({ sun, hemi, sky, fog, clouds });
 daylight.setDayLength(DAY_SECONDS);
 daylight.setCycling(false);
+if (rain.grade) daylight.setGrade(rain.grade);
 
 // Every generator draws from its own stream so that changing one system doesn't reshuffle the
 // others — editing building code shouldn't move the parks. `layout` was already produced above
@@ -311,7 +327,7 @@ daylight.setCycling(false);
 // `markOccluder` is what puts a mesh into the AO depth prepass. The rule it enforces is that
 // anything lit by `propMaterial()` has to be in there: a mesh that receives AO without casting it
 // samples the occlusion of whatever stands behind it. See `game/ssao.js`.
-scene.add(markOccluder(createGround(makeRng(seed + 11), layout)));
+scene.add(markOccluder(rain.wetGround(createGround(makeRng(seed + 11), layout))));
 
 // The river, and the spans that get over it. Its own stream, like every other generator, so that
 // moving a bridge cannot reshuffle a park.
@@ -3131,6 +3147,7 @@ function frame() {
   flyover.update(dt);
   chopper.update(dt);
   clouds.update(dt);
+  rain.update(dt, camera);
   // Handed last frame's taxi position, which is all a startle needs — it is a distance test with
   // eight units of slack, and running it here rather than after `traffic.update` keeps the whole
   // scenery block in one place.
@@ -4195,6 +4212,8 @@ window.__taxi = {
    */
   crayon,
   cartoon,
+  /** Rain Mode's handles — uniforms and the mirror target. Inert unless `?rain`. */
+  rain,
   /**
    * The two bloom routes — `{ state, set }` each, the same handles the ⚙️ panel drives, plus
    * `target()` on the emissive one so a browser test can look at what the lamps actually wrote.
