@@ -3060,7 +3060,13 @@ has and is never refused.
 half the building's front — nearest-hit, so every tap there answered the rider. `choosePick` in
 `game/pick.js` now lets an invisible stand-in yield to the first *drawn* surface along the ray when
 that surface is the depot (or the burger joint) and the tap would be taken; the rider's own figure,
-crystal and disc are drawn and in front, so they still mean the rider. While a repair would be
+crystal and disc are drawn and in front, so they still mean the rider. That last clause was false
+for a while: the crystal and disc opted out of raycasting (the quad "already covered them") and live
+at scene level outside the rider's group, so the ray never saw them — a tap on the crystal read as
+empty margin, and a tap on the near half of the disc met the burger joint's apron before the quad.
+Reported as a tap on a rider at the joint sending the taxi through the drive-through. Both are now
+raycast and tagged as the rider's (`stampFareMarker` in `game/fares.js`), and every marker's
+`postGroup` carries its kind so a pad or a parcel on the corner counts the same way. While a repair would be
 refused — undamaged car, rider aboard — the margin stays the rider's, since the alternative is a
 tap that does nothing.
 

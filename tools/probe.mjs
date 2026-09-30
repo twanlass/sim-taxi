@@ -55,7 +55,7 @@ import {
 } from '../src/game/robberyglow.js';
 import {
   createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES,
-  ARRIVE_RADIUS, onSameBlock, onWaterBlock, CURSE_LIFT, BURGER_PRICE,
+  ARRIVE_RADIUS, onSameBlock, onWaterBlock, CURSE_LIFT, BURGER_PRICE, waitingTargets, stampFareMarker,
 } from '../src/game/fares.js';
 import { createCurseBubble, TAIL_DROP } from '../src/geometry/cursebubble.js';
 import {
@@ -91,7 +91,7 @@ import {
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
   DIAMOND_HALF_H, BOUNCE_HEIGHT,
 } from '../src/geometry/diamond.js';
-import { CRYSTAL_TOP } from '../src/game/faremarker.js';
+import { CRYSTAL_TOP, createFareMarker } from '../src/game/faremarker.js';
 import { QUESTION_GEO } from '../src/geometry/questionmark.js';
 import { createPerson, HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
 import { POP_SCALE_DIAMOND, POP_SCALE_RIDER, POP_TIME } from '../src/game/selectpop.js';
@@ -3240,7 +3240,8 @@ check('no two cars occupy the same space', worst > 1.6,
     // rather than counted out.
     const onCorner = pin.postGroup.children.filter((c) => c !== pin.ring.group);
     check('the drop-off stands nothing on its corner',
-      pin.standing === null && onCorner.length === 1 && onCorner[0].userData.pickable === 'destination',
+      pin.standing === null && onCorner.length === 1 && onCorner[0] === pin.hit
+      && pin.postGroup.userData.pickable === 'destination',
       `${pin.postGroup.children.length} on the corner`);
   }
   check('no two fares claim the same junction', sharedJunction === 0, `${sharedJunction} frames`);
@@ -3360,7 +3361,7 @@ check('no two cars occupy the same space', worst > 1.6,
     //    across is a different bug wearing the same face, and the only place the answer exists is
     //    on the built mesh.
     const perUnit = H / (2 * PLAY_ZOOM);
-    const target = pins.get('2,2').postGroup.children.find((c) => c.userData?.pickable);
+    const target = pins.get('2,2').hit;
     const { width, height } = target.geometry.parameters;
     check('a rider\'s tap target is comfortably past a fingertip',
       width * perUnit >= 44 && height * perUnit >= 44,
@@ -13056,6 +13057,80 @@ let chopperOrder; // likewise
 
   // --- The building.
   const joint = createBurgerJoint(block, makeRng(seed + 111));
+
+  // A tap on a rider's crystal or disc means the rider, even with the joint drawn behind them.
+  // Reported from a phone: a rider on the joint's corner, their crystal standing over the roof, and
+  // a tap on it sent the taxi through the drive-through instead. The stand-in rule (game/pick.js)
+  // hands a tap to a drawn building behind a rider's invisible quad — and the crystal and disc live
+  // in game/faremarker.js, scene-level and outside the rider's group, so the raycast never saw them
+  // and the pixels they cover counted as the quad's empty margin. Seeing them is not enough either:
+  // the near half of the disc lies in front of the quad, over the joint's apron, and the apron is
+  // the nearest *tagged* hit there unless the disc is tagged too (61 of 1516 samples when it was
+  // raycast but untagged). The depot's check above tests the
+  // crystal too and could not catch it: it skips any sample whose first drawn surface is the
+  // building, which without the crystal in the ray is every sample where the crystal overlaps it.
+  // Every pixel where the crystal or the disc is what the player sees, all four corners.
+  {
+    const W = 390;
+    const H = 844;
+    const mid = [(bounds.x0 + bounds.x1) / 2, (bounds.z0 + bounds.z1) / 2];
+    const bCam = createCityCamera(W / H, { zoom: PLAY_ZOOM, target: mid });
+    bCam.camera.updateMatrixWorld(true);
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    const v = new THREE.Vector3();
+    const perUnit = H / (2 * PLAY_ZOOM);
+    const drawnHit = (h) => {
+      if (h.object.material?.visible === false) return false;
+      for (let n = h.object; n; n = n.parent) if (!n.visible) return false;
+      return true;
+    };
+    const under = (o, root) => { for (let n = o; n; n = n.parent) if (n === root) return true; return false; };
+    joint.group.userData.pickable = 'burger';
+    joint.group.updateMatrixWorld(true);
+
+    const mScene = new THREE.Scene();
+    const mark = createFareMarker(mScene, 0);
+    stampFareMarker(mark, 0);
+    let samples = 0;
+    let overJoint = 0;
+    const lost = [];
+    for (const [cx, cz] of [[bounds.x0, bounds.z0], [bounds.x0, bounds.z1],
+      [bounds.x1, bounds.z0], [bounds.x1, bounds.z1]]) {
+      const pin = createPassengerPin(createPerson);
+      pin.group.position.set(cx, 0.12, cz);
+      pin.postGroup.position.set(0, KERB_H, 0);
+      pin.group.updateMatrixWorld(true);
+      mark.showAt(URGENCY_SEGMENTS, cx, cz);
+      mark.settleRing();
+      mScene.updateMatrixWorld(true);
+      // The targets main.js hands the picker for a waiting fare, plus the joint.
+      const roots = [...waitingTargets({ passenger: pin, marker: mark }), joint.group];
+      v.set(cx, KERB_H, cz).project(bCam.camera);
+      const c = { x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H };
+      let bad = 0;
+      for (let dy = -12; dy <= 4; dy += 0.25) {
+        for (let dx = -8; dx <= 8; dx += 0.25) {
+          ray.setFromCamera(ndc.set(((c.x + dx * perUnit) / W) * 2 - 1,
+            -((c.y + dy * perUnit) / H) * 2 + 1), bCam.camera);
+          // Which surface the player sees here, raycasting the marker's drawn halves directly.
+          const seenAll = ray.intersectObjects([mark.group, mark.ring, joint.group], true).find(drawnHit);
+          if (!seenAll || !(under(seenAll.object, mark.group) || under(seenAll.object, mark.ring))) continue;
+          samples += 1;
+          const hits = ray.intersectObjects(roots, true);
+          if (hits.some((h) => under(h.object, joint.group))) overJoint += 1;
+          if (choosePick(hits, (k) => k === 'burger')?.kind !== 'passenger') bad += 1;
+        }
+      }
+      if (bad) lost.push(`(${cx},${cz}) ${bad}`);
+      pin.group.traverse((o) => o.geometry?.dispose());
+    }
+    check('a rider on the joint\'s block has crystal or disc drawn over the building somewhere',
+      overJoint > 0, `${overJoint}/${samples} marker samples with the joint behind them`);
+    check('a tap on a rider\'s crystal or disc in front of the joint means the rider',
+      lost.length === 0, lost.join(', ') || `${samples} samples`);
+  }
+
   {
     joint.shell.geometry.computeBoundingBox();
     const bb = joint.shell.geometry.boundingBox;
