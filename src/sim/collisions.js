@@ -54,7 +54,9 @@ import {
 //   rear-ending a car at boost cruise (~19 against 8.5, closing ~10.5)   → 24, four of those
 //   T-boning cross traffic at boost cruise (closing ~21)                   → 37, three
 //   anything in the overdrive band (closing 30+)                           → 49–55, two
-// so a clumsy tailgate is forgiven a few times and a red light run flat out is not.
+// so a clumsy tailgate is forgiven a few times and a red light run flat out is not. A police car —
+// the patrol cruiser or any of a robbery's — is not priced at all: a boosting hit on one is the wreck
+// at any HP.
 export const TAXI_HP = 100;
 const BUMP_BASE = 10;
 const BUMP_PER_UNIT = 1.3;       // HP per u/s of closing speed
@@ -221,7 +223,11 @@ export function createCollisions(cars, taxi) {
       // out of the sim by then.
       const speed = taxi.v;
 
-      if (taxi.hp != null) {
+      // A police car is never a bump. Hit points are the city forgiving a clumsy tailgate; ramming
+      // a cop on the pill is the one hit it does not forgive, however full the bar. Only an armed
+      // hit gets here, so a cop nudged off boost is still a shove — and a chasing cop that gets to
+      // the taxi is the arrest, which game/patrol.js decides on its own.
+      if (taxi.hp != null && !other.police) {
         // Closing speed, not the taxi's own: a car driving away from the bumper is a nudge, one
         // crossing in front of it is not.
         const rvx = Math.cos(taxi.yaw) * taxi.v - Math.cos(other.yaw) * other.v;

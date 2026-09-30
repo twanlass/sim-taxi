@@ -5889,6 +5889,46 @@ check('the taxi is an ordinary car in the traffic array',
     && hTaxi.hp === 0, `crashed ${hTaxi.crashed}, ${wrecks} wrecks, hp ${hTaxi.hp}`);
 }
 
+// --- A police car is the wreck at any HP -----------------------------------
+// Ramming a cop on the pill skips the hit points. What can go wrong: the cop is priced as a bump
+// like any other car, or the rule leaks off boost and a graze with a cop ends the run.
+{
+  const pScene = new THREE.Scene();
+  const pTraffic = createTraffic(makeRng(seed + 46), pScene, CARS_DEFAULT);
+  const pTaxi = pTraffic.taxi;
+  const pCollisions = createCollisions(pTraffic.cars, pTaxi);
+  let pBumps = 0;
+  let pWreck = null;
+  pCollisions.onBump(() => { pBumps += 1; });
+  pCollisions.onImpact((event) => { pWreck = event; });
+  pTaxi.hp = TAXI_HP;
+  pTraffic.warmup(3);
+  pTraffic.enterPolice(1);
+  const cop = pTraffic.policeCars[0];
+
+  // Off boost first: parked on the cop, it is shoved and nothing else.
+  pTaxi.staged = true;
+  pTaxi.yaw = cop.yaw + Math.PI / 2;
+  pTaxi.x = cop.x - Math.cos(pTaxi.yaw) * 1.6;
+  pTaxi.z = cop.z + Math.sin(pTaxi.yaw) * 1.6;
+  pTaxi.v = 8;
+  pTaxi.boost = false;
+  pTaxi.staged = false;
+  pCollisions.update(1 / 60);
+  check('touching a cop off boost is not a wreck', !pWreck && !pTaxi.crashed && pTaxi.hp === TAXI_HP);
+
+  pTaxi.staged = true;
+  pTaxi.x = cop.x - Math.cos(pTaxi.yaw) * 1.6;
+  pTaxi.z = cop.z + Math.sin(pTaxi.yaw) * 1.6;
+  pTaxi.v = 19;
+  pTaxi.boost = true;
+  pCollisions.update(1 / 60);
+  pTaxi.staged = false;
+  check('a boosting hit on a cop at full HP is the wreck, not a bump',
+    Boolean(cop) && pBumps === 0 && pWreck?.other === cop && pTaxi.crashed && cop.crashed,
+    `${pBumps} bumps, wreck ${Boolean(pWreck)}, hp ${pTaxi.hp}`);
+}
+
 // --- A truck outweighs the taxi ---------------------------------------------
 // The same square T-bone at boost cruise, once into a car and once into a truck (TRUCK_MASS in
 // sim/collisions.js). The truck has to come off the lighter of the two — knocked less far, slewed
@@ -14615,8 +14655,8 @@ let chopperOrder; // likewise
           `${uturnOverlap} frames of overlap; taxi no nearer than ${uturnTaxi.toFixed(1)}`);
       }
 
-      // A roadblock is rammed, not driven through: a boosting taxi with hit points meets a cop
-      // stopped across its lane as a bump. Staged directly — a car driven into the middle of a box
+      // A roadblock is rammed, not driven through: a boosting taxi meets a cop stopped across its
+      // lane — and a cop is the wreck at any HP (sim/collisions.js), however full the bar. Staged directly — a car driven into the middle of a box
       // and held there, then the taxi on the pill at it — because "the taxi arrives while it
       // holds" is exactly what a staged getaway cannot promise.
       {
@@ -14626,8 +14666,10 @@ let chopperOrder; // likewise
         const tx = t4.taxi;
         const J = { i: 2, j: 2 };
         let stopped = false;
-        let bumpedIt = false;
+        let wreckedOn = null;
         if (cop) {
+          // In the livery, which is the only thing the collision reads.
+          cop.police = true;
           placeCar(tx, DIR.PX, J.i, J.j, 40);
           tx.route = [DIR.PX, DIR.PX];
           tx.parked = false;
@@ -14647,18 +14689,18 @@ let chopperOrder; // likewise
           }
           tx.hp = TAXI_HP;
           const col4 = createCollisions(t4.cars, tx);
-          col4.onBump((e) => { if (e.other === cop) bumpedIt = true; });
-          for (let f = 0; f < 60 * 6 && stopped && !bumpedIt && !tx.crashed; f++) {
+          col4.onImpact((e) => { wreckedOn = e.other; });
+          for (let f = 0; f < 60 * 6 && stopped && !tx.crashed; f++) {
             tx.boost = true;
             cop.roadblock = 99;
             t4.update(1 / 60);
             col4.update(1 / 60);
           }
         }
-        check('a boosting taxi rams a roadblock as a bump, not a wreck',
-          stopped && bumpedIt && !tx.crashed && tx.hp < TAXI_HP,
+        check('a boosting taxi that rams a roadblock is wrecked on it, at full HP',
+          stopped && wreckedOn === cop && tx.crashed && cop.crashed && tx.hp === TAXI_HP,
           `${stopped ? 'cop held in the box' : 'cop never reached the box'}, hp ${tx.hp}, `
-            + `${bumpedIt ? 'bumped' : 'never touched'} the cop`);
+            + `${wreckedOn === cop ? 'wrecked on' : 'never wrecked on'} the cop`);
       }
 
       // And it all comes off when the event does. A cop left chasing would go on driving at where

@@ -1258,7 +1258,10 @@ collisions.onImpact(({ x, z, speed, other }) => {
   // It used to spin out, snap back onto a lane and drive away. A boosting taxi arrives at ~19 u/s
   // and the survivor shrugging that off made the player's own wreck look like a rule rather than
   // a crash.
-  blast.fire(other.x, other.z, PALETTE.carBody[other.colorIndex], yaw, speed * STRUCK_SHOVE);
+  // In the paint it was actually wearing: a cop is an ordinary car under `policeBody`, and its own
+  // `colorIndex` draw is whatever hatchback it would otherwise have been.
+  const struckPaint = other.police ? PALETTE.policeBody : PALETTE.carBody[other.colorIndex];
+  blast.fire(other.x, other.z, struckPaint, yaw, speed * STRUCK_SHOVE);
 
   // And a collar of smoke around the pair — the same lit, faceted puffs a barricade throws, tinted
   // grey and opened out into a ring (see `dust.wreckSmoke`). The fireball is unlit flat colour, so
