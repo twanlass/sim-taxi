@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial } from '../util/geo.js';
+import { bakeColor, propMaterial, setFinish, FINISH } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT, SILL_Y } from './wheels.js';
 import {
@@ -71,11 +71,11 @@ export function createTaxiMesh() {
   // Proportions match the ambient cars so the taxi reads as the same class of vehicle.
   const body = new THREE.BoxGeometry(CAR_LEN, 0.8, CAR_W);
   body.translate(0, 0.78 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(body, color('taxiBody')));
+  parts.push(setFinish(bakeColor(body, color('taxiBody')), FINISH.PAINT));
 
   const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, 0.6, CAR_W * 0.86);
   cabin.translate(-0.2, 1.45 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(cabin, color('carGlass')));
+  parts.push(setFinish(bakeColor(cabin, color('carGlass')), FINISH.GLASS));
 
 
 
@@ -106,18 +106,18 @@ export function createTaxiMesh() {
       // body is `taxiBody` yellow, and a yellow-and-black band is a hazard stripe, not a taxi. The
       // white is `taxiSign`, the off-white the roof sign already lights up in — the car's existing
       // white, so the livery stays a two-colour car rather than gaining a third.
-      parts.push(bakeColor(cell, color(i % 2 === 0 ? 'taxiTrim' : 'taxiSign')));
+      parts.push(setFinish(bakeColor(cell, color(i % 2 === 0 ? 'taxiTrim' : 'taxiSign')), FINISH.PAINT));
     }
   }
 
   // Rear wheels only — the fronts steer, so they hang off the group as their own meshes below.
-  parts.push(...wheelGeometries(CAR_LEN, CAR_W));
+  parts.push(...wheelGeometries(CAR_LEN, CAR_W).map((w) => setFinish(w, FINISH.MATTE)));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 
   // Glossy paint, like the fleet's (sim/traffic.js) — a touch more coat, it is the hero car.
-  const shell = new THREE.Mesh(merged, propMaterial({ gloss: { geometry: merged, floor: SILL_Y, width: CAR_W, amount: 0.42 } }));
+  const shell = new THREE.Mesh(merged, propMaterial({ gloss: { geometry: merged, floor: SILL_Y, amount: 0.24 } }));
   shell.castShadow = true;
   // ...and receives, like every ambient car — see the note over the traffic meshes in
   // sim/traffic.js for what that costs and why it is not behind a flag.

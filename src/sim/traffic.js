@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
+import { bakeColor, propMaterial, setFinish, FINISH, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { KERB_H, roundedRectShape } from '../city/ground.js';
 import {
@@ -1781,13 +1781,13 @@ export function carGeometry() {
   // Body sits clear of the wheels so they actually show below the sill.
   const body = new THREE.BoxGeometry(CAR_LEN, 0.8, CAR_W);
   body.translate(0, 0.78 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(body, new THREE.Color(1, 1, 1)));
+  parts.push(setFinish(bakeColor(body, new THREE.Color(1, 1, 1)), FINISH.PAINT));
 
   const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, CABIN_H, CAR_W * 0.86);
   cabin.translate(CABIN_X, CABIN_Y, 0);
-  parts.push(bakeColor(cabin, color('carGlass')));
+  parts.push(setFinish(bakeColor(cabin, color('carGlass')), FINISH.GLASS));
 
-  parts.push(...wheelGeometries(CAR_LEN, CAR_W));
+  parts.push(...wheelGeometries(CAR_LEN, CAR_W).map((w) => setFinish(w, FINISH.MATTE)));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -1813,7 +1813,7 @@ export function policeCabGeometry() {
   const cab = new THREE.BoxGeometry(
     CAR_LEN * 0.5 + 2 * CAB_SKIN, CABIN_H + CAB_SKIN, CAR_W * 0.86 + 2 * CAB_SKIN);
   cab.translate(CABIN_X, CABIN_Y + CAB_SKIN / 2, 0);
-  return bakeColor(cab, color('policeCab'));
+  return setFinish(bakeColor(cab, color('policeCab')), FINISH.PAINT);
 }
 
 // Shared by truckCabGeometry() and truckBoxGeometry() so the two pieces — drawn from separate
@@ -1848,17 +1848,17 @@ function truckCabGeometry() {
 
   const chassis = new THREE.BoxGeometry(TRUCK_LEN, 0.8, TRUCK_W);
   chassis.translate(0, TRUCK_BASE_Y, 0);
-  parts.push(bakeColor(chassis, white));
+  parts.push(setFinish(bakeColor(chassis, white), FINISH.PAINT));
 
   const cab = new THREE.BoxGeometry(TRUCK_CAB_LEN, 1.1, TRUCK_W * 0.84);
   cab.translate(TRUCK_CAB_X, TRUCK_CAB_Y, 0);
-  parts.push(bakeColor(cab, cabDark));
+  parts.push(setFinish(bakeColor(cab, cabDark), FINISH.GLASS));
 
   const windshield = new THREE.BoxGeometry(0.12, 0.7, TRUCK_W * 0.7);
   windshield.translate(TRUCK_CAB_X + TRUCK_CAB_LEN / 2 - 0.05, TRUCK_CAB_Y, 0);
-  parts.push(bakeColor(windshield, cabDark));
+  parts.push(setFinish(bakeColor(windshield, cabDark), FINISH.GLASS));
 
-  parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W));
+  parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W).map((w) => setFinish(w, FINISH.MATTE)));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -1878,7 +1878,7 @@ function truckCabGeometry() {
 function truckBoxGeometry() {
   const box = new THREE.BoxGeometry(TRUCK_BOX_LEN, 2.0, TRUCK_W);
   box.translate(TRUCK_BOX_X, TRUCK_BASE_Y + 0.4 + 1.0, 0);
-  return bakeColor(box, color('truckBox'));
+  return setFinish(bakeColor(box, color('truckBox')), FINISH.PAINT);
 }
 
 // --- Brake lights and turn signals -----------------------------------------------------------
@@ -2768,7 +2768,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // Glossy paint: the sun glints off it and the city slides across it (`propMaterial({ gloss })`).
   const bodyGeometry = carGeometry();
   const mesh = neverCull(new THREE.InstancedMesh(
-    bodyGeometry, propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y, width: CAR_W } }), MAX_AMBIENT,
+    bodyGeometry, propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y } }), MAX_AMBIENT,
   ));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.castShadow = true;
@@ -2795,7 +2795,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // same PALETTE.carBody a car is (see paintTruck below).
   const cabGeometry = truckCabGeometry();
   const truckMesh = neverCull(
-    new THREE.InstancedMesh(cabGeometry, propMaterial({ gloss: { geometry: cabGeometry, floor: SILL_Y, width: TRUCK_W } }), MAX_AMBIENT),
+    new THREE.InstancedMesh(cabGeometry, propMaterial({ gloss: { geometry: cabGeometry, floor: SILL_Y } }), MAX_AMBIENT),
   );
   truckMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   truckMesh.castShadow = true;
@@ -2819,9 +2819,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // and the material draws the geometry's own baked PALETTE.truckBox untouched.
   const boxGeometry = truckBoxGeometry();
   const truckBoxMesh = neverCull(
-    // A cargo box is a painted panel too, but a flatter one than a cab: less coat, less curve.
+    // A cargo box is a painted panel too, but a flatter, duller one than a cab: less coat, less curve.
     new THREE.InstancedMesh(boxGeometry, propMaterial({
-      gloss: { geometry: boxGeometry, floor: SILL_Y, width: TRUCK_W, amount: 0.22, bulge: 0.35 },
+      gloss: { geometry: boxGeometry, floor: SILL_Y, amount: 0.1, bulge: 0.2 },
     }), MAX_AMBIENT),
   );
   truckBoxMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -2916,7 +2916,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   sirenHousingMesh.userData.anchor = SIREN_HOUSING_AT;
   // The white cab, on exactly the same switch. Car-local, so its matrix is the body's own.
   const policeCabMesh = neverCull(new THREE.InstancedMesh(
-    policeCabGeometry(), propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y, width: CAR_W } }), MAX_AMBIENT,
+    policeCabGeometry(), propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y } }), MAX_AMBIENT,
   ));
   policeCabMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   policeCabMesh.castShadow = true;

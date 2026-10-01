@@ -39,7 +39,8 @@ const WHEEL_SEGMENTS = 16;         // doubled from 8 — at WHEEL_R's size the 8
 export const CHASSIS_LIFT = WHEEL_R - 0.32;
 
 // The underside of every body — car, truck chassis and taxi alike (`0.78 + CHASSIS_LIFT`, less half
-// the 0.8 body). The glossy paint stops here: below it is wheel.
+// the 0.8 body). The glossy paint centres its curve above this, so the wheels below it don't drag
+// the crown down toward the road (`propMaterial({ gloss })`, util/geo.js).
 export const SILL_Y = 0.38 + CHASSIS_LIFT;
 
 // Baked dark rather than white: the shared material reads vertex colours and instanceColor

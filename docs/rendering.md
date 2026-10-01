@@ -81,35 +81,56 @@ Four details worth keeping:
 
 Every vehicle body — the fleet, truck cabs and boxes, the cop cars, the cruiser and the taxi — is
 `MeshPhongMaterial` rather than the Lambert everything else wears, with one more patch on top of
-`patchProp`. Wheels and wrecks stay matte. Three things, in order:
+`patchProp`. Front wheels and wrecks stay plain Lambert.
 
-| | What it does |
-|---|---|
-| **A bent normal** | A box panel under an orthographic camera and a directional sun has one normal, one view direction and one light, so it takes *one* highlight and *one* reflected colour edge to edge. The normal is pushed outward by how far the fragment sits from the body's centre (`bulge`), which gives every panel a curve to slide things across. It reaches the diffuse term too, so bodies now shade softly across a face — deliberate. |
-| **Phong's sun glint** | Phong rather than a hand-rolled highlight because Phong's goes through the shadow map: a car in a tower's shadow has nothing to glint with. |
-| **A reflection that marches the city** | The reflected ray is stepped through the height field `game/sightline.js` already builds for the fare board, uploaded once as a byte texture (`setGlossCity`). Where the ray passes under a roofline it returns a dark façade, otherwise the sky gradient (`setGlossSky`, fed by `game/daylight.js`). Mixed over the lit paint on a Fresnel weight. |
+**Each part says what it is made of.** `setFinish()` bakes an `aFinish` attribute per part —
+`FINISH.MATTE` (tyres), `PAINT`, `GLASS` — and the shader reads it per fragment. A geometry with no
+`aFinish` reads 0, so anything untagged comes out matte rather than mirrored; `tools/probe.mjs`
+asserts the car and the taxi carry all three. This replaced guessing the tyres from height and
+width, which the tread (proud of the flank, top above the sill) kept slipping past.
 
-**Why a march and not an env map.** The camera never rotates, so the reflected ray off a facet
-only changes when the *car* turns. A cubemap — even a live one — would hand a car driving straight
-the same picture on every frame. What changes as it drives is *where it is*, and only something
-that knows where the buildings are can make the skyline break up as it passes a cross street.
+| | Paint | Glass | Tyre |
+|---|---|---|---|
+| Diffuse | flat facet normal | flat facet normal | flat facet normal |
+| Glint (shininess 400) | 0.35 | 0.8 | — |
+| Sheen (shininess 14, flaked) | 0.07 | — | — |
+| Reflection | `uGloss` × (0.25 → 1 with Fresnel): 0.18 fleet, 0.24 taxi, 0.1 cargo box | 0.22 → 0.62 | — |
+
+**The diffuse keeps the flat normal.** The first cut bent three's `normal` itself, which the diffuse
+reads too, and every car went soft and bubbly — the facets that make this a low-poly game smoothed
+into one rounded lump. Now two *extra* normals are bent outward by how far the fragment sits from the
+body's centre, and only the specular and the reflection read them:
+
+- **The glint's bends up to 45° at a panel's corner** (`GLOSS_GLINT_BULGE`). It has to: the sun's
+  half-vector sits about 45° round from both axes the traffic drives on, so a box panel bent less
+  never lines up with it — a 17° bend rendered no glint at all on an axis-aligned car. A real car
+  catches the sun on its curved shoulders; bent this far, the corner of a panel is that shoulder,
+  and with a lobe this tight only the corner shows it.
+- **The reflection's bends about 17°** (`GLOSS_BULGE` = 0.3), enough to slide a skyline across a
+  panel without curving one face into the next.
+
+**The specular is swapped, not tuned.** Phong's own specular line is replaced
+(`GLOSS_SPECULAR_FROM`/`TO`) with two lobes on the glint normal. It stays inside three's light loop,
+so the shadow map is already folded into the light: a car in a tower's shadow has nothing to glint
+with, and the cop's lamps glint off the cars beside it.
+
+**The sheen carries metal flake.** Paint's broad lobe is multiplied by a hash over the body's own
+space, 14 cells a unit — sub-pixel at play zoom, where it averages into a livelier sheen, and only
+sparkle close up. The sheen is also what separates paint from glass when no glint is lined up.
+
+**The reflection marches the city.** The reflected ray is stepped through the height field
+`game/sightline.js` already builds for the fare board, uploaded once as a byte texture
+(`setGlossCity`). Under a roofline it returns a dark façade, otherwise the sky gradient
+(`setGlossSky`, fed by `game/daylight.js`). Why not an env map: the camera never rotates, so the
+reflected ray off a facet only changes when the *car* turns — a cubemap would hand a car driving
+straight the same picture every frame. What changes as it drives is where it is.
 
 **The ray is folded up off the road.** The camera looks down at 33°, so the honest reflection off a
 side panel is the asphalt a metre away — correct and invisible. `gR.y = max(abs(gR.y), 0.12)`
-mirrors it upward so a flank sees the street wall opposite, which is what anyone expects a car to
-reflect.
-
-**Masked to the body.** Below `SILL_Y` (`geometry/wheels.js`) is wheel, and so is anything more than
-0.06 outboard of the flank — the tread stands `WHEEL_PROUD` = 0.11 past it and its top is above the
-sill, so the floor alone left every wheel with a glossy crown. The 0.06 keeps the taxi's chequer
-stripe (0.05 proud) on the paint.
-
-**Amount.** 0.35 for the fleet, 0.42 for the taxi, 0.22 for cargo boxes. At 0.55 a cream car read as
-a pale blue one: the sky was most of what it showed.
+mirrors it upward so a flank sees the street wall opposite.
 
 **Off under Crayon and Cartoon.** `propMaterial` hands back the plain Lambert when either look is on
-at boot — a skyline in a crayon drawing's bodywork is a photograph stuck to it. `outlinable` in
-`game/cartoon.js` accepts Phong as well, for a car built before the flag.
+at boot. `outlinable` in `game/cartoon.js` accepts Phong as well, for a car built before the flag.
 
 All glossy bodies share one program (`prop-gloss`, `-ssao` as it applies): the per-shape numbers
 are per-material uniforms, not source. `tools/links.mjs` counts it at boot, not mid-run.

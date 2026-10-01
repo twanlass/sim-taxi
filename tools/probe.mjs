@@ -114,7 +114,7 @@ import {
 } from '../src/game/birds.js';
 import {
   propMaterial, unlitMaterial, setAmbientOcclusion, setCrayon, setCartoon,
-  AO_UNIFORMS, CRAYON_UNIFORMS, CARTOON_UNIFORMS, BODY_EULER_ORDER,
+  AO_UNIFORMS, CRAYON_UNIFORMS, CARTOON_UNIFORMS, BODY_EULER_ORDER, FINISH,
 } from '../src/util/geo.js';
 import {
   AO_LAYER, markOccluder, unmarkOccluder, occluderList, RING_BROAD, RING_TIGHT, MAX_DEPTH_DIFF,
@@ -9883,7 +9883,7 @@ check('the taxi is an ordinary car in the traffic array',
   // ShaderLib source rather than a stub, and check the glossy taxi actually got it.
   {
     const box = new THREE.BoxGeometry(3.4, 1.2, 1.7);
-    const paint = propMaterial({ gloss: { geometry: box, floor: 0.5, width: 1.7 } });
+    const paint = propMaterial({ gloss: { geometry: box, floor: 0.5 } });
     const lib = THREE.ShaderLib.phong;
     const shader = {
       uniforms: { ...lib.uniforms }, vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader,
@@ -9898,6 +9898,14 @@ check('the taxi is an ordinary car in the traffic array',
       && paint.customProgramCacheKey() !== propMaterial().customProgramCacheKey()
       && Boolean(taxiShell?.material.isMeshPhongMaterial),
       threw ?? `key ${paint.customProgramCacheKey()}`);
+    // The finish is what keeps a tyre matte and a window apart from the paint, and a body with no
+    // aFinish reads 0 everywhere — matte, silently. Both bodies carry all three.
+    const finishes = (geometry) => new Set(geometry.attributes.aFinish?.array ?? []);
+    const hasAll = (set) => [FINISH.MATTE, FINISH.PAINT, FINISH.GLASS].every((f) => set.has(f));
+    const carFinish = finishes(carGeometry());
+    const taxiFinish = finishes(taxiShell.geometry);
+    check('vehicle bodies tag their paint, glass and tyres', hasAll(carFinish) && hasAll(taxiFinish),
+      `car [${[...carFinish]}] taxi [${[...taxiFinish]}]`);
     box.dispose();
   }
 

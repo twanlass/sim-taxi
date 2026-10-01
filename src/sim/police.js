@@ -158,7 +158,7 @@ export function createPolice(scene) {
   const shell = new THREE.Group();
   group.add(shell);
   const bodyGeometry = policeGeometry();
-  const body = new THREE.Mesh(bodyGeometry, propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y, width: CAR_W } }));
+  const body = new THREE.Mesh(bodyGeometry, propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y } }));
   body.receiveShadow = true;
   shell.add(body);
   const lights = lightBar(shell, group);
