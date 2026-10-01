@@ -6,6 +6,7 @@ import {
   GRID_I, GRID_J, lineX, lineZ, halfRoadZ, riverBanks, riverRow, segmentKey,
 } from './grid.js';
 import { SLAB_X, KERB_H, PAVE_INSET, EDGE_FADE, FADE_RINGS } from './ground.js';
+import { patchRiverWater } from './riverwater.js';
 
 // A river running east-west through the city, and the four crossings that get over it.
 //
@@ -426,6 +427,22 @@ export function createRiver(rng, layout) {
   shell.name = 'river-shell';
 
   const water = waterMesh(rng, edges);
+  // The surface: ripples, a bed seen through it, and the far wall and the decks mirrored in it.
+  // Handed the wall's colour *as built* so its reflection is the same concrete.
+  patchRiverWater(water.material, {
+    edges,
+    banks,
+    wall: wallCol,
+    bridges: bridgeLines().map((i) => {
+      const span = bridgeSpan(i);
+      return {
+        x0: span.cx - span.outer,
+        x1: span.cx + span.outer,
+        rise: span.kind === 'fixed' ? ARCH_RISE : 0,
+        draw: span.kind === 'draw',
+      };
+    }),
+  });
   group.add(shell);
   group.add(water);
   const mouths = riverMouthFade();
