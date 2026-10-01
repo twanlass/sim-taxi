@@ -1208,7 +1208,7 @@ const taxiDamage = createTaxiDamage({
   sparks, dust, roadY: ROAD_Y,
 });
 // The rear door, swung open on the kerb side while a rider hops in. See game/taxidoor.js.
-const taxiDoor = createTaxiDoor({ setDoor: traffic.setTaxiDoor, taxi: traffic.taxi });
+const taxiDoor = createTaxiDoor({ setDoor: traffic.setTaxiDoor });
 
 // A survivable hit: the struck car is launched or spun off its line (sim/collisions.js `bump`),
 // the taxi loses most of its speed, and here is the noise — a comic starburst on the contact

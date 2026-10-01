@@ -9,6 +9,10 @@ import { BOARD_SECONDS } from './fares.js';
 // `spawnRobber` in game/fares.js), and reading the progress keeps the door in step with the figure
 // frame for frame instead of on a parallel timeline that could drift from it.
 //
+// The side is not decided here. game/fares.js latches it on the fare (`boardingSide`, via
+// `taxiSideToward`) on the first frame of the run and aims the rider at that door, so the figure
+// and the door it climbs through are answering the same question once rather than twice.
+//
 // person.js `board()` runs until 0.7 of the clock and hops for the rest, so the door starts opening
 // as the rider closes in and is fully open by the time they leave the ground.
 const OPEN_FROM = 0.4;           // fraction of BOARD_SECONDS
@@ -19,23 +23,15 @@ const REBOUND = 0.12;            // rad, the bounce off the frame
 const REBOUND_TIME = 0.12;       // s
 
 /**
- * `setDoor(side, angle)` is the mesh's; `taxi` is the sim car (x, z, yaw). Call `update` every
- * frame with whichever fare is currently boarding, or null.
+ * `setDoor(side, angle)` is the mesh's. Call `update` every frame with whichever fare is currently
+ * boarding, or null — after `fares.update`, which is what latches the fare's `boardingSide`.
  */
-export function createTaxiDoor({ setDoor, taxi }) {
+export function createTaxiDoor({ setDoor }) {
   let fare = null;          // the boarding fare the door is open for
   let side = 0;
   let angle = 0;
   let closing = -1;         // seconds since the rider vanished, or −1 while not closing
   let closeFrom = 0;
-
-  // Which flank faces the kerb, latched as the door starts to open: the car is moving through a
-  // junction while the rider runs at it, so a side re-read every frame could flip mid-swing.
-  // Local +z under rotation.y = yaw is world (sin yaw, cos yaw).
-  const sideFacing = (from) => {
-    const lz = (from.x - taxi.x) * Math.sin(taxi.yaw) + (from.z - taxi.z) * Math.cos(taxi.yaw);
-    return lz < 0 ? -1 : 1;
-  };
 
   function update(dt, boarding) {
     if (boarding && boarding.boarding !== undefined) {
@@ -43,7 +39,7 @@ export function createTaxiDoor({ setDoor, taxi }) {
       if (boarding !== fare) {
         if (p < OPEN_FROM) { tick(dt); return; }
         fare = boarding;
-        side = sideFacing(boarding.boardingFrom);
+        side = boarding.boardingSide ?? 1;
         closing = -1;
       }
       const u = Math.min(1, (p - OPEN_FROM) / (OPEN_TO - OPEN_FROM));

@@ -307,6 +307,7 @@ export function createTaxiMesh() {
     setDoor: door.set,
     /** The two door panels, for the probe — hinge at local x 0, free edge at −x. */
     doors: door.panels,
+    doorGaps: door.gaps,
   };
 }
 
@@ -333,9 +334,37 @@ const DOOR_LOW = 0.44 + CHASSIS_LIFT;
 const DOOR_BELT = 1.16 + CHASSIS_LIFT;
 const DOOR_TOP = 1.66 + CHASSIS_LIFT;
 
+/**
+ * Which flank of `car` (sim car: x, z, yaw) faces the world point (x, z): +1 the +z flank, −1 the
+ * other. The one place the boarding side is decided — the rider's run (game/fares.js) and the door
+ * (game/taxidoor.js) both read the answer latched on the fare, so they cannot pick different sides.
+ * Local +z under rotation.y = yaw is world (sin yaw, cos yaw).
+ */
+export function taxiSideToward(car, x, z) {
+  const lz = (x - car.x) * Math.sin(car.yaw) + (z - car.z) * Math.cos(car.yaw);
+  return lz < 0 ? -1 : 1;
+}
+
+/**
+ * World XZ of the middle of the rear door's opening on `side`, pushed `out` world units off the
+ * flank (negative reaches inside the car). Read off the same constants the door is built from and
+ * put through TAXI_SCALE, so the rider aims at the door that is drawn rather than at the 3.4-unit
+ * sim car (see the TAXI_SCALE trap in CLAUDE.md).
+ */
+export function taxiDoorPoint(car, side, out = 0, target = { x: 0, z: 0 }) {
+  const lx = (DOOR_HINGE_X - DOOR_LEN / 2) * TAXI_SCALE;
+  const lz = side * ((CAR_W / 2) * TAXI_SCALE + out);
+  const s = Math.sin(car.yaw);
+  const c = Math.cos(car.yaw);
+  target.x = car.x + lx * c + lz * s;
+  target.z = car.z - lx * s + lz * c;
+  return target;
+}
+
 function buildDoors(group) {
   const doors = new Map();
   const panels = [];
+  const gaps = [];
   for (const side of [-1, 1]) {
     // Runs from the hinge along −x. Symmetric in z, so the left door is the same geometry turned
     // the other way about the hinge — no mirror, so no winding to flip.
@@ -369,10 +398,12 @@ function buildDoors(group) {
     addGhostMask(gap);
     doors.set(side, { hinge, gap });
     panels.push(panel);
+    gaps.push(gap);
   }
 
   return {
     panels,
+    gaps,
     /**
      * Open the door on `side` (+1 the car's +z flank, −1 the other) by `angle` radians, free edge
      * swinging outward — or pass side 0 / angle 0 to shut both away.

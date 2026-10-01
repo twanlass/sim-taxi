@@ -96,7 +96,7 @@ import { CRYSTAL_TOP, createFareMarker } from '../src/game/faremarker.js';
 import { QUESTION_GEO } from '../src/geometry/questionmark.js';
 import { createPerson, HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
 import { POP_SCALE_DIAMOND, POP_SCALE_RIDER, POP_TIME } from '../src/game/selectpop.js';
-import { createTaxiMesh } from '../src/geometry/taxi.js';
+import { createTaxiMesh, taxiSideToward, taxiDoorPoint } from '../src/geometry/taxi.js';
 import { isCarOffScreen } from '../src/game/taxifinder.js';
 import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
 import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
@@ -9151,15 +9151,21 @@ check('the taxi is an ordinary car in the traffic array',
   // at any heading — the side is a sign worked out from the yaw, and a flipped sign swings the door
   // into the cab on the far flank, which at 7px would read as nothing happening at all. Then it has
   // to shut and put itself away once they are in. Swept over eight headings and both kerbs.
+  //
+  // And the rider has to go in *through* it: game/fares.js aims the run at `taxiDoorPoint`, which is
+  // worked out from the door's constants by hand, so it is checked against the opening as built —
+  // the drawn gap's centre, through the mesh's own transforms, TAXI_SCALE included.
   {
     const doorCar = { x: 0, z: 0, yaw: 0 };
     const doorMesh = createTaxiMesh();
-    const door = createTaxiDoor({ setDoor: doorMesh.setDoor, taxi: doorCar });
+    const door = createTaxiDoor({ setDoor: doorMesh.setDoor });
     const freeEnd = new THREE.Vector3();
     const hingeAt = new THREE.Vector3();
+    const gapAt = new THREE.Vector3();
     let wrong = 0;
     let lingering = 0;
     let trials = 0;
+    let aimMiss = 0;
     for (let k = 0; k < 8; k++) {
       for (const kerbSide of [-1, 1]) {
         doorCar.yaw = (k / 8) * Math.PI * 2 + 0.3;
@@ -9170,7 +9176,7 @@ check('the taxi is an ordinary car in the traffic array',
         const s = Math.sin(doorCar.yaw);
         const c = Math.cos(doorCar.yaw);
         const from = { x: lx * c + lz * s, z: -lx * s + lz * c };
-        const fare = { boarding: 0, boardingFrom: from };
+        const fare = { boarding: 0, boardingFrom: from, boardingSide: taxiSideToward(doorCar, from.x, from.z) };
         for (fare.boarding = 0; fare.boarding < BOARD_SECONDS; fare.boarding += 1 / 60) {
           door.update(1 / 60, fare);
         }
@@ -9182,6 +9188,11 @@ check('the taxi is an ordinary car in the traffic array',
         open.localToWorld(hingeAt.set(0, 1, 0));
         const toward = (v) => v.x * from.x + v.z * from.z;
         if (!(toward(freeEnd) > toward(hingeAt) + 0.3)) wrong += 1;
+        const gap = doorMesh.doorGaps.find((g) => g.scale.x > 0);
+        gap.geometry.computeBoundingBox();
+        gap.localToWorld(gap.geometry.boundingBox.getCenter(gapAt));
+        const aim = taxiDoorPoint(doorCar, fare.boardingSide);
+        aimMiss = Math.max(aimMiss, Math.hypot(aim.x - gapAt.x, aim.z - gapAt.z));
         for (let f = 0; f < 60; f++) door.update(1 / 60, null);
         if (doorMesh.doors.some((p) => p.parent.scale.x > 0)) lingering += 1;
       }
@@ -9189,6 +9200,9 @@ check('the taxi is an ordinary car in the traffic array',
     check('the taxi door swings out toward the rider and shuts behind them',
       wrong === 0 && lingering === 0,
       `${trials} boardings over 8 headings × both kerbs: ${wrong} opened wrong, ${lingering} left open`);
+    // The gap stands 0.065 proud of the body side (it sits over the chequer stripe), × 1.18.
+    check('...and the rider is aimed at the door that opens', aimMiss < 0.1,
+      `aim point to drawn opening, worst ${aimMiss.toFixed(3)} units`);
   }
 
   // ...and the same invariant on the fleet, where the reported failure actually was: a truck, whose

@@ -4,6 +4,7 @@ import {
 import { KERB_H } from '../city/ground.js';
 import { createPassengerPin, createDestinationPin } from '../geometry/marker.js';
 import { createPerson } from '../geometry/person.js';
+import { taxiSideToward, taxiDoorPoint } from '../geometry/taxi.js';
 import { createCurseBubble } from '../geometry/cursebubble.js';
 import { createFareMarker } from './faremarker.js';
 import { sightlineClear } from './sightline.js';
@@ -351,6 +352,13 @@ export const ARRIVE_RADIUS = 9.6;
 // figure physically hides, so a run-and-jump animation gets to play across it. Tuned against that
 // flight's 0.65s so the clock lands on the taxi a beat before the rider disappears into it.
 export const BOARD_SECONDS = 0.9;
+// Where the boarding run ends and the hop lands, in world units off the taxi's flank at the middle
+// of its rear door (`taxiDoorPoint`): the rider pulls up just clear of the open door's sill and
+// ducks half a unit into the car, shrinking away as they go.
+const DOOR_STANDOFF = 0.7;
+const DOOR_REACH = 0.5;
+const doorRun = { x: 0, z: 0 };
+const doorIn = { x: 0, z: 0 };
 
 // How long the delivered rider is visible for after they leave the cab. Longer than BOARD_SECONDS
 // because the animation carries an extra beat — a fade after the run — so a departing rider is
@@ -1623,11 +1631,21 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
         // pickup instant; the delta to the taxi's *current* position is re-read every frame, which
         // is what lets the figure catch a car that is still moving — and it always is, since the
         // pickup fires with the taxi mid-junction and it now drives straight on to the drop-off.
+        //
+        // They run at the rear door on the kerb side, not at the middle of the car, and hop in
+        // through it — the door (game/taxidoor.js) swings open on whichever side is latched here.
+        // Latched once, on the first frame: the car is usually turning through the junction while
+        // they run, and a side re-read every frame could swap doors mid-stride. The door point
+        // itself *is* re-read every frame, for the same reason the taxi's position is.
         if (fare.boarding !== undefined && passenger.standing?.board) {
           fare.boarding += dt;
           const t = Math.min(1, fare.boarding / BOARD_SECONDS);
           const kerb = fare.boardingFrom;
-          passenger.standing.board(t, taxiCar.x - kerb.x, taxiCar.z - kerb.z);
+          fare.boardingSide ??= taxiSideToward(taxiCar, kerb.x, kerb.z);
+          taxiDoorPoint(taxiCar, fare.boardingSide, DOOR_STANDOFF, doorRun);
+          taxiDoorPoint(taxiCar, fare.boardingSide, -DOOR_REACH, doorIn);
+          passenger.standing.board(t, doorRun.x - kerb.x, doorRun.z - kerb.z,
+            doorIn.x - kerb.x, doorIn.z - kerb.z);
           if (t >= 1) {
             passenger.group.visible = false;
             fare.boarding = undefined;
