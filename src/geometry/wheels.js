@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { bakeColor } from '../util/geo.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { bakeColor, setFinish, FINISH } from '../util/geo.js';
+import { color } from '../palette.js';
 
 // Wheels, and the ride height that follows from them. Every vehicle in the game is built against
 // this file: ambient traffic and the taxi in sim/traffic.js and geometry/taxi.js, the cruiser in
@@ -79,9 +81,32 @@ export function wheelAnchors(len, width) {
  * car's origin.
  */
 export function wheelGeometry() {
-  const wheel = new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, WHEEL_W, WHEEL_SEGMENTS);
+  return tyreWithHubs();
+}
+
+// The hubcap: a steel disc on each face of the tyre, the metal finish (`FINISH.METAL`). Both faces,
+// because the steered pair is one geometry used on both sides of the car; the inboard one is behind
+// the body. Stands HUB_PROUD clear of the sidewall rather than on it — two flat surfaces at the
+// same depth is a shimmer (CLAUDE.md) — and its inner face is buried against the sidewall facing
+// inward, where it is culled before it can fight anything.
+const HUB_R = WHEEL_R * 0.55;
+const HUB_PROUD = 0.04;
+
+/** A tyre with a hubcap either side, centred on its own hub with the axle along z. */
+function tyreWithHubs() {
+  // `bakeColor` hands back a new, de-indexed geometry, so it is the return value that goes in.
+  const tyre = setFinish(bakeColor(
+    new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, WHEEL_W, WHEEL_SEGMENTS), TYRE), FINISH.TYRE);
+  const parts = [tyre];
+  for (const side of [-1, 1]) {
+    const hub = new THREE.CylinderGeometry(HUB_R, HUB_R, HUB_PROUD, WHEEL_SEGMENTS);
+    hub.translate(0, side * (WHEEL_W + HUB_PROUD) / 2, 0);
+    parts.push(setFinish(bakeColor(hub, color('hubcap')), FINISH.METAL));
+  }
+  const wheel = mergeGeometries(parts, false);
+  parts.forEach((p) => p.dispose());
   wheel.rotateX(Math.PI / 2);   // axle across the car
-  return bakeColor(wheel, TYRE);
+  return wheel;
 }
 
 /**
@@ -92,9 +117,8 @@ export function wheelGeometries(len, width) {
   return wheelAnchors(len, width)
     .filter((a) => !a.front)
     .map((a) => {
-      const wheel = new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, WHEEL_W, WHEEL_SEGMENTS);
-      wheel.rotateX(Math.PI / 2);
+      const wheel = tyreWithHubs();
       wheel.translate(a.x, a.y, a.z);
-      return bakeColor(wheel, TYRE);
+      return wheel;
     });
 }

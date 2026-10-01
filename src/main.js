@@ -82,7 +82,9 @@ import { createBloom, markEmissive } from './game/bloom.js';
 import { createHdr } from './game/hdr.js';
 import { createCrayon } from './game/crayon.js';
 import { createCartoon } from './game/cartoon.js';
-import { setAmbientOcclusion, setCrayon, setCartoon, propMaterial, setGlossCity } from './util/geo.js';
+import {
+  setAmbientOcclusion, setCrayon, setCartoon, propMaterial, setGlossCity, setGlossGlobal,
+} from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createPause } from './game/pause.js';
@@ -3635,6 +3637,9 @@ const wantsDebugPanel = debugParams.has('debug') || debugParams.has('settings');
 // The sound designer's panel is its own flag, so it comes up without the rest — see
 // game/audiopanel.js. `?debug&audio` shows both.
 const wantsAudioPanel = debugParams.has('audio');
+// `?finishes` opens on the car finishes' false-colour view (util/geo.js) — the same switch as the
+// panel's "Show finishes", reachable from a screenshot URL, which has no panel.
+if (debugParams.has('finishes')) setGlossGlobal('showFinishes', true);
 
 // The Loco Mode ramp. Pushed into the panel rather than imported by it for the same reason the
 // difficulty knobs are pushed into `sim/` — the sim owns these numbers, and the panel is one more

@@ -1787,7 +1787,7 @@ export function carGeometry() {
   cabin.translate(CABIN_X, CABIN_Y, 0);
   parts.push(setFinish(bakeColor(cabin, color('carGlass')), FINISH.GLASS));
 
-  parts.push(...wheelGeometries(CAR_LEN, CAR_W).map((w) => setFinish(w, FINISH.MATTE)));
+  parts.push(...wheelGeometries(CAR_LEN, CAR_W));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -1858,7 +1858,7 @@ function truckCabGeometry() {
   windshield.translate(TRUCK_CAB_X + TRUCK_CAB_LEN / 2 - 0.05, TRUCK_CAB_Y, 0);
   parts.push(setFinish(bakeColor(windshield, cabDark), FINISH.GLASS));
 
-  parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W).map((w) => setFinish(w, FINISH.MATTE)));
+  parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -2781,8 +2781,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // because every instance of that shares one matrix, and these two have to turn independently
   // of it.
   const FRONT = wheelAnchors(CAR_LEN, CAR_W).filter((a) => a.front);
+  // On the finish shader like the body, so the tyre and the hubcap take the tuning's tyre and
+  // metal numbers on all four wheels rather than only the two baked into the body.
+  const frontWheelGeometry = wheelGeometry();
   const wheelMesh = neverCull(new THREE.InstancedMesh(
-    wheelGeometry(), propMaterial(), MAX_AMBIENT * FRONT.length,
+    frontWheelGeometry, propMaterial({ gloss: { geometry: frontWheelGeometry } }), MAX_AMBIENT * FRONT.length,
   ));
   wheelMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   wheelMesh.castShadow = true;
@@ -2804,8 +2807,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   truckMesh.count = trucks.length;
 
   const TRUCK_FRONT = wheelAnchors(TRUCK_LEN, TRUCK_W).filter((a) => a.front);
+  const truckWheelGeometry = wheelGeometry();
   const truckWheelMesh = neverCull(new THREE.InstancedMesh(
-    wheelGeometry(), propMaterial(), MAX_AMBIENT * TRUCK_FRONT.length,
+    truckWheelGeometry, propMaterial({ gloss: { geometry: truckWheelGeometry } }), MAX_AMBIENT * TRUCK_FRONT.length,
   ));
   truckWheelMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   truckWheelMesh.castShadow = true;
@@ -2821,7 +2825,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const truckBoxMesh = neverCull(
     // A cargo box is a painted panel too, but a flatter, duller one than a cab: less coat, less curve.
     new THREE.InstancedMesh(boxGeometry, propMaterial({
-      gloss: { geometry: boxGeometry, floor: SILL_Y, amount: 0.1, bulge: 0.2 },
+      gloss: { geometry: boxGeometry, floor: SILL_Y, amount: 0.55 },
     }), MAX_AMBIENT),
   );
   truckBoxMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

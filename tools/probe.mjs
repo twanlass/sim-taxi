@@ -9899,12 +9899,12 @@ check('the taxi is an ordinary car in the traffic array',
       && Boolean(taxiShell?.material.isMeshPhongMaterial),
       threw ?? `key ${paint.customProgramCacheKey()}`);
     // The finish is what keeps a tyre matte and a window apart from the paint, and a body with no
-    // aFinish reads 0 everywhere — matte, silently. Both bodies carry all three.
+    // aFinish reads 0 everywhere — matte, silently. Both bodies carry all four.
     const finishes = (geometry) => new Set(geometry.attributes.aFinish?.array ?? []);
-    const hasAll = (set) => [FINISH.MATTE, FINISH.PAINT, FINISH.GLASS].every((f) => set.has(f));
+    const hasAll = (set) => [FINISH.TYRE, FINISH.PAINT, FINISH.GLASS, FINISH.METAL].every((f) => set.has(f));
     const carFinish = finishes(carGeometry());
     const taxiFinish = finishes(taxiShell.geometry);
-    check('vehicle bodies tag their paint, glass and tyres', hasAll(carFinish) && hasAll(taxiFinish),
+    check('vehicle bodies tag their paint, glass, tyres and hubcaps', hasAll(carFinish) && hasAll(taxiFinish),
       `car [${[...carFinish]}] taxi [${[...taxiFinish]}]`);
     box.dispose();
   }

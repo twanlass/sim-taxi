@@ -81,12 +81,13 @@ function policeGeometry() {
 function steeredWheels(group) {
   // Tinted on the material because `wheelGeometry()` is shared and baked neutral — the fleet tints
   // its front wheels with the same instance colour as the body, so the cruiser does too.
-  const material = propMaterial();
+  const geometry = wheelGeometry();
+  const material = propMaterial({ gloss: { geometry } });
   material.color.set(PALETTE.policeBody);
   return wheelAnchors(CAR_LEN, CAR_W)
     .filter((anchor) => anchor.front)
     .map((anchor) => {
-      const wheel = new THREE.Mesh(wheelGeometry(), material);
+      const wheel = new THREE.Mesh(geometry, material);
       wheel.position.set(anchor.x, anchor.y, anchor.z);
       wheel.castShadow = true;
       wheel.receiveShadow = true;

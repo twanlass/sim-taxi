@@ -77,45 +77,48 @@ Four details worth keeping:
   patches on a dark one, and takes the scale cue with it. So the punched path carries a ceiling
   (0.52 on brick, 1.0 on the pale envelopes) and the curtain-wall path does not.
 
-### Car paint — `propMaterial({ gloss })` in `util/geo.js`
+### Car finishes — `propMaterial({ gloss })` in `util/geo.js`
 
-Every vehicle body — the fleet, truck cabs and boxes, the cop cars, the cruiser and the taxi — is
-`MeshPhongMaterial` rather than the Lambert everything else wears, with one more patch on top of
-`patchProp`. Front wheels and wrecks stay plain Lambert.
+Every vehicle body and every wheel — the fleet, truck cabs and boxes, the cop cars, the cruiser and
+the taxi — is `MeshPhongMaterial` rather than the Lambert everything else wears, with one more patch
+on top of `patchProp`. Wrecks stay plain Lambert.
 
-**Each part says what it is made of.** `setFinish()` bakes an `aFinish` attribute per part —
-`FINISH.MATTE` (tyres), `PAINT`, `GLASS` — and the shader reads it per fragment. A geometry with no
-`aFinish` reads 0, so anything untagged comes out matte rather than mirrored; `tools/probe.mjs`
-asserts the car and the taxi carry all three. This replaced guessing the tyres from height and
-width, which the tread (proud of the flank, top above the sill) kept slipping past.
+**Four finishes, one program.** `setFinish()` bakes an `aFinish` attribute per part —
+`FINISH.TYRE`, `PAINT`, `GLASS`, `METAL` (the hubcaps, `geometry/wheels.js`) — and the shader
+indexes three shared `vec4` uniform arrays with it, so each finish has its own full set of numbers
+(`FINISH_DEFAULTS`: glint, glint sharpness, glint bend, sheen, sheen sharpness, flake, reflect,
+reflect edge, reflect bend, base colour) while every glossy material still compiles to the same
+source. A geometry with no `aFinish` reads 0, so anything untagged comes out as tyre — matte rather
+than mirrored; `tools/probe.mjs` asserts the car and the taxi carry all four.
 
-| | Paint | Glass | Tyre |
-|---|---|---|---|
-| Diffuse | flat facet normal | flat facet normal | flat facet normal |
-| Glint (shininess 400) | 0.35 | 0.8 | — |
-| Sheen (shininess 14, flaked) | 0.07 | — | — |
-| Reflection | `uGloss` × (0.25 → 1 with Fresnel): 0.18 fleet, 0.24 taxi, 0.1 cargo box | 0.22 → 0.62 | — |
+**Tuning them.** `?debug` → **Car finish**: pick a finish and its ten sliders retarget to it, plus
+flake size, façade darkness and **Show finishes**, which paints each finish a flat false colour
+(tyre grey, paint red, glass cyan, metal yellow) to check what the geometry tagged as what —
+`?finishes` turns the same view on from a URL, for screenshots. Everything is live. **Copy
+settings JSON** exports it as `carFinish`, whose keys are `FINISH_DEFAULTS` and
+`GLOSS_GLOBAL_DEFAULTS`. Paint's reflection is also scaled per material (`amount`: the taxi 1.33, a
+cargo box 0.55).
 
 **The diffuse keeps the flat normal.** The first cut bent three's `normal` itself, which the diffuse
 reads too, and every car went soft and bubbly — the facets that make this a low-poly game smoothed
 into one rounded lump. Now two *extra* normals are bent outward by how far the fragment sits from the
 body's centre, and only the specular and the reflection read them:
 
-- **The glint's bends up to 45° at a panel's corner** (`GLOSS_GLINT_BULGE`). It has to: the sun's
+- **The glint's bends up to 45° at a panel's corner** (`glintBend` = 1). It has to: the sun's
   half-vector sits about 45° round from both axes the traffic drives on, so a box panel bent less
   never lines up with it — a 17° bend rendered no glint at all on an axis-aligned car. A real car
   catches the sun on its curved shoulders; bent this far, the corner of a panel is that shoulder,
   and with a lobe this tight only the corner shows it.
-- **The reflection's bends about 17°** (`GLOSS_BULGE` = 0.3), enough to slide a skyline across a
+- **The reflection's bends about 17°** (`reflectBend` = 0.3), enough to slide a skyline across a
   panel without curving one face into the next.
 
 **The specular is swapped, not tuned.** Phong's own specular line is replaced
-(`GLOSS_SPECULAR_FROM`/`TO`) with two lobes on the glint normal. It stays inside three's light loop,
+(`GLOSS_SPECULAR_FROM`/`TO`) with two lobes: the glint on the glint normal, the sheen on the reflection's. It stays inside three's light loop,
 so the shadow map is already folded into the light: a car in a tower's shadow has nothing to glint
 with, and the cop's lamps glint off the cars beside it.
 
 **The sheen carries metal flake.** Paint's broad lobe is multiplied by a hash over the body's own
-space, 14 cells a unit — sub-pixel at play zoom, where it averages into a livelier sheen, and only
+space, 14 cells a unit by default (`flakeSize`) — sub-pixel at play zoom, where it averages into a livelier sheen, and only
 sparkle close up. The sheen is also what separates paint from glass when no glint is lined up.
 
 **The reflection marches the city.** The reflected ray is stepped through the height field

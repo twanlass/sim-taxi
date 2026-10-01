@@ -4,7 +4,10 @@ import * as difficulty from './difficulty.js';
 import { SPEED, MPH_PER_UNIT, CAR_W } from '../sim/traffic.js';
 import { PITCH, LANE } from '../city/grid.js';
 import { PLAY_ZOOM } from './camera.js';
-import { setShadowTint, shadowTint } from '../util/geo.js';
+import {
+  setShadowTint, shadowTint, FINISH_NAMES, glossTuning, setGlossFinish, setGlossGlobal,
+  resetGlossTuning,
+} from '../util/geo.js';
 import { MIN_ELEVATION } from './daylight.js';
 import { BLOOM_INTENSITY, BLOOM_KINDS } from './bloom.js';
 
@@ -441,6 +444,81 @@ export function createDebugPanel({
   // hot core, high is a wide soft wash, and at 1 the levels sum to a flat lift over the whole frame
   // and the glow becomes a fog (see LEVEL_WEIGHT). Turning one up and another down is a different
   // picture from leaving all three alone, and no still frame settles which.
+  // --- Car finish -------------------------------------------------------------
+  // The four vehicle finishes (util/geo.js, FINISH_DEFAULTS). One set of sliders retargeted by the
+  // picker rather than four sets of ten, which would be most of the panel. All live: the numbers
+  // are shared uniforms, so a slider reaches every car without recompiling anything.
+  heading('Car finish');
+  const finishPick = dropdown(FINISH_NAMES, 'paint');
+  row(panel, 'Finish', finishPick);
+  const FINISH_FIELDS = [
+    ['glint', 'Glint', 0, 3, 0.01],
+    ['glintSharp', 'Glint sharpness', 1, 1000, 1],
+    ['glintBend', 'Glint bend', 0, 2, 0.01],
+    ['sheen', 'Sheen', 0, 1, 0.005],
+    ['sheenSharp', 'Sheen sharpness', 1, 200, 1],
+    ['flake', 'Flake', 0, 1, 0.01],
+    ['reflect', 'Reflect', 0, 1, 0.005],
+    ['reflectEdge', 'Reflect edge', 0, 1, 0.005],
+    ['reflectBend', 'Reflect bend', 0, 2, 0.01],
+    ['diffuse', 'Base colour', 0, 2, 0.01],
+  ];
+  const finishSliders = FINISH_FIELDS.map(([key, label, min, max, step]) => {
+    const input = slider(min, max, step, 0);
+    const value = row(panel, label, input);
+    const show = () => { value.textContent = Number(input.value).toFixed(step < 1 ? 3 : 0); };
+    input.addEventListener('input', () => {
+      setGlossFinish(finishPick.value, key, Number(input.value));
+      show();
+    });
+    return { key, input, show };
+  });
+  const syncFinish = () => {
+    const live = glossTuning().finishes[finishPick.value];
+    for (const s of finishSliders) { s.input.value = String(live[s.key]); s.show(); }
+  };
+  finishPick.addEventListener('change', syncFinish);
+
+  const flakeSize = slider(2, 40, 0.5, glossTuning().global.flakeSize);
+  const flakeSizeValue = row(panel, 'Flake size', flakeSize);
+  flakeSize.addEventListener('input', () => {
+    setGlossGlobal('flakeSize', Number(flakeSize.value));
+    flakeSizeValue.textContent = `${Number(flakeSize.value).toFixed(1)}/u`;
+  });
+  const facade = slider(0, 1, 0.01, glossTuning().global.facade);
+  const facadeValue = row(panel, 'Façade dark', facade);
+  facade.addEventListener('input', () => {
+    setGlossGlobal('facade', Number(facade.value));
+    facadeValue.textContent = Number(facade.value).toFixed(2);
+  });
+  const showFinishes = document.createElement('input');
+  showFinishes.type = 'checkbox';
+  showFinishes.checked = glossTuning().global.showFinishes;
+  row(panel, 'Show finishes', showFinishes);
+  showFinishes.addEventListener('change', () => setGlossGlobal('showFinishes', showFinishes.checked));
+
+  const syncFinishGlobals = () => {
+    const g = glossTuning().global;
+    flakeSize.value = String(g.flakeSize);
+    flakeSizeValue.textContent = `${g.flakeSize.toFixed(1)}/u`;
+    facade.value = String(g.facade);
+    facadeValue.textContent = g.facade.toFixed(2);
+    showFinishes.checked = g.showFinishes;
+  };
+  syncFinish();
+  syncFinishGlobals();
+
+  const resetFinish = document.createElement('button');
+  resetFinish.type = 'button';
+  resetFinish.className = 'dbg-wide';
+  resetFinish.textContent = 'Reset car finishes';
+  resetFinish.addEventListener('click', () => {
+    resetGlossTuning();
+    syncFinish();
+    syncFinishGlobals();
+  });
+  panel.append(resetFinish);
+
   if (bloom.state.enabled) {
     heading('Bloom');
     const bloomRow = (label, key, min, max, step, format = (v) => v.toFixed(2), read = null) => {
@@ -1055,6 +1133,8 @@ export function createDebugPanel({
     // the tuning rather than the sliders, so a clamped overdrive ceiling exports as what the sim
     // is actually running.
     locoMode: loco.get(),
+    // The keys map onto FINISH_DEFAULTS and GLOSS_GLOBAL_DEFAULTS in util/geo.js.
+    carFinish: glossTuning(),
   });
 
   const output = document.createElement('textarea');

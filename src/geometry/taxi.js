@@ -111,13 +111,13 @@ export function createTaxiMesh() {
   }
 
   // Rear wheels only — the fronts steer, so they hang off the group as their own meshes below.
-  parts.push(...wheelGeometries(CAR_LEN, CAR_W).map((w) => setFinish(w, FINISH.MATTE)));
+  parts.push(...wheelGeometries(CAR_LEN, CAR_W));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 
   // Glossy paint, like the fleet's (sim/traffic.js) — a touch more coat, it is the hero car.
-  const shell = new THREE.Mesh(merged, propMaterial({ gloss: { geometry: merged, floor: SILL_Y, amount: 0.24 } }));
+  const shell = new THREE.Mesh(merged, propMaterial({ gloss: { geometry: merged, floor: SILL_Y, amount: 1.33 } }));
   shell.castShadow = true;
   // ...and receives, like every ambient car — see the note over the traffic meshes in
   // sim/traffic.js for what that costs and why it is not behind a flag.
@@ -135,11 +135,12 @@ export function createTaxiMesh() {
 
   // Steered front wheels. One shared material, one mesh each, pivoting about their own hubs — the
   // group's transform carries them along, so nothing here has to know where the taxi is.
-  const wheelMaterial = propMaterial();
+  const steeredGeometry = wheelGeometry();
+  const wheelMaterial = propMaterial({ gloss: { geometry: steeredGeometry } });
   const steered = wheelAnchors(CAR_LEN, CAR_W)
     .filter((anchor) => anchor.front)
     .map((anchor) => {
-      const wheel = new THREE.Mesh(wheelGeometry(), wheelMaterial);
+      const wheel = new THREE.Mesh(steeredGeometry, wheelMaterial);
       wheel.position.set(anchor.x, anchor.y, anchor.z);
       wheel.castShadow = true;
       wheel.receiveShadow = true;
