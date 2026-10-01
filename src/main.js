@@ -39,6 +39,7 @@ import { createBoostMeter } from './game/boostmeter.js';
 import { bandPath as fuelBandPath, frontAt as fuelFrontAt, RIM as FUEL_RIM } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION } from './game/taxidamage.js';
+import { createTaxiDoor } from './game/taxidoor.js';
 import { createDepotCall } from './game/depotcall.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
@@ -1210,6 +1211,8 @@ const taxiDamage = createTaxiDamage({
   damage: traffic.taxiDamage, group: traffic.taxiGroup, taxi: traffic.taxi, maxHp: TAXI_HP,
   sparks, dust, roadY: ROAD_Y,
 });
+// The rear door, swung open on the kerb side while a rider hops in. See game/taxidoor.js.
+const taxiDoor = createTaxiDoor({ setDoor: traffic.setTaxiDoor });
 
 // A survivable hit: the struck car is launched or spun off its line (sim/collisions.js `bump`),
 // the taxi loses most of its speed, and here is the noise — a comic starburst on the contact
@@ -3213,6 +3216,7 @@ function frame() {
   impact.update(dt);
   // After traffic has written the taxi's transform: the lean and the rattle ride on top of it.
   taxiDamage.update(dt);
+  taxiDoor.update(dt, fares.state.fares.find((f) => f.boarding !== undefined) ?? null);
   // After the physics, like the collision check: it measures where traffic left the cop and the
   // taxi this frame, and a catch ends the run the same way a wreck does. Engaged rather than held —
   // the cooldown tail after release still counts, so braking off Loco Mode a beat too close to a

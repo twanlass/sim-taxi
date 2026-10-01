@@ -45,6 +45,7 @@ import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINT
 import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, laneCost } from '../src/game/route.js';
 import { createCollisions, TAXI_HP, bumpDamage, penetration } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
+import { createTaxiDoor } from '../src/game/taxidoor.js';
 import { createPolice, SPOT_RANGE, FADE_TIME } from '../src/sim/police.js';
 import { sirenOn, patrolSwing } from '../src/geometry/lights.js';
 import {
@@ -55,7 +56,7 @@ import {
 } from '../src/game/robberyglow.js';
 import {
   createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES,
-  ARRIVE_RADIUS, onSameBlock, onWaterBlock, CURSE_LIFT, BURGER_PRICE, waitingTargets, stampFareMarker,
+  ARRIVE_RADIUS, onSameBlock, onWaterBlock, CURSE_LIFT, BURGER_PRICE, waitingTargets, stampFareMarker, BOARD_SECONDS,
 } from '../src/game/fares.js';
 import { createCurseBubble, TAIL_DROP } from '../src/geometry/cursebubble.js';
 import {
@@ -95,7 +96,7 @@ import { CRYSTAL_TOP, createFareMarker } from '../src/game/faremarker.js';
 import { QUESTION_GEO } from '../src/geometry/questionmark.js';
 import { createPerson, HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
 import { POP_SCALE_DIAMOND, POP_SCALE_RIDER, POP_TIME } from '../src/game/selectpop.js';
-import { createTaxiMesh } from '../src/geometry/taxi.js';
+import { createTaxiMesh, taxiSideToward, taxiDoorPoint } from '../src/geometry/taxi.js';
 import { isCarOffScreen } from '../src/game/taxifinder.js';
 import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
 import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
@@ -9107,15 +9108,16 @@ check('the taxi is an ordinary car in the traffic array',
   // ...and every part that draws at all is in the mask, rim or not. The damage pieces (boot lid,
   // bonnet, the openings under them, loose lamps and their wires, the hanging bumper) are masked
   // without a rim, and were once not masked at all: a lid swung up inside the shell's hull read as
-  // an occluder and wore the shell's yellow rim across it every time it bounced.
+  // an occluder and wore the shell's yellow rim across it every time it bounced. The two rear doors
+  // and the openings they leave are four more, masked the same way for the same reason.
   const unmasked = [];
   group.traverse((node) => {
     if (!node.isMesh || node.name === 'ghostMask' || node.name === 'ghostRim') return;
     if (node.material.visible === false) return;   // the invisible pick volume
     if (!node.children.some((c) => c.name === 'ghostMask')) unmasked.push(node);
   });
-  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 23,
-    `${unmasked.length} unmasked, ${masks.length} masks (10 outlined parts + 13 damage pieces)`);
+  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 27,
+    `${unmasked.length} unmasked, ${masks.length} masks (10 outlined parts + 13 damage pieces + 4 door pieces)`);
 
   // --- A dimming lamp must dim where it stands ---------------------------------------------------
   //
@@ -9144,6 +9146,64 @@ check('the taxi is an ordinary car in the traffic array',
   }
   check('a dimming taxi lamp stays where it is', podDrift < 1e-9,
     `${taxi.lights.length} pods, max drift ${podDrift.toExponential(1)} over level 1 → 0`);
+
+  // The rear door (game/taxidoor.js) has to open on the side the rider is running *from*, outward,
+  // at any heading — the side is a sign worked out from the yaw, and a flipped sign swings the door
+  // into the cab on the far flank, which at 7px would read as nothing happening at all. Then it has
+  // to shut and put itself away once they are in. Swept over eight headings and both kerbs.
+  //
+  // And the rider has to go in *through* it: game/fares.js aims the run at `taxiDoorPoint`, which is
+  // worked out from the door's constants by hand, so it is checked against the opening as built —
+  // the drawn gap's centre, through the mesh's own transforms, TAXI_SCALE included.
+  {
+    const doorCar = { x: 0, z: 0, yaw: 0 };
+    const doorMesh = createTaxiMesh();
+    const door = createTaxiDoor({ setDoor: doorMesh.setDoor });
+    const freeEnd = new THREE.Vector3();
+    const hingeAt = new THREE.Vector3();
+    const gapAt = new THREE.Vector3();
+    let wrong = 0;
+    let lingering = 0;
+    let trials = 0;
+    let aimMiss = 0;
+    for (let k = 0; k < 8; k++) {
+      for (const kerbSide of [-1, 1]) {
+        doorCar.yaw = (k / 8) * Math.PI * 2 + 0.3;
+        doorMesh.group.rotation.set(0, doorCar.yaw, 0, 'YXZ');
+        // Five units off the car's +z (or −z) flank, a little ahead, in world space.
+        const lx = 0.7;
+        const lz = 5 * kerbSide;
+        const s = Math.sin(doorCar.yaw);
+        const c = Math.cos(doorCar.yaw);
+        const from = { x: lx * c + lz * s, z: -lx * s + lz * c };
+        const fare = { boarding: 0, boardingFrom: from, boardingSide: taxiSideToward(doorCar, from.x, from.z) };
+        for (fare.boarding = 0; fare.boarding < BOARD_SECONDS; fare.boarding += 1 / 60) {
+          door.update(1 / 60, fare);
+        }
+        doorMesh.group.updateMatrixWorld(true);
+        const open = doorMesh.doors.find((p) => p.parent.scale.x > 0);
+        trials += 1;
+        if (!open) { wrong += 1; continue; }
+        open.localToWorld(freeEnd.set(-0.78, 1, 0));
+        open.localToWorld(hingeAt.set(0, 1, 0));
+        const toward = (v) => v.x * from.x + v.z * from.z;
+        if (!(toward(freeEnd) > toward(hingeAt) + 0.3)) wrong += 1;
+        const gap = doorMesh.doorGaps.find((g) => g.scale.x > 0);
+        gap.geometry.computeBoundingBox();
+        gap.localToWorld(gap.geometry.boundingBox.getCenter(gapAt));
+        const aim = taxiDoorPoint(doorCar, fare.boardingSide);
+        aimMiss = Math.max(aimMiss, Math.hypot(aim.x - gapAt.x, aim.z - gapAt.z));
+        for (let f = 0; f < 60; f++) door.update(1 / 60, null);
+        if (doorMesh.doors.some((p) => p.parent.scale.x > 0)) lingering += 1;
+      }
+    }
+    check('the taxi door swings out toward the rider and shuts behind them',
+      wrong === 0 && lingering === 0,
+      `${trials} boardings over 8 headings × both kerbs: ${wrong} opened wrong, ${lingering} left open`);
+    // The gap stands 0.065 proud of the body side (it sits over the chequer stripe), × 1.18.
+    check('...and the rider is aimed at the door that opens', aimMiss < 0.1,
+      `aim point to drawn opening, worst ${aimMiss.toFixed(3)} units`);
+  }
 
   // ...and the same invariant on the fleet, where the reported failure actually was: a truck, whose
   // 5.6 length gives the slide the most room in the game. The taxi's pods are ordinary Meshes and

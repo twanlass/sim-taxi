@@ -412,7 +412,8 @@ and because the taxi has one seat, all but one of those are riders waiting on th
    is left. The whole trip is drawn now; none of it is shown until they board — see
    [Neither how far nor where](#neither-how-far-nor-where).
 2. Tap them → the taxi routes there.
-3. On arrival the passenger boards, their diamond flies from the kerb to the roof of the taxi, a
+3. On arrival the passenger boards (the cab's rear door swings open on the kerb side as they reach
+   it and slams behind them — `game/taxidoor.js`, pure flourish), their diamond flies from the kerb to the roof of the taxi, a
    ring in that same urgency colour appears on the road where they're going, and the taxi **drives
    straight on to it** — because the instruction it used to ask for is now given for you. See
    [The drop-off dispatches itself](#the-drop-off-dispatches-itself).
