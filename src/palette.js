@@ -701,6 +701,11 @@ export const PALETTE = {
   // and its edges going dark under the walls, which is depth for the price of a vertex colour.
   riverWater: '#4E7699',
   riverDeep: '#3C5C7B',
+  // What the water is seen *through* to (city/riverwater.js): silt and rubble at the foot of the
+  // walls. Never drawn as a surface — it only ever arrives through a few units of water, which
+  // takes most of the red out of it, so it is chosen warm and olive to land green-brown rather
+  // than as a second blue.
+  riverBed: '#6B6648',
   // The channel wall, and the parapet standing on the kerb line above it. Engineering concrete
   // rather than the `kerb` a block is edged in: a river wall is a poured retaining structure and a
   // kerb is a laid stone, and at 0.75 units tall the parapet is the one piece of street furniture

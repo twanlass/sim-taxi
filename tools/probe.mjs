@@ -15708,6 +15708,31 @@ let chopperOrder; // likewise
       `reaches ${reach.toFixed(1)} against a band ending at ${(SLAB_X / 2 + EDGE_FADE).toFixed(1)}`);
     check('and never climbs above the ground it is fading into', above === 0,
       `${above} vertices over y = 0`);
+
+    // The surface patch (city/riverwater.js), run against three's *real* Lambert source rather than
+    // a stub, because every one of its five replaces is the silent kind: a chunk that moved leaves
+    // the water compiling fine and doing nothing new — or, worse, the light-loop override missing
+    // while the compose step still reads its tallies.
+    const wm = rGeo.water.material;
+    const ws = {
+      uniforms: {},
+      vertexShader: THREE.ShaderLib.lambert.vertexShader,
+      fragmentShader: THREE.ShaderLib.lambert.fragmentShader,
+    };
+    wm.onBeforeCompile(ws, null);
+    const landed = [
+      ws.vertexShader.includes('vWaterWorld = (modelMatrix'),
+      ws.fragmentShader.includes('#define RE_Direct RE_Direct_Water'),
+      /normal_fragment_maps>[\s\S]*waterN = waterFacet/.test(ws.fragmentShader),
+      /outgoingLight = mix\(outgoingLight, water, waterWet\)[\s\S]*#include <opaque_fragment>/
+        .test(ws.fragmentShader),
+      // propMaterial's own patch still ran underneath.
+      ws.fragmentShader.includes('uniform vec3 uShadowColor'),
+    ];
+    check('the river surface patch lands in all of three\'s Lambert chunks', landed.every(Boolean),
+      landed.map((ok) => (ok ? 'y' : 'n')).join(''));
+    check('and the water does not share a program with an unpatched prop',
+      wm.customProgramCacheKey().endsWith('-river'), wm.customProgramCacheKey());
   }
 
   // --- The paint does not sink into the hump.

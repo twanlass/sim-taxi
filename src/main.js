@@ -7,6 +7,7 @@ import {
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
 import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river.js';
+import { tickRiverWater, syncRiverWater, bindRiverDrawbridge } from './city/riverwater.js';
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
 import { createBridge } from './geometry/bridge.js';
@@ -284,6 +285,8 @@ function renderFrame() {
   ao.render(scene, camera);
   // After the AO prepass, which is what fills the depth buffer the lamps are rejected against.
   bloom.render(scene, camera);
+  // Here rather than in the loop for the AO prepass's reason: shot mode renders without the loop.
+  syncRiverWater(scene.fog?.color);
   // `?hdr` takes the whole frame through a composer instead; a no-op without the flag, and it
   // returns false so the ordinary path below still runs.
   if (!hdr.render(scene, camera)) renderer.render(scene, camera);
@@ -1002,6 +1005,7 @@ const drawbridge = createDrawbridge(scene, makeRng(seed + 66), {
     if (car.pendingTarget) routeTo(car.pendingTarget);
   },
 });
+if (drawbridge) bindRiverDrawbridge(() => drawbridge.state.lift);
 
 // Traffic on the river, and the thing that asks the span to lift — see game/boats.js. Run seed,
 // unlike the bridge itself: a barge every twenty seconds or so and a tug every minute and a half
@@ -3245,6 +3249,7 @@ function frame() {
   // the same frame rather than the next one.
   boats?.update(dt);
   drawbridge?.update(dt, traffic.cars);
+  tickRiverWater(dt);
   roadwork.update(dt, traffic.taxi, traffic.cars, fares.occupiedSpots());
   // After the traffic step for the same reason: it rides the truck's instance matrix, which has to
   // be this frame's, and it tests crates against the cars where they now are.
