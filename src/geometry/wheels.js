@@ -38,6 +38,10 @@ const WHEEL_SEGMENTS = 16;         // doubled from 8 — at WHEEL_R's size the 8
  */
 export const CHASSIS_LIFT = WHEEL_R - 0.32;
 
+// The underside of every body — car, truck chassis and taxi alike (`0.78 + CHASSIS_LIFT`, less half
+// the 0.8 body). The glossy paint stops here: below it is wheel.
+export const SILL_Y = 0.38 + CHASSIS_LIFT;
+
 // Baked dark rather than white: the shared material reads vertex colours and instanceColor
 // multiplies on top, so a dark base stays dark whatever colour the car is tinted. Darker than the
 // 0.16/0.16/0.18 it shipped at — against the '#636972' asphalt (src/palette.js) that read as

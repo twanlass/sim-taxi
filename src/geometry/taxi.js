@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
-import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT } from './wheels.js';
+import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT, SILL_Y } from './wheels.js';
 import {
   lightPodGeometry, brakeLightAnchors, turnSignalAnchors, brakeLightMaterial, turnSignalMaterial,
 } from './lights.js';
@@ -116,7 +116,8 @@ export function createTaxiMesh() {
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 
-  const shell = new THREE.Mesh(merged, propMaterial());
+  // Glossy paint, like the fleet's (sim/traffic.js) — a touch more coat, it is the hero car.
+  const shell = new THREE.Mesh(merged, propMaterial({ gloss: { geometry: merged, floor: SILL_Y, width: CAR_W, amount: 0.42 } }));
   shell.castShadow = true;
   // ...and receives, like every ambient car — see the note over the traffic meshes in
   // sim/traffic.js for what that costs and why it is not behind a flag.

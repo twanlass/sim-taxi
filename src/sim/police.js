@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
+import { SILL_Y } from '../geometry/wheels.js';
 import {
   sirenOn, patrolSwing, sirenPodGeometry, sirenRedAnchor, sirenBlueAnchor, sirenBaseGeometry, sirenBaseAnchor,
   sirenRedMaterial, sirenBlueMaterial,
@@ -156,7 +157,8 @@ export function createPolice(scene) {
    */
   const shell = new THREE.Group();
   group.add(shell);
-  const body = new THREE.Mesh(policeGeometry(), propMaterial());
+  const bodyGeometry = policeGeometry();
+  const body = new THREE.Mesh(bodyGeometry, propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y, width: CAR_W } }));
   body.receiveShadow = true;
   shell.add(body);
   const lights = lightBar(shell, group);

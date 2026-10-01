@@ -82,7 +82,7 @@ import { createBloom, markEmissive } from './game/bloom.js';
 import { createHdr } from './game/hdr.js';
 import { createCrayon } from './game/crayon.js';
 import { createCartoon } from './game/cartoon.js';
-import { setAmbientOcclusion, setCrayon, setCartoon, propMaterial } from './util/geo.js';
+import { setAmbientOcclusion, setCrayon, setCartoon, propMaterial, setGlossCity } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createPause } from './game/pause.js';
@@ -100,6 +100,7 @@ import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders } from './game/sightline.js';
+import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
 import { createViewport } from './util/viewport.js';
@@ -397,7 +398,11 @@ if (burger) {
 // `cornerSeen` in game/fares.js. Everything that can stand in front of a mark goes in: the towers,
 // the trees, and the depot. Nothing transient does — a construction zone is 3 units of barrier and
 // comes and goes, and the boards would have to be re-asked every time one moved.
-setCityOccluders(city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? []));
+const occluders = setCityOccluders(
+  city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? []),
+);
+// The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).
+setGlossCity(occluders, SKYLINE_CEILING);
 
 // Density is on the difficulty curve, so the run opens at its bottom and the instanced meshes are
 // sized for its top — an InstancedMesh cannot be resized once built. An explicit `?cars=N` beats

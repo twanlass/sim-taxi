@@ -263,8 +263,10 @@ function outlinable(object) {
     return false;
   }
   // Lit only. A `MeshBasicMaterial` in this project is a marker, a lamp or a road decal — none of
-  // them a thing in the world with a shape.
-  return Boolean(material.isMeshLambertMaterial);
+  // them a thing in the world with a shape. Phong is the glossy paint (`propMaterial({ gloss })`),
+  // which Cartoon Mode itself turns back into Lambert — but only if it was on before the car was
+  // built, and a body is a body either way.
+  return Boolean(material.isMeshLambertMaterial || material.isMeshPhongMaterial);
 }
 
 /** Bounding-box volume, the measure `outlineRoot` picks a vehicle's body by. */

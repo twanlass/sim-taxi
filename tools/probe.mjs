@@ -9730,7 +9730,7 @@ check('the taxi is an ordinary car in the traffic array',
   const shell = made[0]?.hull?.parent ?? null;
   const lit = [];
   toonTaxi.group.traverse((o) => {
-    if (o.isMesh && o.material?.isMeshLambertMaterial && !o.name.startsWith('toon')) lit.push(o);
+    if (o.isMesh && (o.material?.isMeshLambertMaterial || o.material?.isMeshPhongMaterial) && !o.name.startsWith('toon')) lit.push(o);
   });
   const bulkOf = (mesh) => {
     mesh.geometry.computeBoundingBox();
@@ -9840,7 +9840,7 @@ check('the taxi is an ordinary car in the traffic array',
   const rimSource = createTaxiMesh();
   let rimBody = null;
   rimSource.group.traverse((o) => {
-    if (o.isMesh && o.material?.isMeshLambertMaterial
+    if (o.isMesh && (o.material?.isMeshLambertMaterial || o.material?.isMeshPhongMaterial)
       && (!rimBody || bulkOf(o) > bulkOf(rimBody))) rimBody = o;
   });
   const shaderGeo = outlineGeometry(rimBody.geometry);
@@ -9877,6 +9877,29 @@ check('the taxi is an ordinary car in the traffic array',
   check('a shared corner offsets one way, so the hull cannot tear',
     split === 0 && cornerKeys.size < basePos.count,
     `${basePos.count - cornerKeys.size} duplicated corners, ${split} disagreeing`);
+
+  // Car paint (`propMaterial({ gloss })`). Its patch hooks three chunks of Phong's own source, and
+  // a hook that matches nothing is a matte car with nothing logged — so run it against the real
+  // ShaderLib source rather than a stub, and check the glossy taxi actually got it.
+  {
+    const box = new THREE.BoxGeometry(3.4, 1.2, 1.7);
+    const paint = propMaterial({ gloss: { geometry: box, floor: 0.5, width: 1.7 } });
+    const lib = THREE.ShaderLib.phong;
+    const shader = {
+      uniforms: { ...lib.uniforms }, vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader,
+    };
+    let threw = null;
+    try { paint.onBeforeCompile(shader, null); } catch (error) { threw = error.message; }
+    let taxiShell = null;
+    // The shell is the first mesh marked pickable; the parts hung off it inherit the mark.
+    createTaxiMesh().group.traverse((o) => { if (!taxiShell && o.isMesh && o.userData.pickable === 'taxi') taxiShell = o; });
+    check('glossy paint hooks Phong, keys apart from matte props, and reaches the taxi',
+      paint.isMeshPhongMaterial && !threw && 'tGlossCity' in shader.uniforms
+      && paint.customProgramCacheKey() !== propMaterial().customProgramCacheKey()
+      && Boolean(taxiShell?.material.isMeshPhongMaterial),
+      threw ?? `key ${paint.customProgramCacheKey()}`);
+    box.dispose();
+  }
 
   // The vertex patch itself, against a stub carrying the chunk names three's shader actually has —
   // and the cache key, which matters more here than almost anywhere: this is a plain

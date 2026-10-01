@@ -4,7 +4,7 @@ import { bakeColor, propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { KERB_H, roundedRectShape } from '../city/ground.js';
 import {
-  WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries,
+  WHEEL_R, CHASSIS_LIFT, SILL_Y, wheelAnchors, wheelGeometry, wheelGeometries,
 } from '../geometry/wheels.js';
 import {
   lightPodGeometry, brakeLightAnchors, turnSignalAnchors, LIGHT_PODS,
@@ -2765,7 +2765,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // the map, so this is 0.77% more shadow sampling (0.67% on a 390x844 phone — the framing is
   // tighter there, but the cars shrink with it). A third of those pixels change, by 12/255 on
   // average and 75/255 at the deepest.
-  const mesh = neverCull(new THREE.InstancedMesh(carGeometry(), propMaterial(), MAX_AMBIENT));
+  // Glossy paint: the sun glints off it and the city slides across it (`propMaterial({ gloss })`).
+  const bodyGeometry = carGeometry();
+  const mesh = neverCull(new THREE.InstancedMesh(
+    bodyGeometry, propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y, width: CAR_W } }), MAX_AMBIENT,
+  ));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -2789,8 +2793,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // The truck cab and its front wheels, as their own pair of instanced meshes — same shape as the
   // car pair above, just built from truckCabGeometry() at TRUCK_LEN/TRUCK_W and painted from the
   // same PALETTE.carBody a car is (see paintTruck below).
+  const cabGeometry = truckCabGeometry();
   const truckMesh = neverCull(
-    new THREE.InstancedMesh(truckCabGeometry(), propMaterial(), MAX_AMBIENT),
+    new THREE.InstancedMesh(cabGeometry, propMaterial({ gloss: { geometry: cabGeometry, floor: SILL_Y, width: TRUCK_W } }), MAX_AMBIENT),
   );
   truckMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   truckMesh.castShadow = true;
@@ -2812,8 +2817,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // never painted — see truckBoxGeometry() for why one InstancedMesh cannot hold both a tinted
   // cab and a fixed-colour box. `setColorAt` is never called on it, so `instanceColor` stays null
   // and the material draws the geometry's own baked PALETTE.truckBox untouched.
+  const boxGeometry = truckBoxGeometry();
   const truckBoxMesh = neverCull(
-    new THREE.InstancedMesh(truckBoxGeometry(), propMaterial(), MAX_AMBIENT),
+    // A cargo box is a painted panel too, but a flatter one than a cab: less coat, less curve.
+    new THREE.InstancedMesh(boxGeometry, propMaterial({
+      gloss: { geometry: boxGeometry, floor: SILL_Y, width: TRUCK_W, amount: 0.22, bulge: 0.35 },
+    }), MAX_AMBIENT),
   );
   truckBoxMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   truckBoxMesh.castShadow = true;
@@ -2907,7 +2916,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   sirenHousingMesh.userData.anchor = SIREN_HOUSING_AT;
   // The white cab, on exactly the same switch. Car-local, so its matrix is the body's own.
   const policeCabMesh = neverCull(new THREE.InstancedMesh(
-    policeCabGeometry(), propMaterial(), MAX_AMBIENT,
+    policeCabGeometry(), propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y, width: CAR_W } }), MAX_AMBIENT,
   ));
   policeCabMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   policeCabMesh.castShadow = true;

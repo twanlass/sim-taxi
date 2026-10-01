@@ -77,6 +77,43 @@ Four details worth keeping:
   patches on a dark one, and takes the scale cue with it. So the punched path carries a ceiling
   (0.52 on brick, 1.0 on the pale envelopes) and the curtain-wall path does not.
 
+### Car paint — `propMaterial({ gloss })` in `util/geo.js`
+
+Every vehicle body — the fleet, truck cabs and boxes, the cop cars, the cruiser and the taxi — is
+`MeshPhongMaterial` rather than the Lambert everything else wears, with one more patch on top of
+`patchProp`. Wheels and wrecks stay matte. Three things, in order:
+
+| | What it does |
+|---|---|
+| **A bent normal** | A box panel under an orthographic camera and a directional sun has one normal, one view direction and one light, so it takes *one* highlight and *one* reflected colour edge to edge. The normal is pushed outward by how far the fragment sits from the body's centre (`bulge`), which gives every panel a curve to slide things across. It reaches the diffuse term too, so bodies now shade softly across a face — deliberate. |
+| **Phong's sun glint** | Phong rather than a hand-rolled highlight because Phong's goes through the shadow map: a car in a tower's shadow has nothing to glint with. |
+| **A reflection that marches the city** | The reflected ray is stepped through the height field `game/sightline.js` already builds for the fare board, uploaded once as a byte texture (`setGlossCity`). Where the ray passes under a roofline it returns a dark façade, otherwise the sky gradient (`setGlossSky`, fed by `game/daylight.js`). Mixed over the lit paint on a Fresnel weight. |
+
+**Why a march and not an env map.** The camera never rotates, so the reflected ray off a facet
+only changes when the *car* turns. A cubemap — even a live one — would hand a car driving straight
+the same picture on every frame. What changes as it drives is *where it is*, and only something
+that knows where the buildings are can make the skyline break up as it passes a cross street.
+
+**The ray is folded up off the road.** The camera looks down at 33°, so the honest reflection off a
+side panel is the asphalt a metre away — correct and invisible. `gR.y = max(abs(gR.y), 0.12)`
+mirrors it upward so a flank sees the street wall opposite, which is what anyone expects a car to
+reflect.
+
+**Masked to the body.** Below `SILL_Y` (`geometry/wheels.js`) is wheel, and so is anything more than
+0.06 outboard of the flank — the tread stands `WHEEL_PROUD` = 0.11 past it and its top is above the
+sill, so the floor alone left every wheel with a glossy crown. The 0.06 keeps the taxi's chequer
+stripe (0.05 proud) on the paint.
+
+**Amount.** 0.35 for the fleet, 0.42 for the taxi, 0.22 for cargo boxes. At 0.55 a cream car read as
+a pale blue one: the sky was most of what it showed.
+
+**Off under Crayon and Cartoon.** `propMaterial` hands back the plain Lambert when either look is on
+at boot — a skyline in a crayon drawing's bodywork is a photograph stuck to it. `outlinable` in
+`game/cartoon.js` accepts Phong as well, for a car built before the flag.
+
+All glossy bodies share one program (`prop-gloss`, `-ssao` as it applies): the per-shape numbers
+are per-material uniforms, not source. `tools/links.mjs` counts it at boot, not mid-run.
+
 ## Camera
 
 `src/game/camera.js`. A fixed 3/4 orthographic camera:
