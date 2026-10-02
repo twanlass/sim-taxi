@@ -220,8 +220,10 @@ export function parkAreas(layout) {
  *               and it is handed our own `state` so a caller holding all of them can drop *this*
  *               one from the list by identity, without the two ends having to agree on an index.
  *               The default makes a lone flock behave exactly as it did before there were two.
- * @param keepOut  circles on the lawn `{ x, z, r }` a bird may not stand in — the duck pond, which
- *               a walking pigeon would otherwise cross like any other patch of grass.
+ * @param keepOut  shapes on the lawn a bird may not stand in: circles `{ x, z, r }` — the duck
+ *               pond, which a walking pigeon would otherwise cross like any other patch of grass —
+ *               and rectangles `{ x0, x1, z0, z1 }`, the basketball court, where it would be
+ *               standing among the players' feet.
  */
 export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = [] } = {}) {
   const group = new THREE.Group();
@@ -352,8 +354,12 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
    */
   const SHORE_SLACK = 0.05;
 
-  function ashore(p) {
+  function ashore(p, b = null) {
     for (const keep of keepOut) {
+      if (keep.r === undefined) {
+        offRect(p, keep, b);
+        continue;
+      }
       const dx = p.x - keep.x;
       const dz = p.z - keep.z;
       const d = Math.hypot(dx, dz);
@@ -369,7 +375,7 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
 
   function spotIn(area) {
     const b = inside(area);
-    return ashore({ x: rng.range(b.x0, b.x1), z: rng.range(b.z0, b.z1) });
+    return ashore({ x: rng.range(b.x0, b.x1), z: rng.range(b.z0, b.z1) }, b);
   }
 
   /**
@@ -409,6 +415,10 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
    */
   function stopAtShore(fromX, fromZ, p) {
     for (const keep of keepOut) {
+      if (keep.r === undefined) {
+        stopAtRect(fromX, fromZ, p, keep);
+        continue;
+      }
       const dx = p.x - fromX;
       const dz = p.z - fromZ;
       const a = dx * dx + dz * dz;
@@ -433,6 +443,62 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
       p.z = fromZ + dz * stop;
     }
     return p;
+  }
+
+  /**
+   * `ashore` for a rectangle: out through the nearest edge, a hair past it for the same reason the
+   * circle's push goes past — but only through an edge that leaves the bird on its lawn. The court
+   * stands a unit and a half in from the block's edge and a bird is held further in than that, so
+   * the nearest way off the blacktop is often straight onto the paving round the park. If no edge
+   * will do, the point is left where it is: a bird on the apron is untidy, not broken.
+   */
+  function offRect(p, r, b) {
+    if (p.x <= r.x0 || p.x >= r.x1 || p.z <= r.z0 || p.z >= r.z1) return;
+    const exits = [
+      { d: p.x - r.x0, x: r.x0 - SHORE_SLACK, z: p.z },
+      { d: r.x1 - p.x, x: r.x1 + SHORE_SLACK, z: p.z },
+      { d: p.z - r.z0, x: p.x, z: r.z0 - SHORE_SLACK },
+      { d: r.z1 - p.z, x: p.x, z: r.z1 + SHORE_SLACK },
+    ].sort((m, n) => m.d - n.d);
+    for (const e of exits) {
+      if (b && (e.x < b.x0 || e.x > b.x1 || e.z < b.z0 || e.z > b.z1)) continue;
+      p.x = e.x;
+      p.z = e.z;
+      return;
+    }
+  }
+
+  /**
+   * `stopAtShore` for a rectangle: where the walk first enters it, by the slab method, and the bird
+   * stopped a step short. A bird already inside holds still, as it does at the pond.
+   */
+  function stopAtRect(fromX, fromZ, p, r) {
+    const dx = p.x - fromX;
+    const dz = p.z - fromZ;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-4) return;
+    if (fromX > r.x0 && fromX < r.x1 && fromZ > r.z0 && fromZ < r.z1) {
+      p.x = fromX;
+      p.z = fromZ;
+      return;
+    }
+    let t0 = 0;
+    let t1 = 1;
+    for (const [o, d, lo, hi] of [[fromX, dx, r.x0, r.x1], [fromZ, dz, r.z0, r.z1]]) {
+      if (Math.abs(d) < 1e-9) {
+        if (o <= lo || o >= hi) return;                     // parallel to this slab and outside it
+        continue;
+      }
+      let a = (lo - o) / d;
+      let c = (hi - o) / d;
+      if (a > c) [a, c] = [c, a];
+      t0 = Math.max(t0, a);
+      t1 = Math.min(t1, c);
+      if (t0 >= t1) return;                                 // the walk misses the rectangle
+    }
+    const stop = Math.max(0, t0 - 0.3 / len);
+    p.x = fromX + dx * stop;
+    p.z = fromZ + dz * stop;
   }
 
   function newTarget(bird) {

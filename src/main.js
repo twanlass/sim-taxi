@@ -58,6 +58,8 @@ import { createFlyover } from './game/flyover.js';
 import { createChopper } from './game/chopper.js';
 import { createBirds } from './game/birds.js';
 import { createDucks } from './game/ducks.js';
+import { createHoopers } from './game/hoopers.js';
+import { courtRect } from './city/blacktop.js';
 import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
@@ -374,6 +376,14 @@ scene.add(grass.mesh);
 // terms as the grass. See city/canopyfuzz.js.
 const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), [...props.crowns, ...(city.court?.crowns ?? [])]);
 scene.add(canopyFuzz.mesh);
+// The basketball court's chain link, which is translucent and so rides outside the merged props
+// mesh — and the people shooting around on the court. Run seed for the players, like the ducks:
+// where the court is is the map, who is out on it is the situation. Built here rather than beside
+// the ducks because the entrance wave below has to be handed them. See city/blacktop.js and
+// game/hoopers.js.
+if (props.courtMesh) scene.add(markOccluder(props.courtMesh));
+if (props.fenceMesh) scene.add(props.fenceMesh);
+const hoopers = createHoopers(scene, makeRng(runSeed + 313), props.court);
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
 // subject of the opening vignette below. `null` on a city with nowhere to put one, which is a
@@ -889,11 +899,13 @@ const dust = createDust(scene, camera, makeRng(seed + 77));
 const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
-  meshes: [city.mesh, propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? [])],
+  meshes: [city.mesh, propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? []),
+    ...(props.courtMesh ? [props.courtMesh, props.fenceMesh] : [])],
   // The two things in the city the wave's vertex shader cannot reach, because they turn: the
   // depot's radio dish and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
-  objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : [])],
+  objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
+    ...hoopers.entryObjects],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
     ...(burger ? [burger.entrySite] : [])],
   dust,
@@ -988,7 +1000,11 @@ const flocks = [];
 for (const offset of [199, 211]) {
   flocks.push(createBirds(scene, makeRng(runSeed + offset), layout, {
     avoid: (state) => flocks.filter((f) => f.state !== state).map((f) => f.state.area),
-    keepOut: props.pond ? [{ x: props.pond.x, z: props.pond.z, r: props.pond.r + 0.7 }] : [],
+    keepOut: [
+      ...(props.pond ? [{ x: props.pond.x, z: props.pond.z, r: props.pond.r + 0.7 }] : []),
+      // And the basketball court, with the same bird's length to spare.
+      ...(props.court ? [courtRect(props.court, 0.5)] : []),
+    ],
   }));
 }
 
@@ -3209,6 +3225,7 @@ function frame() {
   // scenery block in one place.
   for (const flock of flocks) flock.update(dt, traffic.taxi);
   ducks.update(dt);
+  hoopers.update(dt);
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
   burger?.update(dt, SIGN_SPIN);
@@ -3920,6 +3937,12 @@ if (shot) {
     controller.update(aspect());
   }
 
+  // The basketball court, on the same terms as the pond: one flag for the close and the far frame.
+  if (shot.atCourt && hoopers.court) {
+    controller.state.target.set(hoopers.court.x, 0, hoopers.court.z);
+    controller.update(aspect());
+  }
+
   // The burger joint, framed on the drive-through lane rather than on the building — which is one
   // flag for both of its framings, for exactly the reason the pond's is. The close shot asks
   // whether a burger on a pole and a car at a window read as what they are; the far one asks
@@ -4372,6 +4395,8 @@ window.__taxi = {
   flocks,
   /** The birds on the park pond, and `ducks.pond` the water they are on — null if the city has none. */
   ducks,
+  /** The players on the basketball court, and `hoopers.court` the court — absent if the city has none. */
+  hoopers,
   roadwork,
   /** The truck that sheds crates. `flatbed.stage()` starts it now; `state`, `crates`, `loose()`. */
   flatbed,

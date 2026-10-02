@@ -99,6 +99,10 @@ road and two workers standing over it. Ambient traffic routes around it while th
 is told the street is cheap, so it is the emptiest road in the city with a ramp at each end — and a
 fare that leads you down it. See [traffic.md](traffic.md#roadworks-a-street-closed-at-both-ends).
 
+One park in every city has a **basketball court** in it — a blacktop with a hoop at each end and
+chain link down the far side — with one or two people dribbling and shooting around on it. Scenery,
+like the duck pond; see [city.md](city.md#a-basketball-court).
+
 One of the city's trucks is a **flatbed stacked with crates**. Some while into a run it starts
 hitting bumps and the load comes off the back into the road; drive through one and it smashes, for
 nothing but the fun of it — no hit points. See [traffic.md](traffic.md#the-flatbed-that-sheds-its-load).

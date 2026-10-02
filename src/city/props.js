@@ -5,6 +5,7 @@ import { PALETTE, jitterColor } from '../palette.js';
 import { KERB_H, MEDIAN_EDGE, PARK_EDGE, roundedRectShape } from './ground.js';
 import { MEDIAN_W, medianRuns } from './grid.js';
 import { planPond, pondParts } from './pond.js';
+import { clearBenches, courtParts, courtRect, planCourt } from './blacktop.js';
 
 /**
  * Where a tree of a given height puts its parts: how much of it is bare trunk, how big the crown
@@ -572,13 +573,20 @@ export function createProps(rng, blocks) {
   // The furniture is placed before the planting, because the planting has to keep out of its way:
   // a tree growing through the statue is the one arrangement a park cannot have.
   const plots = parkPlots(blocks);
-  const { benches, statue } = planParkFurniture(rng, plots);
+  let { benches, statue } = planParkFurniture(rng, plots);
   // And the pond with the furniture, for the same reason — a tree standing in the water is the
   // other one. This does mean a seed's trees are planted in different spots than they were before
   // there were ponds: two draws land in this stream ahead of them now. Everything *outside*
   // `createProps` runs on its own offset and has not moved, which is the separation that matters
   // (see the seeding note in docs/architecture.md).
   const pond = planPond(rng, plots, statue);
+  // And the basketball court, last of the three and for the pond's reason: drawn after it, it cannot
+  // move the water, and the trees below keep out of it. It is placed *around* the statue and the
+  // pond rather than instead of them, so it may share a district with either. The benches it would
+  // stand on are struck out after the fact — a filter rather than a draw, so no bench left standing
+  // moves. See city/blacktop.js.
+  const court = planCourt(rng, plots, statue, pond);
+  benches = clearBenches(court, benches, BENCH_LEN);
 
   const SURFACE_Y = KERB_H + 0.01;
   for (const bench of benches) {
@@ -599,6 +607,34 @@ export function createProps(rng, blocks) {
     const built = pondParts(pond, rng);
     for (const part of built) stampEntry(part, pond.x, pond.z, hash01(pond.x, pond.z));
     parts.push(...built);
+  }
+  // The court, on one anchor for the pond's reason: the slab, its lines and its hoops are one object
+  // and should arrive on one frame. Only the slab rides in this mesh. The hoops and the fence's
+  // posts get one of their own because this mesh is handed to the fare board's sightline field and
+  // they must not be (see `courtParts`), and the fence's panels another, because they are
+  // translucent. All three on the same anchor.
+  let courtMesh = null;
+  let fenceMesh = null;
+  if (court) {
+    const { solid, frame, fence } = courtParts(court, rng);
+    const rand = hash01(court.x, court.z);
+    for (const part of [...solid, ...frame, ...fence]) stampEntry(part, court.x, court.z, rand);
+    parts.push(...solid);
+    courtMesh = new THREE.Mesh(mergeGeometries(frame, false), propMaterial());
+    frame.forEach((p) => p.dispose());
+    courtMesh.name = 'court-frame';
+    courtMesh.castShadow = true;
+    courtMesh.receiveShadow = true;
+    const material = propMaterial({ ao: false });
+    material.transparent = true;
+    material.opacity = 0.22;
+    material.depthWrite = false;
+    fenceMesh = new THREE.Mesh(mergeGeometries(fence, false), material);
+    fence.forEach((p) => p.dispose());
+    fenceMesh.name = 'court-fence';
+    // Receives the sun's shadow but casts none: a translucent panel throwing a solid slab of shade
+    // across the court is the one thing chain link never does.
+    fenceMesh.receiveShadow = true;
   }
 
   // The plaza's own square, plus a pace: a trunk right on the paving's edge leans its crown over
@@ -630,7 +666,14 @@ export function createProps(rng, blocks) {
   // `treeParts`' height range.
   const clearOfPond = (x, z) => !pond || Math.hypot(x - pond.x, z - pond.z) > pond.r + 1.8;
 
-  const clearOfFurniture = (x, z) => clearOfStatue(x, z) && clearOfBenches(x, z) && clearOfPond(x, z);
+  // And off the court, by a crown's reach on every side: a trunk on the blacktop is the obvious
+  // failure, and a crown hanging over the hoops is the one the camera would actually show.
+  const courtClear = court ? courtRect(court, 1.6) : null;
+  const clearOfCourt = (x, z) => !courtClear
+    || x < courtClear.x0 || x > courtClear.x1 || z < courtClear.z0 || z > courtClear.z1;
+
+  const clearOfFurniture = (x, z) => clearOfStatue(x, z) && clearOfBenches(x, z) && clearOfPond(x, z)
+    && clearOfCourt(x, z);
 
   // Districts are planted as one area so trees fall across the old road line too — nothing
   // gives away a merged park faster than a treeless stripe down the middle of it.
@@ -686,5 +729,5 @@ export function createProps(rng, blocks) {
   // `pad` in: exactly one park in the city has water in it, and `game/ducks.js` has to be told
   // which one. Null on a city with no park big enough — no pond, no ducks. The benches and the
   // statue ride along for `city/grass.js`, which has to keep its tufts out of them.
-  return { mesh, pond, benches, statue, crowns };
+  return { mesh, pond, benches, statue, crowns, court, courtMesh, fenceMesh };
 }

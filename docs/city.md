@@ -732,6 +732,48 @@ out of it. And the **flock** is handed the pond as a keep-out circle, which is n
 the other two: a bird has a *path*, and a target pushed to the far shore is a perfectly dry
 destination with a pond in the way of it. `stopAtShore` clips the walk at the water's edge instead.
 
+### A basketball court
+
+**Exactly one a city**, on the pond's terms: scenery, nothing routes round it, nothing on it can be
+tapped. `planCourt` (`city/blacktop.js`) draws after the pond on the same stream and places the
+slab *around* the statue's plaza and the pond rather than instead of them, so it can share a
+district with either — which is what gets every city one. It tries every length from 13 down to 9
+at nine slide positions along each plot's long axis and prefers a district at the longest length
+that fits; a full 13 cannot clear the statue's plaza from either half of a district, so in the
+statue's district it comes out at 12.
+
+- **The court has its own frame** (`u` along, `v` across) and `toWorld` maps it onto whichever axis
+  it lies along. The mapping is a reflection on a Z-axis court, which is harmless only because
+  nothing is built by rotating: boxes are sized through `boxAt` and every flat surface goes through
+  `ShapeGeometry`, which rewinds itself to face up. The probe computes every triangle's normal from
+  its winding.
+- **The fence runs down the far side and across the far end only.** Local −u and −v land on world
+  −X and −Z under both mappings, which are the sides away from the camera — so the chain link frames
+  the players from behind and can never stand between them and the eye. The mesh between the posts
+  is a translucent pale panel rather than a lattice: a real diamond is two pixels a cell at play
+  zoom.
+- **Three meshes, not one.** The slab and its paint merge into the props mesh. The hoops and the
+  fence's posts and rails are a mesh of their own, because the props mesh is handed to the fare
+  board's sightline field (`game/sightline.js`), which stamps each triangle's peak across its whole
+  footprint: a 3.1-high top rail stamps as a 3.1-high wall with no gap under it, and on the first
+  build it threw away a kerb corner a real ray could see 85% of. The fence panels are a third mesh
+  because they are translucent.
+- Benches the slab would stand on are filtered out after the plan (a filter, so no other bench
+  moves); the ones left beside the court face it. Trees keep a crown's reach off it, grass a card's,
+  and both flocks treat it as a rectangular keep-out (`offRect`/`stopAtRect` in `game/birds.js`).
+- The single extra draw lands ahead of the trees in the props stream, so **every seed's park trees
+  moved** when the court arrived, the same trade the pond made.
+
+The players are `game/hoopers.js`, on the run seed (`+313`): one most of the time, two in 60% of
+runs, each with a ball and a hoop of their own and kept on their own half. Dribble out to a spot in
+range, settle, jump shot, watch it, chase the rebound, repeat. The arc is solved for a flight time
+rather than an angle so it always arrives where it was aimed, and make or miss is decided at the
+release as an aim point (dead centre, or a point on the ring). The poses live in
+`geometry/person.js` as pure functions of phase (`dribblePose`, `shotPose`, `handAt`) so the ball
+can be put in the hands that are holding it rather than in a second copy of the arm's geometry.
+The probe runs five minutes of it: the ball never sinks into or leaves the slab, and every miss is
+fetched. `?shot=court` and `?shot=court-far` frame it.
+
 ### Long grass
 
 `city/grass.js` scatters tufts over every lawn: one alpha-cut card per tuft, cut from a small atlas
