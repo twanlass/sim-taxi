@@ -106,6 +106,103 @@ const HAIR_H = 0.2;
  */
 export const PERSON_TOP_Y = HAIR_Y + HAIR_H / 2;
 
+// --- Shooting around (game/hoopers.js) -----------------------------------------
+//
+// The two poses a player on the basketball court is in, written as pure functions of their phase so
+// the ball can be put *in the hands that are holding it*: game/hoopers.js asks `handAt` where a
+// hand is for the same angles the rig is wearing, rather than keeping a second copy of the arm's
+// geometry that would drift from this one.
+
+/** Where the right shoulder is; the left is its mirror in x. */
+const SHOULDER_X = 0.72;
+
+/**
+ * Where a hand ends up, in the figure's own frame (+Z forward), for an arm at `rx` about X and `rz`
+ * about Z with the elbow bent `elbow` about X. `side` is +1 for the right arm and −1 for the left,
+ * whose Z angle is mirrored with it. Three's default 'XYZ' order applies Z to the arm first, then
+ * X — which is the order this unrolls; the forearm's bend is applied in the arm's own frame before
+ * either.
+ */
+export function handAt(rx, rz, side, out = { x: 0, y: 0, z: 0 }, elbow = 0) {
+  const sz = Math.sin(rz * side);
+  const cz = Math.cos(rz * side);
+  // The hand in the upper arm's frame: down to the elbow, then down the bent forearm.
+  const ly = -UPPER_ARM_LEN - FOREARM_LEN * Math.cos(elbow);
+  const lz = -FOREARM_LEN * Math.sin(elbow);
+  out.x = side * SHOULDER_X - ly * sz;
+  out.y = SHOULDER_Y + ly * cz * Math.cos(rx) - lz * Math.sin(rx);
+  out.z = ly * cz * Math.sin(rx) + lz * Math.cos(rx);
+  return out;
+}
+
+/**
+ * The dribble, at `bounce` 0..1 through one bounce (0 and 1 are the ball at the top, in the hand).
+ * The right hand pushes down as the ball leaves it and comes back up to meet it — the arm and the
+ * ball are one cycle, so they cannot drift apart.
+ *
+ * Most of the push is the forearm: the elbow opens from crooked to nearly straight on the way down,
+ * and the upper arm only follows a little. At the top the hand sits within 0.06 of where the old
+ * straight arm put it (rx −0.85), which is what `dribbleBall`'s `top` was measured against.
+ */
+export function dribblePose(bounce) {
+  const push = (1 - Math.cos(bounce * Math.PI * 2)) / 2;
+  return { rx: -0.5 + 0.2 * push, rz: 0.15, elbow: -0.6 + 0.45 * push };
+}
+
+/** Where the ball is in the figure's frame on a dribble: off the right hand, in front of the feet. */
+export function dribbleBall(bounce, radius, out = { x: 0, y: 0, z: 0 }) {
+  const top = 1.32;
+  out.x = 0.86;
+  out.y = radius + (top - radius) * Math.abs(Math.cos(bounce * Math.PI));
+  out.z = 0.72;
+  return out;
+}
+
+/** The phases of a jump shot, as fractions of it: the gather, the jump, and the release at its top. */
+export const SHOT_GATHER = 0.35;
+export const SHOT_JUMP_END = 0.65;
+export const SHOT_RELEASE = 0.5;
+const SHOT_HOP = 0.55;
+
+/**
+ * The jump shot, at `k` 0..1 across the whole action: both arms come up from the dribble to a set
+ * point over the forehead while the figure dips, then it jumps and the arms extend, and the ball
+ * leaves at the top (`SHOT_RELEASE`). The arms hold their follow-through after landing and drop.
+ * `lift` is the body's height off the ground.
+ */
+export function shotPose(k) {
+  const ease = (t) => t * t * (3 - 2 * t);
+  let rx;
+  let lift;
+  let elbow;
+  if (k < SHOT_GATHER) {
+    // Up to the set point with the elbows crooked, the ball in front of the forehead. Folding them
+    // further pulls the hands back toward the face, and the ball with them: at −1.2 the ball's
+    // back was 0.16 *inside* the head. At −0.6 the set point lands within 0.04 of where the old
+    // straight arms put it.
+    const t = ease(k / SHOT_GATHER);
+    rx = -0.6 - 1.35 * t;
+    elbow = -0.6;
+    lift = -0.15 * t;
+  } else if (k < SHOT_JUMP_END) {
+    // The elbows open as the body rises, and are straight by the release at the top.
+    const t = (k - SHOT_GATHER) / (SHOT_JUMP_END - SHOT_GATHER);
+    const extend = ease(Math.min(1, t * 1.6));
+    rx = -1.95 - 0.95 * extend;
+    elbow = -0.6 + 0.5 * extend;
+    lift = Math.sin(t * Math.PI) * SHOT_HOP;
+  } else {
+    const t = (k - SHOT_JUMP_END) / (1 - SHOT_JUMP_END);
+    const drop = ease(Math.max(0, (t - 0.35) / 0.65));
+    rx = -2.9 + 2.4 * drop;
+    elbow = -0.1 - 0.25 * drop;
+    lift = 0;
+  }
+  // Hands drawn in toward each other so the ball sits between them rather than in the air between
+  // two arms held shoulder-width apart.
+  return { rx, rz: -0.42, elbow, lift };
+}
+
 /**
  * @param body  torso and arm colour
  * @param legs  trouser colour
@@ -178,6 +275,15 @@ export function createPerson({
     shinR.rotation.set(kneeR, 0, 0);
     foreL.rotation.set(elbowL, 0, 0);
     foreR.rotation.set(elbowR, 0, 0);
+  }
+
+  /**
+   * The thigh angle that lowers the hips by `drop` with the feet still flat under them: the thigh
+   * swings forward by it and the knee folds by twice it, so the shin comes back to the same angle
+   * off vertical and the two halves together stand `LEG_LEN · cos` tall.
+   */
+  function crouch(drop) {
+    return Math.acos(Math.max(-1, Math.min(1, 1 - drop / LEG_LEN)));
   }
 
   // --- The robber's kit, built hidden --------------------------------------
@@ -574,10 +680,86 @@ export function createPerson({
     setOpacity(1);
   }
 
+  /**
+   * The dribble, standing or on the move. `bounce` is the ball's phase (see `dribblePose`) and
+   * `cadence` the jog's, or null for dribbling on the spot. The legs jog at half the run's swing:
+   * this is a player working the ball round the key, not a rider sprinting for a cab.
+   */
+  function dribble(bounce, cadence = null) {
+    const arm = dribblePose(bounce);
+    armR.rotation.set(arm.rx, 0, arm.rz);
+    if (cadence === null) {
+      // A low stance: a crouch (see `crouch`) of 0.05, the off arm out with its elbow crooked to
+      // guard the ball.
+      const sink = crouch(0.05);
+      legL.rotation.set(-sink, 0, 0);
+      legR.rotation.set(-sink, 0, 0);
+      armL.rotation.set(-0.3, 0, -0.18);
+      bend(2 * sink, 2 * sink, -0.7, arm.elbow);
+      group.rotation.x = -0.08;
+      group.position.set(0, -0.05, 0);
+    } else {
+      const swing = Math.sin(cadence);
+      const c = Math.cos(cadence);
+      legL.rotation.set(swing * 0.6, 0, 0);
+      legR.rotation.set(-swing * 0.6, 0, 0);
+      armL.rotation.set(-0.3 - swing * 0.4, 0, -0.18);
+      // The run cycle's knee timing at about two thirds of its fold: a jog, not a sprint.
+      bend(0.15 + Math.max(0, -c) * 0.7, 0.15 + Math.max(0, c) * 0.7, -0.7, arm.elbow);
+      group.rotation.x = -0.14;
+      group.position.set(0, Math.abs(swing) * 0.09, 0);
+    }
+    group.rotation.y = 0;
+    group.scale.setScalar(1);
+  }
+
+  /** The jump shot at `k` 0..1 — see `shotPose`. */
+  function shoot(k) {
+    const pose = shotPose(k);
+    armR.rotation.set(pose.rx, 0, pose.rz);
+    armL.rotation.set(pose.rx, 0, -pose.rz);
+    // Toes pointed through the air, feet planted either side of it. On the ground the body's dip is
+    // taken in the knees rather than by sinking the feet into the court.
+    const airborne = k > SHOT_GATHER && k < SHOT_JUMP_END;
+    const sink = airborne ? 0 : crouch(-Math.min(0, pose.lift));
+    const thigh = airborne ? 0.25 : -sink;
+    legL.rotation.set(thigh, 0, 0);
+    legR.rotation.set(thigh, 0, 0);
+    const knee = airborne ? 0.35 : 2 * sink;
+    bend(knee, knee, pose.elbow, pose.elbow);
+    group.rotation.x = 0;
+    group.rotation.y = 0;
+    group.position.set(0, pose.lift, 0);
+    group.scale.setScalar(1);
+  }
+
+  /** Off after a loose ball: the run cycle, a shade slower than a rider's sprint. */
+  function chase(cadence) {
+    group.position.set(0, runCycle(cadence), 0);
+    group.rotation.y = 0;
+    group.scale.setScalar(1);
+  }
+
+  /** Standing, watching the shot: arms down, a little weight on the toes. */
+  function watch(t) {
+    legL.rotation.set(0, 0, 0);
+    legR.rotation.set(0, 0, 0);
+    armL.rotation.set(-0.15, 0, -0.12);
+    armR.rotation.set(-0.15, 0, 0.12);
+    bend(0.1, 0.1, -0.35, -0.35);
+    group.rotation.x = 0;
+    group.rotation.y = 0;
+    group.position.set(0, Math.abs(Math.sin(t * 6)) * 0.03, 0);
+    group.scale.setScalar(1);
+  }
+
   rest();
   wave(0);
   // `meshes` is exported for anything that has to reach every material on the figure — the road
   // crew's fade does. `group.children` is not that list any more: the shins and forearms hang off
   // the limb above them.
-  return { group, meshes, wave, board, exit, bail, rest, idle, flee, surrender, highlight, setRobber };
+  return {
+    group, meshes, wave, board, exit, bail, rest, idle, flee, surrender, highlight, setRobber,
+    dribble, shoot, chase, watch,
+  };
 }

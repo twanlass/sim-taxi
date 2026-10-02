@@ -25,6 +25,10 @@ import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../sr
 import { createGrass, planGrass, grassGeometry } from '../src/city/grass.js';
 import { createCanopyFuzz } from '../src/city/canopyfuzz.js';
 import { createDucks } from '../src/game/ducks.js';
+import {
+  planCourt, courtParts, courtRect, clearBenches, COURT_TOP_Y, RIM_Y, RIM_R,
+} from '../src/city/blacktop.js';
+import { createHoopers } from '../src/game/hoopers.js';
 import { createGarage, garageSite } from '../src/city/garage.js';
 import {
   createBurgerJoint, burgerSite, burgerGeometry, BURGER_R, SIGN_SPIN, VIEW_RISE, ROOF_Y, CAP_Y,
@@ -1005,6 +1009,184 @@ const onGrass = (city, i, j) => {
   }
   check('nothing is planted in the pond', !!pond && inTheWater === 0,
     pond ? `${inTheWater} vertices of something else inside it` : 'no pond');
+}
+
+// --- The basketball court ------------------------------------------------------
+//
+// One a city, on the lawn, clear of the statue's plaza and the pond, with no bench left standing on
+// it and nothing planted through it. Swept over seeds for the pond's reason: the court that escapes
+// is the longest one in the narrowest park, and the city you are looking at is not that one.
+{
+  let cities = 0;
+  let courts = 0;
+  let offLawn = 0;
+  let onPlaza = 0;
+  let inPond = 0;
+  let benchOn = 0;
+  let pocket = 0;
+  const SEEDS = 40;
+  for (let s = 0; s < SEEDS; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 37));
+    const plots = parkPlots(cityLayout);
+    if (!plots.length) continue;
+    cities += 1;
+    // One stream, in `createProps`' order: the furniture, then the pond, then the court.
+    const rng = makeRng(seed + s * 37 + 33);
+    const plan = planParkFurniture(rng, plots);
+    const pond = planPond(rng, plots, plan.statue);
+    const court = planCourt(rng, plots, plan.statue, pond);
+    if (!court) continue;
+    courts += 1;
+    if (!court.plot.district) pocket += 1;
+    const r = courtRect(court);
+    const b = court.plot.bounds;
+    if (r.x0 < b.x0 + PARK_EDGE || r.x1 > b.x1 - PARK_EDGE
+      || r.z0 < b.z0 + PARK_EDGE || r.z1 > b.z1 - PARK_EDGE) offLawn += 1;
+    const half = STATUE_PLAZA / 2;
+    if (plan.statue && r.x0 < plan.statue.x + half && r.x1 > plan.statue.x - half
+      && r.z0 < plan.statue.z + half && r.z1 > plan.statue.z - half) onPlaza += 1;
+    if (pond) {
+      const dx = Math.max(r.x0 - pond.x, 0, pond.x - r.x1);
+      const dz = Math.max(r.z0 - pond.z, 0, pond.z - r.z1);
+      if (Math.hypot(dx, dz) < pond.r) inPond += 1;
+    }
+    for (const bench of clearBenches(court, plan.benches, BENCH_LEN)) {
+      // Any corner of the bench's footprint on the slab.
+      const along = Math.abs(Math.cos(bench.yaw)) > 0.5;
+      const hx = along ? BENCH_LEN / 2 : 0.34;
+      const hz = along ? 0.34 : BENCH_LEN / 2;
+      if (bench.x + hx > r.x0 && bench.x - hx < r.x1 && bench.z + hz > r.z0 && bench.z - hz < r.z1) benchOn += 1;
+    }
+  }
+  createLayout(makeRng(seed));     // put the probe's city back — `createLayout` installs its network
+
+  check('every city with a park gets a basketball court', courts === cities,
+    `${courts} across ${cities} cities, ${pocket} in a pocket park`);
+  check('the court lies on the lawn, off the statue\'s plaza and out of the pond',
+    offLawn + onPlaza + inPond === 0, `${offLawn} over the walk, ${onPlaza} on the plaza, ${inPond} in the water`);
+  check('and no bench is left standing on it', benchOn === 0, `${benchOn} benches on the blacktop`);
+}
+
+// Its geometry, by winding rather than by normal attribute (CLAUDE.md, the roadworks ramp): every
+// level triangle of the slab and its paint faces the sky — `ShapeGeometry` is trusted to rewind a
+// reflected outline, and this is where that trust is checked.
+{
+  const rng = makeRng(seed + 33);
+  const plots = parkPlots(layout);
+  const plan = planParkFurniture(rng, plots);
+  const pond = planPond(rng, plots, plan.statue);
+  const court = planCourt(rng, plots, plan.statue, pond);
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  const normals = (part, each) => {
+    const pos = part.attributes.position;
+    for (let i = 0; i < pos.count; i += 3) {
+      a.fromBufferAttribute(pos, i);
+      b.fromBufferAttribute(pos, i + 1);
+      c.fromBufferAttribute(pos, i + 2);
+      const level = Math.abs(a.y - b.y) < 1e-6 && Math.abs(a.y - c.y) < 1e-6;
+      n.copy(b).sub(a).cross(c.clone().sub(a));
+      if (n.lengthSq() < 1e-12) continue;
+      each(n.normalize(), level, a.y);
+    }
+  };
+  let flats = 0;
+  let down = 0;
+  let below = 0;
+  if (court) {
+    const parts = courtParts(court, makeRng(seed + 7));
+    for (const part of parts.solid) {
+      normals(part, (nrm, level, y) => {
+        if (!level || nrm.y > -0.5 && nrm.y < 0.5) return;
+        // The slab's underside is meant to face down; everything level above the lawn is not.
+        if (y < COURT_TOP_Y - 0.01) return;
+        flats += 1;
+        if (nrm.y < 0.999) down += 1;
+      });
+    }
+    // The rim is up where a player has to jump to, and every hoop's rim is over the slab.
+    for (const hoop of court.hoops) {
+      const r = courtRect(court);
+      if (hoop.x - RIM_R < r.x0 || hoop.x + RIM_R > r.x1 || hoop.z - RIM_R < r.z0 || hoop.z + RIM_R > r.z1) below += 1;
+    }
+  }
+  check('every level face of the court points at the sky', !!court && flats > 0 && down === 0,
+    `${flats - down}/${flats} facing up`);
+  check('both rims hang over the blacktop', !!court && below === 0, `${below} off the slab`);
+}
+
+// Nothing planted through the court, read off the merged props mesh by entrance anchor the way the
+// pond's check is: every tree carries its trunk's position, so a trunk within a crown's reach of the
+// slab is a crown over the hoops.
+{
+  const rng = makeRng(seed + 33);
+  const plots = parkPlots(layout);
+  const plan = planParkFurniture(rng, plots);
+  const pond = planPond(rng, plots, plan.statue);
+  const court = planCourt(rng, plots, plan.statue, pond);
+  const entry = props.geometry.attributes.aEntry;
+  const reach = court ? courtRect(court, 1.5) : null;
+  let through = 0;
+  if (court) {
+    for (let i = 0; i < entry.count; i++) {
+      const ax = entry.getX(i);
+      const az = entry.getY(i);
+      if (Math.abs(ax - court.x) < 1e-4 && Math.abs(az - court.z) < 1e-4) continue;   // the court itself
+      if (ax > reach.x0 && ax < reach.x1 && az > reach.z0 && az < reach.z1) through += 1;
+    }
+  }
+  check('nothing is planted on the court', !!court && through === 0,
+    court ? `${through} vertices of something else on it` : 'no court');
+  check('and the props hand back the court they built', !!propsBuild.court && !!propsBuild.courtMesh
+    && Math.abs(propsBuild.court.x - court.x) < 1e-9,
+    'court and hoops');
+}
+
+// --- The players on it ---------------------------------------------------------
+//
+// Five minutes of shooting around. What has to hold: the ball never goes through the floor, never
+// leaves the blacktop, and the players stay on it too — and they actually play, which is to say
+// shots go up, some drop, some do not, and every miss gets fetched.
+{
+  const hoopScene = new THREE.Scene();
+  const court = propsBuild.court;
+  let worstFloor = Infinity;
+  let ballOff = 0;
+  let playerOff = 0;
+  let shots = 0;
+  let makes = 0;
+  let pickups = 0;
+  let mates = 0;
+  for (const run of [313, 314, 315, 316]) {
+    const crew = createHoopers(hoopScene, makeRng(seed + run), court);
+    mates = Math.max(mates, crew.players.length);
+    const r = courtRect(court, 0.05);
+    const was = crew.players.map((p) => p.ball.mode);
+    for (let step = 0; step < 300 * 60; step++) {
+      crew.update(1 / 60);
+      crew.players.forEach((p, i) => {
+        const m = p.ballMesh.position;
+        worstFloor = Math.min(worstFloor, m.y - COURT_TOP_Y);
+        if (m.x < r.x0 || m.x > r.x1 || m.z < r.z0 || m.z > r.z1) ballOff += 1;
+        const h = p.holder.position;
+        if (h.x < r.x0 || h.x > r.x1 || h.z < r.z0 || h.z > r.z1) playerOff += 1;
+        const mode = p.ball.mode;
+        if (mode === 'flight' && was[i] !== 'flight') {
+          shots += 1;
+          if (p.ball.flight.make) makes += 1;
+        }
+        if (mode === 'held' && was[i] === 'loose') pickups += 1;
+        was[i] = mode;
+      });
+    }
+  }
+  check('the ball never sinks into the court', worstFloor > 0.29, `lowest centre ${worstFloor.toFixed(3)} up`);
+  check('and never leaves the blacktop, nor do the players', ballOff + playerOff === 0,
+    `${ballOff} ball-frames and ${playerOff} player-frames off it`);
+  check('they shoot, make some, miss some, and fetch every one', shots > 40 && makes > 0 && makes < shots
+    && pickups >= shots - 8, `${shots} shots, ${makes} made, ${pickups} fetched, up to ${mates} players`);
 }
 
 // --- The ducks on it ---------------------------------------------------------
