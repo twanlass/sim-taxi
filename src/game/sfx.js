@@ -283,10 +283,19 @@ export function createSfx({ rng } = {}) {
       if (!r.ok) throw new Error(`${r.status} ${url}`);
       return r.arrayBuffer();
     });
+    // Nothing awaits these until the first tap calls `start()`, so a fetch that fails before then
+    // (WebKit's "Load failed" when a cold launch is backgrounded, a dropped connection) rejects
+    // with no handler attached and opens the fatal error panel over a game that would have run
+    // fine without its sounds. Mark each one handled here; `start()` still sees the rejection and
+    // reports it as the missing file it is.
+    bytes[key].catch(() => {});
   }
 
   let ctx = null;
   let master = null;
+  // `resume()` and `suspend()` return promises, and iOS rejects them when it has the audio session
+  // (a call, Siri, another app's playback). Losing sound is not a reason to stop the game.
+  const settle = (p, what) => p?.catch?.((err) => console.warn(`sfx: ${what} failed`, err));
   const buffers = {};    // by file name
   const lastAt = {};
   const lastTake = {};   // by sound name: the file it played last
@@ -356,23 +365,23 @@ export function createSfx({ rng } = {}) {
     if (buffers[SOUNDS.idle[0]]) idle = makeLoop('idle');
     if (buffers[SOUNDS.locoLoop[0]]) loco = makeLoop('locoLoop');
     state.ready = true;
-    if (state.held) ctx.suspend();
+    if (state.held) settle(ctx.suspend(), 'suspend');
   }
 
   // The unlock. Created *inside* the gesture, because Safari only lets a context start running
   // from one; `resume()` again on every later gesture until it is actually running, because iOS
   // will also suspend it behind the app's back (a phone call, the app backgrounded).
   const unlock = () => {
-    if (!ctx) start();
-    else if (ctx.state !== 'running' && !state.held) ctx.resume();
+    if (!ctx) settle(start(), 'start');
+    else if (ctx.state !== 'running' && !state.held) settle(ctx.resume(), 'resume');
   };
   for (const type of ['pointerdown', 'touchend', 'keydown']) {
     window.addEventListener(type, unlock, { capture: true, passive: true });
   }
   document.addEventListener('visibilitychange', () => {
     if (!ctx) return;
-    if (document.hidden) ctx.suspend();
-    else if (!state.held) ctx.resume();
+    if (document.hidden) settle(ctx.suspend(), 'suspend');
+    else if (!state.held) settle(ctx.resume(), 'resume');
   });
 
   /**
@@ -496,8 +505,8 @@ export function createSfx({ rng } = {}) {
     if (on === state.held) return;
     state.held = on;
     if (!ctx) return;
-    if (on) ctx.suspend();
-    else if (!document.hidden) ctx.resume();
+    if (on) settle(ctx.suspend(), 'suspend');
+    else if (!document.hidden) settle(ctx.resume(), 'resume');
   }
 
   function setMuted(on) {

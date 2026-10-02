@@ -1686,7 +1686,12 @@
         report(`${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack ?? ''}\n\n`);
       });
       window.addEventListener('unhandledrejection', (e) => {
-        report(`Unhandled rejection: ${e.reason?.stack ?? e.reason}\n\n`);
+        // `||`, not `??`: WebKit hands errors raised by native code (a failed fetch, a refused
+        // audio context) an empty-string `stack`, which `??` keeps — and the panel then opened
+        // reading "Unhandled rejection:" and nothing else. Name and message are always there.
+        const r = e.reason;
+        const what = r instanceof Error || r instanceof DOMException ? `${r.name}: ${r.message}` : String(r);
+        report(`Unhandled rejection: ${what}\n${r?.stack || ''}\n\n`);
       });
 
       /* Three's own reports, put where a phone can show them.
