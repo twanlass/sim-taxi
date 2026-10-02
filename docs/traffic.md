@@ -841,8 +841,9 @@ anything downstream is listening.
 
 Two knobs reach further than the taxi, deliberately:
 
-- **`brake`** is what every car in the city stops on. There is no separate taxi brake, and it owns
-  the coast-down after the button is let go, which is a phase of the ramp. The panel labels it. It
+- **`brake`** is what every car in the city stops on, the taxi included whenever a red or a leader
+  is what it is slowing for. The coast-down after the button is let go is **`coast`** (`COAST`,
+  9 u/s²), taxi-only, and the panel labels the two apart. `brake`
   is also what `LOOKAHEAD` (32) is derived against, so a soft brake or a tall ceiling can outrun
   the horizon the following rule can see — that is where the rear-ends come from when a tuning
   session produces them.
@@ -1128,9 +1129,11 @@ junction that lets Loco Mode run reds all read `taxi.boost`, so all three stay a
 cooldown. What *doesn't* survive it is speed: `taxi.boostEasing` is true only during `'cooldown'`,
 and `fullPower = car.boost && !car.boostEasing` in `traffic.js` is what the topSpeed/accel formulas
 actually key off, so the cap drops back to cruise the instant the hold ends. The car doesn't snap
-to cruise, though — `BRAKE` (11 u/s²) is still the only thing that sheds speed, same as any other
-stop, and from 22.1 down to 8.5 that takes ~0.78s: the coast-down was already sitting there once
-the speed cap and the hazard flag stopped being the same boolean. It's also where the nose-dip
+to cruise, though — it lifts off at `COAST` (9 u/s²), and from 22.1 down to 8.5 that takes ~1.5s.
+That was `BRAKE` (17.5, ~0.78s) until the brake pedal arrived: letting go was the only way to slow
+down, so it had to stop like a brake. Now only the *ceiling* coasts; whatever the road asks for —
+a red, a leader, a corner — the car still takes at `BRAKE`, in both the drive branch and the
+straight-on crossing, so the softer lift never costs a stop. It's also where the nose-dip
 comes from — the pitch spring downstream reads the deceleration straight off `car.v`, no separate
 animation needed. A re-press mid-cooldown cancels it outright and returns to `'active'`.
 

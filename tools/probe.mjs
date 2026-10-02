@@ -4515,8 +4515,9 @@ check('no two cars occupy the same space', worst > 1.6,
 {
   // The taxi's own physics: `boost` (the hazard flag) stays true through the cooldown tail, but
   // `boostEasing` tells traffic.js the hold itself is over, so the speed cap drops at once and the
-  // car coasts down under ordinary braking — same braking constant as any other stop, which is
-  // also what drives the visible nose-dip (the pitch spring reads deceleration off car.v).
+  // car coasts down at `coast` — softer than the ordinary brake, now that the brake pedal is the
+  // way to stop. Still a visible deceleration, which is what drives the nose-dip (the pitch spring
+  // reads it off car.v).
   const eScene = new THREE.Scene();
   const eTraffic = createTraffic(makeRng(seed + 129), eScene, 1);
   const eTaxi = eTraffic.taxi;
@@ -4527,9 +4528,13 @@ check('no two cars occupy the same space', worst > 1.6,
   for (let f = 0; f < Math.round(BOOST_COOLDOWN * 60); f++) eTraffic.update(1 / 60);
   check('boost speed peaks well above cruise before release', peakFactor > 1.8,
     `peak ${peakFactor.toFixed(2)}x cruise`);
+  // Shed at the coast rate (to within a frame) rather than the brake: the road ahead is empty, so
+  // nothing but the ceiling is asking the car to slow.
+  const shed = (peakFactor - eTaxi.speedFactor) * SPEED;
+  const coastShed = locoTuning().coast * BOOST_COOLDOWN;
   check('easing off drops the speed cap and the car actually coasts back toward cruise',
-    eTaxi.speedFactor < peakFactor * 0.7 && eTaxi.speedFactor < 1.3,
-    `${peakFactor.toFixed(2)}x -> ${eTaxi.speedFactor.toFixed(2)}x cruise over ${BOOST_COOLDOWN}s`);
+    eTaxi.speedFactor < peakFactor && Math.abs(shed - coastShed) < 0.5,
+    `${peakFactor.toFixed(2)}x -> ${eTaxi.speedFactor.toFixed(2)}x cruise over ${BOOST_COOLDOWN}s, shed ${shed.toFixed(1)} against ${coastShed.toFixed(1)} at coast`);
   setPriorityJunction(null);
 }
 
