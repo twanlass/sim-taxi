@@ -1069,8 +1069,7 @@ const onGrass = (city, i, j) => {
 
 // Its geometry, by winding rather than by normal attribute (CLAUDE.md, the roadworks ramp): every
 // level triangle of the slab and its paint faces the sky — `ShapeGeometry` is trusted to rewind a
-// reflected outline, and this is where that trust is checked — and the fence's hand-wound panels
-// face back into the court and so toward the camera, or under `FrontSide` they do not draw at all.
+// reflected outline, and this is where that trust is checked.
 {
   const rng = makeRng(seed + 33);
   const plots = parkPlots(layout);
@@ -1095,8 +1094,6 @@ const onGrass = (city, i, j) => {
   };
   let flats = 0;
   let down = 0;
-  let panels = 0;
-  let away = 0;
   let below = 0;
   if (court) {
     const parts = courtParts(court, makeRng(seed + 7));
@@ -1109,15 +1106,6 @@ const onGrass = (city, i, j) => {
         if (nrm.y < 0.999) down += 1;
       });
     }
-    for (const part of parts.fence) {
-      normals(part, (nrm) => {
-        panels += 1;
-        if (nrm.dot(VIEW_DIR) <= 0.1) away += 1;
-        // ...and toward the middle of the court, not out over the lawn behind it.
-        const toMiddle = new THREE.Vector3(court.x - a.x, 0, court.z - a.z);
-        if (nrm.dot(toMiddle) <= 0) away += 1;
-      });
-    }
     // The rim is up where a player has to jump to, and every hoop's rim is over the slab.
     for (const hoop of court.hoops) {
       const r = courtRect(court);
@@ -1126,8 +1114,6 @@ const onGrass = (city, i, j) => {
   }
   check('every level face of the court points at the sky', !!court && flats > 0 && down === 0,
     `${flats - down}/${flats} facing up`);
-  check('and the chain link faces the court and the camera', panels > 0 && away === 0,
-    `${panels} panel triangles, ${away} facing away`);
   check('both rims hang over the blacktop', !!court && below === 0, `${below} off the slab`);
 }
 
@@ -1154,8 +1140,8 @@ const onGrass = (city, i, j) => {
   check('nothing is planted on the court', !!court && through === 0,
     court ? `${through} vertices of something else on it` : 'no court');
   check('and the props hand back the court they built', !!propsBuild.court && !!propsBuild.courtMesh
-    && !!propsBuild.fenceMesh && Math.abs(propsBuild.court.x - court.x) < 1e-9,
-    'court, frame and fence');
+    && Math.abs(propsBuild.court.x - court.x) < 1e-9,
+    'court and hoops');
 }
 
 // --- The players on it ---------------------------------------------------------

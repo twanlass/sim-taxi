@@ -747,17 +747,14 @@ statue's district it comes out at 12.
   nothing is built by rotating: boxes are sized through `boxAt` and every flat surface goes through
   `ShapeGeometry`, which rewinds itself to face up. The probe computes every triangle's normal from
   its winding.
-- **The fence runs down the far side and across the far end only.** Local −u and −v land on world
-  −X and −Z under both mappings, which are the sides away from the camera — so the chain link frames
-  the players from behind and can never stand between them and the eye. The mesh between the posts
-  is a translucent pale panel rather than a lattice: a real diamond is two pixels a cell at play
-  zoom.
-- **Three meshes, not one.** The slab and its paint merge into the props mesh. The hoops and the
-  fence's posts and rails are a mesh of their own, because the props mesh is handed to the fare
-  board's sightline field (`game/sightline.js`), which stamps each triangle's peak across its whole
-  footprint: a 3.1-high top rail stamps as a 3.1-high wall with no gap under it, and on the first
-  build it threw away a kerb corner a real ray could see 85% of. The fence panels are a third mesh
-  because they are translucent.
+- **No fence.** The first build ran a translucent chain-link panel down the far side and across the
+  far end; it came out because the court reads better open to the lawn.
+- **Two meshes, not one.** The slab and its paint merge into the props mesh. The hoops are a mesh of
+  their own, because the props mesh is handed to the fare board's sightline field
+  (`game/sightline.js`), which stamps each triangle's peak across its whole footprint, so thin
+  furniture stamps as a solid column or wall. The fence showed what that costs: its 3.1-high top
+  rail stamped as a wall with no gap under it and threw away a kerb corner a real ray could see 85%
+  of.
 - Benches the slab would stand on are filtered out after the plan (a filter, so no other bench
   moves); the ones left beside the court face it. Trees keep a crown's reach off it, grass a card's,
   and both flocks treat it as a rectangular keep-out (`offRect`/`stopAtRect` in `game/birds.js`).

@@ -246,9 +246,8 @@ export function createHoopers(scene, rng, court) {
         b.vv *= k;
       }
     }
-    // Kept on the blacktop — off the far sides by the fence, off the near ones because a ball that
-    // rolls into the grass takes its player out of the court to fetch it — and, with two players
-    // out, on its own half so the two never share a ball.
+    // Kept on the blacktop, because a ball that rolls into the grass takes its player out of the
+    // court to fetch it — and, with two players out, on its own half so the two never share a ball.
     const maxU = court.len / 2 - BALL_R - 0.1;
     const maxV = court.wid / 2 - BALL_R - 0.1;
     const minU = count > 1 ? 0.6 : -maxU;
@@ -329,7 +328,7 @@ export function createHoopers(scene, rng, court) {
         pickSpot(player);
         // Turned to where they are headed on the frame they pick it up, which is back in toward
         // the hoop: the dribble hangs the ball off the right hand a unit out in front, so a player
-        // left facing the fence they fetched it from would bounce it on the lawn.
+        // left facing the edge they fetched it from would bounce it on the lawn.
         player.yaw = yawToward(player.target.u - player.u, player.target.v - player.v);
         return;
       }

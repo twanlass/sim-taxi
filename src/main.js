@@ -376,13 +376,12 @@ scene.add(grass.mesh);
 // terms as the grass. See city/canopyfuzz.js.
 const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), [...props.crowns, ...(city.court?.crowns ?? [])]);
 scene.add(canopyFuzz.mesh);
-// The basketball court's chain link, which is translucent and so rides outside the merged props
-// mesh — and the people shooting around on the court. Run seed for the players, like the ducks:
+// The basketball court's hoops, which ride outside the merged props mesh so the fare board's
+// sightline field never sees them (see `courtParts`) — and the people shooting around on the court. Run seed for the players, like the ducks:
 // where the court is is the map, who is out on it is the situation. Built here rather than beside
 // the ducks because the entrance wave below has to be handed them. See city/blacktop.js and
 // game/hoopers.js.
 if (props.courtMesh) scene.add(markOccluder(props.courtMesh));
-if (props.fenceMesh) scene.add(props.fenceMesh);
 const hoopers = createHoopers(scene, makeRng(runSeed + 313), props.court);
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
@@ -900,7 +899,7 @@ const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? []),
-    ...(props.courtMesh ? [props.courtMesh, props.fenceMesh] : [])],
+    ...(props.courtMesh ? [props.courtMesh] : [])],
   // The two things in the city the wave's vertex shader cannot reach, because they turn: the
   // depot's radio dish and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.

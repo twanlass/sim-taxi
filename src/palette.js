@@ -727,11 +727,6 @@ export const PALETTE = {
   backboardMark: '#B8473A',
   rim: '#D5642A',
   net: '#E8E6E0',
-  // Chain link. The posts are the dark green municipal fences are painted; the mesh between them is
-  // drawn as a pale translucent panel, because a real diamond lattice is two pixels a cell at play
-  // zoom and turns into moiré.
-  fencePost: '#3E4A43',
-  fenceMesh: '#C7CCC9',
   // The players and their ball (game/hoopers.js). Muted jerseys for the fare-marker reason: a
   // saturated figure on a kerb is the description of a rider. One light, one dark, so the two are
   // told apart at 24px.

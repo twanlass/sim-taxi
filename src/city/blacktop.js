@@ -8,7 +8,7 @@ import { STATUE_PLAZA } from './props.js';
 //
 // Scenery on the pond's terms: nothing routes round it, nothing can be tapped on it, and the fare
 // loop has never heard of it. What it buys is a park with *people* in it — the players shooting
-// around on it are game/hoopers.js; this is the blacktop, the lines, the two hoops and the fence.
+// around on it are game/hoopers.js; this is the blacktop, the lines and the two hoops.
 //
 // Split into a plan and a build the way `planPond` is, and for the same reason: where it goes is
 // the part with rules in it — on the lawn, clear of the statue's plaza and the pond — and
@@ -21,11 +21,8 @@ import { STATUE_PLAZA } from './props.js';
 // `boxAt`, and every flat surface goes through `ShapeGeometry`, which winds itself to face +Z
 // whichever way round its outline arrives.
 //
-// What the reflection is chosen for is the fence. Under both mappings local −u and −v land on world
-// −X and −Z, which are the two sides of anything **away from the camera** (VIEW_DIR is +X +Z). So
-// the fence runs down the court's −v side and across its −u end in local terms, and that is the far
-// side of the court on screen whichever way it was laid: it frames the players from behind and can
-// never stand between them and the player's eye.
+// **No fence.** The first build ran chain link down the court's far side and across its far end,
+// as a translucent panel between posts. It came out: the court reads better open to the lawn.
 
 /** What ground.js lays a park's lawn at — the number `pond.js` names `GRASS_Y`. */
 const GRASS_Y = KERB_H + 0.01;
@@ -82,14 +79,6 @@ const BOARD_T = 0.08;
 const POLE_W = 0.18;
 const ARM_Y = RIM_Y + 0.55;
 const NET_H = 0.5;
-
-// The fence. Taller than the players, as a court's fence is — it is there to stop the ball.
-const FENCE_H = 3.1;
-const FENCE_IN = 0.08;
-const POST_W = 0.11;
-const RAIL_W = 0.07;
-/** Post spacing, as a target: each run is divided evenly, so its ends always carry a post. */
-const POST_PITCH = 2.2;
 
 /** Room left round the statue's plaza and the pond's circle. */
 const STATUE_GAP = 0.5;
@@ -206,23 +195,23 @@ export function clearBenches(court, benches, benchLen) {
 }
 
 /**
- * The court as geometry, in three lots.
+ * The court as geometry, in two lots.
  *
  * `solid` is the slab and its paint, which merges into the props mesh like the pond does. `frame`
- * is everything that stands up off it — the hoops, the fence's posts and rails — and `fence` is the
- * chain link's panels between them, translucent and so unable to ride in any opaque mesh.
+ * is the hoops standing up off it.
  *
  * **The frame is kept out of the props mesh for the fare board's sake.** `game/sightline.js` turns
  * every triangle of what it is handed into a height field, stamping each one's peak across its
- * whole footprint — rounding up, deliberately — and a top rail 3.1 up and 13 long stamps as a 3.1
- * wall, with no gap under it for the sightline that actually passes there. On its first build that
- * threw away a kerb corner a real ray could see 85% of. Thin furniture hides almost nothing, so it
- * is not an occluder: `createProps` gives it a mesh of its own that the field is never handed.
+ * whole footprint — rounding up, deliberately — so a pole a fifth of a unit thick stamps as a solid
+ * column 5.3 high, and a backboard as a wall, with no gap round either for the sightlines that
+ * actually pass there. The fence this court used to have showed what that costs: its top rail
+ * stamped as a 3.1-high wall and threw away a kerb corner a real ray could see 85% of. Thin
+ * furniture hides almost nothing, so it is not an occluder: `createProps` gives it a mesh of its
+ * own that the field is never handed.
  */
 export function courtParts(court, rng) {
   const solid = [];
   const frame = [];
-  const fence = [];
   const { toWorld, len, wid } = court;
 
   // An axis-aligned box given in court terms: `lu`/`lv` are its extents along the court's length
@@ -369,61 +358,6 @@ export function courtParts(court, rng) {
     frame.push(bakeColor(net, netCol));
   }
 
-  // --- The fence ----------------------------------------------------------
-  //
-  // Down the −v side and across the −u end: the far side on screen, see the note at the top.
-  const postCol = new THREE.Color(PALETTE.fencePost);
-  const meshCol = new THREE.Color(PALETTE.fenceMesh);
-  const eu = len / 2 - FENCE_IN;
-  const ev = wid / 2 - FENCE_IN;
-  const runs = [
-    { from: [-eu, -ev], to: [eu, -ev], facing: [0, 1] },     // along the far side, facing +v
-    { from: [-eu, -ev], to: [-eu, ev], facing: [1, 0] },     // across the far end, facing +u
-  ];
-  const yBottom = COURT_TOP_Y + 0.06;
-  const yTop = COURT_TOP_Y + FENCE_H;
-  for (const run of runs) {
-    const [u0, v0] = run.from;
-    const [u1, v1] = run.to;
-    const length = Math.hypot(u1 - u0, v1 - v0);
-    const n = Math.max(1, Math.round(length / POST_PITCH));
-    // Posts at every division, the corner one laid by the first run only.
-    for (let k = run === runs[0] ? 0 : 1; k <= n; k++) {
-      const u = u0 + ((u1 - u0) * k) / n;
-      const v = v0 + ((v1 - v0) * k) / n;
-      boxAt(u, v, COURT_TOP_Y + FENCE_H / 2, POST_W, FENCE_H, POST_W, postCol);
-    }
-    // Top rail and bottom rail, the length of the run.
-    const alongU = Math.abs(u1 - u0) > Math.abs(v1 - v0);
-    for (const y of [yTop - RAIL_W / 2, COURT_TOP_Y + 0.2]) {
-      boxAt((u0 + u1) / 2, (v0 + v1) / 2, y,
-        alongU ? length : RAIL_W, RAIL_W, alongU ? RAIL_W : length, postCol);
-    }
-
-    // The mesh: one quad per run, hand-wound to face the court. For a vertical quad facing `n`, the
-    // edge that runs left-to-right as seen from in front is `up × n`, so the corners go in that
-    // order — bottom-left, bottom-right, top-right — and the triangle's normal comes out along `n`.
-    // The probe computes it from the winding: a reversed one here does not draw at all.
-    const a = toWorld(u0, v0);
-    const b = toWorld(u1, v1);
-    const f = toWorld(run.facing[0], run.facing[1]);
-    const o = toWorld(0, 0);
-    const nx = f.x - o.x;
-    const nz = f.z - o.z;
-    // up × n = (nz, 0, −nx)
-    const tx = nz;
-    const tz = -nx;
-    const [left, right] = (b.x - a.x) * tx + (b.z - a.z) * tz > 0 ? [a, b] : [b, a];
-    const pos = new Float32Array([
-      left.x, yBottom, left.z, right.x, yBottom, right.z, right.x, yTop, right.z,
-      left.x, yBottom, left.z, right.x, yTop, right.z, left.x, yTop, left.z,
-    ]);
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    fence.push(bakeColor(geo, meshCol));
-  }
-
-  return { solid, frame, fence };
+  return { solid, frame };
 }
 
-export { FENCE_H };

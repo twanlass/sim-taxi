@@ -609,32 +609,20 @@ export function createProps(rng, blocks) {
     parts.push(...built);
   }
   // The court, on one anchor for the pond's reason: the slab, its lines and its hoops are one object
-  // and should arrive on one frame. Only the slab rides in this mesh. The hoops and the fence's
-  // posts get one of their own because this mesh is handed to the fare board's sightline field and
-  // they must not be (see `courtParts`), and the fence's panels another, because they are
-  // translucent. All three on the same anchor.
+  // and should arrive on one frame. Only the slab rides in this mesh. The hoops get one of their own,
+  // on the same anchor, because this mesh is handed to the fare board's sightline field and they
+  // must not be (see `courtParts`).
   let courtMesh = null;
-  let fenceMesh = null;
   if (court) {
-    const { solid, frame, fence } = courtParts(court, rng);
+    const { solid, frame } = courtParts(court, rng);
     const rand = hash01(court.x, court.z);
-    for (const part of [...solid, ...frame, ...fence]) stampEntry(part, court.x, court.z, rand);
+    for (const part of [...solid, ...frame]) stampEntry(part, court.x, court.z, rand);
     parts.push(...solid);
     courtMesh = new THREE.Mesh(mergeGeometries(frame, false), propMaterial());
     frame.forEach((p) => p.dispose());
     courtMesh.name = 'court-frame';
     courtMesh.castShadow = true;
     courtMesh.receiveShadow = true;
-    const material = propMaterial({ ao: false });
-    material.transparent = true;
-    material.opacity = 0.22;
-    material.depthWrite = false;
-    fenceMesh = new THREE.Mesh(mergeGeometries(fence, false), material);
-    fence.forEach((p) => p.dispose());
-    fenceMesh.name = 'court-fence';
-    // Receives the sun's shadow but casts none: a translucent panel throwing a solid slab of shade
-    // across the court is the one thing chain link never does.
-    fenceMesh.receiveShadow = true;
   }
 
   // The plaza's own square, plus a pace: a trunk right on the paving's edge leans its crown over
@@ -729,5 +717,5 @@ export function createProps(rng, blocks) {
   // `pad` in: exactly one park in the city has water in it, and `game/ducks.js` has to be told
   // which one. Null on a city with no park big enough — no pond, no ducks. The benches and the
   // statue ride along for `city/grass.js`, which has to keep its tufts out of them.
-  return { mesh, pond, benches, statue, crowns, court, courtMesh, fenceMesh };
+  return { mesh, pond, benches, statue, crowns, court, courtMesh };
 }
