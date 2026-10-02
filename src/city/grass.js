@@ -5,6 +5,7 @@ import { cutoutAtlas, VIEW_RIGHT } from '../util/cutout.js';
 import { PALETTE, jitterColor } from '../palette.js';
 import { KERB_H, PARK_EDGE, GRASS_RADIUS } from './ground.js';
 import { parkPlots, BENCH_LEN, STATUE_PLAZA } from './props.js';
+import { onCourt } from './blacktop.js';
 
 // Tufts of long grass on the parks' lawns.
 //
@@ -155,10 +156,10 @@ function onLawn(bounds, x, z, m) {
  * Where the tufts go. Split out from the build the way `planPond` is, so `tools/probe.mjs` can
  * sweep the placement rules over seeds.
  *
- * @param furniture  `{ benches, statue, pond }` as `createProps` returns them — the things the grass
+ * @param furniture  `{ benches, statue, pond, court }` as `createProps` returns them — the things the grass
  *                   has to keep out of.
  */
-export function planGrass(rng, blocks, { benches = [], statue = null, pond = null } = {}) {
+export function planGrass(rng, blocks, { benches = [], statue = null, pond = null, court = null } = {}) {
   const tufts = [];
   for (const plot of parkPlots(blocks)) {
     const { x0, z0, x1, z1 } = plot.bounds;
@@ -189,6 +190,9 @@ export function planGrass(rng, blocks, { benches = [], statue = null, pond = nul
       if (statue && Math.abs(x - statue.x) < STATUE_PLAZA / 2 + reach
         && Math.abs(z - statue.z) < STATUE_PLAZA / 2 + reach) continue;
       if (pond && Math.hypot(x - pond.x, z - pond.z) < pond.r + reach * 0.6) continue;
+      // Off the blacktop, with a card's reach to spare — long grass sprouting from a court's apron
+      // reads as the slab being laid under the lawn rather than in it.
+      if (court && onCourt(court, x, z, reach)) continue;
       // In each bench's own frame, the way `createProps` keeps trunks off them: grass through a
       // seat is the one arrangement that reads as a rendering fault rather than as a park.
       const underBench = benches.some((bench) => {

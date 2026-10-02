@@ -228,6 +228,12 @@ export const SHOTS = [
   //
   // Appended, for the reason given above `parcel` and `wreck-rest`: shots are addressed by index.
   { name: 'median', description: 'the arterial median, its bedding and its small trees', target: [20, 0], zoom: 11, warmup: 12 },
+  // The basketball court (city/blacktop.js, game/hoopers.js). Appended, for the index-addressing
+  // reason stated above the `birds` entry. The pond's pair of framings: close, do the lines and
+  // the hoops read as a court and the figures as players with a ball; far, is it a place
+  // you notice while driving past.
+  { name: 'court', description: 'the basketball court, close', target: [0, 0], zoom: 10, warmup: 12, atCourt: true },
+  { name: 'court-far', description: 'the basketball court at play zoom', target: [0, 0], zoom: 52, warmup: 12, atCourt: true },
 ];
 
 export function getActiveShot() {

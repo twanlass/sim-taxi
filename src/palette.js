@@ -723,6 +723,30 @@ export const PALETTE = {
   // against everything it touches.
   pondBank: '#8C7F6B',
 
+  // The basketball court — see city/blacktop.js. A sports court has to read as *paved* inside a
+  // lawn, which is a value break before it is a hue: the blacktop at luma ~80 is a dark slab against
+  // the park's 140, the same way the pond is a hole. The playing surface inside the lines is a brick
+  // red rather than the textbook green or blue, because green vanishes into the lawn and blue is
+  // what this game paints water — and it stays well under the saturation of anything the player is
+  // meant to tap. The keys go a step lighter so the two ends read as ends from across the map.
+  courtTop: '#4A4F57',
+  courtPaint: '#93594A',
+  courtKey: '#B0735A',
+  courtLine: '#E6E1D5',
+  // The hoops: a dark steel pole, a white board, an orange rim, a white net.
+  hoopPole: '#3B444F',
+  backboard: '#EDEDEA',
+  backboardMark: '#B8473A',
+  rim: '#D5642A',
+  net: '#E8E6E0',
+  // The players and their ball (game/hoopers.js). Muted jerseys for the fare-marker reason: a
+  // saturated figure on a kerb is the description of a rider. One light, one dark, so the two are
+  // told apart at 24px.
+  hooperA: '#E4E0D6',
+  hooperB: '#A84A3E',
+  hooperShorts: '#33363F',
+  basketball: '#D06A2C',
+
   // --- The river ------------------------------------------------------------
   //
   // Same 216° family as the pond, and deliberately so: this game has exactly one idea of what

@@ -465,7 +465,8 @@ export function createRoadwork(rng, scene, camera = null) {
       holder.position.set(spot.x, 0, spot.z);
       holder.add(person.group);
       group.add(holder);
-      const mats = person.group.children.map((mesh) => mesh.material);
+      // Every mesh on the figure, not `group.children` — the shins and forearms are nested.
+      const mats = person.meshes.map((mesh) => mesh.material);
       materials.push(...mats);
 
       // Straight out to the kerb on whichever side they are already nearest. Expressed as a delta
