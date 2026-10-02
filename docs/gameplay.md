@@ -2903,11 +2903,13 @@ the holds were rare enough to cost the mode its feel without protecting it.
 **Releasing isn't an instant off.** For `BOOST_COOLDOWN` (1s) after the button comes up — or the
 tank runs dry — the taxi is still exposed to everything Loco Mode was: it can still crash into
 traffic, still sets a patrol cruiser after it if one is in range, still forces the next light. What it loses
-immediately is the speed — the cap drops back to cruise the moment the hold ends, and ordinary
-braking (the same constant every other stop uses) hauls it down from 22.1 to 8.5 in under a
-second, nose dipping hard the whole way. So letting go a beat too late doesn't buy safety; it buys
-a car that's still committed to whatever's in front of it while visibly losing the ability to
-dodge. Re-pressing mid-cooldown cancels it and snaps straight back to full send. See
+immediately is the speed — the cap drops back to cruise the moment the hold ends, and the taxi
+**coasts** down to it at `COAST` (9 u/s²): 22.1 to 8.5 in 1.5s, the overdrive top in 2.8s. It used
+to be the ordinary brake (17.5, under a second) back when letting go was the only way to slow
+down; with [the brake](#the-brake) beside it, letting go is a lift-off and the pedal is the stop.
+Only the ceiling coasts — a red, a car ahead or a corner still brakes at the ordinary rate. So
+letting go a beat too late doesn't buy safety; it buys a car that's still committed to whatever's
+in front of it, still carrying most of its speed. If you need to stop, stand on the brake. Re-pressing mid-cooldown cancels it and snaps straight back to full send. See
 [traffic.md](traffic.md#boost-crazy-taxi-mode) for the mechanism.
 
 The press itself also fires a **wheelie**, a tailpipe **flame burst** and a half-second launch
