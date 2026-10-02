@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, unlitMaterial } from '../util/geo.js';
 import { color } from '../palette.js';
+import { stampGhostMask } from './ghostoutline.js';
 
 // A little high-wing single — a Cessna, in the sense that everything about the silhouette that
 // says "small plane" is here and nothing else is. It crosses the sky occasionally and is not part
@@ -185,9 +186,11 @@ export function createPlaneMesh() {
   group.name = 'plane';
   group.rotation.order = 'YXZ';    // roll about the fuselage axis, as on the cars
 
+  // Both opaque parts stamp the ghost mask — see stampGhostMask. The disc and the trails write no
+  // depth, so the ghosts never saw them.
   const body = new THREE.Mesh(
     airframe(),
-    new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true }),
+    stampGhostMask(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true })),
   );
   group.add(body);
 
@@ -196,7 +199,7 @@ export function createPlaneMesh() {
   // flyover.js that is what keeps it reading as rotation instead of strobing backwards.
   const blade = new THREE.Mesh(
     box(0.09, PROP_BLADE, 0.24, 0, 0, 0, 'planeProp'),
-    new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true }),
+    stampGhostMask(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true })),
   );
   blade.position.x = PROP_X;
   group.add(blade);

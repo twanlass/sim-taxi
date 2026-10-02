@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, unlitMaterial } from '../util/geo.js';
 import { color } from '../palette.js';
+import { stampGhostMask } from './ghostoutline.js';
 
 // A light twin-skid helicopter — a Jet Ranger, in the same sense the aeroplane is a Cessna:
 // everything about the silhouette that says "small helicopter" is here and nothing else is. It
@@ -144,7 +145,7 @@ function rotor(radius, chord, thickness, hub, discAlpha, discSegments) {
 
   const blade = new THREE.Mesh(
     geometry,
-    new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true }),
+    stampGhostMask(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true })),
   );
   const disc = new THREE.Mesh(
     new THREE.CircleGeometry(radius, discSegments),
@@ -174,9 +175,11 @@ export function createHelicopterMesh() {
   const group = new THREE.Group();
   group.name = 'helicopter';
 
+  // Every part that writes depth stamps the ghost mask — see stampGhostMask. The rotor discs and
+  // the halo write none, so the ghosts never saw them.
   const body = new THREE.Mesh(
     airframe(),
-    new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true }),
+    stampGhostMask(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true })),
   );
   group.add(body);
 
@@ -207,7 +210,7 @@ export function createHelicopterMesh() {
   // at the size it is actually seen at; on its own the lamp is a red pixel that could be anything.
   const lamp = new THREE.Mesh(
     new THREE.OctahedronGeometry(LAMP_R, 0),
-    unlitMaterial({ color: color('heliBeacon'), transparent: true }),
+    stampGhostMask(unlitMaterial({ color: color('heliBeacon'), transparent: true })),
   );
   const halo = new THREE.Mesh(
     new THREE.OctahedronGeometry(HALO_R, 0),
