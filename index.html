@@ -340,6 +340,56 @@
       }
       #pause-veil .pause-sound:active { transform: scale(0.95); }
 
+      /* The depot's upgrade menu (game/upgrademenu.js) — up behind the shut garage door on a visit.
+         The pause veil's dimming and type, with a card on it, since it is a list rather than one
+         word. One under the pause veil (23), so pausing with the menu up still shows Resume. */
+      #upgrade-menu {
+        position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 22;
+        display: flex; align-items: center; justify-content: center; padding: 16px;
+        box-sizing: border-box;
+        background: rgba(6, 14, 22, 0.55); color: #fff;
+        font: 500 15px/1.35 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+        touch-action: manipulation;
+        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+      }
+      #upgrade-menu[hidden] { display: none; }
+      body.shot-mode #upgrade-menu { display: none; }
+      #upgrade-menu .upgrade-card {
+        width: min(380px, 100%); padding: 20px; border-radius: 22px;
+        background: rgba(18, 26, 38, 0.94); border: 2px solid rgba(255, 255, 255, 0.12);
+        display: flex; flex-direction: column; gap: 12px;
+      }
+      #upgrade-menu .upgrade-title {
+        font-size: 26px; font-weight: 800; line-height: 1.1; text-align: center;
+      }
+      #upgrade-menu .upgrade-cash { text-align: center; color: #F5C130; font-weight: 800; }
+      #upgrade-menu .upgrade-owed { color: rgba(255, 255, 255, 0.6); font-weight: 500; }
+      #upgrade-menu .upgrade-row {
+        display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px;
+        background: rgba(255, 255, 255, 0.06);
+      }
+      #upgrade-menu .upgrade-text { flex: 1; min-width: 0; }
+      #upgrade-menu .upgrade-name { font-weight: 800; font-size: 16px; }
+      #upgrade-menu .upgrade-blurb { opacity: 0.75; font-size: 13px; }
+      #upgrade-menu .upgrade-pips { display: flex; gap: 4px; margin-top: 6px; }
+      #upgrade-menu .upgrade-pip {
+        width: 18px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.18);
+      }
+      #upgrade-menu .upgrade-pip.is-on { background: #F5C130; }
+      #upgrade-menu .upgrade-buy, #upgrade-menu .upgrade-done {
+        padding: 10px 16px; border-radius: 999px; cursor: pointer;
+        border: 2px solid #16120a; background: #F5C130; color: #16120a;
+        font: 800 15px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        white-space: nowrap; transition: transform 0.1s ease;
+      }
+      #upgrade-menu .upgrade-buy { min-width: 72px; }
+      #upgrade-menu .upgrade-buy:disabled {
+        cursor: default; background: transparent; color: rgba(255, 255, 255, 0.45);
+        border-color: rgba(255, 255, 255, 0.25);
+      }
+      #upgrade-menu .upgrade-done { margin-top: 4px; padding: 14px 26px; align-self: center; }
+      #upgrade-menu button:not(:disabled):active { transform: scale(0.95); }
+
       /* Earnings fly off the taxi so the payout is visibly connected to the drop-off; the flight
          itself (rise, then travel to the counter) is driven from JS so it can aim at the counter's
          actual on-screen position, which changes with the viewport. */
@@ -1628,6 +1678,7 @@
     <div id="home-tip" hidden></div>
     <div id="wipe" aria-hidden="true" hidden></div>
     <div id="run-end" hidden></div>
+    <div id="upgrade-menu" role="dialog" aria-modal="true" aria-label="Upgrades" aria-hidden="true" hidden></div>
 
     <div id="diag" hidden></div>
     <div id="error" hidden></div>

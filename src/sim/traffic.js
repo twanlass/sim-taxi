@@ -1657,7 +1657,19 @@ const chaseAccelFor = (car) => Math.max(
  * boost ceiling, then the overdrive taper. See the tuning block above for where 2.2 and the
  * 40 units of run-up it implies come from.
  */
-const boostAccel = (v) => (v < boostCruise() ? loco.accel : loco.overdriveAccel);
+const boostAccel = (v, car = null) => {
+  const e = engineOf(car);
+  return (v < boostCruise() * e ? loco.accel : loco.overdriveAccel) * e;
+};
+
+/**
+ * The depot's engine upgrade (game/upgrades.js): a multiplier on one car's Loco ceilings and punch.
+ * Per car rather than a `setLocoTuning` call because the patrol cruiser drives the same tuning —
+ * an engine bought for the taxi must not hand the cop chasing it the same horsepower. Only ever set
+ * on the taxi; every other car reads 1. The kick on the press (`loco.kick`) is left stock: the
+ * phantom-gap trap at `BOOST_KICK` is sized against it.
+ */
+const engineOf = (car) => car?.engine ?? 1;
 
 /**
  * The ramp on a clear straight road, sampled — the ideal curve, which is exactly what the ⚙️
@@ -4862,9 +4874,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // The ceiling at full boost is the *overdrive* top, not the BOOST_SPEED one — but the
         // acceleration tapers above BOOST_SPEED, so the band past 18.7 is only ever reached by a
         // car that has had 40 units of straight road and a clear `allowed` to spend it on.
-        const topSpeed = fullPower ? overdriveTop() : cruiseCap;
+        const topSpeed = fullPower ? overdriveTop() * engineOf(car) : cruiseCap;
         const accel = fullPower
-          ? boostAccel(car.v)
+          ? boostAccel(car.v, car)
           : chaseAccelFor(car);
         // The brake pedal outranks every one of them, including the boost ceiling: holding it means
         // stop, so the target is zero and the car sheds toward it at `hardBrake()` however much road
@@ -5198,12 +5210,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // back — a 17 ↔ 8.5 sawtooth with a period of exactly one block. That is what the taxi
         // behind it was faithfully braking for, and it is what "the taxi stutters on the approach"
         // turned out to be: the taxi was steady, the car in front was not.
-        const cruise = fullPower ? boostCruise() : cruiseCapFor(car);
+        const cruise = fullPower ? boostCruise() * engineOf(car) : cruiseCapFor(car);
         // Going straight on is part of the straightaway, so it keeps the overdrive band and keeps
         // building through it; a junction crossed in a straight line is 8 units of the 40 the band
         // needs. Only a real turn is capped at `cruise`, which is what makes a corner cost the top
         // end rather than merely interrupt it.
-        const straightTop = fullPower ? overdriveTop() : cruise;
+        const straightTop = fullPower ? overdriveTop() * engineOf(car) : cruise;
         // Crazy mode doesn't lift for left-turns or straights — it goes round them at full pelt,
         // and the lean plus the rubber on the road sell it instead of a speed drop. Right turns
         // are the exception: with right-hand traffic they cut across the near corner (chord ≈
@@ -5267,7 +5279,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // climb to is not a ceiling. At plain ACCEL a fleeing car needs 24 units to reach
         // SCATTER_SPEED and a junction is 8, so without this the cruise cap above would raise the
         // roof and the car would still cross at the speed it entered.
-        const accel = fullPower ? boostAccel(car.v) : chaseAccelFor(car);
+        const accel = fullPower ? boostAccel(car.v, car) : chaseAccelFor(car);
         car.v = car.v > target
           ? Math.max(target, car.v - (car.braking ? hardBrake() : brake()) * dt)
           : Math.min(target, car.v + accel * dt);
