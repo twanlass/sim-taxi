@@ -29,7 +29,7 @@ import {
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt,
 } from './sim/traffic.js';
-import { createCollisions, TAXI_HP } from './sim/collisions.js';
+import { createCollisions } from './sim/collisions.js';
 import { createPolice } from './sim/police.js';
 import {
   createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
@@ -40,6 +40,8 @@ import { createAudioPanel } from './game/audiopanel.js';
 import { createDriveThru } from './game/drivethru.js';
 import { createBurgerRun } from './game/burgerrun.js';
 import { createDepotRun } from './game/depotrun.js';
+import { createUpgrades } from './game/upgrades.js';
+import { createUpgradeMenu } from './game/upgrademenu.js';
 import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
@@ -661,6 +663,35 @@ const burgerRun = driveThru
 // The fare board's clocks are held for the whole visit, from the turn in off the lane to the camera
 // being handed back — the cost of a repair is the drive there, not the cut scene. See
 // `holdFareClocks`.
+// What the depot sells besides a repair — see game/upgrades.js. The levels last the run; a retry
+// reloads the page. `applyUpgrades` pushes them into the taxi, the tank and the HP after a purchase.
+const upgrades = createUpgrades();
+// The repair bill this visit owes, decided on the turn-in (a car that came in undamaged came in to
+// shop, and pays nothing for the shop's welding), and whether the menu has been up yet this visit.
+let visitRepairOwed = 0;
+let visitMenuShown = false;
+const upgradeMenu = shot ? null : createUpgradeMenu({
+  root: document.getElementById('upgrade-menu'),
+  upgrades,
+  // Spendable cash: the till less the repair bill still to come on the way out.
+  money: () => Math.max(0, fares.state.money - visitRepairOwed),
+  owed: () => visitRepairOwed,
+  onBuy: (id) => {
+    const cost = upgrades.buy(id, Math.max(0, fares.state.money - visitRepairOwed));
+    if (!cost) return;
+    fares.charge(cost);
+    rollMoneyTo(fares.state.money, false);
+    applyUpgrades();
+    haptic('pick');
+  },
+});
+function applyUpgrades() {
+  traffic.taxi.engine = upgrades.engine();
+  boost.setDuration(upgrades.tankSeconds());
+  // Bought in the bay, after the repair: the car leaves the shop on its new full bar.
+  traffic.taxi.hp = upgrades.maxHp();
+}
+
 const depotRun = garage && !shot
   ? createDepotRun({
     site: garage.site,
@@ -668,26 +699,36 @@ const depotRun = garage && !shot
     taxi: traffic.taxi,
     routeTo,
     onArrive: (s0, handBack) => {
+      const owed = traffic.taxi.hp < upgrades.maxHp() ? REPAIR_PRICE : 0;
       if (!opening?.enter(s0, {
         // Behind the shut door, so nobody sees the damage go.
         onRepair: () => {
-          traffic.taxi.hp = TAXI_HP;
+          traffic.taxi.hp = upgrades.maxHp();
           taxiDamage.reset();
         },
+        // The upgrade menu keeps the door at its gap until it is closed (opened from the frame
+        // loop on the first frame of the `repair` phase — see `visitMenuShown`).
+        hold: () => upgradeMenu?.isOpen() ?? false,
         // The car is back on the lane, 5.5 units short of a junction: put a job under it before it
         // gets there. A route the player planned while it was inside stands — `stageCar` never saw
         // it, and the lane it was planned from is the one the car is released onto.
         onRelease: () => {
           if (!traffic.taxi.pendingTarget) resumeJob(handBack);
+          // A skip lands the visit from wherever it was, menu and all.
+          upgradeMenu?.close();
           // The bill, as the car comes back out onto the road: the red `−$25` rises off the taxi
           // and flies to the counter, the burger's charge on a bigger number. Here rather than
           // behind the door so the player sees what the repair cost on the car it bought. See
           // REPAIR_PRICE in game/fares.js.
-          const paid = fares.charge(REPAIR_PRICE);
+          // Only for a car that came in damaged — an undamaged one came in to shop.
+          const paid = visitRepairOwed ? fares.charge(visitRepairOwed) : 0;
+          visitRepairOwed = 0;
           if (paid > 0) popEarning(-paid);
         },
         onDone: holdFareClocks,
       })) return false;
+      visitRepairOwed = owed;
+      visitMenuShown = false;
       // `stageCar` has already emptied the route; the target goes with it, so the band comes down
       // and nothing reads the depot as still being where the taxi is headed.
       traffic.taxi.pendingTarget = null;
@@ -1383,13 +1424,13 @@ const collisions = createCollisions(traffic.cars, traffic.taxi);
 
 // Hit points. Arming `hp` is what turns every contact but the last into a bump rather than the
 // wreck — see TAXI_HP in sim/collisions.js. A retry reloads the page, so this is also the refill.
-traffic.taxi.hp = TAXI_HP;
+traffic.taxi.hp = upgrades.maxHp();
 const impact = createImpact(scene, camera);
 // What the car wears for it — a crushed corner and a crooked sign, then a boot lid up and a bumper
 // dragging sparks, then smoke, a sputtering sign and a list. Tiered off the HP bar's own steps; see
 // game/taxidamage.js.
 const taxiDamage = createTaxiDamage({
-  damage: traffic.taxiDamage, group: traffic.taxiGroup, taxi: traffic.taxi, maxHp: TAXI_HP,
+  damage: traffic.taxiDamage, group: traffic.taxiGroup, taxi: traffic.taxi, maxHp: upgrades.maxHp,
   sparks, dust, roadY: ROAD_Y,
 });
 // The rear door, swung open on the kerb side while a rider hops in. See game/taxidoor.js.
@@ -1748,12 +1789,17 @@ function sendForRepairs() {
   if (canRepair() && depotRun.send()) haptic('pick');
 }
 
-/** Whether a tap on the depot would be taken right now — `sendForRepairs`'s refusals, and the picker's. */
+/**
+ * Whether a tap on the depot would be taken right now — `sendForRepairs`'s refusals, and the
+ * picker's. An undamaged car is taken too when the till covers an upgrade (game/upgrades.js): that
+ * visit is a shopping trip, and it is still not a free pause, since it costs the drive there.
+ */
 function canRepair() {
   if (!depotRun || !opening || opening.running() || opening.visiting()) return false;
   // Nor while anything else is driving the car — the drive-through, mostly. A route planned under a
   // staged taxi would be overwritten by the job that trip hands back on the way out.
-  if (traffic.taxi.staged || traffic.taxi.hp >= TAXI_HP) return false;
+  if (traffic.taxi.staged) return false;
+  if (traffic.taxi.hp >= upgrades.maxHp() && !upgrades.affordable(fares.state.money)) return false;
   return !fares.carrying();
 }
 
@@ -3373,6 +3419,11 @@ function frame() {
   // the car's position, heading and speed by hand, and the render pass inside `traffic.update`
   // reads them on the same frame. See game/opening.js for the staging split.
   opening?.update(dt);
+  // The depot's upgrade menu, up behind the door on the first frame of a visit's repair beat.
+  if (upgradeMenu && !visitMenuShown && opening?.visiting() && opening.phase() === 'repair') {
+    visitMenuShown = true;
+    upgradeMenu.show();
+  }
   // The pedals arrive the moment the taxi is the player's to drive — on the lane, with the
   // vignette's pull-back still running — rather than with the rest of the HUD. They used to wait
   // for `hud-ready`, which is the *tutorial's* second beat being answered: the pull-back, a
@@ -3534,7 +3585,7 @@ function frame() {
   radio?.update(dt, { over: fares.state.gameOver });
   copShout?.update(dt, { over: fares.state.gameOver });
   if (depotCall) {
-    const smoking = traffic.taxi.hp <= TAXI_HP * SMOKE_FRACTION;
+    const smoking = traffic.taxi.hp <= upgrades.maxHp() * SMOKE_FRACTION;
     if (!smoking) depotCallArmed = true;
     else if (depotCallArmed) {
       depotCallArmed = false;

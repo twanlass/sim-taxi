@@ -3123,6 +3123,31 @@ else — the sky, the depot, the taxi — skips. It is wired at the top of the p
 (`JOB_KINDS`) and on `click` rather than the opening's `pointerdown`, so a drag across the map
 during a visit is not a skip either.
 
+## Upgrades at the depot
+
+**A prototype.** Every visit to the depot now opens a menu behind the shut door, during the repair
+beat: three lines of upgrade, three levels each, bought with the run's cash and kept until the run
+ends (a retry reloads the page). Catalogue and effects in `game/upgrades.js`, the card in
+`game/upgrademenu.js`, wiring in `main.js` (`applyUpgrades`).
+
+| Line | Per level | Prices | Reaches |
+|---|---|---|---|
+| Big bumpers | +25 HP | $40 / $80 / $140 | 175 HP |
+| Bigger engine | +8% Loco speed and punch | $50 / $100 / $160 | overdrive top 34 → 42.2 u/s |
+| Bigger tank | +25% tank | $40 / $80 / $140 | 15s → 26.25s |
+
+- **The door holds while the menu is up** (`hold` on `enter` in game/opening.js); the fare clocks
+  are already held for the visit, so the menu costs nothing but the drive there.
+- **An undamaged car may visit if the till covers an upgrade.** It pays no repair bill. A damaged
+  car's $25 is still charged on the way out, and the menu's cash reads net of it.
+- **The engine is per car** (`car.engine` in sim/traffic.js), not a `setLocoTuning` call, because
+  the patrol cruiser drives the same Loco tuning. `loco.kick` stays stock — see the phantom-gap trap
+  in CLAUDE.md.
+- **The tank keeps its seconds when it grows** (`setDuration` in game/boost.js), so a bigger tank
+  is not a free fill; rewards are fractions of the tank, so it also pours more per fare.
+- **Cash is the score**, so every purchase is a loss on the table unless it pays back in fares.
+  Unswept: whether any line actually does, and whether the faster engine outruns `LOOKAHEAD`.
+
 ## The brake
 
 The **Brake** button, to the right of the Loco Mode pill and sharing the bottom row with it:

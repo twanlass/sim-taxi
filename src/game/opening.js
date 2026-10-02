@@ -486,7 +486,8 @@ export function createOpening({
         clock = 0;
       }
     }
-    if (phase === 'repair' && clock >= REPAIR) {
+    // The depot's upgrade menu holds the shop open past REPAIR for as long as it is up.
+    if (phase === 'repair' && clock >= REPAIR && !visit.hold()) {
       workshop?.stop();
       doorFrom = REPAIR_GAP;
       phase = 'door';
@@ -590,12 +591,16 @@ export function createOpening({
    * @param onRepair   fires once, behind the shut door: the moment to put the car right
    * @param onRelease  fires once, on the frame the car is back in the traffic model
    * @param onDone     fires once, when the camera has been handed back
+   * @param hold       asked every frame once the repair is done: true keeps the door at its gap
+   *                   (the upgrade menu is up — game/upgrademenu.js)
    * Returns false, and does nothing, if the depot is already busy.
    */
-  function enter(s0, { onRepair = () => {}, onRelease = () => {}, onDone = () => {} } = {}) {
+  function enter(s0, {
+    onRepair = () => {}, onRelease = () => {}, onDone = () => {}, hold = () => false,
+  } = {}) {
     if (phase !== 'done') return false;
     mode = 'visit';
-    visit = { onRepair, onRelease, onDone };
+    visit = { onRepair, onRelease, onDone, hold };
     phase = 'enter';
     clock = 0;
     sIn = Math.min(Math.max(0, s0), inPath.fillet.length);

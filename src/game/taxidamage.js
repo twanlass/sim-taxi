@@ -133,7 +133,10 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
     if (lid.angle > BOOT_MAX) { lid.angle = BOOT_MAX; lid.v = -lid.v * BOOT_SLAM; }
   }
 
-  const fraction = () => (taxi.hp ?? maxHp) / maxHp;
+  // `maxHp` may be a function: the depot's bumpers raise it mid-run (game/upgrades.js), and the
+  // tiers are fractions of whatever the car can take *now*.
+  const topHp = typeof maxHp === 'function' ? maxHp : () => maxHp;
+  const fraction = () => (taxi.hp ?? topHp()) / topHp();
   const tier = () => {
     if (!hits) return 0;
     const f = fraction();

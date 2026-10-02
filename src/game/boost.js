@@ -76,8 +76,11 @@ export const BOOST_COOLDOWN = 1;
 export const BOOST_FLOOR_FRACTION = 1 / 4;
 export const BOOST_REGEN_SECONDS = 5;
 
-export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_START_FRACTION,
+export function createBoost(tank = BOOST_DURATION, startFraction = BOOST_START_FRACTION,
   cooldown = BOOST_COOLDOWN) {
+  // Seconds a full tank holds. A `let` because the depot can sell a bigger one mid-run
+  // (`setDuration`, game/upgrades.js); everything sized off it below is read on the call.
+  let duration = tank;
   const state = {
     mode: 'ready',                     // 'ready' | 'active' | 'cooldown' | 'empty'
     fuel: duration * startFraction,    // seconds of boost still in the tank, 0..duration
@@ -106,10 +109,10 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
   // Half a tank per second. A one-third top-up lands in ~0.7s, slow enough to read as *filling*
   // rather than snapping, fast enough that it's obviously connected to the drop-off that
   // triggered it.
-  const POUR_RATE = duration * 0.5;
+  const pourRate = () => duration * 0.5;
 
-  const FLOOR = duration * BOOST_FLOOR_FRACTION;
-  const REGEN_RATE = FLOOR / BOOST_REGEN_SECONDS;
+  const floor = () => duration * BOOST_FLOOR_FRACTION;
+  const regenRate = () => floor() / BOOST_REGEN_SECONDS;
 
   // Fuel that cannot buy a single frame of boost on even a slow phone is not fuel. Letting go a
   // hair before the tank runs out lands exactly there — the drain stops mid-frame and the momentum
@@ -201,7 +204,7 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
       // drain visibly and a top-up on an empty tank refills it in front of the player.
       let poured = false;
       if (state.pending > 0) {
-        const drip = Math.min(state.pending, POUR_RATE * dt);
+        const drip = Math.min(state.pending, pourRate() * dt);
         state.fuel += drip;
         state.pending -= drip;
         poured = drip > 0;
@@ -214,8 +217,8 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
       // which a re-press would then get to spend. An arriving pour outranks it as well: earned fuel
       // is already going in, and both at once counts the frame twice.
       state.charging = state.mode === 'empty' && !poured && state.pending <= 0
-        && state.fuel < FLOOR;
-      if (state.charging) state.fuel = Math.min(FLOOR, state.fuel + REGEN_RATE * dt);
+        && state.fuel < floor();
+      if (state.charging) state.fuel = Math.min(floor(), state.fuel + regenRate() * dt);
 
       // One clamp point covers both sources of change (drain, top-up).
       if (state.fuel <= 0) {
@@ -238,7 +241,7 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
         // under their thumb; staying dead until the quarter is actually in the tank is what makes
         // the five seconds a thing to watch — the dial creeps across a still-dead button, and the
         // button lights on the frame it lands.
-        if (state.mode === 'empty' && (poured || state.fuel >= FLOOR)) {
+        if (state.mode === 'empty' && (poured || state.fuel >= floor())) {
           state.mode = state.held ? 'active' : 'ready';
           // Cleared here and not left to the next frame's `state.charging =` above it, which runs
           // *before* this flip and so had already said `true` for the tick that finished the job.
@@ -258,5 +261,17 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
     fraction() {
       return state.fuel / duration;
     },
+
+    /**
+     * Resize the tank — the depot's tank upgrade. The fuel in it stays the same number of seconds,
+     * so the dial reads lower on the bigger tank rather than handing out a free fill; anything
+     * still pouring keeps its seconds too. Refuses to shrink below what is already in it.
+     */
+    setDuration(seconds) {
+      if (!(seconds > 0)) return;
+      duration = Math.max(seconds, state.fuel);
+    },
+    /** Seconds a full tank holds right now. */
+    duration: () => duration,
   };
 }
