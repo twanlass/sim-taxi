@@ -13,6 +13,11 @@ import { PALETTE } from '../palette.js';
 // so the running animation can pivot each one at its hip or shoulder. The right arm's raised
 // hail-a-cab pose was the original reason for that separation — running just made it apply to the
 // other three limbs too.
+//
+// Each limb is two boxes with a knee or an elbow between them. Not for realism — the figure is
+// ~24px tall at play zoom — but a run on straight sticks reads as a pair of compasses walking, and
+// a bend that lifts the trailing foot and carries the arms crooked is most of what makes it read
+// as a *run*.
 
 const SKIN = '#E8B78C';
 const HAIR = '#4A3A2E';
@@ -80,6 +85,15 @@ const SHOULDER_Y = 2.25;
 const HIP_Y = 1.15;
 const LEG_LEN = 1.15;
 const ARM_LEN = 1.0;
+// The joint sits halfway down each limb. The lower half is a shade narrower than the upper and
+// reaches `JOINT_LAP` back up inside it, so a bent joint closes over instead of opening a notch —
+// and narrower rather than the same width, because two boxes overlapping with one shared side
+// plane is a coplanar tie and shimmers.
+const THIGH_LEN = LEG_LEN / 2;
+const SHIN_LEN = LEG_LEN - THIGH_LEN;
+const UPPER_ARM_LEN = ARM_LEN / 2;
+const FOREARM_LEN = ARM_LEN - UPPER_ARM_LEN;
+const JOINT_LAP = 0.08;
 
 // The hair slab, hoisted out of `box()` below only so the top of the head can be exported.
 const HAIR_Y = 3.14;
@@ -133,22 +147,38 @@ export function createPerson({
 
   // Each limb hangs *below* its own origin, so the mesh pivots at the top (hip or shoulder) when
   // rotated. Same trick the old right arm used for its hail-a-cab swing; the other three now share
-  // it so a running cycle can move them.
-  const limb = (w, h, d, hexCol, x, y) => {
-    const geo = new THREE.BoxGeometry(w, h, d);
-    geo.translate(0, -h / 2, 0);
+  // it so a running cycle can move them. The lower half of each is parented to the upper at the
+  // joint, the same way, so it pivots at the knee or elbow and rides along with the swing.
+  //
+  // Bend signs, since every pose below writes them: a knee bends with **positive** `rotation.x`
+  // (foot back), an elbow with **negative** (hand forward), both in the limb's own frame.
+  const limb = (w, h, d, hexCol, x, y, parent, lap = 0) => {
+    const geo = new THREE.BoxGeometry(w, h + lap, d);
+    geo.translate(0, (lap - h) / 2, 0);
     const mesh = new THREE.Mesh(bakeColor(geo, new THREE.Color(hexCol)), propMaterial());
     mesh.castShadow = true;
     if (pickable) mesh.userData.pickable = pickable;
     mesh.position.set(x, y, 0);
-    group.add(mesh);
+    parent.add(mesh);
     return mesh;
   };
 
-  const legL = limb(0.34, LEG_LEN, 0.34, legs, -0.26, HIP_Y);
-  const legR = limb(0.34, LEG_LEN, 0.34, legs, 0.26, HIP_Y);
-  const armL = limb(0.26, ARM_LEN, 0.26, body, -0.72, SHOULDER_Y);
-  const armR = limb(0.26, ARM_LEN, 0.26, body, 0.72, SHOULDER_Y);
+  const legL = limb(0.34, THIGH_LEN, 0.34, legs, -0.26, HIP_Y, group);
+  const legR = limb(0.34, THIGH_LEN, 0.34, legs, 0.26, HIP_Y, group);
+  const armL = limb(0.26, UPPER_ARM_LEN, 0.26, body, -0.72, SHOULDER_Y, group);
+  const armR = limb(0.26, UPPER_ARM_LEN, 0.26, body, 0.72, SHOULDER_Y, group);
+  const shinL = limb(0.31, SHIN_LEN, 0.31, legs, 0, -THIGH_LEN, legL, JOINT_LAP);
+  const shinR = limb(0.31, SHIN_LEN, 0.31, legs, 0, -THIGH_LEN, legR, JOINT_LAP);
+  const foreL = limb(0.235, FOREARM_LEN, 0.235, body, 0, -UPPER_ARM_LEN, armL, JOINT_LAP);
+  const foreR = limb(0.235, FOREARM_LEN, 0.235, body, 0, -UPPER_ARM_LEN, armR, JOINT_LAP);
+
+  /** Knee and elbow bends in one call, so no pose can forget to set one and inherit the last. */
+  function bend(kneeL, kneeR, elbowL, elbowR) {
+    shinL.rotation.set(kneeL, 0, 0);
+    shinR.rotation.set(kneeR, 0, 0);
+    foreL.rotation.set(elbowL, 0, 0);
+    foreR.rotation.set(elbowR, 0, 0);
+  }
 
   // --- The robber's kit, built hidden --------------------------------------
   //
@@ -160,7 +190,7 @@ export function createPerson({
   //
   // The mask and the cap hang off `group` rather than off the torso mesh, since neither the head
   // nor the hair articulates and `group` is what the animations yaw and lean. The sack hangs off
-  // the left arm, whose origin is its own shoulder — so `-ARM_LEN` is the hand.
+  // the left forearm, whose origin is its own elbow — so `-FOREARM_LEN` is the hand.
   const kit = (w, h, d, x, y, z, col, parent) => {
     const geo = new THREE.BoxGeometry(w, h, d);
     geo.translate(x, y, z);
@@ -183,8 +213,8 @@ export function createPerson({
   // is a bag being carried rather than a brick being held. Pale, because it is the one part of the
   // kit that is *not* dark — against a black mask, a black cap and a black jacket, a dark bag is
   // invisible and the figure has nothing saying what it just did.
-  const sackBag = kit(0.52, 0.50, 0.46, 0, -ARM_LEN - 0.22, 0.08, SACK, armL);
-  const sackNeck = kit(0.20, 0.18, 0.20, 0, -ARM_LEN + 0.04, 0.08, SACK, armL);
+  const sackBag = kit(0.52, 0.50, 0.46, 0, -FOREARM_LEN - 0.22, 0.08, SACK, foreL);
+  const sackNeck = kit(0.20, 0.18, 0.20, 0, -FOREARM_LEN + 0.04, 0.08, SACK, foreL);
   const robberKit = [mask, cap, jacket, sackBag, sackNeck];
 
   /**
@@ -204,6 +234,15 @@ export function createPerson({
     armL.rotation.set(-armSwing, 0, 0);
     armR.rotation.set(armSwing, 0, 0);
 
+    // A knee folds while its thigh is swinging *forward* — the recovery stroke, foot coming up
+    // behind — and is nearly straight while the leg is planted and pushing back. The thigh's
+    // forward velocity is `-cos` of the cadence for the left leg (forward is negative x) and `+cos`
+    // for the right. Elbows are carried crooked throughout, a runner's arms, closing a little more
+    // as each one comes forward.
+    const c = Math.cos(cadence);
+    bend(0.2 + Math.max(0, -c) * 1.1, 0.2 + Math.max(0, c) * 1.1,
+      -0.9 - Math.max(0, armSwing) * 0.4, -0.9 - Math.max(0, -armSwing) * 0.4);
+
     // Slight forward lean, so the run has weight.
     group.rotation.x = -0.22;
     return Math.abs(Math.sin(cadence)) * 0.18;
@@ -212,7 +251,7 @@ export function createPerson({
   // Every mesh on the figure carries its own material (torso + four limbs), so the exit fade can
   // dim all of them together. Collected up front rather than walked from `group.children` on every
   // frame — the set is fixed for the lifetime of the person.
-  const meshes = [torso, legL, legR, armL, armR, ...robberKit];
+  const meshes = [torso, legL, legR, armL, armR, shinL, shinR, foreL, foreR, ...robberKit];
 
   /**
    * Set the whole figure's opacity. `1` returns the meshes to opaque (no blend cost).
@@ -253,6 +292,7 @@ export function createPerson({
     legR.rotation.set(0, 0, 0);
     armL.rotation.set(0, 0, 0);
     armR.rotation.set(0, 0, 0);
+    bend(0, 0, 0, 0);
     group.position.set(0, 0, 0);
     group.rotation.set(0, 0, 0);
     group.scale.setScalar(1);
@@ -279,8 +319,7 @@ export function createPerson({
     // multiplying it is exact and costs nothing, and it keeps the jacket's own colour reading as
     // the *same* garment whatever `body` this figure was built with.
     const sleeve = on ? SLEEVE_TINT : 1;
-    armL.material.color.setScalar(sleeve);
-    armR.material.color.setScalar(sleeve);
+    for (const arm of [armL, armR, foreL, foreR]) arm.material.color.setScalar(sleeve);
   }
 
   /**
@@ -299,7 +338,13 @@ export function createPerson({
     group.rotation.x = 0;
     group.scale.setScalar(1);
 
-    armR.rotation.set(0, 0, 2.15 + Math.sin(t * 7) * 0.3);
+    // The upper arm holds up and sways a little; the forearm does the waving, about the elbow,
+    // which is how a hand actually flags something down. Same overall reach as the old one-piece
+    // arm (2.15 ± 0.3 at the hand), split across the two joints.
+    const w = Math.sin(t * 7);
+    armR.rotation.set(0, 0, 1.95 + w * 0.12);
+    bend(0, 0, -0.15, 0);
+    foreR.rotation.z = 0.25 + w * 0.4;
     group.rotation.y = Math.sin(t * 0.9) * 0.25;   // slight turn, as if scanning for a cab
   }
 
@@ -334,11 +379,12 @@ export function createPerson({
       // A low hop over the sill: the door's bottom edge is ~0.6 up through TAXI_SCALE.
       const arcY = Math.sin(jump * Math.PI) * 0.5 + jump * 0.5;
 
-      // Tuck: knees pulled up, arms swung back for a hop-in.
+      // Tuck: knees pulled up and folded under, arms swung back for a hop-in.
       legL.rotation.set(-1.35, 0, 0);
       legR.rotation.set(-1.35, 0, 0);
       armL.rotation.set(0.6, 0, 0);
       armR.rotation.set(0.6, 0, 0);
+      bend(1.5, 1.5, -0.5, -0.5);
       group.rotation.x = -0.4;
       group.position.set(dx + (inX - dx) * jump, arcY, dz + (inZ - dz) * jump);
 
@@ -372,6 +418,7 @@ export function createPerson({
       legR.rotation.set(-1.35 * jump, 0, 0);
       armL.rotation.set(0.6 * jump, 0, 0);
       armR.rotation.set(0.6 * jump, 0, 0);
+      bend(1.5 * jump, 1.5 * jump, -0.5 * jump, -0.5 * jump);
       group.rotation.x = -0.4 * jump;
       group.position.set(dx * slide, arcY, dz * slide);
       group.scale.setScalar(1 - jump * 0.7);
@@ -392,6 +439,7 @@ export function createPerson({
       legR.rotation.set(0, 0, 0);
       armL.rotation.set(0, 0, 0);
       armR.rotation.set(0, 0, 0);
+      bend(0, 0, 0, 0);
       group.rotation.x = 0;
       group.position.set(0, 0, 0);
       group.scale.setScalar(1);
@@ -426,6 +474,7 @@ export function createPerson({
       legR.rotation.set(-1.35 * jump, 0, 0);
       armL.rotation.set(0.6 * jump, 0, 0);
       armR.rotation.set(0.6 * jump, 0, 0);
+      bend(1.5 * jump, 1.5 * jump, -0.5 * jump, -0.5 * jump);
       group.rotation.x = -0.4 * jump;
       group.position.set(0, Math.sin(jump * Math.PI) * 1.6 + jump * 0.9, 0);
       group.scale.setScalar(1 - jump * 0.7);
@@ -460,6 +509,10 @@ export function createPerson({
     // "I want that taxi" — the one thing a worker must not be saying.
     armR.rotation.set(-0.5 + Math.sin(s * 2.1) * 0.3, 0, 0.22);
     armL.rotation.set(0, 0, -0.1);
+    // The working forearm crooked as if gripping a shovel, the idle one just off straight, and one
+    // knee softening in time with the sway so the weight shift is in the legs and not only the yaw.
+    bend(0.08 + Math.max(0, Math.sin(s * 0.55)) * 0.22, 0.08 + Math.max(0, -Math.sin(s * 0.55)) * 0.22,
+      -0.2, -0.7 + Math.sin(s * 2.1) * 0.2);
     group.rotation.x = 0;
     group.rotation.y = Math.sin(s * 0.55) * 0.35;
     group.position.set(0, Math.sin(s * 1.3) * 0.03, 0);
@@ -488,6 +541,7 @@ export function createPerson({
       legR.rotation.set(0, 0, 0);
       armL.rotation.set(0, 0, -0.35);
       armR.rotation.set(0, 0, 0.35);   // hands out, the universal "what was that"
+      bend(0.12, 0.12, -0.5, -0.5);    // palms forward, knees soft
       group.rotation.x = -0.22 * (1 - settle);
       group.rotation.y = Math.atan2(dx, dz) + Math.PI * settle;
       group.position.set(dx, 0, dz);
@@ -506,8 +560,13 @@ export function createPerson({
   function surrender(t, dx, dz) {
     legL.rotation.set(0, 0, 0);
     legR.rotation.set(0, 0, 0);
-    armR.rotation.set(0, 0, 2.75 + Math.sin(t * 13) * 0.06);
-    armL.rotation.set(0, 0, -2.75 - Math.sin(t * 11 + 1) * 0.06);
+    // Elbows a little bent, hands nearer the head than the shoulders: a hands-up held under duress
+    // rather than a cheer. The hands land where the old straight arms put them (2.75 rad).
+    armR.rotation.set(0, 0, 2.45 + Math.sin(t * 13) * 0.06);
+    armL.rotation.set(0, 0, -2.45 - Math.sin(t * 11 + 1) * 0.06);
+    bend(0.1, 0.1, 0, 0);
+    foreR.rotation.z = 0.55;
+    foreL.rotation.z = -0.55;
     group.rotation.x = 0;
     group.rotation.y = Math.atan2(dx, dz) + Math.sin(t * 1.7) * 0.45;
     group.position.set(0, Math.abs(Math.sin(t * 5)) * 0.04, 0);
@@ -517,5 +576,8 @@ export function createPerson({
 
   rest();
   wave(0);
-  return { group, wave, board, exit, bail, rest, idle, flee, surrender, highlight, setRobber };
+  // `meshes` is exported for anything that has to reach every material on the figure — the road
+  // crew's fade does. `group.children` is not that list any more: the shins and forearms hang off
+  // the limb above them.
+  return { group, meshes, wave, board, exit, bail, rest, idle, flee, surrender, highlight, setRobber };
 }
