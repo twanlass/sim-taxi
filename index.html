@@ -662,6 +662,22 @@
 
       body.shot-mode #hud, body.shot-mode #run-end { display: none; }
 
+      /* The crash replay (game/replay.js): nothing on screen but the white flash on each cut. It
+         had a letterbox and a REPLAY tag and lost both — the cuts say "replay" on their own, and
+         the bars took a fifth of a phone's height off a shot that is about a second long. The
+         element is still one full-screen tap target: a tap anywhere skips to the card. The HUD
+         goes for the length of it — a money counter over a slow-motion fireball is a game still
+         running underneath a cut scene. */
+      #replay {
+        position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 25;
+        pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none;
+      }
+      #replay[hidden] { display: none; }
+      #replay .replay-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+      body.replaying #hud, body.replaying #pause, body.replaying #boost, body.replaying #boost-meter,
+      body.replaying #brake, body.replaying #rider-finder-stack, body.replaying #taxi-finder,
+      body.replaying .fare-pointer { display: none; }
+
       /* The pedals. Each is the file's own drawing, inline rather than an <img> because the press
          has to reach inside it (below). 95×141 and 113×80 are the files' 146×216 and 174×123,
          strokes included. The two bottoms line up in the file, and the brake tucks against the
@@ -1627,6 +1643,9 @@
     <div id="depot-call" role="status" aria-live="polite" hidden></div>
     <div id="home-tip" hidden></div>
     <div id="wipe" aria-hidden="true" hidden></div>
+    <div id="replay" aria-hidden="true" hidden>
+      <div class="replay-flash"></div>
+    </div>
     <div id="run-end" hidden></div>
 
     <div id="diag" hidden></div>

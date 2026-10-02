@@ -59,6 +59,7 @@ import { createSparks } from './game/sparks.js';
 import { createRepairFx } from './game/repairfx.js';
 import { createLocoFlame } from './game/locoflame.js';
 import { createWreckage } from './game/wreckage.js';
+import { createTape, createCrashReplay } from './game/replay.js';
 import { carrySpeed } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
 import { createChopper } from './game/chopper.js';
@@ -1094,6 +1095,34 @@ const wreckage = createWreckage({
   smoke: (x, y, z) => dust.add(x, z, traffic.taxi.yaw, 0.5, 0.45, PALETTE.wreckSmoke, y),
 });
 
+// The crash replay's recording and its director — see game/replay.js, and REPLAY_LEAD for how the
+// two endings fit together. The boats' wake is left off the tape because the boats are: the world
+// is frozen for the replay, and a wake playing back behind a boat standing still is a wake coming
+// off nothing.
+const tape = shot ? null : createTape(scene, {
+  roots: [traffic.taxiGroup],
+  exclude: (mesh) => mesh.name === 'boat-wake',
+});
+const replayOverlay = document.getElementById('replay');
+const replay = tape && createCrashReplay({
+  tape, controller, aspect, wreckage, taxiGroup: traffic.taxiGroup, overlay: replayOverlay,
+  // The bang again on each cut, a little under the live one: it is the same crash being shown,
+  // and at full gain each cut reads as another collision.
+  onImpact: () => sfx?.play('crash', { gain: 0.75 }),
+  hide: [clouds.group],
+});
+// A tap anywhere skips to the card, and so does any key — a replay is a reward for looking, and a
+// player who wants the retry button should not have to sit through it to get there.
+function skipReplay(event) {
+  if (!replay?.active()) return;
+  event?.preventDefault();
+  replay.skip();
+  crashBannerAt = performance.now() + REPLAY_TAIL;
+}
+replayOverlay?.addEventListener('pointerdown', skipReplay);
+replayOverlay?.addEventListener('touchstart', (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
+window.addEventListener('keydown', (e) => { if (replay?.active()) skipReplay(e); });
+
 // A light aircraft crossing the city every minute or so. Scenery and nothing else — see
 // game/flyover.js. On the run seed rather than the city seed: which way it crosses and when is
 // part of the situation, not part of the map.
@@ -1361,6 +1390,27 @@ let crashBannerAt = null;
 let slowMoUntil = 0;
 let slowMoMin = SLOW_MO_MIN;
 
+// The wreck's replay (game/replay.js): after the live beat, three quick cuts on the moment of
+// impact from a recording, then the retry card. The live beat is shortened to make room for it —
+// it was the whole CRASH_BANNER_DELAY and is now REPLAY_LEAD — and it has a floor that is not a
+// matter of taste: the replay can only show what the tape recorded, and the tape records the
+// seconds after the impact *during* this beat. Under the slow-mo ramp (SLOW_MO_MIN 0.18 rising
+// over 2100ms) 1.2s of wall clock is ~0.49s of sim, against the REPLAY_POST (0.45) the longest
+// shot plays out past the hit. A shot asking for more than was recorded is cut short, not broken.
+//
+// Not in shot mode — a still has no replay to show — and not for a bust or a timeout: nothing
+// happened fast enough in either to be worth seeing twice.
+const REPLAY_LEAD = 1200;
+// The breath between the last frame of the replay and the card sliding in — long enough that the
+// card arrives on the live wreck rather than on the cut, and that a tap which skipped the replay has
+// let go before the card is there to take it as a tap on the tally.
+const REPLAY_TAIL = 350;
+let replayAt = null;
+// The sim clock the tape is stamped in: the sum of every dilated `dt` the world has been stepped by.
+let simClock = 0;
+// Set by the impact handler so the tape takes a sample on the impact frame itself — see `record`.
+let tapeImpact = false;
+
 // What the two shells keep of the taxi's speed as they slide out of the impact — the drift and the
 // slew in game/wreckage.js, both on util/carry.js's drag.
 //
@@ -1507,6 +1557,8 @@ collisions.onImpact(({ x, z, speed, other }) => {
     lean: -struckSide,
   });
   wreckage.take(traffic.wreckShell(other), {
+    // A copy made on this frame: before it, the car was an instance the replay draws instead.
+    hideBefore: true,
     driftX: fx * carry * SHELL_CARRY * STRUCK_SHOVE,
     driftZ: fz * carry * SHELL_CARRY * STRUCK_SHOVE,
     spin: struckSide * STRUCK_SPIN,
@@ -1518,7 +1570,15 @@ collisions.onImpact(({ x, z, speed, other }) => {
 
   endSpot = { x, z };
   endZoom = WRECK_ZOOM;
-  crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
+  if (replay) {
+    replay.arm({ t0: simClock, x, z, yaw });
+    tapeImpact = true;
+    replayAt = performance.now() + REPLAY_LEAD;
+    // Held until the replay hands back, which sets it — see the replay block in `frame()`.
+    crashBannerAt = Infinity;
+  } else {
+    crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
+  }
   slowMoUntil = performance.now() + SLOW_MO_DURATION;
   slowMoMin = SLOW_MO_MIN;
   boost.release();
@@ -3303,10 +3363,29 @@ function frame() {
   // Held before the crash dilation below: the diagnostics panel's fps is a question about the
   // device, and a slow-motion wreck would otherwise read as one running at a third of its rate.
   const wallDt = dt;
+
+  // The crash replay holds the frame outright. Nothing in the world is stepped while it runs —
+  // the tape is drawing it — so the whole update block below is skipped, exactly as it is for a
+  // pause. The slow-mo ramp keeps running out on its wall clock underneath, so the world the replay
+  // hands back to is already at full speed behind the card.
+  if (replayAt !== null && nowMs >= replayAt) {
+    replayAt = null;
+    // A tape too short to reach back before the impact (a wreck in the first moments of a run)
+    // has nothing to replay, and the card comes up on the old hold instead.
+    if (!replay.start()) crashBannerAt = nowMs + CRASH_BANNER_DELAY - REPLAY_LEAD;
+  }
+  if (replay?.active()) {
+    replay.update(wallDt);
+    if (!replay.active()) crashBannerAt = nowMs + REPLAY_TAIL;
+    renderFrame();
+    return;
+  }
+
   if (nowMs < slowMoUntil) {
     const t = 1 - (slowMoUntil - nowMs) / SLOW_MO_DURATION;
     dt *= slowMoMin + (1 - slowMoMin) * t;
   }
+  simClock += dt;
 
   // A taxi at a pickup window cannot move, and a pill leaned on there would pour the whole tank
   // into a parked car — fifteen seconds of it, if the queue in front is two cars deep. Released
@@ -3835,6 +3914,10 @@ function frame() {
   // Three assignments: an instanced hull draws `count` instances and nothing watches that for it,
   // while traffic moves it when a truck spawns and when the panel's car slider is dragged.
   cartoon.update();
+  // Last thing before the frame is drawn, so the sample is the frame the player sees. Stops once a
+  // run is over and no replay is coming — a bust or a timeout has nothing to show.
+  if (tape && (!fares.state.gameOver || replay.armed())) tape.record(simClock, tapeImpact);
+  tapeImpact = false;
   renderFrame();
   // After the render, not before: `renderer.info` resets itself at the top of every `render()`,
   // so this is the frame that just went to the screen rather than the one before it.
@@ -4444,6 +4527,9 @@ if (sfx && wantsAudioPanel) createAudioPanel({ sfx });
 
 window.__taxi = {
   traffic,
+  // The crash replay and its recording — see game/replay.js.
+  replay,
+  tape,
   daylight,
   boost,
   // The bump's starburst, so a check can fire one where it can see it — see game/impact.js.

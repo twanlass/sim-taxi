@@ -30,7 +30,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/daylight.js', '../src/game/riderfinder.js',
   '../src/game/taxifinder.js',
   '../src/game/farepointers.js', '../src/game/sirenglow.js', '../src/game/robberyglow.js',
-  '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/runend.js',
+  '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/replay.js', '../src/game/runend.js',
   '../src/game/impact.js', '../src/game/taxidamage.js', '../src/game/taxidoor.js',
   '../src/util/viewport.js',
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
@@ -95,6 +95,45 @@ try {
   sunk.customDepthMaterial.onBeforeCompile(stub);
   if (!stub.vertexShader.includes(`mvPosition.z -= ${SHADOW_SINK.toFixed(4)}`)) {
     throw new Error('sinkShadowCaster: the depth patch did not land in the shader');
+  }
+
+  // The crash replay's tape, played back rather than trusted (game/replay.js). Three things it
+  // has to get right and none of them throws when it gets them wrong: a car moving between two
+  // samples is drawn between them, a pool slot reused for a new particle *snaps* rather than flying
+  // the particle in across the map, and the live frame comes back exactly when the replay hands
+  // over. Plus the wreck it scrubs alongside: a struck car's shell must not exist before the impact.
+  {
+    const THREE = await import('three');
+    const { createTape } = await import('../src/game/replay.js');
+    const { createWreckage } = await import('../src/game/wreckage.js');
+    const scene = new THREE.Scene();
+    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 2);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(mesh);
+    const root = new THREE.Group();
+    scene.add(root);
+    const at = (i, x) => mesh.setMatrixAt(i, new THREE.Matrix4().makeTranslation(x, 0, 0));
+    const xOf = (i) => mesh.instanceMatrix.array[i * 16 + 12];
+    const tape = createTape(scene, { roots: [root] });
+    at(0, 0); at(1, 0); root.position.x = 0; tape.record(0);
+    at(0, 1); at(1, 50); root.position.x = 2; tape.record(1 / 30);
+    at(0, 7); at(1, 9); root.position.x = 9;
+    tape.capture();
+    tape.apply(1 / 60);
+    const fail = [];
+    if (Math.abs(xOf(0) - 0.5) > 1e-6) fail.push(`lerp drew ${xOf(0)} for 0.5`);
+    if (xOf(1) !== 50) fail.push(`a 50-unit jump drew ${xOf(1)}, not a snap to 50`);
+    if (Math.abs(root.position.x - 1) > 1e-6) fail.push(`node drew ${root.position.x} for 1`);
+    tape.restore();
+    if (xOf(0) !== 7 || xOf(1) !== 9 || root.position.x !== 9) fail.push('restore did not put the live frame back');
+    const wreckage = createWreckage();
+    const shell = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+    wreckage.take(shell, { hideBefore: true });
+    wreckage.seek(-0.5);
+    if (shell.visible) fail.push('a struck shell drew before its impact');
+    wreckage.seek();
+    if (!shell.visible) fail.push('seek() did not hand the shell back');
+    if (fail.length) throw new Error(`replay tape: ${fail.join('; ')}`);
   }
 
   // Drive a whole day past the lights. Every keyframe gets applied, so a bad colour or a uniform

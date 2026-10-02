@@ -166,7 +166,15 @@ viewZoom() = zoom * punch // what is drawn — vertical world span is exactly 2 
 No player-facing zoom, and one fixed default framing — that's a gameplay decision, not a limitation.
 A fixed frame is what makes every tap unambiguous and lets the whole city stay on screen. The two
 things that do move it are cinematic and brief: a wreck pulls `zoom` in (`focusOn`), and Loco Mode
-pushes `punch` in. **Anything converting between world units and the frame reads `viewZoom()`**, not
+pushes `punch` in.
+
+**One thing turns it, and only during a cut scene.** `state.yaw` swings the view about world Y, and
+it is zero for the whole of play. The crash replay ([traffic.md](traffic.md#the-replay)) sets it
+with `cutTo` for its swung cuts and hands it back at zero. Everything that is the arithmetic of the
+fixed view is wrong while it is off zero: `BILLBOARD`, `RIGHT`/`UP`, the sightline's `RISE`, and the
+clouds' ring placement. That is acceptable only because the replay hides the HUD, freezes the world
+and frames the crash too tightly for any of it to be in shot. Anything that wants a turned camera
+during play has to redo all of that first. **Anything converting between world units and the frame reads `viewZoom()`**, not
 `state.zoom` — the two differ for as long as the pill is held, which is exactly when the taxi is
 moving fastest and a marker sized off the wrong one drifts furthest from what it is marking.
 
