@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BODY_EULER_ORDER } from '../util/geo.js';
 import { KERB_H, PARK_EDGE } from '../city/ground.js';
 import { birdBodyGeometry, birdWingGeometry, BIRD_STAND_Y, WING_ROOT } from '../geometry/bird.js';
+import { CAR_GHOST_RIM_ORDER } from '../geometry/ghostoutline.js';
 
 // A flock living in the city's parks. It potters about on the grass, takes off — often because the
 // taxi came past — climbs out and fades into the distance, then comes back in from somewhere else
@@ -301,6 +302,14 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
     // CLAUDE.md); a flock that spends its life crossing the map would latch a sphere around one
     // park and vanish the moment it left.
     mesh.frustumCulled = false;
+    // Drawn after every ghost outline, not before. The rim's test is "draw where something in the
+    // depth buffer sits in front of the car", and a bird is transparent (so in the same queue as
+    // the ghosts) but still writes depth — at renderOrder 0 it landed in the buffer first and read
+    // as an occluder, tracing a bird-shaped piece of yellow rim wherever one crossed the taxi's
+    // hull. The flock launches off the taxi, so that was most take-offs. Going last keeps it out of
+    // the buffer the rims resolve against; it still depth-tests normally against everything else.
+    // Set on the meshes rather than the group — see the groupOrder trap in ghostoutline.js.
+    mesh.renderOrder = CAR_GHOST_RIM_ORDER + 1;
     // Shadows are switched per frame — see `pose()`. `receiveShadow` is unconditional: a bird
     // walking under a tree ought to go into its shade, and that costs nothing to leave on.
     mesh.receiveShadow = true;

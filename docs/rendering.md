@@ -2643,6 +2643,11 @@ resolves into birds. It is `transparent` for both fades and therefore, like the 
 `propMaterial()`: it would otherwise receive AO without being in the depth prepass and wear the
 occlusion of the trees and towers behind it — [the occluder rule](#the-occluder-rule).
 
+**The flock draws after the ghost outlines** (`CAR_GHOST_RIM_ORDER + 1`). Transparent but still
+writing depth, at renderOrder 0 it sat in the depth buffer before the taxi's rim resolved and read as
+an occluder — a bird-shaped stroke of yellow wherever one crossed the hull, which is most take-offs,
+since the taxi is what usually launches it.
+
 **Shadows are on only while the whole flock is on the deck.** The shadow pass ignores a material's
 opacity, so a faded-out flock that kept casting would drag hard shadows across the city with nothing
 visible above them — and the sun is 28.5° up, so a shadow from any real altitude lands two units
