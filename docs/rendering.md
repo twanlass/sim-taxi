@@ -96,7 +96,10 @@ flake size, façade darkness and **Show finishes**, which paints each finish a f
 (tyre grey, paint red, glass cyan, metal yellow) to check what the geometry tagged as what —
 `?finishes` turns the same view on from a URL, for screenshots. Everything is live. **Copy
 settings JSON** exports it as `carFinish`, whose keys are `FINISH_DEFAULTS` and
-`GLOSS_GLOBAL_DEFAULTS`. Paint's reflection is also scaled per material (`amount`: the taxi 1.33, a
+`GLOSS_GLOBAL_DEFAULTS`. **Freeze & zoom** (or `I`) stops the world with nothing over it and hands
+the camera to `game/inspect.js`: wheel or pinch to zoom down to a frustum half-height of 2.5, drag
+to pan, **Next car** (`N`) to step outward from the taxi, `I` again to resume where you were.
+Paint's reflection is also scaled per material (`amount`: the taxi 1.33, a
 cargo box 0.55).
 
 **The diffuse keeps the flat normal.** The first cut bent three's `normal` itself, which the diffuse

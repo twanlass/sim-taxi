@@ -112,6 +112,8 @@ export function createDebugPanel({
   // game/clouds.js. Defaulted like `scores` above, so the `npm run check` boot pass builds the
   // panel against nothing.
   clouds = null,
+  // Freeze-and-zoom (game/inspect.js), or null in the boot pass and in shot mode.
+  inspect = null,
 }) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
@@ -449,6 +451,38 @@ export function createDebugPanel({
   // picker rather than four sets of ten, which would be most of the panel. All live: the numbers
   // are shared uniforms, so a slider reaches every car without recompiling anything.
   heading('Car finish');
+  // Freeze the world and get the camera in close: a car is ~25px long at play zoom, which is no
+  // size to judge a glint at. `I` toggles it from the keyboard too, `N` steps through the cars and
+  // the wheel or a pinch zooms. Drag to pan.
+  if (inspect) {
+    const tools = document.createElement('div');
+    tools.className = 'dbg-wide';
+    tools.style.cssText = 'display:flex;gap:4px;';
+    const tool = (label, title, onClick) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      b.title = title;
+      b.style.flex = '1';
+      b.addEventListener('click', onClick);
+      tools.append(b);
+      return b;
+    };
+    const freeze = tool('Freeze & zoom', 'Freeze the game and zoom in (I)', () => {
+      inspect.toggle();
+      sync();
+    });
+    tool('Taxi', 'Centre on the taxi', () => { if (inspect.state.on) inspect.focusTaxi(); });
+    tool('Next car', 'Centre on the next car out from the taxi (N)', () => {
+      if (inspect.state.on) inspect.nextCar();
+    });
+    tool('−', 'Zoom out (-)', () => { if (inspect.state.on) inspect.zoomOut(); });
+    tool('+', 'Zoom in (+)', () => { if (inspect.state.on) inspect.zoomIn(); });
+    const sync = () => { freeze.textContent = inspect.state.on ? 'Resume' : 'Freeze & zoom'; };
+    // The key toggles it behind the panel's back, so the label is re-read rather than trusted.
+    window.addEventListener('keydown', (event) => { if (event.code === 'KeyI') setTimeout(sync); });
+    panel.append(tools);
+  }
   const finishPick = dropdown(FINISH_NAMES, 'paint');
   row(panel, 'Finish', finishPick);
   const FINISH_FIELDS = [

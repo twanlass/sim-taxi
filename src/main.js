@@ -88,6 +88,7 @@ import {
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createPause } from './game/pause.js';
+import { createInspect } from './game/inspect.js';
 import { findRoute, findRouteVia, findRouteOnto, planOrigin, crossingOrigin } from './game/route.js';
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
@@ -110,7 +111,7 @@ import { isNative } from './util/platform.js';
 import { tap as haptic } from './util/haptics.js';
 import { createSfx } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
-import { isCityConnected, GRID_I, GRID_J } from './city/grid.js';
+import { isCityConnected, GRID_I, GRID_J, MAX_SPAN } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
 import { PALETTE } from './palette.js';
 
@@ -3075,8 +3076,15 @@ function frame() {
   // drawn: with `preserveDrawingBuffer` off, a resize or a rotation with the veil up repaints the
   // canvas from an empty buffer, and the city would blink out until the player resumed.
   // The sound stops with the world — both of the early returns below — and starts with it again.
-  sfx?.hold(Boolean(pause?.state.paused || robberLine?.isOpen()));
+  sfx?.hold(Boolean(pause?.state.paused || robberLine?.isOpen() || inspect?.state.on));
   if (pause?.state.paused) {
+    renderFrame();
+    return;
+  }
+  // `?debug`'s inspect mode: the same freeze as the pause with nothing drawn over the city, and the
+  // camera handed to game/inspect.js — which moves it from input events, so all this has to do is
+  // draw.
+  if (inspect?.state.on) {
     renderFrame();
     return;
   }
@@ -3634,6 +3642,25 @@ function frame() {
 // URL, either present with no value needed.
 const debugParams = new URLSearchParams(window.location.search);
 const wantsDebugPanel = debugParams.has('debug') || debugParams.has('settings');
+// Freeze-and-zoom for tuning things that are a few pixels across at play zoom — see
+// game/inspect.js. `I` toggles it; the debug panel has the buttons.
+const inspect = !shot && wantsDebugPanel ? createInspect({
+  controller,
+  canvas: renderer.domElement,
+  aspect,
+  // The taxi first, then every other vehicle nearest-first, so "Next car" walks outward from it.
+  focusables: () => {
+    const { x, z } = traffic.taxi;
+    const others = traffic.cars
+      .filter((car) => car !== traffic.taxi && Number.isFinite(car.x) && Number.isFinite(car.z)
+        && Math.abs(car.x) < MAX_SPAN && Math.abs(car.z) < MAX_SPAN)
+      .sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z));
+    return [traffic.taxi, ...others];
+  },
+  // Same release the pause does on the way in: a held boost or brake would otherwise resume into a
+  // pedal nobody is holding.
+  onChange: (on) => { if (on) { boost.release(); releaseBrake(); dropPedalGesture(); } },
+}) : null;
 // The sound designer's panel is its own flag, so it comes up without the rest — see
 // game/audiopanel.js. `?debug&audio` shows both.
 const wantsAudioPanel = debugParams.has('audio');
@@ -4188,6 +4215,7 @@ if (!shot && wantsDebugPanel) {
     hdr,
     scores: { load: loadScores, clear: clearScores },
     clouds,
+    inspect,
     // The entrance levers. The panel's replay re-aims the wave at wherever the taxi is *now* —
     // the point of replaying from the panel is judging the opening, and the opening's wave starts
     // at the player's car.
