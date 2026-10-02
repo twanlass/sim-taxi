@@ -2733,6 +2733,12 @@ you go. The clock runs down rather than resetting when the cop closes back in. T
 dispatch says `LOST_LINE`, and the car leaves. `CHASE_MAX` (40s) calls off a chase neither car can
 finish.
 
+**Gone to ground** is the depot. A taxi that turns in at the driveway mid-chase calls it off on the
+frame the opening takes it off the road (`hideout`, called from the depot's `onArrive` in main.js):
+the same stand-down as lost, with dispatch saying `HIDEOUT_CALL` instead. It is no free exit — a
+repair needs a damaged car and costs `REPAIR_PRICE`, and the taxi has to reach the mouth with the
+cop still behind it, which is a touch away from Busted.
+
 ### It floors it when it falls behind
 
 `car.pursuit` (0..1), set by the patrol each frame off the gap — nothing inside `PURSUIT_FROM` (14),

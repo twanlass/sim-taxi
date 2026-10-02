@@ -7358,8 +7358,9 @@ check('the taxi is an ordinary car in the traffic array',
     if (route?.length) { taxi.route = route; taxi.routeConsumed = false; }
   };
   // `tank`: seconds of Loco Mode the taxi spends from the moment it is spotted — 0 is off the pill,
-  // BOOST_DURATION a full tank.
-  const outcome = (s, tank) => {
+  // BOOST_DURATION a full tank. `hideAt`: seconds in, the taxi turns in at the depot — staged off
+  // the road, as the opening does it, and `hideout` called the way main.js calls it.
+  const outcome = (s, tank, hideAt = null) => {
     createLayout(makeRng(s));
     const pScene = new THREE.Scene();
     const pTraffic = createTraffic(makeRng(s + 44), pScene, CARS_DEFAULT);
@@ -7376,6 +7377,7 @@ check('the taxi is an ordinary car in the traffic array',
         taxi.crashed = true;
       },
       onLost: () => { result = { how: 'lost' }; },
+      onHid: () => { result = { how: 'hid' }; },
     });
     pursuit.state.cooldown = 0;
     // A few seconds into its patrol, so it is in town rather than at the edge of it.
@@ -7418,6 +7420,12 @@ check('the taxi is an ordinary car in the traffic array',
     let t = 0;
     let busyThroughout = true;
     for (; t < 45 && !result; t += 1 / 60) {
+      if (hideAt != null && t >= hideAt) {
+        taxi.staged = true;
+        taxi.v = 0;
+        if (!pursuit.hideout()) result = { how: 'not hid' };
+        break;
+      }
       const boosting = t < tank;
       taxi.boost = boosting;
       driveOn(taxi);
@@ -7444,8 +7452,8 @@ check('the taxi is an ordinary car in the traffic array',
       }
     }
     // After a loss: the bar goes dark, the car drives off, and once it is out of sight it leaves
-    // the road and the cruiser goes back on its cooldown.
-    if (out.how === 'lost') {
+    // the road and the cruiser goes back on its cooldown. Ducking into the depot is the same exit.
+    if (out.how === 'lost' || out.how === 'hid') {
       const cop = pursuit.state.cop;
       out.dark = pursuit.state.phase === 'leaving' && cop && !cop.siren && cop.chase === 0 && (cop.route?.length ?? 0) > 0;
       // The player lifts off once they are clear; a taxi still flat out round a map this size keeps
@@ -7466,14 +7474,17 @@ check('the taxi is an ordinary car in the traffic array',
     return out;
   };
 
-  const runs = { cruising: [], boosting: [], third: [] };
+  const runs = { cruising: [], boosting: [], third: [], hid: [] };
   for (let k = 0; k < 10; k++) {
     const a = outcome(seed + 500 + k, 0);
     const b = outcome(seed + 500 + k, BOOST_DURATION);
     const c = outcome(seed + 500 + k, BOOST_DURATION / 3);
+    // Half a second in, off the pill: a cop that would otherwise have caught it (see `cruising`).
+    const h = k < 4 ? outcome(seed + 500 + k, 0, 0.5) : null;
     if (a) runs.cruising.push(a);
     if (b) runs.boosting.push(b);
     if (c) runs.third.push(c);
+    if (h) runs.hid.push(h);
   }
   createLayout(makeRng(seed));   // createLayout installs the network it builds — put ours back
 
@@ -7513,6 +7524,14 @@ check('the taxi is an ordinary car in the traffic array',
     `nearest retirement ${Math.min(...lost.map((r) => r.retiredFar)).toFixed(1)}`);
   check('...and the cruiser waits for its next patrol', lost.every((r) => r.backOnPatrol),
     `slowest to leave ${Math.max(...lost.map((r) => r.leftAt)).toFixed(1)}s`);
+  // The depot is a hideout (`hideout`): turning in mid-chase calls it off, and the cop leaves the
+  // way a lost one does — dark, routed off, gone only out of sight, cooldown restarted.
+  const hid = runs.hid;
+  check('turning in at the depot calls off a chase', hid.length >= 2 && hid.every((r) => r.how === 'hid'),
+    hid.map((r) => r.how).join(', '));
+  check('...and the cop stands down as a lost one does', hid.every((r) => r.dark && r.backOnPatrol
+    && r.retiredFar >= SPAWN_CLEARANCE - 0.5),
+    `${hid.filter((r) => r.dark && r.backOnPatrol).length}/${hid.length}`);
 }
 
 // --- Ramming the patrol car is a bump, not a bust ------------------------------

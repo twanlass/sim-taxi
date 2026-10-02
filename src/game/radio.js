@@ -40,6 +40,9 @@ export const ROBBERY_CALL = { title: 'Police dispatch', line: '10-65 in progress
  */
 export const LOST_CALL = { title: 'Police', line: 'Lost the suspect. Resuming patrol.' };
 
+/** ...and when the taxi lost it by ducking into the depot mid-chase (`hideout` in game/patrol.js). */
+export const HIDEOUT_CALL = { title: 'Police', line: 'Suspect went to ground. Resuming patrol.' };
+
 /**
  * How long it stays up, in seconds of game time. Long enough to read the line twice at a glance,
  * short enough that it is gone before the first cop car is on screen to take over saying it. Game

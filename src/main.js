@@ -98,7 +98,7 @@ import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getA
   getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
-import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
+import { createRadio, HIDEOUT_CALL, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
 import { createPatrol } from './game/patrol.js';
 import { createCopShout } from './game/copshout.js';
 import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
@@ -556,6 +556,9 @@ const depotRun = garage && !shot
       // and nothing reads the depot as still being where the taxi is headed.
       traffic.taxi.pendingTarget = null;
       holdFareClocks();
+      // The depot is a hideout: a chase on the taxi's tail is called off the frame it turns in.
+      // `patrol` is built further down, but this only ever runs from the frame loop.
+      patrol.hideout();
       return true;
     },
   })
@@ -708,6 +711,7 @@ const patrol = createPatrol({
   onCaught: () => bustByPolice(),
   // Said by the cruiser that lost you, from over its own roof.
   onLost: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
+  onHid: (cop) => { if (!fares.state.gameOver) radio?.show(HIDEOUT_CALL, cop); },
 });
 // The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a

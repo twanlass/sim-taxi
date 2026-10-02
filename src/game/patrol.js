@@ -41,6 +41,8 @@ import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
 //     not that: it is a bump, and buys RAMMED_GRACE.
 //   - **Lost** — see ESCAPE_BLOCKS. The bar goes dark and the cruiser drives off, the same
 //     stand-down a robbery's cops do.
+//   - **Gone to ground** — the taxi pulls into the depot mid-chase (`hideout`). Lost, by another
+//     door: the cop never saw it go in.
 
 /**
  * The longest a patrol spends on the way *in*, in seconds, before it gives up on the corner near the
@@ -183,10 +185,11 @@ const RAMMED_GRACE = 1.5;
  * @param onSpotted `(cop) => void` — the moment it lights up. main.js puts "Pull over!" over it
  * @param onCaught `(cop) => void` — the run ends here (main.js stops the taxi and raises "Busted!")
  * @param onLost   `(cop) => void` — the taxi got away
+ * @param onHid    `(cop) => void` — the taxi got away into the depot (`hideout`)
  */
 export function createPatrol({
   rng, police, traffic, taxi, blocked = () => false,
-  onSpotted = () => {}, onCaught = () => {}, onLost = () => {},
+  onSpotted = () => {}, onCaught = () => {}, onLost = () => {}, onHid = () => {},
 }) {
   const state = {
     phase: 'off',
@@ -217,6 +220,7 @@ export function createPatrol({
     spotted: 0,
     caught: 0,
     lost: 0,
+    hid: 0,
   };
 
   // Where the chase was last aimed. Keyed on its endpoints and left alone in between — re-planning
@@ -604,6 +608,25 @@ export function createPatrol({
      */
     rammed(cop) {
       if (cop === state.cop) state.rammedGrace = RAMMED_GRACE;
+    },
+    /**
+     * The taxi has just pulled into the depot (main.js, the frame the opening takes it off the
+     * road at the driveway): a chase in progress is called off as if the taxi had got clear —
+     * bar dark, the cruiser routed away, the cooldown to the next patrol starting once it is out
+     * of sight. Nothing else is touched: a crossing patrol carries on crossing, and one that is
+     * already leaving keeps leaving. The arrest is past saving — the run is over. Answers whether
+     * a chase was called off.
+     *
+     * It does not need to be told the taxi came back out. A staged taxi cannot be spotted (`sees`),
+     * and by the time it is released the cop is driving off to the far corner.
+     */
+    hideout() {
+      if (state.phase !== 'chase' || !state.cop) return false;
+      state.hid += 1;
+      const cop = state.cop;
+      leave(cop);
+      onHid(cop);
+      return true;
     },
     /** Is a patrol after the taxi, or has it just lost it? The robbery waits for both. */
     busy: () => state.phase === 'chase' || state.phase === 'arrest',
