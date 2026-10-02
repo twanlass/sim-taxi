@@ -38,6 +38,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/diag.js', '../src/game/recovery.js', '../src/game/pause.js', '../src/game/inspect.js',
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',
   '../src/geometry/crate.js', '../src/game/flatbed.js',
+  '../src/geometry/firetruck.js', '../src/game/fire.js',
   '../src/city/river.js', '../src/geometry/bridge.js',
   '../src/geometry/boat.js', '../src/game/drawbridge.js', '../src/game/boats.js', '../src/game/wake.js',
   '../src/geometry/parcel.js', '../src/geometry/food.js', '../src/geometry/cargo.js',

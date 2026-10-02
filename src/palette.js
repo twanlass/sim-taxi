@@ -376,6 +376,24 @@ export const PALETTE = {
   // Cooler and brighter than the two cream civilians (#E4E1DA, #D9D2C3).
   policeCab: '#F2F4F7',
 
+  // --- The building fire (game/fire.js) -----------------------------------------------------
+  //
+  // The engine is a fire-engine red a step deeper than `lightRed`, so the lamps on its roof still
+  // read as lamps against the bodywork carrying them, with a white band down each flank and the
+  // ladder in bare aluminium. The flames run hot yellow at the core to orange at the tips and are
+  // drawn additive, so their colours are what they *add* to the facade behind them, not what they
+  // cover it with. Smoke is a warm soot rather than a neutral grey, and turns to `steam` where the
+  // water is landing — the one colour change that says the hose is winning.
+  fireTruckBody: '#C8261E',
+  fireTruckTrim: '#F3EFE6',
+  fireTruckLadder: '#C9CFD6',
+  fireTruckLocker: '#9E1E18',
+  flameCore: '#FFC04A',
+  flameTip: '#FF6A1A',
+  smoke: '#3B3633',
+  steam: '#E6ECEF',
+  hoseWater: '#CFEBFF',
+
   // The ambient flyover — see geometry/plane.js. A white aeroplane against a pale sky is a blank
   // shape, so it carries a cheatline; red because it is the one hue in the game with nothing else
   // to say (yellow is the taxi's, purple is a VIP's, and the urgency scale owns the rest of the

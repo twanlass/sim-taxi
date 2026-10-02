@@ -38,6 +38,8 @@ import { createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsigna
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createFlatbed, CRATES, LOAD_YAW } from '../src/game/flatbed.js';
+import { createFire } from '../src/game/fire.js';
+import { clearCityOccluders } from '../src/game/sightline.js';
 import { TRUCK_LEN, TRUCK_BOX_LEN } from '../src/sim/traffic.js';
 import { CRATE, CRATE_REST_Y, CRATE_CHIP_REST_Y, DECK_TOP, DECK_REAR } from '../src/geometry/crate.js';
 import { createDust } from '../src/game/dust.js';
@@ -16536,6 +16538,161 @@ let chopperOrder; // likewise
     crate.phase === 'smashed' && hits.length === 1 && hits[0].byTaxi && flying > 0 && chipsDown
     && taxi.hp === hpBefore,
     `${crate.phase}, ${hits.length} smash events, ${flying} chips`);
+}
+
+// --- The building fire --------------------------------------------------------------------
+// One fire, start to finish, on the probe's own city. What can go wrong with nothing thrown: the
+// flames on a wall the camera cannot see, the engine never getting there or stopping somewhere other
+// than the street in front of the fire, traffic driving *through* a parked engine rather than
+// queueing behind it, the jet landing in the road, the fire going out by timing out rather than by
+// being put out, and a closure left on the street after the engine has gone — which looks like
+// nothing at all, just traffic avoiding a road forever.
+{
+  createLayout(makeRng(seed));   // the probe's network, in case a sweep above replaced it
+  setClosedLanes([]);
+  setClosedLanes([], 'fire');
+  setCityOccluders(buildings.mesh);
+  const fScene = new THREE.Scene();
+  const fTraffic = createTraffic(makeRng(seed + 610), fScene, 24, 24);
+  for (let step = 0; step < 120; step++) fTraffic.update(1 / 60);
+  const fire = createFire({
+    rng: makeRng(seed + 611), scene: fScene, blocks: layout, traffic: fTraffic, soon: true,
+  });
+
+  let site = null;
+  let parkedAt = null;
+  let parkedDrift = 0;
+  let throughCars = 0;
+  let closedWhileParked = true;
+  let hazardWhileParked = true;
+  let aimErr = 0;
+  let queued = 0;
+  let enteredAfter = 0;
+  let laneCarsAtPark = null;
+  let peakWater = 0;
+  let planted = null;
+  let plantedGap = null;
+  let retired = false;
+  let steps = 0;
+  const pivot = new THREE.Vector3();
+  const tip = new THREE.Vector3();
+  for (; steps < 60 * 240; steps++) {
+    fTraffic.update(1 / 60);
+    fire.update(1 / 60);
+    const st = fire.state;
+    if (!site && st.site) site = st.site;
+    const truck = st.truck;
+    if (truck && st.parked && ['rigging', 'spraying', 'smoulder', 'stowing'].includes(st.phase)) {
+      if (!parkedAt) {
+        parkedAt = { x: truck.x, z: truck.z, s: truck.s, lane: truck.lane };
+        // Plant a car at the head of the lane, coming on at cruise, so there is always somebody to
+        // queue: on a quiet street the engine can come and go without anything behind it at all.
+        planted = fTraffic.cars.find((c) => !c.isTaxi && !c.guest && !c.isTruck && c.state === 'drive'
+          && c.lane !== truck.lane);
+        if (planted) {
+          const k = site.laneKey;
+          placeCar(planted, k.d, k.i, k.j, truck.lane.length - 0.3);
+          planted.v = SPEED;
+          planted.route = [];
+        }
+        laneCarsAtPark = new Set(fTraffic.cars.filter((c) => c.lane === truck.lane).map((c) => c));
+      }
+      if (planted && st.phase === 'smoulder' && plantedGap === null && planted.lane === truck.lane) {
+        plantedGap = { gap: truck.s - planted.s, v: planted.v };
+      }
+      parkedDrift = Math.max(parkedDrift, Math.hypot(truck.x - parkedAt.x, truck.z - parkedAt.z));
+      closedWhileParked &&= isLaneClosed(site.lane.id);
+      hazardWhileParked &&= laneCost(site.lane) > 2;
+      for (const car of fTraffic.cars) {
+        if (car === truck || car.lane !== truck.lane || car.state !== 'drive') continue;
+        // Nothing may stand inside the engine: a car behind it is at least a car's half-length
+        // plus the engine's back from its centre.
+        const gap = truck.s - car.s;
+        if (gap > -TRUCK_LEN / 2 && gap < (TRUCK_LEN + CAR_LEN) / 2 - 0.2) throughCars += 1;
+        if (gap > 0 && car.v < 0.1) queued = Math.max(queued, 1);
+        if (!laneCarsAtPark.has(car)) { enteredAfter += 1; laneCarsAtPark.add(car); }
+      }
+      if (st.phase === 'spraying') {
+        fire.engine.group.updateMatrixWorld(true);
+        fire.engine.ladderYaw.getWorldPosition(pivot);
+        fire.engine.nozzle.getWorldPosition(tip);
+        const want = Math.atan2(site.z - pivot.z, site.x - pivot.x);
+        const got = Math.atan2(tip.z - pivot.z, tip.x - pivot.x);
+        aimErr = Math.max(aimErr, Math.abs(((got - want + Math.PI * 3) % (Math.PI * 2)) - Math.PI));
+        peakWater = Math.max(peakWater, fire.water.live());
+      }
+    }
+    if (st.fires && st.phase === 'waiting') { retired = true; break; }
+  }
+  const st = fire.state;
+  check('a fire breaks out on a camera-facing wall a tall building stands behind, in clear sight',
+    !!site && (site.nx === 1 || site.nz === 1) && site.height >= 3.6
+      && sightlineClear(site.x + site.nx * 0.4, site.y, site.z + site.nz * 0.4),
+    site ? `normal (${site.nx}, ${site.nz}), height ${site.height.toFixed(1)}` : 'no site');
+  check('the engine drives to the fire and stops in the lane in front of it, short of the hold line',
+    !!parkedAt && parkedAt.lane === site.lane && Math.abs(parkedAt.s - site.stopS) < 1.5
+      && parkedAt.s < site.lane.length - STOP_SETBACK - TRUCK_LEN / 2,
+    parkedAt ? `stopped at s ${parkedAt.s.toFixed(2)} for ${site.stopS.toFixed(2)} of ${site.lane.length.toFixed(2)}` : `phase ${st.phase}`);
+  check('a parked engine stays put, and nothing in its lane drives through it',
+    !!parkedAt && parkedDrift < 0.05 && throughCars === 0,
+    `drift ${parkedDrift.toFixed(3)}, ${throughCars} frames of a car inside it, queue ${queued}`);
+  check('a car coming up behind the parked engine stops and waits behind it',
+    !!plantedGap && plantedGap.v < 0.1 && plantedGap.gap > (TRUCK_LEN + CAR_LEN) / 2
+      && plantedGap.gap < (TRUCK_LEN + CAR_LEN) / 2 + 4,
+    plantedGap ? `${plantedGap.gap.toFixed(2)} behind at ${plantedGap.v.toFixed(2)} u/s` : 'no car planted');
+  check('while it is parked its lane is shut to new traffic and priced up for the taxi',
+    !!parkedAt && closedWhileParked && hazardWhileParked && enteredAfter === 0,
+    `closed ${closedWhileParked}, hazard ${hazardWhileParked}, ${enteredAfter} cars came in after it parked`);
+  check('the ladder swings round to the fire and the jet lands on the wall',
+    aimErr < 0.035 && st.landed > 50 && st.waterMiss < 1.2 && peakWater > 0,
+    `aim off by ${(aimErr * 180 / Math.PI).toFixed(1)}°, ${st.landed} landed, furthest ${st.waterMiss.toFixed(2)} off the facade`);
+  check('the water puts the fire out — it does not just time out',
+    st.extinguished === 1 && st.arrived === 1,
+    `extinguished ${st.extinguished}, arrived ${st.arrived}, after ${(steps / 60).toFixed(1)}s`);
+  check('the engine leaves, is taken off the road, and the street reopens behind it',
+    retired && !fTraffic.cars.some((c) => c.guest) && !!site && !isLaneClosed(site.lane.id)
+      && laneCost(site.lane) <= 1,
+    `retired ${retired}, guests ${fTraffic.cars.filter((c) => c.guest).length}, phase ${st.phase}`);
+  setClosedLanes([], 'fire');
+  clearCityOccluders();
+}
+
+// The depot never burns, nor the burger joint. Swept over cities rather than asserted on the probe's
+// one, since which block the depot takes is a draw — and every candidate site is checked, not just
+// the one a fire happened to pick.
+{
+  const near = (site, block) => block && site.x >= block.bounds.x0 - 0.5 && site.x <= block.bounds.x1 + 0.5
+    && site.z >= block.bounds.z0 - 0.5 && site.z <= block.bounds.z1 + 0.5;
+  let sites = 0;
+  let cities = 0;
+  let onDepot = 0;
+  let onBurger = 0;
+  for (let c = 0; c < 8; c++) {
+    const cityLayout = createLayout(makeRng(seed + c * 71));
+    if (!cityLayout.garageBlock) continue;
+    cities += 1;
+    // The same field main.js builds: towers, depot and joint. With the towers alone the depot is a
+    // hole in the height field and could never be found as a wall — which is what the first cut of
+    // this check measured, and it passed with the depot filter switched off.
+    const dGarage = createGarage(cityLayout.garageBlock, makeRng(seed + c * 71 + 99));
+    const dBurger = cityLayout.burgerBlock
+      ? createBurgerJoint(cityLayout.burgerBlock, makeRng(seed + c * 71 + 111)) : null;
+    setCityOccluders(createBuildings(makeRng(seed + c * 71 + 22), cityLayout).mesh,
+      ...dGarage.meshes, ...(dBurger?.meshes ?? []));
+    const dScene = new THREE.Scene();
+    const dTraffic = createTraffic(makeRng(seed + c), dScene, 4, 4);
+    const dFire = createFire({ rng: makeRng(seed + c), scene: dScene, blocks: cityLayout, traffic: dTraffic });
+    for (const site of dFire.candidates()) {
+      sites += 1;
+      if (near(site, cityLayout.garageBlock)) onDepot += 1;
+      if (near(site, cityLayout.burgerBlock)) onBurger += 1;
+    }
+  }
+  clearCityOccluders();
+  createLayout(makeRng(seed));   // put the probe's city back
+  check('no fire can break out on the depot or the burger joint',
+    cities > 0 && sites > 0 && onDepot === 0 && onBurger === 0,
+    `${sites} candidate sites over ${cities} cities with a depot, ${onDepot} on it, ${onBurger} on the joint`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
