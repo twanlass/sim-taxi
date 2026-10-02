@@ -468,6 +468,18 @@ export function getStorm() {
 }
 
 /**
+ * A squall, via `?squall` — one rain cell crossing a sunny city and leaving a wet trail behind it
+ * (game/squall.js). `?squall=0.45` pins the cell that far along a crossing, trail and all, for a
+ * still frame. Returns null when off, otherwise `{ pin }`.
+ */
+export function getSquall() {
+  const raw = new URLSearchParams(window.location.search).get('squall');
+  if (raw === null || isOff(raw)) return null;
+  const pin = Number(raw);
+  return { pin: raw !== '' && Number.isFinite(pin) ? Math.min(1, Math.max(0, pin)) : null };
+}
+
+/**
  * Rain Mode, via `?rain` — overcast light, wet reflective streets, falling rain, drops on the lens,
  * softer brakes. Off by default: an exploration, see `game/rain.js`. A flag rather than a setting
  * because the ground's wet shader is compiled into its material before the first frame.

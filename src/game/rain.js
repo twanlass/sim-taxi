@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
 import { AO_UNIFORMS, CLOUD_UNIFORMS, CLOUD_GLSL } from '../util/geo.js';
+import { WET_EXTENT } from './squall.js';
 
 /**
  * Rain Mode — `?rain`. An exploration, off by default: the city on a wet afternoon.
@@ -115,6 +116,7 @@ const inert = {
   renderLens: () => {},
   setWeather: () => {},
   setSunDir: () => {},
+  attachSquall: () => {},
   update: () => {},
   addTo: () => {},
   hideInMirror: () => {},
@@ -148,6 +150,8 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
   noAO.needsUpdate = true;
   // And the ground still draws in the mirror pass (its pavement survives the clip), so it must not
   // be sampling the target it is being drawn into — that is a feedback loop, and the draw fails.
+  const whiteTexel = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+  whiteTexel.needsUpdate = true;
   const noReflect = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
   noReflect.needsUpdate = true;
   // What the mirror shows where nothing stands: the cloud overhead, but dark. The first cut cleared
@@ -159,6 +163,11 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
 
   const groundUniforms = {
     tRainReflect: { value: reflectTarget.texture },
+    // Where the ground is wet, as a map over the island — the squall's trail (game/squall.js). A
+    // single white texel otherwise, so every other mode reads "wet everywhere" through the same
+    // lookup and `uRainWet` stays the one level.
+    tWetMap: { value: whiteTexel },
+    uWetExtent: { value: WET_EXTENT },
     uRainScreen: { value: new THREE.Vector2(1, 1) },
     uRainTime: { value: 0 },
     uRainWet: { value: 1 },
@@ -264,6 +273,10 @@ ${WET_ALBEDO}`, 'ground fragment');
   // --- the streaks ------------------------------------------------------------------------------
 
   const centre = new THREE.Vector3();
+  // Where the rain and splashes wrap around: the middle of the frame, or the squall's cell while
+  // one is crossing — its curtain is all the rain there is, so all of it goes there.
+  const rainCentre = new THREE.Vector3();
+  let squall = null;
   const pixelRatio = { value: renderer.getPixelRatio() };
 
   const streakGeo = new THREE.InstancedBufferGeometry();
@@ -278,13 +291,16 @@ ${WET_ALBEDO}`, 'ground fragment');
 
   const streakUniforms = {
     uTime: { value: 0 },
-    uCentre: { value: centre },
-    uBox: { value: BOX },
+    uCentre: { value: rainCentre },
+    uBox: { value: BOX.clone() },
     uFall: { value: FALL },
     uLen: { value: STREAK_LEN },
     uWidth: { value: STREAK_W },
     uColor: { value: new THREE.Color(PALETTE.rainStreak) },
     uOpacity: { value: STREAK_OPACITY },
+    uCell: CLOUD_UNIFORMS.uCell,
+    uCellEdge: CLOUD_UNIFORMS.uCellEdge,
+    uCellTime: CLOUD_UNIFORMS.uCellTime,
   };
   const streaks = new THREE.Mesh(streakGeo, new THREE.ShaderMaterial({
     uniforms: streakUniforms,
@@ -297,10 +313,14 @@ ${WET_ALBEDO}`, 'ground fragment');
       uniform vec3 uFall;
       uniform float uLen;
       uniform float uWidth;
+      uniform vec4 uCell;
+      uniform float uCellEdge;
+      uniform float uCellTime;
       attribute vec2 corner;
       attribute vec4 seed;
       varying float vAlong;
       varying float vAlpha;
+      ${CLOUD_GLSL}
       void main() {
         float speed = 0.8 + 0.4 * seed.w;
         vec3 p = seed.xyz * uBox + uFall * speed * uTime;
@@ -316,6 +336,8 @@ ${WET_ALBEDO}`, 'ground fragment');
         gl_Position = projectionMatrix * v;
         vAlong = corner.y;
         vAlpha = 0.45 + 0.55 * seed.w;
+        // In a squall, only inside the cell — the curtain of rain is the cell.
+        if (uCell.w > 0.5) vAlpha *= cellCore(p.xz, uCell, uCellEdge, uCellTime);
       }
     `,
     fragmentShader: /* glsl */ `
@@ -341,7 +363,7 @@ ${WET_ALBEDO}`, 'ground fragment');
   splashGeo.setAttribute('position', new THREE.Float32BufferAttribute(splashSeeds, 3));
   const splashUniforms = {
     uTime: { value: 0 },
-    uCentre: { value: centre },
+    uCentre: { value: rainCentre },
     uBox: { value: SPLASH_BOX },
     uY: { value: SPLASH_Y },
     uRate: { value: SPLASH_RATE },
@@ -350,6 +372,9 @@ ${WET_ALBEDO}`, 'ground fragment');
     uPixelRatio: pixelRatio,
     uColor: { value: new THREE.Color(PALETTE.rainSplash) },
     uDensity: { value: 1 },
+    uCell: CLOUD_UNIFORMS.uCell,
+    uCellEdge: CLOUD_UNIFORMS.uCellEdge,
+    uCellTime: CLOUD_UNIFORMS.uCellTime,
   };
   const splashes = new THREE.Points(splashGeo, new THREE.ShaderMaterial({
     uniforms: splashUniforms,
@@ -365,7 +390,11 @@ ${WET_ALBEDO}`, 'ground fragment');
       uniform float uSize;
       uniform float uPixelRatio;
       uniform float uDensity;
+      uniform vec4 uCell;
+      uniform float uCellEdge;
+      uniform float uCellTime;
       varying float vAge;
+      ${CLOUD_GLSL}
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       void main() {
         float cycle = uTime * uRate + position.z * 17.0;
@@ -377,6 +406,7 @@ ${WET_ALBEDO}`, 'ground fragment');
         gl_Position = projectionMatrix * viewMatrix * vec4(xz.x, uY, xz.y, 1.0);
         // A slot fires only if it is inside this moment's share of the rain.
         if (position.x > uDensity) vAge = 1.0;
+        if (uCell.w > 0.5 && position.y > cellCore(xz, uCell, uCellEdge, uCellTime)) vAge = 1.0;
         gl_PointSize = vAge < 1.0 ? uSize * uPixelRatio * (0.45 + 0.75 * vAge) : 0.0;
       }
     `,
@@ -573,7 +603,9 @@ ${WET_ALBEDO}`, 'ground fragment');
   const tmp = new THREE.Color();
   let lensLevel = 1;
 
-  function setWeather({ dark = weather.dark, rain = weather.rain, wet = weather.wet } = {}, dt = 0) {
+  function setWeather({
+    dark = weather.dark, rain = weather.rain, wet = weather.wet, lens = rain,
+  } = {}, dt = 0) {
     weather.dark = dark;
     weather.rain = rain;
     weather.wet = wet;
@@ -582,7 +614,7 @@ ${WET_ALBEDO}`, 'ground fragment');
     streakUniforms.uOpacity.value = STREAK_OPACITY * rain;
     splashUniforms.uDensity.value = rain;
     // Drops land on the glass with the rain and take a while to dry off once it stops.
-    lensLevel = dt > 0 && rain < lensLevel ? lensLevel + (rain - lensLevel) * Math.min(1, dt / 12) : rain;
+    lensLevel = dt > 0 && lens < lensLevel ? lensLevel + (lens - lensLevel) * Math.min(1, dt / 12) : lens;
     lensUniforms.uAmount.value = lensLevel;
     // The streaks and splashes are *not* hidden at zero, only faded: a mesh's program compiles on
     // the first frame it is drawn, and that frame would be the one the storm arrives on.
@@ -608,6 +640,13 @@ ${WET_ALBEDO}`, 'ground fragment');
       const t = -camera.position.y / camDir.y;
       centre.copy(camera.position).addScaledVector(camDir, t);
     }
+    rainCentre.copy(centre);
+    if (squall) {
+      const { cell } = squall;
+      CLOUD_UNIFORMS.uCell.value.set(cell.x, cell.z, cell.r, cell.on ? 1 : 0);
+      CLOUD_UNIFORMS.uCellTime.value = squall.state.t;
+      if (cell.on) rainCentre.set(cell.x, 0, cell.z);
+    }
   }
 
   return {
@@ -625,6 +664,20 @@ ${WET_ALBEDO}`, 'ground fragment');
     setSunDir: (position) => { shaftUniforms.uSunDir.value.copy(position).normalize(); },
     /** This storm's mood — see MOODS. */
     mood,
+    /** The point on the ground under the middle of the frame. */
+    centre,
+    /**
+     * Hand the weather to a squall (game/squall.js): the ground reads its wet map, and the rain
+     * and splashes close in around its cell, at the density the whole sky had.
+     */
+    attachSquall: (s) => {
+      squall = s;
+      groundUniforms.tWetMap.value = s.texture;
+      CLOUD_UNIFORMS.uCellEdge.value = s.edge;
+      const span = 2 * (s.cell.r + CLOUD_UNIFORMS.uCellEdge.value) + 20;
+      streakUniforms.uBox.value.set(span, BOX.y, span);
+      splashUniforms.uBox.value = span;
+    },
     /** Anything else that must stay out of the mirror — the bloom and crayon overlays. */
     hideInMirror: (...objects) => { hidden.push(...objects.filter(Boolean)); },
     uniforms: {
@@ -640,6 +693,8 @@ ${WET_ALBEDO}`, 'ground fragment');
 
 const WET_COMMON = /* glsl */ `
 uniform sampler2D tRainReflect;
+uniform sampler2D tWetMap;
+uniform float uWetExtent;
 uniform vec2 uRainScreen;
 uniform float uRainTime;
 uniform float uRainWet;
@@ -688,14 +743,17 @@ vec2 rainRipples(vec2 p, float t) {
 // fragment is and darkens it: a wet surface is darker because the water film stops light
 // scattering back out of it, and a puddle more so.
 const WET_ALBEDO = /* glsl */ `
+float rainHere = uRainWet * texture2D(tWetMap, (vRainWorld.xz + 0.5 * uWetExtent) / uWetExtent).r;
+// Raining on this spot right now, as against merely still wet from it: only the first ripples.
+float rainNow = uCell.w > 0.5 ? cellCore(vRainWorld.xz, uCell, uCellEdge, uCellTime) : 1.0;
 vec3 rainDx = dFdx(vRainWorld);
 vec3 rainDy = dFdy(vRainWorld);
 float rainUp = smoothstep(0.8, 0.95, abs(normalize(cross(rainDx, rainDy)).y));
 float rainRoad = 1.0 - smoothstep(0.08, 0.2, vRainWorld.y);
 float rainGrass = step(diffuseColor.r * 1.08, diffuseColor.g) * step(diffuseColor.b, diffuseColor.g);
 float rainPuddleN = rainNoise(vRainWorld.xz * 0.16) * 0.7 + rainNoise(vRainWorld.xz * 0.9 + 3.0) * 0.3;
-float rainPuddle = smoothstep(0.62, 0.68, rainPuddleN) * rainRoad * rainUp * uRainWet;
-float rainWet = uRainWet * mix(0.55, 1.0, rainUp) * mix(0.6, 1.0, rainRoad) * (1.0 - 0.5 * rainGrass);
+float rainPuddle = smoothstep(0.62, 0.68, rainPuddleN) * rainRoad * rainUp * rainHere;
+float rainWet = rainHere * mix(0.55, 1.0, rainUp) * mix(0.6, 1.0, rainRoad) * (1.0 - 0.5 * rainGrass);
 diffuseColor.rgb *= mix(1.0, 0.58, rainWet);
 diffuseColor.rgb *= mix(1.0, 0.7, rainPuddle);
 `;
@@ -706,7 +764,7 @@ diffuseColor.rgb *= mix(1.0, 0.7, rainPuddle);
 const WET_REFLECT = /* glsl */ `
 {
   vec2 rainUV = gl_FragCoord.xy * uRainScreen;
-  vec2 rainRip = rainRipples(vRainWorld.xz / 1.1, uRainTime);
+  vec2 rainRip = rainRipples(vRainWorld.xz / 1.1, uRainTime) * rainNow;
   vec2 rainWob = vec2(rainNoise(vRainWorld.xz * 1.7 + uRainTime * 0.4),
                       rainNoise(vRainWorld.xz * 1.7 - uRainTime * 0.4 + 5.0)) - 0.5;
   vec2 ruv = vec2(1.0 - rainUV.x, rainUV.y);
@@ -720,14 +778,14 @@ const WET_REFLECT = /* glsl */ `
     wsum += w;
   }
   refl /= wsum;
-  float gloss = uRainWet * rainUp * mix(mix(0.07, 0.3, rainRoad), 0.72, rainPuddle) * (1.0 - 0.8 * rainGrass);
+  float gloss = rainHere * rainUp * mix(mix(0.07, 0.3, rainRoad), 0.72, rainPuddle) * (1.0 - 0.8 * rainGrass);
   outgoingLight = mix(outgoingLight, refl, gloss);
   outgoingLight += uRainSheen * clamp(length(rainRip), 0.0, 1.0) * mix(0.02, 0.1, rainPuddle) * rainUp * rainRoad;
   // Read off the sun this fragment actually got — cloud field and shadow map both already in it —
   // so a building's shadow stays a shadow. The first cut sampled the cloud field instead and lit
   // the wet street straight through every shadow in the patch.
   float rainSun = dot(reflectedLight.directDiffuse, vec3(0.2126, 0.7152, 0.0722));
-  outgoingLight += uRainGlintColor * uRainGlint * rainSun * uRainWet * rainUp * mix(0.35, 1.0, rainRoad)
+  outgoingLight += uRainGlintColor * uRainGlint * rainSun * rainHere * rainUp * mix(0.35, 1.0, rainRoad)
     * mix(0.6, 1.0, rainPuddle) * (1.0 - 0.7 * rainGrass);
 }
 `;

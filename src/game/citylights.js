@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { color } from '../palette.js';
-import { bakeColor, hash01, propMaterial, stampEntry, unlitMaterial } from '../util/geo.js';
+import {
+  bakeColor, hash01, propMaterial, stampEntry, unlitMaterial, CLOUD_UNIFORMS, CLOUD_GLSL,
+} from '../util/geo.js';
 import { facadeQuads, setPaneSink } from '../city/buildings.js';
 import { KERB_H } from '../city/ground.js';
 import { CAR_LEN, CAR_W, ROAD_Y } from '../sim/traffic.js';
@@ -43,18 +45,49 @@ function inject(source, chunk, replacement) {
   return source.replace(chunk, replacement);
 }
 
-/** Switch an unlit material's fragments on by their `aLitAt` against `LIT_LEVEL`. */
+/**
+ * The cell's reach for the lights, as a multiple of its soft edge — a little past the rain, the way
+ * the cloud's shade is (CLOUD_LIGHT in util/geo.js), so the windows are already on as it arrives.
+ */
+const CELL_LIGHT_REACH = 1.6;
+
+/**
+ * The level a light at `xz` sees: the city-wide one, or — in a squall — however far under the
+ * cell it stands, whichever is higher. One GLSL expression for every lit thing here, so a window
+ * and the street lamp outside it can never disagree about whether the storm has reached them.
+ */
+const LOCAL_LEVEL = /* glsl */ `
+float litLevelAt(vec2 xz) {
+  return max(uLitLevel, cellCore(xz, uCell, uCellEdge * ${CELL_LIGHT_REACH.toFixed(2)}, uCellTime));
+}
+`;
+const LIT_UNIFORMS = /* glsl */ `
+uniform float uLitLevel;
+uniform vec4 uCell;
+uniform float uCellEdge;
+uniform float uCellTime;
+`;
+const litUniforms = () => ({
+  uLitLevel: LIT_LEVEL,
+  uCell: CLOUD_UNIFORMS.uCell,
+  uCellEdge: CLOUD_UNIFORMS.uCellEdge,
+  uCellTime: CLOUD_UNIFORMS.uCellTime,
+});
+
+/** Switch an unlit material's fragments on by their `aLitAt` against the level where they stand. */
 function litSwitch(material) {
   material.customProgramCacheKey = () => 'lit-switch';
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.uLitLevel = LIT_LEVEL;
+    Object.assign(shader.uniforms, litUniforms());
+    // Decided per vertex: a pane is one quad and a lamp head one box, so all of either agrees.
     shader.vertexShader = inject(shader.vertexShader, '#include <begin_vertex>', `#include <begin_vertex>
-vLitAt = aLitAt;`);
-    shader.vertexShader = `attribute float aLitAt;\nvarying float vLitAt;\n${shader.vertexShader}`;
-    shader.fragmentShader = `uniform float uLitLevel;\nvarying float vLitAt;\n${shader.fragmentShader}`;
+vLitAt = aLitAt;
+vLitLevel = litLevelAt((modelMatrix * vec4(position, 1.0)).xz);`);
+    shader.vertexShader = `attribute float aLitAt;\nvarying float vLitAt;\nvarying float vLitLevel;\n${LIT_UNIFORMS}${CLOUD_GLSL}${LOCAL_LEVEL}${shader.vertexShader}`;
+    shader.fragmentShader = `varying float vLitAt;\nvarying float vLitLevel;\n${shader.fragmentShader}`;
     shader.fragmentShader = inject(shader.fragmentShader, '#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-if (vLitAt > uLitLevel) discard;
-float litOn = smoothstep(vLitAt, vLitAt + ${LIT_RAMP.toFixed(3)}, uLitLevel);`);
+if (vLitAt > vLitLevel) discard;
+float litOn = smoothstep(vLitAt, vLitAt + ${LIT_RAMP.toFixed(3)}, vLitLevel);`);
     shader.fragmentShader = inject(shader.fragmentShader, '#include <color_fragment>', `#include <color_fragment>
 diffuseColor.rgb *= litOn;`);
   };
@@ -236,7 +269,7 @@ function poolGeometry() {
 function poolMaterial() {
   return new THREE.ShaderMaterial({
     uniforms: {
-      uColor: { value: color('lampPool') }, uStrength: { value: 0.45 }, uLitLevel: LIT_LEVEL,
+      uColor: { value: color('lampPool') }, uStrength: { value: 0.45 }, ...litUniforms(),
     },
     transparent: true,
     depthWrite: false,
@@ -244,12 +277,15 @@ function poolMaterial() {
     vertexShader: /* glsl */ `
       #include <common>
       attribute float aLitAt;
-      uniform float uLitLevel;
+      ${LIT_UNIFORMS}
       varying vec2 vUv;
       varying float vOn;
+      ${CLOUD_GLSL}
+      ${LOCAL_LEVEL}
       void main() {
         vUv = uv;
-        vOn = smoothstep(aLitAt, aLitAt + ${LIT_RAMP.toFixed(3)}, uLitLevel);
+        float level = litLevelAt((modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xz);
+        vOn = smoothstep(aLitAt, aLitAt + ${LIT_RAMP.toFixed(3)}, level);
         vec4 mvPosition = vec4(position, 1.0);
         #ifdef USE_INSTANCING
           mvPosition = instanceMatrix * mvPosition;

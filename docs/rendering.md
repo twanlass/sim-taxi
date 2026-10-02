@@ -1283,6 +1283,42 @@ placed in world space through whichever camera is drawing.
 `?storm=0.6` pins the storm at that level for screenshots. `__taxi.storm` exposes `pin(v)`,
 `seek(t)` and `state`.
 
+### A squall — `?squall`, `game/squall.js`
+
+The other kind of weather is one rain cell crossing a sunny city, not the whole sky changing. A
+cell comes in over a corner and crosses to the one opposite in `CROSS` 75 s, with a sideways slip so
+crossings take different lines. Then there are 25 s of quiet before the next one, from a different
+corner. `?squall=0.45` pins a cell that far along a crossing. It also fast-forwards the wet map from
+the start of the crossing, so a still frame shows the trail.
+
+Everything that was a level in the storm becomes a position here:
+
+- **The cell's footprint** is a soft, ragged disc: core radius `CELL_R` 30, soft edge `CELL_EDGE`
+  14, and its edge noised over time. It exists twice, as `cellMask` on the CPU and `cellCore` in
+  `CLOUD_GLSL`, built from the same hash, so the grip under the taxi agrees with the rain on
+  screen. Keep the two in step.
+- **Cloud shade.** Under the cell, `CLOUD_LIGHT` cuts the sun's direct light by 88% and the sky's by
+  30%. It reaches 1.6 times the soft edge, past the rain itself, because the cloud is wider than
+  what falls out of it.
+- **Rain and splashes** fade by the footprint at each drop's position. Their wrap box closes in
+  around the cell, 2 × (radius + edge) + 20 across, so all the rain there is falls there, at the
+  density the whole sky had.
+- **The wet map** is a 96² grid over 170 units of island. It soaks toward the footprint with a
+  3 s time constant and dries with 45 s. At 30 s the trail was half gone by the time the cell was
+  halfway across, so the rain read as drying the ground behind itself. The grid is uploaded as an
+  R8 texture each frame, and the ground multiplies its wetness by it (`tWetMap`). Every other mode
+  binds a white texel, so the lookup is one code path. Ripples follow the *rain* and not the wet
+  map: a drying street is still, and only the street being rained on moves.
+- **The lights.** Windows, lamp heads and lamp pools take the larger of the city-wide level and
+  the footprint where they stand (`litLevelAt` in game/citylights.js). Each one still has its own
+  threshold, so a block lights up pane by pane as the cell arrives. Car headlights come from
+  `setRunningLightsAt(fn)` in sim/traffic.js, per car from its own position.
+- **What stays global:** a faint grade (`SQUALL_GREY` 0.2) while a cell is on the map, the grip
+  (read under the *taxi*, so every car brakes as the player's patch of road does), and the lens
+  drops (on while the middle of the frame is under the rain).
+- **Mirror pass.** It runs while any of the map is wet (`maxWet`) and is skipped when the whole
+  island has dried.
+
 ### The city's lights — `game/citylights.js`, plus `setRunningLights` in `sim/traffic.js`
 
 A wet street is mostly a mirror for *lamps*, and a daytime city has almost none. The first rain

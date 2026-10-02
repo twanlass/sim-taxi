@@ -3,6 +3,7 @@ import { makeRng } from './util/rng.js';
 import { createScene, sinkShadowCaster, setHazeTop, HAZE_TOP } from './game/scene.js';
 import { createRain, GRIP } from './game/rain.js';
 import { createStorm } from './game/storm.js';
+import { createSquall } from './game/squall.js';
 import {
   collectPanes, litWindows, streetLamps, createTaxiHeadlights, setCityLights,
 } from './game/citylights.js';
@@ -23,7 +24,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
-  configureSignals, setGrip, setRunningLights,
+  configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice } from './sim/police.js';
@@ -94,7 +95,7 @@ import { findRoute, findRouteVia, findRouteOnto, planOrigin, crossingOrigin } fr
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -210,7 +211,9 @@ setAmbientOcclusion(aoEnabled);
 // `game/crayon.js` for what the three layers of it are.
 const crayonEnabled = budget.crayon;
 setCrayon(crayonEnabled);
-setCloudShadows(Boolean(getRain() ?? getStorm()));
+// Cloud shadows are compiled into every lit material, so they are decided here with the look modes,
+// before anything is meshed. See CLOUD_UNIFORMS in util/geo.js.
+setCloudShadows(Boolean(getRain() ?? getStorm() ?? getSquall()));
 // The other look on offer, and independent of it — see `game/cartoon.js`. Its cel bands compile
 // into the same materials, so it is decided in the same breath and for the same reason.
 const cartoonEnabled = budget.cartoon;
@@ -254,11 +257,20 @@ const crayon = createCrayon(renderer, { enabled: crayonEnabled });
 // The weather. `?storm` runs a storm across the afternoon and back on a loop (game/storm.js);
 // `?rain` is the same storm pinned at its peak. Either way the whole wet city is built up front —
 // see game/rain.js — and `applyWeather` below turns each part of it up and down with the clock.
-const stormFlag = getRain() ?? getStorm();
+//
+// `?squall` is the other kind of weather: not the whole sky changing, but one rain cell crossing a
+// sunny city (game/squall.js). It wins over the other two — they are both "the sky over everything".
+const squallFlag = getSquall();
+const stormFlag = squallFlag ? null : (getRain() ?? getStorm());
 const storm = stormFlag ? createStorm(stormFlag) : null;
-const rain = createRain(renderer, { enabled: Boolean(storm), mood: stormFlag?.mood });
-// Cloud shadows are compiled into every lit material, so they are decided here with the look modes,
-// before anything is meshed. See CLOUD_UNIFORMS in util/geo.js.
+const squall = squallFlag ? createSquall(squallFlag) : null;
+const rain = createRain(renderer, { enabled: Boolean(storm || squall), mood: stormFlag?.mood });
+if (squall) {
+  rain.attachSquall(squall);
+  // A car's headlights come on as the cell reaches it — from a third of the way into the soft edge
+  // — rather than across the city at once.
+  setRunningLightsAt((x, z) => THREE.MathUtils.smoothstep(squall.rainAt(x, z), 0.15, 0.5));
+}
 const cartoon = createCartoon({ enabled: cartoonEnabled });
 
 // `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
@@ -346,8 +358,46 @@ if (rain.grade) daylight.setGrade(rain.grade);
 // built with the rest of the taxi's lamps and handed this level then.
 let taxiHeadlights = null;
 let runningLevel = 0;
+// The taxi, for the squall's per-position grip and headlights — set once traffic exists.
+let taxiNow = null;
+// How present the squall is, eased: a cell crossing the city greys the whole sky a little.
+let squallPresence = 0;
+
+/**
+ * The squall's half of `applyWeather`. Nothing here is city-wide except a faint grade while a cell
+ * is on the map: the rain, the wet ground, the cloud shade and the city's lights all follow the
+ * cell, through the uniforms `rain.attachSquall` wired up. What is left to do on the CPU is what
+ * only one place can have — the grip under the taxi, the taxi's own headlights, and the drops on the
+ * lens, which are on when the camera is looking at the rain.
+ */
+function applySquall(dt) {
+  squall.update(dt);
+  const { cell } = squall;
+  squallPresence += ((cell.on ? 1 : 0) - squallPresence) * Math.min(1, dt / 4);
+  const c = rain.centre;
+  rain.setWeather({
+    dark: SQUALL_GREY * squallPresence,
+    rain: cell.on ? 1 : 0,
+    wet: squall.state.maxWet,
+    lens: squall.rainAt(c.x, c.z),
+  }, dt);
+  if (taxiNow) {
+    const t = taxiNow();
+    setGrip(THREE.MathUtils.lerp(1, GRIP, squall.wetAt(t.x, t.z)));
+    taxiHeadlights?.setLevel(runningLightsAt(t.x, t.z));
+  }
+  setRunningLights(0);
+  setCityLights(0);
+  setHazeTop(fog, THREE.MathUtils.lerp(HAZE_TOP, rain.mood.haze, SQUALL_GREY * squallPresence));
+  daylight.apply();
+  rain.setSunDir(sun.position);
+}
+
+/** How far the whole sky greys while a squall's cell is on the map — the rest of the city is sunny. */
+const SQUALL_GREY = 0.2;
 
 function applyWeather(dt = 0) {
+  if (squall) { applySquall(dt); return; }
   if (!storm) return;
   const w = storm.update(dt);
   rain.setWeather(w, dt);
@@ -801,6 +851,7 @@ if (litPanes) markEmissive(litPanes, 'window');
 taxiHeadlights = rain.enabled ? createTaxiHeadlights() : null;
 if (taxiHeadlights) {
   taxiHeadlights.setLevel(runningLevel);
+  taxiNow = () => traffic.taxi;
   traffic.taxiGroup.add(taxiHeadlights.group);
   markEmissive(taxiHeadlights.pods, 'pod');
 }
@@ -4294,6 +4345,8 @@ window.__taxi = {
   rain,
   /** The storm's clock — `pin(v)`, `seek(t)` and its `state`. Null unless `?storm` or `?rain`. */
   storm,
+  /** The squall — its `cell`, `state`, `pin(v)`, `seek(t)`, `wetAt`, `rainAt`. Null unless `?squall`. */
+  squall,
   /**
    * The two bloom routes — `{ state, set }` each, the same handles the ⚙️ panel drives, plus
    * `target()` on the emissive one so a browser test can look at what the lamps actually wrote.

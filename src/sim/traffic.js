@@ -1637,6 +1637,18 @@ const TAIL_FLOOR = 0.6;
 export const setRunningLights = (value) => {
   runningLights = THREE.MathUtils.clamp(Number(value) || 0, 0, 1);
 };
+
+/**
+ * Running lights that depend on where a car is — the squall's (game/squall.js), where only the cars
+ * under the rain cell have theirs on. `fn(x, z)` returns 0..1 and is added to the city-wide level
+ * (clamped); null to go back to that level alone.
+ */
+let runningAt = null;
+export const setRunningLightsAt = (fn) => { runningAt = fn; };
+const runningFor = (car) => (runningAt
+  ? Math.min(1, runningLights + runningAt(car.x, car.z)) : runningLights);
+export const runningLightsAt = (x, z) => (runningAt
+  ? Math.min(1, runningLights + runningAt(x, z)) : runningLights);
 export const setGrip = (value) => { if (Number.isFinite(value) && value > 0) grip = value; };
 export const roadGrip = () => grip;
 
@@ -3632,11 +3644,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     const brakeInst = car.isTruck ? truckBrakeMesh : brakeMesh;
     const turnLeftInst = car.isTruck ? truckTurnLeftMesh : turnLeftMesh;
     const turnRightInst = car.isTruck ? truckTurnRightMesh : turnRightMesh;
-    writeLight(brakeInst, car, Math.max(car.brakeLevel, runningLights * TAIL_FLOOR));
-    writeLight(car.isTruck ? truckHeadMesh : headMesh, car, runningLights);
+    const running = runningFor(car);
+    writeLight(brakeInst, car, Math.max(car.brakeLevel, running * TAIL_FLOOR));
+    writeLight(car.isTruck ? truckHeadMesh : headMesh, car, running);
     // A car drawn by somebody else's mesh (`car.skin`) has had its body matrix zeroed, which hides
     // every pod — but the pool is posed without that matrix, so it has to be told.
-    writeFlat(car.isTruck ? truckBeamMesh : beamMesh, car, car.skin ? 0 : runningLights);
+    writeFlat(car.isTruck ? truckBeamMesh : beamMesh, car, car.skin ? 0 : running);
     writeLight(turnLeftInst, car, car.turnLeftLevel);
     writeLight(turnRightInst, car, car.turnRightLevel);
 
@@ -5781,7 +5794,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // only doubles as the car's own axis when it happens to be driving east.
         taxiGroup.rotation.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER);
         setTaxiSteer(car.wheelAngle);
-        setTaxiLights(Math.max(car.brakeLevel, runningLights * TAIL_FLOOR),
+        setTaxiLights(Math.max(car.brakeLevel, runningFor(car) * TAIL_FLOOR),
           car.turnLeftLevel, car.turnRightLevel);
         continue;
       }

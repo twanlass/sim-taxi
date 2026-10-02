@@ -72,6 +72,7 @@ src/
     clouds.js           the weather ringing the island — placed on the screen, never over the city
     rain.js             `?rain`: overcast grade, wet mirrored streets, rain, splashes, drops on the lens
     storm.js            `?storm`: the clock that runs a storm across the afternoon and back
+    squall.js           `?squall`: one rain cell crossing a sunny city, and the wet trail it leaves
     citylights.js       lit windows, street lamps and the taxi's headlights, switched on by the storm
     robbery.js          the bank robbery: who gets in outside the bank, and the cops that come with them
     arrest.js           the robbery's drop-off: the cops circle the robber on the corner and take them in
