@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { color } from '../palette.js';
-import { bakeColor } from '../util/geo.js';
+import { bakeColor, unlitMaterial } from '../util/geo.js';
 import { CHASSIS_LIFT } from './wheels.js';
 
 // Brake and turn-signal light pods — the geometry and material both the ambient fleet
@@ -117,6 +117,99 @@ export function brakeLightMaterial() {
     emissive: color('lightRed'),
     emissiveIntensity: LIGHT_EMISSIVE,
     flatShading: true,
+  });
+}
+
+/**
+ * Headlights — Rain Mode only (`?rain`), driven by `setRunningLights` in sim/traffic.js. Two
+ * narrow pods set *inboard* of the turn signals, which already own the front corners: centred
+ * `HEADLIGHT_INSET` in from the car's own flank, and a third of a signal pod wide so the two never
+ * overlap at any car width in the game.
+ */
+const HEADLIGHT_W = 0.2;
+const HEADLIGHT_INSET = 0.62;
+
+export function headlightGeometry() {
+  return new THREE.BoxGeometry(LIGHT_D, LIGHT_H * 0.55, HEADLIGHT_W);
+}
+
+export function headlightAnchors(len, width) {
+  return [-1, 1].map((sz) => new THREE.Vector3(
+    len / 2 + LIGHT_PROUD - LIGHT_D / 2,
+    LIGHT_Y + 0.05,
+    sz * (width / 2 - HEADLIGHT_INSET),
+  ));
+}
+
+export function headlightMaterial() {
+  return unlitMaterial({ color: color('headlight') });
+}
+
+/** How far a headlight's pool reaches up the road, and how wide it opens. */
+export const BEAM_LEN = 7;
+const BEAM_NEAR_W = 0.9;
+const BEAM_FAR_W = 3.2;
+
+/**
+ * The pool a headlight throws on the road ahead: a flat trapezoid starting at its own origin (the
+ * bumper) and opening out along +X, carrying a 0..1 fade in `uv.y` along its length. Wound so its
+ * face points **up** — asserted in tools/probe.mjs, because an unlit triangle wound the other way
+ * does not draw wrong, it does not draw.
+ */
+export function beamGeometry() {
+  const n = BEAM_NEAR_W / 2;
+  const f = BEAM_FAR_W / 2;
+  const L = BEAM_LEN;
+  // (x, z) corners: near-left, near-right, far-right, far-left, with "left" at -z.
+  const positions = new Float32Array([
+    0, 0, -n,   L, 0, f,    L, 0, -f,
+    0, 0, -n,   0, 0, n,    L, 0, f,
+  ]);
+  const uvs = new Float32Array([
+    0, 0, 1, 1, 0, 1,
+    0, 0, 1, 0, 1, 1,
+  ]);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  return geo;
+}
+
+/**
+ * Additive and unfogged, fading along the beam and toward its edges. Depth-tested so a building
+ * cuts it, never depth-written so two cars' pools add instead of fighting.
+ */
+export function beamMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: color('headlightBeam') }, uStrength: { value: 0.55 } },
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: /* glsl */ `
+      #include <common>
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        vec3 transformed = position;
+        vec4 mvPosition = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          mvPosition = instanceMatrix * mvPosition;
+        #endif
+        mvPosition = modelViewMatrix * mvPosition;
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      uniform float uStrength;
+      varying vec2 vUv;
+      void main() {
+        float along = vUv.y;
+        float edge = 1.0 - abs(vUv.x * 2.0 - 1.0);
+        float a = smoothstep(0.0, 0.12, along) * pow(1.0 - along, 1.6) * smoothstep(0.0, 0.5, edge);
+        gl_FragColor = vec4(uColor * a * uStrength, 1.0);
+      }
+    `,
   });
 }
 

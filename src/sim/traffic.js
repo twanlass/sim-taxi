@@ -11,6 +11,7 @@ import {
   brakeLightMaterial, turnSignalMaterial,
   sirenPodGeometry, sirenRedAnchor, sirenBlueAnchor, sirenRedMaterial, sirenBlueMaterial, sirenOn,
   sirenBaseGeometry, sirenBaseAnchor,
+  headlightGeometry, headlightAnchors, headlightMaterial, beamGeometry, beamMaterial,
 } from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
@@ -1626,7 +1627,41 @@ export const overdriveTop = () => SPEED * loco.overdriveSpeed;
  * What every car actually sheds speed at. `BRAKE` above stays the shipped number the comments
  * throughout this file quote; this is the one the physics reads, so the panel can move it.
  */
-const brake = () => loco.brake;
+const brake = () => loco.brake * grip;
+
+/**
+ * The road's grip, as a multiplier on every brake — 1 dry, less in the wet (`?rain`, game/rain.js).
+ * Applied inside `brake()` and `hardBrake()` rather than on the tuning, so every stop a car *plans*
+ * is planned against the same number it then brakes with: a wet road lengthens the stops, it does
+ * not make anyone run a red.
+ */
+let grip = 1;
+
+/**
+ * Running lights, 0..1 — off dry, on in the rain (`?rain`, game/rain.js). Drives every vehicle's
+ * headlights and the pool each throws up the road, and puts a floor under the brake lights so a
+ * car that is not braking still shows a dim pair of tail lights: at `TAIL_FLOOR` of a full brake
+ * pod, which is small enough that a real brake still reads as a change of state.
+ */
+let runningLights = 0;
+const TAIL_FLOOR = 0.6;
+export const setRunningLights = (value) => {
+  runningLights = THREE.MathUtils.clamp(Number(value) || 0, 0, 1);
+};
+
+/**
+ * Running lights that depend on where a car is — the squall's (game/squall.js), where only the cars
+ * under the rain cell have theirs on. `fn(x, z)` returns 0..1 and is added to the city-wide level
+ * (clamped); null to go back to that level alone.
+ */
+let runningAt = null;
+export const setRunningLightsAt = (fn) => { runningAt = fn; };
+const runningFor = (car) => (runningAt
+  ? Math.min(1, runningLights + runningAt(car.x, car.z)) : runningLights);
+export const runningLightsAt = (x, z) => (runningAt
+  ? Math.min(1, runningLights + runningAt(x, z)) : runningLights);
+export const setGrip = (value) => { if (Number.isFinite(value) && value > 0) grip = value; };
+export const roadGrip = () => grip;
 
 /**
  * What a car sheds speed at with the brake pedal held — the taxi, and only ever the taxi.
@@ -1635,7 +1670,7 @@ const brake = () => loco.brake;
  * past HARD_BRAKE, at which point a "hard" brake that stops the car *slower* than simply lifting
  * off is not a brake; the max is what keeps the pedal monotonic against its own tuning.
  */
-const hardBrake = () => Math.max(HARD_BRAKE, brake());
+const hardBrake = () => Math.max(HARD_BRAKE, loco.brake) * grip;
 
 /**
  * The top of the scatter lerp: a car fleeing the boosting taxi is pushed toward the taxi's own
@@ -2888,6 +2923,31 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     'truckTurnSignalsLeft', turnSignalMaterial, turnSignalAnchors(TRUCK_LEN, TRUCK_W, -1), trucks);
   const truckTurnRightMesh = lightMesh(
     'truckTurnSignalsRight', turnSignalMaterial, turnSignalAnchors(TRUCK_LEN, TRUCK_W, 1), trucks);
+  // Headlights (Rain Mode). Lamps like the rest, so they are in `lightMeshes` and the bloom; their
+  // count is synced to the brake pods' once a frame rather than at every site that resizes the fleet.
+  const headMesh = lightMesh('carHeadlights', headlightMaterial,
+    headlightAnchors(CAR_LEN, CAR_W), ambient, headlightGeometry);
+  const truckHeadMesh = lightMesh('truckHeadlights', headlightMaterial,
+    headlightAnchors(TRUCK_LEN, TRUCK_W), trucks, headlightGeometry);
+  // ...and the pool each one throws on the road. **Not** a lamp — kept out of `lightMeshes`, so out
+  // of the bloom — and written flat off the car's yaw alone rather than through the body matrix:
+  // seven units of beam hung off a pitching body would dip its far end under the asphalt on every
+  // brake. One pool per headlight, so the `LIGHT_PODS` stride is filled and no slot sits at the
+  // identity matrix. Below the rain's mirror clip, so a pool does not reflect itself.
+  const BEAM_Y = 0.025;
+  const beamMeshes = [];
+  const beamMesh_ = (name, anchors, vehicles) => {
+    const inst = neverCull(new THREE.InstancedMesh(beamGeometry(), beamMaterial(), MAX_AMBIENT * LIGHT_PODS));
+    inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    inst.name = name;
+    inst.count = vehicles.length * LIGHT_PODS;
+    inst.renderOrder = 1;
+    inst.userData.podAnchors = anchors.map((a) => new THREE.Vector3(a.x - 0.1, 0, a.z));
+    beamMeshes.push(inst);
+    return inst;
+  };
+  const beamMesh = beamMesh_('carHeadlightBeams', headlightAnchors(CAR_LEN, CAR_W), ambient);
+  const truckBeamMesh = beamMesh_('truckHeadlightBeams', headlightAnchors(TRUCK_LEN, TRUCK_W), trucks);
 
   // The siren bar a cop car wears while a bank robbery is running — two more of exactly the same
   // thing, one mesh per colour and one lamp per mesh (red left, blue right), so the strobe is one
@@ -3349,6 +3409,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   scene.add(sirenHousingMesh);
   scene.add(policeCabMesh);
   for (const light of lightMeshes) scene.add(light);
+  for (const beam of beamMeshes) scene.add(beam);
 
   // --- Stop bars ------------------------------------------------------------
   //
@@ -3557,6 +3618,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     const turnLeftInst = car.isTruck ? truckTurnLeftMesh : turnLeftMesh;
     const turnRightInst = car.isTruck ? truckTurnRightMesh : turnRightMesh;
     for (let p = 0; p < LIGHT_PODS; p++) {
+      (car.isTruck ? truckHeadMesh : headMesh).setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
+      (car.isTruck ? truckBeamMesh : beamMesh).setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
       brakeInst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
       turnLeftInst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
       turnRightInst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
@@ -3580,6 +3643,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     brakeInst.instanceMatrix.needsUpdate = true;
     turnLeftInst.instanceMatrix.needsUpdate = true;
     turnRightInst.instanceMatrix.needsUpdate = true;
+    for (const inst of [headMesh, truckHeadMesh, ...beamMeshes]) inst.instanceMatrix.needsUpdate = true;
     if (!car.isTruck) {
       sirenRedMesh.instanceMatrix.needsUpdate = true;
       sirenBlueMesh.instanceMatrix.needsUpdate = true;
@@ -3611,6 +3675,23 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
    * the whole of what keeps a fading lamp on the bumper it belongs to. See lightPodGeometry() in
    * geometry/lights.js for what it did when the anchor lived in the vertices instead.
    */
+  const flatMatrix = new THREE.Matrix4();
+  const flatQuat = new THREE.Quaternion();
+  const flatPos = new THREE.Vector3();
+  const Y_AXIS = new THREE.Vector3(0, 1, 0);
+
+  /** `writeLight` for something lying on the road: posed off the car's x, z and yaw only. */
+  function writeFlat(inst, car, level) {
+    flatQuat.setFromAxisAngle(Y_AXIS, car.yaw);
+    flatMatrix.compose(flatPos.set(car.x, BEAM_Y, car.z), flatQuat, scl);
+    const anchors = inst.userData.podAnchors;
+    for (let p = 0; p < anchors.length; p++) {
+      lightLocal.compose(anchors[p], LIGHT_QUAT, lightScale.setScalar(level));
+      lightMatrix.multiplyMatrices(flatMatrix, lightLocal);
+      inst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, lightMatrix);
+    }
+  }
+
   function writeLight(inst, car, level) {
     const anchors = inst.userData.podAnchors;
     for (let p = 0; p < anchors.length; p++) {
@@ -3655,7 +3736,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     const brakeInst = car.isTruck ? truckBrakeMesh : brakeMesh;
     const turnLeftInst = car.isTruck ? truckTurnLeftMesh : turnLeftMesh;
     const turnRightInst = car.isTruck ? truckTurnRightMesh : turnRightMesh;
-    writeLight(brakeInst, car, car.brakeLevel);
+    const running = runningFor(car);
+    writeLight(brakeInst, car, Math.max(car.brakeLevel, running * TAIL_FLOOR));
+    writeLight(car.isTruck ? truckHeadMesh : headMesh, car, running);
+    // A car drawn by somebody else's mesh (`car.skin`) has had its body matrix zeroed, which hides
+    // every pod — but the pool is posed without that matrix, so it has to be told.
+    writeFlat(car.isTruck ? truckBeamMesh : beamMesh, car, car.skin ? 0 : running);
     writeLight(turnLeftInst, car, car.turnLeftLevel);
     writeLight(turnRightInst, car, car.turnRightLevel);
 
@@ -5815,7 +5901,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // only doubles as the car's own axis when it happens to be driving east.
         taxiGroup.rotation.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER);
         setTaxiSteer(car.wheelAngle);
-        setTaxiLights(car.brakeLevel, car.turnLeftLevel, car.turnRightLevel);
+        setTaxiLights(Math.max(car.brakeLevel, runningFor(car) * TAIL_FLOOR),
+          car.turnLeftLevel, car.turnRightLevel);
         continue;
       }
 
@@ -5850,7 +5937,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     truckBoxMesh.instanceMatrix.needsUpdate = true;
     sirenHousingMesh.instanceMatrix.needsUpdate = true;
     policeCabMesh.instanceMatrix.needsUpdate = true;
+    headMesh.count = brakeMesh.count;
+    truckHeadMesh.count = truckBrakeMesh.count;
+    beamMesh.count = brakeMesh.count;
+    truckBeamMesh.count = truckBrakeMesh.count;
     for (const light of lightMeshes) light.instanceMatrix.needsUpdate = true;
+    for (const beam of beamMeshes) beam.instanceMatrix.needsUpdate = true;
 
     // --- Stop bar colours, one per approach.
     for (let index = 0; index < bars.length; index++) {

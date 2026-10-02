@@ -451,6 +451,46 @@ export function getCrayon(fallback = false) {
 }
 
 /**
+ * The passing storm, via `?storm` — the ordinary afternoon clouds over into a sun shower, and clears
+ * again, on a loop (game/storm.js). `?storm=0.6` pins it at that point instead, for a still frame;
+ * `?storm=night` runs the darker storm (MOODS in game/rain.js). Returns null when off, otherwise
+ * `{ pin, mood }`, with `pin` null for the running cycle.
+ */
+export function getStorm() {
+  const raw = new URLSearchParams(window.location.search).get('storm');
+  if (raw === null || isOff(raw)) return null;
+  if (raw === 'night') return { pin: null, mood: 'night' };
+  const pin = Number(raw);
+  return {
+    pin: raw !== '' && Number.isFinite(pin) ? Math.min(1, Math.max(0, pin)) : null,
+    mood: 'shower',
+  };
+}
+
+/**
+ * A squall, via `?squall` — one rain cell crossing a sunny city and leaving a wet trail behind it
+ * (game/squall.js). `?squall=0.45` pins the cell that far along a crossing, trail and all, for a
+ * still frame. Returns null when off, otherwise `{ pin }`.
+ */
+export function getSquall() {
+  const raw = new URLSearchParams(window.location.search).get('squall');
+  if (raw === null || isOff(raw)) return null;
+  const pin = Number(raw);
+  return { pin: raw !== '' && Number.isFinite(pin) ? Math.min(1, Math.max(0, pin)) : null };
+}
+
+/**
+ * Rain Mode, via `?rain` — overcast light, wet reflective streets, falling rain, drops on the lens,
+ * softer brakes. Off by default: an exploration, see `game/rain.js`. A flag rather than a setting
+ * because the ground's wet shader is compiled into its material before the first frame.
+ */
+export function getRain() {
+  const raw = new URLSearchParams(window.location.search).get('rain');
+  if (raw === null || isOff(raw)) return null;
+  return { pin: 1, mood: raw === 'night' ? 'night' : 'shower' };
+}
+
+/**
  * Cartoon Mode, via `?cartoon` / `?cartoon=on` — cel-banded light and hard ink, with a thicker
  * outline on the vehicles. Off by default, same as `?crayon`, and independent of it: they are two
  * separate looks being tried, not two halves of one.

@@ -677,6 +677,18 @@ export const PALETTE = {
   // An ambient car's turn signal — deliberately more orange than lightYellow above so a blinking
   // indicator doesn't read as a stop-bar amber lifted onto a car.
   turnSignal: '#FF8A1E',
+  // Headlights, and the pool each one throws on the road — Rain Mode only (`?rain`). A warm white
+  // rather than a pure one: under the overcast grade a pure white lamp reads as a hole in the frame.
+  headlight: '#FFF1CF',
+  headlightBeam: '#FFE2A6',
+  // Street lamps (game/citylights.js): the post, and the sodium-ish glow of the head and its pool.
+  lampPost: '#2E3238',
+  lampHead: '#FFD38A',
+  lampPool: '#FFB85C',
+  // Lit windows, drawn from at random: mostly warm rooms, a few cool screens.
+  litWarm: '#FFC56E',
+  litPale: '#FFE4AE',
+  litCool: '#A9D2FF',
   lightOff: '#333940',
   pole: '#4C5158',
 
@@ -902,6 +914,29 @@ export const PALETTE = {
   // hole rather than as a line. Two points of warmth and a lift off zero is enough to stop that
   // without ever reading as brown.
   toonInk: '#141110',
+
+  // Rain Mode (`?rain`, game/rain.js). An overcast grade laid over whatever hour the day clock is
+  // at, so the sky is a lid of cloud rather than a colour: blue-grey overhead, a paler wash at the
+  // horizon, a sun that has lost most of its colour, and a fill that has turned cool. The haze
+  // follows the sky through `hazeColor` like it always does.
+  rainSkyTop: '#5B6878',
+  rainSkyBottom: '#9AA5AF',
+  rainSun: '#C9CCD2',
+  rainHemiSky: '#9FB0C4',
+  rainHemiGround: '#3A3F46',
+  // The streaks and the crowns. Pale and a touch blue, never white: at 0.3 alpha over asphalt a
+  // white streak reads as snow.
+  rainStreak: '#C8D6E6',
+  rainSplash: '#DCE6F0',
+  // The glint a ripple throws off a puddle — the sky it is tilting towards.
+  rainSheen: '#B8C6D6',
+  // What a wet street mirrors where nothing stands over it — the cloud, a long way darker than it
+  // looks overhead. See `skyTint` in game/rain.js for why it cannot be the sky's own colour.
+  rainReflectSky: '#2C343E',
+  // The same, under a sun shower's lighter sky (MOODS.shower in game/rain.js).
+  rainReflectShower: '#6A7684',
+  // A shaft of sun standing in the rain over a gap in the cloud: warm, and drawn additive.
+  sunShaft: '#FFE0A6',
 };
 
 export function color(value) {

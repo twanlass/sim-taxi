@@ -275,6 +275,15 @@ function fullFaces(w, d) {
 }
 
 /**
+ * Somebody who wants to know where every pane went — Rain Mode's lit windows (game/citylights.js).
+ * Handed `{ rects, side, cx, cz, hw, hd, kind }` for each façade's openings, exactly as they went
+ * to `facadeQuads`, so a light can be laid over a pane without the generator knowing about it.
+ * Draws no rng, so the city is the same with a sink installed or without. Null otherwise.
+ */
+let paneSink = null;
+export function setPaneSink(fn) { paneSink = fn; }
+
+/**
  * Punched openings: a grid of individual windows, one per bay per floor.
  *
  * This is the masonry half of the façade rule. It is worth the triangles that a continuous band
@@ -309,6 +318,7 @@ function punchedWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, 
         rects.push({ u, y: cy, w: winW, h: WIN_H, g: [yb, yb, yt, yt] });
       }
     }
+    paneSink?.({ rects, side, cx, cz, hw: w / 2, hd: d / 2, kind: 'punched' });
     parts.push(facadeQuads(rects, side, cx, cz, w / 2, d / 2, windowColor, EPS, sky));
   }
 }
@@ -351,6 +361,7 @@ function ribbonWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, p
         rects.push({ u: (uL + uR) / 2, y: cy, w: uR - uL, h: bandH, g: [wL, wR, wR, wL] });
       }
     }
+    paneSink?.({ rects, side, cx, cz, hw: w / 2, hd: d / 2, kind: 'ribbon' });
     parts.push(facadeQuads(rects, side, cx, cz, w / 2, d / 2, windowColor, EPS, sky));
   }
 }
@@ -376,8 +387,10 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng) {
     // and a half tall, and what it catches is the sky over the street opposite — brightest along
     // its head, gone by the sill. No streak, because there is nothing here for one to cross.
     const lit = FACING[side];
+    const shop = { u: 0, y: glassY, w: faceW * 0.74, h: glassH };
+    paneSink?.({ rects: [shop], side, cx, cz, hw: w / 2, hd: d / 2, kind: 'shop' });
     parts.push(facadeQuads(
-      [{ u: 0, y: glassY, w: faceW * 0.74, h: glassH, g: [0, 0, 0.5 * lit, 0.5 * lit] }],
+      [{ ...shop, g: [0, 0, 0.5 * lit, 0.5 * lit] }],
       side, cx, cz, w / 2, d / 2, color('shopfront'), EPS, sky,
     ));
   }
