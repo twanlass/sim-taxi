@@ -16657,6 +16657,44 @@ let chopperOrder; // likewise
   clearCityOccluders();
 }
 
+// The depot never burns, nor the burger joint. Swept over cities rather than asserted on the probe's
+// one, since which block the depot takes is a draw — and every candidate site is checked, not just
+// the one a fire happened to pick.
+{
+  const near = (site, block) => block && site.x >= block.bounds.x0 - 0.5 && site.x <= block.bounds.x1 + 0.5
+    && site.z >= block.bounds.z0 - 0.5 && site.z <= block.bounds.z1 + 0.5;
+  let sites = 0;
+  let cities = 0;
+  let onDepot = 0;
+  let onBurger = 0;
+  for (let c = 0; c < 8; c++) {
+    const cityLayout = createLayout(makeRng(seed + c * 71));
+    if (!cityLayout.garageBlock) continue;
+    cities += 1;
+    // The same field main.js builds: towers, depot and joint. With the towers alone the depot is a
+    // hole in the height field and could never be found as a wall — which is what the first cut of
+    // this check measured, and it passed with the depot filter switched off.
+    const dGarage = createGarage(cityLayout.garageBlock, makeRng(seed + c * 71 + 99));
+    const dBurger = cityLayout.burgerBlock
+      ? createBurgerJoint(cityLayout.burgerBlock, makeRng(seed + c * 71 + 111)) : null;
+    setCityOccluders(createBuildings(makeRng(seed + c * 71 + 22), cityLayout).mesh,
+      ...dGarage.meshes, ...(dBurger?.meshes ?? []));
+    const dScene = new THREE.Scene();
+    const dTraffic = createTraffic(makeRng(seed + c), dScene, 4, 4);
+    const dFire = createFire({ rng: makeRng(seed + c), scene: dScene, blocks: cityLayout, traffic: dTraffic });
+    for (const site of dFire.candidates()) {
+      sites += 1;
+      if (near(site, cityLayout.garageBlock)) onDepot += 1;
+      if (near(site, cityLayout.burgerBlock)) onBurger += 1;
+    }
+  }
+  clearCityOccluders();
+  createLayout(makeRng(seed));   // put the probe's city back
+  check('no fire can break out on the depot or the burger joint',
+    cities > 0 && sites > 0 && onDepot === 0 && onBurger === 0,
+    `${sites} candidate sites over ${cities} cities with a depot, ${onDepot} on it, ${onBurger} on the joint`);
+}
+
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
 // how many cars happen to be moving at the instant the sim stops.
 const throughput = stats.distance / stats.time / traffic.cars.length;

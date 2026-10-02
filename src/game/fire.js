@@ -327,21 +327,25 @@ export function createFire({ rng, scene, blocks, traffic, blocked = () => false,
     const net = cityNetwork();
     const out = [];
     for (const block of blocks) {
+      // Towers only. The depot (`garage`) is the one block that must never burn — it is where the
+      // taxi starts the run and goes for repairs, and an engine parked across its driveway would
+      // block the opening vignette's exit — and the burger joint, the parks and the river are not
+      // `built` either.
       if (block.type !== 'built') continue;
       const { bi, bj } = block;
       // +X face: the street along Z on line i = bi + 1. +Z face: along X on line j = bj + 1. Never
       // the ring road, whose corners are curves and whose far side is the edge of the island.
       if (bi + 1 < GRID_I) {
-        consider(net, out, [DIR.PZ, bi + 1, bj + 1], [DIR.NZ, bi + 1, bj], { x: 1, z: 0 });
+        consider(net, out, block, [DIR.PZ, bi + 1, bj + 1], [DIR.NZ, bi + 1, bj], { x: 1, z: 0 });
       }
       if (bj + 1 < GRID_J) {
-        consider(net, out, [DIR.PX, bi + 1, bj + 1], [DIR.NX, bi, bj + 1], { x: 0, z: 1 });
+        consider(net, out, block, [DIR.PX, bi + 1, bj + 1], [DIR.NX, bi, bj + 1], { x: 0, z: 1 });
       }
     }
     return out;
   }
 
-  function consider(net, out, keyA, keyB, n) {
+  function consider(net, out, block, keyA, keyB, n) {
     const lanes = [net.laneByGrid(...keyA), net.laneByGrid(...keyB)].filter((l) => l && !l.degenerate);
     if (lanes.length < 2) return;
     // The lane on the block's side of the road: the one further *against* the face's normal.
@@ -362,6 +366,11 @@ export function createFire({ rng, scene, blocks, traffic, blocked = () => false,
       const fx = p.x - n.x * wall.depth;
       const fz = p.z - n.z * wall.depth;
       const fy = wall.height * AIM_UP;
+      // The wall has to belong to the block this face was chosen for. The march reads the height
+      // field, which knows nothing about blocks, so this is what makes the type filter above a
+      // guarantee rather than a consequence of how far the march happens to reach.
+      const { x0, z0, x1, z1 } = block.bounds;
+      if (fx < x0 - 0.5 || fx > x1 + 0.5 || fz < z0 - 0.5 || fz > z1 + 0.5) continue;
       if (!sightlineClear(fx + n.x * 0.4, fy, fz + n.z * 0.4)) continue;
       if (!sightlineClear(p.x, 2.2, p.z)) continue;
       out.push({
@@ -781,6 +790,8 @@ export function createFire({ rng, scene, blocks, traffic, blocked = () => false,
     state,
     update,
     ignite,
+    /** Every site a fire could break out on right now — for the probe. */
+    candidates: () => candidates(),
     /** The engine's lamps, for main.js to put in the bloom. */
     emissiveMeshes: engineEmissive,
     engine,

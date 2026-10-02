@@ -2099,6 +2099,14 @@ is never behind the thing it is spraying. Never the ring road. The near lane of 
 room for the engine between the junction behind it and the hold line in front (`TRUCK_LEN / 2 +
 1.5` to `length − STOP_SETBACK − TRUCK_LEN / 2 − 1`), and the fire 14–46 units from the taxi.
 
+**Never the depot** (or the burger joint): only `built` blocks are considered, and the wall the
+march finds has to lie inside the bounds of the block the face was chosen for, so the type filter is
+a guarantee rather than a side effect of how far the march reaches. The depot is where every run
+starts and where repairs happen, and an engine parked across its driveway would block the opening's
+exit. The probe sweeps eight cities and checks every candidate site, not just the one picked, with
+the depot and joint in the height field as main.js builds it. Built from the towers alone, the
+depot was a hole in the field and the check passed even with the filter switched off.
+
 The towers are one merged mesh with no list of footprints, so the facade is found by marching the
 occluder height field (`heightAt` in game/sightline.js) in from the lane: the first spot with three
 solid samples in a row (≥ 2.5 tall, so a lamp post or a tree does not count) within 8.5 units, and a
