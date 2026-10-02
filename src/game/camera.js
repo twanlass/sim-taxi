@@ -19,6 +19,8 @@ export const DISTANCE = 400;
 // haze against it, so it lives here rather than as a literal in each.
 export const PLAY_ZOOM = 52;
 
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+
 // Screen right is world (+X, -Z) for this view direction; screen up is (-X, -Z).
 //
 // Both are exported because they are the ground plane's screen basis, and anything that wants to move
@@ -277,6 +279,11 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
     // is a transient on top. Folding them would make releasing the button a guess at what the base
     // had drifted to in the meantime.
     punch: 1,
+    // Swing about world Y off the fixed diagonal, in radians. Zero for the whole of play — every
+    // constant above (BILLBOARD, RIGHT, UP, the sightline's RISE) is the arithmetic of yaw 0 — and
+    // set only by the crash replay (game/replay.js), which hides everything those constants serve
+    // for the few seconds it holds the camera and hands back at zero.
+    yaw: 0,
   };
 
   // The half-height the frustum is actually built from. Everything that converts between world
@@ -355,6 +362,7 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
     armGlide(to.x, to.z, { track: getTarget, onArrive });
   }
 
+  const viewDir = new THREE.Vector3();
   function apply(aspectRatio) {
     const halfH = viewZoom();
     const halfW = halfH * aspectRatio;
@@ -364,7 +372,9 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
     camera.bottom = -halfH;
     camera.updateProjectionMatrix();
 
-    camera.position.copy(state.target).addScaledVector(VIEW_DIR, DISTANCE);
+    if (state.yaw) viewDir.copy(VIEW_DIR).applyAxisAngle(Y_AXIS, state.yaw);
+    else viewDir.copy(VIEW_DIR);
+    camera.position.copy(state.target).addScaledVector(viewDir, DISTANCE);
     if (state.shake > 0.001) {
       camera.position.x += (Math.random() * 2 - 1) * state.shake;
       camera.position.y += (Math.random() * 2 - 1) * state.shake;
@@ -387,6 +397,18 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
      * fastest and a marker sized off the wrong one drifts furthest from what it is marking.
      */
     viewZoom,
+    /**
+     * Put the camera somewhere outright — target, zoom and swing — with no ease. A cut, not a move:
+     * the crash replay's jump cuts are this, and it cancels a glide for the same reason every
+     * other claim on the framing does.
+     */
+    cutTo(x, z, zoom, yaw, aspectRatio) {
+      glide = null;
+      state.target.set(x, 0, z);
+      state.zoom = zoom;
+      state.yaw = yaw;
+      apply(aspectRatio);
+    },
     /**
      * Ease the push-in toward `on` and repaint if it moved. Returns true on the frames it did, and
      * is a no-op once settled — so main.js can call it unconditionally, next to `updateShake`,

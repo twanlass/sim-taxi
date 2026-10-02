@@ -124,6 +124,10 @@ export function createWreckage({ smoke = null } = {}) {
       // extra 2.2 of length is 6cm of sagitta at the settle pitch, which is a wheel's worth.
       len = CAR_LEN,
       width = CAR_W,
+      // Whether the shell exists before the impact, for `seek()`. The taxi's shell is the taxi's
+      // own group and was on the road all along; a struck ambient car's is a copy made on the
+      // impact frame, and before it the car was an instance that the replay draws instead.
+      hideBefore = false,
     } = options;
     // Keyed by material, not a list: a wrecked ambient car's body and both its front wheels share
     // one, and writing the same colour three times a frame is just noise. The value is the colour it
@@ -157,6 +161,7 @@ export function createWreckage({ smoke = null } = {}) {
       driftZ,
       spin,
       lean: Math.sign(lean),
+      hideBefore,
       age: 0,
       nextPuff: SMOULDER_EVERY * 0.4,   // the first one lands while the fire is still up
     });
@@ -165,61 +170,8 @@ export function createWreckage({ smoke = null } = {}) {
   function update(dt) {
     for (const entry of entries) {
       entry.age += dt;
+      pose(entry, entry.age);
       const { object } = entry;
-
-      // Ease on its own clock. Cubic out: most of the deformation is spent in the first fifth of a
-      // second, which under the crash slow-mo is a good half-second on screen and lands inside the
-      // fireball's opening frames.
-      const t = Math.min(1, entry.age / SETTLE_TIME);
-      const ease = 1 - (1 - t) ** 3;
-      const roll = CRUMPLE_LEAN * entry.lean * ease;
-      const nose = -CRUMPLE_NOSE * ease;
-
-      const len = 1 + (CRUMPLE_LEN - 1) * ease;
-      const wide = 1 + (CRUMPLE_WIDE - 1) * ease;
-      const low = 1 + (CRUMPLE_LOW - 1) * ease;
-
-      // Roll and pitch both pivot on the shell's origin, which is at road level — so a tilt with
-      // nothing done about it drives one corner underground, exactly as it does for a car leaning
-      // through a bend (see the `lift` beside `taxiGroup.position` in sim/traffic.js, which is the
-      // same arithmetic). At the settle angles that is 0.11 of roll plus 0.10 of pitch: a fifth of
-      // a unit, three pixels at the wreck's zoom, and a wheel is eleven. Visibly sunk.
-      const lift = Math.abs(Math.sin(roll)) * entry.halfWidth * wide
-        + Math.abs(Math.sin(nose)) * entry.halfLen * len;
-
-      // Still moving while it comes apart, and still moving after: the drag curve is what brings it
-      // to rest rather than a stop condition, so there is no frame on which the slide ends.
-      const travel = carryTravel(entry.age);
-      object.position.set(
-        entry.from.x + entry.driftX * travel,
-        entry.from.y + lift,
-        entry.from.z + entry.driftZ * travel,
-      );
-
-      object.quaternion.copy(entry.pose);
-      if (entry.spin) object.quaternion.premultiply(spinQuat.setFromAxisAngle(UP, entry.spin * travel));
-      if (roll || nose) {
-        // Rx is the roll about the body's own long axis, Rz the pitch — and Rz is positive nose-up
-        // for a +X-facing model, so the nose drops on a negative one. Post-multiplied, so both are
-        // in the body's frame whatever pose the impact caught it in; the spin above is a world-Y
-        // turn and is premultiplied for the same reason in reverse.
-        tiltEuler.set(roll, 0, nose);
-        object.quaternion.multiply(tiltQuat.setFromEuler(tiltEuler));
-      }
-
-      object.scale.set(entry.base.x * len, entry.base.y * low, entry.base.z * wide);
-
-      // The scorch, off each material's own base colour. `propMaterial` is `vertexColors`, so this
-      // multiplies the baked paint rather than replacing it — which is exactly the property the
-      // whole feature rests on: every part of the car darkens by the same fraction and the car
-      // stays the colour it was.
-      const burn = Math.min(1, entry.age / SCORCH_TIME);
-      const keep = 1 + (SCORCH_KEEP - 1) * burn;
-      for (const [material, base] of entry.materials) {
-        scorched.copy(base).multiplyScalar(keep).lerp(soot, SCORCH_MIX * burn);
-        material.color.copy(scorched);
-      }
-
       if (smoke && entry.age < SMOULDER_TIME) {
         while (entry.age >= entry.nextPuff) {
           entry.nextPuff += SMOULDER_EVERY;
@@ -229,8 +181,86 @@ export function createWreckage({ smoke = null } = {}) {
     }
   }
 
+  /**
+   * Every shell as it stood `age` sim seconds after the impact, or at its own age when `age` is
+   * null — which is how the crash replay (game/replay.js) puts the wreck back after scrubbing it.
+   * The closed form above is what makes this possible at all: nothing here accumulates, so any age
+   * can be drawn without having been through the ones before it. A negative age is before the
+   * crash — the paint comes back unburnt, and a shell that did not exist yet is hidden. No smoke:
+   * the dust pool is replayed off its own recording, and a wisp emitted here would land in it twice.
+   */
+  function seek(age = null) {
+    for (const entry of entries) {
+      const at = age ?? entry.age;
+      if (at < 0) {
+        for (const [material, base] of entry.materials) material.color.copy(base);
+        if (entry.hideBefore) entry.object.visible = false;
+        continue;
+      }
+      entry.object.visible = true;
+      pose(entry, at);
+    }
+  }
+
+  function pose(entry, age) {
+    const { object } = entry;
+
+    // Ease on its own clock. Cubic out: most of the deformation is spent in the first fifth of a
+    // second, which under the crash slow-mo is a good half-second on screen and lands inside the
+    // fireball's opening frames.
+    const t = Math.min(1, age / SETTLE_TIME);
+    const ease = 1 - (1 - t) ** 3;
+    const roll = CRUMPLE_LEAN * entry.lean * ease;
+    const nose = -CRUMPLE_NOSE * ease;
+
+    const len = 1 + (CRUMPLE_LEN - 1) * ease;
+    const wide = 1 + (CRUMPLE_WIDE - 1) * ease;
+    const low = 1 + (CRUMPLE_LOW - 1) * ease;
+
+    // Roll and pitch both pivot on the shell's origin, which is at road level — so a tilt with
+    // nothing done about it drives one corner underground, exactly as it does for a car leaning
+    // through a bend (see the `lift` beside `taxiGroup.position` in sim/traffic.js, which is the
+    // same arithmetic). At the settle angles that is 0.11 of roll plus 0.10 of pitch: a fifth of
+    // a unit, three pixels at the wreck's zoom, and a wheel is eleven. Visibly sunk.
+    const lift = Math.abs(Math.sin(roll)) * entry.halfWidth * wide
+      + Math.abs(Math.sin(nose)) * entry.halfLen * len;
+
+    // Still moving while it comes apart, and still moving after: the drag curve is what brings it
+    // to rest rather than a stop condition, so there is no frame on which the slide ends.
+    const travel = carryTravel(age);
+    object.position.set(
+      entry.from.x + entry.driftX * travel,
+      entry.from.y + lift,
+      entry.from.z + entry.driftZ * travel,
+    );
+
+    object.quaternion.copy(entry.pose);
+    if (entry.spin) object.quaternion.premultiply(spinQuat.setFromAxisAngle(UP, entry.spin * travel));
+    if (roll || nose) {
+      // Rx is the roll about the body's own long axis, Rz the pitch — and Rz is positive nose-up
+      // for a +X-facing model, so the nose drops on a negative one. Post-multiplied, so both are
+      // in the body's frame whatever pose the impact caught it in; the spin above is a world-Y
+      // turn and is premultiplied for the same reason in reverse.
+      tiltEuler.set(roll, 0, nose);
+      object.quaternion.multiply(tiltQuat.setFromEuler(tiltEuler));
+    }
+
+    object.scale.set(entry.base.x * len, entry.base.y * low, entry.base.z * wide);
+
+    // The scorch, off each material's own base colour. `propMaterial` is `vertexColors`, so this
+    // multiplies the baked paint rather than replacing it — which is exactly the property the
+    // whole feature rests on: every part of the car darkens by the same fraction and the car
+    // stays the colour it was.
+    const burn = Math.min(1, age / SCORCH_TIME);
+    const keep = 1 + (SCORCH_KEEP - 1) * burn;
+    for (const [material, base] of entry.materials) {
+      scorched.copy(base).multiplyScalar(keep).lerp(soot, SCORCH_MIX * burn);
+      material.color.copy(scorched);
+    }
+  }
+
   /** For the headless checks — how many wrecks are on the road. */
   const pending = () => entries.length;
 
-  return { take, update, pending };
+  return { take, update, seek, pending };
 }

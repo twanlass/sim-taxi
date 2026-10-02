@@ -1670,6 +1670,43 @@ what makes the wreck's paint writable at all: `instanceColor` is RGB and shared 
 car in the mesh, so there is nowhere on an instance to put the scorch — or, in the fade this
 replaced, an opacity.
 
+### The replay
+
+`game/replay.js`. A wreck no longer goes straight from the live beat to the retry card. After
+`REPLAY_LEAD` (1.5s) of the slow-mo pull-in, the frame cuts to a letterboxed **replay**: the last
+second or so before the hit and half a second after it, in slow motion, from a camera swung ~35° off
+the fixed diagonal, then a jump cut to the same moment from the other side, tighter, and then the card
+(`REPLAY_TAIL` later). Any tap or key skips straight to the card. A bust and a timeout keep the old
+hold, as does shot mode.
+
+**It is a recording, not a re-run.** Nothing in the sim can be stepped backwards, and re-firing the
+blast for the camera would have been a *different* explosion. So `createTape` samples, at 30Hz of sim
+time, every dynamic `InstancedMesh` in the scene plus every node under the taxi's group. That one
+rule picks up far more than the two cars: the traffic, its lamp pods, and every particle pool the
+wreck is drawn with — `blast.js`, `dust.js`, `sparks.js`, `flames.js` are all instanced, `aAlpha`
+included — so what the replay shows is what the player saw. A sample is ~150KB and the ring holds
+3.2s of it. Playback interpolates between samples, with one exception: an instance that moved more
+than `SNAP_DIST` between two of them was *reused* (a pool slot handed to a new particle, a car
+recycled at the edge) and snaps rather than flying across the map. `tools/check.mjs` plays a tape
+back to assert both, and that the live frame comes back exactly.
+
+**The world is frozen while it plays.** main.js skips the whole update block, as it does for a
+pause, and the tape draws the frame. Boats, pedestrians, skid marks and the sky are not recorded and
+stand where the live beat left them. The wreck shells are scrubbed alongside with `wreckage.seek()`,
+which is free because they were already a closed form of their age; the struck car's shell is
+hidden before the impact (`hideBefore`), because until then that car was an instance on the tape.
+
+**The live beat is also the recording of the aftermath.** Each shot plays out `POST` (0.55s of sim)
+past the hit, and the only frames after the hit are the ones the live beat recorded. Under the
+slow-mo ramp 1.5s of wall clock is ~0.71s of sim, which is the floor on `REPLAY_LEAD`.
+
+**Each angle is picked so it can see the crash.** A ~35° swing has never been looked down before,
+and a tower between the camera and the wreck is the one way this fails outright. `pickYaw` marches
+the swung view direction through the same height field the fare board's corner test uses
+(`game/sightline.js`) from the impact and two points back along the approach, and takes the first
+candidate in `YAW_CHOICES` that sees the most of them. Swings stay within 50° on purpose; see
+[rendering.md](rendering.md#camera) for what the yaw does to everything built for one view.
+
 ## Roadworks: a street closed at both ends
 
 `src/game/roadwork.js` and `src/geometry/roadworks.js`. Once per run, about a minute in, a side
