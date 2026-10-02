@@ -2643,6 +2643,14 @@ resolves into birds. It is `transparent` for both fades and therefore, like the 
 `propMaterial()`: it would otherwise receive AO without being in the depth prepass and wear the
 occlusion of the trees and towers behind it — [the occluder rule](#the-occluder-rule).
 
+**The flock stamps the ghost mask** (`stampGhostMask` in `geometry/ghostoutline.js`, which the
+aeroplane and the helicopter use too). Transparent but still writing depth, a bird between the
+camera and the taxi reads to the ghost rim's reversed depth test as an occluder, and the rim traced a
+bird-shaped stroke of yellow across the hull — most take-offs, since the taxi is what usually
+launches the flock. Stamping the stencil where a flyer draws knocks the rim out under it instead.
+Drawing the flyers after the ghost tiers would also have worked, and would have taken them out from
+under the crayon page at renderOrder 1.
+
 **Shadows are on only while the whole flock is on the deck.** The shadow pass ignores a material's
 opacity, so a faded-out flock that kept casting would drag hard shadows across the city with nothing
 visible above them — and the sun is 28.5° up, so a shadow from any real altitude lands two units
