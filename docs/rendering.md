@@ -1,7 +1,9 @@
 # Rendering
 
 Three.js r0.180. **Every visual is generated in code** — there is no loader, no texture file and no
-model file. (The sound effects are the project's only loaded assets; see [audio.md](audio.md).)
+model file. (The sound effects are the project's only recorded assets; see [audio.md](audio.md).
+The garage's skins in `assets/skins/` are paint *data* laid over the generated geometry, not
+models — see [garage.md](garage.md).)
 
 ## The low-poly look
 

@@ -30,15 +30,17 @@ const DEST = path.resolve('ios/SimTaxi/web');
  *   whether or not anyone wants it in the .ipa. Excluded here rather than in `vite.config.js`
  *   on purpose: that file carries an explicit warning that a `manualChunks` rule reaching into
  *   `src/` turns an import into a boot, and the web deploy genuinely wants the lab.
+ * - **`garage`** — the paint garage (`/garage/`, docs/garage.md). Same story as the lab: a
+ *   workbench, a Vite entry of its own, and nothing a player of the App Store build can reach.
  * - **`sw.js`** — the service worker. `src/main.js` skips registering it in the native shell (the
  *   bundle is already local, and a cache-first worker survives an App Store update and serves the
  *   old game to someone who just installed the new one). Nothing would load it, but shipping the
  *   file anyway invites a future reader to wire it back up.
  */
-const EXCLUDE = new Set(['lab', 'sw.js']);
+const EXCLUDE = new Set(['lab', 'garage', 'sw.js']);
 
 /**
- * The lab's *code*, which is a separate problem from the lab's page.
+ * The workbenches' *code*, which is a separate problem from their pages.
  *
  * Rollup gives every entry its own chunk, so excluding `lab/index.html` above leaves
  * `assets/lab-<hash>.js` behind — 9kB of unreachable developer workbench inside the App Store
@@ -49,7 +51,7 @@ const EXCLUDE = new Set(['lab', 'sw.js']);
  * this stops matching, the silence would read exactly like success — so the report below always
  * says what went and what stayed.
  */
-const EXCLUDE_ASSET = /^lab-[^/]*\.js$/;
+const EXCLUDE_ASSET = /^(lab|garage)-[^/]*\.js$/;
 
 if (!existsSync(SRC)) {
   console.error('No dist/ — run `vite build` first (or use `npm run build:ios`, which does both).');

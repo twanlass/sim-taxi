@@ -40,6 +40,7 @@ can be made and verified in a single step.
 | **fares** | `tools/soak.mjs 25 4 9` | Auto-plays the fare loop over **9 cities × 9 situations** with a fixed "player reaction" delay, and gates on a **band** around the median |
 | **signals** | `tools/signals.mjs` | Throughput, stationary fraction, green-wave hit rate. Informational — it reports rather than fails |
 | **lab** | `tools/lab.mjs` | [The passing lab](lab.md) at `/lab/`: its road is one straight signal-free chain with the city's own lane geometry, and a taxi staged behind a cruising leader with the button held gets past it and back into lane without clipping it |
+| **garage** | `tools/garage.mjs` | [The garage](garage.md)'s paint: the skin codec round-trips, every painted taxi part's `paintPos` is that part with its hinges shut, paint on a shut flank is on the door once it swings open, and the shader patch finds every anchor in three's Lambert source |
 
 `taxi.mjs` is the assertion that matters most and the one **no screenshot can make**.
 

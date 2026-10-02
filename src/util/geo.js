@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
+import { patchPaintShader } from './paint.js';
 
 /**
  * The Euler order every body in the game poses with, and it is not the default.
@@ -442,7 +443,7 @@ const SHADOW_LIGHT = /* glsl */ `
  * the air exactly as the façade under it does. Hooking `<dithering_fragment>` instead would ink
  * lines at full strength across a hazed skyline.
  */
-function patchProp(material, { ao = true } = {}) {
+function patchProp(material, { ao = true, paint = null } = {}) {
   // Without this the patch silently does nothing. Three builds the program cache key from the
   // material's *parameters*, before `onBeforeCompile` has touched the source, so a patched
   // flat-shaded Lambert collides with every unpatched one sharing those parameters and
@@ -453,13 +454,15 @@ function patchProp(material, { ao = true } = {}) {
   // `?crayon&ao=off` a crayoned material and a bare one would otherwise share a key.
   const useAO = aoEnabled && ao;
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
-    + `${cartoonEnabled ? '-cartoon' : ''}`;
+    + `${cartoonEnabled ? '-cartoon' : ''}${paint ? '-paint' : ''}`;
   material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, AO_UNIFORMS, SHADOW_UNIFORMS);
     if (crayonEnabled) Object.assign(shader.uniforms, CRAYON_UNIFORMS);
     if (cartoonEnabled) Object.assign(shader.uniforms, CARTOON_UNIFORMS);
+    // First, while every anchor it asserts on is still the stock chunk include.
+    if (paint) patchPaintShader(shader, paint);
 
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
@@ -515,6 +518,8 @@ ${SHADOW_LIGHT}`);
 /** The shared material for every merged prop mesh. */
 /**
  * @param ao  false to leave this material out of the screen-space AO lookup.
+ * @param paint  a skin (util/paint.js) to read garage paint from. The geometry must carry
+ *   `paintPos` (`stampPaintPos`). One program for every skin — the key says "painted", not which.
  *
  * **A transparent surface has to opt out, and the reason is the rule in `markOccluder`.** That
  * function refuses to put a transparent mesh in the AO depth prepass — quite rightly, since a
@@ -535,11 +540,11 @@ ${SHADOW_LIGHT}`);
  * out past the ring road where the AO buffer is empty anyway, so its lookup is uniformly 1 — left
  * alone here rather than changed on spec.
  */
-export function propMaterial({ ao = true } = {}) {
+export function propMaterial({ ao = true, paint = null } = {}) {
   const material = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
   // Unconditional now: the shadow tint rides in the same patch and is always available. See
   // SHADOW_UNIFORMS for why it does not need a flag of its own.
-  patchProp(material, { ao });
+  patchProp(material, { ao, paint });
   return material;
 }
 

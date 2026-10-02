@@ -16,6 +16,7 @@ behind it that aren't obvious from the code.
 | [audio.md](audio.md) | The taxi's sound: the designer's files and how they're encoded, the engine and Loco beds, the one-shots and where they fire, the tap unlock, pause and mute, the `?audio` mix panel | `src/game/sfx.js`, `src/game/audiopanel.js`, `assets/audio/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 | [lab.md](lab.md) | The passing lab at `/lab/` — one straight road with no lights, for watching Loco Mode overtake | `src/lab/`, `lab/` |
+| [garage.md](garage.md) | The garage at `/garage/` — paint a vehicle in 3D; skins as voxel volumes looked up by rest position, saving, adding a vehicle type | `src/garage/`, `src/util/paint.js`, `assets/skins/` |
 | [ios.md](ios.md) | The App Store build: the WKWebView shell, why a custom URL scheme rather than `file://`, the native flag | `ios/`, `src/util/platform.js` |
 
 ## The 60-second version
@@ -129,7 +130,9 @@ changes hands as it crosses, with no lift in between. See
   to look different, it changes in geometry or in `palette.js`. The one texture in the project is
   [Crayon Mode](rendering.md#crayon-mode--gamecrayonjs)'s paper, which is baked from seeded noise
   at boot — generated in code like everything else. **Audio is the exception**: the sound effects
-  are a designer's recordings, shipped as `assets/audio/*.m4a` — see [audio.md](audio.md).
+  are a designer's recordings, shipped as `assets/audio/*.m4a` — see [audio.md](audio.md). **Paint
+  is the other**: a vehicle's skin is a voxel volume painted in the garage and shipped as
+  `assets/skins/*.json`, laid over the generated geometry by position — see [garage.md](garage.md).
 - **Seeded generation.** The city is one seed, the run situation is another; see
   [architecture.md](architecture.md#seeding).
 - **Comments carry the "why".** Most non-obvious lines already explain themselves in place —

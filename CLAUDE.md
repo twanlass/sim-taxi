@@ -10,7 +10,8 @@ taxi you route by tapping fares.
 
 Three.js r0.180 + Vite 7. **Every mesh is generated in code** — no models, no loader. The one
 exception is **audio**: a sound designer's recordings, shipped as `assets/audio/*.m4a`
-([docs/audio.md](docs/audio.md)).
+([docs/audio.md](docs/audio.md)). Vehicle **paint** is data rather than geometry: voxel skins
+painted in the garage at `/garage/` and shipped as `assets/skins/*.json` ([docs/garage.md](docs/garage.md)).
 
 ## Read the docs first
 
@@ -31,15 +32,16 @@ about to change.
 | [docs/audio.md](docs/audio.md) | The taxi's sound: the files, what plays when, the tap unlock, mute, the `?audio` mix panel |
 | [docs/testing.md](docs/testing.md) | `npm run check`, the headless tools, screenshots |
 | [docs/lab.md](docs/lab.md) | The passing lab at `/lab/` — a straight road with no lights, for watching Loco Mode |
+| [docs/garage.md](docs/garage.md) | The garage at `/garage/` — paint a vehicle in 3D; skins, rest-position lookup, saving |
 | [docs/ios.md](docs/ios.md) | The App Store build: the WKWebView shell, the custom URL scheme, `window.__native` |
 
 ## Commands
 
 ```bash
-npm run dev        # http://localhost:5173 — and the passing lab at /lab/
+npm run dev        # http://localhost:5173 — the passing lab at /lab/, the paint garage at /garage/
 npm run check      # the whole headless suite, ~1.8s — run this before reporting anything
-npm run build      # production bundle into dist/ (two pages: the game and /lab/)
-npm run build:ios  # the same bundle, minus /lab/, copied into the iOS app — see docs/ios.md
+npm run build      # production bundle into dist/ (three pages: the game, /lab/ and /garage/)
+npm run build:ios  # the same bundle, minus /lab/ and /garage/, copied into the iOS app — see docs/ios.md
 npm run push:ios   # build:ios, then sign and install to a paired iPhone over Wi-Fi (or /push-ios)
 npm run preview    # serve dist/ — rebuild first, it will happily serve a stale one
 ```
