@@ -732,6 +732,26 @@ out of it. And the **flock** is handed the pond as a keep-out circle, which is n
 the other two: a bird has a *path*, and a target pushed to the far shore is a perfectly dry
 destination with a pond in the way of it. `stopAtShore` clips the walk at the water's edge instead.
 
+### Long grass
+
+`city/grass.js` scatters tufts over every lawn: one alpha-cut card per tuft, cut from a small atlas
+of blade drawings built in code (a `DataTexture` with its mip chain drawn level by level, so a blade
+thins to a texel rather than averaging away under the 0.5 cut). Clumped by value noise rather than
+spread evenly, because an even scatter reads as a texture laid over the park.
+
+- **Every card faces the camera.** The view never turns, so a crossed pair would leave one card
+  edge-on for the whole game. Each spans the screen's horizontal with ±0.6 rad of yaw; the probe
+  asserts the winding.
+- **Lit as the lawn.** Every vertex carries the ground's up normal and the material
+  (`propMaterial({ cutout })`) is smooth-shaded so that normal is the one used — a flat-shaded card
+  lights as its own camera-facing face and every tuft came out as a pale chip. The root is the
+  lawn's colour, so only the tip (`grassTip`) shows.
+- **Receives shadows, casts none, and is not an AO occluder.** The prepass would draw each card as
+  a solid quad. It still *receives* AO, deliberately: what sits behind a tuft on screen is the lawn
+  it grows from.
+- Kept off the walk (both card ends, not just the root), the statue's plaza, the pond and the
+  benches — swept over seeds in the probe. Its own stream (`seed + 122`), so retuning it moves no tree.
+
 ## Ground, buildings, props
 
 | File | Produces | Notes |

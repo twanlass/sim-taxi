@@ -22,6 +22,7 @@ import {
   BENCH_LEN, STATUE_PLAZA, treeParts, MEDIAN_TREE_H, MEDIAN_TREE_TRUNK,
 } from '../src/city/props.js';
 import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
+import { createGrass, planGrass, grassGeometry } from '../src/city/grass.js';
 import { createDucks } from '../src/game/ducks.js';
 import { createGarage, garageSite } from '../src/city/garage.js';
 import {
@@ -808,6 +809,78 @@ const onGrass = (city, i, j) => {
   check('every face of the pond points at the sky', !!pondPlan && faces > 0 && downward === 0,
     `${faces - downward}/${faces} facing up`);
   check('and the water lies level', offLevel === 0, `${offLevel} sloping triangles`);
+}
+
+// --- The parks' grass ---------------------------------------------------------
+//
+// Hand-written cards, so their winding is asserted rather than trusted: under `FrontSide` a card
+// wound away from the camera does not draw at all (see CLAUDE.md on the boats' wake). And the
+// placement is swept over seeds the way the pond's is — the tuft through a bench is on some other
+// city than this one. Planned off the same streams `main.js` builds them from: props at +33, grass
+// at +122.
+{
+  const toCamera = new THREE.Vector3(1, 0.92, 1).normalize();
+  const built = createGrass(makeRng(seed + 122), layout, propsBuild);
+  const pos = built.mesh.geometry.attributes.position;
+  const nrm = built.mesh.geometry.attributes.normal;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  let away = 0;
+  let notUp = 0;
+  for (let i = 0; i < pos.count; i += 3) {
+    a.fromBufferAttribute(pos, i);
+    b.fromBufferAttribute(pos, i + 1);
+    c.fromBufferAttribute(pos, i + 2);
+    b.sub(a).cross(c.sub(a));
+    if (b.dot(toCamera) <= 0) away += 1;
+  }
+  for (let i = 0; i < nrm.count; i++) if (nrm.getY(i) < 0.999) notUp += 1;
+  check('every grass card is wound to face the camera', pos.count > 0 && away === 0,
+    `${pos.count / 3 - away}/${pos.count / 3} facing it`);
+  check('and lit with the lawn\'s normal rather than its own', notUp === 0, `${notUp} vertices off vertical`);
+  check('grass receives shadows and casts none',
+    built.mesh.receiveShadow && !built.mesh.castShadow && built.mesh.material.alphaTest > 0);
+
+  let tufts = 0;
+  let offLawn = 0;
+  let inWater = 0;
+  let onPlaza = 0;
+  let inBench = 0;
+  for (let s = 0; s < 30; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 41));
+    const plots = parkPlots(cityLayout);
+    const rng = makeRng(seed + s * 41 + 33);
+    const { benches, statue } = planParkFurniture(rng, plots);
+    const pond = planPond(rng, plots, statue);
+    const planned = planGrass(makeRng(seed + s * 41 + 122), cityLayout, { benches, statue, pond });
+    // The card's two ends are what has to stay on the grass, and they are read off the *built*
+    // geometry rather than re-derived from the yaw: a re-derivation shares whatever sign the
+    // planner got wrong, and this one did (π/4 − yaw for π/4 + yaw) and passed against itself.
+    const cards = grassGeometry(planned, makeRng(1)).attributes.position;
+    for (const [k, t] of planned.entries()) {
+      tufts += 1;
+      const ends = [[cards.getX(k * 6), cards.getZ(k * 6)], [cards.getX(k * 6 + 1), cards.getZ(k * 6 + 1)]];
+      const inside = plots.some(({ bounds }) => ends.every(([x, z]) =>
+        x > bounds.x0 + PARK_EDGE && x < bounds.x1 - PARK_EDGE
+        && z > bounds.z0 + PARK_EDGE && z < bounds.z1 - PARK_EDGE));
+      if (!inside) offLawn += 1;
+      if (pond && Math.hypot(t.x - pond.x, t.z - pond.z) < pond.r) inWater += 1;
+      if (statue && Math.abs(t.x - statue.x) < STATUE_PLAZA / 2
+        && Math.abs(t.z - statue.z) < STATUE_PLAZA / 2) onPlaza += 1;
+      for (const bench of benches) {
+        const cos = Math.cos(bench.yaw);
+        const sin = Math.sin(bench.yaw);
+        const dx = t.x - bench.x;
+        const dz = t.z - bench.z;
+        if (Math.abs(dx * cos - dz * sin) < BENCH_LEN / 2 && Math.abs(dx * sin + dz * cos) < 0.34) inBench += 1;
+      }
+    }
+  }
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+  check('every tuft stands wholly on a lawn', tufts > 0 && offLawn === 0, `${offLawn} of ${tufts} over the walk`);
+  check('and none in the pond, on the statue\'s plaza or under a bench', inWater + onPlaza + inBench === 0,
+    `${inWater} in water, ${onPlaza} on the plaza, ${inBench} under a bench`);
 }
 
 // Nothing planted in the water, read off the merged mesh rather than off the plan — every part

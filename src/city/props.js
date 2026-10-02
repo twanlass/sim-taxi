@@ -652,6 +652,7 @@ export function createProps(rng, blocks) {
   mesh.name = 'props';
   // `{ mesh, pond }` rather than the bare mesh, the same shape `createBuildings` hands back its
   // `pad` in: exactly one park in the city has water in it, and `game/ducks.js` has to be told
-  // which one. Null on a city with no park big enough — no pond, no ducks.
-  return { mesh, pond };
+  // which one. Null on a city with no park big enough — no pond, no ducks. The benches and the
+  // statue ride along for `city/grass.js`, which has to keep its tufts out of them.
+  return { mesh, pond, benches, statue };
 }
