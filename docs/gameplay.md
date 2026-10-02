@@ -70,10 +70,10 @@ speed bob, the brake lights and the indicator all keep working the same way — 
 `stageSignal`, because a staged car has no committed turn to read a hand off.
 
 `stageCar` is mostly a list of things it *clears*. Every lane-relative offset the render pass
-applies on top of a position — the weave, the overtake, the siren panic, the pull-over — is eased in
-the physics loop, which a staged car skips, so anything left standing would be frozen into the
-vignette. A taxi that spent the warm-up near the police siren sat in its garage permanently shoved a
-unit sideways until that list existed.
+applies on top of a position — the weave, the overtake, the pull-over — is eased in the physics loop,
+which a staged car skips, so anything left standing would be frozen into the vignette. A taxi that
+spent the warm-up beside a passing siren sat in its garage permanently shoved a unit sideways until
+that list existed.
 
 ### The exit is one continuous curve
 
@@ -165,9 +165,8 @@ with the shot somewhere it cannot be left.
 
 ## The opening tutorial
 
-`src/game/tutorial.js`, with its markup and styling in `index.html` under `#coach`. A white speech
-bubble in the bottom centre with the player's own taxi turning beside the text, tail on top pointing
-up at whatever it is talking about, and the line typing itself out. **Three beats, and that is all
+`src/game/tutorial.js`, in the `#coach` layer. A "TIP" [speech bubble](#speech-bubbles) pinned on
+whatever it is talking about, with the line typing itself out. **Three beats, and that is all
 of it** — though the first one is currently switched off:
 
 1. ~~**"Let's pick up some rides and earn some cash."**~~ The camera follows the taxi while it types
@@ -179,7 +178,7 @@ of it** — though the first one is currently switched off:
    the bubble gets the run to its first *instruction* a beat sooner. The beat is intact behind the
    flag — the line, `openOnTaxi`, and the `'taxi'` step in both step sets — because the vignette is
    a prototype and this is what has to come back if it goes.
-2. **"Tap rider to start."** The lights come down and the spotlight lands on the waiting fare as the
+2. **"Tap rider to start"** The lights come down and the spotlight lands on the waiting fare as the
    camera sets off for them, so the light is already on the rider and the pan carries the player to
    it; the bubble comes back once the camera has arrived. Tapping the rider answers it directly.
    With beat one switched off this is the beat that *lights* the pool, and for a while it wasn't:
@@ -187,9 +186,9 @@ of it** — though the first one is currently switched off:
    darkening away with it and left the one instruction a run still gives pointing at a rider in a
    fully lit city — the pool aimed correctly at them, sized correctly, at opacity 0. Whatever beat
    comes first has to be the one that turns the light on.
-3. **"Hold to floor it"** — the Loco Mode pill, two seconds after the first rider is *dropped off*,
-   with the bubble sitting directly over the pill and its tail pointing down at it, the spotlight on
-   the pill and the pill pulsing under it. Skipped entirely if the player has already fired Loco
+3. **"Hold to floor it"** — the gas pedal, two seconds after the first rider is *dropped off*,
+   with the bubble standing on the pedal's top and its pointer on it, the spotlight on the pedal and
+   the pedal pulsing under it. Skipped entirely if the player has already fired Loco
    Mode.
 
 The city's own entrance and then the vignette come first: the whole tutorial is held frozen (via its
@@ -207,56 +206,29 @@ full-screen catcher, so the tap still reaches the city underneath — on the sec
 lesson is the tap landing on the rider, and an overlay would eat the one gesture being taught. It
 shares the picker's `didPan()` guard, so a swipe that dragged the map is not also an answer.
 
-The avatar is the real `createTaxiMesh()` in its own small WebGL context, the way each rider-finder
-chip owns one — so the car in the bubble is the car on the road and cannot drift out of step when
-the taxi is restyled. It is lit by the city's own sun and hemisphere fill (mirrored per frame, so
-turning the day/night cycle on carries into the bubble) and framed on the cylinder the car sweeps as
-it turns, so nothing clips at any angle of the spin.
+### Speech bubbles
 
-It is viewed at `VIEW_DIR`'s **elevation** but on the **rider avatar's azimuth** — the same +Z the
-second beat and the rider-finder chips look down. Straight down `VIEW_DIR` was the first go, and it
-put the sun three-quarters behind the car: the `+X` faces sit at `n·L = −0.78` at the hour the game
-parks at, so one whole flank was black at every angle of the spin, inside a white bubble, while the
-rider in the next beat stood in full sun. Turning the camera round the Y axis only offsets the phase
-of a spin that goes all the way round, so no silhouette was lost — 65% of the visible sweep is lit
-now rather than 40%. The reduced-motion still pose moved with it, from a three-quarter at `−0.08`
-to one at `0.84` of full sun.
+Everything that talks on screen — these tips, [the robber](#the-bank-robbery), dispatch, the
+cop's shout and [the depot's call in for repairs](#the-depot-calls-you-in) — is one bubble, `game/speech.js`: the Figma file's "bubble-ui" card (a caps title
+saying who is talking over a bold line, and a pointer), at the HUD's ×0.652.
 
-Its **roof sign is lit**, which is the one place the sign is not the occupancy readout it is
-[everywhere else](#the-taxis-roof-sign): nothing in the bubble is asking whether the taxi is free,
-and the lit off-white is the only bright mark on a roof that is otherwise a dark cabin block — it is
-what makes the shape say "taxi" at 54px.
+**Pinned to what it is about.** Each bubble is handed a target, a function returning a screen point
+re-read every frame, and stands above it with its pointer on the bottom edge. The talker where there
+is one (the cop's roof, the taxi the robber is in, the police car dispatch is talking from) and the thing
+being pointed out where there is not (the rider's crystal, the top of the gas pedal). It slides
+sideways to stay on the glass, and drops *below* a target that is up under the HUD.
 
-#### The rider's card carries the crystal
+**Off screen, it waits at the edge.** A target out of frame clamps the card to the nearest edge along
+the line from the middle of the screen to it — the [off-screen rider arrows'](#finding-the-next-rider)
+rule — with its pointer on the side facing that edge. Pan towards it and the card slides along the
+edge with you until the target is in frame, then drops onto it. The pointer always sits in the
+**middle** of its side and only turns, leaning towards its target but no more than 40° off square
+to the card's edge; it used to sit where the line to the target crossed the card, which made it
+crawl along the edge as the camera panned. `placeSpeech` is the pure half of it.
 
-The second beat's avatar is the real `createPerson()` on the same terms — the city's own sun, the
-same +Z azimuth — and it now stands under **the fare's own plumbob**, the real `createDiamond()` on
-the real top-of-the-scale hue. The line says "tap rider", and what the player then has to find on a
-darkened map is not a 20px figure on a kerb: it is
-[the green crystal](#the-fares-clock-travels) floating over them, which is the brightest thing
-in the spotlight and the only mark on the board that is not scenery. With it in the bubble the card
-is a picture of the *target*, so the glance from bubble to city is a match rather than a search.
-
-That makes the avatar a **stack**, and a stack does not fit a square without shrinking both halves
-past reading — hence `AVATAR_BOX` in `tutorial.js`, one box per subject: the turning car keeps its
-54 square, the rider gets a portrait 48 × 80, and the canvas is resized on the frame the subject
-changes. The 48 × 80 is chosen so the rider camera keeps its old horizontal framing exactly (±2.2
-world units, the rider-finder chip's frustum) and its old ground line, and spends every pixel it
-gains on sky: 4.4 × 7.33 world is 48 × 80 px, so nothing is stretched and nothing that used to be in
-frame has left it. The figure gives up about 6px of height for it (39.5 → 33.5) and the crystal
-arrives at ~38. The bubble is bottom-anchored, so the taller box grows the card upward, away from
-the Loco Mode pill.
-
-Two of the marker's numbers are deliberately not the city's. The crystal is scaled to **0.68**: at
-full size it is 4.5 units against a 3.24 figure and the card reads as a crystal with a person under
-it — true to the city, where the marker really is the larger of the two on screen, and wrong for a
-card whose subject is the rider. And its headroom is **0.53** rather than the marker's own 1.3
-(`LIFT` in `game/faremarker.js`), because that much air in an 80px box is a third of the picture
-spent on nothing. The rim rides the scale down to ~1.6px, within a whisker of the 1.7px it draws at
-play zoom, so the outline — the part that actually says "plumbob" at this size — keeps its weight.
-The bounce is the marker's own `bounceOffset`, scaled with the shape. The vessel is full and stays
-full: the clocks are held while the tutorial runs, and a draining crystal in the card would be the
-one thing on screen contradicting that.
+There used to be four fixed places a bubble could be, and a turning 3D avatar in each (the taxi, the
+rider under their crystal, the robber, a cop car) saying who was speaking — each its own WebGL
+context. Pinning made them redundant: the pointer already says who, by touching them.
 
 ### The spotlight
 
@@ -289,17 +261,28 @@ invisible to everything else.
 
 ### The HUD arrives afterwards
 
-The money counter, the [multiplier counter](#the-multiplier-counter), the Loco Mode pill and the
-brake all start off their own screen edge and slide in together the moment the last bubble is
-dismissed (the [rider chips](#finding-the-next-rider) rode in with them, and still do under
-`?chips=on`). A run used to open with all of them already lit, every one reading zero and answering
-a question nobody had asked yet. `main.js` adds `body.hud-ready`; with no tutorial to wait for (`?tutorial=off`, shot mode) they
-are simply there from the first frame.
+The money counter starts off the top edge, and the ⏸ off the bottom, and they
+slide in together the moment the last bubble is dismissed (the
+[rider chips](#finding-the-next-rider) rode in with them, and still do under `?chips=on`). A run used
+to open with all of them already lit, every one reading zero and answering a question nobody had
+asked yet. `main.js` adds `body.hud-ready`; with no tutorial to wait for (`?tutorial=off`, shot mode)
+they are simply there from the first frame.
 
-The offset is the standalone `translate` property, **not** a transform. Three of those four already
-animate their own transform — the money bump, the streak bump, the Loco Mode press dip and its
-top-up flutter — and a `body.hud-ready #boost { transform: none }` outranks `#boost:active` on
-specificity, which would quietly kill the press feedback for the rest of the run.
+**The two pedals come in earlier**, on `body.pedals-ready`: the frame the
+[opening vignette](#the-opening-vignette) hands the taxi back to the lane, with its pull-back still
+running (`pedalsDue` in `main.js`). They used to wait for `hud-ready` too, which meant the pull-back,
+the tutorial's breath, the pan to the rider, the line typing itself out and the tap that answers it —
+several seconds of a live taxi with nothing to press, which read as the game not having started. A
+counter can wait for a lesson; a control is the thing the lesson is standing in front of. A press on
+the pill during the rider beat ends that beat (`holdLocoMode` calls `tutorial.dismiss()`), which was
+already true for the spacebar. Not before the handover — a staged car burns fuel going nowhere — and
+not under a skip's black, the Home Screen tip or the city's own entrance. The stylesheet treats
+`hud-ready` as implying `pedals-ready`, so nothing that sets the one has to know about the other.
+
+The offset is the standalone `translate` property, **not** a transform. Three of the HUD's pieces already
+animate their own transform — the money bump, the boost meter's top-up throb, the pedals' press —
+and a `body.hud-ready #boost { transform: none }` outranks a press state on specificity, which would
+quietly kill the press feedback for the rest of the run.
 
 Nothing else is taught. The drop-off [dispatches itself](#the-drop-off-dispatches-itself) and the
 clock is [a coloured crystal over a head](#the-fares-clock-travels) — neither needs a sentence, and
@@ -429,7 +412,8 @@ and because the taxi has one seat, all but one of those are riders waiting on th
    is left. The whole trip is drawn now; none of it is shown until they board — see
    [Neither how far nor where](#neither-how-far-nor-where).
 2. Tap them → the taxi routes there.
-3. On arrival the passenger boards, their diamond flies from the kerb to the roof of the taxi, a
+3. On arrival the passenger boards (the cab's rear door swings open on the kerb side as they reach
+   it and slams behind them — `game/taxidoor.js`, pure flourish), their diamond flies from the kerb to the roof of the taxi, a
    ring in that same urgency colour appears on the road where they're going, and the taxi **drives
    straight on to it** — because the instruction it used to ask for is now given for you. See
    [The drop-off dispatches itself](#the-drop-off-dispatches-itself).
@@ -1599,22 +1583,13 @@ number flying from the counter *to* the taxi would read as the player being hand
 charge; it tweens either way now, and the total never goes below zero (see `charge()` in
 `game/fares.js`).
 
-### The multiplier counter
+### The multiplier has no counter
 
-`N×` at top-right, opposite the money counter, and on screen from the first frame reading `1×` —
-same as the money counter starting at `$0`. An empty corner gives the player nothing to aim at; the
-visible number states the goal. `updateStreak()` in `main.js` bumps it in the taxi's own yellow (not
-cash green, so it doesn't read as a second money event) on every delivery, the first one included.
-No flight off the taxi the way the payout gets one; the multiplier isn't travelling from anywhere.
-It lives outside `#hud`, so shot mode hides it with its own rule rather than inheriting `#hud`'s.
-
-**It is a real multiplier now.** It used to show `fares.state.delivered` and call itself a streak,
-which made the `×` decoration: the same number the run-end screen printed as "Fares", wearing a
-symbol for an economy that did not exist. It now shows `difficulty.payoutMultiplier`, the multiple
-every fare's price is actually stamped with at spawn, and it steps on the beat it crosses into a
-new [shift](difficulty.md#shifts). The bump still fires on every delivery even
-when the number holds — the bump means "that one counted", the number means "and this is what they
-are worth now".
+Every fare's price is stamped at spawn with `difficulty.payoutMultiplier`, which steps up on the
+delivery that crosses into a new [shift](difficulty.md#shifts). There used to be an `N×` counter
+for it in the top-right corner; the HUD redesign gave that corner to the cash total and the counter
+was removed outright rather than moved. The multiplier still applies — the prices on the board and
+the payouts that fly to the counter already carry it, which is where the player sees it.
 
 ### Priced by the trip
 
@@ -1777,12 +1752,13 @@ description, and it is worth listing what is *not* new, because none of it is:
 - The cop cars are **ordinary cars**. They queue, indicate, stop at reds, yield and can be crashed
   into like anything else on the road — and they **come after you**, which is a route, a speed and
   an acceleration rather than an AI. See [the chase](#the-chase).
-  [The corridor cruiser's own chase](traffic.md#the-bust-chase) is a different module and is not
-  touched by any of this.
+  [The patrol cruiser](traffic.md#the-patrol-cruiser) is one of these cars too, for the whole of its
+  patrol, and a patrol chase is this chase with one cop in it.
 
   They **arrive and leave, rather than transforming**. A robbery brings four vehicles onto the map
-  from off screen and stands them down again at the drop-off, driving off under their own steam. The
-  first version repainted the ambient cars nearest the taxi and deleted them at the end, which reads
+  from off screen and stands them down again at the drop-off, driving off under their own steam —
+  the ones not busy [arresting the robber or chasing you](#the-drop-off-the-arrest-and-the-tail).
+  The first version repainted the ambient cars nearest the taxi and deleted them at the end, which reads
   exactly as badly as it sounds at both ends: a car you have been following turns into a police car,
   and a police car in your mirror stops existing. A stood-down cop keeps a dark bar on its roof,
   so it still reads as police with its lights off rather than as a blue hatchback. See
@@ -1814,6 +1790,13 @@ clock runs out does exactly what a missed VIP does: gets out mid-street, swears 
 ([the outburst bubble](#they-leave-and-they-let-you-know)) and goes. The event costs the bonus and
 the seat it was occupying, and nothing else. There is no streak to lose, which is the one line of
 the VIP's version that is absent here rather than shared.
+
+**What it can cost now is the escape afterwards, and only once the job is done.** Deliver the robber
+and one cop comes after *you* as an ordinary [patrol chase](traffic.md#the-patrol-cruiser) —
+caught on a touch is "Busted!", though ramming it on the pill is only a bump" ([the drop-off](#the-drop-off-the-arrest-and-the-tail)). That is a
+different claim from the one this section was written to defend: nothing about the event *being
+imposed* can end the run, and a player who drives the getaway has chosen to finish it. The drop-off
+fills the tank to pay for the chase, so the choice is "boost clear", not "hope".
 
 ### The robber
 
@@ -1862,8 +1845,7 @@ setup, in three beats:
 
 1. **The robber gets in and the world stops.** Once the figure has finished running for the cab
    (`BOARD_SECONDS`), the city dims around the taxi (`#robber-spot`, the tutorial's gradient and pool
-   size) and the robber shouts from a bubble at the bottom — the coach's card in the coach's place,
-   with the masked figure in the avatar and a red edge. The line is one of `ROBBER_LINES`, drawn off
+   size) and the robber shouts from a "BANK ROBBER" [bubble](#speech-bubbles) pinned on the taxi. The line is one of `ROBBER_LINES`, drawn off
    the run seed.
 2. **The next tap clears it** and calls the police (`raiseAlarm` in game/robbery.js — the fare, its
    clock and the getaway route are already running; only the cop cars wait). A tap mid-type finishes
@@ -1883,26 +1865,25 @@ robbery without `holdAlarm`, so the headless suite still sees the police on the 
 
 ### Dispatch breaks in
 
-`game/radio.js`. A beat after the robber's line is cleared, a bubble drops in under the HUD: a police
-car turning in the avatar — the robbery's own cop car, `carGeometry()` in `policeBody` with its bar
-flashing — over "DISPATCH / All units respond! Robbery in progress."
+`game/radio.js`. A beat after the robber's line is cleared, a [bubble](#speech-bubbles) pinned on
+the robbery's cop car nearest the bank: "POLICE DISPATCH / 10-65 in progress!" The police come in
+just off screen near the bank, so the call usually opens waiting at the screen's edge with its
+pointer aimed at them — the first word the player gets about which way the police are coming from.
+It was pinned on the taxi at first, which read as the taxi calling the police on itself. When the
+patrol cruiser loses the taxi, the cruiser says "POLICE / Lost the suspect. Resuming patrol." from
+its own roof.
 
 The figure alone was not enough, and the reason is the trigger. A robbery fires on a drive-*past*,
 so the player is watching the taxi or the next rider, not a 20px figure on the bank's steps. The
 robber's line now says *who* got in; this says what it means — the police are coming.
 
-It borrows the coach bubble's card and drops everything that asks something of the player:
+It is the same bubble as the tutorial's, minus everything that asks something of the player:
 
 - **No spotlight.** The getaway's clock has just started; dimming the city over the
   getaway spends it.
 - **No tap.** `pointer-events: none`, and it leaves on its own after `RADIO_LINGER` (3.2s of game
   time, so a pause holds it). The next tap is on the road, routing the getaway, and a bubble that
   caught it would cost the second this event is about.
-- **Top, not bottom.** The coach speaks for the taxi from above the controls, and its Loco Mode
-  beat can still be cycling when a robbery lands. The radio is another channel breaking in, so it
-  sits under the money/pause/streak row instead, with a police-blue edge the coach does not have.
-
-Its WebGL context is built on the first robbery rather than at boot — most runs never meet one.
 
 ### The clock, and the bonus that reads it
 
@@ -2079,7 +2060,7 @@ Six gates on top of the range, and each is there for its own reason:
 ### The police
 
 `setPoliceCars(n)` in `sim/traffic.js` takes the `n` ambient cars nearest the taxi, paints them
-`policeBody` and puts a light bar on their roofs. `setPoliceCars(0)` hands every one of them back its
+in the police two-tone (light-blue `policeBody`, white cab) and puts a light bar on their roofs. `setPoliceCars(0)` hands every one of them back its
 own `colorIndex`, which is left untouched throughout — that is what makes ending the event free
 rather than something to remember.
 
@@ -2109,10 +2090,10 @@ player watched.
 split matters, because the first two alone did not read:
 
 - **The bar**, two instanced emissive pods on the roof off the same machinery the brake and
-  turn-signal pods use (`geometry/lights.js`). Both pods flash together — the whole bar goes red,
-  then blue — rather than one lamp lighting at each end, which is what a real bar does: a pod is 4px
-  across at play zoom, and a bar split by colour alternates two specks a colour apart and reads as a
-  flicker. Together they are one 9.9px mark changing colour six times a second.
+  turn-signal pods use (`geometry/lights.js`): red over the left lens, blue over the right,
+  lighting alternately six times a second, with the dark side still showing its painted lens. A
+  whole-bar strobe (both pods red, then both blue) was the earlier choice and on a phone read as
+  two red lights.
 - **The bloom**, which carries it at distance and took a fix. `main.js` marks every lamp the sim
   owns in one loop, and marking them all `pod` gave a cop car's bar a brake light's 3.4 against the
   cruiser's 4.2 — dimmer than the police car parked beside it, for no reason on screen. The kind
@@ -2122,7 +2103,7 @@ split matters, because the first two alone did not read:
   [cop cars' sirens](rendering.md#cop-cars-sirens---geometrylightsjs-gamecoplightsjs) for why it is
   two lights against four cars, and what `?safe` drops.
 
-The rate is `sirenOn()`, shared with [the corridor cruiser](traffic.md#police-priority-corridor) and
+The rate is `sirenOn()`, shared with [the patrol cruiser](traffic.md#the-patrol-cruiser) and
 [the off-screen wash](rendering.md#off-screen-police-warning), so a city with both in it strobes on
 one clock.
 
@@ -2154,9 +2135,8 @@ A cop cruises at **20.4** against a boosting taxi's 22.1 and the traffic's 8.5. 
 mode — the pill outruns them in a straight line and lifting off does not — so Loco Mode becomes the
 answer to the event and [the wreck](traffic.md#the-wreck) is what makes it a gamble. What Loco Mode
 cannot outrun is the cop already sitting in the junction it is about to take. And they strobe at the
-cruiser's **hunting rate** while chasing, which is the same cue that module uses for its own
-lock-on: a cop cruising past on its own business and one that has turned to come after you are
-otherwise the same blue car.
+**hunting rate** while chasing — eleven changes a second against six: a cop cruising past on its own
+business and one that has turned to come after you are otherwise the same blue car.
 
 **Every licence they have is fenced**, which is what makes this safe rather than merely loud.
 `sim/collisions.js` only ever tests the taxi, so a cop let through a light, stopped in the wrong
@@ -2170,8 +2150,9 @@ braking in your lane having just gone round you. Ramming one is a bump that cost
 ([bumps](traffic.md#bumps-and-hit-points)), and the one that empties them is the wreck the game
 already had.
 
-**And [the corridor cruiser](traffic.md#the-bust-chase) does not bust you during one.** That rule —
-boost within a block of the cruiser and the run ends — is a good one, and its legibility rests
+**And [the patrol cruiser](traffic.md#the-patrol-cruiser) does not come after you during one** — it
+drives off when a robbery starts. That rule — boost within a block of the cruiser and it gives chase
+(it used to end the run) — is a good one, and its legibility rests
 entirely on there being *one* police car on the street and it being obvious which. A robbery puts
 four more on the street in the same paint under the same flashing bar, and pays a bonus on the
 clock that boosting is the way to earn. So the event asks for Loco
@@ -2185,8 +2166,8 @@ the run. Letting a patrol end it instead is that same rule going out the side do
 is that Loco Mode has no downside but the wreck for the length of a getaway; the chase is what pays
 that back, and it now drives cop cars into the road *ahead* of the taxi rather than trailing it.
 
-**And a boosting getaway throws cash out of the back.** `game/cashtrail.js` — banknotes tumbling out
-behind the taxi for as long as the pill is held with a robber aboard. It is the one part of the event
+**And a boosting getaway throws cash out of the back.** `game/cashtrail.js` — banknotes fluttering out
+behind the taxi, with the odd wrapped bundle among them, for as long as the pill is held with a robber aboard. It is the one part of the event
 that pays the player back *while* the risk is being taken: the bonus is real and the player does not
 see a penny of it until the drop-off resolves, and everything in between is a tight clock and four
 more cars to hit. The gate is the robbery rather than the boost, because money off the back of any
@@ -2204,7 +2185,9 @@ in [the box-in](traffic.md#the-box-in-roadblocks-the-overtake-and-the-brake-chec
   time, eight seconds apart.
 - **The overtake and the brake check.** A cop that catches you from behind goes round you in the
   oncoming lane, cuts in and slews across the road for 2.5 seconds, with the rest of the chase
-  arriving behind you. Angled across both lanes, it cannot be gone round on the pill — only rammed.
+  arriving behind you. A cop that is already ahead of you on your road skips the overtake and does
+  the same — it does not drive on away from you. Angled across both lanes, it cannot be gone round
+  on the pill — only rammed.
 
 Each poses the same three-way choice, and all three are things the game already had. **Wait** — it
 costs the robber's clock, and with it the bonus. **Route round** — redraw the route and
@@ -2217,6 +2200,45 @@ But the event now puts things in the road that the player can choose to drive th
 costs is paid in the currency every other crash is. The fairness lives in the choice being real:
 every roadblock is let go when the taxi routes round it or waits it out, so ramming is never the only
 way past.
+
+### The drop-off: the arrest and the tail
+
+`game/arrest.js`, `robbery.js` (`stop`, `handOff`), `patrol.js` (`pursueNearest`). The getaway
+ends in two scenes at once.
+
+**The robber stays on the corner with their hands up, and the police circle them.** The robber
+climbs out the way any rider does and stops on the kerb instead of fading (`beginExit`'s `hold` in
+`game/fares.js` hands back the figure; `surrender` in `geometry/person.js` is the pose). The cops
+near enough — up to three, and at least two, calling in the difference from off screen — are
+routed to the junction and held at its line; once the taxi is clear they are taken onto a ring
+round the junction box one at a time, sliding nose-in, bars going, each on its own wobble. After a
+few seconds one peels off, pulls up at the kerb beside the robber, and the robber runs to it and is
+gone. The rest peel off down the arms one by one and are handed back to traffic, bars off, to drive
+away the way a [stood-down](traffic.md#standing-down) cop does. A car nobody can see is simply
+retired instead — "nobody can see" asked of the camera, not of the taxi, because a player who pans
+over to watch the arrest is exactly who would otherwise see the police blink out (the first build
+did that, on the frame the robber was taken in).
+
+It is the junction they go round, not the robber, and that is geometry: a kerb corner is half a
+unit onto a block whose buildings start 0.35 further in, so no ring centred on the figure stays on
+the road. The ring is the box's own edge, and it passes about a unit off the robber's shoulder.
+
+The circling cars are **driven by hand**: nothing in the traffic model can drive a circle, so they
+are taken out of traffic the way the opening vignette takes the taxi into its garage (`stageCar`),
+and put back with `releaseCar`. Everything traffic would have done for them is the module's job —
+see its header and [traffic.md](traffic.md#the-arrest-a-junction-closed-to-traffic). A scene that
+cannot happen (no cop gets there within 14s, nowhere to pull up) lets the robber walk off.
+
+**The nearest cop comes after the taxi.** It is handed to the patrol (`pursueNearest`) and from then
+on it *is* the patrol cruiser in a chase: strobe, "Pull over!", caught on a touch or lost two and a
+half blocks out, with the patrol's catch-up. Only a cop already inside that escape range is taken —
+one further out has lost the taxi by the patrol's own rule. A touch in the first 1.5s does not
+count (`HANDOFF_GRACE`), because the box-in can have a cop on the taxi's bumper on the very frame
+the robber gets out.
+
+**The drop-off fills the tank**, where an ordinary delivery pours a third. The patrol's own table
+(game/patrol.js) is why: a third of a tank is five seconds of boost, which loses the cop 8 times in
+16; none is caught 15 in 16; a full tank gets away 14 in 16.
 
 ## The package courier
 
@@ -2880,7 +2902,7 @@ the holds were rare enough to cost the mode its feel without protecting it.
 
 **Releasing isn't an instant off.** For `BOOST_COOLDOWN` (1s) after the button comes up — or the
 tank runs dry — the taxi is still exposed to everything Loco Mode was: it can still crash into
-traffic, still gets caught if a cop is in bust range, still forces the next light. What it loses
+traffic, still sets a patrol cruiser after it if one is in range, still forces the next light. What it loses
 immediately is the speed — the cap drops back to cruise the moment the hold ends, and ordinary
 braking (the same constant every other stop uses) hauls it down from 22.1 to 8.5 in under a
 second, nose dipping hard the whole way. So letting go a beat too late doesn't buy safety; it buys
@@ -2982,6 +3004,23 @@ spilling out from under it while the shop works — and then the opening itself 
 a clean car in a lit doorway, out, down the kerb and back into traffic.
 `game/depotrun.js` is the trip there; `enter()` in `game/opening.js` is everything from the lane on.
 
+### The depot calls you in
+
+Nothing used to say a repair was a tap on the depot. The car wears its damage, but a smoking car is
+a warning without an instruction, and the garage is a building like any other until you know what
+it is for. So on the frame the taxi starts smoking — `SMOKE_FRACTION`, 34% HP, the third of the
+four [damage tiers](../src/game/taxidamage.js) — the depot says **"TAXI DEPOT / Head to the shop for
+repairs."** from a [speech bubble](#speech-bubbles) over its own door (`game/depotcall.js`). Earlier
+and it would be nagging about a swinging lamp; at the 20% plume it is one hit from too late.
+
+Pinned over the door, the bubble is also the answer to *where*: the depot is usually off frame while
+the taxi is out working, so the call opens at the screen's edge pointing at it. It speaks once per
+bout of damage — main.js re-arms it only when the HP is back above the line, which in practice means
+a repair — and stays up its full `DEPOT_CALL_LINGER` (5s of game time, longer than dispatch because
+it is an instruction and usually pointing off screen). It cannot be tapped away, and tapping the
+depot no longer takes it down either: that lost it too easily before it had been read. Only the run
+ending cuts it short. Not said at all if the taxi is already on its way in or inside.
+
 | Phase | What happens | Length |
 |---|---|---|
 | `enter` | Off the lane round the mirrored fillet and up the kerb, the door winding up on the opening's own ease from the frame the car turns in. The camera eases onto the door at `DOOR_ZOOM` | ~2.5s |
@@ -3018,6 +3057,21 @@ has and is never refused.
 **Refused on an undamaged car.** There is nothing to fix, and a visit holds every clock on the board
 — a free one is a pause button with a garage on it. Refused while anything else is driving the taxi
 (the drive-through) and while the depot is busy, which covers the run's own opening.
+
+**A rider waiting in front of it does not hide it.** A rider's tap target is an invisible quad
+11 screen units across (`geometry/marker.js`), and on a corner in front of the depot it covers
+half the building's front — nearest-hit, so every tap there answered the rider. `choosePick` in
+`game/pick.js` now lets an invisible stand-in yield to the first *drawn* surface along the ray when
+that surface is the depot (or the burger joint) and the tap would be taken; the rider's own figure,
+crystal and disc are drawn and in front, so they still mean the rider. That last clause was false
+for a while: the crystal and disc opted out of raycasting (the quad "already covered them") and live
+at scene level outside the rider's group, so the ray never saw them — a tap on the crystal read as
+empty margin, and a tap on the near half of the disc met the burger joint's apron before the quad.
+Reported as a tap on a rider at the joint sending the taxi through the drive-through. Both are now
+raycast and tagged as the rider's (`stampFareMarker` in `game/fares.js`), and every marker's
+`postGroup` carries its kind so a pad or a parcel on the corner counts the same way. While a repair would be
+refused — undamaged car, rider aboard — the margin stays the rider's, since the alternative is a
+tap that does nothing.
 
 **Refused with a rider aboard.** A fare doesn't ride along to the garage — and before this rule they
 did, with the visit's held clocks freezing the very countdown in the back, so a damaged car could
@@ -3115,7 +3169,32 @@ means and the brake still wins, because it replaces the target the boost ceiling
 
 ## The pedal slide
 
-The bottom row is **one control surface, not two buttons**. A thumb that goes down on Loco Mode and
+The bottom row is two pedals — the Figma file's drawings, a tall orange gas pedal with the brake
+tucked against its lower right — and a ⏸ in the far corner. Their depth is not geometry: each is one
+flat shape with a 28-unit inner shadow along its bottom, which reads as the side. A held pedal
+**sinks** into its own outline: the silhouette stays put while its filter swaps to one with a
+thinner side band and a dark inner shadow from the top edge, and the icon drops 8 units with the
+face (the "The press" rules in `index.html`). It used to squash the whole pedal toward its base, but
+that moved the cap 12px away from the fuel gauge hugging it. It sinks for the Space and B keys too, off
+`boost.state.held` and the brake's `is-on`, not only under a finger. An empty tank greys the pedal
+out.
+
+**The fuel gauge is an arc over the gas pedal.** It used to be a wedge-shaped bar in the top-left
+corner, which put the read-out as far from the thumb spending it as the screen allows. It is now a
+tachometer-style band (`#boost-meter` in `index.html`, shaped by `game/fuelarc.js`) that follows the
+pedal's cap, from a third of the way down its left side, over the top, to the same height on the
+right. Fuel fills from the left end, so holding the gas sweeps the front back from the right, over
+the crown, and down to the left. The band tapers from 8 units at the empty end to 14 at the full
+one. A stroke can't taper, so the track and the fuel are filled outlines, and `main.js` rewrites the
+fuel's outline whenever the level moves. The band's inner edge holds 4 units off the pedal's black
+outline all the way round, and the width grows outward. The first build had the right tangent point
+typed 10 units wrong, and the right leg hung visibly further off the pedal than the left, so the
+probe now checks the clearance and the matching end heights. The gauge rides in with the pedals on
+`pedals-ready`, not with the top HUD, and the boost sparks land on its crown. The trade: a thumb on
+the pedal can cover part of the arc, and the last of the tank drains into the lower-left end, which
+is the part a thumb coming in from that corner is most likely to be over.
+
+The row is **one control surface, not two buttons**. A thumb that goes down on Loco Mode and
 slides right onto the brake hands the car over as it crosses, with no lift in between, and sliding
 back hands it straight back. On a phone that is the difference between "press the gas, let go, find
 the brake, press the brake" — four beats, two of them spent with the taxi doing neither — and one
@@ -3131,13 +3210,14 @@ pointer.
 for the rest of the gesture every move is delivered *there* whatever is under the finger — which is
 what makes a hold survive a wandering thumb, and what makes hit-testing the event target useless.
 The gesture hit-tests the point against two rectangles instead. They are measured on the press and
-then left alone: both buttons scale while held (the press dip, the pill's top-up flutter), and
-re-measuring per move would let a pedal's own animation move the boundary under a finger that
+then left alone: both pedals change shape while held (the press), and re-measuring per move would let a pedal's own animation move the boundary under a finger that
 never moved.
 
 **Two different thresholds, on purpose.** Claiming a pedal means being *inside* it; dropping one
-means being `PEDAL_SLOP` (28px) *clear* of it. Crossing between the two needs no slop — they are
-8px apart, so a finger leaving one is inside the other within a frame — but coming off the row
+means being `PEDAL_SLOP` (28px) *clear* of it. Crossing between the two needs no slop along the
+brake's height — the boxes are 1px apart there, so a finger leaving one is inside the other within a
+frame; above the brake, where the gas stands taller, a thumb sliding right comes off the gas after
+the slop instead — but coming off the row
 entirely has to let go, and equal thresholds would put a boundary under a resting thumb that a
 pixel of jitter could cross twice a frame. A fresh press of Loco Mode is not a quiet event: it
 fires a wheelie, a flame burst, a launch skid and a haptic tick. The gap between the two answers is
@@ -3150,11 +3230,10 @@ nothing left to release. An empty tank is the one case where the claim and the p
 the pill is dead under a thumb that has plainly arrived on it, so the claim moves (the brake beside
 it lets go) and nothing is pressed or painted.
 
-**The press dip stops following `:active`.** The browser pins `:active` to the button the pointer
-went *down* on and leaves it there however far the finger travels, so a slide would light the pill
-the thumb has left and leave the brake it is standing on looking untouched. For the length of a
-gesture `body.pedal-slide` suppresses `:active` on both and an `is-held` class carries the dip on
-whichever pedal is actually down.
+**The press never follows `:active`.** The browser pins `:active` to the button the pointer went
+*down* on and leaves it there however far the finger travels, so a slide would sink the pedal the
+thumb has left and leave the brake it is standing on looking up. An `is-held` class carries the
+press on whichever pedal is actually down.
 
 **Everything after the press listens on the window.** Capture normally redirects the rest of the
 gesture to the button it started on, and a listener there would be enough — but only while the

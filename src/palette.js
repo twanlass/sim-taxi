@@ -56,11 +56,18 @@ export const PALETTE = {
 
   asphalt: '#636972',
   asphaltEdge: '#6B717A',
+  // Tyre rubber on the road. Not black: pure black over a blue-grey asphalt read as a hole cut in
+  // the road rather than something lying on it, and a touch of warm brown is what rubber smeared
+  // into tarmac actually is.
+  skidRubber: '#1E1A18',
   laneMark: '#D6D2C4',
   crosswalk: '#DAD7CB',
   sidewalk: '#9E9C94',
   kerb: '#8A887F',
   park: '#6F9A5A',
+  // The tips of the parks' long grass (city/grass.js); the roots are `park` itself so a tuft grows
+  // out of the lawn rather than sitting on it. Lighter and warmer — sun through a blade's tip.
+  grassTip: '#AEC664',
 
   // Building envelopes — deliberately muted so height and massing read before colour does.
   concrete: '#B7B2A6',
@@ -87,8 +94,9 @@ export const PALETTE = {
   // all the way to this at the top still averages darker than the old flat `window` did, because
   // the streak that reaches full strength covers about a fifth of a face.
   //
-  // It has two blues to stay clear of and clears both on saturation rather than hue: `policeBody`
-  // (#2E5FA8) at 226° and the blue car (#4E7FC0) at 222°, against this one's 217°. Nine degrees and
+  // It had two blues to stay clear of and cleared both on saturation rather than hue: the old
+  // `policeBody` (#2E5FA8, since repainted white) at 226° and the blue car (#4E7FC0) at 222°, against
+  // this one's 217°. Nine degrees and
   // five is nothing — what separates them is 0.47 saturation against 0.87 and 0.75, and the fact
   // that both of those are *moving boxes on a road* while this is a grid of eight-pixel rectangles
   // ruled across a wall. A first pass at 0.33 was safer still and read as grey lightening rather
@@ -237,10 +245,9 @@ export const PALETTE = {
   lettuce: '#7FB050',
   sesame: '#F7EDD6',
 
-  // The cash a getaway throws out of the back of the taxi (game/cashtrail.js). Two colours because
-  // a note tumbles: one instance is one colour, so rolling between a face and a back across the
-  // shower is what stops a stream of them reading as a stencil — the same reason the sparks spread
-  // their hue across a spray rather than walking it over one spark's life.
+  // The cash a getaway throws out of the back of the taxi (game/cashtrail.js). A note is two-sided:
+  // the face is a green somewhere between `cashNote` and `cashPale`, and the back is mixed most of
+  // the way to `cashBack` in the shader, so a note turning over flashes pale.
   //
   // Keyed off the HUD's own earnings green (#6BE08A, `.earning` in index.html) so the notes and the
   // number that flies to the counter are visibly the same currency.
@@ -266,6 +273,13 @@ export const PALETTE = {
   // 214 luma it is still under the lane dashes' 210-ish paint in saturation while being clearly a
   // lighter note of the same colour.
   cashPale: '#C3EFD0',
+  // The dark end of a note's face spread (game/cashtrail.js). Once the notes were lit, the spread
+  // toward `cashPale` made the shower read as glowing — a card square to the sun is already the
+  // brightest surface on the road — so it runs down from `cashNote` to here instead.
+  cashShade: '#3C9A5E',
+  // The paper band round a wrapped bundle of notes. A warm cream rather than `cashBack`'s cooler
+  // off-white, so the band reads as a separate strip of paper and not as the brick's own pale edge.
+  cashBand: '#F4DDA0',
 
   // --- The bank ---------------------------------------------------------------
   // The city's one bank (city/bank.js), and the third building the tower generator does not draw.
@@ -327,6 +341,9 @@ export const PALETTE = {
   //     saturation where it is, is what reserves it. tools/probe.mjs asserts the clearance.
   carBodyGhost: ['#DA887D', '#71CDD2', '#85A7D4', '#D0CABE', '#80C5A1', '#AC96C7', '#D0C7B4', '#8D9BAD'],
   carGlass: '#2E3640',
+  // Hubcaps (geometry/wheels.js) — the one metal finish on a vehicle. Light enough to read as
+  // steel inside the tyre's near-black; the car's paint tint multiplies over it on the fleet.
+  hubcap: '#C4C8CC',
   // A box truck's cab is painted from carBody, same colorIndex and everything — one taxi-company
   // fleet's palette covers both, and it is what makes a truck read as "one more vehicle in this
   // traffic" rather than a prop dropped in from elsewhere. Only the cargo box breaks from that: it
@@ -336,11 +353,28 @@ export const PALETTE = {
   // whole vehicle as one hull in one colour (carBodyGhost at the cab's index), because the outline
   // says "there is a vehicle there", not "these are its panels".
   truckBox: '#DDD4BE',
+  // The flatbed that sheds its load (game/flatbed.js). Timber crates rather than cardboard on
+  // purpose: the courier's parcels are cardboard browns (parcelBox below), and a box lying in the
+  // road that looked like one would read as a package to collect. Slatted pine with darker
+  // battens is a different object at a glance. The deck is weathered planking, the headboard dark
+  // steel like the cab it guards.
+  flatbedDeck: '#8A6E52',
+  flatbedRail: '#3C434C',
+  crate: '#D9B477',
+  crateBatten: '#9C7445',
 
   // --- Game entities. Deliberately higher-chroma than anything in the city so they read
   // instantly against the muted buildings and grey roads.
-  policeBody: '#2E5FA8',
-  policeRoof: '#F2F4F7',
+  // The police two-tone, after the 1980s NYPD cruiser: a light-blue body under a white cab. It
+  // used to be a solid blue (#2E5FA8) a few steps off the ordinary blue car (#4E7FC0), which at
+  // play zoom made a cop one blue car among several. This blue is lighter and a good deal more
+  // cyan than that civilian, but the body alone still would not carry it — the white cab is the
+  // half no civilian has (every other car's cabin is dark glass), and it is what says police.
+  // See policeCabGeometry() in sim/traffic.js. (A first pass ran it the other way round, white
+  // under baby blue; a pastel cab rendered grey-teal under the low warm sun.)
+  policeBody: '#55A8E6',
+  // Cooler and brighter than the two cream civilians (#E4E1DA, #D9D2C3).
+  policeCab: '#F2F4F7',
 
   // The ambient flyover — see geometry/plane.js. A white aeroplane against a pale sky is a blank
   // shape, so it carries a cheatline; red because it is the one hue in the game with nothing else
@@ -613,8 +647,13 @@ export const PALETTE = {
   // so the same two colours have to be nameable from more than one place.
   sirenBlue: '#4D9BFF',
   // The box a cop car's bar is bolted into — what stays on the roof once the lamps go off, so a
-  // stood-down cop still reads as police. See sirenHousingGeometry() in geometry/lights.js.
+  // stood-down cop still reads as police. See sirenBaseGeometry() in geometry/lights.js.
   sirenHousing: '#23262D',
+  // The bar's two lenses while it is *off*: red one side, blue the other, painted rather than lit.
+  // Deep enough that a lit lamp is plainly a change of state and not the same colour a bit brighter,
+  // saturated enough that a parked cop's roof still says red-and-blue at 4px a lens.
+  sirenRedOff: '#8E2A22',
+  sirenBlueOff: '#23489A',
   lightYellow: '#F0B23A',
   lightGreen: '#4FBF63',
   // An ambient car's turn signal — deliberately more orange than lightYellow above so a blinking
@@ -672,6 +711,11 @@ export const PALETTE = {
   // and its edges going dark under the walls, which is depth for the price of a vertex colour.
   riverWater: '#4E7699',
   riverDeep: '#3C5C7B',
+  // What the water is seen *through* to (city/riverwater.js): silt and rubble at the foot of the
+  // walls. Never drawn as a surface — it only ever arrives through a few units of water, which
+  // takes most of the red out of it, so it is chosen warm and olive to land green-brown rather
+  // than as a second blue.
+  riverBed: '#6B6648',
   // The channel wall, and the parapet standing on the kerb line above it. Engineering concrete
   // rather than the `kerb` a block is edged in: a river wall is a poured retaining structure and a
   // kerb is a laid stone, and at 0.75 units tall the parapet is the one piece of street furniture

@@ -22,6 +22,8 @@ import {
   BENCH_LEN, STATUE_PLAZA, treeParts, MEDIAN_TREE_H, MEDIAN_TREE_TRUNK,
 } from '../src/city/props.js';
 import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
+import { createGrass, planGrass, grassGeometry } from '../src/city/grass.js';
+import { createCanopyFuzz } from '../src/city/canopyfuzz.js';
 import { createDucks } from '../src/game/ducks.js';
 import { createGarage, garageSite } from '../src/city/garage.js';
 import {
@@ -31,28 +33,33 @@ import { createDriveThru } from '../src/game/drivethru.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, setPriorityCorridor, policeRoads, setPoliceRoads, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
-  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
+import { createFlatbed, CRATES, LOAD_YAW } from '../src/game/flatbed.js';
+import { TRUCK_LEN, TRUCK_BOX_LEN } from '../src/sim/traffic.js';
+import { CRATE, CRATE_REST_Y, CRATE_CHIP_REST_Y, DECK_TOP, DECK_REAR } from '../src/geometry/crate.js';
 import { createDust } from '../src/game/dust.js';
+import { createSkidMarks } from '../src/game/skidmarks.js';
 import { createSparks } from '../src/game/sparks.js';
 import { createRepairFx } from '../src/game/repairfx.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
 import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, laneCost } from '../src/game/route.js';
 import { createCollisions, TAXI_HP, bumpDamage, penetration } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
-import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET, CHASE_SPEED } from '../src/sim/police.js';
-import { sirenOn } from '../src/geometry/lights.js';
+import { createTaxiDoor } from '../src/game/taxidoor.js';
+import { createPolice, SPOT_RANGE, FADE_TIME } from '../src/sim/police.js';
+import { sirenOn, patrolSwing } from '../src/geometry/lights.js';
 import {
-  edgeGlow, sirenWash, GLOW_NEAR, GLOW_FAR, GLOW_FLOOR, SIREN_DIM,
+  edgeGlow, sirenWash, GLOW_NEAR, GLOW_FAR, GLOW_FLOOR, SIREN_DIM, PATROL_WASH,
 } from '../src/game/sirenglow.js';
 import {
   stepLevel, frameWash, RISE as ROB_RISE, FALL as ROB_FALL,
 } from '../src/game/robberyglow.js';
 import {
   createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES,
-  ARRIVE_RADIUS, onSameBlock, onWaterBlock, CURSE_LIFT, BURGER_PRICE,
+  ARRIVE_RADIUS, onSameBlock, onWaterBlock, CURSE_LIFT, BURGER_PRICE, waitingTargets, stampFareMarker, BOARD_SECONDS,
 } from '../src/game/fares.js';
 import { createCurseBubble, TAIL_DROP } from '../src/geometry/cursebubble.js';
 import {
@@ -74,26 +81,28 @@ import { createFoodOrder } from '../src/geometry/food.js';
 import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createRobbery, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
-import { createCashTrail } from '../src/game/cashtrail.js';
+import { createPatrol, ESCAPE_BLOCKS, TOUCH_SLACK } from '../src/game/patrol.js';
+import { touching } from '../src/sim/collisions.js';
+import { createCashTrail, noteGeometry, NOTE_FOLD, BRICK_H } from '../src/game/cashtrail.js';
 import { createCopLights } from '../src/game/coplights.js';
 import {
   markEmissive, unmarkEmissive, emissiveList, BLOOM_LAYER, BLOOM_ORDER, BLOOM_INTENSITY,
   BLOOM_UNIFORMS, BLOOM_KINDS, refreshEmissive as bloomRefreshFor,
 } from '../src/game/bloom.js';
-import { LIGHT_EMISSIVE } from '../src/geometry/lights.js';
+import { LIGHT_EMISSIVE, LIGHT_PODS } from '../src/geometry/lights.js';
 import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
-import { createPicker } from '../src/game/pick.js';
+import { createPicker, choosePick } from '../src/game/pick.js';
 import { setCityOccluders, sightlineClear } from '../src/game/sightline.js';
 import {
   createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
   DIAMOND_HALF_H, BOUNCE_HEIGHT,
 } from '../src/geometry/diamond.js';
-import { CRYSTAL_TOP } from '../src/game/faremarker.js';
+import { CRYSTAL_TOP, createFareMarker } from '../src/game/faremarker.js';
 import { QUESTION_GEO } from '../src/geometry/questionmark.js';
 import { createPerson, HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
 import { POP_SCALE_DIAMOND, POP_SCALE_RIDER, POP_TIME } from '../src/game/selectpop.js';
-import { createTaxiMesh } from '../src/geometry/taxi.js';
+import { createTaxiMesh, taxiSideToward, taxiDoorPoint } from '../src/geometry/taxi.js';
 import { isCarOffScreen } from '../src/game/taxifinder.js';
 import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
 import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
@@ -112,7 +121,7 @@ import {
 } from '../src/game/birds.js';
 import {
   propMaterial, unlitMaterial, setAmbientOcclusion, setCrayon, setCartoon,
-  AO_UNIFORMS, CRAYON_UNIFORMS, CARTOON_UNIFORMS, BODY_EULER_ORDER,
+  AO_UNIFORMS, CRAYON_UNIFORMS, CARTOON_UNIFORMS, BODY_EULER_ORDER, FINISH,
 } from '../src/util/geo.js';
 import {
   AO_LAYER, markOccluder, unmarkOccluder, occluderList, RING_BROAD, RING_TIGHT, MAX_DEPTH_DIFF,
@@ -173,7 +182,8 @@ import {
   BOOST_COOLDOWN, BOOST_FLOOR_FRACTION, BOOST_REGEN_SECONDS,
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
-import { createSfx, SHIPPED_MIX, SFX_EVENTS } from '../src/game/sfx.js';
+import * as fuelArc from '../src/game/fuelarc.js';
+import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
 const seed = Number(process.argv[2] ?? 71624);
@@ -873,6 +883,167 @@ const onGrass = (city, i, j) => {
   check('every face of the pond points at the sky', !!pondPlan && faces > 0 && downward === 0,
     `${faces - downward}/${faces} facing up`);
   check('and the water lies level', offLevel === 0, `${offLevel} sloping triangles`);
+}
+
+// --- The parks' grass ---------------------------------------------------------
+//
+// Hand-written cards, so their winding is asserted rather than trusted: under `FrontSide` a card
+// wound away from the camera does not draw at all (see CLAUDE.md on the boats' wake). And the
+// placement is swept over seeds the way the pond's is — the tuft through a bench is on some other
+// city than this one. Planned off the same streams `main.js` builds them from: props at +33, grass
+// at +122.
+{
+  const toCamera = new THREE.Vector3(1, 0.92, 1).normalize();
+  const built = createGrass(makeRng(seed + 122), layout, propsBuild);
+  const pos = built.mesh.geometry.attributes.position;
+  const nrm = built.mesh.geometry.attributes.normal;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  let away = 0;
+  let notUp = 0;
+  for (let i = 0; i < pos.count; i += 3) {
+    a.fromBufferAttribute(pos, i);
+    b.fromBufferAttribute(pos, i + 1);
+    c.fromBufferAttribute(pos, i + 2);
+    b.sub(a).cross(c.sub(a));
+    if (b.dot(toCamera) <= 0) away += 1;
+  }
+  for (let i = 0; i < nrm.count; i++) if (nrm.getY(i) < 0.999) notUp += 1;
+  check('every grass card is wound to face the camera', pos.count > 0 && away === 0,
+    `${pos.count / 3 - away}/${pos.count / 3} facing it`);
+  check('and lit with the lawn\'s normal rather than its own', notUp === 0, `${notUp} vertices off vertical`);
+  check('grass receives shadows and casts none',
+    built.mesh.receiveShadow && !built.mesh.castShadow && built.mesh.material.alphaTest > 0);
+
+  let tufts = 0;
+  let offLawn = 0;
+  let inWater = 0;
+  let onPlaza = 0;
+  let inBench = 0;
+  for (let s = 0; s < 30; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 41));
+    const plots = parkPlots(cityLayout);
+    const rng = makeRng(seed + s * 41 + 33);
+    const { benches, statue } = planParkFurniture(rng, plots);
+    const pond = planPond(rng, plots, statue);
+    const planned = planGrass(makeRng(seed + s * 41 + 122), cityLayout, { benches, statue, pond });
+    // The card's two ends are what has to stay on the grass, and they are read off the *built*
+    // geometry rather than re-derived from the yaw: a re-derivation shares whatever sign the
+    // planner got wrong, and this one did (π/4 − yaw for π/4 + yaw) and passed against itself.
+    const cards = grassGeometry(planned, makeRng(1)).attributes.position;
+    for (const [k, t] of planned.entries()) {
+      tufts += 1;
+      const ends = [[cards.getX(k * 6), cards.getZ(k * 6)], [cards.getX(k * 6 + 1), cards.getZ(k * 6 + 1)]];
+      const inside = plots.some(({ bounds }) => ends.every(([x, z]) =>
+        x > bounds.x0 + PARK_EDGE && x < bounds.x1 - PARK_EDGE
+        && z > bounds.z0 + PARK_EDGE && z < bounds.z1 - PARK_EDGE));
+      if (!inside) offLawn += 1;
+      if (pond && Math.hypot(t.x - pond.x, t.z - pond.z) < pond.r) inWater += 1;
+      if (statue && Math.abs(t.x - statue.x) < STATUE_PLAZA / 2
+        && Math.abs(t.z - statue.z) < STATUE_PLAZA / 2) onPlaza += 1;
+      for (const bench of benches) {
+        const cos = Math.cos(bench.yaw);
+        const sin = Math.sin(bench.yaw);
+        const dx = t.x - bench.x;
+        const dz = t.z - bench.z;
+        if (Math.abs(dx * cos - dz * sin) < BENCH_LEN / 2 && Math.abs(dx * sin + dz * cos) < 0.34) inBench += 1;
+      }
+    }
+  }
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+  check('every tuft stands wholly on a lawn', tufts > 0 && offLawn === 0, `${offLawn} of ${tufts} over the walk`);
+  check('and none in the pond, on the statue\'s plaza or under a bench', inWater + onPlaza + inBench === 0,
+    `${inWater} in water, ${onPlaza} on the plaza, ${inBench} under a bench`);
+}
+
+// --- Leaf fuzz on the crowns ---------------------------------------------------
+//
+// The crowns are recorded by `treeParts` as it builds them, and the promise that makes that safe is
+// that recording spends nothing from the stream — so a tree grown with `crowns` is byte-for-byte the
+// tree grown without. Asserted on the geometry rather than trusted, because a single stray draw
+// here moves every tree planted after it.
+{
+  const bare = treeParts(3, 4, makeRng(91));
+  const crowns = [];
+  const recorded = treeParts(3, 4, makeRng(91), { crowns });
+  const same = bare.length === recorded.length && bare.every((g, i) => {
+    const a = g.attributes.position.array;
+    const b = recorded[i].attributes.position.array;
+    return a.length === b.length && a.every((v, k) => v === b[k]);
+  });
+  check('recording a tree\'s crowns leaves the tree untouched', same && crowns.length >= 2,
+    `${crowns.length} lobes recorded`);
+
+  const fuzz = createCanopyFuzz(makeRng(seed + 144), propsBuild.crowns);
+  const pos = fuzz.mesh.geometry.attributes.position;
+  const toCamera = new THREE.Vector3(1, 0.92, 1).normalize();
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  let away = 0;
+  for (let i = 0; i < pos.count; i += 3) {
+    a.fromBufferAttribute(pos, i);
+    b.fromBufferAttribute(pos, i + 1);
+    c.fromBufferAttribute(pos, i + 2);
+    b.sub(a).cross(c.sub(a));
+    if (b.dot(toCamera) <= 0) away += 1;
+  }
+  check('every leaf card is wound to face the camera', pos.count > 0 && away === 0,
+    `${pos.count / 3 - away}/${pos.count / 3} facing it, ${propsBuild.crowns.length} lobes`);
+  check('leaf fuzz receives shadows and casts none',
+    fuzz.mesh.receiveShadow && !fuzz.mesh.castShadow && fuzz.mesh.material.alphaTest > 0);
+}
+
+// --- Soft crowns, hard everything else ------------------------------------------
+//
+// The props and buildings meshes are smooth-shaded so the crowns can light as soft masses, and the
+// only thing keeping every wall, bench and plinth faceted is that `bakeColors` gave each face its
+// own normal. So: every triangle whose vertex normals disagree with its winding has to be part of a
+// crown, and every crown has to have been softened. Across a seed sweep, because the courtyard —
+// the one crown in the buildings mesh — is one block in some cities and none in others.
+{
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const face = new THREE.Vector3();
+  const vn = new THREE.Vector3();
+  let strays = 0;
+  let soft = 0;
+  let crowned = 0;
+  const scan = (mesh, crowns) => {
+    const pos = mesh.geometry.attributes.position;
+    const nrm = mesh.geometry.attributes.normal;
+    for (let i = 0; i < pos.count; i += 3) {
+      a.fromBufferAttribute(pos, i);
+      b.fromBufferAttribute(pos, i + 1);
+      c.fromBufferAttribute(pos, i + 2);
+      face.copy(b).sub(a).cross(c.clone().sub(a));
+      if (face.lengthSq() < 1e-12) continue;
+      face.normalize();
+      let bent = false;
+      for (let k = 0; k < 3; k++) if (vn.fromBufferAttribute(nrm, i + k).dot(face) < 0.999) bent = true;
+      const inCrown = crowns.some((l) => Math.hypot(a.x - l.x, a.y - l.y, a.z - l.z) < l.r * 1.3);
+      if (bent && !inCrown) strays += 1;
+      if (inCrown) crowned += 1;
+      if (bent && inCrown) soft += 1;
+    }
+  };
+  for (let s = 0; s < 8; s++) {
+    const citySeed = seed + s * 59;
+    const cityLayout = createLayout(makeRng(citySeed));
+    const builtProps = createProps(makeRng(citySeed + 33), cityLayout);
+    const builtCity = createBuildings(makeRng(citySeed + 22), cityLayout);
+    // Generous on purpose: a trunk or a bench under a crown falls inside its 1.3 r and is let off.
+    // What this is for is a wall, a roof or a plinth going soft, which nothing near a tree is.
+    scan(builtProps.mesh, builtProps.crowns);
+    scan(builtCity.mesh, builtCity.court?.crowns ?? []);
+  }
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+  check('only the tree crowns are smooth-shaded; every other face keeps its facet', strays === 0,
+    `${strays} faceted triangles bent outside a crown`);
+  check('and the crowns themselves are soft', crowned > 0 && soft / crowned > 0.6,
+    `${soft} of ${crowned} triangles near a crown carry bent normals`);
 }
 
 // Nothing planted in the water, read off the merged mesh rather than off the plan — every part
@@ -1582,186 +1753,6 @@ check('no two cars occupy the same space', worst > 1.6,
   }
   check('every front wheel is bolted to its car', adrift === 0 && checked > 0,
     `${adrift} adrift of ${checked}`);
-}
-
-// --- Police priority corridor ----------------------------------------------
-// The override lives inside lightPhase, so the assertion is about signals, not about the car:
-// while a corridor is live every junction on that road must show green along it and red across
-// it, and no vehicle may enter on red as the corridor flips on and off.
-{
-  const pScene = new THREE.Scene();
-  const pTraffic = createTraffic(makeRng(seed + 44), pScene, 24);
-  const police = createPolice(makeRng(seed + 66), pScene);
-
-  let activations = 0;
-  let wasActive = false;
-  let corridorChecks = 0;
-  let corridorBad = 0;
-  let crossBad = 0;
-
-  for (let step = 0; step < 240 * 60; step++) {
-    police.update(1 / 60);
-    pTraffic.update(1 / 60);
-
-    const c = getPriorityCorridor();
-    if (c && !wasActive) activations += 1;
-    wasActive = Boolean(c);
-
-    if (c && step % 30 === 0) {
-      const t = pTraffic.stats.time;
-      // `k` walks the junctions the corridor passes, which are indexed on the *other* axis from
-      // the one the line is named by: an x-running corridor sits on a j line and passes i
-      // junctions.
-      for (let k = 0; k <= (c.axis === 'x' ? GRID_I : GRID_J); k++) {
-        const i = c.axis === 'x' ? k : c.line;
-        const j = c.axis === 'x' ? c.line : k;
-        const phase = lightPhase(i, j, t);
-        corridorChecks += 1;
-        if (phase.axis !== c.axis || phase.yellow) corridorBad += 1;
-
-        // A junction one road over must be unaffected.
-        const offLine = (c.line + 1) % ((c.axis === 'x' ? GRID_J : GRID_I) + 1);
-        const offI = c.axis === 'x' ? i : offLine;
-        const offJ = c.axis === 'x' ? offLine : j;
-        if (lightPhase(offI, offJ, t).axis === c.axis && lightPhase(offI, offJ, t) === phase) crossBad += 1;
-      }
-    }
-  }
-
-  check('the police car runs corridors repeatedly', activations >= 3, `${activations} runs in 240s`);
-  check('every junction on the corridor shows green along it', corridorBad === 0,
-    `${corridorChecks} junction-checks`);
-  check('no vehicle ran a red while corridors flipped', pTraffic.stats.violations === 0);
-  check('traffic still flows with corridors active',
-    pTraffic.stats.distance / pTraffic.stats.time / pTraffic.cars.length > 1,
-    `${(pTraffic.stats.distance / pTraffic.stats.time / pTraffic.cars.length).toFixed(2)} units/s per car`);
-
-  // The corridor is a module global in traffic.js, and this block stops on whatever frame 240s
-  // lands on — which is as likely as not to be mid-run. Left held, every later section in this
-  // file runs its city with one road permanently green and every crossing road permanently red:
-  // couriers never delivered, cars indicated for turns they were being held out of, and one
-  // junction with a 300-second queue on it. None of those name the police anywhere.
-  setPriorityCorridor(null);
-  setPoliceRoads([]);
-}
-
-// --- The corridor's jog -----------------------------------------------------
-// Most runs step one block sideways somewhere in the middle: two corners and a short leg across,
-// so the cruiser still enters at one edge of the map and leaves by the opposite one but spends
-// its second half on a different road. The shape is asserted rather than the roads, because which
-// roads are clear is the city's business — what has to hold on every seed is that a jog is a
-// *detour* and not a different run.
-{
-  const jScene = new THREE.Scene();
-  const jTraffic = createTraffic(makeRng(seed + 44), jScene, 24);
-  const jPolice = createPolice(makeRng(seed + 66), jScene, jTraffic.cars);
-
-  // Distance from a point to the nearest road centreline, on whichever axis is closer. A car in
-  // its lane sits a lane offset out; a car inside a junction box is within the widest half-road.
-  const offCentre = (x, z) => {
-    let dx = Infinity;
-    let dz = Infinity;
-    for (let i = 0; i <= GRID_I; i++) dx = Math.min(dx, Math.abs(x - lineX(i)));
-    for (let j = 0; j <= GRID_J; j++) dz = Math.min(dz, Math.abs(z - lineZ(j)));
-    return Math.min(dx, dz);
-  };
-
-  let runs = 0;
-  let jogged = 0;
-  let straight = 0;
-  let badShape = 0;
-  let shortRuns = 0;
-  let corridorAdrift = 0;
-  let roadsAdrift = 0;
-  let worstOff = 0;
-  let worstYaw = 0;
-  // The corner has to cost the car nothing: what it may not do is cover more ground per frame than
-  // the same run does on its own straights. Compared against each other rather than against a
-  // constant, because the two *are* the same speed — see arcScale() in police.js for the two ways
-  // that came apart.
-  let straightStep = 0;
-  let cornerStep = 0;
-  let cornerLock = 0;
-  let began = null;
-  let prev = null;
-
-  for (let step = 0; step < 900 * 60; step++) {
-    const was = jPolice.state.active;
-    jPolice.update(1 / 60);
-    jTraffic.update(1 / 60);
-    const st = jPolice.state;
-
-    if (st.active && !was) {
-      began = { axis: st.axis, line: st.line, dir: st.dir };
-      prev = null;
-    }
-    if (st.active) {
-      const p = jPolice.group.position;
-      if (prev) {
-        const d = Math.hypot(p.x - prev.x, p.z - prev.z);
-        if (st.corner) cornerStep = Math.max(cornerStep, d);
-        else straightStep = Math.max(straightStep, d);
-        const raw = jPolice.group.rotation.y - prev.y;
-        worstYaw = Math.max(worstYaw, Math.abs(Math.atan2(Math.sin(raw), Math.cos(raw))));
-      }
-      prev = { x: p.x, z: p.z, y: jPolice.group.rotation.y };
-
-      if (st.corner) cornerLock = Math.max(cornerLock, Math.abs(st.wheelAngle));
-      // Only over the slab: a run spawns and dies RUN_MARGIN off the edge of the map, where there
-      // is no road to be near the centreline of.
-      if (Math.abs(st.s) <= (st.axis === 'x' ? HALF_SPAN_X : HALF_SPAN_Z)) {
-        worstOff = Math.max(worstOff, offCentre(p.x, p.z));
-      }
-
-      // The lights and the roads both follow the leg, every frame of it. A corner that turned the
-      // car without turning the corridor is a cruiser crossing a road that still has a green.
-      const c = getPriorityCorridor();
-      if (!c || c.axis !== st.axis || c.line !== st.line) corridorAdrift += 1;
-      const roads = policeRoads();
-      if (roads.length !== st.plan.length + 1
-        || roads[0].axis !== st.axis || roads[0].line !== st.line) roadsAdrift += 1;
-    }
-
-    if (!st.active && was) {
-      runs += 1;
-      if (st.turns === 0) straight += 1;
-      else {
-        jogged += 1;
-        // Two corners, back onto the axis and the direction it set out on, one road over.
-        if (st.turns !== 2 || st.axis !== began.axis || st.dir !== began.dir
-          || Math.abs(st.line - began.line) !== 1) badShape += 1;
-      }
-      // It still leaves by the far edge rather than stopping somewhere in the middle: `s` ends
-      // past the map on the side it was heading for.
-      if (st.dir * st.s <= 0) shortRuns += 1;
-      st.turns = 0;
-    }
-  }
-
-  check('corridor runs both jog and run straight', jogged > 0 && straight > 0,
-    `${jogged} jogged, ${straight} straight, of ${runs}`);
-  check('a jog is two corners onto the neighbouring road', badShape === 0,
-    `${badShape} of ${jogged} came out somewhere else`);
-  check('and the run still crosses the map', shortRuns === 0, `${shortRuns} of ${runs} stopped short`);
-  check('the corridor follows the leg the cruiser is on', corridorAdrift === 0 && roadsAdrift === 0,
-    `${corridorAdrift} corridor frames, ${roadsAdrift} road-list frames adrift`);
-  check('a corner never covers more ground than a straight', cornerStep < straightStep * 1.05,
-    `${cornerStep.toFixed(3)} against ${straightStep.toFixed(3)} units a frame`);
-  // Same bound as the chase's: the eased nose there peaks at 13.3°/frame.
-  check('the corridor nose never snaps round', worstYaw < 0.28,
-    `fastest yaw ${(worstYaw * 180 / Math.PI).toFixed(1)}°/frame`);
-  // The arc is the same quadratic Bezier an ambient car turns on, so it stays inside the junction
-  // box: the widest half-road is HALF_ARTERIAL, 5.33.
-  check('the arc keeps the cruiser on the asphalt', worstOff < 4.4,
-    `furthest off a centreline ${worstOff.toFixed(2)}`);
-  // The wheels are where a corner shows on a car with no suspension roll of its own, and they are
-  // wired to the *drawn* pose — so a corner that only moved the rail would read here as a flat
-  // zero. The straight is asserted separately, in the chase block below.
-  check('and the front wheels turn through it', cornerLock > 0.3,
-    `${(cornerLock * 180 / Math.PI).toFixed(0)}° peak lock in the arc`);
-
-  setPriorityCorridor(null);
-  setPoliceRoads([]);
 }
 
 // --- The fare's travelling clock --------------------------------------------
@@ -3487,7 +3478,8 @@ check('no two cars occupy the same space', worst > 1.6,
     // rather than counted out.
     const onCorner = pin.postGroup.children.filter((c) => c !== pin.ring.group);
     check('the drop-off stands nothing on its corner',
-      pin.standing === null && onCorner.length === 1 && onCorner[0].userData.pickable === 'destination',
+      pin.standing === null && onCorner.length === 1 && onCorner[0] === pin.hit
+      && pin.postGroup.userData.pickable === 'destination',
       `${pin.postGroup.children.length} on the corner`);
   }
   check('no two fares claim the same junction', sharedJunction === 0, `${sharedJunction} frames`);
@@ -3607,7 +3599,7 @@ check('no two cars occupy the same space', worst > 1.6,
     //    across is a different bug wearing the same face, and the only place the answer exists is
     //    on the built mesh.
     const perUnit = H / (2 * PLAY_ZOOM);
-    const target = pins.get('2,2').postGroup.children.find((c) => c.userData?.pickable);
+    const target = pins.get('2,2').hit;
     const { width, height } = target.geometry.parameters;
     check('a rider\'s tap target is comfortably past a fingertip',
       width * perUnit >= 44 && height * perUnit >= 44,
@@ -4664,6 +4656,44 @@ check('no two cars occupy the same space', worst > 1.6,
     `reached ${(noReason.peak * 2 * LANE).toFixed(2)} units across`);
 
   setPriorityJunction(null);
+}
+
+// --- The boosted corner leans on a spring ------------------------------------
+// A right-hander cuts the near corner, and at the speed a boosting taxi arrives at the arc is over
+// in 7 frames — a lean locked to position was a twitch there, against 34 frames for a left. The
+// taxi's lean now runs through a spring (CORNER_ROLL_OMEGA in sim/traffic.js), so it has to hold
+// long enough to read and then rock back through level on the way out.
+{
+  const traces = { right: [], left: [] };
+  for (let r = 0; r < 4; r++) {
+    const lScene = new THREE.Scene();
+    const lTraffic = createTraffic(makeRng(seed + 900 + r), lScene, 1);
+    const taxi = lTraffic.taxi;
+    const body = lScene.children.find((c) => c.rotation && c.rotation.order === 'YXZ');
+    let cur = null;
+    for (let f = 0; f < 60 * 30; f++) {
+      taxi.boost = true;
+      taxi.boostEasing = false;
+      lTraffic.update(1 / 60);
+      const turning = taxi.state === 'turn' && taxi.turn && taxi.turn.hand !== 'straight';
+      if (turning && !cur) cur = { hand: taxi.turn.hand, roll: [], after: 0 };
+      if (!cur) continue;
+      cur.roll.push(body.rotation.x);
+      if (!turning && ++cur.after > 40) { traces[cur.hand].push(cur.roll); cur = null; }
+    }
+  }
+  const median = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)] ?? 0;
+  const held = traces.right.map((t) => t.filter((x) => Math.abs(x) > 0.1).length);
+  // Rights lean left (negative), so the rock back is the positive swing after it.
+  const rock = traces.right.map((t) => Math.max(0, ...t));
+  check('a boosted right-hander holds its lean long enough to read',
+    traces.right.length > 5 && median(held) >= 25,
+    `${traces.right.length} rights, median ${median(held)} frames over 0.1 rad (was 12)`);
+  check('...and rocks back through level on the way out', median(rock) > 0.08,
+    `median ${median(rock).toFixed(2)} rad the other way`);
+  const leftPeak = traces.left.map((t) => Math.max(...t));
+  check('a boosted left still leans out as hard as it did', traces.left.length > 2
+    && median(leftPeak) > 0.6, `median peak ${median(leftPeak).toFixed(2)} rad`);
 }
 
 // --- Loco Mode momentum cooldown --------------------------------------------
@@ -6992,6 +7022,56 @@ check('the taxi is an ordinary car in the traffic array',
     `${fadingFrames} frames of fade, ${liveTyres()} left`);
 }
 
+// --- Skid marks: feathered stamps, streaks that fade in and out ------------------------------
+// game/skidmarks.js finds a stamp's streak by proximity, eases a streak's last marks down once it
+// has stopped, and feathers every mark to zero at its ends. All of it is alpha in a ring buffer,
+// so read the alpha: the peak vertex of each mark is (along 1, across 1) of its 4 × 4 grid.
+{
+  const skids = createSkidMarks(new THREE.Scene());
+  const geo = skids.mesh.geometry;
+  const alphaAt = (slot, v) => geo.attributes.color.array[(slot * 16 + v) * 4 + 3];
+  const peak = (slot) => alphaAt(slot, 5);
+  const dt = 1 / 60;
+  // Two wheels 2.08 apart, 0.42 per stamp, one stamp each per frame: slots alternate left, right.
+  for (let k = 0; k < 10; k++) {
+    skids.add(k * 0.42, -1.04, 0);
+    skids.add(k * 0.42, 1.04, 0);
+    skids.update(dt);
+  }
+  const left = (k) => 2 * k;
+  check('skid marks: the ends of a mark are feathered to nothing',
+    alphaAt(left(5), 0) === 0 && alphaAt(left(5), 15) === 0 && peak(left(5)) > 0,
+    `ends ${alphaAt(left(5), 0)}, ${alphaAt(left(5), 15)}; middle ${peak(left(5)).toFixed(3)}`);
+  check('...a streak fades in over its first stamps, and each wheel is its own streak',
+    peak(left(0)) < 0.5 * peak(left(5)) && peak(left(0) + 1) < 0.5 * peak(left(5) + 1),
+    `first ${peak(left(0)).toFixed(3)} / ${peak(left(0) + 1).toFixed(3)} against ${peak(left(5)).toFixed(3)}`);
+
+  // The streak stops. Its last mark must ease down, not snap, once nothing has followed it.
+  const lastBefore = peak(left(9));
+  let worstStep = 0;
+  let prevPeak = lastBefore;
+  for (let f = 0; f < 60; f++) {
+    skids.update(dt);
+    worstStep = Math.max(worstStep, prevPeak - peak(left(9)));
+    prevPeak = peak(left(9));
+  }
+  check('...and fades out over its last, eased rather than popped',
+    peak(left(9)) < 0.4 * peak(left(5)) && worstStep < 0.05,
+    `last ${lastBefore.toFixed(3)} -> ${peak(left(9)).toFixed(3)} against ${peak(left(5)).toFixed(3)}, ` +
+    `largest frame step ${worstStep.toFixed(3)}`);
+
+  const pos = geo.attributes.position.array;
+  const idx = geo.index.array;
+  let downFacing = 0;
+  for (let t = 0; t < 18 * 20; t += 3) {
+    const [a, b, c] = [idx[t], idx[t + 1], idx[t + 2]].map((i) => new THREE.Vector3().fromArray(pos, i * 3));
+    const n = b.sub(a).cross(c.sub(a));
+    if (n.y <= 0) downFacing += 1;
+  }
+  check('...and every triangle is wound to face up', downFacing === 0, `${downFacing} of 120 face down`);
+  check('...and the buffer counts what is still on the road', skids.live() === 20, `${skids.live()} live`);
+}
+
 // --- The wreck's smoke collar ----------------------------------------------
 // `dust.wreckSmoke` rings the fireball with the same lit puffs a barricade throws. Its failure
 // modes are all things a screenshot of the impact frame would forgive: a collar that fills in the
@@ -7138,138 +7218,166 @@ check('the taxi is an ordinary car in the traffic array',
     `collar ${greyed.getHexString()}, after ${reused.getHexString()}`);
 }
 
-// --- Busted by the police --------------------------------------------------
-// Boosting near an active police car ends the run with a distinct "Busted!" title. Mirrors the
-// wiring in src/main.js: proximity < POLICE_BUST_RANGE while boosting → fares.crash('...',
-// 'Busted!'). No wreck plume, so the check is about the state transition, not particle effects.
+// --- The patrol ------------------------------------------------------------
+// game/patrol.js. The patrol cruiser is a car in traffic for the whole of its visit, crossing town:
+// in at one edge of the island, past a corner near the taxi, out at the opposite edge, its bar
+// swinging gently red and blue. What has to hold: it comes in at the edge, out of sight, dissolving
+// in; it is a real car in the fleet wearing the cruiser's mesh; it passes the taxi; it stays
+// uninterested until the taxi boosts within a block of it; and it leaves by the far edge,
+// dissolving out, before it is taken off the road.
 {
-  const bScene = new THREE.Scene();
-  const bTraffic = createTraffic(makeRng(seed + 44), bScene, CARS_DEFAULT);
-  const bFares = createFareSystem(makeRng(seed + 55), bScene);
-  const bPolice = createPolice(makeRng(seed + 66), bScene);
-  const bTaxi = bTraffic.taxi;
+  // How far a point is from the island's edge — the ring road's four lines.
+  const offEdge = (x, z) => Math.min(
+    Math.abs(x - lineX(0)), Math.abs(x - lineX(GRID_I)),
+    Math.abs(z - lineZ(0)), Math.abs(z - lineZ(GRID_J)));
 
-  // Fast-forward to a live police run — the corridor logic drives when the car appears. Armed
-  // rather than merely active: the bust does not exist until the cruiser is a block in from the
-  // edge, so a test staged on `active` would sit next to a cop that cannot bust anyone.
-  bPolice.state.cooldown = 0;
-  for (let step = 0; step < 60 * 60 && !bPolice.state.armed; step++) {
-    bPolice.update(1 / 60);
-    bTraffic.update(1 / 60);
-  }
-  check('police run arms for the bust test', bPolice.state.armed);
+  const pScene = new THREE.Scene();
+  const pTraffic = createTraffic(makeRng(seed + 44), pScene, CARS_DEFAULT);
+  const pPolice = createPolice(pScene);
+  const taxi = pTraffic.taxi;
+  let spotted = 0;
+  const pPatrol = createPatrol({
+    rng: makeRng(seed + 66), police: pPolice, traffic: pTraffic, taxi,
+    onSpotted: () => { spotted += 1; },
+  });
+  const tick = (boosting = false) => {
+    pTraffic.update(1 / 60);
+    pPatrol.update(1 / 60, { boosting });
+    pPolice.update(1 / 60);
+  };
 
-  // Put the taxi within bust range of the cop, boost engaged.
-  bTaxi.x = bPolice.group.position.x + 5;
-  bTaxi.z = bPolice.group.position.z + 5;
-  bTaxi.boost = true;
+  pPatrol.state.cooldown = 0;
+  for (let step = 0; step < 60 * 60 && pPatrol.state.phase !== 'patrol'; step++) tick();
+  const cop = pPatrol.state.cop;
+  const arrivedAt = cop ? Math.hypot(cop.x - taxi.x, cop.z - taxi.z) : null;
+  const cameIn = cop ? { x: cop.x, z: cop.z } : null;
+  const fadeAtArrival = pPolice.state.fade;
+  check('a patrol comes into town', pPatrol.state.phase === 'patrol' && Boolean(cop));
+  check('...at the edge of the island', cop && offEdge(cop.x, cop.z) < PITCH,
+    `${cop ? offEdge(cop.x, cop.z).toFixed(1) : '-'} from the ring road`);
+  check('...out of sight', arrivedAt >= SPAWN_CLEARANCE, `${arrivedAt?.toFixed(1)} from the taxi`);
+  check('...as a car in traffic, in the police fleet', Boolean(cop) && pTraffic.cars.includes(cop)
+    && pTraffic.policeCars.includes(cop) && cop.patrol === true);
+  check('...wearing the cruiser, not an instance', typeof cop?.skin === 'function'
+    && pPolice.state.active && pPolice.state.cop === cop);
 
-  const dx = bTaxi.x - bPolice.group.position.x;
-  const dz = bTaxi.z - bPolice.group.position.z;
-  const near = dx * dx + dz * dz < POLICE_BUST_RANGE * POLICE_BUST_RANGE;
-  if (near && bTaxi.boost && bPolice.state.armed && !bFares.state.gameOver && !bTaxi.crashed) {
-    bTaxi.crashed = true;
-    bFares.crash("The fuzz caught you slippin'.", 'Busted!');
-  }
-
-  check('boosting near the police ends the run', bFares.state.gameOver);
-  check('bust banner title is "Busted!"', bFares.state.failTitle === 'Busted!',
-    bFares.state.failTitle);
-  check('bust reason mentions the fuzz', /fuzz/i.test(bFares.state.failReason ?? ''),
-    bFares.state.failReason);
-
-  // Well outside bust range: same setup, no trigger.
-  const fScene = new THREE.Scene();
-  const fTraffic = createTraffic(makeRng(seed + 44), fScene, CARS_DEFAULT);
-  const fFares = createFareSystem(makeRng(seed + 55), fScene);
-  const fPolice = createPolice(makeRng(seed + 66), fScene);
-  fPolice.state.cooldown = 0;
-  for (let step = 0; step < 60 * 60 && !fPolice.state.armed; step++) {
-    fPolice.update(1 / 60);
-    fTraffic.update(1 / 60);
-  }
-  const fTaxi = fTraffic.taxi;
-  fTaxi.x = fPolice.group.position.x + POLICE_BUST_RANGE + 20;
-  fTaxi.z = fPolice.group.position.z;
-  fTaxi.boost = true;
-  const fdx = fTaxi.x - fPolice.group.position.x;
-  const fdz = fTaxi.z - fPolice.group.position.z;
-  const farClear = fdx * fdx + fdz * fdz > POLICE_BUST_RANGE * POLICE_BUST_RANGE;
-  check('boosting far from the police leaves the run running', farClear && !fFares.state.gameOver);
-}
-
-// --- The bust is never lethal before it is readable -------------------------
-// A cruiser arriving on the map used to be able to end a run before it had drawn a pixel: the bust
-// radius is a block (20) and FADE_BAND is 18, so on the ring road the check fired at exactly zero
-// opacity, lamps included. BUST_ARM_INSET gates the whole thing on the cruiser being a block in.
-//
-// The light bar runs ahead of that gate rather than with it, which is the grace period: the siren
-// is up from the spawn frame and the bust arms a block in, so three invariants rather than two.
-// Whatever can bust you is fully drawn and lit; nothing is lit between runs; and every run
-// telegraphs itself for a beat first. The last one is the tuning, so it is measured in seconds and
-// not merely asserted to be non-zero.
-{
-  const aScene = new THREE.Scene();
-  const aPolice = createPolice(makeRng(seed + 66), aScene);
-  const lamps = aPolice.group.children.filter((child) => child.isPointLight);
-
-  let armedFrames = 0;
-  let armedWhileFading = 0;      // lethal while still transparent — the bug
-  let armedWithLampsDark = 0;    // lethal with no cue at all
-  let litWhileIdle = 0;          // the opposite lie: a bar burning with no cruiser on the map
-  let darkWhileVisible = 0;      // a drawn cruiser running dark — the announcement missed
-  let ringExposed = 0;           // armed while the cruiser is still in the outer band
-  let runs = 0;
-  let wasActive = false;
-  // Seconds of *visible* light bar before the bust arms, taken per run and kept at its worst.
-  // FADE_BAND (18) out to the arming line (the rail's half-span − BUST_ARM_INSET) is 38 units at SPEED = 19,
-  // so this should land near 2s.
-  let telegraph = 0;
-  let telegraphTaken = false;
-  let worstTelegraph = Infinity;
-
-  for (let step = 0; step < 600 * 60; step++) {
-    aPolice.update(1 / 60);
-    const p = aPolice.state;
-    if (p.active && !wasActive) { runs += 1; telegraph = 0; telegraphTaken = false; }
-    wasActive = p.active;
-
-    const lit = lamps.some((lamp) => lamp.intensity > 0);
-    if (!p.lit) {
-      if (lit) litWhileIdle += 1;
-      continue;
+  // The whole crossing, the taxi never boosting within range — and boosting while it is out of
+  // range, to show that being on the pill is not itself what sets a patrol off.
+  let swinging = 0;
+  let redSide = 0;
+  let blueSide = 0;
+  let chasing = 0;
+  let adrift = 0;
+  let nearest = Infinity;
+  let frames = 0;
+  let fadedInBy = null;
+  let exitingFrom = null;
+  let fadeOnRetire = null;
+  let retiredAt = null;
+  for (let step = 0; step < 60 * 90 && pPatrol.state.phase !== 'off'; step++) {
+    const gap = Math.hypot(cop.x - taxi.x, cop.z - taxi.z);
+    const was = { x: cop.x, z: cop.z, fade: pPolice.state.fade };
+    tick(gap > SPOT_RANGE + 6);
+    if (!pTraffic.policeCars.includes(cop)) { retiredAt = was; fadeOnRetire = was.fade; break; }
+    frames += 1;
+    if (fadedInBy === null && pPolice.state.fade === 1) fadedInBy = frames / 60;
+    if (exitingFrom === null && pPatrol.state.phase === 'exiting') exitingFrom = { x: cop.x, z: cop.z };
+    if (pPatrol.state.phase === 'patrol' && pPolice.state.fade === 1) {
+      // Swinging, never strobing: lit so it can be seen, and not after anybody.
+      if (!cop.siren && pPolice.state.lit && !pPolice.state.chasing && pPolice.state.bar === 'patrol') swinging += 1;
+      else swinging -= 1e6;
+      const [red, blue] = pPolice.emissiveMeshes;
+      if (red.visible && !blue.visible) redSide += 1;
+      if (blue.visible && !red.visible) blueSide += 1;
     }
-    // Lit and drawing: the bar has to actually be burning. The frames before that are the car
-    // still out past FADE_BAND, where the lamps are scaled to nothing along with the bodywork.
-    if (p.fade > 0 && !lit) darkWhileVisible += 1;
-    if (!p.armed) {
-      if (p.fade > 0) telegraph += 1 / 60;
-      continue;
-    }
-    if (!telegraphTaken) { worstTelegraph = Math.min(worstTelegraph, telegraph); telegraphTaken = true; }
-    armedFrames += 1;
-    if (p.fade < 1) armedWhileFading += 1;
-    if (!lit) armedWithLampsDark += 1;
-    if (Math.abs(p.s) > (p.axis === 'x' ? HALF_SPAN_X : HALF_SPAN_Z) - BUST_ARM_INSET) ringExposed += 1;
+    if (cop.chase > 0) chasing += 1;
+    const g = pPolice.group.position;
+    if (Math.hypot(g.x - cop.x, g.z - cop.z) > 0.6) adrift += 1;
+    nearest = Math.min(nearest, gap);
   }
+  check('it dissolves in rather than appearing', fadeAtArrival < 0.1 && fadedInBy !== null
+    && fadedInBy <= FADE_TIME + 0.1, `fade ${fadeAtArrival.toFixed(2)} on arrival, whole by ${fadedInBy?.toFixed(2)}s`);
+  check('on patrol its bar swings red and blue, never strobing', swinging > 0,
+    `${swinging} swinging frames`);
+  // One cycle a second: over a crossing, both sides get a long share each.
+  check('...both sides taking a turn', redSide > 60 && blueSide > 60,
+    `${redSide} red frames, ${blueSide} blue`);
+  check('...and it is not after anybody', chasing === 0 && spotted === 0,
+    `${chasing} chasing frames, ${spotted} spotted`);
+  check('the cruiser\'s mesh rides the traffic car', adrift === 0, `${adrift} frames adrift`);
+  // Routed through a corner near the taxi (PATROL_REACH) on the way in, so it can be met.
+  check('the crossing passes the taxi', nearest < 2.5 * PITCH, `nearest ${nearest.toFixed(1)}`);
+  check('it leaves by the far edge', exitingFrom !== null && cameIn !== null
+    && offEdge(exitingFrom.x, exitingFrom.z) < PITCH
+    && Math.hypot(exitingFrom.x - cameIn.x, exitingFrom.z - cameIn.z) > 3 * PITCH,
+    exitingFrom ? `${offEdge(exitingFrom.x, exitingFrom.z).toFixed(1)} from the ring, `
+      + `${Math.hypot(exitingFrom.x - cameIn.x, exitingFrom.z - cameIn.z).toFixed(0)} from where it came in` : 'never exited');
+  check('...dissolving out, and off the road only once it has', retiredAt !== null && fadeOnRetire === 0
+    && pPatrol.state.phase === 'off', `fade ${fadeOnRetire} when retired`);
+  const shellShown = pPolice.group.children.some((c) => !c.isLight && c.visible);
+  check('...and the cruiser goes dark and hidden until the next', !pPolice.state.active
+    && !pPolice.state.lit && !shellShown && pPatrol.state.cooldown >= pPatrol.state.cooldownRange[0]);
 
-  check('the police car runs corridors for the arming test', runs >= 5, `${runs} runs`);
-  check('the bust is never armed while the cruiser is still fading in',
-    armedWhileFading === 0, `${armedWhileFading} of ${armedFrames} armed frames`);
-  check('an armed cruiser always has its light bar running',
-    armedWithLampsDark === 0, `${armedWithLampsDark} of ${armedFrames} armed frames`);
-  check('a cruiser that is drawing at all has its light bar running', darkWhileVisible === 0,
-    `${darkWhileVisible} frames`);
-  check('the light bar is dark between runs', litWhileIdle === 0, `${litWhileIdle} frames`);
-  check('every run telegraphs itself before the bust arms', worstTelegraph >= 1.5,
-    `${worstTelegraph.toFixed(2)}s of visible siren on the tightest run`);
-  check('the bust never arms out in the outer band', ringExposed === 0, `${ringExposed} frames`);
+  // Spotted: the taxi boosting within a block. Staged by moving the taxi beside it for the one
+  // frame the patrol reads, which is the whole of the rule.
+  const qScene = new THREE.Scene();
+  const qTraffic = createTraffic(makeRng(seed + 44), qScene, CARS_DEFAULT);
+  const qPolice = createPolice(qScene);
+  let qSpotted = 0;
+  const qPatrol = createPatrol({
+    rng: makeRng(seed + 66), police: qPolice, traffic: qTraffic, taxi: qTraffic.taxi,
+    onSpotted: () => { qSpotted += 1; },
+  });
+  qPatrol.state.cooldown = 0;
+  for (let step = 0; step < 60 * 60 && qPatrol.state.phase !== 'patrol'; step++) {
+    qTraffic.update(1 / 60); qPatrol.update(1 / 60); qPolice.update(1 / 60);
+  }
+  for (let step = 0; step < 60; step++) { qTraffic.update(1 / 60); qPatrol.update(1 / 60); qPolice.update(1 / 60); }
+  const qCop = qPatrol.state.cop;
+  const qTaxi = qTraffic.taxi;
+  const saved = { x: qTaxi.x, z: qTaxi.z };
+  qTaxi.x = qCop.x + 6;
+  qTaxi.z = qCop.z;
+  qPatrol.update(1 / 60, { boosting: true });
+  qPolice.update(1 / 60);
+  qTaxi.x = saved.x;
+  qTaxi.z = saved.z;
+  check('boosting within a block of it sets it after you', qPatrol.state.phase === 'chase'
+    && qCop.siren && qCop.chase === 1 && qSpotted === 1);
+  check('...with its bar strobing, at the hunting rate', qPolice.state.lit && qPolice.state.chasing);
+
+  // A robbery wants the streets: a crossing patrol stands down for one, drives off with its bar
+  // dark, and leaves the road only once it is out of sight.
+  const rScene = new THREE.Scene();
+  const rTraffic = createTraffic(makeRng(seed + 44), rScene, CARS_DEFAULT);
+  const rPolice = createPolice(rScene);
+  let robbing = false;
+  const rPatrol = createPatrol({
+    rng: makeRng(seed + 66), police: rPolice, traffic: rTraffic, taxi: rTraffic.taxi,
+    blocked: () => robbing,
+  });
+  rPatrol.state.cooldown = 0;
+  for (let step = 0; step < 60 * 60 && rPatrol.state.phase !== 'patrol'; step++) {
+    rTraffic.update(1 / 60); rPatrol.update(1 / 60); rPolice.update(1 / 60);
+  }
+  const rCop = rPatrol.state.cop;
+  robbing = true;
+  rTraffic.update(1 / 60); rPatrol.update(1 / 60); rPolice.update(1 / 60);
+  check('a crossing patrol stands down when a robbery starts', rPatrol.state.phase === 'leaving'
+    && !rPolice.state.lit);
+  let rRetiredAt = null;
+  for (let step = 0; step < 60 * 30 && rPatrol.state.phase !== 'off'; step++) {
+    const was = Math.hypot(rCop.x - rTraffic.taxi.x, rCop.z - rTraffic.taxi.z);
+    rTraffic.update(1 / 60); rPatrol.update(1 / 60); rPolice.update(1 / 60);
+    if (!rTraffic.policeCars.includes(rCop)) { rRetiredAt = was; break; }
+  }
+  check('...and leaves the road only once it is out of sight', rRetiredAt >= SPAWN_CLEARANCE - 0.5,
+    `retired ${rRetiredAt?.toFixed(1)} from the taxi`);
 }
 
 // --- The off-screen police warning -----------------------------------------
-// A cruiser one screen edge away is already inside POLICE_BUST_RANGE of anywhere on that edge, and
-// until this existed the only cue it was out there was ambient traffic pulling over to a car the
-// player could not see. game/sirenglow.js washes red and blue in over the edge it is coming from.
+// A patrol that has spotted the taxi can be coming at it from off the frame, and a lit bar a screen
+// away is invisible. game/sirenglow.js washes red and blue in over the edge it is coming from.
 //
 // The whole feature is a bearing and a strength, so it is checked as numbers here rather than
 // looked at: the strength is what says "it is off-frame and how close", the bearing is what says
@@ -7315,20 +7423,21 @@ check('the taxi is an ordinary car in the traffic array',
   const far = edgeGlow(W * 2, H / 2, W, H, GLOW_FAR * 2);
   check('the wash dims with distance', near.strength > mid.strength && mid.strength > far.strength,
     `${near.strength.toFixed(2)} → ${mid.strength.toFixed(2)} → ${far.strength.toFixed(2)}`);
-  check('and never all the way out while the cruiser is armed',
+  check('and never all the way out while the cruiser is lit',
     Math.abs(far.strength - GLOW_FLOOR) < 1e-9, `floor ${far.strength.toFixed(2)}`);
 
-  // Now against a live corridor run, through the play camera. Two lies to rule out, and they are
-  // the same pair the light bar is checked for above: a wash over a cruiser between runs (a
-  // warning about a car that is not on the map) and no wash over a lit one that is off-frame (the
-  // silence this exists to end). Gated on `lit` rather than `armed` because that is what the bar
-  // does — the wash covers the grace period before the bust arms, same as the siren it stands in
-  // for.
+  // Now against live patrols, through the play camera, with a taxi that never lets go of the pill
+  // so they keep giving chase. Two lies to rule out: a wash over a patrol that is merely cruising
+  // with its bar dark (a warning about a car that is not after you) and no wash over a lit one
+  // that is off-frame (the silence this exists to end).
   const gScene = new THREE.Scene();
-  const gPolice = createPolice(makeRng(seed + 66), gScene);
+  const gTraffic = createTraffic(makeRng(seed + 44), gScene, CARS_DEFAULT);
+  const gPolice = createPolice(gScene);
+  const gPatrol = createPatrol({ rng: makeRng(seed + 66), police: gPolice, traffic: gTraffic, taxi: gTraffic.taxi });
+  gPatrol.setCooldownRange([1, 3]);
+  gTraffic.taxi.boost = true;
   const gCam = createCityCamera(W / H, { zoom: 46 });
   gCam.update(W / H);
-  const taxiAt = { x: lineX(2), z: lineZ(2) };             // parked mid-map, so the camera is still
   const projected = new THREE.Vector3();
 
   let washedUnlit = 0;
@@ -7337,14 +7446,18 @@ check('the taxi is an ordinary car in the traffic array',
   let offFrameFrames = 0;
   let litFrames = 0;
   for (let step = 0; step < 600 * 60; step++) {
+    gTraffic.update(1 / 60);
+    gPatrol.update(1 / 60, { boosting: true });
     gPolice.update(1 / 60);
+    if (!gPolice.state.active) continue;
     const car = gPolice.group.position;
     projected.copy(car).project(gCam.camera);
     const sx = (projected.x * 0.5 + 0.5) * W;
     const sy = (-projected.y * 0.5 + 0.5) * H;
     // The composed rule, arming gate and all — the same call main.js makes every frame.
     const glow = sirenWash(
-      gPolice.state, sx, sy, W, H, Math.hypot(taxiAt.x - car.x, taxiAt.z - car.z),
+      gPolice.state, sx, sy, W, H,
+      Math.hypot(gTraffic.taxi.x - car.x, gTraffic.taxi.z - car.z),
     );
 
     if (!gPolice.state.lit) {
@@ -7363,7 +7476,7 @@ check('the taxi is an ordinary car in the traffic array',
     }
   }
 
-  check('the police wash runs over a live corridor', litFrames > 0 && offFrameFrames > 0,
+  check('the police wash runs over live chases', litFrames > 0 && offFrameFrames > 0,
     `${litFrames} lit frames, ${offFrameFrames} of them off-frame`);
   check('nothing with a dark light bar lights the frame edge', washedUnlit === 0,
     `${washedUnlit} frames`);
@@ -7381,19 +7494,39 @@ check('the taxi is an ordinary car in the traffic array',
   let huntDiffers = 0;
   // Parked far off the frame at close range, so the strength is a flat 1 and the only thing moving
   // is the strobe.
+  // A chasing cop strobes; a patrolling one swings slowly and softly between red and blue — the
+  // telegraph, and the change the player has to read when it spots them is the strobe starting.
   const strobing = (flash, hunting) => sirenWash(
-    { lit: true, flash, chasing: hunting, arrived: false }, W * 2, H / 2, W, H, GLOW_NEAR,
+    { lit: true, flash, chasing: hunting, cop: null }, W * 2, H / 2, W, H, GLOW_NEAR,
   );
+  let calmSwaps = 0;
+  let huntSwaps = 0;
+  let calmPeak = 0;
+  let calmJump = 0;
+  let lastCalm = strobing(0, false);
+  let lastHunt = strobing(0, true);
   for (let f = 0; f < 120; f++) {
     const flash = f / 120;
-    const wash = strobing(flash, false);
+    const wash = strobing(flash, true);
     if (wash.red > wash.blue) redPeaks += 1;
     if (wash.blue > wash.red) bluePeaks += 1;
     if (wash.red <= 0 || wash.blue <= 0) dark += 1;
-    const hunt = strobing(flash, true);
-    if ((hunt.red > hunt.blue) !== (wash.red > wash.blue)) huntDiffers += 1;
+    const calm = strobing(flash, false);
+    if ((calm.red > calm.blue) !== (wash.red > wash.blue)) huntDiffers += 1;
+    if ((calm.red > calm.blue) !== (lastCalm.red > lastCalm.blue)) calmSwaps += 1;
+    if ((wash.red > wash.blue) !== (lastHunt.red > lastHunt.blue)) huntSwaps += 1;
+    calmPeak = Math.max(calmPeak, calm.red, calm.blue);
+    calmJump = Math.max(calmJump, Math.abs(calm.red - lastCalm.red), Math.abs(calm.blue - lastCalm.blue));
+    lastCalm = calm;
+    lastHunt = wash;
   }
-  const held = strobing(0.5, false);
+  // One swing a second (PATROL_SWING_HZ) against the hunt's eleven changes, eased rather than cut,
+  // and softer than a chase's wash.
+  check('a patrolling cop washes the edge red and blue, swinging slowly', calmSwaps === 2 && huntSwaps >= 10,
+    `${calmSwaps} changes a second on patrol, ${huntSwaps} hunting`);
+  check('...eased rather than switched, and softer than a chase', calmJump < 0.05
+    && calmPeak <= PATROL_WASH + 1e-9, `largest step ${calmJump.toFixed(3)}, peak ${calmPeak.toFixed(2)}`);
+  const held = strobing(0.5, true);
   check('the off half of the strobe holds the light bar\'s own low glow',
     Math.abs(Math.min(held.red, held.blue) - SIREN_DIM) < 1e-9
     && Math.abs(Math.max(held.red, held.blue) - 1) < 1e-9,
@@ -7401,8 +7534,8 @@ check('the taxi is an ordinary car in the traffic array',
   check('the wash alternates red and blue', redPeaks > 20 && bluePeaks > 20,
     `${redPeaks} red / ${bluePeaks} blue frames of 120`);
   check('and neither half ever goes fully dark', dark === 0, `${dark} frames`);
-  check('the strobe speeds up once the cruiser has locked on', huntDiffers > 0,
-    `${huntDiffers} of 120 frames differ from the corridor rate`);
+  check('the strobe only starts once a cop is after you', huntDiffers > 0,
+    `${huntDiffers} of 120 frames differ from the patrol swing`);
 }
 
 // --- The robbery's frame ---------------------------------------------------
@@ -7439,194 +7572,20 @@ check('the taxi is an ordinary car in the traffic array',
   check('and nothing at all at zero level', off.a.red + off.a.blue + off.b.red + off.b.blue === 0);
 }
 
-// --- The bust chase --------------------------------------------------------
-// On the bust the cruiser breaks off its corridor run and hunts the (now frozen) taxi down. What
-// has to hold: it gets there, it gets there inside the cinematic's time budget, and it stays on
-// the road grid while doing it — the greedy router turns at junctions, so a bug there sends it
-// across a block rather than merely somewhere unhelpful.
+// --- What is hidden between patrols, and what is deliberately not ----------
+// The cruiser is off the map for much of a run, and the obvious way to put it there —
+// `group.visible = false` — cost a stall every time it came back. Three collects the scene's
+// lights with `traverseVisible`, so hiding the group took the two siren lamps out of the light
+// count with it, and the light count is in every lit material's program cache key: every lit
+// material in the city relinked its shader on the spawn frame. So the group stays visible and a
+// shell one level in carries everything that draws. Both halves are asserted, because either one
+// alone is a bug — a visible group with the meshes still in it is a cruiser parked at the origin
+// for the whole run, and a dark lamp under a hidden parent is the stall coming back.
 {
-  // Distance from a point to the nearest road centreline, on whichever axis is closer. A car in
-  // its lane sits LANE (2) off; a car cutting a corner is inside the junction box (HALF_ROAD = 4
-  // either way). Anything much past 4 means it left the asphalt.
-  const offRoad = (x, z) => {
-    let dx = Infinity;
-    let dz = Infinity;
-    for (let i = 0; i <= GRID_I; i++) dx = Math.min(dx, Math.abs(x - lineX(i)));
-    for (let j = 0; j <= GRID_J; j++) dz = Math.min(dz, Math.abs(z - lineZ(j)));
-    return Math.min(dx, dz);
-  };
-
-  // Four quarries around the cruiser, spread over the envelope the bust can actually produce:
-  // POLICE_BUST_RANGE is 20, one block, so nothing here is further out than that plus the width of
-  // the taxi's own road. Offsets are relative to the cruiser's heading — `along` down its road,
-  // `across` in whole blocks sideways — and always land on a lane of a real road.
-  const cases = [
-    { name: 'ahead on the same road', along: 18, across: 0 },
-    { name: 'behind it (U-turn)', along: -18, across: 0 },
-    { name: 'one road over', along: 0, across: 1 },
-    { name: 'one road over and behind', along: -12, across: 1 },
-  ];
-
-  let slowest = 0;
-  let worstGap = 0;
-  let worstOffRoad = 0;
-  let worstStep = 0;
-  let worstYawRate = 0;
-  let failed = null;
-  let uturns = 0;
-  let peakRoll = 0;
-  let noseUp = 0;
-  let noseDown = 0;
-  let sunk = 0;
-  let peakKick = 0;
-  // Front wheels. The corridor run is a straight rail, so anything but a flat zero there means
-  // the difference is picking up noise; the chase corners, weaves and U-turns, so it has to reach
-  // a real lock. `rigLock` reads the angle back off the meshes rather than off the model.
-  let corridorLock = 0;
-  let chaseLock = 0;
-  let rigLock = 0;
-  // Only the steered wheels yaw; the light-bar boxes and the body sit at 0. Traversed rather than
-  // read off `group.children`, because the cruiser's meshes hang off a shell one level in — the
-  // group itself has to stay visible so its two siren lamps stay in the scene's light count (see
-  // `createPolice`), and the group's own `rotation.y` is the car's heading, which is not a lock.
-  const wheelLock = (p) => {
-    let peak = 0;
-    p.group.traverse((c) => { if (c.isMesh) peak = Math.max(peak, Math.abs(c.rotation.y)); });
-    return peak;
-  };
-
-  for (const kase of cases) {
-    const cScene = new THREE.Scene();
-    const cPolice = createPolice(makeRng(seed + 66), cScene);
-    cPolice.state.cooldown = 0;
-    // Run it up to mid-city so there is room on every side for the quarry.
-    for (let step = 0; step < 60 * 90; step++) {
-      cPolice.update(1 / 60);
-      // Before the run's first corner. A corridor run takes two of its own now (see the jog,
-      // above) and those steer for real — what this one is still about is the rail between them,
-      // and `!state.corner` alone would sample the half second the lock takes to unwind after one.
-      if (cPolice.state.active && cPolice.state.turns === 0) {
-        corridorLock = Math.max(corridorLock, Math.abs(cPolice.state.wheelAngle));
-      }
-      if (cPolice.state.active && Math.abs(cPolice.state.s) < PITCH) break;
-    }
-    if (!cPolice.state.active) { failed = `${kase.name}: no run to chase from`; break; }
-
-    // Place the quarry relative to the cruiser's own heading. Sideways steps go toward the middle
-    // of the map so the target road exists whichever line the run happened to pick.
-    // `state.line` names a j while the rail runs along X and an i while it runs along Z, so
-    // "toward the middle" is measured against that axis's own count.
-    const lineTop = cPolice.state.axis === 'x' ? GRID_J : GRID_I;
-    const inward = cPolice.state.line <= lineTop / 2 ? 1 : -1;
-    const alongCoord = cPolice.state.s + cPolice.state.dir * kase.along;
-    const crossLine = cPolice.state.line + kase.across * inward;
-    const crossCoord = (cPolice.state.axis === 'x' ? lineZ(crossLine) : lineX(crossLine)) + LANE;
-    const quarry = cPolice.state.axis === 'x'
-      ? { x: alongCoord, z: crossCoord }
-      : { x: crossCoord, z: alongCoord };
-
-    const before = cPolice.state.dir;
-    cPolice.chase(quarry);
-    if (!cPolice.state.chasing) { failed = `${kase.name}: chase() did not engage`; break; }
-    if (cPolice.state.dir !== before) uturns += 1;
-    // Read before the first update: the kick has to be a step in speed on the frame it decides,
-    // not something the accel ramp gets to a few frames later.
-    peakKick = Math.max(peakKick, cPolice.state.v);
-
-    let t = 0;
-    let prev = { x: cPolice.group.position.x, z: cPolice.group.position.z, y: cPolice.group.rotation.y };
-    while (!cPolice.state.arrived && t < 10) {
-      cPolice.update(1 / 60);
-      t += 1 / 60;
-      const now = cPolice.group.position;
-      worstOffRoad = Math.max(worstOffRoad, offRoad(now.x, now.z));
-      // The rail underneath this car turns corners square and flips a whole road width on the
-      // U-turn. Only the smoothing keeps that off the screen, so both the step and the yaw rate
-      // are watched frame by frame — a snap that reaches the mesh is a visible teleport.
-      worstStep = Math.max(worstStep, Math.hypot(now.x - prev.x, now.z - prev.z));
-      // Shortest-arc difference: the U-turn sweep ends on uturnYaw0 + π, which can be a whole
-      // turn away from the atan2 the next frame produces for the same heading. Identical on
-      // screen, so the metric has to see it that way too.
-      const raw = cPolice.group.rotation.y - prev.y;
-      const dYaw = Math.abs(Math.atan2(Math.sin(raw), Math.cos(raw)));
-      worstYawRate = Math.max(worstYawRate, dYaw);
-      chaseLock = Math.max(chaseLock, Math.abs(cPolice.state.wheelAngle));
-      rigLock = Math.max(rigLock, wheelLock(cPolice));
-      prev = { x: now.x, z: now.z, y: cPolice.group.rotation.y };
-
-      // Body: it should lean, rock both ways, and never drop an edge through the tarmac.
-      peakRoll = Math.max(peakRoll, Math.abs(cPolice.group.rotation.x));
-      noseUp = Math.max(noseUp, cPolice.group.rotation.z);
-      noseDown = Math.min(noseDown, cPolice.group.rotation.z);
-      if (now.y < ROAD_Y - 1e-6) sunk += 1;
-    }
-    if (!cPolice.state.arrived) { failed = `${kase.name}: never arrived`; break; }
-
-    slowest = Math.max(slowest, t);
-    worstGap = Math.max(worstGap, Math.hypot(
-      cPolice.group.position.x - quarry.x, cPolice.group.position.z - quarry.z,
-    ));
-
-    if (getPriorityCorridor()) { failed = `${kase.name}: corridor still held after arrival`; break; }
-  }
-
-  check('the cruiser runs down the taxi from every side', failed === null, failed ?? '4 approaches');
-  // The banner waits for the arrest, but only so long: BUST_BANNER_MAX at BUST_SLOW_MO_MIN works
-  // out at ~4.2s of sim time (see main.js). A typical approach is ~2.2s; the worst measured is
-  // seed 8888's, where a park closes the only direct road and the legal route runs 68 units.
-  check('the chase lands before the banner stops waiting', slowest < 4.1,
-    `slowest ${slowest.toFixed(2)}s`);
-  check('it pulls up next to the taxi, not on top of it', worstGap > 2 && worstGap < 9,
-    `widest final gap ${worstGap.toFixed(2)}`);
-  check('the chase never leaves the road grid', worstOffRoad < 4.4,
-    `furthest off a centreline ${worstOffRoad.toFixed(2)}`);
-  check('a quarry behind the cruiser makes it swing round', uturns >= 1, `${uturns} U-turns`);
-  // Both numbers are the caps in police.js showing through: the drawn step is bounded at
-  // CHASE_SPEED * 1.2 per frame, and easing the nose at YAW_EASE spreads the rail's instant 90°
-  // corner over ~0.35s — 13.3°/frame at the sharpest, measured across eight seeds. Unbounded, the
-  // corner snap put them at 0.83 units and 79° in a single frame.
-  //
-  // Derived from CHASE_SPEED rather than written out, because that constant is pinned to the taxi's
-  // overdrive ceiling and has now moved twice with it — a hardcoded 0.55 here just goes red for the
-  // wrong reason the next time the ceiling does.
-  const stepCap = (CHASE_SPEED * 1.2) / 60 + 0.03;
-  check('the chase never teleports', worstStep < stepCap,
-    `biggest step ${worstStep.toFixed(3)} units of ${stepCap.toFixed(2)}`);
-  check('the nose never snaps round', worstYawRate < 0.28,
-    `fastest yaw ${(worstYawRate * 180 / Math.PI).toFixed(1)}°/frame`);
-
-
-  // The body language, which is what makes the chase read as aggressive rather than as a fast
-  // machine tracking a line. Bounds are the caps in police.js: ROLL_LIMIT, and PITCH_LIMIT plus
-  // the kickoff wheelie riding on top of it.
-  check('the cruiser leans through what it throws the car at', peakRoll > 0.08 && peakRoll <= 0.34,
-    `peak lean ${(peakRoll * 180 / Math.PI).toFixed(1)}°`);
-  check('it squats and dives, both', noseUp > 0.02 && noseDown < -0.02,
-    `pitch ${(noseDown * 180 / Math.PI).toFixed(1)}°..+${(noseUp * 180 / Math.PI).toFixed(1)}°`);
-  check('no tilt puts a corner through the tarmac', sunk === 0, `${sunk} frames below road level`);
-  // CHASE_KICK against the corridor cruise of 19: the lock-on is a step in speed, not a ramp.
-  check('it plants the throttle on lock-on', peakKick > 24,
-    `${peakKick.toFixed(1)} units/s on the deciding frame, up from 19`);
-
-  // The cruiser runs the same steerToward() as every car in traffic.js, so what is checked here is
-  // that it is wired to a heading that actually moves — a corridor run alone would pass any
-  // implementation, including one that never turned the wheels at all.
-  check('the cruiser holds its wheels straight down a corridor straight', corridorLock < 1e-6,
-    `${(corridorLock * 180 / Math.PI).toFixed(1)}° peak on the rail`);
-  check('the cruiser steers into the chase', chaseLock > 0.3 && Math.abs(rigLock - chaseLock) < 1e-9,
-    `rig ${(rigLock * 180 / Math.PI).toFixed(0)}° vs model ${(chaseLock * 180 / Math.PI).toFixed(0)}°`);
-
-  // --- What is hidden between runs, and what is deliberately not.
-  //
-  // The cruiser is off screen for most of a run, and the obvious way to put it there —
-  // `group.visible = false` — cost a stall every time it came back. Three collects the scene's
-  // lights with `traverseVisible`, so hiding the group took the two siren lamps out of the light
-  // count with it, and the light count is in every lit material's program cache key: every lit
-  // material in the city relinked its shader on the spawn frame. So the group stays visible and a
-  // shell one level in carries everything that draws. Both halves are asserted, because either one
-  // alone is a bug — a visible group with the meshes still in it is a cruiser parked at the origin
-  // for the whole run, and a dark lamp under a hidden parent is the stall coming back.
-  const hidden = createPolice(makeRng(seed + 66), new THREE.Scene());
+  const hScene = new THREE.Scene();
+  const hTraffic = createTraffic(makeRng(seed + 44), hScene, CARS_DEFAULT);
+  const hidden = createPolice(hScene);
+  const hPatrol = createPatrol({ rng: makeRng(seed + 66), police: hidden, traffic: hTraffic, taxi: hTraffic.taxi });
   const lampsOf = (p) => {
     const lamps = [];
     p.group.traverse((o) => { if (o.isLight) lamps.push(o); });
@@ -7638,238 +7597,428 @@ check('the taxi is an ordinary car in the traffic array',
     return drawn;
   };
   const shown = (o) => { let n = o; while (n) { if (!n.visible) return false; n = n.parent; } return true; };
-  check('a parked cruiser draws nothing', drawnOf(hidden).length > 0
+  check('a cruiser off the map draws nothing', drawnOf(hidden).length > 0
     && drawnOf(hidden).every((m) => !shown(m)),
     `${drawnOf(hidden).length} meshes, all hidden`);
   check('...but its siren lamps stay in the scene, dark', lampsOf(hidden).length === 2
     && lampsOf(hidden).every((l) => shown(l) && l.intensity === 0),
     'a light under a hidden parent is not counted, and the light count is in every program key');
-  hidden.state.cooldown = 0;
-  for (let step = 0; step < 60 * 30 && !hidden.state.active; step++) hidden.update(1 / 60);
+  hPatrol.state.cooldown = 0;
+  for (let step = 0; step < 60 * 60 && hPatrol.state.phase !== 'patrol'; step++) {
+    hTraffic.update(1 / 60); hPatrol.update(1 / 60); hidden.update(1 / 60);
+  }
+  // The pods themselves only draw while the bar is lit; everything else — body, housing, wheels —
+  // is the car, and draws for the whole patrol.
   check('...and the car it belongs to draws once it is out', hidden.state.active
-    && drawnOf(hidden).every((m) => shown(m)),
+    && drawnOf(hidden).filter(shown).length >= 3,
     `active ${hidden.state.active}, ${drawnOf(hidden).filter(shown).length}/${drawnOf(hidden).length} drawn`);
   check('...without the light count having changed under it', lampsOf(hidden).length === 2
     && lampsOf(hidden).every(shown),
     'the lamps are never added or removed, only turned up');
+  // The bar's housing is baked into the body, so a dark bar still reads as police: the first thing
+  // the patrol does now is drive around with its lights off.
+  check('a dark bar still has its housing', drawnOf(hidden).some((m) => shown(m)
+    && m.geometry.attributes.color && (() => {
+      const c = m.geometry.attributes.color;
+      const want = color('sirenHousing');
+      for (let k = 0; k < c.count; k++) {
+        if (Math.abs(c.getX(k) - want.r) < 0.02 && Math.abs(c.getY(k) - want.g) < 0.02
+          && Math.abs(c.getZ(k) - want.b) < 0.02) return true;
+      }
+      return false;
+    })()));
 }
 
-// --- Traffic in the siren's own lane ----------------------------------------
-//
-// The cruiser has no collision response and never will — it is a scripted car on a rail, and
-// giving it a queue would mean giving it the whole following-distance model. What it has instead
-// is a two-sided manoeuvre: ambient traffic in its lane pulls over onto the kerb (PULLOVER_* in
-// traffic.js) and the cruiser moves toward the centreline to get past (DODGE_* in police.js).
-// Neither half is any use alone — 1.5 units of pull-over against two 1.7-wide bodies still
-// overlaps — so what is asserted here is the *outcome*: bodies that do not occupy the same tarmac.
-//
-// Measured against the same run with both halves removed, over 199 corridor runs on 24 seeds:
-// frames with the cruiser inside an ambient body fell from 1747 to 495, and the ones on open road
-// — a cruiser ploughing down an arterial through a queue, which is what this is for — from 762 to
-// 7. What is left is almost entirely cars mid-turn inside a junction box, the same category the
-// collision model already leaves standing as a hazard the player can read.
+// --- The patrol's chase: caught, or lost -----------------------------------
+// game/patrol.js. Once a patrol spots the taxi the chase is the robbery's with one car in it, and
+// the whole design rests on one ordering: a taxi off the pill gets caught, and one that spends a
+// full tank gets away — and does not get away in a blip (PURSUIT_* and ESCAPE_HOLD). Measured over
+// a spread of seeds, with the taxi driving a route across town the way a fare would take it —
+// dice-driven, it turns at random and never reaches the overdrive band that is the real way out.
 {
-  const DT = 1 / 60;
-  // Where a building façade starts: the block begins at the kerb line and towers are inset 0.85
-  // into their lot. A car shoved past this is a car parked in a lobby. The kerb line is per-road
-  // since the arterials were widened, so this is measured as a *margin* to the wall beside the
-  // car rather than as one distance from the centreline compared against one constant.
-  const LOT_INSET = 0.85;
-
-  const medians = medianRuns();
-  /** Is a body of half-width `pad` centred at (x, z) over any planted median? */
-  const overMedian = (x, z, pad) => medians.some((m) => x > m.x0 - pad && x < m.x1 + pad
-    && z > m.z0 - pad && z < m.z1 + pad);
-
-  let armedFrames = 0;
-  let insideBody = 0;
-  let insideDriving = 0;
-  let furthestOut = 0;
-  let wallGap = Infinity;
-  // Nothing drives on a planted median. The one sanctioned exception is a boosting taxi mid-pass,
-  // which crosses it by design (see PASS_LATERAL in sim/traffic.js) — everything else meeting one
-  // is a bug in a lane offset or in the police dodge, and both are numbers that get tuned.
-  let onMedian = 0;
-  let pulledOver = 0;
-  let peakDodge = 0;
-  let peakWheel = 0;
-
-  for (const s of [seed, seed + 1, seed + 2]) {
+  // Across town and back: whichever map corner is further, re-planned when the route runs out.
+  const driveOn = (taxi) => {
+    if (taxi.route?.length) return;
+    const target = { i: taxi.i > GRID_I / 2 ? 0 : GRID_I, j: taxi.j > GRID_J / 2 ? 0 : GRID_J };
+    const route = planRoute(planOrigin(taxi), target);
+    if (route?.length) { taxi.route = route; taxi.routeConsumed = false; }
+  };
+  // `tank`: seconds of Loco Mode the taxi spends from the moment it is spotted — 0 is off the pill,
+  // BOOST_DURATION a full tank. `hideAt`: seconds in, the taxi turns in at the depot — staged off
+  // the road, as the opening does it, and `hideout` called the way main.js calls it.
+  const outcome = (s, tank, hideAt = null) => {
+    createLayout(makeRng(s));
     const pScene = new THREE.Scene();
-    const pTraffic = createTraffic(makeRng(s + 44), pScene, 30);
-    const pPolice = createPolice(makeRng(s + 66), pScene, pTraffic.cars);
-    pPolice.state.cooldown = 0;
-
-    let t = 0;
-    for (let step = 0; step < 60 * 100; step++) {
-      t += DT;
-      pPolice.update(DT);
-      pTraffic.update(DT, t);
-      if (!pPolice.state.armed) continue;
-      armedFrames += 1;
-      peakDodge = Math.max(peakDodge, pPolice.state.dodge);
-      peakWheel = Math.max(peakWheel, Math.abs(pPolice.state.wheelAngle));
-
-      const p = pPolice.group.position;
-      const axis = pPolice.state.axis;
-      if (overMedian(p.x, p.z, CAR_W / 2)) onMedian += 1;
-      // The taxi is the exception, and only while it is actually out of its lane.
-      const pt = pTraffic.taxi;
-      if (pt && !pt.crashed && pt.passOffset < 0.01 && overMedian(pt.x, pt.z, CAR_W / 2)) {
-        onMedian += 1;
+    const pTraffic = createTraffic(makeRng(s + 44), pScene, CARS_DEFAULT);
+    const pPolice = createPolice(pScene);
+    const taxi = pTraffic.taxi;
+    let result = null;
+    const pursuit = createPatrol({
+      rng: makeRng(s + 66),
+      police: pPolice,
+      traffic: pTraffic,
+      taxi,
+      onCaught: (cop) => {
+        result = { how: 'caught', touched: touching(taxi, cop, TOUCH_SLACK), braking: cop.roadblock > 0 };
+        taxi.crashed = true;
+      },
+      onLost: () => { result = { how: 'lost' }; },
+      onHid: () => { result = { how: 'hid' }; },
+    });
+    pursuit.state.cooldown = 0;
+    // A few seconds into its patrol, so it is in town rather than at the edge of it.
+    let onPatrol = 0;
+    for (let step = 0; step < 60 * 90 && onPatrol < 60 * 3; step++) {
+      pTraffic.update(1 / 60);
+      pursuit.update(1 / 60);
+      pPolice.update(1 / 60);
+      if (pursuit.state.phase === 'patrol') onPatrol += 1;
+    }
+    if (pursuit.state.phase !== 'patrol') return null;
+    // The taxi goes where the trigger can catch it: on a lane 8-18 units from the cruiser, which is
+    // inside SPOT_RANGE — the only place a patrol ever gives chase from.
+    const net = cityNetwork();
+    const cp = pPolice.group.position;
+    let spot = null;
+    for (const lane of net.lanes) {
+      if (lane.degenerate || isLaneClosed(lane.id) || lane.length < 6) continue;
+      for (let back = 4; back < lane.length - 1 && !spot; back += 1) {
+        const at = lane.path.at(lane.length - back);
+        const r = Math.hypot(at.x - cp.x, at.z - cp.z);
+        if (r < 8 || r > 18) continue;
+        if (pTraffic.cars.some((c) => c !== taxi && Math.hypot(c.x - at.x, c.z - at.z) < 7)) continue;
+        const to = net.nodeById.get(lane.to);
+        spot = { d: net.dirOfLane(lane), i: to.gi, j: to.gj, back };
       }
-      for (const car of pTraffic.cars) {
-        if (car.crashed || car.isTaxi) continue;
-        if (car.pullover > 0.5) pulledOver += 1;
-        // Both bodies sit square to the road on a corridor run, so overlap is two axis-aligned
-        // boxes: touching along the road *and* across it at the same time.
-        const halfW = (car.isTruck ? TRUCK_W : CAR_W) / 2 + CAR_W / 2;
-        const alongGap = Math.abs(axis === 'x' ? car.x - p.x : car.z - p.z) - CAR_LEN;
-        const acrossGap = Math.abs(axis === 'x' ? car.z - p.z : car.x - p.x) - halfW;
-        if (alongGap < 0 && acrossGap < 0) {
-          insideBody += 1;
-          if (car.state === 'drive') insideDriving += 1;
-        }
-        // How far the pull-over throws a body off the road it is on. Only meaningful for a car
-        // running a lane — mid-junction there is no one centreline to measure against.
-        // Flank included for a car running a lane, where the body is square to the road; a car
-        // mid-turn is tested on its centre alone, since a wheel over a kerb inside a junction box
-        // is not what this is looking for.
-        const pad = car.state === 'drive' ? CAR_W / 2 : 0;
-        if (overMedian(car.x, car.z, pad)) onMedian += 1;
-
-        if (car.state !== 'drive') continue;
-        const line = (isXAxis(car.d) ? car.j : car.i);
-        const half = isXAxis(car.d) ? halfRoadX(line) : halfRoadZ(line);
-        const off = isXAxis(car.d)
-          ? Math.abs(car.z - lineZ(line))
-          : Math.abs(car.x - lineX(line));
-        const edge = off + CAR_W / 2;
-        furthestOut = Math.max(furthestOut, edge);
-        wallGap = Math.min(wallGap, half + LOT_INSET - edge);
+      if (spot) break;
+    }
+    if (!spot || !placeCar(taxi, spot.d, spot.i, spot.j, spot.back)) return null;
+    taxi.route = [];
+    // `placeCar` moves the car on its lane; its position is written by the next traffic tick, and
+    // the patrol reads the position.
+    const at = taxi.lane.path.at(taxi.s);
+    taxi.x = at.x;
+    taxi.z = at.z;
+    const violations = pTraffic.stats.violations;
+    // Spotted on the pill, whichever way the chase is then driven.
+    pursuit.update(1 / 60, { boosting: true });
+    if (pursuit.state.phase !== 'chase') return null;
+    let t = 0;
+    let busyThroughout = true;
+    for (; t < 45 && !result; t += 1 / 60) {
+      if (hideAt != null && t >= hideAt) {
+        taxi.staged = true;
+        taxi.v = 0;
+        if (!pursuit.hideout()) result = { how: 'not hid' };
+        break;
+      }
+      const boosting = t < tank;
+      taxi.boost = boosting;
+      driveOn(taxi);
+      pTraffic.update(1 / 60);
+      pursuit.update(1 / 60, { boosting });
+      pPolice.update(1 / 60);
+      if (!pursuit.busy() && !result) busyThroughout = false;
+    }
+    const out = {
+      ...(result ?? { how: 'none' }), t, busyThroughout,
+      violations: pTraffic.stats.violations - violations,
+    };
+    // After a catch the taxi is frozen and out of collision resolution, so the cop has to stop on
+    // the touch rather than brake through the car it just rammed (it arrives at up to 21 u/s).
+    if (out.how === 'caught') {
+      const cop = pursuit.state.cop;
+      const atCatch = penetration(taxi, cop)?.depth ?? 0;
+      out.sunk = 0;
+      for (let k = 0; k < 120; k++) {
+        pTraffic.update(1 / 60);
+        pursuit.update(1 / 60);
+        pPolice.update(1 / 60);
+        out.sunk = Math.max(out.sunk, (penetration(taxi, cop)?.depth ?? 0) - atCatch);
       }
     }
-  }
+    // After a loss: the bar goes dark, the car drives off, and once it is out of sight it leaves
+    // the road and the cruiser goes back on its cooldown. Ducking into the depot is the same exit.
+    if (out.how === 'lost' || out.how === 'hid') {
+      const cop = pursuit.state.cop;
+      out.dark = pursuit.state.phase === 'leaving' && cop && !cop.siren && cop.chase === 0 && (cop.route?.length ?? 0) > 0;
+      // The player lifts off once they are clear; a taxi still flat out round a map this size keeps
+      // driving back into the cop's way out, which measures the taxi rather than the stand-down.
+      taxi.boost = false;
+      let gone = 0;
+      out.retiredFar = Infinity;
+      for (; gone < 60 * 30 && pTraffic.policeCars.length; gone++) {
+        const was = Math.hypot(cop.x - taxi.x, cop.z - taxi.z);
+        pTraffic.update(1 / 60);
+        pursuit.update(1 / 60);
+        pPolice.update(1 / 60);
+        if (!pTraffic.policeCars.includes(cop)) out.retiredFar = was;
+      }
+      out.leftAt = gone / 60;
+      out.backOnPatrol = pursuit.state.phase === 'off' && !pPolice.state.active && !pursuit.busy();
+    }
+    return out;
+  };
 
-  check('traffic gets out of the siren\'s way', pulledOver > 50,
-    `${pulledOver} car-frames pulled over across ${armedFrames} armed frames`);
-  check('the cruiser moves over to get past', peakDodge > 1 && peakWheel > 0.02,
-    `${peakDodge.toFixed(2)} units off the lane centre, wheels to ${(peakWheel * 180 / Math.PI).toFixed(1)}°`);
-  // The one that matters: on open road the cruiser no longer drives through anybody. Bounded
-  // rather than pinned at zero because a car can still be part-way through releasing its
-  // pull-over as the cruiser arrives. Same sample with both halves removed: 54.
-  check('it stops driving through the cars in its lane', insideDriving <= 20,
-    `${insideDriving} frames inside a driving body`);
-  // Everything, junction boxes included. 62 frames (3.28%) on this sample before the manoeuvre.
-  //
-  // Widened from 2% to 4%, and it is worth saying why rather than letting it look like drift. The
-  // car-following rule changed (see "a moving leader is not a wall" in docs/traffic.md): cars used
-  // to hang back at a *stopping* distance from cars that were driving away from them, and now sit
-  // at the follow gap the docs always claimed. Traffic is genuinely denser as a result, so the
-  // cruiser meets more bodies — and the ones it meets are in junction boxes, where its dodge is a
-  // lane manoeuvre with no centreline to move off. Measured across five city seeds: 1.06, 1.42,
-  // 0.00, 0.49, 1.59% before that change and 2.38, 1.10, 1.25, 3.25, 1.06% after.
-  //
-  // The property this pair exists to protect is the check *above*, which is unaffected: `0 frames
-  // inside a driving body` on every one of those five seeds, against a bar of 20 and a pre-fix
-  // sample of 54. This one is the loose companion — "mostly", in its own name — so it is the one
-  // that gives, and it still fails on the 3.28% the manoeuvre was built to fix.
-  check('and mostly stops driving through anyone at all', insideBody < armedFrames * 0.04,
-    `${insideBody} frames (${(100 * insideBody / armedFrames).toFixed(2)}% of armed)`);
-  // The pull-over and the panic shove take the larger of the two rather than adding, precisely so
-  // this holds — summed they reach 5.17 and put a wing through a wall.
-  // Vacuously true on a city with no arterials, so the run count is asserted beside it.
-  check('nothing but a passing taxi drives on a median',
-    onMedian === 0 && medians.length > 0,
-    `${onMedian} body-frames over one of ${medians.length} islands`);
-  check('nobody gets shoved into a building', wallGap > 0,
-    `closest body edge came within ${wallGap.toFixed(2)} of a façade, furthest `
-    + `${furthestOut.toFixed(2)} from a centreline`);
+  const runs = { cruising: [], boosting: [], third: [], hid: [] };
+  for (let k = 0; k < 10; k++) {
+    const a = outcome(seed + 500 + k, 0);
+    const b = outcome(seed + 500 + k, BOOST_DURATION);
+    const c = outcome(seed + 500 + k, BOOST_DURATION / 3);
+    // Half a second in, off the pill: a cop that would otherwise have caught it (see `cruising`).
+    const h = k < 4 ? outcome(seed + 500 + k, 0, 0.5) : null;
+    if (a) runs.cruising.push(a);
+    if (b) runs.boosting.push(b);
+    if (c) runs.third.push(c);
+    if (h) runs.hid.push(h);
+  }
+  createLayout(makeRng(seed));   // createLayout installs the network it builds — put ours back
+
+  const count = (list, how) => list.filter((r) => r.how === how).length;
+  const median = (xs) => { const v = [...xs].sort((p, q) => p - q); return v.length ? v[v.length >> 1] : NaN; };
+  const cruiseCaught = runs.cruising.filter((r) => r.how === 'caught');
+  const boostLost = runs.boosting.filter((r) => r.how === 'lost');
+  check('the chase is staged on most seeds', runs.cruising.length >= 8 && runs.boosting.length >= 8,
+    `${runs.cruising.length} cruising, ${runs.boosting.length} boosting of 10`);
+  check('a taxi off the pill gets caught', count(runs.cruising, 'caught') >= runs.cruising.length * 0.7,
+    `${count(runs.cruising, 'caught')}/${runs.cruising.length} caught, median ${median(cruiseCaught.map((r) => r.t)).toFixed(1)}s`);
+  check('a full tank of Loco Mode gets away', count(runs.boosting, 'lost') >= runs.boosting.length * 0.7,
+    `${count(runs.boosting, 'lost')}/${runs.boosting.length} lost ${ESCAPE_BLOCKS} blocks clear, median ${median(boostLost.map((r) => r.t)).toFixed(1)}s`);
+  // The blip that was reported: on the pill the cop used to be gone in ~4s whatever the tank held.
+  check('...and not in a blip: the cop keeps up for a while first', median(boostLost.map((r) => r.t)) >= 6,
+    `median ${median(boostLost.map((r) => r.t)).toFixed(1)}s to lose it`);
+  // And the tank is what decides it: a third of one is the coin flip — some get away, some do not.
+  check('a third of a tank is a coin flip', count(runs.third, 'caught') >= runs.third.length * 0.2
+    && count(runs.third, 'lost') >= runs.third.length * 0.2,
+    `${count(runs.third, 'caught')}/${runs.third.length} caught on ${BOOST_DURATION / 3}s of boost`);
+  const all = [...runs.cruising, ...runs.boosting, ...runs.third];
+  // A touch is the bust (TOUCH_SLACK): the cop rams rather than tails.
+  check('a catch is the cop touching the taxi, pulled up', cruiseCaught.length > 0
+    && cruiseCaught.every((r) => r.touched && r.braking),
+    `${cruiseCaught.filter((r) => r.touched).length}/${cruiseCaught.length} touching`);
+  check('...and stops on the touch rather than driving through the taxi',
+    cruiseCaught.every((r) => r.sunk < 0.05),
+    `deepest ${Math.max(...cruiseCaught.map((r) => r.sunk)).toFixed(2)} further in after the catch`);
+  check('the chase runs no reds', all.every((r) => r.violations === 0),
+    `${all.reduce((n, r) => n + r.violations, 0)} violations`);
+  check('a robbery sees the chase as busy for all of it', all.every((r) => r.busyThroughout));
+  const lost = all.filter((r) => r.how === 'lost');
+  check('a lost cop goes dark and is routed away', lost.length > 0 && lost.every((r) => r.dark),
+    `${lost.filter((r) => r.dark).length}/${lost.length}`);
+  // Measured on the frame before it goes, so allow that frame's travel.
+  check('...leaves the road only out of sight', lost.every((r) => r.retiredFar >= SPAWN_CLEARANCE - 0.5),
+    `nearest retirement ${Math.min(...lost.map((r) => r.retiredFar)).toFixed(1)}`);
+  check('...and the cruiser waits for its next patrol', lost.every((r) => r.backOnPatrol),
+    `slowest to leave ${Math.max(...lost.map((r) => r.leftAt)).toFixed(1)}s`);
+  // The depot is a hideout (`hideout`): turning in mid-chase calls it off, and the cop leaves the
+  // way a lost one does — dark, routed off, gone only out of sight, cooldown restarted.
+  const hid = runs.hid;
+  check('turning in at the depot calls off a chase', hid.length >= 2 && hid.every((r) => r.how === 'hid'),
+    hid.map((r) => r.how).join(', '));
+  check('...and the cop stands down as a lost one does', hid.every((r) => r.dark && r.backOnPatrol
+    && r.retiredFar >= SPAWN_CLEARANCE - 0.5),
+    `${hid.filter((r) => r.dark && r.backOnPatrol).length}/${hid.length}`);
 }
 
-// --- The cruiser and a dug-up street ----------------------------------------
-//
-// A roadworks closure is soft — two lane ids in a set, nothing removed from the network — so
-// nothing stops a car that does not check it, and the police car was exactly that car. It checks
-// twice now: once when it draws a corridor line, and again at every junction of a chase.
+// --- Ramming the patrol car is a bump, not a bust ------------------------------
+// game/patrol.js RAMMED_GRACE. A boosting taxi driving into the cruiser used to be a bust one frame
+// later: the boost spotted the cop on the frame of the hit and the chase armed the touch with the
+// two cars still in contact. The ram has to cost HP and nothing else — and a cop driving into the
+// taxi must not be read as the taxi's ram.
 {
-  setClosedLanes([]);
-  const dScene = new THREE.Scene();
-  const dTraffic = createTraffic(makeRng(seed + 310), dScene, 12);
-  for (let step = 0; step < 300; step++) dTraffic.update(1 / 60);
-  const dWork = createRoadwork(makeRng(seed + 311), dScene, null);
-  const staged = dWork.place(dTraffic.taxi, dTraffic.cars, []);
-
-  const net = cityNetwork();
-  const dug = dWork.closedLaneIds.map((id) => net.laneById.get(id));
-  const ends = [net.nodeById.get(dug[0].from), net.nodeById.get(dug[0].to)];
-  // The line the zone sits on, in the grid terms the cruiser draws its corridor in.
-  const dugAxis = ends[0].gj === ends[1].gj ? 'x' : 'z';
-  const dugLine = dugAxis === 'x' ? ends[0].gj : ends[0].gi;
-
-  let draws = 0;
-  let onTheZone = 0;
-  const dPolice = createPolice(makeRng(seed + 66), dScene, dTraffic.cars);
-  let wasActive = false;
-  for (let step = 0; step < 60 * 600 && draws < 40; step++) {
-    dPolice.state.cooldown = Math.min(dPolice.state.cooldown, 0.5);
-    dPolice.update(1 / 60);
-    if (dPolice.state.active && !wasActive) {
-      draws += 1;
-      if (dPolice.state.axis === dugAxis && dPolice.state.line === dugLine) onTheZone += 1;
-    }
-    wasActive = dPolice.state.active;
+  const s = seed;
+  createLayout(makeRng(s));
+  const rScene = new THREE.Scene();
+  const rTraffic = createTraffic(makeRng(s + 44), rScene, CARS_DEFAULT);
+  const rPolice = createPolice(rScene);
+  const taxi = rTraffic.taxi;
+  let caught = false;
+  const rPatrol = createPatrol({
+    rng: makeRng(s + 66), police: rPolice, traffic: rTraffic, taxi,
+    onCaught: () => { caught = true; },
+  });
+  rPatrol.state.cooldown = 0;
+  for (let step = 0; step < 60 * 90 && rPatrol.state.phase !== 'patrol'; step++) {
+    rTraffic.update(1 / 60);
+    rPatrol.update(1 / 60);
+    rPolice.update(1 / 60);
   }
-
-  check('a zone stands somewhere for the cruiser to avoid', staged && dug.length === 2,
-    staged ? `${dugAxis} line ${dugLine}` : 'no candidate');
-  // 6 of 40 before the check went in — one road in twelve, drawn uniformly, is about right.
-  check('a corridor never runs down a dug-up street', onTheZone === 0,
-    `${draws} draws, ${onTheZone} down the closed line`);
-
-  // And the chase, which picks its road a junction at a time and so has to ask again each time.
-  // The quarry is planted on the far side of the zone from the cruiser, which is the case that
-  // used to send it straight through the barricades: the greedy Manhattan score points at the
-  // closed segment because that is the shortest way there.
-  let throughTheZone = 0;
-  let chases = 0;
-  for (let k = 0; k < 4; k++) {
-    const cScene = new THREE.Scene();
-    const cPolice = createPolice(makeRng(seed + 66 + k), cScene, []);
-    cPolice.state.cooldown = 0;
-    for (let step = 0; step < 60 * 120; step++) {
-      cPolice.update(1 / 60);
-      if (cPolice.state.active && Math.abs(cPolice.state.s) < PITCH) break;
+  const cop = rPatrol.state.cop;
+  const rCollisions = createCollisions(rTraffic.cars, taxi);
+  const struck = [];
+  rCollisions.onBump((e) => {
+    struck.push(e.taxiStruck);
+    if (e.taxiStruck && e.other.police) rPatrol.rammed(e.other);
+  });
+  taxi.hp = TAXI_HP;
+  // Square into its door at boost pace, the way the wreck and bump checks stage it.
+  const stageRam = (taxiV, copV, copIntoTaxi) => {
+    taxi.staged = true;
+    if (copIntoTaxi) {
+      cop.yaw = taxi.yaw + Math.PI / 2;
+      cop.x = taxi.x - Math.cos(cop.yaw) * 1.6;
+      cop.z = taxi.z + Math.sin(cop.yaw) * 1.6;
+    } else {
+      taxi.yaw = cop.yaw + Math.PI / 2;
+      taxi.x = cop.x - Math.cos(taxi.yaw) * 1.6;
+      taxi.z = cop.z + Math.sin(taxi.yaw) * 1.6;
     }
-    if (!cPolice.state.active) continue;
-    chases += 1;
-    // Just past the far end of the closed segment, measured from whichever end the cruiser is
-    // further from — so the direct line to the quarry runs the length of the zone.
-    const from = cPolice.group.position;
-    const far = Math.hypot(ends[0].x - from.x, ends[0].z - from.z)
-      > Math.hypot(ends[1].x - from.x, ends[1].z - from.z) ? ends[0] : ends[1];
-    cPolice.chase({ x: far.x, z: far.z });
-    for (let step = 0; step < 60 * 12 && !cPolice.state.arrived; step++) {
-      cPolice.update(1 / 60);
-      const p = cPolice.group.position;
-      // Inside the closed segment: on its road, and past the junction box at either end. The
-      // boxes are excluded because reaching the quarry means entering the one it is standing in,
-      // and because the chase cuts its corners on about a lane radius (CHASE_SMOOTH), which puts
-      // the drawn car a couple of units into the far side of a junction it is turning through.
-      const onRoad = dugAxis === 'x'
-        ? Math.abs(p.z - ends[0].z) < ROAD_W / 2
-        : Math.abs(p.x - ends[0].x) < ROAD_W / 2;
-      const between = dugAxis === 'x'
-        ? p.x > Math.min(ends[0].x, ends[1].x) + ROAD_W / 2 && p.x < Math.max(ends[0].x, ends[1].x) - ROAD_W / 2
-        : p.z > Math.min(ends[0].z, ends[1].z) + ROAD_W / 2 && p.z < Math.max(ends[0].z, ends[1].z) - ROAD_W / 2;
-      if (onRoad && between) throughTheZone += 1;
-    }
+    taxi.v = taxiV;
+    cop.v = copV;
+    taxi.boost = true;
+    rCollisions.update(1 / 60);
+    taxi.staged = false;
+  };
+  if (cop && rPatrol.state.phase === 'patrol') {
+    stageRam(19, 0, false);
+    // The same frame's patrol pass: boosting next to it, so this is the frame it spots the taxi.
+    rPatrol.update(1 / 60, { boosting: true });
+    const spotted = rPatrol.state.phase === 'chase';
+    // Held in contact for most of the grace: still not an arrest.
+    for (let f = 0; f < 60; f++) rPatrol.update(1 / 60, { boosting: true });
+    check('boosting into the patrol car is a bump, not a bust',
+      spotted && struck[0] === true && !caught && taxi.hp < TAXI_HP && !taxi.crashed,
+      `spotted ${spotted}, taxi struck ${struck[0]}, caught ${caught}, hp ${taxi.hp}`);
+    // ...and it runs out: the cop's own touch is the arrest again once the grace is spent.
+    for (let f = 0; f < 60; f++) rPatrol.update(1 / 60, { boosting: true });
+    check('...and a touch after the grace is the arrest again', caught);
+  } else {
+    check('boosting into the patrol car is a bump, not a bust', false, 'no patrol on the map');
   }
-  // 90 frames straight through the hole before turnAt learned to ask — 1.5 seconds of cruiser
-  // inside a closed street, which is what this looked like.
-  check('a chase routes around the barricades', chases > 0 && throughTheZone === 0,
-    `${chases} chases, ${throughTheZone} frames inside the closure`);
-  setClosedLanes([]);
+  // Direction of the hit, on the event: a cop arriving at a parked taxi is the cop's ram.
+  if (cop) {
+    // Apart for longer than REHIT first, or this is the tail of the last contact rather than a hit.
+    cop.x += 50;
+    struck.length = 0;
+    for (let f = 0; f < 30; f++) rCollisions.update(1 / 60);
+    stageRam(0, 19, true);
+    check('a cop driving into the taxi is not read as the taxi\'s ram', struck[0] === false,
+      `taxiStruck ${struck[0]}`);
+  }
+}
+
+// --- A patrol turns round in the road ----------------------------------------
+// sim/traffic.js (UTURN_SPEED) and game/patrol.js (`turnRound`). A taxi that boosts past a patrol
+// the other way used to leave the cop driving on to lap the block, which is all the router can do
+// with a car facing away from its target. Staged on an empty ordinary street: the cop on one lane,
+// the taxi coming the other way on the lane beside it, spotted on the pill as it goes past.
+{
+  const staged = [];
+  for (let k = 0; k < 30 && staged.length < 4; k++) {
+    const s = seed + 700 + k;
+    createLayout(makeRng(s));
+    const uScene = new THREE.Scene();
+    const uTraffic = createTraffic(makeRng(s + 44), uScene, CARS_DEFAULT);
+    const uPolice = createPolice(uScene);
+    const taxi = uTraffic.taxi;
+    let caught = false;
+    const uPatrol = createPatrol({
+      rng: makeRng(s + 66), police: uPolice, traffic: uTraffic, taxi, onCaught: () => { caught = true; },
+    });
+    uPatrol.state.cooldown = 0;
+    for (let step = 0; step < 60 * 60 && uPatrol.state.phase !== 'patrol'; step++) {
+      uTraffic.update(1 / 60); uPatrol.update(1 / 60); uPolice.update(1 / 60);
+    }
+    const cop = uPatrol.state.cop;
+    if (!cop) continue;
+    // An ordinary straight street with its window open and nobody within three blocks of it.
+    const net = cityNetwork();
+    let lane = null;
+    for (const cand of net.lanes) {
+      if (cand.degenerate || isLaneClosed(cand.id) || cand.length < 10) continue;
+      const to = net.nodeById.get(cand.to);
+      const from = net.nodeById.get(cand.from);
+      const d = net.dirOfLane(cand);
+      if (!placeCar(cop, d, to.gi, to.gj, cand.length - 1)) continue;
+      cop.v = SPEED;
+      if (!uturnWindow(cop)) continue;
+      const mid = cand.path.at(cand.length / 2);
+      if (uTraffic.cars.some((c) => c !== cop && c !== taxi && Math.hypot(c.x - mid.x, c.z - mid.z) < 60)) continue;
+      // The taxi carries straight on past the junction behind the cop, so turning round is plainly
+      // the way after it — a taxi that turns there can leave driving on just as short.
+      if (!net.laneOutByGrid(opposite(d), from.gi, from.gj)) continue;
+      if (!placeCar(taxi, opposite(d), from.gi, from.gj, cand.length - 2)) continue;
+      lane = cand;
+      break;
+    }
+    if (!lane) continue;
+    for (const car of [cop, taxi]) {
+      const p = car.lane.path.at(car.s);
+      car.x = p.x;
+      car.z = p.z;
+    }
+    const d0 = cop.d;
+    taxi.route = [opposite(d0), opposite(d0)];
+    taxi.routeConsumed = false;
+    taxi.boost = true;
+    uPatrol.update(1 / 60, { boosting: true });
+    if (uPatrol.state.phase !== 'chase') continue;
+    const violations = uTraffic.stats.violations;
+    const run = { turned: false, facing: false, caughtInSwing: false, jump: 0, turnStep: 0, nearest: Infinity, offRoad: 0, inBox: 0, frames: 0, taxiNear: Infinity };
+    let prev = null;
+    let before = cop.lane;
+    let from = null;
+    for (let step = 0; step < 60 * 5 && !caught; step++) {
+      taxi.boost = step < 60 * 2;
+      if (!taxi.route?.length) {
+        const r = planRoute(planOrigin(taxi), { i: taxi.i > GRID_I / 2 ? 0 : GRID_I, j: taxi.j > GRID_J / 2 ? 0 : GRID_J });
+        if (r?.length) { taxi.route = r; taxi.routeConsumed = false; }
+      }
+      uTraffic.update(1 / 60);
+      uPatrol.update(1 / 60, { boosting: taxi.boost });
+      uPolice.update(1 / 60);
+      if (caught && cop.uturn) run.caughtInSwing = true;
+      if (prev) {
+        run.jump = Math.max(run.jump, Math.hypot(cop.x - prev.x, cop.z - prev.z) - Math.max(cop.v, prev.v) / 60);
+        run.turnStep = Math.max(run.turnStep, Math.abs(Math.atan2(Math.sin(cop.yaw - prev.yaw), Math.cos(cop.yaw - prev.yaw))));
+      }
+      // Pointing back the way it came on the frame the swing ends — not at the end of the run,
+      // by which time it has usually turned a corner after the taxi.
+      if (prev?.swinging && !cop.uturn) run.facing = cop.d === opposite(d0) && cop.state === 'drive';
+      prev = { x: cop.x, z: cop.z, yaw: cop.yaw, v: cop.v, swinging: Boolean(cop.uturn) };
+      if (!cop.uturn) { before = cop.lane; from = null; continue; }
+      // The lane it turned out of: the one it was on the frame before the swing began.
+      from ??= { lane: before, d: net.dirOfLane(before), to: net.nodeById.get(before.to) };
+      run.frames += 1;
+      // On the street it started on, between its two junction boxes, and inside the kerbs. Signed
+      // across toward the far lane (`uturn.n`), so the centreline is one lane offset over and a car
+      // out past the near kerb cannot read as one on the far side of it.
+      const a = from.lane.path.at(0);
+      const t = from.lane.path.tangentAt(0);
+      const along = (cop.x - a.x) * t.x + (cop.z - a.z) * t.z;
+      const centre = laneOffsetFor(from.d, from.to.gi, from.to.gj);
+      const side = Math.abs((cop.x - a.x) * cop.uturn.n.x + (cop.z - a.z) * cop.uturn.n.z - centre);
+      if (side > HALF_ROAD - CAR_W / 2) run.offRoad += 1;
+      if (along < CAR_LEN / 2 || along > from.lane.length - CAR_LEN / 2) run.inBox += 1;
+      for (const other of uTraffic.cars) {
+        if (other === cop || other.crashed) continue;
+        const gap = Math.hypot(other.x - cop.x, other.z - cop.z);
+        run.nearest = Math.min(run.nearest, gap);
+        if (other === taxi) run.taxiNear = Math.min(run.taxiNear, gap);
+      }
+    }
+    run.turned = uTraffic.stats.uturns > 0;
+    run.violations = uTraffic.stats.violations - violations;
+    staged.push(run);
+  }
+  createLayout(makeRng(seed));   // createLayout installs the network it builds — put ours back
+
+  check('a patrol U-turn is staged', staged.length >= 3, `${staged.length} staged`);
+  check('a patrol the taxi boosts past turns round in the road', staged.every((r) => r.turned && r.facing),
+    staged.map((r) => (r.turned ? 'turned' : 'drove on')).join(', '));
+  // The sim has the car on the far lane from the first frame; the arc is drawn. Neither end of it
+  // may jump: the start is where it stood on the old lane, the end is where the new lane has it.
+  check('...on a continuous arc, a flick rather than a snap', staged.every((r) => r.jump < 0.05 && r.turnStep < 0.2),
+    `worst jump ${Math.max(...staged.map((r) => r.jump)).toFixed(3)}, turn ${Math.max(...staged.map((r) => r.turnStep)).toFixed(3)} rad/frame`);
+  check('...that stays on its own street, inside the kerbs and out of both boxes',
+    staged.every((r) => r.frames > 0 && r.offRoad === 0 && r.inBox === 0),
+    `${staged.reduce((n, r) => n + r.offRoad, 0)} frames off the road, ${staged.reduce((n, r) => n + r.inBox, 0)} in a box`);
+  // Nothing but the taxi is collision-tested, so a car in the arc's way would be driven through.
+  check('...clear of every car, and well clear of the taxi it is turning after',
+    staged.every((r) => r.nearest > ENVELOPE + 1 && r.taxiNear > CAR_LEN + 1 && !r.caughtInSwing),
+    `nearest ${Math.min(...staged.map((r) => r.nearest)).toFixed(2)}, taxi ${Math.min(...staged.map((r) => r.taxiNear)).toFixed(2)}`);
+  check('...and runs no reds after it', staged.every((r) => r.violations === 0),
+    `${staged.reduce((n, r) => n + r.violations, 0)} violations`);
 }
 
 // --- The pan gesture, and the opening follow-cam it hands off from ----------
@@ -8626,11 +8775,6 @@ check('the taxi is an ordinary car in the traffic array',
   check('the mph scale is anchored, not derived from the ceiling',
     Math.round(22.95 * MPH_PER_UNIT) === 67 && Math.round(overdriveTop() * MPH_PER_UNIT) === 99,
     `22.95 → 67mph, top ${overdriveTop()} → ${Math.round(overdriveTop() * MPH_PER_UNIT)}mph`);
-  // The cruiser has to out-run the quarry on its best day or the bust can never land, and nothing
-  // on screen says so — the siren just follows you forever. See CHASE_SPEED in sim/police.js.
-  check('the police cruiser still out-runs the overdrive top',
-    CHASE_SPEED > overdriveTop(),
-    `${CHASE_SPEED} against ${overdriveTop()} u/s, ${(CHASE_SPEED - overdriveTop()).toFixed(1)} to close with`);
 
   // The panel's preview is drawn from locoRamp(), so if it disagrees with the physics the picture
   // on screen is of a mode the game does not have. Checked against the closed form rather than
@@ -8820,6 +8964,20 @@ check('the taxi is an ordinary car in the traffic array',
   check('mix.json has a min gap for every one-shot', noGap.length === 0, noGap.join(', '));
   check('the shipped mix reads mix.json unchanged',
     JSON.stringify(SHIPPED_MIX) === JSON.stringify(MIX_FILE));
+
+  // Every take a sound draws from is a shipped file, and every shipped file is some sound's take —
+  // a delivery that renames a variant would otherwise thin a sound's set without a word, since
+  // `pickTake` draws only from what decoded.
+  const files = createSfx().files;
+  const onDisk = fs.readdirSync(new URL('../assets/audio/', import.meta.url))
+    .filter((f) => f.endsWith('.m4a')).map((f) => f.slice(0, -4));
+  const taken = new Set(Object.values(SOUNDS).flat());
+  const unwired = [...taken].filter((f) => !(f in files) || !onDisk.includes(f));
+  check('every take a sound names is a shipped .m4a', unwired.length === 0, unwired.join(', '));
+  const orphans = onDisk.filter((f) => !taken.has(f));
+  check('every shipped .m4a is some sound\'s take', orphans.length === 0, orphans.join(', '));
+  const unsorted = Object.keys(SOUNDS).filter((k) => !SFX_EVENTS.has(k) && !LOOPS.has(k));
+  check('every sound is either a one-shot or a bed', unsorted.length === 0, unsorted.join(', '));
 
   const sfx = createSfx();
   sfx.tune({ master: 9, sounds: { crash: { gain: -1, rate: 'x' }, nope: { gain: 1 } },
@@ -9113,6 +9271,34 @@ check('the taxi is an ordinary car in the traffic array',
     `fill ${after[after.length - 1].fill.toFixed(3)}`);
 }
 
+// --- The fuel gauge's fit around the gas pedal --------------------------------
+//
+// The gauge is geometry in the pedal's viewBox (game/fuelarc.js), and the first build had one
+// tangent point typed 10 units wrong, which left the right leg hanging 12 units further off the
+// pedal than the left. Both halves of that are numbers: the clearance from the pedal's outline
+// has to be the same everywhere along the band, and the two ends have to stop at the same height.
+{
+  const { CAP, GAP, RIM, BASE_R, END_Y, CURVE_POINTS: pts } = fuelArc;
+  // Distance from each base point back to the pedal's outline (outer edge at CAP.r + 4): along its
+  // own inward normal, which for the cap is the radius and for a leg is square to the side.
+  const outline = CAP.r + 4;
+  let worst = 0;
+  for (const q of pts) {
+    const toCentre = (q.x - CAP.x) * q.nx + (q.y - CAP.y) * q.ny;   // projection onto the normal
+    worst = Math.max(worst, Math.abs(toCentre - RIM - GAP - outline));
+  }
+  check('fuel gauge: the same clearance off the pedal all the way round', worst < 1e-6,
+    `track inner edge sits ${GAP} off the outline, worst deviation ${worst.toExponential(1)}`);
+  const a = pts[0], b = pts[pts.length - 1];
+  check('fuel gauge: both ends stop at the same height', Math.abs(a.y - END_Y) < 1e-6 && Math.abs(b.y - END_Y) < 1e-6,
+    `left ${a.y.toFixed(3)}, right ${b.y.toFixed(3)}, END_Y ${END_Y}`);
+  check('fuel gauge: symmetric about the pedal', Math.abs((CAP.x - a.x) - (b.x - CAP.x)) < 2,
+    `left end ${(CAP.x - a.x).toFixed(2)} out, right end ${(b.x - CAP.x).toFixed(2)} out`);
+  check('fuel gauge: thicker at the full end', fuelArc.widthAt(1) > fuelArc.widthAt(0) && BASE_R > outline,
+    `${fuelArc.widthAt(0)} -> ${fuelArc.widthAt(1)}`);
+  check('fuel gauge: an empty tank draws no fuel', fuelArc.bandPath(0, 0) === '', 'bandPath(0, 0)');
+}
+
 // --- The Punch It pill's fill animation -------------------------------------
 //
 // The pour is the reward for a drop-off, and all three of its layers are timing — an overshoot
@@ -9227,15 +9413,16 @@ check('the taxi is an ordinary car in the traffic array',
   // ...and every part that draws at all is in the mask, rim or not. The damage pieces (boot lid,
   // bonnet, the openings under them, loose lamps and their wires, the hanging bumper) are masked
   // without a rim, and were once not masked at all: a lid swung up inside the shell's hull read as
-  // an occluder and wore the shell's yellow rim across it every time it bounced.
+  // an occluder and wore the shell's yellow rim across it every time it bounced. The two rear doors
+  // and the openings they leave are four more, masked the same way for the same reason.
   const unmasked = [];
   group.traverse((node) => {
     if (!node.isMesh || node.name === 'ghostMask' || node.name === 'ghostRim') return;
     if (node.material.visible === false) return;   // the invisible pick volume
     if (!node.children.some((c) => c.name === 'ghostMask')) unmasked.push(node);
   });
-  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 23,
-    `${unmasked.length} unmasked, ${masks.length} masks (10 outlined parts + 13 damage pieces)`);
+  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 27,
+    `${unmasked.length} unmasked, ${masks.length} masks (10 outlined parts + 13 damage pieces + 4 door pieces)`);
 
   // --- A dimming lamp must dim where it stands ---------------------------------------------------
   //
@@ -9264,6 +9451,64 @@ check('the taxi is an ordinary car in the traffic array',
   }
   check('a dimming taxi lamp stays where it is', podDrift < 1e-9,
     `${taxi.lights.length} pods, max drift ${podDrift.toExponential(1)} over level 1 → 0`);
+
+  // The rear door (game/taxidoor.js) has to open on the side the rider is running *from*, outward,
+  // at any heading — the side is a sign worked out from the yaw, and a flipped sign swings the door
+  // into the cab on the far flank, which at 7px would read as nothing happening at all. Then it has
+  // to shut and put itself away once they are in. Swept over eight headings and both kerbs.
+  //
+  // And the rider has to go in *through* it: game/fares.js aims the run at `taxiDoorPoint`, which is
+  // worked out from the door's constants by hand, so it is checked against the opening as built —
+  // the drawn gap's centre, through the mesh's own transforms, TAXI_SCALE included.
+  {
+    const doorCar = { x: 0, z: 0, yaw: 0 };
+    const doorMesh = createTaxiMesh();
+    const door = createTaxiDoor({ setDoor: doorMesh.setDoor });
+    const freeEnd = new THREE.Vector3();
+    const hingeAt = new THREE.Vector3();
+    const gapAt = new THREE.Vector3();
+    let wrong = 0;
+    let lingering = 0;
+    let trials = 0;
+    let aimMiss = 0;
+    for (let k = 0; k < 8; k++) {
+      for (const kerbSide of [-1, 1]) {
+        doorCar.yaw = (k / 8) * Math.PI * 2 + 0.3;
+        doorMesh.group.rotation.set(0, doorCar.yaw, 0, 'YXZ');
+        // Five units off the car's +z (or −z) flank, a little ahead, in world space.
+        const lx = 0.7;
+        const lz = 5 * kerbSide;
+        const s = Math.sin(doorCar.yaw);
+        const c = Math.cos(doorCar.yaw);
+        const from = { x: lx * c + lz * s, z: -lx * s + lz * c };
+        const fare = { boarding: 0, boardingFrom: from, boardingSide: taxiSideToward(doorCar, from.x, from.z) };
+        for (fare.boarding = 0; fare.boarding < BOARD_SECONDS; fare.boarding += 1 / 60) {
+          door.update(1 / 60, fare);
+        }
+        doorMesh.group.updateMatrixWorld(true);
+        const open = doorMesh.doors.find((p) => p.parent.scale.x > 0);
+        trials += 1;
+        if (!open) { wrong += 1; continue; }
+        open.localToWorld(freeEnd.set(-0.78, 1, 0));
+        open.localToWorld(hingeAt.set(0, 1, 0));
+        const toward = (v) => v.x * from.x + v.z * from.z;
+        if (!(toward(freeEnd) > toward(hingeAt) + 0.3)) wrong += 1;
+        const gap = doorMesh.doorGaps.find((g) => g.scale.x > 0);
+        gap.geometry.computeBoundingBox();
+        gap.localToWorld(gap.geometry.boundingBox.getCenter(gapAt));
+        const aim = taxiDoorPoint(doorCar, fare.boardingSide);
+        aimMiss = Math.max(aimMiss, Math.hypot(aim.x - gapAt.x, aim.z - gapAt.z));
+        for (let f = 0; f < 60; f++) door.update(1 / 60, null);
+        if (doorMesh.doors.some((p) => p.parent.scale.x > 0)) lingering += 1;
+      }
+    }
+    check('the taxi door swings out toward the rider and shuts behind them',
+      wrong === 0 && lingering === 0,
+      `${trials} boardings over 8 headings × both kerbs: ${wrong} opened wrong, ${lingering} left open`);
+    // The gap stands 0.065 proud of the body side (it sits over the chequer stripe), × 1.18.
+    check('...and the rider is aimed at the door that opens', aimMiss < 0.1,
+      `aim point to drawn opening, worst ${aimMiss.toFixed(3)} units`);
+  }
 
   // ...and the same invariant on the fleet, where the reported failure actually was: a truck, whose
   // 5.6 length gives the slide the most room in the game. The taxi's pods are ordinary Meshes and
@@ -9301,7 +9546,9 @@ check('the taxi is an ordinary car in the traffic array',
         // Each fleet mesh serves one vehicle class; a car's index is not a truck's.
         if (light.name.startsWith('truck') !== !!car.isTruck) continue;
         for (let n = 0; n < anchors.length; n++) {
-          light.getMatrixAt(car.instanceIndex * anchors.length + n, podM);
+          // The stride is LIGHT_PODS, not the anchor count: a siren mesh carries one lamp in a
+          // two-slot stride and leaves the spare slot collapsed.
+          light.getMatrixAt(car.instanceIndex * LIGHT_PODS + n, podM);
           podLocal.multiplyMatrices(inverse, podM);
           offset.setFromMatrixPosition(podLocal);
           fleetDrift = Math.max(fleetDrift, offset.distanceTo(anchors[n]));
@@ -9848,7 +10095,7 @@ check('the taxi is an ordinary car in the traffic array',
   const shell = made[0]?.hull?.parent ?? null;
   const lit = [];
   toonTaxi.group.traverse((o) => {
-    if (o.isMesh && o.material?.isMeshLambertMaterial && !o.name.startsWith('toon')) lit.push(o);
+    if (o.isMesh && (o.material?.isMeshLambertMaterial || o.material?.isMeshPhongMaterial) && !o.name.startsWith('toon')) lit.push(o);
   });
   const bulkOf = (mesh) => {
     mesh.geometry.computeBoundingBox();
@@ -9958,7 +10205,7 @@ check('the taxi is an ordinary car in the traffic array',
   const rimSource = createTaxiMesh();
   let rimBody = null;
   rimSource.group.traverse((o) => {
-    if (o.isMesh && o.material?.isMeshLambertMaterial
+    if (o.isMesh && (o.material?.isMeshLambertMaterial || o.material?.isMeshPhongMaterial)
       && (!rimBody || bulkOf(o) > bulkOf(rimBody))) rimBody = o;
   });
   const shaderGeo = outlineGeometry(rimBody.geometry);
@@ -9995,6 +10242,37 @@ check('the taxi is an ordinary car in the traffic array',
   check('a shared corner offsets one way, so the hull cannot tear',
     split === 0 && cornerKeys.size < basePos.count,
     `${basePos.count - cornerKeys.size} duplicated corners, ${split} disagreeing`);
+
+  // Car paint (`propMaterial({ gloss })`). Its patch hooks three chunks of Phong's own source, and
+  // a hook that matches nothing is a matte car with nothing logged — so run it against the real
+  // ShaderLib source rather than a stub, and check the glossy taxi actually got it.
+  {
+    const box = new THREE.BoxGeometry(3.4, 1.2, 1.7);
+    const paint = propMaterial({ gloss: { geometry: box, floor: 0.5 } });
+    const lib = THREE.ShaderLib.phong;
+    const shader = {
+      uniforms: { ...lib.uniforms }, vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader,
+    };
+    let threw = null;
+    try { paint.onBeforeCompile(shader, null); } catch (error) { threw = error.message; }
+    let taxiShell = null;
+    // The shell is the first mesh marked pickable; the parts hung off it inherit the mark.
+    createTaxiMesh().group.traverse((o) => { if (!taxiShell && o.isMesh && o.userData.pickable === 'taxi') taxiShell = o; });
+    check('glossy paint hooks Phong, keys apart from matte props, and reaches the taxi',
+      paint.isMeshPhongMaterial && !threw && 'tGlossCity' in shader.uniforms
+      && paint.customProgramCacheKey() !== propMaterial().customProgramCacheKey()
+      && Boolean(taxiShell?.material.isMeshPhongMaterial),
+      threw ?? `key ${paint.customProgramCacheKey()}`);
+    // The finish is what keeps a tyre matte and a window apart from the paint, and a body with no
+    // aFinish reads 0 everywhere — matte, silently. Both bodies carry all four.
+    const finishes = (geometry) => new Set(geometry.attributes.aFinish?.array ?? []);
+    const hasAll = (set) => [FINISH.TYRE, FINISH.PAINT, FINISH.GLASS, FINISH.METAL].every((f) => set.has(f));
+    const carFinish = finishes(carGeometry());
+    const taxiFinish = finishes(taxiShell.geometry);
+    check('vehicle bodies tag their paint, glass, tyres and hubcaps', hasAll(carFinish) && hasAll(taxiFinish),
+      `car [${[...carFinish]}] taxi [${[...taxiFinish]}]`);
+    box.dispose();
+  }
 
   // The vertex patch itself, against a stub carrying the chunk names three's shader actually has —
   // and the cache key, which matters more here than almost anywhere: this is a plain
@@ -11553,11 +11831,8 @@ let chopperOrder; // likewise
   // check fails the moment a call site goes back to the default — which is what happened.
   const bodyScene = new THREE.Scene();
   const bodyTraffic = createTraffic(makeRng(seed + 302), bodyScene, 4);
-  const bodyPolice = createPolice(makeRng(seed + 303), bodyScene, bodyTraffic.cars);
-  for (let step = 0; step < 60 * 90; step++) {
-    bodyTraffic.update(1 / 60);
-    bodyPolice.update(1 / 60);
-  }
+  const bodyPolice = createPolice(bodyScene);
+  for (let step = 0; step < 60 * 90; step++) bodyTraffic.update(1 / 60);
 
   // Proof the metric can tell the two apart, so a bug in it can't quietly pass everything.
   check('the default rotation order really would lose the lean', !sameEverywhere('XYZ'),
@@ -11572,12 +11847,6 @@ let chopperOrder; // likewise
     `order ${planeOrder}`);
   check('and so does the helicopter', sameEverywhere(chopperOrder),
     `order ${chopperOrder}`);
-
-  // The corridor is module state in sim/traffic.js, not this cruiser's, so a run cut off mid-siren
-  // leaves it set for every section below. It held a whole street red through the drive-through
-  // and depot trips on seed 777 once the city's junctions became all-way stops and the siren run
-  // stopped happening to finish inside these 90 seconds.
-  setPriorityCorridor(null);
 }
 
 // --- The barricade's geometry, before any of it is placed ----------------------
@@ -12393,6 +12662,83 @@ let chopperOrder; // likewise
 
   const garage = createGarage(layout.garageBlock, makeRng(seed + 99));
   const head = KERB_H + site.doorH;
+
+  // A rider waiting in front of the depot must not make it untappable. Reported from a phone: the
+  // rider's invisible tap quad (geometry/marker.js) stood over half the depot's front, and the
+  // picker's nearest-hit rule gave every tap there to the rider. Driven through `choosePick` on a
+  // phone-shaped frame, with a rider on each of the block's four corners — whichever of them the
+  // camera sees in front of the building is the case that was reported.
+  {
+    const W = 390;
+    const H = 844;
+    const mid = [(bounds.x0 + bounds.x1) / 2, (bounds.z0 + bounds.z1) / 2];
+    const dCam = createCityCamera(W / H, { zoom: PLAY_ZOOM, target: mid });
+    dCam.camera.updateMatrixWorld(true);
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    const v = new THREE.Vector3();
+    const screenOf = (x, y, z) => {
+      v.set(x, y, z).project(dCam.camera);
+      return { x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H };
+    };
+    const hitsAt = (px, py, roots) => {
+      ray.setFromCamera(ndc.set((px / W) * 2 - 1, -(py / H) * 2 + 1), dCam.camera);
+      return ray.intersectObjects(roots, true);
+    };
+    const firstDrawn = (hits) => hits.find((h) => {
+      if (h.object.material?.visible === false) return false;
+      for (let n = h.object; n; n = n.parent) if (!n.visible) return false;
+      return true;
+    });
+    const isDepot = (o) => { for (let n = o ?? null; n; n = n.parent) if (n === garage.group) return true; return false; };
+    garage.group.userData.pickable = 'depot';
+    garage.group.updateMatrixWorld(true);
+
+    // Depot pixels the rider's stand-in takes when the depot does not claim them — which is also
+    // the case of a depot that would refuse the tap: those keep answering the rider.
+    let stolen = 0;
+    let wrong = 0;        // ...still not answered 'depot' when the depot claims them
+    const riderMiss = [];
+    for (const [cx, cz] of [[bounds.x0, bounds.z0], [bounds.x0, bounds.z1],
+      [bounds.x1, bounds.z0], [bounds.x1, bounds.z1]]) {
+      const pin = createPassengerPin(createPerson);
+      pin.group.position.set(cx, 0.12, cz);
+      pin.postGroup.position.set(0, KERB_H, 0);
+      pin.group.updateMatrixWorld(true);
+      const roots = [pin.group, garage.group];
+      const c = screenOf(cx, KERB_H, cz);
+      const perUnit = H / (2 * PLAY_ZOOM);   // CSS pixels per screen unit on this frame
+      for (let dy = -12; dy <= 4; dy += 0.5) {
+        for (let dx = -8; dx <= 8; dx += 0.5) {
+          const sx = c.x + dx * perUnit;
+          const sy = c.y + dy * perUnit;
+          const hits = hitsAt(sx, sy, roots);
+          const raw = choosePick(hits, () => false);
+          const seen = firstDrawn(hits);
+          if (raw?.kind !== 'passenger' || !seen || !isDepot(seen.object)) continue;
+          stolen += 1;
+          if (choosePick(hits, (k) => k === 'depot')?.kind !== 'depot') wrong += 1;
+        }
+      }
+      // And the rider's own drawn figure still means the rider, depot claiming or not.
+      for (const [what, y] of [['head', KERB_H + 2.9], ['crystal', KERB_H + CRYSTAL_TOP - DIAMOND_HALF_H]]) {
+        const s = screenOf(cx, y, cz);
+        const hits = hitsAt(s.x, s.y, roots);
+        // A corner the building hides is one the board never uses (`cornerSeen` in game/fares.js),
+        // and there the wall *is* what is under the finger.
+        if (isDepot(firstDrawn(hits)?.object)) continue;
+        const got = choosePick(hits, (k) => k === 'depot')?.kind;
+        if (got !== 'passenger') riderMiss.push(`(${cx},${cz}) ${what} -> ${got}`);
+      }
+      pin.group.traverse((o) => o.geometry?.dispose());
+    }
+    check('a rider on a depot corner stands in front of the building somewhere', stolen > 0,
+      `${stolen} depot samples under a rider's tap quad`);
+    check('a tap on the depot wall behind a rider\'s tap quad reaches the depot', wrong === 0,
+      `${wrong}/${stolen} still answered by the rider`);
+    check('a tap on the rider in front of the depot still means the rider', riderMiss.length === 0,
+      riderMiss.join(', ') || 'every visible corner, head and crystal');
+  }
 
   // The bay is a hole, not a dark patch painted on a wall. Tested as a box strictly inside the
   // opening, clear of every lining panel: a solid mass would have vertices in it.
@@ -13213,6 +13559,80 @@ let chopperOrder; // likewise
 
   // --- The building.
   const joint = createBurgerJoint(block, makeRng(seed + 111));
+
+  // A tap on a rider's crystal or disc means the rider, even with the joint drawn behind them.
+  // Reported from a phone: a rider on the joint's corner, their crystal standing over the roof, and
+  // a tap on it sent the taxi through the drive-through instead. The stand-in rule (game/pick.js)
+  // hands a tap to a drawn building behind a rider's invisible quad — and the crystal and disc live
+  // in game/faremarker.js, scene-level and outside the rider's group, so the raycast never saw them
+  // and the pixels they cover counted as the quad's empty margin. Seeing them is not enough either:
+  // the near half of the disc lies in front of the quad, over the joint's apron, and the apron is
+  // the nearest *tagged* hit there unless the disc is tagged too (61 of 1516 samples when it was
+  // raycast but untagged). The depot's check above tests the
+  // crystal too and could not catch it: it skips any sample whose first drawn surface is the
+  // building, which without the crystal in the ray is every sample where the crystal overlaps it.
+  // Every pixel where the crystal or the disc is what the player sees, all four corners.
+  {
+    const W = 390;
+    const H = 844;
+    const mid = [(bounds.x0 + bounds.x1) / 2, (bounds.z0 + bounds.z1) / 2];
+    const bCam = createCityCamera(W / H, { zoom: PLAY_ZOOM, target: mid });
+    bCam.camera.updateMatrixWorld(true);
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    const v = new THREE.Vector3();
+    const perUnit = H / (2 * PLAY_ZOOM);
+    const drawnHit = (h) => {
+      if (h.object.material?.visible === false) return false;
+      for (let n = h.object; n; n = n.parent) if (!n.visible) return false;
+      return true;
+    };
+    const under = (o, root) => { for (let n = o; n; n = n.parent) if (n === root) return true; return false; };
+    joint.group.userData.pickable = 'burger';
+    joint.group.updateMatrixWorld(true);
+
+    const mScene = new THREE.Scene();
+    const mark = createFareMarker(mScene, 0);
+    stampFareMarker(mark, 0);
+    let samples = 0;
+    let overJoint = 0;
+    const lost = [];
+    for (const [cx, cz] of [[bounds.x0, bounds.z0], [bounds.x0, bounds.z1],
+      [bounds.x1, bounds.z0], [bounds.x1, bounds.z1]]) {
+      const pin = createPassengerPin(createPerson);
+      pin.group.position.set(cx, 0.12, cz);
+      pin.postGroup.position.set(0, KERB_H, 0);
+      pin.group.updateMatrixWorld(true);
+      mark.showAt(URGENCY_SEGMENTS, cx, cz);
+      mark.settleRing();
+      mScene.updateMatrixWorld(true);
+      // The targets main.js hands the picker for a waiting fare, plus the joint.
+      const roots = [...waitingTargets({ passenger: pin, marker: mark }), joint.group];
+      v.set(cx, KERB_H, cz).project(bCam.camera);
+      const c = { x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H };
+      let bad = 0;
+      for (let dy = -12; dy <= 4; dy += 0.25) {
+        for (let dx = -8; dx <= 8; dx += 0.25) {
+          ray.setFromCamera(ndc.set(((c.x + dx * perUnit) / W) * 2 - 1,
+            -((c.y + dy * perUnit) / H) * 2 + 1), bCam.camera);
+          // Which surface the player sees here, raycasting the marker's drawn halves directly.
+          const seenAll = ray.intersectObjects([mark.group, mark.ring, joint.group], true).find(drawnHit);
+          if (!seenAll || !(under(seenAll.object, mark.group) || under(seenAll.object, mark.ring))) continue;
+          samples += 1;
+          const hits = ray.intersectObjects(roots, true);
+          if (hits.some((h) => under(h.object, joint.group))) overJoint += 1;
+          if (choosePick(hits, (k) => k === 'burger')?.kind !== 'passenger') bad += 1;
+        }
+      }
+      if (bad) lost.push(`(${cx},${cz}) ${bad}`);
+      pin.group.traverse((o) => o.geometry?.dispose());
+    }
+    check('a rider on the joint\'s block has crystal or disc drawn over the building somewhere',
+      overJoint > 0, `${overJoint}/${samples} marker samples with the joint behind them`);
+    check('a tap on a rider\'s crystal or disc in front of the joint means the rider',
+      lost.length === 0, lost.join(', ') || `${samples} samples`);
+  }
+
   {
     joint.shell.geometry.computeBoundingBox();
     const bb = joint.shell.geometry.boundingBox;
@@ -13469,6 +13889,24 @@ let chopperOrder; // likewise
       peak <= 3 && tooClose === 0 && strayed === 0,
       `peak ${peak}, ${tooClose} overlaps, ${strayed} off-path`);
     check('...and the player’s own taxi is never swept in with them', tookTaxi === 0);
+    // A cop never stops for a burger. The roll at the mouth used to skip only the taxi and trucks, so
+    // a patrol cruiser — mid-chase, strobing — could pull in and sit in the queue for its order.
+    // Every car in this sim is flagged police, which is the pointed version: anything that gets in
+    // is the bug. Two minutes is ~3 pull-ins at this density with the flag off.
+    {
+      const copTown = createTraffic(makeRng(seed + 44), new THREE.Scene(), lotCars);
+      copTown.warmup(10);
+      for (const car of copTown.cars) if (!car.isTaxi) car.police = true;
+      const copLot = createDriveThru({ site, cars: copTown.cars, rng: makeRng(seed + 311) });
+      let copsIn = 0;
+      for (let step = 0; step < 60 * 120; step++) {
+        copLot.update(1 / 60);
+        copsIn += copLot.state.queue.filter((entry) => entry.car.police).length;
+        copTown.update(1 / 60);
+      }
+      check('...and a cop car never pulls in for one', copsIn === 0,
+        `${copsIn} frames with a police car in the lot`);
+    }
     check('...and a car in the lot is out of the traffic model the whole time it is in there',
       notStaged === 0, `${notStaged} frames with a lot car still on a lane`);
     // The handover, checked against the cars that actually took it rather than against a staged
@@ -13874,12 +14312,22 @@ let chopperOrder; // likewise
     // A police box truck is not a thing, and the bar's anchor is measured off a car's roof.
     check('...and never a box truck',
       copTraffic.policeCars.every((car) => !car.isTruck));
-    // The density ramp is held off while they are out, for the same tail rule: a car appended
-    // behind the police would be stranded above `mesh.count` the moment the event ended.
+    // The density ramp keeps growing while they are out — the patrol cruiser is out for much of
+    // every run now, so waiting for an empty fleet would stall it — but never *behind* them: a car
+    // appended there would be stranded above `mesh.count` the moment they left. The new car takes
+    // the police block's first slot and that cop moves to the end.
     const held = copTraffic.cars.length;
-    copTraffic.setCarCount(copTraffic.cars.length + 3);
-    check('...and the density ramp waits rather than appending behind them',
-      copTraffic.cars.length === held, `${copTraffic.cars.length - held} cars slipped in`);
+    const policeOrder = new Set(copTraffic.policeCars);
+    for (let k = 0; k < 3; k++) copTraffic.setCarCount(copTraffic.cars.length + 1);
+    const grown = copTraffic.cars.length - held;
+    const firstCop = copTraffic.ambient.length - copTraffic.policeCars.length;
+    check('...and the density ramp grows in front of them, never behind',
+      grown > 0 && copTraffic.policeCars.every((car, k) => car.instanceIndex === firstCop + k
+        && copTraffic.ambient[car.instanceIndex] === car)
+        && copTraffic.ambient.slice(0, firstCop).every((car) => !car.police)
+        && copTraffic.policeCars.every((car) => policeOrder.has(car)),
+      `${grown} cars in, police still the last ${copTraffic.policeCars.length} of ${copTraffic.ambient.length}`);
+    const grownIn = new Set(copTraffic.ambient.slice(fleetBefore, firstCop));
 
     // The whole claim the feature rests on: a cop car is an ordinary car. `police` is read in two
     // places — the paint and the bar — and nowhere in the driving model at all. If it ever becomes
@@ -13892,7 +14340,7 @@ let chopperOrder; // likewise
       before.every(({ car, lane, colorIndex }) => car.lane.id === lane && car.colorIndex === colorIndex),
       `${before.length} cars, same lanes and same underlying paint`);
 
-    // The bar. One mesh per colour, both pods of a car switching together, and exactly one of the
+    // The bar. One mesh per colour, one lamp per side, and exactly one of the
     // two colours up on any frame — a bar showing both at once is a lamp, not a siren.
     const redMesh = copTraffic.emissiveMeshes.find((m) => m.name === 'carSirenRed');
     const blueMesh = copTraffic.emissiveMeshes.find((m) => m.name === 'carSirenBlue');
@@ -13920,18 +14368,20 @@ let chopperOrder; // likewise
     let civilianLit = 0;
     let sawRed = 0;
     let sawBlue = 0;
+    let strayPods = 0;
     for (let f = 0; f < 120; f++) {
       copTraffic.update(1 / 60);
       for (const car of copTraffic.ambient) {
         const red = podScale(redMesh, car.instanceIndex, 0);
         const blue = podScale(blueMesh, car.instanceIndex, 0);
-        // Both pods of a colour move together — that is what makes the whole bar change colour
-        // rather than two specks alternating across the roof.
-        const redPair = podScale(redMesh, car.instanceIndex, 1);
+        // One lamp per colour, one per side: the second slot of each stride is never used and has
+        // to stay collapsed, or it is a lit pod parked at the world origin.
+        const spare = podScale(redMesh, car.instanceIndex, 1) + podScale(blueMesh, car.instanceIndex, 1);
+        if (spare !== 0) strayPods += 1;
         if (car.police) {
           litFrames += 1;
           if (red > 0 && blue > 0) bothUp += 1;
-          if (red > 0) { sawRed += 1; if (redPair === 0) bothUp += 1; }
+          if (red > 0) sawRed += 1;
           if (blue > 0) sawBlue += 1;
         } else if (red > 0 || blue > 0) civilianLit += 1;
       }
@@ -13941,6 +14391,11 @@ let chopperOrder; // likewise
       `${sawRed} red and ${sawBlue} blue pod-frames of ${litFrames}, ${bothUp} showing both`);
     check('a car that is not a cop has no bar on it at all',
       civilianLit === 0, `${civilianLit} lit pod-frames on civilian cars`);
+    check('...and the unused half of each lamp stride stays collapsed',
+      strayPods === 0, `${strayPods} car-frames with a pod in the spare slot`);
+    check('red lamp on the left, blue on the right',
+      redMesh.userData.podAnchors.length === 1 && blueMesh.userData.podAnchors.length === 1
+        && redMesh.userData.podAnchors[0].z < 0 && blueMesh.userData.podAnchors[0].z > 0);
 
     // Standing down. `stop` in game/robbery.js switches the bar off and leaves the car on the road,
     // and with nothing but lamps on the roof that frame turned every cop into an ordinary blue
@@ -13964,12 +14419,46 @@ let chopperOrder; // likewise
       !car.police && !car.crashed && housingScale(car.instanceIndex) > 0).length;
     check('...and nothing else in the city wears one',
       civilianHousings === 0, `${civilianHousings} civilian cars with a bar housing`);
+
+    // The two-tone. `instanceColor` paints a whole car one colour, so the white cab is a second
+    // instanced shell laid over the glass cabin — on police only, and proud of the glass on every
+    // side a camera can see, or the two fight over the roof.
+    const cabScale = (index) => {
+      const m = new THREE.Matrix4();
+      copTraffic.policeCabMesh.getMatrixAt(index, m);
+      return new THREE.Vector3().setFromMatrixScale(m).x;
+    };
+    const cabbed = copTraffic.policeCars.filter((car) => cabScale(car.instanceIndex) > 0.99).length;
+    const civilianCabs = copTraffic.ambient.filter((car) =>
+      !car.police && !car.crashed && cabScale(car.instanceIndex) > 0).length;
+    check('every cop wears the white cab, and no civilian does',
+      cabbed === copTraffic.policeCars.length && civilianCabs === 0,
+      `${cabbed} of ${copTraffic.policeCars.length} cops, ${civilianCabs} civilians`);
+    check('...and the cab stands proud of the glass it covers rather than on it',
+      (() => {
+        const cab = new THREE.Box3().setFromBufferAttribute(
+          copTraffic.policeCabMesh.geometry.attributes.position);
+        const car = carGeometry();
+        // The glass is the only part of the car standing clear of the body, so its roof vertices
+        // are the only ones within a few tenths of `CABIN_TOP` (the body's own top is 0.57 below).
+        const pos = car.attributes.position;
+        const glass = new THREE.Box3();
+        for (let i = 0; i < pos.count; i++) {
+          const v = new THREE.Vector3().fromBufferAttribute(pos, i);
+          if (v.y > CABIN_TOP - 0.3) glass.expandByPoint(v);
+        }
+        car.dispose();
+        return Math.abs(glass.max.y - CABIN_TOP) < 1e-6
+          && cab.max.y > glass.max.y + 0.01
+          && cab.max.x > glass.max.x + 0.01 && cab.min.x < glass.min.x - 0.01
+          && cab.max.z > glass.max.z + 0.01 && cab.min.z < glass.min.z - 0.01;
+      })());
     check('...and the housing sits inside the pods, so a lit bar never fights it',
       (() => {
         const housing = new THREE.Box3().setFromBufferAttribute(
           copTraffic.sirenHousingMesh.geometry.attributes.position);
         const pod = new THREE.Box3().setFromBufferAttribute(redMesh.geometry.attributes.position);
-        const [a, b] = redMesh.userData.podAnchors;
+        const [a, b] = [redMesh.userData.podAnchors[0], blueMesh.userData.podAnchors[0]];
         const at = copTraffic.sirenHousingMesh.userData.anchor;
         housing.translate(at);
         return [a, b].every((anchor) => {
@@ -13987,12 +14476,14 @@ let chopperOrder; // likewise
     copTraffic.clearPolice();
     check('ending a robbery takes every cop car off the road',
       copTraffic.policeCars.length === 0 && copTraffic.ambient.every((car) => !car.police)
-        && copTraffic.ambient.length === fleetBefore,
-      `${copTraffic.ambient.length} cars left against ${fleetBefore} before the event`);
-    // ...and the ones that were there all along still are, at the indices they had.
+        && copTraffic.ambient.length === fleetBefore + grown,
+      `${copTraffic.ambient.length} cars left against ${fleetBefore} before the event and ${grown} grown in`);
+    // ...and the ones that were there all along still are, at the indices they had — with the
+    // density cars that arrived meanwhile straight after them.
     check('...leaving the traffic that was already there untouched',
-      copTraffic.ambient.every((car, k) => wereAmbient.has(car) && car.instanceIndex === k),
-      'every surviving car is one of the originals, at its own index');
+      copTraffic.ambient.every((car, k) => (k < fleetBefore ? wereAmbient.has(car) : grownIn.has(car))
+        && car.instanceIndex === k),
+      'every surviving car is an original or grown in, at its own index');
   }
 
   // --- The wash a cop car throws on the road -----------------------------------
@@ -14115,6 +14606,40 @@ let chopperOrder; // likewise
     kicker.kick(car, 0.74);
     check('the press that engages Loco Mode throws a burst of its own',
       kicker.live() >= 16, `${kicker.live()} notes on the press frame`);
+    check('...with a few wrapped bundles in it', kicker.bundles() >= 2,
+      `${kicker.bundles()} bundles on the press frame`);
+
+    // **Everything settles on the road, not at bumper height.** The floor used to be the tailpipe
+    // height less the lift — 0.59 above the road — so the cash "lying" behind a getaway hovered.
+    // `y` here is what main.js passes: the tailpipe height over a road at ROAD_Y.
+    {
+      const road = ROAD_Y;
+      for (let f = 0; f < 90; f++) kicker.update(1 / 60);
+      const rests = kicker.noteRest();
+      const worst = rests.reduce((m, y) => Math.max(m, y - road), 0);
+      check('a note that has come down lies on the road',
+        rests.length > 0 && worst < NOTE_FOLD + 0.05,
+        `${rests.length} down, highest ${worst.toFixed(2)} above the road`);
+      const bs = kicker.bundleState();
+      const bad = bs.filter((b) => !b.landed || Math.abs(b.y - (road + BRICK_H / 2)) > 0.05);
+      check('...and a bundle bounces and lies flat on it',
+        bs.length > 0 && bad.length === 0,
+        `${bs.length} bundles, ${bad.length} not resting at ${(road + BRICK_H / 2).toFixed(2)}`);
+    }
+
+    // **The note's front is up.** It is `DoubleSide` with the back painted pale by
+    // `gl_FrontFacing`, so a reversed triangle does not vanish — it swaps which side is green, and
+    // a note face-up on the road shows its back. Normals from the winding, every triangle.
+    {
+      const pos = noteGeometry().getAttribute('position');
+      const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+      let down = 0;
+      for (let t = 0; t < pos.count; t += 3) {
+        a.fromBufferAttribute(pos, t); b.fromBufferAttribute(pos, t + 1); c.fromBufferAttribute(pos, t + 2);
+        if (b.sub(a).cross(c.sub(a)).y <= 0) down += 1;
+      }
+      check('a banknote is wound with its green face up', down === 0, `${down} of ${pos.count / 3} face down`);
+    }
 
     // A crashed taxi stops spilling, which is the one gate the caller cannot express: a run that
     // ends mid-getaway leaves `boost.isActive()` true for a frame or two.
@@ -14385,9 +14910,12 @@ let chopperOrder; // likewise
       // Measured over 12 events on 12 seeds: the set opens a mean of 42 units out and every one of
       // them closes to 5 or better, with a mean closest of 3 — and a cop is inside one block for
       // 57% of the chase and inside half a block for 28% of it. Eight is the loosest bar that still
-      // means "arrived" rather than "passing": a junction is 8 across.
+      // means "arrived" rather than "passing": a junction is 8 across. A set that *opens* inside
+      // that already has a cop at the taxi's junction and has nothing left to close: on the probe's
+      // own seed, once the junctions became all-way stops, the nearest spawned 7.3 out and held
+      // within 8 of a taxi driving away from it, which failed `closest < before` and nothing else.
       check('...and they close on the taxi rather than wander',
-        closest < before && closest < 8,
+        (closest < before || before < 8) && closest < 8,
         `nearest cop ${before.toFixed(0)} units out, ${closest.toFixed(0)} at its closest`);
 
       // The licence check, and the reason the chase is safe to ship: a chasing cop is still in the
@@ -14448,13 +14976,20 @@ let chopperOrder; // likewise
       // Measured over 58 events on 60 seeds while this was built: 56 roadblocks, 45 passes, 27
       // brake checks, and after the fixes each of these clauses records, zero of every overlap.
       {
-        let roadblocks = 0; let pairs = 0; let passes = 0; let checks = 0; let violations = 0;
+        let roadblocks = 0; let pairs = 0; let passes = 0; let checks = 0; let aheadChecks = 0; let violations = 0;
         let stoppedOverlap = 0; let oncomingOverlap = 0; let taxiGap = Infinity; let events = 0;
         const slewed = [];
         // How far a fully swung cop on an ordinary street stands off the middle of the road it is
         // blocking — on a lane (the brake check) and in a box (the junction block). Arterials keep
         // the half-lane placement (`blocksOnCentreline`) and are left out.
         const offLane = []; const offBox = [];
+        // The cops drive like the taxi: rubber and a squeal (`copLaysRubber`), and the taxi's
+        // sprung corner lean. Counted per slide rather than per frame, the way the squeal fires.
+        const slides = { corner: 0, pass: 0, slew: 0 }; const sliding = new Set();
+        let ambientRubber = 0; let copRoll = 0; let heard = 0; let corners = 0; const inTurn = new Set();
+        // A cop turning round in the road (UTURN_* in sim/traffic.js, `wantsToTurnRound` in
+        // game/robbery.js): how many, and whether the arc ever meets anything.
+        let uturns = 0; let uturnOverlap = 0; let uturnTaxi = Infinity;
         for (let k = 0; k < 6; k++) {
           const s3 = new THREE.Scene();
           const t3 = createTraffic(makeRng(seed + 300 + k * 17), s3, 18, 30);
@@ -14470,6 +15005,7 @@ let chopperOrder; // likewise
           events += 1;
           const went = new Set();
           const checked = new Set();
+          const checkedAhead = new Set();
           for (let f = 0; f < 60 * 25 && r3.state.active; f++) {
             if (!tx.route?.length) {
               const far = { i: tx.i > GRID_I / 2 ? 0 : GRID_I, j: tx.j > GRID_J / 2 ? 0 : GRID_J };
@@ -14479,10 +15015,33 @@ let chopperOrder; // likewise
             }
             t3.update(1 / 60);
             r3.update(1 / 60);
+            for (const car of t3.cars) if (!car.police && copLaysRubber(car)) ambientRubber += 1;
             for (const cop of t3.policeCars) {
               if (cop.crashed) continue;
+              if (cop.uturn) {
+                for (const other of t3.cars) {
+                  if (other === cop || other.crashed) continue;
+                  if ((penetration(cop, other)?.depth ?? 0) > 0) uturnOverlap += 1;
+                  if (other.isTaxi) uturnTaxi = Math.min(uturnTaxi, Math.hypot(other.x - cop.x, other.z - cop.z));
+                }
+              }
+              copRoll = Math.max(copRoll, Math.abs(cop.cornerRoll));
+              if (cop.state === 'turn' && cop.dOut !== cop.d) {
+                if (!inTurn.has(cop)) { inTurn.add(cop); corners += 1; }
+              } else inTurn.delete(cop);
+              if (copLaysRubber(cop)) {
+                if (!sliding.has(cop)) {
+                  sliding.add(cop);
+                  // COP_SQUEAL_FAR in main.js: past it the squeal is silent.
+                  if (Math.hypot(cop.x - tx.x, cop.z - tx.z) < 55) heard += 1;
+                  if (cop.state === 'turn' && cop.dOut !== cop.d) slides.corner += 1;
+                  else if (cop.roadblock > 0) slides.slew += 1;
+                  else slides.pass += 1;
+                }
+              } else sliding.delete(cop);
               if (cop.passing) went.add(cop);
               if (cop.roadblock > 0 && !cop.blocking) checked.add(cop);
+              if (cop.roadblock > 0 && !cop.blocking && cop.brakeCheckAhead) checkedAhead.add(cop);
               // Fully swung across the road it is blocking: 45° off it, give or take whatever the
               // arc was still doing when the diagonal was latched.
               if (cop.slew === 1 && !cop.knock && cop.blockAxis != null) {
@@ -14515,11 +15074,24 @@ let chopperOrder; // likewise
           pairs += r3.state.pairs;
           passes += went.size;
           checks += checked.size;
+          aheadChecks += checkedAhead.size;
           violations += t3.stats.violations;
+          uturns += t3.stats.uturns;
         }
         check('the police box the taxi in: roadblocks, overtakes and brake checks',
           events > 0 && roadblocks > 0 && passes > 0 && checks > 0,
           `${events} getaways: ${roadblocks} roadblocks (${pairs} paired), ${passes} passes, ${checks} brake checks`);
+        // A cop already in front on the taxi's road stops across it too, without going round first
+        // (COP_AHEAD_* in sim/traffic.js). Before it, a cop ahead drove on down the straight and read
+        // as police that had not seen the taxi. Over seeds 1-12 it lifted brake checks from ~1 per six
+        // getaways to ~3, with no overlap and no red run.
+        check('...and a cop already ahead of the taxi brake-checks it without overtaking first',
+          aheadChecks > 0, `${aheadChecks} of ${checks} brake checks from a cop already in front`);
+        check('chasing cops lay rubber and lean like the taxi — corners, passes, and into a roadblock',
+          slides.corner > 0 && slides.pass > 0 && ambientRubber === 0 && copRoll > 0.2,
+          `${slides.corner} of ${corners} corners, ${slides.pass} pass, ${slides.slew} roadblock slides `
+          + `(${heard} in earshot); `
+          + `${ambientRubber} ambient frames; peak sprung lean ${copRoll.toFixed(2)} rad`);
         check('...and a blocking cop stands at 45° across the road, not square in its lane',
           slewed.length > 0 && Math.max(...slewed) < 0.05,
           `${slewed.length} frames fully swung, worst ${(Math.max(0, ...slewed) * 180 / Math.PI).toFixed(1)}° off the diagonal`);
@@ -14536,6 +15108,13 @@ let chopperOrder; // likewise
           taxiGap >= CAR_LEN, `closest ${taxiGap.toFixed(2)} units`);
         check('...without a red light run between them', violations === 0,
           `${violations} violations`);
+        // Over 30 getaways while this was tuned: 16 U-turns, none meeting anything, and the chase
+        // measuring what it did without them (UTURN_REACH in game/robbery.js has the table).
+        check('a cop near the taxi turns round in the road rather than lapping the block',
+          uturns > 0, `${uturns} U-turns in ${events} getaways`);
+        check('...and the arc never meets a car, or comes near the taxi',
+          uturnOverlap === 0 && uturnTaxi > CAR_LEN + 1,
+          `${uturnOverlap} frames of overlap; taxi no nearer than ${uturnTaxi.toFixed(1)}`);
       }
 
       // A roadblock is rammed, not driven through: a boosting taxi with hit points meets a cop
@@ -14662,6 +15241,159 @@ let chopperOrder; // likewise
           SPAWN_CLEARANCE <= STAND_DOWN_RANGE,
           `floor ${SPAWN_CLEARANCE}, ordinary bar ${STAND_DOWN_RANGE}`);
       }
+    }
+
+    // --- The drop-off: the arrest, and the one who comes after you -------------------------
+    //
+    // game/arrest.js. A delivered robber stays on the kerb with their hands up, the robbery's cops
+    // circle them, one pulls up and takes them, and the rest are handed back to traffic; the
+    // nearest cop is handed to the patrol to chase the taxi (`handOff`). The cops going round are
+    // *staged* — out of traffic, driven by hand — so nothing in the sim keeps them off anything,
+    // and every clause below is a way the first builds of it put a car through something.
+    //
+    // Four traffic draws on this city, two with the taxi driving off (the scene ends out of shot,
+    // and its cars are simply retired) and two with it stopping a block away and watching (they
+    // drive out and are handed back).
+    {
+      const runs = [];
+      for (const [offset, watch] of [[0, false], [100, false], [200, true], [300, true]]) {
+        const s5 = new THREE.Scene();
+        const t5 = createTraffic(makeRng(seed + 44 + offset), s5, 18, 24);
+        const f5 = createFareSystem(makeRng(seed + 55), s5);
+        t5.warmup(3);
+        f5.state.delivered = 5;
+        const handedOver = [];
+        const rob5 = createRobbery({
+          site: bank, taxi: t5.taxi, fares: f5, traffic: t5,
+          handOff: (cops) => {
+            const near = cops.filter((c) => !c.crashed)
+              .sort((a, b) => Math.hypot(a.x - t5.taxi.x, a.z - t5.taxi.z) - Math.hypot(b.x - t5.taxi.x, b.z - t5.taxi.z))[0];
+            if (near) { near.patrol = true; handedOver.push(near); }
+            return near ?? null;
+          },
+        });
+        t5.taxi.x = bank.door.x;
+        t5.taxi.z = bank.door.z;
+        for (let f = 0; f < 5; f++) rob5.update(1 / 60);
+        const robber = f5.state.fares.find((x) => x.robber);
+        const run = { offset, watch, delivered: false };
+        runs.push(run);
+        if (!robber) continue;
+        const tgt = robber.target;
+        for (const d of [0, 1, 2, 3]) if (placeCar(t5.taxi, d, tgt.i, tgt.j, 30)) break;
+        t5.taxi.route = [];
+        robber.directed = true;
+        for (let f = 0; f < 60 * 10 && !run.delivered; f++) {
+          t5.update(1 / 60);
+          rob5.update(1 / 60);
+          for (const e of f5.update(1 / 60, t5.taxi)) {
+            if (e.type === 'delivered') { run.delivered = true; run.figure = e.fare.figure; }
+          }
+        }
+        if (!run.delivered) continue;
+        const J5 = { x: lineX(tgt.i), z: lineZ(tgt.j) };
+        run.circled = 0;
+        run.nearRobber = Infinity;
+        run.overlap = 0;
+        run.snap = 0;
+        const crewCars = new Set();
+        const last = new Map();
+        for (let f = 0; f < 60 * 45; f++) {
+          if (watch && Math.hypot(t5.taxi.x - J5.x, t5.taxi.z - J5.z) > 16) t5.taxi.braking = true;
+          t5.update(1 / 60);
+          rob5.update(1 / 60);
+          f5.update(1 / 60, t5.taxi);
+          const crew = rob5.arrest.crew();
+          if (crew.some((m) => m.mode === 'ring' && m.rail)) run.circled += 1 / 60;
+          for (const c of t5.policeCars) {
+            if (c.staged) crewCars.add(c);
+            // Handed back: where the lane puts it against where the hand-drive left it.
+            else if (crewCars.has(c) && last.has(c) && last.get(c).staged) {
+              run.snap = Math.max(run.snap, Math.hypot(c.x - last.get(c).x, c.z - last.get(c).z));
+            }
+            last.set(c, { x: c.x, z: c.z, staged: c.staged });
+            if (!c.staged) continue;
+            if (run.figure?.settled() && rob5.arrest.state.phase !== 'board') {
+              run.nearRobber = Math.min(run.nearRobber, Math.hypot(c.x - run.figure.x, c.z - run.figure.z));
+            }
+            for (const o of t5.cars) {
+              if (o === c || o.crashed || o.isTaxi) continue;
+              run.overlap = Math.max(run.overlap, penetration(c, o)?.depth ?? 0);
+            }
+          }
+          if (!rob5.arrest.active() && f > 60) break;
+        }
+        run.handed = handedOver.length;
+        run.chaserInScene = handedOver.some((c) => crewCars.has(c));
+        run.arrests = rob5.arrest.state.arrests;
+        run.over = !rob5.arrest.active();
+        run.leftStaged = t5.policeCars.filter((c) => c.staged).length;
+        run.sealed = t5.isSealed(tgt.i, tgt.j);
+        run.crew = crewCars.size;
+      }
+      const played = runs.filter((r) => r.delivered);
+      const fmt = (fn) => played.map(fn).join(' / ');
+      check('a delivered robber stays on the kerb for the police',
+        played.length >= 3 && played.every((r) => r.figure?.settled()),
+        `${played.length} of ${runs.length} delivered, ${played.filter((r) => r.figure?.settled()).length} standing`);
+      check('...and the cops circle them, and one takes them in',
+        played.every((r) => r.circled > 2 && r.arrests === 1),
+        `circled ${fmt((r) => `${r.circled.toFixed(1)}s`)}, arrests ${fmt((r) => r.arrests)}`);
+      // The robber is 6.4 from the middle of a street's box on the diagonal and the ring its edge;
+      // the car that picks them up stops beside them. Two units, centre to figure, is a car's
+      // half-width and most of a unit to spare — the first peel-off measured 0.98, on the kerb.
+      check('...without a car ever going through the robber',
+        played.every((r) => r.nearRobber >= 2),
+        `nearest ${fmt((r) => r.nearRobber.toFixed(2))}`);
+      // Nothing in the sim keeps a staged car off anything. What is allowed is the one known brush:
+      // the car queued behind a cop that has just pulled out of the line brakes onto its tail for
+      // a few frames (0.18 at worst over 38 seeds; see PULL_OUT in game/arrest.js).
+      check('...and without one going through the traffic, or through each other',
+        played.every((r) => r.overlap < 0.25),
+        `deepest ${fmt((r) => r.overlap.toFixed(2))}`);
+      check('...and every car is handed back, and the junction opened again',
+        played.every((r) => r.over && r.leftStaged === 0 && !r.sealed),
+        `${fmt((r) => `${r.over ? 'over' : 'running'}, ${r.leftStaged} staged, ${r.sealed ? 'sealed' : 'open'}`)}`);
+      // Handed back onto its lane where it already was: `releaseCar` snapping it across would be
+      // a car jumping in plain sight. A frame's travel at the ring's speed is 0.15.
+      check('...onto its lane where it was, not snapped there',
+        played.filter((r) => r.watch).every((r) => r.snap < 0.4),
+        `largest step ${fmt((r) => r.snap.toFixed(2))}`);
+      check('...while one cop goes after the taxi rather than the robber',
+        played.every((r) => r.handed === 1 && !r.chaserInScene),
+        `${fmt((r) => `${r.handed} handed over${r.chaserInScene ? ', and in the scene too' : ''}`)}`);
+    }
+
+    // The handover itself (`pursueNearest` in game/patrol.js): the cop is already on screen, so the
+    // cruiser's mesh goes on without its dissolve-in, and a touch in the first moments does not
+    // count — the nearest cop can be on the taxi's bumper on the frame the robber gets out.
+    {
+      const ev = runEvent();
+      const police5 = createPolice(new THREE.Scene());
+      const pat = createPatrol({ rng: makeRng(seed + 66), police: police5, traffic: ev.traffic, taxi: ev.traffic.taxi });
+      const cop = ev.traffic.policeCars[0];
+      const taxi5 = ev.traffic.taxi;
+      let taken = null;
+      if (cop) {
+        taxi5.x = cop.x;
+        taxi5.z = cop.z;
+        taxi5.yaw = cop.yaw;
+        taken = pat.pursueNearest(ev.traffic.policeCars);
+      }
+      const fadeAtOnce = police5.state.fade;
+      let caughtAt = null;
+      for (let f = 0; f < 60 * 3 && taken && caughtAt === null; f++) {
+        taxi5.x = cop.x;
+        taxi5.z = cop.z;
+        pat.update(1 / 60);
+        if (pat.state.phase === 'arrest') caughtAt = f / 60;
+      }
+      check('the cop handed the chase is worn as the cruiser without dissolving in',
+        taken === cop && cop.patrol && police5.state.cop === cop && fadeAtOnce === 1,
+        taken ? `fade ${fadeAtOnce}` : 'nobody taken');
+      check('...and a touch only counts once the chase has had a moment to start',
+        caughtAt !== null && caughtAt >= 1.4,
+        caughtAt === null ? 'never caught' : `caught at ${caughtAt.toFixed(2)}s`);
     }
   }
 }
@@ -14843,7 +15575,7 @@ let chopperOrder; // likewise
   // means "how many" is only a question about what *this* block just added.
   const before = emissiveList().size;
   const blTraffic = createTraffic(makeRng(seed + 44), blScene, 8);
-  const blPolice = createPolice(makeRng(seed + 66), blScene, blTraffic.cars);
+  const blPolice = createPolice(blScene);
 
   const mine = [];
   const mark = (mesh, kind) => { markEmissive(mesh, kind); mine.push(mesh); };
@@ -14884,10 +15616,14 @@ let chopperOrder; // likewise
     podBloom.color.getHexString() === podWant.getHexString(),
     `${podBloom.color.getHexString()} at ${LIGHT_EMISSIVE} x ${BLOOM_INTENSITY.pod}`);
 
+  // The cruiser's bar is the robbery fleet's bar now — the same Lambert pods — so it takes the
+  // emissive path too, at the siren's strength rather than the pod's.
   const barMesh = blPolice.emissiveMeshes[0];
-  const barWant = barMesh.material.color.clone().multiplyScalar(BLOOM_INTENSITY.siren);
-  check("a bar lamp's is its colour, which is what an unlit material means by light",
-    barMesh.userData.bloomMaterial.color.getHexString() === barWant.getHexString());
+  const barWant = barMesh.material.emissive.clone()
+    .multiplyScalar(barMesh.material.emissiveIntensity * BLOOM_INTENSITY.siren);
+  check("the cruiser's bar blooms its emissive, at the siren's strength",
+    barMesh.userData.bloomMaterial.color.getHexString() === barWant.getHexString(),
+    `${barMesh.userData.bloomMaterial.color.getHexString()} against ${barWant.getHexString()}`);
 
   // The headroom itself: past 1 in at least one channel is the entire difference between a bloom
   // with a shape and a blur of clipped pixels. `THREE.Color` does not clamp and `diffuse` is a
@@ -15368,6 +16104,31 @@ let chopperOrder; // likewise
       `reaches ${reach.toFixed(1)} against a band ending at ${(SLAB_X / 2 + EDGE_FADE).toFixed(1)}`);
     check('and never climbs above the ground it is fading into', above === 0,
       `${above} vertices over y = 0`);
+
+    // The surface patch (city/riverwater.js), run against three's *real* Lambert source rather than
+    // a stub, because every one of its five replaces is the silent kind: a chunk that moved leaves
+    // the water compiling fine and doing nothing new — or, worse, the light-loop override missing
+    // while the compose step still reads its tallies.
+    const wm = rGeo.water.material;
+    const ws = {
+      uniforms: {},
+      vertexShader: THREE.ShaderLib.lambert.vertexShader,
+      fragmentShader: THREE.ShaderLib.lambert.fragmentShader,
+    };
+    wm.onBeforeCompile(ws, null);
+    const landed = [
+      ws.vertexShader.includes('vWaterWorld = (modelMatrix'),
+      ws.fragmentShader.includes('#define RE_Direct RE_Direct_Water'),
+      /normal_fragment_maps>[\s\S]*waterN = waterFacet/.test(ws.fragmentShader),
+      /outgoingLight = mix\(outgoingLight, water, waterWet\)[\s\S]*#include <opaque_fragment>/
+        .test(ws.fragmentShader),
+      // propMaterial's own patch still ran underneath.
+      ws.fragmentShader.includes('uniform vec3 uShadowColor'),
+    ];
+    check('the river surface patch lands in all of three\'s Lambert chunks', landed.every(Boolean),
+      landed.map((ok) => (ok ? 'y' : 'n')).join(''));
+    check('and the water does not share a program with an unpatched prop',
+      wm.customProgramCacheKey().endsWith('-river'), wm.customProgramCacheKey());
   }
 
   // --- The paint does not sink into the hump.
@@ -15709,6 +16470,144 @@ let chopperOrder; // likewise
       + ` ${boats.state.tugs} tugs and ${boats.state.barges} barges`);
     bridge.dispose();
   }
+}
+
+// --- The flatbed that sheds its load -------------------------------------------
+// Three ways this can fail with nothing thrown: the load drawn through the deck or the side rails
+// (it is placed by hand in the truck's frame), crates landing somewhere other than the road behind
+// the truck — on it, in front of it, over the river — and the jolt left standing on the truck
+// after the bumps stop, which would tilt one vehicle in the city for the rest of the run.
+{
+  setClosedLanes([]);
+  const fScene = new THREE.Scene();
+  const fTraffic = createTraffic(makeRng(seed + 520), fScene, 24, 24, 0.5);
+  for (let step = 0; step < 120; step++) fTraffic.update(1 / 60);
+
+  const flatbed = createFlatbed(makeRng(seed + 523), fScene, fTraffic, null, { soon: true });
+
+  // The stack, against the deck it stands on. Each crate is an axis-aligned cube in the truck's
+  // frame before its hand-loaded yaw, which turns it by at most LOAD_YAW — so the footprint test
+  // pads by what that yaw adds to a half-width. Stacked crates are exactly CRATE apart in y, which
+  // float arithmetic lands a hair either side of, hence the epsilon on every "overlapping" test.
+  const yawPad = (CRATE / 2) * (Math.cos(LOAD_YAW) + Math.sin(LOAD_YAW) - 1);
+  const EPS = 1e-6;
+  const half = CRATE / 2 + yawPad;
+  const slots = flatbed.crates.map((c) => c.slot);
+  const offDeck = slots.filter((c) => c.x - half < DECK_REAR || c.x + half > DECK_REAR + TRUCK_BOX_LEN - 0.12
+    || Math.abs(c.z) + half > TRUCK_W / 2 - 0.08).length;
+  let overlaps = 0;
+  for (let a = 0; a < slots.length; a++) {
+    for (let b = a + 1; b < slots.length; b++) {
+      const A = slots[a];
+      const B = slots[b];
+      if (Math.abs(A.x - B.x) < 2 * half - EPS && Math.abs(A.y - B.y) < CRATE - EPS
+        && Math.abs(A.z - B.z) < 2 * half - EPS) overlaps += 1;
+    }
+  }
+  const floating = slots.filter((c) => !c.top && Math.abs(c.y - (DECK_TOP + CRATE / 2)) > 1e-9).length;
+  check('the flatbed\'s load sits inside its rails, on the deck, no two crates in one another',
+    offDeck === 0 && overlaps === 0 && floating === 0 && slots.length === CRATES,
+    `${offDeck} over an edge, ${overlaps} overlapping, ${floating} off the planking`);
+
+  // Order matters: a crate can only slide off the back through space that has already emptied.
+  let blocked = 0;
+  slots.forEach((c, n) => {
+    for (const later of slots.slice(n + 1)) {
+      if (later.x < c.x && Math.abs(later.z - c.z) < CRATE - EPS
+        && Math.abs(later.y - c.y) < CRATE - EPS) blocked += 1;
+    }
+  });
+  check('each crate comes off with nothing still loaded behind it', blocked === 0,
+    `${blocked} crates would slide through one still on the deck`);
+
+  // A stand-in taxi that shadows the truck, so the range gate is always open; the real taxi is
+  // somewhere in the city and has nothing to do with the shedding.
+  const shadow = { x: 0, z: 0, yaw: 0, v: 0 };
+  flatbed.update(1 / 60, shadow, []);
+  const truck = flatbed.state.truck;
+  const boxMatrix = new THREE.Matrix4();
+  fTraffic.update(1 / 60);
+  fTraffic.truckBoxMesh.getMatrixAt(truck?.instanceIndex ?? 0, boxMatrix);
+  const boxScale = new THREE.Vector3().setFromMatrixScale(boxMatrix).length();
+  check('the flatbed is one of the city\'s trucks, with its box taken off',
+    !!truck && truck.isTruck && truck.flatbed === true && boxScale === 0,
+    truck ? `box scale ${boxScale}` : 'no truck claimed');
+
+  // Where every crate lands, measured against the truck at that instant.
+  // `odo` is the truck's odometer at the moment, for the spacing check below.
+  const landings = [];
+  let odo = 0;
+  flatbed.onLand(({ x, z }) => {
+    const fx = Math.cos(truck.yaw);
+    const fz = -Math.sin(truck.yaw);
+    landings.push({ along: (x - truck.x) * fx + (z - truck.z) * fz, x, z, odo });
+  });
+
+  let steps = 0;
+  let deckDrift = 0;
+  const truckM = new THREE.Matrix4();
+  for (; steps < 60 * 300 && flatbed.loaded() + flatbed.crates.filter((c) => c.phase === 'slide' || c.phase === 'air' || c.phase === 'skid').length > 0; steps++) {
+    fTraffic.update(1 / 60);
+    shadow.x = truck.x;
+    shadow.z = truck.z;
+    odo += Math.abs(truck.v) / 60;
+    flatbed.update(1 / 60, shadow, []);
+    fTraffic.truckMesh.getMatrixAt(truck.instanceIndex, truckM);
+    for (let e = 0; e < 16; e++) {
+      deckDrift = Math.max(deckDrift, Math.abs(truckM.elements[e] - flatbed.group.children[0].matrix.elements[e]));
+    }
+  }
+  check('the deck rides the truck\'s own transform', deckDrift < 1e-9, `worst element ${deckDrift}`);
+  check('the whole load comes off within a few minutes of shedding', flatbed.loaded() === 0
+    && landings.length === CRATES,
+    `${CRATES - flatbed.loaded()} of ${CRATES} off, ${landings.length} landed, after ${(steps / 60).toFixed(1)}s`);
+
+  const worstAlong = Math.max(...landings.map((l) => l.along));
+  check('every crate lands behind the truck, not on it or ahead of it',
+    landings.length > 0 && worstAlong < -TRUCK_LEN / 2,
+    `nearest landing ${worstAlong.toFixed(2)} along (tail at ${(-TRUCK_LEN / 2).toFixed(2)})`);
+
+  // Strewn down the street rather than dumped in a heap. The drop is spaced 16–28 units of road
+  // apart; a landing is a little later than its drop by a slide time that differs between the
+  // top and bottom rows (~0.3s, ~1.7 units at truck cruise), hence the slack under 16.
+  const gaps = landings.slice(1).map((l, n) => l.odo - landings[n].odo);
+  const tightest = Math.min(...gaps);
+  check('the crates come off a street or so apart, not in a heap', gaps.length === CRATES - 1 && tightest > 13,
+    `tightest gap ${tightest.toFixed(1)} units of road, all: ${gaps.map((g) => g.toFixed(0)).join(' ')}`);
+
+  const banks = riverBanks();
+  const wet = banks ? flatbed.crates.filter((c) => c.z > banks.z0 - 1 && c.z < banks.z1 + 1).length : 0;
+  // With the drops a street apart the early crates have lain their REST_LIFE out and sunk by the
+  // time the last one lands, so `sink` and `gone` count as having rested; only `rest` is at a height.
+  const unsettled = flatbed.crates.filter((c) => !['rest', 'sink', 'gone'].includes(c.phase)
+    || (c.phase === 'rest' && c.y !== CRATE_REST_Y)).length;
+  check('they come to rest square on the road, and none of them over the river',
+    unsettled === 0 && wet === 0, `${unsettled} not resting at road level, ${wet} between the banks`);
+
+  for (let step = 0; step < 90; step++) {
+    fTraffic.update(1 / 60);
+    flatbed.update(1 / 60, shadow, []);
+  }
+  check('the truck stops jolting once the bumps do',
+    Math.abs(truck.jolt) < 1e-6 && Math.abs(truck.joltRoll) < 1e-6 && Math.abs(truck.joltPitch) < 1e-6,
+    `jolt ${truck.jolt}, roll ${truck.joltRoll}, pitch ${truck.joltPitch}`);
+
+  // Driving into one. The taxi is not in any damage path here — this module never calls into
+  // sim/collisions.js — so what is checked is that the crate goes, the chips fly and come down.
+  const crate = flatbed.crates.find((c) => c.phase === 'rest');
+  const hits = [];
+  flatbed.onSmash((e) => hits.push(e));
+  const taxi = fTraffic.taxi;
+  const hpBefore = taxi.hp;
+  const rammer = { x: crate.x - 1.5, z: crate.z, yaw: 0, v: 9, isTaxi: true };
+  flatbed.update(1 / 60, rammer, [rammer]);
+  const flying = flatbed.chips.filter((c) => c.live).length;
+  for (let step = 0; step < 120; step++) flatbed.update(1 / 60, rammer, [rammer]);
+  const chipsDown = flatbed.chips.filter((c) => c.live).every((c) => c.age >= c.dur && c.y === CRATE_CHIP_REST_Y);
+  check('the taxi smashes a crate it drives into, and the pieces come down on the road',
+    crate.phase === 'smashed' && hits.length === 1 && hits[0].byTaxi && flying > 0 && chipsDown
+    && taxi.hp === hpBefore,
+    `${crate.phase}, ${hits.length} smash events, ${flying} chips`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

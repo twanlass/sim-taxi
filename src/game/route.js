@@ -1,4 +1,4 @@
-import { GRID_I, GRID_J, rightOf, leftOf } from '../city/grid.js';
+import { GRID_I, GRID_J, rightOf, leftOf, opposite, isXAxis, dirSign } from '../city/grid.js';
 import { cityNetwork, gridNodeId } from '../city/roadnet.js';
 
 /**
@@ -337,6 +337,44 @@ export function planOrigin(car) {
     }
   }
   return { i: car.i, j: car.j, d: car.d };
+}
+
+/**
+ * The junction `steps` ahead of where `car` next has a choice, along its route — straight on past
+ * the end of it. A chasing cop's U-turn is decided against this rather than against the junction
+ * the car is about to reach: see `turnsRound`.
+ */
+export function junctionAhead(car, steps) {
+  const from = planOrigin(car);
+  let { i, j } = from;
+  for (let k = 0; k < steps; k++) {
+    const d = car.route?.[k] ?? car.route?.at(-1) ?? from.d;
+    if (isXAxis(d)) i += dirSign(d); else j += dirSign(d);
+  }
+  return { i: Math.max(0, Math.min(GRID_I, i)), j: Math.max(0, Math.min(GRID_J, j)) };
+}
+
+/**
+ * How many legs a U-turn has to save before a chasing cop takes one — two, which is the lap round
+ * the block. A leg is about what the brake, the swing and the pull-away cost, so one leg saved is
+ * no better than driving on; and counted in legs rather than in road, the answer does not change as
+ * the cop drives down the lane toward the window. Priced in road it broke even in the middle of the
+ * lane — exactly where the window is — and the cop braked hard for a turn it was then told not to
+ * take. See "It turns round in the road" in docs/traffic.md.
+ */
+const UTURN_LEGS = 2;
+
+/**
+ * Would a car on a lane get to `target` at least a lap sooner by turning round in the road (see
+ * UTURN_SPEED in sim/traffic.js) than by driving on to the junction ahead? The route on from that
+ * junction against the route from the one behind, facing the other way.
+ */
+export function turnsRound(car, target) {
+  if (car.state !== 'drive' || !car.lane) return false;
+  const from = cityNetwork().nodeById.get(car.lane.from);
+  const ahead = findRoute({ i: car.i, j: car.j, d: car.d }, target);
+  const round = findRoute({ i: from.gi, j: from.gj, d: opposite(car.d) }, target);
+  return Boolean(round) && (!ahead || round.length + UTURN_LEGS <= ahead.length);
 }
 
 /**

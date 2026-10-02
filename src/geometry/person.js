@@ -304,33 +304,35 @@ export function createPerson({
   }
 
   /**
-   * Boarding: run from the kerb to the taxi and then jump into it.
+   * Boarding: run from the kerb to the taxi's open door and hop in through it.
    *
    * `t` is 0..1 across the whole animation. `dx`/`dz` are the horizontal offset from the rider's
-   * starting world position to the taxi's, so the figure's local translation ends up right on top
-   * of the car. The character's local +Z is treated as forward — leg swing on `rotation.x` moves
-   * them along that axis, so the group is yawed to point +Z at the taxi and the limbs cycle in
-   * body-local space.
+   * starting world position to where the run ends — just outside the door (`taxiDoorPoint` in
+   * geometry/taxi.js) — and `inX`/`inZ` to where the hop lands, just inside it. The character's
+   * local +Z is treated as forward — leg swing on `rotation.x` moves them along that axis, so the
+   * group is yawed to point +Z at where they are headed and the limbs cycle in body-local space.
+   *
+   * It used to run at the middle of the car and leap over the roof (a 1.6 arc with a 15% overshoot),
+   * which stopped making sense the day the cab grew a door: the figure has to go in where the door
+   * is open, and through a door is a low hop, not a vault.
    */
-  function board(t, dx, dz) {
+  function board(t, dx, dz, inX, inZ) {
     const RUN_END = 0.7;
     const running = t < RUN_END;
 
-    // Face the taxi. atan2(dx, dz) so (dx=0, dz=+1) → yaw 0, i.e. local +Z aligns with the target.
-    group.rotation.y = Math.atan2(dx, dz);
-
     if (running) {
+      // Face the door. atan2(dx, dz) so (dx=0, dz=+1) → yaw 0, i.e. local +Z aligns with it.
+      group.rotation.y = Math.atan2(dx, dz);
       const stride = t / RUN_END;
       // Fast cadence — this is a sprint from a standing wave, not a stroll.
       const bob = runCycle(t * 22);
       group.position.set(dx * stride, bob, dz * stride);
     } else {
       const jump = (t - RUN_END) / (1 - RUN_END);
-      // A cheat: slide the last 15% during the jump so they land *on* the car, not next to it.
-      const slide = 1 + 0.15 * jump;
-      // Arc up ~roof-height (car cabin roof is ~2.05 local, TAXI_SCALE 1.18 → ~2.4 world). Peak
-      // slightly above so the tuck reads before the shrink swallows them.
-      const arcY = Math.sin(jump * Math.PI) * 1.6 + jump * 0.9;
+      // Turned square to the opening for the hop, whatever angle the run came in at.
+      group.rotation.y = Math.atan2(inX - dx, inZ - dz);
+      // A low hop over the sill: the door's bottom edge is ~0.6 up through TAXI_SCALE.
+      const arcY = Math.sin(jump * Math.PI) * 0.5 + jump * 0.5;
 
       // Tuck: knees pulled up, arms swung back for a hop-in.
       legL.rotation.set(-1.35, 0, 0);
@@ -338,10 +340,9 @@ export function createPerson({
       armL.rotation.set(0.6, 0, 0);
       armR.rotation.set(0.6, 0, 0);
       group.rotation.x = -0.4;
-      group.position.set(dx * slide, arcY, dz * slide);
+      group.position.set(dx + (inX - dx) * jump, arcY, dz + (inZ - dz) * jump);
 
-      // Shrink toward vanish as they drop into the cabin — the roof isn't a real hole, but a
-      // scale-down + arc reads as "in".
+      // Shrink toward vanish as they duck into the cabin — a scale-down + hop reads as "in".
       group.scale.setScalar(1 - jump * 0.7);
     }
   }
@@ -360,9 +361,10 @@ export function createPerson({
     group.rotation.y = Math.atan2(-dx, -dz);
 
     if (t < HOP_END) {
-      // Exactly `board`'s jump section played backwards. `jump` runs 1→0 across the hop, so the
-      // sub-expressions (slide 1.15→1.0, arc from 0.9 back down through the sine to 0, tuck
-      // relaxing, scale 0.3→1.0) match the boarding landing frame-for-frame in reverse.
+      // The over-the-roof hop `board` used to make, played backwards: `jump` runs 1→0, so the slide
+      // goes 1.15→1.0, the arc comes from 0.9 back down through the sine to 0, the tuck relaxes and
+      // the scale goes 0.3→1.0. Boarding goes in through the door now; getting out still comes off
+      // the roof, as there is no door swing on the way out.
       const jump = 1 - t / HOP_END;
       const slide = 1 + 0.15 * jump;
       const arcY = Math.sin(jump * Math.PI) * 1.6 + jump * 0.9;
@@ -493,7 +495,27 @@ export function createPerson({
     group.scale.setScalar(1);
   }
 
+  /**
+   * Hands up: the robber on the kerb at the drop-off, with the police circling (game/arrest.js).
+   *
+   * `dx`/`dz` is what to face — the middle of the junction the cars are going round — and `t` is
+   * seconds, for a nervous shuffle: the body turns a little after whichever way the noise is
+   * coming from and the raised arms tremble. Both arms go straight up past the head; the sack
+   * stays in the left hand, because a bag held up over a mask is the whole joke of the pose.
+   */
+  function surrender(t, dx, dz) {
+    legL.rotation.set(0, 0, 0);
+    legR.rotation.set(0, 0, 0);
+    armR.rotation.set(0, 0, 2.75 + Math.sin(t * 13) * 0.06);
+    armL.rotation.set(0, 0, -2.75 - Math.sin(t * 11 + 1) * 0.06);
+    group.rotation.x = 0;
+    group.rotation.y = Math.atan2(dx, dz) + Math.sin(t * 1.7) * 0.45;
+    group.position.set(0, Math.abs(Math.sin(t * 5)) * 0.04, 0);
+    group.scale.setScalar(1);
+    setOpacity(1);
+  }
+
   rest();
   wave(0);
-  return { group, wave, board, exit, bail, rest, idle, flee, highlight, setRobber };
+  return { group, wave, board, exit, bail, rest, idle, flee, surrender, highlight, setRobber };
 }

@@ -401,7 +401,8 @@ const NO_EVENTS = Object.freeze([]);
  * box, two pads and a flight copy are not something to rebuild every twenty seconds.
  */
 function createSlot(scene, index) {
-  // `pickable: null` throughout — a package is never raycast, so tagging one would be a trap for
+  // `pickable: null` throughout — the kerb box answers a tap through its pin's `postGroup`
+  // (geometry/marker.js), and a tag of its own would follow the flight copy onto the road, a trap for
   // whoever next picks against the scene rather than against an explicit target list.
   //
   // `createCargo` rather than either geometry module: a slot is built once and carries whatever the

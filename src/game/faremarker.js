@@ -182,15 +182,12 @@ const REFUSE_AMPLITUDE = 0.55; // world units at the first swing, ~4px at play z
  */
 export function createFareMarker(scene, phase = 0) {
   const diamond = createDiamond(fareColor(URGENCY_SEGMENTS));
-  // The rider (or the taxi) under it is the click target — both carry an oversized hit box that
-  // already covers this airspace, so intersecting the crystal itself would only cost work on
-  // every tap.
-  diamond.mesh.raycast = () => {};
-  diamond.rim.raycast = () => {};
-
+  // Raycast, and a tap target for the rider (game/fares.js tags this group and the disc below). It
+  // used to opt out, on the grounds that the rider's hit quad already covers this airspace — but the
+  // picker's stand-in rule (game/pick.js) asks what is *drawn* under the finger, and with the
+  // crystal invisible to the ray a tap on it with a building behind went to the building. Reported
+  // as a tap on a rider at the burger joint sending the taxi through the drive-through.
   const mystery = createQuestionMark(fareColor(URGENCY_SEGMENTS, true));
-  mystery.mesh.raycast = () => {};
-  mystery.rim.raycast = () => {};
   mystery.mesh.visible = false;
 
   const group = new THREE.Group();

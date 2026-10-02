@@ -89,24 +89,107 @@
       input, textarea { user-select: text; -webkit-user-select: text; }
       canvas { display: block; touch-action: none; cursor: pointer; }
 
-      /* The top row's type, in one place. The two counters set from `--hud-count-size` and the ⏸
-         between them centres itself against `--hud-count-line` — the line box those digits occupy
-         — so the three of them share one centre line and a change of size moves all three. */
+      /* The top row, in one place: the boost meter on the left, the cash total on the right, both
+         pinned to the same `top` and the same `--hud-row` height so they share a centre line.
+         Sized off the Figma frame (Taxi 🚕, "Frame 10"), which is drawn 603 wide for a 393pt
+         phone — so every number in the file is ×0.652 here: the 52px total is 34px, the 40px side
+         margin is 26px, the 56px bolt is 36px. The type is Inter Black in the file; this is the
+         system face at 900 instead, which is SF Pro on the phones this ships to and near enough to
+         Inter that loading a web font for four digits isn't worth an offline asset. */
       :root {
         --hud-count-size: 34px;
-        --hud-count-line: calc(var(--hud-count-size) * 1.5); /* the 1.5 in the `font` shorthands */
+        --hud-row: 41px;
+        --hud-top: calc(13px + var(--safe-top));
+        --hud-side: 26px;
+        --hud-font: Inter, system-ui, -apple-system, "Helvetica Neue", sans-serif;
+        --hud-shadow: 0 2px 2px rgba(0, 0, 0, 0.25);
       }
 
       #hud {
-        position: fixed; top: calc(18px + var(--safe-top)); left: calc(18px + var(--safe-left));
-        font: 600 14px/1.5 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
-        color: #fff; text-shadow: 0 2px 6px rgba(20, 40, 55, 0.65);
+        position: fixed; top: var(--hud-top); right: calc(var(--hud-side) + var(--safe-right));
+        display: flex; flex-direction: column; align-items: flex-end;
+        font: 900 14px/1.2 var(--hud-font);
+        color: #fff; text-shadow: var(--hud-shadow);
         pointer-events: none; user-select: none;
       }
       #hud .money {
-        font-size: var(--hud-count-size); font-weight: 800; font-variant-numeric: tabular-nums;
-        display: inline-block; transform-origin: left center;
+        font-size: var(--hud-count-size); line-height: var(--hud-row);
+        letter-spacing: 0.05em; font-variant-numeric: tabular-nums;
+        display: inline-block; transform-origin: right center;
       }
+
+      /* Loco Mode's fuel, read out as a gauge arc hugging the top of the gas pedal — a tachometer
+         over the control that spends it, so a thumb holding the gas can watch the tank go without
+         looking away to a corner. The arc runs from a third of the way down the pedal's left side,
+         up over its cap, and down to the same height on the right; fuel fills from the left end,
+         so burning it sweeps the front back from the right, over the top, and down to the left.
+         It is a read-out only — the pedal is the control, and nothing here hit-tests.
+
+         The shape is game/fuelarc.js, not markup: the band is thin at the empty end and thicker at
+         the full one, and a stroke cannot taper, so both the track and the fuel are filled
+         outlines that main.js writes into the two paths' `d` — the track once, the fuel whenever
+         the level moves. The box is #boost's box and the viewBox is the pedal's, so the gauge and
+         the pedal are drawn in one coordinate system.
+
+         Everything the pedal's old dial did, this does too, off the same three variables
+         (`updateBoostButton` in main.js sets them on both): `--pct` is the level, `--fill` is the
+         "fuel is arriving" envelope, `--pulse` is the throb inside it. The classes mirror the
+         pedal's — `is-active`, `is-empty`, `is-charging`, `is-filling`.
+
+         The glow is a `drop-shadow` on the <svg>, which follows the shapes. The gradient runs
+         across the whole arc in user space, not along the fuel, so a colour means a level —
+         orange is always the top of the tank. */
+      #boost-meter {
+        position: fixed; bottom: var(--ctl-bottom); left: var(--ctl-left); z-index: 19;
+        width: 95px; height: 141px;
+        pointer-events: none; user-select: none;
+      }
+      /* The <svg> is the pedal's box grown by 40 units on every side (the viewBox in the markup
+         says the same), so the whole gauge *and* its glow sit inside it. The crown hung out over
+         the top of a box exactly the pedal's size, on `overflow: visible`, and a `filter` on an
+         element is free to clip to that element's box: when the burn glow came on, the top of the
+         arc was cut off, and it popped back as the glow went. The numbers are 40 units at the
+         pedal's scale — 95/146.266 across, 141/215.545 down. */
+      #boost-meter .boost-arc {
+        position: absolute; display: block;
+        left: calc(-40 * 95px / 146.266); top: calc(-40 * 141px / 215.545);
+        width: calc(226.266 * 95px / 146.266); height: calc(295.545 * 141px / 215.545);
+        /* The cap's centre, (76.13, 68.94), in the grown box — so the throb swells the arc evenly
+           off the pedal. */
+        transform-origin: calc(116.13 / 226.266 * 100%) calc(108.94 / 295.545 * 100%);
+        transition: filter 0.15s ease, transform 0.1s ease;
+      }
+      /* The track pads the fuel's band by a rim the colour of the pedal's own outline, which keeps a
+         full gold arc from melting into the orange pedal beside it. */
+      #boost-meter .boost-track { fill: rgba(34, 21, 0, 0.8); }
+      #boost-meter .boost-fill { fill: url(#fuel-grad); }
+      /* The leading edge of a pour: a soft bright dot riding the fuel's front, faded in and out by
+         the same envelope. The softness is a radial gradient rather than a CSS `blur()`, because a
+         CSS filter on an element *inside* an SVG gets a filter region off that element's own tiny
+         box, and WebKit has never been dependable about the functions there at all. */
+      #boost-meter .boost-edge { fill: url(#fuel-edge); opacity: var(--fill, 0); }
+      /* Burning. The arc lights up, so the fuel going down reads as fuel being spent. */
+      #boost-meter.is-active .boost-arc { filter: drop-shadow(0 0 6px rgba(255, 200, 0, 0.9)); }
+      /* Empty, and the climb back to a quarter tank: the fuel is there to watch but not to spend
+         yet, so the gold is muted — the pedal's reasoning (see `#boost.is-empty`). */
+      #boost-meter.is-empty .boost-fill { filter: saturate(0.35) brightness(0.8); }
+      /* A pour landing: the glow and a small throb, off `--fill` and `--pulse`. No transition —
+         every value here is rewritten per frame, and any easing smears the 4Hz throb flat. */
+      #boost-meter.is-filling .boost-arc {
+        transition: none;
+        filter: drop-shadow(0 0 calc(4px + 8px * var(--pulse, 0)) rgba(255, 190, 0, calc(0.95 * var(--fill, 0))));
+        transform: scale(calc(1 + 0.035 * var(--pulse, 0)));
+      }
+      /* The recharge rides the pour's envelope but not its movement or its full glow: a meter
+         bouncing on a pedal that refuses the press reads as pressable. */
+      #boost-meter.is-charging.is-filling .boost-arc {
+        filter: drop-shadow(0 0 calc(3px + 3px * var(--fill, 0)) rgba(205, 180, 106, calc(0.5 * var(--fill, 0))));
+        transform: none;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boost-meter.is-filling .boost-arc { transform: none; }
+      }
+      body.shot-mode #boost-meter { display: none; }
       /* A short green bump when the flying earning lands and the total ticks up, so the counter
          registers the event rather than silently changing digits. Driven from JS by toggling the
          class off/on around a reflow — CSS animations only re-fire when the class transitions. */
@@ -136,8 +219,7 @@
          disc because the ring around it is a clock and a clock needs a dial to be read against; the
          courier layer's defining property is that a package *has* no clock, so there was nothing for
          a ring to say — and once the ring goes, the disc is a plate under an object that does not
-         need one. What is left reads like the rest of the HUD: the cash total and the ⏸ are both
-         bare marks on the sky too.
+         need one. What is left reads like the cash total above it: a bare mark on the sky.
 
          The drop shadow stays, and is the same one they wear — `#hud`'s own `text-shadow` in its
          filter form, so the box holds against pale asphalt exactly as the digits above it do. It is
@@ -170,55 +252,21 @@
         #cargo-chip, #cargo-chip.is-on { transform: none; transition: opacity 0.16s ease; }
       }
 
-      /* Streak counter — mirrors the money counter at the opposite corner, and like the money
-         counter it's on screen from the first frame reading `0x`. It used to stay hidden until
-         the first drop-off, but an empty corner gives the player nothing to aim at; showing the
-         zero states the goal. JS bumps the number on every delivery. */
-      #streak {
-        position: fixed; top: calc(18px + var(--safe-top)); right: calc(18px + var(--safe-right));
-        font: 600 14px/1.5 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
-        font-size: var(--hud-count-size); font-weight: 800; font-variant-numeric: tabular-nums;
-        color: #fff; text-shadow: 0 2px 6px rgba(20, 40, 55, 0.65);
-        pointer-events: none; user-select: none;
-        transform-origin: right center;
-      }
-      /* Sits outside #hud, so it needs its own shot-mode rule — otherwise every screenshot
-         carries a `0x` in the top-right corner that isn't what the shot is about. */
-      body.shot-mode #streak { display: none; }
-      /* Same shape as .money-bumped, but in the taxi's own yellow rather than cash green — the
-         streak isn't a payout, and reusing green would read as a second money event. */
-      #streak.streak-bumped { animation: streak-bump 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
-      @keyframes streak-bump {
-        0%   { transform: scale(1);    color: #fff;    }
-        40%  { transform: scale(1.14); color: #F5C130; }
-        100% { transform: scale(1);    color: #fff;    }
-      }
+      /* Pause — the black square in the bottom-right corner, and the screen behind it. See
+         src/game/pause.js.
 
-      /* Pause — the ⏸ between the two counters, and the screen behind it. See src/game/pause.js.
+         It used to sit in the middle of the top row, between the cash total and a streak counter
+         that is gone now. The Figma frame gives that row to the boost meter and the total, which
+         between them leave no middle, and puts the pause at the end of the bottom row with the pedals — so the
+         pause sits in the far corner. 42px square is the file's 64, on the same inset and the same
+         bottom edge as the pedals.
 
-         Set like the counters either side of it rather than as a chip: white, with the HUD's own
-         drop shadow, so the top edge reads as one row of three things instead of two numbers with
-         a button parked between them. The glyph is 26px in a box 44px wide — the shape is
-         HUD-sized, the target is thumb-sized. Sized *against the digits*, not to some icon
-         convention: the bars stand 21px, within a pixel of the counters' own cap height at
-         34px/800, because a glyph set smaller than the numbers it sits between reads as a browser
-         control that wandered onto the HUD rather than as part of it.
-
-         The box is as *tall* as the counters' line box (`--hud-count-line`), not 44px square, and
-         that is what puts the ⏸ on their centre line. Three things pinned to the same `top` do not
-         share a centre unless they are the same height: the counters' digits sit inside a 51px
-         line box, so their cap band centres 25px down from the top, while a 44px button centres
-         its glyph at 22 — the ⏸ rode 3px high for as long as the box was square, which is visible
-         at this size and was reported as such. Matching the heights lands them within half a pixel
-         (measured), because a line box distributes its leading evenly about the digits. Vertical
-         only: the width stays 44px so the tap target keeps its size and the press dip stays round.
-
-         Centred with `left: 0; right: 0` and auto margins, NOT `transform: translateX(-50%)`. The
-         press dip below animates `transform`, and a centring translate there would be overwritten
-         by it — the button would jump to the left edge of the screen for as long as it was held. */
+         The glyph is the file's: two bars with their inner ends clipped on a slant. The play
+         triangle it swaps to under the veil isn't in the file, so it's drawn to match. */
       #pause {
-        position: fixed; top: calc(18px + var(--safe-top)); left: 0; right: 0; margin: 0 auto; z-index: 24;
-        width: 44px; height: var(--hud-count-line); padding: 0; border: 0; background: none;
+        position: fixed; z-index: 24;
+        right: var(--ctl-right); bottom: var(--ctl-bottom);
+        width: var(--pause-w); height: var(--pause-w); padding: 0; border: 0; background: #000;
         display: grid; place-items: center; cursor: pointer;
         /* The tap wants to land now, not after the browser has waited out a double-tap — and there
            is nothing here to select or long-press. */
@@ -227,12 +275,9 @@
         transition: transform 0.1s ease;
       }
       #pause:active { transform: scale(0.92); }
-      #pause svg {
-        display: block; width: 26px; height: 26px; fill: #fff;
-        /* The counters' `text-shadow` in its glyph form — same offset, same blur, same colour — so
-           the ⏸ holds against pale asphalt exactly as the numbers do. */
-        filter: drop-shadow(0 2px 6px rgba(20, 40, 55, 0.65));
-      }
+      /* 18×23 is the file's 28×36. */
+      #pause .glyph-pause { display: block; width: 18px; height: 23px; }
+      #pause .glyph-play { width: 20px; height: 22px; fill: #fff; }
       /* One button, two glyphs: it is a toggle, and while the run is held it offers the way out. */
       #pause .glyph-play { display: none; }
       body.is-paused #pause .glyph-pause { display: none; }
@@ -584,231 +629,101 @@
 
       /* The Loco Mode pill and the ⚙️ tweak toggle are gameplay controls; once the run is over
          they are noise behind the retry pill. */
-      body.game-over #boost, body.game-over #brake,
+      body.game-over #boost, body.game-over #boost-meter, body.game-over #brake,
       body.game-over #dbg-toggle, body.game-over #dbg-panel,
       body.game-over #aud-toggle, body.game-over #aud-panel { display: none; }
 
-      /* The bottom control row: Loco Mode and the brake, sharing the band the pill used to have to
-         itself, 60/40 with a gap between them.
-         The two buttons stay independently `position: fixed` rather than becoming flex children of a
+      /* The bottom control row: the gas pedal, the brake pedal beside it, and the pause square in
+         the far corner — the Figma frame "boost-active", at the same ×0.652 as the top row.
+         The three stay independently `position: fixed` rather than becoming flex children of a
          row, because a wrapper would be a new element between them and the viewport — and `#boost`
          is measured (game/tutorial.js aims its third bubble at `getBoundingClientRect`), animated
-         (`translate` on the HUD entrance), and pressed through pointer capture. Two `calc()`s cost
-         less than re-testing all of that.
-         The row sits in one inset, the same on all three sides it touches, so the band reads as a
-         panel resting in the corner of the screen rather than a stripe floating in from nowhere.
-         That inset is *derived*, not typed, and the reason is the home indicator. The row used to
-         stand 26px clear of the layout viewport plus whatever `--safe-bottom` was, which is 26 on
-         a desktop and 60pt on a notched iPhone — one constant, two very different gaps. Halving
-         the gap the player actually sees therefore has to halve the sum: 13px on a desktop, 30pt
-         on a phone, and the sides take the same number so the three gaps match on either.
-         30pt still clears the home indicator (~21pt of edge-protect at the bottom), which is why
-         the bottom can spend part of the safe area rather than sitting on top of all of it — but
-         only at the bottom. Landscape puts 47pt of notch on one side, and no derived inset is
-         going to beat that, so the sides floor at their own `env()`.
-         The shares are of the *band*, not of the screen — the brake is 40% of whatever width the
-         margins leave — so the split survives any change to those margins. `--ctl-band` is why the
-         brake's percentage can't be a literal any more: with the margins in px, 40% of the band is
-         not a round fraction of the viewport. */
+         (`translate` on the HUD entrance), and pressed through pointer capture.
+         The row sits in one inset, the same on all three sides it touches. That inset is
+         *derived*, not typed, and the reason is the home indicator. The row used to stand 26px
+         clear of the layout viewport plus whatever `--safe-bottom` was, which is 26 on a desktop
+         and 60pt on a notched iPhone — one constant, two very different gaps. Halving the gap the
+         player actually sees therefore has to halve the sum: 13px on a desktop, 30pt on a phone,
+         and the sides take the same number so the three gaps match on either. 30pt still clears
+         the home indicator (~21pt of edge-protect at the bottom). The file has 22pt (its 34);
+         the derived inset is kept because that number was chosen against the gesture strip, and
+         the file wasn't. Landscape puts 47pt of notch on one side, and no derived inset is going
+         to beat that, so the sides floor at their own `env()`.
+         `--ctl-h` is the row's height — the gas pedal, the tallest thing in it — and everything
+         stacked above the row (the rider chips, the taxi finder, the coach) measures off it. */
       :root {
         --ctl-inset: calc((26px + var(--safe-bottom)) / 2);
         --ctl-bottom: var(--ctl-inset);
         --ctl-left: max(var(--ctl-inset), var(--safe-left));
         --ctl-right: max(var(--ctl-inset), var(--safe-right));
-        --ctl-gap: 8px;
-        --ctl-band: calc(100% - var(--ctl-left) - var(--ctl-right));
-        --brake-w: calc(0.4 * var(--ctl-band));
+        --ctl-h: 141px;
+        --pause-w: 42px;
       }
 
       body.shot-mode #hud, body.shot-mode #run-end { display: none; }
 
-      #boost {
-        /* The left 60% of the control row above. It was the whole band before the brake arrived,
-           wide enough that a thumb pressing it no longer covers the whole pill, which is what let
-           the mirror bar above it (see the removed #boost::before) retire; the fill is still
-           visible past the thumb on either side at this width. */
+      /* The pedals. Each is the file's own drawing, inline rather than an <img> because the press
+         has to reach inside it (below). 95×141 and 113×80 are the files' 146×216 and 174×123,
+         strokes included. The two bottoms line up in the file, and the brake tucks against the
+         gas's lower right — 96px along rather than the file's 94 so the two hit boxes don't
+         overlap: `pedalUnder` in main.js hit-tests rectangles and assumes they never do.
+
+         Everything that keeps a hold a hold is unchanged from the pills these replace: `none`
+         rather than `manipulation`, because pan or pinch starting on a pedal makes the browser
+         claim the touch and fire `pointercancel` at a pedal the player is still holding (a second
+         finger tapping a fare while a thumb holds the gas *is* a pinch, as far as the browser is
+         concerned); no selection, no callout; and nothing inside the button hit-tests — the art
+         is `pointer-events: none` — so iOS's selection and magnifier gestures have no node to
+         land on (webkit.org/b/231161, and the `touchstart` guards in main.js). */
+      #boost, #brake {
         position: fixed; bottom: var(--ctl-bottom); z-index: 20;
-        left: var(--ctl-left); right: calc(var(--ctl-right) + var(--brake-w) + var(--ctl-gap));
-        text-align: center;
-        /* 16px of side padding rather than the 26 this had at full width: "Loco Mode™" is ~100px
-           of 800-weight 17px text, and the box is 168px on a 320px screen. */
-        padding: 14px 16px; border-radius: 999px; cursor: pointer;
-        /* Black outline so the pill holds its shape against pale asphalt and the yellow taxi. */
-        border: 2px solid #16120a;
-        font: 800 17px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
-        letter-spacing: 0.02em; color: #16120a; white-space: nowrap;
-        /* Hold-to-enable, so kill the mobile long-press UI: no text selection, no callout,
-           no double-tap zoom pause between the press and the boost engaging. None of these three
-           is sufficient on iOS on its own — see .boost-label below and the `touchstart` guard in
-           main.js. */
+        padding: 0; border: 0; background: none; cursor: pointer;
         user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
-        /* `none`, not `manipulation`, and for the same reason the canvas uses it. `manipulation`
-           only drops double-tap zoom; pan and pinch stay live, and either one starting on this
-           pill makes the browser claim the touch and fire `pointercancel` at us. That releases a
-           boost the player is still physically holding down, and pointer capture means no further
-           event arrives until they lift and press again — the gas cutting out mid-hold with no
-           way to get it back. Two-handed play is the case that hits it: a thumb on this pill and
-           a second finger tapping a fare is a pinch gesture as far as the browser is concerned,
-           and preventDefault on `pointerdown` explicitly does not suppress it. */
         touch-action: none;
-        /* The dial drains left-to-right rather than around a circle, because the button is now a
-           pill. Same reading as the fare ring: filled means time remaining. The fallback matches
-           the starting third, so the frame before the loop first sets --pct doesn't flash full. */
-        background: linear-gradient(90deg, #F5C130 var(--pct, 33.3%), rgba(255, 255, 255, 0.18) 0);
-        transition: box-shadow 0.15s ease, transform 0.1s ease;
       }
-      /* The label is wrapped and taken out of hit-testing so that the only thing under a thumb on
-         this pill is the pill. WebKit's selection and magnifier gestures hit-test like everything
-         else does, so with no text node to land on they have nothing to select — which matters
-         because iOS 15 stopped honouring `-webkit-user-select: none` for them
-         (webkit.org/b/231161), and a double tap was picking out "Loco Mode™", raising the loupe
-         and zooming the city in behind it. The button keeps the events either way: `pointer-events`
-         only moves the target up to the parent. */
-      .boost-label { pointer-events: none; }
-      #boost.is-active {
-        /* Solid white behind the drained portion, not a translucent wash — over pale asphalt the
-           translucent version read as the same tan as the road and the dial lost its edge. */
-        background: linear-gradient(90deg, #FFE873 var(--pct, 100%), #fff 0);
-        box-shadow: 0 0 30px rgba(255, 232, 115, 0.85);
-      }
-      /* Empty tank. Flat grey rather than the usual dial gradient, and the black outline drops out
-         too: every other state of this pill reads as "press me", so disabled has to read
-         unambiguously as the opposite rather than as a drained version of the same button. */
-      #boost.is-empty {
-        cursor: default; color: #6b6f73; border-color: transparent;
-        background: #b9c0c4;
-      }
-      /* ...and the five seconds it spends climbing back to a quarter (game/boost.js). The pill is
-         still dead — same grey plate, same grey label, still `disabled` — but the dial comes back
-         so the wait has something to watch: a muted gold creeping across the left quarter of the
-         pill, under the same bright leading edge a delivery's pour rides. Muted rather than the
-         live #F5C130 on purpose. This fuel is not spendable yet, and a full-strength fill on a
-         button that refuses the press is the one combination that reads as broken; the colour
-         arriving *with* the button waking is what the end of the climb is for.
-
-         Specificity: two classes plus the id beats the `#boost.is-empty` grey above it whatever the
-         source order, and ties with `#boost.is-empty:active` at the bottom of the block — which is
-         fine, since that one only takes the transform, and both want it gone. */
-      #boost.is-empty.is-charging {
-        background: linear-gradient(90deg, #cdb46a var(--pct, 0%), #b9c0c4 0);
-      }
-      /* The glow, dimmed to match, and the flutter taken out. `.is-filling` below is written for a
-         pour landing on a live button: full-strength yellow at 0.95 alpha, and a 4Hz scale throb.
-         Both are wrong here — the throb because a dead button that bounces reads as pressable, the
-         glow because it would be the brightest thing on screen while saying "not yet". This keeps
-         the envelope (`--fill`, so it still fades in and out with the climb) at about a third of
-         the spill and none of the movement. */
-      #boost.is-charging.is-filling {
-        box-shadow: 0 0 calc(8px + 8px * var(--fill, 0)) rgba(205, 180, 106, calc(0.5 * var(--fill, 0)));
-        transform: none;
-      }
-      /* Delivery bonus. Fuel is now *only* ever earned, so the pour is the reward animation and it
-         gets the full treatment: the bar overshoots its new mark and springs back, the pill pulses,
-         and a bright edge rides the front of the fill. The shapes are here, the envelope comes from
-         updateBoostButton in main.js — `--fill` is 0..1 for "fuel is arriving" and `--pulse` is the
-         throb inside it. Driving the alpha from a variable rather than a keyframe is what lets the
-         glow fade out smoothly however long the pour ran, instead of snapping off when a fixed
-         animation ends. Listed after .is-active so a top-up collected mid-boost still shows.
-
-         An earlier version was a one-shot green flash matching the flying "$20". Green read as
-         "money", which is what the earnings pop already says — yellow says *this is boost*, which
-         is the thing the player has to notice, and pulsing for exactly as long as fuel is landing
-         ties it to the bar's movement rather than to a fixed 0.65s. */
-      #boost.is-filling {
-        /* Every property here is rewritten per frame, so any transition at all smears the 8Hz
-           throb flat — 0.1s of ease against a 125ms period leaves almost nothing moving. */
-        transition: none;
-        box-shadow: 0 0 calc(14px + 26px * var(--pulse, 0)) rgba(245, 193, 48, calc(0.95 * var(--fill, 0)));
-        /* The pill itself flutters, not just its glow. 3.5% is a couple of pixels either side —
-           enough to catch the eye at the edge of vision, which is where this button is while the
-           player is watching the road. */
-        transform: scale(calc(1 + 0.035 * var(--pulse, 0)));
-      }
-      /* The leading edge of the fill: a soft vertical bar sitting on the fill front, blurred so it
-         reads as light spilling off the advancing fuel rather than as a hairline UI divider. It
-         tracks the same --pct as the gradient — both resolve against the padding box, so they stay
-         locked together — and inherits the fill envelope, fading in as fuel starts arriving and out
-         as the bar springs to rest. Inset a couple of px top and bottom so the blur bleeds to about
-         the pill's edge instead of poking out of the rounded ends. */
-      #boost::after {
-        content: ''; position: absolute; top: 1px; bottom: 1px;
-        left: var(--pct, 33.3%); width: 4px; margin-left: -2px;
-        border-radius: 4px;
-        /* Near-white core with a yellow bloom, not a yellow line: the fill behind it is already
-           #F5C130 and the empty track ahead of it is pale, so a yellow-on-yellow line washed out
-           to nothing at 3px/blur 2.5px. The core carries the position, the bloom carries the
-           colour. Blur stays under half the core width or the line stops reading as an edge. */
-        background: #FFFDF2;
-        box-shadow: 0 0 9px 3px rgba(255, 213, 74, 0.95);
-        filter: blur(1.4px);
-        opacity: var(--fill, 0);
+      #boost { left: var(--ctl-left); width: 95px; height: 141px; }
+      #brake { left: calc(var(--ctl-left) + 96px); width: 113px; height: 80px; }
+      .pedal-art {
+        display: block; width: 100%; height: 100%; overflow: visible;
         pointer-events: none;
+        transition: filter 0.15s ease;
       }
-      /* A pill fluttering at 8Hz is exactly what someone who asked for less motion doesn't want.
-         The glow and the leading edge still carry the top-up; only the movement goes. */
-      @media (prefers-reduced-motion: reduce) {
-        #boost.is-filling { transform: none; }
-      }
-      /* Last of the #boost rules on purpose: the press dip is the one piece of feedback that has to
-         win over everything else, and both the throb and the reduced-motion override set a
-         transform at equal specificity — a media query adds no weight — so a top-up landing under
-         the player's thumb would otherwise swallow it. */
-      #boost:active { transform: scale(0.95); }
-      /* The one exception: an empty tank doesn't press. The extra class already outranks the rule
-         above on specificity, but a disabled `<button>` still needs this — some mobile browsers
-         synthesise `:active` off the touch even though the click and pointerdown are suppressed. */
-      #boost.is-empty:active { transform: none; }
-      body.shot-mode #boost { display: none; }
 
-      /* The brake. The right 40% of the control row, and everything about it that is shared with the
-         pill beside it is shared on purpose: same bottom edge, same 49px height, same 999px radius,
-         same black outline, same hold-to-hold contract. What differs is the one thing that has to —
-         the colour. Loco Mode is the taxi's own yellow and the brake is brake-light red, so the two
-         never have to be read to be told apart at the edge of vision.
-         No dial and no meter: this costs nothing to use and has nothing to run out of, so a pill
-         with a fill on it would promise a resource that isn't there. */
-      #brake {
-        position: fixed; bottom: var(--ctl-bottom); z-index: 20;
-        left: calc(100% - var(--ctl-right) - var(--brake-w)); right: var(--ctl-right);
-        text-align: center;
-        padding: 14px 16px; border-radius: 999px; cursor: pointer;
-        border: 2px solid #16120a;
-        font: 800 17px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
-        letter-spacing: 0.02em; color: #FFF1EA; white-space: nowrap;
-        background: #D33A2C;
-        /* Every one of these is the pill's, for the reasons written out over there: iOS selection
-           and callout suppression, and `none` rather than `manipulation` so a second finger on the
-           screen can't turn this press into a pinch and fire `pointercancel` at a brake the player
-           is still holding down. */
-        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
-        touch-action: none;
-        transition: background-color 0.12s ease, box-shadow 0.15s ease, transform 0.1s ease;
-      }
-      /* Same reason as .boost-label: with no text node under the thumb, WebKit's magnifier and
-         double-tap zoom have nothing to hit-test onto. */
-      .brake-label { pointer-events: none; }
-      /* Held. Lit rather than dimmed — this is a brake *light*, and the taxi's own lamps are coming
-         on at the same moment out on the road. */
-      #brake.is-on {
-        background: #FF4B36;
-        box-shadow: 0 0 26px rgba(255, 75, 54, 0.8);
-      }
-      /* Last, so it outranks the lit state's transform-free rules — the press dip is the feedback
-         that has to survive whatever else is painting the button. */
-      #brake:active { transform: scale(0.95); }
-      body.shot-mode #brake { display: none; }
+      /* The press. The pedal's depth is not geometry: it is an inner shadow 28 units thick along
+         the bottom of one flat shape — the dark band reads as the side, the rest as the top. So a
+         press is drawn *inside* the silhouette rather than by moving it: the filter swaps to one
+         with the side band thinned to 11 and a dark inner shadow dropped from the top edge, so the
+         face reads as sunk into its own outline, and the icon drops with it.
+         It used to squash the whole pedal toward its base (the top came down ~12px). That read as
+         travel, but the fuel gauge now hugs the gas pedal's cap, and a cap that moves 12px away
+         from a gauge that doesn't opens a gap exactly where the thumb is looking. The outline and
+         the hit box now stay where they are.
 
-      /* The pedal slide: one thumb, either pedal. Hold Loco Mode, slide right, and the brake takes
-         over as the finger crosses onto it — see "The pedal slide" in main.js for the gesture. This
-         is the half of it the player sees, and it exists because `:active` is the wrong state to
-         paint with once a press can move: the browser puts `:active` on the button the pointer went
-         *down* on and leaves it there, so a slide would light the pill the thumb has left and leave
-         the brake it is now standing on looking untouched. For the length of a gesture the dip is
-         driven by the class instead, and follows the pedal that is actually down.
-         Both rules are more specific than every `transform` above them, and `.is-held` is second so
-         it wins the tie against the `:active` it has to override on the same element. */
-      body.pedal-slide #boost:active, body.pedal-slide #brake:active { transform: none; }
-      body.pedal-slide #boost.is-held, body.pedal-slide #brake.is-held { transform: scale(0.95); }
+         Held is a class and never `:active`, for the pedal slide's reason: the browser pins
+         `:active` to the button the press *started* on, and a thumb sliding from gas to brake
+         would leave the gas looking pressed and the brake it is standing on looking up.
+         `is-held` is the pointer's (engagePedal in main.js); `is-down` and `is-on` are the
+         pedals' own state, set however they were pressed, so the Space and B keys sink them too. */
+      #boost .pedal-face { filter: url(#gas-up); }
+      #brake .pedal-face { filter: url(#brake-up); }
+      #boost.is-held .pedal-face, #boost.is-down .pedal-face { filter: url(#gas-down); }
+      #brake.is-held .pedal-face, #brake.is-on .pedal-face { filter: url(#brake-down); }
+      /* In the pedal's user units: half the 17 units the side band gave up, so the icon stays
+         centred on the face as it sinks. */
+      .pedal-icon { transition: transform 0.07s ease-out; }
+      #boost.is-held .pedal-icon, #boost.is-down .pedal-icon,
+      #brake.is-held .pedal-icon, #brake.is-on .pedal-icon { transform: translateY(8px); }
+      /* Held brake lights up a touch, the way the taxi's own lamps come on out on the road. */
+      #brake.is-on .pedal-art { filter: brightness(1.12); }
+
+      /* Empty tank, and the climb back to a quarter (game/boost.js): the gas is dead, and has to
+         read as the opposite of "press me" rather than as a dimmer version of it. The fuel meter
+         at the top carries the climb itself. */
+      #boost.is-empty { cursor: default; }
+      #boost.is-empty .pedal-art { filter: grayscale(1) brightness(0.9); opacity: 0.7; }
+
+      body.shot-mode #boost, body.shot-mode #brake { display: none; }
+
 
       /* Rider finder — one chip per waiting fare, in a row above the Loco Mode pill, left-aligned
          to the pill's own left edge so both controls share one visual column in the bottom-centre
@@ -822,7 +737,7 @@
            bottom is the pill's own inset plus its 49px height plus a 20px gap — so the row follows
            whatever `--ctl-bottom` and `--ctl-left` are set to rather than drifting apart from it. */
         position: fixed; left: var(--ctl-left);
-        bottom: calc(var(--ctl-bottom) + 69px); z-index: 20;
+        bottom: calc(var(--ctl-bottom) + var(--ctl-h) + 20px); z-index: 20;
         display: flex; flex-direction: row; align-items: center; gap: 8px;
         pointer-events: none;
       }
@@ -884,7 +799,7 @@
          other. `scale` composes with `transform` instead. */
       #taxi-finder {
         position: fixed; right: var(--ctl-right);
-        bottom: calc(var(--ctl-bottom) + 69px); z-index: 20;
+        bottom: calc(var(--ctl-bottom) + var(--ctl-h) + 20px); z-index: 20;
         width: 49px; height: 49px; padding: 0; border: 0; border-radius: 50%;
         display: grid; place-items: center; cursor: pointer; overflow: hidden;
         background: rgba(24, 44, 58, 0.72);
@@ -1037,179 +952,103 @@
       #robbery-glow[hidden] { display: none; }
       body.shot-mode #robbery-glow, body.game-over #robbery-glow { display: none; }
 
-      /* --- coach bubble ---------------------------------------------------
-         The opening tutorial: a speech bubble from the taxi itself, bottom centre, with the car
-         turning slowly in a round avatar and the line typing itself out. Two beats, and that is
-         the whole tutorial — "this car is you", then "tap that rider". See src/game/tutorial.js.
+      /* --- speech bubbles -------------------------------------------------
+         Every line anybody says on screen: the tutorial's tips (#coach), the robber
+         (#robber-talk), dispatch (#radio), the cop's shout (#cop-shout) and the depot's call in
+         for repairs (#depot-call). One bubble, built and
+         pinned by src/game/speech.js — which is where "pinned to what it is about, and waiting at
+         the screen's edge when that is off frame" lives. This is the look: the Figma file's
+         "bubble-ui" (Taxi 🚕, node 180:1286) at the HUD's ×0.652 — 24px padding and radius become
+         16, the 16px caps title 10.5, the 24px line 15.5, the 255px card about 166.
 
-         Not `#tip`/`#intro`/`#banner`: those all sit on ad-blocker filter lists, and one match
-         takes the module graph down with ERR_BLOCKED_BY_CLIENT. Same reason #run-end isn't
-         #banner. */
-      /* Stretched edge to edge and centred with flex, NOT `left: 50%` + a translate. A fixed
-         element is shrink-to-fit, and `left: 50%` leaves it a containing block only half the
-         viewport wide — so on a 390px phone the bubble was capped at 195px and the line wrapped
-         into four, while the same markup looked right on a desktop. The max-width below is the
-         only thing that should be setting this bubble's width. */
-      #coach {
-        position: fixed; left: 0; right: 0;
-        bottom: calc(var(--ctl-bottom) + 78px); z-index: 22;
-        display: flex; justify-content: center;
-        /* Clear of the Loco Mode pill (its own inset up, 49px tall) with room for the tail, so the
-           only control on screen while this is up isn't underneath it. The rider-finder chips
-           would still collide, so they are hidden outright — see body.coach-open below. */
+         Each layer is a full-screen, touch-through sheet; the bubble inside it sits at the
+         viewport's origin and is moved by a `translate` written every frame. They share the
+         coach's z (22): under the pause veil (23), because a pause holds every bubble's clock and
+         should cover it, and over the spotlights (21), so a bubble stays lit.
+
+         Not `#tip`/`#intro`/`#banner`/`#popup`: those sit on ad-blocker filter lists, and one
+         match takes the module graph down with ERR_BLOCKED_BY_CLIENT (CLAUDE.md). */
+      #coach, #robber-talk, #radio, #cop-shout, #depot-call {
+        position: fixed; inset: 0; z-index: 22;
         pointer-events: none; user-select: none; -webkit-user-select: none;
       }
-      #coach[hidden] { display: none; }
-      /* The third beat is about a control rather than about something in the city, so it sits
-         directly over that control with its tail pointing down at it — left-aligned to the Loco
-         Mode pill's own left edge, just clear of the pill's top edge (its inset + 49, then 19 of
-         air). The other two hang centred with the tail up, because what they talk about is up. */
-      #coach.at-boost {
-        bottom: calc(var(--ctl-bottom) + 68px);
-        justify-content: flex-start; padding-left: var(--ctl-left);
-      }
-      /* Grows up out of the tail, which is now underneath it. */
-      #coach.at-boost .coach-bubble {
-        transform-origin: 45px 100%;
-        transform: scale(0.8) translateY(10px);
-      }
-      #coach.at-boost .coach-bubble::after {
-        top: 100%; bottom: auto;
-        /* Aimed at the pill's left third rather than its centre: the pill's width follows its
-           label, and the left edge is the one thing both boxes share. */
-        left: 36px;
-        border-bottom: 0; border-top: 12px solid #FFFDF7;
-      }
-      #coach.at-boost.is-open .coach-bubble { transform: scale(1) translateY(0); }
-      #coach.at-boost.is-closing .coach-bubble { transform: scale(0.9) translateY(4px); }
-      @media (prefers-reduced-motion: reduce) {
-        #coach.at-boost .coach-bubble,
-        #coach.at-boost.is-open .coach-bubble,
-        #coach.at-boost.is-closing .coach-bubble { transform: none; }
-      }
+      #coach[hidden], #robber-talk[hidden], #radio[hidden], #cop-shout[hidden],
+      #depot-call[hidden] { display: none; }
       /* Never over a screenshot, and never over the retry screen: the run is the thing then. */
-      body.shot-mode #coach, body.game-over #coach { display: none; }
+      body.shot-mode #coach, body.game-over #coach,
+      body.shot-mode #robber-talk, body.game-over #robber-talk,
+      body.shot-mode #radio, body.game-over #radio,
+      body.shot-mode #cop-shout, body.game-over #cop-shout,
+      body.shot-mode #depot-call, body.game-over #depot-call { display: none; }
+
+      .speech { position: absolute; left: 0; top: 0; will-change: transform; }
+      /* The entrance and exit. Grows out of the pointer (speech.js sets the origin on it), so the
+         bubble arrives from what it is pinned to; leaves faster and without the overshoot — a
+         bounce on the way out reads as the bubble refusing to go. */
+      .speech-body {
+        position: relative;
+        opacity: 0; transform: scale(0.8);
+        transition: opacity 0.18s ease, transform 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      .is-open > .speech > .speech-body { opacity: 1; transform: scale(1); }
+      .is-closing > .speech > .speech-body {
+        opacity: 0; transform: scale(0.9);
+        transition: opacity 0.2s ease, transform 0.2s ease;
+      }
+      .speech-card {
+        display: flex; flex-direction: column; gap: 6.5px;
+        /* 178px caps a line at 146px of text, which is where the file's own breaks land in this
+           face: "Head to the shop / for repairs." (the first line is 158px with "for" on it) and
+           "Lost the suspect. / Resuming patrol.", while "10-65 in progress!" and "Tap rider to
+           start" stay on one. The file's Inter sets wider than the system face, so its own box
+           widths scaled across do not reproduce its breaks; `text-wrap: balance` was tried and
+           gave "Head to the / shop for repairs." */
+        width: max-content; max-width: min(178px, calc(100vw - 20px));
+        padding: 16px; border-radius: 16px;
+        /* The fill (a white-to-pale-blue gradient) is set by speech.js, which also has to colour
+           the pointer to match whatever part of it the pointer leaves from. */
+        background: #fff;
+        font-family: ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        text-align: left;
+      }
+      /* Both lines trim to their cap height, as the file does (`text-box-trim`), so the 16px of
+         padding is measured to the letters rather than to the line box. Where that isn't supported
+         a line-height of 1 gets most of the way. */
+      .speech-title {
+        font-size: 10.5px; font-weight: 600; line-height: 1; letter-spacing: 0.01em;
+        text-transform: uppercase; color: #44497d;
+        text-box: trim-both cap alphabetic;
+      }
+      .speech-text {
+        position: relative;
+        font-size: 15.5px; font-weight: 700; line-height: 1.2; letter-spacing: 0.01em;
+        color: #2c3052;
+        text-box: trim-both cap alphabetic;
+      }
+      /* The line types itself out: the typed part, then the rest of the line laid out but unseen,
+         so every letter sits where it will finish and nothing moves as it types. */
+      .speech-rest { visibility: hidden; }
+      /* 11.4 × 9.2 is the file's 17.5 × 14. Positioned and turned by speech.js: its base sits on the
+         card's edge and it rotates about that base to face the target. */
+      .speech-pointer {
+        position: absolute; left: 0; top: 0; width: 11.4px; height: 9.2px;
+        display: block; overflow: visible;
+        transform-origin: 50% 100%;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .speech-body, .is-open > .speech > .speech-body, .is-closing > .speech > .speech-body {
+          transform: none; transition: opacity 0.2s ease;
+        }
+      }
+
+      /* The tutorial's card takes the tap itself, so a tap on the card doesn't also land on
+         whatever is under it — tutorial.js answers taps anywhere through a window listener. */
+      #coach .speech-card { pointer-events: auto; cursor: pointer; touch-action: manipulation; }
       /* One tap target at a time. The chips are a second way to pick the rider the bubble is
          pointing at, and in step two the whole lesson is the tap landing on the figure in the
-         city — plus a centred bubble and a bottom-left chip column overlap on a phone. The taxi
-         finder goes with them: the tutorial is holding the camera itself for both of the beats
-         that gate, and the third one is a bubble pointing at the pill beside it. */
+         city. The taxi finder goes with them: the tutorial is holding the camera itself for both
+         of the beats that gate. */
       body.coach-open #rider-finder-stack, body.coach-open #taxi-finder { display: none; }
-
-      .coach-bubble {
-        position: relative; display: flex; align-items: center; gap: 10px;
-        max-width: min(300px, calc(100vw - 32px));
-        padding: 11px 20px 11px 11px; border-radius: 22px;
-        /* No outline. The rest of the game's UI is black-lined because it sits over the city and
-           has to hold its shape against pale asphalt; this sits over a spotlight that has already
-           darkened everything behind it, so the line only made it heavier. The shadow carries the
-           edge instead. */
-        border: 0; background: #FFFDF7; color: #16120a;
-        font: 700 15px/1.35 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
-        text-align: left; box-shadow: 0 10px 28px rgba(8, 20, 30, 0.4);
-        cursor: pointer; pointer-events: auto;
-        /* Tap-to-advance wants to land now, not after the browser has waited out a double-tap. */
-        touch-action: manipulation; -webkit-touch-callout: none;
-        /* Grows out of its own tail rather than its middle, so the pop reads as the taxi speaking
-           rather than as a panel expanding. The tail is on top — it points up at the taxi (or the
-           rider) the bubble is talking about, which is always above it on screen. */
-        transform-origin: 35px 0;
-        opacity: 0; transform: scale(0.8) translateY(-10px);
-        transition: opacity 0.18s ease, transform 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
-      }
-      #coach.is-open .coach-bubble { opacity: 1; transform: scale(1) translateY(0); }
-      /* Scale down and fade out, per the dismissal. Faster than the entrance and without the
-         overshoot — a bounce on the way out reads as the bubble refusing to leave. */
-      #coach.is-closing .coach-bubble {
-        opacity: 0; transform: scale(0.9) translateY(-4px);
-        transition: opacity 0.2s ease, transform 0.2s ease;
-      }
-
-      /* The tail, on top and centred over the avatar. One triangle now that the outline is gone. */
-      .coach-bubble::after {
-        content: ''; position: absolute; left: 26px; bottom: 100%; width: 0; height: 0;
-        border-left: 9px solid transparent; border-right: 9px solid transparent;
-        border-bottom: 12px solid #FFFDF7;
-      }
-
-      /* The avatar: the player's own taxi, turning. It is the whole of lesson one — a picture of
-         the car doing the talking says "that yellow thing down there is you" faster than any
-         sentence about it. No disc and no ring behind it: the car is lit by the game's own sun
-         (see tutorial.js) and sits straight on the bubble, so it reads as the actual vehicle
-         rather than as an icon of one.
-
-         Shrink-to-fit, with no size of its own: the box is not the same shape for both subjects
-         — the rider beat gained the fare's crystal over the figure's head and needs a portrait
-         48 × 80, the turning car keeps its 54 square — so tutorial.js sizes the canvas per beat
-         and this slot follows it. A width/height here would fight that and stretch one of the two.
-         The bubble is bottom-anchored, so the taller box grows the card upward. */
-      .coach-avatar { flex: none; display: flex; }
-      .coach-avatar canvas { display: block; }
-
-      /* The line types itself out. Both spans stack: the ghost holds the *finished* text at zero
-         visibility purely to reserve the bubble's size, and the typed copy is painted over it —
-         otherwise every character that wraps a line resizes a bottom-anchored, centre-aligned
-         bubble, and the thing you are trying to read wobbles under the words. */
-      .coach-text { position: relative; display: block; }
-      .coach-ghost { visibility: hidden; }
-      .coach-typed { position: absolute; inset: 0; }
-
-      /* A bubble that springs and a line that types are both motion for its own sake. Under
-         reduced motion the bubble fades in place and tutorial.js prints the line whole. */
-      @media (prefers-reduced-motion: reduce) {
-        .coach-bubble,
-        #coach.is-open .coach-bubble,
-        #coach.is-closing .coach-bubble { transform: none; transition: opacity 0.2s ease; }
-      }
-
-      /* --- police radio -----------------------------------------------------
-         The robber is in the car: a bubble from dispatch, with the robbery's own cop car turning
-         in the avatar. The coach bubble's card, minus everything that asks something of the
-         player — no tail, no spotlight, no tap. It times itself out (game/radio.js) and lets every
-         touch through, because the tap about to happen is on the road, routing the getaway.
-
-         Top centre, under the money / pause / streak row (18px inset + a 51px line), so it never
-         sits where the coach does: the tutorial's Loco Mode beat can still be cycling at the
-         bottom when a robbery lands, and the two are different voices. The coach's z (22), under
-         the pause veil (23) — a pause holds the bubble's clock, so it should cover it too. */
-      #radio {
-        position: fixed; left: 0; right: 0; top: calc(78px + var(--safe-top)); z-index: 22;
-        display: flex; justify-content: center;
-        pointer-events: none; user-select: none; -webkit-user-select: none;
-      }
-      #radio[hidden] { display: none; }
-      body.shot-mode #radio, body.game-over #radio { display: none; }
-      .radio-bubble {
-        display: flex; align-items: center; gap: 10px;
-        max-width: min(300px, calc(100vw - 32px));
-        padding: 9px 18px 9px 9px; border-radius: 22px;
-        background: #FFFDF7; color: #16120a;
-        /* A police-blue edge is what makes this card someone else's channel rather than the
-           taxi's voice — the coach has no border at all. */
-        box-shadow: inset 0 0 0 2.5px #2E5FA8, 0 10px 28px rgba(8, 20, 30, 0.4);
-        font: 700 15px/1.3 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
-        /* Drops in from the HUD above it. */
-        transform-origin: 50% 0;
-        opacity: 0; transform: scale(0.85) translateY(-12px);
-        transition: opacity 0.18s ease, transform 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
-      }
-      #radio.is-open .radio-bubble { opacity: 1; transform: scale(1) translateY(0); }
-      #radio.is-closing .radio-bubble {
-        opacity: 0; transform: scale(0.94) translateY(-6px);
-        transition: opacity 0.2s ease, transform 0.2s ease;
-      }
-      .radio-avatar { flex: none; display: flex; }
-      .radio-avatar canvas { display: block; }
-      .radio-text { display: flex; flex-direction: column; }
-      .radio-from {
-        font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
-        color: #2E5FA8;
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .radio-bubble,
-        #radio.is-open .radio-bubble,
-        #radio.is-closing .radio-bubble { transform: none; transition: opacity 0.2s ease; }
-      }
 
       /* The spotlight. Darkens the whole city except a soft pool around whatever the bubble is
          talking about — the taxi on the first beat, the rider on the second. It is what actually
@@ -1244,103 +1083,83 @@
       body.shot-mode #spotlight, body.game-over #spotlight { display: none; }
 
       /* --- the robber's line ---------------------------------------------------
-         The robber is in the car and the world has stopped (game/robberline.js): the coach's card
-         in the coach's place, with the robber in the avatar and a red edge to say this is not the
-         taxi talking. Its own pool on the taxi, the same gradient as #spotlight.
+         The robber is in the car and the world has stopped (game/robberline.js): the bubble is on
+         the taxi, with its own pool around it, the same gradient as #spotlight.
 
-         Unlike the coach, the whole element is a full-screen tap catcher while it is up: the next
-         tap anywhere clears it, and it must not also route the taxi or grab the route band. It sits
-         at the coach's z (22), under the pause button (24), so the run can still be paused over it.
-         The coach itself is hidden meanwhile — the tutorial's Loco Mode beat can be mid-showing,
-         and two bubbles in one place is neither. */
+         Unlike the others, the whole layer is a tap catcher while it is up: the next tap anywhere
+         clears it, and it must not also route the taxi or grab the route band. It sits under the
+         pause button (24), so the run can still be paused over it. The tutorial's bubble is hidden
+         meanwhile — its Loco Mode beat can be mid-showing, and two bubbles talking at once is
+         neither. */
       body.robber-talk #robber-spot { opacity: 1; }
       body.shot-mode #robber-spot, body.game-over #robber-spot { display: none; }
       body.robber-talk #coach, body.robber-talk #spotlight { visibility: hidden; }
-      #robber-talk {
-        position: fixed; inset: 0; z-index: 22;
-        display: flex; justify-content: center; align-items: flex-end;
-        padding-bottom: calc(var(--ctl-bottom) + 78px);
-        pointer-events: none; user-select: none; -webkit-user-select: none;
-      }
-      #robber-talk[hidden] { display: none; }
       body.robber-talk #robber-talk { pointer-events: auto; cursor: pointer; }
-      body.shot-mode #robber-talk, body.game-over #robber-talk { display: none; }
-      #robber-talk .coach-bubble {
-        box-shadow: inset 0 0 0 2.5px #C8372D, 0 10px 28px rgba(8, 20, 30, 0.4);
-        /* Grows up from the bottom: nothing it talks about is below it. */
-        transform-origin: 50% 100%;
-        transform: scale(0.8) translateY(10px);
-      }
-      /* No tail: the robber is in the back of the car, not pointing at it. */
-      #robber-talk .coach-bubble::after { display: none; }
-      #robber-talk.is-open .coach-bubble { opacity: 1; transform: scale(1) translateY(0); }
-      #robber-talk.is-closing .coach-bubble {
-        opacity: 0; transform: scale(0.9) translateY(4px);
-        transition: opacity 0.2s ease, transform 0.2s ease;
-      }
-      @media (prefers-reduced-motion: reduce) {
-        #robber-talk .coach-bubble,
-        #robber-talk.is-open .coach-bubble,
-        #robber-talk.is-closing .coach-bubble { transform: none; transition: opacity 0.2s ease; }
-      }
 
       /* --- the HUD's entrance ------------------------------------------------
          Everything the player will need but cannot use yet starts off its own screen edge, and
          slides in once the tutorial has had its say. A run used to open with the full HUD already
-         lit — a money counter, a streak counter and a Loco Mode dial, all reading zero, all of them
+         lit — a money counter, a multiplier counter and a Loco Mode dial, all reading zero, all of them
          answering questions nobody has asked yet. The tutorial is two sentences long; the
          instruments can wait for it.
 
          The offset is the standalone `translate` property, NOT a transform. Three of these four
-         elements already animate their own transform — the money bump, the streak bump, the Loco
-         Mode press dip and its top-up flutter — and a `body.hud-ready #boost { transform: none }`
-         would outrank `#boost:active` on specificity and quietly kill the press feedback for the
+         elements already animate their own transform — the money bump, the meter's top-up throb, the Loco
+         Mode press and its top-up flutter — and a `body.hud-ready #boost { transform: none }`
+         would outrank a press state on specificity and quietly kill the press feedback for the
          rest of the run. `translate` composes with `transform` instead of competing with it.
 
          main.js adds `hud-ready`: the moment the last bubble is dismissed, or immediately when
-         there is no tutorial (`?tutorial=off`, shot mode). */
-      #hud, #streak, #pause, #boost, #brake, #rider-finder-stack {
+         there is no tutorial (`?tutorial=off`, shot mode). The two pedals answer to their own
+         `pedals-ready`, which lands earlier — as the taxi joins the lane at the end of the opening
+         vignette — because a control the player cannot reach is a wait, not an instrument that has
+         nothing to say yet. `hud-ready` implies it, here rather than in main.js. */
+      #hud, #boost-meter, #pause, #boost, #brake, #rider-finder-stack {
         opacity: 0;
         transition: opacity 0.45s ease, translate 0.55s cubic-bezier(0.22, 1, 0.36, 1);
       }
-      #hud, #streak, #pause { translate: 0 -160%; }
-      #boost, #brake, #rider-finder-stack { translate: 0 200%; }
+      #hud { translate: 0 -160%; }
+      #pause, #boost, #boost-meter, #brake, #rider-finder-stack { translate: 0 200%; }
       /* Invisible is not un-tappable: a 0-opacity pill still takes the tap that was aimed at the
-         rider behind it. (#hud and #streak are already pointer-events: none.) The pause button
+         rider behind it. (#hud and #boost-meter are already pointer-events: none.) The pause button
          rides in the same group for the same reason it waits at all: there is nothing to pause
          while the tutorial is still holding the clocks. */
-      body:not(.hud-ready) #pause, body:not(.hud-ready) #boost,
-      body:not(.hud-ready) #brake, body:not(.hud-ready) #rider-finder-stack { pointer-events: none; }
-      body.hud-ready #hud, body.hud-ready #streak, body.hud-ready #pause,
-      body.hud-ready #boost, body.hud-ready #brake,
+      body:not(.hud-ready) #pause, body:not(.hud-ready):not(.pedals-ready) #boost,
+      body:not(.hud-ready):not(.pedals-ready) #brake,
+      body:not(.hud-ready) #rider-finder-stack { pointer-events: none; }
+      body.hud-ready #hud, body.hud-ready #boost-meter, body.hud-ready #pause,
+      body.hud-ready #boost, body.hud-ready #brake, body.pedals-ready #boost, body.pedals-ready #brake,
+      body.pedals-ready #boost-meter,
       body.hud-ready #rider-finder-stack { opacity: 1; translate: 0 0; }
       /* Staggered, top corners first then the bottom ones, so four elements arriving at once read
          as a HUD assembling rather than as a single fade. */
-      /* The third beat's other half: the pill pulses while the bubble talks about it, so the text
-         is not the only thing saying which control it means.
+      /* The third beat's other half: the gas pedal pulses while the bubble talks about it, so the
+         text is not the only thing saying which control it means.
 
-         Box-shadow and nothing else. Every other state this pill can be in animates its `transform`
-         — the press dip, the top-up flutter — and a keyframe animation outranks all of them, so a
-         pulse that scaled would silently kill the press feedback for as long as it ran. */
+         A glow and nothing else, and on the button rather than the art. A pulse that scaled would
+         move the pedal out from under the fuel gauge hugging its cap, and a keyframe animation
+         outranks the press's own rules for as long as it runs. A `drop-shadow` rather than a `box-shadow`, so the
+         glow follows the pedal's own outline instead of the rectangle it sits in. */
       @keyframes coach-boost-pulse {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(245, 193, 48, 0.5); }
-        50%      { box-shadow: 0 0 26px 7px rgba(245, 193, 48, 0.95); }
+        0%, 100% { filter: drop-shadow(0 0 0 rgba(245, 193, 48, 0.5)); }
+        50%      { filter: drop-shadow(0 0 14px rgba(245, 193, 48, 0.95)); }
       }
       body.coach-boost #boost { animation: coach-boost-pulse 1.3s ease-in-out infinite; }
       @media (prefers-reduced-motion: reduce) {
         body.coach-boost #boost {
-          animation: none; box-shadow: 0 0 22px 5px rgba(245, 193, 48, 0.85);
+          animation: none; filter: drop-shadow(0 0 12px rgba(245, 193, 48, 0.85));
         }
       }
 
-      /* The pause button lands with the streak counter rather than after it: the two of them are the
-         rest of the same top edge, and staggering a row of three left-to-right would read as the
-         HUD dealing itself out rather than arriving. */
-      body.hud-ready #streak, body.hud-ready #pause { transition-delay: 0.07s; }
-      body.hud-ready #boost, body.hud-ready #brake { transition-delay: 0.14s; }
+      /* The two top corners land together, and the pause button with the pedals it shares the
+         bottom row with. */
+      body.hud-ready #boost, body.hud-ready #boost-meter, body.hud-ready #brake, body.hud-ready #pause { transition-delay: 0.14s; }
+      /* ...but on their own cue there is nothing to stagger against. */
+      body.pedals-ready:not(.hud-ready) #boost, body.pedals-ready:not(.hud-ready) #boost-meter,
+      body.pedals-ready:not(.hud-ready) #brake { transition-delay: 0s; }
       body.hud-ready #rider-finder-stack { transition-delay: 0.21s; }
       @media (prefers-reduced-motion: reduce) {
-        #hud, #streak, #pause, #boost, #brake, #rider-finder-stack { translate: none; }
+        #hud, #boost-meter, #pause, #boost, #brake, #rider-finder-stack { translate: none; }
       }
 
       /* --- "Add to Home Screen" screen — see src/game/homescreen.js -------------
@@ -1545,7 +1364,7 @@
       body.shot-mode #aud-toggle, body.shot-mode #aud-panel { display: none; }
 
       /* The renderer readout — `?diag`, see src/game/diag.js. Bottom-left rather than top, which
-         is where the money counter and the streak live, and above the boost pill's own corner.
+         is where the boost meter and the money counter live, and above the boost pill's own corner.
          It has to survive being photographed on a phone in one hand, so: monospace, a solid
          backing rather than a text shadow, and small enough that six lines fit on a 320px screen.
 
@@ -1604,19 +1423,15 @@
            way the rider-finder chips draw the real figure. -->
       <div id="cargo-chip" role="img" aria-label="Package aboard" aria-hidden="true"></div>
     </div>
-    <div id="streak"><span id="streak-count">0</span>x</div>
 
     <!-- Both glyphs ship in the one button; CSS shows whichever the current state offers. Drawn
          rather than typed for the same reason the Home Screen tip draws its ⋯ — the pause and play
          characters are a different weight and shape in every font, and the emoji versions carry
-         their own colour. -->
+         their own colour. The pause bars are the Figma file's own asset. -->
     <button id="pause" type="button" aria-label="Pause" aria-pressed="false">
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <g class="glyph-pause">
-          <rect x="5.4" y="2.4" width="5.1" height="19.2" rx="1.7" />
-          <rect x="13.5" y="2.4" width="5.1" height="19.2" rx="1.7" />
-        </g>
-        <polygon class="glyph-play" points="6,2.4 20.6,12 6,21.6" />
+      <img class="glyph-pause" src="./assets/hud/pause.svg" alt="" />
+      <svg class="glyph-play" viewBox="0 0 24 24" aria-hidden="true">
+        <polygon points="6,2.4 20.6,12 6,21.6" />
       </svg>
     </button>
     <div id="pause-veil" role="dialog" aria-modal="true" aria-label="Paused" aria-hidden="true" hidden>
@@ -1625,15 +1440,171 @@
       <button class="pause-sound" type="button" aria-pressed="true" aria-keyshortcuts="M">Sound: On</button>
     </div>
 
-    <!-- `aria-keyshortcuts` is how the spacebar hold announces itself; nothing is painted on the
-         pill, which is already the fuel dial and the tutorial's third target. See main.js. -->
-    <button id="boost" type="button" aria-label="Loco Mode" aria-keyshortcuts="Space"
-      ><span class="boost-label">Loco Mode&trade;</span></button>
-    <!-- The brake shares the bottom row with the pill above, 40% of it to Loco Mode's 60%. Same
-         hold-to-hold contract, same label-in-a-span trick for iOS (see .boost-label), and the same
-         keyboard affordance one key over. -->
-    <button id="brake" type="button" aria-label="Brake" aria-keyshortcuts="B"
-      ><span class="brake-label">Brake</span></button>
+    <!-- The two pedals are the Figma file's drawings, inline because the press reaches inside them:
+         `.pedal-face` swaps between its "up" and "down" filters and `.pedal-icon` drops with it —
+         see "The press" in the #boost/#brake rules. The "down" filters are the file's with the
+         side band thinned (28 → 11 units), the soft shadow under the face moved to match, and an
+         inner shadow from the top edge added so the face reads as sunk into its outline.
+         `aria-keyshortcuts` is how the Space and B holds announce themselves. -->
+    <!-- Loco Mode's fuel: a gauge arc over the gas pedal, in the pedal's own viewBox. A read-out
+         only — the pedal is the control. See #boost-meter. -->
+    <div id="boost-meter" aria-hidden="true">
+      <svg class="boost-arc" viewBox="-40 -40 226.266 295.545" preserveAspectRatio="none">
+        <defs>
+          <radialGradient id="fuel-edge">
+            <stop offset="0.35" stop-color="#FFFDF2" /><stop offset="0.6" stop-color="#FFE9A0" stop-opacity="0.9" />
+            <stop offset="1" stop-color="#FFD54A" stop-opacity="0" />
+          </radialGradient>
+          <linearGradient id="fuel-grad" x1="-4" y1="0" x2="160" y2="0" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#FFD500" /><stop offset="1" stop-color="#FF9200" />
+          </linearGradient>
+        </defs>
+        <!-- Both outlines are written by main.js from game/fuelarc.js. -->
+        <path class="boost-track" />
+        <path class="boost-fill" />
+        <circle class="boost-edge" r="0" />
+      </svg>
+    </div>
+    <button id="boost" type="button" aria-label="Loco Mode" aria-keyshortcuts="Space">
+      <svg class="pedal-art" viewBox="0 0 146.266 215.545" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <filter id="gas-up" x="1.195" y="-4" width="143.876" height="219.545" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+            <feFlood flood-opacity="0" result="BackgroundImageFix" />
+            <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="-28" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0.313068 0 0 0 0 0.194996 0 0 0 0 0.00389115 0 0 0 1 0" />
+            <feBlend in2="shape" result="side" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="8" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.15 0" />
+            <feBlend in2="side" result="lit" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="-34" />
+            <feGaussianBlur stdDeviation="2" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0" />
+            <feBlend in2="lit" />
+          </filter>
+          <filter id="gas-down" x="1.195" y="-4" width="143.876" height="219.545" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+            <feFlood flood-opacity="0" result="BackgroundImageFix" />
+            <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="-11" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0.313068 0 0 0 0 0.194996 0 0 0 0 0.00389115 0 0 0 1 0" />
+            <feBlend in2="shape" result="side" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="8" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.15 0" />
+            <feBlend in2="side" result="lit" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="-17" />
+            <feGaussianBlur stdDeviation="2" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0" />
+            <feBlend in2="lit" result="shaded" />
+            <!-- The well: an inner shadow dropped from the top edge, so the face reads as sunk
+                 inside its outline rather than as the whole pedal moving. -->
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="16" />
+            <feGaussianBlur stdDeviation="2.5" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0.313068 0 0 0 0 0.194996 0 0 0 0 0.00389115 0 0 0 0.9 0" />
+            <feBlend in2="shaded" />
+          </filter>
+          <filter id="gas-icon" x="47.784" y="65.35" width="53.055" height="61.512" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+            <feFlood flood-opacity="0" result="BackgroundImageFix" />
+            <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dx="1" dy="2" />
+            <feGaussianBlur stdDeviation="1.5" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0.804634 0 0 0 0 0.497203 0 0 0 0 0 0 0 0 1 0" />
+            <feBlend in2="shape" />
+          </filter>
+          <linearGradient id="gas-fill" x1="11.0981" y1="22.2465" x2="135.434" y2="164.73" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#FF9E01" /><stop offset="0.157945" stop-color="#FCAD2F" /><stop offset="1" stop-color="#FF9E01" />
+          </linearGradient>
+        </defs>
+        <path class="pedal-face" d="M11.3785 63.9486C13.9864 30.1196 42.1971 4 76.1265 4C113.959 4 143.782 36.211 140.874 73.9316L134.887 151.597C132.279 185.426 104.069 211.545 70.1392 211.545C32.3066 211.545 2.48319 179.334 5.39114 141.614L11.3785 63.9486Z" fill="url(#gas-fill)" />
+        <path d="M76.127 2C115.124 2.00027 145.865 35.2029 142.868 74.085L136.881 151.751C134.192 186.622 105.113 213.546 70.1387 213.546C31.1412 213.546 0.39997 180.342 3.39746 141.46L9.38477 63.7949C12.073 28.9241 41.1526 2 76.127 2Z" stroke="#221500" stroke-width="4" fill="none" />
+        <path class="pedal-icon" filter="url(#gas-icon)" d="M48.3979 98.1325L81.7166 65.9284C83.3303 64.3687 85.8942 66.2413 84.8993 68.2531L75.3902 87.4814C74.7329 88.8107 75.7 90.368 77.183 90.368H97.8347C99.713 90.368 100.555 92.7229 99.1033 93.9142L61.9627 124.385C60.1205 125.897 57.6537 123.498 59.1132 121.614L72.1451 104.796C73.1634 103.481 72.2267 101.571 70.5641 101.571H49.7878C47.9896 101.571 47.1049 99.3823 48.3979 98.1325Z" fill="#FFE4B9" />
+      </svg>
+    </button>
+    <button id="brake" type="button" aria-label="Brake" aria-keyshortcuts="B">
+      <svg class="pedal-art" viewBox="0 0 173.614 123.075" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <filter id="brake-up" x="0.136" y="-4" width="173.343" height="127.075" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+            <feFlood flood-opacity="0" result="BackgroundImageFix" />
+            <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="-28" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0.240388 0 0 0 0 0.0617962 0 0 0 0 0.0647727 0 0 0 1 0" />
+            <feBlend in2="shape" result="side" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="8" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.18 0" />
+            <feBlend in2="side" result="lit" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="-34" />
+            <feGaussianBlur stdDeviation="2" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0.909804 0 0 0 0 0.203922 0 0 0 0 0.215686 0 0 0 0.28 0" />
+            <feBlend in2="lit" />
+          </filter>
+          <filter id="brake-down" x="0.136" y="-4" width="173.343" height="127.075" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+            <feFlood flood-opacity="0" result="BackgroundImageFix" />
+            <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="-12" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0.240388 0 0 0 0 0.0617962 0 0 0 0 0.0647727 0 0 0 1 0" />
+            <feBlend in2="shape" result="side" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="8" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.18 0" />
+            <feBlend in2="side" result="lit" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="-18" />
+            <feGaussianBlur stdDeviation="2" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0.909804 0 0 0 0 0.203922 0 0 0 0 0.215686 0 0 0 0.28 0" />
+            <feBlend in2="lit" result="shaded" />
+            <!-- The well: an inner shadow dropped from the top edge, so the face reads as sunk
+                 inside its outline rather than as the whole pedal moving. -->
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="16" />
+            <feGaussianBlur stdDeviation="2.5" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0.35 0 0 0 0 0.06 0 0 0 0 0.07 0 0 0 0.8 0" />
+            <feBlend in2="shaded" />
+          </filter>
+          <filter id="brake-icon" x="63.309" y="29.228" width="45.315" height="41.848" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+            <feFlood flood-opacity="0" result="BackgroundImageFix" />
+            <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dx="1" dy="2" />
+            <feGaussianBlur stdDeviation="1.5" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0.550912 0 0 0 0 0.109586 0 0 0 0 0.117659 0 0 0 1 0" />
+            <feBlend in2="shape" />
+          </filter>
+          <linearGradient id="brake-fill" x1="14.1096" y1="14.1169" x2="60.3697" y2="135.672" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#E83437" /><stop offset="0.157945" stop-color="#ED4E50" /><stop offset="1" stop-color="#E83437" />
+          </linearGradient>
+        </defs>
+        <path class="pedal-face" d="M4.27741 57.5473C6.37383 27.3915 31.448 4 61.6765 4H111.938C145.286 4 171.65 32.2601 169.337 65.528C167.24 95.6838 142.166 119.075 111.938 119.075H61.6765C28.3283 119.075 1.96463 90.8152 4.27741 57.5473Z" fill="url(#brake-fill)" />
+        <path d="M111.938 2L112.745 2.00488C146.87 2.45673 173.707 31.5116 171.332 65.667C169.163 96.8708 143.217 121.075 111.938 121.075H61.6768C27.1694 121.075 -0.110939 91.8325 2.28223 57.4082C4.4517 26.2044 30.3976 2 61.6768 2H111.938Z" stroke="#221500" stroke-width="4" fill="none" />
+        <path class="pedal-icon" filter="url(#brake-icon)" d="M67.8233 30.9787C67.9488 29.9782 68.7994 29.2277 69.8077 29.2277H105.624C106.827 29.2277 107.758 30.2827 107.608 31.4767L103.11 67.3243C102.985 68.3248 102.134 69.0753 101.126 69.0753H65.3096C64.1062 69.0753 63.1753 68.0203 63.3252 66.8263L67.8233 30.9787Z" fill="#FFCCCD" />
+      </svg>
+    </button>
     <div id="rider-finder-stack" role="group" aria-label="Waiting riders"></div>
     <!-- Up only while the taxi is completely off-frame; a tap rides the camera back to it. Empty
          here: the car inside it is the real `createTaxiMesh` in a WebGL context of its own, the
@@ -1647,32 +1618,13 @@
     <div id="siren-glow" aria-hidden="true" hidden></div>
     <div id="robbery-glow" aria-hidden="true" hidden></div>
     <div id="spotlight" aria-hidden="true"></div>
-    <div id="coach" hidden>
-      <button class="coach-bubble" type="button">
-        <span class="coach-avatar"></span>
-        <span class="coach-text">
-          <span class="coach-ghost"></span><span class="coach-typed"></span>
-        </span>
-      </button>
-    </div>
+    <!-- The speech layers. Empty: game/speech.js builds the same card into each. -->
+    <div id="coach" role="status" aria-live="polite" hidden></div>
     <div id="robber-spot" aria-hidden="true"></div>
-    <div id="robber-talk" hidden>
-      <button class="coach-bubble" type="button">
-        <span class="coach-avatar"></span>
-        <span class="coach-text">
-          <span class="coach-ghost"></span><span class="coach-typed"></span>
-        </span>
-      </button>
-    </div>
-    <div id="radio" role="status" aria-live="polite" hidden>
-      <div class="radio-bubble">
-        <span class="radio-avatar"></span>
-        <span class="radio-text">
-          <span class="radio-from">Dispatch</span>
-          <span class="radio-line"></span>
-        </span>
-      </div>
-    </div>
+    <div id="robber-talk" role="status" aria-live="polite" hidden></div>
+    <div id="cop-shout" role="status" aria-live="polite" hidden></div>
+    <div id="radio" role="status" aria-live="polite" hidden></div>
+    <div id="depot-call" role="status" aria-live="polite" hidden></div>
     <div id="home-tip" hidden></div>
     <div id="wipe" aria-hidden="true" hidden></div>
     <div id="run-end" hidden></div>

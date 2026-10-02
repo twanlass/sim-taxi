@@ -9,7 +9,7 @@ behind it that aren't obvious from the code.
 | [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts and the duck pond, the depot, the burger joint and the bank, ground/buildings/props | `src/city/` |
 | [river.md](river.md) | The river, its three bridges, the span that lifts and the boats it lifts for | `src/city/river.js`, `src/game/drawbridge.js` |
 | [roadnet.md](roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces | `src/city/roadnet.js`, `src/city/curves.js` |
-| [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the drive-through, cop cars in ambient traffic, the police corridor and the bust chase | `src/sim/` |
+| [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the drive-through, cop cars in ambient traffic, and the patrol cruiser | `src/sim/` |
 | [gameplay.md](gameplay.md) | The opening vignette, the opening tutorial, the fare loop, routing, dragging the route, the bank robbery, the package courier, picking, the travelling clock, economy, crazy-taxi mode, the burger run, repairs at the depot, pause | `src/game/` |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
 | [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, Crayon and Cartoon Mode, bloom, effects, sirens | `src/game/scene.js`, `src/geometry/` |
@@ -98,6 +98,10 @@ Once a run, a side street closes for **roadworks** — barricades at both ends, 
 road and two workers standing over it. Ambient traffic routes around it while the taxi's own router
 is told the street is cheap, so it is the emptiest road in the city with a ramp at each end — and a
 fare that leads you down it. See [traffic.md](traffic.md#roadworks-a-street-closed-at-both-ends).
+
+One of the city's trucks is a **flatbed stacked with crates**. Some while into a run it starts
+hitting bumps and the load comes off the back into the road; drive through one and it smashes, for
+nothing but the fun of it — no hit points. See [traffic.md](traffic.md#the-flatbed-that-sheds-its-load).
 
 The route the taxi is driving is drawn as a yellow band down the lane, and it is **draggable**:
 press it and pull sideways and the junction under your finger becomes a waypoint the route has to

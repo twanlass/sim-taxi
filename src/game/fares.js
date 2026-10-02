@@ -4,6 +4,7 @@ import {
 import { KERB_H } from '../city/ground.js';
 import { createPassengerPin, createDestinationPin } from '../geometry/marker.js';
 import { createPerson } from '../geometry/person.js';
+import { taxiSideToward, taxiDoorPoint } from '../geometry/taxi.js';
 import { createCurseBubble } from '../geometry/cursebubble.js';
 import { createFareMarker } from './faremarker.js';
 import { sightlineClear } from './sightline.js';
@@ -351,11 +352,25 @@ export const ARRIVE_RADIUS = 9.6;
 // figure physically hides, so a run-and-jump animation gets to play across it. Tuned against that
 // flight's 0.65s so the clock lands on the taxi a beat before the rider disappears into it.
 export const BOARD_SECONDS = 0.9;
+// Where the boarding run ends and the hop lands, in world units off the taxi's flank at the middle
+// of its rear door (`taxiDoorPoint`): the rider pulls up just clear of the open door's sill and
+// ducks half a unit into the car, shrinking away as they go.
+const DOOR_STANDOFF = 0.7;
+const DOOR_REACH = 0.5;
+const doorRun = { x: 0, z: 0 };
+const doorIn = { x: 0, z: 0 };
 
 // How long the delivered rider is visible for after they leave the cab. Longer than BOARD_SECONDS
 // because the animation carries an extra beat — a fade after the run — so a departing rider is
 // on-screen while the earnings pop is still travelling to the counter.
 const EXIT_SECONDS = 1.4;
+
+// A robber's exit stops where the run to the kerb ends (`exit` in geometry/person.js runs its hop
+// and sprint over the first three quarters), and waits there for the arrest. The backstop is well
+// past the longest arrest (`SCENE_MAX` in game/arrest.js) and is only there so a figure nobody
+// lets go of cannot hold its board slot for good.
+const EXIT_HOLD_AT = 0.75;
+const EXIT_HOLD_MAX = 60;
 
 // And how long a VIP whose clock ran out is visible for on their way off — the jump out of the
 // cab, the run, the fade and the outburst bubble over all of it (geometry/cursebubble.js).
@@ -558,6 +573,7 @@ function createSlot(scene, index) {
   // picker already walks up parents looking for `pickable`; this rides along the same walk.
   passenger.group.userData.fareSlot = index;
   destination.group.userData.fareSlot = index;
+  stampFareMarker(marker, index);
 
   passenger.group.visible = false;
   destination.group.visible = false;
@@ -566,6 +582,26 @@ function createSlot(scene, index) {
 
   return { index, passenger, destination, marker, curse };
 }
+
+/**
+ * Make a rider's crystal and disc a tap on that rider. They live at scene level in
+ * game/faremarker.js, outside the rider's group that carries the tap quad and the figure, and
+ * `waitingTargets` hands all three to the picker. Left out, a tap on the
+ * crystal read as the quad's empty margin and the stand-in rule (game/pick.js) handed it to the
+ * building behind; a tap on the near half of the disc met the building's apron before the quad at
+ * all. Both were a tap on a rider at the burger joint sending the taxi through the drive-through.
+ * Exported for tools/probe.mjs.
+ */
+export function stampFareMarker(marker, index) {
+  // Scene-level, so they get their own stamps rather than inheriting the pin's.
+  for (const root of [marker.group, marker.ring]) {
+    root.userData.pickable = 'passenger';
+    root.userData.fareSlot = index;
+  }
+}
+
+/** A waiting fare's pick targets. See `stampFareMarker` above. */
+export const waitingTargets = (slot) => [slot.passenger.group, slot.marker.group, slot.marker.ring];
 
 /**
  * @param reserved  junctions another system has claimed and this one must not spawn on — the package
@@ -1307,8 +1343,11 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
    * this un-hides it, drops it onto the taxi's current position, and hands the slot to `exits`
    * where its own tick will drive it home. The fare has already been removed from `state.fares`
    * by the caller, so the slot is free to be reused as soon as the animation completes.
+   *
+   * `hold` is the robber: they get to the kerb and stop there rather than fading, and this returns
+   * a handle on the figure (null otherwise) that the arrest poses and lets go of — game/arrest.js.
    */
-  function beginExit(slot, target, taxiCar) {
+  function beginExit(slot, target, taxiCar, { hold = false } = {}) {
     place(slot.passenger, target.i, target.j);
     slot.passenger.standing?.rest?.();
     slot.passenger.group.visible = true;
@@ -1317,7 +1356,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // is about to hand back to the pavement has no deadline left.
     slot.marker.hide();
     const kerb = cornerFor(target.i, target.j);
-    exits.push({
+    const entry = {
       slot,
       bail: false,
       // Captured now rather than looked up each frame — the taxi is about to drive off, and the
@@ -1325,7 +1364,29 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
       // `exit()` runs *from* the taxi *to* the pin's own origin, so the offset points at the car.
       run: { dx: taxiCar.x - kerb.x, dz: taxiCar.z - kerb.z },
       elapsed: 0,
-    });
+      // A robber does not walk off: they get to the kerb and stay there for the police
+      // (game/arrest.js), and the handle returned below is how.
+      hold: hold ? { settled: false, done: false, fade: false, since: 0 } : null,
+    };
+    exits.push(entry);
+    if (!hold) return null;
+    return {
+      standing: slot.passenger.standing,
+      /** Where the figure's own origin stands, in world x/z — the kerb corner. */
+      x: kerb.x,
+      z: kerb.z,
+      /** Out of the cab and on the kerb: the pose is the caller's from here. */
+      settled: () => entry.hold.settled,
+      /**
+       * Finished with. `fade` plays the ordinary exit's last beat — the figure fades where it
+       * stands — for an arrest that never happened; without it the figure goes on this frame,
+       * because the caller has just put it in a police car.
+       */
+      release: ({ fade = false } = {}) => {
+        if (fade) { entry.hold.fade = true; entry.elapsed = EXIT_HOLD_AT * EXIT_SECONDS; }
+        else entry.hold.done = true;
+      },
+    };
   }
 
   /**
@@ -1413,10 +1474,20 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
         const at = standing?.group.position;
         if (at) e.slot.curse.group.position.set(at.x, CURSE_LIFT, at.z);
         e.slot.curse.update(t);
+      } else if (e.hold && !e.hold.fade) {
+        // Hop and run exactly as any rider does, and stop at the kerb rather than fading there.
+        // Past that the figure is the handle's holder's to pose, until it lets go. Backstopped,
+        // so a caller that never does cannot hold a board slot for the rest of the run.
+        const at = Math.min(t, EXIT_HOLD_AT);
+        if (!e.hold.settled) standing?.exit?.(at, e.run.dx, e.run.dz);
+        if (t >= EXIT_HOLD_AT) e.hold.settled = true;
+        e.hold.since += dt;
+        if (e.hold.since > EXIT_HOLD_MAX) e.hold.done = true;
+        if (!e.hold.done) continue;
       } else {
         standing?.exit?.(t, e.run.dx, e.run.dz);
       }
-      if (t >= 1) {
+      if (t >= 1 || e.hold?.done) {
         e.slot.passenger.group.visible = false;
         e.slot.curse.hide();
         standing?.rest?.();
@@ -1560,11 +1631,21 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
         // pickup instant; the delta to the taxi's *current* position is re-read every frame, which
         // is what lets the figure catch a car that is still moving — and it always is, since the
         // pickup fires with the taxi mid-junction and it now drives straight on to the drop-off.
+        //
+        // They run at the rear door on the kerb side, not at the middle of the car, and hop in
+        // through it — the door (game/taxidoor.js) swings open on whichever side is latched here.
+        // Latched once, on the first frame: the car is usually turning through the junction while
+        // they run, and a side re-read every frame could swap doors mid-stride. The door point
+        // itself *is* re-read every frame, for the same reason the taxi's position is.
         if (fare.boarding !== undefined && passenger.standing?.board) {
           fare.boarding += dt;
           const t = Math.min(1, fare.boarding / BOARD_SECONDS);
           const kerb = fare.boardingFrom;
-          passenger.standing.board(t, taxiCar.x - kerb.x, taxiCar.z - kerb.z);
+          fare.boardingSide ??= taxiSideToward(taxiCar, kerb.x, kerb.z);
+          taxiDoorPoint(taxiCar, fare.boardingSide, DOOR_STANDOFF, doorRun);
+          taxiDoorPoint(taxiCar, fare.boardingSide, -DOOR_REACH, doorIn);
+          passenger.standing.board(t, doorRun.x - kerb.x, doorRun.z - kerb.z,
+            doorIn.x - kerb.x, doorIn.z - kerb.z);
           if (t >= 1) {
             passenger.group.visible = false;
             fare.boarding = undefined;
@@ -1713,7 +1794,9 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
         // will skip this slot until the animation is done, so nothing lands on top of it.
         const at = state.fares.indexOf(fare);
         if (at !== -1) state.fares.splice(at, 1);
-        beginExit(fare.slot, fare.target, taxiCar);
+        // A robber stays on the kerb, and the handle on the figure rides the event out to whoever
+        // is going to arrest them — see `beginExit` above and game/arrest.js.
+        fare.figure = beginExit(fare.slot, fare.target, taxiCar, { hold: Boolean(fare.robber) });
         emit('delivered', fare);
       }
     }
@@ -1806,9 +1889,15 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     return true;
   }
 
-  /** Objects the picker may hit — every live fare's one visible marker. */
+  /**
+   * Objects the picker may hit — every live fare's one visible marker. A waiting fare's crystal and
+   * disc go in too: they are scene-level (game/faremarker.js), so the rider's group does not carry
+   * them — see `waitingTargets`.
+   */
   function pickables() {
-    return state.fares.map((f) => (f.stage === 'waiting' ? f.slot.passenger : f.slot.destination).group);
+    return state.fares.flatMap((f) => (f.stage === 'waiting'
+      ? waitingTargets(f.slot)
+      : [f.slot.destination.group]));
   }
 
   /**

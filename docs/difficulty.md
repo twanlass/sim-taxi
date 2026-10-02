@@ -22,7 +22,7 @@ and would make the escalation something that happens *to* you rather than someth
 | `spawnRadius` | 3 blocks | whole map | How far from the bias point an extra may land. |
 | `payoutMultiplier` | 1× | 2× | Stepped with the shift, stamped into `fare.value` at spawn. |
 | `carCount` | 12 | 22 | Ambient traffic. Pushed into `sim/traffic.js`. |
-| `policeCooldown` | 16–30s | 8–14s | Between corridor runs. Pushed into `sim/police.js`. |
+| `policeCooldown` | 16–30s | 8–14s | Between patrols. Pushed into `game/patrol.js`. |
 
 `?d=0..1` pins the curve, and the ⚙️ panel has a slider for the same handle — the late game is
 several minutes of play away otherwise, which makes the hard part of the game the awkward part to
@@ -157,8 +157,8 @@ it.
 ## Shifts
 
 Four bands over the delivery count — 0, 3, 7, 12 — each with a payout multiplier, reflected in the
-[multiplier counter](gameplay.md#the-multiplier-counter) on the delivery that crosses into it. The
-ramp is otherwise invisible: clocks tighten, riders arrive closer together and the board grows, and
+prices from the delivery that crosses into it (there is [no counter](gameplay.md#the-multiplier-has-no-counter)
+for it). The ramp is otherwise invisible: clocks tighten, riders arrive closer together and the board grows, and
 a player experiencing all three at once has no way to tell "the game got harder" from "I got worse".
 
 | Shift | From | Pays |

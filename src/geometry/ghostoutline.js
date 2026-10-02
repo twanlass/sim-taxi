@@ -60,8 +60,8 @@ export const CAR_GHOST_RIM_ORDER = 9993;
 // still read as an outline of the car rather than a blob wearing its shape.
 const RIM = 0.3;
 
-// The stencil ref shared by mask and rim — and by every ghost in the scene. Nothing else touches
-// the stencil buffer.
+// The stencil ref shared by mask and rim — and by every ghost in the scene. The only other writer
+// is stampGhostMask, which stamps this same ref for the things that fly.
 //
 // One ref across all of them, deliberately. A rim's rule is "draw where something in the depth
 // buffer sits in front of me", so where traced car B stands behind traced car A, B's rim passes
@@ -206,6 +206,32 @@ export function addGhostMask(mesh) {
   mask.raycast = noRaycast;
   mesh.add(mask);
   return mask;
+}
+
+/**
+ * Make a material's *visible* pixels part of the ghost mask, so no ghost rim — the taxi's, the
+ * traffic's, or a cartoon outline — paints over them.
+ *
+ * For things that fly. A rim's rule is "draw where something in the depth buffer sits in front of
+ * me", and that is meant to mean a tower. A bird, the aeroplane or the helicopter passing between
+ * the camera and the taxi satisfies it just as well, and the rim then traces *their* silhouette in
+ * yellow across the hull's ring. Stamping the stencil where the flyer actually draws (the stamp
+ * rides its own depth test, so only where it is in front) knocks the rim out exactly there: what
+ * is left is a gap in the outline under the flyer, which is what an object in front should leave.
+ *
+ * Deliberately a stencil stamp and not a later renderOrder. Moving a flyer after the ghost tiers
+ * (9990+) keeps it out of the depth buffer they read — and also out from under the crayon page at
+ * renderOrder 1, which then washes every pixel in the frame except the birds. Stencil state is GL
+ * state rather than shader source, so this costs no program link.
+ *
+ * Only for a material that writes depth: one that doesn't was never an occluder.
+ */
+export function stampGhostMask(material) {
+  material.stencilWrite = true;
+  material.stencilRef = GHOST_REF;
+  material.stencilFunc = THREE.AlwaysStencilFunc;
+  material.stencilZPass = THREE.ReplaceStencilOp;
+  return material;
 }
 
 /**

@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial } from '../util/geo.js';
+import { bakeColor, propMaterial, setFinish, FINISH } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
-import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT } from './wheels.js';
+import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT, SILL_Y } from './wheels.js';
 import {
   lightPodGeometry, brakeLightAnchors, turnSignalAnchors, brakeLightMaterial, turnSignalMaterial,
 } from './lights.js';
@@ -71,11 +71,11 @@ export function createTaxiMesh() {
   // Proportions match the ambient cars so the taxi reads as the same class of vehicle.
   const body = new THREE.BoxGeometry(CAR_LEN, 0.8, CAR_W);
   body.translate(0, 0.78 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(body, color('taxiBody')));
+  parts.push(setFinish(bakeColor(body, color('taxiBody')), FINISH.PAINT));
 
   const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, 0.6, CAR_W * 0.86);
   cabin.translate(-0.2, 1.45 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(cabin, color('carGlass')));
+  parts.push(setFinish(bakeColor(cabin, color('carGlass')), FINISH.GLASS));
 
 
 
@@ -106,7 +106,7 @@ export function createTaxiMesh() {
       // body is `taxiBody` yellow, and a yellow-and-black band is a hazard stripe, not a taxi. The
       // white is `taxiSign`, the off-white the roof sign already lights up in — the car's existing
       // white, so the livery stays a two-colour car rather than gaining a third.
-      parts.push(bakeColor(cell, color(i % 2 === 0 ? 'taxiTrim' : 'taxiSign')));
+      parts.push(setFinish(bakeColor(cell, color(i % 2 === 0 ? 'taxiTrim' : 'taxiSign')), FINISH.PAINT));
     }
   }
 
@@ -116,7 +116,8 @@ export function createTaxiMesh() {
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 
-  const shell = new THREE.Mesh(merged, propMaterial());
+  // Glossy paint, like the fleet's (sim/traffic.js) — a touch more coat, it is the hero car.
+  const shell = new THREE.Mesh(merged, propMaterial({ gloss: { geometry: merged, floor: SILL_Y, amount: 1.33 } }));
   shell.castShadow = true;
   // ...and receives, like every ambient car — see the note over the traffic meshes in
   // sim/traffic.js for what that costs and why it is not behind a flag.
@@ -134,11 +135,12 @@ export function createTaxiMesh() {
 
   // Steered front wheels. One shared material, one mesh each, pivoting about their own hubs — the
   // group's transform carries them along, so nothing here has to know where the taxi is.
-  const wheelMaterial = propMaterial();
+  const steeredGeometry = wheelGeometry();
+  const wheelMaterial = propMaterial({ gloss: { geometry: steeredGeometry } });
   const steered = wheelAnchors(CAR_LEN, CAR_W)
     .filter((anchor) => anchor.front)
     .map((anchor) => {
-      const wheel = new THREE.Mesh(wheelGeometry(), wheelMaterial);
+      const wheel = new THREE.Mesh(steeredGeometry, wheelMaterial);
       wheel.position.set(anchor.x, anchor.y, anchor.z);
       wheel.castShadow = true;
       wheel.receiveShadow = true;
@@ -232,6 +234,7 @@ export function createTaxiMesh() {
   }
 
   const damage = buildDamage(group, lightPods);
+  const door = buildDoors(group);
 
   // Slightly oversized against ambient traffic. The player has to find this car at a glance in a
   // street full of identically shaped vehicles.
@@ -303,6 +306,119 @@ export function createTaxiMesh() {
     setHighlight,
     setSteer,
     setLights,
+    setDoor: door.set,
+    /** The two door panels, for the probe — hinge at local x 0, free edge at −x. */
+    doors: door.panels,
+    doorGaps: door.gaps,
+  };
+}
+
+// --- The rear door ------------------------------------------------------------------------------
+//
+// Swung open on the kerb side while a rider hops in (game/taxidoor.js drives it). Pure flourish, and
+// sized like it: the door is ~0.9 world units long through TAXI_SCALE, about 7px at play zoom, so
+// what reads is a yellow flap standing off the flank and the dark gap it leaves — not a handle, not
+// a hinge line. Two-tone (body below, glass above) only because a single yellow slab swung out reads
+// as a panel falling off, which is what the damage's boot and bonnet already say.
+//
+// Built at boot and hidden at a zero scale, for the reason the damage parts are (see the note over
+// buildDamage): everything that walks this group walks it once. A closed door is never drawn at all
+// rather than drawn flush — a flush door would just be a second skin over the flank and stripe.
+//
+// Hinged on its front edge at the cabin's mid-point (the B-pillar), because a rider gets in the back.
+// The levels below clear the chequer stripe's outer face at CAR_W/2 + 0.05 without touching it: the
+// dark opening's outer face sits at 0.925 and the door's inner face at 0.935.
+const DOOR_HINGE_X = -0.2;
+const DOOR_LEN = 0.78;
+const DOOR_T = 0.05;
+const DOOR_Z = CAR_W / 2 + 0.11;
+const DOOR_LOW = 0.44 + CHASSIS_LIFT;
+const DOOR_BELT = 1.16 + CHASSIS_LIFT;
+const DOOR_TOP = 1.66 + CHASSIS_LIFT;
+
+/**
+ * Which flank of `car` (sim car: x, z, yaw) faces the world point (x, z): +1 the +z flank, −1 the
+ * other. The one place the boarding side is decided — the rider's run (game/fares.js) and the door
+ * (game/taxidoor.js) both read the answer latched on the fare, so they cannot pick different sides.
+ * Local +z under rotation.y = yaw is world (sin yaw, cos yaw).
+ */
+export function taxiSideToward(car, x, z) {
+  const lz = (x - car.x) * Math.sin(car.yaw) + (z - car.z) * Math.cos(car.yaw);
+  return lz < 0 ? -1 : 1;
+}
+
+/**
+ * World XZ of the middle of the rear door's opening on `side`, pushed `out` world units off the
+ * flank (negative reaches inside the car). Read off the same constants the door is built from and
+ * put through TAXI_SCALE, so the rider aims at the door that is drawn rather than at the 3.4-unit
+ * sim car (see the TAXI_SCALE trap in CLAUDE.md).
+ */
+export function taxiDoorPoint(car, side, out = 0, target = { x: 0, z: 0 }) {
+  const lx = (DOOR_HINGE_X - DOOR_LEN / 2) * TAXI_SCALE;
+  const lz = side * ((CAR_W / 2) * TAXI_SCALE + out);
+  const s = Math.sin(car.yaw);
+  const c = Math.cos(car.yaw);
+  target.x = car.x + lx * c + lz * s;
+  target.z = car.z - lx * s + lz * c;
+  return target;
+}
+
+function buildDoors(group) {
+  const doors = new Map();
+  const panels = [];
+  const gaps = [];
+  for (const side of [-1, 1]) {
+    // Runs from the hinge along −x. Symmetric in z, so the left door is the same geometry turned
+    // the other way about the hinge — no mirror, so no winding to flip.
+    const skin = new THREE.BoxGeometry(DOOR_LEN, DOOR_BELT - DOOR_LOW, DOOR_T);
+    skin.translate(-DOOR_LEN / 2, (DOOR_LOW + DOOR_BELT) / 2, 0);
+    const glass = new THREE.BoxGeometry(DOOR_LEN - 0.12, DOOR_TOP - DOOR_BELT, DOOR_T);
+    glass.translate(-0.06 - (DOOR_LEN - 0.12) / 2, (DOOR_BELT + DOOR_TOP) / 2, 0);
+    const parts = [bakeColor(skin, color('taxiBody')), bakeColor(glass, color('carGlass'))];
+    const merged = mergeGeometries(parts, false);
+    parts.forEach((p) => p.dispose());
+
+    const hinge = new THREE.Group();
+    hinge.position.set(DOOR_HINGE_X, 0, side * DOOR_Z);
+    const panel = new THREE.Mesh(merged, propMaterial());
+    panel.castShadow = true;
+    panel.receiveShadow = true;
+    panel.userData.pickable = 'taxi';
+    hinge.add(panel);
+
+    // The opening the door leaves in the flank, over the stripe.
+    const gapGeo = new THREE.BoxGeometry(DOOR_LEN - 0.04, DOOR_BELT - DOOR_LOW - 0.06, 0.02);
+    gapGeo.translate(DOOR_HINGE_X - DOOR_LEN / 2, (DOOR_LOW + DOOR_BELT) / 2, side * (CAR_W / 2 + 0.065));
+    const gap = new THREE.Mesh(bakeColor(gapGeo, color('taxiTrim')), propMaterial());
+    gap.userData.pickable = 'taxi';
+
+    hinge.scale.setScalar(0);
+    gap.scale.setScalar(0);
+    group.add(hinge, gap);
+    // Mask only, like the damage panels: a part left out of the stencil occludes the shell's rim.
+    addGhostMask(panel);
+    addGhostMask(gap);
+    doors.set(side, { hinge, gap });
+    panels.push(panel);
+    gaps.push(gap);
+  }
+
+  return {
+    panels,
+    gaps,
+    /**
+     * Open the door on `side` (+1 the car's +z flank, −1 the other) by `angle` radians, free edge
+     * swinging outward — or pass side 0 / angle 0 to shut both away.
+     */
+    set(side, angle) {
+      for (const [s, { hinge, gap }] of doors) {
+        const open = s === side && angle > 0;
+        hinge.scale.setScalar(open ? 1 : 0);
+        gap.scale.setScalar(open ? 1 : 0);
+        // Ry(θ) takes the panel's −x run to (−cos θ, sin θ): +θ swings toward +z.
+        if (open) hinge.rotation.y = s * angle;
+      }
+    },
   };
 }
 

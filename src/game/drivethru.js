@@ -26,7 +26,7 @@ import { CAR_LEN, SPEED, releaseCar, stageCar } from '../sim/traffic.js';
 //     at all. The gap check before the exit (`mergeClear`) is therefore what stops a car pulling
 //     out through another one, and not a safety net under it.
 //
-// **PROTOTYPE.** Cars only — see `eligible`. A box truck at a drive-through is a good joke and a
+// **PROTOTYPE.** Cars only, and never a cop — see `eligible`. A box truck at a drive-through is a good joke and a
 // bad fit: it is 5.6 long against a 2-unit turn radius, and it would ride the kerb through both
 // arcs.
 //
@@ -194,7 +194,11 @@ export function createDriveThru({ site, cars, rng }) {
     && car.state === 'drive' && car.d === DIR.NX
     && Math.abs(car.z - site.entry.z) < LANE_TOL;
 
-  const eligible = (car) => !car.isTaxi && atTheMouth(car);
+  // Never a cop, either. A patrol cruiser is an ordinary car in traffic (sim/police.js), so the roll
+  // used to take one like any other — including mid-chase, strobing, which then sat in the queue
+  // for its order while the taxi it was after drove off. A cop pulled into the lot also stops
+  // being a lane car, and game/patrol.js and `leavePolice` both expect theirs on a road.
+  const eligible = (car) => !car.isTaxi && !car.police && atTheMouth(car);
 
   /** Has this one just been through? */
   const fedRecently = (car) => clock - (fed.get(car) ?? -Infinity) < FED_COOLDOWN;
@@ -455,7 +459,7 @@ export function createDriveThru({ site, cars, rng }) {
       if (spot.s < enterS || queue.length >= CAPACITY) break;
       // Any car that is on a road and not the player's. Unlike the live path this does not care
       // which road or which way — a still has no continuity to keep.
-      const car = cars.find((c) => !c.isTaxi && !c.isTruck && !c.crashed && !c.staged
+      const car = cars.find((c) => !c.isTaxi && !c.isTruck && !c.police && !c.crashed && !c.staged
         && c.state === 'drive');
       if (!car) break;
       const pose = poseAt(spot.s);

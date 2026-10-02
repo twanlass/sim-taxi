@@ -19,6 +19,16 @@ Three things produce it:
 > as several separate vertices. Jittering per-index pushed each copy a different way and tore the
 > tree canopies open. Keying on position keeps the surface welded.
 
+**The one deliberate exception is the tree crowns, which are soft.** The props and buildings meshes
+are `propMaterial({ smooth: true })` — lit from the geometry's own normals rather than the
+screen-space derivative — and that changes nothing for any facet, because `bakeColors` has already
+given every non-indexed face its own normal. The crowns alone are handed the ellipsoid's normal at
+each vertex (`softCrown` in `city/props.js`), so they light as one rounded mass while the walls,
+trunks and benches around them stay faceted. A pixel diff of the city before and after differed
+only on crowns, and `tools/probe.mjs` asserts that every bent normal in those two meshes belongs to
+a crown. One cost: the crown's own shadow-map self-shadowing now draws a hard terminator across a
+soft gradient, where on a faceted crown it fell along a facet edge and could not be seen.
+
 `palette.js` holds every colour in the game by name, plus `jitterColor()` for per-instance
 variation. New colours belong there, not inline.
 
@@ -76,6 +86,70 @@ Four details worth keeping:
   there. On masonry it inverts figure and ground, turning dark holes in a light wall into light
   patches on a dark one, and takes the scale cue with it. So the punched path carries a ceiling
   (0.52 on brick, 1.0 on the pale envelopes) and the curtain-wall path does not.
+
+### Car finishes — `propMaterial({ gloss })` in `util/geo.js`
+
+Every vehicle body and every wheel — the fleet, truck cabs and boxes, the cop cars, the cruiser and
+the taxi — is `MeshPhongMaterial` rather than the Lambert everything else wears, with one more patch
+on top of `patchProp`. Wrecks stay plain Lambert.
+
+**Four finishes, one program.** `setFinish()` bakes an `aFinish` attribute per part —
+`FINISH.TYRE`, `PAINT`, `GLASS`, `METAL` (the hubcaps, `geometry/wheels.js`) — and the shader
+indexes three shared `vec4` uniform arrays with it, so each finish has its own full set of numbers
+(`FINISH_DEFAULTS`: glint, glint sharpness, glint bend, sheen, sheen sharpness, flake, reflect,
+reflect edge, reflect bend, base colour) while every glossy material still compiles to the same
+source. A geometry with no `aFinish` reads 0, so anything untagged comes out as tyre — matte rather
+than mirrored; `tools/probe.mjs` asserts the car and the taxi carry all four.
+
+**Tuning them.** `?debug` → **Car finish**: pick a finish and its ten sliders retarget to it, plus
+flake size, façade darkness and **Show finishes**, which paints each finish a flat false colour
+(tyre grey, paint red, glass cyan, metal yellow) to check what the geometry tagged as what —
+`?finishes` turns the same view on from a URL, for screenshots. Everything is live. **Copy
+settings JSON** exports it as `carFinish`, whose keys are `FINISH_DEFAULTS` and
+`GLOSS_GLOBAL_DEFAULTS`. **Freeze & zoom** (or `I`) stops the world with nothing over it and hands
+the camera to `game/inspect.js`: wheel or pinch to zoom down to a frustum half-height of 2.5, drag
+to pan, **Next car** (`N`) to step outward from the taxi, `I` again to resume where you were.
+Paint's reflection is also scaled per material (`amount`: the taxi 1.33, a
+cargo box 0.55).
+
+**The diffuse keeps the flat normal.** The first cut bent three's `normal` itself, which the diffuse
+reads too, and every car went soft and bubbly — the facets that make this a low-poly game smoothed
+into one rounded lump. Now two *extra* normals are bent outward by how far the fragment sits from the
+body's centre, and only the specular and the reflection read them:
+
+- **The glint's bends up to 45° at a panel's corner** (`glintBend` ≈ 1). It has to: the sun's
+  half-vector sits about 45° round from both axes the traffic drives on, so a box panel bent less
+  never lines up with it — a 17° bend rendered no glint at all on an axis-aligned car. A real car
+  catches the sun on its curved shoulders; bent this far, the corner of a panel is that shoulder,
+  and with a lobe this tight only the corner shows it.
+- **The reflection's bends separately** (`reflectBend`, about 1.2 as tuned), which is what slides a
+  skyline across a panel. It never reaches the diffuse, so the facets stay hard however far it goes.
+
+**The specular is swapped, not tuned.** Phong's own specular line is replaced
+(`GLOSS_SPECULAR_FROM`/`TO`) with two lobes: the glint on the glint normal, the sheen on the reflection's. It stays inside three's light loop,
+so the shadow map is already folded into the light: a car in a tower's shadow has nothing to glint
+with, and the cop's lamps glint off the cars beside it.
+
+**The sheen carries metal flake.** Paint's broad lobe is multiplied by a hash over the body's own
+space, 14.5 cells a unit by default (`flakeSize`) — sub-pixel at play zoom, where it averages into a livelier sheen, and only
+sparkle close up. The sheen is also what separates paint from glass when no glint is lined up.
+
+**The reflection marches the city.** The reflected ray is stepped through the height field
+`game/sightline.js` already builds for the fare board, uploaded once as a byte texture
+(`setGlossCity`). Under a roofline it returns a dark façade, otherwise the sky gradient
+(`setGlossSky`, fed by `game/daylight.js`). Why not an env map: the camera never rotates, so the
+reflected ray off a facet only changes when the *car* turns — a cubemap would hand a car driving
+straight the same picture every frame. What changes as it drives is where it is.
+
+**The ray is folded up off the road.** The camera looks down at 33°, so the honest reflection off a
+side panel is the asphalt a metre away — correct and invisible. `gR.y = max(abs(gR.y), 0.12)`
+mirrors it upward so a flank sees the street wall opposite.
+
+**Off under Crayon and Cartoon.** `propMaterial` hands back the plain Lambert when either look is on
+at boot. `outlinable` in `game/cartoon.js` accepts Phong as well, for a car built before the flag.
+
+All glossy bodies share one program (`prop-gloss`, `-ssao` as it applies): the per-shape numbers
+are per-material uniforms, not source. `tools/links.mjs` counts it at boot, not mid-run.
 
 ## Camera
 
@@ -371,7 +445,7 @@ ones, because it is a cut scene rather than a driving aid. Only three numbers di
 | Ending | Where it looks | Zoom | Slow-mo floor | Banner waits |
 |---|---|---|---|---|
 | **Wrecked** | the impact point | 26 | 0.18 | 2600ms |
-| **Busted** | the taxi, so the cruiser swings into a held shot | 26 | 0.42 | until the cop pulls up, 3400–4800ms |
+| **Busted** | the taxi, with the cop that caught it already alongside | 26 | 0.42 | 2000ms |
 | **Too Slow** | `fares.state.failSpot` — wherever the rider gets out | 30 | 0.40 | 3000ms |
 
 The timeout is the odd one out and it is what the third row is for: nothing happens *to the taxi*, so
@@ -1431,10 +1505,11 @@ to be switched on by hand on the device that is hardest on them. They are indepe
 They live in `util/shot.js` beside `?seed` and `?cars`, and every getter takes its **fallback from
 safe mode rather than from a literal**, evaluated per call — so one flag moves all of them, and a
 module that opens a renderer of its own reads the effective value without anyone threading it
-through. Four do: the tutorial's avatar bubble, each rider-finder chip, the courier
+through. Three do: each rider-finder chip, the courier
 [cargo chip](gameplay.md#the-load-is-carried-into-the-hud) and the
-[taxi finder](#getting-back-to-the-taxi). They are 38px, 42px and 44px square and — for the tutorial,
-which swaps box with its subject — a 54px square or a 48 × 80 portrait. Their own cost is nothing,
+[taxi finder](#getting-back-to-the-taxi). They are 38px, 42px and 44px square. (The speech bubbles'
+avatars — the tutorial's taxi and rider, the robber, dispatch's cop car — were contexts too, and
+went with the [pinned bubbles](gameplay.md#speech-bubbles).) Their own cost is nothing,
 but each is a **WebGL context this page is holding**, and that is part of what `?safe` is asking
 about.
 
@@ -1588,8 +1663,25 @@ ring road would show sky through the tarmac.
 
 A ring buffer of flat quads stamped onto the road while boosting **through a corner**, and for the
 first `LAUNCH_SKID_TIME = 0.5s` **off the line** when Loco Mode is first pressed. Alpha lives in a
-4-component vertex colour attribute. Pure black, `MARK_LENGTH = 1.5`, `MARK_WIDTH = 0.58`,
-`START_ALPHA = 0.85`, spaced closer than one mark length so stamps overlap into a streak.
+4-component vertex colour attribute. `MARK_LENGTH = 1.5`, `MARK_WIDTH = 0.58`, spaced 0.42 apart so
+stamps overlap into a streak, in `skidRubber` — a warm near-black, because pure black over the
+blue-grey asphalt read as a hole in the road.
+
+**Each mark is a feathered patch, not a quad**: a 4 × 4 vertex grid whose alpha is zero at both ends
+and 0.25 at the sides, ramping to full over the outer 30% / 27%. The first version was one quad at
+0.85, which left a hard edge every 0.42 units down a streak and a hard rectangle at each end. Per
+stamp alpha is now `STAMP_ALPHA = 0.5`; stamps overlap ~2.6 deep at full weight, so the middle of a
+streak still composites to ≈ 0.84. Vertex alpha rather than a fragment patch, so there is no shader
+to keep in step with the look modes or the program cache.
+
+**Streaks fade in and out.** A stamp joins the streak of the nearest mark younger than
+`CHAIN_WINDOW` (0.3s) within `CHAIN_REACH` (1.1 — past the overdrive stamp spacing, inside the gap
+between left and right tracks), so no caller says which wheel it is and the taxi, the brake and the
+cops all get it. The first three stamps of a streak are drawn at 0.3 / 0.55 / 0.8. The tail can't be
+known until the streak stops, so once a mark has gone `CHAIN_WINDOW` without a successor it and the
+two before it **ease** down to the same ramp at `TAIL_EASE` per second — eased, so the end lightens
+rather than pops. Each stamp is also drawn up to 20% lighter at random and varies ±8% in width, so a streak isn't a
+flat band. `tools/probe.mjs` asserts the feathering, both ramps, the easing and the winding.
 
 > `car.state === 'turn'` covers **every** junction crossing including going straight on, which is
 > why rubber first appeared on the straights. A real turn is `car.dOut !== car.d`, and only after
@@ -1702,13 +1794,43 @@ It is a **flutter** pool, and every difference from the three above follows from
   notes into a single line down the middle of the lane; at a lane's width it reads as a mess being
   left behind rather than a rope being paid out. The drag on the *fall* is what makes a note
   flutter rather than rain: without it they reached terminal speed and dropped straight down.
-- **It tumbles**, about a random fixed axis per note, winding down with the rest. That is the whole
-  reason a note is a thin **box** rather than a plane: a plane is one-sided, and half of every
-  tumble would be a note that is simply not drawn — the trap the boats' wake sat in for weeks.
-- **Unlit, not additive, not bloomed.** Money reflects light rather than emitting it. Additive over
-  dark asphalt came out as a glowing sliver, and a glowing banknote is a firefly.
+- **It falls like a leaf, not a flake.** The throw flips a note over its long axis a whole number
+  of *half* turns in its first 0.5s, easing out, so it always comes out lying flat — face up or
+  back up, never edge-on. After that it **swings**: displaced side to side across its own width
+  (0.22–0.45 units, about once a second), tilting its leading edge up at each end and scooping down
+  through the middle. That motion is what says "paper"; the random-axis tumble it replaced said
+  "flake", and a 0.02 plate tumbling freely spent a third of its frames edge-on, which is nothing.
+- **It is a shallow V, two-sided.** Two quads meeting along the long axis, each wing rising 0.09 —
+  so the outline changes as it rocks rather than being a rectangle at every angle. `DoubleSide`,
+  with the back painted 35% of the way to `cashBack` off `gl_FrontFacing`, so the pale flash is a
+  real back instead of a colour rolled per instance to fake one. That makes the winding a *colour*
+  question — a reversed triangle swaps which side is green — so `tools/probe.mjs` asserts +y is the
+  front from the winding.
+- **Lit, not additive, not bloomed.** Money reflects light rather than emitting it. Additive over
+  dark asphalt came out as a glowing sliver, and a glowing banknote is a firefly. It was *unlit* for
+  a long time on the same argument, and that is the same mistake in a quieter form: an unlit note
+  is drawn at its full palette value whatever the sun is doing, so at golden hour — road and
+  buildings gone dark and warm around it — the shower read as emissive, and was reported as such.
+  It is a Lambert like the dust, but **not** flat-shaded: a note is two-sided, and a flat-shaded
+  back face takes its normal from a screen-space derivative and lights as if the sun were behind
+  it. Real per-face normals, which Three flips for the back face itself.
 - **It settles rather than bounces**, and onto a floor passed in per note the way a spark's is, so a
-  getaway over a bridge drops its notes on the **deck**.
+  getaway over a bridge drops its notes on the **deck**. That floor was once the *tailpipe* height
+  less the lift — 0.59 above the road — so the cash "lying" behind a getaway hovered at bumper
+  height for as long as the effect existed. It is recovered from what main.js passes now
+  (`y − TAXI_TAILPIPE_HEIGHT + ROAD_Y`), and the probe checks every settled note and bundle is on it.
+
+**And a few wrapped bundles go with it.** Three with each press and one at the start of about a
+third of the gusts: a brick of notes the note's footprint and 0.26 deep, with a cream `cashBand`
+round its middle standing 0.015 proud so it never shares a plane with the brick. They are the other
+weight — gravity 24 against the notes' 7, one bounce at 0.32, then they slide to a stop and flop onto
+their broad face — and they are there because a single note at 7px can only ever be a green fleck,
+where a banded brick reads as money at any zoom. `propMaterial` rather than unlit, like the
+roadworks cones: they are solid props lying on the road. They **cast no shadow**, which was tried —
+a 0.26-tall caster at golden hour lands its shadow most of two units off its own base, detached by
+the sun's `normalBias`, and reads as a dark smudge with nothing above it. They shrink away after
+3.4s on the road rather than fading, because a translucent brick would be the one see-through
+thing on the tarmac.
 
 **It was rebuilt once for being too subtle, and every number moved.** The first cut ran 14 notes a
 second at 0.62 × 0.34 units into a pool of 48 — 22 notes in the air, each a 4.8 × 2.6px rectangle,
@@ -1721,8 +1843,8 @@ the whole of this effect is that it should be impossible to miss. What changed, 
 | Rate | 14/s | 40/s flat | **a gust clock** | A flat rate is a rope paid out of the back of the car, and a constant anything reads as a machine. 78/s for 0.16–0.44s, then 7/s for 0.14–0.42s, each drawn fresh. Same mean density (~44/s); the *distribution* is the whole change. The lull is a trickle rather than silence — at zero the stream visibly stops, which reads as the effect switching off. |
 | Pool | 48 | 160 | 160 | ~105 in the air at steady state, plus the gust peak and the kick. |
 | Life | 1.6s | 2.4s, fading from 74% | 2.4s, fading from 74% | Money should hang, and still be lying there when the player looks back. Fading from 55% spent most of the effect half-transparent, which was the other half of why it was hard to see. |
-| Tumble | 7.5 rad/s | 4.2 | 4.2 | A note is a 0.02 plate and is **invisible edge-on**. At 1.2 revolutions a second every note was strobing through its own edge on the way down, which reads as flicker and costs a large fraction of the effect's frames. |
-| Colour | one swatch, #7FC08A | one swatch, #5FD182 | **a spread**, `cashNote` → `cashPale` | See below. |
+| Tumble | 7.5 rad/s | 4.2 | **a flip, then a leaf swing** | A note is a 0.02 plate and is **invisible edge-on**. At 1.2 revolutions a second every note was strobing through its own edge on the way down, and even at 4.2 a free tumble ended wherever it stopped. The flip lands on a whole number of half turns; the swing never goes past 0.7 rad of tilt. |
+| Colour | one swatch, #7FC08A | one swatch, #5FD182 | **a spread**, `cashNote` → `cashShade` | See below. |
 | The press | nothing | a 24-note kick | a 24-note kick | An effect that only ramps up says nothing on the frame the button went down, and that is the frame the player is looking at. |
 
 The **colour** is a reversal worth recording. The first cut pulled the hue toward a paper green on
@@ -1734,9 +1856,12 @@ the road in value. The pale back went to 232 — brighter than the dashes — be
 note turns over is what catches an eye that is on the road ahead.
 
 **And the face is now a spread rather than a swatch.** Every note rolls its own colour between
-`cashNote` and `cashPale`, which is a separate roll from the one toward `cashBack` — and the
-distinction is the whole reason there are two. `cashBack` is a near-white *flip*, there so a
-tumbling note flashes; the face spread is there so 160 notes are 160 slightly different notes rather
+`cashNote` and `cashShade` — *down* from the bundles' green, not up toward `cashPale` as it first
+did. Up was right while the notes were unlit and fighting the asphalt to be seen; lit, a flat card
+square to the sun already comes out brighter than a bundle in the same green, and a spread toward
+white on top of that read as emissive even after the lighting fix. The back came down from 70% of
+the way to `cashBack` to 35% for the same reason. That is a different job from `cashBack`, which is the note's real back
+and is only ever seen when the note is turned over; the face spread is there so 160 notes are 160 slightly different notes rather
 than 160 copies of one colour, which at this size is the difference between a shower and a texture.
 The roll is **squared** toward the saturated end: a uniform draw puts as much of the shower at the
 pale end as the green one and the trail washes out, where `t²` keeps the mass on `cashNote` and lets
@@ -1759,10 +1884,10 @@ places, and the split is worth knowing because the first two alone were not enou
 
 The **bar** is two instanced emissive pods on the roof, off the same machinery every brake light in
 the game uses — one fixed material per colour, and on/off as a scale about each pod's own origin.
-Both pods flash together, so the whole bar goes red and then blue rather than one lamp lighting at
-each end. That is arithmetic rather than taste: a pod is 4px across at play zoom, and a bar split by
-colour alternates two specks a colour apart and reads as a flicker. Together they are one 9.9px mark
-changing colour six times a second.
+Red sits over the left lens and blue over the right, and they light alternately. a whole-bar strobe (both pods red, then both blue) was the earlier choice, on the grounds that
+a split bar alternates two 4px specks and flickers — true while an unlit pod was simply gone, and
+wrong once the painted lenses meant the dark side still shows its colour. On a phone the whole-bar
+version read as two red lights.
 
 The **bloom** carries it the rest of the way at distance, and it took a fix: `main.js` marks every
 lamp `sim/traffic.js` owns in a single loop, and marking them all `pod` gave a cop car's bar a brake
@@ -2544,6 +2669,14 @@ flock is already invisible when it is placed and the first thing the player can 
 resolves into birds. It is `transparent` for both fades and therefore, like the aeroplane, not
 `propMaterial()`: it would otherwise receive AO without being in the depth prepass and wear the
 occlusion of the trees and towers behind it — [the occluder rule](#the-occluder-rule).
+
+**The flock stamps the ghost mask** (`stampGhostMask` in `geometry/ghostoutline.js`, which the
+aeroplane and the helicopter use too). Transparent but still writing depth, a bird between the
+camera and the taxi reads to the ghost rim's reversed depth test as an occluder, and the rim traced a
+bird-shaped stroke of yellow across the hull — most take-offs, since the taxi is what usually
+launches the flock. Stamping the stencil where a flyer draws knocks the rim out under it instead.
+Drawing the flyers after the ghost tiers would also have worked, and would have taken them out from
+under the crayon page at renderOrder 1.
 
 **Shadows are on only while the whole flock is on the deck.** The shadow pass ignores a material's
 opacity, so a faded-out flock that kept casting would drag hard shadows across the city with nothing
@@ -3633,9 +3766,17 @@ naming, guessing when to stop, on a clock that is draining — which was never t
 
 **It keeps the camera.** A [chip tap](#the-rider-peek) peeked and rode home, because it was a glance
 at a rider the taxi was already driving at. This is the player asking to *look* somewhere and then
-act there, so it takes the camera the way a swipe does (`releaseCameraToPlayer`) and stays. The way
-back is the taxi-finder chip, which comes up 0.4s after the car goes fully off-frame — the two
-affordances are each other's return leg.
+act there, so it takes the camera the way a swipe does (`releaseCameraToPlayer`) and stays.
+
+**Until the player acts.** The arrow sets `arrowLookOut`, and the next tap that dispatches the taxi
+at a *waiting* rider (`rideHomeAfterPick`) brings the camera home: a zero-length `peekAt` on where
+the camera already stands, so it holds the peek's 0.9s beat — long enough to see the crystal flip and
+the route band draw — then rides back onto the car and hands it to the follow-cam, with the same
+`flashTaxi` as the finder chip. Without it every arrow-then-pick ended in a drag back across the map
+to watch the trip the player had just started. One pick consumes it; a drop-off tap or a refused
+pickup does not (neither started a trip), and the taxi-finder chip clears it. A swipe mid-beat drops
+the ride home like any peek. The other way back remains the taxi-finder chip, which comes up 0.4s
+after the car goes fully off-frame.
 
 **Narrow only,** for the reason drag-to-pan and both follow-cams are: above `NARROW_VIEWPORT` the
 whole city is in frame, so nothing is ever off it and there is no pan to save. The gate is a
@@ -3682,26 +3823,23 @@ carries no `can-tap` at 900px wide.
 ### Off-screen police warning
 
 `game/sirenglow.js`, styled under `#siren-glow` in `index.html`. Red and blue washing in over the
-viewport edge the police cruiser is coming from, strobing in step with its own light bar and gone by
-the time the car is properly in frame.
+viewport edge a chasing patrol cruiser is coming from, strobing in step with its own light bar and
+gone by the time the car is properly in frame.
 
 Same problem as the pointer above and aimed the other way. The drop-off is somewhere the player is
 driving *to*, and a pointer is navigation; the siren is something driving *at* them, and this is a
-threat they cannot see yet. `POLICE_BUST_RANGE` is one block, and a block is about a third of a
-portrait phone's frame at play zoom — so a cruiser one screen edge away is already close enough to
-end a run, and the only cue it existed was ambient traffic pulling over to a car that was off-frame.
+threat they cannot see yet: a patrol that spotted the taxi and is coming for it from wherever it was.
 
-**It is on exactly when the light bar is on.** `state.lit` gates both, so the rule the player
-already learns from a single run — [*lights on means a cop is
-here*](traffic.md#the-lights-lead-the-gate) — extends to the edge of the screen without needing a
-second rule. That includes the run-up: the bar comes on as the cruiser spawns and the bust only
-arms a block in, so the wash covers the two-second grace period as well, which is the part of it a
-player off-frame most needs. The probe asserts both halves directly: nothing with a dark bar ever
-lights the edge, and nothing lit and off-frame ever fails to.
+**It is on exactly when the light bar is on, and does what the bar does.** `state.lit` gates both.
+On patrol ([the patrol cruiser](traffic.md#the-patrol-cruiser)) the bar swings slowly between red
+and blue and so does the wash, eased and at `PATROL_WASH` (0.6) of a chase's strength — *a cop is on
+the board*. Once it gives chase both strobe hard — *it is after you*. Driving off after losing you,
+both are dark. The probe asserts it directly: nothing with a dark bar ever lights the edge, nothing
+lit and off-frame ever fails to, and the patrol wash changes side twice a second against the hunt's
+eleven, never in a step.
 
-The strobe comes off `sirenOn()` in `sim/police.js` rather than a clock of its own, which is the
-only reason the two stay in step — including the rate change to 11Hz once the cruiser has locked on,
-which is the only cue that a corridor run has become about you. The off colour holds the same low
+The strobe comes off `sirenOn()` in `geometry/lights.js` rather than a clock of its own, which is
+the only reason the two stay in step. The off colour holds the same low
 glow the lamps do (14/90 of the lit one): a hard on/off alternation reads as flicker rather than as
 a siren.
 

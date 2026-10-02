@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { color } from '../palette.js';
+import { bakeColor } from '../util/geo.js';
 import { CHASSIS_LIFT } from './wheels.js';
 
 // Brake and turn-signal light pods — the geometry and material both the ambient fleet
@@ -136,22 +138,21 @@ export function turnSignalMaterial() {
 // the only thing that makes one read as a police car at play zoom is the livery underneath and
 // this alternating on the roof.
 //
-// It is **not** the cruiser's bar. `sim/police.js` builds its own, as two ordinary Meshes on a
-// group with a real PointLight behind each, because there is exactly one cruiser and it can afford
-// them. There can be half a dozen cop cars in ambient traffic and a point light each is not free,
-// so these are instanced and their spill is the bloom's (`emissiveMeshes` in sim/traffic.js) rather
-// than a light's. What the two *do* share is the rate below, so a city with both in it strobes on
-// one clock.
+// The cruiser (`sim/police.js`) wears the same bar — same pods, same housing, same materials — but
+// builds it as ordinary Meshes on its own group, with a real PointLight behind each colour, because
+// there is exactly one cruiser and it can afford them. There can be half a dozen cop cars in
+// ambient traffic and a point light each is not free, so theirs are instanced and their spill is
+// the bloom's (`emissiveMeshes` in sim/traffic.js) rather than a light's. The cruiser used to carry
+// a smaller bar of its own, split red one side and blue the other, over a white roof; with the
+// robbery's fleet on the road that was two police liveries in one city, so it is one now.
 
 /**
  * Fore-aft, vertical and across.
  *
- * A shade larger than the cruiser's own 0.55/0.26/0.5, which is the opposite of what a cop car in
- * ambient traffic looks like it should get. The cruiser is one car the player is *hunting for* and
- * it arrives with a screen-edge wash announcing it (game/sirenglow.js); these are four cars in the
- * middle of ordinary traffic with nothing announcing them, so the bar is the entire cue and it has
- * to survive being one vehicle among a dozen. At 7.7px per unit the pair spans 9.9px across the
- * roof — two 4.5 x 4.0px lamps 5.9px apart — which is about a third of the car's drawn width.
+ * Sized for a car in the middle of ordinary traffic with nothing announcing it, so the bar is the
+ * entire cue and it has to survive being one vehicle among a dozen. At 7.7px per unit the pair
+ * spans 9.9px across the roof — two 4.5 x 4.0px lamps 5.9px apart — which is about a third of the
+ * car's drawn width. (The cruiser's old bespoke bar was 0.55/0.26/0.5.)
  */
 const SIREN_D = 0.58;
 const SIREN_H = 0.30;
@@ -186,6 +187,22 @@ export function sirenOn(flash, hunting = false) {
 }
 
 /**
+ * The patrol's bar: a slow red-to-blue swing, one full cycle a second. Asked for as "gently strobe
+ * its lights red and blue" — the steady bar before it announced a cop on the board but did not look
+ * alive, and the hunting strobe (11 changes a second, `sirenOn`) is kept for a chase so the change
+ * is the thing the player reads.
+ */
+export const PATROL_SWING_HZ = 1;
+
+/**
+ * Where the patrol swing is: 1 all red, 0 all blue, a sine in between. One clock for the bar, its two
+ * lamps and the off-screen wash (game/sirenglow.js), the way `sirenOn` above is one clock for the strobe.
+ */
+export function patrolSwing(flash) {
+  return 0.5 + 0.5 * Math.sin(2 * Math.PI * PATROL_SWING_HZ * flash);
+}
+
+/**
  * One siren pod, centred on its own origin — the same contract `lightPodGeometry()` keeps, and for
  * the same reason: on/off here is a scale, and a scale is about the origin of whatever carries it.
  * A pod holding its roof offset in its vertices would slide down into the cabin as it dimmed.
@@ -207,47 +224,76 @@ export function sirenPodAnchor(sz, roofX, roofY) {
 }
 
 /**
- * The bar's two pods — the same pair for both colours, so the **whole bar** goes red, then blue,
- * rather than one lamp lighting at each end.
+ * Where each colour's one lamp sits: red over the car's left lens, blue over its right, so the
+ * strobe alternates *sides* — red lamp lit with the blue lens dark, then the other way round.
  *
- * A real bar does the second thing and this one deliberately does not, for a reason that is
- * arithmetic rather than taste: a pod is 4px across at play zoom, so a bar split by colour
- * alternates two specks a colour apart and reads as a flicker. Flashing both pods together is one
- * mark 9.9px wide changing colour six times a second, which is what actually announces a police
- * car from across a five-block city.
+ * It used to flash the **whole bar** one colour at a time, both pods red and then both blue, on the
+ * argument that a bar split by colour alternates two 4px specks and reads as a flicker. That held
+ * while an unlit pod was a zero scale and the off side was simply *gone*. Once the painted lenses
+ * arrived (`sirenBaseGeometry`) the off side is a deep red or deep blue lens rather than nothing, so
+ * alternating sides is a change of brightness between two coloured lamps and not a speck blinking
+ * out — and the whole-bar version, seen on a phone, read as **two red lights** on half its frames,
+ * with nothing on the roof saying blue at all.
  *
- * It also keeps `LIGHT_PODS` honest as the instance stride, which is the half that would have
- * bitten: a one-pod anchor list leaves the second slot of every car's stride untouched, and an
- * `InstancedMesh` initialises its matrices to the **identity** — so every ambient car in the city
- * would have parked a siren pod at the world origin.
+ * One anchor per colour, which leaves the second slot of `LIGHT_PODS` unused on both meshes. An
+ * `InstancedMesh` starts every matrix at the **identity**, so an unwritten slot is a pod parked at
+ * the world origin — sim/traffic.js zeroes both meshes at construction for exactly that reason.
  */
-export function sirenBarAnchors(roofX, roofY) {
-  return [sirenPodAnchor(-1, roofX, roofY), sirenPodAnchor(1, roofX, roofY)];
+export function sirenRedAnchor(roofX, roofY) {
+  return sirenPodAnchor(-1, roofX, roofY);
+}
+
+export function sirenBlueAnchor(roofX, roofY) {
+  return sirenPodAnchor(1, roofX, roofY);
 }
 
 /**
- * The bar's housing: the dark box the two pods are bolted into, and the part of the bar that is
- * still there when it is switched off.
+ * The bar as it stands with the siren **off**: a dark housing and two painted lenses, red on the
+ * car's left and blue on its right — the part of the bar that is on the roof for as long as the car
+ * is police, lit or not.
  *
- * **Without it a stood-down cop car is an ordinary car.** The bar is two lamps and nothing else,
- * and a lamp's off is a zero scale — so the frame a robbery ended, every cop car lost the only
- * thing on it that was not a car body, and `policeBody` (#2E5FA8) is a few steps off the
- * ordinary blue in `carBody` (#4E7FC0). At play zoom the fleet driving off read as the police
- * turning back into traffic. The housing is how a car with its lights off still says police.
+ * **Without it a stood-down cop car is an ordinary car.** A lamp's off is a zero scale, so the
+ * frame a robbery ended every cop lost the only thing on it that was not a car body and read as
+ * the police turning back into traffic. It was a bare dark box for a while; the lenses are there
+ * so a parked cop's roof still says red-and-blue rather than "something on the roof".
  *
- * Inset from the pods on every side they share — 0.02 along the car and across, 0.04 lower — so a
- * lit pod wholly encloses its end of the housing and the two never draw a face on the same plane.
- * The one face they do share is the bottom, on the roof, and that faces down and is culled. What
- * shows while the bar is lit is the strip between the pods, which is what a real bar looks like.
+ * Nested inside the lit pods on every side but the bottom, so a lit pod wholly encloses its lens
+ * and the two never draw a face on the same plane: each lens is 0.02 in from its pod along the car,
+ * across it and at the top. The housing is nested again inside the lenses (another 0.02, and
+ * short of each lens's outer end), and passes *through* their inner faces rather than meeting them.
+ * The one face everything shares is the bottom, on the roof, and that faces down and is culled.
+ * While the bar is lit what shows is the two lamps and the dark strip between them.
+ *
+ * Built roof-local — origin on the roof at the bar's centre — with the offsets in the vertices,
+ * which is safe for exactly one reason: this is only ever switched whole, scale 0 or 1, and never
+ * dimmed, so there is no in-between frame for anything to slide toward the pivot on.
  */
-export function sirenHousingGeometry() {
-  const span = 2 * (SIREN_SPREAD + SIREN_W / 2) - 0.04;
-  return new THREE.BoxGeometry(SIREN_D - 0.04, SIREN_H - 0.04, span);
+export function sirenBaseGeometry() {
+  const lensD = SIREN_D - 0.04;
+  const lensH = SIREN_H - 0.02;
+  const lensW = SIREN_W - 0.04;
+  const housingH = SIREN_H - 0.06;
+  const housing = new THREE.BoxGeometry(SIREN_D - 0.06, housingH,
+    2 * (SIREN_SPREAD + SIREN_W / 2) - 0.08);
+  housing.translate(0, housingH / 2, 0);
+  const lens = (sz, name) => {
+    const box = new THREE.BoxGeometry(lensD, lensH, lensW);
+    box.translate(0, lensH / 2, sz * SIREN_SPREAD);
+    return bakeColor(box, color(name));
+  };
+  const parts = [
+    bakeColor(housing, color('sirenHousing')),
+    lens(-1, 'sirenRedOff'),
+    lens(1, 'sirenBlueOff'),
+  ];
+  const merged = mergeGeometries(parts, false);
+  parts.forEach((p) => p.dispose());
+  return merged;
 }
 
-/** Where the housing sits in car-local space: on the roof, between the two pod anchors. */
-export function sirenHousingAnchor(roofX, roofY) {
-  return new THREE.Vector3(roofX, roofY + (SIREN_H - 0.04) / 2, 0);
+/** Where the base sits in car-local space: on the roof, centred between the two pod anchors. */
+export function sirenBaseAnchor(roofX, roofY) {
+  return new THREE.Vector3(roofX, roofY, 0);
 }
 
 /** The red half of the bar. Same `lightRed` the brake pods and the cruiser's own bar wear. */

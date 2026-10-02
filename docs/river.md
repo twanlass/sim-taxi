@@ -47,8 +47,8 @@ merged faces. `tools/roadnet.mjs` compares land against land.
 
 | | |
 |---|---|
-| **The two ring roads** | Always a bridge. The outermost roads are the signal-free ring, the police corridor drives one end to end, and traffic yields into it rather than stopping — breaking either would need a fallback in all three. |
-| **One of the four interior lines** | The drawbridge. |
+| **The two ring roads** | Always a bridge. The outermost roads are the signal-free ring, and traffic yields into it rather than stopping — breaking it would need a fallback. |
+| **One of the two middle lines** (2 or 3) | The drawbridge — always centred on the map. |
 | **The other three** | Open water. |
 
 Three crossings, not four. The first cut bridged two interior lines as well as the ring, and playing
@@ -100,9 +100,8 @@ distance and the collision test all carry on as if the deck were flat, which is 
 of scenery being able to break the sim.
 
 `deckHeightAt(x, z)` is **world-space** rather than keyed by lane id, because that is the shape both
-callers already have in hand: `sim/traffic.js` poses a car from `car.x`/`car.z`, and
-`sim/police.js`'s cruiser rides a rail and has no lane at all. Declining the crossing lines was
-never an option for the corridor — every road running along Z crosses the river.
+callers already have in hand: `sim/traffic.js` poses a car from `car.x`/`car.z`, and the effects
+that come off the tarmac have a position and no lane.
 
 Sampled at the **nose and the tail**, not the centre. A rigid body pitched to the tangent under its
 own origin floats at the crest and buries its nose at the foot; two lookups cost one rectangle test
@@ -238,6 +237,37 @@ Measured the same way afterwards, the mouth tracks the coast to within 1–2 lum
 > whatever was behind it. `propMaterial({ ao: false })` is the opt-out. The asphalt's own fade skirt
 > has the same hole and gets away with it only because nothing stands near it.
 
+## The surface
+
+`src/city/riverwater.js`, layered over `propMaterial`'s own patch on the water strip. Ripples,
+depth, refraction and reflection, all in the water's fragment shader with **no extra pass**.
+
+The cheap version is honest here for a reason specific to this game: the camera never turns and is
+orthographic, so every ray leaving the water heads the same way, and what it can hit is a short,
+known list — the far channel wall, three bridge decks, the sky. Each is a plane the shader
+intersects in closed form. A real refraction copy or a mirrored second render of the city would buy
+almost nothing over that and cost a full pass on a phone.
+
+| | How |
+|---|---|
+| **Ripples** | A jittered triangle lattice (`FACET` 1.35 units, ~10px at play zoom), each triangle the plane through a sum of travelling waves at its three corners. Flat-shaded on purpose — a smooth normal map would be the wrong look for this city. |
+| **Depth / refraction** | The view ray is bent by the facet (Snell, 1.33) and followed down to the bed (`BED_DEPTH` 2.6) or the far wall's submerged face, then absorbed by the path length, red first (`ABSORB`). The wall visibly carries on under the surface near the far bank and fades — that is the depth cue — and the facets make it wobble. |
+| **Reflection** | The mirrored ray is followed to the far wall (with its railing), each bridge's fascia or soffit, or the sky (the haze colour, so it follows `daylight.js`). Weighted by Fresnel with a floor (`REFLECT_FLOOR`), because water's real 4% at this angle is invisible at play zoom. |
+| **Glints** | Blinn-Phong off the facets in the light loop (`RE_Direct_Water`). Mostly dark by day: at the parked 16:24 sun the light is *behind* the camera, so a facet would have to tilt ~58° to glint, which is physically right. The police cruiser's lamps do glint. |
+
+Two things are deliberate:
+
+- **The mouth is untouched.** Every term is scaled by how deep the water is, *cubed*, so it has gone
+  before the shoal's colour finishes turning into the asphalt `riverMouthFade` lies over. Linear,
+  the half-shoaled stretch under the ring bridge came out teal against the skirt's grey.
+- **The drawbridge drops out of the reflection the moment its leaf moves** (`bindRiverDrawbridge`).
+  A flat deck mirrored under a leaf standing on end is worse than no deck.
+
+`syncRiverWater` runs in `renderFrame` rather than the loop so shot mode gets the right sky and
+leaf state; `tickRiverWater` runs on game time, so the ripples stop with the pause.
+`tools/probe.mjs` runs the patch against three's real Lambert source and asserts every replace
+landed.
+
 ## The drawbridge
 
 `src/game/drawbridge.js`. **The only thing in this game that changes the road network while the
@@ -342,9 +372,9 @@ did, on a leaf that then lifted out from under it. See
 The orange boom is the bridge's only "stop", which is also the only one telling the truth: during
 `closing` and `clearing` the lane is already shut while a stop bar would happily be green.
 
-It also declines to lift while a siren is running down its line, the same courtesy `roadwork.js`
-extends before digging up a road: the corridor holds every light on its road green and the cruiser
-neither queues nor brakes, so a barrier in front of one is the single closure it cannot answer.
+It used to decline to lift while a siren was running down its line, because the patrol cruiser was
+a scripted car that could not stop for a barrier. It is a car in traffic now and stops like anybody
+else, so the hold is gone.
 
 ## Boats
 

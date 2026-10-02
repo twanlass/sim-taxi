@@ -62,6 +62,13 @@ standing on a kerb while it runs, which is a difficulty change whether or not an
 one, and a harness that skipped it would report the survival curve of a game nobody plays. `play()`
 takes `{ robbery: false }` to measure what it costs, which is the only reason the switch exists.
 
+**Except the chase after the drop-off.** The harness's player never boosts, and the patrol chase a
+delivered robbery hands the taxi (`handOff` in game/robbery.js) is lost by boosting — a player that
+never does is caught 15 times in 16 (the table in game/patrol.js). So autoplay leaves `handOff` out:
+the arrest still plays (and seals its junction, which the harness's taxi can queue at), but nobody
+comes after the taxi. Its numbers are those of a player who gets away every time; wiring the chase
+in would report one who never does, which is no closer.
+
 `difficulty-sweep.mjs` is what the numbers in [difficulty.md](difficulty.md#what-the-sweep-found)
 came from. It plays the same cities and situations through several tunings at three reaction times,
 so the comparison is paired. Both drive `tools/autoplay.mjs`, which holds the perfect-player harness
@@ -172,7 +179,7 @@ the table in [traffic.md](traffic.md#getting-the-player-there).
 
 `shots.sh` / `tools/shoot.mjs` drive headless Chrome over CDP. `?shot=<name>` puts the app in
 screenshot mode: the HUD hides, the day/night cycle freezes, the sim warms forward to a chosen
-moment (mid-pickup, mid-corridor, framed on the rider), and then `document.body.dataset.shotReady`
+moment (mid-pickup, mid-patrol, framed on the rider), and then `document.body.dataset.shotReady`
 is set for the capture to wait on.
 
 Rendering costs about **2s per shot** against ~1s for the entire assertion suite, so screenshots
@@ -413,8 +420,8 @@ three.js page does not:
 
 `?safe` is a **playable** configuration rather than a diagnostic one — a device that only works
 this way can still be played this way. Every flag overrides it, so `?safe&msaa=on` bisects upward
-exactly as `?msaa=off` bisects down, and the flags reach the tutorial avatar's renderer, the
-courier cargo chip's, the taxi finder's and the rider-finder chips' under `?chips=on` too: each of
+exactly as `?msaa=off` bisects down, and the flags reach the
+courier cargo chip's renderer, the taxi finder's and the rider-finder chips' under `?chips=on` too: each of
 those opens a WebGL context of its own, and "how many contexts is this page holding" is part of what
 `?safe` is asking.
 

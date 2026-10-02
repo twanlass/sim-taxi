@@ -33,7 +33,7 @@ src/
   sim/                  things that move on their own
     traffic.js          signals + car physics + the single routing branch. The largest file.
                         Cars drive lanes off the road network; `car.s` is arc length along one.
-    police.js           the priority-corridor car
+    police.js           the patrol cruiser's look: mesh, light bar, lamps; worn by a traffic car
     collisions.js       taxi-vs-car impact test — always shoved apart, charged only on boost; the last bump wrecks both
 
   game/                 the player's layer
@@ -50,8 +50,9 @@ src/
     faremarker.js       the fare clock, as a physical object: kerb, flight, taxi
     selectpop.js        the swell-and-settle curve a tapped rider and their crystal share
     boost.js            crazy-taxi duty cycle (a pure clock, no scene knowledge)
-    boostmeter.js       how the Punch It pill reads while it refills — overfill, glow, leading edge
-    energybits.js       the sparks a drop-off throws from the taxi into the Punch It pill
+    boostmeter.js       how the fuel meter reads while it refills — overfill, glow, leading edge
+    fuelarc.js          the fuel gauge's tapered band round the gas pedal, as SVG outlines
+    energybits.js       the sparks a drop-off throws from the taxi into the fuel meter
     camera.js           fixed 3/4 orthographic camera
     scene.js            scene, sun, hemisphere fill, sky shader, distance haze
     daylight.js         hour → lighting curve, and the clock that can drive it
@@ -66,10 +67,16 @@ src/
     carghosts.js        occluded-only outlines on the traffic nearest the taxi, faded in with boost
     flyover.js          the ambient plane that crosses the city every so often — scenery, nothing more
     chopper.js          the helicopter that lands on the city's rooftop helipad, idles and leaves
+    flatbed.js          one truck carries crates, hits fake bumps, drops them; anything can smash them
     birds.js            the park flocks: walk the grass, startled up by the taxi, come back; two per city
     ducks.js            the birds on the pond: paddle, sit, dabble, never leave
     clouds.js           the weather ringing the island — placed on the screen, never over the city
     robbery.js          the bank robbery: who gets in outside the bank, and the cops that come with them
+    arrest.js           the robbery's drop-off: the cops circle the robber on the corner and take them in
+    patrol.js           the patrol cruiser's life: across town edge to edge, chase, caught or lost, out
+    copshout.js         "Taxi: pull over now" over the patrol car's roof when it spots the taxi
+    speech.js           the one speech bubble: pinned on its target, waiting at the edge when it's off frame
+    depotcall.js        "Head to the shop for repairs." over the depot's door once the taxi starts smoking
     radio.js            the dispatch bubble that says the fare who just got in is a robber
     robberline.js       the robber's line: the world stops, the taxi is spotlit, the robber shouts
     coplights.js        the red and blue a cop car throws on the road while a robbery runs
@@ -84,7 +91,7 @@ src/
 
   geometry/             one-off models, all procedural
     taxi.js  wheels.js  diamond.js  targetring.js  marker.js  person.js  riderdiamond.js
-    plane.js bird.js helicopter.js cursebubble.js cloud.js
+    plane.js bird.js helicopter.js cursebubble.js cloud.js crate.js
 
   util/
     rng.js              seeded RNG (mulberry32) + value noise
@@ -115,16 +122,16 @@ boost.update(dt);                      // 1. decide whether the taxi is boosting
 traffic.taxi.boost = boost.isActive();
 skids.update(dt); dust.update(dt); daylight.update(dt);
 
-police.update(dt);                     // 2. may flip a whole corridor green...
-traffic.update(dt);                    // 3. ...before any car reads the signals
+traffic.update(dt);                    // 2. cars move; the chasing patrol's siren hold is set inside
 
 const event = fares.update(dt, traffic.taxi);   // 4. arrival is judged against settled positions
 ```
 
 1. Boost state is pushed onto the taxi *before* the sim reads it, so activation takes effect the
    same frame the button is pressed.
-2. `police.update` sets the priority corridor. If it ran after `traffic.update`, cars would read
-   last frame's signal state and the corridor would lag a frame behind the car creating it.
+2. The two signal holds — the boosting taxi's and the chasing patrol's — are set at the top of
+   `traffic.update`, before any car reads a signal, so neither lags a frame behind the car it is
+   for. The patrol itself (`patrol.update`) runs after the physics, like the collision check.
 3. Fares resolve last, against positions that are already final for the frame.
 
 `fares.update` returns the frame's events as `{type, fare}` objects (`'spawned'`, `'pickup'`,
@@ -218,5 +225,5 @@ froze on. That is what makes a frozen framing reviewable at states the shot list
 a fare's clock, `redraw()`, capture.
 
 `?shot=` puts the app in screenshot mode: it freezes the day/night cycle, hides the HUD, warms the
-sim forward to a specific moment (mid-pickup, mid-corridor), then sets `document.body.dataset.shotReady`
+sim forward to a specific moment (mid-pickup, mid-patrol), then sets `document.body.dataset.shotReady`
 for the capture tool to wait on.

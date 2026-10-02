@@ -253,7 +253,7 @@ export function addToonOutline(mesh, { rim = HERO_RIM } = {}) {
  *
  * The same shape as `markOccluder`'s rule and for the same reason. Everything that fails it would
  * get a hull around something with no silhouette to trace — the taxi's invisible raycast box, the
- * ghost outline's own mask and rim, the unlit siren lamps on the cruiser's roof.
+ * ghost outline's own mask and rim, the unlit lamps on the garage ceiling.
  */
 function outlinable(object) {
   const material = object.material;
@@ -263,8 +263,10 @@ function outlinable(object) {
     return false;
   }
   // Lit only. A `MeshBasicMaterial` in this project is a marker, a lamp or a road decal — none of
-  // them a thing in the world with a shape.
-  return Boolean(material.isMeshLambertMaterial);
+  // them a thing in the world with a shape. Phong is the glossy paint (`propMaterial({ gloss })`),
+  // which Cartoon Mode itself turns back into Lambert — but only if it was on before the car was
+  // built, and a body is a body either way.
+  return Boolean(material.isMeshLambertMaterial || material.isMeshPhongMaterial);
 }
 
 /** Bounding-box volume, the measure `outlineRoot` picks a vehicle's body by. */

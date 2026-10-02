@@ -139,6 +139,23 @@ export function penetration(a, b) {
   return best;
 }
 
+/**
+ * Are the two bodies in contact, allowing `slack` of daylight between them? Not `penetration`,
+ * because contact here is *resolved* every frame — off boost the struck car is shoved out by exactly
+ * its depth — so by the time anything after `update` asks, two cars that touched are sitting exactly
+ * at the envelope and `penetration` answers null. game/patrol.js asks this, after the fact, to decide
+ * whether a cop has got to the taxi.
+ */
+export function touching(a, b, slack = 0) {
+  const reach = CIRCLE_R * 2 + slack;
+  for (const p of carCircles(a)) {
+    for (const q of carCircles(b)) {
+      if ((q.x - p.x) ** 2 + (q.z - p.z) ** 2 < reach * reach) return true;
+    }
+  }
+  return false;
+}
+
 // How long two bodies have to be apart before touching again counts as a new hit. Contact is one
 // hit however long it lasts — a taxi bulldozing a car down the road pays for the impact, not for
 // every frame of the shove — and a separation shorter than this is the same contact flickering.
@@ -239,6 +256,12 @@ export function createCollisions(cars, taxi) {
     // a case per angle: a rear-end pushes the car on down its lane, a T-bone pushes it sideways
     // off its line.
     const { nx, nz } = pen;
+    // Who hit whom: the taxi, if it was bringing more of the closing speed along the normal than the
+    // other car was. Read before either speed is touched below. game/patrol.js needs it — the taxi
+    // ramming a cop is a bump, a cop ramming the taxi is the arrest.
+    const taxiIn = (Math.cos(taxi.yaw) * nx - Math.sin(taxi.yaw) * nz) * taxi.v;
+    const otherIn = -(Math.cos(other.yaw) * nx - Math.sin(other.yaw) * nz) * other.v;
+    const taxiStruck = taxiIn >= otherIn;
     shoveCar(other, nx * pen.depth, nz * pen.depth);
     // Which side of the taxi's line the car was on, as in main.js's wreck: struck on its left it is
     // turned right, and the taxi recoils the other way.
@@ -273,7 +296,7 @@ export function createCollisions(cars, taxi) {
     knockCar(taxi, -nx * recoil, -nz * recoil, -side * TAXI_SPIN * mass);
     taxi.v *= BUMP_KEEP / mass;
     for (const cb of bumpListeners) {
-      cb({ x: px, z: pz, speed, closing, damage, hp: taxi.hp, taxi, other, nx, nz, rearEnd });
+      cb({ x: px, z: pz, speed, closing, damage, hp: taxi.hp, taxi, other, nx, nz, rearEnd, taxiStruck });
     }
   }
 

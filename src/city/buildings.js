@@ -942,6 +942,7 @@ function buildCourtyard(lot, block, rng, parts) {
   const reachPerHeight = treeShape(1, TREE_TRUNK).crownReach;   // off the generator, not restated
   const room = Math.min(yw, yd) / 2 - 0.4;
   const planted = [];
+  const crowns = [];
   for (let n = 0; n < trees; n++) {
     // Sized against the *front* wings, which are the only ones that occlude anything — the tall
     // pair behind sit past the courtyard, not between it and the camera. Grown from the tall
@@ -970,7 +971,7 @@ function buildCourtyard(lot, block, rng, parts) {
     const tx = alongX ? along : across;
     const tz = alongX ? across : along;
     planted.push({ x: tx, z: tz, ...shape });
-    parts.push(...treeParts(tx, tz, rng, { height, trunk: TREE_TRUNK }));
+    parts.push(...treeParts(tx, tz, rng, { height, trunk: TREE_TRUNK, crowns }));
   }
 
   // One AC unit or two on the tallest wing, reached through the same kit as everything else —
@@ -985,7 +986,7 @@ function buildCourtyard(lot, block, rng, parts) {
   // Handed back so the yard can be measured rather than eyeballed: how much of each trunk clears
   // the wing in front of it is the whole reason the numbers above are the numbers they are, and
   // `tools/probe.mjs` holds it across seeds. See "the yard shows its trunks" there.
-  return { yard, wing: t, front, trees: planted };
+  return { yard, wing: t, front, trees: planted, crowns };
 }
 
 export function createBuildings(rng, blocks) {
@@ -1096,7 +1097,8 @@ export function createBuildings(rng, blocks) {
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 
-  const mesh = new THREE.Mesh(merged, propMaterial());
+  // Smooth for the courtyard's crowns (`treeParts`); every wall still lights off its own face normal.
+  const mesh = new THREE.Mesh(merged, propMaterial({ smooth: true }));
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = 'buildings';
