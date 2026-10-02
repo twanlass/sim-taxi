@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
+import { bakeColor, propMaterial, setFinish, FINISH, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { KERB_H, roundedRectShape } from '../city/ground.js';
 import {
-  WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries,
+  WHEEL_R, CHASSIS_LIFT, SILL_Y, wheelAnchors, wheelGeometry, wheelGeometries,
 } from '../geometry/wheels.js';
 import {
   lightPodGeometry, brakeLightAnchors, turnSignalAnchors, LIGHT_PODS,
@@ -325,6 +325,17 @@ export function setClosedLanes(ids, source = 'roadwork') {
  * is invisible from every other angle and would just look like traffic avoiding a road forever.
  */
 export const isLaneClosed = (id) => closedLanes.has(id);
+
+// **A raised leaf is a hole in the road, not a sign in it.** Every other closure here is a
+// suggestion to the dice: ambient cars weigh the lane at zero and a *routed* car — the taxi, a cop —
+// drives its route regardless, which is what lets the taxi be tempted through roadworks. The
+// drawbridge cannot be that. The taxi is re-planned off it the moment the barriers start down
+// (`replan` in main.js), but nothing re-planned the police: the patrol cruiser and the robbery's
+// cars carry routes too, planned while the span was down, and one reaching the junction with the
+// leaf up drove straight across the open river. So the refusal lives here, at the one place every
+// routed car commits to a lane, rather than in each module that hands one a route.
+const HARD_CLOSURES = ['drawbridge'];
+const hardClosed = (id) => HARD_CLOSURES.some((source) => closedBySource.get(source)?.has(id));
 
 // --- The ramp -----------------------------------------------------------------
 //
@@ -1816,11 +1827,11 @@ export function carGeometry() {
   // Body sits clear of the wheels so they actually show below the sill.
   const body = new THREE.BoxGeometry(CAR_LEN, 0.8, CAR_W);
   body.translate(0, 0.78 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(body, new THREE.Color(1, 1, 1)));
+  parts.push(setFinish(bakeColor(body, new THREE.Color(1, 1, 1)), FINISH.PAINT));
 
   const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, CABIN_H, CAR_W * 0.86);
   cabin.translate(CABIN_X, CABIN_Y, 0);
-  parts.push(bakeColor(cabin, color('carGlass')));
+  parts.push(setFinish(bakeColor(cabin, color('carGlass')), FINISH.GLASS));
 
   parts.push(...wheelGeometries(CAR_LEN, CAR_W));
 
@@ -1848,7 +1859,7 @@ export function policeCabGeometry() {
   const cab = new THREE.BoxGeometry(
     CAR_LEN * 0.5 + 2 * CAB_SKIN, CABIN_H + CAB_SKIN, CAR_W * 0.86 + 2 * CAB_SKIN);
   cab.translate(CABIN_X, CABIN_Y + CAB_SKIN / 2, 0);
-  return bakeColor(cab, color('policeCab'));
+  return setFinish(bakeColor(cab, color('policeCab')), FINISH.PAINT);
 }
 
 // Shared by truckCabGeometry() and truckBoxGeometry() so the two pieces — drawn from separate
@@ -1883,15 +1894,15 @@ function truckCabGeometry() {
 
   const chassis = new THREE.BoxGeometry(TRUCK_LEN, 0.8, TRUCK_W);
   chassis.translate(0, TRUCK_BASE_Y, 0);
-  parts.push(bakeColor(chassis, white));
+  parts.push(setFinish(bakeColor(chassis, white), FINISH.PAINT));
 
   const cab = new THREE.BoxGeometry(TRUCK_CAB_LEN, 1.1, TRUCK_W * 0.84);
   cab.translate(TRUCK_CAB_X, TRUCK_CAB_Y, 0);
-  parts.push(bakeColor(cab, cabDark));
+  parts.push(setFinish(bakeColor(cab, cabDark), FINISH.GLASS));
 
   const windshield = new THREE.BoxGeometry(0.12, 0.7, TRUCK_W * 0.7);
   windshield.translate(TRUCK_CAB_X + TRUCK_CAB_LEN / 2 - 0.05, TRUCK_CAB_Y, 0);
-  parts.push(bakeColor(windshield, cabDark));
+  parts.push(setFinish(bakeColor(windshield, cabDark), FINISH.GLASS));
 
   parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W));
 
@@ -1913,7 +1924,7 @@ function truckCabGeometry() {
 function truckBoxGeometry() {
   const box = new THREE.BoxGeometry(TRUCK_BOX_LEN, 2.0, TRUCK_W);
   box.translate(TRUCK_BOX_X, TRUCK_BASE_Y + 0.4 + 1.0, 0);
-  return bakeColor(box, color('truckBox'));
+  return setFinish(bakeColor(box, color('truckBox')), FINISH.PAINT);
 }
 
 // --- Brake lights and turn signals -----------------------------------------------------------
@@ -2725,7 +2736,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const {
     group: taxiGroup, setOccupied: setTaxiOccupied, lights: taxiLights,
     setHighlight: setTaxiHighlight, setSteer: setTaxiSteer, setLights: setTaxiLights,
-    damage: taxiDamage,
+    damage: taxiDamage, setDoor: setTaxiDoor,
   } = createTaxiMesh();
   scene.add(taxiGroup);
 
@@ -2800,7 +2811,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // the map, so this is 0.77% more shadow sampling (0.67% on a 390x844 phone — the framing is
   // tighter there, but the cars shrink with it). A third of those pixels change, by 12/255 on
   // average and 75/255 at the deepest.
-  const mesh = neverCull(new THREE.InstancedMesh(carGeometry(), propMaterial(), MAX_AMBIENT));
+  // Glossy paint: the sun glints off it and the city slides across it (`propMaterial({ gloss })`).
+  const bodyGeometry = carGeometry();
+  const mesh = neverCull(new THREE.InstancedMesh(
+    bodyGeometry, propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y } }), MAX_AMBIENT,
+  ));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -2812,8 +2827,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // because every instance of that shares one matrix, and these two have to turn independently
   // of it.
   const FRONT = wheelAnchors(CAR_LEN, CAR_W).filter((a) => a.front);
+  // On the finish shader like the body, so the tyre and the hubcap take the tuning's tyre and
+  // metal numbers on all four wheels rather than only the two baked into the body.
+  const frontWheelGeometry = wheelGeometry();
   const wheelMesh = neverCull(new THREE.InstancedMesh(
-    wheelGeometry(), propMaterial(), MAX_AMBIENT * FRONT.length,
+    frontWheelGeometry, propMaterial({ gloss: { geometry: frontWheelGeometry } }), MAX_AMBIENT * FRONT.length,
   ));
   wheelMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   wheelMesh.castShadow = true;
@@ -2824,8 +2842,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // The truck cab and its front wheels, as their own pair of instanced meshes — same shape as the
   // car pair above, just built from truckCabGeometry() at TRUCK_LEN/TRUCK_W and painted from the
   // same PALETTE.carBody a car is (see paintTruck below).
+  const cabGeometry = truckCabGeometry();
   const truckMesh = neverCull(
-    new THREE.InstancedMesh(truckCabGeometry(), propMaterial(), MAX_AMBIENT),
+    new THREE.InstancedMesh(cabGeometry, propMaterial({ gloss: { geometry: cabGeometry, floor: SILL_Y } }), MAX_AMBIENT),
   );
   truckMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   truckMesh.castShadow = true;
@@ -2834,8 +2853,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   truckMesh.count = trucks.length;
 
   const TRUCK_FRONT = wheelAnchors(TRUCK_LEN, TRUCK_W).filter((a) => a.front);
+  const truckWheelGeometry = wheelGeometry();
   const truckWheelMesh = neverCull(new THREE.InstancedMesh(
-    wheelGeometry(), propMaterial(), MAX_AMBIENT * TRUCK_FRONT.length,
+    truckWheelGeometry, propMaterial({ gloss: { geometry: truckWheelGeometry } }), MAX_AMBIENT * TRUCK_FRONT.length,
   ));
   truckWheelMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   truckWheelMesh.castShadow = true;
@@ -2847,8 +2867,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // never painted — see truckBoxGeometry() for why one InstancedMesh cannot hold both a tinted
   // cab and a fixed-colour box. `setColorAt` is never called on it, so `instanceColor` stays null
   // and the material draws the geometry's own baked PALETTE.truckBox untouched.
+  const boxGeometry = truckBoxGeometry();
   const truckBoxMesh = neverCull(
-    new THREE.InstancedMesh(truckBoxGeometry(), propMaterial(), MAX_AMBIENT),
+    // A cargo box is a painted panel too, but a flatter, duller one than a cab: less coat, less curve.
+    new THREE.InstancedMesh(boxGeometry, propMaterial({
+      gloss: { geometry: boxGeometry, floor: SILL_Y, amount: 0.55 },
+    }), MAX_AMBIENT),
   );
   truckBoxMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   truckBoxMesh.castShadow = true;
@@ -2967,7 +2991,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   sirenHousingMesh.userData.anchor = SIREN_HOUSING_AT;
   // The white cab, on exactly the same switch. Car-local, so its matrix is the body's own.
   const policeCabMesh = neverCull(new THREE.InstancedMesh(
-    policeCabGeometry(), propMaterial(), MAX_AMBIENT,
+    policeCabGeometry(), propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y } }), MAX_AMBIENT,
   ));
   policeCabMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   policeCabMesh.castShadow = true;
@@ -3311,6 +3335,66 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     for (let k = policeCars.length - 1; k >= 0; k--) leavePolice(policeCars[k]);
     policeCars.length = 0;
   }
+
+  // --- Guests -----------------------------------------------------------------
+  //
+  // A vehicle a game module brings onto the road for an event and takes off again — the fire truck
+  // (game/fire.js). It is a car in `cars` like any other: it follows its lane, queues, stops at
+  // reds, takes a route, can be bumped, and everything behind it queues behind it. What it does not
+  // have is an **instance**. It is in neither `ambient` nor `trucks`, so it never takes a slot in a
+  // buffer, never touches the density ramp's ordering or the police block at the tail, and leaving
+  // is a splice out of `cars` rather than the tail dance `leavePolice` has to do. Its owner draws it
+  // through `car.skin`, which the render pass calls in place of `writeAmbient`, and hands over its
+  // own wreck through `car.guestWreck` if the taxi ever writes it off.
+  //
+  // Not police, on purpose: the robbery and the patrol share the cop fleet and both of them clear,
+  // recycle and re-route everything in `policeCars` at the end of an event.
+
+  /**
+   * Bring one guest onto the map, off screen and as near `near` as that allows — `enterPolice`'s
+   * placement, for one car outside the fleet. Answers the car, or null when no lane would take it
+   * this frame (a saturated or heavily closed network); the caller asks again later.
+   *
+   * `accept(lane)` narrows the lanes it may come in on — game/fire.js hands it the lanes a few legs
+   * upstream of where the engine is going, since the nearest lane in a straight line is as often
+   * as not pointed the wrong way.
+   */
+  function enterGuest(near, { isTruck = true, accept = null } = {}) {
+    const before = cars.length;
+    for (let ring = 0; ring < 12 && cars.length === before; ring++) {
+      const reach = PITCH + ring * PITCH * 0.5;
+      spawnCars(rng, 1, cars, ({ lane, s }) => {
+        if (closedLanes.has(lane.id)) return false;
+        if (accept && !accept(lane)) return false;
+        const at = lane.path.at(s);
+        if (Math.hypot(at.x - taxi.x, at.z - taxi.z) < SPAWN_CLEARANCE) return false;
+        return Math.hypot(at.x - near.x, at.z - near.z) <= reach;
+      });
+    }
+    if (cars.length === before) return null;
+    const car = cars[cars.length - 1];
+    car.guest = true;
+    car.isTruck = isTruck;
+    // Where it actually is, now — see `enlist` for what an unplaced mid-run spawn draws as.
+    const at = car.lane.path.at(car.s);
+    car.x = at.x;
+    car.z = at.z;
+    car.yaw = dirYaw(car.d);
+    car.prevSteerYaw = car.yaw;
+    return car;
+  }
+
+  /** Take a guest off the road. Answers whether it was on it. */
+  function retireGuest(car) {
+    const at = cars.indexOf(car);
+    if (!car?.guest || at === -1) return false;
+    cars.splice(at, 1);
+    car.skin = null;
+    car.guestWreck = null;
+    car.roadblock = 0;
+    if (car.route?.length) car.route.length = 0;
+    return true;
+  }
   // With ?cars=1 there are no ambient vehicles at all, so setColorAt is never called and
   // instanceColor is still null.
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -3410,7 +3494,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // phase happens to be at the moment you sample it.
   const stats = {
     time: 0, violations: 0, minGap: Infinity, moving: 0, waiting: 0,
-    distance: 0, routeDesync: 0, rightOnRed: 0, chaseOnRed: 0, uturns: 0,
+    distance: 0, routeDesync: 0, routeRefused: 0, rightOnRed: 0, chaseOnRed: 0, uturns: 0,
   };
 
   const matrix = new THREE.Matrix4();
@@ -3438,6 +3522,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
    */
   function wreckShell(car) {
     car.crashed = true;
+    // A guest has no instance to copy a shell from — its body is somebody else's mesh, so its owner
+    // hands one over (`guestWreck`). An empty group if it did not, so the wreck path still has a
+    // shell to slide and scorch rather than a null to trip over.
+    if (car.guest) {
+      const shell = car.guestWreck?.() ?? new THREE.Group();
+      scene.add(shell);
+      return shell;
+    }
     if (car.isTaxi) {
       // Its lamps, on the same terms as the ambient car's below: a crashed car stops reaching this
       // loop's render pass, so whatever level it last wrote would sit there for the rest of the
@@ -4729,6 +4821,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     for (const car of policeCars) {
       if (car.chase > 0 && !car.crashed) clearAhead(car, SCATTER_RANGE / 2);
     }
+    // ...and so does a guest answering a call on `chase` — the fire engine on its way in
+    // (game/fire.js). Same reach and the same rule: the siren is on, the car in front gets out of it.
+    for (const car of cars) {
+      if (car.guest && car.chase > 0 && !car.crashed) clearAhead(car, SCATTER_RANGE / 2);
+    }
 
     for (const car of cars) {
       // Snaps on, lets go slowly. The flee has to start on the frame the taxi arrives behind, but
@@ -5111,9 +5208,19 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
             // Already in straight/right/left order — the order the weighted roll below walks, and
             // the one `legalExits` used to return.
             const options = car.lane.exits.map((id) => net.turnById.get(id));
-            const routed = car.route?.length
+            let routed = car.route?.length
               ? options.find((o) => net.dirOfLane(net.laneById.get(o.outLane)) === car.route[0])
               : null;
+            // A route onto a shut span is stale, not desynced: drop it and let the car roll an
+            // exit like anybody else (the span's own lanes weigh zero there). Whoever owns the
+            // route re-plans an empty one — game/patrol.js does on its next frame, and `findRoute`
+            // cannot return the span while the leaf is shut. Not counted in `routeDesync`, which
+            // is the claim that this never happens for a route that was valid when it was made.
+            if (routed && hardClosed(routed.outLane)) {
+              car.route.length = 0;
+              routed = null;
+              stats.routeRefused += 1;
+            }
 
             // A routed car (the player's taxi) takes the next turn its route calls for; everyone
             // else rolls the weighted straight/right/left dice. This single branch is the entire
@@ -5811,6 +5918,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       matrix.compose(pos, quat, scl);
       // Drawn by somebody else's mesh: hand it the pose, and collapse this car's instance — body,
       // wheels, pods and bar all compose through `matrix`, so zeroing it hides every part at once.
+      // A guest has no instance at all (see `enterGuest`): its owner draws it, and there is no slot
+      // in any buffer for `writeAmbient` to write.
+      if (car.guest) {
+        car.skin?.(pos, quat, car);
+        continue;
+      }
       if (car.skin) {
         car.skin(pos, quat, car);
         matrix.copy(ZERO_MATRIX);
@@ -5849,7 +5962,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   }
 
   return {
-    cars, taxi, taxiGroup, taxiDamage, setTaxiOccupied, setTaxiHighlight, setCarCount, mesh,
+    cars, taxi, taxiGroup, taxiDamage, setTaxiOccupied, setTaxiHighlight, setTaxiDoor, setCarCount, mesh,
     wheelMesh, barMesh, update, warmup,
     /**
      * Bring `n` cop cars onto the map, entering from off screen as near `near` as the camera
@@ -5866,6 +5979,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     retirePolice,
     /** Every cop car off the road at once: the end of an event. */
     clearPolice,
+    /** A vehicle outside the fleet, drawn by its owner — see the guests section. */
+    enterGuest,
+    retireGuest,
     /**
      * Close junction (i, j) to traffic, or open it again. A closed box is held like one with a car
      * stranded in it, for everyone but a boosting taxi — see `sealedFor`. Cars

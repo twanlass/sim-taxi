@@ -56,11 +56,18 @@ export const PALETTE = {
 
   asphalt: '#636972',
   asphaltEdge: '#6B717A',
+  // Tyre rubber on the road. Not black: pure black over a blue-grey asphalt read as a hole cut in
+  // the road rather than something lying on it, and a touch of warm brown is what rubber smeared
+  // into tarmac actually is.
+  skidRubber: '#1E1A18',
   laneMark: '#D6D2C4',
   crosswalk: '#DAD7CB',
   sidewalk: '#9E9C94',
   kerb: '#8A887F',
   park: '#6F9A5A',
+  // The tips of the parks' long grass (city/grass.js); the roots are `park` itself so a tuft grows
+  // out of the lawn rather than sitting on it. Lighter and warmer — sun through a blade's tip.
+  grassTip: '#AEC664',
 
   // Building envelopes — deliberately muted so height and massing read before colour does.
   concrete: '#B7B2A6',
@@ -334,6 +341,9 @@ export const PALETTE = {
   //     saturation where it is, is what reserves it. tools/probe.mjs asserts the clearance.
   carBodyGhost: ['#DA887D', '#71CDD2', '#85A7D4', '#D0CABE', '#80C5A1', '#AC96C7', '#D0C7B4', '#8D9BAD'],
   carGlass: '#2E3640',
+  // Hubcaps (geometry/wheels.js) — the one metal finish on a vehicle. Light enough to read as
+  // steel inside the tyre's near-black; the car's paint tint multiplies over it on the fleet.
+  hubcap: '#C4C8CC',
   // A box truck's cab is painted from carBody, same colorIndex and everything — one taxi-company
   // fleet's palette covers both, and it is what makes a truck read as "one more vehicle in this
   // traffic" rather than a prop dropped in from elsewhere. Only the cargo box breaks from that: it
@@ -365,6 +375,24 @@ export const PALETTE = {
   policeBody: '#55A8E6',
   // Cooler and brighter than the two cream civilians (#E4E1DA, #D9D2C3).
   policeCab: '#F2F4F7',
+
+  // --- The building fire (game/fire.js) -----------------------------------------------------
+  //
+  // The engine is a fire-engine red a step deeper than `lightRed`, so the lamps on its roof still
+  // read as lamps against the bodywork carrying them, with a white band down each flank and the
+  // ladder in bare aluminium. The flames run hot yellow at the core to orange at the tips and are
+  // drawn additive, so their colours are what they *add* to the facade behind them, not what they
+  // cover it with. Smoke is a warm soot rather than a neutral grey, and turns to `steam` where the
+  // water is landing — the one colour change that says the hose is winning.
+  fireTruckBody: '#C8261E',
+  fireTruckTrim: '#F3EFE6',
+  fireTruckLadder: '#C9CFD6',
+  fireTruckLocker: '#9E1E18',
+  flameCore: '#FFC04A',
+  flameTip: '#FF6A1A',
+  smoke: '#3B3633',
+  steam: '#E6ECEF',
+  hoseWater: '#CFEBFF',
 
   // The ambient flyover — see geometry/plane.js. A white aeroplane against a pale sky is a blank
   // shape, so it carries a cheatline; red because it is the one hue in the game with nothing else
@@ -713,6 +741,11 @@ export const PALETTE = {
   // and its edges going dark under the walls, which is depth for the price of a vertex colour.
   riverWater: '#4E7699',
   riverDeep: '#3C5C7B',
+  // What the water is seen *through* to (city/riverwater.js): silt and rubble at the foot of the
+  // walls. Never drawn as a surface — it only ever arrives through a few units of water, which
+  // takes most of the red out of it, so it is chosen warm and olive to land green-brown rather
+  // than as a second blue.
+  riverBed: '#6B6648',
   // The channel wall, and the parapet standing on the kerb line above it. Engineering concrete
   // rather than the `kerb` a block is edged in: a river wall is a poured retaining structure and a
   // kerb is a laid stone, and at 0.75 units tall the parapet is the one piece of street furniture

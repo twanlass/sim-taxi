@@ -732,6 +732,40 @@ out of it. And the **flock** is handed the pond as a keep-out circle, which is n
 the other two: a bird has a *path*, and a target pushed to the far shore is a perfectly dry
 destination with a pond in the way of it. `stopAtShore` clips the walk at the water's edge instead.
 
+### Long grass
+
+`city/grass.js` scatters tufts over every lawn: one alpha-cut card per tuft, cut from a small atlas
+of blade drawings built in code (`util/cutout.js`: a `DataTexture` with its mip chain drawn level by level, so a blade
+thins to a texel rather than averaging away under the 0.5 cut). Clumped by value noise rather than
+spread evenly, because an even scatter reads as a texture laid over the park.
+
+- **Every card faces the camera.** The view never turns, so a crossed pair would leave one card
+  edge-on for the whole game. Each spans the screen's horizontal with ±0.6 rad of yaw; the probe
+  asserts the winding.
+- **Lit as the lawn.** Every vertex carries the ground's up normal and the material
+  (`propMaterial({ cutout })`) is smooth-shaded so that normal is the one used — a flat-shaded card
+  lights as its own camera-facing face and every tuft came out as a pale chip. The root is the
+  lawn's colour, so only the tip (`grassTip`) shows.
+- **Receives shadows, casts none, and is not an AO occluder.** The prepass would draw each card as
+  a solid quad. It still *receives* AO, deliberately: what sits behind a tuft on screen is the lawn
+  it grows from.
+- Kept off the walk (both card ends, not just the root), the statue's plaza, the pond and the
+  benches — swept over seeds in the probe. Its own stream (`seed + 122`), so retuning it moves no tree.
+- Up to 0.9 tall — level with a bench's backrest — because that is the height at which a clump
+  reads as a volume the tree shadows lie *across*. It does hide the lower half of a bird walking
+  through it, which is meadow behaviour rather than a bug.
+
+### Leaf fuzz on the crowns
+
+`city/canopyfuzz.js` is the same card technique on the trees: leaf-cluster cards scattered over
+every canopy lobe, half sunk into it, so a crown's silhouette goes ragged while its facets still
+read through the middle. `treeParts` records each lobe as it builds it (`crowns`) — a record, not
+a draw, so the probe asserts a tree grown with it is identical to one grown without. Each card
+carries the **lobe's outward normal** where it stands, so the fuzz lights with the crown's own
+light direction rather than as a pale crust; cards on the far side of a lobe, which the fixed
+camera never sees, are dropped after the draw. Covers the parks', the medians' and the courtyard's
+trees; `seed + 144`. The atlas builder both share is `util/cutout.js`.
+
 ## Ground, buildings, props
 
 | File | Produces | Notes |

@@ -13,11 +13,14 @@ import {
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
 import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river.js';
+import { tickRiverWater, syncRiverWater, bindRiverDrawbridge } from './city/riverwater.js';
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
 import { createBridge } from './geometry/bridge.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
+import { createGrass } from './city/grass.js';
+import { createCanopyFuzz } from './city/canopyfuzz.js';
 import { createGarage } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import {
@@ -41,8 +44,10 @@ import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
+import { bandPath as fuelBandPath, frontAt as fuelFrontAt, RIM as FUEL_RIM } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION } from './game/taxidamage.js';
+import { createTaxiDoor } from './game/taxidoor.js';
 import { createDepotCall } from './game/depotcall.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
@@ -62,6 +67,7 @@ import { createDucks } from './game/ducks.js';
 import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
+import { createFire } from './game/fire.js';
 import { createFlatbed } from './game/flatbed.js';
 import { showRunEnd } from './game/runend.js';
 import { recordRun, lastName, clearScores, loadScores } from './game/highscores.js';
@@ -87,10 +93,13 @@ import { createBloom, markEmissive } from './game/bloom.js';
 import { createHdr } from './game/hdr.js';
 import { createCrayon } from './game/crayon.js';
 import { createCartoon } from './game/cartoon.js';
-import { setAmbientOcclusion, setCrayon, setCartoon, setCloudShadows, propMaterial } from './util/geo.js';
+import {
+  setAmbientOcclusion, setCrayon, setCartoon, setCloudShadows, propMaterial, setGlossCity, setGlossGlobal,
+} from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createPause } from './game/pause.js';
+import { createInspect } from './game/inspect.js';
 import { findRoute, findRouteVia, findRouteOnto, planOrigin, crossingOrigin } from './game/route.js';
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
@@ -105,6 +114,7 @@ import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders } from './game/sightline.js';
+import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
 import { createViewport } from './util/viewport.js';
@@ -112,7 +122,7 @@ import { isNative } from './util/platform.js';
 import { tap as haptic } from './util/haptics.js';
 import { createSfx } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
-import { isCityConnected, GRID_I, GRID_J } from './city/grid.js';
+import { isCityConnected, GRID_I, GRID_J, MAX_SPAN } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
 import { PALETTE } from './palette.js';
 
@@ -317,6 +327,8 @@ function renderFrame() {
   ao.render(scene, camera);
   // After the AO prepass, which is what fills the depth buffer the lamps are rejected against.
   bloom.render(scene, camera);
+  // Here rather than in the loop for the AO prepass's reason: shot mode renders without the loop.
+  syncRiverWater(scene.fog?.color);
   // `?hdr` takes the whole frame through a composer instead; a no-op without the flag, and it
   // returns false so the ordinary path below still runs.
   if (!hdr.render(scene, camera)) renderer.render(scene, camera);
@@ -477,6 +489,15 @@ for (const mesh of [litPanes, lamps?.pools]) if (mesh) mesh.visible = false;
 const props = createProps(makeRng(seed + 33), layout);
 const propsMesh = props.mesh;
 scene.add(markOccluder(propsMesh));
+// Tufts of long grass on the same lawns, kept out of the furniture `createProps` just placed. Its own
+// stream, so retuning the grass moves no tree. **Not** `markOccluder`: the AO prepass would draw
+// every card as a solid quad. See city/grass.js.
+const grass = createGrass(makeRng(seed + 122), layout, props);
+scene.add(grass.mesh);
+// Leaf cards round every tree crown — the parks', the medians' and the courtyard's — on the same
+// terms as the grass. See city/canopyfuzz.js.
+const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), [...props.crowns, ...(city.court?.crowns ?? [])]);
+scene.add(canopyFuzz.mesh);
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
 // subject of the opening vignette below. `null` on a city with nowhere to put one, which is a
@@ -520,7 +541,11 @@ if (burger) {
 // `cornerSeen` in game/fares.js. Everything that can stand in front of a mark goes in: the towers,
 // the trees, and the depot. Nothing transient does — a construction zone is 3 units of barrier and
 // comes and goes, and the boards would have to be re-asked every time one moved.
-setCityOccluders(city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? []));
+const occluders = setCityOccluders(
+  city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? []),
+);
+// The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).
+setGlossCity(occluders, SKYLINE_CEILING);
 
 // Density is on the difficulty curve, so the run opens at its bottom and the instanced meshes are
 // sized for its top — an InstancedMesh cannot be resized once built. An explicit `?cars=N` beats
@@ -667,6 +692,9 @@ const depotRun = garage && !shot
       // and nothing reads the depot as still being where the taxi is headed.
       traffic.taxi.pendingTarget = null;
       holdFareClocks();
+      // The depot is a hideout: a chase on the taxi's tail is called off the frame it turns in.
+      // `patrol` is built further down, but this only ever runs from the frame loop.
+      patrol.hideout();
       return true;
     },
   })
@@ -819,6 +847,7 @@ const patrol = createPatrol({
   onCaught: () => bustByPolice(),
   // Said by the cruiser that lost you, from over its own roof.
   onLost: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
+  onHid: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
 });
 // The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
@@ -995,8 +1024,8 @@ const dust = createDust(scene, camera, makeRng(seed + 77));
 const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
-  meshes: [city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? []),
-    ...(lamps ? [lamps.posts, lamps.heads] : [])],
+  meshes: [city.mesh, propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
+    ...(burger?.meshes ?? []), ...(lamps ? [lamps.posts, lamps.heads] : [])],
   // The two things in the city the wave's vertex shader cannot reach, because they turn: the
   // depot's radio dish and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
@@ -1144,6 +1173,7 @@ const drawbridge = createDrawbridge(scene, makeRng(seed + 66), {
     if (car.pendingTarget) routeTo(car.pendingTarget);
   },
 });
+if (drawbridge) bindRiverDrawbridge(() => drawbridge.state.lift);
 
 // Traffic on the river, and the thing that asks the span to lift — see game/boats.js. Run seed,
 // unlike the bridge itself: a barge every twenty seconds or so and a tug every minute and a half
@@ -1247,6 +1277,20 @@ flatbed.onSmash(({ x, z, yaw, byTaxi }) => {
 // A crate hitting the road kicks up a little of what it lands on.
 flatbed.onLand(({ x, z }) => { dust.burst(x, z, 0, 5, 0.3); });
 
+// A building on fire, and the engine that comes and puts it out — see game/fire.js. The engine is a
+// car in traffic (`enterGuest`): it drives to the fire, stops in its lane with the cars behind it
+// queueing, and puts its ladder up. Run seed like the roadworks; held off while the taxi is in a cut
+// scene or a robbery is on, so it never upstages either, and never in shot mode, where nothing
+// should move under an unrelated change. `?fire=soon` starts one three seconds in.
+const fire = createFire({
+  rng: makeRng(runSeed + 611), scene, blocks: layout, traffic,
+  blocked: () => Boolean(shot) || traffic.taxi.staged || Boolean(robbery?.state.active)
+    || fares.state.gameOver,
+  soon: new URLSearchParams(window.location.search).get('fire') === 'soon',
+});
+// The engine's bar blooms at the cruiser's strength; the flames bloom on their own (`flame`).
+for (const mesh of fire.emissiveMeshes) markEmissive(mesh, 'siren');
+
 // Occluded-only outlines on the traffic nearest the taxi, faded in with Loco Mode — the one mode
 // where a car hidden behind a tower is a crash rather than a surprise. See game/carghosts.js.
 const carGhosts = createCarGhosts(scene, traffic);
@@ -1348,6 +1392,8 @@ const taxiDamage = createTaxiDamage({
   damage: traffic.taxiDamage, group: traffic.taxiGroup, taxi: traffic.taxi, maxHp: TAXI_HP,
   sparks, dust, roadY: ROAD_Y,
 });
+// The rear door, swung open on the kerb side while a rider hops in. See game/taxidoor.js.
+const taxiDoor = createTaxiDoor({ setDoor: traffic.setTaxiDoor });
 
 // A survivable hit: the struck car is launched or spun off its line (sim/collisions.js `bump`),
 // the taxi loses most of its speed, and here is the noise — a comic starburst on the contact
@@ -2218,16 +2264,16 @@ function gasPedalTop() {
 }
 
 /**
- * Where a delivery's boost sparks land: the bar of the fuel meter in the top-left corner, since
- * that is what they fill. Falls back to the pill when the meter isn't measurable, so a flight
- * always has somewhere to go. The tutorial's spotlight stays on the pill — it is pointing at the
- * control, not the read-out.
+ * Where a delivery's boost sparks land: the crown of the fuel gauge arcing over the gas pedal,
+ * since that is what they fill. The track's box is the whole arc, so its top edge is the crown.
+ * Falls back to the pedal when the meter isn't measurable, so a flight always has somewhere to go.
+ * The tutorial's spotlight stays on the pedal — it is pointing at the control, not the read-out.
  */
 function fuelScreenPos() {
-  const bar = boostMeterEl?.querySelector('.boost-bar');
-  const r = bar?.getBoundingClientRect();
+  const arc = boostMeterEl?.querySelector('.boost-track');
+  const r = arc?.getBoundingClientRect();
   if (!r?.width) return boostScreenPos();
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2, r: r.width / 2 + 20 };
+  return { x: r.left + r.width / 2, y: r.top + 3, r: r.width / 2 + 20 };
 }
 
 /** Centre of the money counter in viewport coordinates — the flight's target. */
@@ -2452,8 +2498,8 @@ viewport.onChange((w, h) => {
 // --- Crazy taxi button ------------------------------------------------------
 
 const boostButton = document.getElementById('boost');
-// The same fuel, read out in the top-left corner (see #boost-meter in index.html). It takes the
-// pill's classes and variables verbatim, so the two can never disagree about the tank.
+// The same fuel, read out on a gauge arc over the gas pedal (see #boost-meter in index.html). It
+// takes the pedal's classes and variables verbatim, so the two can never disagree about the tank.
 const boostMeterEl = document.getElementById('boost-meter');
 
 // A drop-off is the only thing that ever puts fuel in the tank (see game/boost.js), so the pour is
@@ -2462,6 +2508,25 @@ const boostMeterEl = document.getElementById('boost-meter');
 // the fill. game/boostmeter.js owns the timing of all three; this just hands it the clock and the
 // fuel level and paints what comes back onto three CSS variables.
 const boostMeter = createBoostMeter();
+
+// The gauge is a tapered band, so it is geometry rather than a stroke (game/fuelarc.js): the track
+// is drawn once and the fuel re-outlined whenever the level moves by more than a hair — a pour or a
+// burn changes it every frame, a parked tank not at all.
+const fuelTrack = boostMeterEl?.querySelector('.boost-track');
+const fuelFill = boostMeterEl?.querySelector('.boost-fill');
+const fuelEdge = boostMeterEl?.querySelector('.boost-edge');
+fuelTrack?.setAttribute('d', fuelBandPath(0, 1, FUEL_RIM));
+let fuelDrawn = -1;
+function drawFuelArc(level) {
+  if (!fuelFill || Math.abs(level - fuelDrawn) < 0.0005) return;
+  fuelDrawn = level;
+  fuelFill.setAttribute('d', fuelBandPath(0, level));
+  const front = fuelFrontAt(level);
+  fuelEdge.setAttribute('cx', front.x.toFixed(2));
+  fuelEdge.setAttribute('cy', front.y.toFixed(2));
+  // Twice the band's half-width: the gradient's solid core is the band, the rest is its halo.
+  fuelEdge.setAttribute('r', front.w.toFixed(2));
+}
 
 function updateBoostButton(dt) {
   if (!boostButton) return;
@@ -2484,6 +2549,7 @@ function updateBoostButton(dt) {
     el.style.setProperty('--fill', boostMeter.state.fill.toFixed(3));
     el.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
   }
+  drawFuelArc(boostMeter.state.pct);
   // The pedal sinks while it is held, however it is held — the Space key never touches the
   // pointer's `is-held`. See "The press" in index.html.
   boostButton.classList.toggle('is-down', boost.state.held);
@@ -3190,8 +3256,15 @@ function frame() {
   // drawn: with `preserveDrawingBuffer` off, a resize or a rotation with the veil up repaints the
   // canvas from an empty buffer, and the city would blink out until the player resumed.
   // The sound stops with the world — both of the early returns below — and starts with it again.
-  sfx?.hold(Boolean(pause?.state.paused || robberLine?.isOpen()));
+  sfx?.hold(Boolean(pause?.state.paused || robberLine?.isOpen() || inspect?.state.on));
   if (pause?.state.paused) {
+    renderFrame();
+    return;
+  }
+  // `?debug`'s inspect mode: the same freeze as the pause with nothing drawn over the city, and the
+  // camera handed to game/inspect.js — which moves it from input events, so all this has to do is
+  // draw.
+  if (inspect?.state.on) {
     renderFrame();
     return;
   }
@@ -3334,6 +3407,7 @@ function frame() {
   impact.update(dt);
   // After traffic has written the taxi's transform: the lean and the rattle ride on top of it.
   taxiDamage.update(dt);
+  taxiDoor.update(dt, fares.state.fares.find((f) => f.boarding !== undefined) ?? null);
   // After the physics, like the collision check: it measures where traffic left the cop and the
   // taxi this frame, and a catch ends the run the same way a wreck does. Engaged rather than held —
   // the cooldown tail after release still counts, so braking off Loco Mode a beat too close to a
@@ -3370,10 +3444,14 @@ function frame() {
   // the same frame rather than the next one.
   boats?.update(dt);
   drawbridge?.update(dt, traffic.cars);
+  tickRiverWater(dt);
   roadwork.update(dt, traffic.taxi, traffic.cars, fares.occupiedSpots());
   // After the traffic step for the same reason: it rides the truck's instance matrix, which has to
   // be this frame's, and it tests crates against the cars where they now are.
   flatbed.update(dt, traffic.taxi, traffic.cars);
+  // After the traffic step too: the engine's pose is written by it, and the ladder and the jet are
+  // aimed off that pose.
+  fire.update(dt);
 
   tutorial?.update(dt);
 
@@ -3752,9 +3830,31 @@ function frame() {
 // URL, either present with no value needed.
 const debugParams = new URLSearchParams(window.location.search);
 const wantsDebugPanel = debugParams.has('debug') || debugParams.has('settings');
+// Freeze-and-zoom for tuning things that are a few pixels across at play zoom — see
+// game/inspect.js. `I` toggles it; the debug panel has the buttons.
+const inspect = !shot && wantsDebugPanel ? createInspect({
+  controller,
+  canvas: renderer.domElement,
+  aspect,
+  // The taxi first, then every other vehicle nearest-first, so "Next car" walks outward from it.
+  focusables: () => {
+    const { x, z } = traffic.taxi;
+    const others = traffic.cars
+      .filter((car) => car !== traffic.taxi && Number.isFinite(car.x) && Number.isFinite(car.z)
+        && Math.abs(car.x) < MAX_SPAN && Math.abs(car.z) < MAX_SPAN)
+      .sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z));
+    return [traffic.taxi, ...others];
+  },
+  // Same release the pause does on the way in: a held boost or brake would otherwise resume into a
+  // pedal nobody is holding.
+  onChange: (on) => { if (on) { boost.release(); releaseBrake(); dropPedalGesture(); } },
+}) : null;
 // The sound designer's panel is its own flag, so it comes up without the rest — see
 // game/audiopanel.js. `?debug&audio` shows both.
 const wantsAudioPanel = debugParams.has('audio');
+// `?finishes` opens on the car finishes' false-colour view (util/geo.js) — the same switch as the
+// panel's "Show finishes", reachable from a screenshot URL, which has no panel.
+if (debugParams.has('finishes')) setGlossGlobal('showFinishes', true);
 
 // The Loco Mode ramp. Pushed into the panel rather than imported by it for the same reason the
 // difficulty knobs are pushed into `sim/` — the sim owns these numbers, and the panel is one more
@@ -4303,6 +4403,7 @@ if (!shot && wantsDebugPanel) {
     hdr,
     scores: { load: loadScores, clear: clearScores },
     clouds,
+    inspect,
     // The entrance levers. The panel's replay re-aims the wave at wherever the taxi is *now* —
     // the point of replaying from the panel is judging the opening, and the opening's wave starts
     // at the player's car.
@@ -4426,6 +4527,8 @@ window.__taxi = {
   roadwork,
   /** The truck that sheds crates. `flatbed.stage()` starts it now; `state`, `crates`, `loose()`. */
   flatbed,
+  /** The building fire and its engine. `fire.ignite()` starts one now; `state`, `engine`. */
+  fire,
   pause,
   routeTo,
   findRoute,

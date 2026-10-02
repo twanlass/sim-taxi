@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { MAX_SPAN } from '../city/grid.js';
 import { hazeColor } from './scene.js';
 import { cloudTint } from './clouds.js';
+import { setGlossSky } from '../util/geo.js';
 
 // The sky over one day, as a set of keyframes the clock and the tweak panel both read.
 //
@@ -135,6 +136,7 @@ export function createDaylight({ sun, hemi, sky, fog = null, clouds = null }, st
     hemi.intensity = look.fill;
     sky.uniforms.topColor.value.copy(look.top);
     sky.uniforms.bottomColor.value.copy(look.bottom);
+    setGlossSky(look.top, look.bottom);
     if (fog) hazeColor(look.top, look.bottom, fog.color);
     if (clouds) clouds.setLight(look.top, look.bottom);
 

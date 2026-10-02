@@ -88,7 +88,8 @@ export const PARK_EDGE = PAVE_INSET + PARK_WALK;
 // at the diagonal is whatever the two radii and the corner offset make it. Measured across the
 // candidates — 0.9 → 0.70 units at the corner, 1.4 → 0.91, 1.6 → 0.99 — and 1.4 is the roundest
 // lawn that still reads as a lawn while holding the band within a tenth of its 1.0 on the straights.
-const GRASS_RADIUS = 1.4;
+// Exported for `grass.js`, which keeps its tufts inside the same arcs.
+export const GRASS_RADIUS = 1.4;
 
 /**
  * A park's ground: the paved walk and the grass inside it, as two flat surfaces at one height.

@@ -237,6 +237,37 @@ Measured the same way afterwards, the mouth tracks the coast to within 1–2 lum
 > whatever was behind it. `propMaterial({ ao: false })` is the opt-out. The asphalt's own fade skirt
 > has the same hole and gets away with it only because nothing stands near it.
 
+## The surface
+
+`src/city/riverwater.js`, layered over `propMaterial`'s own patch on the water strip. Ripples,
+depth, refraction and reflection, all in the water's fragment shader with **no extra pass**.
+
+The cheap version is honest here for a reason specific to this game: the camera never turns and is
+orthographic, so every ray leaving the water heads the same way, and what it can hit is a short,
+known list — the far channel wall, three bridge decks, the sky. Each is a plane the shader
+intersects in closed form. A real refraction copy or a mirrored second render of the city would buy
+almost nothing over that and cost a full pass on a phone.
+
+| | How |
+|---|---|
+| **Ripples** | A jittered triangle lattice (`FACET` 1.35 units, ~10px at play zoom), each triangle the plane through a sum of travelling waves at its three corners. Flat-shaded on purpose — a smooth normal map would be the wrong look for this city. |
+| **Depth / refraction** | The view ray is bent by the facet (Snell, 1.33) and followed down to the bed (`BED_DEPTH` 2.6) or the far wall's submerged face, then absorbed by the path length, red first (`ABSORB`). The wall visibly carries on under the surface near the far bank and fades — that is the depth cue — and the facets make it wobble. |
+| **Reflection** | The mirrored ray is followed to the far wall (with its railing), each bridge's fascia or soffit, or the sky (the haze colour, so it follows `daylight.js`). Weighted by Fresnel with a floor (`REFLECT_FLOOR`), because water's real 4% at this angle is invisible at play zoom. |
+| **Glints** | Blinn-Phong off the facets in the light loop (`RE_Direct_Water`). Mostly dark by day: at the parked 16:24 sun the light is *behind* the camera, so a facet would have to tilt ~58° to glint, which is physically right. The police cruiser's lamps do glint. |
+
+Two things are deliberate:
+
+- **The mouth is untouched.** Every term is scaled by how deep the water is, *cubed*, so it has gone
+  before the shoal's colour finishes turning into the asphalt `riverMouthFade` lies over. Linear,
+  the half-shoaled stretch under the ring bridge came out teal against the skirt's grey.
+- **The drawbridge drops out of the reflection the moment its leaf moves** (`bindRiverDrawbridge`).
+  A flat deck mirrored under a leaf standing on end is worse than no deck.
+
+`syncRiverWater` runs in `renderFrame` rather than the loop so shot mode gets the right sky and
+leaf state; `tickRiverWater` runs on game time, so the ripples stop with the pause.
+`tools/probe.mjs` runs the patch against three's real Lambert source and asserts every replace
+landed.
+
 ## The drawbridge
 
 `src/game/drawbridge.js`. **The only thing in this game that changes the road network while the
@@ -322,6 +353,14 @@ other two, with a counterweight house the size of a bus shelter as its only tell
 `setClosedLanes` is **keyed by source** now. It was one set with one owner and `roadwork.js`
 replaced it wholesale, which is correct exactly while nothing else holds a closure — a zone standing
 up mid-lift would have reopened the span under it.
+
+The `'drawbridge'` source is also **hard** in the traffic model, which no other closure is. A
+closed lane only zeroes the *dice*; a routed car drives its route regardless, which is right for
+the taxi at roadworks and was wrong at the river: only the taxi is re-planned when the barriers drop,
+so a patrol cruiser carrying a route planned with the span down drove across the open leaf. A routed
+car whose next turn enters a hard-closed lane now drops its route and rolls an exit instead
+(`hardClosed` in `sim/traffic.js`, counted in `stats.routeRefused`), and game/patrol.js re-plans the
+empty route on its next frame.
 
 `setBlockedLanes` is enforced by **skipping** the lane in `search`'s successor expansion rather than
 by pricing it high. A weight, however large, is still a number Dijkstra will pay if it has to — and

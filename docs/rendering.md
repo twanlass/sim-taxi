@@ -19,6 +19,16 @@ Three things produce it:
 > as several separate vertices. Jittering per-index pushed each copy a different way and tore the
 > tree canopies open. Keying on position keeps the surface welded.
 
+**The one deliberate exception is the tree crowns, which are soft.** The props and buildings meshes
+are `propMaterial({ smooth: true })` — lit from the geometry's own normals rather than the
+screen-space derivative — and that changes nothing for any facet, because `bakeColors` has already
+given every non-indexed face its own normal. The crowns alone are handed the ellipsoid's normal at
+each vertex (`softCrown` in `city/props.js`), so they light as one rounded mass while the walls,
+trunks and benches around them stay faceted. A pixel diff of the city before and after differed
+only on crowns, and `tools/probe.mjs` asserts that every bent normal in those two meshes belongs to
+a crown. One cost: the crown's own shadow-map self-shadowing now draws a hard terminator across a
+soft gradient, where on a faceted crown it fell along a facet edge and could not be seen.
+
 `palette.js` holds every colour in the game by name, plus `jitterColor()` for per-instance
 variation. New colours belong there, not inline.
 
@@ -76,6 +86,70 @@ Four details worth keeping:
   there. On masonry it inverts figure and ground, turning dark holes in a light wall into light
   patches on a dark one, and takes the scale cue with it. So the punched path carries a ceiling
   (0.52 on brick, 1.0 on the pale envelopes) and the curtain-wall path does not.
+
+### Car finishes — `propMaterial({ gloss })` in `util/geo.js`
+
+Every vehicle body and every wheel — the fleet, truck cabs and boxes, the cop cars, the cruiser and
+the taxi — is `MeshPhongMaterial` rather than the Lambert everything else wears, with one more patch
+on top of `patchProp`. Wrecks stay plain Lambert.
+
+**Four finishes, one program.** `setFinish()` bakes an `aFinish` attribute per part —
+`FINISH.TYRE`, `PAINT`, `GLASS`, `METAL` (the hubcaps, `geometry/wheels.js`) — and the shader
+indexes three shared `vec4` uniform arrays with it, so each finish has its own full set of numbers
+(`FINISH_DEFAULTS`: glint, glint sharpness, glint bend, sheen, sheen sharpness, flake, reflect,
+reflect edge, reflect bend, base colour) while every glossy material still compiles to the same
+source. A geometry with no `aFinish` reads 0, so anything untagged comes out as tyre — matte rather
+than mirrored; `tools/probe.mjs` asserts the car and the taxi carry all four.
+
+**Tuning them.** `?debug` → **Car finish**: pick a finish and its ten sliders retarget to it, plus
+flake size, façade darkness and **Show finishes**, which paints each finish a flat false colour
+(tyre grey, paint red, glass cyan, metal yellow) to check what the geometry tagged as what —
+`?finishes` turns the same view on from a URL, for screenshots. Everything is live. **Copy
+settings JSON** exports it as `carFinish`, whose keys are `FINISH_DEFAULTS` and
+`GLOSS_GLOBAL_DEFAULTS`. **Freeze & zoom** (or `I`) stops the world with nothing over it and hands
+the camera to `game/inspect.js`: wheel or pinch to zoom down to a frustum half-height of 2.5, drag
+to pan, **Next car** (`N`) to step outward from the taxi, `I` again to resume where you were.
+Paint's reflection is also scaled per material (`amount`: the taxi 1.33, a
+cargo box 0.55).
+
+**The diffuse keeps the flat normal.** The first cut bent three's `normal` itself, which the diffuse
+reads too, and every car went soft and bubbly — the facets that make this a low-poly game smoothed
+into one rounded lump. Now two *extra* normals are bent outward by how far the fragment sits from the
+body's centre, and only the specular and the reflection read them:
+
+- **The glint's bends up to 45° at a panel's corner** (`glintBend` ≈ 1). It has to: the sun's
+  half-vector sits about 45° round from both axes the traffic drives on, so a box panel bent less
+  never lines up with it — a 17° bend rendered no glint at all on an axis-aligned car. A real car
+  catches the sun on its curved shoulders; bent this far, the corner of a panel is that shoulder,
+  and with a lobe this tight only the corner shows it.
+- **The reflection's bends separately** (`reflectBend`, about 1.2 as tuned), which is what slides a
+  skyline across a panel. It never reaches the diffuse, so the facets stay hard however far it goes.
+
+**The specular is swapped, not tuned.** Phong's own specular line is replaced
+(`GLOSS_SPECULAR_FROM`/`TO`) with two lobes: the glint on the glint normal, the sheen on the reflection's. It stays inside three's light loop,
+so the shadow map is already folded into the light: a car in a tower's shadow has nothing to glint
+with, and the cop's lamps glint off the cars beside it.
+
+**The sheen carries metal flake.** Paint's broad lobe is multiplied by a hash over the body's own
+space, 14.5 cells a unit by default (`flakeSize`) — sub-pixel at play zoom, where it averages into a livelier sheen, and only
+sparkle close up. The sheen is also what separates paint from glass when no glint is lined up.
+
+**The reflection marches the city.** The reflected ray is stepped through the height field
+`game/sightline.js` already builds for the fare board, uploaded once as a byte texture
+(`setGlossCity`). Under a roofline it returns a dark façade, otherwise the sky gradient
+(`setGlossSky`, fed by `game/daylight.js`). Why not an env map: the camera never rotates, so the
+reflected ray off a facet only changes when the *car* turns — a cubemap would hand a car driving
+straight the same picture every frame. What changes as it drives is where it is.
+
+**The ray is folded up off the road.** The camera looks down at 33°, so the honest reflection off a
+side panel is the asphalt a metre away — correct and invisible. `gR.y = max(abs(gR.y), 0.12)`
+mirrors it upward so a flank sees the street wall opposite.
+
+**Off under Crayon and Cartoon.** `propMaterial` hands back the plain Lambert when either look is on
+at boot. `outlinable` in `game/cartoon.js` accepts Phong as well, for a car built before the flag.
+
+All glossy bodies share one program (`prop-gloss`, `-ssao` as it applies): the per-shape numbers
+are per-material uniforms, not source. `tools/links.mjs` counts it at boot, not mid-run.
 
 ## Camera
 
@@ -1773,8 +1847,25 @@ ring road would show sky through the tarmac.
 
 A ring buffer of flat quads stamped onto the road while boosting **through a corner**, and for the
 first `LAUNCH_SKID_TIME = 0.5s` **off the line** when Loco Mode is first pressed. Alpha lives in a
-4-component vertex colour attribute. Pure black, `MARK_LENGTH = 1.5`, `MARK_WIDTH = 0.58`,
-`START_ALPHA = 0.85`, spaced closer than one mark length so stamps overlap into a streak.
+4-component vertex colour attribute. `MARK_LENGTH = 1.5`, `MARK_WIDTH = 0.58`, spaced 0.42 apart so
+stamps overlap into a streak, in `skidRubber` — a warm near-black, because pure black over the
+blue-grey asphalt read as a hole in the road.
+
+**Each mark is a feathered patch, not a quad**: a 4 × 4 vertex grid whose alpha is zero at both ends
+and 0.25 at the sides, ramping to full over the outer 30% / 27%. The first version was one quad at
+0.85, which left a hard edge every 0.42 units down a streak and a hard rectangle at each end. Per
+stamp alpha is now `STAMP_ALPHA = 0.5`; stamps overlap ~2.6 deep at full weight, so the middle of a
+streak still composites to ≈ 0.84. Vertex alpha rather than a fragment patch, so there is no shader
+to keep in step with the look modes or the program cache.
+
+**Streaks fade in and out.** A stamp joins the streak of the nearest mark younger than
+`CHAIN_WINDOW` (0.3s) within `CHAIN_REACH` (1.1 — past the overdrive stamp spacing, inside the gap
+between left and right tracks), so no caller says which wheel it is and the taxi, the brake and the
+cops all get it. The first three stamps of a streak are drawn at 0.3 / 0.55 / 0.8. The tail can't be
+known until the streak stops, so once a mark has gone `CHAIN_WINDOW` without a successor it and the
+two before it **ease** down to the same ramp at `TAIL_EASE` per second — eased, so the end lightens
+rather than pops. Each stamp is also drawn up to 20% lighter at random and varies ±8% in width, so a streak isn't a
+flat band. `tools/probe.mjs` asserts the feathering, both ramps, the easing and the winding.
 
 > `car.state === 'turn'` covers **every** junction crossing including going straight on, which is
 > why rubber first appeared on the straights. A real turn is `car.dOut !== car.d`, and only after
@@ -2762,6 +2853,14 @@ flock is already invisible when it is placed and the first thing the player can 
 resolves into birds. It is `transparent` for both fades and therefore, like the aeroplane, not
 `propMaterial()`: it would otherwise receive AO without being in the depth prepass and wear the
 occlusion of the trees and towers behind it — [the occluder rule](#the-occluder-rule).
+
+**The flock stamps the ghost mask** (`stampGhostMask` in `geometry/ghostoutline.js`, which the
+aeroplane and the helicopter use too). Transparent but still writing depth, a bird between the
+camera and the taxi reads to the ghost rim's reversed depth test as an occluder, and the rim traced a
+bird-shaped stroke of yellow across the hull — most take-offs, since the taxi is what usually
+launches the flock. Stamping the stencil where a flyer draws knocks the rim out under it instead.
+Drawing the flyers after the ghost tiers would also have worked, and would have taken them out from
+under the crayon page at renderOrder 1.
 
 **Shadows are on only while the whole flock is on the deck.** The shadow pass ignores a material's
 opacity, so a faded-out flock that kept casting would drag hard shadows across the city with nothing

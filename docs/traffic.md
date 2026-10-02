@@ -2033,6 +2033,117 @@ tail at −2.8), and that the jolt returns to exactly zero.
 
 `?flatbed=soon` starts the shedding three seconds in and lifts the range gate, for looking at it.
 
+## The building fire
+
+`src/game/fire.js` for the event, `src/geometry/firetruck.js` for the engine. A minute or two into a
+run (`FIRST_WAIT`, 70–130s, then every 150–240s) the top of a facade a couple of blocks from the taxi
+catches fire: flames out of the upper windows and off the roof, a column of soot leaning away from
+the camera. A fire engine comes in off the edge of the frame with its bar going, drives to the street
+in front of the building, **stops in its lane**, swings its ladder round and lifts it, and puts a jet
+of water on the fire. The flames die back, the smoke turns to steam, the ladder comes down and the
+engine drives off. It carries its own water — nobody hooks up to a hydrant.
+
+| Phase | |
+|---|---|
+| `burning` | flames up over `IGNITE` (2.6s); the engine is called `DISPATCH` (2.2s) in and is driving there |
+| `rigging` | parked; ladder swings and lifts over `RIG` (1.4s) |
+| `spraying` | water on it; out after `EXTINGUISH` (7s) of it |
+| `smoulder` | steam for `SMOULDER` (3.2s) |
+| `stowing` | ladder down |
+| `leaving` | routed to the far corner, dissolved at it (or once out of sight), retired |
+| `burnout` | nobody got there inside `RESPONSE_MAX` (55s): it dies back on its own and the engine goes home |
+
+Held off while the taxi is staged (the opening, the depot, the drive-through), during a robbery, and
+in shot mode. `?fire=soon` starts one three seconds in.
+
+### The engine is a guest, not a cop
+
+It is a car in `cars` — it follows its lane, queues, signals, takes a route, can be bumped, and
+whatever is behind it queues behind it — but it has **no instance** (`enterGuest` in
+`sim/traffic.js`). It is in neither `ambient` nor `trucks`, so it takes no buffer slot, never touches
+the density ramp's ordering or the police block at the tail of `ambient`, and leaving is a splice out
+of `cars`. The render pass hands its pose to `car.skin` and skips `writeAmbient`; the wreck path asks
+`car.guestWreck` for a shell, because there is no instance to copy one from.
+
+It is not police on purpose: the robbery and the patrol share the cop fleet and both clear, recycle
+and re-route everything in `policeCars` at the end of an event. A fire engine caught in that would
+vanish mid-spray. It is a box truck as far as the sim is concerned (`isTruck`), so it follows at a
+truck's gap and the taxi bumps a truck's envelope.
+
+### Getting there
+
+Two things made the response watchable rather than a wait. Over 12 cities, at ordinary traffic
+manners and spawned on the nearest lane off screen:
+
+| | flames → parked, median | worst |
+|---|---|---|
+| first build | 23s | 43s |
+| + a share of a cop's kit | 19s | 39s |
+| + spawned upstream (now) | 12.2s | 22.0s |
+
+- **A share of the chase.** On the way in it drives with `car.chase = 0.6` — a fraction of what a
+  chasing cop gets from the same field: its cruise ceiling lifted (a truck's 5.5 u/s to 10.6, a touch
+  over a car's 8.5), the car in front pulling out of its way (the guest loop beside the cops' in
+  `clearAhead`), and the licence to cross a red on a provably empty junction, with all of that
+  licence's fencing. Cleared to 0 the moment it parks.
+- **Spawned upstream, not nearby.** `enterGuest` ranks lanes by straight-line distance, and the
+  nearest lane off screen was as often as not pointed the wrong way — one engine spawned 22 units
+  from the fire drove 107 to reach it, a five-leg lap. `dispatch` walks the network backwards from
+  the fire's lane and hands `enterGuest` only lanes 2, 3, 4 and then 6 legs upstream, nearest first.
+
+### Where
+
+A built block's **+X or +Z face** — the view is down the −X−Z diagonal, so those are the faces the
+camera sees, and the street in front of them is between the building and the camera, so the engine
+is never behind the thing it is spraying. Never the ring road. The near lane of that street, with
+room for the engine between the junction behind it and the hold line in front (`TRUCK_LEN / 2 +
+1.5` to `length − STOP_SETBACK − TRUCK_LEN / 2 − 1`), and the fire 14–46 units from the taxi.
+
+**Never the depot** (or the burger joint): only `built` blocks are considered, and the wall the
+march finds has to lie inside the bounds of the block the face was chosen for, so the type filter is
+a guarantee rather than a side effect of how far the march reaches. The depot is where every run
+starts and where repairs happen, and an engine parked across its driveway would block the opening's
+exit. The probe sweeps eight cities and checks every candidate site, not just the one picked, with
+the depot and joint in the height field as main.js builds it. Built from the towers alone, the
+depot was a hole in the field and the check passed even with the filter switched off.
+
+The towers are one merged mesh with no list of footprints, so the facade is found by marching the
+occluder height field (`heightAt` in game/sightline.js) in from the lane: the first spot with three
+solid samples in a row (≥ 2.5 tall, so a lamp post or a tree does not count) within 8.5 units, and a
+building behind it at least 3.6 tall. Both the flames and the engine's stop have to pass
+`sightlineClear`, since a tower across the street can hide either.
+
+### What it blocks
+
+Its own lane, physically: it stops by holding `roadblock = Infinity` — the pedal a cop's chosen stop
+holds — set the frame its braking distance reaches the spot, so it brakes like any car and the cars
+behind it follow it down. While parked its lane is also **closed to newcomers**
+(`setClosedLanes(…, 'fire')`, its own source key) so the queue does not grow back through the
+junction behind it, and **priced up for the taxi** (`setHazardLanes` in route.js, +2 blocks) so a
+fare does not choose a street with an engine in it when the next one is free. Soft for the taxi in
+both cases: it can still queue behind the engine or boost round it.
+
+### The ladder and the jet
+
+The ladder's yaw is solved once, on parking, **from the heading alone**. Solving it through the drawn
+pose put the jet 6° off the fire for the whole spray: the body is still rocking forward off the brakes
+on the frame it stops, and that pitch leaks into a world-to-local transform. The jet is ballistic —
+each mote leaves the nozzle with the velocity that lands it on the facade in its flight time under
+`WATER_G` — and swept a little along the facade; where it lands it breaks into spray thrown back off
+the wall.
+
+Flames are additive (and bloom, `flame`), smoke is lit and turns pale where it is steam. All three
+pools are instanced with per-mote alpha (the `game/flames.js` recipe, keyed `fire-alpha`) and
+`frustumCulled = false`. The engine dissolves in and out with `alphaHash` like the cruiser, and has no
+point lights: its bar's spill is the bloom's (`siren`), so it cannot change the scene's light count.
+
+`tools/probe.mjs` runs one fire end to end on the probe's city: a camera-facing site in clear sight;
+the engine stopped in the fire's lane within 1.5 of the spot and short of the hold line; zero drift
+while parked and nothing inside it; a car planted at the head of the lane stopping behind it; the lane
+closed and priced up while parked with nothing coming in; the ladder within 2° of the fire and every
+jet mote landing within 1.2 of the facade's plane; the fire put out by the water rather than timing
+out; and the engine retired with the lane reopened.
+
 ## The drive-through
 
 `game/drivethru.js`. The lot, the lane and the building are the city's — see
@@ -2664,16 +2775,27 @@ only a shell one level in is hidden, so the two lamps stay in the scene's light 
 |---|---|
 | `off` | a cooldown off the difficulty ramp (`policeCooldown`, 16–30s falling to 8–14s) |
 | `patrol` | crossing: in at one edge, through a corner within `PATROL_REACH` (1 block) of the taxi (`PATROL_TIME`, 25s, caps that leg), out at the opposite edge; bar swinging |
-| `exiting` | dissolving at the far edge (`FADE_TIME`), then retired |
+| `exiting` | out of traffic, driving straight off the island (`police.release`), dissolving past the slab's edge, then retired |
 | `chase` | it spotted you — bar strobing at the hunting rate, driving at you |
 | `leaving` | routed to the far corner, retired by `retirePolice` once out of sight |
 
 **It crosses the map.** `enter` picks an axis, puts the car on the edge of the island furthest from
 the taxi across it and level with the taxi along it (`enterPolice` handed that edge junction, which
-still never places a car in frame), and picks an exit anywhere along the opposite edge. It
-**dissolves in** over `FADE_TIME` (0.8s) and **out** at the exit, where it is retired only once the
-fade reaches zero: the materials use `alphaHash`, a define set once at construction, so the car stays
-in the opaque pass and the AO prepass and nothing relinks when it fades.
+still never places a car in frame), and picks an exit anywhere along the opposite edge but its
+corners. It **dissolves in** over `FADE_TIME` (0.8s): the materials use `alphaHash`, a define set
+once at construction, so the car stays in the opaque pass and the AO prepass and nothing relinks when
+it fades.
+
+**It drives off the map to leave.** The out leg is routed onto the *lane* running into the ring at the
+exit, pointed off the island (`findRouteOnto`), and the frame the car sets off from that hold line —
+the ring is give-way, so that is the frame the ring has been judged clear — it leaves the fleet
+through `retirePolice` and `police.release` carries the mesh straight on by itself, across the ring
+and over the asphalt, bar still swinging. The dissolve starts only once it crosses the slab's edge
+(`SLAB_X/2`), so it happens over the fade skirt rather than on a road. It used to dissolve *at* the
+exit junction, which is on the ring and in frame whenever the camera is near that side of town, and
+was reported as the patrol "fading out mid city". The probe measures ~4s off-network. The cost: for
+those seconds it is not a car in traffic, so ring traffic does not queue for it and the taxi cannot
+hit it.
 
 **The in leg goes past you, not at you**: routed to a corner within one block of the taxi — the one
 of six drawn that is the **shortest route** away, re-drawn whenever the taxi drives more than
@@ -2732,6 +2854,12 @@ cars* rather than distance *driven*, because the other reading lets a cop sittin
 you go. The clock runs down rather than resetting when the cop closes back in. The bar goes dark,
 dispatch says `LOST_LINE`, and the car leaves. `CHASE_MAX` (40s) calls off a chase neither car can
 finish.
+
+**Gone to ground** is the depot. A taxi that turns in at the driveway mid-chase calls it off on the
+frame the opening takes it off the road (`hideout`, called from the depot's `onArrive` in main.js):
+the same stand-down as lost, `LOST_CALL` included. It is no free exit — a
+repair needs a damaged car and costs `REPAIR_PRICE`, and the taxi has to reach the mouth with the
+cop still behind it, which is a touch away from Busted.
 
 ### It floors it when it falls behind
 

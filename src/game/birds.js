@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BODY_EULER_ORDER } from '../util/geo.js';
 import { KERB_H, PARK_EDGE } from '../city/ground.js';
 import { birdBodyGeometry, birdWingGeometry, BIRD_STAND_Y, WING_ROOT } from '../geometry/bird.js';
+import { stampGhostMask } from '../geometry/ghostoutline.js';
 
 // A flock living in the city's parks. It potters about on the grass, takes off — often because the
 // taxi came past — climbs out and fades into the distance, then comes back in from somewhere else
@@ -268,6 +269,9 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
     flatShading: true,
     transparent: true,
   });
+  // The flock launches off the taxi, so a bird crossing its ghost rim is most take-offs — and
+  // without this, every one traced a bird-shaped stroke of yellow. See stampGhostMask.
+  stampGhostMask(material);
 
   const body = new THREE.InstancedMesh(birdBodyGeometry(), material, count);
   const wings = [-1, 1].map((side) => {

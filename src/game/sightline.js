@@ -141,8 +141,22 @@ export function setCityOccluders(...meshes) {
     }
   }
 
-  field = { x0, z0, nx, nz, heights };
+  field = { x0, z0, nx, nz, cell: CELL, heights };
   return field;
+}
+
+/**
+ * The tallest thing standing on this patch of ground, in world units — 0 off the map, on a road, or
+ * before any city has been set. The same field the sightline marches, read at one cell: game/fire.js
+ * asks it where a street's buildings start and how tall they are, since the towers are one merged
+ * mesh with no list of footprints to ask instead.
+ */
+export function heightAt(x, z) {
+  if (!field) return 0;
+  const ci = Math.floor((x - field.x0) / field.cell);
+  const cj = Math.floor((z - field.z0) / field.cell);
+  if (ci < 0 || cj < 0 || ci >= field.nx || cj >= field.nz) return 0;
+  return field.heights[ci * field.nz + cj];
 }
 
 /** Forget the city. For tools that build several and would otherwise measure the last one. */

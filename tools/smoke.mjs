@@ -2018,15 +2018,11 @@ try {
       await sleep(250);
       rolling = await evaluate('window.__taxi.traffic.taxi.v');
     }
-    // Live marks in the skid ring buffer, counted off the alpha the fade writes. main.js is
-    // browser-only, so this stamping — four wheels, on the press itself — has no other home: the
-    // probe can assert the physics but never that anything was drawn for it.
-    const liveMarks = `(() => {
-      const c = window.__taxi.skids.mesh.geometry.attributes.color;
-      let live = 0;
-      for (let i = 0; i < c.count; i += 6) if (c.array[i * 4 + 3] > 0) live += 1;
-      return live;
-    })()`;
+    // Live marks in the skid ring buffer. main.js is browser-only, so this stamping — four wheels,
+    // on the press itself — has no other home: the probe can assert the physics but never that
+    // anything was drawn for it. Counted by the buffer rather than off vertex alpha, because a
+    // mark's corner vertices are feathered to zero.
+    const liveMarks = 'window.__taxi.skids.live()';
     const marksBefore = await evaluate(liveMarks);
 
     await brakeKey('rawKeyDown');

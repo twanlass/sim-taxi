@@ -514,6 +514,298 @@ const SHADOW_LIGHT = /* glsl */ `
 `;
 
 /**
+ * Vehicle finishes — the uniforms every glossy material reads. Same contract as `AO_UNIFORMS`: one
+ * shared bag, so a write from the tuning panel reaches every car in the city on the next frame
+ * without a recompile.
+ *
+ * - `tGlossCity` / `uGlossCityBox` / `uGlossCeiling` are the city's **height field**, the same one
+ *   `game/sightline.js` rasterises for the fare board, uploaded once as a texture by
+ *   `setGlossCity()`. The reflection marches it, which is what makes the skyline slide across a
+ *   body as the car drives: a cubemap would hand a car driving straight the same picture on every
+ *   frame, because under this camera the only thing that changes the reflected ray is the car
+ *   *turning*. What changes as it drives is where it is, so the reflection has to know where the
+ *   buildings are.
+ * - `uGlossTop` / `uGlossHorizon` follow the sky dome, written by `game/daylight.js` through
+ *   `setGlossSky()`.
+ * - `uFinishA/B/C` are the four finishes' own numbers, one vec4 of each per finish, indexed by the
+ *   geometry's `aFinish`. See `FINISH_DEFAULTS` for what each slot is.
+ */
+export const GLOSS_UNIFORMS = {
+  tGlossCity: { value: null },
+  uGlossCityOn: { value: 0 },
+  // x0, z0, then 1/extent along x and z, so a world xz is one multiply-add from a uv.
+  uGlossCityBox: { value: new THREE.Vector4(0, 0, 1, 1) },
+  uGlossCeiling: { value: 1 },
+  uGlossTop: { value: new THREE.Color(PALETTE.skyTop).convertSRGBToLinear() },
+  uGlossHorizon: { value: new THREE.Color(PALETTE.skyBottom).convertSRGBToLinear() },
+  uFinishA: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
+  uFinishB: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
+  uFinishC: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
+  // x: flake cells per unit, y: façade darkness, z: false-colour finish view (0/1).
+  uGlossGlobal: { value: new THREE.Vector4() },
+};
+
+/**
+ * Follow the sky. The dome's `ShaderMaterial` writes its uniforms straight to the canvas with no
+ * colour-space step, so those numbers are *display* values; the paint mixes in the linear working
+ * space and has to decode them first, or every reflection comes out washed pale.
+ */
+export function setGlossSky(top, bottom) {
+  GLOSS_UNIFORMS.uGlossTop.value.copy(top).convertSRGBToLinear();
+  GLOSS_UNIFORMS.uGlossHorizon.value.copy(bottom).convertSRGBToLinear();
+}
+
+/**
+ * Hand the paint the city to reflect: the field `setCityOccluders` (game/sightline.js) returns.
+ * Packed to a byte per cell against the skyline ceiling — the reflection only asks "is the ray
+ * below the roof here", and 1/255 of the ceiling is a few centimetres — and filtered linearly so a
+ * roofline slides through a panel rather than stepping across it a half-unit cell at a time.
+ */
+export function setGlossCity(field, ceiling) {
+  GLOSS_UNIFORMS.tGlossCity.value?.dispose();
+  if (!field) {
+    GLOSS_UNIFORMS.tGlossCity.value = null;
+    GLOSS_UNIFORMS.uGlossCityOn.value = 0;
+    return;
+  }
+  const { x0, z0, nx, nz, cell, heights } = field;
+  const bytes = new Uint8Array(nx * nz);
+  for (let k = 0; k < bytes.length; k++) {
+    bytes[k] = Math.round(THREE.MathUtils.clamp(heights[k] / ceiling, 0, 1) * 255);
+  }
+  // `heights` is `ci * nz + cj` — rows along x, columns along z — so the texture is nz wide.
+  const texture = new THREE.DataTexture(bytes, nz, nx, THREE.RedFormat, THREE.UnsignedByteType);
+  texture.minFilter = texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  GLOSS_UNIFORMS.tGlossCity.value = texture;
+  GLOSS_UNIFORMS.uGlossCityOn.value = 1;
+  GLOSS_UNIFORMS.uGlossCityBox.value.set(x0, z0, 1 / (nx * cell), 1 / (nz * cell));
+  GLOSS_UNIFORMS.uGlossCeiling.value = ceiling;
+}
+
+// What each part of a vehicle is made of, baked per vertex as `aFinish` by `setFinish()` below.
+// Each finish has its own full set of numbers (`FINISH_DEFAULTS`), so glass, paint, metal and
+// rubber are four materials that happen to share one program. Without it glass and paint came out
+// the same material, and the only way to keep the tyres matte was to guess them from height and
+// width — which a tread standing proud of the flank, with its top above the sill, kept slipping past.
+//
+// A geometry with no `aFinish` at all reads 0 — WebGL hands a disabled attribute its default — so
+// anything untagged is tyre: matte rather than mirrored. `tools/probe.mjs` asserts the vehicles
+// carry it.
+export const FINISH = { TYRE: 0, PAINT: 1, GLASS: 2, METAL: 3 };
+export const FINISH_NAMES = ['tyre', 'paint', 'glass', 'metal'];
+
+/** Tag every vertex of a geometry with one finish. Returns the geometry, like `bakeColor`. */
+export function setFinish(geometry, finish) {
+  const count = geometry.attributes.position.count;
+  geometry.setAttribute('aFinish', new THREE.BufferAttribute(new Float32Array(count).fill(finish), 1));
+  return geometry;
+}
+
+/**
+ * Every number a finish has, and where it lands in the shader.
+ *
+ * | key | slot | what it does |
+ * |---|---|---|
+ * | `glint` | A.x | strength of the tight sun highlight |
+ * | `glintSharp` | A.y | its Blinn-Phong exponent: 400 is a half-width of ~3.4°, 1000 about 2.1° |
+ * | `glintBend` | A.z | how far the glint's normal bends at a panel's corner — 1.0 is 45° |
+ * | `sheen` | A.w | strength of the broad lobe |
+ * | `sheenSharp` | B.x | its exponent |
+ * | `flake` | B.y | how much of the sheen breaks into metal flake: 0 smooth, 1 full sparkle |
+ * | `reflect` | B.z | how much of the city the finish shows facing the camera |
+ * | `reflectEdge` | B.w | how much more it shows at a grazing angle (Fresnel) |
+ * | `reflectBend` | C.x | how far the *reflection's* normal bends — slides the skyline across a panel |
+ * | `diffuse` | C.y | multiplies the base colour: below 1 darkens it, which is what makes metal |
+ *
+ * **Why two bends.** The panels are flat boxes, and under an orthographic camera with a
+ * directional sun a flat face has one normal, one view direction and one light — one highlight and
+ * one reflected colour edge to edge. Bending a normal outward by how far the fragment sits from
+ * the body's centre gives the glint and the reflection a curve to slide across. The glint's has to
+ * bend a long way: the sun's half-vector sits about 45° round from both axes the traffic drives on,
+ * so a panel bent less never lines up with it. The diffuse never sees either — the first cut bent
+ * three's own `normal`, and every car went soft and bubbly.
+ */
+//
+// Tuned by eye in `?debug`'s inspect mode, which is what the shape of these says: paint is mostly
+// a broad flaked sheen over a brightened base with a pinpoint glint on top and almost no mirror;
+// glass is near-black with a hard glint and a faint reflection; tyres are darkened rubber. The
+// city reflection survives mainly on glass — paint at 0.02 barely carries it.
+export const FINISH_DEFAULTS = {
+  tyre: {
+    glint: 0, glintSharp: 20, glintBend: 0.3, sheen: 0.02, sheenSharp: 6, flake: 0,
+    reflect: 0, reflectEdge: 0, reflectBend: 0, diffuse: 0.64,
+  },
+  paint: {
+    glint: 0.19, glintSharp: 1000, glintBend: 1.02, sheen: 1, sheenSharp: 6, flake: 1,
+    reflect: 0.02, reflectEdge: 0, reflectBend: 1.27, diffuse: 1.36,
+  },
+  glass: {
+    glint: 0.42, glintSharp: 795, glintBend: 1.06, sheen: 0, sheenSharp: 1, flake: 0,
+    reflect: 0.03, reflectEdge: 0.05, reflectBend: 1.14, diffuse: 0.12,
+  },
+  metal: {
+    glint: 1, glintSharp: 120, glintBend: 1, sheen: 0.25, sheenSharp: 30, flake: 0,
+    reflect: 0.3, reflectEdge: 0.2, reflectBend: 0.6, diffuse: 0.7,
+  },
+};
+
+export const GLOSS_GLOBAL_DEFAULTS = {
+  // Flake cells per world unit of the body's own space. Sub-pixel at play zoom by design: there the
+  // flakes average into a livelier sheen, and only resolve into sparkle close up.
+  flakeSize: 14.5,
+  // How dark a building reads in a reflection, as a fraction of the horizon behind it. Near black,
+  // as tuned: with the reflections this faint, a dark silhouette against the sky is the only part
+  // of them that still reads.
+  facade: 0.08,
+  // Paints each finish a flat false colour, to check what the geometry tagged as what.
+  showFinishes: false,
+};
+
+const glossState = {
+  finishes: structuredClone(FINISH_DEFAULTS),
+  global: { ...GLOSS_GLOBAL_DEFAULTS },
+};
+
+function writeFinish(name) {
+  const f = glossState.finishes[name];
+  const k = FINISH[name.toUpperCase()];
+  GLOSS_UNIFORMS.uFinishA.value[k].set(f.glint, f.glintSharp, f.glintBend, f.sheen);
+  GLOSS_UNIFORMS.uFinishB.value[k].set(f.sheenSharp, f.flake, f.reflect, f.reflectEdge);
+  GLOSS_UNIFORMS.uFinishC.value[k].set(f.reflectBend, f.diffuse, 0, 0);
+}
+
+function writeGlobal() {
+  const g = glossState.global;
+  GLOSS_UNIFORMS.uGlossGlobal.value.set(g.flakeSize, g.facade, g.showFinishes ? 1 : 0, 0);
+}
+
+for (const name of FINISH_NAMES) writeFinish(name);
+writeGlobal();
+
+/** A copy of the live finish tuning — what the `?debug` panel reads and exports. */
+export const glossTuning = () => structuredClone(glossState);
+
+/** Set one finish's number (`setGlossFinish('glass', 'reflect', 0.3)`), live. */
+export function setGlossFinish(name, key, value) {
+  if (!(name in glossState.finishes) || !(key in glossState.finishes[name])) {
+    throw new Error(`no finish setting ${name}.${key}`);
+  }
+  glossState.finishes[name][key] = value;
+  writeFinish(name);
+}
+
+/** Set one of the finish-wide numbers (`flakeSize`, `facade`, `showFinishes`), live. */
+export function setGlossGlobal(key, value) {
+  if (!(key in glossState.global)) throw new Error(`no finish setting ${key}`);
+  glossState.global[key] = value;
+  writeGlobal();
+}
+
+/** Put every finish back to `FINISH_DEFAULTS`. */
+export function resetGlossTuning() {
+  glossState.finishes = structuredClone(FINISH_DEFAULTS);
+  glossState.global = { ...GLOSS_GLOBAL_DEFAULTS };
+  for (const name of FINISH_NAMES) writeFinish(name);
+  writeGlobal();
+}
+
+const GLOSS_VERTEX = /* glsl */ `
+	{
+		vec4 gWorld = vec4(transformed, 1.0);
+		vec3 gBulge = (transformed - uGlossCentre) * uGlossInvHalf;
+		#ifdef USE_INSTANCING
+			gWorld = instanceMatrix * gWorld;
+			gBulge = mat3(instanceMatrix) * gBulge;
+		#endif
+		vGlossWorld = (modelMatrix * gWorld).xyz;
+		vGlossBulge = mat3(modelViewMatrix) * gBulge;
+		vGlossObj = transformed;
+		vGlossFinish = aFinish;
+	}
+`;
+
+// Read the finish's numbers once, at the top, and darken the base colour by its `diffuse` before
+// any light touches it. `int(x + 0.5)` because a varying that is 2.0 at every vertex can still
+// arrive as 1.9999 — the triangle never mixes finishes, but interpolation does not know that.
+const GLOSS_COLOR = /* glsl */ `
+	{
+		int gK = clamp(int(vGlossFinish + 0.5), 0, 3);
+		gFinA = uFinishA[gK];
+		gFinB = uFinishB[gK];
+		gFinC = uFinishC[gK];
+		gIsPaint = gK == 1 ? 1.0 : 0.0;
+		gFinishColor = gK == 0 ? vec3(0.15) : gK == 1 ? vec3(0.9, 0.2, 0.15)
+			: gK == 2 ? vec3(0.1, 0.7, 0.9) : vec3(0.95, 0.8, 0.2);
+		diffuseColor.rgb *= gFinC.y;
+	}
+`;
+
+// The two bent normals (see FINISH_DEFAULTS), and the flake. Three's own `normal` is left flat, so
+// the diffuse keeps the facets.
+const GLOSS_NORMAL = /* glsl */ `
+	{
+		vec3 gb = vGlossBulge - normal * dot(vGlossBulge, normal);
+		gSpecN = normalize(normal + gFinA.z * gb);
+		gReflN = normalize(normal + gFinC.x * gb);
+		vec3 gCell = floor(vGlossObj * uGlossGlobal.x);
+		float gHash = fract(sin(dot(gCell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+		gFlake = mix(1.0, gHash > 0.88 ? 3.0 : 0.6, gFinB.y);
+	}
+`;
+
+// Phong's specular line, swapped for two lobes: the glint on the glint normal, the sheen on the
+// reflection's. Still inside three's light loop, so `directLight.color` has the shadow map
+// already folded in: a car in a tower's shadow has no sun to glint with, and a cop's lamps glint
+// off the cars beside it.
+const GLOSS_SPECULAR_FROM = 'reflectedLight.directSpecular += irradiance * BRDF_BlinnPhong( directLight.direction, geometryViewDir, geometryNormal, material.specularColor, material.specularShininess ) * material.specularStrength;';
+const GLOSS_SPECULAR_TO = /* glsl */ `{
+		vec3 gGlintIrr = saturate( dot( gSpecN, directLight.direction ) ) * directLight.color;
+		reflectedLight.directSpecular += gGlintIrr * gFinA.x
+			* BRDF_BlinnPhong( directLight.direction, geometryViewDir, gSpecN, vec3( 1.0 ), gFinA.y );
+		vec3 gSheenIrr = saturate( dot( gReflN, directLight.direction ) ) * directLight.color;
+		reflectedLight.directSpecular += gSheenIrr * gFinA.w * gFlake
+			* BRDF_BlinnPhong( directLight.direction, geometryViewDir, gReflN, vec3( 1.0 ), gFinB.x );
+	}`;
+
+// Mixed into `outgoingLight` after three has summed it, so the glint is already in and the
+// reflection sits over the lit surface the way a clear coat does.
+//
+// The reflected ray off a side panel heads *down* — the camera looks down at 33 degrees — and
+// would honestly reflect the asphalt a metre away. That is physically right and reads as nothing,
+// so the ray is folded back up off the road: a side panel then sees the street wall opposite,
+// which is what a viewer expects a car to be reflecting. A roof sees what is up-screen of it.
+//
+// Paint's share is scaled per material by `uGloss` (the taxi a touch more, a cargo box less).
+const GLOSS_FRAGMENT = /* glsl */ `
+	{
+		vec3 gN = inverseTransformDirection(gReflN, viewMatrix);
+		vec3 gEye = inverseTransformDirection(vec3(0.0, 0.0, 1.0), viewMatrix);
+		vec3 gR = reflect(-gEye, gN);
+		gR.y = max(abs(gR.y), 0.12);
+		gR = normalize(gR);
+		vec3 gEnv = mix(uGlossHorizon, uGlossTop, pow(gR.y, 0.6));
+		float gMirror = (gFinB.z + gFinB.w * pow(1.0 - clamp(gReflN.z, 0.0, 1.0), 3.0))
+			* mix(1.0, uGloss, gIsPaint);
+		if (uGlossCityOn > 0.5 && gMirror > 0.0) {
+			float gT = 0.6;
+			for (int k = 0; k < 14; k++) {
+				vec3 gQ = vGlossWorld + gR * gT;
+				if (gQ.y > uGlossCeiling) break;
+				vec2 gUV = vec2((gQ.z - uGlossCityBox.y) * uGlossCityBox.w, (gQ.x - uGlossCityBox.x) * uGlossCityBox.z);
+				if (texture2D(tGlossCity, gUV).r * uGlossCeiling > gQ.y) {
+					gEnv = uGlossHorizon * uGlossGlobal.y * (0.7 + 0.6 * gQ.y / uGlossCeiling);
+					break;
+				}
+				gT *= 1.3;
+			}
+		}
+		outgoingLight = mix(outgoingLight, gEnv, clamp(gMirror, 0.0, 1.0));
+		if (uGlossGlobal.z > 0.5) outgoingLight = gFinishColor;
+	}
+`;
+
+/**
  * The one patch every lit prop material carries — screen-space AO, Crayon Mode, or both.
  *
  * **AO: indirect only.** Occlusion is a statement about how much of the sky reaches a crease, not
@@ -528,7 +820,7 @@ const SHADOW_LIGHT = /* glsl */ `
  * the air exactly as the façade under it does. Hooking `<dithering_fragment>` instead would ink
  * lines at full strength across a hazed skyline.
  */
-function patchProp(material, { ao = true } = {}) {
+function patchProp(material, { ao = true, gloss = null } = {}) {
   // Without this the patch silently does nothing. Three builds the program cache key from the
   // material's *parameters*, before `onBeforeCompile` has touched the source, so a patched
   // flat-shaded Lambert collides with every unpatched one sharing those parameters and
@@ -539,7 +831,7 @@ function patchProp(material, { ao = true } = {}) {
   // `?crayon&ao=off` a crayoned material and a bare one would otherwise share a key.
   const useAO = aoEnabled && ao;
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
-    + `${cartoonEnabled ? '-cartoon' : ''}${cloudsEnabled ? '-clouds' : ''}`;
+    + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? '-gloss' : ''}${cloudsEnabled ? '-clouds' : ''}`;
   material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {
@@ -547,6 +839,67 @@ function patchProp(material, { ao = true } = {}) {
     if (crayonEnabled) Object.assign(shader.uniforms, CRAYON_UNIFORMS);
     if (cartoonEnabled) Object.assign(shader.uniforms, CARTOON_UNIFORMS);
     if (cloudsEnabled) Object.assign(shader.uniforms, CLOUD_UNIFORMS);
+    if (gloss) {
+      // The shared bag plus this body's own shape and paint share, which differ between a car, a
+      // truck's cab and the taxi while the source does not — so per material, under one cache key.
+      Object.assign(shader.uniforms, GLOSS_UNIFORMS, {
+        uGloss: { value: gloss.amount },
+        uGlossCentre: { value: gloss.centre },
+        uGlossInvHalf: { value: gloss.invHalf },
+      });
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+attribute float aFinish;
+uniform vec3 uGlossCentre;
+uniform vec3 uGlossInvHalf;
+varying vec3 vGlossWorld;
+varying vec3 vGlossBulge;
+varying vec3 vGlossObj;
+varying float vGlossFinish;`)
+        .replace('#include <project_vertex>', `#include <project_vertex>
+${GLOSS_VERTEX}`);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>
+uniform sampler2D tGlossCity;
+uniform float uGlossCityOn;
+uniform vec4 uGlossCityBox;
+uniform float uGlossCeiling;
+uniform vec3 uGlossTop;
+uniform vec3 uGlossHorizon;
+uniform vec4 uFinishA[4];
+uniform vec4 uFinishB[4];
+uniform vec4 uFinishC[4];
+uniform vec4 uGlossGlobal;
+uniform float uGloss;
+varying vec3 vGlossWorld;
+varying vec3 vGlossBulge;
+varying vec3 vGlossObj;
+varying float vGlossFinish;
+vec4 gFinA;
+vec4 gFinB;
+vec4 gFinC;
+float gIsPaint;
+vec3 gFinishColor;
+vec3 gSpecN;
+vec3 gReflN;
+float gFlake;`)
+        .replace('#include <lights_phong_pars_fragment>',
+          THREE.ShaderChunk.lights_phong_pars_fragment.replace(GLOSS_SPECULAR_FROM, GLOSS_SPECULAR_TO))
+        .replace('#include <color_fragment>', `#include <color_fragment>
+${GLOSS_COLOR}`)
+        .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+${GLOSS_NORMAL}`)
+        .replace('#include <envmap_fragment>', `#include <envmap_fragment>
+${GLOSS_FRAGMENT}`);
+      // Never a blind replace (CLAUDE.md): a hook that matched nothing is a matte car and no error.
+      for (const marker of ['attribute float aFinish', 'vGlossFinish = aFinish']) {
+        if (!shader.vertexShader.includes(marker)) throw new Error(`gloss: vertex hook missed (${marker})`);
+      }
+      for (const marker of ['uniform float uGloss;', 'gFinA = uFinishA', 'gSpecN = normalize',
+        'gGlintIrr', 'gMirror']) {
+        if (!shader.fragmentShader.includes(marker)) throw new Error(`gloss: fragment hook missed (${marker})`);
+      }
+    }
 
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
@@ -633,12 +986,58 @@ ${SHADOW_LIGHT}`);
  * out past the ring road where the AO buffer is empty anyway, so its lookup is uniformly 1 — left
  * alone here rather than changed on spec.
  */
-export function propMaterial({ ao = true } = {}) {
-  const material = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = false } = {}) {
+  // Crayon and Cartoon are both paint-on-paper looks, and a skyline in a crayon drawing's bodywork
+  // is a photograph stuck to it — so under either one a glossy car is an ordinary prop.
+  const paint = gloss && !crayonEnabled && !cartoonEnabled ? glossShape(gloss) : null;
+  // Phong for the light loop its specular term sits in (see GLOSS_SPECULAR_TO), not for its own
+  // specular, which the patch replaces outright.
+  const material = paint
+    ? new THREE.MeshPhongMaterial({ vertexColors: true, flatShading: true })
+    : new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
   // Unconditional now: the shadow tint rides in the same patch and is always available. See
   // SHADOW_UNIFORMS for why it does not need a flag of its own.
-  patchProp(material, { ao });
+  // `cutout`: an alpha map, cut at half rather than blended, so the surface still writes depth and
+  // needs no sorting. Smooth-shaded so the geometry's own normals are the ones lit — the parks'
+  // grass cards carry the ground's normal, and a flat-shaded card would light as its own face
+  // (city/grass.js).
+  if (cutout && !paint) {
+    material.alphaMap = cutout;
+    material.alphaTest = 0.5;
+    material.flatShading = false;
+  }
+  // `smooth`: light from the geometry's own normals instead of the screen-space derivative. Facets
+  // survive it — `bakeColors` hands every non-indexed face its own normal — so the only surfaces
+  // that come out soft are the ones that were given soft normals on purpose: the tree crowns
+  // (`treeParts`, city/props.js).
+  if (smooth && !paint) material.flatShading = false;
+  patchProp(material, { ao, gloss: paint });
   return material;
+}
+
+/**
+ * Vehicle finishes for `propMaterial({ gloss })`. What is paint, glass, metal or tyre comes from
+ * the geometry's `aFinish` (`setFinish`) and how each behaves from `FINISH_DEFAULTS`; this only
+ * says where the bent normals' curve is centred.
+ *
+ * @param gloss.geometry  the part, whose bounding box the curve is centred on.
+ * @param gloss.floor     ignore everything below this y when centring — on a body, the sill, so
+ *                        the wheels hanging below it don't pull the crown down toward the road.
+ * @param gloss.amount    this material's multiplier on paint's reflection: the taxi a touch more
+ *                        than the fleet, a cargo box less.
+ */
+function glossShape({ geometry, floor = -Infinity, amount = 1 }) {
+  if (!geometry.boundingBox) geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  const lo = Math.max(box.min.y, floor);
+  const centre = new THREE.Vector3((box.min.x + box.max.x) / 2, (lo + box.max.y) / 2,
+    (box.min.z + box.max.z) / 2);
+  const invHalf = new THREE.Vector3(
+    2 / Math.max(box.max.x - box.min.x, 1e-3),
+    2 / Math.max(box.max.y - lo, 1e-3),
+    2 / Math.max(box.max.z - box.min.z, 1e-3),
+  );
+  return { amount, centre, invHalf };
 }
 
 /**
