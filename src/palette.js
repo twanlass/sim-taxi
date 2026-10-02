@@ -63,7 +63,7 @@ export const PALETTE = {
   park: '#6F9A5A',
   // The tips of the parks' long grass (city/grass.js); the roots are `park` itself so a tuft grows
   // out of the lawn rather than sitting on it. Lighter and warmer — sun through a blade's tip.
-  grassTip: '#A9C26C',
+  grassTip: '#AEC664',
 
   // Building envelopes — deliberately muted so height and massing read before colour does.
   concrete: '#B7B2A6',

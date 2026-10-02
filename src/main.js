@@ -14,6 +14,7 @@ import { createBridge } from './geometry/bridge.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
 import { createGrass } from './city/grass.js';
+import { createCanopyFuzz } from './city/canopyfuzz.js';
 import { createGarage } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import {
@@ -368,6 +369,10 @@ scene.add(markOccluder(propsMesh));
 // every card as a solid quad. See city/grass.js.
 const grass = createGrass(makeRng(seed + 122), layout, props);
 scene.add(grass.mesh);
+// Leaf cards round every tree crown — the parks', the medians' and the courtyard's — on the same
+// terms as the grass. See city/canopyfuzz.js.
+const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), [...props.crowns, ...(city.court?.crowns ?? [])]);
+scene.add(canopyFuzz.mesh);
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
 // subject of the opening vignette below. `null` on a city with nowhere to put one, which is a
@@ -879,7 +884,7 @@ const dust = createDust(scene, camera, makeRng(seed + 77));
 const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
-  meshes: [city.mesh, propsMesh, grass.mesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? [])],
+  meshes: [city.mesh, propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? [])],
   // The two things in the city the wave's vertex shader cannot reach, because they turn: the
   // depot's radio dish and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.

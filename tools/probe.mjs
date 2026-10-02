@@ -23,6 +23,7 @@ import {
 } from '../src/city/props.js';
 import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
 import { createGrass, planGrass, grassGeometry } from '../src/city/grass.js';
+import { createCanopyFuzz } from '../src/city/canopyfuzz.js';
 import { createDucks } from '../src/game/ducks.js';
 import { createGarage, garageSite } from '../src/city/garage.js';
 import {
@@ -881,6 +882,44 @@ const onGrass = (city, i, j) => {
   check('every tuft stands wholly on a lawn', tufts > 0 && offLawn === 0, `${offLawn} of ${tufts} over the walk`);
   check('and none in the pond, on the statue\'s plaza or under a bench', inWater + onPlaza + inBench === 0,
     `${inWater} in water, ${onPlaza} on the plaza, ${inBench} under a bench`);
+}
+
+// --- Leaf fuzz on the crowns ---------------------------------------------------
+//
+// The crowns are recorded by `treeParts` as it builds them, and the promise that makes that safe is
+// that recording spends nothing from the stream — so a tree grown with `crowns` is byte-for-byte the
+// tree grown without. Asserted on the geometry rather than trusted, because a single stray draw
+// here moves every tree planted after it.
+{
+  const bare = treeParts(3, 4, makeRng(91));
+  const crowns = [];
+  const recorded = treeParts(3, 4, makeRng(91), { crowns });
+  const same = bare.length === recorded.length && bare.every((g, i) => {
+    const a = g.attributes.position.array;
+    const b = recorded[i].attributes.position.array;
+    return a.length === b.length && a.every((v, k) => v === b[k]);
+  });
+  check('recording a tree\'s crowns leaves the tree untouched', same && crowns.length >= 2,
+    `${crowns.length} lobes recorded`);
+
+  const fuzz = createCanopyFuzz(makeRng(seed + 144), propsBuild.crowns);
+  const pos = fuzz.mesh.geometry.attributes.position;
+  const toCamera = new THREE.Vector3(1, 0.92, 1).normalize();
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  let away = 0;
+  for (let i = 0; i < pos.count; i += 3) {
+    a.fromBufferAttribute(pos, i);
+    b.fromBufferAttribute(pos, i + 1);
+    c.fromBufferAttribute(pos, i + 2);
+    b.sub(a).cross(c.sub(a));
+    if (b.dot(toCamera) <= 0) away += 1;
+  }
+  check('every leaf card is wound to face the camera', pos.count > 0 && away === 0,
+    `${pos.count / 3 - away}/${pos.count / 3} facing it, ${propsBuild.crowns.length} lobes`);
+  check('leaf fuzz receives shadows and casts none',
+    fuzz.mesh.receiveShadow && !fuzz.mesh.castShadow && fuzz.mesh.material.alphaTest > 0);
 }
 
 // Nothing planted in the water, read off the merged mesh rather than off the plan — every part

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { hash01, propMaterial } from '../util/geo.js';
 import { makeRng } from '../util/rng.js';
+import { cutoutAtlas, VIEW_RIGHT } from '../util/cutout.js';
 import { PALETTE, jitterColor } from '../palette.js';
 import { KERB_H, PARK_EDGE, GRASS_RADIUS } from './ground.js';
 import { parkPlots, BENCH_LEN, STATUE_PLAZA } from './props.js';
@@ -46,14 +47,15 @@ const LAWN_Y = KERB_H + 0.01;
 // edge and the ground meet at a grazing angle. Vertical, so there is nothing for it to fight.
 const ROOT_SINK = 0.03;
 
-// Size, in world units. Tall enough to read as long grass beside a bench seat (0.45) rather than as
-// moss, short enough that a rider standing in it is still standing on it.
-const TUFT_W = [0.8, 1.4];
-const TUFT_H = [0.36, 0.62];
+// Size, in world units. Meadow rather than verge: the tallest come up level with a bench's backrest
+// (0.75), which is what makes a clump read as a *volume* the tree shadows lie across rather than as
+// texture on the lawn. Taller than this and a clump in front of a bench hides it.
+const TUFT_W = [0.9, 1.7];
+const TUFT_H = [0.5, 0.9];
 
 // Tufts per square unit of lawn *where the clumping lets them grow*. The noise below admits roughly
 // half the lawn, so the effective density is about half this.
-const DENSITY = 2.4;
+const DENSITY = 3.6;
 // The clumping field: value noise at about this many units a cell. Uniform scatter reads as a
 // texture laid over the park; clumps read as grass that grew.
 const CLUMP_CELL = 3.2;
@@ -65,16 +67,11 @@ const YAW_JITTER = 0.6;
 const VARIANTS = 4;
 const CELL_PX = 64;
 
-const VIEW_RIGHT = new THREE.Vector3(1, 0, -1).normalize();
-
 /**
  * Coverage of one tuft drawing at a point in its cell, both in 0..1 with v up from the root.
  *
  * A blade is a curved taper: its centreline bends from `base` toward `tip` on a power curve and its
- * half-width falls linearly to nothing. `minHalf` is the narrowest a blade may draw at the mip level
- * being built — one texel at that level — so a blade thins into a line as the tuft shrinks rather
- * than averaging out of existence. An ordinary box-filtered mip chain loses it: alpha-tested at
- * 0.5, a two-texel blade averaged over four is a gap, and a tuft at play zoom reads off mips 2–3.
+ * half-width falls linearly to nothing, never under `minHalf` — see `cutoutAtlas` for why.
  */
 function bladeCoverage(blades, u, v, minHalf) {
   for (const blade of blades) {
@@ -88,18 +85,17 @@ function bladeCoverage(blades, u, v, minHalf) {
 }
 
 /**
- * The tuft atlas, as an alpha map with its mip chain drawn level by level.
+ * The tuft atlas (util/cutout.js).
  *
  * Fixed-seed rather than the city's: the drawings are the art, not the situation, and a tuft
- * shouldn't redraw because the parks moved. Built as a `DataTexture` out of plain arithmetic, so it
- * needs no canvas and builds headless.
+ * shouldn't redraw because the parks moved.
  */
 export function tuftAtlas() {
   const rng = makeRng(0x9a55);
   const drawings = [];
   for (let k = 0; k < VARIANTS; k++) {
     const blades = [];
-    const count = rng.int(9, 14);
+    const count = rng.int(11, 17);
     for (let b = 0; b < count; b++) {
       // Spread across the middle of the cell, leaning outward from it — a tuft fans — and the
       // tallest in the middle. Kept off the cell's own edges so a mip level can't bleed a blade
@@ -117,38 +113,11 @@ export function tuftAtlas() {
     drawings.push(blades);
   }
 
-  const SS = 4; // supersamples per texel, per axis
-  const levels = [];
-  for (let w = CELL_PX * VARIANTS, h = CELL_PX; ; w = Math.max(1, w >> 1), h = Math.max(1, h >> 1)) {
-    const data = new Uint8Array(w * h * 4);
-    const cellW = w / VARIANTS; // may be under one texel at the smallest levels
-    const minHalf = 0.5 / Math.max(cellW, 1e-6);
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        let hit = 0;
-        for (let sy = 0; sy < SS; sy++) {
-          for (let sx = 0; sx < SS; sx++) {
-            const ua = ((x + (sx + 0.5) / SS) / w) * VARIANTS;
-            const k = Math.min(VARIANTS - 1, Math.floor(ua));
-            hit += bladeCoverage(drawings[k], ua - k, (y + (sy + 0.5) / SS) / h, minHalf);
-          }
-        }
-        const a = Math.round((hit / (SS * SS)) * 255);
-        // `alphaMap` reads the green channel; filled across all four so nothing depends on which.
-        data.fill(a, (y * w + x) * 4, (y * w + x) * 4 + 4);
-      }
-    }
-    levels.push({ data, width: w, height: h });
-    if (w === 1 && h === 1) break;
-  }
-
-  const texture = new THREE.DataTexture(levels[0].data, levels[0].width, levels[0].height);
-  texture.mipmaps = levels;
-  texture.generateMipmaps = false;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-  texture.needsUpdate = true;
-  return texture;
+  return cutoutAtlas({
+    variants: VARIANTS,
+    cellPx: CELL_PX,
+    coverage: (k, u, v, minHalf) => bladeCoverage(drawings[k], u, v, minHalf),
+  });
 }
 
 /** Smooth value noise over the ground, 0..1, from the same hash the entrance wave uses. */
@@ -207,7 +176,7 @@ export function planGrass(rng, blocks, { benches = [], statue = null, pond = nul
 
       // Clumps, with a soft edge: a hard threshold on the noise draws its contour lines.
       const c = clump(x, z);
-      const want = Math.min(1, Math.max(0, (c - 0.3) / 0.3));
+      const want = Math.min(1, Math.max(0, (c - 0.22) / 0.28));
       if (keep > want) continue;
 
       const reach = w / 2;
@@ -271,7 +240,7 @@ export function grassGeometry(tufts, rng) {
     // The root is the lawn's own colour so the card's base melts into the ground; the tip carries
     // the tuft. Jittered per tuft so a clump is not one swatch.
     root.set(jitterColor(PALETTE.park, rng, { l: 0.03 }));
-    tip.set(jitterColor(PALETTE.grassTip, rng, { h: 0.02, l: 0.06 }));
+    tip.set(jitterColor(PALETTE.grassTip, rng, { h: 0.03, l: 0.08 }));
     const rand = hash01(tuft.x, tuft.z);
 
     corners.forEach((p, k) => {
