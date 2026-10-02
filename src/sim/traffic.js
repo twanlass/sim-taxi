@@ -3264,6 +3264,66 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     for (let k = policeCars.length - 1; k >= 0; k--) leavePolice(policeCars[k]);
     policeCars.length = 0;
   }
+
+  // --- Guests -----------------------------------------------------------------
+  //
+  // A vehicle a game module brings onto the road for an event and takes off again — the fire truck
+  // (game/fire.js). It is a car in `cars` like any other: it follows its lane, queues, stops at
+  // reds, takes a route, can be bumped, and everything behind it queues behind it. What it does not
+  // have is an **instance**. It is in neither `ambient` nor `trucks`, so it never takes a slot in a
+  // buffer, never touches the density ramp's ordering or the police block at the tail, and leaving
+  // is a splice out of `cars` rather than the tail dance `leavePolice` has to do. Its owner draws it
+  // through `car.skin`, which the render pass calls in place of `writeAmbient`, and hands over its
+  // own wreck through `car.guestWreck` if the taxi ever writes it off.
+  //
+  // Not police, on purpose: the robbery and the patrol share the cop fleet and both of them clear,
+  // recycle and re-route everything in `policeCars` at the end of an event.
+
+  /**
+   * Bring one guest onto the map, off screen and as near `near` as that allows — `enterPolice`'s
+   * placement, for one car outside the fleet. Answers the car, or null when no lane would take it
+   * this frame (a saturated or heavily closed network); the caller asks again later.
+   *
+   * `accept(lane)` narrows the lanes it may come in on — game/fire.js hands it the lanes a few legs
+   * upstream of where the engine is going, since the nearest lane in a straight line is as often
+   * as not pointed the wrong way.
+   */
+  function enterGuest(near, { isTruck = true, accept = null } = {}) {
+    const before = cars.length;
+    for (let ring = 0; ring < 12 && cars.length === before; ring++) {
+      const reach = PITCH + ring * PITCH * 0.5;
+      spawnCars(rng, 1, cars, ({ lane, s }) => {
+        if (closedLanes.has(lane.id)) return false;
+        if (accept && !accept(lane)) return false;
+        const at = lane.path.at(s);
+        if (Math.hypot(at.x - taxi.x, at.z - taxi.z) < SPAWN_CLEARANCE) return false;
+        return Math.hypot(at.x - near.x, at.z - near.z) <= reach;
+      });
+    }
+    if (cars.length === before) return null;
+    const car = cars[cars.length - 1];
+    car.guest = true;
+    car.isTruck = isTruck;
+    // Where it actually is, now — see `enlist` for what an unplaced mid-run spawn draws as.
+    const at = car.lane.path.at(car.s);
+    car.x = at.x;
+    car.z = at.z;
+    car.yaw = dirYaw(car.d);
+    car.prevSteerYaw = car.yaw;
+    return car;
+  }
+
+  /** Take a guest off the road. Answers whether it was on it. */
+  function retireGuest(car) {
+    const at = cars.indexOf(car);
+    if (!car?.guest || at === -1) return false;
+    cars.splice(at, 1);
+    car.skin = null;
+    car.guestWreck = null;
+    car.roadblock = 0;
+    if (car.route?.length) car.route.length = 0;
+    return true;
+  }
   // With ?cars=1 there are no ambient vehicles at all, so setColorAt is never called and
   // instanceColor is still null.
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -3390,6 +3450,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
    */
   function wreckShell(car) {
     car.crashed = true;
+    // A guest has no instance to copy a shell from — its body is somebody else's mesh, so its owner
+    // hands one over (`guestWreck`). An empty group if it did not, so the wreck path still has a
+    // shell to slide and scorch rather than a null to trip over.
+    if (car.guest) {
+      const shell = car.guestWreck?.() ?? new THREE.Group();
+      scene.add(shell);
+      return shell;
+    }
     if (car.isTaxi) {
       // Its lamps, on the same terms as the ambient car's below: a crashed car stops reaching this
       // loop's render pass, so whatever level it last wrote would sit there for the rest of the
@@ -4656,6 +4724,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     for (const car of policeCars) {
       if (car.chase > 0 && !car.crashed) clearAhead(car, SCATTER_RANGE / 2);
     }
+    // ...and so does a guest answering a call on `chase` — the fire engine on its way in
+    // (game/fire.js). Same reach and the same rule: the siren is on, the car in front gets out of it.
+    for (const car of cars) {
+      if (car.guest && car.chase > 0 && !car.crashed) clearAhead(car, SCATTER_RANGE / 2);
+    }
 
     for (const car of cars) {
       // Snaps on, lets go slowly. The flee has to start on the frame the taxi arrives behind, but
@@ -5737,6 +5810,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       matrix.compose(pos, quat, scl);
       // Drawn by somebody else's mesh: hand it the pose, and collapse this car's instance — body,
       // wheels, pods and bar all compose through `matrix`, so zeroing it hides every part at once.
+      // A guest has no instance at all (see `enterGuest`): its owner draws it, and there is no slot
+      // in any buffer for `writeAmbient` to write.
+      if (car.guest) {
+        car.skin?.(pos, quat, car);
+        continue;
+      }
       if (car.skin) {
         car.skin(pos, quat, car);
         matrix.copy(ZERO_MATRIX);
@@ -5787,6 +5866,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     retirePolice,
     /** Every cop car off the road at once: the end of an event. */
     clearPolice,
+    /** A vehicle outside the fleet, drawn by its owner — see the guests section. */
+    enterGuest,
+    retireGuest,
     /**
      * Close junction (i, j) to traffic, or open it again. A closed box is held like one with a car
      * stranded in it, for everyone but a boosting taxi — see `sealedFor`. Cars

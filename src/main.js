@@ -61,6 +61,7 @@ import { createDucks } from './game/ducks.js';
 import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
+import { createFire } from './game/fire.js';
 import { createFlatbed } from './game/flatbed.js';
 import { showRunEnd } from './game/runend.js';
 import { recordRun, lastName, clearScores, loadScores } from './game/highscores.js';
@@ -1132,6 +1133,20 @@ flatbed.onSmash(({ x, z, yaw, byTaxi }) => {
 });
 // A crate hitting the road kicks up a little of what it lands on.
 flatbed.onLand(({ x, z }) => { dust.burst(x, z, 0, 5, 0.3); });
+
+// A building on fire, and the engine that comes and puts it out — see game/fire.js. The engine is a
+// car in traffic (`enterGuest`): it drives to the fire, stops in its lane with the cars behind it
+// queueing, and puts its ladder up. Run seed like the roadworks; held off while the taxi is in a cut
+// scene or a robbery is on, so it never upstages either, and never in shot mode, where nothing
+// should move under an unrelated change. `?fire=soon` starts one three seconds in.
+const fire = createFire({
+  rng: makeRng(runSeed + 611), scene, blocks: layout, traffic,
+  blocked: () => Boolean(shot) || traffic.taxi.staged || Boolean(robbery?.state.active)
+    || fares.state.gameOver,
+  soon: new URLSearchParams(window.location.search).get('fire') === 'soon',
+});
+// The engine's bar blooms at the cruiser's strength; the flames bloom on their own (`flame`).
+for (const mesh of fire.emissiveMeshes) markEmissive(mesh, 'siren');
 
 // Occluded-only outlines on the traffic nearest the taxi, faded in with Loco Mode — the one mode
 // where a car hidden behind a tower is a crash rather than a surprise. See game/carghosts.js.
@@ -3288,6 +3303,9 @@ function frame() {
   // After the traffic step for the same reason: it rides the truck's instance matrix, which has to
   // be this frame's, and it tests crates against the cars where they now are.
   flatbed.update(dt, traffic.taxi, traffic.cars);
+  // After the traffic step too: the engine's pose is written by it, and the ladder and the jet are
+  // aimed off that pose.
+  fire.update(dt);
 
   tutorial?.update(dt);
 
@@ -4357,6 +4375,8 @@ window.__taxi = {
   roadwork,
   /** The truck that sheds crates. `flatbed.stage()` starts it now; `state`, `crates`, `loose()`. */
   flatbed,
+  /** The building fire and its engine. `fire.ignite()` starts one now; `state`, `engine`. */
+  fire,
   pause,
   routeTo,
   findRoute,

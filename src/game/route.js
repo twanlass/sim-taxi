@@ -70,6 +70,21 @@ export function setBlockedLanes(ids) {
   blockedLanes = new Set(ids);
 }
 
+/**
+ * Lanes with something parked in them, published by game/fire.js while its truck stands in one.
+ *
+ * Soft, like the roadworks set and unlike the drawbridge's: the lane is there, the taxi can queue
+ * behind the truck or boost round it, and a route that genuinely has no other way still takes it.
+ * What it should not do is *choose* a street with a fire engine across it when the next one over is
+ * free — so the lane costs a couple of blocks more than it would. Two because a detour round a
+ * block is two legs; anything that costs more than that to avoid is cheaper to sit out.
+ */
+let hazardLanes = new Set();
+const HAZARD_COST = 2;
+export function setHazardLanes(ids) {
+  hazardLanes = new Set(ids);
+}
+
 /** Whether a route may use this lane at all. */
 export const laneOpen = (lane) => !blockedLanes.has(lane.id);
 
@@ -100,6 +115,7 @@ export function laneCost(lane) {
   // lane shortens as many routes as it bends. Without the aimed drop-off the same weights give
   // 33% / 67% / 67% / 67%, which is the measurement that says the two mechanisms are both needed:
   // this discount cannot pull a route that was never heading that way.
+  if (hazardLanes.has(lane.id)) return EDGE_COST.side + HAZARD_COST;
   if (roadworkLanes.has(lane.id)) return EDGE_COST.roadwork;
   if (lane.klass === 'ring') return EDGE_COST.ring;
   if (lane.klass === 'arterial') {
