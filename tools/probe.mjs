@@ -922,6 +922,57 @@ const onGrass = (city, i, j) => {
     fuzz.mesh.receiveShadow && !fuzz.mesh.castShadow && fuzz.mesh.material.alphaTest > 0);
 }
 
+// --- Soft crowns, hard everything else ------------------------------------------
+//
+// The props and buildings meshes are smooth-shaded so the crowns can light as soft masses, and the
+// only thing keeping every wall, bench and plinth faceted is that `bakeColors` gave each face its
+// own normal. So: every triangle whose vertex normals disagree with its winding has to be part of a
+// crown, and every crown has to have been softened. Across a seed sweep, because the courtyard —
+// the one crown in the buildings mesh — is one block in some cities and none in others.
+{
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const face = new THREE.Vector3();
+  const vn = new THREE.Vector3();
+  let strays = 0;
+  let soft = 0;
+  let crowned = 0;
+  const scan = (mesh, crowns) => {
+    const pos = mesh.geometry.attributes.position;
+    const nrm = mesh.geometry.attributes.normal;
+    for (let i = 0; i < pos.count; i += 3) {
+      a.fromBufferAttribute(pos, i);
+      b.fromBufferAttribute(pos, i + 1);
+      c.fromBufferAttribute(pos, i + 2);
+      face.copy(b).sub(a).cross(c.clone().sub(a));
+      if (face.lengthSq() < 1e-12) continue;
+      face.normalize();
+      let bent = false;
+      for (let k = 0; k < 3; k++) if (vn.fromBufferAttribute(nrm, i + k).dot(face) < 0.999) bent = true;
+      const inCrown = crowns.some((l) => Math.hypot(a.x - l.x, a.y - l.y, a.z - l.z) < l.r * 1.3);
+      if (bent && !inCrown) strays += 1;
+      if (inCrown) crowned += 1;
+      if (bent && inCrown) soft += 1;
+    }
+  };
+  for (let s = 0; s < 8; s++) {
+    const citySeed = seed + s * 59;
+    const cityLayout = createLayout(makeRng(citySeed));
+    const builtProps = createProps(makeRng(citySeed + 33), cityLayout);
+    const builtCity = createBuildings(makeRng(citySeed + 22), cityLayout);
+    // Generous on purpose: a trunk or a bench under a crown falls inside its 1.3 r and is let off.
+    // What this is for is a wall, a roof or a plinth going soft, which nothing near a tree is.
+    scan(builtProps.mesh, builtProps.crowns);
+    scan(builtCity.mesh, builtCity.court?.crowns ?? []);
+  }
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+  check('only the tree crowns are smooth-shaded; every other face keeps its facet', strays === 0,
+    `${strays} faceted triangles bent outside a crown`);
+  check('and the crowns themselves are soft', crowned > 0 && soft / crowned > 0.6,
+    `${soft} of ${crowned} triangles near a crown carry bent normals`);
+}
+
 // Nothing planted in the water, read off the merged mesh rather than off the plan — every part
 // carries its own object's ground anchor for the entrance animation (`stampEntry`), so "what stands
 // here" is a question the props mesh itself can answer. Same read as the statue's clearing above.

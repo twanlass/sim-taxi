@@ -19,6 +19,16 @@ Three things produce it:
 > as several separate vertices. Jittering per-index pushed each copy a different way and tore the
 > tree canopies open. Keying on position keeps the surface welded.
 
+**The one deliberate exception is the tree crowns, which are soft.** The props and buildings meshes
+are `propMaterial({ smooth: true })` — lit from the geometry's own normals rather than the
+screen-space derivative — and that changes nothing for any facet, because `bakeColors` has already
+given every non-indexed face its own normal. The crowns alone are handed the ellipsoid's normal at
+each vertex (`softCrown` in `city/props.js`), so they light as one rounded mass while the walls,
+trunks and benches around them stay faceted. A pixel diff of the city before and after differed
+only on crowns, and `tools/probe.mjs` asserts that every bent normal in those two meshes belongs to
+a crown. One cost: the crown's own shadow-map self-shadowing now draws a hard terminator across a
+soft gradient, where on a faceted crown it fell along a facet edge and could not be seen.
+
 `palette.js` holds every colour in the game by name, plus `jitterColor()` for per-instance
 variation. New colours belong there, not inline.
 

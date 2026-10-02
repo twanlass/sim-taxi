@@ -78,7 +78,7 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.
     geo.scale(1.05, 0.9, 1.05);
     geo.translate(x + ox, base + oy, z + oz);
     const tint = jitterColor(canopy, rng, { h: 0.02, l: 0.07 });
-    parts.push(bakeColor(geo, tint));
+    parts.push(softCrown(bakeColor(geo, tint), x + ox, base + oy, z + oz));
     crowns?.push({ x: x + ox, y: base + oy, z: z + oz, r: radius, color: tint, tx: x, tz: z });
   };
 
@@ -92,6 +92,29 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.
   }
 
   return parts;
+}
+
+// The lobe's ellipsoid normal at every vertex, so the crown lights as one soft mass rather than
+// as twenty facets. Taken off the ellipsoid rather than averaged from the faces: the jitter makes
+// neighbouring faces disagree by up to the jitter's own slope, and averaging those keeps a mottle
+// the radial direction doesn't have. It is also what the leaf cards (city/canopyfuzz.js) carry, so
+// card and crown light identically. Only reaches the screen through a `propMaterial({ smooth })` —
+// under the flat-shaded default this attribute is ignored.
+const CROWN_SCALE = [1.05, 0.9, 1.05];
+function softCrown(geo, cx, cy, cz) {
+  const pos = geo.attributes.position;
+  const nrm = geo.attributes.normal;
+  const n = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    n.set(
+      (pos.getX(i) - cx) / CROWN_SCALE[0] ** 2,
+      (pos.getY(i) - cy) / CROWN_SCALE[1] ** 2,
+      (pos.getZ(i) - cz) / CROWN_SCALE[2] ** 2,
+    ).normalize();
+    nrm.setXYZ(i, n.x, n.y, n.z);
+  }
+  nrm.needsUpdate = true;
+  return geo;
 }
 
 // --- Flower beds --------------------------------------------------------------
@@ -654,7 +677,8 @@ export function createProps(rng, blocks) {
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 
-  const mesh = new THREE.Mesh(merged, propMaterial());
+  // Smooth for the crowns' sake; everything else here still lights flat off its own face normals.
+  const mesh = new THREE.Mesh(merged, propMaterial({ smooth: true }));
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = 'props';

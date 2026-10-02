@@ -888,7 +888,7 @@ ${SHADOW_LIGHT}`);
  * out past the ring road where the AO buffer is empty anyway, so its lookup is uniformly 1 — left
  * alone here rather than changed on spec.
  */
-export function propMaterial({ ao = true, gloss = null, cutout = null } = {}) {
+export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = false } = {}) {
   // Crayon and Cartoon are both paint-on-paper looks, and a skyline in a crayon drawing's bodywork
   // is a photograph stuck to it — so under either one a glossy car is an ordinary prop.
   const paint = gloss && !crayonEnabled && !cartoonEnabled ? glossShape(gloss) : null;
@@ -908,6 +908,11 @@ export function propMaterial({ ao = true, gloss = null, cutout = null } = {}) {
     material.alphaTest = 0.5;
     material.flatShading = false;
   }
+  // `smooth`: light from the geometry's own normals instead of the screen-space derivative. Facets
+  // survive it — `bakeColors` hands every non-indexed face its own normal — so the only surfaces
+  // that come out soft are the ones that were given soft normals on purpose: the tree crowns
+  // (`treeParts`, city/props.js).
+  if (smooth && !paint) material.flatShading = false;
   patchProp(material, { ao, gloss: paint });
   return material;
 }

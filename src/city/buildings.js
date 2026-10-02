@@ -1097,7 +1097,8 @@ export function createBuildings(rng, blocks) {
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 
-  const mesh = new THREE.Mesh(merged, propMaterial());
+  // Smooth for the courtyard's crowns (`treeParts`); every wall still lights off its own face normal.
+  const mesh = new THREE.Mesh(merged, propMaterial({ smooth: true }));
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = 'buildings';
