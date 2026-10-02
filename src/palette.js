@@ -334,6 +334,9 @@ export const PALETTE = {
   //     saturation where it is, is what reserves it. tools/probe.mjs asserts the clearance.
   carBodyGhost: ['#DA887D', '#71CDD2', '#85A7D4', '#D0CABE', '#80C5A1', '#AC96C7', '#D0C7B4', '#8D9BAD'],
   carGlass: '#2E3640',
+  // Hubcaps (geometry/wheels.js) — the one metal finish on a vehicle. Light enough to read as
+  // steel inside the tyre's near-black; the car's paint tint multiplies over it on the fleet.
+  hubcap: '#C4C8CC',
   // A box truck's cab is painted from carBody, same colorIndex and everything — one taxi-company
   // fleet's palette covers both, and it is what makes a truck read as "one more vehicle in this
   // traffic" rather than a prop dropped in from elsewhere. Only the cargo box breaks from that: it

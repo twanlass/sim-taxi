@@ -141,7 +141,7 @@ export function setCityOccluders(...meshes) {
     }
   }
 
-  field = { x0, z0, nx, nz, heights };
+  field = { x0, z0, nx, nz, cell: CELL, heights };
   return field;
 }
 

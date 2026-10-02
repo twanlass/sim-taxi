@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial } from '../util/geo.js';
+import { bakeColor, propMaterial, setFinish, FINISH } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
-import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT } from './wheels.js';
+import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT, SILL_Y } from './wheels.js';
 import {
   lightPodGeometry, brakeLightAnchors, turnSignalAnchors, brakeLightMaterial, turnSignalMaterial,
 } from './lights.js';
@@ -71,11 +71,11 @@ export function createTaxiMesh() {
   // Proportions match the ambient cars so the taxi reads as the same class of vehicle.
   const body = new THREE.BoxGeometry(CAR_LEN, 0.8, CAR_W);
   body.translate(0, 0.78 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(body, color('taxiBody')));
+  parts.push(setFinish(bakeColor(body, color('taxiBody')), FINISH.PAINT));
 
   const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, 0.6, CAR_W * 0.86);
   cabin.translate(-0.2, 1.45 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(cabin, color('carGlass')));
+  parts.push(setFinish(bakeColor(cabin, color('carGlass')), FINISH.GLASS));
 
 
 
@@ -106,7 +106,7 @@ export function createTaxiMesh() {
       // body is `taxiBody` yellow, and a yellow-and-black band is a hazard stripe, not a taxi. The
       // white is `taxiSign`, the off-white the roof sign already lights up in — the car's existing
       // white, so the livery stays a two-colour car rather than gaining a third.
-      parts.push(bakeColor(cell, color(i % 2 === 0 ? 'taxiTrim' : 'taxiSign')));
+      parts.push(setFinish(bakeColor(cell, color(i % 2 === 0 ? 'taxiTrim' : 'taxiSign')), FINISH.PAINT));
     }
   }
 
@@ -116,7 +116,8 @@ export function createTaxiMesh() {
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 
-  const shell = new THREE.Mesh(merged, propMaterial());
+  // Glossy paint, like the fleet's (sim/traffic.js) — a touch more coat, it is the hero car.
+  const shell = new THREE.Mesh(merged, propMaterial({ gloss: { geometry: merged, floor: SILL_Y, amount: 1.33 } }));
   shell.castShadow = true;
   // ...and receives, like every ambient car — see the note over the traffic meshes in
   // sim/traffic.js for what that costs and why it is not behind a flag.
@@ -134,11 +135,12 @@ export function createTaxiMesh() {
 
   // Steered front wheels. One shared material, one mesh each, pivoting about their own hubs — the
   // group's transform carries them along, so nothing here has to know where the taxi is.
-  const wheelMaterial = propMaterial();
+  const steeredGeometry = wheelGeometry();
+  const wheelMaterial = propMaterial({ gloss: { geometry: steeredGeometry } });
   const steered = wheelAnchors(CAR_LEN, CAR_W)
     .filter((anchor) => anchor.front)
     .map((anchor) => {
-      const wheel = new THREE.Mesh(wheelGeometry(), wheelMaterial);
+      const wheel = new THREE.Mesh(steeredGeometry, wheelMaterial);
       wheel.position.set(anchor.x, anchor.y, anchor.z);
       wheel.castShadow = true;
       wheel.receiveShadow = true;

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
+import { SILL_Y } from '../geometry/wheels.js';
 import {
   sirenOn, patrolSwing, sirenPodGeometry, sirenRedAnchor, sirenBlueAnchor, sirenBaseGeometry, sirenBaseAnchor,
   sirenRedMaterial, sirenBlueMaterial,
@@ -80,12 +81,13 @@ function policeGeometry() {
 function steeredWheels(group) {
   // Tinted on the material because `wheelGeometry()` is shared and baked neutral — the fleet tints
   // its front wheels with the same instance colour as the body, so the cruiser does too.
-  const material = propMaterial();
+  const geometry = wheelGeometry();
+  const material = propMaterial({ gloss: { geometry } });
   material.color.set(PALETTE.policeBody);
   return wheelAnchors(CAR_LEN, CAR_W)
     .filter((anchor) => anchor.front)
     .map((anchor) => {
-      const wheel = new THREE.Mesh(wheelGeometry(), material);
+      const wheel = new THREE.Mesh(geometry, material);
       wheel.position.set(anchor.x, anchor.y, anchor.z);
       wheel.castShadow = true;
       wheel.receiveShadow = true;
@@ -156,7 +158,8 @@ export function createPolice(scene) {
    */
   const shell = new THREE.Group();
   group.add(shell);
-  const body = new THREE.Mesh(policeGeometry(), propMaterial());
+  const bodyGeometry = policeGeometry();
+  const body = new THREE.Mesh(bodyGeometry, propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y } }));
   body.receiveShadow = true;
   shell.add(body);
   const lights = lightBar(shell, group);

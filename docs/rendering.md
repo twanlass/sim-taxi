@@ -77,6 +77,70 @@ Four details worth keeping:
   patches on a dark one, and takes the scale cue with it. So the punched path carries a ceiling
   (0.52 on brick, 1.0 on the pale envelopes) and the curtain-wall path does not.
 
+### Car finishes — `propMaterial({ gloss })` in `util/geo.js`
+
+Every vehicle body and every wheel — the fleet, truck cabs and boxes, the cop cars, the cruiser and
+the taxi — is `MeshPhongMaterial` rather than the Lambert everything else wears, with one more patch
+on top of `patchProp`. Wrecks stay plain Lambert.
+
+**Four finishes, one program.** `setFinish()` bakes an `aFinish` attribute per part —
+`FINISH.TYRE`, `PAINT`, `GLASS`, `METAL` (the hubcaps, `geometry/wheels.js`) — and the shader
+indexes three shared `vec4` uniform arrays with it, so each finish has its own full set of numbers
+(`FINISH_DEFAULTS`: glint, glint sharpness, glint bend, sheen, sheen sharpness, flake, reflect,
+reflect edge, reflect bend, base colour) while every glossy material still compiles to the same
+source. A geometry with no `aFinish` reads 0, so anything untagged comes out as tyre — matte rather
+than mirrored; `tools/probe.mjs` asserts the car and the taxi carry all four.
+
+**Tuning them.** `?debug` → **Car finish**: pick a finish and its ten sliders retarget to it, plus
+flake size, façade darkness and **Show finishes**, which paints each finish a flat false colour
+(tyre grey, paint red, glass cyan, metal yellow) to check what the geometry tagged as what —
+`?finishes` turns the same view on from a URL, for screenshots. Everything is live. **Copy
+settings JSON** exports it as `carFinish`, whose keys are `FINISH_DEFAULTS` and
+`GLOSS_GLOBAL_DEFAULTS`. **Freeze & zoom** (or `I`) stops the world with nothing over it and hands
+the camera to `game/inspect.js`: wheel or pinch to zoom down to a frustum half-height of 2.5, drag
+to pan, **Next car** (`N`) to step outward from the taxi, `I` again to resume where you were.
+Paint's reflection is also scaled per material (`amount`: the taxi 1.33, a
+cargo box 0.55).
+
+**The diffuse keeps the flat normal.** The first cut bent three's `normal` itself, which the diffuse
+reads too, and every car went soft and bubbly — the facets that make this a low-poly game smoothed
+into one rounded lump. Now two *extra* normals are bent outward by how far the fragment sits from the
+body's centre, and only the specular and the reflection read them:
+
+- **The glint's bends up to 45° at a panel's corner** (`glintBend` ≈ 1). It has to: the sun's
+  half-vector sits about 45° round from both axes the traffic drives on, so a box panel bent less
+  never lines up with it — a 17° bend rendered no glint at all on an axis-aligned car. A real car
+  catches the sun on its curved shoulders; bent this far, the corner of a panel is that shoulder,
+  and with a lobe this tight only the corner shows it.
+- **The reflection's bends separately** (`reflectBend`, about 1.2 as tuned), which is what slides a
+  skyline across a panel. It never reaches the diffuse, so the facets stay hard however far it goes.
+
+**The specular is swapped, not tuned.** Phong's own specular line is replaced
+(`GLOSS_SPECULAR_FROM`/`TO`) with two lobes: the glint on the glint normal, the sheen on the reflection's. It stays inside three's light loop,
+so the shadow map is already folded into the light: a car in a tower's shadow has nothing to glint
+with, and the cop's lamps glint off the cars beside it.
+
+**The sheen carries metal flake.** Paint's broad lobe is multiplied by a hash over the body's own
+space, 14.5 cells a unit by default (`flakeSize`) — sub-pixel at play zoom, where it averages into a livelier sheen, and only
+sparkle close up. The sheen is also what separates paint from glass when no glint is lined up.
+
+**The reflection marches the city.** The reflected ray is stepped through the height field
+`game/sightline.js` already builds for the fare board, uploaded once as a byte texture
+(`setGlossCity`). Under a roofline it returns a dark façade, otherwise the sky gradient
+(`setGlossSky`, fed by `game/daylight.js`). Why not an env map: the camera never rotates, so the
+reflected ray off a facet only changes when the *car* turns — a cubemap would hand a car driving
+straight the same picture every frame. What changes as it drives is where it is.
+
+**The ray is folded up off the road.** The camera looks down at 33°, so the honest reflection off a
+side panel is the asphalt a metre away — correct and invisible. `gR.y = max(abs(gR.y), 0.12)`
+mirrors it upward so a flank sees the street wall opposite.
+
+**Off under Crayon and Cartoon.** `propMaterial` hands back the plain Lambert when either look is on
+at boot. `outlinable` in `game/cartoon.js` accepts Phong as well, for a car built before the flag.
+
+All glossy bodies share one program (`prop-gloss`, `-ssao` as it applies): the per-shape numbers
+are per-material uniforms, not source. `tools/links.mjs` counts it at boot, not mid-run.
+
 ## Camera
 
 `src/game/camera.js`. A fixed 3/4 orthographic camera:
