@@ -522,7 +522,7 @@ export function setFinish(geometry, finish) {
  * | key | slot | what it does |
  * |---|---|---|
  * | `glint` | A.x | strength of the tight sun highlight |
- * | `glintSharp` | A.y | its Blinn-Phong exponent: 400 is a half-width of ~3.4° |
+ * | `glintSharp` | A.y | its Blinn-Phong exponent: 400 is a half-width of ~3.4°, 1000 about 2.1° |
  * | `glintBend` | A.z | how far the glint's normal bends at a panel's corner — 1.0 is 45° |
  * | `sheen` | A.w | strength of the broad lobe |
  * | `sheenSharp` | B.x | its exponent |
@@ -540,18 +540,23 @@ export function setFinish(geometry, finish) {
  * so a panel bent less never lines up with it. The diffuse never sees either — the first cut bent
  * three's own `normal`, and every car went soft and bubbly.
  */
+//
+// Tuned by eye in `?debug`'s inspect mode, which is what the shape of these says: paint is mostly
+// a broad flaked sheen over a brightened base with a pinpoint glint on top and almost no mirror;
+// glass is near-black with a hard glint and a faint reflection; tyres are darkened rubber. The
+// city reflection survives mainly on glass — paint at 0.02 barely carries it.
 export const FINISH_DEFAULTS = {
   tyre: {
     glint: 0, glintSharp: 20, glintBend: 0.3, sheen: 0.02, sheenSharp: 6, flake: 0,
-    reflect: 0, reflectEdge: 0, reflectBend: 0, diffuse: 1,
+    reflect: 0, reflectEdge: 0, reflectBend: 0, diffuse: 0.64,
   },
   paint: {
-    glint: 0.35, glintSharp: 400, glintBend: 1, sheen: 0.07, sheenSharp: 14, flake: 1,
-    reflect: 0.045, reflectEdge: 0.135, reflectBend: 0.3, diffuse: 1,
+    glint: 0.19, glintSharp: 1000, glintBend: 1.02, sheen: 1, sheenSharp: 6, flake: 1,
+    reflect: 0.02, reflectEdge: 0, reflectBend: 1.27, diffuse: 1.36,
   },
   glass: {
-    glint: 0.8, glintSharp: 400, glintBend: 1, sheen: 0, sheenSharp: 14, flake: 0,
-    reflect: 0.22, reflectEdge: 0.4, reflectBend: 0.3, diffuse: 1,
+    glint: 0.42, glintSharp: 795, glintBend: 1.06, sheen: 0, sheenSharp: 1, flake: 0,
+    reflect: 0.03, reflectEdge: 0.05, reflectBend: 1.14, diffuse: 0.12,
   },
   metal: {
     glint: 1, glintSharp: 120, glintBend: 1, sheen: 0.25, sheenSharp: 30, flake: 0,
@@ -562,11 +567,11 @@ export const FINISH_DEFAULTS = {
 export const GLOSS_GLOBAL_DEFAULTS = {
   // Flake cells per world unit of the body's own space. Sub-pixel at play zoom by design: there the
   // flakes average into a livelier sheen, and only resolve into sparkle close up.
-  flakeSize: 14,
-  // How dark a building reads in a reflection, as a fraction of the horizon behind it. Low enough
-  // that a façade is a clear silhouette against the sky — that break is the whole cue — and not
-  // black, because a black band on a yellow taxi reads as a paint job rather than a reflection.
-  facade: 0.32,
+  flakeSize: 14.5,
+  // How dark a building reads in a reflection, as a fraction of the horizon behind it. Near black,
+  // as tuned: with the reflections this faint, a dark silhouette against the sky is the only part
+  // of them that still reads.
+  facade: 0.08,
   // Paints each finish a flat false colour, to check what the geometry tagged as what.
   showFinishes: false,
 };

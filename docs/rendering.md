@@ -107,13 +107,13 @@ reads too, and every car went soft and bubbly — the facets that make this a lo
 into one rounded lump. Now two *extra* normals are bent outward by how far the fragment sits from the
 body's centre, and only the specular and the reflection read them:
 
-- **The glint's bends up to 45° at a panel's corner** (`glintBend` = 1). It has to: the sun's
+- **The glint's bends up to 45° at a panel's corner** (`glintBend` ≈ 1). It has to: the sun's
   half-vector sits about 45° round from both axes the traffic drives on, so a box panel bent less
   never lines up with it — a 17° bend rendered no glint at all on an axis-aligned car. A real car
   catches the sun on its curved shoulders; bent this far, the corner of a panel is that shoulder,
   and with a lobe this tight only the corner shows it.
-- **The reflection's bends about 17°** (`reflectBend` = 0.3), enough to slide a skyline across a
-  panel without curving one face into the next.
+- **The reflection's bends separately** (`reflectBend`, about 1.2 as tuned), which is what slides a
+  skyline across a panel. It never reaches the diffuse, so the facets stay hard however far it goes.
 
 **The specular is swapped, not tuned.** Phong's own specular line is replaced
 (`GLOSS_SPECULAR_FROM`/`TO`) with two lobes: the glint on the glint normal, the sheen on the reflection's. It stays inside three's light loop,
@@ -121,7 +121,7 @@ so the shadow map is already folded into the light: a car in a tower's shadow ha
 with, and the cop's lamps glint off the cars beside it.
 
 **The sheen carries metal flake.** Paint's broad lobe is multiplied by a hash over the body's own
-space, 14 cells a unit by default (`flakeSize`) — sub-pixel at play zoom, where it averages into a livelier sheen, and only
+space, 14.5 cells a unit by default (`flakeSize`) — sub-pixel at play zoom, where it averages into a livelier sheen, and only
 sparkle close up. The sheen is also what separates paint from glass when no glint is lined up.
 
 **The reflection marches the city.** The reflected ray is stepped through the height field
