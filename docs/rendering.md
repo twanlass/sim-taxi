@@ -1653,8 +1653,25 @@ ring road would show sky through the tarmac.
 
 A ring buffer of flat quads stamped onto the road while boosting **through a corner**, and for the
 first `LAUNCH_SKID_TIME = 0.5s` **off the line** when Loco Mode is first pressed. Alpha lives in a
-4-component vertex colour attribute. Pure black, `MARK_LENGTH = 1.5`, `MARK_WIDTH = 0.58`,
-`START_ALPHA = 0.85`, spaced closer than one mark length so stamps overlap into a streak.
+4-component vertex colour attribute. `MARK_LENGTH = 1.5`, `MARK_WIDTH = 0.58`, spaced 0.42 apart so
+stamps overlap into a streak, in `skidRubber` — a warm near-black, because pure black over the
+blue-grey asphalt read as a hole in the road.
+
+**Each mark is a feathered patch, not a quad**: a 4 × 4 vertex grid whose alpha is zero at both ends
+and 0.25 at the sides, ramping to full over the outer 30% / 27%. The first version was one quad at
+0.85, which left a hard edge every 0.42 units down a streak and a hard rectangle at each end. Per
+stamp alpha is now `STAMP_ALPHA = 0.5`; stamps overlap ~2.6 deep at full weight, so the middle of a
+streak still composites to ≈ 0.84. Vertex alpha rather than a fragment patch, so there is no shader
+to keep in step with the look modes or the program cache.
+
+**Streaks fade in and out.** A stamp joins the streak of the nearest mark younger than
+`CHAIN_WINDOW` (0.3s) within `CHAIN_REACH` (1.1 — past the overdrive stamp spacing, inside the gap
+between left and right tracks), so no caller says which wheel it is and the taxi, the brake and the
+cops all get it. The first three stamps of a streak are drawn at 0.3 / 0.55 / 0.8. The tail can't be
+known until the streak stops, so once a mark has gone `CHAIN_WINDOW` without a successor it and the
+two before it **ease** down to the same ramp at `TAIL_EASE` per second — eased, so the end lightens
+rather than pops. Each stamp is also drawn up to 20% lighter at random and varies ±8% in width, so a streak isn't a
+flat band. `tools/probe.mjs` asserts the feathering, both ramps, the easing and the winding.
 
 > `car.state === 'turn'` covers **every** junction crossing including going straight on, which is
 > why rubber first appeared on the straights. A real turn is `car.dOut !== car.d`, and only after
