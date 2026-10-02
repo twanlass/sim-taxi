@@ -1251,6 +1251,35 @@ most of the cost of the mode back during the clear stretch. The mirror still ren
 first frame, so its clipped programs compile before the first cloud rather than on the frame it
 arrives. The streaks and splashes are faded rather than hidden for the same reason.
 
+#### Two moods — the sun shower and the night storm
+
+The first storm peaked most of the way to night, which was too dark to play in. The default peak is
+now a **sun shower** (`MOODS.shower` in game/rain.js). `?storm=night` and `?rain=night` keep the
+old one.
+
+- **The clouds do the dimming, not the sun.** In the shower the sun keeps 115% of its power and
+  most of its warmth. A drifting cloud field (`CLOUD_UNIFORMS`, `CLOUD_GLSL` in util/geo.js) dims
+  only the sun's *direct* light, down to `uCloudFloor` 0.3 under cloud. It is compiled into every
+  `propMaterial()` when a storm is on (`setCloudShadows`). The result is sunlit patches sliding
+  across the city with the wind, with everything between them lit by the sky. It runs before the
+  shadow tint, so cloud shade goes cool the way the sun's own shadows do.
+- **The field had to be stretched.** Two octaves of value noise bunch tightly around 0.5, so at a
+  cover of 0.56 only about a tenth of the city was in sun. It is stretched ×2 about its middle, and
+  the threshold maps cover 0..1 over the stretched range (−0.65..1.65) so that 0 really is clear.
+  The shower peaks at 0.46.
+- **Shafts.** 40 additive quads ride the wind at exactly the field's own drift, so each one stays
+  over the patch of ground it stands on. Each is lit only if the field says there is a gap at its
+  foot, and only while there is cloud around it (cover > 0.08). They point at the sun.
+- **Sunlit wet ground glints.** A warm lift on wet ground, in proportion to the direct light the
+  fragment actually received, so building shadows inside a sunlit patch stay shadows. The first cut
+  sampled the cloud field and lit straight through them. It is not a specular highlight: the sun is
+  behind this camera, so a true one could never face it.
+- **The night still uses the old numbers:** sun to 15%, the cloud lid closed (cover 1.05), and no
+  shafts or glint.
+
+The mirror pass sets `uCloudViewInv` to the mirror camera for its render, because the field is
+placed in world space through whichever camera is drawing.
+
 `?storm=0.6` pins the storm at that level for screenshots. `__taxi.storm` exposes `pin(v)`,
 `seek(t)` and `state`.
 

@@ -451,15 +451,20 @@ export function getCrayon(fallback = false) {
 }
 
 /**
- * The passing storm, via `?storm` — the ordinary afternoon clouds over, rains hard as night falls,
- * and clears again, on a loop (game/storm.js). `?storm=0.6` pins it at that point instead, for a
- * still frame. Returns null when off, `{ pin: null }` for the running cycle, `{ pin }` when pinned.
+ * The passing storm, via `?storm` — the ordinary afternoon clouds over into a sun shower, and clears
+ * again, on a loop (game/storm.js). `?storm=0.6` pins it at that point instead, for a still frame;
+ * `?storm=night` runs the darker storm (MOODS in game/rain.js). Returns null when off, otherwise
+ * `{ pin, mood }`, with `pin` null for the running cycle.
  */
 export function getStorm() {
   const raw = new URLSearchParams(window.location.search).get('storm');
   if (raw === null || isOff(raw)) return null;
+  if (raw === 'night') return { pin: null, mood: 'night' };
   const pin = Number(raw);
-  return { pin: raw !== '' && Number.isFinite(pin) ? Math.min(1, Math.max(0, pin)) : null };
+  return {
+    pin: raw !== '' && Number.isFinite(pin) ? Math.min(1, Math.max(0, pin)) : null,
+    mood: 'shower',
+  };
 }
 
 /**
@@ -467,10 +472,10 @@ export function getStorm() {
  * softer brakes. Off by default: an exploration, see `game/rain.js`. A flag rather than a setting
  * because the ground's wet shader is compiled into its material before the first frame.
  */
-export function getRain(fallback = false) {
+export function getRain() {
   const raw = new URLSearchParams(window.location.search).get('rain');
-  if (raw === null) return fallback;
-  return !isOff(raw);
+  if (raw === null || isOff(raw)) return null;
+  return { pin: 1, mood: raw === 'night' ? 'night' : 'shower' };
 }
 
 /**

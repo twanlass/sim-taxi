@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
-import { AO_UNIFORMS } from '../util/geo.js';
+import { AO_UNIFORMS, CLOUD_UNIFORMS, CLOUD_GLSL } from '../util/geo.js';
 
 /**
  * Rain Mode — `?rain`. An exploration, off by default: the city on a wet afternoon.
@@ -46,9 +46,6 @@ const REFLECT_SCALE = 0.5;
  *  same number it brakes with, so this lengthens every stop rather than making anyone run a red. */
 export const GRIP = 0.6;
 
-/** How much haze the top of the frame wears in the rain — against `HAZE_TOP` 0.19 dry. Past 0.3
- *  the back of the city reads as weather rather than air (game/scene.js), which is the point. */
-export const RAIN_HAZE_TOP = 0.34;
 
 /** The streaks: how many, and the box they wrap in around the camera target. */
 const DROPS = 14000;
@@ -67,10 +64,39 @@ const SPLASH_Y = 0.38;      // just over the pavement, so it is not buried by th
 const SPLASH_RATE = 1.4;
 const SPLASH_LIFE = 0.16;
 
-/** The storm at its peak, as multipliers: the sky colour, the sun, the fill. See `grade`. */
-const STORM_SKY = 0.6;
-const STORM_SUN = 0.15;
-const STORM_FILL = 0.72;
+/**
+ * What the storm looks like at its peak — two moods, picked by the flag (`?storm=night`,
+ * `?rain=night`; the shower is the default).
+ *
+ * - **shower**: a sun shower. The sky goes grey but stays daylight; the sun keeps its strength and
+ *   its warmth, and the *clouds* do the dimming — a drifting field (`cover`, see CLOUD_UNIFORMS in
+ *   util/geo.js) that leaves most of the city in cloud shade and lets the sun through in patches,
+ *   with shafts of light standing in the rain over each gap. The city's lights still come on.
+ * - **night**: the first storm this mode had — most of the way to night, the sun all but gone, the
+ *   lamps doing the work. Too dark to play in as the default.
+ *
+ * `sky` scales the sky's colours and `skyMix` is how far they are pulled to the rain palette;
+ * `sunMix` how far the sun's colour goes grey; `sun` and `fill` multiply the two lights; `cover` is
+ * the cloud cover at the peak; `haze` the haze; `reflectSky` what a puddle shows where nothing
+ * stands over it; `shafts` the sun shafts' strength; `glint` how hard wet ground shines where the
+ * sun is on it.
+ */
+export const MOODS = {
+  shower: {
+    sky: 1.0, skyMix: 0.5, sunMix: 0.15, sun: 1.15, fill: 1.05, cover: 0.46, haze: 0.26,
+    reflectSky: PALETTE.rainReflectShower, shafts: 1, glint: 0.9,
+  },
+  night: {
+    sky: 0.6, skyMix: 0.85, sunMix: 0.7, sun: 0.15, fill: 0.72, cover: 1.05, haze: 0.34,
+    reflectSky: PALETTE.rainReflectSky, shafts: 0, glint: 0,
+  },
+};
+
+/** Shafts of sun standing in the rain over the gaps in the cloud. */
+const SHAFTS = 40;
+const SHAFT_BOX = 170;
+const SHAFT_LEN = 85;
+const SHAFT_STRENGTH = 0.34;
 
 const Y_MIRROR = new THREE.Matrix4().makeScale(1, -1, 1);
 const FLIP_X = new THREE.Matrix4().makeScale(-1, 1, 1);
@@ -88,13 +114,15 @@ const inert = {
   renderReflection: () => {},
   renderLens: () => {},
   setWeather: () => {},
+  setSunDir: () => {},
   update: () => {},
   addTo: () => {},
   hideInMirror: () => {},
 };
 
-export function createRain(renderer, { enabled = false } = {}) {
+export function createRain(renderer, { enabled = false, mood: moodName = 'shower' } = {}) {
   if (!enabled) return inert;
+  const mood = MOODS[moodName] ?? MOODS.shower;
 
   const clock = { t: 0 };
   const drawingBuffer = new THREE.Vector2();
@@ -126,7 +154,7 @@ export function createRain(renderer, { enabled = false } = {}) {
   // to the horizon grey and drew the sky dome into the mirror too, and every wet street came out a
   // pale wash with its paint gone — an overcast sky is the brightest thing in the scene, and a
   // puddle is a mirror of it.
-  const skyTint = new THREE.Color(PALETTE.rainReflectSky);
+  const skyTint = new THREE.Color(mood.reflectSky);
   const hidden = [];
 
   const groundUniforms = {
@@ -135,12 +163,19 @@ export function createRain(renderer, { enabled = false } = {}) {
     uRainTime: { value: 0 },
     uRainWet: { value: 1 },
     uRainSheen: { value: new THREE.Color(PALETTE.rainSheen) },
+    // Wet ground in a patch of sun, in the shower: the asphalt the light has found. Not a specular
+    // highlight — the sun is behind this camera, so a true one could never face it — but the warm
+    // lift a sunlit wet street reads as.
+    uRainGlint: { value: mood.glint },
+    uRainGlintColor: { value: new THREE.Color(PALETTE.sunShaft) },
   };
 
   // The mirror is a second full render of the city, so it is skipped outright while the streets
   // are dry — except once, on the first frame, so the clipped variant of every lit program is
   // compiled up front and not in the middle of the run when the first cloud comes over.
   let mirrorWarm = false;
+
+  const viewInv = new THREE.Matrix4();
 
   function renderReflection(scene, camera) {
     if (weather.wet < 0.002 && mirrorWarm) return;
@@ -169,6 +204,10 @@ export function createRain(renderer, { enabled = false } = {}) {
     renderer.shadowMap.autoUpdate = false;
     renderer.clippingPlanes = clipPlanes;
     AO_UNIFORMS.tAmbientOcclusion.value = noAO;
+    // The cloud field is placed in world space through the camera that is drawing, and this pass
+    // is drawing through the mirror.
+    const prevViewInv = viewInv.copy(CLOUD_UNIFORMS.uCloudViewInv.value);
+    CLOUD_UNIFORMS.uCloudViewInv.value.copy(mirrorCam.matrixWorld);
     hidden.forEach((o) => { o.visible = false; });
     groundUniforms.tRainReflect.value = noReflect;
     const wet = groundUniforms.uRainWet.value;
@@ -183,6 +222,7 @@ export function createRain(renderer, { enabled = false } = {}) {
     groundUniforms.tRainReflect.value = reflectTarget.texture;
     groundUniforms.uRainWet.value = wet;
     AO_UNIFORMS.tAmbientOcclusion.value = prevAO;
+    CLOUD_UNIFORMS.uCloudViewInv.value.copy(prevViewInv);
     renderer.clippingPlanes = prevClip;
     renderer.shadowMap.autoUpdate = prevShadow;
     renderer.setClearColor(prevClear, prevAlpha);
@@ -360,7 +400,85 @@ ${WET_ALBEDO}`, 'ground fragment');
   splashes.renderOrder = 2;
   splashes.name = 'rain-splashes';
 
-  hidden.push(streaks, splashes);
+  // --- the sun shafts --------------------------------------------------------------------------------
+
+  const shaftGeo = new THREE.InstancedBufferGeometry();
+  shaftGeo.setAttribute('corner', new THREE.Float32BufferAttribute(
+    [-1, 0, 1, 0, 1, 1, -1, 0, 1, 1, -1, 1], 2));
+  shaftGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(18), 3));
+  const shaftSeeds = new Float32Array(SHAFTS * 4);
+  for (let i = 0; i < shaftSeeds.length; i++) shaftSeeds[i] = Math.random();
+  shaftGeo.setAttribute('seed', new THREE.InstancedBufferAttribute(shaftSeeds, 4));
+  shaftGeo.instanceCount = SHAFTS;
+  const shaftUniforms = {
+    uCentre: { value: centre },
+    uBox: { value: SHAFT_BOX },
+    uLen: { value: SHAFT_LEN },
+    uSunDir: { value: new THREE.Vector3(0.5, 0.5, 0.7).normalize() },
+    uStrength: { value: SHAFT_STRENGTH * mood.shafts },
+    uColor: { value: new THREE.Color(PALETTE.sunShaft) },
+    // The field's own uniforms, by reference, so a shaft can only ever stand over a gap.
+    uCloudCover: CLOUD_UNIFORMS.uCloudCover,
+    uCloudTime: CLOUD_UNIFORMS.uCloudTime,
+    uCloudScale: CLOUD_UNIFORMS.uCloudScale,
+    uCloudDrift: CLOUD_UNIFORMS.uCloudDrift,
+  };
+  const shafts = new THREE.Mesh(shaftGeo, new THREE.ShaderMaterial({
+    uniforms: shaftUniforms,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: /* glsl */ `
+      uniform vec3 uCentre;
+      uniform float uBox;
+      uniform float uLen;
+      uniform vec3 uSunDir;
+      uniform float uStrength;
+      uniform float uCloudCover;
+      uniform float uCloudTime;
+      uniform float uCloudScale;
+      uniform vec2 uCloudDrift;
+      attribute vec2 corner;
+      attribute vec4 seed;
+      varying vec2 vCorner;
+      varying float vAlpha;
+      ${CLOUD_GLSL}
+      void main() {
+        // Ride the wind at exactly the rate the field does, so a shaft stays over its gap.
+        vec2 wind = -uCloudDrift * uCloudScale;
+        vec2 xz = seed.xy * uBox + wind * uCloudTime;
+        xz = uCentre.xz + mod(xz - uCentre.xz + 0.5 * uBox, vec2(uBox)) - 0.5 * uBox;
+        float sun = cloudSun(xz, uCloudTime, uCloudCover, uCloudScale, uCloudDrift);
+        // Only where there is a gap, and only while there is cloud around it to make it a shaft.
+        vAlpha = sun * smoothstep(0.08, 0.35, uCloudCover) * uStrength * (0.5 + 0.5 * seed.w);
+        vec4 foot = viewMatrix * vec4(xz.x, 0.0, xz.y, 1.0);
+        vec4 head = viewMatrix * vec4(vec3(xz.x, 0.0, xz.y) + uSunDir * uLen, 1.0);
+        vec3 axis = normalize(head.xyz - foot.xyz);
+        vec3 side = normalize(cross(axis, vec3(0.0, 0.0, 1.0)));
+        float width = mix(2.5, 7.0, seed.z) * (1.0 + 0.8 * corner.y);
+        vec4 v = mix(foot, head, corner.y);
+        v.xyz += side * corner.x * width;
+        gl_Position = projectionMatrix * v;
+        vCorner = corner;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      varying vec2 vCorner;
+      varying float vAlpha;
+      void main() {
+        float across = 1.0 - abs(vCorner.x);
+        across *= across;
+        float along = smoothstep(0.0, 0.06, vCorner.y) * pow(1.0 - vCorner.y, 1.4);
+        gl_FragColor = vec4(uColor * vAlpha * across * along, 1.0);
+      }
+    `,
+  }));
+  shafts.frustumCulled = false;
+  shafts.renderOrder = 2;
+  shafts.name = 'rain-sunshafts';
+
+  hidden.push(streaks, splashes, shafts);
 
   // --- the lens ---------------------------------------------------------------------------------
 
@@ -433,16 +551,17 @@ ${WET_ALBEDO}`, 'ground fragment');
     // (game/citylights.js) are what a wet street is a mirror for, and they only read against a dim
     // frame. The first cut sat at 0.32 of the sun and 1.15 of the fill and the lights looked like
     // paint; `STORM_SKY` and friends push the peak of `?storm` most of the way to night.
-    const sky = (0.25 + 0.75 * bright) * STORM_SKY;
-    look.top.lerp(tmp.copy(rainTop).multiplyScalar(sky), 0.85 * w);
-    look.bottom.lerp(tmp.copy(rainBottom).multiplyScalar(sky), 0.85 * w);
-    look.sun.lerp(rainSun, 0.7 * w);
-    look.hemiSky.lerp(tmp.copy(rainHemiSky).multiplyScalar((0.3 + 0.7 * bright) * STORM_SKY), 0.75 * w);
+    const sky = (0.25 + 0.75 * bright) * mood.sky;
+    look.top.lerp(tmp.copy(rainTop).multiplyScalar(sky), mood.skyMix * w);
+    look.bottom.lerp(tmp.copy(rainBottom).multiplyScalar(sky), mood.skyMix * w);
+    look.sun.lerp(rainSun, mood.sunMix * w);
+    look.hemiSky.lerp(tmp.copy(rainHemiSky).multiplyScalar((0.3 + 0.7 * bright) * mood.sky), 0.75 * w);
     look.hemiGround.lerp(rainHemiGround, 0.6 * w);
-    // The sun goes behind cloud first and fastest: shadows soften and fade well before the sky has
-    // finished darkening, which is most of what makes the first half of the build read as weather.
-    look.power *= THREE.MathUtils.lerp(1, STORM_SUN, Math.min(1, w * 1.4));
-    look.fill *= THREE.MathUtils.lerp(1, STORM_FILL, w);
+    // At night the sun goes behind cloud first and fastest: shadows soften and fade well before the
+    // sky has finished darkening. In the shower it keeps its strength — the cloud field does the
+    // dimming, a patch at a time.
+    look.power *= THREE.MathUtils.lerp(1, mood.sun, Math.min(1, w * 1.4));
+    look.fill *= THREE.MathUtils.lerp(1, mood.fill, w);
   }
 
   /**
@@ -459,6 +578,7 @@ ${WET_ALBEDO}`, 'ground fragment');
     weather.rain = rain;
     weather.wet = wet;
     groundUniforms.uRainWet.value = wet;
+    CLOUD_UNIFORMS.uCloudCover.value = mood.cover * dark;
     streakUniforms.uOpacity.value = STREAK_OPACITY * rain;
     splashUniforms.uDensity.value = rain;
     // Drops land on the glass with the rain and take a while to dry off once it stops.
@@ -478,6 +598,9 @@ ${WET_ALBEDO}`, 'ground fragment');
     streakUniforms.uTime.value = clock.t;
     splashUniforms.uTime.value = clock.t;
     lensUniforms.uTime.value = clock.t;
+    CLOUD_UNIFORMS.uCloudTime.value = clock.t;
+    camera.updateMatrixWorld();
+    CLOUD_UNIFORMS.uCloudViewInv.value.copy(camera.matrixWorld);
     pixelRatio.value = renderer.getPixelRatio();
     // Wrap the weather around the point on the ground under the middle of the frame.
     camera.getWorldDirection(camDir);
@@ -497,10 +620,17 @@ ${WET_ALBEDO}`, 'ground fragment');
     renderLens,
     update,
     /** Put the falling rain in a scene. */
-    addTo: (scene) => { scene.add(streaks, splashes); },
+    addTo: (scene) => { scene.add(streaks, splashes, shafts); },
+    /** Point the shafts at the sun — `sun.position`, any length. */
+    setSunDir: (position) => { shaftUniforms.uSunDir.value.copy(position).normalize(); },
+    /** This storm's mood — see MOODS. */
+    mood,
     /** Anything else that must stay out of the mirror — the bloom and crayon overlays. */
     hideInMirror: (...objects) => { hidden.push(...objects.filter(Boolean)); },
-    uniforms: { ground: groundUniforms, streaks: streakUniforms, lens: lensUniforms },
+    uniforms: {
+      ground: groundUniforms, streaks: streakUniforms, lens: lensUniforms, shafts: shaftUniforms,
+      clouds: CLOUD_UNIFORMS,
+    },
     reflectTarget,
   };
 }
@@ -514,6 +644,8 @@ uniform vec2 uRainScreen;
 uniform float uRainTime;
 uniform float uRainWet;
 uniform vec3 uRainSheen;
+uniform float uRainGlint;
+uniform vec3 uRainGlintColor;
 varying vec3 vRainWorld;
 
 float rainHash(vec2 p) {
@@ -591,6 +723,12 @@ const WET_REFLECT = /* glsl */ `
   float gloss = uRainWet * rainUp * mix(mix(0.07, 0.3, rainRoad), 0.72, rainPuddle) * (1.0 - 0.8 * rainGrass);
   outgoingLight = mix(outgoingLight, refl, gloss);
   outgoingLight += uRainSheen * clamp(length(rainRip), 0.0, 1.0) * mix(0.02, 0.1, rainPuddle) * rainUp * rainRoad;
+  // Read off the sun this fragment actually got — cloud field and shadow map both already in it —
+  // so a building's shadow stays a shadow. The first cut sampled the cloud field instead and lit
+  // the wet street straight through every shadow in the patch.
+  float rainSun = dot(reflectedLight.directDiffuse, vec3(0.2126, 0.7152, 0.0722));
+  outgoingLight += uRainGlintColor * uRainGlint * rainSun * uRainWet * rainUp * mix(0.35, 1.0, rainRoad)
+    * mix(0.6, 1.0, rainPuddle) * (1.0 - 0.7 * rainGrass);
 }
 `;
 

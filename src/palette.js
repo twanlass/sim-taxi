@@ -900,6 +900,10 @@ export const PALETTE = {
   // What a wet street mirrors where nothing stands over it — the cloud, a long way darker than it
   // looks overhead. See `skyTint` in game/rain.js for why it cannot be the sky's own colour.
   rainReflectSky: '#2C343E',
+  // The same, under a sun shower's lighter sky (MOODS.shower in game/rain.js).
+  rainReflectShower: '#6A7684',
+  // A shaft of sun standing in the rain over a gap in the cloud: warm, and drawn additive.
+  sunShaft: '#FFE0A6',
 };
 
 export function color(value) {

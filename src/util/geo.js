@@ -246,6 +246,72 @@ setShadowTint();
 let aoEnabled = false;
 let crayonEnabled = false;
 let cartoonEnabled = false;
+let cloudsEnabled = false;
+
+/**
+ * Cloud shadows — the storm's (game/rain.js). A moving field of cloud dims the **sun's direct light
+ * only**, so where it is covered a surface is lit by the sky alone and where there is a gap the sun
+ * breaks through in a patch that drifts across the city with the wind. Applied before the shadow
+ * tint, so a covered patch goes cool the way a real shadow does.
+ *
+ * `uCloudCover` 0 is a clear sky (the field reads 1 everywhere, the frame is unchanged) and 1 is a
+ * lid of cloud with no gaps at all. `uCloudViewInv` is the camera's world matrix, there to turn
+ * `vViewPosition` back into a world position: the rain's mirror pass draws through a *different*
+ * camera, and sets this to that one's for the length of its render.
+ */
+export const CLOUD_UNIFORMS = {
+  uCloudCover: { value: 0 },
+  uCloudFloor: { value: 0.3 },
+  uCloudTime: { value: 0 },
+  uCloudScale: { value: 30 },
+  uCloudDrift: { value: new THREE.Vector2(-0.1, -0.06) },
+  uCloudViewInv: { value: new THREE.Matrix4() },
+};
+
+/**
+ * The field itself, shared with anything that has to agree with it — the sun shafts in
+ * game/rain.js stand exactly where this says there is a gap. Two octaves of value noise: the first
+ * drifts with the wind (`uCloudDrift`, in noise units a second), the second creeps across it more
+ * slowly so the gaps open and close rather than only sliding. Returns 1 for sun, 0 for cloud.
+ */
+export const CLOUD_GLSL = /* glsl */ `
+float cloudHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float cloudNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(cloudHash(i), cloudHash(i + vec2(1.0, 0.0)), f.x),
+             mix(cloudHash(i + vec2(0.0, 1.0)), cloudHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float cloudSun(vec2 xz, float t, float cover, float scale, vec2 drift) {
+  vec2 p = xz / scale + drift * t;
+  float f = 0.68 * cloudNoise(p) + 0.32 * cloudNoise(p * 2.3 + vec2(t * 0.021, -t * 0.017));
+  // Stretched about its middle: two octaves of value noise bunch tightly around 0.5, and unstretched
+  // a cover of 0.56 left about a tenth of the city in sun rather than the third it reads as.
+  f = 0.5 + (f - 0.5) * 2.0;
+  // ...which also spreads it past 0..1, so the threshold has to span the stretched range for a cover
+  // of 0 to be a clear sky and 1 a closed one.
+  float edge = mix(-0.65, 1.65, cover);
+  return smoothstep(edge - 0.07, edge + 0.07, f);
+}
+`;
+
+const CLOUD_LIGHT = /* glsl */ `
+	{
+		vec3 cWorld = (uCloudViewInv * vec4(-vViewPosition, 1.0)).xyz;
+		float cSun = cloudSun(cWorld.xz, uCloudTime, uCloudCover, uCloudScale, uCloudDrift);
+		reflectedLight.directDiffuse *= mix(uCloudFloor, 1.0, cSun);
+	}
+`;
+
+/**
+ * Switch cloud shadows on for every `propMaterial()` built after this call — `?storm`/`?rain`,
+ * decided in `main.js` beside the look modes and for the same reason: it is compiled in, so a city
+ * without weather carries none of it.
+ */
+export function setCloudShadows(enabled) {
+  cloudsEnabled = enabled;
+}
 
 /**
  * Switch screen-space ambient occlusion on for every `propMaterial()` built after this call.
@@ -453,13 +519,14 @@ function patchProp(material, { ao = true } = {}) {
   // `?crayon&ao=off` a crayoned material and a bare one would otherwise share a key.
   const useAO = aoEnabled && ao;
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
-    + `${cartoonEnabled ? '-cartoon' : ''}`;
+    + `${cartoonEnabled ? '-cartoon' : ''}${cloudsEnabled ? '-clouds' : ''}`;
   material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, AO_UNIFORMS, SHADOW_UNIFORMS);
     if (crayonEnabled) Object.assign(shader.uniforms, CRAYON_UNIFORMS);
     if (cartoonEnabled) Object.assign(shader.uniforms, CARTOON_UNIFORMS);
+    if (cloudsEnabled) Object.assign(shader.uniforms, CLOUD_UNIFORMS);
 
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
@@ -481,7 +548,14 @@ uniform vec3 uToonInkColor;
 uniform float uToonCel;
 uniform float uToonSteps;
 uniform float uToonInk;
-uniform float uToonBite;` : ''}`);
+uniform float uToonBite;` : ''}${cloudsEnabled ? `
+uniform float uCloudCover;
+uniform float uCloudFloor;
+uniform float uCloudTime;
+uniform float uCloudScale;
+uniform vec2 uCloudDrift;
+uniform mat4 uCloudViewInv;
+${CLOUD_GLSL}` : ''}`);
 
     if (useAO) {
       // Three's own AO hook is the right seam: `reflectedLight` is complete by then and
@@ -496,6 +570,7 @@ uniform float uToonBite;` : ''}`);
     // the tint reads the banded result.
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+${cloudsEnabled ? CLOUD_LIGHT : ''}
 ${cartoonEnabled ? CARTOON_LIGHT : ''}
 ${SHADOW_LIGHT}`);
 

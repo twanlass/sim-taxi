@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeRng } from './util/rng.js';
 import { createScene, sinkShadowCaster, setHazeTop, HAZE_TOP } from './game/scene.js';
-import { createRain, GRIP, RAIN_HAZE_TOP } from './game/rain.js';
+import { createRain, GRIP } from './game/rain.js';
 import { createStorm } from './game/storm.js';
 import {
   collectPanes, litWindows, streetLamps, createTaxiHeadlights, setCityLights,
@@ -86,7 +86,7 @@ import { createBloom, markEmissive } from './game/bloom.js';
 import { createHdr } from './game/hdr.js';
 import { createCrayon } from './game/crayon.js';
 import { createCartoon } from './game/cartoon.js';
-import { setAmbientOcclusion, setCrayon, setCartoon, propMaterial } from './util/geo.js';
+import { setAmbientOcclusion, setCrayon, setCartoon, setCloudShadows, propMaterial } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createPause } from './game/pause.js';
@@ -210,6 +210,7 @@ setAmbientOcclusion(aoEnabled);
 // `game/crayon.js` for what the three layers of it are.
 const crayonEnabled = budget.crayon;
 setCrayon(crayonEnabled);
+setCloudShadows(Boolean(getRain() ?? getStorm()));
 // The other look on offer, and independent of it — see `game/cartoon.js`. Its cel bands compile
 // into the same materials, so it is decided in the same breath and for the same reason.
 const cartoonEnabled = budget.cartoon;
@@ -253,9 +254,11 @@ const crayon = createCrayon(renderer, { enabled: crayonEnabled });
 // The weather. `?storm` runs a storm across the afternoon and back on a loop (game/storm.js);
 // `?rain` is the same storm pinned at its peak. Either way the whole wet city is built up front —
 // see game/rain.js — and `applyWeather` below turns each part of it up and down with the clock.
-const stormFlag = getStorm();
-const storm = getRain() ? createStorm({ pin: 1 }) : stormFlag ? createStorm(stormFlag) : null;
-const rain = createRain(renderer, { enabled: Boolean(storm) });
+const stormFlag = getRain() ?? getStorm();
+const storm = stormFlag ? createStorm(stormFlag) : null;
+const rain = createRain(renderer, { enabled: Boolean(storm), mood: stormFlag?.mood });
+// Cloud shadows are compiled into every lit material, so they are decided here with the look modes,
+// before anything is meshed. See CLOUD_UNIFORMS in util/geo.js.
 const cartoon = createCartoon({ enabled: cartoonEnabled });
 
 // `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
@@ -354,8 +357,9 @@ function applyWeather(dt = 0) {
   // The taxi's own pair on the same level as the fleet's: dark in the sun, on once it is gloomy.
   taxiHeadlights?.setLevel(runningLevel);
   setCityLights(w.dark);
-  setHazeTop(fog, THREE.MathUtils.lerp(HAZE_TOP, RAIN_HAZE_TOP, w.dark));
+  setHazeTop(fog, THREE.MathUtils.lerp(HAZE_TOP, rain.mood.haze, w.dark));
   daylight.apply();
+  rain.setSunDir(sun.position);
 }
 applyWeather();
 
