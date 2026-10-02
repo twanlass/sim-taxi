@@ -56,6 +56,10 @@ export const PALETTE = {
 
   asphalt: '#636972',
   asphaltEdge: '#6B717A',
+  // Tyre rubber on the road. Not black: pure black over a blue-grey asphalt read as a hole cut in
+  // the road rather than something lying on it, and a touch of warm brown is what rubber smeared
+  // into tarmac actually is.
+  skidRubber: '#1E1A18',
   laneMark: '#D6D2C4',
   crosswalk: '#DAD7CB',
   sidewalk: '#9E9C94',

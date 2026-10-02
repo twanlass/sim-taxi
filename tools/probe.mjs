@@ -39,6 +39,7 @@ import { createFlatbed, CRATES, LOAD_YAW } from '../src/game/flatbed.js';
 import { TRUCK_LEN, TRUCK_BOX_LEN } from '../src/sim/traffic.js';
 import { CRATE, CRATE_REST_Y, CRATE_CHIP_REST_Y, DECK_TOP, DECK_REAR } from '../src/geometry/crate.js';
 import { createDust } from '../src/game/dust.js';
+import { createSkidMarks } from '../src/game/skidmarks.js';
 import { createSparks } from '../src/game/sparks.js';
 import { createRepairFx } from '../src/game/repairfx.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
@@ -6784,6 +6785,56 @@ check('the taxi is an ordinary car in the traffic array',
   check('the tyres fade out and the pool clears',
     opaque === 1 && fadingFrames > 20 && liveTyres() === 0 && wreck.active() === 0,
     `${fadingFrames} frames of fade, ${liveTyres()} left`);
+}
+
+// --- Skid marks: feathered stamps, streaks that fade in and out ------------------------------
+// game/skidmarks.js finds a stamp's streak by proximity, eases a streak's last marks down once it
+// has stopped, and feathers every mark to zero at its ends. All of it is alpha in a ring buffer,
+// so read the alpha: the peak vertex of each mark is (along 1, across 1) of its 4 × 4 grid.
+{
+  const skids = createSkidMarks(new THREE.Scene());
+  const geo = skids.mesh.geometry;
+  const alphaAt = (slot, v) => geo.attributes.color.array[(slot * 16 + v) * 4 + 3];
+  const peak = (slot) => alphaAt(slot, 5);
+  const dt = 1 / 60;
+  // Two wheels 2.08 apart, 0.42 per stamp, one stamp each per frame: slots alternate left, right.
+  for (let k = 0; k < 10; k++) {
+    skids.add(k * 0.42, -1.04, 0);
+    skids.add(k * 0.42, 1.04, 0);
+    skids.update(dt);
+  }
+  const left = (k) => 2 * k;
+  check('skid marks: the ends of a mark are feathered to nothing',
+    alphaAt(left(5), 0) === 0 && alphaAt(left(5), 15) === 0 && peak(left(5)) > 0,
+    `ends ${alphaAt(left(5), 0)}, ${alphaAt(left(5), 15)}; middle ${peak(left(5)).toFixed(3)}`);
+  check('...a streak fades in over its first stamps, and each wheel is its own streak',
+    peak(left(0)) < 0.5 * peak(left(5)) && peak(left(0) + 1) < 0.5 * peak(left(5) + 1),
+    `first ${peak(left(0)).toFixed(3)} / ${peak(left(0) + 1).toFixed(3)} against ${peak(left(5)).toFixed(3)}`);
+
+  // The streak stops. Its last mark must ease down, not snap, once nothing has followed it.
+  const lastBefore = peak(left(9));
+  let worstStep = 0;
+  let prevPeak = lastBefore;
+  for (let f = 0; f < 60; f++) {
+    skids.update(dt);
+    worstStep = Math.max(worstStep, prevPeak - peak(left(9)));
+    prevPeak = peak(left(9));
+  }
+  check('...and fades out over its last, eased rather than popped',
+    peak(left(9)) < 0.4 * peak(left(5)) && worstStep < 0.05,
+    `last ${lastBefore.toFixed(3)} -> ${peak(left(9)).toFixed(3)} against ${peak(left(5)).toFixed(3)}, ` +
+    `largest frame step ${worstStep.toFixed(3)}`);
+
+  const pos = geo.attributes.position.array;
+  const idx = geo.index.array;
+  let downFacing = 0;
+  for (let t = 0; t < 18 * 20; t += 3) {
+    const [a, b, c] = [idx[t], idx[t + 1], idx[t + 2]].map((i) => new THREE.Vector3().fromArray(pos, i * 3));
+    const n = b.sub(a).cross(c.sub(a));
+    if (n.y <= 0) downFacing += 1;
+  }
+  check('...and every triangle is wound to face up', downFacing === 0, `${downFacing} of 120 face down`);
+  check('...and the buffer counts what is still on the road', skids.live() === 20, `${skids.live()} live`);
 }
 
 // --- The wreck's smoke collar ----------------------------------------------
