@@ -22,6 +22,8 @@ import {
   BENCH_LEN, STATUE_PLAZA, treeParts, MEDIAN_TREE_H, MEDIAN_TREE_TRUNK,
 } from '../src/city/props.js';
 import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
+import { createGrass, planGrass, grassGeometry } from '../src/city/grass.js';
+import { createCanopyFuzz } from '../src/city/canopyfuzz.js';
 import { createDucks } from '../src/game/ducks.js';
 import { createGarage, garageSite } from '../src/city/garage.js';
 import {
@@ -809,6 +811,167 @@ const onGrass = (city, i, j) => {
   check('every face of the pond points at the sky', !!pondPlan && faces > 0 && downward === 0,
     `${faces - downward}/${faces} facing up`);
   check('and the water lies level', offLevel === 0, `${offLevel} sloping triangles`);
+}
+
+// --- The parks' grass ---------------------------------------------------------
+//
+// Hand-written cards, so their winding is asserted rather than trusted: under `FrontSide` a card
+// wound away from the camera does not draw at all (see CLAUDE.md on the boats' wake). And the
+// placement is swept over seeds the way the pond's is — the tuft through a bench is on some other
+// city than this one. Planned off the same streams `main.js` builds them from: props at +33, grass
+// at +122.
+{
+  const toCamera = new THREE.Vector3(1, 0.92, 1).normalize();
+  const built = createGrass(makeRng(seed + 122), layout, propsBuild);
+  const pos = built.mesh.geometry.attributes.position;
+  const nrm = built.mesh.geometry.attributes.normal;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  let away = 0;
+  let notUp = 0;
+  for (let i = 0; i < pos.count; i += 3) {
+    a.fromBufferAttribute(pos, i);
+    b.fromBufferAttribute(pos, i + 1);
+    c.fromBufferAttribute(pos, i + 2);
+    b.sub(a).cross(c.sub(a));
+    if (b.dot(toCamera) <= 0) away += 1;
+  }
+  for (let i = 0; i < nrm.count; i++) if (nrm.getY(i) < 0.999) notUp += 1;
+  check('every grass card is wound to face the camera', pos.count > 0 && away === 0,
+    `${pos.count / 3 - away}/${pos.count / 3} facing it`);
+  check('and lit with the lawn\'s normal rather than its own', notUp === 0, `${notUp} vertices off vertical`);
+  check('grass receives shadows and casts none',
+    built.mesh.receiveShadow && !built.mesh.castShadow && built.mesh.material.alphaTest > 0);
+
+  let tufts = 0;
+  let offLawn = 0;
+  let inWater = 0;
+  let onPlaza = 0;
+  let inBench = 0;
+  for (let s = 0; s < 30; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 41));
+    const plots = parkPlots(cityLayout);
+    const rng = makeRng(seed + s * 41 + 33);
+    const { benches, statue } = planParkFurniture(rng, plots);
+    const pond = planPond(rng, plots, statue);
+    const planned = planGrass(makeRng(seed + s * 41 + 122), cityLayout, { benches, statue, pond });
+    // The card's two ends are what has to stay on the grass, and they are read off the *built*
+    // geometry rather than re-derived from the yaw: a re-derivation shares whatever sign the
+    // planner got wrong, and this one did (π/4 − yaw for π/4 + yaw) and passed against itself.
+    const cards = grassGeometry(planned, makeRng(1)).attributes.position;
+    for (const [k, t] of planned.entries()) {
+      tufts += 1;
+      const ends = [[cards.getX(k * 6), cards.getZ(k * 6)], [cards.getX(k * 6 + 1), cards.getZ(k * 6 + 1)]];
+      const inside = plots.some(({ bounds }) => ends.every(([x, z]) =>
+        x > bounds.x0 + PARK_EDGE && x < bounds.x1 - PARK_EDGE
+        && z > bounds.z0 + PARK_EDGE && z < bounds.z1 - PARK_EDGE));
+      if (!inside) offLawn += 1;
+      if (pond && Math.hypot(t.x - pond.x, t.z - pond.z) < pond.r) inWater += 1;
+      if (statue && Math.abs(t.x - statue.x) < STATUE_PLAZA / 2
+        && Math.abs(t.z - statue.z) < STATUE_PLAZA / 2) onPlaza += 1;
+      for (const bench of benches) {
+        const cos = Math.cos(bench.yaw);
+        const sin = Math.sin(bench.yaw);
+        const dx = t.x - bench.x;
+        const dz = t.z - bench.z;
+        if (Math.abs(dx * cos - dz * sin) < BENCH_LEN / 2 && Math.abs(dx * sin + dz * cos) < 0.34) inBench += 1;
+      }
+    }
+  }
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+  check('every tuft stands wholly on a lawn', tufts > 0 && offLawn === 0, `${offLawn} of ${tufts} over the walk`);
+  check('and none in the pond, on the statue\'s plaza or under a bench', inWater + onPlaza + inBench === 0,
+    `${inWater} in water, ${onPlaza} on the plaza, ${inBench} under a bench`);
+}
+
+// --- Leaf fuzz on the crowns ---------------------------------------------------
+//
+// The crowns are recorded by `treeParts` as it builds them, and the promise that makes that safe is
+// that recording spends nothing from the stream — so a tree grown with `crowns` is byte-for-byte the
+// tree grown without. Asserted on the geometry rather than trusted, because a single stray draw
+// here moves every tree planted after it.
+{
+  const bare = treeParts(3, 4, makeRng(91));
+  const crowns = [];
+  const recorded = treeParts(3, 4, makeRng(91), { crowns });
+  const same = bare.length === recorded.length && bare.every((g, i) => {
+    const a = g.attributes.position.array;
+    const b = recorded[i].attributes.position.array;
+    return a.length === b.length && a.every((v, k) => v === b[k]);
+  });
+  check('recording a tree\'s crowns leaves the tree untouched', same && crowns.length >= 2,
+    `${crowns.length} lobes recorded`);
+
+  const fuzz = createCanopyFuzz(makeRng(seed + 144), propsBuild.crowns);
+  const pos = fuzz.mesh.geometry.attributes.position;
+  const toCamera = new THREE.Vector3(1, 0.92, 1).normalize();
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  let away = 0;
+  for (let i = 0; i < pos.count; i += 3) {
+    a.fromBufferAttribute(pos, i);
+    b.fromBufferAttribute(pos, i + 1);
+    c.fromBufferAttribute(pos, i + 2);
+    b.sub(a).cross(c.sub(a));
+    if (b.dot(toCamera) <= 0) away += 1;
+  }
+  check('every leaf card is wound to face the camera', pos.count > 0 && away === 0,
+    `${pos.count / 3 - away}/${pos.count / 3} facing it, ${propsBuild.crowns.length} lobes`);
+  check('leaf fuzz receives shadows and casts none',
+    fuzz.mesh.receiveShadow && !fuzz.mesh.castShadow && fuzz.mesh.material.alphaTest > 0);
+}
+
+// --- Soft crowns, hard everything else ------------------------------------------
+//
+// The props and buildings meshes are smooth-shaded so the crowns can light as soft masses, and the
+// only thing keeping every wall, bench and plinth faceted is that `bakeColors` gave each face its
+// own normal. So: every triangle whose vertex normals disagree with its winding has to be part of a
+// crown, and every crown has to have been softened. Across a seed sweep, because the courtyard —
+// the one crown in the buildings mesh — is one block in some cities and none in others.
+{
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const face = new THREE.Vector3();
+  const vn = new THREE.Vector3();
+  let strays = 0;
+  let soft = 0;
+  let crowned = 0;
+  const scan = (mesh, crowns) => {
+    const pos = mesh.geometry.attributes.position;
+    const nrm = mesh.geometry.attributes.normal;
+    for (let i = 0; i < pos.count; i += 3) {
+      a.fromBufferAttribute(pos, i);
+      b.fromBufferAttribute(pos, i + 1);
+      c.fromBufferAttribute(pos, i + 2);
+      face.copy(b).sub(a).cross(c.clone().sub(a));
+      if (face.lengthSq() < 1e-12) continue;
+      face.normalize();
+      let bent = false;
+      for (let k = 0; k < 3; k++) if (vn.fromBufferAttribute(nrm, i + k).dot(face) < 0.999) bent = true;
+      const inCrown = crowns.some((l) => Math.hypot(a.x - l.x, a.y - l.y, a.z - l.z) < l.r * 1.3);
+      if (bent && !inCrown) strays += 1;
+      if (inCrown) crowned += 1;
+      if (bent && inCrown) soft += 1;
+    }
+  };
+  for (let s = 0; s < 8; s++) {
+    const citySeed = seed + s * 59;
+    const cityLayout = createLayout(makeRng(citySeed));
+    const builtProps = createProps(makeRng(citySeed + 33), cityLayout);
+    const builtCity = createBuildings(makeRng(citySeed + 22), cityLayout);
+    // Generous on purpose: a trunk or a bench under a crown falls inside its 1.3 r and is let off.
+    // What this is for is a wall, a roof or a plinth going soft, which nothing near a tree is.
+    scan(builtProps.mesh, builtProps.crowns);
+    scan(builtCity.mesh, builtCity.court?.crowns ?? []);
+  }
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+  check('only the tree crowns are smooth-shaded; every other face keeps its facet', strays === 0,
+    `${strays} faceted triangles bent outside a crown`);
+  check('and the crowns themselves are soft', crowned > 0 && soft / crowned > 0.6,
+    `${soft} of ${crowned} triangles near a crown carry bent normals`);
 }
 
 // Nothing planted in the water, read off the merged mesh rather than off the plan — every part

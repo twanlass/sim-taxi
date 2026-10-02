@@ -888,7 +888,7 @@ ${SHADOW_LIGHT}`);
  * out past the ring road where the AO buffer is empty anyway, so its lookup is uniformly 1 — left
  * alone here rather than changed on spec.
  */
-export function propMaterial({ ao = true, gloss = null } = {}) {
+export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = false } = {}) {
   // Crayon and Cartoon are both paint-on-paper looks, and a skyline in a crayon drawing's bodywork
   // is a photograph stuck to it — so under either one a glossy car is an ordinary prop.
   const paint = gloss && !crayonEnabled && !cartoonEnabled ? glossShape(gloss) : null;
@@ -899,6 +899,20 @@ export function propMaterial({ ao = true, gloss = null } = {}) {
     : new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
   // Unconditional now: the shadow tint rides in the same patch and is always available. See
   // SHADOW_UNIFORMS for why it does not need a flag of its own.
+  // `cutout`: an alpha map, cut at half rather than blended, so the surface still writes depth and
+  // needs no sorting. Smooth-shaded so the geometry's own normals are the ones lit — the parks'
+  // grass cards carry the ground's normal, and a flat-shaded card would light as its own face
+  // (city/grass.js).
+  if (cutout && !paint) {
+    material.alphaMap = cutout;
+    material.alphaTest = 0.5;
+    material.flatShading = false;
+  }
+  // `smooth`: light from the geometry's own normals instead of the screen-space derivative. Facets
+  // survive it — `bakeColors` hands every non-indexed face its own normal — so the only surfaces
+  // that come out soft are the ones that were given soft normals on purpose: the tree crowns
+  // (`treeParts`, city/props.js).
+  if (smooth && !paint) material.flatShading = false;
   patchProp(material, { ao, gloss: paint });
   return material;
 }
