@@ -36,12 +36,10 @@ export const ROBBERY_CALL = { title: 'Police dispatch', line: '10-65 in progress
  * channel, because it is the same police: the bubble is how the game says "the cops are talking
  * about *you*". It is the only word the player gets that they got away — the bar going dark says it
  * too, but only to somebody looking at the car. The start of a chase needs no line of its own here:
- * the cop says it from its own roof (game/copshout.js).
+ * the cop says it from its own roof (game/copshout.js). Ducking into the depot mid-chase
+ * (`hideout` in game/patrol.js) gets the same line: from the cop's side it is the same loss.
  */
 export const LOST_CALL = { title: 'Police', line: 'Lost the suspect. Resuming patrol.' };
-
-/** ...and when the taxi lost it by ducking into the depot mid-chase (`hideout` in game/patrol.js). */
-export const HIDEOUT_CALL = { title: 'Police', line: 'Suspect went to ground. Resuming patrol.' };
 
 /**
  * How long it stays up, in seconds of game time. Long enough to read the line twice at a glance,

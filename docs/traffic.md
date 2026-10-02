@@ -2735,7 +2735,7 @@ finish.
 
 **Gone to ground** is the depot. A taxi that turns in at the driveway mid-chase calls it off on the
 frame the opening takes it off the road (`hideout`, called from the depot's `onArrive` in main.js):
-the same stand-down as lost, with dispatch saying `HIDEOUT_CALL` instead. It is no free exit — a
+the same stand-down as lost, `LOST_CALL` included. It is no free exit — a
 repair needs a damaged car and costs `REPAIR_PRICE`, and the taxi has to reach the mouth with the
 cop still behind it, which is a touch away from Busted.
 
