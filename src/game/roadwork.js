@@ -94,7 +94,25 @@ const KNOCK_R = 1.7;           // and any cone the taxi drives over, anywhere in
 const KNOCK_V = 2;             // ...as long as it is actually moving
 
 const CONE_GRAVITY = 26;
-const CONE_SETTLE = 0.3;       // fraction of a cone's flight spent easing into its resting pose
+const CONE_SETTLE = 0.3;       // fraction of the first flight spent before it starts easing flat
+
+// What happens after the first touchdown. The cone used to land on a single parabola already eased
+// into its resting pose and stop dead on that frame, horizontal speed and all — the throw was fine
+// and the ending read as a keyframe. Now each impact hands on a fraction of the vertical (a hollow
+// plastic cone is lively: 0.38 turns a 13 m/s launch into a 0.47-unit hop and a 0.07 skip), scrubs
+// off horizontal speed and tumble, and the last of the speed goes into a slide on its side that
+// decelerates to a stop while the cone rocks nose-up-and-down on its rim.
+const CONE_BOUNCE = 0.38;      // vertical restitution per impact
+const CONE_SCRUB = 0.5;        // horizontal speed kept through each impact
+const CONE_SPIN_KEEP = 0.45;   // tumble rate kept through each impact
+const CONE_MIN_HOP = 1.1;      // m/s. A rebound slower than this is 2cm of air: slide instead
+const CONE_BOUNCES = 3;        // at most
+const CONE_FRICTION = 16;      // u/s² of slide deceleration. Plastic on asphalt, and short
+const CONE_ROCK = 0.32;        // radians of nose bob at the start of the slide...
+const CONE_ROCK_W = 19;        // ...at this angular frequency...
+const CONE_ROCK_DECAY = 6;     // ...dying away at this rate
+const CONE_ROCK_TAIL = 0.5;    // seconds the rock outlasts the slide: by then it is under a degree
+const CONE_PIVOT = 0.9;        // radians of yaw per unit slid: a cone on its side swings round its tip
 
 // A cone caught by a trestle going over is thrown harder than one the taxi merely clipped: the
 // blast is the event, the cone is only reporting it. 1.5 rather than a bigger number because the
@@ -564,9 +582,6 @@ export function createRoadwork(rng, scene, camera = null) {
     cone.vx = dx * rng.range(2.6, 6.4) * kick * power + rng.jitter(1.2 * power);
     cone.vz = dz * rng.range(2.6, 6.4) * kick * power + rng.jitter(1.2 * power);
     cone.vy = Math.min(CONE_VY_MAX, rng.range(4.2, 7.6) * kick * power);
-    // Time to fall back to the road, from the same closed form the position uses. Deriving it
-    // rather than picking a duration is what keeps the settle landing exactly when the cone does.
-    cone.dur = (2 * cone.vy) / CONE_GRAVITY;
     // Was 7..15, which at a cone's flight time is a turn and a half — enough to see it move, not
     // enough to see it *flip*. At 12..26 a cone thrown by a smash turns three to five times on its
     // way up and over, which is what carries the chaos: the tumble is the thing the eye reads, not
@@ -576,6 +591,48 @@ export function createRoadwork(rng, scene, camera = null) {
     cone.axisZ = rng.range(-1, 1);
     cone.restYaw = rng.range(0, Math.PI * 2);
     cone.restTilt = rng.range(-0.35, 0.35);
+    cone.pivot = CONE_PIVOT * (rng.chance(0.5) ? 1 : -1);
+    planCone(cone);
+  }
+
+  /**
+   * Lay out a knocked cone's whole trajectory as a list of hops plus a slide, each a closed form of
+   * its own start time — so `updateCones` stays a curve of age like it always was, and nothing
+   * integrates. Flight times come from the same 2·vy/g the position uses, which is what keeps every
+   * hop ending exactly on the road.
+   */
+  function planCone(cone) {
+    const hops = [];
+    let t = 0;
+    let x = cone.x0;
+    let z = cone.z0;
+    let { vx, vz, vy } = cone;
+    let angle = 0;
+    let spin = cone.spin;
+
+    for (let n = 0; n <= CONE_BOUNCES; n++) {
+      if (n > 0) {
+        vy *= CONE_BOUNCE;
+        vx *= CONE_SCRUB;
+        vz *= CONE_SCRUB;
+        spin *= CONE_SPIN_KEEP;
+        if (vy < CONE_MIN_HOP) break;
+      }
+      const dur = (2 * vy) / CONE_GRAVITY;
+      hops.push({ t0: t, dur, x, z, vx, vz, vy, angle, spin });
+      t += dur;
+      x += vx * dur;
+      z += vz * dur;
+      angle += spin * dur;
+    }
+
+    const speed = Math.hypot(vx, vz);
+    cone.hops = hops;
+    cone.flight = hops[0].dur;
+    cone.landed = t;
+    cone.slide = { x, z, angle, speed, dx: speed ? vx / speed : 0, dz: speed ? vz / speed : 0 };
+    cone.slideDur = speed / CONE_FRICTION;
+    cone.dur = t + cone.slideDur + CONE_ROCK_TAIL;
   }
 
   /**
@@ -742,18 +799,48 @@ export function createRoadwork(rng, scene, camera = null) {
       // Closed form, like the blast's shards: position is a curve of age rather than an integrated
       // velocity, so nothing accumulates and a slow-motion frame is the same shape as a full-speed
       // one. Unlike the shards these come to rest — the camera is still here afterwards.
-      cone.x = cone.x0 + cone.vx * age;
-      cone.z = cone.z0 + cone.vz * age;
-      cone.y = Math.max(CONE_REST_Y, cone.vy * age - 0.5 * CONE_GRAVITY * age * age);
+      let angle;
+      let yawDrift = 0;
+      let rock = 0;
+      if (age < cone.landed) {
+        let hop = cone.hops[0];
+        for (const h of cone.hops) if (age >= h.t0) hop = h;
+        const t = age - hop.t0;
+        cone.x = hop.x + hop.vx * t;
+        cone.z = hop.z + hop.vz * t;
+        // The first flight leaves from the road, as it always did; a rebound leaves from a cone
+        // already lying on its side.
+        const base = hop === cone.hops[0] ? 0 : CONE_REST_Y;
+        cone.y = Math.max(CONE_REST_Y, base + hop.vy * t - 0.5 * CONE_GRAVITY * t * t);
+        angle = hop.angle + hop.spin * t;
+      } else {
+        // Sliding to a stop on its side, decelerating at a constant rate, swinging round its own
+        // tip as it goes and rocking on its rim. Both start from zero, so the hand-over from the
+        // last hop is seamless.
+        const sl = cone.slide;
+        const t = Math.min(age - cone.landed, cone.slideDur);
+        const d = sl.speed * t - 0.5 * CONE_FRICTION * t * t;
+        cone.x = sl.x + sl.dx * d;
+        cone.z = sl.z + sl.dz * d;
+        cone.y = CONE_REST_Y;
+        angle = sl.angle;
+        yawDrift = cone.pivot * d;
+        const r = age - cone.landed;
+        rock = age >= cone.dur ? 0
+          : CONE_ROCK * Math.exp(-CONE_ROCK_DECAY * r) * Math.sin(CONE_ROCK_W * r);
+      }
 
       spinAxis.set(cone.axisX, 0, cone.axisZ).normalize();
-      qTumble.setFromAxisAngle(spinAxis, cone.spin * age);
-      const settle = clamp01((age / cone.dur - (1 - CONE_SETTLE)) / CONE_SETTLE);
+      qTumble.setFromAxisAngle(spinAxis, angle);
+      // Eased flat from late in the first flight to the end of the last hop, so the bounces still
+      // carry some of the tumble and the slide starts from exactly the resting pose.
+      const from = cone.flight * (1 - CONE_SETTLE);
+      const settle = clamp01((age - from) / Math.max(1e-6, cone.landed - from));
       if (settle > 0) {
         // Lying on its side: a quarter turn about a horizontal axis, under a yaw of its own. Eased
         // in by slerp rather than by blending Eulers, which gimbals through the flat pose and makes
         // a cone snap ninety degrees in the last frame.
-        restEuler.set(Math.PI / 2 + cone.restTilt, cone.restYaw, 0);
+        restEuler.set(Math.PI / 2 + cone.restTilt + rock, cone.restYaw + yawDrift, 0);
         qRest.setFromEuler(restEuler);
         qTumble.slerp(qRest, smoothstep(settle));
       }
