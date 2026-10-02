@@ -7225,6 +7225,18 @@ check('the taxi is an ordinary car in the traffic array',
     if (Math.hypot(g.x - cop.x, g.z - cop.z) > 0.6) adrift += 1;
     nearest = Math.min(nearest, gap);
   }
+  // Out of the fleet at its hold line, the cruiser drives itself off the island (`police.release`):
+  // follow it until the patrol retires it, noting where it was when the dissolve began.
+  const slabAlong = (g) => Math.max(Math.abs(g.x) - SLAB_X / 2, Math.abs(g.z) - SLAB_Z / 2);
+  let fadeStartedPast = null;
+  let looseFrames = 0;
+  for (let step = 0; step < 60 * 20 && pPatrol.state.phase === 'exiting'; step++) {
+    const before = pPolice.state.fade;
+    tick();
+    looseFrames += 1;
+    if (fadeStartedPast === null && pPolice.state.fade < before) fadeStartedPast = slabAlong(pPolice.group.position);
+  }
+  exitingFrom = retiredAt;
   check('it dissolves in rather than appearing', fadeAtArrival < 0.1 && fadedInBy !== null
     && fadedInBy <= FADE_TIME + 0.1, `fade ${fadeAtArrival.toFixed(2)} on arrival, whole by ${fadedInBy?.toFixed(2)}s`);
   check('on patrol its bar swings red and blue, never strobing', swinging > 0,
@@ -7242,8 +7254,13 @@ check('the taxi is an ordinary car in the traffic array',
     && Math.hypot(exitingFrom.x - cameIn.x, exitingFrom.z - cameIn.z) > 3 * PITCH,
     exitingFrom ? `${offEdge(exitingFrom.x, exitingFrom.z).toFixed(1)} from the ring, `
       + `${Math.hypot(exitingFrom.x - cameIn.x, exitingFrom.z - cameIn.z).toFixed(0)} from where it came in` : 'never exited');
-  check('...dissolving out, and off the road only once it has', retiredAt !== null && fadeOnRetire === 0
-    && pPatrol.state.phase === 'off', `fade ${fadeOnRetire} when retired`);
+  // Leaves the fleet whole and dissolves only once it is off the asphalt — the fade used to start
+  // at the exit junction, on the ring and in frame ("fading out mid city").
+  check('...out of traffic still whole, driving off the island and dissolving past its edge',
+    retiredAt !== null && fadeOnRetire === 1 && fadeStartedPast !== null && fadeStartedPast >= 0
+    && pPatrol.state.phase === 'off',
+    `fade ${fadeOnRetire} leaving the fleet, dissolve from ${fadeStartedPast?.toFixed(1)} past the slab, `
+      + `${(looseFrames / 60).toFixed(1)}s off-network`);
   const shellShown = pPolice.group.children.some((c) => !c.isLight && c.visible);
   check('...and the cruiser goes dark and hidden until the next', !pPolice.state.active
     && !pPolice.state.lit && !shellShown && pPatrol.state.cooldown >= pPatrol.state.cooldownRange[0]);

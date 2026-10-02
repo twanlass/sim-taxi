@@ -2775,16 +2775,27 @@ only a shell one level in is hidden, so the two lamps stay in the scene's light 
 |---|---|
 | `off` | a cooldown off the difficulty ramp (`policeCooldown`, 16–30s falling to 8–14s) |
 | `patrol` | crossing: in at one edge, through a corner within `PATROL_REACH` (1 block) of the taxi (`PATROL_TIME`, 25s, caps that leg), out at the opposite edge; bar swinging |
-| `exiting` | dissolving at the far edge (`FADE_TIME`), then retired |
+| `exiting` | out of traffic, driving straight off the island (`police.release`), dissolving past the slab's edge, then retired |
 | `chase` | it spotted you — bar strobing at the hunting rate, driving at you |
 | `leaving` | routed to the far corner, retired by `retirePolice` once out of sight |
 
 **It crosses the map.** `enter` picks an axis, puts the car on the edge of the island furthest from
 the taxi across it and level with the taxi along it (`enterPolice` handed that edge junction, which
-still never places a car in frame), and picks an exit anywhere along the opposite edge. It
-**dissolves in** over `FADE_TIME` (0.8s) and **out** at the exit, where it is retired only once the
-fade reaches zero: the materials use `alphaHash`, a define set once at construction, so the car stays
-in the opaque pass and the AO prepass and nothing relinks when it fades.
+still never places a car in frame), and picks an exit anywhere along the opposite edge but its
+corners. It **dissolves in** over `FADE_TIME` (0.8s): the materials use `alphaHash`, a define set
+once at construction, so the car stays in the opaque pass and the AO prepass and nothing relinks when
+it fades.
+
+**It drives off the map to leave.** The out leg is routed onto the *lane* running into the ring at the
+exit, pointed off the island (`findRouteOnto`), and the frame the car sets off from that hold line —
+the ring is give-way, so that is the frame the ring has been judged clear — it leaves the fleet
+through `retirePolice` and `police.release` carries the mesh straight on by itself, across the ring
+and over the asphalt, bar still swinging. The dissolve starts only once it crosses the slab's edge
+(`SLAB_X/2`), so it happens over the fade skirt rather than on a road. It used to dissolve *at* the
+exit junction, which is on the ring and in frame whenever the camera is near that side of town, and
+was reported as the patrol "fading out mid city". The probe measures ~4s off-network. The cost: for
+those seconds it is not a car in traffic, so ring traffic does not queue for it and the taxi cannot
+hit it.
 
 **The in leg goes past you, not at you**: routed to a corner within one block of the taxi — the one
 of six drawn that is the **shortest route** away, re-drawn whenever the taxi drives more than
