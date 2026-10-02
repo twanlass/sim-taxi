@@ -128,6 +128,10 @@ export const BLOOM_INTENSITY = {
    * nothing: `refreshEmissive` retires an emitter whose kind is dialled to zero.
    */
   path: 0,
+  /** A boost orb on the road (game/orbs.js). A small bright ball whose glow *is* the read — it has
+   *  to be spotted across town to be routed for — so it sits with the lamps rather than with the
+   *  read-outs above. */
+  orb: 2.4,
 };
 
 /** The keys of `BLOOM_INTENSITY`, in panel order — the ⚙️ panel builds a row per kind off this. */

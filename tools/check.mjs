@@ -32,7 +32,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/runend.js',
   '../src/game/impact.js', '../src/game/taxidamage.js', '../src/game/taxidoor.js',
   '../src/util/viewport.js',
-  '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
+  '../src/game/energybits.js', '../src/game/orbs.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
   '../src/game/ssao.js', '../src/game/crayon.js', '../src/game/cartoon.js',
   '../src/game/bloom.js', '../src/game/hdr.js',
   '../src/game/diag.js', '../src/game/recovery.js', '../src/game/pause.js', '../src/game/inspect.js',
