@@ -1673,11 +1673,14 @@ replaced, an opacity.
 ### The replay
 
 `game/replay.js`. A wreck no longer goes straight from the live beat to the retry card. After
-`REPLAY_LEAD` (1.5s) of the slow-mo pull-in, the frame cuts to a letterboxed **replay**: the last
-second or so before the hit and half a second after it, in slow motion, from a camera swung ~35° off
-the fixed diagonal, then a jump cut to the same moment from the other side, tighter, and then the card
-(`REPLAY_TAIL` later). Any tap or key skips straight to the card. A bust and a timeout keep the old
-hold, as does shot mode.
+`REPLAY_LEAD` (1.2s) of the slow-mo pull-in, the frame cuts to the moment of impact three more
+times, about a second each: from ~35° off the fixed diagonal, from ~35° the other way, then square
+on and tightest. Cut, crash, cut, crash, cut, crash, card. Each shot opens 0.3s of sim before the
+hit and plays at 0.8× into it and 0.5× through the blast, with a white flash on each cut and the
+crash sound under each one — about 3.2s for all three. There is no letterbox or REPLAY tag: the
+first version had both, played the whole approach in slow motion over two longer angles, and ran
+~7s from crash to card. Any tap or key skips straight to the card. A bust and a timeout keep the
+old hold, as does shot mode.
 
 **It is a recording, not a re-run.** Nothing in the sim can be stepped backwards, and re-firing the
 blast for the camera would have been a *different* explosion. So `createTape` samples, at 30Hz of sim
@@ -1696,11 +1699,11 @@ stand where the live beat left them. The wreck shells are scrubbed alongside wit
 which is free because they were already a closed form of their age; the struck car's shell is
 hidden before the impact (`hideBefore`), because until then that car was an instance on the tape.
 
-**The live beat is also the recording of the aftermath.** Each shot plays out `POST` (0.55s of sim)
-past the hit, and the only frames after the hit are the ones the live beat recorded. Under the
-slow-mo ramp 1.5s of wall clock is ~0.71s of sim, which is the floor on `REPLAY_LEAD`.
+**The live beat is also the recording of the aftermath.** The longest shot plays `REPLAY_POST`
+(0.45s of sim) past the hit, and the only frames after the hit are the ones the live beat recorded.
+Under the slow-mo ramp 1.2s of wall clock is ~0.49s of sim, which is the floor on `REPLAY_LEAD`.
 
-**Each angle is picked so it can see the crash.** A ~35° swing has never been looked down before,
+**Each swung angle is picked so it can see the crash.** A ~35° swing has never been looked down before,
 and a tower between the camera and the wreck is the one way this fails outright. `pickYaw` marches
 the swung view direction through the same height field the fare board's corner test uses
 (`game/sightline.js`) from the impact and two points back along the approach, and takes the first

@@ -952,8 +952,8 @@ const tape = shot ? null : createTape(scene, {
 const replayOverlay = document.getElementById('replay');
 const replay = tape && createCrashReplay({
   tape, controller, aspect, wreckage, taxiGroup: traffic.taxiGroup, overlay: replayOverlay,
-  // The bang again on each angle, a little under the live one: it is the same crash being shown,
-  // and at full gain the second cut reads as a second collision.
+  // The bang again on each cut, a little under the live one: it is the same crash being shown,
+  // and at full gain each cut reads as another collision.
   onImpact: () => sfx?.play('crash', { gain: 0.75 }),
   hide: [clouds.group],
 });
@@ -1232,16 +1232,17 @@ let crashBannerAt = null;
 let slowMoUntil = 0;
 let slowMoMin = SLOW_MO_MIN;
 
-// The wreck's replay (game/replay.js): after the live beat, two slow-motion angles on the crash cut
-// from a recording, then the retry card. The live beat is shortened to make room for it — it was
-// the whole CRASH_BANNER_DELAY and is now REPLAY_LEAD — and it has a floor that is not a matter of
-// taste: the replay can only show what the tape recorded, and the tape records the seconds after
-// the impact *during* this beat. Under the slow-mo ramp (SLOW_MO_MIN 0.18 rising over 2100ms) 1.5s
-// of wall clock is ~0.71s of sim, against the 0.55 each shot plays out past the hit.
+// The wreck's replay (game/replay.js): after the live beat, three quick cuts on the moment of
+// impact from a recording, then the retry card. The live beat is shortened to make room for it —
+// it was the whole CRASH_BANNER_DELAY and is now REPLAY_LEAD — and it has a floor that is not a
+// matter of taste: the replay can only show what the tape recorded, and the tape records the
+// seconds after the impact *during* this beat. Under the slow-mo ramp (SLOW_MO_MIN 0.18 rising
+// over 2100ms) 1.2s of wall clock is ~0.49s of sim, against the REPLAY_POST (0.45) the longest
+// shot plays out past the hit. A shot asking for more than was recorded is cut short, not broken.
 //
 // Not in shot mode — a still has no replay to show — and not for a bust or a timeout: nothing
 // happened fast enough in either to be worth seeing twice.
-const REPLAY_LEAD = 1500;
+const REPLAY_LEAD = 1200;
 // The breath between the last frame of the replay and the card sliding in — long enough that the
 // card arrives on the live wreck rather than on the cut, and that a tap which skipped the replay has
 // let go before the card is there to take it as a tap on the tally.

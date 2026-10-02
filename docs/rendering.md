@@ -170,7 +170,7 @@ pushes `punch` in.
 
 **One thing turns it, and only during a cut scene.** `state.yaw` swings the view about world Y, and
 it is zero for the whole of play. The crash replay ([traffic.md](traffic.md#the-replay)) sets it
-with `cutTo` for its two angles and hands it back at zero. Everything that is the arithmetic of the
+with `cutTo` for its swung cuts and hands it back at zero. Everything that is the arithmetic of the
 fixed view is wrong while it is off zero: `BILLBOARD`, `RIGHT`/`UP`, the sightline's `RISE`, and the
 clouds' ring placement. That is acceptable only because the replay hides the HUD, freezes the world
 and frames the crash too tightly for any of it to be in shot. Anything that wants a turned camera

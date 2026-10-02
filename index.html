@@ -662,41 +662,17 @@
 
       body.shot-mode #hud, body.shot-mode #run-end { display: none; }
 
-      /* The crash replay (game/replay.js): letterbox bars, a REPLAY tag and the white flash on each
-         cut. Under the run-end card (30) and over everything the HUD leaves, and the whole thing is
-         one tap target — a tap anywhere skips to the card. The HUD goes for the length of it: the
-         replay is a cut scene, and a money counter over a slow-motion fireball is a game still
-         running underneath one. */
+      /* The crash replay (game/replay.js): nothing on screen but the white flash on each cut. It
+         had a letterbox and a REPLAY tag and lost both — the cuts say "replay" on their own, and
+         the bars took a fifth of a phone's height off a shot that is about a second long. The
+         element is still one full-screen tap target: a tap anywhere skips to the card. The HUD
+         goes for the length of it — a money counter over a slow-motion fireball is a game still
+         running underneath a cut scene. */
       #replay {
         position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 25;
         pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none;
       }
       #replay[hidden] { display: none; }
-      #replay .replay-bar {
-        position: absolute; left: 0; right: 0; background: #000;
-        animation: replay-bar-in 0.28s ease-out both;
-      }
-      #replay .replay-bar.top { top: 0; height: calc(9vh + var(--safe-top)); transform-origin: top; }
-      #replay .replay-bar.bottom { bottom: 0; height: calc(9vh + var(--safe-bottom)); transform-origin: bottom; }
-      @keyframes replay-bar-in { from { transform: scaleY(0); } to { transform: scaleY(1); } }
-      #replay .replay-tag {
-        position: absolute; pointer-events: none;
-        top: calc(var(--safe-top) + 4.5vh); left: calc(var(--safe-left) + 20px); translate: 0 -50%;
-        font: 900 18px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
-        letter-spacing: 0.18em; color: #fff;
-        display: flex; align-items: center; gap: 10px;
-      }
-      #replay .replay-tag::before {
-        content: ""; width: 12px; height: 12px; border-radius: 50%; background: #ff3b30;
-        animation: replay-blink 1s steps(2, jump-none) infinite;
-      }
-      @keyframes replay-blink { 50% { opacity: 0; } }
-      #replay .replay-skip {
-        position: absolute; pointer-events: none;
-        bottom: calc(var(--safe-bottom) + 4.5vh); right: calc(var(--safe-right) + 20px); translate: 0 50%;
-        font: 700 13px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
-        letter-spacing: 0.12em; color: rgba(255, 255, 255, 0.6);
-      }
       #replay .replay-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
       body.replaying #hud, body.replaying #pause, body.replaying #boost, body.replaying #boost-meter,
       body.replaying #brake, body.replaying #rider-finder-stack, body.replaying #taxi-finder,
@@ -1668,11 +1644,7 @@
     <div id="home-tip" hidden></div>
     <div id="wipe" aria-hidden="true" hidden></div>
     <div id="replay" aria-hidden="true" hidden>
-      <div class="replay-bar top"></div>
-      <div class="replay-bar bottom"></div>
       <div class="replay-flash"></div>
-      <span class="replay-tag">REPLAY</span>
-      <span class="replay-skip">TAP TO SKIP</span>
     </div>
     <div id="run-end" hidden></div>
 

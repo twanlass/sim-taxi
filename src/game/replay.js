@@ -1,8 +1,9 @@
-// The crash replay: the wreck shown again, twice, from two angles the game never otherwise uses.
+// The crash replay: the moment of impact shown three more times, in quick cuts from three angles.
 //
 // A wreck ends the run with a live beat — the slow-mo pull-in main.js has always done — and then,
-// instead of going straight to the retry card, this cuts to a slow-motion replay of the last second
-// and a half from one side of the fixed diagonal, cuts again to the other side, and hands back.
+// instead of going straight to the retry card, this cuts to the hit from one side of the fixed
+// diagonal, cuts to it from the other side, cuts to it again tight on the diagonal, and hands back:
+// cut, crash, cut, crash, cut, crash. Each shot is about a second, opening a beat before the hit.
 //
 // Two halves, both here:
 //
@@ -14,8 +15,8 @@
 //     fireball in the replay *is* the fireball the player saw rather than a second one fired to
 //     look like it. Re-firing was the first idea and it would have been a different explosion.
 //   - **The director** (`createCrashReplay`). Scrubs the tape, eases the playback rate down into
-//     the impact, picks two camera swings off the fixed diagonal that can actually see the crash,
-//     and owns the letterbox and the cuts.
+//     the impact, picks camera swings off the fixed diagonal that can actually see the crash,
+//     and owns the cuts.
 //
 // What it does *not* record is everything else: boats, pedestrians, the sky, the clouds, skid
 // marks. The world is frozen for the replay (main.js skips the whole update block), so those stand
@@ -296,24 +297,27 @@ export function createTape(scene, { roots = [], exclude = () => false } = {}) {
 
 // --- The director --------------------------------------------------------------------------------
 
-// The two shots. Each starts `pre` sim seconds before the impact and runs to POST after it, and
-// pushes in from `zoomFrom` to `zoomTo` (frustum half-heights; the live beat holds at 26). The first
-// starts early enough to see the taxi coming; the second is the jump cut — closer, tighter, the
-// other side, starting just before the hit.
+// The three cuts. Each opens `pre` sim seconds before the impact — just enough to see the two cars
+// meet, not the approach — runs `post` past it, and pushes in from `zoomFrom` to `zoomTo` (frustum
+// half-heights; the live beat holds at 26). `side` is which way off the diagonal it swings: one
+// side, the other, then square on and tightest for the last word. The rhythm is the point — a first
+// cut that opened a second early and played the whole approach read as a replay *package*, and the
+// three-beat stutter reads as the crash being too big to show once.
 const SHOTS = [
-  { pre: 1.1, zoomFrom: 21, zoomTo: 15, side: 1 },
-  { pre: 0.45, zoomFrom: 15, zoomTo: 11, side: -1 },
+  { pre: 0.3, post: 0.3, zoomFrom: 17, zoomTo: 14, side: 1 },
+  { pre: 0.3, post: 0.3, zoomFrom: 14, zoomTo: 11.5, side: -1 },
+  { pre: 0.3, post: 0.45, zoomFrom: 11, zoomTo: 9, side: 0 },
 ];
-// How long after the impact each shot runs, in sim seconds. Capped by what the tape actually holds
-// — the live beat before the replay is what records it (see REPLAY_LEAD in main.js).
-const POST = 0.55;
+// The furthest past the impact any shot plays, in sim seconds. The tape only holds what the live
+// beat recorded after the hit, which is what sets REPLAY_LEAD's floor in main.js.
+export const REPLAY_POST = Math.max(...SHOTS.map((s) => s.post));
 
-// Playback rate, as a fraction of real time: near full speed on the approach, easing into slow
-// motion over the last RAMP seconds before the hit and holding there through it. Wall time per
-// shot comes to ~3.0s for the first and ~2.2s for the second.
-const FAST = 0.85;
-const SLOW = 0.3;
-const RAMP = 0.35;
+// Playback rate, as a fraction of real time: near full speed into the hit, dropping over the last
+// RAMP seconds before it and holding there through the blast. At these numbers a 0.3 + 0.3 shot is
+// ~0.95s of wall clock and the last ~1.25s — about 3.2s for all three.
+const FAST = 0.8;
+const SLOW = 0.5;
+const RAMP = 0.12;
 
 // How far each shot swings off the fixed diagonal, in degrees — tried in this order on each side
 // and the first one that can see the crash wins (see `scoreYaw`). Kept within 50° on purpose: the
@@ -375,6 +379,7 @@ function scoreYaw(points, yaw) {
 }
 
 function pickYaw(points, side) {
+  if (!side) return 0;
   let best = null;
   let bestScore = -1;
   for (const deg of YAW_CHOICES) {
@@ -391,7 +396,7 @@ function pickYaw(points, side) {
  * @param aspect      () => the viewport's aspect ratio
  * @param wreckage    game/wreckage.js — scrubbed alongside the tape with `seek`
  * @param taxiGroup   the taxi's drawn group, which the camera tracks on the approach
- * @param overlay     the `#replay` element: letterbox, tag and flash
+ * @param overlay     the `#replay` element: the flash on each cut, and the tap that skips
  * @param onImpact    called each time a shot crosses the moment of impact — the sound
  * @param hide        objects taken out of the picture for the length of the replay: anything
  *                    placed by where it lands on *screen* rather than in the world, which a swung
@@ -425,7 +430,7 @@ export function createCrashReplay({
     run.index = index;
     run.shot = shot;
     run.from = Math.max(crash.t0 - shot.pre, run.tapeStart);
-    run.to = crash.t0 + run.post;
+    run.to = crash.t0 + Math.max(0, Math.min(shot.post, run.recorded));
     run.t = run.from;
     run.hit = false;
     run.yaw = run.yaws[index];
@@ -457,7 +462,7 @@ export function createCrashReplay({
       // carries on easing in from exactly where it was, as if the replay had never cut in.
       live: { x: target.x, z: target.z, zoom },
       tapeStart: span.start,
-      post: Math.max(0, Math.min(POST, span.end - crash.t0)),
+      recorded: span.end - crash.t0,
       yaws: SHOTS.map((s) => pickYaw(points, s.side)),
     };
     run.shown = hide.map((o) => o.visible);
