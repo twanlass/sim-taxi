@@ -45,7 +45,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/cargochip.js',
   '../src/game/tutorial.js', '../src/game/highscores.js', '../src/game/locostash.js',
   '../src/util/platform.js', '../src/util/haptics.js',
-  '../src/lab/labroad.js'];
+  '../src/lab/labroad.js', '../src/util/paint.js', '../src/geometry/skins.js'];
 
 const TOOLS = [
   // Runs first: it is the control on every later step. If the road network stops describing the
@@ -72,6 +72,9 @@ const TOOLS = [
   // The passing lab at /lab/. Nothing else imports `src/lab/`, so without this the one page in
   // the project whose entire job is to be looked at could stop working silently.
   { name: 'lab',     args: ['tools/lab.mjs'],          pick: /(\d+\/\d+) checks passed/ },
+  // The paint garage at /garage/: the skin codec, the rest pose every painted part is stamped
+  // with, and the shader patch. A stamping slip opens a door bare and says nothing.
+  { name: 'garage',  args: ['tools/garage.mjs'],       pick: /(\d+\/\d+) checks passed/ },
 ];
 
 let failed = 0;

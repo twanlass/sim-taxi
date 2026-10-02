@@ -7,6 +7,8 @@ import {
   lightPodGeometry, brakeLightAnchors, turnSignalAnchors, brakeLightMaterial, turnSignalMaterial,
 } from './lights.js';
 import { addGhostOutline, addGhostMask } from './ghostoutline.js';
+import { stampPaintPos } from '../util/paint.js';
+import { getSkin } from './skins.js';
 
 // The player's taxi. Built as its own Group rather than an instance in the traffic InstancedMesh
 // because it needs to be raycast against for picking, and because it wears things the ambient cars
@@ -66,6 +68,13 @@ export function createTaxiMesh() {
   const group = new THREE.Group();
   group.name = 'taxi';
 
+  // The garage's paint (util/paint.js). Every panel that shows the car's colour samples it — the
+  // shell, both steered wheels, the door skins and the boot lid and bonnet — each stamped with where
+  // it sits *at rest*, so paint put on a shut door is still on it when it swings open. The roof
+  // sign, the lamps, the bumper and the dark openings stay bare: the sign's colour is a state (lit
+  // means a rider), and the rest are trim that only shows while something has gone wrong.
+  const paint = getSkin('taxi');
+
   const parts = [];
 
   // Proportions match the ambient cars so the taxi reads as the same class of vehicle.
@@ -116,7 +125,7 @@ export function createTaxiMesh() {
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 
-  const shell = new THREE.Mesh(merged, propMaterial());
+  const shell = new THREE.Mesh(stampPaintPos(merged), propMaterial({ paint }));
   shell.castShadow = true;
   // ...and receives, like every ambient car — see the note over the traffic meshes in
   // sim/traffic.js for what that costs and why it is not behind a flag.
@@ -134,11 +143,11 @@ export function createTaxiMesh() {
 
   // Steered front wheels. One shared material, one mesh each, pivoting about their own hubs — the
   // group's transform carries them along, so nothing here has to know where the taxi is.
-  const wheelMaterial = propMaterial();
+  const wheelMaterial = propMaterial({ paint });
   const steered = wheelAnchors(CAR_LEN, CAR_W)
     .filter((anchor) => anchor.front)
     .map((anchor) => {
-      const wheel = new THREE.Mesh(wheelGeometry(), wheelMaterial);
+      const wheel = new THREE.Mesh(stampPaintPos(wheelGeometry(), anchor), wheelMaterial);
       wheel.position.set(anchor.x, anchor.y, anchor.z);
       wheel.castShadow = true;
       wheel.receiveShadow = true;
@@ -231,8 +240,8 @@ export function createTaxiMesh() {
     addGhostOutline(light, { rim: 0.08 });
   }
 
-  const damage = buildDamage(group, lightPods);
-  const door = buildDoors(group);
+  const damage = buildDamage(group, lightPods, paint);
+  const door = buildDoors(group, paint);
 
   // Slightly oversized against ambient traffic. The player has to find this car at a glance in a
   // street full of identically shaped vehicles.
@@ -361,7 +370,7 @@ export function taxiDoorPoint(car, side, out = 0, target = { x: 0, z: 0 }) {
   return target;
 }
 
-function buildDoors(group) {
+function buildDoors(group, paint) {
   const doors = new Map();
   const panels = [];
   const gaps = [];
@@ -378,7 +387,9 @@ function buildDoors(group) {
 
     const hinge = new THREE.Group();
     hinge.position.set(DOOR_HINGE_X, 0, side * DOOR_Z);
-    const panel = new THREE.Mesh(merged, propMaterial());
+    const panel = new THREE.Mesh(
+      stampPaintPos(merged, hinge.position), propMaterial({ paint }),
+    );
     panel.castShadow = true;
     panel.receiveShadow = true;
     panel.userData.pickable = 'taxi';
@@ -465,7 +476,7 @@ const LAMP_WIRE = 0.6;            // socket to the centre of the housing
 const LAMP_OUT = 0.06;            // the socket sits this far proud of the bumper face
 const LAMP_SIZE = [0.24, 0.46, 0.46];
 
-function buildDamage(group, lightPods) {
+function buildDamage(group, lightPods, paint) {
   // The boot lid, on a hinge at the back of the cabin, over a dark opening that only shows when the
   // lid is up. The lid's underside sits exactly on the body's top face, and that is fine: it faces
   // down and is culled before it can fight anything (see the coplanar notes in CLAUDE.md).
@@ -473,7 +484,9 @@ function buildDamage(group, lightPods) {
   bootHinge.position.set(BOOT_HINGE_X, BODY_TOP, 0);
   const lidGeo = new THREE.BoxGeometry(BOOT_LEN, 0.06, CAR_W * 0.94);
   lidGeo.translate(-BOOT_LEN / 2, 0.03, 0);
-  const lid = new THREE.Mesh(bakeColor(lidGeo, color('taxiBody')), propMaterial());
+  const lid = new THREE.Mesh(
+    stampPaintPos(bakeColor(lidGeo, color('taxiBody')), bootHinge.position), propMaterial({ paint }),
+  );
   lid.castShadow = true;
   lid.receiveShadow = true;
   lid.userData.pickable = 'taxi';
@@ -492,7 +505,9 @@ function buildDamage(group, lightPods) {
   hoodHinge.position.set(HOOD_HINGE_X, BODY_TOP, 0);
   const hoodGeo = new THREE.BoxGeometry(HOOD_LEN, 0.06, CAR_W * 0.94);
   hoodGeo.translate(HOOD_LEN / 2, 0.03, 0);
-  const hood = new THREE.Mesh(bakeColor(hoodGeo, color('taxiBody')), propMaterial());
+  const hood = new THREE.Mesh(
+    stampPaintPos(bakeColor(hoodGeo, color('taxiBody')), hoodHinge.position), propMaterial({ paint }),
+  );
   hood.castShadow = true;
   hood.receiveShadow = true;
   hood.userData.pickable = 'taxi';

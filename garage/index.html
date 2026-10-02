@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sim Taxi — garage</title>
+    <!-- A workbench at /garage/, like /lab/: no manifest, no icons, no service worker, and nothing
+         in the game links here. See docs/garage.md. -->
+    <meta name="robots" content="noindex" />
+    <style>
+      :root { color-scheme: light; }
+      /* On `*` rather than on the root, because `touch-action` does not inherit — same rule as the
+         game page and the lab. */
+      * { margin: 0; padding: 0; box-sizing: border-box; touch-action: manipulation; }
+      html, body {
+        width: 100%; height: 100%; overflow: hidden; background: #dcedf7;
+        user-select: none; -webkit-user-select: none;
+        -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+        font: 600 13px/1.5 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+      }
+      canvas { display: block; touch-action: none; }
+
+      /* The lab's panel, a little taller. Deliberately plain for the reason the lab gives. */
+      #garage-panel {
+        position: fixed; top: 14px; left: 14px; bottom: 14px; z-index: 20;
+        width: 268px; overflow-y: auto;
+        display: flex; flex-direction: column; gap: 10px;
+        padding: 12px 14px; border-radius: 12px;
+        background: rgba(22, 30, 38, 0.78); color: #eef3f7;
+        backdrop-filter: blur(6px);
+        box-shadow: 0 6px 22px rgba(12, 24, 34, 0.28);
+      }
+      @media (max-height: 640px) { #garage-panel { bottom: auto; max-height: calc(100% - 28px); } }
+      #garage-panel h1 {
+        font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+        opacity: 0.62; font-weight: 700;
+      }
+      #garage-panel h2 {
+        font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+        opacity: 0.5; font-weight: 700; margin-bottom: -4px;
+      }
+      .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .seg button, .act {
+        padding: 5px 10px; border: 0; border-radius: 999px; cursor: pointer;
+        background: rgba(255, 255, 255, 0.12); color: inherit; font: inherit;
+      }
+      .seg button.on { background: #F5C130; color: #16120a; font-weight: 800; }
+      .act.primary { background: #F5C130; color: #16120a; font-weight: 800; }
+      .act:disabled { opacity: 0.4; cursor: default; }
+      label.slider { display: grid; grid-template-columns: 62px 1fr 44px; align-items: center; gap: 8px; }
+      label.slider input { width: 100%; accent-color: #F5C130; }
+      label.check { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+      .value { text-align: right; font-variant-numeric: tabular-nums; opacity: 0.8; }
+      #colour { width: 44px; height: 30px; border: 0; padding: 0; background: none; cursor: pointer; }
+      #hex { font-variant-numeric: tabular-nums; opacity: 0.85; }
+      #swatches {
+        display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px;
+        max-height: 132px; overflow-y: auto; padding-right: 2px;
+      }
+      #swatches button {
+        aspect-ratio: 1; border-radius: 5px; cursor: pointer;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+      }
+      #swatches button.on { outline: 2px solid #F5C130; outline-offset: 1px; }
+      .hint { font-size: 11px; font-weight: 600; opacity: 0.55; line-height: 1.45; }
+      #status { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+      #status.dirty::before { content: "● "; color: #F5C130; }
+    </style>
+  </head>
+  <body>
+    <div id="garage-panel">
+      <h1>Garage · Taxi</h1>
+
+      <h2>Brush</h2>
+      <div class="row seg" id="tools">
+        <button type="button" data-tool="paint" class="on">Paint</button>
+        <button type="button" data-tool="erase">Erase</button>
+        <button type="button" data-tool="pick">Pick</button>
+      </div>
+      <label class="slider">Size
+        <input id="size" type="range" min="1" max="10" step="1" value="3" />
+        <span class="value" id="size-value"></span>
+      </label>
+      <label class="check"><input id="mirror" type="checkbox" checked /> Mirror left ↔ right</label>
+
+      <h2>Colour</h2>
+      <div class="row">
+        <input id="colour" type="color" value="#16120a" />
+        <span id="hex"></span>
+      </div>
+      <div id="swatches"></div>
+
+      <h2>View</h2>
+      <div class="row seg" id="views">
+        <button type="button" data-view="orbit" class="on">Orbit</button>
+        <button type="button" data-view="game">Game camera</button>
+      </div>
+      <label class="slider" id="zoom-row">Zoom
+        <input id="zoom" type="range" min="4" max="52" step="1" value="52" />
+        <span class="value" id="zoom-value"></span>
+      </label>
+      <label class="slider">Hour
+        <input id="hour" type="range" min="5" max="21" step="0.1" value="16.4" />
+        <span class="value" id="hour-value"></span>
+      </label>
+      <label class="check"><input id="spin" type="checkbox" /> Turntable</label>
+      <label class="check"><input id="doors" type="checkbox" /> Door open</label>
+      <label class="check"><input id="lids" type="checkbox" /> Boot &amp; bonnet up</label>
+
+      <h2>Skin</h2>
+      <div class="row">
+        <button type="button" class="act" id="undo">Undo</button>
+        <button type="button" class="act" id="redo">Redo</button>
+        <button type="button" class="act" id="clear">Clear</button>
+      </div>
+      <div class="row">
+        <button type="button" class="act primary" id="save">Save</button>
+        <button type="button" class="act" id="download">Download</button>
+      </div>
+      <p id="status"></p>
+      <p class="hint">Drag on the car to paint · drag off it to orbit (game camera: to spin) ·
+        right-drag pans · scroll zooms<br /><b>B</b>/<b>E</b>/<b>I</b> tools · <b>[</b> <b>]</b>
+        size · <b>M</b> mirror · <b>G</b> camera · <b>⌘Z</b> undo · <b>⌘S</b> save</p>
+    </div>
+
+    <div id="error" hidden style="position:fixed;inset:0;z-index:99;padding:20px;overflow:auto;
+      background:#1b232b;color:#ffd7d0;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap"></div>
+    <script>
+      /* The same boot-failure trap the game and the lab install: a module that throws while
+         evaluating otherwise leaves a blank sky and nothing to read. */
+      const errorPanel = () => {
+        const el = document.getElementById('error');
+        el.hidden = false;
+        return el;
+      };
+      window.addEventListener('error', (e) => {
+        // A cross-origin script's anonymised `Script error.` is never this page's — see index.html.
+        if (!e.filename && !e.lineno && !e.error) return;
+        errorPanel().textContent += `${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack ?? ''}\n\n`;
+      });
+      window.addEventListener('unhandledrejection', (e) => {
+        errorPanel().textContent += `${e.reason?.stack ?? e.reason}\n\n`;
+      });
+    </script>
+    <script type="module" src="/src/garage/garage.js"></script>
+  </body>
+</html>
