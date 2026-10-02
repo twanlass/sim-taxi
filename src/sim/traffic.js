@@ -325,6 +325,17 @@ export function setClosedLanes(ids, source = 'roadwork') {
  */
 export const isLaneClosed = (id) => closedLanes.has(id);
 
+// **A raised leaf is a hole in the road, not a sign in it.** Every other closure here is a
+// suggestion to the dice: ambient cars weigh the lane at zero and a *routed* car — the taxi, a cop —
+// drives its route regardless, which is what lets the taxi be tempted through roadworks. The
+// drawbridge cannot be that. The taxi is re-planned off it the moment the barriers start down
+// (`replan` in main.js), but nothing re-planned the police: the patrol cruiser and the robbery's
+// cars carry routes too, planned while the span was down, and one reaching the junction with the
+// leaf up drove straight across the open river. So the refusal lives here, at the one place every
+// routed car commits to a lane, rather than in each module that hands one a route.
+const HARD_CLOSURES = ['drawbridge'];
+const hardClosed = (id) => HARD_CLOSURES.some((source) => closedBySource.get(source)?.has(id));
+
 // --- The ramp -----------------------------------------------------------------
 //
 // A barricade is a ramp, and hitting one launches the taxi. The arc is *rendered only*: car.s,
@@ -3422,7 +3433,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // phase happens to be at the moment you sample it.
   const stats = {
     time: 0, violations: 0, minGap: Infinity, moving: 0, waiting: 0,
-    distance: 0, routeDesync: 0, rightOnRed: 0, chaseOnRed: 0, uturns: 0,
+    distance: 0, routeDesync: 0, routeRefused: 0, rightOnRed: 0, chaseOnRed: 0, uturns: 0,
   };
 
   const matrix = new THREE.Matrix4();
@@ -5111,9 +5122,19 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
             // Already in straight/right/left order — the order the weighted roll below walks, and
             // the one `legalExits` used to return.
             const options = car.lane.exits.map((id) => net.turnById.get(id));
-            const routed = car.route?.length
+            let routed = car.route?.length
               ? options.find((o) => net.dirOfLane(net.laneById.get(o.outLane)) === car.route[0])
               : null;
+            // A route onto a shut span is stale, not desynced: drop it and let the car roll an
+            // exit like anybody else (the span's own lanes weigh zero there). Whoever owns the
+            // route re-plans an empty one — game/patrol.js does on its next frame, and `findRoute`
+            // cannot return the span while the leaf is shut. Not counted in `routeDesync`, which
+            // is the claim that this never happens for a route that was valid when it was made.
+            if (routed && hardClosed(routed.outLane)) {
+              car.route.length = 0;
+              routed = null;
+              stats.routeRefused += 1;
+            }
 
             // A routed car (the player's taxi) takes the next turn its route calls for; everyone
             // else rolls the weighted straight/right/left dice. This single branch is the entire

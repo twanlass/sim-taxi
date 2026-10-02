@@ -16208,6 +16208,39 @@ let chopperOrder; // likewise
     for (let f = 0; f < 60 * (OPEN_SECONDS + 1); f++) bridge.update(1 / 60, []);
     check('and goes up once it clears', bridge.state.lift > 0.99, bridge.state.phase);
 
+    // **A routed car does not drive onto a raised leaf.** The dice weigh a shut lane at zero, but a
+    // route is obeyed, and only the taxi is re-planned when the barriers drop — so a patrol cruiser
+    // carrying a route planned with the span down drove straight across the open river. Staged as
+    // the worst case: a car already on the approach, its route pointing over the water, the leaf up.
+    {
+      const cScene = new THREE.Scene();
+      const cTraffic = createTraffic(makeRng(seed + 836), cScene, 2);
+      const cNet = cityNetwork();
+      const cop = cTraffic.cars.find((car) => car !== cTraffic.taxi);
+      const shut = new Set(bridge.laneIds);
+      const approach = cNet.laneByGrid(1, bridge.span.line, bridge.span.row);
+      const onto = cNet.laneByGrid(1, bridge.span.line, bridge.span.row + 1);
+      let crossed = 0;
+      let leftApproach = false;
+      if (cop && approach && onto && shut.has(onto.id)) {
+        placeCar(cop, 1, bridge.span.line, bridge.span.row, 8);
+        cop.route = [1, 1, 1];
+        cop.routeConsumed = false;
+        setClosedLanes(bridge.laneIds, 'drawbridge');
+        for (let f = 0; f < 60 * 30; f++) {
+          cTraffic.update(1 / 60);
+          if (shut.has(cop.lane?.id) || shut.has(cop.turn?.outLane)) crossed += 1;
+          if (cop.lane && cop.lane.id !== approach.id) leftApproach = true;
+        }
+        setClosedLanes([], 'drawbridge');
+      }
+      check('a routed car never drives onto a raised leaf',
+        Boolean(cop && approach && onto) && crossed === 0,
+        `${crossed} frames on the span, ${cTraffic.stats.routeRefused} route(s) refused`);
+      check('...and turns off rather than waiting at the water', leftApproach && cTraffic.stats.routeRefused >= 1,
+        leftApproach ? 'turned off' : 'still on the approach after 30s');
+    }
+
     // The boats, over a full run. The tug must never be inside the span with the leaf anywhere but
     // fully up — which is the boat's own doing (`HOLD_OFF`), not the bridge's.
     const boats = createBoats(rScene, makeRng(seed + 840), bridge);
