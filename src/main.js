@@ -63,7 +63,7 @@ import { createTape, createCrashReplay } from './game/replay.js';
 import { carrySpeed } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
 import { createChopper } from './game/chopper.js';
-import { createBirds } from './game/birds.js';
+import { createBirds, chooseRoosts } from './game/birds.js';
 import { createDucks } from './game/ducks.js';
 import { createHoopers } from './game/hoopers.js';
 import { courtRect } from './city/blacktop.js';
@@ -1167,6 +1167,11 @@ const chopper = createChopper(scene, makeRng(runSeed + 233), city.pad, {
 // handed it as a keep-out. A little wider than the water itself: the outline never exceeds the
 // pond's nominal radius, and the rest is a bird's own length, so one stops *beside* the water
 // rather than with its tail over it.
+//
+// And a few flat roofs they can land on as well — see `chooseRoosts`. City seed, not run seed:
+// which roofs the pigeons use is part of the map, the same way which lawns there are is. Shared by
+// both flocks as the *same objects*, because `avoid` keeps them apart by identity.
+const roosts = chooseRoosts(city.decks, makeRng(seed + 155));
 const flocks = [];
 for (const offset of [199, 211]) {
   flocks.push(createBirds(scene, makeRng(runSeed + offset), layout, {
@@ -1176,6 +1181,7 @@ for (const offset of [199, 211]) {
       // And the basketball court, with the same bird's length to spare.
       ...(props.court ? [courtRect(props.court, 0.5)] : []),
     ],
+    roosts,
   }));
 }
 
