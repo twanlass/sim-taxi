@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, hash01, propMaterial, stampEntry, unlitMaterial } from '../util/geo.js';
+import {
+  FINISH, bakeColor, hash01, propMaterial, setFinish, stampEntry, unlitMaterial,
+} from '../util/geo.js';
 import { color, jitterColor } from '../palette.js';
 import { KERB_H } from './ground.js';
 import {
@@ -91,58 +93,48 @@ const CHECK_DROP = 0.40;
 // at 0.44 × 0.46 on screen.
 const CHECK_SQ = 0.62;
 
-// --- The radio mast ---------------------------------------------------------
-// Dispatch has to reach the car somehow. A mast on the roof with a dish sweeping on it, which is
-// the only moving part on this building other than the door itself.
+// --- The wrench on the roof -------------------------------------------------
+// The depot is where the player brings the taxi back for repairs and upgrades, and from play zoom
+// the building has to *say* that before anybody has learned it. So the roof carries a sign the way
+// the burger joint does: one oversized object on a pole, canted, turning slowly. It replaced a
+// radio mast and dish, which said "dispatch" — true, and nothing the player can act on.
 //
-// **Almost nothing here is placed by a literal.** The dish has been resized twice now, and both
-// times the numbers that broke were the hand-tuned ones around it: where the crossbars sit under
-// it, and how far in from the roof's edge the mast stands. Those are derived from the dish's own
-// measured geometry below (`radioMast` takes the height to stay under; `createGarage` takes the
-// radius it sweeps), so growing DISH_R again moves them rather than clipping through them.
-const MAST_PLINTH = 0.16;
-const WHIP_H = 0.8;              // the aerial above the dish
-// The dish. 0.72 read as a pale smudge next to a mast that was darker than it, and this is double
-// that — a 2.9-unit dish, about twenty pixels across at play zoom, which is a landmark rather than
-// a detail.
-const DISH_R = 1.44;
-// The pole, above the plinth it is bolted to. Sized off the dish rather than chosen — it has two
-// jobs and the dish sets both. Above: the head has to show past the dish's top, which reaches
-// `1.36 · DISH_R / 1.44` over the dish's centre, or the whip appears to grow out of the rim.
-// Below: the space between the plinth and the dish's underside has to hold two crossbars.
-const MAST_H = 4.0;
-// How far the dish is tipped off vertical. 0.95 rad is 54°, which points its face up steeply
-// enough to read as a dish from a camera 33° above the horizon, and shallowly enough that its rim
-// still draws as an ellipse rather than as a line.
-const DISH_TILT = 0.95;
-/**
- * How far off the mast's axis the dish orbits — derived, because at this size a fixed arm puts the
- * pole *through* the dish.
- *
- * The disc is tilted about the z axis, so its nearest point to the mast sits at
- * `DISH_ARM - DISH_R * cos(DISH_TILT)` — which at the arm this had while the dish was half the size
- * is 0.32 units on the **far** side of the pole. It has to be at least the pole's own radius out,
- * plus something to see daylight through.
- */
-const DISH_ARM = DISH_R * Math.cos(DISH_TILT) + 0.26;
-// Where up the mast it sits, as a fraction of MAST_H — the one number here still chosen by eye, and
-// the two things it is squeezed between are checked rather than assumed: `radioMast` hangs the
-// crossbars off the dish's measured underside, and the probe asserts the pole's head clears its top.
-const DISH_AT = 0.58;
-// What the crossbars keep between themselves and the dish sweeping over them.
-const CROSSBAR_CLEAR = 0.28;
-// And what the mast's whole orbit keeps between itself and the two things it must not reach: the
-// roof's own edge, and the curtain plane every sightline out of the door starts on.
-const MAST_STANDOFF = 0.4;
+// **Almost nothing here is placed by a literal**, which is a habit carried over from the dish: it
+// was resized twice, and both times the numbers that broke were the hand-tuned ones around it. The
+// pole's position is derived from the wrench's measured sweep (`createGarage`), and its height from
+// the wrench's measured underside, so changing any number below moves them rather than clipping.
+const POLE_PLINTH = 0.16;
+// Between the two head centres. The whole tool is this plus both heads' radii — 6.0 units, a
+// little more than the burger is across, which is what "oversized" has to mean at play zoom: about
+// forty-five pixels, a landmark rather than a detail. At 5.1 it read as a fitting on the roof.
+const WRENCH_L = 3.9;
+const RING_R = 0.98;             // the closed end
+const RING_HOLE = 0.52;          // ...and the hexagon through it
+const JAW_R = 1.12;              // the open end, a touch bigger, as on the real thing
+const JAW_GAP = 0.47;            // half the jaw's opening
+const HANDLE_W = 0.4;            // half the handle's width
+// Thick for a spanner, on purpose. It turns about a vertical axis, so twice a revolution the camera
+// sees it edge-on — and an edge this deep is still a bar of steel rather than a line.
+const WRENCH_T = 0.4;
+const WRENCH_BEVEL = 0.08;
+// How far the long axis leans off vertical, open end up. Enough to read as the tool on a sign
+// rather than as one hung on a hook; any further and its sweep pushes the pole off a narrow roof.
+const WRENCH_CANT = 0.55;        // 31°
+// What its lowest point keeps above the roof plant's tops as it sweeps over them.
+const WRENCH_CLEAR = 0.3;
+// And what its whole sweep keeps between itself and the two things it must not reach: the roof's
+// own edge, and the curtain plane every sightline out of the door starts on.
+const POLE_STANDOFF = 0.4;
+// The roof plant's taller box, which the wrench's low end sweeps over.
+const PLANT_H = 0.55;
 
 /**
- * How fast the dish sweeps, in radians a second — fourteen seconds a revolution.
+ * How fast the wrench turns, in radians a second — about sixteen seconds a revolution.
  *
- * Slow, for the reason `SIGN_SPIN` is one building over: at play zoom this thing is about five
- * pixels across, and anything much past this stops reading as a radar and starts reading as a toy
- * being spun. It is only at the vignette's zoom that it is a dish at all.
+ * Slow, for the reason `SIGN_SPIN` is one building over: anything much past this stops reading as
+ * a sign that turns and starts reading as a tool being spun.
  */
-export const DISH_SPIN = 0.45;
+export const WRENCH_SPIN = 0.4;
 
 // The block platform's walking surface — `createGround` lays the pavement one centimetre over the
 // kerb box. A car standing on it rides this much higher than one on the road.
@@ -310,101 +302,101 @@ function livery(parts, axis, at, from, to, top) {
 }
 
 /**
- * The mast, minus the dish — everything on it that doesn't turn, so it can ride in the shell's
- * merge and be lifted by the entrance wave like the rest of the building.
+ * The pole the wrench turns on — static, so it rides in the shell's merge and is lifted by the
+ * entrance wave like the rest of the building. A pole that turned with the wrench would be a
+ * barber's pole, the same argument the burger's makes.
  *
- * @param foot   the top of the coping, which is what it stands on
- * @param under  the world height of the **lowest point of the dish**, measured off the built
- *               geometry rather than worked out here. The crossbars hang below it: the dish orbits,
- *               so it passes over them once a revolution and a clearance derived from a fraction of
- *               MAST_H holds only until somebody changes DISH_R. It has been changed twice.
+ * @param foot  the top of the coping, which is what it stands on
+ * @param hub   the world height of the wrench's centre, which is where the pole stops: inside the
+ *              handle, so the tool reads as mounted on it rather than floating over it
  */
-function radioMast(x, z, foot, under) {
+function signPole(x, z, foot, hub) {
   const trim = color('garageTrim');
-  const parts = [box(0.6, MAST_PLINTH, 0.6, x, foot, z, trim)];
-  const base = foot + MAST_PLINTH;
-
-  const pole = new THREE.CylinderGeometry(0.11, 0.15, MAST_H, 6);
-  pole.translate(x, base + MAST_H / 2, z);
-  parts.push(bakeColor(pole, trim));
-
-  // Two crossbars under the dish and a whip above it. A bare rod on a roof is a flagpole; these
-  // are the whole of what says *communications* at a size where nothing else can. Crossed rather
-  // than stacked on one axis, because this camera never rotates and a bar laid along the sightline
-  // is a dot.
-  const upper = under - CROSSBAR_CLEAR;
-  parts.push(box(0.05, 0.05, 0.9, x, upper, z, trim));
-  parts.push(box(1.1, 0.05, 0.05, x, base + (upper - base) * 0.5, z, trim));
-
-  const whip = new THREE.CylinderGeometry(0.025, 0.05, WHIP_H, 4);
-  whip.translate(x, base + MAST_H + WHIP_H / 2, z);
-  parts.push(bakeColor(whip, color('pole')));
-
-  return parts;
+  const base = foot + POLE_PLINTH;
+  const pole = new THREE.CylinderGeometry(0.12, 0.16, hub - base, 6);
+  pole.translate(x, base + (hub - base) / 2, z);
+  return [box(0.6, POLE_PLINTH, 0.6, x, foot, z, trim), bakeColor(pole, trim)];
 }
 
 /**
- * The dish, in its pivot's own space.
+ * The wrench, in its pivot's own space: a combination spanner, open jaw at the top and a ring at
+ * the bottom.
  *
- * **The pivot stands at the mast's foot on the kerb, not at the mast's head**, and that is the one
- * subtle thing here. This is the only piece of the depot the entrance wave cannot reach — it turns,
- * and the wave's anchor is a *world* coordinate stamped into a vertex, which stops meaning anything
- * in a rotating object's local space — so it grows on the CPU instead, and all the CPU path owns is
- * `object.scale` (see `objects` in game/cityentry.js). The shader scales the shell about `KERB_H`;
- * a uniform scale about a pivot placed on `KERB_H` is that same arithmetic, so the dish rides up
- * the mast as the mast grows. Put the pivot at the mast's head and it would instead shrink toward a
- * point two seconds of animation away from where the mast actually is.
+ * One `Shape` extruded, rather than a handle and two heads merged, for two reasons. Three winds an
+ * extrusion itself, so there is no hand-written triangle here to get backwards (CLAUDE.md has three
+ * of those). And separate solids would share their top faces on one plane wherever the handle runs
+ * into a head — coplanar *overlap*, which is the kind that shimmers.
  *
- * @param dishY  the dish's height above the pivot, i.e. above `KERB_H`
+ * The bevel is a single chamfer, and it is most of the "metal". Under `flatShading` every face is
+ * one flat colour, and a flat slab lit by one sun is a cut-out; the chamfer is a ring of faces at
+ * 45° round every edge, which is what catches the metal finish's glint as the thing turns.
+ *
+ * **The pivot stands on the kerb, under the pole, not at the wrench's centre** — the same contract
+ * the dish had. The entrance wave scales the shell about `KERB_H`, and all the CPU path that grows
+ * this owns is `object.scale` (see `objects` in game/cityentry.js), so a pivot on that plane is the
+ * one place a uniform scale rides up the pole as the pole grows.
+ *
+ * Built about its own centre; `createGarage` lifts it once it has measured how far below that
+ * centre it reaches.
  */
-function dishGeometry(dishY) {
-  // The arm, out along +X. The dish hangs off the end of it rather than sitting on the mast's own
-  // axis, so the assembly **orbits**: a radar sweeps, it does not spin on the spot. Every dimension
-  // below is a fraction of DISH_R, so the whole assembly is one number — at the 0.72 it was first
-  // built at, each of these fractions is exactly the literal it replaced.
-  const arm = DISH_R * 0.125;
-  const parts = [box(DISH_ARM, arm, arm, DISH_ARM / 2, dishY - arm / 2, 0, color('garageTrim'))];
+function wrenchGeometry() {
+  const top = WRENCH_L / 2;      // the jaw's centre
+  const bot = -WRENCH_L / 2;     // the ring's centre
+  const w = HANDLE_W;
+  const sr = Math.sqrt(RING_R ** 2 - w ** 2);
+  const sj = Math.sqrt(JAW_R ** 2 - w ** 2);
+  const sn = Math.sqrt(JAW_R ** 2 - JAW_GAP ** 2);
 
-  // Built pointing straight up and tipped afterwards, so everything on the dish's own axis — the
-  // strut, the feed at the end of it — can be placed by one number and then carried along.
-  //
-  // A shallow frustum rather than a bowl, and that is a winding decision rather than a triangle
-  // budget. The face you look at on a bowl is its *inside*, and an inside is a back face — which
-  // under `flatShading` takes its normal from a screen-space derivative and lights as though the
-  // sun were behind it (docs/rendering.md, and the boats' wake in CLAUDE.md). A solid frustum has
-  // no inside: the face pointed at the sky is its own front face.
-  const face = [];
-  const thick = DISH_R * 0.222;
-  const dish = new THREE.CylinderGeometry(DISH_R, DISH_R * 0.4, thick, 12);
-  dish.translate(0, thick / 2, 0);
-  face.push(bakeColor(dish, color('garageWhite')));
-  // The feed on its strut, standing off the face. A few pixels at play zoom, and the whole of what
-  // makes the frustum read as a dish rather than as a drum.
-  const reach = DISH_R * 0.611;
-  const horn = DISH_R * 0.222;
-  const strut = new THREE.CylinderGeometry(DISH_R * 0.049, DISH_R * 0.049, reach, 4);
-  strut.translate(0, thick + reach / 2, 0);
-  face.push(bakeColor(strut, color('garageTrim')));
-  face.push(box(horn, horn, horn, 0, thick + reach - horn * 0.125, 0, color('garageTrim')));
+  // Counter-clockwise from the bottom of the handle's right edge: up the handle, round the jaw to
+  // the gap, down into it and out again, round the rest of the jaw, down the left edge, and the
+  // whole way round the ring.
+  const shape = new THREE.Shape();
+  shape.moveTo(w, bot + sr);
+  shape.lineTo(w, top - sj);
+  shape.absarc(0, top, JAW_R, Math.atan2(-sj, w), Math.atan2(sn, JAW_GAP), false);
+  // The throat: a half-round at the bottom of the gap, bitten in a little past the jaw's centre.
+  const throat = top + 0.1;
+  shape.lineTo(JAW_GAP, throat);
+  shape.absarc(0, throat, JAW_GAP, 0, Math.PI, true);
+  shape.lineTo(-JAW_GAP, top + sn);
+  shape.absarc(0, top, JAW_R, Math.atan2(sn, -JAW_GAP), Math.atan2(-sj, -w) + Math.PI * 2, false);
+  shape.lineTo(-w, bot + sr);
+  shape.absarc(0, bot, RING_R, Math.atan2(sr, -w), Math.atan2(sr, w) + Math.PI * 2, false);
 
-  // Negative, so the dish's own +Y tips toward +X — away from the mast, out over the arm.
-  for (const geo of face) {
-    geo.rotateZ(-DISH_TILT);
-    geo.translate(DISH_ARM, dishY, 0);
-    parts.push(geo);
+  // The hexagon the bolt goes through. Wound clockwise, as a hole; three checks and would reverse
+  // it anyway, but a hole that happens to be right is not the same as one that is.
+  const hole = new THREE.Path();
+  for (let k = 0; k <= 6; k++) {
+    const a = -k * (Math.PI / 3) + Math.PI / 6;
+    const x = Math.cos(a) * RING_HOLE;
+    const y = bot + Math.sin(a) * RING_HOLE;
+    if (k === 0) hole.moveTo(x, y);
+    else hole.lineTo(x, y);
   }
-  const merged = mergeGeometries(parts, false);
-  parts.forEach((g) => g.dispose());
-  return merged;
+  shape.holes.push(hole);
+
+  const depth = WRENCH_T - 2 * WRENCH_BEVEL;
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    curveSegments: 7,
+    bevelEnabled: true,
+    bevelThickness: WRENCH_BEVEL,
+    bevelSize: WRENCH_BEVEL,
+    bevelSegments: 1,
+  });
+  geo.deleteAttribute('uv');
+  geo.translate(0, 0, -depth / 2);
+  geo.rotateZ(-WRENCH_CANT);
+  return setFinish(bakeColor(geo, color('wrenchSteel')), FINISH.METAL);
 }
 
 /**
- * The depot: two merged meshes, a light and a dish.
+ * The depot: two merged meshes, a light and a wrench.
  *
  * Two meshes rather than one because the curtain moves and the shell does not. Both are stamped
  * with the same entrance anchor (see `stampEntry`), so the city's opening wave lifts the door with
  * its own building rather than leaving it hanging in the air. The light is unlit and outside the
- * wave, and the dish is outside it for a different reason — see `dishGeometry`.
+ * wave, and the wrench is outside it for a different reason — see `wrenchGeometry`.
  */
 export function createGarage(block, rng) {
   const site = garageSite(block);
@@ -420,34 +412,33 @@ export function createGarage(block, rng) {
   const base = KERB_H;
   const head = base + DOOR_H;           // the lintel: where the curtain winds away
   const top = base + HEIGHT;
-  const deck = top + 0.34;              // the top of the coping, which the mast stands on
+  const deck = top + 0.34;              // the top of the coping, which the pole stands on
 
-  // --- The mast's placement, worked out from the dish rather than chosen.
+  // --- The pole's placement, worked out from the wrench rather than chosen.
   //
-  // The dish is built first because everything about the mast depends on how much room it takes.
-  // Its height off the pole is the one free number; the rest — where the crossbars hang, and how
-  // far in from the roof's edge the whole thing stands — comes off its measured bounds.
-  const dishY = deck + MAST_PLINTH + MAST_H * DISH_AT;
-  const dishGeo = dishGeometry(dishY - KERB_H);
-  dishGeo.computeBoundingBox();
+  // The wrench is built first because everything about the pole depends on how much room it takes:
+  // how high it has to stand to sweep clear of the roof plant, and how far in from the roof's edge.
+  const wrenchGeo = wrenchGeometry();
+  wrenchGeo.computeBoundingBox();
+  const hub = deck + PLANT_H + WRENCH_CLEAR - wrenchGeo.boundingBox.min.y;
+  wrenchGeo.translate(0, hub - KERB_H, 0);
 
   // The radius it sweeps: the furthest any of its vertices gets from the pivot's own axis. Not
-  // `boundingBox.max.x` — the box is measured in the dish's rest pose and the dish **turns**, so
-  // its footprint is the circle that pose inscribes, and the disc is widest across its z axis
-  // where the box is narrowest along x.
-  const dp = dishGeo.attributes.position;
+  // `boundingBox.max.x` — the box is measured in one pose and the wrench **turns**, so its
+  // footprint is the circle that pose inscribes.
+  const wp = wrenchGeo.attributes.position;
   let orbit = 0;
-  for (let i = 0; i < dp.count; i++) orbit = Math.max(orbit, Math.hypot(dp.getX(i), dp.getZ(i)));
+  for (let i = 0; i < wp.count; i++) orbit = Math.max(orbit, Math.hypot(wp.getX(i), wp.getZ(i)));
 
-  // One standoff answers both of the things the mast must not reach, because they are the same
+  // One standoff answers both of the things the sweep must not reach, because they are the same
   // distance from two different planes. It has to keep its whole orbit **on the roof**, off the +Z
   // parapet; and it has to keep it **behind the curtain plane**, since every sightline out of the
   // opening starts there and runs +X — so anything wholly behind it cannot occlude the door at any
   // height, and anything past it can. `curtainX` is the tighter of the two on x, being 0.3 back
   // from the wall.
-  const stand = orbit + MAST_STANDOFF;
-  const mastX = curtainX - stand;
-  const mastZ = bz1 - stand;
+  const stand = orbit + POLE_STANDOFF;
+  const poleX = curtainX - stand;
+  const poleZ = bz1 - stand;
 
   const wall = jitterColor(color('garageWall'), rng, { l: 0.03 });
   const trim = color('garageTrim');
@@ -504,11 +495,11 @@ export function createGarage(block, rng) {
     // Rooftop plant, on top of the coping rather than under it. Same argument as the elevation
     // above: a flat lid reads as an unfinished box, and the city's own towers all carry some.
     //
-    // Both are measured off the roof's **back** corner, because the mast owns the front one and
-    // stands a whole dish-radius in from it. The small one used to be at (bx0 + 5.6, bz1 - 2.2) —
+    // Both are measured off the roof's **back** corner, because the pole owns the front one and
+    // stands a whole sweep-radius in from it. The small one used to be at (bx0 + 5.6, bz1 - 2.2) —
     // one offset from the back in x and one from the front in z — and the two placements only
     // stayed apart because an ordinary block is 12 wide. A block squeezed between two arterials is
-    // 9.33, the mast walked into the box, and nothing in the geometry said so. Same corner for
+    // 9.33, the old radio mast walked into the box, and nothing in the geometry said so. Same corner for
     // both, and the probe measures the gap.
     box(1.6, 0.55, 1.2, bx0 + 1.4, deck, bz0 + 1.3, color('rooftop')),
     box(1.0, 0.42, 1.0, bx0 + 1.2, deck, bz0 + 3.4, color('rooftopIron')),
@@ -525,9 +516,9 @@ export function createGarage(block, rng) {
     span(curtainX, kerbX - KERB_RUN, APRON_Y, PAINT_Y, dz0 + 0.35, dz0 + 0.63, color('garageSign')),
     span(curtainX, kerbX - KERB_RUN, APRON_Y, PAINT_Y, dz1 - 0.63, dz1 - 0.35, color('garageSign')),
 
-    // The mast. Static, so it rides in the shell's merge and the entrance wave lifts it with the
-    // building; only the dish is excluded from that, and only because it turns.
-    ...radioMast(mastX, mastZ, deck, KERB_H + dishGeo.boundingBox.min.y),
+    // The pole. Static, so it rides in the shell's merge and the entrance wave lifts it with the
+    // building; only the wrench is excluded from that, and only because it turns.
+    ...signPole(poleX, poleZ, deck, hub),
   ];
 
   // The livery, on the two elevations this camera can ever see. The +X run takes the corner — it
@@ -576,37 +567,37 @@ export function createGarage(block, rng) {
   const light = new THREE.Mesh(lightGeo, unlitMaterial({ vertexColors: true }));
   light.name = 'garage-light';
 
-  // --- The dish -------------------------------------------------------------
-  // Built at the top of this function, because the mast is placed off its bounds. Its own mesh and
+  // --- The wrench -----------------------------------------------------------
+  // Built at the top of this function, because the pole is placed off its bounds. Its own mesh and
   // its own pivot, for the reason the burger over the drive-through is one: it turns, and the
-  // entrance wave cannot animate anything with a transform of its own. See `dishGeometry` for why
-  // the pivot sits on the kerb rather than at the head of its mast.
+  // entrance wave cannot animate anything with a transform of its own. See `wrenchGeometry` for why
+  // the pivot sits on the kerb rather than at the wrench's centre.
+  //
+  // The vehicles' **metal** finish (FINISH_DEFAULTS in util/geo.js): a darkened base, a tight sun
+  // glint and a share of the sky and skyline in it. That last is what makes it steel rather than
+  // grey paint — and since it turns, the glint walks round the chamfer once a revolution. Under
+  // Crayon and Cartoon `gloss` is declined and this is an ordinary prop, as the cars are.
   //
   // **Out of the AO lookup**, and that is the rule in `markOccluder` rather than a preference. It
   // refuses to put this mesh in the depth prepass and so does main.js — but *receiving* is the
-  // default, so left alone the dish samples the occlusion of whatever is behind it on screen. What
-  // is behind it is its own roof, and the crease where its own mast meets that roof: the shaded
-  // dish came out with a soft dark blotch across it that moved with the camera and belonged to a
-  // surface two units below. It is the river water's bug (see `propMaterial` in util/geo.js) with
-  // an opaque surface instead of a transparent one, and it is louder here because the water at
-  // least sampled something under itself.
-  //
-  // Nothing is lost by opting out. AO in this game is a contact darkening a world unit wide, and
-  // the nearest thing to the dish is the roof it floats two units over.
-  const dish = new THREE.Mesh(dishGeo, propMaterial({ ao: false }));
-  dish.castShadow = true;
-  dish.name = 'garage-dish';
+  // default, so left alone it samples the occlusion of whatever is behind it on screen. The dish
+  // that stood here did exactly that and came out with a soft dark blotch of its own roof's crease
+  // across it, moving with the camera.
+  const wrench = new THREE.Mesh(wrenchGeo,
+    propMaterial({ ao: false, gloss: { geometry: wrenchGeo } }));
+  wrench.castShadow = true;
+  wrench.name = 'garage-wrench';
 
-  const dishPivot = new THREE.Group();
-  dishPivot.name = 'garage-dish-pivot';
-  dishPivot.position.set(mastX, KERB_H, mastZ);
-  // Seeded rather than zero, the same as the burger's: shot mode ticks once and freezes, so a dish
-  // that started square-on would be square-on in every screenshot of every city.
-  dishPivot.rotation.y = rand * Math.PI * 2;
-  dishPivot.add(dish);
+  const wrenchPivot = new THREE.Group();
+  wrenchPivot.name = 'garage-wrench-pivot';
+  wrenchPivot.position.set(poleX, KERB_H, poleZ);
+  // Seeded rather than zero, the same as the burger's: shot mode ticks once and freezes, so a
+  // wrench that started edge-on would be edge-on in every screenshot of every city.
+  wrenchPivot.rotation.y = rand * Math.PI * 2;
+  wrenchPivot.add(wrench);
 
   const group = new THREE.Group();
-  group.add(shell, curtain, light, dishPivot);
+  group.add(shell, curtain, light, wrenchPivot);
 
   /**
    * Wind the curtain up. `open` is 0 (shut) to 1 (gone).
@@ -631,9 +622,9 @@ export function createGarage(block, rng) {
     // construction stays valid and there is nothing to refresh.
   }
 
-  /** Sweep the dish. One rotation and no state, so a paused frame simply stops being advanced. */
-  function update(dt, spin = DISH_SPIN) {
-    dishPivot.rotation.y += spin * dt;
+  /** Turn the wrench. One rotation and no state, so a paused frame simply stops being advanced. */
+  function update(dt, spin = WRENCH_SPIN) {
+    wrenchPivot.rotation.y += spin * dt;
   }
 
   return {
@@ -642,18 +633,20 @@ export function createGarage(block, rng) {
     shell,
     curtain,
     light,
-    dish,
-    dishPivot,
+    wrench,
+    wrenchPivot,
+    /** The wrench's centre, in world y — where the pole stops. */
+    hub,
     update,
     /**
-     * The two stamped meshes, for the entrance wave and for the AO prepass — and **not** the dish,
+     * The two stamped meshes, for the entrance wave and for the AO prepass — and **not** the wrench,
      * which is neither: the wave's vertex shader cannot reach a turning object, and a mesh whose
      * matrix changes every frame has no business writing into a screen-space occlusion buffer.
      */
     meshes: [shell, curtain],
     setDoor,
-    /** ...so the dish grows on the CPU instead, on the shell's own delay. */
-    entryObject: { object: dishPivot, x: anchorX, z: anchorZ, rand },
+    /** ...so the wrench grows on the CPU instead, on the shell's own delay. */
+    entryObject: { object: wrenchPivot, x: anchorX, z: anchorZ, rand },
     entrySite: { x: anchorX, z: anchorZ, r: Math.max(frontX - bx0, bz1 - bz0) / 2, rand },
   };
 }

@@ -187,11 +187,12 @@ export const PALETTE = {
   // than being neutral greys. That was contrast against a grey wall and it is complement against a
   // yellow one: a warm chequer on `garageWall` would read as two more shades of the building.
   //
-  // The pale one doubles as the radio dish on the roof, and that is consolidation rather than
-  // coincidence — the same argument `rooftopIron` makes. There is one white thing on this
-  // building and it is used twice.
   garageWhite: '#E9EBEE',
   garageCheck: '#33373D',
+  // The wrench turning over the roof (city/garage.js). Steel, on the vehicles' metal finish, which
+  // multiplies this by 0.7 and adds sky — so it is picked a step under `bumperChrome` and keeps the
+  // ironwork's blue cast rather than going neutral: the reflection does the brightening.
+  wrenchSteel: '#C3CBD4',
 
   // --- The burger joint -------------------------------------------------------
   // The city's one drive-through (city/burgerjoint.js). Like the depot above it, its envelope
