@@ -44,6 +44,7 @@ import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
+import { createPedalSkin } from './game/pedalskin.js';
 import { bandPath as fuelBandPath, frontAt as fuelFrontAt, RIM as FUEL_RIM } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION } from './game/taxidamage.js';
@@ -2354,6 +2355,8 @@ function gasPedalTop() {
  * The tutorial's spotlight stays on the pedal — it is pointing at the control, not the read-out.
  */
 function fuelScreenPos() {
+  const skinned = pedalSkin?.fuelTarget();
+  if (skinned) return skinned;
   const arc = boostMeterEl?.querySelector('.boost-track');
   const r = arc?.getBoundingClientRect();
   if (!r?.width) return boostScreenPos();
@@ -2623,7 +2626,7 @@ function updateBoostButton(dt) {
   const charging = boost.isCharging();
   boostMeter.update(dt, boost.fraction(), boost.state.pending > 0 || charging);
 
-  for (const el of [boostButton, boostMeterEl]) {
+  for (const el of [boostButton, boostMeterEl, pedalSkin?.readout]) {
     if (!el) continue;
     el.classList.toggle('is-active', mode === 'active');
     el.classList.toggle('is-empty', mode === 'empty');
@@ -2634,6 +2637,7 @@ function updateBoostButton(dt) {
     el.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
   }
   drawFuelArc(boostMeter.state.pct);
+  pedalSkin?.update(traffic.taxi?.v ?? 0, boostMeter.state.pct, brakeHeld, dt);
   // The pedal sinks while it is held, however it is held — the Space key never touches the
   // pointer's `is-held`. See "The press" in index.html.
   boostButton.classList.toggle('is-down', boost.state.held);
@@ -2763,6 +2767,8 @@ boostButton?.addEventListener('touchstart', (event) => {
 // worth testing lives in the sim, where the flag actually does something.
 const brakeButton = document.getElementById('brake');
 let brakeHeld = false;
+// `?pedals=outline|speedo|dash|arch|gauge` — alternative looks for the two pedals (game/pedalskin.js).
+const pedalSkin = createPedalSkin({ boostButton, brakeButton });
 
 // How slowly the car can be moving and still lock its wheels into visible rubber. Below a walking
 // pace the streak would be a couple of stamps at a standstill, which reads as a stain rather than
