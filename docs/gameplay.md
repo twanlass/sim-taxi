@@ -1,5 +1,34 @@
 # Gameplay
 
+## The title screen
+
+`src/game/titlescreen.js`, in `#title-screen`. A load opens on **Play, Settings, Credits**, left
+aligned over the live city, with the camera drifting a slow ellipse across it (`panAt`: one lap
+every two minutes at zoom 34, against play's 52). The menu is the only thing on screen: no HUD, no
+⏸, no riders.
+
+**It parks the run the way the Home Screen tip does.** `parked()` in `main.js` is the one gate both
+answer to: the fare board is not seeded, the tutorial and the vignette are held, Space and B do
+nothing, the ⏸ refuses, and the city's entrance wave is *settled* rather than played — the menu sits
+over a finished city with its traffic running, which is the whole point of the backdrop. **Play**
+lets go of all of it at once, so what follows is exactly the run that used to start on load: down
+to the garage door, the door up, the taxi out, the tips. The drift sits at the top of the camera's
+priority list while the title holds, and the vignette's approach eases from wherever it left off.
+
+**Settings** and **Credits** dim the city behind a mask; the menu only shades the left edge its
+words stand on. Settings holds four things, all remembered across visits:
+
+| Setting | Where it lives |
+|---|---|
+| Sound on/off | The existing mute (`simTaxi.muted`, game/sfx.js), shared with the pause pill and **M** — stored once, not twice |
+| Music volume, SFX volume | `simTaxi.settings` (game/settings.js), applied through `sfx.setVolumes`. There is **no music track yet**: the slider steers a real music bus that nothing plays into |
+| Tutorial tips | `simTaxi.settings`. Read on Play (`beginRun` in main.js): off drops the tutorial and lets the HUD in |
+
+**"Play again" skips it.** The retry is a reload, and a player who just pressed Play does not want
+the menu again, so `onRetry` sets a one-shot `sessionStorage` flag the next boot consumes.
+**`?title=off`** skips it too, the same escape hatch `?vignette=off` is; `tools/smoke.mjs` runs every
+page but its own title check that way. Shot mode never builds it.
+
 ## The opening vignette
 
 `src/game/opening.js`, over the depot in [city/garage.js](city.md#the-depot-block). A run does not

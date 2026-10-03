@@ -101,6 +101,8 @@ import {
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
+import { createTitleScreen } from './game/titlescreen.js';
+import { createSettings } from './game/settings.js';
 import { createPause } from './game/pause.js';
 import { createInspect } from './game/inspect.js';
 import { findRoute, findRouteVia, findRouteOnto, planOrigin, crossingOrigin } from './game/route.js';
@@ -814,6 +816,11 @@ function boardSound() {
 // The sound — see game/sfx.js. Silent in shot mode, which renders stills and has nobody listening.
 // Its own stream, which draws the take each one-shot plays (the designer's A/B/C variants).
 const sfx = shot ? null : createSfx({ rng: makeRng(runSeed + 811) });
+// The title screen's Settings, remembered across visits (game/settings.js). The two volumes are
+// applied to the engine here and on every change; the tips are read once, when the run starts.
+const settings = createSettings();
+sfx?.setVolumes(settings.get());
+settings.onChange((v) => sfx?.setVolumes(v));
 
 // The switch lives on the pause screen, with M for a keyboard. The choice is remembered
 // (localStorage, soft — see game/sfx.js).
@@ -2240,7 +2247,7 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // ...and the wipe holds it across a *skipped* vignette, which is the one case where the sequence
   // stops running while the player still cannot see anything: the hold has to last until the black
   // starts lifting rather than until the vignette ends.
-  isBlocked: () => Boolean(homeTip?.state.holding) || cityEntry.running()
+  isBlocked: () => parked() || cityEntry.running()
     || Boolean(opening?.running()) || Boolean(wipe?.covering()),
   // The same guard the picker uses: the click a mouse synthesises at the end of a drag must not
   // count as an answer to the bubble the player was dragging past.
@@ -2564,7 +2571,8 @@ function updateHud(dt) {
       // during that hold would be sitting in storage before the player had been told the run was
       // over.
       scores: collectScores(),
-      onRetry: () => location.reload(),
+      // "Play again" means the run, not the menu: the reload goes straight past the title screen.
+      onRetry: () => { skipTitleNextLoad(); location.reload(); },
     });
     document.body.classList.add('game-over');
   }
@@ -3011,7 +3019,7 @@ window.addEventListener('keydown', (event) => {
   // The "Add to Home Screen" screen sits above the run and holds it, and dismisses itself on Space.
   // Same guard the tutorial uses (`isBlocked`): the press that clears that screen must not also
   // spend fuel on a taxi that is parked behind it.
-  if (homeTip?.state.holding) return;
+  if (parked()) return;
   // The robber's line takes Space as its own answer (game/robberline.js). Registered after this
   // one, so this has to stand down for it rather than the other way round.
   if (robberLine?.isOpen()) return;
@@ -3044,7 +3052,7 @@ window.addEventListener('keydown', (event) => {
   if (event.code !== 'KeyB' || event.repeat) return;
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   if (keyIsSpokenFor(event.target, brakeButton)) return;
-  if (homeTip?.state.holding || pause?.state.paused || robberLine?.isOpen()) return;
+  if (parked() || pause?.state.paused || robberLine?.isOpen()) return;
   event.preventDefault();
   brakeKeyHeld = true;
   holdBrake();
@@ -3275,6 +3283,56 @@ const homeTip = shot ? null : createHomeScreenTip(document.getElementById('home-
   force: new URLSearchParams(window.location.search).has('hometip'),
 });
 
+// The title screen: Play, Settings, Credits, over the live city — see game/titlescreen.js. It parks
+// the run on the same terms the Home Screen tip does (`parked()` below), and Play is what lets the
+// run begin. Not in shot mode, not on `?title=off` (the escape hatch `?vignette=off` is, for anyone
+// iterating on the run itself), and not on the reload "Play again" does — that player has already
+// pressed Play once.
+const TITLE_SKIP_KEY = 'simTaxi.skipTitle';
+function skipTitleNextLoad() {
+  try { window.sessionStorage.setItem(TITLE_SKIP_KEY, '1'); } catch { /* soft: they see the menu */ }
+}
+function consumeTitleSkip() {
+  try {
+    const skip = window.sessionStorage.getItem(TITLE_SKIP_KEY) === '1';
+    window.sessionStorage.removeItem(TITLE_SKIP_KEY);
+    return skip;
+  } catch { return false; }
+}
+const wantsTitle = !shot && !consumeTitleSkip()
+  && new URLSearchParams(window.location.search).get('title') !== 'off';
+const title = wantsTitle ? createTitleScreen(document.getElementById('title-screen'), {
+  sound: {
+    isOn: () => Boolean(sfx && !sfx.state.muted),
+    set: (on) => { sfx?.setMuted(!on); paintSound(); },
+  },
+  settings,
+  onPlay: beginRun,
+}) : null;
+// The camera cuts onto the drift on the first frame the title holds, rather than easing to it from
+// wherever boot left it — the menu's first frame is the first frame anyone sees.
+let titleFramed = false;
+
+/** Is the run parked behind a screen that has to be answered first? */
+function parked() {
+  return Boolean(homeTip?.state.holding) || Boolean(title?.holding());
+}
+
+/**
+ * The run starting: Play on the title screen, or boot itself when there is no title screen. The
+ * one thing decided here rather than at boot is the tips — they are a setting the player can flip
+ * on the title screen moments before pressing Play.
+ */
+function beginRun() {
+  if (!settings.get().tips && tutorial) {
+    tutorial = null;
+    tutorialTalking = false;
+    holdFareClocks();
+    revealHud();
+  }
+}
+if (!title) beginRun();
+
 // While that screen is up the run is parked: no fare spawns, and no clock drains. The traffic keeps
 // driving behind the black — the screen sinks the city rather than replacing it, so a frozen one
 // would be visible through the gradient — but the *fare loop* has to wait, or a rider appears
@@ -3299,10 +3357,10 @@ const NO_FARE_EVENTS = [];
  * `?vignette=off` would otherwise put the pedals on top of.
  */
 let pedalsShown = false;
-const pedalsDue = () => !cityEntry.running() && !homeTip?.state.holding && !wipe?.covering()
+const pedalsDue = () => !cityEntry.running() && !parked() && !wipe?.covering()
   && !(opening?.running() && opening.phase() !== 'release');
 
-const fareLoopHeld = () => Boolean(homeTip?.state.holding) || Boolean(opening?.running())
+const fareLoopHeld = () => parked() || Boolean(opening?.running())
   || Boolean(wipe?.covering());
 
 // The ⏸ at the top of the HUD. Unlike the two holds above it this one stops the *whole* frame (see
@@ -3314,7 +3372,7 @@ const pause = shot ? null : createPause({
   veil: document.getElementById('pause-veil'),
   // Nothing left to hold once the run is over — and the retry screen owns the whole display then.
   // Never asked on the way out: a pause can always be lifted.
-  canPause: () => !fares.state.gameOver,
+  canPause: () => !fares.state.gameOver && !title?.holding(),
   onChange: (paused) => {
     // A pause with the gas still down would resume into a boost the player is no longer holding —
     // the pill's own pointer never comes back up, because the veil took the release. Same reason
@@ -3436,7 +3494,9 @@ function frame() {
   // for later. `holding` is true from the module's creation (see game/homescreen.js), so the
   // settle lands before the first frame ever draws an empty block. Everyone else — desktop, and
   // installed standalone iOS — never constructs the tip and keeps the animation.
-  if (homeTip?.state.holding) {
+  // The title screen settles it for the same reason and one more: the menu is meant to sit over a
+  // finished city with its traffic running, not over the city building itself.
+  if (parked()) {
     if (cityEntry.running()) cityEntry.settle();
   } else {
     cityEntry.update(dt);
@@ -3581,8 +3641,13 @@ function frame() {
   // else can be claiming the framing three seconds into a run anyway. It hands back by letting
   // `holdsCamera` go false with the camera already sitting on `restFraming()` below, so there is
   // no gap for the follow-cam to snap across.
+  // The title screen's drift sits above even the vignette, which is held behind it anyway.
   const boosting = boost.isActive();
-  if (opening?.holdsCamera()) {
+  if (title?.holding()) {
+    const p = title.pan(dt);
+    if (titleFramed) controller.focusOn(p.x, p.z, p.zoom, dt, aspect(), 0.8);
+    else { controller.cutTo(p.x, p.z, p.zoom, 0, aspect()); titleFramed = true; }
+  } else if (opening?.holdsCamera()) {
     opening.frameCamera(dt);
   } else if (endSpot) {
     controller.focusOn(endSpot.x, endSpot.z, endZoom, dt, aspect());
@@ -4437,7 +4502,7 @@ if (shot) {
         : { x: 0, z: 0 }),
       // The city's own entrance goes first. Both are held behind the Home Screen tip on iOS in a
       // tab, which parks the whole run until it is dismissed.
-      isBlocked: () => Boolean(homeTip?.state.holding) || cityEntry.running(),
+      isBlocked: () => parked() || cityEntry.running(),
       // Off the kerb. The same pool and the same call the boost trail uses, at about half a
       // barricade's power — two wheels coming off a 0.35-unit lip, not a car landing off a ramp.
       onDrop: () => dust.burst(traffic.taxi.x, traffic.taxi.z, traffic.taxi.yaw, 7, 0.5),
@@ -4608,6 +4673,14 @@ window.__taxi = {
    */
   garage,
   opening: () => opening,
+  /**
+   * The title screen (null in shot mode, on `?title=off`, and after "Play again"), and the
+   * settings it writes. `title.holding()` is the run's gate; `tutorial()` is live rather than the
+   * snapshot `tutorial` above, because Play with the tips off is what drops it.
+   */
+  title,
+  settings,
+  tutorialNow: () => tutorial,
   /**
    * The burger joint and its drive-through, or null on a city with nowhere to put one.
    * `burger.site` is every number the lane is built from and `driveThru.state.queue` is who is

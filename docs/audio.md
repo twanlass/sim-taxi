@@ -144,8 +144,13 @@ sound ships at 0 dB, as the designer recommended. The one exception is ours: `co
   rather than mixing with it; `'ambient'` did the opposite and left a phone on silent hearing
   nothing. The shell's scheme handler
   serves `.m4a` as `audio/mp4`.
-- **Mute** is the "Sound: On/Off" pill on the pause screen, or **M**. It is remembered in
-  `localStorage`, soft-failing the way `highscores.js` does.
+- **Mute** is the "Sound: On/Off" pill on the pause screen, the Sound switch on the title screen's
+  Settings, or **M** — one flag, remembered in `localStorage`, soft-failing the way `highscores.js`
+  does.
+- **The player's volumes** are the two Settings sliders (game/settings.js remembers them,
+  `sfx.setVolumes` applies them). SFX scales `master`, under the mix's own `master` and the mute;
+  Music scales a separate bus beside it, which nothing feeds yet — the game ships no music. Both
+  are squared on the way to the gain node, so the slider's middle sounds like the middle.
 - **Shot mode is silent**: `sfx` is `null` there.
 - **Offline**: the service worker caches the audio lazily, the same way it caches any `/assets/*`
   request. The file URLs are inside the JS bundle, not in `index.html`, so the install-time
