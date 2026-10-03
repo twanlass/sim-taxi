@@ -686,7 +686,9 @@ export const PALETTE = {
   headlight: '#FFF1CF',
   headlightBeam: '#FFE2A6',
   // Street lamps (game/citylights.js): the post, and the sodium-ish glow of the head and its pool.
-  lampPost: '#2E3238',
+  // The post was #2E3238 and read as a black stroke against the asphalt (#636972); a galvanised
+  // grey a step above the road keeps it a thin dark line once its shaded faces are lit.
+  lampPost: '#7A818A',
   lampHead: '#FFD38A',
   lampPool: '#FFB85C',
   // Lit windows, drawn from at random: mostly warm rooms, a few cool screens.
