@@ -761,7 +761,7 @@ const robbery = city.bank && !shot
     // Never take a cop off the map where the player can see it — see `inShot` in game/robbery.js.
     inShot,
     // Delivered: the nearest cop comes after the taxi as an ordinary patrol chase — caught on a
-    // touch, lost two and a half blocks out — while the rest circle the robber on the corner
+    // touch, lost two and a half blocks out — while the rest fan out round the robber on the corner
     // (game/arrest.js). The robber is delivered, so the chase can end the run: that is the trade
     // the drop-off asks for, and the full tank the robber boarded with is what pays for it.
     handOff: (cops) => patrol.pursueNearest(cops),

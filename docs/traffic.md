@@ -2561,15 +2561,15 @@ roadblock as a bump rather than a wreck.
 
 ### The arrest: a junction closed to traffic
 
-A delivered robbery ends with the cops circling the robber in the drop-off's junction box
-([gameplay.md](gameplay.md#the-drop-off-the-arrest-and-the-tail)), driven by hand by `game/arrest.js`
-because no lane or turn goes round. A staged car is invisible to every loop in here, so the sim is
+A delivered robbery ends with the cops pulled up in a fan round the robber in the drop-off's
+junction box ([gameplay.md](gameplay.md#the-drop-off-the-arrest-and-the-tail)), driven by hand by
+`game/arrest.js` because no lane or turn parks a car across a junction. A staged car is invisible to every loop in here, so the sim is
 given two things to keep traffic off them:
 
 - **`sealJunction(i, j)`** closes a box: `sealedFor` holds anyone arriving at it exactly as a
   stranded car does (`entryRefused` and all three arrival branches). Only a boosting taxi is let
   through, into the cops, as a bump. The patrol chasing the taxi away is held too — let through at
-  first, it followed the taxi straight through the ring. The arrest seals the box only once the taxi
+  first, it followed the taxi straight through the cops. The arrest seals the box only once the taxi
   is clear of it and the first cop is going in: sealed on the frame of the drop-off, it parked the
   getaway car at its own arrest scene, and every arm queued back through the junction behind with
   the police still in the queue.

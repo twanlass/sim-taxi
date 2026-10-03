@@ -2206,25 +2206,31 @@ way past.
 `game/arrest.js`, `robbery.js` (`stop`, `handOff`), `patrol.js` (`pursueNearest`). The getaway
 ends in two scenes at once.
 
-**The robber stays on the corner with their hands up, and the police circle them.** The robber
-climbs out the way any rider does and stops on the kerb instead of fading (`beginExit`'s `hold` in
-`game/fares.js` hands back the figure; `surrender` in `geometry/person.js` is the pose). The cops
-near enough — up to three, and at least two, calling in the difference from off screen — are
-routed to the junction and held at its line; once the taxi is clear they are taken onto a ring
-round the junction box one at a time, sliding nose-in, bars going, each on its own wobble. After a
-few seconds one peels off, pulls up at the kerb beside the robber, and the robber runs to it and is
-gone. The rest peel off down the arms one by one and are handed back to traffic, bars off, to drive
-away the way a [stood-down](traffic.md#standing-down) cop does. A car nobody can see is simply
+**The robber stays on the corner with their hands up, and the police screech up in a fan pointed at
+them.** The robber climbs out the way any rider does and stops on the kerb instead of fading
+(`beginExit`'s `hold` in `game/fares.js` hands back the figure; `surrender` in
+`geometry/person.js` is the pose). The cops near enough — up to three, and at least two, calling in
+the difference from off screen — are routed to the junction and held at its line; once the taxi is
+clear they come into the box one at a time and handbrake into one of three slots round the robber,
+5.5 off them and 40° apart, bonnet on the robber, bars going. After a three-second standoff the
+robber walks to the nearest car and gets in the back, and the cars pull out one by one — the one
+with the robber first — and are handed back to traffic, bars off, to drive away the way a
+[stood-down](traffic.md#standing-down) cop does. A car nobody can see is simply
 retired instead — "nobody can see" asked of the camera, not of the taxi, because a player who pans
 over to watch the arrest is exactly who would otherwise see the police blink out (the first build
 did that, on the frame the robber was taken in).
 
-It is the junction they go round, not the robber, and that is geometry: a kerb corner is half a
-unit onto a block whose buildings start 0.35 further in, so no ring centred on the figure stays on
-the road. The ring is the box's own edge, and it passes about a unit off the robber's shoulder.
+It used to be a ring: the cops circled the junction box for a few seconds before one pulled up at
+the kerb. It read as cars going round in circles rather than as an arrest. The fan sits in the box
+on the robber's side of it — a kerb corner has road on only a quarter of the directions out from it
+— and fills from the slot furthest from each car first, because the cops mostly come down the same
+arm and the slot nearest its mouth is parked right across it. A slot that faces back the way a car
+came is reached by sliding the body round over the last stretch of the run (`slideIn`), not by a lap
+of road the box does not have. Every run in and every pull-out is sampled before it is driven — four
+corners on the road, the centre clear of every other car — and a car without a clear one waits.
 
-The circling cars are **driven by hand**: nothing in the traffic model can drive a circle, so they
-are taken out of traffic the way the opening vignette takes the taxi into its garage (`stageCar`),
+The fanned cars are **driven by hand**: nothing in the traffic model parks a car across a junction
+pointed at the pavement, so they are taken out of traffic the way the opening vignette takes the taxi into its garage (`stageCar`),
 and put back with `releaseCar`. Everything traffic would have done for them is the module's job —
 see its header and [traffic.md](traffic.md#the-arrest-a-junction-closed-to-traffic). A scene that
 cannot happen (no cop gets there within 14s, nowhere to pull up) lets the robber walk off.
