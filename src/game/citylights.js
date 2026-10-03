@@ -34,10 +34,25 @@ import { TAXI_SCALE } from '../geometry/taxi.js';
  * reference into every material that reads it, the bloom's copies included.
  */
 const LIT_LEVEL = { value: 1 };
-export function setCityLights(level) { LIT_LEVEL.value = level; }
+/** Seconds of weather, for the flicker. Advanced by `dt` rather than read off a clock so shot mode,
+ * which passes 0, freezes it on the same frame every time. */
+const LIT_TIME = { value: 0 };
+export function setCityLights(level, dt = 0) {
+  LIT_LEVEL.value = level;
+  LIT_TIME.value += dt;
+}
 
-/** How long a light takes to come up once its threshold is passed, in units of `LIT_LEVEL`. */
-const LIT_RAMP = 0.035;
+/**
+ * How long a light takes to come up once its threshold is passed, in units of `LIT_LEVEL`. Under a
+ * squall the level at a point climbs 0..1 in about 6s (a 22-unit edge at ~3.6 u/s), so this is
+ * roughly half a second of fade. It was 0.035 — a fifth of a second, which read as a switch.
+ */
+const LIT_RAMP = 0.08;
+
+/** Share of lights that sputter on (and off) instead of fading cleanly, and how long they sputter
+ * for, in units of `LIT_LEVEL` past their threshold — about the first second of a squall's edge. */
+const FLICKER_SHARE = 0.25;
+const FLICKER_SPAN = 0.14;
 
 /** Replace one chunk, loudly. */
 function inject(source, chunk, replacement) {
@@ -66,9 +81,28 @@ uniform float uLitLevel;
 uniform vec4 uCell;
 uniform float uCellEdge;
 uniform float uCellTime;
+uniform float uLitTime;
+`;
+
+/**
+ * How far on a light is, 0..1: a short fade past its threshold and, for a share of them picked off
+ * their seed, a sputter while the fade is young. The sputter's odds of being dark start high and fall
+ * to nothing across the window, so a flickering light settles on rather than stopping mid-blink.
+ */
+const LIT_ON = /* glsl */ `
+float litOn(float at, float level, float seed) {
+  float on = smoothstep(at, at + ${LIT_RAMP.toFixed(3)}, level);
+  if (seed < ${FLICKER_SHARE.toFixed(3)}) {
+    float w = clamp((level - at) / ${FLICKER_SPAN.toFixed(3)}, 0.0, 1.0);
+    float n = cloudHash(vec2(floor(uLitTime * 13.0 + seed * 40.0), seed * 97.0));
+    on *= step(0.7 * (1.0 - w), n);
+  }
+  return on;
+}
 `;
 const litUniforms = () => ({
   uLitLevel: LIT_LEVEL,
+  uLitTime: LIT_TIME,
   uCell: CLOUD_UNIFORMS.uCell,
   uCellEdge: CLOUD_UNIFORMS.uCellEdge,
   uCellTime: CLOUD_UNIFORMS.uCellTime,
@@ -79,25 +113,29 @@ function litSwitch(material) {
   material.customProgramCacheKey = () => 'lit-switch';
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, litUniforms());
-    // Decided per vertex: a pane is one quad and a lamp head one box, so all of either agrees.
+    // Read at the light's own anchor (aLitXZ), never at the vertex: the squall's level climbs
+    // across its 22-unit edge, and sampled per corner it differed across a single pane by more
+    // than the ramp — so each window wiped on from one side as the edge went over it.
     shader.vertexShader = inject(shader.vertexShader, '#include <begin_vertex>', `#include <begin_vertex>
-vLitAt = aLitAt;
-vLitLevel = litLevelAt((modelMatrix * vec4(position, 1.0)).xz);`);
-    shader.vertexShader = `attribute float aLitAt;\nvarying float vLitAt;\nvarying float vLitLevel;\n${LIT_UNIFORMS}${CLOUD_GLSL}${LOCAL_LEVEL}${shader.vertexShader}`;
-    shader.fragmentShader = `varying float vLitAt;\nvarying float vLitLevel;\n${shader.fragmentShader}`;
+vec2 litXZ = (modelMatrix * vec4(aLitXZ.x, 0.0, aLitXZ.y, 1.0)).xz;
+vLitOn = litOn(aLitAt, litLevelAt(litXZ), cloudHash(litXZ * 0.731 + aLitAt * 13.7));`);
+    shader.vertexShader = `attribute float aLitAt;\nattribute vec2 aLitXZ;\nvarying float vLitOn;\n${LIT_UNIFORMS}${CLOUD_GLSL}${LOCAL_LEVEL}${LIT_ON}${shader.vertexShader}`;
+    shader.fragmentShader = `varying float vLitOn;\n${shader.fragmentShader}`;
     shader.fragmentShader = inject(shader.fragmentShader, '#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-if (vLitAt > vLitLevel) discard;
-float litOn = smoothstep(vLitAt, vLitAt + ${LIT_RAMP.toFixed(3)}, vLitLevel);`);
+if (vLitOn <= 0.0) discard;`);
     shader.fragmentShader = inject(shader.fragmentShader, '#include <color_fragment>', `#include <color_fragment>
-diffuseColor.rgb *= litOn;`);
+diffuseColor.rgb *= vLitOn;`);
   };
   return material;
 }
 
-/** Give every vertex of `geo` the same threshold. */
-function stampLitAt(geo, at) {
-  geo.setAttribute('aLitAt', new THREE.BufferAttribute(
-    new Float32Array(geo.attributes.position.count).fill(at), 1));
+/** Give every vertex of `geo` the same threshold, and the same anchor to read the level at. */
+function stampLitAt(geo, at, x, z) {
+  const n = geo.attributes.position.count;
+  geo.setAttribute('aLitAt', new THREE.BufferAttribute(new Float32Array(n).fill(at), 1));
+  const xz = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) { xz[i * 2] = x; xz[i * 2 + 1] = z; }
+  geo.setAttribute('aLitXZ', new THREE.BufferAttribute(xz, 2));
   return geo;
 }
 
@@ -161,10 +199,19 @@ export function litWindows(rng, faces) {
     }
     for (const [name, lit] of byColor) {
       const geo = facadeQuads(lit, side, cx, cz, hw, hd, color(name), LIT_OUT);
-      // facadeQuads writes six vertices per rect, in order.
+      // facadeQuads writes six vertices per rect, in order. Each pane's anchor is its own centre.
       const at = new Float32Array(lit.length * 6);
-      lit.forEach((rect, i) => at.fill(rect.at, i * 6, i * 6 + 6));
+      const xz = new Float32Array(lit.length * 12);
+      const pos = geo.attributes.position.array;
+      lit.forEach((rect, i) => {
+        at.fill(rect.at, i * 6, i * 6 + 6);
+        let x = 0;
+        let z = 0;
+        for (let v = i * 6; v < i * 6 + 6; v++) { x += pos[v * 3]; z += pos[v * 3 + 2]; }
+        for (let v = i * 6; v < i * 6 + 6; v++) { xz[v * 2] = x / 6; xz[v * 2 + 1] = z / 6; }
+      });
       geo.setAttribute('aLitAt', new THREE.BufferAttribute(at, 1));
+      geo.setAttribute('aLitXZ', new THREE.BufferAttribute(xz, 2));
       parts.push(geo);
     }
   }
@@ -232,8 +279,9 @@ export function streetLamps(rng, blocks) {
       }
       // Street lamps come on early and close together, the way a city's do on a photocell.
       const at = rng.range(0.28, 0.5);
-      heads.push(stampLitAt(stampEntry(bakeColor(head.applyMatrix4(place), headCol), px, pz, rand), at));
-      spots.push(new THREE.Vector4(px + edge.nx * ARM_REACH, POOL_Y, pz + edge.nz * ARM_REACH, at));
+      heads.push(stampLitAt(stampEntry(bakeColor(head.applyMatrix4(place), headCol), px, pz, rand), at, px, pz));
+      spots.push(Object.assign(
+        new THREE.Vector4(px + edge.nx * ARM_REACH, POOL_Y, pz + edge.nz * ARM_REACH, at), { px, pz }));
     }
   }
   if (!spots.length) return null;
@@ -253,6 +301,9 @@ export function streetLamps(rng, blocks) {
   spots.forEach((p, i) => pools.setMatrixAt(i, m.makeTranslation(p.x, p.y, p.z)));
   pools.geometry.setAttribute('aLitAt', new THREE.InstancedBufferAttribute(
     new Float32Array(spots.map((p) => p.w)), 1));
+  // The head's anchor, so a pool reads the same level and the same flicker as the lamp over it.
+  pools.geometry.setAttribute('aLitXZ', new THREE.InstancedBufferAttribute(
+    new Float32Array(spots.flatMap((p) => [p.px, p.pz])), 2));
   pools.renderOrder = 1;
   pools.name = 'lampPools';
 
@@ -277,15 +328,17 @@ function poolMaterial() {
     vertexShader: /* glsl */ `
       #include <common>
       attribute float aLitAt;
+      attribute vec2 aLitXZ;
       ${LIT_UNIFORMS}
       varying vec2 vUv;
       varying float vOn;
       ${CLOUD_GLSL}
       ${LOCAL_LEVEL}
+      ${LIT_ON}
       void main() {
         vUv = uv;
-        float level = litLevelAt((modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xz);
-        vOn = smoothstep(aLitAt, aLitAt + ${LIT_RAMP.toFixed(3)}, level);
+        vec2 litXZ = (modelMatrix * vec4(aLitXZ.x, 0.0, aLitXZ.y, 1.0)).xz;
+        vOn = litOn(aLitAt, litLevelAt(litXZ), cloudHash(litXZ * 0.731 + aLitAt * 13.7));
         vec4 mvPosition = vec4(position, 1.0);
         #ifdef USE_INSTANCING
           mvPosition = instanceMatrix * mvPosition;

@@ -405,7 +405,7 @@ function applySquall(dt) {
     taxiHeadlights?.setLevel(runningLightsAt(t.x, t.z));
   }
   setRunningLights(0);
-  setCityLights(0);
+  setCityLights(0, dt);
   setHazeTop(fog, THREE.MathUtils.lerp(HAZE_TOP, rain.mood.haze, SQUALL_GREY * squallPresence));
   daylight.apply();
   rain.setSunDir(sun.position);
@@ -424,7 +424,7 @@ function applyWeather(dt = 0) {
   setRunningLights(runningLevel);
   // The taxi's own pair on the same level as the fleet's: dark in the sun, on once it is gloomy.
   taxiHeadlights?.setLevel(runningLevel);
-  setCityLights(w.dark);
+  setCityLights(w.dark, dt);
   setHazeTop(fog, THREE.MathUtils.lerp(HAZE_TOP, rain.mood.haze, w.dark));
   daylight.apply();
   rain.setSunDir(sun.position);
