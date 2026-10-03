@@ -45,7 +45,7 @@ export function panAt(t) {
 }
 
 export const CREDITS = [
-  ['Game design', 'Tyler Wanlass'],
+  ['Game design', 'Tyler, Nia, and Isla Wanlass'],
   ['Art direction', 'Tyler Wanlass'],
   ['Sound design', 'Nicolas Joaquin'],
   ['Programming', 'Claude 🦀'],
