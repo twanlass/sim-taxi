@@ -5673,6 +5673,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         }
       }
 
+      // The taxi's drift (game/steer.js, a prototype): the body slews out of the arc while the
+      // brake is held through a corner. Render-side only, like the cop's slew above it.
+      if (car.yawSlip) car.yaw += car.yawSlip;
+
       // The shove off a bump, last of the offsets so it lands on top of everything the lane said.
       // After the wheel angle because a spin is not a steering input, and
       // run through `steerToward` it would slam the front wheels lock to lock.

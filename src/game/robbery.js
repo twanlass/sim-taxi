@@ -393,7 +393,7 @@ function nearestJunction(x, z) {
  */
 export function createRobbery({
   site, taxi, fares, traffic, onBoard = () => {}, holdAlarm = false, busy = () => false,
-  handOff = () => null, inShot = null,
+  handOff = () => null, inShot = null, knowsPlan = null,
 }) {
   // The junction the bank's door belongs to, worked out once: the city does not move, and this is a
   // thirty-six-cell scan.
@@ -509,14 +509,26 @@ export function createRobbery({
    * `steps` of its destination. In the second the drop-off *is* where everyone is converging, which
    * is the ending this event wants anyway.
    */
+  // What the police believe about the taxi: where it is heading and the route it is on. The live
+  // taxi unless `knowsPlan` is handed in (the line-of-sight prototype, game/steer.js), in which case
+  // it only updates on frames a cop can see the taxi — a route redrawn out of sight is not one the
+  // cut-offs know about, and they carry on to the junctions of the old one.
+  let intel = null;
+  const known = () => intel ?? { i: taxi.i, j: taxi.j, route: taxi.route ?? [] };
+  function updateIntel() {
+    if (!knowsPlan || knowsPlan(fleet())) intel = null;
+    else if (!intel) intel = { i: taxi.i, j: taxi.j, route: [...(taxi.route ?? [])] };
+  }
+
   function cutOffFor(steps) {
-    const route = taxi.route;
+    const { route, i: ti, j: tj } = known();
     // Zero steps is the taxi's own junction: a stern chase, deliberately. See CUT_OFF_AHEAD.
-    if (steps <= 0 || !route?.length) return { i: taxi.i, j: taxi.j };
+    if (steps <= 0 || !route?.length) return { i: ti, j: tj };
     // `taxi.i/j` is the junction the taxi's lane runs *into*, so walking the route from there is
     // walking it from the first junction it has not decided yet — which is exactly what the route
     // steps describe. Each step is a grid direction: one junction along that axis.
-    let { i, j } = taxi;
+    let i = ti;
+    let j = tj;
     for (let k = 0; k < Math.min(steps, route.length); k++) {
       const d = route[k];
       if (isXAxis(d)) i += dirSign(d);
@@ -616,10 +628,12 @@ export function createRobbery({
     // stopped driving down until it happened to cross a junction, which is up to a whole block of
     // the chase aiming at nothing. A prefix rather than the whole list because only the first few
     // steps are read (see CUT_OFF_AHEAD), and a route's tail changes every time a leg retires.
+    updateIntel();
+    const k = known();
     const at = {
-      i: taxi.i,
-      j: taxi.j,
-      plan: (taxi.route ?? []).slice(0, Math.max(...CUT_OFF_AHEAD)).join(','),
+      i: k.i,
+      j: k.j,
+      plan: (k.route ?? []).slice(0, Math.max(...CUT_OFF_AHEAD)).join(','),
     };
     const moved = !aimedAt || aimedAt.i !== at.i || aimedAt.j !== at.j || aimedAt.plan !== at.plan;
     let nth = 0;

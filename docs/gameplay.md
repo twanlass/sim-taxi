@@ -2246,6 +2246,59 @@ the robber gets out.
 (game/patrol.js) is why: a third of a tank is five seconds of boost, which loses the cop 8 times in
 16; none is caught 15 in 16; a full tank gets away 14 in 16.
 
+### Chase steering (prototype, `?steer=`)
+
+`game/steer.js`, wired in main.js; line of sight in `game/patrol.js` (`lineOfSight`),
+`game/robbery.js` (`knowsPlan`) and `game/sightline.js` (`groundLineClear`). **Off by default.**
+`?steer=all` turns everything on, or name pieces: `?steer=flick,uturn,drift,los`. Add `always` to
+arm the flick and the U-turn outside a chase (`?steer=all,always`).
+
+Why it exists: in a chase the only live input was the boost pill, and the patrol's escape table
+says the tank decides it. Redrawing the route is steering, but a block takes under a second at the
+Loco top, and a drag takes longer than that.
+
+- **flick**: a quick swipe (≥36px, ≤320ms) picks the exit at the next junction the taxi can still
+  choose at. You swipe the way the road runs *on screen*, which under this camera is a diagonal.
+  The rest of the trip re-plans from beyond it. Keys: J / I / L for left, straight, right. While a
+  chase is armed it claims the canvas swipe from the phone's drag-pan.
+- **uturn**: a swipe back down the road, or K. It reuses the chasing cop's mid-block swing
+  (`uturnWindow`), so it is refused on arterials, on bridges and where traffic leaves no room. The
+  request stands for 3s, so a flick that lands past the window waits for the next lane.
+- **drift**: hold the brake through a real turn and the taxi slides round at cornering speed
+  instead of stopping. Let go on the way out and it gets a fuel-free turbo, 0.35–1.3s depending on
+  how long the slide was held. Held more than 0.25s past the arc, it becomes an ordinary brake.
+- **los**: a patrol that cannot see the taxi drives to where it last aimed, and gives up after 2s
+  out of sight, provided it is more than 14 units off. Spotting needs sight as well. The robbery's
+  cut-offs only learn a redrawn route while one of them can see the taxi. Sight is a march along
+  the ground through the sightline height field; it takes 1.5 units of solid above 1.8 to block, so
+  a lamp post or a median tree does not. Headless tools without a city always answer "clear".
+
+Measured with `node tools/steer-sweep.mjs 16`: the patrol's staged chase, driven by a bot. These
+numbers show what each mechanic can buy a bot that uses it on every junction. They are not what a
+player will get. Every row past `base` has line of sight on. Fewer chases are staged in those rows
+because the staging cannot spot from behind a building. The first column is lost / staged.
+
+| | no boost | 5s | full tank |
+|---|---|---|---|
+| base | 0/16 lost, 16 caught | 7/16 lost | 16/16 lost |
+| los | 4/12 lost (all by sight), 8 caught | 5/12 | 12/12 |
+| + flick | 6/12 lost (all by sight), 6 caught | 3/12 | 9/12, 3 caught |
+| + uturn | 5/12 lost, 7 caught | 3/12 | 10/12, 2 caught |
+| + drift | 4/12 lost, 4 caught, **4 stalemates** | 5/12 | 12/12 |
+
+What it says so far:
+
+- **Line of sight is the lever that changes the game.** It gives an unboosted taxi a way out for
+  the first time (4 of 12 escapes, against none), and corners are what earn it.
+- **The flick bot gains without boost and loses with it.** Each corner sheds the speed a full tank
+  is spending, and the bot turns at every junction. Taking a corner has to be a decision the player
+  makes, not a rule.
+- **Drift turns catches into stalemates.** Free turbo off every corner keeps the taxi just ahead of
+  the cop until `CHASE_MAX`, without breaking clear. If this ships, the turbo probably needs a cost,
+  or the chase needs an end that isn't the 40s timeout.
+- None of the three inputs is measured against the robbery's cut-offs. Those are where the U-turn
+  should matter most, because the cops waiting ahead end up behind you.
+
 ## The package courier
 
 `src/game/parcels.js`. A brown parcel sits on a kerb corner on a cyan rounded-square pad. Drive

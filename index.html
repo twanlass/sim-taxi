@@ -1429,6 +1429,16 @@
          least as specific as the one it is undoing — `#error[hidden]` alone loses to
          `html[data-native] #error` on the extra type selector. */
       html[data-native] #error[hidden] { display: none; }
+      /* The chase-steering prototype's toast (game/steer.js, `?steer=`): which input just landed.
+         Throwaway dressing for playtesting, not a HUD element. */
+      #steer-toast {
+        position: fixed; left: 50%; top: calc(var(--safe-top, 0px) + 84px);
+        transform: translateX(-50%); padding: 6px 12px; border-radius: 999px;
+        font: 700 14px/1 system-ui, sans-serif; letter-spacing: 0.04em;
+        background: rgba(20, 24, 32, 0.78); color: #fff; pointer-events: none;
+        opacity: 0; transition: opacity 0.18s; z-index: 30;
+      }
+      #steer-toast.is-on { opacity: 1; }
     </style>
   </head>
   <body>

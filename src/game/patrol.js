@@ -171,6 +171,19 @@ const HANDOFF_GRACE = 1.5;
 const RAMMED_GRACE = 1.5;
 
 /**
+ * Line of sight — the chase-steering prototype (game/steer.js, `?steer=los`). With `lineOfSight`
+ * handed in, a chasing cop that cannot see the taxi drives to the junction it was aiming at when it
+ * last could, and gives up once the taxi has been out of sight for LOS_LOST_HOLD — as long as it is
+ * more than LOS_MIN_GAP away, so a cop right round the corner on your bumper does not lose you by
+ * a technicality. The distance rule (ESCAPE_BLOCKS) still applies on top: this is a second way out,
+ * and the one a corner pays for where the first only pays a straight.
+ *
+ * Spotting needs it too: a boost behind a building is not a boost the cop saw.
+ */
+const LOS_LOST_HOLD = 2;
+const LOS_MIN_GAP = 14;
+
+/**
  * @param rng      its own stream: where a patrol cruises, and the cooldowns between them
  * @param police   the cruiser's look (sim/police.js) — `wear`/`shed` the traffic car
  * @param traffic  the sim — `enterPolice`, `retirePolice`, `policeCars`
@@ -185,6 +198,7 @@ const RAMMED_GRACE = 1.5;
 export function createPatrol({
   rng, police, traffic, taxi, blocked = () => false,
   onSpotted = () => {}, onCaught = () => {}, onLost = () => {}, onHid = () => {},
+  lineOfSight = null,
 }) {
   const state = {
     phase: 'off',
@@ -210,6 +224,10 @@ export function createPatrol({
     rammedGrace: 0,
     /** The escape clock, in seconds of the taxi ESCAPE_BLOCKS clear — see ESCAPE_HOLD. */
     clear: 0,
+    /** Seconds the taxi has been out of the cop's sight — see LOS_LOST_HOLD. */
+    unseen: 0,
+    /** Is the cop looking at the taxi right now? Always true without `lineOfSight`. */
+    sees: true,
     /** Seconds since it started leaving — see STAND_DOWN_TIMEOUT. */
     standingDown: 0,
     /** Tallies, for the tools. */
@@ -218,6 +236,8 @@ export function createPatrol({
     caught: 0,
     lost: 0,
     hid: 0,
+    /** Chases ended by LOS_LOST_HOLD rather than by distance, for the tools. */
+    lostBySight: 0,
   };
 
   // Where the chase was last aimed. Keyed on its endpoints and left alone in between — re-planning
@@ -413,14 +433,27 @@ export function createPatrol({
     return turnRoundAnswer;
   }
 
+  // Where the cop was aiming the last time it could see the taxi — see LOS_LOST_HOLD.
+  let lastAim = null;
+
   function steer(cop) {
+    // Out of sight it goes where it last saw you going, and nowhere else.
+    if (!state.sees && lastAim) {
+      const key = `lost|${lastAim.i},${lastAim.j}`;
+      if (key === aimedAt) return;
+      if (cop.pass > 0) return;
+      routeTo(cop, lastAim);
+      aimedAt = key;
+      return;
+    }
     const key = `${taxi.i},${taxi.j},${taxi.route?.[0] ?? ''}`;
     if (key === aimedAt && cop.route?.length) return;
     // Not while it is out overtaking the taxi: the pass was only offered because this route carried
     // straight on (sim/traffic.js), and a re-aim mid-manoeuvre hands it a turn from the oncoming
     // lane. Same rule as the robbery's.
     if (cop.pass > 0) return;
-    routeTo(cop, aimFor(cop));
+    lastAim = aimFor(cop);
+    routeTo(cop, lastAim);
     aimedAt = key;
   }
 
@@ -436,6 +469,9 @@ export function createPatrol({
     state.clear = 0;
     state.grace = grace;
     state.spotted += 1;
+    state.unseen = 0;
+    state.sees = true;
+    lastAim = null;
     aimedAt = null;
     turnedAt = -Infinity;
     steer(cop);
@@ -511,7 +547,8 @@ export function createPatrol({
     if (taxi.crashed) return;   // the run is ending; leave the scene as it is for the shot
 
     const near = gap(cop);
-    const sees = boosting && near <= SPOT_RANGE && !taxi.staged;
+    const inSight = lineOfSight ? lineOfSight(cop) : true;
+    const sees = boosting && near <= SPOT_RANGE && !taxi.staged && inSight;
 
     if (state.phase === 'patrol') {
       // A robbery wants the streets: stand the patrol down rather than have a dark cop car
@@ -534,6 +571,8 @@ export function createPatrol({
 
     // --- chase
     state.elapsed += dt;
+    state.sees = inSight;
+    state.unseen = inSight ? 0 : state.unseen + dt;
     if (rammedGrace > state.grace) {
       state.grace = rammedGrace;
       cop.ram = false;
@@ -542,7 +581,8 @@ export function createPatrol({
     // Asked every frame, so it lapses the moment the taxi turns off. The U-turn re-plans nothing
     // itself: it leaves the cop with no route, and `steer` above picks that up next frame.
     if (cop.uturn) turnedAt = state.elapsed;
-    cop.uturnWanted = turnRound(cop);
+    // A cop that cannot see the taxi has nothing to turn round *for*.
+    cop.uturnWanted = state.sees && turnRound(cop);
     cop.pursuit = Math.max(0, Math.min(1, (near - PURSUIT_FROM) / (PURSUIT_FULL - PURSUIT_FROM)));
     if (state.grace > 0) {
       state.grace -= dt;
@@ -569,7 +609,9 @@ export function createPatrol({
       return;
     }
     state.clear = near > ESCAPE_RANGE ? state.clear + dt : Math.max(0, state.clear - dt);
-    if (state.clear >= ESCAPE_HOLD || state.elapsed > CHASE_MAX) {
+    const outOfSight = state.unseen >= LOS_LOST_HOLD && near > LOS_MIN_GAP;
+    if (outOfSight) state.lostBySight = (state.lostBySight ?? 0) + 1;
+    if (state.clear >= ESCAPE_HOLD || outOfSight || state.elapsed > CHASE_MAX) {
       state.lost += 1;
       leave(cop);
       onLost(cop);
