@@ -1237,9 +1237,8 @@ lane — not a moment anything is sliding.
 apart rather than 4, and a 4-unit swing there would park the taxi **on the median**, side by side
 with the car it was passing — the exact failure the old centreline overtake was abandoned for.
 
-`PASS_FADE` and `PASS_SIGHT` scale with it. The fade keeps the peak crab angle at the 31° it was
-tuned to instead of steepening to 45°; the sight line keeps the same margin over an exposure that
-is 60% longer. The manoeuvre comes out at roughly **51 units of road against 32**, so a pass on a
+`PASS_FADE` scales with it, keeping the peak crab angle at the 31° it was tuned to instead of
+steepening to 45°. The manoeuvre comes out at roughly **51 units of road against 32**, so a pass on a
 main street spans two junctions rather than one — the straight-on gate already re-asks per lane, so
 it tucks back in by itself if the route turns.
 
@@ -1287,53 +1286,54 @@ abandons the pass mid-manoeuvre. Measured: 3 of every 4.
 
 #### When it is allowed
 
-Two gates decide *when*, and both were added after watching it wreck rather than pass. Neither was
-in the first version, and without them a third of all overtakes ended in a collision — which is not
-a risk, it is a coin flip the player never chose to toss, because holding the button is something
-you want to do continuously and the pass fires off it automatically.
+**Whenever the road allows it, and never because the sim judged it a bad idea.** Holding the button
+inside `PASS_TRIGGER` of a car is the decision to go round it. The only things that refuse a pass
+are about geometry, not risk: there has to be an oncoming lane to borrow, and the taxi has to be
+carrying straight on through the junction ahead (a pass always spans one, and a corner taken from
+the oncoming lane peels the car off its arc). A taxi with **no route** — cruising on the dice
+between fares — counts as carrying straight on wherever straight on exists, and its exit roll is
+pinned straight while it is out of its lane (right-on-red included).
 
-**Not around a car that is already turning.** A pass wants ~27 units of road against a 12-unit
-lane, so the taxi is *always* still alongside when the leader reaches its junction — which is
-exactly when the left-turn dice are rolled. Measured over 28 overtakes at `?cars=22`, 10 ended in a
-wreck and **every one of them was against a car in the `turn` state**, 6 of those the car being
-passed turning left across the taxi. It was the default outcome, not an edge case.
+This replaced two judgement gates, and why they went matters more than how they worked:
 
-> **Except a straight-through crossing**, which is not what this gate is about, and reading it as
-> one cost the pass for a long time. `car.state === 'turn'` covers *every* junction transition
-> including carrying straight on — the trap the whole codebase warns about — so the gate refused to
-> pull out around any leader that happened to be inside a junction, which on a 20-unit grid is 40%
-> of the time and is exactly the 40% in which the taxi is tailgating hard enough to want to. The
-> danger it exists to stop is a car turning *across* the borrowed lane; a leader whose committed
-> movement is `hand === 'straight'` is going down the same road in the lane the taxi is leaving and
-> sweeps nothing. Narrowing it to that took the [lab](lab.md)'s staged approaches from 117 passes in
-> 160 to 142.
+| gate (removed) | what it refused |
+|---|---|
+| leader in a real turn | pulling out round a car already turning across the borrowed lane |
+| `PASS_SIGHT` (35 units) | pulling out with oncoming traffic in view |
 
-Refusing that car's left turn while it is being passed — the same courtesy `priorityJunction.block`
-already extends to oncoming traffic — fixes only 1 in 10 of them, because by the time the taxi
-pulls out the car has usually *already* chosen: a car in `turn` has committed, and the turn
-decision does not run again. The gate that works is refusing to pull out around a car that is
-mid-junction at all. Both are in, since the second one covers a leader that reaches its line later
-in the manoeuvre. Together: 32% → 19% of passes wrecked, and **no same-way collisions at all**.
+Both were added when any contact ended the run, and measured on those terms they were right:
+without them a third of all overtakes wrecked, 6 of 10 against the leader turning left across the
+taxi. But with hit points (`sim/collisions.js`) a bad pass is a bump, and the cost of the gates was
+paid somewhere the player could not see it. A refused pass is indistinguishable from the button not
+working — and since `rams` drives a taxi with no way round into the car in front, it was also a
+**rear-end** every time. The rule the player can learn is "boost behind a car and you go round it";
+"…unless the sim has decided otherwise" is not one.
 
-**Not into oncoming traffic already in sight.** `PASS_SIGHT` (35 units) is the exposure — the
-manoeuvre plus the tuck-in, ~1.2s, against a closing speed of 22.1 + 8.5 = 30.6 u/s. Asked only at
-the moment of pulling out: a car that emerges into the oncoming lane *during* the pass still costs
-the run, and that is the risk worth keeping, because it is the one the player could not have read.
-Being thrown into a car that was in plain sight the whole time is not — without this the taxi
-pulled out with oncoming traffic **3 units** away, already inside the collision envelope.
+Measured over six autoplay runs with boost held throughout, counting frames spent within
+`PASS_TRIGGER` of a leader on a lane:
 
-> The side test measures against `PASS_LATERAL + CAR_W`, not `HALF_ROAD`. Opposing lane centres are
-> exactly 2·LANE apart, which is exactly HALF_ROAD, so a bound of HALF_ROAD sits precisely on the
-> car being looked for and the weave alone was enough to push it out of sight. That bug made the
-> check look nearly useless (29% → 22%); fixing it took the same check to 17%.
+| | passes started | refused: no route | refused: route turns | other¹ |
+|---|---|---|---|---|
+| with the gates | 9 | 37.6% | 38.5% | 9.5% |
+| **now** | **24** | 5.1% | 52.4% | 4.0% |
 
-What the two gates cost is frequency: 2.7 → 1.8 overtakes a minute, and 19.19 → 18.98 u/s of ground
-covered. What they buy is that the manoeuvre mostly works.
+¹ With the gates, mostly the gates. Now, frames where the sim's own leader bookkeeping
+(`leaderDist`) reports nothing in front while the script's lane scan finds a car — one that has
+just entered the lane, typically. No gate refuses them.
+
+**What is left is the route gate**, and it is now most of what a player will still feel as "it
+wouldn't go". It stays because the alternative is the corner-from-the-wrong-lane geometry, not a
+risk judgement — but it is the next thing to look at if passing still reads as inconsistent.
+
+**One courtesy is kept.** A car being passed still does not *choose* a left turn across the taxi
+(`car === taxi.passTarget` in the exit roll). A car that has already committed to one when the taxi
+pulls out will turn into it — that is the case the old gate existed for, and it is now the player's
+risk to read.
 
 #### How dangerous it should be
 
 The honest way to read the risk is per second of exposure, not per pass — a pass lasts about a
-second, and Loco Mode is lethal anyway:
+second. Measured when the gates were introduced, before hit points:
 
 | | wreck every | |
 |---|---|---|
@@ -1341,11 +1341,8 @@ second, and Loco Mode is lethal anyway:
 | out in the oncoming lane, no gates | 3.3s | **2.7× as dangerous** |
 | out in the oncoming lane, both gates | 7.8s | **1.1×** |
 
-1.1× is arguably now *too* safe, and `PASS_SIGHT` is the dial: lowering it puts more oncoming
-traffic in play. It is a feel judgement rather than a correctness one, so it is left at the value
-that makes the manoeuvre reliable and the remaining deaths readable — oncoming traffic that
-arrives during the pass, cross traffic at a junction being run, and a car turning out of the
-oncoming lane.
+The game now runs the "no gates" row, on purpose. With hit points a contact costs a bump rather
+than the run, and the danger is the point: it is what makes going round a car a decision.
 
 #### It pays, and scatter never needed tuning
 
