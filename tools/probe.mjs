@@ -51,7 +51,7 @@ import { createSkidMarks } from '../src/game/skidmarks.js';
 import { createSparks } from '../src/game/sparks.js';
 import { createRepairFx } from '../src/game/repairfx.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
-import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, laneCost } from '../src/game/route.js';
+import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, setHazardLanes, laneCost } from '../src/game/route.js';
 import { createCollisions, TAXI_HP, bumpDamage, penetration } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
 import { createTaxiDoor } from '../src/game/taxidoor.js';
@@ -17183,6 +17183,49 @@ let chopperOrder; // likewise
       && laneCost(site.lane) <= 1,
     `retired ${retired}, guests ${fTraffic.cars.filter((c) => c.guest).length}, phase ${st.phase}`);
   setClosedLanes([], 'fire');
+  clearCityOccluders();
+}
+
+// The squall's cell (game/squall.js): no fire breaks out where it is raining or about to, and one the
+// rain reaches anyway goes out in steam with the engine sent home — a building burning away under a
+// rain cell read as a mistake. Fake weather rather than a real squall, so the check does not ride on
+// where a seeded crossing happens to be.
+{
+  createLayout(makeRng(seed));
+  setClosedLanes([]);
+  setClosedLanes([], 'fire');
+  setCityOccluders(buildings.mesh);
+  const rScene = new THREE.Scene();
+  const rTraffic = createTraffic(makeRng(seed + 610), rScene, 24, 24);
+  for (let step = 0; step < 120; step++) rTraffic.update(1 / 60);
+  // Raining everywhere ahead: nothing qualifies.
+  const wet = createFire({
+    rng: makeRng(seed + 611), scene: rScene, blocks: layout, traffic: rTraffic, soon: true,
+    rainAt: () => 1, rainSoon: () => 1,
+  });
+  for (let step = 0; step < 600; step++) wet.update(1 / 60);
+  // Dry at ignition, then the cell arrives over it.
+  let raining = false;
+  const late = createFire({
+    rng: makeRng(seed + 611), scene: rScene, blocks: layout, traffic: rTraffic, soon: true,
+    rainAt: () => (raining ? 1 : 0),
+  });
+  let steps = 0;
+  let steamed = false;
+  for (; steps < 60 * 30; steps++) {
+    rTraffic.update(1 / 60);
+    late.update(1 / 60);
+    if (late.state.fires && late.state.heat >= 1) raining = true;
+    if (raining && late.smoke.live() && late.state.phase === 'smoulder') steamed = true;
+    if (late.state.fires && late.state.phase === 'waiting') break;
+  }
+  check('no fire breaks out under the squall, and rain that reaches one puts it out',
+    wet.state.fires === 0 && late.state.fires === 1 && late.state.rainedOut === 1
+      && late.state.extinguished === 0 && steamed && late.state.phase === 'waiting'
+      && !rTraffic.cars.some((c) => c.guest),
+    `${wet.state.fires} fires in the rain; rained out ${late.state.rainedOut}, phase ${late.state.phase} after ${(steps / 60).toFixed(1)}s`);
+  setClosedLanes([], 'fire');
+  setHazardLanes([]);
   clearCityOccluders();
 }
 
