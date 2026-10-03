@@ -283,16 +283,31 @@ export function createSfx({ rng } = {}) {
   try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* old */ }
 
   // Fetched now, decoded once there is a context to decode into.
+  //
+  // Each download is marked handled the moment it is made, because nothing else listens to it
+  // until the first tap runs `start()` — and a download that fails before then is an *unhandled*
+  // rejection in the meantime, which index.html's panel puts over the whole screen. That is a
+  // launch with a bad connection: a Home Screen launch that lands on a dropped or still-attaching
+  // network fails every uncached file at once, and Safari's `TypeError: Load failed` carries an
+  // empty `stack`, so the panel read "Unhandled rejection:" and nothing else. A missing sound is
+  // not a broken game; `start()` still awaits the original promise and logs it as one.
   const bytes = {};
   for (const [key, url] of Object.entries(FILES)) {
     bytes[key] = fetch(url).then((r) => {
       if (!r.ok) throw new Error(`${r.status} ${url}`);
       return r.arrayBuffer();
     });
+    bytes[key].catch(() => {});
   }
 
   let ctx = null;
   let master = null;
+  // `resume()` and `suspend()` return promises that WebKit rejects (a context it has closed behind
+  // the app's back, a resume it will not allow outside a gesture). Every call here is
+  // fire-and-forget and the next gesture tries again, so a refusal is not an error worth a panel.
+  // (`Promise.resolve` because the prefixed `webkitAudioContext` of an older iOS returns nothing.)
+  const resumeCtx = () => { Promise.resolve(ctx.resume()).catch(() => {}); };
+  const suspendCtx = () => { Promise.resolve(ctx.suspend()).catch(() => {}); };
   // The music's own level, beside `master` rather than under it, so the two sliders are
   // independent. **Nothing plays into it yet**: the game ships no music track, and the bus exists
   // so the Settings slider has something real to steer the day one arrives — connect the track's
@@ -373,7 +388,7 @@ export function createSfx({ rng } = {}) {
     if (buffers[SOUNDS.idle[0]]) idle = makeLoop('idle');
     if (buffers[SOUNDS.locoLoop[0]]) loco = makeLoop('locoLoop');
     state.ready = true;
-    if (state.held) ctx.suspend();
+    if (state.held) suspendCtx();
   }
 
   // The unlock. Created *inside* the gesture, because Safari only lets a context start running
@@ -381,15 +396,15 @@ export function createSfx({ rng } = {}) {
   // will also suspend it behind the app's back (a phone call, the app backgrounded).
   const unlock = () => {
     if (!ctx) start();
-    else if (ctx.state !== 'running' && !state.held) ctx.resume();
+    else if (ctx.state !== 'running' && !state.held) resumeCtx();
   };
   for (const type of ['pointerdown', 'touchend', 'keydown']) {
     window.addEventListener(type, unlock, { capture: true, passive: true });
   }
   document.addEventListener('visibilitychange', () => {
     if (!ctx) return;
-    if (document.hidden) ctx.suspend();
-    else if (!state.held) ctx.resume();
+    if (document.hidden) suspendCtx();
+    else if (!state.held) resumeCtx();
   });
 
   /**
@@ -513,8 +528,8 @@ export function createSfx({ rng } = {}) {
     if (on === state.held) return;
     state.held = on;
     if (!ctx) return;
-    if (on) ctx.suspend();
-    else if (!document.hidden) ctx.resume();
+    if (on) suspendCtx();
+    else if (!document.hidden) resumeCtx();
   }
 
   function setMuted(on) {
