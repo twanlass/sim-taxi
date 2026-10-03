@@ -715,6 +715,45 @@ float rainNoise(vec2 p) {
   return mix(mix(rainHash(i), rainHash(i + vec2(1.0, 0.0)), f.x),
              mix(rainHash(i + vec2(0.0, 1.0)), rainHash(i + vec2(1.0, 1.0)), f.x), f.y);
 }
+// The puddles: at most one ellipse per CELL-unit cell, its centre, size and heading all
+// hashed off the cell. Returns roughly the distance in world units outside the nearest one
+// (negative inside). Thresholded noise was tried first and twice: two axis-aligned octaves came
+// out diamond-faceted (this camera looks down the lattice's diagonal), and three rotated, warped
+// octaves fixed the facets but read as coastlines on a map. A puddle in a cartoon city is a
+// rounded oblong, so it is drawn as one.
+float rainPuddleDist(vec2 p) {
+  const float CELL = 7.0;
+  vec2 g = p / CELL;
+  vec2 cell = floor(g);
+  float d = 1e3;
+  for (int y = -1; y <= 1; y++) {
+    for (int x = -1; x <= 1; x++) {
+      vec2 c = cell + vec2(float(x), float(y));
+      if (rainHash(c + 41.7) > 0.55) continue;
+      vec2 centre = (c + 0.15 + 0.7 * vec2(rainHash(c), rainHash(c + 7.1))) * CELL;
+      float a = rainHash(c + 13.3) * 3.14159;
+      vec2 q = p - centre;
+      q = vec2(cos(a) * q.x + sin(a) * q.y, -sin(a) * q.x + cos(a) * q.y);
+      float sz = 0.7 + 0.6 * rainHash(c + 5.3);
+      vec2 r = vec2(1.6 + 1.6 * rainHash(c + 23.9), 0.8 + 0.6 * rainHash(c + 31.1)) * sz;
+      // Ellipse distance, scaled back to world units by the short radius: exact on the short
+      // axis, a little generous on the long one, which only widens the rim's ramp there.
+      float e = (length(q / r) - 1.0) * r.y;
+      // About a third get a smaller second lobe off one end, blended in, so not every puddle is
+      // the same pill: an all-ellipse first cut read as polka dots.
+      if (rainHash(c + 53.9) < 0.35) {
+        vec2 r2 = r * vec2(0.6, 0.8);
+        vec2 q2 = q - vec2(r.x * 0.9, (rainHash(c + 61.3) - 0.5) * r.y);
+        float e2 = (length(q2 / r2) - 1.0) * r2.y;
+        float k = 0.4;
+        float h = clamp(0.5 + 0.5 * (e2 - e) / k, 0.0, 1.0);
+        e = mix(e2, e, h) - k * h * (1.0 - h);
+      }
+      d = min(d, e);
+    }
+  }
+  return d;
+}
 // Rings spreading from drops landing on a grid of cells, one drop per cell per cycle. Returns the
 // slope of the water surface, which is all a reflection needs to wobble.
 vec2 rainRipples(vec2 p, float t) {
@@ -751,11 +790,18 @@ vec3 rainDy = dFdy(vRainWorld);
 float rainUp = smoothstep(0.8, 0.95, abs(normalize(cross(rainDx, rainDy)).y));
 float rainRoad = 1.0 - smoothstep(0.08, 0.2, vRainWorld.y);
 float rainGrass = step(diffuseColor.r * 1.08, diffuseColor.g) * step(diffuseColor.b, diffuseColor.g);
-float rainPuddleN = rainNoise(vRainWorld.xz * 0.16) * 0.7 + rainNoise(vRainWorld.xz * 0.9 + 3.0) * 0.3;
-float rainPuddle = smoothstep(0.62, 0.68, rainPuddleN) * rainRoad * rainUp * rainHere;
+float rainPuddleD = rainPuddleDist(vRainWorld.xz);
+// The rim is antialiased off the distance's own screen-space slope, so it is a clean curve at any
+// zoom rather than a stair at play zoom or a smear close up.
+float rainPuddleAA = max(fwidth(rainPuddleD), 0.01);
+float rainPuddle = (1.0 - smoothstep(-rainPuddleAA, rainPuddleAA, rainPuddleD)) * rainRoad * rainUp * rainHere;
+// A damp ring just outside each puddle, darker than wet asphalt, so the edge feathers into the
+// road rather than being a sticker on it.
+float rainDamp = (1.0 - smoothstep(0.0, 0.5, rainPuddleD)) * rainRoad * rainUp * rainHere;
 float rainWet = rainHere * mix(0.55, 1.0, rainUp) * mix(0.6, 1.0, rainRoad) * (1.0 - 0.5 * rainGrass);
 diffuseColor.rgb *= mix(1.0, 0.58, rainWet);
-diffuseColor.rgb *= mix(1.0, 0.7, rainPuddle);
+diffuseColor.rgb *= mix(1.0, 0.82, rainDamp);
+diffuseColor.rgb *= mix(1.0, 0.85, rainPuddle);
 `;
 
 // Before the colour is written: mix in the mirror. Sampled at 1 - u because the mirror pass was
