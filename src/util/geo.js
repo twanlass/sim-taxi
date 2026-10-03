@@ -725,6 +725,17 @@ const GLOSS_VERTEX = /* glsl */ `
 	}
 `;
 
+// Three's own colour chunk, with the instance tint kept off metal. The fleet is one InstancedMesh
+// painted per car through `instanceColor`, which multiplies every vertex — so a chrome bumper
+// (geometry/bumpers.js) came out red on a red car, and the hubcaps had always been steel dipped in
+// the car's paint. Metal is the one finish that is never paint. `> 2.5` rather than `== 3.0` for
+// the same rounding reason GLOSS_COLOR uses `int(x + 0.5)`; METAL is the highest finish there is.
+const GLOSS_COLOR_VERTEX = THREE.ShaderChunk.color_vertex.replace(
+  'vColor.xyz *= instanceColor.xyz;',
+  'vColor.xyz *= aFinish > 2.5 ? vec3(1.0) : instanceColor.xyz;',
+);
+if (GLOSS_COLOR_VERTEX === THREE.ShaderChunk.color_vertex) throw new Error('gloss: color_vertex hook missed');
+
 // Read the finish's numbers once, at the top, and darken the base colour by its `diffuse` before
 // any light touches it. `int(x + 0.5)` because a varying that is 2.0 at every vertex can still
 // arrive as 1.9999 — the triangle never mixes finishes, but interpolation does not know that.
@@ -857,7 +868,8 @@ varying vec3 vGlossBulge;
 varying vec3 vGlossObj;
 varying float vGlossFinish;`)
         .replace('#include <project_vertex>', `#include <project_vertex>
-${GLOSS_VERTEX}`);
+${GLOSS_VERTEX}`)
+        .replace('#include <color_vertex>', GLOSS_COLOR_VERTEX);
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>
 uniform sampler2D tGlossCity;
@@ -892,7 +904,7 @@ ${GLOSS_NORMAL}`)
         .replace('#include <envmap_fragment>', `#include <envmap_fragment>
 ${GLOSS_FRAGMENT}`);
       // Never a blind replace (CLAUDE.md): a hook that matched nothing is a matte car and no error.
-      for (const marker of ['attribute float aFinish', 'vGlossFinish = aFinish']) {
+      for (const marker of ['attribute float aFinish', 'vGlossFinish = aFinish', 'aFinish > 2.5']) {
         if (!shader.vertexShader.includes(marker)) throw new Error(`gloss: vertex hook missed (${marker})`);
       }
       for (const marker of ['uniform float uGloss;', 'gFinA = uFinishA', 'gSpecN = normalize',
