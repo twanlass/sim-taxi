@@ -5,6 +5,7 @@ import { touching } from '../sim/collisions.js';
 import { SPOT_RANGE } from '../sim/police.js';
 import { findRoute, findRouteOnto, planOrigin, junctionAhead, turnsRound } from './route.js';
 import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
+import { groundLineClear } from './sightline.js';
 
 // The patrol cruiser: a police car that crosses town edge to edge, past the taxi, with its bar
 // swinging gently red and blue, and comes after you if you boost in front of it.
@@ -41,8 +42,8 @@ import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
 //   - **Caught** — the cop touches the taxi (see TOUCH_SLACK). The run ends "Busted!", as it always
 //     did; it just takes a cop actually getting to you now. The taxi ramming the cop on the pill is
 //     not that: it is a bump, and buys RAMMED_GRACE.
-//   - **Lost** — see ESCAPE_BLOCKS. The bar goes dark and the cruiser drives off, the same
-//     stand-down a robbery's cops do.
+//   - **Lost** — see ESCAPE_BLOCKS, or out of its sight for SIGHT_HOLD. The bar goes dark and the
+//     cruiser drives off, the same stand-down a robbery's cops do.
 //   - **Gone to ground** — the taxi pulls into the depot mid-chase (`hideout`). Lost, by another
 //     door: the cop never saw it go in.
 
@@ -110,6 +111,44 @@ export const ESCAPE_HOLD = 1.5;
 // The two full-tank catches are both at 0.6s: taxis staged boosting straight into the cop's side.
 // Before the catch-up and the hold, a taxi on the pill lost the cop in a median 4.2s on 5s of boost,
 // the same as on 15 — the blip that was reported. The tank decides it.
+
+/**
+ * The other way to lose it: out of the cop's sight, in seconds. The line from the cop to the taxi
+ * crossing a block (`groundLineClear` in game/sightline.js, at SIGHT_Y) runs this clock; back in
+ * sight it runs down at the same rate, as the escape clock does, so a glimpse across a junction does
+ * not wipe out a getaway that was nearly made.
+ *
+ * Distance alone could not reward the thing a chase in a grid city is actually about — turning off
+ * where the cop cannot see you go. A taxi a block and a half ahead round two corners was as caught
+ * as one a block and a half ahead down a straight road. With this, breaking the line is a second
+ * way out, and one that does not need the tank: it needs corners.
+ *
+ * Long enough that a cop *on your tail* never trips it. Every corner the taxi takes breaks the line
+ * until the cop rounds the same one, and a cop that is going to catch the taxi anyway is still out
+ * of sight for a median ~2s at some point in the chase — mostly held at a red round the corner the
+ * taxi just took. Swept over sixteen staged chases per cell, as ESCAPE_HOLD's table, with the city
+ * built and occluding; "across" drives a route over town, "zigzag" turns at every junction:
+ *
+ *   | hold      | across, off pill  | across, full tank | zigzag, off pill | zigzag, full tank |
+ *   |-----------|-------------------|-------------------|------------------|-------------------|
+ *   | none      | 16/16 caught      | 15/16 lost        | 16/16 caught     | 14/16 caught      |
+ *   | 2.5s      | 9/16 caught       | 15/16 lost        |                  |                   |
+ *   | 3.5s      | 13/16 caught      | 15/16 lost        | 9/16 caught      | 7/16 lost         |
+ *   | 4.5s (now)| 14/16 caught      | 15/16 lost        | 11/16 caught     | 7/16 lost         |
+ *   | 6s        | 15/16 caught      | 15/16 lost        | 14/16 caught     | 4/16 lost         |
+ *
+ * The right-hand column is the point: a taxi that corners hard used to be caught on a full tank
+ * whatever it did, because turning keeps it near the cop. At 2.5s a cruising taxi got away nearly
+ * half the time, which ends "off the pill you get caught"; 4.5s keeps that and still pays corners.
+ */
+export const SIGHT_HOLD = 4.5;
+
+/**
+ * The height the sightline is drawn at: a driver's eye, a little under the cabin top (2.07). High
+ * enough that a hedge, a bench or a bollard does not hide a car, low enough that a building's ground
+ * floor does. Lanes are clear of the height field at any height (measured: 0 on every centreline).
+ */
+const SIGHT_Y = 1.6;
 
 /**
  * The catch-up: how far behind the cop has to be before it starts flooring it, and where it is
@@ -210,6 +249,8 @@ export function createPatrol({
     rammedGrace: 0,
     /** The escape clock, in seconds of the taxi ESCAPE_BLOCKS clear — see ESCAPE_HOLD. */
     clear: 0,
+    /** The other escape clock, in seconds of the taxi out of the cop's sight — see SIGHT_HOLD. */
+    unseen: 0,
     /** Seconds since it started leaving — see STAND_DOWN_TIMEOUT. */
     standingDown: 0,
     /** Tallies, for the tools. */
@@ -226,6 +267,7 @@ export function createPatrol({
   let aimedAt = null;
 
   const gap = (cop) => Math.hypot(cop.x - taxi.x, cop.z - taxi.z);
+  const inSight = (cop) => groundLineClear(cop.x, cop.z, taxi.x, taxi.z, SIGHT_Y);
   const clampI = (i) => Math.max(0, Math.min(GRID_I, i));
   const clampJ = (j) => Math.max(0, Math.min(GRID_J, j));
   const routeTo = (cop, target) => {
@@ -434,6 +476,7 @@ export function createPatrol({
     state.phase = 'chase';
     state.elapsed = 0;
     state.clear = 0;
+    state.unseen = 0;
     state.grace = grace;
     state.spotted += 1;
     aimedAt = null;
@@ -569,7 +612,8 @@ export function createPatrol({
       return;
     }
     state.clear = near > ESCAPE_RANGE ? state.clear + dt : Math.max(0, state.clear - dt);
-    if (state.clear >= ESCAPE_HOLD || state.elapsed > CHASE_MAX) {
+    state.unseen = inSight(cop) ? Math.max(0, state.unseen - dt) : state.unseen + dt;
+    if (state.clear >= ESCAPE_HOLD || state.unseen >= SIGHT_HOLD || state.elapsed > CHASE_MAX) {
       state.lost += 1;
       leave(cop);
       onLost(cop);
