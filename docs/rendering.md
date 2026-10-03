@@ -4357,6 +4357,15 @@ exactly the friction that stops a look from being judged properly.
 
 Pretending a rebuild-only value is live would just show a slider that silently does nothing.
 
+Every section starts **collapsed**, with a search box pinned above them. The code still builds the
+panel flat — `heading()` then rows — and `organise()` folds it into sections at the end, so a new
+section only has to start with `heading()`. Search matches section titles plus row labels and
+button text (every word has to land somewhere, so "loco brake" finds one slider), forces matching
+sections open and hides the rest. Which sections the user opened is kept in `sessionStorage` and is
+never written while a search is narrowing the panel, so clearing the search restores it. The look
+is deliberately a neutral tool style rather than the game's; the audio panel borrows its rows and
+buttons.
+
 Touching any lighting control stops the day cycle, rather than letting the next frame overwrite the
 change. **Copy settings JSON** exports the live values (not the slider positions, so manual
 overrides are captured) for pasting back as new defaults.
