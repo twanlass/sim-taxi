@@ -7,8 +7,10 @@
  *             brake hugging its left side and gas its right.
  *   dash    — a 1970s cab's dashboard across the bottom of the screen, seen from the driver's
  *             seat: speedo, a LOCO fuel gauge, idiot lights, and the two pedals at either end.
- *   arch    — the shipped pedals, rearranged: the gas becomes a dome in the middle of the bottom
- *             edge with the fuel band following its top, and the Figma brake moves to the corner.
+ *   arch    — the shipped pedals, rearranged: the gas becomes a green dome in the middle of the
+ *             bottom edge with the orange fuel band following its top, the brake moves to the corner,
+ *             and neither carries an icon. The rest of the HUD moves round to suit: the cash total
+ *             top-left, pause top-right, and the cargo chip down into the bottom-right corner.
  *
  * Anything else (or nothing) keeps the Figma pedals in index.html. This is a skin and only a skin:
  * the controls are still `#boost` and `#brake`, pressed through the same pedal slide in main.js,
@@ -314,7 +316,7 @@ const DASH_CSS = `
 // --- arch ------------------------------------------------------------------
 
 // The dome, in CSS px and in its own box: flat bottom, straight sides, a half-circle on top.
-// The look is the Figma gas pedal's — its gradient, its side band and its bolt — with every
+// The look is the Figma gas pedal's — its gradient and its side band, recoloured green — with every
 // filter number scaled by the 0.65 the shipped pedal is drawn at (95px for 146 units).
 const AR = { w: 120, h: 96, cx: 60, cy: 63, r: 57, corner: 14, pad: 26 };
 // The fuel band: inner edge clear of the dome's outline by a 3px gap and a 1.3px rim, tapering
@@ -349,7 +351,7 @@ function archArt() {
     <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
     <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
     <feOffset dy="${side}"/><feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
-    <feColorMatrix values="0 0 0 0 0.313068 0 0 0 0 0.194996 0 0 0 0 0.00389115 0 0 0 1 0"/>
+    <feColorMatrix values="0 0 0 0 0.02 0 0 0 0 0.24 0 0 0 0 0.09 0 0 0 1 0"/>
     <feBlend in2="shape" result="side"/>
     <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
     <feOffset dy="5"/><feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
@@ -363,7 +365,7 @@ function archArt() {
     ${well ? `<feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
     <feOffset dy="10"/><feGaussianBlur stdDeviation="1.6"/>
     <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
-    <feColorMatrix values="0 0 0 0 0.313068 0 0 0 0 0.194996 0 0 0 0 0.00389115 0 0 0 0.9 0"/>
+    <feColorMatrix values="0 0 0 0 0.02 0 0 0 0 0.24 0 0 0 0 0.09 0 0 0 0.9 0"/>
     <feBlend in2="shaded"/>` : ''}`;
   const region = `x="${fx}" y="${fy}" width="${fw}" height="${fh}" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"`;
   const p = AR.pad;
@@ -372,24 +374,12 @@ function archArt() {
       <defs>
         <filter id="arch-up" ${region}>${shade(-18, -22, false)}</filter>
         <filter id="arch-down" ${region}>${shade(-7, -11, true)}</filter>
-        <filter id="arch-icon" x="47.784" y="65.35" width="53.055" height="61.512" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-          <feFlood flood-opacity="0" result="BackgroundImageFix"/>
-          <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
-          <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
-          <feOffset dx="1" dy="2"/><feGaussianBlur stdDeviation="1.5"/>
-          <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
-          <feColorMatrix values="0 0 0 0 0.804634 0 0 0 0 0.497203 0 0 0 0 0 0 0 0 1 0"/>
-          <feBlend in2="shape"/>
-        </filter>
         <linearGradient id="arch-fill" x1="0" y1="0" x2="${w}" y2="${h}" gradientUnits="userSpaceOnUse">
-          <stop stop-color="#FF9E01"/><stop offset="0.157945" stop-color="#FCAD2F"/><stop offset="1" stop-color="#FF9E01"/>
+          <stop stop-color="#1FB851"/><stop offset="0.157945" stop-color="#43D16F"/><stop offset="1" stop-color="#1FB851"/>
         </linearGradient>
       </defs>
       <path class="a-face" d="${dome}" fill="url(#arch-fill)"/>
-      <path d="${dome}" fill="none" stroke="#221500" stroke-width="2.6"/>
-      <g transform="translate(${cx} ${cy - 2}) scale(0.75) translate(-74 -95)">
-        <path class="a-icon" filter="url(#arch-icon)" d="M48.3979 98.1325L81.7166 65.9284C83.3303 64.3687 85.8942 66.2413 84.8993 68.2531L75.3902 87.4814C74.7329 88.8107 75.7 90.368 77.183 90.368H97.8347C99.713 90.368 100.555 92.7229 99.1033 93.9142L61.9627 124.385C60.1205 125.897 57.6537 123.498 59.1132 121.614L72.1451 104.796C73.1634 103.481 72.2267 101.571 70.5641 101.571H49.7878C47.9896 101.571 47.1049 99.3823 48.3979 98.1325Z" fill="#FFE4B9"/>
-      </g>
+      <path d="${dome}" fill="none" stroke="#04210d" stroke-width="2.6"/>
     </svg>`,
     readout: `<svg class="a-gauge" viewBox="${-p} ${-p} ${w + 2 * p} ${h + p}" overflow="visible">
       <defs>
@@ -418,8 +408,19 @@ const ARCH_CSS = `
     transition: filter 0.15s ease; }
   .pedals-arch .a-face { filter: url(#arch-up); }
   body.pedals-arch #boost.is-held .a-face, body.pedals-arch #boost.is-down .a-face { filter: url(#arch-down); }
-  .pedals-arch .a-icon { transition: transform 0.07s ease-out; }
-  body.pedals-arch #boost.is-held .a-icon, body.pedals-arch #boost.is-down .a-icon { transform: translateY(8px); }
+  body.pedals-arch #brake .pedal-icon { display: none; }
+  /* The HUD round the pedals: cash top-left, pause top-right where the cash was, and the cargo
+     chip in the bottom-right corner the pause left (createPedalSkin moves it out of #hud, whose
+     entrance translate would otherwise be the containing block for a fixed chip). */
+  body.pedals-arch #hud { right: auto; left: calc(var(--hud-side) + var(--safe-left)); align-items: flex-start; }
+  body.pedals-arch #hud .money { transform-origin: left center; }
+  body.pedals-arch #pause { bottom: auto; top: var(--hud-top); right: max(var(--hud-side), var(--safe-right)); }
+  body.pedals-arch:not(.hud-ready) #pause { translate: 0 -160%; }
+  body.pedals-arch #cargo-chip { position: fixed; margin: 0; z-index: 20; pointer-events: none;
+    right: var(--ctl-right); bottom: var(--ctl-bottom); width: 56px; height: 56px; }
+  body.pedals-arch #cargo-chip canvas { width: 56px; height: 56px; }
+  body.pedals-arch.shot-mode #cargo-chip, body.pedals-arch.game-over #cargo-chip,
+  body.pedals-arch.replaying #cargo-chip { display: none; }
   body.pedals-arch #boost.is-empty .skin-art { filter: grayscale(1) brightness(0.9); opacity: 0.7; }
   #pedal-readout.arch { position: fixed; z-index: 19; left: calc(50% - ${AR.w / 2 + AR.pad}px);
     bottom: var(--ctl-bottom); width: ${AR.w + 2 * AR.pad}px; height: ${AR.h + AR.pad}px; pointer-events: none; }
@@ -470,6 +471,11 @@ export function createPedalSkin({ boostButton, brakeButton, search = window.loca
   // A skin that keeps one of the shipped pedals simply has no art for it.
   if (art.gas) boostButton.insertAdjacentHTML('beforeend', art.gas);
   if (art.brake) brakeButton.insertAdjacentHTML('beforeend', art.brake);
+
+  if (name === 'arch') {
+    const chip = document.getElementById('cargo-chip');
+    if (chip) document.body.appendChild(chip);
+  }
 
   let readout = null;
   if (art.readout) {
