@@ -13,12 +13,15 @@ import { CHASSIS_LIFT } from './wheels.js';
 // fleet is one instanced mesh tinted per car, and the gloss shader leaves the instance tint off
 // metal (`propMaterial({ gloss })`, util/geo.js). Without that a bumper comes out the car's colour.
 
-export const BUMPER_H = 0.14;                  // tall — ~1px at play zoom, so it reads as a line
-export const BUMPER_D = 0.12;                  // fore-aft, of which BUMPER_SINK is inside the body
+// 0.14 by 0.12 at first, which at play zoom (1 unit ≈ 7.7px) is a one-pixel line: chrome you had to
+// look for. Chunkier reads as a bumper rather than as trim.
+export const BUMPER_H = 0.2;                   // tall — ~1.5px at play zoom
+export const BUMPER_D = 0.16;                  // fore-aft, of which BUMPER_SINK is inside the body
 const BUMPER_SINK = 0.02;
-// The bottom of the body (`SILL_Y`) plus a little: low on the end face, under the light pods'
-// centres (LIGHT_Y, geometry/lights.js), the way a real bumper sits under its lamps.
-export const BUMPER_Y = 0.46 + CHASSIS_LIFT;
+// Low on the end face, the way a real bumper sits under its lamps (LIGHT_Y, geometry/lights.js). Its
+// underside is 0.01 above the bottom of the body (`SILL_Y`) rather than level with it: level is two
+// faces on one plane where the bar's buried inner edge overlaps the body.
+export const BUMPER_Y = 0.49 + CHASSIS_LIFT;
 
 /** How far across the car a bumper runs — short of the flanks, so it never lies on one. */
 export function bumperLength(width) {

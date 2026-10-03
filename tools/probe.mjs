@@ -9553,7 +9553,7 @@ check('the taxi is an ordinary car in the traffic array',
     if (!node.children.some((c) => c.name === 'ghostMask')) unmasked.push(node);
   });
   // Two more for the chrome bumpers (geometry/bumpers.js), masked without a rim for the reason the
-  // damage pieces are: a 0.14 bar inside the shell's hull, too thin to carry one of its own.
+  // damage pieces are: a 0.2 bar inside the shell's hull, too thin to carry one of its own.
   check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 29,
     `${unmasked.length} unmasked, ${masks.length} masks (10 outlined parts + 13 damage pieces + 4 door pieces + 2 bumpers)`);
 

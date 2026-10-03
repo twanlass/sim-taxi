@@ -136,7 +136,7 @@ export function createTaxiMesh() {
 
   // The chrome bumpers, one mesh per end rather than merged into the shell, so a bumper knocked
   // loose (`setBumper` in buildDamage) leaves the end it came off bare instead of wearing two. On
-  // the shell's own material: same object space, same program. Masked, not rimmed — a 0.14 bar is
+  // the shell's own material: same object space, same program. Masked, not rimmed — a 0.2 bar is
   // too thin to carry a hull and sits inside the shell's (see addGhostMask).
   const bumpers = new Map([1, -1].map((end) => {
     const bumper = new THREE.Mesh(bumperGeometry(CAR_LEN, CAR_W, end), shell.material);
