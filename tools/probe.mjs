@@ -13493,39 +13493,37 @@ let chopperOrder; // likewise
       paintFar < RAMP_FROM + 1e-6,
       `paint to x ${paintFar.toFixed(2)}, ramp from ${RAMP_FROM.toFixed(2)}`);
 
-    // --- The mast, and the dish orbiting on it.
+    // --- The pole, and the wrench turning on it.
     //
-    // Every number here is derived in `garage.js` from the dish's own measured bounds rather than
-    // hand-tuned, and each of these is the claim that derivation was supposed to guarantee. They
-    // are worth asserting anyway: the dish has been resized twice, and both times it was one of
-    // these that broke.
-    garage.dish.geometry.computeBoundingBox();
-    const bb = garage.dish.geometry.boundingBox;
-    const dishLow = KERB_H + bb.min.y;
-    const dishHigh = KERB_H + bb.max.y;
-    const axis = garage.dishPivot.position;
+    // Every number here is derived in `garage.js` from the wrench's own measured bounds rather than
+    // hand-tuned, and each of these is the claim that derivation was supposed to guarantee. The
+    // dish that stood here before it was resized twice, and both times it was one of these that
+    // broke.
+    garage.wrench.geometry.computeBoundingBox();
+    const bb = garage.wrench.geometry.boundingBox;
+    const wrenchLow = KERB_H + bb.min.y;
+    const axis = garage.wrenchPivot.position;
 
     // The radius it actually sweeps — the furthest any vertex gets from the pivot's axis, not the
-    // bounding box's x, because the pose the box measures is one the dish only holds for an instant.
-    const dp = garage.dish.geometry.attributes.position;
+    // bounding box's x, because the pose the box measures is one the wrench only holds for an
+    // instant.
+    const dp = garage.wrench.geometry.attributes.position;
     let orbit = 0;
     for (let i = 0; i < dp.count; i++) orbit = Math.max(orbit, Math.hypot(dp.getX(i), dp.getZ(i)));
 
-    // The one thing a mast on this roof could break is the shot the whole depot exists for, and it
+    // The one thing a sign on this roof could break is the shot the whole depot exists for, and it
     // cannot break it for a reason that is about **x**, not about height: every ray out of the
     // opening starts on the curtain plane and runs +X, so anything wholly behind that plane is
     // unreachable at any height.
-    check('the sweeping dish stays behind the plane the door\u2019s sightlines leave from',
+    check('the turning wrench stays behind the plane the door’s sightlines leave from',
       axis.x + orbit < site.curtainX,
       `orbit reaches x ${(axis.x + orbit).toFixed(2)}, curtain at ${site.curtainX.toFixed(2)}`);
     // ...and stays inside the +Z parapet, rather than swinging out over the street the door faces.
     //
-    // Only that edge, and the reason is arithmetic rather than visibility — an overhang on any of
-    // the four would be seen, since this camera looks down on the roof and throws anything tall
-    // up-screen. It is that the +Z one is satisfiable by construction (`mastZ` is placed from
-    // `bz1`) and the −X one is not: a block squeezed between two arterials leaves a roof 5.43 wide
-    // against the 5.48 a centred orbit would need, so demanding it would be a check that fails on
-    // a city the generator is allowed to build. On every seed swept it clears by over a unit.
+    // Only that edge, and the reason is arithmetic rather than visibility: the +Z one is
+    // satisfiable by construction (the pole is placed from `bz1`) and the −X one is not on a block
+    // squeezed between two arterials, so demanding it would be a check that fails on a city the
+    // generator is allowed to build. It sweeps over the back parapet there, a long way above it.
     check('...and stays inside the parapet it could swing out over',
       axis.z + orbit < bounds.z1 - 0.9,
       `orbit to z ${(axis.z + orbit).toFixed(2)}, parapet at ${(bounds.z1 - 0.9).toFixed(2)}`);
@@ -13533,56 +13531,81 @@ let chopperOrder; // likewise
     // The entrance wave's contract, and the reason the pivot is where it is. The shader scales the
     // shell about KERB_H; `objects` in game/cityentry.js owns nothing but `object.scale`, so the
     // only way a CPU-grown object rises with the mesh it stands on is for its pivot to sit on that
-    // same plane. Anywhere else and the dish shrinks toward a point the mast has not reached.
+    // same plane. Anywhere else and the wrench shrinks toward a point the pole has not reached.
     check('...and its pivot sits on the plane the entrance wave scales about',
       Math.abs(axis.y - KERB_H) < 1e-9,
       `pivot y ${axis.y.toFixed(3)} against ${KERB_H}`);
 
-    // The two things the dish is squeezed between on the pole. Both are measured off the mast's own
-    // vertices — the ones within a plinth's width of its axis — rather than off MAST_H, so a change
-    // to either end shows up here.
-    let barTop = -Infinity;
+    // The pole stops at the wrench's centre — inside the handle, so the tool is mounted on it
+    // rather than floating over it or skewered through it. Measured off the pole's own vertices,
+    // the topmost trim within a plinth's width of the axis.
     let poleHead = -Infinity;
     for (let i = 0; i < pos.count; i++) {
       if (Math.hypot(pos.getX(i) - axis.x, pos.getZ(i) - axis.z) > 0.62) continue;
-      const y = pos.getY(i);
-      if (y > KERB_H + 5.5 && y < dishLow) barTop = Math.max(barTop, y);
-      // The pole's head, which is where the whip takes over: the topmost `garageTrim` vertex on the
-      // axis. The whip itself is `pole`-coloured and sits above it.
-      if (at(i) === TRIM && y > KERB_H + 5.5) poleHead = Math.max(poleHead, y);
+      if (at(i) === TRIM && pos.getY(i) > KERB_H + 5.5) poleHead = Math.max(poleHead, pos.getY(i));
     }
-    // It orbits, so it passes over the crossbars once a revolution: the clearance is not a static
-    // one and cannot be read off a single pose.
-    check('...and clears the crossbars under it all the way round',
-      dishLow - barTop > 0.1, `${(dishLow - barTop).toFixed(2)} units`);
-    // And the pole shows past the top of it, or the whip appears to grow out of the dish's rim.
-    check('...with the pole\u2019s head still showing above it',
-      poleHead > dishHigh, `head ${poleHead.toFixed(2)} against dish top ${dishHigh.toFixed(2)}`);
+    check('...on a pole that ends at its centre',
+      Math.abs(poleHead - garage.hub) < 1e-6,
+      `pole head ${poleHead.toFixed(2)}, wrench centre ${garage.hub.toFixed(2)}`);
 
-    // The roof's own plant, which the mast walked into once already: the standoff grew with the
-    // dish and took the mast to a corner a unit box was standing in.
+    // The roof's own plant, which the old mast walked into once already: the standoff grows with
+    // the sweep and can take the pole to a corner a unit box is standing in. And the wrench's low
+    // end, which passes over the same boxes once a revolution.
     const PLANT = [color('rooftop').getHexString(), color('rooftopIron').getHexString()];
     let plantGap = Infinity;
+    let plantTop = -Infinity;
     for (let i = 0; i < pos.count; i++) {
       if (pos.getY(i) < KERB_H + 5 || !PLANT.includes(at(i))) continue;
       plantGap = Math.min(plantGap,
         Math.hypot(pos.getX(i) - axis.x, pos.getZ(i) - axis.z));
+      plantTop = Math.max(plantTop, pos.getY(i));
     }
-    check('...and the roof\u2019s plant is clear of the mast standing among it',
-      plantGap > 0.6, `nearest box corner ${plantGap.toFixed(2)} from the mast`);
+    check('...and the roof’s plant is clear of the pole standing among it',
+      plantGap > 0.6, `nearest box corner ${plantGap.toFixed(2)} from the pole`);
+    check('...and of the wrench sweeping over it',
+      wrenchLow - plantTop > 0.2,
+      `${(wrenchLow - plantTop).toFixed(2)} units over the tallest box`);
 
-    // Last: the dish is out of both lists it must not be in. The wave cannot animate it — it turns,
-    // and the anchor a vertex scales about is a world coordinate — so it is not a stamped mesh; it
-    // is an `entryObject` instead.
+    // Its two flat faces wound to face outward. It is an extrusion, which three winds itself — but
+    // this is the check the boats' wake and the roadworks ramp did not have (CLAUDE.md), and on an
+    // object that turns, a reversed face is the one you see half the time. The cant is about z and
+    // the lift is along y, so the caps still sit at ±z; a cap triangle's normal, from its winding,
+    // has to point the way its own z does.
+    let capsWrong = 0;
+    let caps = 0;
+    const zMax = bb.max.z;
+    const tri = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    const n = new THREE.Vector3();
+    for (let t = 0; t < dp.count; t += 3) {
+      for (let k = 0; k < 3; k++) tri[k].fromBufferAttribute(dp, t + k);
+      if (!tri.every((v) => Math.abs(Math.abs(v.z) - zMax) < 1e-6 && v.z * tri[0].z > 0)) continue;
+      n.subVectors(tri[1], tri[0]).cross(new THREE.Vector3().subVectors(tri[2], tri[0]));
+      if (n.lengthSq() < 1e-12) continue;
+      caps++;
+      if (n.z * tri[0].z <= 0) capsWrong++;
+    }
+    check('...with both its faces wound to face out', caps > 20 && capsWrong === 0,
+      `${capsWrong} of ${caps} cap triangles reversed`);
+
+    // Steel: every vertex on the metal finish, and the material actually carrying the gloss patch.
+    const finish = garage.wrench.geometry.attributes.aFinish;
+    check('...in the vehicles’ metal finish',
+      finish && Array.from(finish.array).every((f) => f === FINISH.METAL)
+      && garage.wrench.material.customProgramCacheKey().includes('gloss'),
+      `program key "${garage.wrench.material.customProgramCacheKey()}"`);
+
+    // Last: the wrench is out of both lists it must not be in. The wave cannot animate it — it
+    // turns, and the anchor a vertex scales about is a world coordinate — so it is not a stamped
+    // mesh; it is an `entryObject` instead.
     check('...and it is an entrance *object*, not one of the stamped meshes',
-      !garage.meshes.includes(garage.dish) && garage.entryObject.object === garage.dishPivot);
+      !garage.meshes.includes(garage.wrench) && garage.entryObject.object === garage.wrenchPivot);
     // And having been kept out of the AO depth prepass, it must not *receive* AO either. Receiving
     // is the default, so a mesh that is not in the prepass reads the occlusion of whatever is
-    // behind it on screen — for the dish, its own roof and the crease under its own mast. The flag
-    // is visible from here because `patchProp` folds it into the program cache key.
+    // behind it on screen — for the dish that stood here, its own roof and the crease under its
+    // own mast. The flag is visible from here because `patchProp` folds it into the program key.
     check('...and out of the AO lookup, since it is not in the prepass that feeds it',
-      !garage.dish.material.customProgramCacheKey().includes('ssao'),
-      `program key "${garage.dish.material.customProgramCacheKey()}"`);
+      !garage.wrench.material.customProgramCacheKey().includes('ssao'),
+      `program key "${garage.wrench.material.customProgramCacheKey()}"`);
   }
 
   // --- Can the camera see the door?

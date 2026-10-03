@@ -177,7 +177,7 @@ export const SHOTS = [
   // looked at it for was the vignette — and the vignette frames itself. It has a livery now, so
   // there is something to look at from outside the cut scene. Same pair as everything else here.
   // Close: do the yellow band and the chequer course under it read as a *livery* rather than as a
-  // stripe, and does a frustum on a mast read as a dish. At play zoom: is the depot a block you can
+  // stripe, and does the thing turning on the roof read as a wrench. At play zoom: is the depot a block you can
   // pick out of the skyline, which is what all that paint is for.
   //
   // The door is shut in both. Shot mode never stages the taxi, so `setDoor(0)` is what main.js

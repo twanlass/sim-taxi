@@ -1041,7 +1041,7 @@ const cityEntry = createCityEntry({
     ...(burger?.meshes ?? []), ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : [])],
   // The two things in the city the wave's vertex shader cannot reach, because they turn: the
-  // depot's radio dish and the burger over the drive-through. See the `objects` note in
+  // depot's wrench and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
     ...hoopers.entryObjects],
@@ -3462,7 +3462,7 @@ function frame() {
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
   burger?.update(dt, SIGN_SPIN);
-  // And the dish on the depot's roof, on the same terms — see DISH_SPIN in city/garage.js.
+  // And the wrench on the depot's roof, on the same terms — see WRENCH_SPIN in city/garage.js.
   garage?.update(dt);
   controller.updateShake(dt, aspect());
   daylight.update(dt);

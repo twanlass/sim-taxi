@@ -251,8 +251,8 @@ of the tower generator's hands (`createBuildings` only walks `'built'` blocks) a
 taxi's own depot: a single-storey shed at the back of the block with a roller door on the street, a
 3-unit asphalt forecourt, and a dropped kerb the taxi comes off in
 [the opening vignette](gameplay.md#the-opening-vignette). It is painted in the cab company's own
-colours and carries a radio mast — see [the livery](#the-livery-and-the-mast-on-the-roof) and
-[the mast](#the-mast-and-what-is-derived-from-the-dish) below.
+colours and carries a turning wrench on its roof — see [the livery](#the-livery) and
+[the wrench](#the-wrench-and-what-is-derived-from-it) below.
 
 **A whole block, not a lot.** The depot needs a forecourt to pull out of, and the generated city
 only leaves 0.85 units of pavement between a façade and the kerb — a car pulling out of a door that
@@ -266,7 +266,7 @@ offset stream — so adding the depot moved no park, no arterial and no building
 is the answer, and it may be **null**: a city with nowhere to put one opens without the vignette
 rather than not opening.
 
-### The livery, and the mast on the roof
+### The livery
 
 The depot is the one building the player owns, and it is painted like it. **The envelope itself is
 yellow** — `garageWall`, the biggest exception in `palette.js` to "yellow is reserved for the taxi",
@@ -313,42 +313,49 @@ way [the burger joint](#the-burger-joint-and-its-drive-through) names its apron.
 `KERB_RUN` short of the lip, where the dropped kerb starts falling away — a level strip carried out
 over a ramp is buried in it at one end and hanging over it at the other.
 
-### The mast, and what is derived from the dish
+### The wrench, and what is derived from it
 
-On the roof, a **radio mast** with a **dish sweeping on it** — dispatch has to reach the car
-somehow, and it is the only moving part on the building other than the door. The mast is static and
-rides in the shell's merge like everything else. The dish cannot: the city's entrance wave is a
+On the roof, an **oversized wrench turning on a pole** — the depot is where the taxi comes back for
+repairs and upgrades, and the building has to say so from play zoom before anybody has learned it.
+It is a sign in the burger joint's sense: one big object, canted 45° off vertical, turning about
+once every sixteen seconds (`WRENCH_SPIN`). It replaced a radio mast and dish, which said
+"dispatch" — true, and nothing a player can act on.
+
+It is **one extruded `Shape`**: a combination spanner, open jaw up, hexagon ring down. One outline
+rather than a handle and two heads merged, because three winds an extrusion itself (no hand-written
+triangle to get backwards) and because separate solids would share their flat faces on one plane
+where the handle runs into each head — coplanar overlap, which shimmers. A single-segment bevel puts
+a chamfer round every edge, and that is most of what reads as metal: under `flatShading` a flat slab
+lit by one sun is a cut-out, and the chamfer is a ring of 45° faces that catches the glint as it
+turns. The material is the vehicles' **metal** finish (`propMaterial({ gloss })` with every vertex
+on `FINISH.METAL`) — a darkened base with a tight glint and some sky and skyline reflected in it.
+Under Crayon and Cartoon the gloss is declined and it is an ordinary prop, as the cars are.
+
+The pole is static and rides in the shell's merge. The wrench cannot: the city's entrance wave is a
 vertex shader whose anchor is a *world* coordinate, and a world coordinate in a turning object's
 local space is not a coordinate, so it grows on the CPU through `createCityEntry`'s `objects` list
-exactly as the burger over the drive-through does.
+exactly as the burger does. Its pivot stands at the **pole's foot, on the kerb**, not at the
+wrench's centre: the CPU path owns nothing but `object.scale`, and the shader scales the shell about
+`KERB_H`, so a uniform scale about a point on that plane is the same arithmetic and the wrench rides
+up the pole as the pole grows. It is out of the AO lookup as well as the prepass — the dish before
+it, left receiving, wore a dark blotch of its own roof's crease that moved with the camera.
 
-Where its pivot sits is the subtle part. The CPU path owns nothing but `object.scale`, and the
-shader scales the shell about `KERB_H` — so the pivot stands at the **mast's foot, on the kerb**,
-not at the mast's head. A uniform scale about a point on that plane is the same arithmetic the
-shader is doing, and the dish rides up the mast as the mast grows. Put the pivot at the head and it
-shrinks toward a point two seconds of animation away from where the mast actually is.
+**Almost nothing else up here is a literal** — a habit carried over from the dish, which was
+resized twice, and both times what broke was a hand-tuned number *around* it:
 
-**Almost nothing else up here is a literal, and that is the lesson rather than the style.** The dish
-has been resized twice, and both times what broke was a hand-tuned number *around* it. So they are
-derived from its built geometry instead:
-
-- **The arm** it orbits on is `DISH_R · cos(DISH_TILT) + 0.26`. The disc is tilted about the z axis,
-  so its nearest point to the mast is `arm − DISH_R · cos(DISH_TILT)`; at a fixed arm, doubling the
-  radius put that on the far side of the pole and ran the mast through the dish.
-- **The crossbars** hang off the dish's measured underside with a fixed clearance, rather than at a
-  fraction of `MAST_H`. The dish orbits, so it passes over them once a revolution — a clearance that
-  holds in one pose is not a clearance.
-- **The mast's standoff from the roof corner** is the radius the dish actually sweeps — the furthest
-  any vertex gets from the pivot *axis*, which is not `boundingBox.max.x`, because the box measures
-  a pose the dish holds for an instant — plus a margin. One number answers both things it must not
-  reach: the +Z parapet it could swing out over, and the **curtain plane**, since every sightline
-  out of the door starts there and runs +X, so anything wholly behind it cannot occlude the door at
-  any height.
+- **The pole's height** is wherever the wrench's measured underside clears the roof plant by
+  `WRENCH_CLEAR`. The pole stops at the wrench's centre, inside the handle.
+- **The pole's standoff from the roof corner** is the radius the wrench actually sweeps — the
+  furthest any vertex gets from the pivot *axis*, which is not `boundingBox.max.x`, because the box
+  measures a pose the wrench holds for an instant — plus a margin. One number answers both things it
+  must not reach: the +Z parapet it could swing out over, and the **curtain plane**, since every
+  sightline out of the door starts there and runs +X, so anything wholly behind it cannot occlude
+  the door at any height.
 
 One thing that is *not* derived and cost a probe failure to find: the rooftop plant. Its two boxes
 were placed one offset from the back of the roof in x and one from the front in z, which only ever
-stayed clear of the mast because an ordinary block is 12 wide. A block squeezed between two
-arterials is 9.33, and the mast walked into a box with nothing in the geometry to say so. Both are
+stayed clear of the old radio mast because an ordinary block is 12 wide. A block squeezed between
+two arterials is 9.33, and the mast walked into a box with nothing in the geometry to say so. Both are
 measured off the back corner now, and the probe measures the gap.
 
 ### The site filter is a sightline
