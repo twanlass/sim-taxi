@@ -118,6 +118,54 @@
         display: inline-block; transform-origin: right center;
       }
 
+      /* The police heat meter, top left across from the cash (game/heatmeter.js): how close the
+         patrol is to coming after you, and once it is, how close you are to shaking it. The stealth
+         game's detection bar, read in a glance — a siren dome, one word, one bar. `data-mode` is
+         the state and `--heat` the fill; nothing here hit-tests.
+
+         It is only there while a patrol is in town, and dim while the patrol has not noticed you:
+         a cop on the map is worth knowing about, but it is not news until the bar moves. */
+      #heat {
+        position: fixed; top: var(--hud-top); left: calc(var(--hud-side) + var(--safe-left));
+        height: var(--hud-row);
+        display: flex; align-items: center; gap: 8px;
+        font: 900 13px/1 var(--hud-font); letter-spacing: 0.08em; text-transform: uppercase;
+        color: #fff; text-shadow: var(--hud-shadow);
+        pointer-events: none; user-select: none;
+        --heat: 0; --heat-ink: #fff; --heat-fill: #fff;
+        opacity: 0; transition: opacity 0.3s ease;
+      }
+      #heat .heat-icon {
+        width: 30px; height: 30px; flex: none; color: var(--heat-ink);
+        filter: drop-shadow(0 2px 1px rgba(0, 0, 0, 0.3));
+      }
+      #heat .heat-body { display: flex; flex-direction: column; gap: 5px; }
+      #heat .heat-label { color: var(--heat-ink); white-space: nowrap; }
+      #heat .heat-bar {
+        width: 92px; height: 9px; border-radius: 5px; overflow: hidden;
+        background: rgba(0, 0, 0, 0.32); box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.85),
+          var(--hud-shadow);
+      }
+      #heat .heat-fill {
+        height: 100%; width: 100%; border-radius: inherit; background: var(--heat-fill);
+        transform-origin: left center; transform: scaleX(var(--heat));
+      }
+      body.hud-ready #heat:not([data-mode="none"]) { opacity: 1; }
+      body.hud-ready #heat[data-mode="patrol"] { opacity: 0.6; }
+      #heat[data-mode="suspicious"] { --heat-ink: #ffd23f; --heat-fill: #ffb21f; }
+      #heat[data-mode="suspicious"].is-hot .heat-icon { animation: heat-throb 0.5s ease-in-out infinite; }
+      /* In pursuit the dome strobes the patrol's own red and blue, at about its hunting rate. */
+      #heat[data-mode="pursuit"] { --heat-ink: #ff4d5e; --heat-fill: #ff3348; }
+      #heat[data-mode="pursuit"] .heat-icon { animation: heat-strobe 0.36s steps(1) infinite; }
+      #heat[data-mode="evading"] { --heat-ink: #7cc8ff; --heat-fill: #4aa8ff; }
+      #heat[data-mode="lost"] { --heat-ink: #7dffa0; --heat-fill: #7dffa0; }
+      @keyframes heat-strobe { 0% { color: #ff4d5e; } 50% { color: #4aa8ff; } }
+      @keyframes heat-throb { 50% { transform: scale(1.15); } }
+      @media (prefers-reduced-motion: reduce) {
+        #heat .heat-icon { animation: none !important; }
+      }
+      body.shot-mode #heat, body.replaying #heat, body.game-over #heat { display: none; }
+
       /* Loco Mode's fuel, read out as a gauge arc hugging the top of the gas pedal — a tachometer
          over the control that spends it, so a thumb holding the gas can watch the tank go without
          looking away to a corner. The arc runs from a third of the way down the pedal's left side,
@@ -1438,6 +1486,21 @@
            the box inside it is the real `createParcel` mesh in a WebGL context of its own, the same
            way the rider-finder chips draw the real figure. -->
       <div id="cargo-chip" role="img" aria-label="Package aboard" aria-hidden="true"></div>
+    </div>
+
+    <!-- The police heat meter — game/heatmeter.js. -->
+    <div id="heat" aria-hidden="true" data-mode="none">
+      <svg class="heat-icon" viewBox="0 0 32 32" aria-hidden="true">
+        <path fill="currentColor" d="M9 22v-6a7 7 0 0 1 14 0v6z" />
+        <rect fill="#fff" x="6" y="22" width="20" height="5" rx="1.5" />
+        <path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
+              d="M16 3.5v3M5.5 8l2.2 2.2M26.5 8l-2.2 2.2M2.5 17h2.5M27 17h2.5" />
+        <path fill="#fff" opacity="0.55" d="M12.5 15.5a3.5 3.5 0 0 1 3.5-3.5v2a1.5 1.5 0 0 0-1.5 1.5z" />
+      </svg>
+      <div class="heat-body">
+        <div class="heat-label">Patrol</div>
+        <div class="heat-bar"><div class="heat-fill"></div></div>
+      </div>
     </div>
 
     <!-- Both glyphs ship in the one button; CSS shows whichever the current state offers. Drawn

@@ -36,10 +36,10 @@ import {
 // red and blue across the road and the fronts of buildings as it passes, and a pod on an instanced
 // car cannot. See `lightBar`.
 
-// Boosting inside this radius of the patrol car is what sets it after you — reckless driving in
-// front of a cop. One block in world units (PITCH = 20 in src/city/grid.js): the taxi and the
-// cruiser have to be sharing a junction, so it reads as being caught in the act rather than spotted
-// from a street over. It used to end the run on the spot; it starts a chase now (game/patrol.js).
+// Boosting inside this radius of the patrol car is reckless driving in front of a cop. One block in
+// world units (PITCH = 20 in src/city/grid.js). It used to end the run on the spot, then to start a
+// chase on the spot; now it is the distance at which the patrol's heat fills in a second, faster
+// closer and slower further out (NOTICE_RANGE in game/patrol.js).
 export const SPOT_RANGE = 20;
 
 /**

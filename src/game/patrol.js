@@ -35,14 +35,15 @@ import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
 //   chase     it spotted you: bar strobing, driving at you — ends caught, or lost
 //   leaving   lost you: bar dark, driving off; retired once out of sight
 //
-// **Spotted** is the rule the old bust was: boost within SPOT_RANGE (one block) of it. What
-// changed is what happens next.
+// **Spotted** is no longer a frame: boosting near it fills its *heat* (NOTICE_RANGE), a full bar
+// is the chase, and lifting off cools it. game/heatmeter.js draws it top left.
 //
 //   - **Caught** — the cop touches the taxi (see TOUCH_SLACK). The run ends "Busted!", as it always
 //     did; it just takes a cop actually getting to you now. The taxi ramming the cop on the pill is
 //     not that: it is a bump, and buys RAMMED_GRACE.
-//   - **Lost** — see ESCAPE_BLOCKS. The bar goes dark and the cruiser drives off, the same
-//     stand-down a robbery's cops do.
+//   - **Lost** — the escape meter fills (ESCAPE_BLOCKS, SHAKE_RANGE): far enough ahead, or out of
+//     the cop's sight. The bar goes dark and the cruiser drives off, the same stand-down a
+//     robbery's cops do.
 //   - **Gone to ground** — the taxi pulls into the depot mid-chase (`hideout`). Lost, by another
 //     door: the cop never saw it go in.
 
@@ -86,13 +87,17 @@ export const ESCAPE_BLOCKS = 2.5;
 const ESCAPE_RANGE = ESCAPE_BLOCKS * PITCH;
 
 /**
- * ...and for how long, in seconds. The gap has to *hold*: a taxi that pops clear and is caught
- * back up has not got away, and with the cop flooring it to close (PURSUIT_*) a single
- * frame over the line is exactly what a straight followed by a corner produces. Out of range the
- * clock runs; back inside it, it runs down at the same rate rather than resetting, so an escape
- * that was nearly made still counts for something. 2.5 at first; 1.5 alongside the shorter line.
+ * ...and for how long, in seconds: past ESCAPE_RANGE the escape meter fills at 1/ESCAPE_HOLD a
+ * second. The gap has to *hold*: a taxi that pops clear and is caught back up has not got away,
+ * and with the cop flooring it to close (PURSUIT_*) a single frame over the line is exactly what a
+ * straight followed by a corner produces. Back in the cop's sight the meter falls (RESIGHT_RATE)
+ * rather than resetting, so an escape that was nearly made still counts for something.
+ *
+ * It was a clock of 1.5s past the line, and nothing else counted. It is 3 now because breaking the
+ * cop's sightline also fills the meter (SHAKE_RANGE), which on its own took a full tank's getaway
+ * from a median 6.0s to 3.2s on the probe's seeds — a blip. At 3 it is 5.4s.
  */
-export const ESCAPE_HOLD = 1.5;
+export const ESCAPE_HOLD = 3;
 
 // Where those land, measured over sixteen staged chases per row with the taxi driving a route across
 // town (not rolling dice at junctions — nobody plays like that, and a taxi that turns at random
@@ -110,6 +115,21 @@ export const ESCAPE_HOLD = 1.5;
 // The two full-tank catches are both at 0.6s: taxis staged boosting straight into the cop's side.
 // Before the catch-up and the hold, a taxi on the pill lost the cop in a median 4.2s on 5s of boost,
 // the same as on 15 — the blip that was reported. The tank decides it.
+//
+// Re-measured with the heat, the sightline and SPOT_GRACE in (32 staged chases a row over two seed
+// bases, `HOLD`-staged as the probe does), against the same harness before them:
+//
+//   | taxi            | boost spent | before                 | now                          |
+//   |-----------------|-------------|------------------------|------------------------------|
+//   | routed          | none        | 32/32 caught, ~10s     | 32/32 caught, ~11s           |
+//   | routed          | 5s          | 17/32 caught           | 17/32 caught                 |
+//   | routed          | 15s         | 5/32 caught (all 0.6s) | 0/32 caught, lost in 6.8s    |
+//   | no route (auto) | 5s          | 20/32 caught           | 13/32 caught                 |
+//   | no route (auto) | 15s         | 12/32 caught, ~20s in  | 2/32 caught                  |
+//
+// What got easier is the auto-driving taxi, which used to roll its turns back into the cop
+// (`fleeWeight` in sim/traffic.js), and the catches in the first second (SPOT_GRACE). What a
+// third of a tank buys a routed taxi is unchanged: still the coin flip.
 
 /**
  * The catch-up: how far behind the cop has to be before it starts flooring it, and where it is
@@ -160,6 +180,59 @@ const CHASE_MAX = 40;
 const HANDOFF_GRACE = 1.5;
 
 /**
+ * **Heat**: how close a patrolling cop is to coming after you, 0..1 — the stealth game's detection
+ * meter, drawn top left by game/heatmeter.js. Boosting near the cruiser fills it and a full one is
+ * the chase; off the pill it cools.
+ *
+ * It replaced spotting on the frame: boost within SPOT_RANGE and the strobe came up at once, which
+ * was reported as getting caught "a lot" and with nothing to read beforehand. Now there is a beat
+ * in which the player sees the bar climb and can lift off.
+ *
+ * The rate is NOTICE_RATE a second at SPOT_RANGE on the cop's own street — a second to fill — and
+ * scales with the square of closeness, up to NOTICE_MAX: boosting past its bumper is a third of a
+ * second, two blocks off is four. Nothing past NOTICE_RANGE. Off its sightline (`inSight`) the rate
+ * is NOTICE_OFF_SIGHT of that: a street over, the cop has to hear you rather than see you.
+ */
+export const NOTICE_RANGE = 2 * PITCH;
+const NOTICE_RATE = 1;
+const NOTICE_MAX = 3;
+const NOTICE_OFF_SIGHT = 0.35;
+
+/** Off the pill, heat holds this long and then falls at COOL_RATE a second. */
+const COOL_DELAY = 0.75;
+const COOL_RATE = 0.4;
+
+/**
+ * Can the cop see the taxi? Both on the same street — within SIGHT_WIDTH of the same grid line,
+ * which an arterial's lanes at 3.33 are — or close enough that it does not matter which.
+ *
+ * A block is a building, and under this camera a block is what stands between two parallel
+ * streets, so this is the city's own line of sight to within a junction. It is what makes driving
+ * a way out of a chase rather than only holding boost: see SHAKE_RANGE.
+ */
+const SIGHT_WIDTH = 6;
+const SIGHT_CLOSE = 12;
+
+/**
+ * Shaking it off: out of the cop's sight and more than SHAKE_RANGE away, the escape meter fills at
+ * SHAKE_RATE a second, rising to the ESCAPE_HOLD rate at ESCAPE_RANGE. In sight and inside
+ * ESCAPE_RANGE it falls at RESIGHT_RATE. Past ESCAPE_RANGE it fills at the ESCAPE_HOLD rate in sight
+ * or out, which is the old rule unchanged.
+ */
+const SHAKE_RANGE = 24;
+const SHAKE_RATE = 0.2;
+const RESIGHT_RATE = 0.4;
+
+/**
+ * The same grace on the frame a patrol boils over (NOTICE_RANGE), in seconds. The heat only fills
+ * on the pill and fastest right beside the cop, so the chase used to open with the two cars a car
+ * length apart and the cop ramming at once: measured over 32 staged chases, a full tank was caught
+ * in 0.6s on 5 of them, before the player could have read the bar. One second is the strobe and
+ * "Pull over!" going up.
+ */
+const SPOT_GRACE = 1;
+
+/**
  * The same grace after the taxi rams the cop on the pill, in seconds. A boosting hit on a cop is a
  * bump like any other car (sim/collisions.js) — HP off, the cop knocked or launched — and it is the
  * *taxi* driving into the cop, which is not the cop catching anybody. Without it the bump was a bust
@@ -208,8 +281,16 @@ export function createPatrol({
     grace: 0,
     /** RAMMED_GRACE owed by a ram this frame, spent by the next `update` — see `rammed`. */
     rammedGrace: 0,
-    /** The escape clock, in seconds of the taxi ESCAPE_BLOCKS clear — see ESCAPE_HOLD. */
-    clear: 0,
+    /** The escape meter, 0..1 — lost at 1. See ESCAPE_HOLD and SHAKE_RANGE. */
+    escape: 0,
+    /** How close a patrolling cop is to giving chase, 0..1 — see NOTICE_RANGE. */
+    heat: 0,
+    /** Seconds since the taxi last boosted inside NOTICE_RANGE — see COOL_DELAY. */
+    cool: 0,
+    /** Does the cop see the taxi this frame (`inSight`)? For the meter. */
+    sight: false,
+    /** Is the escape meter filling this frame? For the meter. */
+    evading: false,
     /** Seconds since it started leaving — see STAND_DOWN_TIMEOUT. */
     standingDown: 0,
     /** Tallies, for the tools. */
@@ -226,6 +307,8 @@ export function createPatrol({
   let aimedAt = null;
 
   const gap = (cop) => Math.hypot(cop.x - taxi.x, cop.z - taxi.z);
+  const inSight = (cop, near) => near <= SIGHT_CLOSE
+    || Math.min(Math.abs(cop.x - taxi.x), Math.abs(cop.z - taxi.z)) <= SIGHT_WIDTH;
   const clampI = (i) => Math.max(0, Math.min(GRID_I, i));
   const clampJ = (j) => Math.max(0, Math.min(GRID_J, j));
   const routeTo = (cop, target) => {
@@ -341,6 +424,7 @@ export function createPatrol({
         police.release(state.exitD, (isXAxis(state.exitD) ? SLAB_X : SLAB_Z) / 2);
         state.cop = null;
         state.phase = 'exiting';
+        state.heat = 0;
       }
       return;
     }
@@ -433,7 +517,8 @@ export function createPatrol({
     cop.route = [];
     state.phase = 'chase';
     state.elapsed = 0;
-    state.clear = 0;
+    state.escape = 0;
+    state.heat = 1;
     state.grace = grace;
     state.spotted += 1;
     aimedAt = null;
@@ -458,6 +543,9 @@ export function createPatrol({
     cop.route = [];
     routeTo(cop, { i: taxi.i > GRID_I / 2 ? 0 : GRID_I, j: taxi.j > GRID_J / 2 ? 0 : GRID_J });
     state.phase = 'leaving';
+    state.heat = 0;
+    state.escape = 0;
+    taxi.fleeFrom = null;
     state.standingDown = 0;
     aimedAt = null;
   }
@@ -465,6 +553,8 @@ export function createPatrol({
   /** Off the road, and the cooldown to the next one starts. */
   function retire() {
     state.cop = null;
+    state.heat = 0;
+    taxi.fleeFrom = null;
     state.phase = 'off';
     state.cooldown = rng.range(state.cooldownRange[0], state.cooldownRange[1]);
     police.shed();
@@ -482,6 +572,34 @@ export function createPatrol({
       return;
     }
     if (traffic.retirePolice(cop)) retire();
+  }
+
+  /**
+   * Fill or cool the heat for one frame on patrol; answers whether it has boiled over. A ram on the
+   * pill (`rammedGrace`) is noticed outright, as boosting within SPOT_RANGE always was: the taxi is
+   * touching the cop.
+   */
+  function notice(dt, boosting, near, sight, rammedGrace) {
+    if (boosting && rammedGrace > 0 && near <= SPOT_RANGE) return true;
+    if (boosting && near <= NOTICE_RANGE) {
+      const close = SPOT_RANGE / Math.max(near, 1);
+      const rate = Math.min(NOTICE_MAX, NOTICE_RATE * close * close) * (sight ? 1 : NOTICE_OFF_SIGHT);
+      state.heat = Math.min(1, state.heat + rate * dt);
+      state.cool = 0;
+    } else {
+      state.cool += dt;
+      if (state.cool > COOL_DELAY) state.heat = Math.max(0, state.heat - COOL_RATE * dt);
+    }
+    return state.heat >= 1;
+  }
+
+  /** The escape meter's rate this frame, per second — see SHAKE_RANGE. */
+  function escapeRate(near, sight) {
+    const hold = 1 / ESCAPE_HOLD;
+    if (near > ESCAPE_RANGE) return hold;
+    if (sight) return -RESIGHT_RATE;
+    if (near <= SHAKE_RANGE) return 0;
+    return SHAKE_RATE + (hold - SHAKE_RATE) * (near - SHAKE_RANGE) / (ESCAPE_RANGE - SHAKE_RANGE);
   }
 
   /**
@@ -511,13 +629,18 @@ export function createPatrol({
     if (taxi.crashed) return;   // the run is ending; leave the scene as it is for the shot
 
     const near = gap(cop);
-    const sees = boosting && near <= SPOT_RANGE && !taxi.staged;
+    const sight = inSight(cop, near);
+    state.sight = sight;
+    state.evading = false;
 
     if (state.phase === 'patrol') {
       // A robbery wants the streets: stand the patrol down rather than have a dark cop car
       // wandering through a getaway it takes no part in.
       if (blocked()) { leave(cop); return; }
-      if (sees) { spot(cop, rammedGrace); return; }
+      if (notice(dt, boosting && !taxi.staged, near, sight, rammedGrace)) {
+        spot(cop, Math.max(rammedGrace, SPOT_GRACE));
+        return;
+      }
       if (state.leg === 'in') {
         state.legTime += dt;
         if (state.legTime > PATROL_TIME) headOut(cop);
@@ -565,11 +688,18 @@ export function createPatrol({
       cop.ram = false;
       cop.uturnWanted = false;
       state.phase = 'arrest';
+      taxi.fleeFrom = null;
       onCaught(cop);
       return;
     }
-    state.clear = near > ESCAPE_RANGE ? state.clear + dt : Math.max(0, state.clear - dt);
-    if (state.clear >= ESCAPE_HOLD || state.elapsed > CHASE_MAX) {
+    // The auto-driving taxi leans its turns away from the cop (`fleeWeight` in sim/traffic.js).
+    // A routed taxi never reads it: the player's route wins.
+    taxi.fleeFrom = cop;
+    const rate = escapeRate(near, sight);
+    state.evading = rate > 0;
+    state.escape = Math.max(0, Math.min(1, state.escape + rate * dt));
+    state.heat = 1 - state.escape;
+    if (state.escape >= 1 || state.elapsed > CHASE_MAX) {
       state.lost += 1;
       leave(cop);
       onLost(cop);

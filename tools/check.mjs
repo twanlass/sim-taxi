@@ -20,7 +20,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/city/burgerjoint.js', '../src/game/drivethru.js',
   '../src/city/bank.js', '../src/game/robbery.js', '../src/game/radio.js',
-  '../src/game/robberline.js', '../src/game/copshout.js', '../src/game/patrol.js',
+  '../src/game/robberline.js', '../src/game/copshout.js', '../src/game/patrol.js', '../src/game/heatmeter.js',
   '../src/game/speech.js', '../src/game/depotcall.js',
   '../src/game/coplights.js', '../src/game/cashtrail.js',
   '../src/game/wipe.js',

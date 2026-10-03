@@ -1380,6 +1380,11 @@ function startUturn(car, sw) {
 }
 const YIELD_RANGE = 15;          // how far ahead oncoming traffic blocks a left turn
 const TURN_WEIGHTS = [0.62, 0.24, 0.14]; // straight, right, left
+// The auto-driving taxi's lean while a patrol chases it (`fleeWeight`): exits heading away from the
+// cop weighed up, exits heading back toward it all but ruled out. Sideways is left at 1, which with
+// the cop dead behind makes a turn — the way out of its sightline — about a third of rolls.
+const FLEE_AWAY_W = 3;
+const FLEE_TOWARD_W = 0.05;
 
 // Cars used to teleport between full speed and stopped. These give them mass: they ease away
 // from a green and, more importantly, *anticipate* — a car reads the signal ahead and sheds speed
@@ -3882,6 +3887,24 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
    * earlier — an indicator that can only come on once the turn is committed is an indicator that
    * comes on too late to mean anything (see SIGNAL_LEAD).
    */
+  /**
+   * How much a car running from `car.fleeFrom` (a point — in practice the patrol chasing the
+   * taxi, set by game/patrol.js) likes this exit: a lot if it heads away, barely at all if it
+   * heads back toward it. Only ever set on a car with no route, so it is the auto-driving taxi
+   * that reads it — which, rolling the ordinary dice mid-chase, turned back into the cop often
+   * enough to drive in circles: a full tank caught 6 of 16 times, median 19.7s, against 4 of 16
+   * for a taxi driven along a route. A weight rather than a filter, for `rollExit`'s own reason.
+   */
+  function fleeWeight(car, turn) {
+    const from = car.fleeFrom;
+    const ax = car.x - from.x;
+    const az = car.z - from.z;
+    const len = Math.hypot(ax, az) || 1;
+    const d = net.dirOfLane(net.laneById.get(turn.outLane));
+    const away = (isXAxis(d) ? dirSign(d) * ax : dirSign(d) * az) / len;
+    return away > 0.3 ? FLEE_AWAY_W : away < -0.3 ? FLEE_TOWARD_W : 1;
+  }
+
   function rollExit(car, options) {
     // Weight straight/right/left, then fall back to whatever is legal here. The hand comes off the
     // turn rather than out of direction arithmetic, which is what lets a three-way — where one
@@ -3892,6 +3915,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // another whole block, so it barely rolls that option. Still a weight rather than a filter —
       // at a T-junction straight may be the only legal exit.
       let w = kind === 0 && car.scatter > 0.5 ? SCATTER_STRAIGHT_W : TURN_WEIGHTS[kind];
+      if (car.fleeFrom) w *= fleeWeight(car, turn);
       // A road closed for roadworks, for the same reason and with a stronger version of the same
       // guarantee. With any open exit present `total` is positive, `roll` is strictly greater than
       // zero, and a zero-weight option can never win the walk below — so this reads as a hard ban.
