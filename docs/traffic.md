@@ -2095,6 +2095,13 @@ engine drives off. It carries its own water — nobody hooks up to a hydrant.
 Held off while the taxi is staged (the opening, the depot, the drive-through), during a robbery, and
 in shot mode. `?fire=soon` starts one three seconds in.
 
+**Not in the squall.** A building blazing away under a rain cell read as a bug, so a site is skipped
+if the cell is on it or will be within `RAIN_LEAD` (20s) of its current crossing
+(`squall.rainSoon`). That rules out about 29% of site-moments, measured over six seeded 10-minute
+squalls, so the 4-second retry almost always finds a dry one. A fire the cell reaches anyway goes
+out under it (`RAIN_DOUSE`, 2.5s of full rain) in steam, counted as `rainedOut`, and the engine is
+sent home. The one exception is while the engine is spraying, because the jet is already winning.
+
 ### The engine is a guest, not a cop
 
 It is a car in `cars` — it follows its lane, queues, signals, takes a route, can be bumped, and

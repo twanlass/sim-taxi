@@ -1361,6 +1361,8 @@ const fire = createFire({
   blocked: () => Boolean(shot) || traffic.taxi.staged || Boolean(robbery?.state.active)
     || fares.state.gameOver,
   soon: new URLSearchParams(window.location.search).get('fire') === 'soon',
+  // Not under the squall's cell, nor on its way; and rain that reaches one puts it out.
+  ...(squall && { rainAt: squall.rainAt, rainSoon: squall.rainSoon }),
 });
 // The engine's bar blooms at the cruiser's strength; the flames bloom on their own (`flame`).
 for (const mesh of fire.emissiveMeshes) markEmissive(mesh, 'siren');

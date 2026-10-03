@@ -194,6 +194,26 @@ export function createSquall({ pin = null, rng = Math.random } = {}) {
     return a + (b - a) * v;
   }
 
+  /**
+   * The most it will rain at a point over the next `ahead` seconds of this crossing — the cell's
+   * path swept forward in steps of a few seconds (~11 units at its ~3.2 u/s, well inside its 14-unit
+   * soft edge). Only the crossing already under way: the next one starts outside a corner after a
+   * `GAP` of 25s, and is a long way from anything when it does.
+   */
+  function rainSoon(x, z, ahead) {
+    let most = cellMask(cell, x, z, state.t);
+    if (!cell.on || state.pinned !== null) return most;
+    const probe = { x: 0, z: 0, r: cell.r, on: true };
+    for (let dt = 3.5; dt <= ahead + 1e-9; dt += 3.5) {
+      const p = state.progress + dt / CROSS;
+      if (p > 1) break;
+      probe.x = from[0] + (to[0] - from[0]) * p;
+      probe.z = from[1] + (to[1] - from[1]) * p;
+      most = Math.max(most, cellMask(probe, x, z, state.t + dt));
+    }
+    return most;
+  }
+
   return {
     state,
     cell,
@@ -204,6 +224,7 @@ export function createSquall({ pin = null, rng = Math.random } = {}) {
     wetAt,
     /** How hard it is raining at a point, 0..1. */
     rainAt: (x, z) => cellMask(cell, x, z, state.t),
+    rainSoon,
     /** Pin the cell part-way along a crossing (0..1), or null to let the clock run. */
     pin: (v) => { state.pinned = v; settle(); },
     /** Jump the clock — `?squall` takes a while to arrive, and this is for looking at it. */
