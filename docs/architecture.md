@@ -51,7 +51,7 @@ src/
     selectpop.js        the swell-and-settle curve a tapped rider and their crystal share
     boost.js            crazy-taxi duty cycle (a pure clock, no scene knowledge)
     boostmeter.js       how the fuel meter reads while it refills — overfill, glow, leading edge
-    fuelarc.js          the fuel gauge's tapered band round the gas pedal, as SVG outlines
+    fuelarc.js          the fuel gauge's tapered band round the gas button, as SVG outlines
     energybits.js       the sparks a drop-off throws from the taxi into the fuel meter
     camera.js           fixed 3/4 orthographic camera
     scene.js            scene, sun, hemisphere fill, sky shader, distance haze

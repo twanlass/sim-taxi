@@ -44,7 +44,7 @@ import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
-import { bandPath as fuelBandPath, frontAt as fuelFrontAt, RIM as FUEL_RIM } from './game/fuelarc.js';
+import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION } from './game/taxidamage.js';
 import { createTaxiDoor } from './game/taxidoor.js';
@@ -2606,7 +2606,7 @@ viewport.onChange((w, h) => {
 // --- Crazy taxi button ------------------------------------------------------
 
 const boostButton = document.getElementById('boost');
-// The same fuel, read out on a gauge arc over the gas pedal (see #boost-meter in index.html). It
+// The same fuel, read out on a gauge arc over the gas button (see #boost-meter in index.html). It
 // takes the pedal's classes and variables verbatim, so the two can never disagree about the tank.
 const boostMeterEl = document.getElementById('boost-meter');
 
@@ -2623,6 +2623,7 @@ const boostMeter = createBoostMeter();
 const fuelTrack = boostMeterEl?.querySelector('.boost-track');
 const fuelFill = boostMeterEl?.querySelector('.boost-fill');
 const fuelEdge = boostMeterEl?.querySelector('.boost-edge');
+const fuelGlint = boostMeterEl?.querySelector('.boost-glint');
 fuelTrack?.setAttribute('d', fuelBandPath(0, 1, FUEL_RIM));
 let fuelDrawn = -1;
 function drawFuelArc(level) {
@@ -2634,6 +2635,14 @@ function drawFuelArc(level) {
   fuelEdge.setAttribute('cy', front.y.toFixed(2));
   // Twice the band's half-width: the gradient's solid core is the band, the rest is its halo.
   fuelEdge.setAttribute('r', front.w.toFixed(2));
+  // The glint across the front. Off on an empty tank, where there is no front to mark — a white
+  // tick sitting on the bare track at the empty end would read as fuel.
+  if (fuelGlint) {
+    // An attribute rather than `.hidden`, which is an HTMLElement property and a no-op on SVG.
+    fuelGlint.toggleAttribute('hidden', level < 0.01);
+    const g = fuelGlintAt(level);
+    for (const k of ['x1', 'y1', 'x2', 'y2']) fuelGlint.setAttribute(k, g[k].toFixed(2));
+  }
 }
 
 function updateBoostButton(dt) {
