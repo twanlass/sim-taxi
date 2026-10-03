@@ -2076,7 +2076,7 @@ tail at −2.8), and that the jolt returns to exactly zero.
 ## The building fire
 
 `src/game/fire.js` for the event, `src/geometry/firetruck.js` for the engine. A minute or two into a
-run (`FIRST_WAIT`, 70–130s, then every 150–240s) the top of a facade a couple of blocks from the taxi
+run (`FIRST_WAIT`, 35–60s, then every 110–170s) the top of a facade a couple of blocks from the taxi
 catches fire: flames out of the upper windows and off the roof, a column of soot leaning away from
 the camera. A fire engine comes in off the edge of the frame with its bar going, drives to the street
 in front of the building, **stops in its lane**, swings its ladder round and lifts it, and puts a jet

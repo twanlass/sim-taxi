@@ -42,8 +42,10 @@ import { sirenOn } from '../geometry/lights.js';
 // Scheduling is off the difficulty curve, like the roadworks and the flatbed: it is something to
 // watch, not pressure.
 
-const FIRST_WAIT = [70, 130];   // seconds into the run
-const REPEAT_WAIT = [150, 240]; // ...and between fires after that
+// 70-130 first, and most runs ended without one — the timer only counts while nothing upstages it,
+// and a site has to qualify on top. 35-60 lands one inside an ordinary run.
+const FIRST_WAIT = [35, 60];    // seconds into the run
+const REPEAT_WAIT = [110, 170]; // ...and between fires after that
 const SOON_WAIT = 3;            // ?fire=soon
 const RETRY_WAIT = 4;           // nothing qualified this time — the taxi moves, ask again shortly
 

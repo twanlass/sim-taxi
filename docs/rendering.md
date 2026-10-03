@@ -1371,7 +1371,10 @@ placed in world space through whichever camera is drawing.
 `?storm=0.6` pins the storm at that level for screenshots. `__taxi.storm` exposes `pin(v)`,
 `seek(t)` and `state`.
 
-### A squall — `?squall`, `game/squall.js`
+### A squall — the default weather, `game/squall.js`
+
+**On in every run** (`getSquall` in util/shot.js), except in shot mode, safe mode, or under
+`?rain`/`?storm`; `?squall=off` drops it. The crossings draw from the run seed (`runSeed + 733`).
 
 The other kind of weather is one rain cell crossing a sunny city, not the whole sky changing. A
 cell comes in over a corner and crosses to the one opposite in `CROSS` 75 s, with a sideways slip so

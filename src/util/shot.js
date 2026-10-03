@@ -474,13 +474,20 @@ export function getStorm() {
 }
 
 /**
- * A squall, via `?squall` — one rain cell crossing a sunny city and leaving a wet trail behind it
- * (game/squall.js). `?squall=0.45` pins the cell that far along a crossing, trail and all, for a
- * still frame. Returns null when off, otherwise `{ pin }`.
+ * A squall — one rain cell crossing a sunny city and leaving a wet trail behind it
+ * (game/squall.js). **On by default**: it was a flag nobody loaded, so nobody saw it. `?squall=off`
+ * turns it off, `?squall=0.45` pins the cell that far along a crossing, trail and all, for a still
+ * frame. The default stands down for shot mode (screenshots shouldn't move under the weather), for
+ * `?rain`/`?storm` (the sky over everything wins over one cell in it), and in safe mode, whose
+ * whole point is the cheapest frame — the squall brings the mirror pass and the wet shader with it.
+ * Returns null when off, otherwise `{ pin }`.
  */
-export function getSquall() {
+export function getSquall(
+  fallback = !getSafeMode() && getActiveShot() === null && getRain() === null && getStorm() === null,
+) {
   const raw = new URLSearchParams(window.location.search).get('squall');
-  if (raw === null || isOff(raw)) return null;
+  if (raw === null) return fallback ? { pin: null } : null;
+  if (isOff(raw)) return null;
   const pin = Number(raw);
   return { pin: raw !== '' && Number.isFinite(pin) ? Math.min(1, Math.max(0, pin)) : null };
 }
