@@ -159,6 +159,27 @@ export function heightAt(x, z) {
   return field.heights[ci * field.nz + cj];
 }
 
+/**
+ * Is the level line between two points at height `y` clear of the city? A sightline across the
+ * ground rather than up to the camera — game/patrol.js asks it whether the cop can see the taxi.
+ *
+ * Sampled every half cell along the segment, which cannot step over a cell. It reads the same
+ * rounded-up field as `sightlineClear`, so here the error falls the other way: a cell stamped taller
+ * than the city is can only ever *break* a sightline, never let one through a wall. Measured over six
+ * cities, no cell on any lane's centreline reads above 0 — the roads themselves never block — so the
+ * rounding only bites where the line already crosses a block.
+ */
+export function groundLineClear(ax, az, bx, bz, y) {
+  if (!field) return true;
+  const len = Math.hypot(bx - ax, bz - az);
+  const steps = Math.ceil(len / (CELL / 2));
+  for (let k = 1; k < steps; k++) {
+    const u = k / steps;
+    if (heightAt(ax + (bx - ax) * u, az + (bz - az) * u) > y) return false;
+  }
+  return true;
+}
+
 /** Forget the city. For tools that build several and would otherwise measure the last one. */
 export const clearCityOccluders = () => { field = null; };
 

@@ -147,7 +147,8 @@ try {
   await client.send('Runtime.enable');
   await client.send('Page.enable');
   await client.send('Page.addScriptToEvaluateOnNewDocument', { source: PROBE });
-  await client.send('Page.navigate', { url: baseUrl });
+  // Past the title screen: what this counts is the run's links, not the menu's.
+  await client.send('Page.navigate', { url: `${baseUrl}?title=off` });
 
   const evaluate = async (expression) => {
     const { result } = await client.send('Runtime.evaluate', { expression, returnByValue: true });

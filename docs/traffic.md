@@ -2894,6 +2894,26 @@ you go. The clock runs down rather than resetting when the cop closes back in. T
 dispatch says `LOST_LINE`, and the car leaves. `CHASE_MAX` (40s) calls off a chase neither car can
 finish.
 
+**Out of sight** is the other way to lose it: the level line from the cop to the taxi at a driver's
+eye height (`SIGHT_Y`, 1.6) crossing a block for `SIGHT_HOLD` (4.5s), on its own clock that runs
+down the same way. The test is `groundLineClear` in game/sightline.js, which marches the same height
+field the fare board's corner test uses — no rays, and no lane centreline in six cities reads above
+0 in it, so two cars on one street always see each other. Distance alone could not reward what a
+chase in a grid city is actually about: a taxi that turns at every junction stays near the cop, and
+on a full tank was caught 14 times in 16. With the line, 7 in 16 get away round the corners. The hold
+is as long as it is because a cop that is going to catch the taxi anyway is still blind for a median
+~2s at some point — mostly held at a red round the corner the taxi just took — and at 2.5s a
+cruising taxi got away 7 times in 16, which ends "off the pill you get caught". The table is in
+`SIGHT_HOLD`'s comment.
+
+**Out of sight, it searches.** A blind cop drives to where it last saw the taxi — the junction the
+taxi was going into, or the one after along the way it was heading if the cop was already going
+into that one (`steer`, `state.searchAt`) — and, once there, drops its route and takes the
+ordinary dice at the next junction. It does not re-aim at the taxi until it sees it again. Steering
+at the live taxi while blind made the line a timer rather than a hiding place: the cop came round
+the right corner every time. With the search, a full tank turning at every junction loses it 9
+times in 16 rather than 7; a cruising taxi is caught as often as before.
+
 **Gone to ground** is the depot. A taxi that turns in at the driveway mid-chase calls it off on the
 frame the opening takes it off the road (`hideout`, called from the depot's `onArrive` in main.js):
 the same stand-down as lost, `LOST_CALL` included. It is no free exit — a
