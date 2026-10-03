@@ -15375,9 +15375,9 @@ let chopperOrder; // likewise
     // --- The drop-off: the arrest, and the one who comes after you -------------------------
     //
     // game/arrest.js. A delivered robber stays on the kerb with their hands up, the robbery's cops
-    // circle them, one pulls up and takes them, and the rest are handed back to traffic; the
-    // nearest cop is handed to the patrol to chase the taxi (`handOff`). The cops going round are
-    // *staged* — out of traffic, driven by hand — so nothing in the sim keeps them off anything,
+    // screech up in a fan pointed at them, the robber gets into the nearest, and they are handed
+    // back to traffic; the nearest cop is handed to the patrol to chase the taxi (`handOff`). The
+    // cops in the box are *staged* — out of traffic, driven by hand — so nothing in the sim keeps them off anything,
     // and every clause below is a way the first builds of it put a car through something.
     //
     // Four traffic draws on this city, two with the taxi driving off (the scene ends out of shot,
@@ -15421,7 +15421,10 @@ let chopperOrder; // likewise
         }
         if (!run.delivered) continue;
         const J5 = { x: lineX(tgt.i), z: lineZ(tgt.j) };
-        run.circled = 0;
+        run.fanned = 0;
+        run.fanMax = 0;
+        run.aimWorst = 0;
+        run.offRoad = 0;
         run.nearRobber = Infinity;
         run.overlap = 0;
         run.snap = 0;
@@ -15433,7 +15436,18 @@ let chopperOrder; // likewise
           rob5.update(1 / 60);
           f5.update(1 / 60, t5.taxi);
           const crew = rob5.arrest.crew();
-          if (crew.some((m) => m.mode === 'ring' && m.rail)) run.circled += 1 / 60;
+          const parkedNow = crew.filter((m) => m.mode === 'parked');
+          if (parkedNow.length) run.fanned += 1 / 60;
+          run.fanMax = Math.max(run.fanMax, parkedNow.length);
+          const fig = rob5.arrest.figure();
+          // Settled in its slot, bonnet on the robber: the angle between where it points and where
+          // they stand. The slide is allowed a few frames to settle (`parked` eases it square).
+          if (fig && rob5.arrest.state.phase === 'standoff') {
+            for (const m of parkedNow) {
+              const want = Math.atan2(-(fig.z - m.car.z), fig.x - m.car.x);
+              run.aimWorst = Math.max(run.aimWorst, Math.abs(Math.atan2(Math.sin(m.car.yaw - want), Math.cos(m.car.yaw - want))));
+            }
+          }
           for (const c of t5.policeCars) {
             if (c.staged) crewCars.add(c);
             // Handed back: where the lane puts it against where the hand-drive left it.
@@ -15442,6 +15456,23 @@ let chopperOrder; // likewise
             }
             last.set(c, { x: c.x, z: c.z, staged: c.staged });
             if (!c.staged) continue;
+            // Every corner of a staged car on the road: not in one of the four blocks round the
+            // junction, by more than the kerb's own lip.
+            {
+              const fx = Math.cos(c.yaw);
+              const fz = -Math.sin(c.yaw);
+              const hx = halfRoadZ(tgt.i);
+              const hz = halfRoadX(tgt.j);
+              for (const a of [1, -1]) {
+                for (const b of [1, -1]) {
+                  const px = c.x + fx * a * CAR_LEN / 2 - fz * b * CAR_W / 2 - J5.x;
+                  const pz = c.z + fz * a * CAR_LEN / 2 + fx * b * CAR_W / 2 - J5.z;
+                  if (Math.abs(px) < 12 && Math.abs(pz) < 12) {
+                    run.offRoad = Math.max(run.offRoad, Math.min(Math.abs(px) - hx, Math.abs(pz) - hz));
+                  }
+                }
+              }
+            }
             if (run.figure?.settled() && rob5.arrest.state.phase !== 'board') {
               run.nearRobber = Math.min(run.nearRobber, Math.hypot(c.x - run.figure.x, c.z - run.figure.z));
             }
@@ -15465,12 +15496,22 @@ let chopperOrder; // likewise
       check('a delivered robber stays on the kerb for the police',
         played.length >= 3 && played.every((r) => r.figure?.settled()),
         `${played.length} of ${runs.length} delivered, ${played.filter((r) => r.figure?.settled()).length} standing`);
-      check('...and the cops circle them, and one takes them in',
-        played.every((r) => r.circled > 2 && r.arrests === 1),
-        `circled ${fmt((r) => `${r.circled.toFixed(1)}s`)}, arrests ${fmt((r) => r.arrests)}`);
-      // The robber is 6.4 from the middle of a street's box on the diagonal and the ring its edge;
-      // the car that picks them up stops beside them. Two units, centre to figure, is a car's
-      // half-width and most of a unit to spare — the first peel-off measured 0.98, on the kerb.
+      // A fan of at least two on most runs, not all: a cop that reaches the junction queued
+      // directly behind traffic the seal is holding has no room to pull round it (`tryStage`'s
+      // `lead`), and that scene goes ahead with the cars that made it — one, on 1 run in 4 here.
+      check('...and the cops pull up in a fan round them, and one takes them in',
+        played.every((r) => r.fanned > 2 && r.arrests === 1)
+          && played.filter((r) => r.fanMax >= 2).length >= played.length - 1,
+        `fanned ${fmt((r) => `${r.fanned.toFixed(1)}s × ${r.fanMax}`)}, arrests ${fmt((r) => r.arrests)}`);
+      check('...every bonnet pointed at the robber',
+        played.every((r) => r.aimWorst < 0.12),
+        `worst ${fmt((r) => `${(r.aimWorst * 180 / Math.PI).toFixed(1)}°`)}`);
+      check('...and no corner of a car up on the pavement',
+        played.every((r) => r.offRoad < 0.15),
+        `deepest ${fmt((r) => r.offRoad.toFixed(2))}`);
+      // The robber is on the kerb corner and the fan's cars 5.5 off them, nose 3.8. Two units,
+      // centre to figure, is a car's half-width and most of a unit to spare — the old ring's first
+      // peel-off measured 0.98, on the kerb.
       check('...without a car ever going through the robber',
         played.every((r) => r.nearRobber >= 2),
         `nearest ${fmt((r) => r.nearRobber.toFixed(2))}`);
