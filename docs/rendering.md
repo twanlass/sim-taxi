@@ -94,12 +94,18 @@ the taxi — is `MeshPhongMaterial` rather than the Lambert everything else wear
 on top of `patchProp`. Wrecks stay plain Lambert.
 
 **Four finishes, one program.** `setFinish()` bakes an `aFinish` attribute per part —
-`FINISH.TYRE`, `PAINT`, `GLASS`, `METAL` (the hubcaps, `geometry/wheels.js`) — and the shader
+`FINISH.TYRE`, `PAINT`, `GLASS`, `METAL` (the hubcaps, `geometry/wheels.js`, and the chrome
+bumpers, `geometry/bumpers.js`) — and the shader
 indexes three shared `vec4` uniform arrays with it, so each finish has its own full set of numbers
 (`FINISH_DEFAULTS`: glint, glint sharpness, glint bend, sheen, sheen sharpness, flake, reflect,
 reflect edge, reflect bend, base colour) while every glossy material still compiles to the same
 source. A geometry with no `aFinish` reads 0, so anything untagged comes out as tyre — matte rather
 than mirrored; `tools/probe.mjs` asserts the car and the taxi carry all four.
+
+**Metal is never paint.** The fleet is tinted per car through `instanceColor`, which multiplies
+every vertex; the gloss patch swaps three's `color_vertex` for one that leaves the tint off
+`METAL`, so a red car's bumpers are chrome rather than red. The cruiser's baked repaint
+(`sim/police.js`) skips metal to match.
 
 **Tuning them.** `?debug` → **Car finish**: pick a finish and its ten sliders retarget to it, plus
 flake size, façade darkness and **Show finishes**, which paints each finish a flat false colour

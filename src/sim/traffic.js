@@ -14,6 +14,7 @@ import {
   headlightGeometry, headlightAnchors, headlightMaterial, beamGeometry, beamMaterial,
 } from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
+import { bumperGeometries } from '../geometry/bumpers.js';
 import {
   GRID_I, GRID_J, HALF_ROAD, LANE, PITCH, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
   ringAxisAt, isUnsignalised, lineX, lineZ, laneOffsetFor, riverBanks,
@@ -1834,6 +1835,7 @@ export function carGeometry() {
   parts.push(setFinish(bakeColor(cabin, color('carGlass')), FINISH.GLASS));
 
   parts.push(...wheelGeometries(CAR_LEN, CAR_W));
+  parts.push(...bumperGeometries(CAR_LEN, CAR_W));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -1905,6 +1907,7 @@ function truckCabGeometry() {
   parts.push(setFinish(bakeColor(windshield, cabDark), FINISH.GLASS));
 
   parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W));
+  parts.push(...bumperGeometries(TRUCK_LEN, TRUCK_W));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());

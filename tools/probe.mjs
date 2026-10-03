@@ -3241,8 +3241,10 @@ check('no two cars occupy the same space', worst > 1.6,
       // afterwards. A part left out of setHighlight's list is a car whose body lights while a wheel
       // stays dark, which reads as the paint changing rather than the car reacting. (It was five while
       // a parcel rode the rear deck — the load is a chip in the HUD now, and there is nothing on the
-      // car to light.)
-      moved.filter(Boolean).length === 4
+      // car to light.) Seven meshes move for those four parts: both chrome bumpers and the bumper
+      // that hangs off once it is knocked loose draw on the shell's own material, so they light
+      // with it rather than needing a place in the list.
+      moved.filter(Boolean).length === 7
       && new Set(movedTo).size === 1
       && back.every((h, n) => h === dark[n]),
       `${moved.filter(Boolean).length} parts moved to ${new Set(movedTo).size} value(s), all restored ${back.every((h, n) => h === dark[n])}`);
@@ -9551,8 +9553,10 @@ check('the taxi is an ordinary car in the traffic array',
     if (node.material.visible === false) return;   // the invisible pick volume
     if (!node.children.some((c) => c.name === 'ghostMask')) unmasked.push(node);
   });
-  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 27,
-    `${unmasked.length} unmasked, ${masks.length} masks (10 outlined parts + 13 damage pieces + 4 door pieces)`);
+  // Two more for the chrome bumpers (geometry/bumpers.js), masked without a rim for the reason the
+  // damage pieces are: a 0.2 bar inside the shell's hull, too thin to carry one of its own.
+  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 29,
+    `${unmasked.length} unmasked, ${masks.length} masks (10 outlined parts + 13 damage pieces + 4 door pieces + 2 bumpers)`);
 
   // --- A dimming lamp must dim where it stands ---------------------------------------------------
   //
@@ -11000,7 +11004,9 @@ check('the taxi is an ordinary car in the traffic array',
   const standoffs = [
     hull.max.y - cargoBox.max.y,   // box roof
     hull.max.x - cabBox.max.x,     // cab nose
-    cargoBox.min.x - hull.min.x,   // tail
+    // Off whichever reaches further back — the chassis and its rear bumper, past the box's 0.15 tail
+    // gap. Measured off the box alone it read 0.60 the day the bumpers went on.
+    Math.min(cabBox.min.x, cargoBox.min.x) - hull.min.x,   // tail
     hull.max.z - Math.max(cabBox.max.z, cargoBox.max.z),
   ];
   check('the truck rim stands off cab and cargo box alike',

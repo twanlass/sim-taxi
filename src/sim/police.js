@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
+import { propMaterial, BODY_EULER_ORDER, FINISH } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { SILL_Y } from '../geometry/wheels.js';
 import {
@@ -69,14 +69,17 @@ const PATROL_LAMP = 70;
  * An ambient car, painted. `carGeometry()` bakes its body white and its glass dark so the fleet's
  * `instanceColor` can tint it; this is that same multiply done once into the vertex colours, so the
  * cruiser and a cop car in the fleet come out the same colour on every part, glass and tyres
- * included. The cab shell the fleet draws as a second instanced mesh is merged in here — it is never
+ * included — all but the metal, which the fleet's shader keeps the tint off (util/geo.js), so the
+ * bumpers and hubcaps are skipped here to match. The cab shell the fleet draws as a second instanced mesh is merged in here — it is never
  * switched separately from the body on a car there is only one of.
  */
 function policeGeometry() {
   const car = carGeometry();
   const tint = color('policeBody');
   const colors = car.attributes.color;
+  const finish = car.attributes.aFinish;
   for (let i = 0; i < colors.count; i++) {
+    if (finish.getX(i) === FINISH.METAL) continue;
     colors.setXYZ(i, colors.getX(i) * tint.r, colors.getY(i) * tint.g, colors.getZ(i) * tint.b);
   }
   const cab = policeCabGeometry();
