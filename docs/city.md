@@ -317,7 +317,7 @@ over a ramp is buried in it at one end and hanging over it at the other.
 
 On the roof, an **oversized wrench turning on a pole** — the depot is where the taxi comes back for
 repairs and upgrades, and the building has to say so from play zoom before anybody has learned it.
-It is a sign in the burger joint's sense: one big object, canted 31° off vertical, turning about
+It is a sign in the burger joint's sense: one big object, canted 45° off vertical, turning about
 once every sixteen seconds (`WRENCH_SPIN`). It replaced a radio mast and dish, which said
 "dispatch" — true, and nothing a player can act on.
 
@@ -350,7 +350,7 @@ resized twice, and both times what broke was a hand-tuned number *around* it:
   measures a pose the wrench holds for an instant — plus a margin. One number answers both things it
   must not reach: the +Z parapet it could swing out over, and the **curtain plane**, since every
   sightline out of the door starts there and runs +X, so anything wholly behind it cannot occlude
-  the door at any height. At 6.0 units long it sweeps a 2.22 radius.
+  the door at any height.
 
 One thing that is *not* derived and cost a probe failure to find: the rooftop plant. Its two boxes
 were placed one offset from the back of the roof in x and one from the front in z, which only ever

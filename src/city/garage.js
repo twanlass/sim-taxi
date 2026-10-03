@@ -104,27 +104,33 @@ const CHECK_SQ = 0.62;
 // pole's position is derived from the wrench's measured sweep (`createGarage`), and its height from
 // the wrench's measured underside, so changing any number below moves them rather than clipping.
 const POLE_PLINTH = 0.16;
-// Between the two head centres. The whole tool is this plus both heads' radii — 6.0 units, a
-// little more than the burger is across, which is what "oversized" has to mean at play zoom: about
-// forty-five pixels, a landmark rather than a detail. At 5.1 it read as a fitting on the roof.
-const WRENCH_L = 3.9;
-const RING_R = 0.98;             // the closed end
-const RING_HOLE = 0.52;          // ...and the hexagon through it
-const JAW_R = 1.12;              // the open end, a touch bigger, as on the real thing
-const JAW_GAP = 0.47;            // half the jaw's opening
-const HANDLE_W = 0.4;            // half the handle's width
+// Between the two head centres. The whole tool is this plus both heads' radii — 4.4 units, a
+// little under the burger across the road: oversized for a wrench, still a sign on a roof. 6.0
+// was tried first and read as the building's main feature rather than as its sign.
+const WRENCH_L = 2.84;
+const RING_R = 0.72;             // the closed end
+const RING_HOLE = 0.38;          // ...and the hexagon through it
+const JAW_R = 0.84;              // the open end, a touch bigger, as on the real thing
+const JAW_GAP = 0.35;            // half the jaw's opening
+const HANDLE_W = 0.3;            // half the handle's width
 // Thick for a spanner, on purpose. It turns about a vertical axis, so twice a revolution the camera
 // sees it edge-on — and an edge this deep is still a bar of steel rather than a line.
-const WRENCH_T = 0.4;
-const WRENCH_BEVEL = 0.08;
-// How far the long axis leans off vertical, open end up. Enough to read as the tool on a sign
-// rather than as one hung on a hook; any further and its sweep pushes the pole off a narrow roof.
-const WRENCH_CANT = 0.55;        // 31°
+const WRENCH_T = 0.32;
+const WRENCH_BEVEL = 0.065;
+// How far the long axis leans off vertical, open end up: the 45° of every spanner icon, which is
+// what reads as "repairs" rather than as a tool hung on a hook. 31° was tried first and still
+// looked like it was hanging.
+const WRENCH_CANT = Math.PI / 4;
 // What its lowest point keeps above the roof plant's tops as it sweeps over them.
 const WRENCH_CLEAR = 0.3;
 // And what its whole sweep keeps between itself and the two things it must not reach: the roof's
 // own edge, and the curtain plane every sightline out of the door starts on.
 const POLE_STANDOFF = 0.4;
+// How much of the metal finish's sky reflection it keeps. The finish is tuned on bumpers and hubcaps,
+// which are small and mostly face the camera; on a slab this thin the gloss bends nearly every
+// fragment to a grazing angle, and at the full share the wrench came out as pale blue as the sky
+// whatever its base colour was. Down here the steel is mostly its own colour with a sheen of sky.
+const WRENCH_MIRROR = 0.35;
 // The roof plant's taller box, which the wrench's low end sweeps over.
 const PLANT_H = 0.55;
 
@@ -584,7 +590,7 @@ export function createGarage(block, rng) {
   // that stood here did exactly that and came out with a soft dark blotch of its own roof's crease
   // across it, moving with the camera.
   const wrench = new THREE.Mesh(wrenchGeo,
-    propMaterial({ ao: false, gloss: { geometry: wrenchGeo } }));
+    propMaterial({ ao: false, gloss: { geometry: wrenchGeo, mirror: WRENCH_MIRROR } }));
   wrench.castShadow = true;
   wrench.name = 'garage-wrench';
 

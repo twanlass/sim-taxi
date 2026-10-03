@@ -787,7 +787,9 @@ const GLOSS_SPECULAR_TO = /* glsl */ `{
 // so the ray is folded back up off the road: a side panel then sees the street wall opposite,
 // which is what a viewer expects a car to be reflecting. A roof sees what is up-screen of it.
 //
-// Paint's share is scaled per material by `uGloss` (the taxi a touch more, a cargo box less).
+// Paint's share is scaled per material by `uGloss` (the taxi a touch more, a cargo box less), and
+// every other finish's by `uGlossMirror` — 1 on every vehicle, turned down on the depot's wrench,
+// where a thin turning slab bends almost every fragment to a grazing angle and came out sky-blue.
 const GLOSS_FRAGMENT = /* glsl */ `
 	{
 		vec3 gN = inverseTransformDirection(gReflN, viewMatrix);
@@ -797,7 +799,7 @@ const GLOSS_FRAGMENT = /* glsl */ `
 		gR = normalize(gR);
 		vec3 gEnv = mix(uGlossHorizon, uGlossTop, pow(gR.y, 0.6));
 		float gMirror = (gFinB.z + gFinB.w * pow(1.0 - clamp(gReflN.z, 0.0, 1.0), 3.0))
-			* mix(1.0, uGloss, gIsPaint);
+			* mix(uGlossMirror, uGloss, gIsPaint);
 		if (uGlossCityOn > 0.5 && gMirror > 0.0) {
 			float gT = 0.6;
 			for (int k = 0; k < 14; k++) {
@@ -855,6 +857,7 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
       // truck's cab and the taxi while the source does not — so per material, under one cache key.
       Object.assign(shader.uniforms, GLOSS_UNIFORMS, {
         uGloss: { value: gloss.amount },
+        uGlossMirror: { value: gloss.mirror },
         uGlossCentre: { value: gloss.centre },
         uGlossInvHalf: { value: gloss.invHalf },
       });
@@ -883,6 +886,7 @@ uniform vec4 uFinishB[4];
 uniform vec4 uFinishC[4];
 uniform vec4 uGlossGlobal;
 uniform float uGloss;
+uniform float uGlossMirror;
 varying vec3 vGlossWorld;
 varying vec3 vGlossBulge;
 varying vec3 vGlossObj;
@@ -1037,8 +1041,9 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
  *                        the wheels hanging below it don't pull the crown down toward the road.
  * @param gloss.amount    this material's multiplier on paint's reflection: the taxi a touch more
  *                        than the fleet, a cargo box less.
+ * @param gloss.mirror    the same for every other finish — glass, metal, tyre. 1 on every vehicle.
  */
-function glossShape({ geometry, floor = -Infinity, amount = 1 }) {
+function glossShape({ geometry, floor = -Infinity, amount = 1, mirror = 1 }) {
   if (!geometry.boundingBox) geometry.computeBoundingBox();
   const box = geometry.boundingBox;
   const lo = Math.max(box.min.y, floor);
@@ -1049,7 +1054,7 @@ function glossShape({ geometry, floor = -Infinity, amount = 1 }) {
     2 / Math.max(box.max.y - lo, 1e-3),
     2 / Math.max(box.max.z - box.min.z, 1e-3),
   );
-  return { amount, centre, invHalf };
+  return { amount, mirror, centre, invHalf };
 }
 
 /**

@@ -190,9 +190,10 @@ export const PALETTE = {
   garageWhite: '#E9EBEE',
   garageCheck: '#33373D',
   // The wrench turning over the roof (city/garage.js). Steel, on the vehicles' metal finish, which
-  // multiplies this by 0.7 and adds sky — so it is picked a step under `bumperChrome` and keeps the
-  // ironwork's blue cast rather than going neutral: the reflection does the brightening.
-  wrenchSteel: '#C3CBD4',
+  // multiplies this by 0.7 and adds sky — so it is picked well under `bumperChrome` and keeps the
+  // ironwork's blue cast rather than going neutral: the reflection does the brightening. #C3CBD4
+  // was tried first and read as pale plastic once the sky had been added to it.
+  wrenchSteel: '#6E7782',
 
   // --- The burger joint -------------------------------------------------------
   // The city's one drive-through (city/burgerjoint.js). Like the depot above it, its envelope
