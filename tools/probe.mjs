@@ -84,7 +84,7 @@ import { createFoodOrder } from '../src/geometry/food.js';
 import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createRobbery, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
-import { createPatrol, ESCAPE_BLOCKS, TOUCH_SLACK } from '../src/game/patrol.js';
+import { createPatrol, ESCAPE_BLOCKS, TOUCH_SLACK, SIGHT_HOLD } from '../src/game/patrol.js';
 import { touching } from '../src/sim/collisions.js';
 import { createCashTrail, noteGeometry, NOTE_FOLD, BRICK_H } from '../src/game/cashtrail.js';
 import { createCopLights } from '../src/game/coplights.js';
@@ -95,7 +95,7 @@ import {
 import { LIGHT_EMISSIVE, LIGHT_PODS } from '../src/geometry/lights.js';
 import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
 import { createPicker, choosePick } from '../src/game/pick.js';
-import { setCityOccluders, sightlineClear } from '../src/game/sightline.js';
+import { setCityOccluders, sightlineClear, groundLineClear } from '../src/game/sightline.js';
 import {
   createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
@@ -7964,6 +7964,127 @@ check('the taxi is an ordinary car in the traffic array',
   check('...and the cop stands down as a lost one does', hid.every((r) => r.dark && r.backOnPatrol
     && r.retiredFar >= SPAWN_CLEARANCE - 0.5),
     `${hid.filter((r) => r.dark && r.backOnPatrol).length}/${hid.length}`);
+}
+
+// --- Out of the cop's sight -------------------------------------------------
+// game/patrol.js SIGHT_HOLD. The chases above run with no city standing, so the sightline never
+// breaks and they measure distance alone. These put the towers back and ask the other half: that a
+// taxi turning at every junction can lose the cop round the corners — on a full tank it used to be
+// caught 14 times in 16, because turning keeps it near — and that a cruising taxi driving a route
+// over town is still caught, which is what keeps the hold from being shorter.
+{
+  const zigzag = (taxi, rng) => {
+    if (taxi.route?.length) return;
+    const target = {
+      i: Math.max(0, Math.min(GRID_I, taxi.i + rng.pick([-1, 1]))),
+      j: Math.max(0, Math.min(GRID_J, taxi.j + rng.pick([-1, 1]))),
+    };
+    const route = planRoute(planOrigin(taxi), target);
+    if (route?.length) { taxi.route = route; taxi.routeConsumed = false; }
+  };
+  const across = (taxi) => {
+    if (taxi.route?.length) return;
+    const target = { i: taxi.i > GRID_I / 2 ? 0 : GRID_I, j: taxi.j > GRID_J / 2 ? 0 : GRID_J };
+    const route = planRoute(planOrigin(taxi), target);
+    if (route?.length) { taxi.route = route; taxi.routeConsumed = false; }
+  };
+  let laneSamples = 0;
+  let laneBlocked = 0;
+  // A blind cop drives to where it last saw the taxi (`steer`): one spot per stretch out of sight,
+  // never re-aimed at where the taxi has since gone.
+  let searchFrames = 0;
+  let staleFrames = 0;
+  let reaimed = 0;
+  const chase = (s, tank, drive) => {
+    const sLayout = createLayout(makeRng(s));
+    setCityOccluders(createBuildings(makeRng(s + 22), sLayout).mesh, createProps(makeRng(s + 33), sLayout).mesh);
+    const net = cityNetwork();
+    // The roads themselves never block: a cop and a taxi on the same street always see each other.
+    for (const lane of net.lanes) {
+      if (lane.degenerate) continue;
+      const a = lane.path.at(0);
+      const b = lane.path.at(lane.length);
+      laneSamples += 1;
+      if (!groundLineClear(a.x, a.z, b.x, b.z, 1.6)) laneBlocked += 1;
+    }
+    const sScene = new THREE.Scene();
+    const sTraffic = createTraffic(makeRng(s + 44), sScene, CARS_DEFAULT);
+    const sPolice = createPolice(sScene);
+    const taxi = sTraffic.taxi;
+    const drng = makeRng(s + 7);
+    let how = null;
+    const sPatrol = createPatrol({
+      rng: makeRng(s + 66), police: sPolice, traffic: sTraffic, taxi,
+      onCaught: () => { how = 'caught'; taxi.crashed = true; },
+      onLost: () => { how = sPatrol.state.unseen >= SIGHT_HOLD ? 'sight' : 'distance'; },
+    });
+    sPatrol.state.cooldown = 0;
+    let onPatrol = 0;
+    for (let step = 0; step < 60 * 90 && onPatrol < 180; step++) {
+      sTraffic.update(1 / 60); sPatrol.update(1 / 60); sPolice.update(1 / 60);
+      if (sPatrol.state.phase === 'patrol') onPatrol += 1;
+    }
+    if (sPatrol.state.phase !== 'patrol') return null;
+    const cp = sPolice.group.position;
+    let spot = null;
+    for (const lane of net.lanes) {
+      if (lane.degenerate || isLaneClosed(lane.id) || lane.length < 6) continue;
+      for (let back = 4; back < lane.length - 1 && !spot; back += 1) {
+        const at = lane.path.at(lane.length - back);
+        const r = Math.hypot(at.x - cp.x, at.z - cp.z);
+        if (r < 8 || r > 18) continue;
+        if (sTraffic.cars.some((c) => c !== taxi && Math.hypot(c.x - at.x, c.z - at.z) < 7)) continue;
+        const to = net.nodeById.get(lane.to);
+        spot = { d: net.dirOfLane(lane), i: to.gi, j: to.gj, back };
+      }
+      if (spot) break;
+    }
+    if (!spot || !placeCar(taxi, spot.d, spot.i, spot.j, spot.back)) return null;
+    taxi.route = [];
+    const at = taxi.lane.path.at(taxi.s);
+    taxi.x = at.x;
+    taxi.z = at.z;
+    sPatrol.update(1 / 60, { boosting: true });
+    if (sPatrol.state.phase !== 'chase') return null;
+    let searching = null;
+    for (let t = 0; t < 45 && !how; t += 1 / 60) {
+      const boosting = t < tank;
+      taxi.boost = boosting;
+      drive(taxi, drng);
+      sTraffic.update(1 / 60);
+      sPatrol.update(1 / 60, { boosting });
+      sPolice.update(1 / 60);
+      const at = sPatrol.state.searchAt;
+      if (at && !how) {
+        searchFrames += 1;
+        if (at.i !== taxi.i || at.j !== taxi.j) staleFrames += 1;
+        if (searching && (searching.i !== at.i || searching.j !== at.j)) reaimed += 1;
+      }
+      searching = at;
+    }
+    return how ?? 'none';
+  };
+  const cornering = [];
+  const cruising = [];
+  for (let k = 0; k < 8; k++) {
+    const a = chase(seed + 500 + k, BOOST_DURATION, zigzag);
+    const b = chase(seed + 500 + k, 0, across);
+    if (a) cornering.push(a);
+    if (b) cruising.push(b);
+  }
+  clearCityOccluders();
+  createLayout(makeRng(seed));   // createLayout installs the network it builds — put ours back
+  const n = (list, how) => list.filter((r) => r === how).length;
+  check('a lane end to end is never out of sight of itself', laneBlocked === 0,
+    `${laneBlocked} of ${laneSamples} lanes blocked`);
+  check('out of sight, the cop drives to where it last saw the taxi, not where it is',
+    searchFrames > 0 && staleFrames > 0 && reaimed === 0,
+    `${searchFrames} frames searching, ${staleFrames} of them somewhere the taxi no longer is, ${reaimed} re-aims`);
+  check('cornering on the pill can lose the cop round the corners', n(cornering, 'sight') >= 2,
+    `${n(cornering, 'sight')}/${cornering.length} lost out of sight, ${n(cornering, 'caught')} caught`);
+  check('...while a cruising taxi is still caught with the city standing',
+    n(cruising, 'caught') >= cruising.length * 0.7,
+    `${n(cruising, 'caught')}/${cruising.length} caught, ${n(cruising, 'sight')} lost out of sight`);
 }
 
 // --- Ramming the patrol car is a bump, not a bust ------------------------------
