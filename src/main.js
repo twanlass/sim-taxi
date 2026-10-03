@@ -2617,7 +2617,7 @@ const boostMeterEl = document.getElementById('boost-meter');
 // fuel level and paints what comes back onto three CSS variables.
 const boostMeter = createBoostMeter();
 
-// The gauge is a tapered band, so it is geometry rather than a stroke (game/fuelarc.js): the track
+// The gauge is a filled band, so it is geometry rather than a stroke (game/fuelarc.js): the track
 // is drawn once and the fuel re-outlined whenever the level moves by more than a hair — a pour or a
 // burn changes it every frame, a parked tank not at all.
 const fuelTrack = boostMeterEl?.querySelector('.boost-track');

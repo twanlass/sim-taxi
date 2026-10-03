@@ -9561,7 +9561,7 @@ check('the taxi is an ordinary car in the traffic array',
     `left ${a.y.toFixed(3)}, right ${b.y.toFixed(3)}, END_Y ${END_Y}`);
   check('fuel gauge: symmetric about the pedal', Math.abs((CAP.x - a.x) - (b.x - CAP.x)) < 2,
     `left end ${(CAP.x - a.x).toFixed(2)} out, right end ${(b.x - CAP.x).toFixed(2)} out`);
-  check('fuel gauge: thicker at the full end', fuelArc.widthAt(1) > fuelArc.widthAt(0) && BASE_R > outline,
+  check('fuel gauge: one even width end to end', fuelArc.widthAt(1) === fuelArc.widthAt(0) && BASE_R > outline,
     `${fuelArc.widthAt(0)} -> ${fuelArc.widthAt(1)}`);
   check('fuel gauge: an empty tank draws no fuel', fuelArc.bandPath(0, 0) === '', 'bandPath(0, 0)');
 }

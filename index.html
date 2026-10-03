@@ -138,8 +138,8 @@
          left.
          It is a read-out only — the pedal is the control, and nothing here hit-tests.
 
-         The shape is game/fuelarc.js, not markup: the band is thin at the empty end and thicker at
-         the full one, and a stroke cannot taper, so both the track and the fuel are filled
+         The shape is game/fuelarc.js, not markup: the band used to taper, and a stroke cannot, so
+         both the track and the fuel are filled
          outlines that main.js writes into the two paths' `d` — the track once, the fuel whenever
          the level moves. The box is #boost's box and the viewBox is the button's, so the gauge and
          the button are drawn in one coordinate system.

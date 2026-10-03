@@ -3257,9 +3257,9 @@ corner, which put the read-out as far from the thumb spending it as the screen a
 tachometer-style band (`#boost-meter` in `index.html`, shaped by `game/fuelarc.js`) round the
 button, from just under its centre on the left, over the top, to the same height on the right. Fuel
 fills from the left end, so holding the gas sweeps the front back from the right, over the crown,
-and down to the left. The band tapers from 12 units at the empty end to 20 at the full one (it was
-8 → 14 round the old pedal), and a thin white glint sits across the fuel's front whenever there is
-any. A stroke can't taper, so the track and the fuel are filled outlines, and `main.js` rewrites the
+and down to the left. The band is an even 16 units wide (it used to taper, 8 → 14 round the old
+pedal and briefly 12 → 20 round the button), and a thin white glint sits across the fuel's front
+whenever there is any. A stroke can't taper, so the track and the fuel are filled outlines, and `main.js` rewrites the
 fuel's outline whenever the level moves. The band's inner edge holds 4 units off the pedal's black
 outline all the way round, and the width grows outward. The first build had the right tangent point
 typed 10 units wrong, and the right leg hung visibly further off the pedal than the left, so the

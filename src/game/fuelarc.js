@@ -1,8 +1,8 @@
-// The fuel gauge's shape (#boost-meter): a band hugging the round Loco Mode button, thin at the
-// empty end and thicker at the full one. Pure and DOM-free — main.js turns it into two `d`
-// attributes, the probe asserts on it — because a stroke cannot taper and so the band is a filled
-// outline, and an outline is geometry that can be wrong in ways a screenshot at 100px wide won't
-// show.
+// The fuel gauge's shape (#boost-meter): a band hugging the round Loco Mode button. Pure and
+// DOM-free — main.js turns it into two `d` attributes, the probe asserts on it. It is a filled
+// outline rather than a stroke because it used to taper (thin at the empty end, thick at the full
+// one) and a stroke cannot; the taper was dropped for one even width, and `widthAt` stays the one
+// place a width is asked for, so bringing a taper back is two constants.
 //
 // Everything is in the button's own viewBox (150 × 150, index.html), so the gauge and the button
 // share one coordinate system and the gap between them is a number, not a nudge.
@@ -17,10 +17,10 @@ const OUTLINE_OUT = CAP.r + 4;         // the face's black outline, outer edge
 export const GAP = 4;                  // clear air between that outline and the gauge's rim
 export const RIM = 2;                  // the dark track shows this much either side of the fuel
 export const BASE_R = OUTLINE_OUT + GAP + RIM; // where the fuel's inner edge runs
-// Fuel width at the empty end and the full end. Thickened from 8 → 14 on the pedal, which read as
-// a hairline once the button went round and the arc had to carry the whole read-out on its own.
-export const W_EMPTY = 12;
-export const W_FULL = 20;
+// Fuel width at the empty end and the full end — the same, now: the taper (12 → 20, and 8 → 14
+// round the old pedal) was dropped for an even band at its midpoint.
+export const W_EMPTY = 16;
+export const W_FULL = 16;
 // Both ends stop at this height: a little under the button's centre (~8.5° below the horizontal),
 // so the gauge reads as a dial over the top of the button rather than a ring round it. Not lower:
 // the brake sits off the left end, and the further down the band reaches the more room it needs.
@@ -69,7 +69,7 @@ export function pointAt(t) {
 /**
  * The band between fractions t0 and t1 as an SVG path `d`, round-capped at both ends. `pad` widens
  * it by that much on either side — the dark track is the whole band padded by RIM. The inner edge
- * stays on the base curve (less `pad`) and the width all goes outward, so the thicker full end
+ * stays on the base curve (less `pad`) and the width all goes outward, so any extra width
  * grows away from the button rather than into it. Returns '' for an empty span.
  */
 export function bandPath(t0, t1, pad = 0) {
