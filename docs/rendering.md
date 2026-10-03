@@ -1279,7 +1279,11 @@ change to the physics:
   is already there and keyed `…-wet`. It uses a screen-space face normal (`dFdx`/`dFdy` of world
   position, because the material is flat-shaded anyway) to find up-facing surfaces. The asphalt
   (y below 0.08) darkens to 58%. Pavement gets about 60% of that and grass half again. A
-  two-octave noise field lays puddles on the road only.
+  noise field lays puddles on the road only: three octaves of quintic value noise, each rotated off
+  the lattice, behind a low-frequency domain warp, thresholded with an `fwidth` edge and ringed by a
+  darker damp band. The first cut was two unrotated octaves of plain value noise under a fixed
+  0.06 ramp, and because this camera looks down the lattice's diagonal every puddle came out as
+  diamond-faceted lumps — reported as blocky.
 - **The reflection.** The whole scene is drawn a second time at half resolution through the main
   camera mirrored about y = 0. Under an orthographic camera this is exact, with no reflector plane
   and no oblique clip: the ground reads the mirror back at its own `gl_FragCoord`. A mirror flips

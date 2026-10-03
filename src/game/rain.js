@@ -715,6 +715,26 @@ float rainNoise(vec2 p) {
   return mix(mix(rainHash(i), rainHash(i + vec2(1.0, 0.0)), f.x),
              mix(rainHash(i + vec2(0.0, 1.0)), rainHash(i + vec2(1.0, 1.0)), f.x), f.y);
 }
+// The puddle field. Plain rainNoise read blocky here: value noise sits on an axis-aligned lattice,
+// and this camera looks down the lattice's diagonal, so a hard threshold on two octaves of it cut
+// every puddle into diamond-faceted lumps with square nubs on the rim. So: a quintic fade (no
+// crease at the cell walls), each octave rotated off the grid and off the one before it, and a
+// low-frequency warp ahead of all of it to bend what lattice is left into curves.
+float rainNoiseQ(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  return mix(mix(rainHash(i), rainHash(i + vec2(1.0, 0.0)), f.x),
+             mix(rainHash(i + vec2(0.0, 1.0)), rainHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float rainPuddleField(vec2 p) {
+  p += (vec2(rainNoiseQ(p * 0.05), rainNoiseQ(p * 0.05 + 17.3)) - 0.5) * 9.0;
+  const mat2 R1 = mat2(0.80, 0.60, -0.60, 0.80);
+  const mat2 R2 = mat2(0.28, 0.96, -0.96, 0.28);
+  return rainNoiseQ(R1 * p * 0.15) * 0.62
+       + rainNoiseQ(R2 * p * 0.42 + 3.0) * 0.26
+       + rainNoiseQ(p * 1.1 + 7.0) * 0.12;
+}
 // Rings spreading from drops landing on a grid of cells, one drop per cell per cycle. Returns the
 // slope of the water surface, which is all a reflection needs to wobble.
 vec2 rainRipples(vec2 p, float t) {
@@ -751,11 +771,18 @@ vec3 rainDy = dFdy(vRainWorld);
 float rainUp = smoothstep(0.8, 0.95, abs(normalize(cross(rainDx, rainDy)).y));
 float rainRoad = 1.0 - smoothstep(0.08, 0.2, vRainWorld.y);
 float rainGrass = step(diffuseColor.r * 1.08, diffuseColor.g) * step(diffuseColor.b, diffuseColor.g);
-float rainPuddleN = rainNoise(vRainWorld.xz * 0.16) * 0.7 + rainNoise(vRainWorld.xz * 0.9 + 3.0) * 0.3;
-float rainPuddle = smoothstep(0.62, 0.68, rainPuddleN) * rainRoad * rainUp * rainHere;
+float rainPuddleN = rainPuddleField(vRainWorld.xz);
+// The rim is antialiased off the field's own screen-space slope, so it stays a clean curve at any
+// zoom instead of a fixed world-space ramp that is a stair at play zoom and a smear close up.
+float rainPuddleAA = max(fwidth(rainPuddleN), 0.004);
+float rainPuddle = smoothstep(0.63 - rainPuddleAA, 0.63 + rainPuddleAA, rainPuddleN) * rainRoad * rainUp * rainHere;
+// A damp ring just outside each puddle, darker than wet asphalt, so the edge feathers into the
+// road rather than being a cut-out sticker on it.
+float rainDamp = smoothstep(0.55, 0.63, rainPuddleN) * rainRoad * rainUp * rainHere;
 float rainWet = rainHere * mix(0.55, 1.0, rainUp) * mix(0.6, 1.0, rainRoad) * (1.0 - 0.5 * rainGrass);
 diffuseColor.rgb *= mix(1.0, 0.58, rainWet);
-diffuseColor.rgb *= mix(1.0, 0.7, rainPuddle);
+diffuseColor.rgb *= mix(1.0, 0.82, rainDamp);
+diffuseColor.rgb *= mix(1.0, 0.85, rainPuddle);
 `;
 
 // Before the colour is written: mix in the mirror. Sampled at 1 - u because the mirror pass was
