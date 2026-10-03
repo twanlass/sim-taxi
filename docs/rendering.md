@@ -1326,7 +1326,9 @@ Three things make a storm arriving read as weather rather than as a crossfade:
 - **The sun goes first.** Its power falls at 1.4 times the rate of `dark`, so shadows soften and
   vanish while the sky is still only half grey.
 - **The lights come on one at a time.** Every lit pane and every lamp carries an `aLitAt` threshold
-  and switches on when `dark` passes it, over a ramp of 0.035. Shopfronts go at 0.08–0.5, street
+  and fades on when `dark` passes it, over a ramp of 0.08 (about half a second under a squall's
+  edge); a quarter of them, picked off a hash of their anchor, sputter for the first 0.14 past their
+  threshold instead (`litOn` in game/citylights.js, timed off `dt` so shot mode freezes it). Shopfronts go at 0.08–0.5, street
   lamps close together at 0.28–0.5 (a photocell), and homes and offices across 0.2–0.95. It is one
   shared uniform, and it reaches the bloom's copies of those materials because `markEmissive` chains
   the source's `onBeforeCompile`.
@@ -1402,7 +1404,10 @@ Everything that was a level in the storm becomes a position here:
   map: a drying street is still, and only the street being rained on moves.
 - **The lights.** Windows, lamp heads and lamp pools take the larger of the city-wide level and
   the footprint where they stand (`litLevelAt` in game/citylights.js). Each one still has its own
-  threshold, so a block lights up pane by pane as the cell arrives. Car headlights come from
+  threshold, so a block lights up pane by pane as the cell arrives. The level is read at each
+  light's **anchor** (`aLitXZ` — a pane's centre, a lamp's post), never per vertex: the footprint's
+  22-unit edge varies across one pane by more than the ramp, and read per corner every window wiped
+  on from one side as the edge went over it. Car headlights come from
   `setRunningLightsAt(fn)` in sim/traffic.js, per car from its own position.
 - **What stays global:** a faint grade (`SQUALL_GREY` 0.2) while a cell is on the map, the grip
   (read under the *taxi*, so every car brakes as the player's patch of road does), and the lens
