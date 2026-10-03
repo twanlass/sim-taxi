@@ -735,11 +735,13 @@
         transition: filter 0.15s ease;
       }
 
-      /* The press. The pedal's depth is not geometry: it is an inner shadow 28 units thick along
-         the bottom of one flat shape — the dark band reads as the side, the rest as the top. So a
-         press is drawn *inside* the silhouette rather than by moving it: the filter swaps to one
-         with the side band thinned to 11 and a dark inner shadow dropped from the top edge, so the
-         face reads as sunk into its own outline, and the icon drops with it.
+      /* The press. The button's depth is two discs: a dark base, and the face drawn smaller and
+         higher on it, so the base shows as a crescent underneath and reads as the side. (It used
+         to be one shape with a 28-unit inner shadow along its bottom, which on a circle left the
+         face a squashed oval.) A
+         press is drawn *inside* the silhouette rather than by moving it: the face disc drops into
+         the dark base disc under it, its filter adds a dark inner shadow from the top edge, and the
+         icon drops with it.
          It used to squash the whole pedal toward its base (the top came down ~12px). That read as
          travel, but the fuel gauge hugs the gas button, and a button that moves 12px away from a
          gauge that doesn't opens a gap exactly where the thumb is looking. The outline and
@@ -754,11 +756,13 @@
       #brake .pedal-face { filter: url(#brake-up); }
       #boost.is-held .pedal-face, #boost.is-down .pedal-face { filter: url(#gas-down); }
       #brake.is-held .pedal-face, #brake.is-on .pedal-face { filter: url(#brake-down); }
-      /* In the pedal's user units: half the 17 units the side band gave up, so the icon stays
-         centred on the face as it sinks. */
-      .pedal-icon { transition: transform 0.07s ease-out; }
+      /* The face drops into its base, 5 of the 12 units of crescent under it, and the icon rides
+         with it. In the button's user units. The silhouette and the hit box stay put. */
+      .pedal-face, .pedal-icon { transition: transform 0.07s ease-out; }
+      #boost.is-held .pedal-face, #boost.is-down .pedal-face,
+      #brake.is-held .pedal-face, #brake.is-on .pedal-face,
       #boost.is-held .pedal-icon, #boost.is-down .pedal-icon,
-      #brake.is-held .pedal-icon, #brake.is-on .pedal-icon { transform: translateY(8px); }
+      #brake.is-held .pedal-icon, #brake.is-on .pedal-icon { transform: translateY(5px); }
       /* Held brake lights up a touch, the way the taxi's own lamps come on out on the road. */
       #brake.is-on .pedal-art { filter: brightness(1.12); }
 
@@ -1645,45 +1649,35 @@
             <feFlood flood-opacity="0" result="BackgroundImageFix" />
             <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
             <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="-28" />
+            <feOffset dy="6" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0.313068 0 0 0 0 0.194996 0 0 0 0 0.00389115 0 0 0 1 0" />
-            <feBlend in2="shape" result="side" />
+            <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.18 0" />
+            <feBlend in2="shape" result="lit" />
             <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="8" />
-            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.15 0" />
-            <feBlend in2="side" result="lit" />
-            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="-34" />
+            <feOffset dy="-10" />
             <feGaussianBlur stdDeviation="2" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0" />
-            <feBlend in2="lit" />
+            <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.22 0" />
+            <feBlend in2="lit" result="shaded" />
           </filter>
           <filter id="gas-down" x="-4" y="-4" width="158" height="158" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
             <feFlood flood-opacity="0" result="BackgroundImageFix" />
             <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
             <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="-11" />
+            <feOffset dy="6" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0.313068 0 0 0 0 0.194996 0 0 0 0 0.00389115 0 0 0 1 0" />
-            <feBlend in2="shape" result="side" />
+            <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.18 0" />
+            <feBlend in2="shape" result="lit" />
             <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="8" />
-            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.15 0" />
-            <feBlend in2="side" result="lit" />
-            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="-17" />
+            <feOffset dy="-10" />
             <feGaussianBlur stdDeviation="2" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0" />
+            <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.22 0" />
             <feBlend in2="lit" result="shaded" />
-            <!-- The well: an inner shadow dropped from the top edge, so the face reads as sunk
-                 inside its outline rather than as the whole pedal moving. -->
+            <!-- The well: an inner shadow dropped from the top edge, so the face reads as pushed
+                 into its base. -->
             <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="16" />
+            <feOffset dy="10" />
             <feGaussianBlur stdDeviation="2.5" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
             <feColorMatrix values="0 0 0 0 0.313068 0 0 0 0 0.194996 0 0 0 0 0.00389115 0 0 0 0.9 0" />
@@ -1703,11 +1697,15 @@
             <stop stop-color="#FF9E01" /><stop offset="0.157945" stop-color="#FCAD2F" /><stop offset="1" stop-color="#FF9E01" />
           </linearGradient>
         </defs>
-        <circle class="pedal-face" cx="75" cy="75" r="69" fill="url(#gas-fill)" />
+        <!-- Round all the way down: a dark base disc, and the face a smaller disc sitting at the top of
+             it, so the depth shows as a crescent under the face. The side band used to be an inner
+             shadow cut into one shape, which on a circle left the face a squashed oval. -->
+        <circle cx="75" cy="75" r="69" fill="#503201" />
+        <circle class="pedal-face" cx="75" cy="69" r="63" fill="url(#gas-fill)" />
         <circle cx="75" cy="75" r="71" stroke="#221500" stroke-width="4" fill="none" />
         <!-- Moved by the wrapper, not on the path: the press sets a CSS `transform` on
              `.pedal-icon`, and that would replace a `transform` attribute on the same element. -->
-        <g transform="translate(0.7 -35)">
+        <g transform="translate(0.7 -27)">
           <path class="pedal-icon" filter="url(#gas-icon)" d="M48.3979 98.1325L81.7166 65.9284C83.3303 64.3687 85.8942 66.2413 84.8993 68.2531L75.3902 87.4814C74.7329 88.8107 75.7 90.368 77.183 90.368H97.8347C99.713 90.368 100.555 92.7229 99.1033 93.9142L61.9627 124.385C60.1205 125.897 57.6537 123.498 59.1132 121.614L72.1451 104.796C73.1634 103.481 72.2267 101.571 70.5641 101.571H49.7878C47.9896 101.571 47.1049 99.3823 48.3979 98.1325Z" fill="#FFE4B9" />
         </g>
       </svg>
@@ -1719,48 +1717,38 @@
             <feFlood flood-opacity="0" result="BackgroundImageFix" />
             <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
             <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="-28" />
-            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0.240388 0 0 0 0 0.0617962 0 0 0 0 0.0647727 0 0 0 1 0" />
-            <feBlend in2="shape" result="side" />
-            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="8" />
+            <feOffset dy="6" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
             <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.18 0" />
-            <feBlend in2="side" result="lit" />
+            <feBlend in2="shape" result="lit" />
             <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="-34" />
+            <feOffset dy="-10" />
             <feGaussianBlur stdDeviation="2" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0.909804 0 0 0 0 0.203922 0 0 0 0 0.215686 0 0 0 0.28 0" />
-            <feBlend in2="lit" />
+            <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.22 0" />
+            <feBlend in2="lit" result="shaded" />
           </filter>
           <filter id="brake-down" x="-4" y="-4" width="158" height="158" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
             <feFlood flood-opacity="0" result="BackgroundImageFix" />
             <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
             <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="-12" />
-            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0.240388 0 0 0 0 0.0617962 0 0 0 0 0.0647727 0 0 0 1 0" />
-            <feBlend in2="shape" result="side" />
-            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="8" />
+            <feOffset dy="6" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
             <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.18 0" />
-            <feBlend in2="side" result="lit" />
+            <feBlend in2="shape" result="lit" />
             <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="-18" />
+            <feOffset dy="-10" />
             <feGaussianBlur stdDeviation="2" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0.909804 0 0 0 0 0.203922 0 0 0 0 0.215686 0 0 0 0.28 0" />
+            <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.22 0" />
             <feBlend in2="lit" result="shaded" />
-            <!-- The well: an inner shadow dropped from the top edge, so the face reads as sunk
-                 inside its outline rather than as the whole pedal moving. -->
+            <!-- The well: an inner shadow dropped from the top edge, so the face reads as pushed
+                 into its base. -->
             <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="16" />
+            <feOffset dy="10" />
             <feGaussianBlur stdDeviation="2.5" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0.35 0 0 0 0 0.06 0 0 0 0 0.07 0 0 0 0.8 0" />
+            <feColorMatrix values="0 0 0 0 0.240388 0 0 0 0 0.0617962 0 0 0 0 0.0647727 0 0 0 0.9 0" />
             <feBlend in2="shaded" />
           </filter>
           <filter id="brake-icon" x="63.309" y="29.228" width="45.315" height="41.848" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
@@ -1777,11 +1765,12 @@
             <stop stop-color="#E83437" /><stop offset="0.157945" stop-color="#ED4E50" /><stop offset="1" stop-color="#E83437" />
           </linearGradient>
         </defs>
-        <circle class="pedal-face" cx="75" cy="75" r="69" fill="url(#brake-fill)" />
+        <circle cx="75" cy="75" r="69" fill="#3D1011" />
+        <circle class="pedal-face" cx="75" cy="69" r="63" fill="url(#brake-fill)" />
         <!-- 6 wide rather than the gas's 4: the brake is drawn at two thirds of the size, and this
              keeps the two outlines the same weight on screen. -->
         <circle cx="75" cy="75" r="72" stroke="#221500" stroke-width="6" fill="none" />
-        <g transform="translate(-10.5 11.9)">
+        <g transform="translate(-10.5 19.9)">
           <path class="pedal-icon" filter="url(#brake-icon)" d="M67.8233 30.9787C67.9488 29.9782 68.7994 29.2277 69.8077 29.2277H105.624C106.827 29.2277 107.758 30.2827 107.608 31.4767L103.11 67.3243C102.985 68.3248 102.134 69.0753 101.126 69.0753H65.3096C64.1062 69.0753 63.1753 68.0203 63.3252 66.8263L67.8233 30.9787Z" fill="#FFCCCD" />
         </g>
       </svg>
