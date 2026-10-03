@@ -91,6 +91,8 @@ src/
     runend.js           the run-end blackout: stats counted out, then initials, then the table
     highscores.js       the local top five — localStorage is the whole backend
     homescreen.js       the iOS-only "add it to your Home Screen" screen; parks the run while up
+    titlescreen.js      Play / Settings / Credits over the drifting city; parks the run until Play
+    settings.js         the title screen's remembered settings: the two volumes and the tips
     pause.js            the HUD's ⏸ and the screen behind it; stops the frame loop dead
 
   geometry/             one-off models, all procedural
