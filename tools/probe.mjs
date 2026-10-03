@@ -37,7 +37,7 @@ import { createDriveThru } from '../src/game/drivethru.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -15930,6 +15930,52 @@ let chopperOrder; // likewise
   // `setCityOccluders` is the same shape of module state one layer up. Put both back.
   createLayout(makeRng(seed));
   setCityOccluders(buildings.mesh, props);
+}
+
+// --- The bootleg (game/bootleg.js, `spinTaxi` in sim/traffic.js) ----------------------------------
+//
+// Every lane in the city, the taxi dropped mid-lane at chase speed and spun. Where it goes it has to
+// land on the far lane facing back the way it came, upright, on the road and short of the stop line
+// it is now driving toward — and still moving. Where it does not, the reason has to be the road: an
+// arterial's median or a bridge, never a lane that simply happened not to work.
+{
+  const bTraffic = createTraffic(makeRng(seed + 44), new THREE.Scene(), CARS_DEFAULT);
+  const taxi = bTraffic.taxi;
+  const net = cityNetwork();
+  const why = {};
+  let spun = 0;
+  let landedWrong = 0;
+  let stalled = 0;
+  let pastLine = 0;
+  let worstYaw = 0;
+  for (const lane of net.lanes) {
+    if (lane.degenerate || isLaneClosed(lane.id) || lane.length < 6) continue;
+    const to = net.nodeById.get(lane.to);
+    const d = net.dirOfLane(lane);
+    if (!placeCar(taxi, d, to.gi, to.gj, lane.length / 2)) continue;
+    taxi.route = [];
+    taxi.uturn = null;
+    taxi.v = 15;
+    const was = taxi.d;
+    const refused = spinTaxi(taxi);
+    if (refused) { why[refused] = (why[refused] ?? 0) + 1; continue; }
+    spun += 1;
+    for (let k = 0; k < 60 && taxi.uturn; k++) bTraffic.update(1 / 60);
+    const tangent = taxi.lane.path.tangentAt(taxi.s);
+    const want = Math.atan2(-tangent.z, tangent.x);
+    worstYaw = Math.max(worstYaw, Math.abs(Math.atan2(Math.sin(taxi.yaw - want), Math.cos(taxi.yaw - want))));
+    if (taxi.uturn || taxi.d !== opposite(was)) landedWrong += 1;
+    if (taxi.v < SPEED * 0.9) stalled += 1;
+    if (taxi.state === 'drive' && taxi.s > taxi.lane.length - STOP_SETBACK) pastLine += 1;
+  }
+  const reasons = Object.entries(why).map(([k, n]) => `${n} ${k}`).join(', ') || 'none';
+  check('the bootleg spins the taxi round on the ordinary streets', spun > 20 && landedWrong === 0,
+    `${spun} spun, ${landedWrong} landed facing the wrong way or still spinning; refused: ${reasons}`);
+  check('...and refuses only for the road: a median, a bridge or a short lane',
+    Object.keys(why).every((k) => k === 'median' || k === 'bridge' || k === 'short'), reasons);
+  check('...landing square in its lane, still moving, short of the line ahead',
+    worstYaw < 0.05 && stalled === 0 && pastLine === 0,
+    `worst heading ${worstYaw.toFixed(3)} rad off the lane, ${stalled} came out under cruise, ${pastLine} past the line`);
 }
 
 // --- The emissive bloom --------------------------------------------------------

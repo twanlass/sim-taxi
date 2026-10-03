@@ -119,6 +119,7 @@ import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders } from './game/sightline.js';
+import { createBootleg } from './game/bootleg.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
@@ -868,6 +869,19 @@ const patrol = createPatrol({
   // Said by the cruiser that lost you, from over its own roof.
   onLost: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
   onHid: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
+});
+// Boost, then two quick taps of the brake: the taxi spins round onto the far lane. See game/bootleg.js.
+const bootleg = createBootleg({
+  taxi: traffic.taxi,
+  destination: () => traffic.taxi.pendingTarget ?? null,
+  // It has to land like a hit: the screech, a jolt of shake, a buzz, and all four wheels marking the
+  // road on the frame it starts. `layRubber` carries the streak on from there.
+  onSpin: () => {
+    sfx?.play('skid');
+    haptic('loco');
+    controller.kickShake(0.55);
+    stampAllRubber(traffic.taxi);
+  },
 });
 // The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
@@ -2797,6 +2811,13 @@ function holdBrake() {
   // Only when there is speed to shed — the pedal's detent is the haptic's job, and a brake noise
   // from a car at a standstill is a car that is not doing what the sound says. From above cruise
   // it is the Loco stop; from cruise it is the ordinary one.
+  // The bootleg: two taps in Loco Mode. Read before the pill is released below, which is the first
+  // tap's own doing — its one-second tail still counts (game/bootleg.js).
+  if (bootleg.brakeTap({ engaged: boost.isEngaged() })) {
+    boost.release();
+    brakeButton?.classList.add('is-on');
+    return true;
+  }
   if (traffic.taxi.v > SPEED * 1.1) sfx?.play('locoBrake');
   else if (traffic.taxi.v > BRAKE_SKID_V) sfx?.play('brake');
   // Gas and brake are one pedal each and the last one pressed wins. Releasing Loco Mode here rather
@@ -3157,7 +3178,8 @@ function layRubber(dt) {
   // see stampAllRubber. It needs no `boost` term: the pedal is the whole input, and a screech from
   // cruise is as much a skid as one from the overdrive top, just a shorter one (1.0 unit of rubber
   // against 16.5 — see HARD_BRAKE in sim/traffic.js).
-  const skidding = car.braking && car.v > BRAKE_SKID_V;
+  // And the bootleg (game/bootleg.js), which is a skid from start to finish.
+  const skidding = (car.braking && car.v > BRAKE_SKID_V) || car.uturn?.kind === 'spin';
 
   // The screech, once per slide rather than per stamp: on the frame a corner or a lane swap starts
   // breaking traction. Not the launch or the brake, which each already have a sound of their own.
@@ -3380,7 +3402,7 @@ const pause = shot ? null : createPause({
     // release too, and resuming onto a pedal nobody is holding is the same bug wearing red.
     // `dropPedalGesture` covers a thumb that was on the row when the veil went up; the two explicit
     // releases beside it are for the keyboard's holds, which it knows nothing about.
-    if (paused) { boost.release(); releaseBrake(); dropPedalGesture(); }
+    if (paused) { boost.release(); releaseBrake(); dropPedalGesture(); bootleg.reset(); }
   },
 });
 
@@ -3483,7 +3505,8 @@ function frame() {
     // pointer that never came back up — a run ending under the player's thumb takes the button off
     // the screen (`body.game-over #brake`), and a `pointerup` on a removed element is not something
     // to rely on. Same self-healing shape as the two flags above it.
-    traffic.taxi.braking = brakeHeld && !fares.state.gameOver;
+    // Through the bootleg, which holds the brake off from a spin until the pedal comes back up.
+    traffic.taxi.braking = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
   }
   updateBoostButton(dt);
   skids.update(dt);
@@ -4645,6 +4668,8 @@ window.__taxi = {
   police,
   /** The patrol cruiser's life — patrol, chase, leave. See game/patrol.js. */
   patrol,
+  /** The brake-tap spin (game/bootleg.js) — `spin()` fires one, `state` tallies them. */
+  bootleg,
   fares,
   /** The package courier, or null under `?parcels=0` and in shot mode. See game/parcels.js. */
   parcels,

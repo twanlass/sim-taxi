@@ -3202,6 +3202,41 @@ the brake, so a two-thumbed player never ends up spending fuel against a speed t
 tank keeps whatever is left in it. The sim doesn't depend on that arbitration: hold both by any
 means and the brake still wins, because it replaces the target the boost ceiling would have set.
 
+### The bootleg: boost, then brake twice
+
+`game/bootleg.js`, `spinTaxi` in `sim/traffic.js`, wired in `holdBrake` in main.js. In Loco Mode, tap
+the brake twice within 350ms and the taxi spins 180° onto the far lane in 0.42s. It slides on down
+the road as it turns and keeps 55% of its speed, never less than cruise. The body whips round with
+a small overshoot, and the spin comes with a screech, a jolt of shake, a haptic buzz and four-wheel
+rubber.
+
+It exists because a chase gave the player nothing to do but hold the pill. In a getaway the cut-off
+cops are in the junctions *ahead* (see [the chase](#the-chase)), and a 180 puts every one of them
+behind you.
+
+- **The combo checks Loco Mode as *engaged*, not held.** The first tap is an ordinary brake and
+  releases the pill (last pedal pressed wins). The pill's one-second tail (`BOOST_COOLDOWN`) is
+  still engaged at the second tap, so that is what the combo reads. B pressed twice does it on a
+  keyboard.
+- **There is no clearance test.** The cop's U-turn (`uturnWindow`) waits for a narrow window and a
+  clear road, which suits a car the collision pass does not test. The taxi *is* tested
+  (`sim/collisions.js`), so whatever it spins into is a bump it pays for. Doing it in traffic has a
+  cost, and that is the cost.
+- **A combo that lands mid-junction or mid-overtake waits** up to 0.7s for a straight lane. At
+  chase speed the taxi is crossing a junction a large share of the time, and refusing those taps was
+  the commonest refusal in a bot sweep.
+- **It lands short of the stop line ahead.** The landing point is clamped to stop short of the far
+  lane's stop line. That line belongs to the junction behind the taxi, and landing past it would run
+  the light (see CLAUDE.md).
+- **The brake is ignored until it comes back up.** The second tap is usually still held when the
+  spin lands, and braking then would stop the taxi broadside.
+- **It is refused on arterials, on bridges and below 4 u/s.** An arterial's centreline is a planted
+  median, and a bridge deck is arched. A refused combo is simply a brake. `tools/probe.mjs` spins
+  the taxi on every lane: on its seed, 106 lanes spin and 26 refuse (20 median, 6 bridge).
+
+The first prototype was a swipe back down the road. Playtesting dropped it: on a phone, a swipe
+already means a pan, a route-band drag or a fare tap.
+
 ## The pedal slide
 
 The bottom row is two pedals — the Figma file's drawings, a tall orange gas pedal with the brake
