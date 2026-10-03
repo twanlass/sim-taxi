@@ -302,11 +302,14 @@ export function createTape(scene, { roots = [], exclude = () => false } = {}) {
 // half-heights; the live beat holds at 26). `side` is which way off the diagonal it swings: one
 // side, the other, then square on and tightest for the last word. The rhythm is the point — a first
 // cut that opened a second early and played the whole approach read as a replay *package*, and the
-// three-beat stutter reads as the crash being too big to show once.
+// three-beat stutter reads as the crash being too big to show once. `hold` is wall seconds the shot
+// stays on its last frame before handing back, the camera still drifting round on its orbit: the
+// last word wants a beat to land, and it cannot be bought with more `post` — the tape only runs as
+// far past the hit as the live beat recorded (see REPLAY_LEAD in main.js).
 const SHOTS = [
   { pre: 0.3, post: 0.3, zoomFrom: 17, zoomTo: 14, side: 1 },
   { pre: 0.3, post: 0.3, zoomFrom: 14, zoomTo: 11.5, side: -1 },
-  { pre: 0.3, post: 0.45, zoomFrom: 11, zoomTo: 9, side: 0 },
+  { pre: 0.3, post: 0.45, zoomFrom: 11, zoomTo: 9, side: 0, hold: 0.7 },
 ];
 // The furthest past the impact any shot plays, in sim seconds. The tape only holds what the live
 // beat recorded after the hit, which is what sets REPLAY_LEAD's floor in main.js.
@@ -314,7 +317,7 @@ export const REPLAY_POST = Math.max(...SHOTS.map((s) => s.post));
 
 // Playback rate, as a fraction of real time: near full speed into the hit, dropping over the last
 // RAMP seconds before it and holding there through the blast. At these numbers a 0.3 + 0.3 shot is
-// ~0.95s of wall clock and the last ~1.25s — about 3.2s for all three.
+// ~0.95s of wall clock and the last ~1.25s plus its 0.7s hold — about 3.9s for all three.
 const FAST = 0.8;
 const SLOW = 0.5;
 const RAMP = 0.12;
@@ -433,6 +436,7 @@ export function createCrashReplay({
     run.to = crash.t0 + Math.max(0, Math.min(shot.post, run.recorded));
     run.t = run.from;
     run.hit = false;
+    run.held = 0;
     run.yaw = run.yaws[index];
     controller.state.shake = 0;
     cutFlash();
@@ -488,10 +492,13 @@ export function createCrashReplay({
 
     const span = run.to - run.from;
     const k = span > 0 ? THREE.MathUtils.clamp((run.t - run.from) / span, 0, 1) : 1;
+    // The hold keeps the orbit going at the rate the shot ended on, so a held frame is never a still.
+    const wallSpan = span / SLOW;
+    const orbitK = k + (wallSpan > 0 ? run.held / wallSpan : 0);
     const ratio = aspect();
     const zoom = (run.shot.zoomFrom + (run.shot.zoomTo - run.shot.zoomFrom) * easeInOut(k))
       * Math.max(1, MIN_HALF_WIDTH / ratio);
-    const yaw = run.yaw + Math.sign(run.yaw) * THREE.MathUtils.degToRad(ORBIT_DEG) * k;
+    const yaw = run.yaw + Math.sign(run.yaw) * THREE.MathUtils.degToRad(ORBIT_DEG) * orbitK;
     controller.cutTo(tx, tz, zoom, yaw, ratio);
     if (wallDt > 0) controller.updateShake(wallDt, aspect());
   }
@@ -506,8 +513,9 @@ export function createCrashReplay({
       controller.kickShake(REPLAY_SHAKE);
       onImpact(run.index);
     }
+    if (run.t >= run.to && run.hit) run.held += wallDt;
     frame(wallDt);
-    if (run.t >= run.to) {
+    if (run.t >= run.to && run.held >= (run.shot.hold ?? 0)) {
       if (run.index + 1 < SHOTS.length) beginShot(run.index + 1);
       else finish();
     }
