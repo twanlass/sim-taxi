@@ -41,7 +41,7 @@ src/
     difficulty.js       the ramp: one scalar, and every knob hung off it
     route.js            Dijkstra over the road network's lanes, road-hierarchy weights
     routeline.js        the route band painted down the taxi's lane
-    pick.js             raycast click picking
+    pick.js             raycast tap picking (pointerup for a finger, click for a mouse)
     sightline.js        which kerb corners the camera can see, settled once per city
     farepointers.js     edge arrows — every off-frame rider, or just the drop-off while carrying;
                         tap one on a phone to ride the camera to it
