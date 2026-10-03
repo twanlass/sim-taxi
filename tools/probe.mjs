@@ -19,7 +19,7 @@ import {
 } from '../src/city/buildings.js';
 import {
   createProps, parkPlots, planParkFurniture, planMedianBeds, MEDIAN_BED_ROOM,
-  BENCH_LEN, STATUE_PLAZA, treeParts, MEDIAN_TREE_H, MEDIAN_TREE_TRUNK,
+  BENCH_LEN, STATUE_PLAZA, treeParts, MEDIAN_TREE_H, MEDIAN_TREE_TRUNK, parkSpecies,
 } from '../src/city/props.js';
 import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
 import { createGrass, planGrass, grassGeometry } from '../src/city/grass.js';
@@ -889,6 +889,39 @@ const onGrass = (city, i, j) => {
   check('every tuft stands wholly on a lawn', tufts > 0 && offLawn === 0, `${offLawn} of ${tufts} over the walk`);
   check('and none in the pond, on the statue\'s plaza or under a bench', inWater + onPlaza + inBench === 0,
     `${inWater} in water, ${onPlaza} on the plaza, ${inBench} under a bench`);
+}
+
+// --- The parks' three species ---------------------------------------------------
+//
+// The spruce and the poplar were added inside an envelope the broadleaf already set: no taller (so
+// the sightline field and everything planted against a park hides nothing new) and no wider than
+// the 1.8 `clearOfPond` keeps from the water. Measured on built geometry at the top of the range,
+// where the jitter tail lives, and a sample of real park plantings has to contain all three.
+{
+  const extent = (species) => {
+    let top = 0;
+    let reach = 0;
+    for (let n = 0; n < 300; n++) {
+      for (const geo of treeParts(0, 0, makeRng(seed + n * 577), { height: 5.6, species })) {
+        const pos = geo.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          top = Math.max(top, pos.getY(i));
+          reach = Math.max(reach, Math.hypot(pos.getX(i), pos.getZ(i)));
+        }
+      }
+    }
+    return { top, reach };
+  };
+  const broad = extent('broadleaf');
+  for (const species of ['conifer', 'poplar']) {
+    const { top, reach } = extent(species);
+    check(`a park ${species} stays inside the broadleaf's height and the pond's clearance`,
+      top <= broad.top && reach < 1.8,
+      `top ${top.toFixed(2)} against ${broad.top.toFixed(2)}, reach ${reach.toFixed(2)}`);
+  }
+  const seen = new Set();
+  for (let n = 0; n < 200; n++) seen.add(parkSpecies(n * 1.37 - 40, n * 2.11 - 60));
+  check('the parks plant all three species', seen.size === 3, [...seen].join(', '));
 }
 
 // --- Leaf fuzz on the crowns ---------------------------------------------------
