@@ -2758,7 +2758,7 @@ boostButton?.addEventListener('touchstart', (event) => {
 // worth testing lives in the sim, where the flag actually does something.
 const brakeButton = document.getElementById('brake');
 let brakeHeld = false;
-// `?pedals=outline|speedo|dash` — alternative looks for the two pedals (game/pedalskin.js).
+// `?pedals=outline|speedo|dash|arch` — alternative looks for the two pedals (game/pedalskin.js).
 const pedalSkin = createPedalSkin({ boostButton, brakeButton });
 
 // How slowly the car can be moving and still lock its wheels into visible rubber. Below a walking

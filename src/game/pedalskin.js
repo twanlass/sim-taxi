@@ -7,6 +7,8 @@
  *             brake hugging its left side and gas its right.
  *   dash    — a 1970s cab's dashboard across the bottom of the screen, seen from the driver's
  *             seat: speedo, a LOCO fuel gauge, idiot lights, and the two pedals at either end.
+ *   arch    — the shipped pedals, rearranged: the gas becomes a dome in the middle of the bottom
+ *             edge with the fuel band following its top, and the Figma brake moves to the corner.
  *
  * Anything else (or nothing) keeps the Figma pedals in index.html. This is a skin and only a skin:
  * the controls are still `#boost` and `#brake`, pressed through the same pedal slide in main.js,
@@ -18,7 +20,7 @@
  * Self-contained on purpose, CSS included, so trying a look and throwing it away are both one file.
  */
 
-const SKINS = ['outline', 'speedo', 'dash'];
+const SKINS = ['outline', 'speedo', 'dash', 'arch'];
 
 // 22.1 u/s is the Loco cruise and reads as 65mph (BOOST_SPEED in sim/traffic.js).
 const MPH_PER_UNIT = 65 / 22.1;
@@ -308,10 +310,140 @@ const DASH_CSS = `
   body.pedals-dash #boost.is-empty .skin-art { opacity: 0.55; }
 `;
 
+
+// --- arch ------------------------------------------------------------------
+
+// The dome, in CSS px and in its own box: flat bottom, straight sides, a half-circle on top.
+// The look is the Figma gas pedal's — its gradient, its side band and its bolt — with every
+// filter number scaled by the 0.65 the shipped pedal is drawn at (95px for 146 units).
+const AR = { w: 120, h: 96, cx: 60, cy: 63, r: 57, corner: 14, pad: 26 };
+// The fuel band: inner edge clear of the dome's outline by a 3px gap and a 1.3px rim, tapering
+// from 5px at the empty end to 9px at the full one (the shipped gauge's 8 → 14 units), and
+// stopping 80° either side of straight up so its ends clear the brake on a 375pt phone.
+AR.band0 = AR.r + 1.3 + 3 + 1.3;
+AR.wEmpty = 5; AR.wFull = 9; AR.rim = 1.3; AR.span = 80;
+
+/** A tapered band over the dome from `t0` to `t1` of the full span, as a filled outline. */
+function archBand(t0, t1, pad = 0) {
+  if (t1 - t0 < 0.001) return '';
+  const n = Math.max(2, Math.ceil(64 * (t1 - t0)));
+  const outer = [], inner = [];
+  for (let i = 0; i <= n; i++) {
+    const t = t0 + ((t1 - t0) * i) / n;
+    const a = -AR.span + 2 * AR.span * t;
+    const w = AR.wEmpty + (AR.wFull - AR.wEmpty) * t;
+    outer.push(polar(AR.cx, AR.cy, AR.band0 + w + pad, a));
+    inner.push(polar(AR.cx, AR.cy, AR.band0 - pad, a));
+  }
+  const pts = [...outer, ...inner.reverse()];
+  return 'M' + pts.map(([x, y]) => `${f(x)} ${f(y)}`).join('L') + 'Z';
+}
+
+function archArt() {
+  const { w, h, cx, cy, r, corner } = AR;
+  const dome = `M${cx - r} ${cy}A${r} ${r} 0 0 1 ${cx + r} ${cy}V${h - 3 - corner}`
+    + `Q${cx + r} ${h - 3} ${cx + r - corner} ${h - 3}H${cx - r + corner}Q${cx - r} ${h - 3} ${cx - r} ${h - 3 - corner}Z`;
+  const fx = -4, fy = -4, fw = w + 8, fh = h + 8;
+  const shade = (side, shadow, well) => `
+    <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+    <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+    <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+    <feOffset dy="${side}"/><feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+    <feColorMatrix values="0 0 0 0 0.313068 0 0 0 0 0.194996 0 0 0 0 0.00389115 0 0 0 1 0"/>
+    <feBlend in2="shape" result="side"/>
+    <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+    <feOffset dy="5"/><feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+    <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.15 0"/>
+    <feBlend in2="side" result="lit"/>
+    <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+    <feOffset dy="${shadow}"/><feGaussianBlur stdDeviation="1.3"/>
+    <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+    <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0"/>
+    <feBlend in2="lit" result="shaded"/>
+    ${well ? `<feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+    <feOffset dy="10"/><feGaussianBlur stdDeviation="1.6"/>
+    <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+    <feColorMatrix values="0 0 0 0 0.313068 0 0 0 0 0.194996 0 0 0 0 0.00389115 0 0 0 0.9 0"/>
+    <feBlend in2="shaded"/>` : ''}`;
+  const region = `x="${fx}" y="${fy}" width="${fw}" height="${fh}" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"`;
+  const p = AR.pad;
+  return {
+    gas: `<svg class="skin-art" viewBox="0 0 ${w} ${h}" overflow="visible">
+      <defs>
+        <filter id="arch-up" ${region}>${shade(-18, -22, false)}</filter>
+        <filter id="arch-down" ${region}>${shade(-7, -11, true)}</filter>
+        <filter id="arch-icon" x="47.784" y="65.35" width="53.055" height="61.512" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+          <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+          <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+          <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+          <feOffset dx="1" dy="2"/><feGaussianBlur stdDeviation="1.5"/>
+          <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+          <feColorMatrix values="0 0 0 0 0.804634 0 0 0 0 0.497203 0 0 0 0 0 0 0 0 1 0"/>
+          <feBlend in2="shape"/>
+        </filter>
+        <linearGradient id="arch-fill" x1="0" y1="0" x2="${w}" y2="${h}" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#FF9E01"/><stop offset="0.157945" stop-color="#FCAD2F"/><stop offset="1" stop-color="#FF9E01"/>
+        </linearGradient>
+      </defs>
+      <path class="a-face" d="${dome}" fill="url(#arch-fill)"/>
+      <path d="${dome}" fill="none" stroke="#221500" stroke-width="2.6"/>
+      <g transform="translate(${cx} ${cy - 2}) scale(0.75) translate(-74 -95)">
+        <path class="a-icon" filter="url(#arch-icon)" d="M48.3979 98.1325L81.7166 65.9284C83.3303 64.3687 85.8942 66.2413 84.8993 68.2531L75.3902 87.4814C74.7329 88.8107 75.7 90.368 77.183 90.368H97.8347C99.713 90.368 100.555 92.7229 99.1033 93.9142L61.9627 124.385C60.1205 125.897 57.6537 123.498 59.1132 121.614L72.1451 104.796C73.1634 103.481 72.2267 101.571 70.5641 101.571H49.7878C47.9896 101.571 47.1049 99.3823 48.3979 98.1325Z" fill="#FFE4B9"/>
+      </g>
+    </svg>`,
+    readout: `<svg class="a-gauge" viewBox="${-p} ${-p} ${w + 2 * p} ${h + p}" overflow="visible">
+      <defs>
+        <linearGradient id="arch-fuel" x1="${cx - AR.band0}" y1="0" x2="${cx + AR.band0}" y2="0" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#FFD500"/><stop offset="1" stop-color="#FF9200"/>
+        </linearGradient>
+        <radialGradient id="arch-edge">
+          <stop offset="0.35" stop-color="#FFFDF2"/><stop offset="0.6" stop-color="#FFE9A0" stop-opacity="0.9"/>
+          <stop offset="1" stop-color="#FFD54A" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <path class="a-track" d="${archBand(0, 1, AR.rim)}"/>
+      <path class="a-fuel" d="" fill="url(#arch-fuel)"/>
+      <circle class="a-edge" r="0" fill="url(#arch-edge)"/>
+    </svg>`,
+  };
+}
+
+const ARCH_CSS = `
+  body.pedals-arch { --ctl-h: 70px; }
+  body.pedals-arch #boost { left: calc(50% - ${AR.w / 2}px); width: ${AR.w}px; height: ${AR.h}px; }
+  /* The Figma brake at 0.87 of its size: on a 375pt phone the full 113px reaches under the end of
+     the fuel band. */
+  body.pedals-arch #brake { left: var(--ctl-left); width: 98px; height: 70px; }
+  body.pedals-arch #boost .skin-art { display: block; width: 100%; height: 100%; pointer-events: none;
+    transition: filter 0.15s ease; }
+  .pedals-arch .a-face { filter: url(#arch-up); }
+  body.pedals-arch #boost.is-held .a-face, body.pedals-arch #boost.is-down .a-face { filter: url(#arch-down); }
+  .pedals-arch .a-icon { transition: transform 0.07s ease-out; }
+  body.pedals-arch #boost.is-held .a-icon, body.pedals-arch #boost.is-down .a-icon { transform: translateY(8px); }
+  body.pedals-arch #boost.is-empty .skin-art { filter: grayscale(1) brightness(0.9); opacity: 0.7; }
+  #pedal-readout.arch { position: fixed; z-index: 19; left: calc(50% - ${AR.w / 2 + AR.pad}px);
+    bottom: var(--ctl-bottom); width: ${AR.w + 2 * AR.pad}px; height: ${AR.h + AR.pad}px; pointer-events: none; }
+  #pedal-readout.arch svg { display: block; width: 100%; height: 100%;
+    transform-origin: 50% ${((AR.cy + AR.pad) / (AR.h + AR.pad)) * 100}%;
+    transition: filter 0.15s ease, transform 0.1s ease; }
+  .arch .a-track { fill: rgba(34, 21, 0, 0.8); }
+  .arch .a-edge { opacity: var(--fill, 0); }
+  .arch.is-active svg { filter: drop-shadow(0 0 6px rgba(255, 200, 0, 0.9)); }
+  .arch.is-empty .a-fuel { filter: saturate(0.35) brightness(0.8); }
+  .arch.is-filling svg { transition: none;
+    filter: drop-shadow(0 0 calc(4px + 8px * var(--pulse, 0)) rgba(255, 190, 0, calc(0.95 * var(--fill, 0))));
+    transform: scale(calc(1 + 0.035 * var(--pulse, 0))); }
+  .arch.is-charging.is-filling svg {
+    filter: drop-shadow(0 0 calc(3px + 3px * var(--fill, 0)) rgba(205, 180, 106, calc(0.5 * var(--fill, 0))));
+    transform: none; }
+  @media (prefers-reduced-motion: reduce) { .arch.is-filling svg { transform: none; } }
+`;
+
 // --- shared ----------------------------------------------------------------
 
 const SHARED_CSS = `
-  body.pedals-skinned .pedal-art, body.pedals-skinned #boost-meter { display: none; }
+  body.pedals-skinned:not(.pedals-arch) .pedal-art, body.pedals-arch #boost .pedal-art,
+  body.pedals-skinned #boost-meter { display: none; }
   #pedal-readout { opacity: 0; translate: 0 200%;
     transition: opacity 0.45s ease, translate 0.55s cubic-bezier(0.22, 1, 0.36, 1); }
   body.pedals-ready #pedal-readout, body.hud-ready #pedal-readout { opacity: 1; translate: 0 0; }
@@ -328,15 +460,16 @@ export function createPedalSkin({ boostButton, brakeButton, search = window.loca
   const name = new URLSearchParams(search).get('pedals');
   if (!SKINS.includes(name) || !boostButton || !brakeButton) return null;
 
-  const art = name === 'outline' ? outlineArt() : name === 'speedo' ? speedoArt() : dashArt();
-  const css = { outline: OUTLINE_CSS, speedo: SPEEDO_CSS, dash: DASH_CSS }[name];
+  const art = { outline: outlineArt, speedo: speedoArt, dash: dashArt, arch: archArt }[name]();
+  const css = { outline: OUTLINE_CSS, speedo: SPEEDO_CSS, dash: DASH_CSS, arch: ARCH_CSS }[name];
   const style = document.createElement('style');
   style.textContent = SHARED_CSS + css;
   document.head.appendChild(style);
   document.body.classList.add('pedals-skinned', `pedals-${name}`);
 
-  boostButton.insertAdjacentHTML('beforeend', art.gas);
-  brakeButton.insertAdjacentHTML('beforeend', art.brake);
+  // A skin that keeps one of the shipped pedals simply has no art for it.
+  if (art.gas) boostButton.insertAdjacentHTML('beforeend', art.gas);
+  if (art.brake) brakeButton.insertAdjacentHTML('beforeend', art.brake);
 
   let readout = null;
   if (art.readout) {
@@ -356,6 +489,8 @@ export function createPedalSkin({ boostButton, brakeButton, search = window.loca
   const dashNeedle = q('.d-needle');
   const dashFuel = q('.d-fuel-needle');
   const dashOdo = q('.d-odo-text');
+  const archFuel = q('.a-fuel');
+  const archEdge = q('.a-edge');
   const c = SP.box / 2;
 
   let lastFuel = -1;
@@ -381,6 +516,14 @@ export function createPedalSkin({ boostButton, brakeButton, search = window.loca
         }
         speedoFuel?.setAttribute('d', bandPath(c, SP.cy, SP.arc0, SP.arc1, -SP.fuelA, -SP.fuelA + 2 * SP.fuelA * fuel));
         dashFuel?.style.setProperty('transform', `rotate(${f(-60 + 120 * fuel)}deg)`);
+        if (archFuel) {
+          archFuel.setAttribute('d', archBand(0, fuel));
+          const w = AR.wEmpty + (AR.wFull - AR.wEmpty) * fuel;
+          const [x, y] = polar(AR.cx, AR.cy, AR.band0 + w / 2, -AR.span + 2 * AR.span * fuel);
+          archEdge.setAttribute('cx', f(x));
+          archEdge.setAttribute('cy', f(y));
+          archEdge.setAttribute('r', f(w));
+        }
       }
       speedoNeedle?.style.setProperty('transform', `rotate(${f(SP.sweep0 + (SP.sweep1 - SP.sweep0) * turn)}deg)`);
       dashNeedle?.style.setProperty('transform', `rotate(${f(-130 + 260 * turn)}deg)`);
@@ -394,7 +537,8 @@ export function createPedalSkin({ boostButton, brakeButton, search = window.loca
     },
 
     fuelTarget() {
-      const el = name === 'outline' ? boostButton : name === 'speedo' ? q('.s-track') : q('.d-fuel-bezel');
+      const el = name === 'outline' ? boostButton : name === 'speedo' ? q('.s-track')
+        : name === 'arch' ? q('.a-track') : q('.d-fuel-bezel');
       const r = el?.getBoundingClientRect();
       if (!r?.width) return null;
       return { x: r.left + r.width / 2, y: r.top + 3, r: r.width / 2 + 20 };
