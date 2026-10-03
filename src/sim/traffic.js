@@ -1378,6 +1378,83 @@ function startUturn(car, sw) {
   car.routeConsumed = false;
   car.v = Math.min(car.v, UTURN_SPEED);
 }
+// --- The taxi's bootleg turn (game/steer.js, a prototype) ------------------------------------------
+//
+// The cop's U-turn above is a careful thing: a narrow window, a clearance test, a second at 6 u/s.
+// That is right for a car the collision pass does not test and wrong for the player, who asked for
+// a 180 *now* and gets "no room" or a crawl. This is the other end: the taxi spins round where it is,
+// sliding on down the road while it does, and lands on the far lane facing back the way it came in
+// under half a second. No clearance test — the taxi *is* collision-tested (sim/collisions.js), so
+// whatever it spins into is a bump it pays for, which is the honest price of doing it in traffic.
+//
+// It reuses the U-turn's bookkeeping (`car.uturn`, kind 'spin'): the car is moved onto the far lane on
+// the first frame so traffic coming the other way sees it at once, and the render pass draws the
+// slide and the rotation from the lane it left.
+
+/** How long the spin takes, in seconds. Snappy is the brief: under half a second, nose to tail. */
+export const SPIN_TIME = 0.42;
+/** Fraction of its speed the taxi keeps through the spin, and the floor it comes out at. */
+const SPIN_KEEP = 0.55;
+/** How far it slides on down the road while it spins, as a fraction of the road it would cover. */
+const SPIN_SLIDE = 0.45;
+
+/**
+ * Spin the taxi round to the far lane, or say why not: `'median'` on an arterial (the centreline is
+ * a planted median), `'bridge'` over the river, `'road'` mid-junction, on a bend or with no lane back,
+ * `'short'` if there is no room on the lane to land without running into a junction.
+ */
+export function spinTaxi(car) {
+  if (car.crashed || car.staged || car.uturn) return 'road';
+  if (car.state !== 'drive' || car.pass > 0 || car.passing) return 'road';
+  if (!blocksOnCentreline(car)) return 'median';
+  const net = cityNetwork();
+  const lane = car.lane;
+  const from = net.nodeById.get(lane.from);
+  const back = net.laneByGrid(opposite(car.d), from.gi, from.gj);
+  if (!back || back.degenerate || back.from !== lane.to || closedLanes.has(back.id)) return 'road';
+  const h = lane.path.tangentAt(0);
+  const end = lane.path.tangentAt(lane.length);
+  if (Math.abs(h.x - end.x) + Math.abs(h.z - end.z) > 1e-6) return 'road';
+  const banks = riverBanks();
+  if (banks) {
+    const z0 = lane.path.at(0).z;
+    const z1 = lane.path.at(lane.length).z;
+    if (Math.max(z0, z1) > banks.z0 && Math.min(z0, z1) < banks.z1) return 'bridge';
+  }
+  const p = lane.path.at(car.s);
+  const o = back.path.at(0);
+  const t = back.path.tangentAt(0);
+  const c = car.s + ((p.x - o.x) * t.x + (p.z - o.z) * t.z);
+  // Land past the slide, but never inside the far lane's own stop line (that junction is the one
+  // behind the taxi, and landing there runs its light — see CLAUDE.md) or in the junction ahead.
+  const slide = Math.min(car.v * SPIN_TIME * SPIN_SLIDE, 6);
+  const hi = back.length - STOP_SETBACK - 1;
+  const lo = CAR_LEN / 2 + 1;
+  if (hi < lo) return 'short';
+  const s = Math.max(lo, Math.min(hi, c - car.s - slide));
+  const q = back.path.at(s);
+  // Nose swings toward the far lane, as a handbrake turn does.
+  const n = { x: q.x - p.x, z: q.z - p.z };
+  const dir = n.x * -h.z + n.z * h.x > 0 ? 1 : -1;
+  const v0 = car.v;
+  car.uturn = {
+    kind: 'spin', p, q, h, dir, t: 0, yaw0: yawOf(h), v0, v1: Math.max(SPEED, v0 * SPIN_KEEP),
+  };
+  car.uturnWanted = false;
+  car.lane = back;
+  car.s = s;
+  car.turn = null;
+  car.stopAt = null;
+  syncGrid(car);
+  car.dOut = car.d;
+  car.intentLane = null;
+  car.intentTurn = null;
+  car.lateTurn = null;
+  car.route = [];
+  car.routeConsumed = false;
+  return null;
+}
+
 const YIELD_RANGE = 15;          // how far ahead oncoming traffic blocks a left turn
 const TURN_WEIGHTS = [0.62, 0.24, 0.14]; // straight, right, left
 
@@ -4900,6 +4977,18 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // directly, and from the overdrive top it is a longer, deeper one.
       const fullPower = car.boost && !car.boostEasing;
 
+      if (car.state === 'drive' && car.uturn?.kind === 'spin') {
+        // --- Mid-spin (`spinTaxi`): on a clock rather than an arc speed, and deaf to the brake.
+        car.uturn.t += dt / SPIN_TIME;
+        car.v = car.uturn.v0 + (car.uturn.v1 - car.uturn.v0) * Math.min(1, car.uturn.t);
+        car.travelled += car.v * dt;
+        car.speedFactor = car.v / SPEED;
+        stats.distance += car.v * dt;
+        stats.moving += 1;
+        if (car.uturn.t >= 1) { car.v = car.uturn.v1; car.uturn = null; }
+        continue;
+      }
+
       if (car.state === 'drive' && car.uturn) {
         // --- Mid-U-turn. The car is already on the far lane, held at its landing point while the
         // arc is driven (see UTURN_SPEED), at the arc's own speed; the brake still means stop, so a
@@ -5505,6 +5594,19 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // `x/z/yaw` come from changes: from whoever is staging it rather than from a lane.
       if (car.staged) {
         // Nothing here — the position derivation is the whole of what is skipped.
+      } else if (car.uturn?.kind === 'spin') {
+        // The bootleg: slide from where it was to where it lands, decelerating, while the body
+        // whips round half a turn and overshoots a touch before it settles — the snap is the point.
+        const { p, q, dir, yaw0 } = car.uturn;
+        const t = Math.min(1, car.uturn.t);
+        const m = 1 - (1 - t) ** 3;
+        const k = 1.25;
+        const snap = 1 + (k + 1) * (t - 1) ** 3 + k * (t - 1) ** 2;
+        car.x = p.x + (q.x - p.x) * m;
+        car.z = p.z + (q.z - p.z) * m;
+        // `dir` is +1 when the far lane is on the side a *negative* yaw turns toward (yawOf is
+        // atan2(-z, x), so +yaw swings +X toward -Z): subtract it to put the nose into the far lane.
+        car.yaw = yaw0 - dir * Math.PI * snap;
       } else if (car.uturn) {
         // The swing: a semicircle from where it left its old lane to where it lands on the new
         // one, bulging forward by the radius. `h` is the old heading, `n` across to the far lane.

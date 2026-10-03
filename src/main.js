@@ -879,11 +879,15 @@ const patrol = createPatrol({
 const steer = createSteer({
   flags: steerFlags,
   taxi: traffic.taxi,
-  project: projectToScreen,
-  chasing: () => patrol.state.phase === 'chase' || Boolean(robbery?.state.alarmed),
   destination: () => traffic.taxi.pendingTarget ?? null,
-  canvas: renderer.domElement,
-  busyPointer: () => Boolean(pathDrag?.isGrabbing()),
+  // The bootleg has to land like a hit: the screech, a jolt of shake, a buzz, and all four wheels
+  // marking the road on the frame it starts. `layRubber` carries the streak on from there.
+  onSpin: () => {
+    sfx?.play('skid');
+    haptic('loco');
+    controller.kickShake(0.55);
+    stampAllRubber(traffic.taxi);
+  },
 });
 // The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
@@ -1046,9 +1050,7 @@ const releaseCameraToPlayer = () => {
 // Screenshots frame themselves, and a shot run has no user to drag anything.
 const pan = shot
   ? null
-  : attachDragPan(controller, renderer.domElement, aspect,
-    // A chase with the flick prototype on claims the canvas swipe — see game/steer.js.
-    () => isNarrow() && !steer.claimsSwipes(), releaseCameraToPlayer);
+  : attachDragPan(controller, renderer.domElement, aspect, isNarrow, releaseCameraToPlayer);
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
 
@@ -2814,6 +2816,13 @@ function holdBrake() {
   // Only when there is speed to shed — the pedal's detent is the haptic's job, and a brake noise
   // from a car at a standstill is a car that is not doing what the sound says. From above cruise
   // it is the Loco stop; from cruise it is the ordinary one.
+  // The bootleg combo (game/steer.js, a prototype): two taps in Loco Mode. Read before the pill is
+  // released below, which is the first tap's own doing — its one-second tail still counts.
+  if (steer.brakeTap({ engaged: boost.isEngaged() })) {
+    boost.release();
+    brakeButton?.classList.add('is-on');
+    return true;
+  }
   if (traffic.taxi.v > SPEED * 1.1) sfx?.play('locoBrake');
   else if (traffic.taxi.v > BRAKE_SKID_V) sfx?.play('brake');
   // Gas and brake are one pedal each and the last one pressed wins. Releasing Loco Mode here rather
@@ -3174,7 +3183,7 @@ function layRubber(dt) {
   // see stampAllRubber. It needs no `boost` term: the pedal is the whole input, and a screech from
   // cruise is as much a skid as one from the overdrive top, just a shorter one (1.0 unit of rubber
   // against 16.5 — see HARD_BRAKE in sim/traffic.js).
-  const skidding = car.braking && car.v > BRAKE_SKID_V;
+  const skidding = (car.braking && car.v > BRAKE_SKID_V) || car.uturn?.kind === 'spin';
 
   // The screech, once per slide rather than per stamp: on the frame a corner or a lane swap starts
   // breaking traction. Not the launch or the brake, which each already have a sound of their own.

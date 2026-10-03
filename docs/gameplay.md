@@ -2248,22 +2248,23 @@ the robber gets out.
 
 ### Chase steering (prototype, `?steer=`)
 
-`game/steer.js`, wired in main.js; line of sight in `game/patrol.js` (`lineOfSight`),
-`game/robbery.js` (`knowsPlan`) and `game/sightline.js` (`groundLineClear`). **Off by default.**
-`?steer=all` turns everything on, or name pieces: `?steer=flick,uturn,drift,los`. Add `always` to
-arm the flick and the U-turn outside a chase (`?steer=all,always`).
+`game/steer.js`, wired in main.js; the bootleg is `spinTaxi` in sim/traffic.js; line of sight is in
+`game/patrol.js` (`lineOfSight`), `game/robbery.js` (`knowsPlan`) and `game/sightline.js`
+(`groundLineClear`). **Off by default.** `?steer=all` turns everything on, or name pieces:
+`?steer=uturn,drift,los`.
 
 Why it exists: in a chase the only live input was the boost pill, and the patrol's escape table
-says the tank decides it. Redrawing the route is steering, but a block takes under a second at the
-Loco top, and a drag takes longer than that.
+says the tank decides it.
 
-- **flick**: a quick swipe (≥36px, ≤320ms) picks the exit at the next junction the taxi can still
-  choose at. You swipe the way the road runs *on screen*, which under this camera is a diagonal.
-  The rest of the trip re-plans from beyond it. Keys: J / I / L for left, straight, right. While a
-  chase is armed it claims the canvas swipe from the phone's drag-pan.
-- **uturn**: a swipe back down the road, or K. It reuses the chasing cop's mid-block swing
-  (`uturnWindow`), so it is refused on arterials, on bridges and where traffic leaves no room. The
-  request stands for 3s, so a flick that lands past the window waits for the next lane.
+- **uturn, the bootleg**: in Loco Mode, tap the brake twice within 350ms. The first tap is an
+  ordinary brake and releases the pill, but boost's one-second tail is still engaged, and that is
+  what the combo checks for. The taxi spins 180° onto the far lane in 0.42s, sliding on down the
+  road as it goes. It keeps 55% of its speed (never less than cruise), and the body whips round with
+  a small overshoot. It also gets a screech, a shake, a haptic buzz and four-wheel rubber. There is
+  no clearance test, because the taxi is collision-tested and whatever it spins into is a bump it
+  pays for. A combo landing mid-junction or mid-overtake waits up to 0.7s for a straight lane.
+  It is refused on arterials (median), bridges and below 4 u/s. The brake is ignored until it comes
+  back up, so a finger left on the pedal does not stop the taxi broadside. K on a keyboard.
 - **drift**: hold the brake through a real turn and the taxi slides round at cornering speed
   instead of stopping. Let go on the way out and it gets a fuel-free turbo, 0.35–1.3s depending on
   how long the slide was held. Held more than 0.25s past the arc, it becomes an ordinary brake.
@@ -2273,31 +2274,31 @@ Loco top, and a drag takes longer than that.
   the ground through the sightline height field; it takes 1.5 units of solid above 1.8 to block, so
   a lamp post or a median tree does not. Headless tools without a city always answer "clear".
 
+The first build also had swipe-to-turn and swipe-back-to-U-turn. Playtesting dropped them: on a
+phone, a swipe already means a pan, a route-band drag or a fare tap.
+
 Measured with `node tools/steer-sweep.mjs 16`: the patrol's staged chase, driven by a bot. These
-numbers show what each mechanic can buy a bot that uses it on every junction. They are not what a
-player will get. Every row past `base` has line of sight on. Fewer chases are staged in those rows
+numbers show what each mechanic can buy a bot that uses it every time. They are not what a player
+will get. Every row past `base` has line of sight on. Fewer chases are staged in those rows
 because the staging cannot spot from behind a building. The first column is lost / staged.
 
 | | no boost | 5s | full tank |
 |---|---|---|---|
 | base | 0/16 lost, 16 caught | 7/16 lost | 16/16 lost |
 | los | 4/12 lost (all by sight), 8 caught | 5/12 | 12/12 |
-| + flick | 6/12 lost (all by sight), 6 caught | 3/12 | 9/12, 3 caught |
-| + uturn | 5/12 lost, 7 caught | 3/12 | 10/12, 2 caught |
+| + bootleg when the cop is ahead | 2/12 lost, 10 caught | 1/12 | 11/12 |
 | + drift | 4/12 lost, 4 caught, **4 stalemates** | 5/12 | 12/12 |
 
 What it says so far:
 
 - **Line of sight is the lever that changes the game.** It gives an unboosted taxi a way out for
-  the first time (4 of 12 escapes, against none), and corners are what earn it.
-- **The flick bot gains without boost and loses with it.** Each corner sheds the speed a full tank
-  is spending, and the bot turns at every junction. Taking a corner has to be a decision the player
-  makes, not a rule.
+  the first time, and corners are what earn it.
+- **The bootleg does not help in a patrol chase.** A patrol chase is a stern chase: the cop is
+  behind you, and a 180 points you back past it. Its payoff should be the robbery, where cut-off
+  cops sit in the junctions ahead and the spin puts them all behind you. That has not been measured.
+  Refusals over the sweep: 24 on arterials, 6 on bridges, 5 too slow.
 - **Drift turns catches into stalemates.** Free turbo off every corner keeps the taxi just ahead of
-  the cop until `CHASE_MAX`, without breaking clear. If this ships, the turbo probably needs a cost,
-  or the chase needs an end that isn't the 40s timeout.
-- None of the three inputs is measured against the robbery's cut-offs. Those are where the U-turn
-  should matter most, because the cops waiting ahead end up behind you.
+  the cop until `CHASE_MAX`, without breaking clear.
 
 ## The package courier
 

@@ -7,11 +7,9 @@
 //
 //   base    the probe's driver: a route to the far corner, boost for the first `tank` seconds
 //   los     the same driver, against a cop that loses you out of sight (`?steer=los`)
-// Every row past `base` has line of sight on; `flick`, `uturn` and `drift` each add one input to it.
+// Every row past `base` has line of sight on; `uturn` and `drift` each add one input to it.
 //
-//   flick   + at every junction, take the exit that gets furthest from the cop, preferring a
-//             corner while it can see you (`?steer=flick,los`)
-//   uturn   + turn round in the road when the cop is in front, inside a block and a half (`uturn`)
+//   uturn   + the bootleg spin when the cop is in front, inside a block and a half (`uturn`)
 //   drift   + hold the brake through every real turn and let go on the exit (`drift`)
 //   all     the lot
 //
@@ -30,7 +28,7 @@ import { createSteer, parseSteerFlags } from '../src/game/steer.js';
 import { findRoute, planOrigin } from '../src/game/route.js';
 import { setCityOccluders, clearCityOccluders, groundLineClear } from '../src/game/sightline.js';
 import { cityNetwork } from '../src/city/roadnet.js';
-import { GRID_I, GRID_J, legalExits, nextIntersection, lineX, lineZ } from '../src/city/grid.js';
+import { GRID_I, GRID_J } from '../src/city/grid.js';
 
 const SEEDS = Number(process.argv[2] ?? 16);
 const BASE = 4242;
@@ -63,7 +61,7 @@ function outcome(s, tank, mode) {
     onLost: () => { result = 'lost'; },
     lineOfSight: flags.los ? (cop) => groundLineClear(cop.x, cop.z, taxi.x, taxi.z) : null,
   });
-  const steer = createSteer({ flags, taxi, project: () => ({ x: 0, y: 0 }), chasing: () => true });
+  const steer = createSteer({ flags, taxi });
   patrol.state.cooldown = 0;
   let onPatrol = 0;
   for (let step = 0; step < 60 * 90 && onPatrol < 60 * 3; step++) {
@@ -96,29 +94,11 @@ function outcome(s, tank, mode) {
   patrol.update(DT, { boosting: true });
   if (patrol.state.phase !== 'chase') return null;
 
-  let decidedAt = null;
+  let spunAt = -Infinity;
   let t = 0;
   for (; t < 45 && !result; t += DT) {
     const cop = patrol.state.cop;
     if (!cop) break;
-    // The flick bot: once per junction, the exit that lands furthest from the cop — a corner
-    // preferred while it can see the taxi, since that is what breaks the line.
-    if (flags.flick) {
-      const from = planOrigin(taxi);
-      const key = `${from.i},${from.j},${from.d}`;
-      if (key !== decidedAt && taxi.state === 'drive') {
-        decidedAt = key;
-        const seen = patrol.state.sees;
-        let best = null;
-        for (const d of legalExits(from.d, from.i, from.j)) {
-          const n = nextIntersection(d, from.i, from.j);
-          let score = Math.hypot(lineX(n.i) - cop.x, lineZ(n.j) - cop.z);
-          if (seen && d !== from.d) score += 12;
-          if (!best || score > best.score) best = { d, score };
-        }
-        if (best) steer.request({ d: best.d });
-      }
-    }
     // The U-turn bot: the cop is in front, coming this way, inside two blocks.
     if (flags.uturn && taxi.state === 'drive' && !taxi.uturn) {
       const hx = Math.sin(taxi.yaw);
@@ -126,8 +106,11 @@ function outcome(s, tank, mode) {
       const dx = cop.x - taxi.x;
       const dz = cop.z - taxi.z;
       const dist = Math.hypot(dx, dz);
-      if (dist < 30 && (dx * hx + dz * hz) / dist > 0.6 && steer.state.uturnFor <= 0) {
-        steer.request({ rel: 'back' });
+      if (dist < 30 && (dx * hx + dz * hz) / dist > 0.6 && t > spunAt + 2) {
+        // Tried once per second, so a refusal (an arterial, a bridge) is not counted every frame.
+        const before = steer.state.refused;
+        if (steer.spin() || steer.state.refused > before || steer.state.spinPending > 0) spunAt = t - 1;
+        if (steer.state.refused > before) whyNot[steer.state.why] = (whyNot[steer.state.why] ?? 0) + 1;
       }
     }
     driveOn(taxi);
@@ -143,12 +126,13 @@ function outcome(s, tank, mode) {
   if (result === 'lost' && t >= 39.9) result = 'timeout';
   return {
     how: result ?? 'none', t, bySight: patrol.state.lostBySight,
-    flicks: steer.state.flicks, uturns: steer.state.uturns, drifts: steer.state.drifts,
+    spins: steer.state.spins, refused: steer.state.refused, drifts: steer.state.drifts,
   };
 }
 
+const whyNot = {};
 const median = (xs) => { const v = [...xs].sort((a, b) => a - b); return v.length ? v[v.length >> 1] : NaN; };
-const MODES = ['base', 'los', 'flick', 'uturn', 'drift', 'all'];
+const MODES = ['base', 'los', 'uturn', 'drift', 'all'];
 const TANKS = [0, 5, 15];
 console.log(`${SEEDS} seeds per cell; chases the staging could not spot are dropped (lost / caught / 40s stalemate, median seconds to lose it)\n`);
 console.log(`| mode   | ${TANKS.map((k) => `${k}s boost`.padEnd(26)).join(' | ')} | steering used (15s row) |`);
@@ -170,8 +154,10 @@ for (const mode of MODES) {
     cells.push(`${lost.length}/${runs.length} lost${sight ? ` (${sight} by sight)` : ''}, ${caught} caught${stale ? `, ${stale} timed out` : ''}${lost.length ? `, ${lostT.toFixed(1)}s` : ''}`.padEnd(26));
     if (tank === 15) {
       const sum = (key) => runs.reduce((a, r) => a + r[key], 0);
-      used = `${sum('flicks')} flicks · ${sum('uturns')} U · ${sum('drifts')} drifts`;
+      used = `${sum('spins')} spins (${sum('refused')} refused) · ${sum('drifts')} drifts`;
     }
   }
   console.log(`| ${mode.padEnd(6)} | ${cells.join(' | ')} | ${used.padEnd(23)} |`);
 }
+
+console.log('\nrefusals by state:', whyNot);
