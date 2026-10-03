@@ -2878,14 +2878,15 @@ the three changes below answers one of those.
 
 ### Spotted, and then caught or lost
 
-**Spotted is a meter, not a frame.** Boosting near the patrol car fills its `heat`, engaged rather
-than held so the cooldown tail after release still counts: `NOTICE_RATE` (1 a second) at
-`SPOT_RANGE` (20, one block), scaling with the square of closeness up to `NOTICE_MAX` (3) — a third
-of a second on its bumper, four seconds two blocks off — and nothing past `NOTICE_RANGE` (40). Off
-its sightline the rate is `NOTICE_OFF_SIGHT` (0.35): a street over, it has to hear you. Off the pill
-it holds `COOL_DELAY` (0.75s) and then falls at `COOL_RATE` (0.4 a second). It used to be the frame
-— boost within a block and the strobe came up at once — which is most of what "caught a lot" was:
-nothing to read before it happened. Ramming it on the pill is still noticed outright.
+**Spotted is a meter, not a frame.** Boosting near the patrol car fills its `heat` — on the
+**hold** only, not the boost's one-second tail: `NOTICE_RATE` (0.5 a second) at `SPOT_RANGE` (20,
+one block), two seconds to fill, scaling with the square of closeness up to `NOTICE_MAX` (1.25) —
+0.8s on its bumper, eight seconds two blocks off — and nothing past `NOTICE_RANGE` (40). Off its
+sightline the rate is `NOTICE_OFF_SIGHT` (0.35): a street over, it has to hear you. Off the pill it
+holds `COOL_DELAY` (0.4s) and then falls at `COOL_RATE` (0.5 a second). The first cut filled twice
+as fast and counted the tail, and was reported as "not enough time to react and brake": a block
+away, the tail alone was the whole bar. Before the meter it was the frame — boost within a block
+and the strobe came up at once — which is most of what "caught a lot" was: nothing to read before it happened. Ramming it on the pill is still noticed outright.
 
 **Sight** (`inSight`) is the two cars sharing a street — within `SIGHT_WIDTH` (6) of the same grid
 line — or within `SIGHT_CLOSE` (12). Under this camera what stands between two parallel streets is

@@ -7479,16 +7479,20 @@ check('the taxi is an ordinary car in the traffic array',
   const warmPhase = qPatrol.state.phase;
   for (let f = 0; f < 120; f++) qPatrol.update(1 / 60, { boosting: false });
   check('boosting near it warms it up rather than setting it off at once',
-    warmPhase === 'patrol' && warmed > 0.05 && warmed < 0.5 && qSpotted === 0,
+    warmPhase === 'patrol' && warmed > 0.02 && warmed < 0.5 && qSpotted === 0,
     `heat ${warmed.toFixed(2)} after half a second a block off, a street over`);
   check('...and lifting off cools it back down', qPatrol.state.heat < warmed * 0.6 && qPatrol.state.phase === 'patrol',
     `${warmed.toFixed(2)} → ${qPatrol.state.heat.toFixed(2)} after two seconds off the pill`);
   qTaxi.x = qCop.x + 6;
   qTaxi.z = qCop.z;
+  // The boost's tail after release (engaged, not held) does not fill it: lifting off is the out.
+  for (let f = 0; f < 60; f++) qPatrol.update(1 / 60, { boosting: true, held: false });
+  check('...and the boost\'s tail after lifting off does not warm it',
+    qPatrol.state.heat === 0 && qPatrol.state.phase === 'patrol', `heat ${qPatrol.state.heat.toFixed(2)}`);
   let boiled = 0;
   qPatrol.update(1 / 60, { boosting: true });
   const firstFrame = qPatrol.state.phase;
-  for (boiled = 1; boiled < 120 && qPatrol.state.phase !== 'chase'; boiled++) qPatrol.update(1 / 60, { boosting: true });
+  for (boiled = 1; boiled < 240 && qPatrol.state.phase !== 'chase'; boiled++) qPatrol.update(1 / 60, { boosting: true });
   qPolice.update(1 / 60);
   qTaxi.x = saved.x;
   qTaxi.z = saved.z;
@@ -7852,8 +7856,8 @@ check('the taxi is an ordinary car in the traffic array',
     taxi.z = at.z;
     const violations = pTraffic.stats.violations;
     // Spotted on the pill, whichever way the chase is then driven: held boosting where it stands
-    // until the heat boils over (NOTICE_RANGE), which from 8-18 units on its street is under a second.
-    for (let f = 0; f < 240 && pursuit.state.phase !== 'chase'; f++) pursuit.update(1 / 60, { boosting: true });
+    // until the heat boils over (NOTICE_RANGE), which from 8-18 units is 0.8s on its street and up to 4.6s round a corner.
+    for (let f = 0; f < 480 && pursuit.state.phase !== 'chase'; f++) pursuit.update(1 / 60, { boosting: true });
     if (pursuit.state.phase !== 'chase') return null;
     let t = 0;
     let busyThroughout = true;
@@ -8144,7 +8148,7 @@ check('the taxi is an ordinary car in the traffic array',
     taxi.route = [opposite(d0), opposite(d0)];
     taxi.routeConsumed = false;
     taxi.boost = true;
-    for (let f = 0; f < 240 && uPatrol.state.phase !== 'chase'; f++) uPatrol.update(1 / 60, { boosting: true });
+    for (let f = 0; f < 480 && uPatrol.state.phase !== 'chase'; f++) uPatrol.update(1 / 60, { boosting: true });
     if (uPatrol.state.phase !== 'chase') continue;
     const violations = uTraffic.stats.violations;
     const run = { turned: false, facing: false, caughtInSwing: false, jump: 0, turnStep: 0, nearest: Infinity, offRoad: 0, inBox: 0, frames: 0, taxiNear: Infinity };

@@ -188,19 +188,25 @@ const HANDOFF_GRACE = 1.5;
  * was reported as getting caught "a lot" and with nothing to read beforehand. Now there is a beat
  * in which the player sees the bar climb and can lift off.
  *
- * The rate is NOTICE_RATE a second at SPOT_RANGE on the cop's own street — a second to fill — and
- * scales with the square of closeness, up to NOTICE_MAX: boosting past its bumper is a third of a
- * second, two blocks off is four. Nothing past NOTICE_RANGE. Off its sightline (`inSight`) the rate
- * is NOTICE_OFF_SIGHT of that: a street over, the cop has to hear you rather than see you.
+ * The rate is NOTICE_RATE a second at SPOT_RANGE on the cop's own street — two seconds to fill —
+ * and scales with the square of closeness, up to NOTICE_MAX: boosting past its bumper is 0.8s, two
+ * blocks off is eight. Nothing past NOTICE_RANGE. Off its sightline (`inSight`) the rate is
+ * NOTICE_OFF_SIGHT of that: a street over, the cop has to hear you rather than see you.
+ *
+ * It fills only while the pill is **held**, not through the boost's one-second tail
+ * (BOOST_COOLDOWN). The first cut counted the tail, as the ram and the old bust did, and a playtest
+ * found the warning too short to act on: by the time the bar went amber and the thumb came up, a
+ * second of heat was already owed, and a block away that was the whole bar. Faster at first too —
+ * a second at a block, a third of one on the bumper — which was no time to read it and brake.
  */
 export const NOTICE_RANGE = 2 * PITCH;
-const NOTICE_RATE = 1;
-const NOTICE_MAX = 3;
+const NOTICE_RATE = 0.5;
+const NOTICE_MAX = 1.25;
 const NOTICE_OFF_SIGHT = 0.35;
 
 /** Off the pill, heat holds this long and then falls at COOL_RATE a second. */
-const COOL_DELAY = 0.75;
-const COOL_RATE = 0.4;
+const COOL_DELAY = 0.4;
+const COOL_RATE = 0.5;
 
 /**
  * Can the cop see the taxi? Both on the same street — within SIGHT_WIDTH of the same grid line,
@@ -579,9 +585,9 @@ export function createPatrol({
    * pill (`rammedGrace`) is noticed outright, as boosting within SPOT_RANGE always was: the taxi is
    * touching the cop.
    */
-  function notice(dt, boosting, near, sight, rammedGrace) {
+  function notice(dt, boosting, held, near, sight, rammedGrace) {
     if (boosting && rammedGrace > 0 && near <= SPOT_RANGE) return true;
-    if (boosting && near <= NOTICE_RANGE) {
+    if (held && near <= NOTICE_RANGE) {
       const close = SPOT_RANGE / Math.max(near, 1);
       const rate = Math.min(NOTICE_MAX, NOTICE_RATE * close * close) * (sight ? 1 : NOTICE_OFF_SIGHT);
       state.heat = Math.min(1, state.heat + rate * dt);
@@ -603,9 +609,10 @@ export function createPatrol({
   }
 
   /**
-   * @param boosting  the taxi's Loco Mode is engaged — the one thing a patrol reacts to
+   * @param boosting  the taxi's Loco Mode is engaged, tail included — what a ram on the pill reads
+   * @param held      the pill is actually down — what fills the heat. Defaults to `boosting`.
    */
-  function update(dt, { boosting = false } = {}) {
+  function update(dt, { boosting = false, held = boosting } = {}) {
     // Owed by a ram in this frame's collision pass, and good for this frame only.
     const rammedGrace = state.rammedGrace;
     state.rammedGrace = 0;
@@ -637,7 +644,7 @@ export function createPatrol({
       // A robbery wants the streets: stand the patrol down rather than have a dark cop car
       // wandering through a getaway it takes no part in.
       if (blocked()) { leave(cop); return; }
-      if (notice(dt, boosting && !taxi.staged, near, sight, rammedGrace)) {
+      if (notice(dt, boosting && !taxi.staged, held && !taxi.staged, near, sight, rammedGrace)) {
         spot(cop, Math.max(rammedGrace, SPOT_GRACE));
         return;
       }

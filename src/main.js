@@ -3516,16 +3516,20 @@ function frame() {
   taxiDamage.update(dt);
   taxiDoor.update(dt, fares.state.fares.find((f) => f.boarding !== undefined) ?? null);
   // After the physics, like the collision check: it measures where traffic left the cop and the
-  // taxi this frame, and a catch ends the run the same way a wreck does. Engaged rather than held —
-  // the cooldown tail after release still counts, so braking off Loco Mode a beat too close to a
-  // patrol doesn't buy a free pass.
+  // taxi this frame, and a catch ends the run the same way a wreck does. The heat fills only on the
+  // hold, so lifting off the moment the bar goes amber is the way out; the cooldown tail still
+  // counts for ramming the cop on the pill.
   //
   // **Not during a getaway**, and that is a design call rather than a special case. A robbery puts
   // four cop cars on the street in the same paint, and pays a bonus on the clock that boosting is
   // how you beat — so the patrol stands down while one runs (`blocked` above) rather than being a
   // fifth blue car that punishes the thing the event asks for. Reported from a real run before the
   // rule existed: "I got busted by the actual cop car; none of the other police actually moved."
-  patrol.update(dt, { boosting: boost.isEngaged() && !fares.state.gameOver });
+  patrol.update(dt, {
+    boosting: boost.isEngaged() && !fares.state.gameOver,
+    // The heat fills on the hold alone, not the tail — see NOTICE_RANGE in game/patrol.js.
+    held: boost.isActive() && !fares.state.gameOver,
+  });
   heatMeter?.update(dt, patrol);
   // The cruiser's mesh and lamps, after the traffic car it wears has moved and after the patrol
   // has decided whether its bar is on.
