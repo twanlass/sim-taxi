@@ -7,8 +7,8 @@
  *             brake hugging its left side and gas its right.
  *   dash    — a 1970s cab's dashboard across the bottom of the screen, seen from the driver's
  *             seat: speedo, a LOCO fuel gauge, idiot lights, and the two pedals at either end.
- *   arch    — the shipped pedals, rearranged: the gas becomes a green dome in the middle of the
- *             bottom edge with the orange fuel band following its top, the brake moves to the corner,
+ *   arch    — the shipped pedals, rearranged: the gas becomes an orange dome in the middle of the
+ *             bottom edge with the fuel band following its top, the brake moves to the corner,
  *             and neither carries an icon. The rest of the HUD moves round to suit: the cash total
  *             top-left, pause top-right, and the cargo chip down into the bottom-right corner.
  *
@@ -316,7 +316,7 @@ const DASH_CSS = `
 // --- arch ------------------------------------------------------------------
 
 // The dome, in CSS px and in its own box: flat bottom, straight sides, a half-circle on top.
-// The look is the Figma gas pedal's — its gradient and its side band, recoloured green — with every
+// The look is the Figma gas pedal's — its gradient and its side band — with every
 // filter number scaled by the 0.65 the shipped pedal is drawn at (95px for 146 units).
 const AR = { w: 120, h: 96, cx: 60, cy: 63, r: 57, corner: 14, pad: 26 };
 // The fuel band: inner edge clear of the dome's outline by a 3px gap and a 1.3px rim, a constant
@@ -352,7 +352,7 @@ function archArt() {
     <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
     <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
     <feOffset dy="${side}"/><feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
-    <feColorMatrix values="0 0 0 0 0.02 0 0 0 0 0.24 0 0 0 0 0.09 0 0 0 1 0"/>
+    <feColorMatrix values="0 0 0 0 0.313068 0 0 0 0 0.194996 0 0 0 0 0.00389115 0 0 0 1 0"/>
     <feBlend in2="shape" result="side"/>
     <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
     <feOffset dy="5"/><feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
@@ -366,7 +366,7 @@ function archArt() {
     ${well ? `<feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
     <feOffset dy="10"/><feGaussianBlur stdDeviation="1.6"/>
     <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
-    <feColorMatrix values="0 0 0 0 0.02 0 0 0 0 0.24 0 0 0 0 0.09 0 0 0 0.9 0"/>
+    <feColorMatrix values="0 0 0 0 0.313068 0 0 0 0 0.194996 0 0 0 0 0.00389115 0 0 0 0.9 0"/>
     <feBlend in2="shaded"/>` : ''}`;
   const region = `x="${fx}" y="${fy}" width="${fw}" height="${fh}" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"`;
   const p = AR.pad;
@@ -376,11 +376,11 @@ function archArt() {
         <filter id="arch-up" ${region}>${shade(-18, -22, false)}</filter>
         <filter id="arch-down" ${region}>${shade(-7, -11, true)}</filter>
         <linearGradient id="arch-fill" x1="0" y1="0" x2="${w}" y2="${h}" gradientUnits="userSpaceOnUse">
-          <stop stop-color="#1FB851"/><stop offset="0.157945" stop-color="#43D16F"/><stop offset="1" stop-color="#1FB851"/>
+          <stop stop-color="#FF9E01"/><stop offset="0.157945" stop-color="#FCAD2F"/><stop offset="1" stop-color="#FF9E01"/>
         </linearGradient>
       </defs>
       <path class="a-face" d="${dome}" fill="url(#arch-fill)"/>
-      <path d="${dome}" fill="none" stroke="#04210d" stroke-width="2.6"/>
+      <path d="${dome}" fill="none" stroke="#221500" stroke-width="2.6"/>
     </svg>`,
     readout: `<svg class="a-gauge" viewBox="${-p} ${-p} ${w + 2 * p} ${h + p}" overflow="visible">
       <defs>
