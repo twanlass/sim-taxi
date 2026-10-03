@@ -271,12 +271,15 @@ const crayon = createCrayon(renderer, { enabled: crayonEnabled });
 // `?rain` is the same storm pinned at its peak. Either way the whole wet city is built up front —
 // see game/rain.js — and `applyWeather` below turns each part of it up and down with the clock.
 //
-// `?squall` is the other kind of weather: not the whole sky changing, but one rain cell crossing a
-// sunny city (game/squall.js). It wins over the other two — they are both "the sky over everything".
+// The squall is the other kind of weather, and the default one: not the whole sky changing, but one
+// rain cell crossing a sunny city (game/squall.js), `?squall=off` to drop it. An explicit `?squall`
+// wins over the other two — they are both "the sky over everything" — but the *default* steps aside
+// for either (`getSquall`). Run seed, so `?run=` replays the same crossings.
 const squallFlag = getSquall();
 const stormFlag = squallFlag ? null : (getRain() ?? getStorm());
 const storm = stormFlag ? createStorm(stormFlag) : null;
-const squall = squallFlag ? createSquall(squallFlag) : null;
+const squallRng = makeRng(runSeed + 733);
+const squall = squallFlag ? createSquall({ ...squallFlag, rng: () => squallRng.next() }) : null;
 const rain = createRain(renderer, { enabled: Boolean(storm || squall), mood: stormFlag?.mood });
 if (squall) {
   rain.attachSquall(squall);
