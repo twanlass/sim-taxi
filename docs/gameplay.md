@@ -1168,6 +1168,17 @@ actually moved the map is swallowed. This is exactly why `city-lab`'s `attachCam
 (which binds pointerdown to dragging unconditionally) is still unused here; it fought
 tap-to-select.
 
+**A finger is answered on `pointerup`, not on that click.** iOS withholds the click it synthesises
+after a tap whenever something actionable *appears* during the tap — WebKit's hover-menu heuristic
+reads it as "hovered, and a menu opened". The tap that tripped it was the rider right after an edge
+arrow's pan: the arrow's pan disarms the taxi-finder chip, which fades in `SHOW_DELAY` after the
+camera lands, which is when the player taps the rider the arrow found. First tap dead, second fine
+(the chip is already up). Pointer events have no heuristic in front of them, so a touch press that
+lifts within 8px picks on the lift, and the click that follows it (if WebKit sends one) is dropped
+as its echo (`CLICK_ECHO_MS`). The press is recorded on `window` in the capture phase, because a
+press on the route band is stopped there by `pathdrag.js` and a plain tap on the band still has to
+reach the pin it runs through. A mouse keeps `click`, which is also what `tools/smoke.mjs` dispatches.
+
 ### The tap target
 
 Every marker carries an oversized invisible tap target — the visible figure is a handful of pixels
