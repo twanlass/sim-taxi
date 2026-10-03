@@ -319,13 +319,14 @@ const DASH_CSS = `
 // The look is the Figma gas pedal's — its gradient and its side band, recoloured green — with every
 // filter number scaled by the 0.65 the shipped pedal is drawn at (95px for 146 units).
 const AR = { w: 120, h: 96, cx: 60, cy: 63, r: 57, corner: 14, pad: 26 };
-// The fuel band: inner edge clear of the dome's outline by a 3px gap and a 1.3px rim, tapering
-// from 5px at the empty end to 9px at the full one (the shipped gauge's 8 → 14 units), and
-// stopping 80° either side of straight up so its ends clear the brake on a 375pt phone.
+// The fuel band: inner edge clear of the dome's outline by a 3px gap and a 1.3px rim, a constant
+// 7px wide (the shipped gauge tapers 8 → 14 units; this one was tried tapering 5 → 9px and read
+// better even), stopping 80° either side of straight up so its ends clear the brake on a 375pt
+// phone.
 AR.band0 = AR.r + 1.3 + 3 + 1.3;
-AR.wEmpty = 5; AR.wFull = 9; AR.rim = 1.3; AR.span = 80;
+AR.width = 7; AR.rim = 1.3; AR.span = 80;
 
-/** A tapered band over the dome from `t0` to `t1` of the full span, as a filled outline. */
+/** The band over the dome from `t0` to `t1` of the full span, as a filled outline. */
 function archBand(t0, t1, pad = 0) {
   if (t1 - t0 < 0.001) return '';
   const n = Math.max(2, Math.ceil(64 * (t1 - t0)));
@@ -333,7 +334,7 @@ function archBand(t0, t1, pad = 0) {
   for (let i = 0; i <= n; i++) {
     const t = t0 + ((t1 - t0) * i) / n;
     const a = -AR.span + 2 * AR.span * t;
-    const w = AR.wEmpty + (AR.wFull - AR.wEmpty) * t;
+    const w = AR.width;
     outer.push(polar(AR.cx, AR.cy, AR.band0 + w + pad, a));
     inner.push(polar(AR.cx, AR.cy, AR.band0 - pad, a));
   }
@@ -524,7 +525,7 @@ export function createPedalSkin({ boostButton, brakeButton, search = window.loca
         dashFuel?.style.setProperty('transform', `rotate(${f(-60 + 120 * fuel)}deg)`);
         if (archFuel) {
           archFuel.setAttribute('d', archBand(0, fuel));
-          const w = AR.wEmpty + (AR.wFull - AR.wEmpty) * fuel;
+          const w = AR.width;
           const [x, y] = polar(AR.cx, AR.cy, AR.band0 + w / 2, -AR.span + 2 * AR.span * fuel);
           archEdge.setAttribute('cx', f(x));
           archEdge.setAttribute('cy', f(y));
