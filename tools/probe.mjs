@@ -7990,6 +7990,11 @@ check('the taxi is an ordinary car in the traffic array',
   };
   let laneSamples = 0;
   let laneBlocked = 0;
+  // A blind cop drives to where it last saw the taxi (`steer`): one spot per stretch out of sight,
+  // never re-aimed at where the taxi has since gone.
+  let searchFrames = 0;
+  let staleFrames = 0;
+  let reaimed = 0;
   const chase = (s, tank, drive) => {
     const sLayout = createLayout(makeRng(s));
     setCityOccluders(createBuildings(makeRng(s + 22), sLayout).mesh, createProps(makeRng(s + 33), sLayout).mesh);
@@ -8041,6 +8046,7 @@ check('the taxi is an ordinary car in the traffic array',
     taxi.z = at.z;
     sPatrol.update(1 / 60, { boosting: true });
     if (sPatrol.state.phase !== 'chase') return null;
+    let searching = null;
     for (let t = 0; t < 45 && !how; t += 1 / 60) {
       const boosting = t < tank;
       taxi.boost = boosting;
@@ -8048,6 +8054,13 @@ check('the taxi is an ordinary car in the traffic array',
       sTraffic.update(1 / 60);
       sPatrol.update(1 / 60, { boosting });
       sPolice.update(1 / 60);
+      const at = sPatrol.state.searchAt;
+      if (at && !how) {
+        searchFrames += 1;
+        if (at.i !== taxi.i || at.j !== taxi.j) staleFrames += 1;
+        if (searching && (searching.i !== at.i || searching.j !== at.j)) reaimed += 1;
+      }
+      searching = at;
     }
     return how ?? 'none';
   };
@@ -8064,6 +8077,9 @@ check('the taxi is an ordinary car in the traffic array',
   const n = (list, how) => list.filter((r) => r === how).length;
   check('a lane end to end is never out of sight of itself', laneBlocked === 0,
     `${laneBlocked} of ${laneSamples} lanes blocked`);
+  check('out of sight, the cop drives to where it last saw the taxi, not where it is',
+    searchFrames > 0 && staleFrames > 0 && reaimed === 0,
+    `${searchFrames} frames searching, ${staleFrames} of them somewhere the taxi no longer is, ${reaimed} re-aims`);
   check('cornering on the pill can lose the cop round the corners', n(cornering, 'sight') >= 2,
     `${n(cornering, 'sight')}/${cornering.length} lost out of sight, ${n(cornering, 'caught')} caught`);
   check('...while a cruising taxi is still caught with the city standing',

@@ -2904,8 +2904,15 @@ on a full tank was caught 14 times in 16. With the line, 7 in 16 get away round 
 is as long as it is because a cop that is going to catch the taxi anyway is still blind for a median
 ~2s at some point — mostly held at a red round the corner the taxi just took — and at 2.5s a
 cruising taxi got away 7 times in 16, which ends "off the pill you get caught". The table is in
-`SIGHT_HOLD`'s comment. The cop still steers at where the taxi *is* while blind; it does not search
-from where it last saw it.
+`SIGHT_HOLD`'s comment.
+
+**Out of sight, it searches.** A blind cop drives to where it last saw the taxi — the junction the
+taxi was going into, or the one after along the way it was heading if the cop was already going
+into that one (`steer`, `state.searchAt`) — and, once there, drops its route and takes the
+ordinary dice at the next junction. It does not re-aim at the taxi until it sees it again. Steering
+at the live taxi while blind made the line a timer rather than a hiding place: the cop came round
+the right corner every time. With the search, a full tank turning at every junction loses it 9
+times in 16 rather than 7; a cruising taxi is caught as often as before.
 
 **Gone to ground** is the depot. A taxi that turns in at the driveway mid-chase calls it off on the
 frame the opening takes it off the road (`hideout`, called from the depot's `onArrive` in main.js):
