@@ -4270,7 +4270,9 @@ check('no two cars occupy the same space', worst > 1.6,
   let straightFrames = 0;
   for (let f = 0; f < 60 * 20; f++) {
     wTraffic.update(1 / 60);
-    if (wTaxi.state !== 'drive') continue;
+    // A pass is a deliberate trip out of the lane, not the weave; this taxi is unrouted and
+    // boosting through traffic, so it overtakes now and then and those frames are not this check's.
+    if (wTaxi.state !== 'drive' || wTaxi.pass > 0) continue;
     straightFrames += 1;
     // Distance from the lane centre, measured off the rendered position — the offset is applied
     // at render, so reading `car.x/car.z` is reading what the player sees. On the travel axis the
@@ -4643,12 +4645,13 @@ check('no two cars occupy the same space', worst > 1.6,
       //
       // Which means this staging is calibrated to *when the decision is taken*, and has to move
       // whenever that moment does. It went from one lane back to **two blocks** back when a leader
-      // crossing a junction in a straight line became passable (see `passable` in traffic.js): the
+      // crossing a junction in a straight line became passable (the old `passable` gate, since removed): the
       // taxi now pulls out several tenths of a second earlier, and at the old staging the oncoming
       // car had already swept 0.7 units *past* it by then — so the gate correctly reported a clear
       // road and the check was passing on an empty scenario rather than on the rule. Measured at
       // the new staging, the oncoming car is 34 units out and closing as the taxi reaches
-      // PASS_TRIGGER, which is inside PASS_SIGHT and is the trap this is meant to lay.
+      // PASS_TRIGGER, which is the trap this is meant to lay (and which the taxi now drives into: the
+      // oncoming-sight gate it was built for has gone, see docs/traffic.md).
       const back = roads.nodeById.get(car.lane.from);
       const facing = roads.laneByGrid(opposite(pD), back.gi, back.gj);
       placeCar(onc, opposite(pD), back.gi, back.gj, facing.length + PITCH * 2);
@@ -4659,11 +4662,19 @@ check('no two cars occupy the same space', worst > 1.6,
     let got = false;
     let leadTurned = false;
     let outWhileLeadTurning = 0;   // how far out the taxi got while the lead was mid-junction
+    // How far out the taxi was while taking a real corner at a junction it could have crossed
+    // straight. One with no straight exit (a T at the map edge) has to be cornered whatever.
+    let cornered = 0;
     for (let f = 0; f < 60 * 6; f++) {
       car.boost = held;
       car.boostEasing = false;
       traffic.update(1 / 60);
       peak = Math.max(peak, car.pass);
+      if (car.state === 'turn' && car.turn && car.turn.hand !== 'straight'
+        && roads.laneById.get(car.turn.inLane).exits
+          .some((id) => roads.turnById.get(id).hand === 'straight')) {
+        cornered = Math.max(cornered, car.pass);
+      }
       if (lead.state === 'turn' && !lead.crashed) {
         leadTurned = true;
         outWhileLeadTurning = Math.max(outWhileLeadTurning, car.pass);
@@ -4675,7 +4686,7 @@ check('no two cars occupy the same space', worst > 1.6,
         if (rel < -CAR_LEN) got = true;
       }
     }
-    return { peak, closest, got, leadTurned, outWhileLeadTurning };
+    return { peak, closest, got, leadTurned, outWhileLeadTurning, cornered };
   };
 
   const over = runOvertake(true, [pD, pD, pD]);
@@ -4702,33 +4713,36 @@ check('no two cars occupy the same space', worst > 1.6,
   check('no overtake is offered when the route turns at the next junction',
     pD >= 0 && turnOff.peak < 0.02, `reached ${(turnOff.peak * 2 * LANE).toFixed(2)} units across`);
 
+  // A taxi with no route is cruising on the dice, which is what it does between fares — and it
+  // used to be refused a pass outright, so boosting there was a rear-end every time. It passes, and
+  // its junction roll is pinned straight while it is out of its lane. Routed through the first
+  // junction only, which the taxi crosses before it reaches the leader: from there on it is on the
+  // dice, and a dice roll at that first junction would turn it away before there was a pass to make.
+  const unrouted = runOvertake(true, [pD]);
+  check('an unrouted taxi overtakes too, and carries straight on while it does',
+    pD >= 0 && unrouted.peak > 0.95 && unrouted.got && unrouted.cornered === 0,
+    `reached ${(unrouted.peak * 2 * LANE).toFixed(2)} of ${2 * LANE} units across, got by=${unrouted.got}, `
+    + `cornered while out ${unrouted.cornered.toFixed(2)}`);
+
   // And the control: the pass is the button. Not holding it is not a pass.
   const coasting = runOvertake(false, [pD, pD, pD]);
   check('an overtake needs the button held',
     pD >= 0 && coasting.peak < 0.02, `reached ${(coasting.peak * 2 * LANE).toFixed(2)} units across`);
 
-  // The two gates that decide *when* it is allowed, both added after watching it wreck rather
-  // than pass. A pass wants ~27 units of road against a 12-unit lane, so the taxi is always still
-  // alongside when the leader reaches its junction — which is exactly when the left-turn dice are
-  // rolled. Passing a car that is already crossing one means driving into its arc.
-  //
-  // Asserted as "the taxi never got out of its lane while that car was in the junction" rather
-  // than as an absence of contact: a no-contact check passes whether the rule works or the
-  // scenario simply never set it up, and this one has to prove the trap was laid. `leadTurned` is
-  // that proof.
+  // The pass is the player's call, not the sim's. There used to be two gates here — no pass round a
+  // leader turning across the borrowed lane, none into oncoming traffic in sight — and they read as
+  // the button not working, then as a rear-end. Both scenarios are the traps they guarded against,
+  // so they now assert the taxi takes the lane anyway. `leadTurned` proves the trap was laid.
   const turningLead = runOvertake(true, [pD, pD, pD], { leadRoute: [leftOf(pD), pD, pD] });
-  check('no overtake of a car that is already turning across the lane being borrowed',
-    pD >= 0 && turningLead.leadTurned && turningLead.outWhileLeadTurning < 0.02,
-    `lead turned=${turningLead.leadTurned}, taxi got `
-    + `${(turningLead.outWhileLeadTurning * 2 * LANE).toFixed(2)} units across while it did`);
+  check('Loco Mode pulls out even round a car that is turning across the borrowed lane',
+    pD >= 0 && turningLead.leadTurned && turningLead.peak > 0.95,
+    `lead turned=${turningLead.leadTurned}, taxi reached `
+    + `${(turningLead.peak * 2 * LANE).toFixed(2)} of ${2 * LANE} units across`);
 
-  // And the borrowed lane has to be empty to start with. Without this the taxi pulled out with
-  // oncoming traffic 3 units away — inside the envelope, and nothing the player could have read.
-  // A car that arrives *during* the pass still costs the run; that one is visible and is the risk.
   const intoTraffic = runOvertake(true, [pD, pD, pD], { oncoming: true });
-  check('no overtake into oncoming traffic that is already in sight',
-    pD >= 0 && intoTraffic.peak < 0.02,
-    `reached ${(intoTraffic.peak * 2 * LANE).toFixed(2)} units across`);
+  check('Loco Mode pulls out even with oncoming traffic in sight',
+    pD >= 0 && intoTraffic.peak > 0.95,
+    `reached ${(intoTraffic.peak * 2 * LANE).toFixed(2)} of ${2 * LANE} units across`);
 
   // --- And the same manoeuvre from a dead stop, which is the one a player actually asks for.
   //

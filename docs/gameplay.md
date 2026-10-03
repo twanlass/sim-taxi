@@ -2891,11 +2891,11 @@ time stuck behind traffic drops from 10.4% of boosting to 4.5% — and the numbe
 the reason an earlier version of this was abandoned are all in
 [traffic.md](traffic.md#overtaking).
 
-It will not pull out around a car that is already turning across the lane it wants, or into
-oncoming traffic that is already in sight. Both of those are collisions the player could not have
-seen coming, and without those two gates a third of all overtakes ended in one. What is left is
-what you *can* read: a car arriving in the oncoming lane while you are out there, cross traffic at
-a junction you are running, and a car turning out of the far lane.
+It pulls out whenever the road allows — an oncoming lane to borrow, and straight on through the
+junction ahead — and never because the sim decided it was a bad idea. A car already turning across
+the lane you want, or oncoming traffic in plain sight, is yours to read: holding the button is the
+decision. There used to be two gates refusing exactly those, and they read as the button not
+working and then as a rear-end; see [traffic.md](traffic.md#when-it-is-allowed).
 
 **And it does not stop.** Not for a full exit lane, not for a car stranded in the box, not to
 yield on a left — the three ambient courtesies that could still bring it to a halt at a junction
