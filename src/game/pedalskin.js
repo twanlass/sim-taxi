@@ -7,9 +7,9 @@
  *             brake hugging its left side and gas its right.
  *   dash    — a 1970s cab's dashboard across the bottom of the screen, seen from the driver's
  *             seat: speedo, a LOCO fuel gauge, idiot lights, and the two pedals at either end.
- *   gauge   — arch, grown a speedometer: the gas dome is the hub of a dial whose needle sweeps
- *             above it, the fuel band runs round the outside of the dial, and the brake is a red
- *             pedal of its own beside it. Same HUD moves as arch.
+ *   gauge   — arch, grown a speedometer: a round, flat gas button is the hub of a numbered dial
+ *             with a redline, the fuel band runs round the outside of the dial, and the brake is
+ *             a flat red pedal beside it. Same HUD moves as arch.
  *   arch    — the shipped pedals, rearranged: the gas becomes an orange dome in the middle of the
  *             bottom edge with the fuel band following its top, the brake moves to the corner,
  *             and neither carries an icon. The rest of the HUD moves round to suit: the cash total
@@ -442,16 +442,20 @@ const ARCH_CSS = `
 
 // --- gauge -----------------------------------------------------------------
 
-// Everything is laid out round the dome's centre, which sits GA.hub px above the row's floor in
-// the middle of the screen. The gas *button* is not just the dome: its box is the inside of the
-// dial (GA.btnW × GA.btnH), so a thumb anywhere under the needle presses it — a 80px dome on its
+// Everything is laid out round the gas button's centre, which sits GA.hub px above the row's floor
+// in the middle of the screen. The gas *button* is not just the disc: its box is the inside of the
+// dial (GA.btnW × GA.btnH), so a thumb anywhere under the needle presses it — a 76px disc on its
 // own is a smaller target than the pill it replaces. The dial is a read-out under it.
+//
+// Flat on purpose: no side band and no inner shadow. A press is the face shrinking a little and
+// darkening, not sinking into a 3D outline.
 const GA = {
-  r: 40, hub: 24, corner: 10,        // the dome: radius, centre height, bottom corners
+  r: 38, hub: 41,                    // the gas disc, and its centre's height (3px clear of the floor)
   dial: 80,                          // the speedo's arc
   band0: 87, width: 7, rim: 1.3,     // the fuel band, just outside the dial
   span: 80,                          // both arcs stop 80° either side of straight up
-  btnW: 144, btnH: 96,               // the gas button's box
+  redline: 0.8,                      // 80mph of 100: only overdrive gets there (65 is the Loco cruise)
+  btnW: 144, btnH: 113,              // the gas button's box: hub + 72 tall
   brakeW: 64, brakeH: 88,
 };
 // The brake's right edge (13 + 64) against the band's left foot on a 375pt phone, which lands at
@@ -471,46 +475,34 @@ function ringBand(r0, width, span, t0, t1, pad = 0) {
 }
 
 function gaugeArt() {
-  const { r, hub, corner, btnW, btnH, brakeW, brakeH } = GA;
-  // The dome in the button's own box: centred, its flat bottom 3px clear of the box's floor.
-  const cx = btnW / 2, cy = btnH - hub, base = btnH - 3;
-  const dome = `M${cx - r} ${cy}A${r} ${r} 0 0 1 ${cx + r} ${cy}V${base - corner}`
-    + `Q${cx + r} ${base} ${cx + r - corner} ${base}H${cx - r + corner}Q${cx - r} ${base} ${cx - r} ${base - corner}Z`;
-  const box = (id, w, h) => `x="-4" y="-4" width="${w + 8}" height="${h + 8}" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB" id="${id}"`;
+  const { r, hub, btnW, btnH, brakeW, brakeH, dial, span, redline } = GA;
+  const cx = btnW / 2, cy = btnH - hub;
   const brake = `M14 3H${brakeW - 14}Q${brakeW - 3} 3 ${brakeW - 3} 14V${brakeH - 14}Q${brakeW - 3} ${brakeH - 3} ${brakeW - 14} ${brakeH - 3}`
     + `H14Q3 ${brakeH - 3} 3 ${brakeH - 14}V14Q3 3 14 3Z`;
-  const redDark = [0.36, 0.04, 0.03];
-  // Ticks every 20mph on the dial, long at 0/60/100-ish ends, all inside the arc.
-  const ticks = [];
+  // A tick every 10mph, the long ones every 20 where the numbers are.
+  const ticks = [], hot = [], nums = [];
   for (let i = 0; i <= 10; i++) {
-    const a = -GA.span + (2 * GA.span * i) / 10;
-    const [x0, y0] = polar(0, 0, GA.dial - 1.5, a);
-    const [x1, y1] = polar(0, 0, GA.dial - (i % 5 === 0 ? 9 : 5), a);
-    ticks.push(`M${f(x0)} ${f(y0)}L${f(x1)} ${f(y1)}`);
+    const a = -span + (2 * span * i) / 10;
+    const [x0, y0] = polar(0, 0, dial - 1.5, a);
+    const [x1, y1] = polar(0, 0, dial - (i % 2 === 0 ? 9 : 5), a);
+    (i / 10 >= redline ? hot : ticks).push(`M${f(x0)} ${f(y0)}L${f(x1)} ${f(y1)}`);
+    if (i % 2 === 0) {
+      const [nx, ny] = polar(0, 0, dial - 18, a);
+      nums.push(`<text class="g-num${i / 10 >= redline ? ' g-num-hot' : ''}" x="${f(nx)}" y="${f(ny)}">${i * 10}</text>`);
+    }
   }
-  const top = GA.band0 + GA.width + 6, side = GA.band0 + GA.width + 6;
+  const top = GA.band0 + GA.width + 6, side = top;
   return {
     gas: `<svg class="skin-art" viewBox="0 0 ${btnW} ${btnH}" overflow="visible">
       <defs>
-        <filter ${box('gauge-up', btnW, btnH)}>${shadeFilter(-16, -20, false)}</filter>
-        <filter ${box('gauge-down', btnW, btnH)}>${shadeFilter(-6, -10, true)}</filter>
-        <linearGradient id="gauge-fill" x1="${cx - r}" y1="${cy - r}" x2="${cx + r}" y2="${base}" gradientUnits="userSpaceOnUse">
-          <stop stop-color="#FF9E01"/><stop offset="0.157945" stop-color="#FCAD2F"/><stop offset="1" stop-color="#FF9E01"/>
+        <linearGradient id="gauge-fill" x1="${cx - r}" y1="${cy - r}" x2="${cx + r}" y2="${cy + r}" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#FFB12E"/><stop offset="1" stop-color="#FF9200"/>
         </linearGradient>
       </defs>
-      <path class="g-face" d="${dome}" fill="url(#gauge-fill)"/>
-      <path d="${dome}" fill="none" stroke="#221500" stroke-width="2.6"/>
+      <circle class="g-face" cx="${cx}" cy="${cy}" r="${r}" fill="url(#gauge-fill)" stroke="#221500" stroke-width="2.6"/>
     </svg>`,
     brake: `<svg class="skin-art" viewBox="0 0 ${brakeW} ${brakeH}" overflow="visible">
-      <defs>
-        <filter ${box('gauge-brake-up', brakeW, brakeH)}>${shadeFilter(-16, -20, false, redDark)}</filter>
-        <filter ${box('gauge-brake-down', brakeW, brakeH)}>${shadeFilter(-6, -10, true, redDark)}</filter>
-        <linearGradient id="gauge-brake-fill" x1="0" y1="0" x2="${brakeW}" y2="${brakeH}" gradientUnits="userSpaceOnUse">
-          <stop stop-color="#F0453A"/><stop offset="0.16" stop-color="#FF6A5C"/><stop offset="1" stop-color="#E5382D"/>
-        </linearGradient>
-      </defs>
-      <path class="g-brake-face" d="${brake}" fill="url(#gauge-brake-fill)"/>
-      <path d="${brake}" fill="none" stroke="#2a0503" stroke-width="2.6"/>
+      <path class="g-brake-face" d="${brake}" fill="#EE4436" stroke="#2a0503" stroke-width="2.6"/>
     </svg>`,
     readout: `<svg class="g-dial" viewBox="${-side} ${-top} ${2 * side} ${top + hub}" overflow="visible">
       <defs>
@@ -522,10 +514,13 @@ function gaugeArt() {
           <stop offset="1" stop-color="#FFD54A" stop-opacity="0"/>
         </radialGradient>
       </defs>
-      <path class="g-arc" d="${ringBand(GA.dial - 1.5, 3, GA.span, 0, 1)}"/>
+      <path class="g-arc" d="${ringBand(dial - 1.5, 3, span, 0, redline)}"/>
+      <path class="g-red" d="${ringBand(dial - 3, 6, span, redline, 1)}"/>
       <path class="g-ticks" d="${ticks.join('')}"/>
-      <g class="g-needle"><path d="M-2.6 ${-(r + 4)}L0 ${-(GA.dial - 6)}L2.6 ${-(r + 4)}Z"/></g>
-      <path class="g-track" d="${ringBand(GA.band0, GA.width, GA.span, 0, 1, GA.rim)}"/>
+      <path class="g-ticks g-ticks-hot" d="${hot.join('')}"/>
+      ${nums.join('')}
+      <g class="g-needle"><path d="M-2.6 ${-(r + 4)}L0 ${-(dial - 6)}L2.6 ${-(r + 4)}Z"/></g>
+      <path class="g-track" d="${ringBand(GA.band0, GA.width, span, 0, 1, GA.rim)}"/>
       <path class="g-fuel" d="" fill="url(#gauge-fuel)"/>
       <circle class="g-edge" r="0" fill="url(#gauge-edge)"/>
     </svg>`,
@@ -539,20 +534,35 @@ const GAUGE_CSS = `
   body.pedals-gauge #boost { left: calc(50% - ${GA.btnW / 2}px); width: ${GA.btnW}px; height: ${GA.btnH}px; }
   body.pedals-gauge #brake { left: var(--ctl-left); width: ${GA.brakeW}px; height: ${GA.brakeH}px; }
   body.pedals-gauge .skin-art { display: block; width: 100%; height: 100%; pointer-events: none; }
-  .pedals-gauge .g-face { filter: url(#gauge-up); }
-  body.pedals-gauge #boost.is-held .g-face, body.pedals-gauge #boost.is-down .g-face { filter: url(#gauge-down); }
-  .pedals-gauge .g-brake-face { filter: url(#gauge-brake-up); }
-  body.pedals-gauge #brake.is-held .g-brake-face, body.pedals-gauge #brake.is-on .g-brake-face { filter: url(#gauge-brake-down); }
-  body.pedals-gauge #brake.is-on .skin-art { filter: brightness(1.12); }
+  .pedals-gauge .g-face, .pedals-gauge .g-brake-face { transform-box: fill-box; transform-origin: center;
+    transition: transform 0.07s ease-out, filter 0.1s ease; }
+  body.pedals-gauge #boost.is-held .g-face, body.pedals-gauge #boost.is-down .g-face,
+  body.pedals-gauge #brake.is-held .g-brake-face, body.pedals-gauge #brake.is-on .g-brake-face {
+    transform: scale(0.94); filter: brightness(0.88); }
+  body.pedals-gauge #brake.is-on .g-brake-face { filter: brightness(1.12); }
   body.pedals-gauge #boost.is-empty .skin-art { filter: grayscale(1) brightness(0.9); opacity: 0.7; }
   #pedal-readout.gauge { position: fixed; z-index: 19; left: calc(50% - ${GAUGE_W / 2}px);
     bottom: var(--ctl-bottom); width: ${GAUGE_W}px; height: ${GAUGE_H}px; pointer-events: none; }
-  #pedal-readout.gauge svg { display: block; width: 100%; height: 100%;
-    transform-origin: 50% ${((GAUGE_H - GA.hub) / GAUGE_H) * 100}%; transition: transform 0.1s ease; }
+  #pedal-readout.gauge svg { display: block; width: 100%; height: 100%; }
   .gauge .g-arc { fill: rgba(255, 255, 255, 0.9); filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.45)); }
+  .gauge .g-red { fill: #E5382D; filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.45)); transition: filter 0.15s ease; }
   .gauge .g-ticks { stroke: rgba(255, 255, 255, 0.85); stroke-width: 2; stroke-linecap: round; }
+  .gauge .g-ticks-hot { stroke: #FF6A5C; }
+  .gauge .g-num { fill: #fff; font: 800 10px var(--hud-font); text-anchor: middle; dominant-baseline: central;
+    paint-order: stroke; stroke: rgba(0, 0, 0, 0.35); stroke-width: 2.5px; font-variant-numeric: tabular-nums; }
+  .gauge .g-num-hot { fill: #FF6A5C; }
   .gauge .g-needle { transition: transform 0.12s linear; }
-  .gauge .g-needle path { fill: #fff; filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.5)); }
+  .gauge .g-needle path { fill: #fff; filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.5)); transition: fill 0.15s ease; }
+  /* Topping out: the needle goes red and the redline zone lights and throbs. */
+  .gauge.is-redline .g-needle path { fill: #FF4A3A; }
+  .gauge.is-redline .g-red { animation: gauge-redline 0.5s ease-in-out infinite alternate; }
+  @keyframes gauge-redline {
+    from { filter: drop-shadow(0 0 2px rgba(255, 60, 40, 0.6)); }
+    to   { filter: drop-shadow(0 0 9px rgba(255, 60, 40, 1)) brightness(1.25); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .gauge.is-redline .g-red { animation: none; filter: drop-shadow(0 0 6px rgba(255, 60, 40, 0.9)); }
+  }
   .gauge .g-track { fill: rgba(34, 21, 0, 0.8); }
   .gauge .g-edge { opacity: var(--fill, 0); }
   .gauge .g-fuel, .gauge .g-track { transition: filter 0.15s ease; }
@@ -684,6 +694,7 @@ export function createPedalSkin({ boostButton, brakeButton, search = window.loca
       }
       speedoNeedle?.style.setProperty('transform', `rotate(${f(SP.sweep0 + (SP.sweep1 - SP.sweep0) * turn)}deg)`);
       gaugeNeedle?.style.setProperty('transform', `rotate(${f(-GA.span + 2 * GA.span * turn)}deg)`);
+      if (gaugeNeedle) readout.classList.toggle('is-redline', turn >= GA.redline);
       dashNeedle?.style.setProperty('transform', `rotate(${f(-130 + 260 * turn)}deg)`);
       const shown = Math.round(mph);
       if (speedoMph && shown !== lastMph) { lastMph = shown; speedoMph.textContent = String(shown); }
