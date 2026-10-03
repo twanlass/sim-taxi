@@ -2246,60 +2246,6 @@ the robber gets out.
 (game/patrol.js) is why: a third of a tank is five seconds of boost, which loses the cop 8 times in
 16; none is caught 15 in 16; a full tank gets away 14 in 16.
 
-### Chase steering (prototype, `?steer=`)
-
-`game/steer.js`, wired in main.js; the bootleg is `spinTaxi` in sim/traffic.js; line of sight is in
-`game/patrol.js` (`lineOfSight`), `game/robbery.js` (`knowsPlan`) and `game/sightline.js`
-(`groundLineClear`). **Off by default.** `?steer=all` turns everything on, or name pieces:
-`?steer=uturn,drift,los`.
-
-Why it exists: in a chase the only live input was the boost pill, and the patrol's escape table
-says the tank decides it.
-
-- **uturn, the bootleg**: in Loco Mode, tap the brake twice within 350ms. The first tap is an
-  ordinary brake and releases the pill, but boost's one-second tail is still engaged, and that is
-  what the combo checks for. The taxi spins 180° onto the far lane in 0.42s, sliding on down the
-  road as it goes. It keeps 55% of its speed (never less than cruise), and the body whips round with
-  a small overshoot. It also gets a screech, a shake, a haptic buzz and four-wheel rubber. There is
-  no clearance test, because the taxi is collision-tested and whatever it spins into is a bump it
-  pays for. A combo landing mid-junction or mid-overtake waits up to 0.7s for a straight lane.
-  It is refused on arterials (median), bridges and below 4 u/s. The brake is ignored until it comes
-  back up, so a finger left on the pedal does not stop the taxi broadside. K on a keyboard.
-- **drift**: hold the brake through a real turn and the taxi slides round at cornering speed
-  instead of stopping. Let go on the way out and it gets a fuel-free turbo, 0.35–1.3s depending on
-  how long the slide was held. Held more than 0.25s past the arc, it becomes an ordinary brake.
-- **los**: a patrol that cannot see the taxi drives to where it last aimed, and gives up after 2s
-  out of sight, provided it is more than 14 units off. Spotting needs sight as well. The robbery's
-  cut-offs only learn a redrawn route while one of them can see the taxi. Sight is a march along
-  the ground through the sightline height field; it takes 1.5 units of solid above 1.8 to block, so
-  a lamp post or a median tree does not. Headless tools without a city always answer "clear".
-
-The first build also had swipe-to-turn and swipe-back-to-U-turn. Playtesting dropped them: on a
-phone, a swipe already means a pan, a route-band drag or a fare tap.
-
-Measured with `node tools/steer-sweep.mjs 16`: the patrol's staged chase, driven by a bot. These
-numbers show what each mechanic can buy a bot that uses it every time. They are not what a player
-will get. Every row past `base` has line of sight on. Fewer chases are staged in those rows
-because the staging cannot spot from behind a building. The first column is lost / staged.
-
-| | no boost | 5s | full tank |
-|---|---|---|---|
-| base | 0/16 lost, 16 caught | 7/16 lost | 16/16 lost |
-| los | 4/12 lost (all by sight), 8 caught | 5/12 | 12/12 |
-| + bootleg when the cop is ahead | 2/12 lost, 10 caught | 1/12 | 11/12 |
-| + drift | 4/12 lost, 4 caught, **4 stalemates** | 5/12 | 12/12 |
-
-What it says so far:
-
-- **Line of sight is the lever that changes the game.** It gives an unboosted taxi a way out for
-  the first time, and corners are what earn it.
-- **The bootleg does not help in a patrol chase.** A patrol chase is a stern chase: the cop is
-  behind you, and a 180 points you back past it. Its payoff should be the robbery, where cut-off
-  cops sit in the junctions ahead and the spin puts them all behind you. That has not been measured.
-  Refusals over the sweep: 24 on arterials, 6 on bridges, 5 too slow.
-- **Drift turns catches into stalemates.** Free turbo off every corner keeps the taxi just ahead of
-  the cop until `CHASE_MAX`, without breaking clear.
-
 ## The package courier
 
 `src/game/parcels.js`. A brown parcel sits on a kerb corner on a cyan rounded-square pad. Drive
@@ -3226,6 +3172,41 @@ on `--ctl-bottom` rather than placed on their own, so the whole bottom cluster m
 the brake, so a two-thumbed player never ends up spending fuel against a speed target of zero — the
 tank keeps whatever is left in it. The sim doesn't depend on that arbitration: hold both by any
 means and the brake still wins, because it replaces the target the boost ceiling would have set.
+
+### The bootleg: boost, then brake twice
+
+`game/bootleg.js`, `spinTaxi` in `sim/traffic.js`, wired in `holdBrake` in main.js. In Loco Mode, tap
+the brake twice within 350ms and the taxi spins 180° onto the far lane in 0.42s. It slides on down
+the road as it turns and keeps 55% of its speed, never less than cruise. The body whips round with
+a small overshoot, and the spin comes with a screech, a jolt of shake, a haptic buzz and four-wheel
+rubber.
+
+It exists because a chase gave the player nothing to do but hold the pill. In a getaway the cut-off
+cops are in the junctions *ahead* (see [the chase](#the-chase)), and a 180 puts every one of them
+behind you.
+
+- **The combo checks Loco Mode as *engaged*, not held.** The first tap is an ordinary brake and
+  releases the pill (last pedal pressed wins). The pill's one-second tail (`BOOST_COOLDOWN`) is
+  still engaged at the second tap, so that is what the combo reads. B pressed twice does it on a
+  keyboard.
+- **There is no clearance test.** The cop's U-turn (`uturnWindow`) waits for a narrow window and a
+  clear road, which suits a car the collision pass does not test. The taxi *is* tested
+  (`sim/collisions.js`), so whatever it spins into is a bump it pays for. Doing it in traffic has a
+  cost, and that is the cost.
+- **A combo that lands mid-junction or mid-overtake waits** up to 0.7s for a straight lane. At
+  chase speed the taxi is crossing a junction a large share of the time, and refusing those taps was
+  the commonest refusal in a bot sweep.
+- **It lands short of the stop line ahead.** The landing point is clamped to stop short of the far
+  lane's stop line. That line belongs to the junction behind the taxi, and landing past it would run
+  the light (see CLAUDE.md).
+- **The brake is ignored until it comes back up.** The second tap is usually still held when the
+  spin lands, and braking then would stop the taxi broadside.
+- **It is refused on arterials, on bridges and below 4 u/s.** An arterial's centreline is a planted
+  median, and a bridge deck is arched. A refused combo is simply a brake. `tools/probe.mjs` spins
+  the taxi on every lane: on its seed, 106 lanes spin and 26 refuse (20 median, 6 bridge).
+
+The first prototype was a swipe back down the road. Playtesting dropped it: on a phone, a swipe
+already means a pan, a route-band drag or a fare tap.
 
 ## The pedal slide
 

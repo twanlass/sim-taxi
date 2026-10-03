@@ -116,8 +116,8 @@ import { createCopShout } from './game/copshout.js';
 import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
-import { setCityOccluders, groundLineClear } from './game/sightline.js';
-import { createSteer, parseSteerFlags } from './game/steer.js';
+import { setCityOccluders } from './game/sightline.js';
+import { createBootleg } from './game/bootleg.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
@@ -752,8 +752,6 @@ const robberLine = city.bank && !shot
     },
   })
   : null;
-// Active steering for chases — a prototype, off unless `?steer=` names some of it. See game/steer.js.
-const steerFlags = parseSteerFlags(shot ? '' : window.location.search);
 const robbery = city.bank && !shot
   ? createRobbery({
     site: city.bank,
@@ -771,14 +769,6 @@ const robbery = city.bank && !shot
     // (game/arrest.js). The robber is delivered, so the chase can end the run: that is the trade
     // the drop-off asks for, and the full tank the robber boarded with is what pays for it.
     handOff: (cops) => patrol.pursueNearest(cops),
-    // The line-of-sight prototype (game/steer.js): the cut-offs only learn a redrawn route while a
-    // cop can see the taxi. Within LOST_RANGE-ish, so a cop across town with a clear street between
-    // does not count as watching.
-    knowsPlan: steerFlags.los
-      ? (cops) => cops.some((cop) => !cop.crashed
-        && Math.hypot(cop.x - traffic.taxi.x, cop.z - traffic.taxi.z) < 60
-        && groundLineClear(cop.x, cop.z, traffic.taxi.x, traffic.taxi.z))
-      : null,
     // The frame the robber is in the car. It is the ordinary `'pickup'` handler's job, said once
     // here rather than smuggled into the event loop: the seat is full, the route the taxi was
     // driving is void, and the getaway dispatches itself exactly as any other drop-off does.
@@ -869,19 +859,16 @@ const patrol = createPatrol({
     haptic('pick');
   },
   onCaught: () => bustByPolice(),
-  lineOfSight: steerFlags.los
-    ? (cop) => groundLineClear(cop.x, cop.z, traffic.taxi.x, traffic.taxi.z)
-    : null,
   // Said by the cruiser that lost you, from over its own roof.
   onLost: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
   onHid: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
 });
-const steer = createSteer({
-  flags: steerFlags,
+// Boost, then two quick taps of the brake: the taxi spins round onto the far lane. See game/bootleg.js.
+const bootleg = createBootleg({
   taxi: traffic.taxi,
   destination: () => traffic.taxi.pendingTarget ?? null,
-  // The bootleg has to land like a hit: the screech, a jolt of shake, a buzz, and all four wheels
-  // marking the road on the frame it starts. `layRubber` carries the streak on from there.
+  // It has to land like a hit: the screech, a jolt of shake, a buzz, and all four wheels marking the
+  // road on the frame it starts. `layRubber` carries the streak on from there.
   onSpin: () => {
     sfx?.play('skid');
     haptic('loco');
@@ -2816,9 +2803,9 @@ function holdBrake() {
   // Only when there is speed to shed — the pedal's detent is the haptic's job, and a brake noise
   // from a car at a standstill is a car that is not doing what the sound says. From above cruise
   // it is the Loco stop; from cruise it is the ordinary one.
-  // The bootleg combo (game/steer.js, a prototype): two taps in Loco Mode. Read before the pill is
-  // released below, which is the first tap's own doing — its one-second tail still counts.
-  if (steer.brakeTap({ engaged: boost.isEngaged() })) {
+  // The bootleg: two taps in Loco Mode. Read before the pill is released below, which is the first
+  // tap's own doing — its one-second tail still counts (game/bootleg.js).
+  if (bootleg.brakeTap({ engaged: boost.isEngaged() })) {
     boost.release();
     brakeButton?.classList.add('is-on');
     return true;
@@ -3163,7 +3150,7 @@ function layRubber(dt) {
   // `state === 'turn'` covers every junction crossing, including going straight on — which is why
   // rubber was appearing on the straights. An actual turn means the exit direction differs from
   // the entry one, and only after the straight run-up to the junction is done.
-  const cornering = (car.boost || car.drifting)
+  const cornering = car.boost
     && car.state === 'turn'
     && car.dOut !== car.d
     && Math.min(car.turnT, 1) * car.turnLen > car.leadIn;
@@ -3183,6 +3170,7 @@ function layRubber(dt) {
   // see stampAllRubber. It needs no `boost` term: the pedal is the whole input, and a screech from
   // cruise is as much a skid as one from the overdrive top, just a shorter one (1.0 unit of rubber
   // against 16.5 — see HARD_BRAKE in sim/traffic.js).
+  // And the bootleg (game/bootleg.js), which is a skid from start to finish.
   const skidding = (car.braking && car.v > BRAKE_SKID_V) || car.uturn?.kind === 'spin';
 
   // The screech, once per slide rather than per stamp: on the frame a corner or a lane swap starts
@@ -3356,7 +3344,7 @@ const pause = shot ? null : createPause({
     // release too, and resuming onto a pedal nobody is holding is the same bug wearing red.
     // `dropPedalGesture` covers a thumb that was on the row when the veil went up; the two explicit
     // releases beside it are for the keyboard's holds, which it knows nothing about.
-    if (paused) { boost.release(); releaseBrake(); dropPedalGesture(); }
+    if (paused) { boost.release(); releaseBrake(); dropPedalGesture(); bootleg.reset(); }
   },
 });
 
@@ -3453,16 +3441,14 @@ function frame() {
     // Never on a staged taxi: the cooldown tail outlasts the turn in off the lane at the depot, and
     // collisions would otherwise charge a car a cut scene is driving over a kerb. `taxi.boost` is
     // what sim/collisions.js charges hits off; the unarmed shove is closed on `staged` there.
-    // The chase-steering prototype (game/steer.js): a drift's turbo is a short fuel-free boost, and
-    // a slide is not a brake. Inert unless `?steer=` turned something on.
-    const steered = steer.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
-    traffic.taxi.boost = (boost.isEngaged() || steered.turbo) && !traffic.taxi.staged;
-    traffic.taxi.boostEasing = boost.isCoolingDown() && !steered.turbo;
+    traffic.taxi.boost = boost.isEngaged() && !traffic.taxi.staged;
+    traffic.taxi.boostEasing = boost.isCoolingDown();
     // Written every frame rather than on the press, so the flag cannot be left stuck on by a
     // pointer that never came back up — a run ending under the player's thumb takes the button off
     // the screen (`body.game-over #brake`), and a `pointerup` on a removed element is not something
     // to rely on. Same self-healing shape as the two flags above it.
-    traffic.taxi.braking = steered.braking;
+    // Through the bootleg, which holds the brake off from a spin until the pedal comes back up.
+    traffic.taxi.braking = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
   }
   updateBoostButton(dt);
   skids.update(dt);
@@ -4617,8 +4603,8 @@ window.__taxi = {
   police,
   /** The patrol cruiser's life — patrol, chase, leave. See game/patrol.js. */
   patrol,
-  /** The chase-steering prototype (game/steer.js) — inert unless `?steer=` turned it on. */
-  steer,
+  /** The brake-tap spin (game/bootleg.js) — `spin()` fires one, `state` tallies them. */
+  bootleg,
   fares,
   /** The package courier, or null under `?parcels=0` and in shot mode. See game/parcels.js. */
   parcels,

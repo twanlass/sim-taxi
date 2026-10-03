@@ -159,35 +159,6 @@ export function heightAt(x, z) {
   return field.heights[ci * field.nz + cj];
 }
 
-/**
- * Can a driver at (ax, az) see a car at (bx, bz)? Two cars on the ground, not the camera: the march
- * is along the ground between them, against everything standing taller than `eye`.
- *
- * For the chase prototype's line of sight (game/steer.js). Streets carry nothing tall, so a
- * sightline down a road is always clear and only a corner — a building between the two — breaks it.
- * A lamp post or a median tree is one or two cells of the field, so a single tall cell is not
- * enough: it takes `BLOCK_RUN` of solid along the line, which any building is many times over.
- * Before a city is set (every headless tool) it answers "clear", as `sightlineClear` does.
- */
-const LOS_STEP = CELL / 2;
-const BLOCK_RUN = 1.5;
-export function groundLineClear(ax, az, bx, bz, eye = 1.8) {
-  if (!field) return true;
-  const len = Math.hypot(bx - ax, bz - az);
-  const n = Math.ceil(len / LOS_STEP);
-  let run = 0;
-  for (let k = 1; k < n; k++) {
-    const t = k / n;
-    if (heightAt(ax + (bx - ax) * t, az + (bz - az) * t) > eye) {
-      run += len / n;
-      if (run >= BLOCK_RUN) return false;
-    } else {
-      run = 0;
-    }
-  }
-  return true;
-}
-
 /** Forget the city. For tools that build several and would otherwise measure the last one. */
 export const clearCityOccluders = () => { field = null; };
 

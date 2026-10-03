@@ -1378,7 +1378,7 @@ function startUturn(car, sw) {
   car.routeConsumed = false;
   car.v = Math.min(car.v, UTURN_SPEED);
 }
-// --- The taxi's bootleg turn (game/steer.js, a prototype) ------------------------------------------
+// --- The taxi's bootleg turn (game/bootleg.js) ------------------------------------------------
 //
 // The cop's U-turn above is a careful thing: a narrow window, a clearance test, a second at 6 u/s.
 // That is right for a car the collision pass does not test and wrong for the player, who asked for
@@ -5774,10 +5774,6 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
             Math.cos(car.slewTarget - car.yaw)) * e;
         }
       }
-
-      // The taxi's drift (game/steer.js, a prototype): the body slews out of the arc while the
-      // brake is held through a corner. Render-side only, like the cop's slew above it.
-      if (car.yawSlip) car.yaw += car.yawSlip;
 
       // The shove off a bump, last of the offsets so it lands on top of everything the lane said.
       // After the wheel angle because a spin is not a steering input, and
