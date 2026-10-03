@@ -1010,14 +1010,23 @@ let opening = null;
 // Is the tutorial talking? One of the two things that hold the board's clocks — see holdFareClocks.
 let tutorialTalking = false;
 
+// Debug mode: the ⚙️ panel's flags (`?debug`, `?settings`, or `?audio`). Decided up here rather than
+// beside the panel because two things well before it read it: a tuning session runs with no
+// tutorial and with the fare clocks held, so the game can be left open behind the panel without
+// having to be played to stay alive.
+const debugMode = (() => {
+  const params = new URLSearchParams(window.location.search);
+  return !shot && (params.has('debug') || params.has('settings') || params.has('audio'));
+})();
+
 /**
- * Freeze or free every fare's countdown. Two things hold it and either is enough: the tutorial
- * while it talks, and a repair visit to the depot. One place decides, so neither can release a
- * hold the other still wants — a visit landing mid-lesson would otherwise start the clocks the
- * tutorial had stopped.
+ * Freeze or free every fare's countdown. Three things hold it and any is enough: debug mode, for
+ * good; the tutorial while it talks; and a repair visit to the depot. One place decides, so none
+ * can release a hold another still wants — a visit landing mid-lesson would otherwise start the
+ * clocks the tutorial had stopped.
  */
 function holdFareClocks() {
-  fares.setPaused(tutorialTalking || Boolean(opening?.visiting()));
+  fares.setPaused(debugMode || tutorialTalking || Boolean(opening?.visiting()));
 }
 const releaseCameraToPlayer = () => {
   cameraTakenOver = true;
@@ -2172,7 +2181,10 @@ const robberyGlow = createRobberyGlow({ viewport });
 // It runs on every new game, not just the first: the opening is short, it holds the clocks while it
 // talks, and it costs nothing to sit through. Remembering it across loads was tried (a
 // `localStorage` flag) and taken back out — see docs/gameplay.md.
-const wantsTutorial = new URLSearchParams(window.location.search).get('tutorial') !== 'off';
+// Debug mode skips it too — see `debugMode`. Not by writing the title screen's tips setting, which
+// is the player's and would stay off after the debug session ended.
+const wantsTutorial = !debugMode
+  && new URLSearchParams(window.location.search).get('tutorial') !== 'off';
 // The same escape hatch for the beat before it — see the opening vignette at the bottom of this
 // file, and `?vignette=off` there for why it is a *settle* rather than a skip.
 const wantsVignette = new URLSearchParams(window.location.search).get('vignette') !== 'off';
@@ -2267,6 +2279,8 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
 // are simply there from the first frame. The two pedals are the exception and come in earlier —
 // see `pedalsDue` in the frame loop.
 if (!tutorial) revealHud();
+// Debug mode holds the fare clocks for the whole session — see `debugMode`.
+if (debugMode) holdFareClocks();
 
 // --- HUD --------------------------------------------------------------------
 
@@ -4003,7 +4017,7 @@ function frame() {
 const debugParams = new URLSearchParams(window.location.search);
 // `?audio` was the sound designer's own panel; it is the Audio sections of this one now, and the
 // flag still opens it.
-const wantsDebugPanel = debugParams.has('debug') || debugParams.has('settings') || debugParams.has('audio');
+const wantsDebugPanel = debugMode;
 // Freeze-and-zoom for tuning things that are a few pixels across at play zoom — see
 // game/inspect.js. `I` toggles it; the debug panel has the buttons.
 const inspect = !shot && wantsDebugPanel ? createInspect({
