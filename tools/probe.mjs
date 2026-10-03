@@ -84,8 +84,9 @@ import { createFoodOrder } from '../src/geometry/food.js';
 import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createRobbery, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
-import { createPatrol, ESCAPE_BLOCKS, TOUCH_SLACK } from '../src/game/patrol.js';
+import { createPatrol, ESCAPE_BLOCKS, TOUCH_SLACK, NOTICE_RANGE } from '../src/game/patrol.js';
 import { touching } from '../src/sim/collisions.js';
+import { createHeatMeter } from '../src/game/heatmeter.js';
 import { createCashTrail, noteGeometry, NOTE_FOLD, BRICK_H } from '../src/game/cashtrail.js';
 import { createCopLights } from '../src/game/coplights.js';
 import {
@@ -7377,7 +7378,8 @@ check('the taxi is an ordinary car in the traffic array',
     && pPolice.state.active && pPolice.state.cop === cop);
 
   // The whole crossing, the taxi never boosting within range — and boosting while it is out of
-  // range, to show that being on the pill is not itself what sets a patrol off.
+  // range (NOTICE_RANGE, where the heat starts to climb), to show that being on the pill is not
+  // itself what sets a patrol off.
   let swinging = 0;
   let redSide = 0;
   let blueSide = 0;
@@ -7392,7 +7394,7 @@ check('the taxi is an ordinary car in the traffic array',
   for (let step = 0; step < 60 * 90 && pPatrol.state.phase !== 'off'; step++) {
     const gap = Math.hypot(cop.x - taxi.x, cop.z - taxi.z);
     const was = { x: cop.x, z: cop.z, fade: pPolice.state.fade };
-    tick(gap > SPOT_RANGE + 6);
+    tick(gap > NOTICE_RANGE + 6);
     if (!pTraffic.policeCars.includes(cop)) { retiredAt = was; fadeOnRetire = was.fade; break; }
     frames += 1;
     if (fadedInBy === null && pPolice.state.fade === 1) fadedInBy = frames / 60;
@@ -7450,8 +7452,9 @@ check('the taxi is an ordinary car in the traffic array',
   check('...and the cruiser goes dark and hidden until the next', !pPolice.state.active
     && !pPolice.state.lit && !shellShown && pPatrol.state.cooldown >= pPatrol.state.cooldownRange[0]);
 
-  // Spotted: the taxi boosting within a block. Staged by moving the taxi beside it for the one
-  // frame the patrol reads, which is the whole of the rule.
+  // Spotted: the taxi boosting within a block — but not on the first frame. The heat climbs first
+  // (NOTICE_RANGE), which is the player's warning, and cools again off the pill. Staged by moving
+  // the taxi beside it for the frames the patrol reads, which is the whole of the rule.
   const qScene = new THREE.Scene();
   const qTraffic = createTraffic(makeRng(seed + 44), qScene, CARS_DEFAULT);
   const qPolice = createPolice(qScene);
@@ -7468,14 +7471,30 @@ check('the taxi is an ordinary car in the traffic array',
   const qCop = qPatrol.state.cop;
   const qTaxi = qTraffic.taxi;
   const saved = { x: qTaxi.x, z: qTaxi.z };
+  // A block away and a street over first: it fills, slowly, and lifting off cools it back down.
+  qTaxi.x = qCop.x + SPOT_RANGE;
+  qTaxi.z = qCop.z + SPOT_RANGE;
+  for (let f = 0; f < 30; f++) qPatrol.update(1 / 60, { boosting: true });
+  const warmed = qPatrol.state.heat;
+  const warmPhase = qPatrol.state.phase;
+  for (let f = 0; f < 120; f++) qPatrol.update(1 / 60, { boosting: false });
+  check('boosting near it warms it up rather than setting it off at once',
+    warmPhase === 'patrol' && warmed > 0.05 && warmed < 0.5 && qSpotted === 0,
+    `heat ${warmed.toFixed(2)} after half a second a block off, a street over`);
+  check('...and lifting off cools it back down', qPatrol.state.heat < warmed * 0.6 && qPatrol.state.phase === 'patrol',
+    `${warmed.toFixed(2)} → ${qPatrol.state.heat.toFixed(2)} after two seconds off the pill`);
   qTaxi.x = qCop.x + 6;
   qTaxi.z = qCop.z;
+  let boiled = 0;
   qPatrol.update(1 / 60, { boosting: true });
+  const firstFrame = qPatrol.state.phase;
+  for (boiled = 1; boiled < 120 && qPatrol.state.phase !== 'chase'; boiled++) qPatrol.update(1 / 60, { boosting: true });
   qPolice.update(1 / 60);
   qTaxi.x = saved.x;
   qTaxi.z = saved.z;
-  check('boosting within a block of it sets it after you', qPatrol.state.phase === 'chase'
-    && qCop.siren && qCop.chase === 1 && qSpotted === 1);
+  check('boosting within a block of it sets it after you', firstFrame === 'patrol' && qPatrol.state.phase === 'chase'
+    && qCop.siren && qCop.chase === 1 && qSpotted === 1 && qPatrol.state.heat === 1,
+    `after ${(boiled / 60).toFixed(2)}s on its bumper`);
   check('...with its bar strobing, at the hunting rate', qPolice.state.lit && qPolice.state.chasing);
 
   // A robbery wants the streets: a crossing patrol stands down for one, drives off with its bar
@@ -7778,7 +7797,7 @@ check('the taxi is an ordinary car in the traffic array',
   // `tank`: seconds of Loco Mode the taxi spends from the moment it is spotted — 0 is off the pill,
   // BOOST_DURATION a full tank. `hideAt`: seconds in, the taxi turns in at the depot — staged off
   // the road, as the opening does it, and `hideout` called the way main.js calls it.
-  const outcome = (s, tank, hideAt = null) => {
+  const outcome = (s, tank, hideAt = null, drive = 'route') => {
     createLayout(makeRng(s));
     const pScene = new THREE.Scene();
     const pTraffic = createTraffic(makeRng(s + 44), pScene, CARS_DEFAULT);
@@ -7832,8 +7851,9 @@ check('the taxi is an ordinary car in the traffic array',
     taxi.x = at.x;
     taxi.z = at.z;
     const violations = pTraffic.stats.violations;
-    // Spotted on the pill, whichever way the chase is then driven.
-    pursuit.update(1 / 60, { boosting: true });
+    // Spotted on the pill, whichever way the chase is then driven: held boosting where it stands
+    // until the heat boils over (NOTICE_RANGE), which from 8-18 units on its street is under a second.
+    for (let f = 0; f < 240 && pursuit.state.phase !== 'chase'; f++) pursuit.update(1 / 60, { boosting: true });
     if (pursuit.state.phase !== 'chase') return null;
     let t = 0;
     let busyThroughout = true;
@@ -7846,7 +7866,7 @@ check('the taxi is an ordinary car in the traffic array',
       }
       const boosting = t < tank;
       taxi.boost = boosting;
-      driveOn(taxi);
+      if (drive === 'route') driveOn(taxi);
       pTraffic.update(1 / 60);
       pursuit.update(1 / 60, { boosting });
       pPolice.update(1 / 60);
@@ -7892,7 +7912,7 @@ check('the taxi is an ordinary car in the traffic array',
     return out;
   };
 
-  const runs = { cruising: [], boosting: [], third: [], hid: [] };
+  const runs = { cruising: [], boosting: [], third: [], hid: [], auto: [] };
   for (let k = 0; k < 10; k++) {
     const a = outcome(seed + 500 + k, 0);
     const b = outcome(seed + 500 + k, BOOST_DURATION);
@@ -7903,6 +7923,10 @@ check('the taxi is an ordinary car in the traffic array',
     if (b) runs.boosting.push(b);
     if (c) runs.third.push(c);
     if (h) runs.hid.push(h);
+    // No route at all — the taxi between fares, rolling its own turns. It used to roll them back
+    // into the cop and drive in circles (`fleeWeight` in sim/traffic.js).
+    const u = outcome(seed + 500 + k, BOOST_DURATION, null, 'auto');
+    if (u) runs.auto.push(u);
   }
   createLayout(makeRng(seed));   // createLayout installs the network it builds — put ours back
 
@@ -7917,8 +7941,15 @@ check('the taxi is an ordinary car in the traffic array',
   check('a full tank of Loco Mode gets away', count(runs.boosting, 'lost') >= runs.boosting.length * 0.7,
     `${count(runs.boosting, 'lost')}/${runs.boosting.length} lost ${ESCAPE_BLOCKS} blocks clear, median ${median(boostLost.map((r) => r.t)).toFixed(1)}s`);
   // The blip that was reported: on the pill the cop used to be gone in ~4s whatever the tank held.
-  check('...and not in a blip: the cop keeps up for a while first', median(boostLost.map((r) => r.t)) >= 6,
+  // 6s until breaking the cop's sightline counted towards an escape (SHAKE_RANGE in
+  // game/patrol.js): turning off its street is a way out now, and it takes about a second off a
+  // full tank's getaway — 6.0s to 5.4s on these seeds — with the heat meter draining on screen
+  // the whole time, which is what the blip never had.
+  check('...and not in a blip: the cop keeps up for a while first', median(boostLost.map((r) => r.t)) >= 5,
     `median ${median(boostLost.map((r) => r.t)).toFixed(1)}s to lose it`);
+  check('...and so does a taxi with no route, leaning its turns away from the cop',
+    runs.auto.length >= 8 && count(runs.auto, 'lost') >= runs.auto.length * 0.7,
+    `${count(runs.auto, 'lost')}/${runs.auto.length} lost on a full tank with no route`);
   // And the tank is what decides it: a third of one is the coin flip — some get away, some do not.
   check('a third of a tank is a coin flip', count(runs.third, 'caught') >= runs.third.length * 0.2
     && count(runs.third, 'lost') >= runs.third.length * 0.2,
@@ -7950,6 +7981,36 @@ check('the taxi is an ordinary car in the traffic array',
   check('...and the cop stands down as a lost one does', hid.every((r) => r.dark && r.backOnPatrol
     && r.retiredFar >= SPAWN_CLEARANCE - 0.5),
     `${hid.filter((r) => r.dark && r.backOnPatrol).length}/${hid.length}`);
+}
+
+// --- The heat meter ---------------------------------------------------------------
+// game/heatmeter.js reads the patrol's state and owns no rules: walk it through a patrol's life on
+// a stand-in state and check it names each stage, and says "Lost 'em" only when the taxi got away.
+{
+  const fake = { state: { phase: 'patrol', heat: 0, evading: false } };
+  const meter = createHeatMeter(null);
+  const seen = [];
+  const step = (phase, heat, evading = false, dt = 1 / 60) => {
+    Object.assign(fake.state, { phase, heat, evading });
+    meter.update(dt, fake);
+    if (seen[seen.length - 1] !== meter.mode) seen.push(meter.mode);
+  };
+  step('off', 0);
+  step('patrol', 0);
+  step('patrol', 0.4);
+  step('chase', 1);
+  step('chase', 0.6, true);
+  step('chase', 0.8, false);
+  step('leaving', 0);
+  for (let k = 0; k < 60 * 3; k++) step('leaving', 0);
+  check('the heat meter names each stage of a patrol', seen.join(' ')
+    === "none patrol suspicious pursuit evading pursuit lost none", seen.join(' → '));
+  const busted = createHeatMeter(null);
+  for (const [phase, heat] of [['chase', 1], ['arrest', 1], ['off', 0]]) {
+    Object.assign(fake.state, { phase, heat, evading: false });
+    busted.update(1 / 60, fake);
+  }
+  check('...and never says "lost" after an arrest', busted.mode === 'none', busted.mode);
 }
 
 // --- Ramming the patrol car is a bump, not a bust ------------------------------
@@ -8083,7 +8144,7 @@ check('the taxi is an ordinary car in the traffic array',
     taxi.route = [opposite(d0), opposite(d0)];
     taxi.routeConsumed = false;
     taxi.boost = true;
-    uPatrol.update(1 / 60, { boosting: true });
+    for (let f = 0; f < 240 && uPatrol.state.phase !== 'chase'; f++) uPatrol.update(1 / 60, { boosting: true });
     if (uPatrol.state.phase !== 'chase') continue;
     const violations = uTraffic.stats.violations;
     const run = { turned: false, facing: false, caughtInSwing: false, jump: 0, turnStep: 0, nearest: Infinity, offRoad: 0, inBox: 0, frames: 0, taxiNear: Infinity };

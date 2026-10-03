@@ -2151,7 +2151,7 @@ braking in your lane having just gone round you. Ramming one is a bump that cost
 already had.
 
 **And [the patrol cruiser](traffic.md#the-patrol-cruiser) does not come after you during one** — it
-drives off when a robbery starts. That rule — boost within a block of the cruiser and it gives chase
+drives off when a robbery starts. That rule — boost near the cruiser until its heat fills and it gives chase
 (it used to end the run) — is a good one, and its legibility rests
 entirely on there being *one* police car on the street and it being obvious which. A robbery puts
 four more on the street in the same paint under the same flashing bar, and pays a bonus on the

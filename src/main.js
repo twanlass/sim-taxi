@@ -113,6 +113,7 @@ import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
 import { createPatrol } from './game/patrol.js';
 import { createCopShout } from './game/copshout.js';
+import { createHeatMeter } from './game/heatmeter.js';
 import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
@@ -838,6 +839,8 @@ paintSound();
 // front of it. "Pull over!" goes up over its roof the moment it does (game/copshout.js).
 const police = createPolice(scene);
 const copShout = shot ? null : createCopShout({ project: projectToScreen, viewport });
+// Top left: how close the patrol is to coming after you, and to giving up (game/heatmeter.js).
+const heatMeter = shot ? null : createHeatMeter(document.getElementById('heat'));
 // The depot calling the taxi in for repairs once it starts smoking — see game/depotcall.js. Armed
 // while the car is above the line and fired on the frame it drops below it, so it speaks once per
 // bout of damage; a repair (or anything else that puts the HP back) re-arms it.
@@ -3523,6 +3526,7 @@ function frame() {
   // fifth blue car that punishes the thing the event asks for. Reported from a real run before the
   // rule existed: "I got busted by the actual cop car; none of the other police actually moved."
   patrol.update(dt, { boosting: boost.isEngaged() && !fares.state.gameOver });
+  heatMeter?.update(dt, patrol);
   // The cruiser's mesh and lamps, after the traffic car it wears has moved and after the patrol
   // has decided whether its bar is on.
   police.update(dt);

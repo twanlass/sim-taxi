@@ -2767,9 +2767,10 @@ two blinking out of step on the same street.
 
 ## The patrol cruiser
 
-`game/patrol.js` for its life, `sim/police.js` for its look. A police car crosses town edge to edge
-past the taxi, its bar swinging gently red and blue, and comes after you — strobing hard, driving
-faster — if you boost within a block of it.
+`game/patrol.js` for its life, `sim/police.js` for its look, `game/heatmeter.js` for the meter top
+left. A police car crosses town edge to edge past the taxi, its bar swinging gently red and blue,
+and comes after you — strobing hard, driving faster — if you boost near it long enough to fill its
+heat.
 
 It went through three shapes, and the two it left behind are the reasons for the one it has:
 
@@ -2858,10 +2859,39 @@ taxi, taken off only once `STAND_DOWN_RANGE` clear (`SPAWN_CLEARANCE` past the t
 less), through `traffic.retirePolice` — the swap-to-tail-and-retire the robbery's recycling used to
 spell out inline, and which both now need because both can have cars in the fleet at once.
 
+### The heat meter
+
+Top left, across from the cash: a siren dome, one word and one bar — the stealth game's detection
+meter. It reads the patrol's state and owns no rules, so the bar and the cop cannot disagree.
+
+| Mode | When | The bar |
+|---|---|---|
+| `patrol` (dim) | a patrol is in town and has not noticed you | empty |
+| `suspicious` (amber) | you boosted near it; the dome throbs past 0.6 | `heat`, filling |
+| `pursuit` (strobing) | it is after you and can see you | `1 - escape` |
+| `evading` (blue) | it is after you and the escape meter is filling | `1 - escape`, draining |
+| `lost` (green) | you shook it, or ducked into the depot — held 2s | — |
+
+It came out of a playtest that found the patrol "hard (you get caught a lot) and one-dimensional
+(you just hold boost)", with an auto-driving taxi going "in circles" with a cop behind it. Each of
+the three changes below answers one of those.
+
 ### Spotted, and then caught or lost
 
-**Spotted** is the old bust's rule: boost within `SPOT_RANGE` (20, one block) of the patrol car,
-engaged rather than held so the cooldown tail after release still counts. The bar comes up, the
+**Spotted is a meter, not a frame.** Boosting near the patrol car fills its `heat`, engaged rather
+than held so the cooldown tail after release still counts: `NOTICE_RATE` (1 a second) at
+`SPOT_RANGE` (20, one block), scaling with the square of closeness up to `NOTICE_MAX` (3) — a third
+of a second on its bumper, four seconds two blocks off — and nothing past `NOTICE_RANGE` (40). Off
+its sightline the rate is `NOTICE_OFF_SIGHT` (0.35): a street over, it has to hear you. Off the pill
+it holds `COOL_DELAY` (0.75s) and then falls at `COOL_RATE` (0.4 a second). It used to be the frame
+— boost within a block and the strobe came up at once — which is most of what "caught a lot" was:
+nothing to read before it happened. Ramming it on the pill is still noticed outright.
+
+**Sight** (`inSight`) is the two cars sharing a street — within `SIGHT_WIDTH` (6) of the same grid
+line — or within `SIGHT_CLOSE` (12). Under this camera what stands between two parallel streets is
+a block of buildings, so that is the city's own line of sight to within a junction.
+
+When the heat boils over the bar comes up, the
 car becomes a chasing cop (`chase = 1`, a stern chase at the taxi's junction, re-aimed per
 junction), and **"POLICE / Taxi: pull over now"** goes up in a speech bubble over its roof (`game/copshout.js`) — the
 cop talking to the player, where [dispatch's card](gameplay.md#dispatch-breaks-in) is the police
@@ -2887,13 +2917,39 @@ in contact. Who hit whom is read off the contact normal before either speed is t
 (`taxiStruck` on the bump event: the taxi brought more of the closing speed along it than the cop
 did), so a cop ramming a boosting taxi is still the arrest. The last bump is still the wreck.
 
-**Lost** is the gap between the two cars holding past `ESCAPE_BLOCKS` (2.5 blocks, 50 units) for
-`ESCAPE_HOLD` (1.5s) — a little inside the robbery's `LOST_RANGE`, which is "out of the picture" on
-a phone at play zoom, so the cop is at the edge of the frame as it gives up. Distance *between the
-cars* rather than distance *driven*, because the other reading lets a cop sitting on your bumper let
-you go. The clock runs down rather than resetting when the cop closes back in. The bar goes dark,
-dispatch says `LOST_LINE`, and the car leaves. `CHASE_MAX` (40s) calls off a chase neither car can
-finish.
+A spotted chase opens with `SPOT_GRACE` (1s) in which the cop neither rams nor arrests: the heat
+fills fastest right beside the cop, so without it the chase opened with the two cars a car length
+apart and the cop ramming at once — 5 of 32 full-tank chases caught in 0.6s.
+
+**Lost** is an escape meter filling to 1. Past `ESCAPE_BLOCKS` (2.5 blocks, 50 units) it fills at
+`1 / ESCAPE_HOLD` (3s) in sight or out — a little inside the robbery's `LOST_RANGE`, which is "out of
+the picture" on a phone at play zoom. **Out of the cop's sight** and more than `SHAKE_RANGE` (24)
+away it also fills, at `SHAKE_RATE` (0.2 a second) rising to the same rate at 50. Back in sight
+inside 50 it falls at `RESIGHT_RATE` (0.4) rather than resetting. That is the "less
+one-dimensional" half: turning off the cop's street is a way out, not just holding boost on a
+straight. Distance *between the cars* rather than distance *driven*, because the other reading lets
+a cop sitting on your bumper let you go. It was a clock of 1.5s past the line, and that alone: with
+the sightline counting too, 1.5 took a full tank's getaway from 6.0s to 3.2s, the blip below, so the
+hold went to 3 (5.4s). The bar goes dark, dispatch says `LOST_LINE`, and the car leaves. `CHASE_MAX`
+(40s) calls off a chase neither car can finish.
+
+**An auto-driving taxi runs away from it.** A taxi with no route rolls the ordinary
+straight/right/left dice at every junction, and mid-chase those rolled it back into the cop often
+enough to drive in circles: a full tank was caught on 12 of 32 staged chases, some 20s in, against
+5 for a taxi driving a route. While a patrol chases, game/patrol.js sets `taxi.fleeFrom` to the cop,
+and `fleeWeight` in sim/traffic.js weighs exits heading away by `FLEE_AWAY_W` (3) and exits heading
+back toward it by `FLEE_TOWARD_W` (0.05) — sideways left at 1, so with the cop dead behind a turn
+off its street is still a third of rolls. A routed taxi never reads it. Now 2 of 32.
+
+Measured together, against the same harness before any of it (32 staged chases a row):
+
+| taxi | boost spent | before | now |
+|---|---|---|---|
+| routed | none | 32/32 caught, ~10s | 32/32 caught, ~11s |
+| routed | 5s | 17/32 caught | 17/32 caught |
+| routed | 15s | 5/32 caught (all at 0.6s) | 0/32 caught, lost in 6.8s |
+| no route | 5s | 20/32 caught | 13/32 caught |
+| no route | 15s | 12/32 caught | 2/32 caught |
 
 **Gone to ground** is the depot. A taxi that turns in at the driveway mid-chase calls it off on the
 frame the opening takes it off the road (`hideout`, called from the depot's `onArrive` in main.js):
