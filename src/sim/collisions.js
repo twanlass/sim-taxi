@@ -220,13 +220,15 @@ export function createCollisions(cars, taxi) {
       // left in the world to recover it from: the listener runs after the fact and both cars are
       // out of the sim by then.
       const speed = taxi.v;
+      // Closing speed, not the taxi's own: a car driving away from the bumper is a nudge, one
+      // crossing in front of it is not. Read here rather than inside the bump path because the
+      // wreck needs it too — it is what decides whether the driver goes through the windscreen
+      // (game/ejection.js), and both speeds are zeroed below.
+      const rvx = Math.cos(taxi.yaw) * taxi.v - Math.cos(other.yaw) * other.v;
+      const rvz = -Math.sin(taxi.yaw) * taxi.v + Math.sin(other.yaw) * other.v;
+      const closing = Math.hypot(rvx, rvz);
 
       if (taxi.hp != null) {
-        // Closing speed, not the taxi's own: a car driving away from the bumper is a nudge, one
-        // crossing in front of it is not.
-        const rvx = Math.cos(taxi.yaw) * taxi.v - Math.cos(other.yaw) * other.v;
-        const rvz = -Math.sin(taxi.yaw) * taxi.v + Math.sin(other.yaw) * other.v;
-        const closing = Math.hypot(rvx, rvz);
         const damage = bumpDamage(closing);
         taxi.hp = Math.max(0, taxi.hp - damage);
         if (taxi.hp > 0) {
@@ -246,7 +248,7 @@ export function createCollisions(cars, taxi) {
       other.crashed = true;
       other.v = 0;
 
-      emit({ x: px, z: pz, speed, taxi, other });
+      emit({ x: px, z: pz, speed, closing, taxi, other });
       return;   // one impact per frame is plenty — the taxi is done anyway.
     }
   }

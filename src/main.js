@@ -59,6 +59,7 @@ import { createSparks } from './game/sparks.js';
 import { createRepairFx } from './game/repairfx.js';
 import { createLocoFlame } from './game/locoflame.js';
 import { createWreckage } from './game/wreckage.js';
+import { createEjection, EJECT_CLOSING } from './game/ejection.js';
 import { createTape, createCrashReplay } from './game/replay.js';
 import { carrySpeed } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
@@ -1119,6 +1120,19 @@ const wreckage = createWreckage({
   smoke: (x, y, z) => dust.add(x, z, traffic.taxi.yaw, 0.5, 0.45, PALETTE.wreckSmoke, y),
 });
 
+// The driver, thrown through the windscreen by a hard enough wreck — see game/ejection.js and
+// EJECT_CLOSING. Each time they hit the road: a small grey puff, and the taxi's own landing thud
+// turned down (there is no recording of a person landing; the jump's is the softest impact in the
+// set).
+const ejection = createEjection(scene, {
+  roadY: ROAD_Y,
+  onLand: (x, z, hard) => {
+    dust.burst(x, z, traffic.taxi.yaw, 4 + Math.round(hard * 6), 0.35 + hard * 0.3,
+      { tint: PALETTE.wreckSmoke, linger: 0.6 });
+    sfx?.play('land', { gain: 0.25 + hard * 0.45 });
+  },
+});
+
 // The crash replay's recording and its director — see game/replay.js, and REPLAY_LEAD for how the
 // two endings fit together. The boats' wake is left off the tape because the boats are: the world
 // is frozen for the replay, and a wake playing back behind a boat standing still is a wake coming
@@ -1134,6 +1148,7 @@ const replay = tape && createCrashReplay({
   // and at full gain each cut reads as another collision.
   onImpact: () => sfx?.play('crash', { gain: 0.75 }),
   hide: [clouds.group],
+  scrub: [ejection],
 });
 // A tap anywhere skips to the card, and so does any key — a replay is a reward for looking, and a
 // player who wants the retry button should not have to sit through it to get there.
@@ -1437,6 +1452,11 @@ const REPLAY_LEAD = 1200;
 // card arrives on the live wreck rather than on the cut, and that a tap which skipped the replay has
 // let go before the card is there to take it as a tap on the tally.
 const REPLAY_TAIL = 350;
+// The same breath when the driver went through the windscreen, held long enough to see them land.
+// The replay hands back ~0.49s of sim past the impact (see REPLAY_LEAD) with the slow-mo already
+// run out, and at the 21 u/s of a boost-cruise T-bone the flight is ~0.93s in the air plus 0.3 to
+// settle flat — 0.74s still to go. Under the card they would land unseen.
+const EJECT_TAIL = 900;
 let replayAt = null;
 // The sim clock the tape is stamped in: the sum of every dilated `dt` the world has been stepped by.
 let simClock = 0;
@@ -1522,7 +1542,7 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck })
   taxiDamage.hit(x, z, { rearEnd });
 });
 
-collisions.onImpact(({ x, z, speed, other }) => {
+collisions.onImpact(({ x, z, speed, closing, other }) => {
   // One detonation per car — a shockwave ring on the tarmac, a fireball and a scatter of shards,
   // all of it inside game/blast.js. It used to be four effects stacked at each point plus a third
   // wave on a setTimeout, tuned as a simulation; the beat reads better as one graphic bang per
@@ -1588,6 +1608,12 @@ collisions.onImpact(({ x, z, speed, other }) => {
     // opening apart — the pair reads as one impact from either side of it.
     lean: -struckSide,
   });
+  // A hard enough hit throws the driver out through the windscreen, away from the struck car's
+  // side so they do not land in its fireball. Off the closing speed rather than the taxi's own, so
+  // a T-bone or a head-on does it and rear-ending traffic going the same way does not.
+  if (closing >= EJECT_CLOSING) {
+    ejection.fire({ x: traffic.taxi.x, z: traffic.taxi.z, yaw, closing, side: struckSide });
+  }
   wreckage.take(traffic.wreckShell(other), {
     // A copy made on this frame: before it, the car was an instance the replay draws instead.
     hideBefore: true,
@@ -3467,7 +3493,7 @@ function frame() {
   }
   if (replay?.active()) {
     replay.update(wallDt);
-    if (!replay.active()) crashBannerAt = nowMs + REPLAY_TAIL;
+    if (!replay.active()) crashBannerAt = nowMs + (ejection.active() ? EJECT_TAIL : REPLAY_TAIL);
     renderFrame();
     return;
   }
@@ -3532,6 +3558,7 @@ function frame() {
   sparks.update(dt);
   repairFx?.update(dt);
   wreckage.update(dt);
+  ejection.update(dt);
   flyover.update(dt);
   chopper.update(dt);
   clouds.update(dt);
@@ -4204,6 +4231,7 @@ if (shot) {
     for (let step = 0; step < Math.round(shot.wreckAt * 60); step++) {
       blast.update(1 / 60);
       wreckage.update(1 / 60);
+      ejection.update(1 / 60);
       // The smoke collar is part of the wreck now, and it lives in the dust pool rather than in
       // blast.js — left out of this loop, `?shot=12` would freeze a crash with its smoke still
       // stacked on the impact point at zero age.

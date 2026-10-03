@@ -907,6 +907,11 @@ export const PALETTE = {
   // The vest is *more* saturated than the cones and lighter, so a worker still reads as a figure
   // against the props standing around them rather than as one more cone.
   hiVis: '#FF7A33',
+  // The cabbie thrown through the windscreen in a hard wreck (game/ejection.js). A work-shirt blue
+  // so they separate from both the taxi's yellow and the fireball's orange they fly out of, and a
+  // dark cap — the hat is most of what says *driver* rather than *another rider* at this size.
+  driverShirt: '#4F7BC0',
+  driverCap: '#33333C',
   hardHat: '#F0ECE0',
   // Dug-up spoil: the road base under the asphalt, not garden soil. Browner than the kerb and
   // darker than the sidewalk, so the heap has an edge against both.
