@@ -4,8 +4,8 @@ import { KERB_H, PARK_EDGE } from '../city/ground.js';
 import { birdBodyGeometry, birdWingGeometry, BIRD_STAND_Y, WING_ROOT } from '../geometry/bird.js';
 import { stampGhostMask } from '../geometry/ghostoutline.js';
 
-// A flock living in the city's parks. It potters about on the grass, takes off — often because the
-// taxi came past — climbs out and fades into the distance, then comes back in from somewhere else
+// A flock living in the city's parks, and on a few of its flat roofs (see `chooseRoosts`). It
+// potters about on the grass, takes off — often because the taxi came past — climbs out and fades into the distance, then comes back in from somewhere else
 // a while later and lands. Pure scenery: nothing routes around it, nothing collides with it,
 // nothing can be tapped on it, and neither the fare loop nor the difficulty curve knows it exists.
 // The model is in geometry/bird.js; this is the life.
@@ -35,8 +35,35 @@ const STAND_Y = PARK_Y + BIRD_STAND_Y;
 
 // How high the highest bird may be for the flock to still cast shadows — see `pose()` for why it
 // stops. Exported so tools/probe.mjs asserts against the same number rather than one that reads
-// like it.
-export const SHADOW_CEILING = PARK_Y + 0.9;
+// like it. That is the park's number; a rooftop roost's is the same 0.9 off its own deck, which is
+// what `shadowCeiling` answers.
+const SHADOW_LIFT = 0.9;
+export const SHADOW_CEILING = PARK_Y + SHADOW_LIFT;
+
+// --- Rooftops --------------------------------------------------------------------
+// A few flat roofs are somewhere a flock can land as well as the parks — pigeons on a roof are the
+// other half of where a city keeps its birds, and a flock that can be on top of a tower makes the
+// skyline worth looking at as well as the lawns. The roof is the deck `roofKit` builds (the top of
+// the cornice), and nothing stands on it but what `keep` says does.
+//
+// How many roofs, out of the forty-odd flat decks a city has. Few on purpose: a roost is a place,
+// and with two flocks and two to five parks to choose between already, three roofs puts a flock up
+// on the skyline something like a third of the time rather than making it the usual answer.
+export const ROOSTS = 3;
+// Room a flock needs. The model is 1.3 long, so a 4 × 4 deck held `ROOF_INSET` in from its edge
+// leaves a walkable square under three units on a side — about the least that six to ten pigeons
+// can stand on without reading as a heap. The setback towers' top tiers fail this on most seeds,
+// which is fine: the roofs that pass are the broad mid-rise ones you can actually see a bird on.
+const ROOST_MIN = 4;
+// How far in from a roof's edge a bird is held. There is no parapet to stop at — the cornice is
+// flush with the deck — so this is just over half a bird, which keeps the tail over the roof.
+const ROOF_INSET = 0.6;
+// Kept clear round the furniture on a deck: the court's half a bird's length, for the same reason.
+const FURNITURE_PAD = 0.5;
+// The lowest a flock leaving a roof climbs to above it, whatever altitude it drew. `ALT` is
+// measured off the grass and the tallest deck is within a unit of its floor, so without this a
+// departure from the top of a tower would leap and then hold level a few centimetres up.
+const ROOF_CLIMB = 3;
 
 // How far inside a park's own bounds a bird may walk. The green starts `PARK_EDGE` in from the
 // block bounds — the kerb plus the walk that rings it — and a bird is 1.3 units long, so this is
@@ -200,6 +227,56 @@ export function birdTint(rng, { pale = PALE_SHARE } = {}) {
   return new THREE.Color().setScalar(rng.range(0.86, 1.12));
 }
 
+/**
+ * The flat roofs a flock may land on, as areas: the deck's own bounds, its height, and the
+ * furniture on it padded out to rectangles a bird walks round.
+ *
+ * Off a stream of its own, after the city is built, so choosing roofs reshuffles nothing — and off
+ * the *city* seed in main.js, because which roofs the pigeons use is a fact about the map. Only
+ * decks with a clear spot left after the furniture qualify: `spotIn` retries a draw that lands in
+ * a plant room, and a roof that is mostly plant room would spend that budget.
+ *
+ * @param decks  `createBuildings(...).decks`
+ */
+export function chooseRoosts(decks, rng, count = ROOSTS) {
+  const roomy = decks
+    .filter((d) => d.cw >= ROOST_MIN && d.cd >= ROOST_MIN)
+    .map((d) => ({
+      x0: d.cx - d.cw / 2, x1: d.cx + d.cw / 2, z0: d.cz - d.cd / 2, z1: d.cz + d.cd / 2,
+      y: d.deck, roof: true, inset: ROOF_INSET,
+      keep: (d.keep ?? []).map((k) => ({
+        x0: k.x0 - FURNITURE_PAD, x1: k.x1 + FURNITURE_PAD,
+        z0: k.z0 - FURNITURE_PAD, z1: k.z1 + FURNITURE_PAD,
+      })),
+    }))
+    .filter((a) => clearShare(a) >= 0.4);
+  const picked = [];
+  while (picked.length < count && roomy.length) {
+    picked.push(roomy.splice(rng.int(0, roomy.length - 1), 1)[0]);
+  }
+  return picked;
+}
+
+/** How much of an area's walkable interior no furniture stands on, sampled on a 6 × 6 grid. */
+function clearShare(area) {
+  const inset = area.inset ?? PARK_INSET;
+  let clear = 0;
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 6; j++) {
+      const x = area.x0 + inset + ((i + 0.5) / 6) * (area.x1 - area.x0 - 2 * inset);
+      const z = area.z0 + inset + ((j + 0.5) / 6) * (area.z1 - area.z0 - 2 * inset);
+      if (!(area.keep ?? []).some((k) => x > k.x0 && x < k.x1 && z > k.z0 && z < k.z1)) clear++;
+    }
+  }
+  return clear / 36;
+}
+
+/** Where a bird's feet are in an area: the grass, or the deck of a roost. */
+export const groundOf = (area) => area?.y ?? PARK_Y;
+
+/** The height under which a flock in `area` still casts shadows — see `pose()`. */
+export const shadowCeiling = (area) => groundOf(area) + SHADOW_LIFT;
+
 /** Every green area a flock could live in: the merged districts first, then the pocket parks. */
 export function parkAreas(layout) {
   const areas = [];
@@ -225,12 +302,14 @@ export function parkAreas(layout) {
  *               and rectangles `{ x0, x1, z0, z1 }`, the basketball court, where it would be
  *               standing among the players' feet.
  */
-export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = [] } = {}) {
+export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = [], roosts = [] } = {}) {
   const group = new THREE.Group();
   group.name = 'birds';
   scene.add(group);
 
-  const areas = parkAreas(layout);
+  const parks = parkAreas(layout);
+  // The roofs ride on the end, so a flock with none behaves exactly as it did before there were any.
+  const areas = [...parks, ...roosts];
   const state = {
     mode: 'none',                // 'ground' | 'up' | 'gone' | 'in'
     area: null,
@@ -241,6 +320,8 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
     stay: 0,                     // s until they leave of their own accord
     wait: 0,                     // s of being away left to run
     alt: ALT[0],
+    standY: STAND_Y,             // where a bird's origin sits when it is standing in `area`
+    top: STAND_Y + ALT[0],       // the height a return leg starts its descent from
     launch: { x: 0, z: 0 },
     t: 0,
   };
@@ -249,7 +330,7 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
   // districts would have to fail their 60 placement attempts *and* every one of the 25 blocks would
   // have to miss its pocket-park roll. Returning a stub rather than throwing keeps that from being
   // the one thing that takes a run down, since nothing here matters to the game.
-  if (!areas.length) {
+  if (!parks.length) {
     return {
       group, state, birds: [], meshes: [], material: null,
       update: () => {}, takeOff: () => {}, settle: () => {}, centre: () => ({ x: 0, z: 0 }),
@@ -332,10 +413,19 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
     });
   }
 
-  const inside = (area) => ({
-    x0: area.x0 + PARK_INSET, x1: area.x1 - PARK_INSET,
-    z0: area.z0 + PARK_INSET, z1: area.z1 - PARK_INSET,
-  });
+  const inside = (area) => {
+    const inset = area.inset ?? PARK_INSET;
+    return { x0: area.x0 + inset, x1: area.x1 - inset, z0: area.z0 + inset, z1: area.z1 - inset };
+  };
+
+  /** What a bird must not stand in here: the lawn's pond and court, plus a roof's furniture. */
+  const obstacles = () => (state.area?.keep ? [...keepOut, ...state.area.keep] : keepOut);
+
+  /** Move the flock's frame of reference onto `area` — its ground, and so its standing height. */
+  function enter(area) {
+    state.area = area;
+    state.standY = groundOf(area) + BIRD_STAND_Y;
+  }
 
   /**
    * A point moved to the nearest dry land, if it landed in the water.
@@ -355,7 +445,7 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
   const SHORE_SLACK = 0.05;
 
   function ashore(p, b = null) {
-    for (const keep of keepOut) {
+    for (const keep of obstacles()) {
       if (keep.r === undefined) {
         offRect(p, keep, b);
         continue;
@@ -375,7 +465,17 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
 
   function spotIn(area) {
     const b = inside(area);
-    return ashore({ x: rng.range(b.x0, b.x1), z: rng.range(b.z0, b.z1) }, b);
+    // A roof's furniture can leave `offRect` no edge to push out through that stays on the deck,
+    // and it then leaves the point where it is — inside a plant room. So a roof redraws instead,
+    // and only falls back to the push if a handful of draws all land in something.
+    const keep = area.keep ?? [];
+    for (let tries = keep.length ? 8 : 1; tries > 0; tries--) {
+      const p = { x: rng.range(b.x0, b.x1), z: rng.range(b.z0, b.z1) };
+      if (tries === 1 || !keep.some((k) => p.x > k.x0 && p.x < k.x1 && p.z > k.z0 && p.z < k.z1)) {
+        return ashore(p, b);
+      }
+    }
+    return null;                    // unreachable: the last try always returns
   }
 
   /**
@@ -393,14 +493,14 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
    * The last fallback is a city with one park, or none free — neither of which the layout generator
    * has produced — and it lands somewhere rather than leaving a flock circling.
    */
-  function pickArea(notThis = null) {
+  function pickArea(notThis = null, pool = areas) {
     const taken = avoid(state);
-    const free = areas.filter((a) => !taken.includes(a));
+    const free = pool.filter((a) => !taken.includes(a));
     const fresh = free.filter((a) => a !== notThis);
     if (fresh.length) return rng.pick(fresh);
     if (free.length) return rng.pick(free);
-    const moved = areas.filter((a) => a !== notThis);
-    return rng.pick(moved.length ? moved : areas);
+    const moved = pool.filter((a) => a !== notThis);
+    return rng.pick(moved.length ? moved : pool);
   }
 
   /**
@@ -414,7 +514,7 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
    * water an obstacle rather than a forbidden destination.
    */
   function stopAtShore(fromX, fromZ, p) {
-    for (const keep of keepOut) {
+    for (const keep of obstacles()) {
       if (keep.r === undefined) {
         stopAtRect(fromX, fromZ, p, keep);
         continue;
@@ -569,7 +669,11 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
       // street with nothing above it — the aeroplane's problem, in miniature. 0.9 units is where
       // the offset reaches a bird's own length, and a flock is a fifth of a second past its leap
       // by then with the eye on the birds rather than the grass.
-      mesh.castShadow = highest < SHADOW_CEILING;
+      //
+      // Measured off the ground the flock is standing on, so a flock pottering about on a roof
+      // shadows its own deck — the 0.9 is about the offset of a shadow from its caster, which does
+      // not care how far below the grass is.
+      mesh.castShadow = highest < shadowCeiling(state.area);
     }
 
     material.opacity = state.fade;
@@ -602,7 +706,7 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
       }
     }
 
-    bird.y = STAND_Y + (bird.moving ? BOB * Math.abs(Math.sin(bird.stepPhase)) : 0);
+    bird.y = state.standY + (bird.moving ? BOB * Math.abs(Math.sin(bird.stepPhase)) : 0);
     bird.roll = bird.moving ? LIST * Math.sin(bird.stepPhase) : 0;
     bird.wobble = bird.moving ? WADDLE * Math.sin(bird.stepPhase * 0.5) : 0;
     // One dip and back up over PECK_TIME, so it lands on zero at both ends and never snaps.
@@ -661,7 +765,7 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
       bird.vy = leaping
         ? LEAP_VY * (1 - 0.4 * (bird.airT / LEAP_TIME))
         : CLIMB;
-      bird.y = Math.min(bird.y + bird.vy * dt, PARK_Y + state.alt);
+      bird.y = Math.min(bird.y + bird.vy * dt, Math.max(PARK_Y + state.alt, state.standY + ROOF_CLIMB));
       bird.speed = Math.min(CRUISE, bird.speed + ACCEL * dt);
       bird.yaw += clamp(wrapAngle(bird.yawWant - bird.yaw), -WALK_TURN * dt, WALK_TURN * dt);
 
@@ -693,13 +797,14 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
     // flocks stacked on one lawn is the single arrangement the pair exists to avoid, and coming
     // home to it would undo the separation a whole run had been keeping.
     const occupied = avoid(state).includes(state.area);
-    if (areas.length > 1 && (occupied || rng.chance(0.6))) state.area = pickArea(state.area);
+    if (areas.length > 1 && (occupied || rng.chance(0.6))) enter(pickArea(state.area));
     const area = state.area;
     const cx = (area.x0 + area.x1) / 2;
     const cz = (area.z0 + area.z1) / 2;
     const approach = rng.range(0, Math.PI * 2);
     const f = heading(approach);
     state.alt = rng.range(ALT[0], ALT[1]);
+    state.top = Math.max(STAND_Y + state.alt, state.standY + ROOF_CLIMB);
     state.mode = 'in';
     state.fade = 0;
     group.visible = true;
@@ -720,7 +825,7 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
       // step the flock by a stand height. Invisible either way at this distance, and a placement
       // that disagrees with the path it starts is the kind of thing that stops being invisible
       // the moment somebody shortens the fade.
-      bird.y = STAND_Y + state.alt;
+      bird.y = state.top;
       bird.yaw = Math.atan2(-(bird.lz - bird.ez), bird.lx - bird.ex);
       bird.speed = CRUISE * rng.range(0.88, 1.06);
       bird.u = 0;
@@ -745,7 +850,7 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
       const wasY = bird.y;
       // Descend early and flatten late — the shape of an approach, rather than a straight glide
       // that would have to stop dead at the grass.
-      bird.y = STAND_Y + state.alt * (1 - bird.u) ** 1.5;
+      bird.y = state.standY + (state.top - state.standY) * (1 - bird.u) ** 1.5;
       bird.vy = dt > 0 ? (bird.y - wasY) / dt : 0;
 
       // Beating harder as it slows: a bird holds itself up on its wings once there is no speed
@@ -755,7 +860,7 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
 
       if (bird.u >= 1) {
         bird.down = true;
-        bird.y = STAND_Y;
+        bird.y = state.standY;
         bird.pitch = 0;
         bird.roll = 0;
         bird.dwell = rng.range(PAUSE[0], PAUSE[1]);
@@ -791,7 +896,10 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
     // A car coming past is the reason a flock goes up, and making that the *player's* car is what
     // ties an ambient effect to the game without it costing the game anything. They leave away
     // from it, which is the only part of a startle that has to look deliberate.
-    if (taxi) {
+    // Not on a roof: the taxi is a dozen storeys down, and a street-level startle range measured in
+    // plan would put a roost on a corner tower in the air every time the car went round the block.
+    // A rooftop flock leaves when it has had enough.
+    if (taxi && !state.area.roof) {
       for (const bird of birds) {
         if (Math.hypot(bird.x - taxi.x, bird.z - taxi.z) < STARTLE_RANGE) {
           const c = centre();
@@ -804,9 +912,13 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
     if (state.stay <= 0) takeOff();
   }
 
-  /** Put the flock down in a park, walking, as if it had just landed. */
+  /**
+   * Put the flock down, walking, as if it had just landed. In a park unless told otherwise: this is
+   * how a run opens, and the city's entrance grows every building out of the ground — a flock
+   * settled on a roof would stand in mid-air over a hole for the two seconds it takes to arrive.
+   */
   function settle(area = null) {
-    state.area = area ?? pickArea();
+    enter(area ?? pickArea(null, parks));
     state.mode = 'ground';
     state.settled = 0;
     state.stay = rng.range(GROUND_STAY[0], GROUND_STAY[1]);
@@ -816,7 +928,7 @@ export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = []
       const spot = spotIn(state.area);
       bird.x = spot.x;
       bird.z = spot.z;
-      bird.y = STAND_Y;
+      bird.y = state.standY;
       bird.yaw = rng.range(0, Math.PI * 2);
       bird.roll = 0;
       bird.pitch = 0;

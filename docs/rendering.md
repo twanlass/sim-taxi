@@ -2830,6 +2830,21 @@ exactly two usable parks, so asking those two wants the other way round makes ev
 such a city land on the other flock's grass. The probe drives the pair for ten minutes and asserts
 they never share, on the seed whose city has only the two.
 
+**A few rooftops are roosts too.** `chooseRoosts` picks three flat decks (`createBuildings(...).decks`,
+minus the helipad's) at least 4 × 4 with 40% of their interior clear of furniture, off the *city*
+seed — which roofs the pigeons use is part of the map. They join the parks in `pickArea`'s pool, so
+a flock coming back can land on one; the two flocks share the same roost objects so `avoid` keeps
+them apart by identity, as it does for lawns. Three things change on a roof. The deck's furniture
+footprint (recorded by `roofFurniture` as `keep`, without touching the city's rng) is padded by half
+a bird and walked round like the court, and a spot drawn inside it is redrawn rather than pushed,
+because a cramped deck can leave the push no edge that stays on the roof. The taxi cannot startle a
+rooftop flock — it is a dozen storeys down, and a plan-distance range would launch a corner tower's
+roost every lap of the block — so it leaves on its timer. And heights are measured off the area's
+own ground (`groundOf`): the stand height, the shadow gate (`shadowCeiling`), and a departure's
+climb, which is held at least 3 units above the deck since `ALT` is measured off the grass. The run
+always *opens* in a park: the entrance grows every building out of the ground, and a flock settled
+on a roof would hang over a hole while it did.
+
 **The whole flock is three draw calls.** One `InstancedMesh` for the bodies and one per wing side,
 however many birds there are. A wing beat is a rotation about the shoulder, and a rotation about a
 fixed point in the body's own frame goes straight into the instance matrix — so articulating six to

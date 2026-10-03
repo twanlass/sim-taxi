@@ -121,6 +121,7 @@ import {
 } from '../src/geometry/bird.js';
 import {
   createBirds, bodyQuaternion, parkAreas, SETTLE_MIN, STARTLE_RANGE, SHADOW_CEILING,
+  chooseRoosts, shadowCeiling, groundOf, ROOSTS,
 } from '../src/game/birds.js';
 import {
   propMaterial, unlitMaterial, setAmbientOcclusion, setCrayon, setCartoon,
@@ -11752,9 +11753,11 @@ let chopperOrder; // likewise
   check('the wings span what geometry/bird.js says they do', Math.abs(span - BIRD_SPAN) < 1e-6,
     `${span.toFixed(2)} tip to tip`);
 
-  // Ten minutes of a flock's life, which is several visits and a lot more standing about.
+  // Ten minutes of a flock's life, which is several visits and a lot more standing about — with the
+  // city's rooftop roosts on offer, so the roof legs are asked the same questions as the lawns.
   const birdScene = new THREE.Scene();
-  const flock = createBirds(birdScene, makeRng(seed + 199), layout);
+  const roosts = chooseRoosts(buildings.decks, makeRng(seed + 155));
+  const flock = createBirds(birdScene, makeRng(seed + 199), layout, { roosts });
   const [flockBody, flockLeft, flockRight] = flock.meshes;
 
   let onGround = 0;
@@ -11765,6 +11768,9 @@ let chopperOrder; // likewise
   let fadeStep = 0;                   // the biggest one-frame change in opacity
   let wingFaults = 0;                 // frames where the two wings disagreed about which way is up
   let shadowAloft = 0;                // frames casting shadows with a bird well off the ground
+  let roofFrames = 0;                 // frames spent on the ground on a roof
+  let roofOffDeck = 0;                // walking birds on a roof but not standing on its deck
+  let inFurniture = 0;                // walking birds inside a plant room, AC unit or tank
   let lastFade = flock.state.fade;
 
   const matrix = new THREE.Matrix4();
@@ -11799,8 +11805,19 @@ let chopperOrder; // likewise
         && (bird.x < area.x0 || bird.x > area.x1 || bird.z < area.z0 || bird.z > area.z1)) {
         offTheGrass++;
       }
+      if (flock.state.mode === 'ground' && area.roof) {
+        if (Math.abs(bird.y - BIRD_STAND_Y - area.y) > 0.05) roofOffDeck++;
+        // Against the furniture's *own* footprint rather than the padded one the birds walk round,
+        // so this fails on a bird in a box and not on one brushing the padding.
+        const deck = buildings.decks.find((d) => Math.abs(d.cx - (area.x0 + area.x1) / 2) < 1e-9
+          && Math.abs(d.cz - (area.z0 + area.z1) / 2) < 1e-9);
+        if (deck.keep.some((k) => bird.x > k.x0 && bird.x < k.x1 && bird.z > k.z0 && bird.z < k.z1)) {
+          inFurniture++;
+        }
+      }
     }
-    if (flockBody.castShadow && highest > SHADOW_CEILING) shadowAloft++;
+    if (flock.state.mode === 'ground' && area.roof) roofFrames++;
+    if (flockBody.castShadow && highest > shadowCeiling(area)) shadowAloft++;
 
     if (flock.state.mode === 'ground') {
       onGround++;
@@ -11841,6 +11858,35 @@ let chopperOrder; // likewise
     `${flock.meshes.length} meshes for the whole flock`);
   check('the city has parks for it to live in', parkAreas(layout).length > 0,
     `${parkAreas(layout).length} green areas`);
+  check('a few flat roofs are roosts too, and none of them is the helipad',
+    roosts.length === ROOSTS && roosts.every((r) => !buildings.pad
+      || Math.hypot((r.x0 + r.x1) / 2 - buildings.pad.x, (r.z0 + r.z1) / 2 - buildings.pad.z) > 1e-6),
+    `${roosts.length} roosts from ${buildings.decks.length} flat decks`);
+  check('a flock on a roof stands on its deck, round its furniture',
+    roofOffDeck === 0 && inFurniture === 0,
+    `${(roofFrames / 60).toFixed(0)}s on roofs: ${roofOffDeck} bird-frames off the deck, `
+      + `${inFurniture} inside a plant room or tank`);
+
+  // Settled straight onto a roost and left there, so the roof leg is asked on every seed rather than
+  // only when the ten-minute run above happens to draw one. Shadows are the point: a roosting flock
+  // is a long way above the grass, and measured off the grass it would never cast.
+  if (roosts.length) {
+    const roofScene = new THREE.Scene();
+    const roofFlock = createBirds(roofScene, makeRng(seed + 213), layout, { roosts });
+    const roost = roosts[0];
+    roofFlock.settle(roost);
+    roofFlock.update(1 / 60);
+    const standing = roofFlock.birds.every((b) => Math.abs(b.y - BIRD_STAND_Y - groundOf(roost)) < 0.05);
+    check('a flock settled on a roof stands on it and shadows it',
+      standing && roofFlock.meshes[0].castShadow,
+      `deck at ${roost.y.toFixed(2)}, shadows ${roofFlock.meshes[0].castShadow ? 'on' : 'off'}`);
+    // And it climbs *off* the roof when it leaves, rather than levelling out on top of it.
+    roofFlock.takeOff();
+    for (let step = 0; step < 120; step++) roofFlock.update(1 / 60);
+    const lowestAloft = Math.min(...roofFlock.birds.map((b) => b.y));
+    check('a flock leaving a roof climbs away from it', lowestAloft > roost.y + 2,
+      `lowest bird ${(lowestAloft - roost.y).toFixed(2)} above the deck after 2s`);
+  }
 
   // The taxi coming past is what puts them up. Driven as a car that *shadows* the flock at a fixed
   // gap, which is not a thing that happens in a run — but a car parked somewhere plausible next to
