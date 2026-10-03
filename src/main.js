@@ -36,7 +36,6 @@ import {
   BOARD_SECONDS,
 } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
-import { createAudioPanel } from './game/audiopanel.js';
 import { createDriveThru } from './game/drivethru.js';
 import { createBurgerRun } from './game/burgerrun.js';
 import { createDepotRun } from './game/depotrun.js';
@@ -3937,7 +3936,9 @@ function frame() {
 // there — most players never open it anyway, so it's opt-in now: `?debug` or `?settings` in the
 // URL, either present with no value needed.
 const debugParams = new URLSearchParams(window.location.search);
-const wantsDebugPanel = debugParams.has('debug') || debugParams.has('settings');
+// `?audio` was the sound designer's own panel; it is the Audio sections of this one now, and the
+// flag still opens it.
+const wantsDebugPanel = debugParams.has('debug') || debugParams.has('settings') || debugParams.has('audio');
 // Freeze-and-zoom for tuning things that are a few pixels across at play zoom — see
 // game/inspect.js. `I` toggles it; the debug panel has the buttons.
 const inspect = !shot && wantsDebugPanel ? createInspect({
@@ -3957,9 +3958,6 @@ const inspect = !shot && wantsDebugPanel ? createInspect({
   // pedal nobody is holding.
   onChange: (on) => { if (on) { boost.release(); releaseBrake(); dropPedalGesture(); } },
 }) : null;
-// The sound designer's panel is its own flag, so it comes up without the rest — see
-// game/audiopanel.js. `?debug&audio` shows both.
-const wantsAudioPanel = debugParams.has('audio');
 // `?finishes` opens on the car finishes' false-colour view (util/geo.js) — the same switch as the
 // panel's "Show finishes", reachable from a screenshot URL, which has no panel.
 if (debugParams.has('finishes')) setGlossGlobal('showFinishes', true);
@@ -4529,10 +4527,9 @@ if (!shot && wantsDebugPanel) {
     loco,
     /** True when the sliders opened on a tuning restored from a previous session. */
     locoRestored: Boolean(stashedLoco),
+    sfx,
   });
 }
-
-if (sfx && wantsAudioPanel) createAudioPanel({ sfx });
 
 window.__taxi = {
   traffic,

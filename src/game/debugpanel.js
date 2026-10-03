@@ -10,6 +10,7 @@ import {
 } from '../util/geo.js';
 import { MIN_ELEVATION } from './daylight.js';
 import { BLOOM_INTENSITY, BLOOM_KINDS } from './bloom.js';
+import { buildAudioSections } from './audiopanel.js';
 
 // Screen pixels to a world unit at play zoom, for the readouts that need one. Derived rather than
 // written down as the 7.7 that appears as prose all over this project: the frustum is sized by
@@ -114,6 +115,9 @@ export function createDebugPanel({
   clouds = null,
   // Freeze-and-zoom (game/inspect.js), or null in the boot pass and in shot mode.
   inspect = null,
+  // The sound effects (game/sfx.js), for the Audio sections — null in the boot pass and in shot
+  // mode, which have no audio, and then the sections are left out.
+  sfx = null,
 }) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
@@ -1111,6 +1115,15 @@ export function createDebugPanel({
   toggle.addEventListener('click', () => { if (!panel.hidden) showCount(); });
   panel.append(wipe);
 
+  // --- Audio ----------------------------------------------------------------
+  // The sound designer's sections — game/audiopanel.js. Its status line polls only while the
+  // panel is open, so it hears about the toggle; registered after the one above, so `panel.hidden`
+  // is already the new state.
+  if (sfx) {
+    const audio = buildAudioSections(panel, sfx);
+    toggle.addEventListener('click', () => (panel.hidden ? audio.close() : audio.open()));
+  }
+
   // --- Export ---------------------------------------------------------------
   // Reads live objects rather than the slider positions, so it captures manual overrides too —
   // e.g. a sun colour picked after the time-of-day slider suggested a different one.
@@ -1230,8 +1243,9 @@ function saveOpen(open) {
   try { sessionStorage.setItem(OPEN_KEY, JSON.stringify([...open])); } catch { /* private mode */ }
 }
 
-/** What a search matches an item on: a row's label, a button's text — nothing else. */
+/** What a search matches an item on: a row's label, a button's text, or a `data-search`. */
 function itemText(el) {
+  if (el.dataset?.search) return el.dataset.search;
   if (el.classList.contains('dbg-row')) return el.firstElementChild?.textContent ?? '';
   if (el.matches('button')) return el.textContent;
   const buttons = el.querySelectorAll('button');
@@ -1300,7 +1314,8 @@ function organise(panel) {
   panel.append(empty);
 
   // A section's badge counts its rows, or its matches while a search is narrowing it.
-  const rowCount = (s) => String(s.items.filter((i) => i.el.classList.contains('dbg-row')).length || '');
+  const rowCount = (s) => String(s.items.filter((i) => i.el.classList.contains('dbg-row')
+    || i.el.dataset?.search).length || '');
   for (const s of sections) s.count.textContent = rowCount(s);
 
   function setOpen(s, on) {

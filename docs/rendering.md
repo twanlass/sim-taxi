@@ -4363,8 +4363,8 @@ section only has to start with `heading()`. Search matches section titles plus r
 button text (every word has to land somewhere, so "loco brake" finds one slider), forces matching
 sections open and hides the rest. Which sections the user opened is kept in `sessionStorage` and is
 never written while a search is narrowing the panel, so clearing the search restores it. The look
-is deliberately a neutral tool style rather than the game's; the audio panel borrows its rows and
-buttons.
+is deliberately a neutral tool style rather than the game's. The sound designer's mix controls
+are sections here too ([audio.md](audio.md)); `?audio` opens the same panel.
 
 Touching any lighting control stops the day cycle, rather than letting the next frame overwrite the
 change. **Copy settings JSON** exports the live values (not the slider positions, so manual

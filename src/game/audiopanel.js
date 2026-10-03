@@ -1,9 +1,11 @@
 /**
- * The sound designer's panel: every number in `assets/audio/mix.json`, live, behind a 🔊 button.
+ * The sound designer's controls: every number in `assets/audio/mix.json`, live, as the Audio
+ * sections of the ⚙️ panel (game/debugpanel.js).
  *
- * Its own panel and its own flag (`?audio`) rather than a section of the ⚙️ one, because the
- * person using it is not the person using that — a designer tuning a crash does not want to scroll
- * past the sun. The two can be open together (`?debug&audio`); the 🔊 then sits beside the ⚙️.
+ * This used to be its own panel behind a 🔊 button and its own `?audio` flag, on the grounds that a
+ * designer tuning a crash does not want to scroll past the sun. Collapsed sections and the panel's
+ * search answer that better than a second panel did, so it is one panel now; `?audio` still works
+ * and opens the same ⚙️ panel.
  *
  * Export is a **file**, not a description: "Download mix.json" writes exactly the shape sfx.js
  * imports, so a finished mix goes back into the game by dropping it over `assets/audio/mix.json`.
@@ -11,8 +13,9 @@
  *
  * Every change is stashed in `localStorage` as it lands, for the reason game/locostash.js gives:
  * a crash ends the run and Retry reloads the page, which is exactly when a tuning session gets
- * interrupted. The stash is only ever read here, and this panel is only built under `?audio`, so
- * a half-finished mix can never leak into an ordinary session. Storage failing is "no stash".
+ * interrupted. The stash is only ever read here, and these sections are only built with the ⚙️
+ * panel (`?debug`, `?settings` or `?audio`), so a half-finished mix can never leak into an ordinary
+ * session. Storage failing is "no stash".
  *
  * Levels are shown in dB and rates in semitones, because that is how a designer thinks about
  * them; the file keeps linear gain and a playback rate, because that is what Web Audio takes.
@@ -81,25 +84,29 @@ function row(parent, label, input) {
 const slider = (min, max, step, value) => el('input', { type: 'range', min, max, step, value });
 
 /**
- * @param {object} opts
- * @param {object} opts.sfx  The handle from createSfx — `state`, `tuning`, `tune`, `reset`,
+ * Appends the audio sections to the ⚙️ panel, flat — a heading and what follows it, which the
+ * panel folds into sections afterwards.
+ *
+ * @param {HTMLElement} host  The ⚙️ panel.
+ * @param {object} sfx  The handle from createSfx — `state`, `tuning`, `tune`, `reset`,
  *   `audition`, `stopAuditions`, `play`.
+ * @returns {{ open: () => void, close: () => void }}  Called as the ⚙️ panel opens and closes.
  */
-export function createAudioPanel({ sfx }) {
+export function buildAudioSections(host, sfx) {
   const stashed = loadStash();
   if (stashed) sfx.tune(stashed);
 
-  const toggle = el('button', { id: 'aud-toggle', type: 'button', textContent: '🔊', title: 'Audio mix' });
-  const panel = el('div', { id: 'aud-panel', hidden: true });
-  // Beside the ⚙️ when both are up, rather than on top of it.
-  if (document.getElementById('dbg-toggle')) document.body.classList.add('aud-beside-dbg');
-  document.body.append(toggle, panel);
+  // These controls type (the import box) and play (the ▶ buttons); neither should steer the taxi,
+  // pause the game or mute it. The game's key handlers are on `window`, bubbling. Guarded per
+  // element rather than on the whole ⚙️ panel, whose `I` key relies on reaching `window`.
+  const panel = {
+    append(...nodes) {
+      for (const node of nodes) node.addEventListener?.('keydown', (event) => event.stopPropagation());
+      host.append(...nodes);
+    },
+  };
 
-  // The panel types (the import box) and plays (the ▶ buttons); neither should steer the taxi,
-  // pause the game or mute it. The game's key handlers are on `window`, bubbling.
-  panel.addEventListener('keydown', (event) => event.stopPropagation());
-
-  const heading = (text) => panel.append(el('h4', { textContent: text }));
+  const heading = (text) => host.append(el('h4', { textContent: text }));
   const note = (text) => {
     const p = el('p', { className: 'dbg-note', textContent: text });
     panel.append(p);
@@ -128,7 +135,7 @@ export function createAudioPanel({ sfx }) {
   }
 
   // --- Master ---------------------------------------------------------------
-  heading('Master');
+  heading('Audio');
   {
     const input = slider(-30, 12, 0.5, 0);
     const value = row(panel, 'Level', input);
@@ -143,7 +150,7 @@ export function createAudioPanel({ sfx }) {
   }
 
   // --- Beds -----------------------------------------------------------------
-  heading('Engine');
+  heading('Engine sound');
   note('Beds run all the time and follow the taxi. Drive to hear these.');
   for (const [key, label, min, max, step, show] of ENGINE) {
     const input = slider(min, max, step, sfx.tuning().engine[key]);
@@ -170,6 +177,8 @@ export function createAudioPanel({ sfx }) {
 
   for (const key of Object.keys(SHIPPED_MIX.sounds)) {
     const box = el('div', { className: 'aud-sound' });
+    // What the ⚙️ panel's search matches this box on; its only button is a ▶.
+    box.dataset.search = `${key} ${SHIPPED_MIX.sounds[key].file}`;
     const play = el('button', { type: 'button', className: 'aud-play', textContent: '▶', title: `Play ${key}` });
     const takes = SOUNDS[key].length;
     const fileText = `${SHIPPED_MIX.sounds[key].file}${LOOPS.has(key) ? ' · loop' : ''}`
@@ -224,7 +233,7 @@ export function createAudioPanel({ sfx }) {
   }
 
   // --- Export ---------------------------------------------------------------
-  heading('Export');
+  heading('Audio export');
   panel.append(saveNote);
 
   const json = () => `${JSON.stringify(sfx.tuning(), null, 2)}\n`;
@@ -287,18 +296,16 @@ export function createAudioPanel({ sfx }) {
   // The status line is the one readout that moves on its own (files decoding after the first tap,
   // mute, pause), so it polls while the panel is open rather than asking sfx for events.
   let timer = 0;
-  toggle.addEventListener('click', () => {
-    panel.hidden = !panel.hidden;
-    clearInterval(timer);
-    if (!panel.hidden) {
-      sync();
-      paintStatus();
-      timer = setInterval(paintStatus, 500);
-    }
-  });
-
   sync();
   changed();
   paintStatus();
-  return { panel, toggle };
+  return {
+    open() {
+      clearInterval(timer);
+      sync();
+      paintStatus();
+      timer = setInterval(paintStatus, 500);
+    },
+    close() { clearInterval(timer); },
+  };
 }
