@@ -389,6 +389,13 @@ else, so the hold is gone.
 `geometry/boat.js` builds them, `game/boats.js` runs them. **Run seed, not city seed**: which span
 lifts is a fact about the map and has to stay learnable, but when it lifts is the situation.
 
+**What they look like.** The barge is a flat deck barge raked at both ends, carrying shipping
+containers (stacked two high at most, under `BARGE_AIR`) and loose crates in a mix each hull draws
+for itself. The boat that asks for the lift is a white **sailboat** with its sails down and a tall
+mast; the code still calls it the tug (`kind: 'tug'`, `TUG_AIR`, `TUG_LEN`). Its masthead sits at
+`TUG_AIR` exactly, and that is the ceiling on how big the mast can be: it still has to pass under
+both arched spans unopened. The mast reads as big by sitting on the lowest hull on the river.
+
 A barge every 16–34s, a tug every 90–150s and never two at once. Both are slow on purpose — 2.6 and
 3.4 units per second against a car's 8.5 — because what sells a boat is being the slowest thing in
 the frame. The tug's wait went 55–95 → 90–150 with the cycle: a lift is a ten-second event now, and
