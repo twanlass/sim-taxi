@@ -1,3 +1,5 @@
+import { createSpeech } from './speech.js';
+
 // "New Move Unlocked": the card that teaches the bootleg (game/bootleg.js) — hold Loco Mode, then
 // tap the brake twice, and the taxi spins round onto the far lane.
 //
@@ -31,6 +33,10 @@
 // **The world stops**, exactly as it does for the robber's line and the pause (an early return
 // from `frame()` that still draws). The card lands mid-run with the clocks running, and a player
 // reading an animation is not driving.
+//
+// **The tutorial's own card.** It was first a full-screen dimmed screen with its own type and a
+// caption, and Tyler wanted it to be the speech bubble every other tip is: pointed at the pedals it
+// is about, with the row of buttons inside it and no words beyond the title and the name.
 
 export const SEEN_KEY = 'simTaxi.seen.uturn';
 
@@ -71,14 +77,24 @@ export function createSeenFlag({ storage, key = SEEN_KEY } = {}) {
   };
 }
 
+// The card's words: the tutorial bubble's title slot carries the eyebrow, its line the move's name.
+// Nothing else — the pedal row is the instruction (Tyler, 2026-10-04: no caption, no "tap to
+// continue"; every tutorial bubble is answered by a tap and this one is no different).
+const TITLE = 'New Move Unlocked';
+const LINE = 'U-Turn';
+
 /**
- * The card itself. Browser-only: it clones the HUD's pedal art.
+ * The card itself: the game's speech bubble (game/speech.js) — the same card every tutorial tip
+ * uses — pinned to the gas pedal, with the pedal row under its line. Browser-only: it clones the
+ * HUD's pedal art.
  *
- * @param onClose  () => void — the card has been dismissed
+ * @param viewport  util/viewport.js
+ * @param target    () => {x, y} | null — where the pointer touches: the top of the gas pedal
+ * @param onClose   () => void — the card has been dismissed
  */
-export function createNewMove({ onClose = () => {} } = {}) {
+export function createNewMove({ viewport = null, target = () => null, onClose = () => {} } = {}) {
   const root = document.getElementById('new-move');
-  const idle = { isOpen: () => false, open: () => false, close: () => {} };
+  const idle = { isOpen: () => false, open: () => false, close: () => {}, update: () => {} };
   if (!root) return idle;
 
   // The real buttons, so the card can never drift from what is on the screen under it. `<defs>` are
@@ -92,28 +108,35 @@ export function createNewMove({ onClose = () => {} } = {}) {
     svg.removeAttribute('class');
     return svg;
   };
-  for (const slot of root.querySelectorAll('[data-pedal]')) {
-    const svg = art(slot.dataset.pedal);
-    if (svg) slot.prepend(svg);
+  const combo = document.createElement('div');
+  combo.className = 'nm-combo';
+  combo.setAttribute('aria-hidden', 'true');
+  for (const [cls, id] of [['nm-boost', 'boost'], ['nm-brake nm-b1', 'brake'], ['nm-brake nm-b2', 'brake']]) {
+    const key = document.createElement('div');
+    key.className = `nm-key ${cls}`;
+    const svg = art(id);
+    if (svg) key.append(svg);
+    combo.append(key);
   }
 
+  const bubble = createSpeech(root, { viewport, typing: false });
   let open = false;
   let openedAt = 0;
 
   function close() {
     if (!open) return;
     open = false;
-    root.hidden = true;
+    bubble.hide();
     document.body.classList.remove('new-move-open');
     onClose();
   }
 
-  // The element is a full-screen catcher while it is up, so a tap anywhere lands here rather than
-  // on the canvas — the same arrangement as the robber's line. `click`, so the click that follows
-  // the press does not fall through to the city either.
+  // The layer is a full-screen catcher while it is up (`body.new-move-open #new-move`), so a tap
+  // anywhere lands here rather than on the canvas — the robber's line's arrangement. `click`, so the
+  // click that follows the press does not fall through to the city either.
   root.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (performance.now() - openedAt < TAP_GUARD_MS) return;
+    if (!open || performance.now() - openedAt < TAP_GUARD_MS) return;
     close();
   });
 
@@ -124,15 +147,17 @@ export function createNewMove({ onClose = () => {} } = {}) {
       if (open) return false;
       open = true;
       openedAt = performance.now();
-      root.hidden = false;
       // Restart the loop from the top, so every showing opens on the boost press rather than
       // wherever the animation happened to be left.
-      root.classList.remove('is-playing');
-      void root.offsetWidth;
-      root.classList.add('is-playing');
+      combo.classList.remove('is-playing');
+      bubble.show(TITLE, LINE, target, combo);
+      void combo.offsetWidth;
+      combo.classList.add('is-playing');
       document.body.classList.add('new-move-open');
       return true;
     },
     close,
+    /** Keeps the bubble pinned to the pedal. Called from the frozen frame, on wall time. */
+    update: (dt) => bubble.update(dt),
   };
 }

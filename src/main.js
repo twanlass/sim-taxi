@@ -3613,7 +3613,7 @@ const pause = shot ? null : createPause({
 // brings a run to AFTER_DELIVERED fares. The world stops while it is up — the early return in
 // `frame()` beside the robber's line's. See game/newmove.js for when and why.
 const uturnSeen = createSeenFlag();
-const newMove = shot ? null : createNewMove();
+const newMove = shot ? null : createNewMove({ viewport, target: gasPedalTop });
 // Seconds of game time until the card lands, or negative when none is due.
 let newMoveIn = -1;
 /**
@@ -3678,8 +3678,10 @@ function frame() {
     renderFrame();
     return;
   }
-  // The New Move card: the same freeze, and nothing ticks — the card's loop is CSS.
+  // The New Move card: the same freeze. Only the bubble ticks, to stay pinned to the pedal; the
+  // pedal row's loop is CSS.
   if (newMove?.isOpen()) {
+    newMove.update(dt);
     renderFrame();
     return;
   }
