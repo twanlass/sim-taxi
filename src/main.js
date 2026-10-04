@@ -1583,7 +1583,8 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
   // In the paint it was actually wearing: a cop is an ordinary car under `policeBody`, and its own
   // `colorIndex` draw is whatever hatchback it would otherwise have been.
   const struckPaint = other.police ? PALETTE.policeBody : PALETTE.carBody[other.colorIndex];
-  blast.fire(other.x, other.z, struckPaint, yaw, speed * STRUCK_SHOVE);
+  // No starburst of its own: the taxi's is one ring round both cars (game/blast.js `fire`).
+  blast.fire(other.x, other.z, struckPaint, yaw, speed * STRUCK_SHOVE, { star: false });
 
   // And a collar of smoke around the pair — the same lit, faceted puffs a barricade throws, tinted
   // grey and opened out into a ring (see `dust.wreckSmoke`). The fireball is unlit flat colour, so

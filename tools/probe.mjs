@@ -6792,17 +6792,18 @@ check('the taxi is an ordinary car in the traffic array',
 
   // Both cars of a wreck, a couple of units apart and in their own paint.
   blast.fire(0, 0, PALETTE.taxiBody);
-  blast.fire(3, 1.5, PALETTE.carBody[1]);
+  blast.fire(3, 1.5, PALETTE.carBody[1], 0, 0, { star: false });
   const fired = blast.active();
   blast.update(1 / 60);
 
   check('both cars fit the pools without wrapping',
-    fired === 2 * (4 + 7 + 2 + 1), `${fired} instances`);
-  // The pops go off a beat late, so on the first frame only the two big stars are up.
+    fired === 4 + 2 * (7 + 2 + 1), `${fired} instances`);
+  // One starburst per crash (the struck car's call passes `star: false`), and the pops go off a
+  // beat late, so on the first frame only the big star is up.
   const shownStars = () => blast.stars.filter((s) => s.group.visible);
   check('a blast puts a ring, a starburst and shards on the road',
     liveScales(blast.ringMesh).length === 2
-    && shownStars().length === 2
+    && shownStars().length === 1
     && liveScales(blast.shardMesh).length === 14,
     `${liveScales(blast.ringMesh).length} rings, ${shownStars().length} stars, `
     + `${liveScales(blast.shardMesh).length} shards`);
@@ -6836,7 +6837,7 @@ check('the taxi is an ordinary car in the traffic array',
   const later = bigScale();
   check('the starburst pops and then collapses', peak > 3 && later < peak,
     `peak ${peak.toFixed(2)}, ${later.toFixed(2)} at 0.67s`);
-  check('the pops go off around it', popsSeen >= 2, `${popsSeen} pops up at once at most`);
+  check('the pops go off around it', popsSeen >= 2 && popsSeen <= 3, `${popsSeen} pops up at once at most`);
 
   // Its layers are wound to face the camera: a ShapeGeometry is indexed, so walk the index (see
   // CLAUDE.md), and the star is turned with the camera, so local +Z is the way it has to face.
@@ -6856,6 +6857,30 @@ check('the taxi is an ordinary car in the traffic array',
       }
     }
     check('every starburst triangle faces the camera', backwards === 0, `${backwards} wound away`);
+  }
+
+  // And the wreck's star is a ring: nothing of it may be drawn inside the opening, or it covers the
+  // two cars it went off over — which is what the first, solid cut of it did. Measured as the
+  // nearest any triangle comes to the centre, edge midpoints included, so a triangle spanning the
+  // hole (a triangulation that ignored it) shows up even though its corners all sit outside.
+  {
+    const big = blast.stars.find((s) => s.life > 0.5);
+    let nearest = Infinity;
+    const [a, b, c] = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    const mid = new THREE.Vector3();
+    for (const { mesh } of big.parts) {
+      const pos = mesh.geometry.attributes.position;
+      const index = mesh.geometry.index;
+      for (let i = 0; i < index.count; i += 3) {
+        a.fromBufferAttribute(pos, index.getX(i));
+        b.fromBufferAttribute(pos, index.getX(i + 1));
+        c.fromBufferAttribute(pos, index.getX(i + 2));
+        for (const p of [a, b, c, mid.addVectors(a, b).multiplyScalar(0.5)]) nearest = Math.min(nearest, p.length());
+        nearest = Math.min(nearest, mid.copy(a).add(b).add(c).divideScalar(3).length());
+      }
+    }
+    check('the wreck starburst is open in the middle', nearest > 0.5,
+      `nearest triangle ${nearest.toFixed(3)} of its radius from the centre`);
   }
 
   // And it ends. Every slot back to zero scale, not merely faded — an instance left at size is
@@ -6909,8 +6934,9 @@ check('the taxi is an ordinary car in the traffic array',
     const out = { ring: 0, puff: 0, shard: 0, side: 0 };
     for (let step = 0; step < 60 * 3; step++) {
       b.update(1 / 60);
+      // The big star only: the pops ride on it in its own frame (blast.js `fire`).
       for (const star of b.stars) {
-        if (!star.group.visible) continue;
+        if (!star.group.visible || star.host) continue;
         p.copy(star.group.position);
         out.puff = Math.max(out.puff, p.x * forward.x + p.z * forward.z);
         out.side = Math.max(out.side, Math.abs(p.x * -forward.z + p.z * forward.x));

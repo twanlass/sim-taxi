@@ -2229,10 +2229,18 @@ rather than physical:
   keeps a night-time wreck as bright as a golden-hour one.
 - **The bang is the bump's starburst, a size up.** A survivable bump pops a flat ragged star on
   the contact point (`game/impact.js`); the wreck pops the same star — twelve spikes to its
-  nine, 3.2–4.6 units in radius off the taxi's speed against the bump's 1.6–2.6, 0.8s against
-  0.32s — with a band of `blastFlame` orange between the dark rim and the yellow, and three small
-  bump-sized stars crackling off around its edge a beat apart. The heart closes up faster than the
-  rest, so it cools from the middle out as it fades.
+  nine, 4.4–5.8 units in radius off the taxi's speed against the bump's 1.6–2.6, 0.8s against
+  0.32s, one per crash on the contact point — with a band of `blastFlame` orange between the dark rim and the yellow, and three small
+  bump-sized stars crackling off around its edge a beat apart.
+- **It is a ring, not a badge.** The first cut was the bump's solid star scaled up, and at wreck size
+  a solid star covers the wreck: you saw a yellow badge where the crash should have been. So every
+  layer of the big star has a faceted hole through it at `HOLE` = 0.66 of its radius — 5.8–7.7
+  units across, against two cars nose to nose about 7 units end to end — with the pale core moved out to a lining round
+  the opening and the rim stopping just short of it to edge the inside in dark. The pops sit out on
+  the spikes, clear of the hole. The bump's star stays solid: it is small, gone in a third of a
+  second, and has nothing behind it you need to read. There is one star per crash rather than one
+  per car (the struck car's `blast.fire` passes `star: false`): two rings a couple of units apart
+  each laid their band straight across the other car.
 - **Position is a curve, not an integration.** Stars and rings are `origin + direction × ease(t)`
   evaluated from scratch each frame; the shards' ballistic arc is closed-form too, floored at the
   tarmac rather than bounced off it. Nothing accumulates, so nothing has a drag constant to tune,

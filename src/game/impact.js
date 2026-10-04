@@ -28,7 +28,9 @@ const LIFT = 1.4;           // above the road, so it sits over the two roofs rat
 
 // Exported with `ragged` for the wreck's bigger burst (game/blast.js), which is this same star at
 // wreck scale — the two are one vocabulary on purpose, so a crash reads as the bump it grew out of.
-export function starShape(outer, inner, rng, spikes = SPIKES) {
+// `hole` punches a round opening of that radius through the middle — the wreck's star is a ring, so
+// the two cars it went off over stay in sight (see the HOLE note in game/blast.js).
+export function starShape(outer, inner, rng, spikes = SPIKES, hole = 0) {
   const shape = new THREE.Shape();
   for (let n = 0; n < spikes * 2; n++) {
     const a = (n / (spikes * 2)) * Math.PI * 2;
@@ -39,6 +41,18 @@ export function starShape(outer, inner, rng, spikes = SPIKES) {
     if (n === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
   }
   shape.closePath();
+  if (hole > 0) {
+    // Wound the other way from the outline, which is what three's triangulator takes as a hole.
+    // Faceted rather than round, like everything else in the city.
+    const path = new THREE.Path();
+    const sides = spikes * 2;
+    for (let n = 0; n <= sides; n++) {
+      const a = -(n / sides) * Math.PI * 2;
+      if (n === 0) path.moveTo(Math.cos(a) * hole, Math.sin(a) * hole);
+      else path.lineTo(Math.cos(a) * hole, Math.sin(a) * hole);
+    }
+    shape.holes.push(path);
+  }
   return shape;
 }
 

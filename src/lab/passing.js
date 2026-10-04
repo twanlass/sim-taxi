@@ -398,7 +398,7 @@ let zoomBeforeWreck = null;
 const collisions = createCollisions(traffic.cars, taxi);
 collisions.onImpact(({ x, z, other }) => {
   blast.fire(x, z, PALETTE.taxiBody);
-  blast.fire(other.x, other.z, PALETTE.carBody[other.colorIndex]);
+  blast.fire(other.x, other.z, PALETTE.carBody[other.colorIndex], 0, 0, { star: false });
   controller.kickShake(2.4);
 
   // Only the car that was hit is consumed. The taxi stays exactly where it stopped — in a lab the

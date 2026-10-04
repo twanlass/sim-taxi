@@ -46,10 +46,9 @@ const MAX_RINGS = 4;
 const MAX_TYRES = 8;
 
 // The starburst. The bump's star (game/impact.js) is 1.6–2.6 in radius and gone in 0.32s; this is
-// the same graphic at wreck scale — twelve spikes to its nine, 3.2–4.6 in radius off the taxi's
+// the same graphic at wreck scale — twelve spikes to its nine, 4.4–5.8 in radius off the taxi's
 // speed, and on screen two and a half times as long, because the camera is slowing time and
-// pulling in on it. Two cars a couple of units apart throw two of them, which overlap into one
-// burst rather than reading as two bangs side by side.
+// pulling in on it. One per crash, ringing both cars — see HOLE.
 //
 // Four layers to the bump's three: its dark rim, yellow body and pale core, with a band of
 // `blastFlame` orange between the rim and the yellow. That one band is what tells a wreck from a
@@ -57,9 +56,9 @@ const MAX_TYRES = 8;
 const STAR_LIFE = 0.8;        // s
 const STAR_POP = 0.07;        // s out to the overshoot
 const STAR_SPIKES = 12;
-const STAR_R = 3.2;           // world units at a standstill
+const STAR_R = 4.4;           // world units at a standstill
 const STAR_R_PER_UNIT = 0.06; // per u/s of the speed the car arrived at
-const STAR_MAX_R = 4.6;
+const STAR_MAX_R = 5.8;
 const STAR_LIFT = 1.6;        // over the roofs, like the bump's
 const STAR_SPIN = 0.6;        // rad/s — slower than the bump's 1.5; a bigger thing turns slower
 // And the pops: small bump-sized stars going off around the big one, a beat apart, so the bang has
@@ -69,9 +68,17 @@ const POP_LIFE = 0.36;
 const POP_POP = 0.05;
 const POP_DELAY_MIN = 0.06;
 const POP_DELAY_MAX = 0.28;
-const POP_R = 0.4;            // of the main star's radius
-const POP_OUT_MIN = 0.55;     // of the main star's radius, out from its centre
-const POP_OUT_MAX = 0.8;
+const POP_R = 0.32;           // of the main star's radius: the bump's own size, 1.4–1.9
+const POP_OUT_MIN = 0.85;     // of the main star's radius, out from its centre: on the spikes,
+const POP_OUT_MAX = 1.05;     // clear of the hole, so no pop lands back over a car
+// The hole. A solid star the size of a wreck covers the wreck: the first cut of this filled the
+// middle with the bump's pale core and the player saw a yellow badge where the crash should have
+// been. So the big star is a ring — a faceted opening through every layer, at this fraction of its
+// radius, and there is one star per crash, on the contact point (see `fire`). At the 4.4–5.8
+// radius that opens 5.8–7.7 units across, more at the overshoot, against two cars nose to nose
+// about 7 units end to end: the burst goes off *around* the pair rather than on top of them. The bump's star stays solid — it is small and gone in a third of a
+// second, and a hit you survive has nothing behind it you need to read.
+const HOLE = 0.66;
 
 // Shards. Short-lived and gone in the air — no ground bounce, no friction, no settling. Wreckage
 // coming to rest on the tarmac is a detail for a camera that stays; this one pulls into a close-up
@@ -238,11 +245,16 @@ export function createBlast(scene, rng) {
   // Drawn over everything, as the bump's is: a burst half buried in the car that made it is a
   // burst nobody reads. Not bloomed — the bump's star is not either, and a flat cutout pushed
   // through the bloom stops being flat.
+  // Bottom to top, every layer sharing the hole except the rim, which stops a little short of it
+  // so a dark line edges the opening on the inside as well as the out. The pale core becomes a
+  // lining round the hole: still the hottest colour in the burst, now where the cars are.
+  // Every outline's valleys (`inner`) have to stay outside HOLE: a hole that pokes through its own
+  // outline makes the triangulator give up and fill the middle, which is the badge all over again.
   const bigLayers = [
-    { shape: starShape(1.2, 0.6, ragged, STAR_SPIKES), tint: 'impactRim', shrink: 0 },
-    { shape: starShape(1.08, 0.54, ragged, STAR_SPIKES), tint: 'blastFlame', shrink: 0 },
-    { shape: starShape(0.82, 0.44, (n) => ragged(n + 3), STAR_SPIKES), tint: 'impactBody', shrink: 0.2 },
-    { shape: starShape(0.42, 0.26, (n) => ragged(n + 7), STAR_SPIKES), tint: 'impactCore', shrink: 0.6 },
+    { shape: starShape(1.2, 0.78, ragged, STAR_SPIKES, HOLE - 0.05), tint: 'impactRim', shrink: 0 },
+    { shape: starShape(1.08, 0.76, ragged, STAR_SPIKES, HOLE), tint: 'blastFlame', shrink: 0 },
+    { shape: starShape(0.9, 0.74, (n) => ragged(n + 3), STAR_SPIKES, HOLE), tint: 'impactBody', shrink: 0 },
+    { shape: starShape(0.8, 0.72, (n) => ragged(n + 7), STAR_SPIKES, HOLE), tint: 'impactCore', shrink: 0 },
   ];
   // The pops are the bump's star outright: its three layers, its proportions.
   const popLayers = [
@@ -260,7 +272,10 @@ export function createBlast(scene, rng) {
     group.add(spin);
     // Turned to the camera at draw time — see the note above. Every layer carries it, so whichever
     // one three reaches first sets the facing for the rest.
+    // A pop riding on a big star (see `fire`) is already in its billboarded frame and keeps an
+    // identity facing of its own.
     const face = (renderer, sc, camera) => {
+      if (group.parent !== scene) return;
       group.quaternion.copy(camera.quaternion);
       group.updateMatrixWorld(true);
     };
@@ -297,8 +312,8 @@ export function createBlast(scene, rng) {
   /**
    * Pose one star `age` seconds after its blast fired — hidden before its own delay and after its
    * life. The envelope is the bump's: slams out past full size, settles back and shrinks a little
-   * as it fades. The pale heart closes up faster than the rest (`shrink`), so the burst cools from
-   * the middle out as it goes.
+   * as it fades. A pop's pale heart closes up faster than the rest (`shrink`), so it cools from the
+   * middle out; the big star's layers all keep their scale, or the hole would close with them.
    */
   function poseStar(star, age) {
     const t = age - star.delay;
@@ -312,9 +327,16 @@ export function createBlast(scene, rng) {
       : 1.25 - 0.4 * ((t - star.pop) / (star.life - star.pop));
     // Carried off the blast's age, not the star's own: a pop that goes off late has to go off where
     // the wreck has got to, not where it started.
-    const drift = carryTravel(Math.max(0, age));
-    star.group.position.set(star.ox + star.cx * drift, star.oy, star.oz + star.cz * drift);
-    star.group.scale.setScalar(star.r * k);
+    if (star.host) {
+      // In the big star's own frame, whose scale is already its radius: `ox`/`oy` are fractions of
+      // it, and the carry and the facing come with the parent.
+      star.group.position.set(star.ox, star.oy, 0.05);
+      star.group.scale.setScalar(star.r * k);
+    } else {
+      const drift = carryTravel(Math.max(0, age));
+      star.group.position.set(star.ox + star.cx * drift, star.oy, star.oz + star.cz * drift);
+      star.group.scale.setScalar(star.r * k);
+    }
     star.spin.rotation.z = star.spin0 + star.spinRate * t;
     const u = t / star.life;
     const fade = Math.min(1, (star.life - t) / (star.life * 0.4));
@@ -389,8 +411,12 @@ export function createBlast(scene, rng) {
    * *carried* along that heading by — see the CARRY fractions above and util/carry.js. Left at 0
    * the blast detonates on the spot, which is what every caller did before and what the lab still
    * wants: there the useful thing about a wreck is where it happened.
+   *
+   * `star: false` leaves the starburst out. A crash fires one, from the taxi's call on the contact
+   * point, and the struck car's call passes this: two rings a couple of units apart each laid their
+   * band straight across the other car, which put back exactly the covering the hole was cut for.
    */
-  function fire(x, z, tint = null, yaw = 0, speed = 0) {
+  function fire(x, z, tint = null, yaw = 0, speed = 0, { star = true } = {}) {
     // The heading as a direction in this module's (x, z): `yaw` is a sim heading, so the bearing
     // is −yaw and forward is (cos, sin) of it. Rolled once and shared by all four effects, which
     // is the point — a wreck whose parts drifted along four slightly different vectors would come
@@ -406,39 +432,44 @@ export function createBlast(scene, rng) {
     ring.cz[nextRing] = fz * RING_CARRY;
     nextRing = (nextRing + 1) % MAX_RINGS;
 
-    const big = bigStars[nextBig];
-    nextBig = (nextBig + 1) % bigStars.length;
-    const r = Math.min(STAR_MAX_R, STAR_R + Math.abs(speed || 0) * STAR_R_PER_UNIT);
-    Object.assign(big, {
-      born: clock, delay: 0, r,
-      ox: x, oy: STAR_LIFT, oz: z,
-      cx: fx * STAR_CARRY, cz: fz * STAR_CARRY,
-      spin0: rng.range(0, Math.PI * 2),
-      spinRate: STAR_SPIN * (rng.chance(0.5) ? 1 : -1),
-    });
-    poseStar(big, 0);
-
-    for (let k = 0; k < POPS_PER_BLAST; k++) {
-      const pop = popStars[nextPop];
-      nextPop = (nextPop + 1) % popStars.length;
-      // An even fan with jitter, as everything else here is thrown: random bearings clump, and
-      // three pops on one side of the bang read as a mistake.
-      const angle = (k / POPS_PER_BLAST) * Math.PI * 2 + rng.jitter(0.6);
-      const out = r * rng.range(POP_OUT_MIN, POP_OUT_MAX);
-      Object.assign(pop, {
-        born: clock,
-        // Staggered across the window, one per third of it, so they crackle in turn rather than
-        // landing together.
-        delay: POP_DELAY_MIN + (POP_DELAY_MAX - POP_DELAY_MIN) * ((k + rng.range(0, 1)) / POPS_PER_BLAST),
-        r: r * POP_R * rng.range(0.85, 1.15),
-        ox: x + Math.cos(angle) * out,
-        oy: STAR_LIFT + rng.jitter(0.5),
-        oz: z + Math.sin(angle) * out,
+    if (star) {
+      const big = bigStars[nextBig];
+      nextBig = (nextBig + 1) % bigStars.length;
+      const r = Math.min(STAR_MAX_R, STAR_R + Math.abs(speed || 0) * STAR_R_PER_UNIT);
+      Object.assign(big, {
+        born: clock, delay: 0, r,
+        ox: x, oy: STAR_LIFT, oz: z,
         cx: fx * STAR_CARRY, cz: fz * STAR_CARRY,
         spin0: rng.range(0, Math.PI * 2),
-        spinRate: 1.5 * (rng.chance(0.5) ? 1 : -1),
+        spinRate: STAR_SPIN * (rng.chance(0.5) ? 1 : -1),
       });
-      poseStar(pop, 0);
+      poseStar(big, 0);
+
+      for (let k = 0; k < POPS_PER_BLAST; k++) {
+        const pop = popStars[nextPop];
+        nextPop = (nextPop + 1) % popStars.length;
+        // An even fan with jitter, as everything else here is thrown: random bearings clump, and
+        // three pops on one side of the bang read as a mistake.
+        const angle = (k / POPS_PER_BLAST) * Math.PI * 2 + rng.jitter(0.6);
+        const out = rng.range(POP_OUT_MIN, POP_OUT_MAX);
+        // Parented to the big star, so the fan is laid out in the *screen* plane. Placed on the
+        // ground instead, the fan foreshortened to about half its height under this camera and the
+        // pops above and below the burst landed inside the hole, on the cars.
+        big.group.add(pop.group);
+        Object.assign(pop, {
+          host: big,
+          born: clock,
+          // Staggered across the window, one per third of it, so they crackle in turn rather than
+          // landing together.
+          delay: POP_DELAY_MIN + (POP_DELAY_MAX - POP_DELAY_MIN) * ((k + rng.range(0, 1)) / POPS_PER_BLAST),
+          r: POP_R * rng.range(0.85, 1.15),
+          ox: Math.cos(angle) * out,
+          oy: Math.sin(angle) * out,
+          spin0: rng.range(0, Math.PI * 2),
+          spinRate: 1.5 * (rng.chance(0.5) ? 1 : -1),
+        });
+        poseStar(pop, 0);
+      }
     }
 
     for (let k = 0; k < SHARDS_PER_BLAST; k++) {
