@@ -27,6 +27,23 @@ import * as THREE from 'three';
  * `claims` is asked rather than assumed so a tap the building would refuse — the depot with nothing
  * to repair — keeps the rider's generous margin instead of turning into a tap on nothing.
  *
+ * **A finger is answered on `pointerup`, not on the `click` iOS synthesises after it.** WebKit
+ * withholds that click whenever something it counts as actionable *appears* while the tap is in
+ * progress — its content-change heuristic, built for hover menus, reads the tap as "the user
+ * hovered and a menu opened" and swallows the click so they can choose from it. This game puts up
+ * buttons on its own schedule, and one of them lands on exactly the tap that matters: an edge
+ * arrow's pan disarms the taxi-finder chip (game/taxifinder.js), which then fades in `SHOW_DELAY`
+ * after the camera lands — which is when the player, now looking at the rider the arrow found,
+ * taps them. Reported as "the first tap on the rider fails, the second works", which is that
+ * heuristic's signature (the chip is already up for the second, so nothing new appears) — and it
+ * does not reproduce in Chromium, which has no such heuristic. The chip is the prime suspect rather
+ * than a measured cause, and the fix does not depend on it: pointer events come straight off the
+ * touch stream and no heuristic sits
+ * between them and the page, which is why the arrows were built on them too
+ * (game/farepointers.js). The click that follows a finger's `pointerup`, when WebKit does send one,
+ * is then dropped (`CLICK_ECHO_MS`), so one tap is still one pick. A mouse keeps `click`: nothing
+ * withholds it, and it is what the headless suite dispatches.
+ *
  * @param getTargets () => Object3D[]  candidate roots, re-evaluated on every click so the set can
  *                                     follow game state
  * @param onPick     (kind, hit) => void  kind is null when nothing pickable was under the cursor
@@ -40,7 +57,40 @@ export function createPicker(
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
 
+  // The finger path — see the header. The press is recorded on `window` in the capture phase, not
+  // on the canvas: a press on the route band is stopped there by game/pathdrag.js, and a plain tap
+  // on the band still has to reach whatever pin it runs through, as its click always did.
+  // Propagation stops between nodes, not between listeners on one node, so this sees it either way.
+  let press = null;
+  let fingerAt = -Infinity;
+  const win = domElement.ownerDocument?.defaultView;
+  win?.addEventListener('pointerdown', (event) => {
+    press = event.target === domElement && event.isPrimary && event.pointerType !== 'mouse'
+      ? { id: event.pointerId, x: event.clientX, y: event.clientY }
+      : null;
+  }, { capture: true });
+  domElement.addEventListener('pointercancel', () => { press = null; });
+  domElement.addEventListener('pointerup', (event) => {
+    const from = press;
+    press = null;
+    if (!from || event.pointerId !== from.id) return;
+    // Spent whether or not it picks: the click after it belongs to this tap, and a tap the guards
+    // below refused must not get a second chance through it.
+    fingerAt = performance.now();
+    // A finger that slid is not a tap. iOS would not have sent a click for it either, and on a wide
+    // viewport no drag-pan is attached to say so through `shouldIgnore`.
+    if (Math.hypot(event.clientX - from.x, event.clientY - from.y) > TAP_SLOP) return;
+    pickAt(event);
+  });
+
   domElement.addEventListener('click', (event) => {
+    // One lift, one echo: spent here, so a click that is not this finger's is not caught by it.
+    const echo = performance.now() - fingerAt < CLICK_ECHO_MS;
+    fingerAt = -Infinity;
+    if (!echo) pickAt(event);
+  });
+
+  function pickAt(event) {
     if (shouldIgnore()) return;
     const rect = domElement.getBoundingClientRect();
     ndc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -50,8 +100,18 @@ export function createPicker(
     const picked = choosePick(raycaster.intersectObjects(getTargets(), true), claims);
     if (picked) onPick(picked.kind, picked.hit);
     else onPick(null, null);
-  });
+  }
 }
+
+// How far a finger may smear and still be a tap, in px — the same 8 as `PAN_SLOP` in
+// game/camera.js and `TAP_SLOP` in game/farepointers.js.
+const TAP_SLOP = 8;
+
+// How long after a finger's `pointerup` a `click` is taken to be its echo rather than a tap of its
+// own. WebKit sends it within a frame or two of the lift (`touch-action` on the canvas turns off
+// the double-tap wait); a genuine second tap inside this window has a `pointerup` of its own and
+// is answered there, so the window only has to be longer than the echo, not shorter than a tap.
+const CLICK_ECHO_MS = 600;
 
 const kindOf = (object) => {
   for (let node = object; node; node = node.parent) {

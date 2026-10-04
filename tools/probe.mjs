@@ -3726,6 +3726,37 @@ check('no two cars occupy the same space', worst > 1.6,
       facing.dot(VIEW_DIR) > 0.9999 && Math.abs(target.position.dot(RIGHT)) < 1e-9
       && Math.abs(target.position.dot(VIEW_DIR)) < 1e-9,
       `facing ${facing.dot(VIEW_DIR).toFixed(4)}`);
+
+    // 4. A finger is answered on its own `pointerup`, because iOS can withhold the click after it
+    //    (see the header of game/pick.js) — the tap right after an edge arrow's pan went missing
+    //    exactly that way. Driven through a second picker on a stand-in that keeps *every* handler,
+    //    with a window of its own, since the press is recorded there. Four claims: a lone touch
+    //    picks with no click at all; the click that echoes it does not pick a second time; a finger
+    //    that slid does not pick, and neither does its click; a mouse still goes through `click`.
+    const on = {};
+    const winOn = {};
+    const fingerCanvas = {
+      addEventListener: (type, fn) => { on[type] = fn; },
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: W, height: H }),
+      ownerDocument: { defaultView: { addEventListener: (type, fn) => { winOn[type] = fn; } } },
+    };
+    let picks = 0;
+    createPicker(pCam.camera, fingerCanvas, () => roots, (kind) => { if (kind) picks += 1; });
+    const at = (() => { const c = cornerFor(2, 2); return screenOf(c.x, KERB_H + RING_Y, c.z); })();
+    const finger = (pointerType, dx = 0) => {
+      const base = { target: fingerCanvas, isPrimary: true, pointerId: 3, pointerType };
+      winOn.pointerdown({ ...base, clientX: at.x, clientY: at.y });
+      on.pointerup({ ...base, clientX: at.x + dx, clientY: at.y });
+    };
+    const click = () => on.click({ clientX: at.x, clientY: at.y });
+    const seen = [];
+    picks = 0; finger('touch'); seen.push(picks);
+    click(); seen.push(picks);
+    picks = 0; finger('touch', 20); click(); seen.push(picks);
+    picks = 0; finger('mouse'); seen.push(picks); click(); seen.push(picks);
+    check('a finger picks on lift, once, and only if it did not slide; a mouse picks on click',
+      seen.join() === '1,1,0,0,1', `touch ${seen[0]}, +echo ${seen[1]}, slid ${seen[2]}, `
+      + `mouse lift ${seen[3]}, mouse click ${seen[4]}`);
   }
 
   // --- The rider's diamond changes colour as the clock drains.
