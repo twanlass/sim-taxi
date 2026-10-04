@@ -2551,11 +2551,11 @@ function rollMoneyTo(target, up = true) {
  * direction, which stays taxi → counter. A charge flown counter → taxi would read as the player
  * being *given* something.
  */
-function popEarning(amount) {
+function popEarning(amount, { cls = '', prefix = '', rollTo = null, onLanded = null } = {}) {
   const start = taxiScreenPos();
   const el = document.createElement('div');
-  el.className = amount < 0 ? 'earning is-charge' : 'earning';
-  el.textContent = amount < 0 ? `−$${-amount}` : `$${amount}`;
+  el.className = `${amount < 0 ? 'earning is-charge' : 'earning'} ${cls}`.trim();
+  el.textContent = amount < 0 ? `−$${-amount}` : `${prefix}$${amount}`;
   el.style.left = `${start.x}px`;
   el.style.top = `${start.y}px`;
   document.body.append(el);
@@ -2583,62 +2583,69 @@ function popEarning(amount) {
     ], { duration: 460, easing: 'cubic-bezier(0.42, 0, 0.58, 1)', fill: 'forwards' });
     fly.onfinish = () => {
       el.remove();
-      rollMoneyTo(fares.state.money, amount >= 0);
+      // A step of a run-bonus payout rolls to its own partial total (`popRunSequence`), never past
+      // the real one: another payout may have moved it while this was in the air.
+      rollMoneyTo(rollTo === null ? fares.state.money : Math.min(rollTo, fares.state.money), amount >= 0);
+      onLanded?.();
     };
   };
 }
 
 /**
- * A drop-off that earned run bonuses (game/runs.js) pays out as a sequence over the taxi, one item at
- * a time, each fading before the next: the fare's own price, then for each run its label and the
- * extra cash it added — `$20`, `LOCO RUN ×2`, `+$20`, `PERFECT RUN ×1.5`, `+$20`. The counter ticks
- * up as each amount fades, so the total climbs in the same steps the screen just spelled out.
- *
- * Shown in place rather than flown to the counter like a plain payout: three or five flights in a
- * row read as a stream of separate payments, where this is one payment being explained.
+ * A drop-off that earned run bonuses (game/runs.js) pays out as a sequence, one item at a time: the
+ * fare's own price flies off the taxi into the counter exactly as a plain payout does, then for each
+ * run its label pops over the taxi and fades, and the extra cash that run added flies into the
+ * counter after it — `$20` → counter, `LOCO RUN ×2`, `+$20` → counter, `PERFECT RUN ×1.5`,
+ * `+$20` → counter. Each amount rolls the counter to its own partial total as it lands, so the score
+ * climbs in the steps the screen just spelled out.
  *
  * The extras are the runs' multipliers applied in order to a running total, with the last one
- * taking up any rounding so they always sum to what the fare actually paid.
+ * taking up any rounding so they always sum to what the fare actually paid. Each step is chained off
+ * the previous one's end rather than timed off the start, so a slow frame can never put two of them
+ * on screen at once.
  */
-const RUN_STEP_MS = 720;
+const RUN_LABEL_MS = 800;
 function popRunSequence(fare) {
   const total = fare.value;
-  const steps = [{ text: `$${fare.basePay}`, cls: 'earning', pays: fare.basePay }];
+  const steps = [{ pays: fare.basePay }];
   let running = fare.basePay;
   fare.runs.forEach((run, k) => {
     const next = k === fare.runs.length - 1 ? total : Math.round(running * run.mult);
-    steps.push({ text: `${run.label} ×${run.mult}`, cls: `run-pop run-${run.key}`, pays: 0 });
-    steps.push({ text: `+$${next - running}`, cls: `earning run-${run.key}`, pays: next - running });
+    steps.push({ label: `${run.label} ×${run.mult}`, key: run.key });
+    steps.push({ pays: next - running, key: run.key, extra: true });
     running = next;
   });
-  // Where the counter stood before this fare, so each step can roll it to a partial total.
-  let shown = fares.state.money - total;
-  // Chained off each animation's finish rather than timed off the start, so a slow frame can
-  // never put two of them on screen at once.
+  // Where the counter stood before this fare, so each amount can roll it to a partial total.
+  let rolled = fares.state.money - total;
   const play = (k) => {
     const step = steps[k];
     if (!step) return;
+    if (step.pays !== undefined) {
+      rolled += step.pays;
+      popEarning(step.pays, {
+        cls: step.key ? `run-${step.key}` : '',
+        prefix: step.extra ? '+' : '',
+        rollTo: rolled,
+        onLanded: () => play(k + 1),
+      });
+      return;
+    }
     const at = taxiScreenPos();
     const el = document.createElement('div');
-    el.className = step.cls;
-    el.textContent = step.text;
+    el.className = `run-pop run-${step.key}`;
+    el.textContent = step.label;
     el.style.left = `${at.x}px`;
     el.style.top = `${at.y}px`;
     document.body.append(el);
     const t = (dy, scale) => `translate(-50%, -50%) translateY(${dy}px) scale(${scale})`;
     el.animate([
       { opacity: 0, transform: t(-14, 0.7) },
-      { opacity: 1, transform: t(-34, 1.12), offset: 0.22 },
-      { opacity: 1, transform: t(-38, 1), offset: 0.34 },
-      { opacity: 1, transform: t(-42, 1), offset: 0.72 },
+      { opacity: 1, transform: t(-34, 1.12), offset: 0.2 },
+      { opacity: 1, transform: t(-38, 1), offset: 0.32 },
+      { opacity: 1, transform: t(-42, 1), offset: 0.75 },
       { opacity: 0, transform: t(-54, 0.96) },
-    ], { duration: RUN_STEP_MS, easing: 'ease-out', fill: 'forwards' }).onfinish = () => {
+    ], { duration: RUN_LABEL_MS, easing: 'ease-out', fill: 'forwards' }).onfinish = () => {
       el.remove();
-      if (step.pays > 0) {
-        shown += step.pays;
-        // Never past the real total: another payout may have moved it while this played.
-        rollMoneyTo(Math.min(shown, fares.state.money), true);
-      }
       play(k + 1);
     };
   };
