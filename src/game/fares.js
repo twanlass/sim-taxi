@@ -73,8 +73,8 @@ export const FARE_PER_BLOCK = 3;
  * second time as well as the first.
  *
  * Ten against a fare board that pays $8 for the shortest ride and $20 for a median one (`FARE_BASE`
- * and `FARE_PER_BLOCK` above), before any run bonus — so a burger is half a plain fare and loose
- * change against a Loco Run, which is the right way round: the tank matters most when the
+ * and `FARE_PER_BLOCK` above), before any Perfect Run — so a burger is half a plain fare and a
+ * quarter of a perfect one, which is the right way round: the tank matters most when the
  * multiplier is small and the cash matters most then too. Deliberately *not* scaled by that
  * multiplier, because the reward it buys is a flat 2.25 seconds of boost at every point in the run
  * — a price that climbed with the board would make the same purchase steadily worse for no reason
@@ -135,8 +135,8 @@ export const MAX_FARES = 4;
 // down with them.
 //
 // The payout is the ordinary distance price times VIP_PAYOUT, stamped at spawn like every other
-// price on the board (see spawnFare), and then times any run bonus at the drop-off like every
-// other fare (see "Run bonuses" below).
+// price on the board (see spawnFare), and then times a Perfect Run at the drop-off like every
+// other fare (see "The Perfect Run" below).
 //
 // There used to be a second, VIP-only streak on top — 3×, then 4×, then 5× for VIPs delivered
 // back to back, reset by a miss. It went with the shift multiplier when run bonuses replaced both:
@@ -246,9 +246,9 @@ const ROBBER_DROPOFF_SPREAD = 1;
 const ROBBER_PAYOUT = 100;
 const ROBBER_BONUS = 50;
 
-// --- Run bonuses -----------------------------------------------------------------
+// --- The Perfect Run -------------------------------------------------------------
 //
-// How the trip was driven — a Loco Run, a Perfect Run, a Stealth Run — multiplies what the drop-off
+// How the job was driven — a Perfect Run or not — multiplies what the drop-off
 // pays (game/runs.js). Judged at the drop-off through the `judgeRun` hook main.js hands in, rather
 // than stamped at spawn like the rest of a price: it is a fact about the driving, and the driving
 // has not happened when the rider appears. Nothing on the board shows a price before the drop-off,
@@ -1088,7 +1088,7 @@ export function createFareSystem(rng, scene, { reserved = () => [], judgeRun = (
     // wrong reasons.
     //
     // A VIP's flat multiplier is stamped in at the same moment. A run bonus is not: it is read at
-    // the drop-off, because it is about how the trip gets driven (see "Run bonuses").
+    // the drop-off, because it is about how the trip gets driven (see "The Perfect Run").
     fare.vipMultiplier = vip ? VIP_PAYOUT : 1;
     fare.value = Math.round(priceFor(spot, fare.dropoff) * fare.vipMultiplier);
 

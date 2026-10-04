@@ -45,7 +45,7 @@ and the taxi drives on to it **without being told to**. Crystal, band and ring: 
 The only choice on the board is which rider to grab. The clock does **not** reset at pickup — one
 deadline covers spawn to drop-off, which is the whole tension of the game, and it is **budgeted
 from the driving that trip actually costs** rather than being the same number for everyone. A
-delivery pays by distance, $8 for a one-block hop up to $35 across town, times any [run bonus](gameplay.md#run-bonuses) the ride earned: Loco ×2, Perfect ×1.5, Stealth ×1.5. Let a clock expire and the run ends.
+delivery pays by distance, $8 for a one-block hop up to $35 across town, times 2 for a [Perfect Run](gameplay.md#the-perfect-run): more than half the job in Loco Mode and no damage. Let a clock expire and the run ends.
 
 Everything **ramps with the deliveries you land**: the board grows from one rider to four, clocks
 tighten from twice the driving they cost down to 1.15×, traffic thickens, the police come round more

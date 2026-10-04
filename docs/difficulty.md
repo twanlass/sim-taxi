@@ -156,7 +156,7 @@ it.
 ## Shifts
 
 Four bands over the delivery count — 0, 3, 7, 12. They used to carry a payout multiplier each (1×,
-1.25×, 1.5×, 2×); [run bonuses](gameplay.md#run-bonuses) replaced it, so a shift is now only how hard
+1.25×, 1.5×, 2×); [the Perfect Run](gameplay.md#the-perfect-run) replaced it, so a shift is now only how hard
 the city is. The ramp is otherwise invisible: clocks tighten, riders arrive closer together and the board grows, and
 a player experiencing all three at once has no way to tell "the game got harder" from "I got worse".
 

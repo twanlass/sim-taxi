@@ -622,8 +622,8 @@ if (new URLSearchParams(window.location.search).get('lights') === 'on') {
 // `reserved` is how the fare loop learns about the courier's corners without importing it. `parcels`
 // is declared just below and this closure is only ever *called* from the frame loop, long after — the
 // same forward reference `pathDrag`'s `canGrab` makes to `pause`.
-// How each ride is being driven — Loco, Perfect, Stealth — fed in the frame loop and judged by the
-// fare loop at the drop-off (game/runs.js).
+// How each job is being driven — on course for a Perfect Run or not — fed in the frame loop and
+// judged by the fare loop at the drop-off (game/runs.js).
 const runs = createRunTracker();
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   reserved: () => parcels?.occupiedSpots() ?? [],
@@ -2416,16 +2416,15 @@ const hud = {
   banner: document.getElementById('run-end'),
 };
 
-// The run tags under the cash, while a job is under way: what this ride is on course for
-// (game/runs.js). LOCO carries its live share and lights up once it is over the line; PERFECT and
-// STEALTH appear the moment they are in play and, when lost, show it — a red flinch, a hard shake
-// and a fall out of the HUD — because a bonus that silently stops being on offer cannot change how
-// anyone drives. When the ride ends they just fade: the payout pop says what was earned.
+// The run tag under the cash, while a job is under way: whether it is on course for a Perfect Run
+// (game/runs.js). It appears once Loco Mode has been used, carries the job's live boost share, and
+// lights up while that is over the line with no damage taken. Damage breaks it for good, and that
+// is shown — a red flinch, a hard shake and a fall out of the HUD — because a bonus that silently
+// stops being on offer cannot change how anyone drives. When the job ends it just fades: the
+// payout sequence says what was earned.
 const runTags = new Map();
 const RUN_TAG_TEXT = {
-  loco: (r) => `LOCO ${Math.round(r.share * 100)}%`,
-  perfect: () => 'PERFECT',
-  stealth: () => 'STEALTH',
+  perfect: (r) => `PERFECT ${Math.round(r.share * 100)}%`,
 };
 function updateRunTags() {
   const box = hud.runs;
@@ -2444,8 +2443,8 @@ function updateRunTags() {
     if (tag.lost) continue;
     tag.el.textContent = RUN_TAG_TEXT[r.key](r);
     tag.el.classList.toggle('is-earned', r.earned);
-    // Loco can climb back over its line; the other two cannot come back once broken.
-    if (!r.earned && r.key !== 'loco') {
+    // The share can climb back over its line; damage cannot be taken back.
+    if (r.broken) {
       tag.lost = true;
       tag.el.classList.add('is-lost');
       tag.el.onanimationend = (e) => { if (e.animationName === 'run-tag-lost') tag.el.remove(); };
@@ -2662,8 +2661,7 @@ function popEarning(amount, { cls = '', prefix = '', rollTo = null, onLanded = n
  * A drop-off that earned run bonuses (game/runs.js) pays out as a sequence, one item at a time: the
  * fare's own price flies off the taxi into the counter exactly as a plain payout does, then for each
  * run its label pops over the taxi and fades, and the extra cash that run added flies into the
- * counter after it — `$20` → counter, `LOCO RUN ×2`, `+$20` → counter, `PERFECT RUN ×1.5`,
- * `+$20` → counter. Each amount rolls the counter to its own partial total as it lands, so the score
+ * counter after it — `$20` → counter, `PERFECT RUN ×2`, `+$20` → counter. Each amount rolls the counter to its own partial total as it lands, so the score
  * climbs in the steps the screen just spelled out.
  *
  * The extras are the runs' multipliers applied in order to a running total, with the last one
@@ -4098,18 +4096,13 @@ function frame() {
     }
   }
 
+  // The job's driving — from the tap that sent the taxi at a rider to the drop-off — recorded
+  // before the fare loop runs so a drop-off this frame is judged on all of it (game/runs.js).
+  if (!fareLoopHeld()) {
+    runs.update(dt, { fare: fares.job(), boosting: Boolean(traffic.taxi.boost) });
+  }
   // More than one thing can land in a frame now — delivering the last fare clears the board and
   // spawns the next one in the same tick — so this is a list rather than a single event.
-  // The job's driving — from the tap that sent the taxi at a rider to the drop-off — recorded
-  // before the fare loop runs so a drop-off this frame is judged on all of it. The patrol is only a stealth question while it is patrolling or chasing.
-  if (!fareLoopHeld()) {
-    const cop = patrol.state.cop;
-    runs.update(dt, {
-      fare: fares.job(),
-      boosting: Boolean(traffic.taxi.boost),
-      cop: cop ? { phase: patrol.state.phase, gap: Math.hypot(cop.x - traffic.taxi.x, cop.z - traffic.taxi.z) } : null,
-    });
-  }
   for (const { type, fare } of
     (fareLoopHeld() ? NO_FARE_EVENTS : fares.update(dt, traffic.taxi))) {
     if (type === 'pickup') {
