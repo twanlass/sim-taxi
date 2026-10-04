@@ -20,7 +20,6 @@ and would make the escalation something that happens *to* you rather than someth
 | `maxFares` | 1 | 4 | Board size. Stepped at 1, 2 and 10 deliveries. |
 | `spawnGap` | 15s | 7s | Seconds between spawns on a non-empty board. |
 | `spawnRadius` | 3 blocks | whole map | How far from the bias point an extra may land. |
-| `payoutMultiplier` | 1× | 2× | Stepped with the shift, stamped into `fare.value` at spawn. |
 | `carCount` | 12 | 22 | Ambient traffic. Pushed into `sim/traffic.js`. |
 | `policeCooldown` | 16–30s | 8–14s | Between patrols. Pushed into `game/patrol.js`. |
 
@@ -156,17 +155,17 @@ it.
 
 ## Shifts
 
-Four bands over the delivery count — 0, 3, 7, 12 — each with a payout multiplier, reflected in the
-prices from the delivery that crosses into it (there is [no counter](gameplay.md#the-multiplier-has-no-counter)
-for it). The ramp is otherwise invisible: clocks tighten, riders arrive closer together and the board grows, and
+Four bands over the delivery count — 0, 3, 7, 12. They used to carry a payout multiplier each (1×,
+1.25×, 1.5×, 2×); [the Perfect Run](gameplay.md#the-perfect-run) replaced it, so a shift is now only how hard
+the city is. The ramp is otherwise invisible: clocks tighten, riders arrive closer together and the board grows, and
 a player experiencing all three at once has no way to tell "the game got harder" from "I got worse".
 
-| Shift | From | Pays |
-|---|---|---|
-| Early Shift | 0 | 1× |
-| Busy | 3 | 1.25× |
-| Rush Hour | 7 | 1.5× |
-| Gridlock | 12 | 2× |
+| Shift | From |
+|---|---|
+| Early Shift | 0 |
+| Busy | 3 |
+| Rush Hour | 7 |
+| Gridlock | 12 |
 
 Deliberately **not** named after times of day: `daylight.js` runs the sky on its own clock, and a
 "Night Shift" banner over a midday sky is two systems contradicting each other.

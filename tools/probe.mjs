@@ -165,7 +165,8 @@ import {
   WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR, TUG_AIR, ARCH_RISE, DECK_THICK,
 } from '../src/city/river.js';
 import { createBridge, abutmentParts } from '../src/geometry/bridge.js';
-import { createBargeMesh, createTugMesh } from '../src/geometry/boat.js';
+import { createBargeMesh, createTugMesh, GULL_STAND, PERCH_CEIL } from '../src/geometry/boat.js';
+import { gullHeight, FLY_HIGH } from '../src/game/gulls.js';
 import { createDrawbridge, OPEN_SECONDS } from '../src/game/drawbridge.js';
 import { createBoats, BOAT_LANE, LANE_WANDER } from '../src/game/boats.js';
 import { FOAM_LIFE } from '../src/game/wake.js';
@@ -190,7 +191,8 @@ import {
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
-import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS } from '../src/game/sfx.js';
+import { createRunTracker, RUNS, PERFECT_SHARE, TAG_AFTER } from '../src/game/runs.js';
+import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
 const seed = Number(process.argv[2] ?? 71624);
@@ -2801,9 +2803,8 @@ check('no two cars occupy the same space', worst > 1.6,
           || (spot.i === parcel.dropoff.i && spot.j === parcel.dropoff.j)) clashedWithFare += 1;
       }
       if (!findRoute({ ...parcel.pickup, d: pTraffic.taxi.d }, parcel.dropoff)) unroutable += 1;
-      // Priced exactly as a rider going the same distance is, times the shift it appeared in.
-      const want = Math.round(priceFor(parcel.pickup, parcel.dropoff)
-        * difficulty.payoutMultiplier(parcels.state.delivered) * PARCEL_PAY_FACTOR);
+      // Priced exactly as a rider going the same distance is, off a fresh combo.
+      const want = Math.round(priceFor(parcel.pickup, parcel.dropoff) * PARCEL_PAY_FACTOR);
       if (parcel.value !== want) mispriced += 1;
       // **No clock.** Not "a long one" — none at all, so there is nothing for a hue to step through
       // and nothing that can expire and end a run. Asserted on the shape of the object, because that
@@ -3437,7 +3438,11 @@ check('no two cars occupy the same space', worst > 1.6,
 {
   const tScene = new THREE.Scene();
   const tTraffic = createTraffic(makeRng(seed + 44), tScene, CARS_DEFAULT);
-  const fares = createFareSystem(makeRng(seed + 55), tScene);
+  // A stub verdict, so the wiring is what is under test: every drop-off here is judged a Perfect Run.
+  // The tracker's own rules are checked on their own further down ("Run bonuses").
+  const fares = createFareSystem(makeRng(seed + 55), tScene, {
+    judgeRun: () => ({ runs: [{ key: 'perfect', ...RUNS.perfect }], mult: RUNS.perfect.mult }),
+  });
   tTraffic.warmup(5);
 
   let shownOnSpawn = 0;
@@ -3459,6 +3464,10 @@ check('no two cars occupy the same space', worst > 1.6,
   let stillMarked = 0;   // markers that vanished at pickup instead of flying to the taxi
   let sharedJunction = 0;
   let elapsed = 0;
+  const spawnPrice = new Map();
+  let deliveries = 0;
+  let wrongCombo = 0;
+  let jobDropped = 0;
 
   // Same perfect-player policy as the multi-fare block above, so the board actually doubles up.
   const aim = () => {
@@ -3485,21 +3494,27 @@ check('no two cars occupy the same space', worst > 1.6,
         // VIP's stays full forever rather than draining — see the fillOutOfStep loop below.
         if (fare.slot.marker.getFill() < 0.99) drainedOpening += 1;
         if (fare.blocks !== blockDistance(fare.pickup, fare.dropoff)) wrongCount += 1;
-        // Distance price times the shift's multiplier, both settled at spawn — so this reads the
-        // multiplier as of *this* frame, which is the one the fare was stamped with. A VIP stacks
-        // its own streak multiplier on top (see fares.js); `fare.vipMultiplier` is 1 for everyone
-        // else, so the formula is unchanged for an ordinary fare.
-        const due = Math.round(priceFor(fare.pickup, fare.dropoff)
-          * difficulty.payoutMultiplier(fares.state.delivered)
-          * fare.vipMultiplier);
+        // Distance price, times a VIP's flat multiplier (1 for everyone else), settled at spawn.
+        // The combo is not in it yet — that is applied at the drop-off, checked below.
+        const due = Math.round(priceFor(fare.pickup, fare.dropoff) * fare.vipMultiplier);
         if (fare.value !== due) wrongPrice += 1;
+        spawnPrice.set(fare, fare.value);
         // The clock is budgeted from the driving, so it has to cover it with the run's slack in
         // hand. Below 1.0 the rider cannot be delivered even by a perfect drive.
         if (fare.limit < fare.work) unwinnableClock += 1;
         budgetSlack.push(fare.limit / Math.max(1e-6, fare.work));
       }
+      if (type === 'delivered') {
+        // The verdict multiplies the price stamped at spawn and rides the event out for the pop.
+        deliveries += 1;
+        if (fare.runs?.[0]?.key !== 'perfect' || fare.basePay !== spawnPrice.get(fare)
+          || fare.value !== Math.round(spawnPrice.get(fare) * RUNS.perfect.mult)) wrongCombo += 1;
+      }
       if (type === 'pickup') {
         pickups += 1;
+        // A run bonus judges the whole job, keyed on `fares.job()`: the pickup must not hand that
+        // over to anyone else, or the drive to the kerb is forgotten mid-job.
+        if (fares.job() !== fare) jobDropped += 1;
         // The pin is promoted, not replanted — a drop-off that jumped at pickup would make the
         // preview a lie and every judgement made from it worthless.
         if (fare.target.i !== fare.dropoff.i || fare.target.j !== fare.dropoff.j) movedAtPickup += 1;
@@ -3546,6 +3561,10 @@ check('no two cars occupy the same space', worst > 1.6,
   check('a waiting rider shows their diamond', shownOnSpawn > 0 && missingPin === 0,
     `${shownOnSpawn} spawns, ${missingPin} missing`);
   check('the block count matches the trip', wrongCount === 0, `${wrongCount} mismatched`);
+  check('the job a run judges carries through the pickup', pickups > 0 && jobDropped === 0,
+    `${pickups} pickups, ${jobDropped} lost the job`);
+  check('a drop-off pays its price times the run verdict', deliveries >= 3 && wrongCombo === 0,
+    `${deliveries} delivered, ${wrongCombo} paid wrong`);
   check('a fresh rider\'s diamond opens on full urgency', wrongOpening === 0,
     `${wrongOpening} opened wrong`);
   check('and opens with a full vessel', drainedOpening === 0, `${drainedOpening} opened drained`);
@@ -5847,7 +5866,6 @@ check('the taxi is an ordinary car in the traffic array',
   check('a rider is aboard before the bail is staged', Boolean(riding));
 
   riding.vip = true;
-  bFares.state.vipStreak = 4;
   const { slot } = riding;
   const from = { x: bTaxi.x, z: bTaxi.z };
   riding.timeLeft = 1 / 120;
@@ -5855,8 +5873,6 @@ check('the taxi is an ordinary car in the traffic array',
 
   check('a VIP\'s clock running out does not end the run',
     Boolean(missed) && !bFares.state.gameOver);
-  check('and takes the streak with it', bFares.state.vipStreak === 0,
-    `streak ${bFares.state.vipStreak}`);
   check('the missed VIP leaves the board at once', !bFares.state.fares.includes(riding));
   // The clock is the one thing that goes immediately: it is what ran out.
   check('their crystal goes with the fare', !slot.marker.group.visible);
@@ -9316,8 +9332,14 @@ check('the taxi is an ordinary car in the traffic array',
   const taken = new Set(Object.values(SOUNDS).flat());
   const unwired = [...taken].filter((f) => !(f in files) || !onDisk.includes(f));
   check('every take a sound names is a shipped .m4a', unwired.length === 0, unwired.join(', '));
-  const orphans = onDisk.filter((f) => !taken.has(f));
-  check('every shipped .m4a is some sound\'s take', orphans.length === 0, orphans.join(', '));
+  const tracks = [RADIO.intro, ...RADIO.songs];
+  const offAir = tracks.filter((f) => !(f in createSfx().radioFiles) || !onDisk.includes(f)
+    || !(RADIO.seconds[f] > 0) || !(RADIO.gain[f] > 0));
+  check('every radio track is a shipped .m4a with a length and a level', offAir.length === 0,
+    offAir.join(', '));
+  const orphans = onDisk.filter((f) => !taken.has(f) && !tracks.includes(f));
+  check('every shipped .m4a is some sound\'s take or a radio track', orphans.length === 0,
+    orphans.join(', '));
   const unsorted = Object.keys(SOUNDS).filter((k) => !SFX_EVENTS.has(k) && !LOOPS.has(k));
   check('every sound is either a one-shot or a bed', unsorted.length === 0, unsorted.join(', '));
 
@@ -16546,7 +16568,9 @@ let chopperOrder; // likewise
   const tugGeo = createTugMesh(makeRng(seed + 812));
   bargeGeo.computeBoundingBox();
   tugGeo.computeBoundingBox();
-  const bargeAir = bargeGeo.boundingBox.max.y;
+  // The wheelhouse is a geometry of its own (it wears the metal finish), so it is measured too.
+  bargeGeo.userData.house.computeBoundingBox();
+  const bargeAir = Math.max(bargeGeo.boundingBox.max.y, bargeGeo.userData.house.boundingBox.max.y);
   const tugAir = tugGeo.boundingBox.max.y;
 
   check('a barge clears every span in the city',
@@ -16557,6 +16581,21 @@ let chopperOrder; // likewise
     `${tugAir.toFixed(2)} against ${flatGap.toFixed(2)} flat and ${archGap.toFixed(2)} arched`);
   check('the arch is what buys the tug that clearance',
     archGap - flatGap > 0.9, `${(archGap - flatGap).toFixed(2)} units of hump`);
+
+  // The gulls ride under the flat span on the heap, and fly over the arched one with a truck on
+  // it: two more links in the same chain. Perches are read off the barge geometry, not trusted.
+  {
+    const perches = bargeGeo.userData.perches;
+    const highPerch = Math.max(...perches.map((p) => p.y));
+    check('a gull standing on the barge still clears the flat span',
+      gullHeight() <= GULL_STAND + 1e-6 && highPerch <= PERCH_CEIL + 1e-6
+        && PERCH_CEIL + GULL_STAND < flatGap,
+      `${perches.length} perches, highest ${highPerch.toFixed(2)} + a ${gullHeight().toFixed(2)} bird`
+        + ` against ${flatGap.toFixed(2)}`);
+    check('and a flying one clears a truck on the arch crest',
+      FLY_HIGH - 0.5 > -WATER_Y + ARCH_RISE + 2.6,
+      `${(FLY_HIGH - 0.5).toFixed(2)} at the lowest wingtip against ${(-WATER_Y + ARCH_RISE + 2.6).toFixed(2)}`);
+  }
 
   // --- The deck profile.
   //
@@ -16593,6 +16632,38 @@ let chopperOrder; // likewise
     // The running surface, both footways, the rail caps and the dashes all face up; if the lofting
     // ever flips, this is what goes with it.
     check('the deck faces the sky', upward > 100, `${upward} up-facing triangles`);
+  }
+
+  // ...and every vertical face of the deck faces the side it is on: the edge beams **out**, the kerb
+  // faces **in** toward the carriageway. Both shipped wound the other way round, so a span had no
+  // visible side from outside and the camera saw straight under its footways to the water — a slot
+  // nobody noticed on a 1.1 hump and "a geo gap" the day the rise went to 1.9. Read off the winding,
+  // for the same reason as above.
+  {
+    let wrong = 0;
+    let seen = 0;
+    const a = new THREE.Vector3(); const b = new THREE.Vector3();
+    const c = new THREE.Vector3(); const n = new THREE.Vector3();
+    for (const i of bridgeLines()) {
+      const span = bridgeSpan(i);
+      const geo = createBridge(span, makeRng(seed + 820 + i), { abutments: false, pivotZ: 0 });
+      const p = geo.attributes.position;
+      for (let k = 0; k < p.count; k += 3) {
+        a.fromBufferAttribute(p, k); b.fromBufferAttribute(p, k + 1); c.fromBufferAttribute(p, k + 2);
+        if (Math.abs(a.x - b.x) > 1e-6 || Math.abs(a.x - c.x) > 1e-6) continue;
+        const x = a.x;
+        const onBeam = Math.abs(Math.abs(x) - span.outer) < 1e-6;
+        const onKerb = Math.abs(Math.abs(x) - span.half) < 1e-6;
+        if (!onBeam && !onKerb) continue;
+        n.copy(b).sub(a).cross(c.clone().sub(a));
+        if (n.length() < 1e-9) continue;
+        seen += 1;
+        const want = onBeam ? Math.sign(x) : -Math.sign(x);
+        if (Math.sign(n.x) !== want) wrong += 1;
+      }
+    }
+    check('edge beams face out and kerbs face the carriageway', seen > 0 && wrong === 0,
+      `${wrong} of ${seen} side triangles wound the wrong way`);
   }
 
   // --- Nothing under a bridge shares a plane with the channel wall.
@@ -17007,8 +17078,8 @@ let chopperOrder; // likewise
     const boats = createBoats(rScene, makeRng(seed + 840), bridge);
     let lowest = 1;
     let shutFrames = 0;
-    // Two hulls in the same water, and a mast through a soffit. The river is single file now — a
-    // barge fills three quarters of the channel — so keeping hulls apart is the launch schedule's
+    // Two hulls in the same water, and a mast through a soffit. The river is single file — two
+    // barges side by side need 8.4 of a 7.87 channel — so keeping hulls apart is the launch schedule's
     // job, and what is measured is the closest any two boats came end to end.
     let worstGap = Infinity;
     let worstAir = Infinity;
@@ -17019,6 +17090,13 @@ let chopperOrder; // likewise
     // from the middle of the channel, whether it stays on the surface, and how much of the pool the
     // busiest moment of the river actually spends.
     let peakFoam = 0;
+    // The gulls: a bird under a span has to be one riding the heap, and a bird over one has to be
+    // up at flight height. Anything between is a bird through a bridge deck.
+    const gSpans = bridgeLines().map(bridgeSpan);
+    let gullHits = 0;
+    let gullMoves = 0;
+    let gullsUnder = 0;
+    const gWorld = new THREE.Vector3();
     let outOfChannel = 0;
     let worstBank = 0;
     let offSurface = 0;
@@ -17031,8 +17109,8 @@ let chopperOrder; // likewise
         peakFoam = Math.max(peakFoam, foam.length);
         for (const mote of foam) {
           // **The bank is the bound, and it is tighter than it sounds.** The water is 7.87 units
-          // across on the narrow build against a barge whose arms start 2.9 off the middle, so
-          // there is about a unit of open water outboard of a hull. Arms left to open on the
+          // across on the narrow build against a barge whose arms start 2.0 off the middle, so
+          // there is under two units of open water outboard of a hull. Arms left to open on the
           // Kelvin angle alone are over the embankment inside a second and a half, and foam lying
           // on a stone walkway is as wrong as this effect goes.
           const past = Math.max(mote.z - rWater.z1, rWater.z0 - mote.z) + mote.size / 2;
@@ -17048,6 +17126,24 @@ let chopperOrder; // likewise
       bridge.update(1 / 60, []);
       if (bridge.closed) shutFrames += 1;
       for (const boat of boats.boats) {
+        if (boat.gulls) {
+          if (boat.gulls.moving()) gullMoves += 1;
+          boat.mesh.updateMatrixWorld(true);
+          for (const bird of boat.gulls.birds) {
+            bird.root.getWorldPosition(gWorld);
+            const over = gSpans.some((sp) => Math.abs(gWorld.x - sp.cx) < sp.outer
+              && gWorld.z > sp.z0 && gWorld.z < sp.z1);
+            if (!over) continue;
+            // Against the deck actually overhead, not the flat soffit: the outer spans stand
+            // where the river is already shoaling up to the coast, so a hull rides higher there —
+            // and they are arches, with the room on the centreline to take it.
+            const deck = deckHeightAt(gWorld.x, gWorld.z).y;
+            const under = gWorld.y + GULL_STAND <= deck - DECK_THICK;
+            const above = gWorld.y - 0.5 > deck + 2.6;
+            if (under) gullsUnder += 1;
+            if (!under && !above) gullHits += 1;
+          }
+        }
         // Clearance is a function of **z alone** — the arch crests on the centreline and falls off
         // both ways — so the number that matters is the soffit above the boat's own lane, not the
         // one above the middle of the river. Checking the crest is what let this through before.
@@ -17070,6 +17166,8 @@ let chopperOrder; // likewise
     // pool that replaced it is whether it ever put anything on the water. A particle wake cannot
     // fail that way for a winding reason (three builds the mote), which is one of the things it
     // buys; it can fail for a dozen others, and the checks below are those.
+    check('no gull ever flies through a bridge', gullHits === 0 && gullsUnder > 0 && gullMoves > 0,
+      `${gullHits} bird-frames inside a deck; ${gullsUnder} riding under one, ${gullMoves} frames of take-off or landing`);
     check('a boat under way leaves foam behind it', peakFoam > 0,
       `${peakFoam} motes alive at the busiest frame of five minutes, of ${boats.wake.size}`);
     // Headroom in the ring buffer, the check `dust.js` has twice been resized by. The pool laps
@@ -17529,6 +17627,64 @@ let chopperOrder; // likewise
   check('no fire can break out on the depot or the burger joint',
     cities > 0 && sites > 0 && onDepot === 0 && onBurger === 0,
     `${sites} candidate sites over ${cities} cities with a depot, ${onDepot} on it, ${onBurger} on the joint`);
+}
+
+// --- The Perfect Run --------------------------------------------------------------
+//
+// game/runs.js on its own: the rule, and the edges that make it fair.
+{
+  const step = 1 / 60;
+  const ride = (tracker, fare, seconds, facts) => {
+    for (let t = 0; t < seconds; t += step) tracker.update(step, { fare, boosting: false, ...facts(t) });
+  };
+  const keys = (v) => v.runs.map((r) => r.key).join(',');
+
+  let r = createRunTracker();
+  const a = { id: 'a' };
+  ride(r, a, 10, () => ({}));
+  check('a job driven off boost earns no Perfect Run', keys(r.judge(a)) === '' && r.judge(a).mult === 1,
+    keys(r.judge(a)));
+
+  r = createRunTracker();
+  ride(r, a, 10, (t) => ({ boosting: t >= 4 }));
+  check(`more than ${PERFECT_SHARE * 100}% boost and no damage is a Perfect Run`,
+    keys(r.judge(a)) === 'perfect' && r.judge(a).mult === RUNS.perfect.mult,
+    `${keys(r.judge(a))} ×${r.judge(a).mult}`);
+
+  r = createRunTracker();
+  ride(r, a, 10, (t) => ({ boosting: t >= 6 }));
+  check('under the share it is not, and its tag never shows', keys(r.judge(a)) === '' && r.live().length === 0,
+    `${keys(r.judge(a))} ${JSON.stringify(r.live())}`);
+
+  // The tag: nothing for the first TAG_AFTER seconds even on course, then latched — a dip under the
+  // share dims it rather than hiding it.
+  r = createRunTracker();
+  ride(r, a, TAG_AFTER - 0.1, () => ({ boosting: true }));
+  const early = r.live().length;
+  ride(r, a, 0.2, () => ({ boosting: true }));
+  const shown = r.live()[0]?.earned === true;
+  ride(r, a, 10, () => ({}));
+  check(`the tag shows ${TAG_AFTER}s in, on course, and stays once shown`,
+    early === 0 && shown && r.live().length === 1 && r.live()[0].earned === false,
+    `early ${early}, shown ${shown}, after ${JSON.stringify(r.live())}`);
+
+  r = createRunTracker();
+  ride(r, a, 5, () => ({ boosting: true }));
+  r.damage();
+  ride(r, a, 5, () => ({ boosting: true }));
+  check('damage takes it, however much boost', keys(r.judge(a)) === '' && r.live()[0]?.broken,
+    keys(r.judge(a)));
+
+  // A new job is a new job: nothing carries over, and damage between jobs belongs to nobody.
+  r = createRunTracker();
+  ride(r, a, 5, () => ({ boosting: true }));
+  r.damage();
+  ride(r, null, 1, () => ({}));
+  r.damage();
+  const b = { id: 'b' };
+  ride(r, b, 5, () => ({ boosting: true }));
+  check('each job is judged on its own', keys(r.judge(b)) === 'perfect'
+    && r.judge(a).mult === 1, `${keys(r.judge(b))}, previous ×${r.judge(a).mult}`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

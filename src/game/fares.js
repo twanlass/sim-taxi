@@ -74,8 +74,8 @@ export const FARE_PER_BLOCK = 3;
  * second time as well as the first.
  *
  * Ten against a fare board that pays $8 for the shortest ride and $20 for a median one (`FARE_BASE`
- * and `FARE_PER_BLOCK` above), before the shift multiplier — so a burger is half a fare early on and
- * loose change by the last shift, which is the right way round: the tank matters most when the
+ * and `FARE_PER_BLOCK` above), before any Perfect Run — so a burger is half a plain fare and a
+ * quarter of a perfect one, which is the right way round: the tank matters most when the
  * multiplier is small and the cash matters most then too. Deliberately *not* scaled by that
  * multiplier, because the reward it buys is a flat 2.25 seconds of boost at every point in the run
  * — a price that climbed with the board would make the same purchase steadily worse for no reason
@@ -135,18 +135,14 @@ export const MAX_FARES = 4;
 // the bonus, and the rider storms out of the cab (see `beginBail`) rather than taking the game
 // down with them.
 //
-// The payout is the ordinary distance price times VIP_PAYOUT, and then again by the player's
-// current *VIP streak*: how many VIPs have been delivered back to back. Stamped at spawn like
-// every other price on the board (see spawnFare) — the diamond's fixed purple should say what
-// this one is worth the moment it appears, not leave it to be found out on delivery. The streak
-// is what makes stacking VIPs worth the risk, and missing one resets it to zero: the whole
-// tension is that one late drop-off gives it all back.
+// The payout is the ordinary distance price times VIP_PAYOUT, stamped at spawn like every other
+// price on the board (see spawnFare), and then times a Perfect Run at the drop-off like every
+// other fare (see "The Perfect Run" below).
 //
-// **The base multiplier is not a rounding.** Before it existed the first VIP of a streak was
-// worth `streak + 1` = exactly one ordinary fare, so the rarest, tightest rider on the board paid
-// the same as the one standing next to them and the risk bought nothing until the *second* one
-// landed. Three ordinary fares is the number that makes a detour worth taking on sight, and the
-// streak still does the rest of the work: 3×, 4×, 5× as they stack.
+// There used to be a second, VIP-only streak on top — 3×, then 4×, then 5× for VIPs delivered
+// back to back, reset by a miss. It went with the shift multiplier when run bonuses replaced both:
+// the multipliers the player can see are the ones on the trip they are driving.
+// Three ordinary fares is still the number that makes a detour worth taking on sight.
 const VIP_MIN_DELIVERED = 1;      // never on the tutorial fare — nothing to distinguish it against yet
 const VIP_COOLDOWN = 55;          // seconds between opportunities, so a VIP stays a rare event
 const VIP_CHANCE = 0.16;          // chance a qualifying spawn actually becomes one
@@ -245,8 +241,8 @@ const ROBBER_DROPOFF_SPREAD = 1;
  * five-plus-block trip on top of its own base came to about $50–75, two or three ordinary fares for
  * the one event in the game that takes the wheel, fills the streets with police and cannot be
  * declined. It read as a slightly better fare. At $100–150 it is five or six ordinary fares' worth —
- * a jackpot, which is what an event this loud should pay. Flat also keeps it off
- * `payoutMultiplier`, so it is the same number every time and a player can learn it.
+ * a jackpot, which is what an event this loud should pay. Flat means the same number every time,
+ * so a player can learn it — before any run bonus, which multiplies a robber's drop-off like any other.
  */
 const ROBBER_PAYOUT = 100;
 const ROBBER_BONUS = 50;
@@ -271,6 +267,18 @@ const CHECKPOINT_MIN_LEG = 3;
 // blocks are fifteen at the least, so a flat cap of 6 (what two checkpoints shipped with) leaves
 // no chain at all on most cities.
 const CHECKPOINT_EXTRA_EACH = 3;
+
+// --- The Perfect Run -------------------------------------------------------------
+//
+// How the job was driven — a Perfect Run or not — multiplies what the drop-off
+// pays (game/runs.js). Judged at the drop-off through the `judgeRun` hook main.js hands in, rather
+// than stamped at spawn like the rest of a price: it is a fact about the driving, and the driving
+// has not happened when the rider appears. Nothing on the board shows a price before the drop-off,
+// so nothing has been promised that this could contradict.
+//
+// It replaced two multipliers: the shift's (1× to 2× over the ramp, stamped at spawn and shown
+// nowhere) and the VIP's (3×, 4×, 5× back to back). Both paid for getting further; this pays for
+// *how*.
 
 // Cadence and placement of every fare beyond the first.
 //
@@ -398,8 +406,8 @@ const EXIT_HOLD_MAX = 60;
 // cab, the run, the fade and the outburst bubble over all of it (geometry/cursebubble.js).
 //
 // Longer than a delivered rider's exit, and it is carrying more: a delivery is confirmed by a
-// payout flying to the counter, and this is the only notice the player gets that a fare — and the
-// streak behind it — has just gone. Under about two seconds the bubble is gone before an eye that
+// payout flying to the counter, and this is the only notice the player gets that a fare has just
+// gone. Under about two seconds the bubble is gone before an eye that
 // was on the road can travel to it. It is not longer still because the rider is running through
 // live traffic while it plays.
 const BAIL_SECONDS = 2.2;
@@ -638,7 +646,7 @@ export const waitingTargets = (slot) => [slot.passenger.group, slot.marker.group
  *                  keep working with nothing on top of it, which a hard import would quietly end.
  *                  Read per call, since the set moves every time a package is collected.
  */
-export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
+export function createFareSystem(rng, scene, { reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }) } = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
     // waiting on the kerb at once — the whole prioritisation puzzle.
@@ -646,9 +654,6 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     elapsed: 0,
     money: 0,
     delivered: 0,
-    // Consecutive VIPs delivered without missing one. Stamped into a VIP's own price at spawn
-    // (see spawnFare) and reset to 0 the instant one is missed.
-    vipStreak: 0,
     // Time of the most recent spawn, so refills stagger by difficulty.spawnGap() rather than
     // bursting.
     // -Infinity so the very first spawn is unrestricted.
@@ -1165,18 +1170,10 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // hidden meter that ticked while driving would punish traffic and reward Loco Mode for the
     // wrong reasons.
     //
-    // The shift multiplier is stamped in at the same moment and for the same reason: the price is
-    // a fact about the trip settled when the trip is, so a rider who appeared during Rush Hour is
-    // worth Rush Hour money whenever they happen to get delivered.
-    //
-    // A VIP's own multiplier stacks on top: three fares flat, plus one for every VIP already
-    // delivered back to back — so 3×, then 4×, then 5×, and back to 3× the moment one is missed.
-    // Stamped now rather than read at delivery, same as everything else priced here — the marker's
-    // fixed purple has to say what this trip is worth the moment it appears.
-    fare.vipMultiplier = vip ? VIP_PAYOUT + state.vipStreak : 1;
-    fare.value = Math.round(priceFor(spot, fare.dropoff)
-      * difficulty.payoutMultiplier(state.delivered)
-      * fare.vipMultiplier);
+    // A VIP's flat multiplier is stamped in at the same moment. A run bonus is not: it is read at
+    // the drop-off, because it is about how the trip gets driven (see "The Perfect Run").
+    fare.vipMultiplier = vip ? VIP_PAYOUT : 1;
+    fare.value = Math.round(priceFor(spot, fare.dropoff) * fare.vipMultiplier);
 
     // The clock, last: it is budgeted from the trip that was just decided, plus whatever the taxi
     // is already committed to finishing. Both ends of the trip are now known, which is the
@@ -1791,8 +1788,6 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
         // out, swears about it (geometry/cursebubble.js), and goes. The event costs the bonus and
         // the seat it was occupying, and nothing else.
         //
-        // There is no streak to lose, which is the one line of the VIP's version that is absent
-        // here rather than shared.
         if (fare.robber) {
           const missed = state.fares.indexOf(fare);
           if (missed !== -1) state.fares.splice(missed, 1);
@@ -1801,15 +1796,14 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
           continue;
         }
         // The one place a fare's clock running out does not end the run. A VIP is pure upside —
-        // missing one costs the bonus and the streak, never the game — so the board carries on
+        // missing one costs the bonus, never the game — so the board carries on
         // without them and the rest of the frame runs as usual.
         //
-        // They do not simply vanish, though. The fare comes off the board here, in the same breath
-        // the streak is lost, and the *rider* is handed to `beginBail`: out of the cab, a mouthful
+        // They do not simply vanish, though. The fare comes off the board here, and the *rider*
+        // is handed to `beginBail`: out of the cab, a mouthful
         // about it, and gone. Splicing by hand rather than through `clear` because `clear` hides
         // the figure, which is the one thing that has to stay on screen.
         if (fare.vip) {
-          state.vipStreak = 0;
           const missed = state.fares.indexOf(fare);
           if (missed !== -1) state.fares.splice(missed, 1);
           beginBail(fare, taxiCar);
@@ -1892,11 +1886,15 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
         // same number — the alternative was a second, smaller flight arriving from nowhere for a
         // reason the screen never explains. See ROBBER_PAYOUT.
         if (fare.bonusMax) fare.value += Math.round(fare.bonusMax * urgencyOf(fare));
+        // The run bonuses, last, so they multiply everything the drop-off pays — robbery bonus
+        // included — and `fare.value` stays the one number the pop, the counter and the card read.
+        // `fare.runs` rides the 'delivered' event out to the pop that labels them.
+        const verdict = judgeRun(fare);
+        fare.runs = verdict.runs;
+        fare.basePay = fare.value;
+        fare.value = Math.round(fare.value * verdict.mult);
         state.money += fare.value;
         state.delivered += 1;
-        // Extends the streak the next VIP's price is stamped with — see spawnFare. A miss resets
-        // it; a delivery is the only way it grows.
-        if (fare.vip) state.vipStreak += 1;
         // Pull the fare out of the puzzle immediately — the board is free to refill — while
         // handing the slot's passenger figure over to the exit animation. The next spawner
         // will skip this slot until the animation is done, so nothing lands on top of it.
@@ -2098,6 +2096,12 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
      * taxi and it can only be driving at one of them.
      */
     directed: () => state.fares.find((f) => f.directed) ?? null,
+    /**
+     * The job in hand: the rider the taxi has been sent at, or the one it is carrying. A pickup
+     * clears `directed` for the frame before main.js dispatches the drop-off, so `directed` alone
+     * would lose the job for that frame — this is what a run bonus keys on (game/runs.js).
+     */
+    job: () => state.fares.find((f) => f.directed) ?? carrying(),
     colorOf,
     carrying,
     waiting,

@@ -844,16 +844,30 @@ export const PALETTE = {
   // Neither is allowed near the warm end. The taxi owns 34 degrees, the urgency ramp owns
   // everything from 1 to 126 and the roadworks orange sits at 6 — a working boat in red or orange
   // is a thing the player would look at twice on a board where warm means "act on this".
-  bargeHull: '#4A4E55',
-  // A deck barge's load: shipping containers in the colours a real stack comes in, minus every
-  // warm one. Blues, a green held at 145 degrees (the urgency ramp ends at 126), a slate, a violet
-  // and a white box, and nothing between 170 and 200 where the courier cyan lives. They are
-  // *muted* on purpose — a container yard is the most colourful thing on a river, and it still has
-  // to sit under the taxi and the fares in the frame.
-  bargeContainers: ['#3B5F8C', '#566A8C', '#4A7A5C', '#767C84', '#685D86', '#C9CCC8'],
-  // Loose crates: weathered pale timber rather than new pine, which would land on the taxi's 34
-  // degrees at full saturation.
-  bargeCrate: '#A39A88',
+  // The trash barge (geometry/boat.js). Rust is a warm hue, so it is spent the only way this board
+  // allows a warm one: at low saturation and low value, where it reads as dirty steel rather than
+  // as an orange. The hull stays dark against the water (luma ~70 against the river's 87-112) and
+  // the heap is where the variety lives — black bags, a muted green one held at 145 degrees (the
+  // urgency ramp ends at 126), grey cardboard, a blue drum, a few white scraps that catch the sun.
+  trashHull: '#4F4843',
+  trashGrime: '#3E3B37',
+  // The mound the rubbish sits in, lighter than the bags so they read as bags against it.
+  trashHeap: '#6B655C',
+  trashTyre: '#26272A',
+  trashBag: '#2B2E33',
+  trashBagGreen: '#4C6B55',
+  trashBox: '#8E8576',
+  trashJunk: '#6E7378',
+  trashBarrel: '#3B5F8C',
+  trashWhite: '#C9CCC8',
+  // The wheelhouse is steel in the cars' metal finish, which darkens its base and adds the sky — so
+  // it is picked pale, near `bumperChrome`'s neighbourhood rather than the grey it ends up reading as.
+  trashHouse: '#C4C9CE',
+  trashStack: '#2F3236',
+  // The gulls (game/gulls.js): white bodies, grey backs, and nothing else — a yellow bill would be
+  // a warm speck at full saturation and would not survive the 3 pixels it occupies anyway.
+  gullBody: '#EEF0F0',
+  gullWing: '#A7ADB3',
   // The boat that asks for the lift is a sailboat now, and it is the one **white** thing on the
   // water — a light hull is value against the river, which is what this whole section is about.
   sailHull: '#ECECE8',

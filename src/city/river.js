@@ -110,7 +110,9 @@ export const FLAT_SOFFIT = -DECK_THICK;
 export const ARCH_SOFFIT = ARCH_RISE - DECK_THICK;
 
 /** Air draughts, exported so `tools/probe.mjs` can assert the chain above rather than the outcome. */
-export const BARGE_AIR = 1.4;
+// The barge's is 0.05 under the flat soffit's 1.65: the trash barge's wheelhouse and funnel want
+// every bit of height there is, and the drawbridge is the only span they have to fit under.
+export const BARGE_AIR = 1.6;
 export const TUG_AIR = 3.4;
 
 // How far a bridge deck reaches beyond the road it carries: its footway, and the edge beam under

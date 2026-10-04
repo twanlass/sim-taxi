@@ -234,6 +234,10 @@ export const SHOTS = [
   // you notice while driving past.
   { name: 'court', description: 'the basketball court, close', target: [0, 0], zoom: 10, warmup: 12, atCourt: true },
   { name: 'court-far', description: 'the basketball court at play zoom', target: [0, 0], zoom: 52, warmup: 12, atCourt: true },
+  // The trash barge and its gulls, close. Staged through the drawbridge cycle because that is what
+  // puts a barge on the river at all (`boats.settle()`), then framed on the barge rather than the
+  // span — the gulls are a few pixels each and only a close framing says whether they read.
+  { name: 'barge', description: 'the trash barge and its gulls', target: [0, 0], zoom: 9, warmup: 12, drawbridgeAt: 13.0, onBarge: true },
 ];
 
 export function getActiveShot() {
