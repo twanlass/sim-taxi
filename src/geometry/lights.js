@@ -199,45 +199,25 @@ export function beamRow(u) {
   return { x: u * BEAM_LEN, half: THREE.MathUtils.lerp(BEAM_NEAR_W, BEAM_FAR_W, u) / 2 };
 }
 
-/** Rows along a pool — enough for the shaft's curve down from the lamp, and for the taxi's pool to
- * follow a bridge's arch (game/citylights.js). */
-export const BEAM_ROWS = 16;
+/** Rows along a pool — enough for the taxi's to follow a bridge's arch (game/citylights.js). */
+export const BEAM_ROWS = 12;
 
 /**
- * How far along the beam (0..1) it comes down from the lamp onto the road. Laid flat from the
- * bumper, a pool read as lying on the ground *in front of* the headlights rather than coming out of
- * them: from this camera the lamp sits half a unit up, and the pool began a body's width of shadow
- * away from it. So the first stretch of each beam is a shaft that leaves the lamp at the lamp's
- * height and eases down onto the asphalt by `SHAFT_LAND` of the way along, about 2 units out.
- */
-const SHAFT_LAND = 0.3;
-
-/**
- * The beam's height over the road `u` of the way along it, for a lamp `lampLift` above the pool.
- * Squared, so it leaves the lamp angled down and lands tangent to the road rather than with a kink.
- */
-export function beamLift(u, lampLift) {
-  return lampLift * Math.max(0, 1 - u / SHAFT_LAND) ** 2;
-}
-
-/**
- * The light a headlight throws ahead: a shaft from the lamp easing down into a pool on the road,
- * starting at its own origin (the bumper, at road level — the lamp is `lampLift` above it) and
+ * The pool a headlight throws on the road ahead, starting at its own origin (the bumper) and
  * opening out along +X, carrying a 0..1 fade in `uv.y` along its length. One strip of `BEAM_ROWS`
- * rows, wound so every face points **up** — asserted in tools/probe.mjs on the taxi's, which is
- * wound the same way, because an unlit triangle wound the other way does not draw wrong, it does
- * not draw.
+ * rows — the fleet's is a trapezoid either way, the rows are for the taxi's draped copy — wound so
+ * every face points **up**, asserted in tools/probe.mjs on the taxi's, which is wound the same way:
+ * an unlit triangle wound the other way does not draw wrong, it does not draw.
  */
-export function beamGeometry(lampLift = 0) {
+export function beamGeometry() {
   const positions = [];
   const uvs = [];
   const index = [];
   for (let r = 0; r <= BEAM_ROWS; r++) {
     const u = r / BEAM_ROWS;
     const { x, half } = beamRow(u);
-    const y = beamLift(u, lampLift);
     // Left (-z) then right (+z).
-    positions.push(x, y, -half, x, y, half);
+    positions.push(x, 0, -half, x, 0, half);
     uvs.push(0, u, 1, u);
     if (r < BEAM_ROWS) {
       const v = r * 2;
@@ -249,6 +229,88 @@ export function beamGeometry(lampLift = 0) {
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(index);
   return geo;
+}
+
+/**
+ * The beam itself, as a cone of light out of the lamp: open-ended, starting at the pod's own size
+ * and opening to `CONE_R` over `CONE_LEN`. The pool on the road says where the light lands; this is
+ * what says where it comes *from*. Built along +X from its own origin, so it hangs off a headlight
+ * anchor the way a pod does and switches on and off as a scale about the lamp.
+ *
+ * It rides the body, pitch and all, and that is deliberate rather than the bug the pools had: a
+ * real headlight dips with the nose, and where this one meets the road it is cut by the road's own
+ * depth, which reads as light hitting tarmac. What looked wrong on the pool was a flat slab of
+ * *ground* lifting into the air.
+ */
+const CONE_LEN = 4.6;
+const CONE_R = 0.85;
+const CONE_TIP_R = 0.1;
+/** Aimed down a little, so the cone's axis reaches the road near its far end. */
+const CONE_TILT = Math.atan2(0.45, CONE_LEN);
+
+export function coneGeometry() {
+  const geo = new THREE.CylinderGeometry(CONE_TIP_R, CONE_R, CONE_LEN, 18, 6, true);
+  // Cylinder: along Y, top (the tip) at +LEN/2. Tip to the origin, then lay it along X with the
+  // mouth at +X — a quarter turn about Z takes -Y to +X.
+  geo.translate(0, -CONE_LEN / 2, 0);
+  geo.rotateZ(Math.PI / 2);
+  // Tip at 0, mouth at +LEN: the 0..1 along the beam, for the fade, before any instance transform.
+  const pos = geo.attributes.position;
+  const along = new Float32Array(pos.count);
+  for (let i = 0; i < pos.count; i++) along[i] = pos.getX(i) / CONE_LEN;
+  geo.setAttribute('along', new THREE.BufferAttribute(along, 1));
+  return geo;
+}
+
+/** The cone's turn about its lamp: toed out like the pool, and tilted down by `CONE_TILT`. */
+export function coneQuat(z) {
+  const tilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -CONE_TILT);
+  return beamToe(z).multiply(tilt);
+}
+
+/**
+ * Additive, both sides, never depth-written. Brightest where the camera looks *through* the most of
+ * it — the faces turned toward the view — and soft at the silhouette, which is what makes a hollow
+ * cone read as a volume of lit rain rather than a lampshade. Fades out along its length.
+ */
+export function coneMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: color('headlightBeam') }, uStrength: { value: 0.45 } },
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    vertexShader: /* glsl */ `
+      #include <common>
+      attribute float along;
+      varying float vAlong;
+      varying vec3 vNormalView;
+      void main() {
+        vAlong = along;
+        vec4 mvPosition = vec4(position, 1.0);
+        vec3 n = normal;
+        #ifdef USE_INSTANCING
+          mvPosition = instanceMatrix * mvPosition;
+          n = mat3(instanceMatrix) * n;
+        #endif
+        vNormalView = normalize(normalMatrix * n);
+        mvPosition = modelViewMatrix * mvPosition;
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      uniform float uStrength;
+      varying float vAlong;
+      varying vec3 vNormalView;
+      void main() {
+        // Orthographic: the view direction is view-space +Z everywhere.
+        float facing = abs(normalize(vNormalView).z);
+        float a = pow(1.0 - vAlong, 1.6) * smoothstep(0.0, 0.1, vAlong) * facing;
+        gl_FragColor = vec4(uColor * a * uStrength, 1.0);
+      }
+    `,
+  });
 }
 
 /**

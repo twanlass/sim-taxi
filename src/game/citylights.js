@@ -6,10 +6,10 @@ import {
 } from '../util/geo.js';
 import { facadeQuads, setPaneSink } from '../city/buildings.js';
 import { KERB_H } from '../city/ground.js';
-import { CAR_LEN, CAR_W, ROAD_Y } from '../sim/traffic.js';
+import { CAR_LEN, CAR_W } from '../sim/traffic.js';
 import {
-  headlightGeometry, headlightAnchors, headlightMaterial, beamMaterial, beamRow, beamToe, beamLift,
-  BEAM_ROWS,
+  headlightGeometry, headlightAnchors, headlightMaterial, beamMaterial, beamRow, beamToe,
+  coneGeometry, coneMaterial, coneQuat, BEAM_ROWS,
 } from '../geometry/lights.js';
 import { TAXI_SCALE } from '../geometry/taxi.js';
 import { deckHeightAt } from '../city/river.js';
@@ -383,38 +383,45 @@ const POOL_LIFT_FADE = [0.25, 1.4];
  * alone, the way the fleet's are (`writeFlat` in sim/traffic.js) — and fade as the body leaves it.
  *
  * And they are *draped*, not flat: each is a strip of `BEAM_ROWS` rows whose vertices are set on the
- * road surface under them every frame, `deckHeightAt` included, plus the shaft's rise back up to
- * the lamp (`beamLift`). A flat seven-unit pool on an arched bridge buries its far end in the deck
- * while climbing; with rows, it lies on the curve. Two strips of 34 vertices on the CPU — only the
- * taxi pays it; the fleet keeps its instanced pools, shaft baked in, posed flat.
+ * road surface under them every frame, `deckHeightAt` included. A flat seven-unit pool on an arched
+ * bridge buries its far end in the deck while climbing; with rows, it lies on the curve. Two strips
+ * of 26 vertices on the CPU — only the taxi pays it; the fleet keeps its flat instanced pools.
+ *
+ * The cones (`coneGeometry`) are the other half, and they *do* hang on the body: they say where the
+ * light comes from, so they leave the lamp wherever it is, and the road's depth cuts them where
+ * they meet it.
  */
 export function createTaxiHeadlights() {
   const group = new THREE.Group();
   group.name = 'taxiHeadlights';
   const podMaterial = headlightMaterial();
   const anchors = headlightAnchors(CAR_LEN, CAR_W);
+  const pods = new THREE.Group();
+  const coneMaterial_ = coneMaterial();
   for (const anchor of anchors) {
     const pod = new THREE.Mesh(headlightGeometry(), podMaterial);
     pod.position.copy(anchor);
-    group.add(pod);
+    pods.add(pod);
+    const cone = new THREE.Mesh(coneGeometry(), coneMaterial_);
+    cone.name = 'taxiHeadlightCone';
+    cone.position.copy(anchor);
+    cone.quaternion.copy(coneQuat(anchor.z));
+    cone.renderOrder = 1;
+    group.add(cone);
   }
+  group.add(pods);
 
   // Each pool's rows in car-local space, worked out once: the beam's own row, toed out about the
   // bumper, moved to its headlight and scaled the way the drawn taxi is.
-  // `local` holds (x, z, lift) per vertex, the lift being the shaft's height off the road there.
   const local = [];
   const toePoint = new THREE.Vector3();
   for (const anchor of anchors) {
     const toe = beamToe(anchor.z);
-    // The lamp's height over the pool, through the drawn taxi's scale.
-    const lampLift = anchor.y * TAXI_SCALE + ROAD_Y - BEAM_POOL_Y;
     for (let r = 0; r <= BEAM_ROWS; r++) {
-      const u = r / BEAM_ROWS;
-      const { x, half } = beamRow(u);
-      const lift = beamLift(u, lampLift);
+      const { x, half } = beamRow(r / BEAM_ROWS);
       for (const side of [-1, 1]) {
         toePoint.set(x, 0, side * half).applyQuaternion(toe);
-        local.push((anchor.x - 0.1 + toePoint.x) * TAXI_SCALE, (anchor.z + toePoint.z) * TAXI_SCALE, lift);
+        local.push((anchor.x - 0.1 + toePoint.x) * TAXI_SCALE, (anchor.z + toePoint.z) * TAXI_SCALE);
       }
     }
   }
@@ -453,7 +460,7 @@ export function createTaxiHeadlights() {
    */
   const setLevel = (value) => {
     level = value;
-    for (const pod of group.children) pod.scale.setScalar(value);
+    for (const part of group.children) part.scale.setScalar(value);
   };
 
   /**
@@ -466,14 +473,14 @@ export function createTaxiHeadlights() {
     const sin = Math.sin(car.yaw);
     // The opening vignette's dropped kerb lifts the whole car onto the pavement; the pools go with it.
     const base = BEAM_POOL_Y + (car.kerbLift || 0);
-    for (let n = 0, k = 0; n < local.length; n += 3, k += 3) {
+    for (let n = 0, k = 0; n < local.length; n += 2, k += 3) {
       const lx = local[n];
       const lz = local[n + 1];
       // Local +X is the heading and +Z the car's right — `rotation.y = yaw`, as `taxiGroup` has it.
       const x = car.x + lx * cos + lz * sin;
       const z = car.z - lx * sin + lz * cos;
       positions[k] = x;
-      positions[k + 1] = base + deckHeightAt(x, z).y + local[n + 2];
+      positions[k + 1] = base + deckHeightAt(x, z).y;
       positions[k + 2] = z;
     }
     geometry.attributes.position.needsUpdate = true;
@@ -482,5 +489,5 @@ export function createTaxiHeadlights() {
   };
 
   setLevel(0);
-  return { group, pods: group, pools, setLevel, update };
+  return { group, pods, pools, setLevel, update };
 }

@@ -93,7 +93,7 @@ import {
   BLOOM_UNIFORMS, BLOOM_KINDS, refreshEmissive as bloomRefreshFor,
 } from '../src/game/bloom.js';
 import {
-  LIGHT_EMISSIVE, LIGHT_PODS, LIGHT_W, headlightAnchors, headlightGeometry, turnSignalAnchors, turnSignalShapes,
+  LIGHT_EMISSIVE, LIGHT_PODS, LIGHT_W, headlightAnchors, headlightGeometry, coneGeometry, turnSignalAnchors, turnSignalShapes,
 } from '../src/geometry/lights.js';
 import { createTaxiHeadlights } from '../src/game/citylights.js';
 import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
@@ -9748,6 +9748,17 @@ check('the taxi is an ordinary car in the traffic array',
     check('the headlight clears the front indicator, and the pair clears each other',
       worstGap > 0.02 && pairGap > 0.4,
       `indicator gap ${worstGap.toFixed(3)}, between the lamps ${pairGap.toFixed(3)}`);
+
+    // The cone has to open *forward* from the lamp. Built pointing the other way it sits inside the
+    // body, and an additive surface behind opaque paint draws nothing at all — which is how the
+    // first one shipped to a screenshot: no cone, no error, the fade reading zero all the way along.
+    const cone = coneGeometry();
+    cone.computeBoundingBox();
+    const along = cone.attributes.along.array;
+    check('the headlight cone opens forward from the lamp',
+      cone.boundingBox.min.x > -1e-6 && cone.boundingBox.max.x > 3
+      && Math.min(...along) > -1e-6 && Math.max(...along) > 0.999,
+      `x ${cone.boundingBox.min.x.toFixed(2)}..${cone.boundingBox.max.x.toFixed(2)}, along ${Math.min(...along).toFixed(2)}..${Math.max(...along).toFixed(2)}`);
 
     // The pools lie on the ground, not on the body: draped over the road a row at a time, faced up
     // (an unlit triangle wound the other way does not draw), and gone while the hop has the car in
