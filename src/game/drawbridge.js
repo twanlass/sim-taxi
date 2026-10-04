@@ -64,6 +64,10 @@ const BARRIER_POST_H = 1.5;
 // it is on the road rather than on the bridge, and clear of the footway so it does not fence the
 // pavement off with the carriageway.
 const BARRIER_SETBACK = 1.6;
+// The arms' stripes: how wide each one is along the arm, and the slope of its edge. 0.7 is about
+// five pixels at play zoom, the narrowest a stripe stays a stripe rather than a grey blur.
+const STRIPE_W = 0.7;
+const STRIPE_SLANT = 1;
 
 // The warning lamps: two on each arm, one near either end, flashing alternately the way a level
 // crossing's do. They run for the whole time the span is anything but open — from the first frame
@@ -119,6 +123,37 @@ const PHASES = ['open', 'closing', 'clearing', 'lifting', 'up', 'lowering', 'rai
  * span shut for two seconds after there was anything to hold it shut for.
  */
 const SHUT = new Set(['closing', 'clearing', 'lifting', 'up', 'lowering']);
+
+/**
+ * A gate arm in diagonal black and white, built rather than painted.
+ *
+ * Each stripe is its own box **sheared** along the arm by `x += k(y + z)`, so its edges run at 45
+ * degrees across both the top face and the side face — the two this camera sees. A shear has a
+ * determinant of 1, so it cannot reverse a triangle's winding (see the trap list in CLAUDE.md about
+ * hand-built faces). The two end stripes are then clamped back to the arm's ends, so the tip is
+ * square rather than a parallelogram. That clamp is only safe while a stripe is wider than the
+ * shear's whole reach (`2·k·R` either way), or a clamped corner would cross its neighbour and turn
+ * a face inside out — `STRIPE_W` is 0.7 against a reach of 0.32.
+ */
+function stripedBar(len, dark, light) {
+  const n = Math.max(2, Math.round(len / STRIPE_W));
+  const w = len / n;
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const box = new THREE.BoxGeometry(w, BARRIER_R * 2, BARRIER_R * 2);
+    box.translate(w * (i + 0.5), 0, 0);
+    const pos = box.attributes.position;
+    for (let v = 0; v < pos.count; v++) {
+      const x = pos.getX(v) + STRIPE_SLANT * (pos.getY(v) + pos.getZ(v));
+      pos.setX(v, Math.min(len, Math.max(0, x)));
+    }
+    parts.push(bakeColor(box, i % 2 === 0 ? dark : light));
+  }
+  const bar = mergeGeometries(parts, false);
+  parts.forEach((p) => p.dispose());
+  bar.computeVertexNormals();
+  return bar;
+}
 
 export function createDrawbridge(scene, rng, { replan = null, onLand = null } = {}) {
   const line = drawbridgeLine();
@@ -210,11 +245,12 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null } = 
     // approach would be the truthful thing and the unreadable one: at play zoom the road is 62px
     // and half of it is a dash.
     const len = span.half * 2 * 0.92;
-    const bar = new THREE.BoxGeometry(len, BARRIER_R * 2, BARRIER_R * 2);
-    bar.translate(len / 2, 0, 0);
-    const barMesh = new THREE.Mesh(
-      bakeColor(bar, jitterColor(PALETTE.barrier, rng, { l: 0.02 })), propMaterial(),
-    );
+    // The one draw this used to take for the arm's orange is kept, on the dark stripe, so every
+    // `rng` draw after it lands where it did before the arms were repainted.
+    const dark = jitterColor(PALETTE.gateStripeDark, rng, { l: 0.02 });
+    const bar = stripedBar(len, dark, new THREE.Color(PALETTE.gateStripeLight));
+    const barMesh = new THREE.Mesh(bar, propMaterial());
+    barMesh.name = 'drawbridge-arm';
     barMesh.castShadow = true;
     arm.add(barMesh);
     // The lamps ride the arm, so they go down and up with it. Each one its own mesh and its own

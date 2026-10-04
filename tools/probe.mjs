@@ -17482,6 +17482,38 @@ let chopperOrder; // likewise
           darkAgainAt = gate.state.phase === 'open' ? gate.state.t : -2;
         }
       }
+      // The striped arms are built by shearing boxes and clamping their ends (`stripedBar`), which
+      // is hand-built geometry: assert every face still points out of its own stripe, from the
+      // winding, rather than trusting the argument in the comment.
+      let inward = 0;
+      let faces = 0;
+      const perArm = [];
+      gate.group.traverse((o) => {
+        if (o.name !== 'drawbridge-arm') return;
+        const colours = new Set();
+        perArm.push(colours);
+        const pos = o.geometry.attributes.position;
+        const col = o.geometry.attributes.color;
+        const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+        const n = new THREE.Vector3(), mid = new THREE.Vector3(), centre = new THREE.Vector3();
+        for (let s0 = 0; s0 < pos.count; s0 += 36) {
+          centre.set(0, 0, 0);
+          for (let v = s0; v < s0 + 36; v++) centre.add(a.fromBufferAttribute(pos, v));
+          centre.divideScalar(36);
+          colours.add(new THREE.Color().fromBufferAttribute(col, s0).getHexString());
+          for (let t = s0; t < s0 + 36; t += 3) {
+            a.fromBufferAttribute(pos, t); b.fromBufferAttribute(pos, t + 1); c.fromBufferAttribute(pos, t + 2);
+            n.subVectors(b, a).cross(c.clone().sub(a));
+            if (n.length() < 1e-9) continue;
+            faces++;
+            mid.copy(a).add(b).add(c).divideScalar(3).sub(centre);
+            if (n.dot(mid) <= 0) inward++;
+          }
+        }
+      });
+      check('the gate arms are striped in two colours with every face wound outward',
+        faces > 0 && inward === 0 && perArm.length === 2 && perArm.every((c) => c.size === 2),
+        `${faces} faces, ${inward} inward, ${perArm.map((c) => c.size).join('/')} colours per arm`);
       check('the gate lamps flash before, during and after the lift, alternately',
         darkAtStart && litBeforeLeaf && litWhileRaising && badFrames === 0 && swaps > 10
           && darkAgainAt > 0.5 && darkAgainAt < 1.5 && litCount() === 0,

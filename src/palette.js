@@ -952,6 +952,12 @@ export const PALETTE = {
   // plainly a change of state rather than the same colour a bit brighter, and still a lens rather
   // than a hole when the arm is standing idle.
   gateLampOff: '#3A2A16',
+  // The gate arms' diagonal stripes. Black and white rather than the roadworks' `barrier` orange:
+  // the drawbridge gate is a railway-style crossing arm, and the stripes are what make it read as
+  // one. Not pure black, which goes to a hole on the shaded side, and the light stripe is the same
+  // off-white as the other bands so it does not blow out under a golden-hour sun.
+  gateStripeDark: '#26282C',
+  gateStripeLight: '#EDE9DF',
   // The vest is *more* saturated than the cones and lighter, so a worker still reads as a figure
   // against the props standing around them rather than as one more cone.
   hiVis: '#FF7A33',

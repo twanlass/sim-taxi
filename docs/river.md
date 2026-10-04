@@ -309,6 +309,10 @@ moment the leaf touched down both barriers vanished and reappeared lying flat â€
 as "the gates disappear and pop back in". Lowering a barrier and raising it are not the same
 transition and cannot share a phase.
 
+The arms are striped black and white on the diagonal, like a railway crossing arm, and the stripes
+are geometry rather than a texture: each is a box sheared along the arm so its edges run at 45
+degrees across both faces the camera sees, with the end stripes clamped square (`stripedBar`).
+
 Each arm carries **two amber warning lamps**, one near either end, flashing alternately at a level
 crossing's rate (`LAMP_PERIOD`, one flash a second per lamp). They come on with the first frame of
 `closing`, so they are already flashing while the arms drop and the deck clears ahead of the leaf,
