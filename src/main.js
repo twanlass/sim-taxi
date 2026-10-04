@@ -337,6 +337,8 @@ function renderFrame() {
   // Sized here rather than in the frame loop for the same reason the AO prepass is called here:
   // shot mode and `__taxi.redraw()` both reach a render without ever reaching the loop.
   crayon.prepare();
+  // `?diag` counts the whole frame's draws, every pass below included — a no-op without the flag.
+  diag.frameStart();
   // Before every pass below, so an effect pool with nothing in it skips the shadow, AO and main
   // draws alike — see util/emptypools.js.
   cullEmptyPools();
@@ -354,6 +356,9 @@ function renderFrame() {
   if (!hdr.render(scene, camera)) renderer.render(scene, camera);
   // Drops on the glass, over the finished frame.
   rain.renderLens();
+  // After everything has drawn, so its counters and centre pixel are the frame on screen, and here
+  // rather than in the loop so a paused or replaying frame still counts toward the fps.
+  diag.update();
 }
 
 // Weather, ringing the island — see game/clouds.js. Scenery on the same terms as the aeroplane and
@@ -3887,8 +3892,8 @@ function frame() {
   // wallclock-anchored so this doesn't change when the retry screen appears. The depth is per
   // event — a wreck bottoms out at SLOW_MO_MIN, a bust much shallower so the chase still moves.
   const nowMs = performance.now();
-  // Held before the crash dilation below: the diagnostics panel's fps is a question about the
-  // device, and a slow-motion wreck would otherwise read as one running at a third of its rate.
+  // Held before the crash dilation below, for the things that run on wall time — the replay, the
+  // robbery glow, the crayon wobble — rather than slowing with the wreck.
   const wallDt = dt;
 
   // The crash replay holds the frame outright. Nothing in the world is stepped while it runs —
@@ -4509,9 +4514,6 @@ function frame() {
   if (tape && (!fares.state.gameOver || replay.armed())) tape.record(simClock, tapeImpact);
   tapeImpact = false;
   renderFrame();
-  // After the render, not before: `renderer.info` resets itself at the top of every `render()`,
-  // so this is the frame that just went to the screen rather than the one before it.
-  diag.update(wallDt);
 }
 
 // The gear button sits top-right at small widths and started overlapping the streak counter
