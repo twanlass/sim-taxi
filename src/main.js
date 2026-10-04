@@ -33,7 +33,7 @@ import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice } from './sim/police.js';
 import {
   createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
-  BOARD_SECONDS,
+  BOARD_SECONDS, MAX_STRIKES,
 } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
 import { createDriveThru } from './game/drivethru.js';
@@ -2368,8 +2368,28 @@ if (debugMode) holdFareClocks();
 
 const hud = {
   money: document.getElementById('money'),
+  strikes: document.getElementById('strikes'),
   banner: document.getElementById('run-end'),
 };
+
+// Light one ring per rider let go on the kerb (see MAX_STRIKES). The newest pops, so the HUD answers
+// the rider storming off on the same frame.
+function showStrikes(count) {
+  if (!hud.strikes) return;
+  const marks = hud.strikes.querySelectorAll('.strike');
+  marks.forEach((mark, k) => {
+    const used = k < count;
+    mark.classList.toggle('is-used', used);
+    if (k === count - 1) {
+      mark.classList.remove('is-new');
+      void mark.offsetWidth;
+      mark.classList.add('is-new');
+    }
+  });
+  const left = MAX_STRIKES - count;
+  hud.strikes.setAttribute('aria-label', count === 0 ? 'No riders lost'
+    : `${count} ${count === 1 ? 'rider' : 'riders'} lost, ${left} to go`);
+}
 
 // The counter lags the payout on purpose: the flying "$X" rises off the taxi, travels to the HUD,
 // and only when it lands does the total tick up — so the payout has a visible path from the world
@@ -3994,6 +4014,7 @@ function frame() {
       // rider climbing out of it — argues with the ending being shown. `crashed` is the flag every
       // loop in traffic.js already skips, so it does the whole job. Boost goes with it, or a held
       // pill would keep burning fuel behind the banner.
+      showStrikes(fares.state.strikes);
       endSpot = fares.state.failSpot ?? { x: traffic.taxi.x, z: traffic.taxi.z };
       endZoom = TIMEOUT_ZOOM;
       crashBannerAt = performance.now() + TIMEOUT_BANNER_DELAY;
@@ -4005,7 +4026,9 @@ function frame() {
       // The seat is empty from this frame on — they are getting out of it in shot — so the roof
       // sign goes back to vacant rather than holding "occupied" over a cab nobody is in.
       traffic.setTaxiOccupied(false);
-    } else if (type === 'vip-missed' || type === 'robber-missed') {
+    } else if (type === 'vip-missed' || type === 'robber-missed' || type === 'missed') {
+      // An ordinary rider let go on the kerb is a strike as well as a freed taxi — see MAX_STRIKES.
+      if (type === 'missed') showStrikes(fares.state.strikes);
       // The one fare whose clock running out isn't a run-ending event — see fares.js. The rider is
       // getting out and running off on their own (fares.js `beginBail`); what is left here is the
       // taxi, which is either holding an empty seat or still driving at a kerb nobody is standing

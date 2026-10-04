@@ -19,7 +19,9 @@ import { createPolice } from '../src/sim/police.js';
 import { createPatrol } from '../src/game/patrol.js';
 import { createFareSystem } from '../src/game/fares.js';
 import { createRobbery } from '../src/game/robbery.js';
-import { findRoute, planOrigin } from '../src/game/route.js';
+import { findRoute, planOrigin, chainSeconds } from '../src/game/route.js';
+import { createBoost, BOOST_FARE_REWARD } from '../src/game/boost.js';
+import { createCollisions, TAXI_HP } from '../src/sim/collisions.js';
 import { isCityConnected } from '../src/city/grid.js';
 
 // Pinned, and deliberately *not* `difficulty.carCount()`: the density ramp is pushed into the sim
@@ -31,6 +33,22 @@ import { isCityConnected } from '../src/city/grid.js';
 // each other and to the build before this one, which is what they are for. They are a slightly
 // emptier city than the one that ships.
 export const CARS = 7;
+
+// How fast the loco player reckons it can drive when it has to, as a fraction of the cruise
+// estimate `estimateSeconds` budgets from — what it uses to decide whether a rider is still within
+// reach. Held to the ground on both sides: a player holding Loco Mode at every chance measured 0.41
+// over the runs it survived, and wrecked on two runs in three; boosting only when behind, the same
+// player measures 0.91–0.98 because it lets go as soon as the clock allows. 0.8 is a pace it can
+// hold through a whole trip without needing the luck the first number did, and it is the floor
+// `VIP_MIN_PACE` and `paceEnd` are kept above.
+export const LOCO_PACE_SELF = 0.8;
+
+// Seconds of cushion either player wants on a rider before taking them: the estimator's measured
+// error is 4.35s (route.js), and a rider who runs out in the back seat ends the run.
+const PICK_MARGIN = 4;
+
+// Seconds of cushion the loco player wants over the cruise estimate before it lets go of the pedal.
+const LOCO_MARGIN = 3;
 
 const STEP = 1 / 60;
 
@@ -72,7 +90,9 @@ let acceptedSeed = null;
  *                  costs, which is the only reason the switch exists.
  */
 export function play(runSeed, citySeed,
-  { fares: FARES = 40, reaction: REACTION = 1.5, robbery: ROBBERY = true } = {}) {
+  {
+    fares: FARES = 40, reaction: REACTION = 1.5, robbery: ROBBERY = true, loco: LOCO = false,
+  } = {}) {
   cityFor(citySeed);
   const traffic = createTraffic(makeRng(runSeed + 44), new THREE.Scene(), CARS);
   const fares = createFareSystem(makeRng(runSeed + 55), new THREE.Scene());
@@ -108,14 +128,53 @@ export function play(runSeed, citySeed,
   const margins = [];      // seconds left when each leg completed
   // One row per delivered fare: what the clock was worth, what the driving was estimated to cost,
   // and how much of the clock was left at the drop-off. This is the read on whether the ramp is
-  // ramping — if late fares still land with half their budget unspent, slack(d) is too loose.
+  // ramping — if late fares still land with half their budget unspent, pace(d) is too loose.
   const budgets = [];
 
   // With more than one rider on the board the "perfect player" needs a policy, not just a reflex:
   // finish the rider you are carrying, then go straight to whichever waiting rider is closest to
   // timing out. `fares.waiting()` already returns the most-urgent waiter — deferring to it here is
   // the strategy, and the only order one taxi can serve them in.
-  const nextJob = () => fares.carrying() ?? fares.waiting();
+  //
+  // **Closest to timing out among the ones it can still make.** Every clock is budgeted as if its
+  // rider were served next (see `budgetFor` in fares.js), and the board offers riders faster than one
+  // taxi can serve them late in the ramp — so some of them are going to be let go, and a player who
+  // goes for a rider whose clock is already short of the drive is not playing well, it is picking up
+  // a fare that will run out in the back seat and end the run. `PACE_SELF` is how fast this player
+  // actually drives against the estimator: about 1.0 at cruise, measured lower with Loco Mode.
+  const PACE_SELF = LOCO ? LOCO_PACE_SELF : 1;
+  const feasible = (f) => {
+    const est = chainSeconds(planOrigin(taxi), [f.target, f.dropoff]);
+    return est !== null && est * PACE_SELF + REACTION + PICK_MARGIN < f.timeLeft;
+  };
+  const nextJob = () => {
+    const riding = fares.carrying();
+    if (riding) return riding;
+    let best = null;
+    for (const f of fares.waitingAll()) {
+      if (best && f.timeLeft / f.limit >= best.timeLeft / best.limit) continue;
+      if (feasible(f)) best = f;
+    }
+    return best;
+  };
+
+  // Loco Mode, driven the way a player behind on the clock drives it: held while the job in hand
+  // would not make it at cruise, let go once it would. Holding it everywhere was tried first and it
+  // measured nothing useful — that player wrecks on two runs in three, so its survival curve is a
+  // curve of collisions. Boosting is what arms sim/collisions.js, so it runs for this player and not for
+  // the cruising one — off boost a contact is a free shove — and the run ends on the wreck exactly
+  // as main.js ends it. This player does nothing to *avoid* a hit, so its wreck rate is the
+  // pessimistic end and its pace the optimistic one.
+  const boost = LOCO ? createBoost() : null;
+  const collisions = LOCO ? createCollisions(traffic.cars, taxi) : null;
+  let wrecked = false;
+  let behind = false;
+  if (collisions) {
+    taxi.hp = TAXI_HP;
+    collisions.onImpact(() => { wrecked = true; fares.crash(); });
+  }
+  let strikes = 0;
+  const choices = [];
 
   // The robbery layer, wired the way main.js wires it: the trigger fires off where the taxi happens
   // to be, and the robber's getaway dispatches itself on the frame they get in. A perfect player
@@ -139,7 +198,21 @@ export function play(runSeed, citySeed,
     : null;
 
   while (fares.state.delivered < FARES && !fares.state.gameOver && elapsed < 4000) {
+    if (boost) {
+      // Re-judged four times a second, off the same estimator the clocks are budgeted from.
+      if (Math.floor(elapsed * 4) !== Math.floor((elapsed - STEP) * 4)) {
+        const job = fares.directed();
+        const stops = job ? (job.stage === 'riding' ? [job.target] : [job.target, job.dropoff]) : [];
+        const left = stops.length ? chainSeconds(planOrigin(taxi), stops) : null;
+        behind = left !== null && taxi.route.length > 0 && left + LOCO_MARGIN > job.timeLeft;
+      }
+      if (behind && !boost.state.held) boost.press();
+      if (!behind && boost.state.held) boost.release();
+      boost.update(STEP);
+      taxi.boost = boost.isEngaged();
+    }
     traffic.update(STEP);
+    collisions?.update(STEP);
     patrol.update(STEP);
     police.update(STEP);
     // Before the fare loop, same as main.js — a robber who gets in on this frame is on the board
@@ -150,6 +223,12 @@ export function play(runSeed, citySeed,
 
     for (const { type, fare } of events) {
       if (type === 'pickup' || type === 'delivered') margins.push(fare.timeLeft);
+      if (type === 'missed' || type === 'vip-missed') {
+        if (type === 'missed') strikes += 1;
+        if (fare.directed || fare.stage === 'riding') taxi.route = [];
+        if (pending === fare) pending = null;
+      }
+      if (type === 'delivered') boost?.topUp(fare.vip || fare.robber ? 1 - boost.fraction() : BOOST_FARE_REWARD);
       if (type === 'delivered') {
         // `index` is which delivery this was, so the rows can be bucketed along the ramp.
         budgets.push({
@@ -157,6 +236,10 @@ export function play(runSeed, citySeed,
           limit: fare.limit,
           work: fare.work,
           spent: 1 - fare.timeLeft / fare.limit,
+          // Seconds the trip actually took against the estimate it was budgeted from — the pace this
+          // player drives at. A VIP or a robber is budgeted off a different factor, so only ordinary
+          // fares are worth reading this off.
+          pace: fare.vip || fare.robber ? null : (fare.limit - fare.timeLeft) / fare.work,
         });
         taxi.route = [];
       }
@@ -164,8 +247,14 @@ export function play(runSeed, citySeed,
 
     // Re-aim whenever the job changes hands — a pickup swaps the target to a drop-off, a delivery
     // hands the taxi over to whoever was left waiting on the kerb.
-    const job = nextJob();
-    if (events.length && job && job !== pending && !job.directed) {
+    // Re-chosen every quarter second as well as on every event: a rider the player has not gone for
+    // yet can drop out of reach just by waiting, and a fresh one can turn up that is.
+    const tick = Math.floor(elapsed * 4) !== Math.floor((elapsed - STEP) * 4);
+    const job = (events.length || tick) && !fares.directed() ? nextJob() : null;
+    if (job && job !== pending && !job.directed) {
+      // How many riders were on the kerb when this one was chosen — the read on whether the board
+      // is offering a choice at all. Counted once per kerbside pick.
+      if (job.stage === 'waiting') choices.push(fares.waitingAll().length);
       pending = job;
       // The drop-off leg costs the player nothing: the game routes the taxi there itself on the
       // pickup frame (main.js:dispatchToDropoff), so the only reaction a run pays for is on the
@@ -196,6 +285,9 @@ export function play(runSeed, citySeed,
     violations: traffic.stats.violations,
     worstMargin: margins.length ? Math.min(...margins) : 0,
     failReason: fares.state.failReason,
+    strikes,
+    wrecked,
+    choices,
     budgets,
   };
 }

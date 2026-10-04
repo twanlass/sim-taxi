@@ -308,14 +308,14 @@ export function createDebugPanel({
   // playing ten fares to get there, and a tweak to it can be looked at immediately.
   //
   // Only what is *derived* live actually moves: clocks are budgeted once at spawn, so the next
-  // rider to appear is the first one on the new slack, and the density ramp only ever grows. That
+  // rider to appear is the first one on the new pace, and the density ramp only ever grows. That
   // is the same asymmetry the panel is already split by — this one sits under Game rather than
   // "Restart to apply" because most of it does take effect, just not retroactively.
   const diff = slider(0, 1, 0.05, difficulty.difficulty(0));
   const diffValue = row(panel, 'Difficulty', diff);
   const showDifficulty = (d) => {
     diffValue.textContent = `${d.toFixed(2)} · ${difficulty.shiftFor(0).name} `
-      + `· ${difficulty.maxFares(0)} fares · ${difficulty.slack(0).toFixed(2)}x slack`;
+      + `· pace ${difficulty.pace(0).toFixed(2)} · pressure ${difficulty.pressure(0).toFixed(2)}`;
   };
   diff.addEventListener('input', () => {
     const d = Number(diff.value);
@@ -323,6 +323,26 @@ export function createDebugPanel({
     showDifficulty(d);
   });
   showDifficulty(difficulty.difficulty(0));
+
+  // The two dials, at both ends of the ramp (see difficulty.js). Pace is a rider's clock over their
+  // own trip at cruise — under 1.0 needs Loco Mode. Pressure is riders offered per rider the taxi
+  // can serve — over 1.0 means some have to be let go. Like the slider above, a new pace lands on
+  // the next rider to spawn rather than on the clocks already running.
+  for (const [key, label, min, max] of [
+    ['paceStart', 'Pace · start', 0.6, 2],
+    ['paceEnd', 'Pace · end', 0.6, 2],
+    ['pressureStart', 'Pressure · start', 0.3, 2.5],
+    ['pressureEnd', 'Pressure · end', 0.3, 2.5],
+  ]) {
+    const input = slider(min, max, 0.05, difficulty.getTuning()[key]);
+    const value = row(panel, label, input);
+    value.textContent = Number(input.value).toFixed(2);
+    input.addEventListener('input', () => {
+      difficulty.setTuning({ [key]: Number(input.value) });
+      value.textContent = Number(input.value).toFixed(2);
+      showDifficulty(difficulty.difficulty(0));
+    });
+  }
 
   const fareTime = slider(15, 120, 1, fares.getSeconds());
   const fareValue = row(panel, 'Fare clock', fareTime);
@@ -1161,7 +1181,12 @@ export function createDebugPanel({
       },
     },
     game: {
-      fareSeconds: fares.getSeconds(),
+      // 'budgeted' unless the Fare clock slider has pinned every rider flat — exporting the 60s
+      // fallback here read as though the shipped clock were 60s.
+      fareClock: fares.isPinned() ? fares.getSeconds() : 'budgeted',
+      // The keys map onto TUNING in game/difficulty.js.
+      pace: [difficulty.getTuning().paceStart, difficulty.getTuning().paceEnd],
+      pressure: [difficulty.getTuning().pressureStart, difficulty.getTuning().pressureEnd],
       cars: Number(cars.value),
       routeBlend: routeLine.blend(),
       ambientOcclusion: ao.state.enabled ? Number(ao.state.strength.toFixed(2)) : false,

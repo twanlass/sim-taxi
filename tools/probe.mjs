@@ -64,7 +64,7 @@ import {
   stepLevel, frameWash, RISE as ROB_RISE, FALL as ROB_FALL,
 } from '../src/game/robberyglow.js';
 import {
-  createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES,
+  createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES, MAX_STRIKES,
   ARRIVE_RADIUS, onSameBlock, onWaterBlock, CURSE_LIFT, BURGER_PRICE, waitingTargets, stampFareMarker, BOARD_SECONDS,
 } from '../src/game/fares.js';
 import { createCurseBubble, TAIL_DROP } from '../src/geometry/cursebubble.js';
@@ -83,6 +83,8 @@ import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import { createFoodOrder } from '../src/geometry/food.js';
 import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
 import * as difficulty from '../src/game/difficulty.js';
+import { BOARD_MAX } from '../src/game/difficulty.js';
+import { LOCO_PACE_SELF } from './autoplay.mjs';
 import { createRobbery, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
 import { createPatrol, ESCAPE_BLOCKS, TOUCH_SLACK, SIGHT_HOLD } from '../src/game/patrol.js';
 import { touching } from '../src/sim/collisions.js';
@@ -2236,27 +2238,31 @@ check('no two cars occupy the same space', worst > 1.6,
     `bob after ${bobbedAfter.toFixed(3)} of ${BOUNCE_HEIGHT}`);
 }
 
-// --- The difficulty curve is winnable everywhere on it ------------------------
-// A deadline shorter than the driving it pays for is unwinnable by construction, and it would look
-// exactly like the game being hard. Slack below 1.0 is therefore not a tuning choice, it is a bug,
-// and it is the kind that only shows up several fares into a run on someone else's machine.
+const PRESSURE_END = difficulty.getTuning().pressureEnd;
+
+// --- The difficulty curve asks for driving, not for the impossible ---------------------------
+// Pace goes below 1.0 on purpose — the end of the ramp needs Loco Mode — but there is still a floor
+// under it: how fast the taxi can actually be driven round the map (`LOCO_PACE_SELF`, measured in
+// tools/autoplay.mjs). A clock tighter than that is unwinnable by construction, and it would look
+// exactly like the game being hard.
 {
-  let minSlack = Infinity;
-  let capJumps = 0;
-  let prevCap = difficulty.maxFares(0);
+  let minPace = Infinity;
   for (let delivered = 0; delivered <= 40; delivered++) {
-    minSlack = Math.min(minSlack, difficulty.slack(delivered));
-    const cap = difficulty.maxFares(delivered);
-    // The board grows one rider at a time. Two arriving on the same delivery is a burst the
-    // spawn stagger cannot smooth out, because the cap is what gates it in the first place.
-    if (cap - prevCap > 1) capJumps += 1;
-    prevCap = cap;
+    minPace = Math.min(minPace, difficulty.pace(delivered));
   }
-  check('slack never drops below 1.0 anywhere on the curve', minSlack >= 1,
-    `min slack ${minSlack.toFixed(2)}`);
-  check('the board cap grows one rider at a time', capJumps === 0);
-  check('the curve reaches its ceiling', difficulty.maxFares(40) === MAX_FARES
-    && difficulty.difficulty(40) === 1);
+  check('pace never asks for more than Loco Mode can give', minPace >= LOCO_PACE_SELF,
+    `min pace ${minPace.toFixed(2)} against ${LOCO_PACE_SELF}`);
+  // The opening has to be drivable at the speed limit, and the board has to drain faster than it
+  // fills — otherwise a player who has not found the pedal yet is losing riders before they know
+  // the game has one.
+  check('the opening is drivable without Loco Mode', difficulty.pace(0) > 1,
+    `pace ${difficulty.pace(0).toFixed(2)}`);
+  check('the opening offers fewer riders than one taxi can serve', difficulty.pressure(0) < 1,
+    `pressure ${difficulty.pressure(0).toFixed(2)}`);
+  check('the tutorial fare is alone, and then the board opens', difficulty.maxFares(0) === 1
+    && difficulty.maxFares(1) === MAX_FARES);
+  check('the board difficulty.js sizes is the one fares.js pools', BOARD_MAX === MAX_FARES);
+  check('the curve reaches its ceiling', difficulty.difficulty(40) === 1);
   // A fare that spawns already past its floor is one the clamp is doing all the work for. The
   // floor exists for the next-door hop; if it is catching a median trip, the budget is broken.
   const medianWork = 16.4;   // measured mean trip, tools/eta.mjs
@@ -2295,7 +2301,16 @@ check('no two cars occupy the same space', worst > 1.6,
     if (r) { mTraffic.taxi.route = r; mTraffic.taxi.routeConsumed = false; fares.markDirected(job); }
   };
 
+  // Even at the end of the shipped ramp the board seldom holds two waiting riders at once — a
+  // served-next clock is about one trip long, and the spawn gap at full pressure is about one trip
+  // too (difficulty.md, "pressure"). This is a test of the board's mechanics rather than of the
+  // tuning, so it is played at the end of the ramp with the pressure turned well past it, the moment
+  // the tutorial fare is in.
   while (elapsed < 400 && !fares.state.gameOver && fares.state.delivered < 6) {
+    if (fares.state.delivered >= 1 && difficulty.getPinned() === null) {
+      difficulty.pinDifficulty(1);
+      difficulty.setTuning({ pressureEnd: 3 });
+    }
     mTraffic.update(1 / 60);
     for (const { type } of fares.update(1 / 60, mTraffic.taxi)) {
       if (type !== 'spawned') continue;
@@ -2325,6 +2340,8 @@ check('no two cars occupy the same space', worst > 1.6,
     mostWaiting = Math.max(mostWaiting, fares.state.fares.filter((f) => f.stage === 'waiting').length);
   }
 
+  difficulty.pinDifficulty(null);
+  difficulty.setTuning({ pressureEnd: PRESSURE_END });
   check('the board can fill past two fares', mostAtOnce >= 2,
     `peak ${mostAtOnce}, ${fares.state.delivered} delivered`);
   check('never more than MAX_FARES', mostAtOnce <= MAX_FARES);
@@ -2338,9 +2355,9 @@ check('no two cars occupy the same space', worst > 1.6,
   check('more than one rider can wait on the kerb at once', mostWaiting >= 2,
     `peak ${mostWaiting}`);
   // The stagger is the fairness guarantee: extras land at least difficulty.spawnGap() apart, so
-  // their clocks drain out of phase instead of ending on the same tick. 6.5 is the floor of that
-  // curve (7s at full difficulty) with a frame's grace — tightening spawnGapEnd below it is a
-  // deliberate act that has to come here and say so.
+  // their clocks drain out of phase instead of ending on the same tick. The gap is
+  // FARE_CYCLE / pressure — 25s at full pressure — and 6.5 is the old floor, kept as the line a
+  // pressure tuning must not cross without coming here and saying so.
   check('extra fares arrive staggered', minSpawnGap >= 6.5,
     `min gap ${Number.isFinite(minSpawnGap) ? minSpawnGap.toFixed(2) : '-'}s`);
 
@@ -3398,7 +3415,12 @@ check('no two cars occupy the same space', worst > 1.6,
   let maxDirected = 0;
   let sawTwoWaiting = false;
 
+  // Pinned past the opening for the reason the board probe above gives.
   while (elapsed < 400 && !fares.state.gameOver && fares.state.delivered < 6) {
+    if (fares.state.delivered >= 1 && difficulty.getPinned() === null) {
+      difficulty.pinDifficulty(1);
+      difficulty.setTuning({ pressureEnd: 3 });
+    }
     xTraffic.update(1 / 60);
     for (const { type, fare } of fares.update(1 / 60, xTraffic.taxi)) {
       if (type !== 'pickup') continue;
@@ -3423,6 +3445,8 @@ check('no two cars occupy the same space', worst > 1.6,
     elapsed += 1 / 60;
   }
 
+  difficulty.pinDifficulty(null);
+  difficulty.setTuning({ pressureEnd: PRESSURE_END });
   check('the board doubles up enough to exercise the switch', sawTwoWaiting);
   check('at most one fare is ever directed at once', maxDirected <= 1, `peak ${maxDirected}`);
   check('switching targets before pickup never seats two riders', maxRiding <= 1, `peak ${maxRiding}`);
@@ -5776,8 +5800,25 @@ check('the taxi is an ordinary car in the traffic array',
 }
 
 {
-  // And a rider who gives up on the kerb aims the same shot at their own corner, without a second
-  // code path: `target` is whichever end of the trip was still owed.
+  // A rider let go on the kerb is a strike, not the end: the board carries on, the rider storms
+  // off, and the count goes up by one.
+  const sScene = new THREE.Scene();
+  const sTraffic = createTraffic(makeRng(seed + 44), sScene, CARS_DEFAULT);
+  const sFares = createFareSystem(makeRng(seed + 55), sScene);
+  sTraffic.warmup(3);
+  sFares.update(1 / 60, sTraffic.taxi);
+  const struck = sFares.state.fares[0];
+  struck.vip = false;
+  struck.timeLeft = 1 / 120;
+  const strikeEvents = sFares.update(1 / 60, sTraffic.taxi);
+  check('a rider let go on the kerb is a strike rather than the end of the run',
+    !sFares.state.gameOver && sFares.state.strikes === 1
+      && strikeEvents.some((e) => e.type === 'missed' && e.fare === struck)
+      && !sFares.state.fares.includes(struck),
+    `strikes ${sFares.state.strikes}, over ${sFares.state.gameOver}`);
+
+  // And the one that uses up the last strike aims the closing shot at their own corner, without a
+  // second code path: `target` is whichever end of the trip was still owed.
   const kScene = new THREE.Scene();
   const kTraffic = createTraffic(makeRng(seed + 44), kScene, CARS_DEFAULT);
   const kFares = createFareSystem(makeRng(seed + 55), kScene);
@@ -5786,8 +5827,11 @@ check('the taxi is an ordinary car in the traffic array',
   const kerbFare = kFares.state.fares[0];
   kerbFare.vip = false;
   const corner = cornerFor(kerbFare.target.i, kerbFare.target.j);
+  kFares.state.strikes = MAX_STRIKES - 1;
   kerbFare.timeLeft = 1 / 120;
   kFares.update(1 / 60, kTraffic.taxi);
+  check('the last strike ends the run', kFares.state.gameOver
+    && kFares.state.strikes === MAX_STRIKES, `strikes ${kFares.state.strikes}`);
 
   const spot = kFares.state.failSpot;
   check('a rider who gives up waiting puts the shot on their own kerb corner',

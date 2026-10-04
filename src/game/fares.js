@@ -126,6 +126,15 @@ export const priceFor = (pickup, dropoff) =>
  */
 export const MAX_FARES = 4;
 
+/**
+ * How many riders the player may let go on the kerb before the run ends. Picked over "any expiry
+ * ends the run" so that clocks can be budgeted as if each rider were the one you take next — two
+ * riders on the kerb late in the ramp cannot both be made, and choosing which to drop is the game.
+ * A rider who is already **aboard** when their clock runs out still ends the run: picking them up
+ * was the commitment. A VIP or a robber running out costs no strike, for their own reasons below.
+ */
+export const MAX_STRIKES = 3;
+
 // --- VIP pickups ---------------------------------------------------------------
 //
 // A rare, cash-rich rider layered on top of the ordinary board: a fixed-purple diamond (see
@@ -151,26 +160,19 @@ const VIP_COOLDOWN = 55;          // seconds between opportunities, so a VIP sta
 const VIP_CHANCE = 0.16;          // chance a qualifying spawn actually becomes one
 const VIP_PAYOUT = 3;
 
-// The clock is a fraction of the run's own slack rather than a flat number, so a VIP tightens
-// along the same ramp as everything else — just harder. Never below VIP_MIN_SLACK: `tools/
-// probe.mjs` asserts every fare's clock covers its own work, and a VIP is meant to be urgent, not
-// unwinnable. `Math.ceil` rather than `Math.round` for the same reason — a rounded second is the
-// difference between "tight" and "impossible" at this end of the scale, and only one of those is
-// being asked for.
+// The clock is a fraction of the run's own pace rather than a flat number, so a VIP tightens
+// along the same ramp as everything else — just harder. Never below VIP_MIN_PACE, which is about
+// as fast as a taxi holding Loco Mode at every chance actually gets round the map
+// (`LOCO_PACE_SELF` in tools/autoplay.mjs): a VIP is meant to be the hardest drive on the board,
+// not one nobody could make. `Math.ceil` rather than `Math.round` for the same reason.
 //
-// **What actually shortened a VIP's clock was the queue, not this factor** — see `budgetFor`. A VIP
-// used to be budgeted as though it would be served *after* every rider already on the kerb, which
-// paid for a whole board of other people's trips: measured over 20 runs of a player that drops
-// everything for the purple diamond, a VIP arrived with a mean of **63.9 seconds still unspent**. It
-// was not a hard fare, it was a free one wearing a clock. Budgeted to be served next, that same
-// player lands 86% of them with 8.8s in hand — a fare you have to actually drive.
-//
-// The other half of the same measurement is what the choice now costs. A player who instead serves
-// the kerb in urgency order — `tools/autoplay.mjs`'s perfect player, which is what the soak reports
-// — used to land 55% of the VIPs that appeared and now lands 20% of them. Nothing about that player
-// changed; the clock did. Leaving a VIP in the queue is now how you lose one.
-const VIP_SLACK_FACTOR = 0.8;
-const VIP_MIN_SLACK = 1.15;
+// A VIP used to be the one rider budgeted to be served next while everyone else's clock covered
+// the whole queue, and that difference was what made it hard: measured over 20 runs, budgeted
+// behind the kerb it arrived with 63.9 seconds unspent, budgeted next with 8.8. Every rider is
+// budgeted next now (see `budgetFor`), so what is left to set a VIP apart is this factor, and the
+// fact that letting one go costs the streak rather than a strike.
+const VIP_PACE_FACTOR = 0.85;
+const VIP_MIN_PACE = 0.8;
 const VIP_CLOCK_FLOOR = 10;
 
 // --- The bank robbery's rider --------------------------------------------------
@@ -182,18 +184,17 @@ const VIP_CLOCK_FLOOR = 10;
 //
 // Three numbers, and each of them has a different job.
 
-// How much of the run's own slack a robber's clock gets. **Generous on purpose**: the getaway is the
+// How much of the run's own pace a robber's clock gets. **Generous on purpose**: the getaway is the
 // longest drive in the game and the point of it is the police, so the clock is there to pay the
-// bonus rather than to threaten the trip. It used to be 0.62 floored at 1.05 — in practice
-// `work × 1.05` from the very first robbery, since the run's slack starts at 1.7 and 1.7 × 0.62 is
-// 1.05 — which left no seconds to spend on a roadblock, a detour or a ram, and turned the chase
-// into something to get away from rather than something to play with. At 1.3 over a floor of 1.6
-// a getaway always has at least 60% more clock than driving, and more than an ordinary rider on
-// the same trip would get.
-const ROBBER_SLACK_FACTOR = 1.3;
-// ...and never below this, however late in the run. `tools/probe.mjs` asserts every fare's clock
-// covers its own driving, and this one covers it with room to spare.
-const ROBBER_MIN_SLACK = 1.6;
+// bonus rather than to threaten the trip. At 0.62 of the old slack it came to `work × 1.05` from
+// the very first robbery, which left no seconds to spend on a roadblock, a detour or a ram, and
+// turned the chase into something to get away from rather than something to play with. At 1.3
+// over a floor of 1.6 a getaway always has at least 60% more clock than cruising would need —
+// which late in the ramp, where an ordinary rider's pace is below 1, makes it the loosest clock on
+// the board by a long way.
+const ROBBER_PACE_FACTOR = 1.3;
+// ...and never below this, however late in the run.
+const ROBBER_MIN_PACE = 1.6;
 const ROBBER_CLOCK_FLOOR = 20;
 
 /**
@@ -256,25 +257,27 @@ const ROBBER_BONUS = 50;
 // after the tutorial delivery the board refills one rider at a time, so clocks land staggered by
 // a few seconds. They drain out of phase and the player has to keep picking which one to serve.
 // Spawning them all in the same frame gives one hard moment and then a quiet board, which is the
-// wrong shape. It is `difficulty.spawnGap(delivered)` now — 15s down to 7s over the ramp — because
-// tightening the stagger applies pressure without putting another pin on the map.
+// wrong shape. It is `difficulty.spawnGap(delivered)`, which is `difficulty.pressure` turned into
+// seconds: riders offered per rider one taxi can serve.
 //
 // RANGE / DELAY / MIN_CLOCK still shape the classic "second fare while carrying" hand-off: when
 // someone is aboard and closing on their drop-off, the new rider appears near that drop-off so the
 // pickup is a short hop.
 //
-// **The radius used to be a fairness patch and is now a difficulty knob.** Under a flat 60s clock
-// an extra rider had to land near the current drop-off, because their clock had to cover the tail
-// of that delivery plus a fresh pickup drive and charging them for a whole drop-off leg was
-// ruinous — measured 7-fare median → 3 at 1.5s reaction. Budgeted clocks pay for the distance
-// explicitly (see `budgetFor`), so the radius is free to open from 3 blocks to the whole map as
-// the run goes on: `difficulty.spawnRadius(delivered)`.
+// **The radius used to be a fairness patch, then a ramped knob, and is now neither.** Under a flat
+// 60s clock an extra rider had to land near the current drop-off, because their clock had to cover
+// the tail of that delivery plus a fresh pickup drive — measured 7-fare median → 3 at 1.5s reaction.
+// Budgeted clocks pay for the distance explicitly (see `budgetFor`).
+// Blocks from the bias point an extra rider may land within. Fixed: every clock pays for its own
+// approach, so how far away a rider appears changes how long their clock is and not how hard it is,
+// and it is not one of the difficulty dials (`difficulty.pace` and `difficulty.pressure` are).
+const SPAWN_RADIUS = 3;
 const SECOND_FARE_DELAY = 5;         // seconds aboard before the near-the-drop-off bias applies
 const SECOND_FARE_RANGE = 45;        // world units from the taxi to its drop-off
 const SECOND_FARE_MIN_CLOCK = 18;    // seconds the current fare must still have
 
 // The very first fare of the run gets hard caps on *both* of its legs, independent of
-// difficulty.spawnRadius: a tutorial-only guarantee that the whole loop a brand-new player is
+// SPAWN_RADIUS: a tutorial-only guarantee that the whole loop a brand-new player is
 // asked to run — find the rider, tap them, watch the taxi drive there, watch it carry on to the
 // drop-off, get paid — fits inside the couple of blocks already on screen when the vignette ends.
 //
@@ -288,7 +291,7 @@ const SECOND_FARE_MIN_CLOCK = 18;    // seconds the current fare must still have
 //
 // Left as their own constants rather than folded into the ramp because they aren't difficulty
 // knobs — they exist once, before the ramp has moved at all, and tightening or loosening the
-// ramp's own start (`spawnRadiusStart`) must not change what the very first rider promises.
+// fixed `SPAWN_RADIUS` must not change what the very first rider promises.
 //
 // Both caps are real Manhattan distances, and the drop-off's is measured from the *pickup* rather
 // than from the taxi — so the whole first job spans at most three blocks of grid end to end (the
@@ -299,7 +302,7 @@ const FIRST_FARE_MAX_BLOCKS = 1;
 const FIRST_FARE_MAX_TRIP_BLOCKS = 2;
 
 // ...and a floor under the clock those caps produce, because **a short trip budgets a short clock
-// and a short clock is the tight one**. The budget is `work × slack` with a fixed reaction
+// and a short clock is the tight one**. The budget is `work × pace` with a fixed reaction
 // allowance inside it, so a fare's absolute margin scales with its length: 1.5s of a slow player's
 // reaction, or one red light they didn't expect, is a few percent of a fifty-second haul and a
 // third of a seventeen-second hop. Capping both legs of the tutorial fare without this made the
@@ -621,6 +624,8 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // Consecutive VIPs delivered without missing one. Stamped into a VIP's own price at spawn
     // (see spawnFare) and reset to 0 the instant one is missed.
     vipStreak: 0,
+    // Riders let go on the kerb this run. See MAX_STRIKES.
+    strikes: 0,
     // Time of the most recent spawn, so refills stagger by difficulty.spawnGap() rather than
     // bursting.
     // -Infinity so the very first spawn is unrestricted.
@@ -672,7 +677,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
   /**
    * Pick an intersection that isn't the taxi's next one, and isn't already spoken for.
    *
-   * `near` biases the draw to within difficulty.spawnRadius() blocks of another junction — either the
+   * `near` biases the draw to within SPAWN_RADIUS blocks of another junction — either the
    * current drop-off or the taxi's own intersection, see `spawnBias`. Drop-offs are drawn unbiased
    * — the whole point of pricing a trip by its length is that lengths differ — with one exception:
    * the run's first fare draws its drop-off near its own pickup, so the tutorial trip is a hop.
@@ -693,7 +698,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
 
     if (near) {
       const options = [];
-      const radius = difficulty.spawnRadius(state.delivered);
+      const radius = SPAWN_RADIUS;
       const lo = (v) => Math.max(0, v - radius);
       const hi = (v, top) => Math.min(top, v + radius);
       for (let i = lo(near.i); i <= hi(near.i, GRID_I); i++) {
@@ -880,41 +885,6 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
   /** The fare the player is currently working: whichever one the taxi was last sent at. */
   const focus = () => state.fares.find((f) => f.directed) ?? carrying() ?? waiting() ?? null;
 
-  /**
-   * How many seconds this rider gets: the driving their trip actually costs, times the run's
-   * current slack.
-   *
-   * The chain is what the taxi is *forced* to do before it can finish this fare — and that is
-   * only ever the rider already aboard. You cannot take a kerbside fare while carrying one
-   * (`markDirected` refuses), and the drop-off dispatches itself, so a carried rider is a
-   * commitment the new arrival has to wait behind whether the player likes it or not. This is the
-   * cost `SECOND_FARE_RANGE` and friends used to dodge by placing extras near the current
-   * drop-off; budgeting it is what lets the placement rules relax.
-   *
-   * **Other waiting riders are deliberately not in the chain.** Budgeting a third rider as though
-   * they will be served after the second would hand them a clock long enough to make waiting
-   * safe, and "you can't take both, and the wrong pick loses one of the two clocks" is the entire
-   * game.
-   *
-   * **That was measured and it was wrong.** Budgeting each rider as if they were next made every
-   * board of two waiters a countdown rather than a choice: one of them was always on a clock no
-   * play could meet, and because any expiry ends the run outright, the run ended. It capped a
-   * perfect player at a median of 3–5 fares no matter which other knob was turned — the survival
-   * curve was flat against the spawn gap, the board steps and the slack alike, because none of
-   * them was the thing killing it (`tools/difficulty-sweep.mjs`, presets `gap` and `board`).
-   *
-   * So the queue is the *whole* queue: everything the taxi must clear before it can reach this
-   * rider, in the order a competent player would clear it — the fare aboard first, then every
-   * waiting rider by urgency, then this one. What that buys is a board where serving in the right
-   * order works and serving in the wrong order does not. The puzzle survives; it is an ordering
-   * puzzle now rather than a lottery, and the ramp squeezes how far from the right order you can
-   * stray before the margin runs out.
-   *
-   * Computed once, at spawn, and never revisited. A clock that grew because the board got busier
-   * would be incoherent — and it would mean the player could earn time by dithering. It also
-   * means the newest rider always holds the longest clock, so the board reads oldest-first, which
-   * is the order it wants to be served in.
-   */
   // Never while one is already live on the board, and gated by its own cooldown/chance on top of
   // that — a VIP has to stay a rare thing to be a special one.
   let lastVipAt = -Infinity;
@@ -926,75 +896,69 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
   }
 
   /**
-   * A VIP's clock: tight, but still guaranteed to cover the driving it pays for.
+   * A VIP's clock: tighter than anyone else's, and never tighter than Loco Mode can make.
    *
    * The reaction allowance is the *same* one every other fare is charged (`difficulty`'s own, read
    * live so the ⚙️ panel keeps moving both together): the seconds it takes to notice a rider and
    * tap them are not what makes a VIP hard, and charging them twice over would make the tightest
-   * fare on the board the one that punishes looking at it. What is cut is the slack around the
-   * driving, and the queue the driving is measured over — see `budgetFor`.
+   * fare on the board the one that punishes looking at it. What is cut is the pace.
    */
   function vipLimitFor(work) {
-    const slackMul = Math.max(VIP_MIN_SLACK, difficulty.slack(state.delivered) * VIP_SLACK_FACTOR);
+    const mul = Math.max(VIP_MIN_PACE, difficulty.pace(state.delivered) * VIP_PACE_FACTOR);
     const reaction = difficulty.getTuning().reactionAllowance;
-    return Math.max(VIP_CLOCK_FLOOR, Math.ceil((work + reaction) * slackMul));
+    return Math.max(VIP_CLOCK_FLOOR, Math.ceil((work + reaction) * mul));
   }
 
   /**
    * A robber's clock: the same shape as a VIP's, with a far looser factor — see
-   * ROBBER_SLACK_FACTOR.
+   * ROBBER_PACE_FACTOR.
    *
    * The reaction allowance is still the ordinary one and is still charged, even though a robbery
    * needs no reaction at all — nobody has to be spotted or tapped, the rider is simply in the car.
-   * Charging it anyway is what keeps the two clocks comparable: `ROBBER_SLACK_FACTOR` is then a
-   * number that can be read against `VIP_SLACK_FACTOR` rather than one that also quietly absorbed a
+   * Charging it anyway is what keeps the two clocks comparable: `ROBBER_PACE_FACTOR` is then a
+   * number that can be read against `VIP_PACE_FACTOR` rather than one that also quietly absorbed a
    * term the other one carries.
    */
   function robberLimitFor(work) {
-    const slackMul = Math.max(ROBBER_MIN_SLACK,
-      difficulty.slack(state.delivered) * ROBBER_SLACK_FACTOR);
+    const mul = Math.max(ROBBER_MIN_PACE,
+      difficulty.pace(state.delivered) * ROBBER_PACE_FACTOR);
     const reaction = difficulty.getTuning().reactionAllowance;
-    return Math.max(ROBBER_CLOCK_FLOOR, Math.ceil((work + reaction) * slackMul));
+    return Math.max(ROBBER_CLOCK_FLOOR, Math.ceil((work + reaction) * mul));
   }
 
   /**
-   * @param jumpsQueue  whether this fare's clock is budgeted as if it will be served **next**,
-   *                    skipping every rider already on the kerb. True for a VIP and for a robber,
-   *                    and for opposite-looking reasons that are the same reason: a VIP is asking
-   *                    the player to jump the queue for it, and a robber has already jumped it.
-   *                    Defaults to `vip` so the only call site that passes neither keeps its
-   *                    meaning exactly.
+   * How many seconds this rider gets: the driving their trip costs **if they are served next**,
+   * times the run's current pace (`difficulty.fareLimit`).
+   *
+   * The chain is what the taxi is *forced* to do before it can finish this fare — and that is
+   * only ever the rider already aboard. You cannot take a kerbside fare while carrying one
+   * (`markDirected` refuses), and the drop-off dispatches itself, so a carried rider is a
+   * commitment the new arrival has to wait behind whether the player likes it or not.
+   *
+   * **Other waiting riders are deliberately not in the chain**, and this is the line the whole
+   * difficulty model turns on. Every rider's clock is sized for being the one you take, so two
+   * riders on the kerb are two clocks that each assume the other is not being served — and late in
+   * the ramp, where `difficulty.pressure` is above 1, there is no order that makes both. Choosing
+   * is the game.
+   *
+   * It was this way once before and it was taken out, for a reason that no longer holds: any
+   * expiry ended the run, so a board of two riders on served-next clocks was a countdown rather
+   * than a choice, and it capped a perfect player at a median of 3–5 fares whatever else moved.
+   * The fix then was to budget the *whole* queue — the fare aboard, every waiting rider by
+   * urgency, then this one — which made every board servable in urgency order, and so made every
+   * board servable. That is the "you can pick anyone and have plenty of time" it was reported as.
+   * A rider let go on the kerb is a strike now rather than the end (`MAX_STRIKES`), so a clock that
+   * can't be met is a rider you decided not to take.
+   *
+   * Computed once, at spawn, and never revisited. A clock that grew because the board got busier
+   * would be incoherent — and it would mean the player could earn time by dithering.
    */
-  function budgetFor(taxiCar, pickup, dropoff, { vip = false, jumpsQueue = vip } = {}) {
+  function budgetFor(taxiCar, pickup, dropoff, { vip = false } = {}) {
     const stops = [];
-    // The rider aboard is a commitment: you cannot take a kerbside fare while carrying one
-    // (`markDirected` refuses) and the drop-off dispatches itself.
-    //
-    // A robber never has one: `spawnRobber` refuses outright while the seat is full, which is the
-    // trigger's own rule (game/robbery.js) rather than something to reason about here. So the chain
-    // it is budgeted over is its own trip and nothing else — the shortest chain any fare in this
-    // game gets.
+    // The rider aboard is a commitment, and a robber never has one: `spawnRobber` refuses outright
+    // while the seat is full, which is the trigger's own rule (game/robbery.js).
     const riding = carrying();
     if (riding) stops.push(riding.dropoff);
-    // Then everyone already on the kerb, most urgent first — the same order `waiting()` hands
-    // them to the player, and the only order one taxi can work in.
-    // `limit > 0` skips the rider currently being budgeted: `spawnFare` pushes them onto the
-    // board before their trip is decided, and a fare cannot queue behind itself.
-    //
-    // **A VIP is budgeted to be served next, and nobody else is.** The queue below is what makes an
-    // ordinary board an ordering puzzle rather than a lottery — every rider's clock pays for the
-    // riders ahead of them, so serving in the right order works. A VIP does not get that: its clock
-    // covers the commitment the player cannot escape (the rider aboard) and its own trip, and
-    // nothing else. That is the whole choice the fare is meant to pose — the purple diamond is worth
-    // three fares and is asking you to jump the queue for it, which is only a decision if the queue
-    // is what it costs. Budgeted behind the kerb it was a free bonus with a long clock — see the
-    // seconds measured at the drop-off up by VIP_SLACK_FACTOR.
-    if (!jumpsQueue) {
-      const ahead = state.fares
-        .filter((f) => f.stage === 'waiting' && f.limit > 0)
-        .sort((a, b) => urgencyOf(a) - urgencyOf(b));
-      for (const f of ahead) stops.push(f.pickup, f.dropoff);
-    }
     stops.push(pickup, dropoff);
 
     // `main.js` rerolls any city where `findRoute` fails a pair, so null is the unreachable case
@@ -1002,7 +966,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // playable instead of handing it a zero.
     const work = chainSeconds(planOrigin(taxiCar), stops) ?? FARE_SECONDS;
     // A pinned clock takes the budget out of the loop entirely — see `setFareSeconds`. The work
-    // is still measured, so the tools can report the slack a pinned run happens to be playing at.
+    // is still measured, so the tools can report the pace a pinned run happens to be playing at.
     const limit = isFareClockPinned()
       ? getFareSeconds()
       : vip ? vipLimitFor(work) : difficulty.fareLimit(work, state.delivered);
@@ -1037,7 +1001,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
       limit: 0,
       timeLeft: 0,
       // Estimated seconds of driving this fare was priced against, kept for the tools: the ratio
-      // of it to `limit` is the slack the fare actually shipped with, and `tools/soak.mjs` reads
+      // of it to `limit` is the pace the fare actually shipped with, and `tools/soak.mjs` reads
       // it to check the ramp is tightening.
       work: 0,
       // Arrival only resolves once the player has actually sent the taxi at this fare. Without
@@ -1173,11 +1137,9 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     const dropoff = pickFarthest(taxiCar, at, ROBBER_DROPOFF_SPREAD)
       ?? pickIntersection(taxiCar, null, null, at);
 
-    // `jumpsQueue` rather than `vip`: a robber is not a VIP and must not be priced or coloured as
-    // one, but its clock covers its own trip and nothing else for exactly the VIP's reason. There
-    // is nobody in the seat for it to queue behind — the trigger refuses while there is — and it
-    // certainly cannot be budgeted to wait behind the kerb, since it is already driving.
-    const budget = budgetFor(taxiCar, at, dropoff, { jumpsQueue: true });
+    // Its own trip and nothing else: there is nobody in the seat for it to queue behind — the
+    // trigger refuses while there is.
+    const budget = budgetFor(taxiCar, at, dropoff);
     const fare = {
       slot,
       stage: 'riding',
@@ -1545,7 +1507,8 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
 
   /**
    * Advances every fare's clock and resolves arrivals. Returns the events that happened this
-   * frame — `{type, fare}`, with type one of 'spawned' | 'pickup' | 'delivered' | 'failed' — which
+   * frame — `{type, fare}`, with type one of 'spawned' | 'pickup' | 'delivered' | 'missed' | 'failed'
+   * (and the VIP's and robber's own misses) — which
    * the caller uses to drive HUD feedback. Usually empty, and more than one can land together
    * (delivering the last fare frees the board and spawns the next in the same frame).
    */
@@ -1718,8 +1681,22 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
           emit('vip-missed', fare);
           continue;
         }
+        // An ordinary rider let go on the kerb: a strike, and the board carries on exactly as it does
+        // for a missed VIP — they storm off, the taxi is freed if it was on its way. The third one
+        // falls through to the ending below. A rider aboard always does: see MAX_STRIKES.
+        if (fare.stage === 'waiting' && state.strikes + 1 < MAX_STRIKES) {
+          state.strikes += 1;
+          const missed = state.fares.indexOf(fare);
+          if (missed !== -1) state.fares.splice(missed, 1);
+          beginBail(fare, taxiCar);
+          emit('missed', fare);
+          continue;
+        }
+        if (fare.stage === 'waiting') state.strikes += 1;
         state.gameOver = true;
-        state.failReason = "Patience wasn't your fare's strong suit.";
+        state.failReason = fare.stage === 'riding'
+          ? "Patience wasn't your fare's strong suit."
+          : 'Three riders gave up on you.';
         // The point the camera pulls into for the closing beat: **wherever this rider gets out**,
         // because the closing beat is now them getting out (`beginBail` below).
         //
