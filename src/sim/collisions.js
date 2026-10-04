@@ -156,6 +156,28 @@ export function touching(a, b, slack = 0) {
   return false;
 }
 
+/**
+ * Where two bodies that are touching (or nearly) meet: the middle of the gap between their nearest
+ * pair of circles, and the unit normal from `a` towards `b` along it. `penetration` answers null
+ * for two cars sitting exactly at the envelope, which is where resolved contact leaves them, so the
+ * patrol's ram (game/patrol.js) asks this instead to put the bump's effects on the seam.
+ */
+export function contact(a, b) {
+  let best = null;
+  for (const p of carCircles(a)) {
+    for (const q of carCircles(b)) {
+      const dx = q.x - p.x;
+      const dz = q.z - p.z;
+      const d = Math.hypot(dx, dz);
+      if (best && d >= best.d) continue;
+      const nx = d > 1e-6 ? dx / d : Math.cos(a.yaw);
+      const nz = d > 1e-6 ? dz / d : -Math.sin(a.yaw);
+      best = { d, nx, nz, cx: (p.x + q.x) / 2, cz: (p.z + q.z) / 2 };
+    }
+  }
+  return best;
+}
+
 // How long two bodies have to be apart before touching again counts as a new hit. Contact is one
 // hit however long it lasts — a taxi bulldozing a car down the road pays for the impact, not for
 // every frame of the shove — and a separation shorter than this is the same contact flickering.

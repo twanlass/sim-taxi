@@ -2828,6 +2828,14 @@ a car length back could only ever catch a taxi that reversed into it. It used to
 state: a cop filling a bar a car length back is a timer, not a catch. The run ends **Busted!**, and
 the banner only waits for the camera (`BUST_BANNER_DELAY`, 2s).
 
+**The catch is played as a ram.** A bare touch and a freeze read as the cop nudging your bumper, so
+the touch fires a bump's effects on the seam (`contact` in sim/collisions.js): the starburst, the
+bump recording at full gain, sparks, a dent, and the taxi knocked ~1.8 units along the hit on
+util/carry.js's drag (`bustByPolice` in main.js). The probe's staged catches arrive at 3–12 u/s
+closing, median ~9, so the effects read off at least `RAM_MIN_CLOSING` (10) — the end of a chase
+should never look softer than a bump the player shrugged off earlier. Not the wreck's fireball: the
+taxi survives being arrested.
+
 **Ramming the cop on the pill is not caught.** It is a [bump](#bumps-and-hit-points) like any other
 car — HP off, the cop knocked or launched — and buys `RAMMED_GRACE` (1.5s) in which the cop neither
 arrests nor rams. Without it the bump was a bust one frame later: a boost within `SPOT_RANGE` spots

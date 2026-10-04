@@ -1,6 +1,6 @@
 import { GRID_I, GRID_J, PITCH, dirSign, isXAxis, lineX, lineZ } from '../city/grid.js';
 import { SPAWN_CLEARANCE } from '../sim/traffic.js';
-import { touching } from '../sim/collisions.js';
+import { contact, touching } from '../sim/collisions.js';
 import { SPOT_RANGE } from '../sim/police.js';
 import { findRoute, planOrigin, junctionAhead, turnsRound } from './route.js';
 import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
@@ -183,7 +183,9 @@ const RAMMED_GRACE = 1.5;
  * @param blocked  `() => boolean` — true while a patrol may not start: a robbery is on, or its cops
  *                 are still driving off. Both share the cop fleet (see `leavePolice`)
  * @param onSpotted `(cop) => void` — the moment it lights up. main.js puts "Pull over!" over it
- * @param onCaught `(cop) => void` — the run ends here (main.js stops the taxi and raises "Busted!")
+ * @param onCaught `(cop, ram) => void` — the run ends here: main.js plays the ram as a bump, stops
+ *                 the taxi and raises "Busted!". `ram` is `{ x, z, nx, nz, closing }` — the seam,
+ *                 the normal from the cop into the taxi, and the closing speed along it
  * @param onLost   `(cop) => void` — the taxi got away
  * @param onHid    `(cop) => void` — the taxi got away into the depot (`hideout`)
  */
@@ -529,6 +531,15 @@ export function createPatrol({
     }
     if (state.grace <= 0 && touching(taxi, cop, TOUCH_SLACK)) {
       state.caught += 1;
+      // The ram, read before the stop below zeroes the cop: where the two meet, and how hard the
+      // cop came in along the line between them. main.js plays it as a bump before the bust.
+      const seam = contact(cop, taxi);
+      const rvx = Math.cos(cop.yaw) * cop.v - Math.cos(taxi.yaw) * taxi.v;
+      const rvz = -Math.sin(cop.yaw) * cop.v + Math.sin(taxi.yaw) * taxi.v;
+      const ram = {
+        x: seam.cx, z: seam.cz, nx: seam.nx, nz: seam.nz,
+        closing: Math.max(0, rvx * seam.nx + rvz * seam.nz),
+      };
       // Pull up where it is. `roadblock` is the chosen stop the box-in already uses — it rides the
       // braking flag — and it is what keeps the cop from driving on into a taxi the traffic model
       // has stopped counting as a car in its lane.
@@ -544,7 +555,7 @@ export function createPatrol({
       cop.ram = false;
       cop.uturnWanted = false;
       state.phase = 'arrest';
-      onCaught(cop);
+      onCaught(cop, ram);
       return;
     }
     state.clear = near > ESCAPE_RANGE ? state.clear + dt : Math.max(0, state.clear - dt);
