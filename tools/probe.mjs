@@ -37,7 +37,7 @@ import { createDriveThru } from '../src/game/drivethru.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, DRIFT_MIN_V, DRIFT_ANGLE, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -4343,9 +4343,7 @@ check('no two cars occupy the same space', worst > 1.6,
   // 0.52 is the two waves' peak sum; the margin covers a frame landing mid-corner-exit. The frame
   // floor is the sample size: at boost speed a junction arrives about every 1.1s, so barely half
   // of these 20s are spent in the 'drive' state at all.
-  // The floor was 400 until boosted corners started lifting (BOOST_LEFT_TURN): slower corners are
-  // more of the 20s spent in 'turn', and this seed came out at exactly 400.
-  check('the boosting taxi holds its lane', widest < 0.6 && straightFrames > 350,
+  check('the boosting taxi holds its lane', widest < 0.6 && straightFrames > 400,
     `widest ${widest.toFixed(2)} units off the lane centre over ${straightFrames} frames`);
   check('the boosting taxi actually weaves', widest > 0.25, `widest ${widest.toFixed(2)}`);
   setPriorityJunction(null);
@@ -4919,10 +4917,8 @@ check('no two cars occupy the same space', worst > 1.6,
   check('...and rocks back through level on the way out', median(rock) > 0.08,
     `median ${median(rock).toFixed(2)} rad the other way`);
   const leftPeak = traces.left.map((t) => Math.max(...t));
-  // 0.6 until boosted corners started lifting to 0.7× cruise for the drift (BOOST_LEFT_TURN): the
-  // lean scales with speed, and a left at 15.5 measured 0.59. The spring is what is under test.
-  check('a boosted left still leans out hard', traces.left.length > 2
-    && median(leftPeak) > 0.5, `median peak ${median(leftPeak).toFixed(2)} rad`);
+  check('a boosted left still leans out as hard as it did', traces.left.length > 2
+    && median(leftPeak) > 0.6, `median peak ${median(leftPeak).toFixed(2)} rad`);
 }
 
 // --- Loco Mode momentum cooldown --------------------------------------------
@@ -8170,9 +8166,7 @@ check('the taxi is an ordinary car in the traffic array',
   check('a full tank of Loco Mode gets away', count(runs.boosting, 'lost') >= runs.boosting.length * 0.7,
     `${count(runs.boosting, 'lost')}/${runs.boosting.length} lost ${ESCAPE_BLOCKS} blocks clear, median ${median(boostLost.map((r) => r.t)).toFixed(1)}s`);
   // The blip that was reported: on the pill the cop used to be gone in ~4s whatever the tank held.
-  // 6 until boosted corners started lifting for the drift (BOOST_LEFT_TURN): that moved this
-  // median 6.0 → 5.1 on the same seeds, still clear of the ~4s that was the complaint.
-  check('...and not in a blip: the cop keeps up for a while first', median(boostLost.map((r) => r.t)) >= 5,
+  check('...and not in a blip: the cop keeps up for a while first', median(boostLost.map((r) => r.t)) >= 6,
     `median ${median(boostLost.map((r) => r.t)).toFixed(1)}s to lose it`);
   // And the tank is what decides it: a third of one is the coin flip — some get away, some do not.
   check('a third of a tank is a coin flip', count(runs.third, 'caught') >= runs.third.length * 0.2
@@ -16429,13 +16423,12 @@ let chopperOrder; // likewise
     `worst heading ${worstYaw.toFixed(3)} rad off the lane, ${stalled} came out under cruise, ${pastLine} past the line`);
 }
 
-// --- The drift (`driftTaxi` in sim/traffic.js, wired in holdBrake in main.js) ----------------------
+// --- The drift (`driftTaxi` / `kickDrift` in sim/traffic.js, wired in main.js) -------------------
 //
 // Every lane with a real turn off it: the taxi dropped a few units short of its stop line at the
-// boost cruise, the pill just released (so `boostEasing`, which is what the brake press leaves), and
-// the brake pressed into a drift. It has to land on the exit lane, never drop under DRIFT_MIN_V
-// through the arc — the whole point is the speed it carries — and settle square to its new lane.
-// The control is the same corner with the pedal simply held: that is what the drift has to beat.
+// boost cruise, the pill just released by the brake tap (so `boostEasing`), and the tap made. Each
+// corner is driven twice — once with the pill back on mid-slide (the combo) and once without — and
+// once more with the brake simply held, which is what the tap has to not be.
 {
   const dTraffic = createTraffic(makeRng(seed + 45), new THREE.Scene(), 1);
   const taxi = dTraffic.taxi;
@@ -16447,9 +16440,10 @@ let chopperOrder; // likewise
   let worstYaw = 0;
   let peakSwing = 0;
   let braked = 0;
-  let held = 0;
-  let exitPeak = Infinity;
+  let kickLow = Infinity;
+  let unkickedHigh = 0;
   let straightRefused = 0;
+  let plainSwing = Infinity;
   for (const lane of net.lanes) {
     if (lane.degenerate || isLaneClosed(lane.id) || lane.length < 10) continue;
     const to = net.nodeById.get(lane.to);
@@ -16458,8 +16452,8 @@ let chopperOrder; // likewise
       const turn = net.turnById.get(id);
       const out = net.laneById.get(turn.outLane);
       if (isLaneClosed(out.id)) continue;
-      const setup = (back = STOP_SETBACK + 6) => {
-        if (!placeCar(taxi, d, to.gi, to.gj, back)) return false;
+      const setup = () => {
+        if (!placeCar(taxi, d, to.gi, to.gj, STOP_SETBACK + 6)) return false;
         taxi.route = [net.dirOfLane(out)];
         taxi.drift = null;
         taxi.uturn = null;
@@ -16467,6 +16461,8 @@ let chopperOrder; // likewise
         taxi.boostEasing = true;
         taxi.braking = false;
         taxi.v = 20;
+        taxi.driftAmt = 0;
+        taxi.driftAmtV = 0;
         return true;
       };
       if (!setup()) continue;
@@ -16475,11 +16471,13 @@ let chopperOrder; // likewise
         continue;
       }
       tried += 1;
+      // The combo: tap, then back on the pill a beat later.
       const refused = driftTaxi(taxi);
       if (refused) { why[refused] = (why[refused] ?? 0) + 1; continue; }
       const before = taxi.drifts;
       let lowest = Infinity;
       for (let k = 0; k < 120 && taxi.drifts === before; k++) {
+        if (k === 6) { kickDrift(taxi); taxi.boostEasing = false; }
         dTraffic.update(1 / 60);
         lowest = Math.min(lowest, taxi.v);
         peakSwing = Math.max(peakSwing, Math.abs(taxi.driftAmt));
@@ -16487,12 +16485,27 @@ let chopperOrder; // likewise
       if (taxi.drifts === before || taxi.lane.id !== out.id) continue;
       landed += 1;
       slowest = Math.min(slowest, lowest);
+      kickLow = Math.min(kickLow, taxi.v);
       // The swing is a render-only yaw on top of whatever the lane and the weave say, so it is
       // read directly: it has to have rocked out and come to rest within a second of the exit.
-      let peak = 0;
-      for (let k = 0; k < 60; k++) { dTraffic.update(1 / 60); peak = Math.max(peak, taxi.v); }
-      exitPeak = Math.min(exitPeak, peak);
+      taxi.boost = false;
+      for (let k = 0; k < 60; k++) dTraffic.update(1 / 60);
       worstYaw = Math.max(worstYaw, Math.abs(taxi.driftAmt * DRIFT_ANGLE));
+      // The tap alone: a slide, no kick.
+      if (setup() && driftTaxi(taxi) === null) {
+        for (let k = 0; k < 120 && !(taxi.state === 'drive' && taxi.lane.id === out.id); k++) dTraffic.update(1 / 60);
+        unkickedHigh = Math.max(unkickedHigh, taxi.v);
+      }
+      // No tap at all, the pill held: still swings its tail out, because every Loco corner does.
+      if (setup()) {
+        taxi.boostEasing = false;
+        let swing = 0;
+        for (let k = 0; k < 120 && !(taxi.state === 'drive' && taxi.lane.id === out.id); k++) {
+          dTraffic.update(1 / 60);
+          swing = Math.max(swing, Math.abs(taxi.driftAmt));
+        }
+        plainSwing = Math.min(plainSwing, swing);
+      }
       // The control: same corner, pedal held.
       if (setup()) {
         taxi.braking = true;
@@ -16504,36 +16517,24 @@ let chopperOrder; // likewise
         braked = Math.max(braked, low);
         taxi.braking = false;
       }
-      // And the same corner with the pill simply held, from the overdrive top at the start of the
-      // lane — the lift only sees the lane it is on, so this is the most a held pill can carry.
-      if (setup(lane.length - 1)) {
-        // What the lift would have let it carry this far out (the lane before is where it starts).
-        const vc = boostCruise() * (turn.hand === 'right' ? 0.6 : 0.7);
-        taxi.v = Math.min(34, Math.sqrt(vc * vc + 2 * locoTuning().brake * (lane.length - 1)));
-        taxi.boostEasing = false;
-        let low = Infinity;
-        for (let k = 0; k < 90 && !(taxi.state === 'drive' && taxi.lane.id === out.id); k++) {
-          dTraffic.update(1 / 60);
-          low = Math.min(low, taxi.v);
-        }
-        held = Math.max(held, low);
-      }
     }
   }
   taxi.drift = null;
   const reasons = Object.entries(why).map(([k, n]) => `${n} ${k}`).join(', ') || 'none';
-  check('a brake press in Loco Mode just before a turn drifts it, and the drift lands',
+  check('Loco, a brake tap before a turn, Loco again: the drift lands with its kick',
     tried > 50 && landed === tried, `${landed} of ${tried} landed; refused: ${reasons}`);
   check('...carrying its speed round the corner, where the held brake stops dead',
     slowest >= DRIFT_MIN_V && braked < 1,
     `slowest drift ${slowest.toFixed(1)} u/s against DRIFT_MIN_V ${DRIFT_MIN_V}; fastest held-brake corner bottomed out at ${braked.toFixed(2)}`);
-  check('...faster than holding the pill through the same corner, and kicked out of it',
-    slowest > held + 2 && exitPeak > boostCruise() + 1,
-    `slowest drift ${slowest.toFixed(1)} against the fastest pill-held corner's ${held.toFixed(1)}; slowest exit kick ${exitPeak.toFixed(1)} against the cruise ${boostCruise().toFixed(1)}`);
+  check('...coming out at the kick, and the tap alone does not get one',
+    kickLow >= boostCruise() * DRIFT_EXIT - 0.01 && unkickedHigh < boostCruise() * DRIFT_EXIT - 1,
+    `slowest kick ${kickLow.toFixed(1)} against ${(boostCruise() * DRIFT_EXIT).toFixed(1)}; fastest tap-only exit ${unkickedHigh.toFixed(1)}`);
   check('...swinging its tail out and settling square to the exit lane',
     peakSwing > 0.8 && worstYaw < 0.02,
     `peak swing ${peakSwing.toFixed(2)} of DRIFT_ANGLE, ${worstYaw.toFixed(3)} rad of it left 1s after the exit`);
-  check('...and a press with the road going straight on is just a brake', straightRefused > 20,
+  check('every Loco corner swings its tail out, tap or no tap', plainSwing > 0.8,
+    `smallest swing ${plainSwing.toFixed(2)} of DRIFT_ANGLE with the pill simply held`);
+  check('...and a tap with the road going straight on is just a brake', straightRefused > 20,
     `${straightRefused} straight-on approaches refused`);
 }
 

@@ -27,7 +27,7 @@ import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
-  boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi,
+  boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
@@ -3000,6 +3000,9 @@ function holdLocoMode() {
   // brake button with one thumb and jabbing the pill with the other would spend fuel on a car the
   // brake is still pinning to the road.
   releaseBrake();
+  // The drift's second half: back on the pill mid-slide. Read before the press, which is all it
+  // needs — the kick itself goes on as the taxi lands (see `driftsPaid`).
+  kickDrift(traffic.taxi);
   if (boost.press()) {
     kickLocoMode();
   }
@@ -3099,13 +3102,11 @@ let brakeHeld = false;
 // brake is drawing.
 const BRAKE_SKID_V = 2.5;
 
-// The drift (`driftTaxi` in sim/traffic.js): in Loco Mode, a brake press just before a turn slides
-// the taxi round it at speed instead of stopping. Its press owns the pedal until the pedal comes
-// back up, as the bootleg's does, so a thumb still down on the way out doesn't stop the car.
-// The reward is speed: a boosted corner lifts to 0.7× cruise (BOOST_LEFT_TURN in sim/traffic.js),
-// a drift goes round at the full cruise and comes out with a kick above it. A landed drift also
-// pays back a sip of fuel, half a second of Loco. Both first guesses.
-const DRIFT_FUEL = 1 / 30;
+// The drift (`driftTaxi` / `kickDrift` in sim/traffic.js): Loco, tap the brake just before a turn,
+// Loco again. The tap slides the taxi round at the boost cruise instead of stopping it; getting
+// back on the pill before the arc is over earns the exit kick. The tap owns the brake until the
+// pedal comes back up, as the bootleg's does, so a thumb still down doesn't stop the car — though
+// a thumb sliding back onto the pill lets go of it anyway (`holdLocoMode` releases the brake).
 let driftHoldOff = false;
 let driftsPaid = 0;
 
@@ -3534,7 +3535,9 @@ function layRubber(dt) {
   if (car.travelled - lastSkidAt < 0.42) return;
   lastSkidAt = car.travelled;
 
-  if (skidding) stampAllRubber(car); else stampRearRubber(car);
+  // A boosted corner is a drift now (the tail swung out, `driftAmt` in sim/traffic.js), so it marks
+  // the road with all four, like the brake.
+  if (skidding || cornering) stampAllRubber(car); else stampRearRubber(car);
 }
 
 // Dust comes off the back of the car whenever it's boosting and actually moving — not only in
@@ -3972,7 +3975,7 @@ function frame() {
     // the screen (`body.game-over #brake`), and a `pointerup` on a removed element is not something
     // to rely on. Same self-healing shape as the two flags above it.
     // Through the bootleg, which holds the brake off from a spin until the pedal comes back up.
-    // And through the drift, which does the same from its own press (see DRIFT_FUEL).
+    // And through the drift, which does the same from its own tap (see `driftHoldOff`).
     const bootlegBrake = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
     if (!brakeHeld) driftHoldOff = false;
     const drifting = traffic.taxi.drift && traffic.taxi.drift.phase !== 'carry';
@@ -4069,11 +4072,10 @@ function frame() {
   traffic.update(dt);
   if (traffic.taxi.drifts > driftsPaid) {
     driftsPaid = traffic.taxi.drifts;
+    // The exit kick (DRIFT_EXIT in sim/traffic.js) wants to be felt as well as seen.
     if (!fares.state.gameOver) {
-      boost.topUp(DRIFT_FUEL);
-      // The exit kick (DRIFT_EXIT in sim/traffic.js) wants to be felt as well as seen.
       haptic('loco');
-      controller.kickShake(0.2);
+      controller.kickShake(0.35);
     }
   }
   // A pass carried the taxi straight through a junction its route wanted to turn at, and the sim

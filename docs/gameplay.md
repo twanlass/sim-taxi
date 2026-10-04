@@ -3319,31 +3319,35 @@ behind you.
 The first prototype was a swipe back down the road. Playtesting dropped it: on a phone, a swipe
 already means a pan, a route-band drag or a fare tap.
 
-### The drift: boost, then brake into a corner
+### The drift: Loco, tap the brake, Loco again
 
-`driftTaxi` in `sim/traffic.js`, wired in `holdBrake` in main.js. In Loco Mode, at 13 u/s or more
-(`DRIFT_MIN_V`, so only off the pill), a brake press with a real turn just ahead is a drift instead
-of a stop. "Just ahead" is the last 0.6s of approach (never under 8 units) or the first 35% of the
-arc. The taxi swings its nose ~31° into the turn on a spring (`DRIFT_ANGLE`, render only; the front
-wheels countersteer), goes round at the full boost cruise with all four wheels marking the road,
-and comes out with a kick to 1.2× cruise (`DRIFT_EXIT`) for 0.6s before coasting down as after any
-release. The press screeches, buzzes and gives a small shake; the exit buzzes again.
+`driftTaxi` / `kickDrift` in `sim/traffic.js`, wired in `holdBrake` and `holdLocoMode` in main.js.
 
-- **The reward is speed, because holding the pill through a corner now costs some.** A boosted
-  taxi lifts for every real turn on its route, to 0.7× cruise on a left and 0.6× on a right
-  (`BOOST_LEFT_TURN` / `BOOST_RIGHT_TURN` in [traffic.md](traffic.md#boost-crazy-taxi-mode)),
-  and starts lifting a junction early so the overdrive band can't carry it through. A drift goes
-  round at the full cruise instead. A landed drift also pays back 1/30 of a tank (`DRIFT_FUEL`).
-- **It owns the pedal until the pedal comes back up,** like the bootleg: the thumb that pressed it
-  is still down on the exit. A fresh press of the brake during the exit kick is a brake again, and
-  a fresh press of the pill hands the speed straight back to the boost.
-- **It outranks the bootleg's first tap and clears it,** so a drift can't turn into a spin. A tap
-  mid-drift is ignored. On a straight the bootleg is unchanged.
+**Every boosted corner is a drift to look at.** Through a real turn in Loco Mode the nose swings
+~31° past the heading on a spring (`DRIFT_ANGLE`, render only; the front wheels countersteer) and
+rocks back once on the exit, and all four wheels mark the road. The speed is unchanged — a left at
+the boost cruise, a right at 0.75× — because slowing every corner to make room for a reward was
+tried and was a bummer.
+
+**The move is a combo for an exit kick.** Holding Loco into a turn, tap the brake in the last 0.6s
+of approach (never under 8 units) or the first 35% of the arc, then get back on the pill before the
+arc is over. The taxi comes out at 1.2× the boost cruise (`DRIFT_EXIT`, 26.5 u/s), put on in one
+frame and held for 0.6s, with a buzz and a jolt of shake. The tap screeches and lays four-wheel
+rubber the moment it lands.
+
+- **The tap alone is a slide, not a stop.** At 13 u/s or more (`DRIFT_MIN_V`, so only off the pill)
+  with a real turn within reach, the taxi goes round at the boost cruise, rights included, and
+  comes out without the kick. Elsewhere a tap is a brake as before.
+- **The tap owns the brake until the pedal comes back up,** like the bootleg's. A thumb sliding back
+  onto the pill releases it anyway, which is the pedal slide doing what it always did.
+- **It outranks the bootleg's first tap and clears it,** so a tap into a corner can't become a spin.
+  On a straight the bootleg is unchanged.
 - **No clearance test**, like the bootleg: what the swung tail hits, the collision pass charges.
 
-A prototype: every number is a first guess. `tools/probe.mjs` drifts every turn off every lane and
-checks it lands, stays over `DRIFT_MIN_V`, beats the same corner with the pill held, kicks out above
-cruise and settles square within a second.
+A prototype: every number is a first guess. `tools/probe.mjs` drives every turn off every lane with
+the combo, with the tap alone, with the pill simply held and with the brake held, and checks the
+kick lands, the tap alone earns none, every Loco corner swings, and the swing settles within a
+second.
 
 ## The pedal slide
 

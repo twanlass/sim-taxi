@@ -768,29 +768,21 @@ The other half is the corner rule:
 const straightOn = car.dOut === car.d;
 const cruise = car.boost ? SPEED * BOOST_SPEED : SPEED;
 const straightTop = car.boost ? SPEED * OVERDRIVE_SPEED : cruise;
-const boostTurn = car.boost ? cruise * (isRight ? BOOST_RIGHT_TURN : BOOST_LEFT_TURN) : CORNER_SPEED;
-const cornerTarget = car.drift ? car.drift.v : straightOn ? straightTop : boostTurn;
+const boostTurn = car.boost ? (isRight ? cruise * 0.75 : cruise) : CORNER_SPEED;
+const cornerTarget = straightOn ? straightTop : boostTurn;
 ```
 
-A boosting taxi doesn't lift for straights — without that it braked at every junction and the whole
-mode read as choppy rather than fast. It **does** lift for a real turn now, to 0.7× cruise on a left
-(15.5) and 0.6× on a right (13.3), and that is what gives [the drift](gameplay.md#the-drift-boost-then-brake-into-a-corner)
-something to beat. It used to go round a left at the full cruise, which left a brake-and-slide no
-faster than holding the button. Three pieces make the lift real rather than nominal:
+A boosting taxi doesn't lift for straights or left turns — without that it braked at every junction
+and the whole mode read as choppy rather than fast. Right turns are the one exception: with
+right-hand traffic they cut the near corner instead of sweeping the far diagonal, so at full boost
+the arc is over in ~0.35s against a left's ~0.7s and reads as *sped up*. 0.75× cruise gives the
+tight arc its weight back. It is the only deliberate speed drop left in the mode, and it accounts
+for ~9% of boosted frames.
 
-- **It starts on the approach.** `boostCornerCap` caps the drive branch at the speed it can still
-  shed to the corner's over the road left, and looks one straight-on junction further than the lane
-  it is on: a lane is ~11 units and shedding the overdrive top to a left's 15.5 takes 26. Routed
-  taxis only, which is every moving taxi in the game — an unrouted car's intent is a dice roll, and
-  rolling it early reshuffles every draw after it.
-- **It scrubs at the pedal's rate in the arc** (`hardBrake()`), because a right-hander's arc is
-  ~0.25s and at `brake()` it gave back 4 u/s of whatever it arrived with.
-- **Rights stay the tighter of the two.** With right-hand traffic they cut the near corner instead
-  of sweeping the far diagonal, so the arc is over in half the time and reads as *sped up* at the
-  same speed.
-
-It moved two probe numbers, both written down there: the staged chase loses the cop in a median
-5.1s rather than 6.0, and a boosting taxi spends fewer frames on straights.
+Every boosted real turn is also drawn as a drift — the nose swung ~31° past the heading on a
+spring (`driftAmt`, render only) with four wheels of rubber — and a brake tap, then the pill
+again, mid-corner earns a kick out of it. Both live in
+[gameplay.md](gameplay.md#the-drift-loco-tap-the-brake-loco-again).
 
 **The speed drop alone does not give a right-hander weight.** A boosting taxi mostly arrives in the
 overdrive band (~30 u/s) and has no room to shed it before a 4-unit arc, so a lean locked to the
