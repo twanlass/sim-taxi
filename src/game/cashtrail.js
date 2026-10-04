@@ -56,7 +56,9 @@ const MAX_NOTES = 160;
  * that throws the tailpipe flame and stamps the launch rubber, so the three land together as one
  * event. The hold's own rate is the gust clock below.
  */
-const KICK = 24;
+// Halved from 24 with the gust rates below — Tyler found the full shower too much once the trail
+// started staying on the road (see GROUND_STAY).
+const KICK = 12;
 
 /**
  * The gust, which is what turns a stream into a shower.
@@ -81,8 +83,10 @@ const KICK = 24;
  */
 const GUST = [0.16, 0.44];
 const LULL = [0.14, 0.42];
-const GUST_RATE = 78;
-const LULL_RATE = 7;
+// Half what they were (78 and 7, averaging 44 a second): the shower read as too thick once a
+// share of it started staying on the road behind the car — see GROUND_STAY.
+const GUST_RATE = 39;
+const LULL_RATE = 3.5;
 
 /**
  * Seconds a note is in the air.
@@ -100,6 +104,17 @@ const LIFE = 2.4;
  * were not only small, most of them were half transparent.
  */
 const FADE_FROM = 0.74;
+
+/**
+ * **A trail on the road.** A share of the notes that come down stay down — `GROUND_STAY` of them,
+ * lying where they landed for `GROUND_LINGER` seconds and fading over the last `GROUND_FADE` — so a
+ * getaway leaves a line of cash behind it across town rather than a cloud that follows the car.
+ * The rest finish their ordinary life and go. Sized against the pool: ~22 notes a second, about
+ * half of them staying ~7s, is ~75 on the road on top of ~50 in the air, inside MAX_NOTES.
+ */
+const GROUND_STAY = 0.5;
+const GROUND_LINGER = 7;
+const GROUND_FADE = 1.5;
 
 // Paper physics. Gravity well under the sparks' exaggerated 26 and under a real 9.8, drag well
 // over: a note launched at 9 u/s covers 9/3.4 = 2.6 units before it stops, which is most of a car
@@ -247,11 +262,12 @@ const TAIL_BACK = TAXI_TAILPIPE_BACK;
 /** Enough for a press's `KICK_BUNDLES` and a stray per gust, twice over, before a slot wraps. */
 const MAX_BUNDLES = 16;
 /** Thrown by the press alongside the note burst. Three is a handful; more reads as a delivery. */
-const KICK_BUNDLES = 3;
+const KICK_BUNDLES = 2;
 /** The chance a gust opens with a bundle of its own, so a long hold keeps dropping the odd brick. */
-const GUST_BUNDLE = 0.3;
-/** Seconds on the road before it shrinks away, and how long the shrink takes. */
-const BUNDLE_LIFE = 3.4;
+const GUST_BUNDLE = 0.15;
+/** Seconds on the road before it shrinks away, and how long the shrink takes. Long enough to be
+ * part of the trail the notes leave — see GROUND_STAY. */
+const BUNDLE_LIFE = 7;
 const BUNDLE_SHRINK = 0.3;
 
 /**
@@ -389,6 +405,7 @@ export function createCashTrail(scene, rng) {
   const phase = new Float32Array(MAX_NOTES);
   const freq = new Float32Array(MAX_NOTES);         // rad/s
   const amp = new Float32Array(MAX_NOTES);          // 0 once landed: the swing is baked into px/pz
+  const stays = new Uint8Array(MAX_NOTES);          // 1 for a note lying on as part of the trail
   // The surface this note settles onto, so a getaway over a bridge lands on the deck rather than
   // on the road two units under it. Same reason sparks.js carries one.
   const floor = new Float32Array(MAX_NOTES);
@@ -505,6 +522,7 @@ export function createCashTrail(scene, rng) {
     phase[slot] = rng.range(0, Math.PI * 2);
     freq[slot] = Math.PI * 2 * rng.range(SWING_HZ[0], SWING_HZ[1]);
     amp[slot] = rng.range(SWING_AMP[0], SWING_AMP[1]);
+    stays[slot] = 0;
 
     // Along the greens, down from `cashNote` toward `cashShade` — see FACE_SPREAD.
     const t = rng.next();
@@ -658,6 +676,11 @@ export function createCashTrail(scene, rng) {
         yawRate[slot] = 0;
         amp[slot] = 0;
         age[slot] = Math.max(age[slot], FLIP_T);
+        // Part of the trail now, or not — see GROUND_STAY.
+        if (rng.chance(GROUND_STAY)) {
+          stays[slot] = 1;
+          life[slot] = GROUND_LINGER * rng.range(0.8, 1.2);
+        }
       }
       const landed = amp[slot] === 0;
       // Back-up, the wings point *down*, so the crease has to sit a fold's height up or the tips go
@@ -666,7 +689,9 @@ export function createCashTrail(scene, rng) {
 
       // Held at full until FADE_FROM, so a note is solid for most of its flight and only thins as
       // it reaches the ground. Fading from birth makes the whole stream look like smoke.
-      alphas[slot] = spent < FADE_FROM ? 1 : 1 - (spent - FADE_FROM) / (1 - FADE_FROM);
+      alphas[slot] = stays[slot]
+        ? Math.min(1, Math.max(0, life[slot]) / GROUND_FADE)
+        : spent < FADE_FROM ? 1 : 1 - (spent - FADE_FROM) / (1 - FADE_FROM);
 
       if (life[slot] <= 0) {
         alphas[slot] = 0;

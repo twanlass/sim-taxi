@@ -54,6 +54,8 @@ import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINT
 import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, setHazardLanes, laneCost } from '../src/game/route.js';
 import { createCollisions, TAXI_HP, bumpDamage, penetration } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
+import { createCarDamage } from '../src/game/cardamage.js';
+import { BUMPER_H as BUMPER_H_PROBE, bumperLength as bumperLengthProbe } from '../src/geometry/bumpers.js';
 import { createTaxiDoor } from '../src/game/taxidoor.js';
 import { createPolice, SPOT_RANGE, FADE_TIME } from '../src/sim/police.js';
 import { sirenOn, patrolSwing } from '../src/geometry/lights.js';
@@ -65,6 +67,7 @@ import {
 } from '../src/game/robberyglow.js';
 import {
   createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES,
+  ROBBER_CHECKPOINTS,
   ARRIVE_RADIUS, onSameBlock, onWaterBlock, CURSE_LIFT, BURGER_PRICE, waitingTargets, stampFareMarker, BOARD_SECONDS,
 } from '../src/game/fares.js';
 import { createCurseBubble, TAIL_DROP } from '../src/geometry/cursebubble.js';
@@ -190,7 +193,8 @@ import {
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
-import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO } from '../src/game/sfx.js';
+import { createRunTracker, RUNS, PERFECT_SHARE, TAG_AFTER } from '../src/game/runs.js';
+import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
 const seed = Number(process.argv[2] ?? 71624);
@@ -2801,9 +2805,8 @@ check('no two cars occupy the same space', worst > 1.6,
           || (spot.i === parcel.dropoff.i && spot.j === parcel.dropoff.j)) clashedWithFare += 1;
       }
       if (!findRoute({ ...parcel.pickup, d: pTraffic.taxi.d }, parcel.dropoff)) unroutable += 1;
-      // Priced exactly as a rider going the same distance is, times the shift it appeared in.
-      const want = Math.round(priceFor(parcel.pickup, parcel.dropoff)
-        * difficulty.payoutMultiplier(parcels.state.delivered) * PARCEL_PAY_FACTOR);
+      // Priced exactly as a rider going the same distance is, off a fresh combo.
+      const want = Math.round(priceFor(parcel.pickup, parcel.dropoff) * PARCEL_PAY_FACTOR);
       if (parcel.value !== want) mispriced += 1;
       // **No clock.** Not "a long one" — none at all, so there is nothing for a hue to step through
       // and nothing that can expire and end a run. Asserted on the shape of the object, because that
@@ -3437,7 +3440,11 @@ check('no two cars occupy the same space', worst > 1.6,
 {
   const tScene = new THREE.Scene();
   const tTraffic = createTraffic(makeRng(seed + 44), tScene, CARS_DEFAULT);
-  const fares = createFareSystem(makeRng(seed + 55), tScene);
+  // A stub verdict, so the wiring is what is under test: every drop-off here is judged a Perfect Run.
+  // The tracker's own rules are checked on their own further down ("Run bonuses").
+  const fares = createFareSystem(makeRng(seed + 55), tScene, {
+    judgeRun: () => ({ runs: [{ key: 'perfect', ...RUNS.perfect }], mult: RUNS.perfect.mult }),
+  });
   tTraffic.warmup(5);
 
   let shownOnSpawn = 0;
@@ -3459,6 +3466,10 @@ check('no two cars occupy the same space', worst > 1.6,
   let stillMarked = 0;   // markers that vanished at pickup instead of flying to the taxi
   let sharedJunction = 0;
   let elapsed = 0;
+  const spawnPrice = new Map();
+  let deliveries = 0;
+  let wrongCombo = 0;
+  let jobDropped = 0;
 
   // Same perfect-player policy as the multi-fare block above, so the board actually doubles up.
   const aim = () => {
@@ -3485,21 +3496,27 @@ check('no two cars occupy the same space', worst > 1.6,
         // VIP's stays full forever rather than draining — see the fillOutOfStep loop below.
         if (fare.slot.marker.getFill() < 0.99) drainedOpening += 1;
         if (fare.blocks !== blockDistance(fare.pickup, fare.dropoff)) wrongCount += 1;
-        // Distance price times the shift's multiplier, both settled at spawn — so this reads the
-        // multiplier as of *this* frame, which is the one the fare was stamped with. A VIP stacks
-        // its own streak multiplier on top (see fares.js); `fare.vipMultiplier` is 1 for everyone
-        // else, so the formula is unchanged for an ordinary fare.
-        const due = Math.round(priceFor(fare.pickup, fare.dropoff)
-          * difficulty.payoutMultiplier(fares.state.delivered)
-          * fare.vipMultiplier);
+        // Distance price, times a VIP's flat multiplier (1 for everyone else), settled at spawn.
+        // The combo is not in it yet — that is applied at the drop-off, checked below.
+        const due = Math.round(priceFor(fare.pickup, fare.dropoff) * fare.vipMultiplier);
         if (fare.value !== due) wrongPrice += 1;
+        spawnPrice.set(fare, fare.value);
         // The clock is budgeted from the driving, so it has to cover it with the run's slack in
         // hand. Below 1.0 the rider cannot be delivered even by a perfect drive.
         if (fare.limit < fare.work) unwinnableClock += 1;
         budgetSlack.push(fare.limit / Math.max(1e-6, fare.work));
       }
+      if (type === 'delivered') {
+        // The verdict multiplies the price stamped at spawn and rides the event out for the pop.
+        deliveries += 1;
+        if (fare.runs?.[0]?.key !== 'perfect' || fare.basePay !== spawnPrice.get(fare)
+          || fare.value !== Math.round(spawnPrice.get(fare) * RUNS.perfect.mult)) wrongCombo += 1;
+      }
       if (type === 'pickup') {
         pickups += 1;
+        // A run bonus judges the whole job, keyed on `fares.job()`: the pickup must not hand that
+        // over to anyone else, or the drive to the kerb is forgotten mid-job.
+        if (fares.job() !== fare) jobDropped += 1;
         // The pin is promoted, not replanted — a drop-off that jumped at pickup would make the
         // preview a lie and every judgement made from it worthless.
         if (fare.target.i !== fare.dropoff.i || fare.target.j !== fare.dropoff.j) movedAtPickup += 1;
@@ -3546,6 +3563,10 @@ check('no two cars occupy the same space', worst > 1.6,
   check('a waiting rider shows their diamond', shownOnSpawn > 0 && missingPin === 0,
     `${shownOnSpawn} spawns, ${missingPin} missing`);
   check('the block count matches the trip', wrongCount === 0, `${wrongCount} mismatched`);
+  check('the job a run judges carries through the pickup', pickups > 0 && jobDropped === 0,
+    `${pickups} pickups, ${jobDropped} lost the job`);
+  check('a drop-off pays its price times the run verdict', deliveries >= 3 && wrongCombo === 0,
+    `${deliveries} delivered, ${wrongCombo} paid wrong`);
   check('a fresh rider\'s diamond opens on full urgency', wrongOpening === 0,
     `${wrongOpening} opened wrong`);
   check('and opens with a full vessel', drainedOpening === 0, `${drainedOpening} opened drained`);
@@ -3585,7 +3606,9 @@ check('no two cars occupy the same space', worst > 1.6,
   {
     const pin = createDestinationPin();
     const opening = urgencyColor(URGENCY_SEGMENTS).getHexString();
-    const painted = pin.ring.group.children.map((m) => m.material.color.getHexString()).join('/');
+    // Visible layers: the checkpoint's ping dot (`setWaypoint`) rides in the same group, hidden.
+    const painted = pin.ring.group.children.filter((m) => m.visible)
+      .map((m) => m.material.color.getHexString()).join('/');
     // One mark at three weights, so rim, fill and sweep are always the same hex — and it is a hex
     // off the urgency scale now rather than a teal outside it. Which *level* a live drop-off is
     // standing at is asserted against a played run below.
@@ -5845,7 +5868,6 @@ check('the taxi is an ordinary car in the traffic array',
   check('a rider is aboard before the bail is staged', Boolean(riding));
 
   riding.vip = true;
-  bFares.state.vipStreak = 4;
   const { slot } = riding;
   const from = { x: bTaxi.x, z: bTaxi.z };
   riding.timeLeft = 1 / 120;
@@ -5853,8 +5875,6 @@ check('the taxi is an ordinary car in the traffic array',
 
   check('a VIP\'s clock running out does not end the run',
     Boolean(missed) && !bFares.state.gameOver);
-  check('and takes the streak with it', bFares.state.vipStreak === 0,
-    `streak ${bFares.state.vipStreak}`);
   check('the missed VIP leaves the board at once', !bFares.state.fares.includes(riding));
   // The clock is the one thing that goes immediately: it is what ran out.
   check('their crystal goes with the fare', !slot.marker.group.visible);
@@ -6546,6 +6566,147 @@ check('the taxi is an ordinary car in the traffic array',
 }
 
 
+// --- Damage on the cars the taxi hits ------------------------------------------
+// game/cardamage.js, hanging the taxi's own parts off ambient cars. The silent failures: a bumper
+// hung off a corner while the bar it replaces stays on the end, so the car wears two; a pod left lit
+// at its socket while its lamp swings below it; a lid mirrored into the car (a negative scale flips
+// the winding, and an unlit-from-inside face does not draw); a rig that outlives its car; and a pool
+// that grows with every car hit.
+{
+  const cScene = new THREE.Scene();
+  const cTraffic = createTraffic(makeRng(seed + 48), cScene, CARS_DEFAULT);
+  const cRng = makeRng(seed + 49);
+  const cBursts = [];
+  const cDamage = createCarDamage({
+    scene: cScene, traffic: cTraffic, roadY: ROAD_Y,
+    sparks: { burst: (...a) => cBursts.push(a) }, rng: () => cRng.next(),
+  });
+  cTraffic.warmup(2);
+  const cars = cTraffic.cars.filter((c) => !c.isTaxi && !c.isTruck && !c.police);
+  const victim = cars[0];
+  const bumpers = cTraffic.bumperMesh;
+  const cm = new THREE.Matrix4();
+  const cv = new THREE.Vector3();
+  // A bumper instance's centre in the car's own frame: +x the nose.
+  const bumperLocal = (car, e) => {
+    bumpers.getMatrixAt(car.instanceIndex * 2 + e, cm);
+    cv.setFromMatrixPosition(cm).sub(new THREE.Vector3(car.x, 0, car.z));
+    return { along: cv.x * Math.cos(car.yaw) - cv.z * Math.sin(car.yaw), y: cv.y };
+  };
+  const nose0 = bumperLocal(victim, 0);
+  const tail0 = bumperLocal(victim, 1);
+  check('an undented car wears its two bumpers, one on each end',
+    nose0.along > CAR_LEN / 2 - 0.1 && tail0.along < -(CAR_LEN / 2 - 0.1) && !victim.wear,
+    `nose ${nose0.along.toFixed(2)}, tail ${tail0.along.toFixed(2)}`);
+
+  const hitCar = (car, a, b, closing) => {
+    const f = { x: Math.cos(car.yaw), z: -Math.sin(car.yaw) };
+    const r = { x: Math.sin(car.yaw), z: Math.cos(car.yaw) };
+    cDamage.hit(car, car.x + f.x * a + r.x * b, car.z + f.z * a + r.z * b, { closing });
+  };
+  const run = (frames) => {
+    for (let n = 0; n < frames; n++) { cTraffic.update(1 / 60); cDamage.update(1 / 60); }
+  };
+  cDamage.hit(cTraffic.taxi, cTraffic.taxi.x, cTraffic.taxi.z, { closing: 20 });
+  check('the taxi is not one of the cars it dents', cDamage.active() === 0 && !cTraffic.taxi.wear);
+
+  // Rear-ended, at boost cruise: the boot flies open and the rear-left lamp swings loose.
+  hitCar(victim, -1.6, -0.6, 10.5);
+  const rig = cDamage.rigOf(victim);
+  const boots = [];
+  for (let n = 0; n < 60; n++) { run(1); boots.push(rig.boot?.angle ?? -1); }
+  const brake = cScene.getObjectByName('carBrakeLights');
+  const anchors = brake.userData.podAnchors;
+  const p = anchors.findIndex((a) => a.z < 0);
+  brake.getMatrixAt(victim.instanceIndex * 2 + p, cm);
+  const podY = cv.setFromMatrixPosition(cm).y;
+  const otherP = anchors.findIndex((a) => a.z > 0);
+  brake.getMatrixAt(victim.instanceIndex * 2 + otherP, cm);
+  const otherY = cv.setFromMatrixPosition(cm).y;
+  check('a rear-end throws the boot open, flapping, and leaves the bonnet shut',
+    !rig.hood && Math.max(...boots) > 0.5 && Math.max(...boots) - Math.min(...boots.slice(20)) > 0.05,
+    `boot ${Math.min(...boots).toFixed(2)}..${Math.max(...boots).toFixed(2)}`);
+  check('the struck corner\'s lamp hangs, and its brake pod hangs with it',
+    victim.wear.lamps.has('-1,-1') && victim.wear.lamps.size === 1 && podY < otherY - 0.2,
+    `pod ${podY.toFixed(2)} against ${otherY.toFixed(2)} on the far side`);
+  check('one tailgate is not enough to take the bumper off', victim.wear.bumper === null);
+
+  // Lids are turned, never mirrored: a negative determinant would flip every face inside out.
+  const lids = cDamage.meshes.find((m) => m.name === 'carDamageLids');
+  lids.getMatrixAt(rig.slot * 2 + 1, cm);
+  check('the boot lid keeps its winding', cm.determinant() > 0, `det ${cm.determinant().toFixed(3)}`);
+
+  // A second hit, on the nose: the bonnet joins it and the bumper comes off the worst end — a tie,
+  // which goes to the corner hit last.
+  hitCar(victim, 1.6, 0.6, 8);
+  run(30);
+  check('a second hit pops the bonnet and hangs the bumper off the struck end',
+    rig.hood && rig.hood.angle > 0.1 && victim.wear.bumper?.end === 1);
+  lids.getMatrixAt(rig.slot * 2, cm);
+  check('the bonnet keeps its winding', cm.determinant() > 0);
+  // The hanging bar's free end is on the road, and the end it left is bare: the tail bar is still
+  // where it was, and no instance sits at the nose's rest position.
+  victim.wear.bumper.lift = 0;
+  cTraffic.update(1 / 60);
+  bumpers.getMatrixAt(victim.instanceIndex * 2, cm);
+  const freeEnd = new THREE.Vector3(0, -BUMPER_H_PROBE / 2, -bumperLengthProbe(CAR_W) / 2).applyMatrix4(cm);
+  const restNose = bumperLocal(victim, 0);
+  check('the hanging bumper drags its free end on the road, and the nose goes bare',
+    Math.abs(freeEnd.y - ROAD_Y) < 0.25 && restNose.y < nose0.y - 0.1
+    && Math.abs(bumperLocal(victim, 1).along - tail0.along) < 0.05,
+    `free end at y ${freeEnd.y.toFixed(2)} (road ${ROAD_Y}), nose bar centre at y ${restNose.y.toFixed(2)} from ${nose0.y.toFixed(2)}`);
+  cBursts.length = 0;
+  for (let n = 0; n < 120; n++) { run(1); victim.v = Math.max(victim.v, 6); }
+  check('and throws sparks while the car is moving', cBursts.length > 0, `${cBursts.length} bursts`);
+
+  // A T-bone takes the bumper first time.
+  const second = cars[1];
+  hitCar(second, 0.2, 0.9, 21);
+  check('a T-bone knocks the bumper off at once', second.wear?.bumper != null);
+
+  // Wrecked: the rig lets go and the car keeps nothing.
+  second.crashed = true;
+  run(1);
+  check('a wrecked car gives its rig back', !second.wear && cDamage.rigOf(second) === null);
+  second.crashed = false;
+
+  // A truck dents without lids.
+  const tTraffic = createTraffic(makeRng(seed + 50), new THREE.Scene(), CARS_DEFAULT, CARS_DEFAULT, 1);
+  const tDamage = createCarDamage({
+    scene: new THREE.Scene(), traffic: tTraffic, roadY: ROAD_Y, sparks: { burst() {} }, rng: Math.random,
+  });
+  const truck = tTraffic.cars.find((c) => c.isTruck);
+  tDamage.hit(truck, truck.x + Math.cos(truck.yaw) * 2.8, truck.z - Math.sin(truck.yaw) * 2.8, { closing: 21 });
+  const tRig = tDamage.rigOf(truck);
+  check('a truck loses a lamp and its bumper but grows no bonnet',
+    tRig && !tRig.hood && !tRig.boot && truck.wear.lamps.size + tRig.lamps.size > 0 && truck.wear.bumper);
+
+  cDamage.reset();
+  const zeroed = cDamage.meshes.every((mesh) => {
+    for (let k = 0; k < mesh.count; k++) {
+      mesh.getMatrixAt(k, cm);
+      if (Math.abs(cm.determinant()) > 1e-9) return false;
+    }
+    return true;
+  });
+  check('reset takes every part off', cDamage.active() === 0 && !cTraffic.cars.some((c) => c.wear) && zeroed);
+
+  // The pool is fixed: denting more cars than it holds gives up the one furthest from the taxi.
+  const small = createCarDamage({
+    scene: new THREE.Scene(), traffic: cTraffic, roadY: ROAD_Y, sparks: { burst() {} }, rng: Math.random, pool: 3,
+  });
+  const byDistance = [...cars].sort((a, b) => Math.hypot(a.x - cTraffic.taxi.x, a.z - cTraffic.taxi.z)
+    - Math.hypot(b.x - cTraffic.taxi.x, b.z - cTraffic.taxi.z));
+  for (const car of [byDistance[3], byDistance[0], byDistance[1], byDistance[2]]) small.hit(car, car.x, car.z);
+  const worn = cTraffic.cars.filter((c) => c.wear);
+  check('denting more cars than the pool holds lets go of the furthest',
+    small.active() === 3 && worn.length === 3 && !byDistance[3].wear,
+    `${small.active()} rigs, ${worn.length} cars wearing one`);
+  small.reset();
+  // createTraffic installs nothing global, but tidy up the second fleet anyway.
+  tDamage.reset();
+}
+
 
 // --- Box trucks --------------------------------------------------------------
 // A purely opt-in ambient variant — every scenario in this file runs with truckChance at its
@@ -6767,10 +6928,11 @@ check('the taxi is an ordinary car in the traffic array',
     `cab + box + ${truckWheelScales.length} wheels`);
 
   // The shell itself carries two materials for a truck — cab+wheels in its car-palette colour, the
-  // box in the fixed PALETTE.truckBox — and game/wreckage.js has to find and scorch both.
+  // box in the fixed PALETTE.truckBox — and game/wreckage.js has to find and scorch both. Plus its
+  // two bumpers, which the fleet draws apart from the body (`bumperMesh` in sim/traffic.js).
   const uShell = uShells[1];
   check('a wrecked truck hands over both a cab and a box mesh',
-    uShell.children.length === 2 + truckWheelScales.length);
+    uShell.children.length === 2 + truckWheelScales.length + 2);
 
   // Right turns: a truck should visibly take longer than a car on the identical turn — see
   // TRUCK_RIGHT_TURN_SPEED in traffic.js. Staged with a forced route, the same "one routing
@@ -14519,6 +14681,7 @@ let chopperOrder; // likewise
     let overpaid = 0;
     let slowest = 0;
     let worstBandEnd = 0;
+    const visits = [];
 
     for (const job of jobs) {
       routeTo(job);
@@ -14542,9 +14705,11 @@ let chopperOrder; // likewise
       let entered = false;
       let landed = null;
       let inLot = new Set(runLot.state.queue.map((e) => e.car));
+      let held = 0;
       while (run.active() && clock < 150) {
         runLot.update(S);
         run.update(S);
+        if (run.holdsTaxi()) held += S;
 
         const now = new Set(runLot.state.queue.map((e) => e.car));
         for (const car of now) {
@@ -14561,6 +14726,7 @@ let chopperOrder; // likewise
         clock += S;
       }
       slowest = Math.max(slowest, clock);
+      visits.push(held);
 
       if (!entered) neverEntered += 1;
       if (!landed || Math.hypot(landed.x - site.merge.point.x, landed.z - site.merge.point.z) > 1e-9) {
@@ -14585,6 +14751,16 @@ let chopperOrder; // likewise
     check('...and the job the detour interrupted is put back under the car on the way out',
       notHandedBack === 0 && restored === trips,
       `${restored}/${trips} routes restored`);
+    // ...and it lasts as long as the speaker does, plus a beat. The clip plays from the frame the lot
+    // takes the taxi to the frame it lets go (`driveThruSpeaker` in main.js), so a visit shorter than
+    // the clip cuts the conversation off; the visit is the clip and `DRIVE_THRU_TAIL` of quiet after
+    // it. Half a second either way; every trip here starts with the lane empty, which is the visit
+    // the dwells were sized against.
+    const want = DRIVE_THRU_SECONDS + DRIVE_THRU_TAIL;
+    const offClip = Math.max(...visits.map((v) => Math.abs(v - want)));
+    check('...and the visit lasts the drive-through speaker\'s clip and a beat after it',
+      offClip < 0.5, `visits ${visits.map((v) => v.toFixed(2)).join(', ')}s against a `
+      + `${DRIVE_THRU_SECONDS}s clip + ${DRIVE_THRU_TAIL}s`);
     check('...and the route band ends at the driveway rather than at the junction past it',
       worstBandEnd < 1e-9,
       `band finishes ${worstBandEnd.toFixed(2)} from the mouth at its worst`);
@@ -15019,8 +15195,9 @@ let chopperOrder; // likewise
     // slots that are still in the air, which reads as notes blinking out mid-fall. The lower one
     // is the visibility ask — this effect was rebuilt because 22 four-pixel notes over thirty
     // units of road was a scattering you had to go looking for.
+    // Halved since (GUST_RATE 39), so ~22/s: the floor moves with it.
     check('a boosting getaway trails cash without filling the pool',
-      streaming > 45 && streaming < 130, `${streaming} notes in the air`);
+      streaming > 20 && streaming < 130, `${streaming} notes in the air`);
 
     // **And it comes in gusts rather than at one rate.** A flat stream is a rope paid out of the
     // back of the car; what this should look like is a bag that keeps catching. Measured as the
@@ -15060,8 +15237,8 @@ let chopperOrder; // likewise
     const kicker = createCashTrail(new THREE.Scene(), makeRng(seed + 212));
     kicker.kick(car, 0.74);
     check('the press that engages Loco Mode throws a burst of its own',
-      kicker.live() >= 16, `${kicker.live()} notes on the press frame`);
-    check('...with a few wrapped bundles in it', kicker.bundles() >= 2,
+      kicker.live() >= 8, `${kicker.live()} notes on the press frame`);
+    check('...with a few wrapped bundles in it', kicker.bundles() >= 1,
       `${kicker.bundles()} bundles on the press frame`);
 
     // **Everything settles on the road, not at bumper height.** The floor used to be the tailpipe
@@ -15098,9 +15275,26 @@ let chopperOrder; // likewise
 
     // A crashed taxi stops spilling, which is the one gate the caller cannot express: a run that
     // ends mid-getaway leaves `boost.isActive()` true for a frame or two.
+    // The notes left lying on the road as the trail (GROUND_LINGER) outlast the stream by a few
+    // seconds, so this waits them out: three seconds says nothing is still being *thrown*, ten that
+    // the trail drains too.
     car.crashed = true;
-    for (let f = 0; f < 180; f++) { trail.feed(1 / 60, true, car, 0.74); trail.update(1 / 60); }
-    check('...and a wreck stops the stream and lets it fall out', trail.live() === 0);
+    let thrown = Infinity;
+    for (let f = 0; f < 600; f++) {
+      trail.feed(1 / 60, true, car, 0.74); trail.update(1 / 60);
+      if (f === 179) thrown = trail.noteRest().length === trail.live() ? 0 : trail.live();
+    }
+    check('...and a wreck stops the stream and lets it fall out', thrown === 0 && trail.live() === 0,
+      `${thrown} still in the air at 3s, ${trail.live()} left at 10s`);
+    // ...and some of it stays on the road a while first, which is the trail.
+    {
+      const lay = createCashTrail(new THREE.Scene(), makeRng(seed + 214));
+      const car3 = { x: 0, z: 0, yaw: 0.4, v: 20, crashed: false };
+      for (let f = 0; f < 120; f++) { lay.feed(1 / 60, true, car3, 0.74); lay.update(1 / 60); }
+      for (let f = 0; f < 60 * 4; f++) { lay.feed(1 / 60, false, car3, 0.74); lay.update(1 / 60); }
+      check('a getaway leaves a trail of notes on the road behind it',
+        lay.noteRest().length >= 10, `${lay.noteRest().length} notes still lying 4s after the stream stopped`);
+    }
   }
 
   // --- The event's own rules ---------------------------------------------------
@@ -15172,6 +15366,137 @@ let chopperOrder; // likewise
       check('the bonus is stamped as a ceiling, not paid up front',
         robber.bonusMax > 0 && robber.value < robber.value + robber.bonusMax,
         `base $${robber.value}, up to $${robber.bonusMax} more`);
+    }
+
+    // --- The getaway's checkpoints --------------------------------------------
+    //
+    // ROBBER_CHECKPOINTS in game/fares.js: corners to touch on the way, each a full tank. Checked
+    // over a sweep of traffic draws on this city, since the draw is random among valid chains.
+    {
+      let fewer = 0; let shortLeg = 0; let tooLong = 0; let clash = 0; let uncovered = 0; let n = 0;
+      let flow = true;
+      const shapes = [];
+      for (let k = 0; k < 8; k++) {
+        const s6 = new THREE.Scene();
+        const t6 = createTraffic(makeRng(seed + 44 + k * 13), s6, 10, 18);
+        const f6 = createFareSystem(makeRng(seed + 55 + k * 7), s6);
+        t6.warmup(3);
+        f6.state.delivered = 5;
+        const got = [];
+        const rob6 = createRobbery({
+          site: bank, taxi: t6.taxi, fares: f6, traffic: t6, onBoard: (fare) => got.push(fare),
+        });
+        t6.taxi.x = bank.door.x;
+        t6.taxi.z = bank.door.z;
+        for (let f = 0; f < 5; f++) rob6.update(1 / 60);
+        const r = got[0];
+        if (!r) continue;
+        n += 1;
+        const cps = [...r.checkpoints];
+        if (cps.length < ROBBER_CHECKPOINTS) fewer += 1;
+        const chain = [r.pickup, ...cps, r.dropoff];
+        let total = 0;
+        for (let c = 1; c < chain.length; c++) {
+          const leg = blockDistance(chain[c - 1], chain[c]);
+          if (leg < 3) shortLeg += 1;
+          total += leg;
+        }
+        if (total > r.blocks + 3 * cps.length) tooLong += 1;
+        const keys = chain.map((c) => `${c.i},${c.j}`);
+        if (new Set(keys).size !== keys.length
+          || cps.some((c) => onWaterBlock(c) || !cornerSeen(c.i, c.j))) clash += 1;
+        if (!(r.limit >= r.work * 1.6)) uncovered += 1;
+        // Touch each corner in turn: a checkpoint moves the target on, the last stop delivers.
+        if (k === 0) {
+          const seen = [];
+          // The mark on the ground: the white waypoint ring with its ping for a checkpoint, the
+          // ordinary disc in the clock's colour for the drop-off.
+          const ring = r.slot.destination.ring;
+          const rimHex = () => ring.group.children[0].material.color.getHexString();
+          const isWaypoint = () => ring.isWaypoint() && rimHex() === 'ffffff'
+            && ring.group.children.some((m) => m.visible && m.geometry.type === 'CircleGeometry'
+              && m.renderOrder === 3.5);
+          for (const stop of [...cps, r.dropoff]) {
+            if (r.target.i !== stop.i || r.target.j !== stop.j) { flow = false; break; }
+            shapes.push(stop === r.dropoff ? !ring.isWaypoint() && rimHex() !== 'ffffff' : isWaypoint());
+            const c = intersectionCentre(stop.i, stop.j);
+            t6.taxi.x = c.x; t6.taxi.z = c.z;
+            for (const e of f6.update(1 / 60, t6.taxi)) seen.push(e.type);
+          }
+          const want = [...cps.map(() => 'checkpoint'), 'delivered'];
+          flow = flow && want.every((t, idx) => seen.filter((x) => x === 'checkpoint' || x === 'delivered')[idx] === t);
+        }
+      }
+      check('a getaway touches its checkpoints before the drop-off',
+        n > 0 && fewer === 0, `${n - fewer}/${n} getaways with ${ROBBER_CHECKPOINTS} checkpoints`);
+      check('...each leg a real drive, and the chain only so much longer than the straight run',
+        shortLeg === 0 && tooLong === 0, `${shortLeg} short legs, ${tooLong} chains over +3 blocks a checkpoint`);
+      check('...on free, visible, dry corners of their own', clash === 0, `${clash} clashes`);
+      check('...budgeted into the robber’s one clock', uncovered === 0, `${uncovered} short clocks`);
+      check('...and touched in order, every checkpoint and then the drop-off', flow);
+      check('...each checkpoint marked by a white pulsing ring, the drop-off by the ordinary one',
+        shapes.length === ROBBER_CHECKPOINTS + 1 && shapes.every(Boolean), `${shapes.filter(Boolean).length}/${shapes.length}`);
+    }
+
+    // --- The rest of the board steps aside, and the chase grows ----------------------------
+    //
+    // While a getaway runs every waiting rider is off the map — hidden, untappable, out of the
+    // HUD, clock held — and nobody new spawns (`concealed` in game/fares.js). And each checkpoint
+    // touched calls another cop in (`wanted` in game/robbery.js).
+    {
+      const s7 = new THREE.Scene();
+      const t7 = createTraffic(makeRng(seed + 44), s7, 10, 18);
+      const f7 = createFareSystem(makeRng(seed + 55), s7);
+      t7.warmup(3);
+      f7.state.delivered = 5;
+      // A rider on the kerb first: an empty board refills on the first update.
+      f7.update(1 / 60, t7.taxi);
+      const kerb = f7.state.fares.find((x) => x.stage === 'waiting');
+      const got = [];
+      const rob7 = createRobbery({
+        site: bank, taxi: t7.taxi, fares: f7, traffic: t7, onBoard: (fare) => got.push(fare),
+      });
+      t7.taxi.x = bank.door.x;
+      t7.taxi.z = bank.door.z;
+      for (let f = 0; f < 5; f++) rob7.update(1 / 60);
+      const r = got[0];
+      if (kerb && r) {
+        const before = kerb.timeLeft;
+        const count = f7.state.fares.length;
+        // Park the taxi on the first checkpoint's far side of nowhere: off every corner, so nothing
+        // resolves while the clocks are watched.
+        t7.taxi.x = 1e4; t7.taxi.z = 1e4;
+        for (let f = 0; f < 60 * 30; f++) f7.update(1 / 60, t7.taxi);
+        check('a getaway takes the waiting riders off the map',
+          !kerb.slot.root.visible && f7.waitingAll().length === 0
+            && !f7.pickables().some((o) => o === kerb.slot.passenger.group),
+          `root ${kerb.slot.root.visible ? 'shown' : 'hidden'}, ${f7.waitingAll().length} in the HUD`);
+        check('...holds their clocks while they are hidden',
+          kerb.timeLeft === before, `${before.toFixed(2)}s -> ${kerb.timeLeft.toFixed(2)}s over 30s`);
+        check('...and lets nobody new turn up', f7.state.fares.length === count,
+          `${count} -> ${f7.state.fares.length} fares over 30s`);
+
+        // Two checkpoints touched, then four seconds of chase: the fleet grows by two.
+        const cops0 = t7.policeCars.length;
+        for (const stop of r.checkpoints.slice(0, 2)) {
+          const c = intersectionCentre(stop.i, stop.j);
+          t7.taxi.x = c.x; t7.taxi.z = c.z;
+          f7.update(1 / 60, t7.taxi);
+        }
+        for (let f = 0; f < 60 * 4; f++) { t7.update(1 / 60); rob7.update(1 / 60); f7.update(1 / 60, t7.taxi); }
+        check('each checkpoint touched calls another cop into the chase',
+          t7.policeCars.length === POLICE_FLEET + 2,
+          `${cops0} cops at the bank, ${t7.policeCars.length} after two checkpoints`);
+
+        // The getaway ends: the rider comes back, with the clock they had.
+        const at = f7.state.fares.indexOf(r);
+        if (at !== -1) f7.state.fares.splice(at, 1);
+        f7.update(1 / 60, t7.taxi);
+        check('...and the board comes back when the getaway ends',
+          kerb.slot.root.visible && f7.waitingAll().includes(kerb));
+      } else {
+        check('a getaway takes the waiting riders off the map', false, 'no kerb rider or no robbery');
+      }
     }
 
     check('...but not while somebody is already in the back',
@@ -15734,6 +16059,10 @@ let chopperOrder; // likewise
         const run = { offset, watch, delivered: false };
         runs.push(run);
         if (!robber) continue;
+        // Straight to the drop-off: the checkpoints have their own check, and this one is about
+        // the arrest at the far end.
+        robber.checkpoints.length = 0;
+        robber.target = robber.dropoff;
         const tgt = robber.target;
         for (const d of [0, 1, 2, 3]) if (placeCar(t5.taxi, d, tgt.i, tgt.j, 30)) break;
         t5.taxi.route = [];
@@ -17115,6 +17444,84 @@ let chopperOrder; // likewise
       gate.dispose();
     }
 
+    // **The gate lamps warn either side of the lift, not only during it.** Dark on a fresh span (it
+    // starts `open` at t = 0, and a tail that counted from there would flash a bridge that never
+    // moved), lit from the frame the arms start down — before the leaf — still lit while the arms go
+    // back up, out again shortly after, and at every lit frame exactly one lamp per arm, the two
+    // halves of each arm taking turns. Read off the bloom's per-mesh scale, which is what makes a
+    // lamp spill light, so a lamp that changed colour but not glow (or the reverse) fails too.
+    {
+      const gate = createDrawbridge(rScene, makeRng(seed + 836), {});
+      const lit = (lamp) => (lamp.userData.bloomScale ?? 1) > 0;
+      const litCount = () => gate.lamps.filter(lit).length;
+      gate.update(1 / 60, []);
+      const darkAtStart = litCount() === 0;
+      gate.request();
+      let litBeforeLeaf = false;
+      let litWhileRaising = false;
+      let badFrames = 0;
+      let swaps = 0;
+      let lastFirst = null;
+      let darkAgainAt = -1;
+      for (let f = 0; f < 60 * 60; f++) {
+        gate.update(1 / 60, []);
+        const n = litCount();
+        if (n > 0) {
+          if (gate.state.phase === 'closing' && gate.state.lift === 0) litBeforeLeaf = true;
+          if (gate.state.phase === 'raising') litWhileRaising = true;
+          // One per arm, and on each arm the two lamps disagree.
+          for (let a = 0; a < gate.lamps.length; a += 2) {
+            if (lit(gate.lamps[a]) === lit(gate.lamps[a + 1])) badFrames++;
+          }
+          const first = lit(gate.lamps[0]);
+          if (lastFirst !== null && first !== lastFirst) swaps++;
+          lastFirst = first;
+          // A lit lamp is drawn lit as well as glowing.
+          if (gate.lamps.some((l) => lit(l) !== (l.material.color.getHex() === new THREE.Color(PALETTE.lightYellow).getHex()))) badFrames++;
+        } else if (litBeforeLeaf && darkAgainAt < 0) {
+          darkAgainAt = gate.state.phase === 'open' ? gate.state.t : -2;
+        }
+      }
+      // The striped arms are built by shearing boxes and clamping their ends (`stripedBar`), which
+      // is hand-built geometry: assert every face still points out of its own stripe, from the
+      // winding, rather than trusting the argument in the comment.
+      let inward = 0;
+      let faces = 0;
+      const perArm = [];
+      gate.group.traverse((o) => {
+        if (o.name !== 'drawbridge-arm') return;
+        const colours = new Set();
+        perArm.push(colours);
+        const pos = o.geometry.attributes.position;
+        const col = o.geometry.attributes.color;
+        const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+        const n = new THREE.Vector3(), mid = new THREE.Vector3(), centre = new THREE.Vector3();
+        for (let s0 = 0; s0 < pos.count; s0 += 36) {
+          centre.set(0, 0, 0);
+          for (let v = s0; v < s0 + 36; v++) centre.add(a.fromBufferAttribute(pos, v));
+          centre.divideScalar(36);
+          colours.add(new THREE.Color().fromBufferAttribute(col, s0).getHexString());
+          for (let t = s0; t < s0 + 36; t += 3) {
+            a.fromBufferAttribute(pos, t); b.fromBufferAttribute(pos, t + 1); c.fromBufferAttribute(pos, t + 2);
+            n.subVectors(b, a).cross(c.clone().sub(a));
+            if (n.length() < 1e-9) continue;
+            faces++;
+            mid.copy(a).add(b).add(c).divideScalar(3).sub(centre);
+            if (n.dot(mid) <= 0) inward++;
+          }
+        }
+      });
+      check('the gate arms are striped in two colours with every face wound outward',
+        faces > 0 && inward === 0 && perArm.length === 2 && perArm.every((c) => c.size === 2),
+        `${faces} faces, ${inward} inward, ${perArm.map((c) => c.size).join('/')} colours per arm`);
+      check('the gate lamps flash before, during and after the lift, alternately',
+        darkAtStart && litBeforeLeaf && litWhileRaising && badFrames === 0 && swaps > 10
+          && darkAgainAt > 0.5 && darkAgainAt < 1.5 && litCount() === 0,
+        `${gate.lamps.length} lamps, ${swaps} swaps, ${badFrames} bad frames,`
+        + ` dark again ${darkAgainAt.toFixed(2)}s after the arms were up`);
+      gate.dispose();
+    }
+
     check('the span spends most of the run open', shutFrames / (60 * 300) < 0.3,
       `shut ${((100 * shutFrames) / (60 * 300)).toFixed(0)}% of five minutes,`
       + ` ${boats.state.tugs} tugs and ${boats.state.barges} barges`);
@@ -17456,6 +17863,64 @@ let chopperOrder; // likewise
   check('no fire can break out on the depot or the burger joint',
     cities > 0 && sites > 0 && onDepot === 0 && onBurger === 0,
     `${sites} candidate sites over ${cities} cities with a depot, ${onDepot} on it, ${onBurger} on the joint`);
+}
+
+// --- The Perfect Run --------------------------------------------------------------
+//
+// game/runs.js on its own: the rule, and the edges that make it fair.
+{
+  const step = 1 / 60;
+  const ride = (tracker, fare, seconds, facts) => {
+    for (let t = 0; t < seconds; t += step) tracker.update(step, { fare, boosting: false, ...facts(t) });
+  };
+  const keys = (v) => v.runs.map((r) => r.key).join(',');
+
+  let r = createRunTracker();
+  const a = { id: 'a' };
+  ride(r, a, 10, () => ({}));
+  check('a job driven off boost earns no Perfect Run', keys(r.judge(a)) === '' && r.judge(a).mult === 1,
+    keys(r.judge(a)));
+
+  r = createRunTracker();
+  ride(r, a, 10, (t) => ({ boosting: t >= 4 }));
+  check(`more than ${PERFECT_SHARE * 100}% boost and no damage is a Perfect Run`,
+    keys(r.judge(a)) === 'perfect' && r.judge(a).mult === RUNS.perfect.mult,
+    `${keys(r.judge(a))} ×${r.judge(a).mult}`);
+
+  r = createRunTracker();
+  ride(r, a, 10, (t) => ({ boosting: t >= 6 }));
+  check('under the share it is not, and its tag never shows', keys(r.judge(a)) === '' && r.live().length === 0,
+    `${keys(r.judge(a))} ${JSON.stringify(r.live())}`);
+
+  // The tag: nothing for the first TAG_AFTER seconds even on course, then latched — a dip under the
+  // share dims it rather than hiding it.
+  r = createRunTracker();
+  ride(r, a, TAG_AFTER - 0.1, () => ({ boosting: true }));
+  const early = r.live().length;
+  ride(r, a, 0.2, () => ({ boosting: true }));
+  const shown = r.live()[0]?.earned === true;
+  ride(r, a, 10, () => ({}));
+  check(`the tag shows ${TAG_AFTER}s in, on course, and stays once shown`,
+    early === 0 && shown && r.live().length === 1 && r.live()[0].earned === false,
+    `early ${early}, shown ${shown}, after ${JSON.stringify(r.live())}`);
+
+  r = createRunTracker();
+  ride(r, a, 5, () => ({ boosting: true }));
+  r.damage();
+  ride(r, a, 5, () => ({ boosting: true }));
+  check('damage takes it, however much boost', keys(r.judge(a)) === '' && r.live()[0]?.broken,
+    keys(r.judge(a)));
+
+  // A new job is a new job: nothing carries over, and damage between jobs belongs to nobody.
+  r = createRunTracker();
+  ride(r, a, 5, () => ({ boosting: true }));
+  r.damage();
+  ride(r, null, 1, () => ({}));
+  r.damage();
+  const b = { id: 'b' };
+  ride(r, b, 5, () => ({ boosting: true }));
+  check('each job is judged on its own', keys(r.judge(b)) === 'perfect'
+    && r.judge(a).mult === 1, `${keys(r.judge(b))}, previous ×${r.judge(a).mult}`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

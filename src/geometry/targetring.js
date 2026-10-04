@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { ROUTE_OPACITY } from '../game/routeline.js';
 import { popEnvelope, POP_TIME } from '../game/selectpop.js';
 import { unlitMaterial } from '../util/geo.js';
+import { color as paletteColor } from '../palette.js';
 
 // The disc a fare marks its ground with: a filled circle inside a solid rim, lying flat on the
 // pavement corner. **Both ends of a trip wear one** — under the waiting rider, and on the corner
@@ -87,6 +88,18 @@ const SWEEP_GEO = new THREE.TorusGeometry(RING_R, SWEEP_TUBE, 6, 64).rotateX(-Ma
 
 // One revolution every 3.2s — fast enough to read as motion on a glance down at the road, slow
 // enough not to compete with the panic pulse (game/faremarker.js) for the eye's attention.
+// The getaway's checkpoints wear the **waypoint** look (`setWaypoint`): the same ring, painted
+// white rather than in the robber's urgency colour, with a dot in the middle that grows out from
+// small to the full `WAYPOINT_DOT_R` and fades as it goes, then starts again — a ping. White
+// because the colour scale is the clock's and a waypoint is not where the clock is cashed; the
+// ring keeps its colour for the drop-off, which is. (A diamond was tried first and read as a second
+// kind of fare crystal.)
+const WAYPOINT_DOT_R = RING_R * 0.62;
+const WAYPOINT_DOT_MIN = 0.12;      // of WAYPOINT_DOT_R, at the start of each ping
+const WAYPOINT_PERIOD = 1.1;        // seconds per ping
+const WAYPOINT_DOT_ALPHA = 0.85;
+const DOT_GEO = new THREE.CircleGeometry(WAYPOINT_DOT_R, 32).rotateX(-Math.PI / 2);
+
 const SWEEP_SPEED = TWO_PI / 3.2;
 // How much of the circle the glow covers, trailing the head. A third of the ring, so most of its
 // border still reads as the flat rim colour and the beam is a distinct thing riding over it rather
@@ -227,6 +240,21 @@ export function createTargetRing(colorHex) {
   const sweep = createSweepFor(SWEEP_GEO, colorHex);
   group.add(sweep.mesh);
 
+  // The checkpoint's ping — see WAYPOINT_DOT_R. Hidden unless `setWaypoint` turns it on. Over the
+  // fill and under the rim, and never a tap target: the rim and fill already are.
+  const WHITE = paletteColor('waypoint');
+  let waypoint = false;
+  const dot = new THREE.Mesh(DOT_GEO, unlitMaterial({
+    color: color.clone(),
+    transparent: true,
+    opacity: WAYPOINT_DOT_ALPHA,
+    depthWrite: false,
+  }));
+  dot.renderOrder = 3.5;
+  dot.raycast = () => {};
+  dot.visible = false;
+  group.add(dot);
+
   // How far this disc has stepped back, 0..1 — see DIM_COLOR above. Eased by the caller
   // (game/faremarker.js), which owns the clock; this only ever applies whatever it is handed.
   let dim = 0;
@@ -245,10 +273,13 @@ export function createTargetRing(colorHex) {
    */
   function paint() {
     const k = THREE.MathUtils.lerp(1, DIM_COLOR, dim);
-    rim.material.color.copy(color).multiplyScalar(k);
-    fill.material.color.copy(color).multiplyScalar(k);
+    const base = waypoint ? WHITE : color;
+    rim.material.color.copy(base).multiplyScalar(k);
+    fill.material.color.copy(base).multiplyScalar(k);
     fill.material.opacity = ROUTE_OPACITY * THREE.MathUtils.lerp(1, DIM_FILL_OPACITY, dim);
-    sweep.material.color.copy(color);
+    sweep.material.color.copy(base);
+    // The dot too, even hidden, so every layer of the mark always states one colour.
+    dot.material.color.copy(base);
     sweep.material.opacity = 1 - dim;
     sweep.mesh.visible = dim < 1;
   }
@@ -269,6 +300,17 @@ export function createTargetRing(colorHex) {
       color.set(value);
       paint();
     },
+    /**
+     * A getaway checkpoint, or the ordinary disc — see WAYPOINT_DOT_R. The slot keeps whichever it
+     * was last handed, so every caller that places this mark says which one it wants.
+     */
+    setWaypoint(on) {
+      waypoint = Boolean(on);
+      dot.visible = waypoint;
+      paint();
+    },
+    /** Whether this is wearing the checkpoint look, for the tools. */
+    isWaypoint: () => waypoint,
     /**
      * Step this disc back behind the fare in the car, 0..1. See DIM_COLOR above.
      *
@@ -350,6 +392,14 @@ export function createTargetRing(colorHex) {
       // Still advanced while backgrounded, because `dim` is eased rather than switched: a beam
       // frozen mid-fade would sit as a bright arc on the rim for the length of the ease.
       if (sweep.mesh.visible) sweep.update(elapsed);
+      if (dot.visible) {
+        // Grows out of small with an ease-out, fading as it goes, so the loop's restart at small is
+        // invisible rather than a snap.
+        const t = (elapsed % WAYPOINT_PERIOD) / WAYPOINT_PERIOD;
+        const grow = 1 - (1 - t) ** 2;
+        dot.scale.setScalar(WAYPOINT_DOT_MIN + (1 - WAYPOINT_DOT_MIN) * grow);
+        dot.material.opacity = WAYPOINT_DOT_ALPHA * (1 - t);
+      }
 
       if (pending === 'grow') { grewAt = elapsed; pending = null; }
       else if (pending === 'shrink') { goneAt = elapsed; pending = null; }

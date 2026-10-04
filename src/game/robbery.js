@@ -7,7 +7,7 @@ import { URGENCY_SEGMENTS, urgencyLevel } from './urgency.js';
 import { createArrest } from './arrest.js';
 import { findRoute, findRouteOnto, planOrigin, junctionAhead, turnsRound } from './route.js';
 import {
-  CAR_LEN, CIRCLE_OFFSET, CIRCLE_R, POLICE_FLEET, SPAWN_CLEARANCE, plannedTurn, stopDistance,
+  CAR_LEN, CIRCLE_OFFSET, CIRCLE_R, POLICE_FLEET, POLICE_REINFORCEMENTS, SPAWN_CLEARANCE, plannedTurn, stopDistance,
   turnPointAt,
 } from '../sim/traffic.js';
 
@@ -1184,8 +1184,7 @@ export function createRobbery({
    * exactly the reason the tail rule exists: the police are a contiguous block at the end of
    * `ambient`, so exchanging two of them only ever moves police indices past each other.
    */
-  function recyclePolice(dt) {
-    state.sinceEntry += dt;
+  function recyclePolice() {
     if (state.sinceEntry < REENTRY_GAP) return;
 
     // The furthest-gone first, and one per tick: the gap is what turns four simultaneous
@@ -1213,6 +1212,17 @@ export function createRobbery({
     aimedAt = null;
   }
 
+  /**
+   * How many cop cars this getaway should have on the road: the fleet, plus one for every
+   * checkpoint the taxi has touched (`ROBBER_CHECKPOINTS` in game/fares.js). The chase heats up as
+   * the getaway goes on — each checkpoint is a full tank, and each one also puts another car on
+   * the taxi's tail. They come in through the ordinary top-up below, behind the taxi.
+   */
+  function wanted() {
+    const reached = robber ? (robber.checkpointsTotal ?? 0) - (robber.checkpoints?.length ?? 0) : 0;
+    return POLICE_CARS + Math.min(POLICE_REINFORCEMENTS, Math.max(0, reached));
+  }
+
   function update(dt) {
     state.since += dt;
     clock += dt;
@@ -1227,13 +1237,19 @@ export function createRobbery({
       if (!state.alarmed) return;
       // Top the fleet up first: a saturated network can leave `enterPolice` short, and a robbery
       // that opened with three cop cars should not run with three for the whole getaway.
-      if (fleet().length < POLICE_CARS && state.sinceEntry >= REENTRY_GAP) {
+      //
+      // Counted here rather than inside `recyclePolice`, and the top-up goes first: with the clock
+      // ticked in the recycle, a recycle fired on the very frame the gap ran out and reset it, so
+      // while any cop was lost the top-up never saw an open gap — which is every frame of a chase
+      // the taxi is winning, and exactly when a checkpoint's reinforcement is meant to arrive.
+      state.sinceEntry += dt;
+      if (fleet().length < wanted() && state.sinceEntry >= REENTRY_GAP) {
         if (traffic.enterPolice(1, taxi, { behind: true })) {
           state.sinceEntry = 0;
           aimedAt = null;
         }
       }
-      recyclePolice(dt);
+      recyclePolice();
       steerChase();
       holdRoadblocks(dt);
       return;

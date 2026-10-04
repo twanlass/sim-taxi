@@ -18,13 +18,15 @@
 // v2: recentred the taxi in the icon and gave it a contact shadow.
 // v3: manifest gained `display_override: ["fullscreen"]` — the manifest is cache-first, so
 //     without a bump an installed client keeps the status bar forever.
-const CACHE_NAME = 'sim-taxi-v3';
+// v4: the icons are rendered in the engine now (tools/icon/), the SVG favicon is gone and the
+//     manifest gained a 192.
+const CACHE_NAME = 'sim-taxi-v4';
 
 const PRECACHE_URLS = [
   '/',
   '/index.html',
-  '/apple-touch-icon.svg',
   '/apple-touch-icon.png',
+  '/icon-192.png',
   '/apple-touch-icon-512.png',
   '/favicon-16.png',
   '/favicon-32.png',

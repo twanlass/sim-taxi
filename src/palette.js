@@ -279,6 +279,9 @@ export const PALETTE = {
   // the point — the flash as a note turns over is the thing that catches an eye that is on the road
   // ahead rather than on the trail.
   cashBack: '#EDE9CF',
+  // A getaway checkpoint's ring and its pulsing centre dot (geometry/targetring.js). White, off
+  // the urgency scale on purpose: the clock is cashed at the drop-off, not here.
+  waypoint: '#FFFFFF',
   // The pale end of the *face*, which is a different job from `cashBack` and was at first confused
   // with it. The back is a flash — a value flip as a note turns over — and there is one of it. This
   // is a **spread**: every note rolls its own face somewhere between `cashNote` and here, so the
@@ -693,9 +696,12 @@ export const PALETTE = {
   // An ambient car's turn signal — deliberately more orange than lightYellow above so a blinking
   // indicator doesn't read as a stop-bar amber lifted onto a car.
   turnSignal: '#FF8A1E',
-  // Headlights, and the pool each one throws on the road — Rain Mode only (`?rain`). A warm white
-  // rather than a pure one: under the overcast grade a pure white lamp reads as a hole in the frame.
-  headlight: '#FFF1CF',
+  // Headlights, and the beam each one throws — Rain Mode only (`?rain`). A warm white rather than a
+  // pure one: under the overcast grade a pure white lamp reads as a hole in the frame. The lens is
+  // a deeper amber than the beam because it draws unlit and then blooms, and both push it toward
+  // white: at '#FFF1CF', and even at the beam's own '#FFE2A6', it rendered as plain white next to a
+  // warm beam. This value lands on screen at roughly the beam's colour.
+  headlight: '#FFD98C',
   headlightBeam: '#FFE2A6',
   // Street lamps (game/citylights.js): the post, and the sodium-ish glow of the head and its pool.
   // The post was #2E3238 and read as a black stroke against the asphalt (#636972); a galvanised
@@ -940,6 +946,18 @@ export const PALETTE = {
   coneBand: '#EDE9DF',
   barrier: '#E5551D',
   barrierBand: '#EDE9DF',
+  // The drawbridge gate's warning lamps (game/drawbridge.js). Lit, they are the signal's own amber
+  // (`lightYellow`) — a lamp telling you to stop is the same lamp wherever it is mounted. Off, they
+  // are this: a dark brown-amber lens, deep enough against the orange arm that a lit lamp is
+  // plainly a change of state rather than the same colour a bit brighter, and still a lens rather
+  // than a hole when the arm is standing idle.
+  gateLampOff: '#3A2A16',
+  // The gate arms' diagonal stripes. Black and white rather than the roadworks' `barrier` orange:
+  // the drawbridge gate is a railway-style crossing arm, and the stripes are what make it read as
+  // one. Not pure black, which goes to a hole on the shaded side, and the light stripe is the same
+  // off-white as the other bands so it does not blow out under a golden-hour sun.
+  gateStripeDark: '#26282C',
+  gateStripeLight: '#EDE9DF',
   // The vest is *more* saturated than the cones and lighter, so a worker still reads as a figure
   // against the props standing around them rather than as one more cone.
   hiVis: '#FF7A33',
