@@ -54,6 +54,8 @@ import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINT
 import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, setHazardLanes, laneCost } from '../src/game/route.js';
 import { createCollisions, TAXI_HP, bumpDamage, penetration } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
+import { createCarDamage } from '../src/game/cardamage.js';
+import { BUMPER_H as BUMPER_H_PROBE, bumperLength as bumperLengthProbe } from '../src/geometry/bumpers.js';
 import { createTaxiDoor } from '../src/game/taxidoor.js';
 import { createPolice, SPOT_RANGE, FADE_TIME } from '../src/sim/police.js';
 import { sirenOn, patrolSwing } from '../src/geometry/lights.js';
@@ -6561,6 +6563,147 @@ check('the taxi is an ordinary car in the traffic array',
 }
 
 
+// --- Damage on the cars the taxi hits ------------------------------------------
+// game/cardamage.js, hanging the taxi's own parts off ambient cars. The silent failures: a bumper
+// hung off a corner while the bar it replaces stays on the end, so the car wears two; a pod left lit
+// at its socket while its lamp swings below it; a lid mirrored into the car (a negative scale flips
+// the winding, and an unlit-from-inside face does not draw); a rig that outlives its car; and a pool
+// that grows with every car hit.
+{
+  const cScene = new THREE.Scene();
+  const cTraffic = createTraffic(makeRng(seed + 48), cScene, CARS_DEFAULT);
+  const cRng = makeRng(seed + 49);
+  const cBursts = [];
+  const cDamage = createCarDamage({
+    scene: cScene, traffic: cTraffic, roadY: ROAD_Y,
+    sparks: { burst: (...a) => cBursts.push(a) }, rng: () => cRng.next(),
+  });
+  cTraffic.warmup(2);
+  const cars = cTraffic.cars.filter((c) => !c.isTaxi && !c.isTruck && !c.police);
+  const victim = cars[0];
+  const bumpers = cTraffic.bumperMesh;
+  const cm = new THREE.Matrix4();
+  const cv = new THREE.Vector3();
+  // A bumper instance's centre in the car's own frame: +x the nose.
+  const bumperLocal = (car, e) => {
+    bumpers.getMatrixAt(car.instanceIndex * 2 + e, cm);
+    cv.setFromMatrixPosition(cm).sub(new THREE.Vector3(car.x, 0, car.z));
+    return { along: cv.x * Math.cos(car.yaw) - cv.z * Math.sin(car.yaw), y: cv.y };
+  };
+  const nose0 = bumperLocal(victim, 0);
+  const tail0 = bumperLocal(victim, 1);
+  check('an undented car wears its two bumpers, one on each end',
+    nose0.along > CAR_LEN / 2 - 0.1 && tail0.along < -(CAR_LEN / 2 - 0.1) && !victim.wear,
+    `nose ${nose0.along.toFixed(2)}, tail ${tail0.along.toFixed(2)}`);
+
+  const hitCar = (car, a, b, closing) => {
+    const f = { x: Math.cos(car.yaw), z: -Math.sin(car.yaw) };
+    const r = { x: Math.sin(car.yaw), z: Math.cos(car.yaw) };
+    cDamage.hit(car, car.x + f.x * a + r.x * b, car.z + f.z * a + r.z * b, { closing });
+  };
+  const run = (frames) => {
+    for (let n = 0; n < frames; n++) { cTraffic.update(1 / 60); cDamage.update(1 / 60); }
+  };
+  cDamage.hit(cTraffic.taxi, cTraffic.taxi.x, cTraffic.taxi.z, { closing: 20 });
+  check('the taxi is not one of the cars it dents', cDamage.active() === 0 && !cTraffic.taxi.wear);
+
+  // Rear-ended, at boost cruise: the boot flies open and the rear-left lamp swings loose.
+  hitCar(victim, -1.6, -0.6, 10.5);
+  const rig = cDamage.rigOf(victim);
+  const boots = [];
+  for (let n = 0; n < 60; n++) { run(1); boots.push(rig.boot?.angle ?? -1); }
+  const brake = cScene.getObjectByName('carBrakeLights');
+  const anchors = brake.userData.podAnchors;
+  const p = anchors.findIndex((a) => a.z < 0);
+  brake.getMatrixAt(victim.instanceIndex * 2 + p, cm);
+  const podY = cv.setFromMatrixPosition(cm).y;
+  const otherP = anchors.findIndex((a) => a.z > 0);
+  brake.getMatrixAt(victim.instanceIndex * 2 + otherP, cm);
+  const otherY = cv.setFromMatrixPosition(cm).y;
+  check('a rear-end throws the boot open, flapping, and leaves the bonnet shut',
+    !rig.hood && Math.max(...boots) > 0.5 && Math.max(...boots) - Math.min(...boots.slice(20)) > 0.05,
+    `boot ${Math.min(...boots).toFixed(2)}..${Math.max(...boots).toFixed(2)}`);
+  check('the struck corner\'s lamp hangs, and its brake pod hangs with it',
+    victim.wear.lamps.has('-1,-1') && victim.wear.lamps.size === 1 && podY < otherY - 0.2,
+    `pod ${podY.toFixed(2)} against ${otherY.toFixed(2)} on the far side`);
+  check('one tailgate is not enough to take the bumper off', victim.wear.bumper === null);
+
+  // Lids are turned, never mirrored: a negative determinant would flip every face inside out.
+  const lids = cDamage.meshes.find((m) => m.name === 'carDamageLids');
+  lids.getMatrixAt(rig.slot * 2 + 1, cm);
+  check('the boot lid keeps its winding', cm.determinant() > 0, `det ${cm.determinant().toFixed(3)}`);
+
+  // A second hit, on the nose: the bonnet joins it and the bumper comes off the worst end — a tie,
+  // which goes to the corner hit last.
+  hitCar(victim, 1.6, 0.6, 8);
+  run(30);
+  check('a second hit pops the bonnet and hangs the bumper off the struck end',
+    rig.hood && rig.hood.angle > 0.1 && victim.wear.bumper?.end === 1);
+  lids.getMatrixAt(rig.slot * 2, cm);
+  check('the bonnet keeps its winding', cm.determinant() > 0);
+  // The hanging bar's free end is on the road, and the end it left is bare: the tail bar is still
+  // where it was, and no instance sits at the nose's rest position.
+  victim.wear.bumper.lift = 0;
+  cTraffic.update(1 / 60);
+  bumpers.getMatrixAt(victim.instanceIndex * 2, cm);
+  const freeEnd = new THREE.Vector3(0, -BUMPER_H_PROBE / 2, -bumperLengthProbe(CAR_W) / 2).applyMatrix4(cm);
+  const restNose = bumperLocal(victim, 0);
+  check('the hanging bumper drags its free end on the road, and the nose goes bare',
+    Math.abs(freeEnd.y - ROAD_Y) < 0.25 && restNose.y < nose0.y - 0.1
+    && Math.abs(bumperLocal(victim, 1).along - tail0.along) < 0.05,
+    `free end at y ${freeEnd.y.toFixed(2)} (road ${ROAD_Y}), nose bar centre at y ${restNose.y.toFixed(2)} from ${nose0.y.toFixed(2)}`);
+  cBursts.length = 0;
+  for (let n = 0; n < 120; n++) { run(1); victim.v = Math.max(victim.v, 6); }
+  check('and throws sparks while the car is moving', cBursts.length > 0, `${cBursts.length} bursts`);
+
+  // A T-bone takes the bumper first time.
+  const second = cars[1];
+  hitCar(second, 0.2, 0.9, 21);
+  check('a T-bone knocks the bumper off at once', second.wear?.bumper != null);
+
+  // Wrecked: the rig lets go and the car keeps nothing.
+  second.crashed = true;
+  run(1);
+  check('a wrecked car gives its rig back', !second.wear && cDamage.rigOf(second) === null);
+  second.crashed = false;
+
+  // A truck dents without lids.
+  const tTraffic = createTraffic(makeRng(seed + 50), new THREE.Scene(), CARS_DEFAULT, CARS_DEFAULT, 1);
+  const tDamage = createCarDamage({
+    scene: new THREE.Scene(), traffic: tTraffic, roadY: ROAD_Y, sparks: { burst() {} }, rng: Math.random,
+  });
+  const truck = tTraffic.cars.find((c) => c.isTruck);
+  tDamage.hit(truck, truck.x + Math.cos(truck.yaw) * 2.8, truck.z - Math.sin(truck.yaw) * 2.8, { closing: 21 });
+  const tRig = tDamage.rigOf(truck);
+  check('a truck loses a lamp and its bumper but grows no bonnet',
+    tRig && !tRig.hood && !tRig.boot && truck.wear.lamps.size + tRig.lamps.size > 0 && truck.wear.bumper);
+
+  cDamage.reset();
+  const zeroed = cDamage.meshes.every((mesh) => {
+    for (let k = 0; k < mesh.count; k++) {
+      mesh.getMatrixAt(k, cm);
+      if (Math.abs(cm.determinant()) > 1e-9) return false;
+    }
+    return true;
+  });
+  check('reset takes every part off', cDamage.active() === 0 && !cTraffic.cars.some((c) => c.wear) && zeroed);
+
+  // The pool is fixed: denting more cars than it holds gives up the one furthest from the taxi.
+  const small = createCarDamage({
+    scene: new THREE.Scene(), traffic: cTraffic, roadY: ROAD_Y, sparks: { burst() {} }, rng: Math.random, pool: 3,
+  });
+  const byDistance = [...cars].sort((a, b) => Math.hypot(a.x - cTraffic.taxi.x, a.z - cTraffic.taxi.z)
+    - Math.hypot(b.x - cTraffic.taxi.x, b.z - cTraffic.taxi.z));
+  for (const car of [byDistance[3], byDistance[0], byDistance[1], byDistance[2]]) small.hit(car, car.x, car.z);
+  const worn = cTraffic.cars.filter((c) => c.wear);
+  check('denting more cars than the pool holds lets go of the furthest',
+    small.active() === 3 && worn.length === 3 && !byDistance[3].wear,
+    `${small.active()} rigs, ${worn.length} cars wearing one`);
+  small.reset();
+  // createTraffic installs nothing global, but tidy up the second fleet anyway.
+  tDamage.reset();
+}
+
 
 // --- Box trucks --------------------------------------------------------------
 // A purely opt-in ambient variant — every scenario in this file runs with truckChance at its
@@ -6782,10 +6925,11 @@ check('the taxi is an ordinary car in the traffic array',
     `cab + box + ${truckWheelScales.length} wheels`);
 
   // The shell itself carries two materials for a truck — cab+wheels in its car-palette colour, the
-  // box in the fixed PALETTE.truckBox — and game/wreckage.js has to find and scorch both.
+  // box in the fixed PALETTE.truckBox — and game/wreckage.js has to find and scorch both. Plus its
+  // two bumpers, which the fleet draws apart from the body (`bumperMesh` in sim/traffic.js).
   const uShell = uShells[1];
   check('a wrecked truck hands over both a cab and a box mesh',
-    uShell.children.length === 2 + truckWheelScales.length);
+    uShell.children.length === 2 + truckWheelScales.length + 2);
 
   // Right turns: a truck should visibly take longer than a car on the identical turn — see
   // TRUCK_RIGHT_TURN_SPEED in traffic.js. Staged with a forced route, the same "one routing

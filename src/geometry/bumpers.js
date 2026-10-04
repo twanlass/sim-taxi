@@ -39,6 +39,15 @@ export function bumperGeometry(len, width, end) {
   return setFinish(bakeColor(bar, color('bumperChrome')), FINISH.METAL);
 }
 
+/**
+ * Where bumper `end` sits on a body `len` long, car-local — the centre of the bar
+ * `bumperGeometry` bakes in. For the fleet, which draws its bumpers as instances of one centred bar
+ * (sim/traffic.js) so a car the taxi has hit can hang one off a corner (game/cardamage.js).
+ */
+export function bumperAt(len, end, target) {
+  return target.set(end * (len / 2 + BUMPER_D / 2 - BUMPER_SINK), BUMPER_Y, 0);
+}
+
 /** Both bumpers, for merging into a body. */
 export function bumperGeometries(len, width) {
   return [1, -1].map((end) => bumperGeometry(len, width, end));
