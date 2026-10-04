@@ -3468,6 +3468,40 @@ function copSquealAt(x, z) {
   if (level > 0) sfx?.play('copSkid', { gain: level, rate: 0.94 + Math.random() * 0.12 });
 }
 
+// The siren, heard from where the taxi is: the nearest car with its siren running (`car.siren`, the
+// same flag the bar and the wash are written off — a patrol giving chase, a robbery's cops, the
+// arrest crew), full inside SIREN_NEAR and easing down to SIREN_FLOOR by SIREN_FAR. A floor rather
+// than the squeal's silence past the edge of the frame, because a siren is the one sound that
+// should carry: a chase on the far side of the map is still after *you*, and the off-screen wash
+// (game/sirenglow.js) is already saying so with its light. The master is a hot, solid loop
+// (-10 dB RMS against the crash's -26), which is why its level in mix.json is as low as it is.
+const SIREN_NEAR = 18;
+const SIREN_FAR = 70;
+const SIREN_FLOOR = 0.35;
+function sirenLevel() {
+  let d = Infinity;
+  for (const car of traffic.cars) {
+    if (!car.siren || car.crashed) continue;
+    d = Math.min(d, Math.hypot(car.x - traffic.taxi.x, car.z - traffic.taxi.z));
+  }
+  if (d === Infinity) return 0;
+  const k = Math.min(1, Math.max(0, (SIREN_FAR - d) / (SIREN_FAR - SIREN_NEAR)));
+  return SIREN_FLOOR + (1 - SIREN_FLOOR) * k;
+}
+
+// The drive-through's speaker, once per visit: on the frame the lot takes the taxi, faded out on
+// the frame it hands it back. The clip is 12.9s and the visit is about 8 (game/drivethru.js), so
+// it is cut rather than left talking to a car that has driven off.
+let driveThruVoice = null;
+function driveThruSpeaker() {
+  const inLot = Boolean(burgerRun?.holdsTaxi());
+  if (inLot && !driveThruVoice) driveThruVoice = sfx?.play('driveThru') ?? false;
+  if (!inLot && driveThruVoice != null) {
+    if (driveThruVoice) sfx.release(driveThruVoice, 0.4);
+    driveThruVoice = null;
+  }
+}
+
 // Cops in a chase — the robbery's and the patrol's — lay rubber and squeal the way the taxi does — corners carried at
 // speed, their own overtake, and the swing into a roadblock. The rule is `copLaysRubber` in
 // sim/traffic.js; this is only the pools. Rear wheels off the anchors the ambient body is built
@@ -3789,6 +3823,7 @@ function frame() {
   // the call above, and this is what puts a route back under it before `traffic.update` asks which
   // way to go at the next junction.
   burgerRun?.update(dt);
+  driveThruSpeaker();
   // ...and the depot's catch at its driveway, on the same timing: it reads where last frame's
   // `traffic.update` left the taxi, and a car taken here is staged before this frame's render pass.
   depotRun?.update(dt);
@@ -3819,6 +3854,7 @@ function frame() {
     top: boostCruise(),
     holding: boost.isEngaged() && !boost.isCoolingDown(),
     over: fares.state.gameOver,
+    siren: sirenLevel(),
   });
   // After traffic has settled positions for the frame — that's what the overlap check reads, and
   // what the two wreck shells are copied out of. A detected impact takes both cars out of the
