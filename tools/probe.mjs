@@ -4465,6 +4465,41 @@ check('no two cars occupy the same space', worst > 1.6,
     truckFlee === 0 && truckTop > 0 && truckTop < 0.7,
     `scatter envelope peaked at ${truckFlee.toFixed(2)}, speed at ${truckTop.toFixed(2)}x cruise`);
 
+  // 1c. A route that turns at the junction ahead, and a slow car or truck in front of it. That used
+  // to refuse the pass, and a taxi with hit points and no pass on offer rams (`rams` in
+  // traffic.js): a car got launched clear, a truck got hit again and again — "it just keeps
+  // ramming him". The pass goes ahead now, the taxi carries straight on through the junction it
+  // was meant to turn at, and the route is dropped for main.js to re-plan (`detoured`).
+  const turnStage = (asTruck) => {
+    const rTraffic = createTraffic(makeRng(seed + 107), new THREE.Scene(), 2);
+    const [rTaxi, rLead] = rTraffic.cars;
+    rLead.isTruck = asTruck;
+    place(rTaxi, dIn, 12);
+    place(rLead, dIn, 4);
+    rTaxi.route = [leftOf(dIn)];
+    rLead.route = [dIn];
+    rTaxi.hp = TAXI_HP;
+    const rCollisions = createCollisions(rTraffic.cars, rTaxi);
+    let hits = 0;
+    let peak = 0;
+    let detoured = false;
+    rCollisions.onBump(() => { hits += 1; });
+    for (let f = 0; f < 60 * 4; f++) {
+      rTaxi.boost = true;
+      rTraffic.update(1 / 60);
+      rCollisions.update(1 / 60);
+      peak = Math.max(peak, rTaxi.pass);
+      detoured ||= Boolean(rTaxi.detoured);
+    }
+    return { hits, peak, detoured };
+  };
+  for (const asTruck of [false, true]) {
+    const r = turnStage(asTruck);
+    check(`a route turning ahead does not stop the taxi passing a ${asTruck ? 'truck' : 'car'}`,
+      r.hits === 0 && r.peak > 0.95 && r.detoured,
+      `${r.hits} bumps, pass peaked at ${r.peak.toFixed(2)}, detoured=${r.detoured}`);
+  }
+
   // 2. A boosting taxi turning left used to stop dead under a green: the oncoming lane shares its
   // axis, so it kept its green, and the left-turn yield then refused to let the taxi go — waiting
   // on a car that was itself waiting. The priority hold now denies that one direction (`block` in
@@ -4661,6 +4696,8 @@ check('no two cars occupy the same space', worst > 1.6,
       placeCar(lead, pD, pI, pJ, STOP_SETBACK); lead.parked = true;
       placeCar(car, pD, pI, pJ, STOP_SETBACK + MIN_GAP); car.parked = false;
       car.v = 0; lead.v = 0;
+      // Nobody in front: the leader parked on the far side of the road instead.
+      if (opts.alone) { placeCar(lead, opposite(pD), pI, pJ, STOP_SETBACK); lead.parked = true; lead.v = 0; }
     } else {
       placeCar(car, pD, pI, pJ, 26); car.parked = false;
       placeCar(lead, pD, pI, pJ, 14); lead.parked = false;
@@ -4811,8 +4848,10 @@ check('no two cars occupy the same space', worst > 1.6,
   // must not become the weave's old bug — an offset that slides a stationary car sideways for as
   // long as it sits there. A settled `pass` has nothing in flight, so it gets no credit: a taxi
   // held at a red with the button *down* and no reason to pull out stays exactly on its lane
-  // centre. (The weave has its own envelope and is separately asserted above.)
-  const noReason = runOvertake(true, [leftOf(pD), pD, pD], { standing: true });
+  // centre. (The weave has its own envelope and is separately asserted above.) "No reason" was a
+  // route turning left at the junction ahead, until a turning route stopped refusing the pass
+  // (`turnsAhead` in traffic.js); it is an empty road in front now.
+  const noReason = runOvertake(true, [leftOf(pD), pD, pD], { standing: true, alone: true });
   check('a standing taxi with no pass to make does not drift out of its lane',
     pD >= 0 && noReason.peak < 0.02,
     `reached ${(noReason.peak * 2 * LANE).toFixed(2)} units across`);
