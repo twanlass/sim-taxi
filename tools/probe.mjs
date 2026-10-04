@@ -15200,7 +15200,7 @@ let chopperOrder; // likewise
           if (leg < 3) shortLeg += 1;
           total += leg;
         }
-        if (total > r.blocks + 6) tooLong += 1;
+        if (total > r.blocks + 3 * cps.length) tooLong += 1;
         const keys = chain.map((c) => `${c.i},${c.j}`);
         if (new Set(keys).size !== keys.length
           || cps.some((c) => onWaterBlock(c) || !cornerSeen(c.i, c.j))) clash += 1;
@@ -15221,10 +15221,10 @@ let chopperOrder; // likewise
       check('a getaway touches its checkpoints before the drop-off',
         n > 0 && fewer === 0, `${n - fewer}/${n} getaways with ${ROBBER_CHECKPOINTS} checkpoints`);
       check('...each leg a real drive, and the chain only so much longer than the straight run',
-        shortLeg === 0 && tooLong === 0, `${shortLeg} short legs, ${tooLong} chains over +6 blocks`);
+        shortLeg === 0 && tooLong === 0, `${shortLeg} short legs, ${tooLong} chains over +3 blocks a checkpoint`);
       check('...on free, visible, dry corners of their own', clash === 0, `${clash} clashes`);
       check('...budgeted into the robber’s one clock', uncovered === 0, `${uncovered} short clocks`);
-      check('...and touched in order: checkpoint, checkpoint, delivered', flow);
+      check('...and touched in order, every checkpoint and then the drop-off', flow);
     }
 
     check('...but not while somebody is already in the back',

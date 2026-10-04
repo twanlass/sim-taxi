@@ -259,14 +259,17 @@ const ROBBER_BONUS = 50;
  * paid for out of every kerbside clock that runs while it does (see ROBBER_DROPOFF_SPREAD). Each
  * leg is at least `CHECKPOINT_MIN_LEG` blocks, so a checkpoint is a place to drive *to* rather than
  * a corner the taxi was passing anyway, and the whole chain is at most `CHECKPOINT_MAX_EXTRA`
- * blocks longer than the straight getaway. Measured over the 40-city sweep in tools/probe.mjs.
+ * blocks longer than the straight getaway per checkpoint (`CHECKPOINT_EXTRA_EACH`).
  *
  * Every leg is budgeted into the robber's one clock (`budgetFor`'s `via`), so the clock still
  * covers the driving it pays for, with the same 60% over it.
  */
-export const ROBBER_CHECKPOINTS = 2;
+export const ROBBER_CHECKPOINTS = 4;
 const CHECKPOINT_MIN_LEG = 3;
-const CHECKPOINT_MAX_EXTRA = 6;
+// Per checkpoint: four of them is at most 12 blocks over the straight run. Five legs of three
+// blocks are fifteen at the least, so a flat cap of 6 (what two checkpoints shipped with) leaves
+// no chain at all on most cities.
+const CHECKPOINT_EXTRA_EACH = 3;
 
 // Cadence and placement of every fare beyond the first.
 //
@@ -777,9 +780,12 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
   /**
    * Up to `n` checkpoints for a getaway from `from` to `to` — see ROBBER_CHECKPOINTS. Same `free`
    * predicate as every other draw, and off the blocks of both ends and of each other. Every leg at
-   * least CHECKPOINT_MIN_LEG blocks, the chain at most CHECKPOINT_MAX_EXTRA longer than the direct
-   * trip; a board too full to manage that gets fewer checkpoints rather than a cramped chain, and
-   * none at all is an ordinary getaway.
+   * least CHECKPOINT_MIN_LEG blocks, the chain at most CHECKPOINT_EXTRA_EACH per checkpoint longer
+   * than the direct trip; a board too full to manage that gets fewer checkpoints rather than a
+   * cramped chain, and none at all is an ordinary getaway.
+   *
+   * Drawn by random darts rather than by enumerating: four checkpoints out of ~40 corners is
+   * millions of chains, and a dart that respects the leg rule as it goes lands inside a few tries.
    */
   function pickCheckpoints(taxiCar, from, to, n) {
     const free = freeCorner(taxiCar, from);
@@ -791,29 +797,28 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
       }
     }
     const direct = blockDistance(from, to);
-    for (let k = Math.min(n, 2); k > 0; k--) {
-      const chains = [];
-      const legsOk = (chain) => {
-        const stops = [from, ...chain, to];
+    for (let k = n; k > 0; k--) {
+      const budget = direct + CHECKPOINT_EXTRA_EACH * k;
+      for (let attempt = 0; attempt < 400; attempt++) {
+        const chain = [];
+        let at = from;
         let total = 0;
-        for (let s = 1; s < stops.length; s++) {
-          const leg = blockDistance(stops[s - 1], stops[s]);
-          if (leg < CHECKPOINT_MIN_LEG) return false;
-          total += leg;
+        for (let c = 0; c < k; c++) {
+          const reach = options.filter((o) => !chain.includes(o)
+            && !chain.some((x) => onSameBlock(x, o))
+            && blockDistance(at, o) >= CHECKPOINT_MIN_LEG
+            // Room left for every remaining leg at its minimum, and the last one home.
+            && total + blockDistance(at, o) + CHECKPOINT_MIN_LEG * (k - c - 1)
+              + Math.max(CHECKPOINT_MIN_LEG, blockDistance(o, to)) <= budget);
+          if (!reach.length) break;
+          const next = reach[rng.int(0, reach.length - 1)];
+          total += blockDistance(at, next);
+          chain.push(next);
+          at = next;
         }
-        return total <= direct + CHECKPOINT_MAX_EXTRA;
-      };
-      if (k === 1) {
-        for (const a of options) if (legsOk([a])) chains.push([a]);
-      } else {
-        for (const a of options) {
-          for (const b of options) {
-            if (a === b || onSameBlock(a, b)) continue;
-            if (legsOk([a, b])) chains.push([a, b]);
-          }
-        }
+        if (chain.length === k && blockDistance(at, to) >= CHECKPOINT_MIN_LEG
+          && total + blockDistance(at, to) <= budget) return chain;
       }
-      if (chains.length) return chains[rng.int(0, chains.length - 1)];
     }
     return [];
   }
