@@ -313,6 +313,14 @@ animate their own transform — the money bump, the boost meter's top-up throb, 
 and a `body.hud-ready #boost { transform: none }` outranks a press state on specificity, which would
 quietly kill the press feedback for the rest of the run.
 
+**It leaves again for the depot.** `body.hud-away` sends every piece back off the edge it came in
+from (the rider chips off the left, the nearer side for them) and fades the fare pointers, for as
+long as the taxi is in the garage: the opening before the car is out of the door, and a repair
+visit from the turn-in until the taxi is back on the lane. It is decided every frame (`setHudAway`
+in `main.js`) off the same `release` phase the pedals wait on, so the run's first arrival and every
+return from a repair land on one beat. The class sits after the ready rules in the stylesheet and
+outranks them at equal specificity, so it hides a HUD that is ready without unsetting anything.
+
 Nothing else is taught. The drop-off [dispatches itself](#the-drop-off-dispatches-itself) and the
 clock is [a coloured crystal over a head](#the-fares-clock-travels) — neither needs a sentence, and
 every extra beat is one more thing between the player and the game.

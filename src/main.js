@@ -2245,6 +2245,12 @@ const wipe = shot ? null : createWipe(document.getElementById('wipe'));
 // everything on frame one.
 const revealPedals = () => document.body.classList.add('pedals-ready');
 const revealHud = () => document.body.classList.add('hud-ready');
+let hudAway = false;
+const setHudAway = (away) => {
+  if (away === hudAway) return;
+  hudAway = away;
+  document.body.classList.toggle('hud-away', away);
+};
 
 // Set on the first successful press of Loco Mode, and never cleared. The tutorial's third beat
 // reads it to pick which line it says — a player who has jabbed the pill is told to hold it down
@@ -3623,6 +3629,11 @@ function frame() {
   // The counters can wait for the lesson; a control cannot, because it is the thing the lesson is
   // standing in front of. A press during the rider beat ends it, by design (`holdLocoMode`).
   if (!pedalsShown && pedalsDue()) { pedalsShown = true; revealPedals(); }
+  // ...and the HUD steps off its edges whenever the taxi is in the garage: the opening before the
+  // car is out of the door, and a repair visit from the turn-in until it is back on the lane. The
+  // same `release` the pedals wait on, so a run's first arrival and every return from the depot
+  // are one beat. See the HUD exit block in index.html.
+  setHudAway(!pedalsDue() || Boolean(opening?.visiting() && opening.phase() !== 'release'));
   // ...and the drive-through is the same claim about somebody else's car: while one is in the lot
   // this is its physics, so it has to have written the position before the render pass reads it.
   driveThru?.update(dt);
