@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial } from '../util/geo.js';
+import { bakeColor, propMaterial, unlitMaterial } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
 import { cityNetwork } from '../city/roadnet.js';
 import { bridgeSpan, drawbridgeLine, WATER_Y, RAIL_W } from '../city/river.js';
@@ -10,6 +10,7 @@ import { createBridge, abutmentParts } from '../geometry/bridge.js';
 import { setClosedLanes } from '../sim/traffic.js';
 import { setBlockedLanes } from './route.js';
 import { sinkShadowCaster } from './scene.js';
+import { markEmissive, setEmissiveScale } from './bloom.js';
 
 // The one span that lifts.
 //
@@ -63,6 +64,24 @@ const BARRIER_POST_H = 1.5;
 // it is on the road rather than on the bridge, and clear of the footway so it does not fence the
 // pavement off with the carriageway.
 const BARRIER_SETBACK = 1.6;
+
+// The warning lamps: two on each arm, one near either end, flashing alternately the way a level
+// crossing's do. They run for the whole time the span is anything but open — from the first frame
+// the arms start down, which is `BARRIER_SECONDS` plus however long the deck takes to clear ahead
+// of the leaf moving — and carry on for `LAMP_TAIL` after the arms are back up, so the last thing
+// the player sees of the cycle is the warning going out rather than the gate arriving.
+//
+// One flash a second per lamp, which is a real crossing's rate (45-65 a minute) at the top end:
+// slower than that and at play zoom a lamp spends long enough dark to read as switched off.
+const LAMP_PERIOD = 1.0;
+const LAMP_TAIL = 1.0;
+// Where along the arm the two sit, as fractions of its length: in from each end by enough that the
+// lamp's own width stays on the bar.
+const LAMP_AT = [0.1, 0.9];
+// Sized against the camera rather than the bar: at play zoom one unit is ~7.7px, so this is a
+// three-pixel lamp before the bloom spreads it, which is about what a brake pod is.
+const LAMP_R = 0.24;
+const LAMP_H = 0.2;
 
 /**
  * A backstop, not a hold. Whatever asked for the lift is what puts it down again — `release()` —
@@ -176,6 +195,13 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null } = 
 
   // --- The barriers, one across each approach.
   const barriers = [];
+  const lamps = [];
+  // A short octagonal drum standing on the bar: its top is the face this camera looks at, and in
+  // rain or at night it is the brightest thing on the bridge. Three's own primitive, so its winding
+  // is three's and not ours.
+  const lampGeo = new THREE.CylinderGeometry(LAMP_R, LAMP_R, LAMP_H, 8);
+  const lampOn = new THREE.Color(PALETTE.lightYellow);
+  const lampOff = new THREE.Color(PALETTE.gateLampOff);
   for (const end of [0, 1]) {
     const z = end === 0 ? span.z0 - BARRIER_SETBACK : span.z1 + BARRIER_SETBACK;
     const arm = new THREE.Group();
@@ -191,6 +217,16 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null } = 
     );
     barMesh.castShadow = true;
     arm.add(barMesh);
+    // The lamps ride the arm, so they go down and up with it. Each one its own mesh and its own
+    // material — they are switched on the colour, out of step with each other, and a merged pair
+    // could only ever be one colour at a time.
+    for (const at of LAMP_AT) {
+      const lamp = new THREE.Mesh(lampGeo, unlitMaterial({ color: lampOff.clone() }));
+      lamp.position.set(len * at, BARRIER_R + LAMP_H / 2, 0);
+      lamp.name = 'drawbridge-lamp';
+      arm.add(lamp);
+      lamps.push(lamp);
+    }
     // Raised is out of the way: the arm stands vertical and drops to horizontal across the road.
     arm.rotation.z = BARRIER_DROP;
     group.add(arm);
@@ -204,6 +240,10 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null } = 
     barriers.push(arm);
   }
 
+  // Glow in the bloom like every other lamp in the city. Switched off through the per-mesh scale
+  // rather than unmarked, because they flash dozens of times a cycle — see `setEmissiveScale`.
+  for (const lamp of lamps) markEmissive(lamp, 'pod');
+
   scene.add(group);
 
   const state = {
@@ -212,6 +252,7 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null } = 
     lift: 0,        // 0 down, 1 fully raised
     barrier: 0,     // 0 up (out of the way), 1 down across the road
     requested: false,
+    flash: -1,      // seconds the warning lamps have been running, or -1 while they are dark
   };
 
   const smooth = (t) => t * t * (3 - 2 * t);
@@ -243,10 +284,32 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null } = 
   function pose() {
     leaf.rotation.x = -state.lift * LIFT_ANGLE;
     for (const arm of barriers) arm.rotation.z = BARRIER_DROP * (1 - state.barrier);
+    // Alternating: the first lamp on each arm lights on the first half of the period and the second
+    // on the other half, and both arms flash in step so the pair across the road read as one signal.
+    // A hard switch rather than a fade, because a fade at this rate spends most of its time at
+    // half brightness and reads as a dim lamp rather than a flashing one.
+    const phase = state.flash < 0 ? -1 : (state.flash / LAMP_PERIOD) % 1;
+    lamps.forEach((lamp, i) => {
+      const lit = phase >= 0 && (phase < 0.5) === (i % 2 === 0);
+      lamp.material.color.copy(lit ? lampOn : lampOff);
+      setEmissiveScale(lamp, lit ? 1 : 0);
+    });
+  }
+
+  /**
+   * The lamps run whenever the span is not plainly open, and for `LAMP_TAIL` after it is. The tail
+   * only counts while they are already running, or a fresh city — which starts `open` at t = 0 —
+   * would open on a second of warning for a bridge that has never moved.
+   */
+  function flashing() {
+    return state.phase !== 'open' || (state.flash >= 0 && state.t < LAMP_TAIL);
   }
 
   function update(dt, cars = []) {
     state.t += dt;
+    // Counted from the moment they come on, so the first lamp always lights first rather than
+    // whichever one the clock happens to land on.
+    state.flash = flashing() ? (state.flash < 0 ? 0 : state.flash + dt) : -1;
     switch (state.phase) {
       case 'open':
         state.barrier = 0;
@@ -311,6 +374,8 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null } = 
   return {
     group,
     leaf,
+    /** The gates' warning lamps, two per arm in arm order. Exposed for tools/probe.mjs. */
+    lamps,
     state,
     line,
     span,

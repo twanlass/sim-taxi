@@ -309,6 +309,16 @@ moment the leaf touched down both barriers vanished and reappeared lying flat â€
 as "the gates disappear and pop back in". Lowering a barrier and raising it are not the same
 transition and cannot share a phase.
 
+Each arm carries **two amber warning lamps**, one near either end, flashing alternately at a level
+crossing's rate (`LAMP_PERIOD`, one flash a second per lamp). They come on with the first frame of
+`closing`, so they are already flashing while the arms drop and the deck clears ahead of the leaf,
+run through the whole lift, and go out `LAMP_TAIL` (1s) after `raising` has the arms back up. Both
+arms flash in step so the pair across the road reads as one signal. A lamp is switched on its
+colour (`lightYellow` against the dark `gateLampOff` lens) *and* its bloom scale, with a hard
+switch rather than a fade: at that rate a fade spends most of its time at half brightness and reads
+as a dim lamp. Shot 42 (`drawbridge-gate`) frames them; `tools/probe.mjs` asserts the timing and the
+alternation.
+
 The end of `lowering` fires an **`onLand` callback with both abutment feet**, and `main.js` throws a
 puff of dust at each out of the pool the roadworks smash and the boosting taxi already share. The
 leaf coming home is the one moment in the cycle with an impact in it and it was landing in silence;

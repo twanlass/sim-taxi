@@ -17444,6 +17444,52 @@ let chopperOrder; // likewise
       gate.dispose();
     }
 
+    // **The gate lamps warn either side of the lift, not only during it.** Dark on a fresh span (it
+    // starts `open` at t = 0, and a tail that counted from there would flash a bridge that never
+    // moved), lit from the frame the arms start down — before the leaf — still lit while the arms go
+    // back up, out again shortly after, and at every lit frame exactly one lamp per arm, the two
+    // halves of each arm taking turns. Read off the bloom's per-mesh scale, which is what makes a
+    // lamp spill light, so a lamp that changed colour but not glow (or the reverse) fails too.
+    {
+      const gate = createDrawbridge(rScene, makeRng(seed + 836), {});
+      const lit = (lamp) => (lamp.userData.bloomScale ?? 1) > 0;
+      const litCount = () => gate.lamps.filter(lit).length;
+      gate.update(1 / 60, []);
+      const darkAtStart = litCount() === 0;
+      gate.request();
+      let litBeforeLeaf = false;
+      let litWhileRaising = false;
+      let badFrames = 0;
+      let swaps = 0;
+      let lastFirst = null;
+      let darkAgainAt = -1;
+      for (let f = 0; f < 60 * 60; f++) {
+        gate.update(1 / 60, []);
+        const n = litCount();
+        if (n > 0) {
+          if (gate.state.phase === 'closing' && gate.state.lift === 0) litBeforeLeaf = true;
+          if (gate.state.phase === 'raising') litWhileRaising = true;
+          // One per arm, and on each arm the two lamps disagree.
+          for (let a = 0; a < gate.lamps.length; a += 2) {
+            if (lit(gate.lamps[a]) === lit(gate.lamps[a + 1])) badFrames++;
+          }
+          const first = lit(gate.lamps[0]);
+          if (lastFirst !== null && first !== lastFirst) swaps++;
+          lastFirst = first;
+          // A lit lamp is drawn lit as well as glowing.
+          if (gate.lamps.some((l) => lit(l) !== (l.material.color.getHex() === new THREE.Color(PALETTE.lightYellow).getHex()))) badFrames++;
+        } else if (litBeforeLeaf && darkAgainAt < 0) {
+          darkAgainAt = gate.state.phase === 'open' ? gate.state.t : -2;
+        }
+      }
+      check('the gate lamps flash before, during and after the lift, alternately',
+        darkAtStart && litBeforeLeaf && litWhileRaising && badFrames === 0 && swaps > 10
+          && darkAgainAt > 0.5 && darkAgainAt < 1.5 && litCount() === 0,
+        `${gate.lamps.length} lamps, ${swaps} swaps, ${badFrames} bad frames,`
+        + ` dark again ${darkAgainAt.toFixed(2)}s after the arms were up`);
+      gate.dispose();
+    }
+
     check('the span spends most of the run open', shutFrames / (60 * 300) < 0.3,
       `shut ${((100 * shutFrames) / (60 * 300)).toFixed(0)}% of five minutes,`
       + ` ${boats.state.tugs} tugs and ${boats.state.barges} barges`);
