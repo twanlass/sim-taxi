@@ -17,6 +17,7 @@ import * as THREE from 'three';
 import { createTaxiMesh, TAXI_SCALE } from '../../src/geometry/taxi.js';
 import { SUN } from '../../src/game/scene.js';
 import { VIEW_DIR } from '../../src/game/camera.js';
+import { createLocoFlame } from '../../src/game/locoflame.js';
 import { PALETTE } from '../../src/palette.js';
 import { setGlossGlobal, GLOSS_GLOBAL_DEFAULTS } from '../../src/util/geo.js';
 
@@ -31,13 +32,15 @@ const RENDER = 2048;
 // 192/512 the manifest, 16/32 the tab.
 const SIZES = [1024, 512, 192, 180, 32, 16];
 
-// Which way the car points. 0 is world +X — bonnet to the lower right, the near flank and its
-// chequer stripe facing the viewer — the same three-quarter view the old icon drew. Turned toward
-// the camera (negative) the car goes nose-on and loses the stripe.
-const YAW = 0;
-// How much of the frame the car's widest extent fills. iOS's superellipse crops about 10% off each
-// corner, so the car is kept clear of it with purple border to spare.
-const FILL = 0.66;
+// Which way the car points. 0 is world +X: bonnet to the lower right, the three-quarter view the
+// old icon drew — but with the Loco flame lit the tailpipe is then at the far end and the plume
+// hides behind the car as a thin spike. 30° swings the car toward profile, nose to the right, so the
+// flame trails out to the left in full view while the near flank's chequer stripe stays on show.
+// 45° is pure profile and loses the bonnet's top face.
+const YAW = THREE.MathUtils.degToRad(30);
+// How much of the frame the widest extent (car plus plume, which is horizontal) fills. The flame
+// tip lands mid-left, clear of the corners iOS's superellipse crops, so this can run wide.
+const FILL = 0.9;
 
 const renderer = new THREE.WebGLRenderer({
   antialias: true, stencil: true, preserveDrawingBuffer: true, alpha: false,
@@ -72,6 +75,13 @@ taxi.setOccupied(true);       // the roof sign lit, the way it drives with a far
 taxi.group.rotation.y = YAW;
 scene.add(taxi.group);
 
+// Loco Mode lit: the game's own tailpipe flame, driven exactly as main.js drives it. One update
+// longer than its attack brings it to full heat; FLAME_CLOCK picks the flipbook frame and the point
+// in its pulse, chosen by eye for a long tongue with a lick in the tip.
+const FLAME_CLOCK = 0.21;
+const flame = createLocoFlame(scene);
+flame.update(FLAME_CLOCK, { x: 0, z: 0, yaw: YAW, crashed: false }, true);
+
 // The ground only exists as the shadow on it — the purple is the background.
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2),
@@ -88,13 +98,16 @@ camera.lookAt(0, 0, 0);
 camera.updateMatrixWorld();
 
 taxi.group.updateMatrixWorld(true);
+flame.group.updateMatrixWorld(true);
 const box = new THREE.Box3();
 const corner = new THREE.Vector3();
 const view = new THREE.Box3();
-taxi.group.traverse((obj) => {
+[taxi.group, flame.group].forEach((root) => root.traverse((obj) => {
   // Only what casts a shadow is the car itself: the ghost outline's hulls are far bigger than the
   // body and draw nothing here, and counting them left the taxi a speck in the middle of the frame.
-  if (!obj.isMesh || !obj.castShadow) return;
+  // The flame casts none, so it is let in by name — the frame has to hold the whole plume.
+  if (!obj.isMesh || !(obj.castShadow || flame.group.getObjectById(obj.id))) return;
+  if (!obj.parent.visible) return;
   // Hidden-by-scale parts (damage, the door, unlit lamps) collapse to a point and must not count.
   const e = obj.matrixWorld.elements;
   if (Math.abs(e[0]) + Math.abs(e[5]) + Math.abs(e[10]) < 1e-6) return;
@@ -104,7 +117,7 @@ taxi.group.traverse((obj) => {
     corner.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z);
     view.expandByPoint(corner.applyMatrix4(camera.matrixWorldInverse));
   }
-});
+}));
 const half = Math.max(view.max.x - view.min.x, view.max.y - view.min.y) / 2 / FILL;
 const cx = (view.min.x + view.max.x) / 2;
 const cy = (view.min.y + view.max.y) / 2;
