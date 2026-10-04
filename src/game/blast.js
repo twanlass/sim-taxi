@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { skipWhenEmpty } from '../util/emptypools.js';
 import { color } from '../palette.js';
 import { unlitMaterial } from '../util/geo.js';
 import { markEmissive } from './bloom.js';
@@ -140,7 +141,7 @@ function withInstanceAlpha(geometry, material, capacity) {
 
 /** An InstancedMesh parked at zero scale, so an untouched slot draws nothing. */
 function makePool(scene, geometry, material, capacity, renderOrder) {
-  const mesh = new THREE.InstancedMesh(geometry, material, capacity);
+  const mesh = skipWhenEmpty(new THREE.InstancedMesh(geometry, material, capacity));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.renderOrder = renderOrder;
   mesh.frustumCulled = false;
@@ -164,6 +165,10 @@ export function createBlast(scene, rng) {
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
+    // Flat and laid face up, so three's two-pass draw for transparent DoubleSide (back faces, then
+    // front) spent a draw and a program re-resolve every frame on a half with nothing in it. See
+    // the same flag in game/skidmarks.js.
+    forceSinglePass: true,
   });
   const ringAlpha = withInstanceAlpha(ringGeo, ringMat, MAX_RINGS);
   // Render orders 4/5/6 — the band the four retired effects occupied, so the crash still sits

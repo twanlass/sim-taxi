@@ -95,6 +95,7 @@ import { createSirenGlow } from './game/sirenglow.js';
 import { createRobberyGlow } from './game/robberyglow.js';
 import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
 import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
+import { cullEmptyPools } from './util/emptypools.js';
 import { createBloom, markEmissive } from './game/bloom.js';
 import { createHdr } from './game/hdr.js';
 import { createCrayon } from './game/crayon.js';
@@ -336,6 +337,9 @@ function renderFrame() {
   // Sized here rather than in the frame loop for the same reason the AO prepass is called here:
   // shot mode and `__taxi.redraw()` both reach a render without ever reaching the loop.
   crayon.prepare();
+  // Before every pass below, so an effect pool with nothing in it skips the shadow, AO and main
+  // draws alike — see util/emptypools.js.
+  cullEmptyPools();
   // The wet road's mirror, before anything reads it. A no-op without `?rain`.
   rainLightsOn?.();
   rain.update(0, camera);

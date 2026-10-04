@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { skipWhenEmpty } from '../util/emptypools.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { color } from '../palette.js';
 import { propMaterial, bakeColor } from '../util/geo.js';
@@ -377,7 +378,7 @@ export function createCashTrail(scene, rng) {
   // function's own text — would not change if the palette did. Key off the literal as well.
   material.customProgramCacheKey = () => `cashnote:${back}:${BACK_FLIP}`;
 
-  const mesh = new THREE.InstancedMesh(geometry, material, MAX_NOTES);
+  const mesh = skipWhenEmpty(new THREE.InstancedMesh(geometry, material, MAX_NOTES));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   // Under the flames and sparks (6) and over the road: a note passes *through* the Loco plume it is
   // being thrown out beside, and the plume is the brighter thing.
@@ -429,7 +430,7 @@ export function createCashTrail(scene, rng) {
   mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
 
   // --- The bundle pool ---
-  const bundleMesh = new THREE.InstancedMesh(bundleGeometry(), propMaterial({ ao: false }), MAX_BUNDLES);
+  const bundleMesh = skipWhenEmpty(new THREE.InstancedMesh(bundleGeometry(), propMaterial({ ao: false }), MAX_BUNDLES));
   bundleMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   bundleMesh.frustumCulled = false;                 // same reason as the notes
   // **No shadow**, and that was tried. A brick is 0.26 tall, so at golden hour its shadow lands

@@ -102,6 +102,12 @@ export function createSkidMarks(scene, {
       transparent: true,
       depthWrite: false,
       side: THREE.DoubleSide,
+      // One pass, not three's default two. A transparent DoubleSide material is drawn back faces
+      // first and then front faces, and three flips `side` and sets `needsUpdate` around each half
+      // — two draws and two trips through `getProgram` a frame, for each of the two mark pools
+      // (rubber and wet). Every mark is a flat strip wound to face up under a camera that never
+      // goes below the road, so the back-face half never had a fragment to draw.
+      forceSinglePass: true,
     }),
   );
   mesh.renderOrder = 2;   // over the tarmac, under the cars and every game marker

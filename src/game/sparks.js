@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { skipWhenEmpty } from '../util/emptypools.js';
 import { color } from '../palette.js';
 import { unlitMaterial } from '../util/geo.js';
 import { markEmissive } from './bloom.js';
@@ -84,7 +85,7 @@ export function createSparks(scene, rng) {
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
   };
 
-  const mesh = new THREE.InstancedMesh(geometry, material, MAX_SPARKS);
+  const mesh = skipWhenEmpty(new THREE.InstancedMesh(geometry, material, MAX_SPARKS));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.renderOrder = 6;      // with the flames: the brightest thing on the road
   // The pool moves and three latches an InstancedMesh's bounding sphere on the first frame it
