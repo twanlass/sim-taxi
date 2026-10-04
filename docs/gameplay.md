@@ -1899,7 +1899,7 @@ paid for out of every kerbside clock that runs while it does. Every leg is budge
 robber's one clock, so the 60% over the driving still holds. A board too full for two gets fewer.
 
 Measured over 38 cities: the driving goes from a median 41.5s to 68.4s (×1.74, worst ×2.2), and the
-clock from about 80s to 132s. Over 30 paired autoplay runs a perfect player at 1.5s lands 11.6
+robber's clock sits at a median 132s. Over 30 paired autoplay runs a perfect player at 1.5s lands 11.6
 fares on $308 against 12.7 on $358 without checkpoints; at 4s the two are within noise (13.0 · $350
 against 12.6 · $334). Read that the way the rest of this section's numbers are read: the harness
 never boosts, so it pays for the longer drive and collects none of the tanks.
