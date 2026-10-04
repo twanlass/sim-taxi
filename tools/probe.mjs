@@ -190,7 +190,7 @@ import {
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
-import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, DRIVE_THRU_SECONDS } from '../src/game/sfx.js';
+import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
 const seed = Number(process.argv[2] ?? 71624);
@@ -14589,15 +14589,16 @@ let chopperOrder; // likewise
     check('...and the job the detour interrupted is put back under the car on the way out',
       notHandedBack === 0 && restored === trips,
       `${restored}/${trips} routes restored`);
-    // ...and it lasts as long as the speaker does. The clip plays from the frame the lot takes the
-    // taxi to the frame it lets go (`driveThruSpeaker` in main.js), so a visit shorter than the clip
-    // cuts the conversation off and a longer one stands the car at a silent window. Half a second
-    // either way; every trip here starts with the lane empty, which is the visit the dwells were
-    // sized against.
-    const offClip = Math.max(...visits.map((v) => Math.abs(v - DRIVE_THRU_SECONDS)));
-    check('...and the visit lasts as long as the drive-through speaker\'s clip',
+    // ...and it lasts as long as the speaker does, plus a beat. The clip plays from the frame the lot
+    // takes the taxi to the frame it lets go (`driveThruSpeaker` in main.js), so a visit shorter than
+    // the clip cuts the conversation off; the visit is the clip and `DRIVE_THRU_TAIL` of quiet after
+    // it. Half a second either way; every trip here starts with the lane empty, which is the visit
+    // the dwells were sized against.
+    const want = DRIVE_THRU_SECONDS + DRIVE_THRU_TAIL;
+    const offClip = Math.max(...visits.map((v) => Math.abs(v - want)));
+    check('...and the visit lasts the drive-through speaker\'s clip and a beat after it',
       offClip < 0.5, `visits ${visits.map((v) => v.toFixed(2)).join(', ')}s against a `
-      + `${DRIVE_THRU_SECONDS}s clip`);
+      + `${DRIVE_THRU_SECONDS}s clip + ${DRIVE_THRU_TAIL}s`);
     check('...and the route band ends at the driveway rather than at the junction past it',
       worstBandEnd < 1e-9,
       `band finishes ${worstBandEnd.toFixed(2)} from the mouth at its worst`);

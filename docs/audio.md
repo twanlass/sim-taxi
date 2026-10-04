@@ -124,7 +124,7 @@ again doesn't repeat the recording exactly:
 | `doorOpen` → `doorClose` | Pickup (the close is `BOARD_SECONDS` later, once the rider is in) and the robber boarding. Drop-off (the close is 0.7 s later) |
 | `takeoff` / `land` | `taxi.hopFrom` turning non-null / `traffic.onTaxiLand`, with the land scaled by the same `hit` that scales the shake |
 | `bump` | A survivable hit on another car (`collisions.onBump`), scaled by closing speed: 0.3 at a nudge, full at a T-bone at the Loco top |
-| `driveThru` | The lot taking the player's taxi on a burger run (`burgerRun.holdsTaxi()` turning true), never an ambient car. The visit is timed to the clip (12.93 s, `DRIVE_THRU_SECONDS`) through the taxi's two dwells in game/drivethru.js, and the probe holds the two within half a second; it is faded out (`sfx.release`) on the frame the lot hands the taxi back. The radio ducks 12 dB for the length of it (`sfx.duckMusic`) |
+| `driveThru` | The lot taking the player's taxi on a burger run (`burgerRun.holdsTaxi()` turning true), never an ambient car. The visit is timed to the clip (12.93 s, `DRIVE_THRU_SECONDS`) plus a 2 s tail (`DRIVE_THRU_TAIL`) through the taxi's two dwells in game/drivethru.js, and the probe holds the visit within half a second of that; it is faded out (`sfx.release`) on the frame the lot hands the taxi back. The radio ducks 12 dB for the length of it (`sfx.duckMusic`) |
 | `crash` | The wreck at full volume. The roadworks smash reuses it at half volume, and a crate off the flatbed at 0.3 pitched well up |
 
 `minGap` keeps a sound from repeating too quickly: a second skid within 0.45 s is the same skid.

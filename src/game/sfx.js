@@ -130,6 +130,8 @@ const LOOP_SECONDS = { idle: 4, locoLoop: 8, signal: 4.53125, siren: 2.25 };
  * see TAXI_ORDER_DWELL in game/drivethru.js, and the probe that holds the two together.
  */
 export const DRIVE_THRU_SECONDS = 12.93;
+/** ...and the quiet after it, before the lot lets the taxi go. Tyler's call: about two seconds. */
+export const DRIVE_THRU_TAIL = 2;
 
 /**
  * How far the radio drops while something has to be heard over it — the drive-through speaker. The

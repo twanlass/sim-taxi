@@ -3491,7 +3491,8 @@ function sirenLevel() {
 
 // The drive-through's speaker, once per visit — the player's, never an ambient car's: on the frame
 // the lot takes the taxi, faded out on the frame it hands it back. The visit is timed to the clip
-// (TAXI_ORDER_DWELL in game/drivethru.js), so the fade only ever trims the last few hundredths.
+// (TAXI_ORDER_DWELL in game/drivethru.js) with two seconds to spare, so the fade has nothing left
+// to trim unless the lane was queued.
 // The radio ducks for the length of it, or the speaker is under the music.
 let driveThruVoice = null;
 function driveThruSpeaker() {

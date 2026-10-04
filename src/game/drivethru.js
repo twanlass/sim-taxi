@@ -127,23 +127,25 @@ const PICKUP_DWELL = 3.8;
 const DWELL_JITTER = 1.1;
 
 /**
- * ...and what the player waits: 2.6s to order and 3.5s at the window.
+ * ...and what the player waits: 2.6s to order and 5.5s at the window.
  *
  * Sized to the speaker. The visit plays one clip (`driveThru` in game/sfx.js, 12.93s) from the frame
  * the lot takes the taxi to the frame it hands it back, and the visit is what has to fit the clip
  * rather than the other way round: the clip is a conversation, and cut short it ends mid-sentence.
- * The driving part of the lot is 6.83s with the lane empty (measured: 8.43s held end to end at the
- * old 0.6 + 1.0), so the two stops share the other 6.1. The order is the ambient cars' board dwell
- * and the window takes the rest. `tools/probe.mjs` holds the visit to the clip's length.
+ * Plus `DRIVE_THRU_TAIL` (2s) of quiet after it before the car is back on the road, so the last
+ * line lands while the taxi is still at the kerb rather than as it pulls out. The driving part of
+ * the lot is 6.83s with the lane empty (measured: 8.43s held end to end at the old 0.6 + 1.0), so
+ * the two stops share the other 8.1. The order is the ambient cars' board dwell and the window
+ * takes the rest. `tools/probe.mjs` holds the visit to the clip plus the tail.
  *
  * It used to be 0.6 + 1.0, sized as a clock the player is paying mid-fare and long enough only to
- * read as a stop. The fare clocks still run through it, so this is 4.5s dearer than it was.
+ * read as a stop. The fare clocks still run through it, so this is 6.5s dearer than it was.
  *
  * No jitter on either. A secret the player is going to go back for should cost the same every time,
  * and a jittered stop would drift the speaker off the window.
  */
 const TAXI_ORDER_DWELL = 2.6;
-const TAXI_PICKUP_DWELL = 3.5;
+const TAXI_PICKUP_DWELL = 5.5;
 
 // The gap a car wants on the road before it pulls out, as a box on the lane it is joining rather
 // than a radius around the merge point — see `mergeClear` in game/opening.js, which is the same
