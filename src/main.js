@@ -2800,6 +2800,10 @@ function updateBoostButton(dt) {
 // is already running has the pedal down and nothing to kick.
 function holdLocoMode() {
   if (fares.state.gameOver || boostButton?.disabled) return false;
+  // Not while the HUD is off its edges: the opening, the city building itself, a skip's black, a
+  // repair visit. The pill is hidden then and cannot be pressed, but Space can — and it played the
+  // Loco sound on a taxi still parked in the garage.
+  if (!pedalsLive()) return false;
   // Nothing to press against: the drive-through has the wheel and the car is between two kerbs.
   // See the release beside `boost.update` in the frame loop.
   if (burgerRun?.holdsTaxi()) return false;
@@ -2923,6 +2927,9 @@ const BRAKE_SKID_V = 2.5;
  */
 function holdBrake() {
   if (fares.state.gameOver) return false;
+  // Same as `holdLocoMode`: B reaches this while the button is hidden, and a skid on a staged car
+  // is a sound with nothing on screen making it.
+  if (!pedalsLive()) return false;
   if (brakeHeld) return true;
   brakeHeld = true;
   // Below the `brakeHeld` guard, so a hold buzzes once on the way down rather than on every event
@@ -3580,6 +3587,11 @@ let pedalsShown = false;
 const pedalsDue = () => !cityEntry.running() && !parked() && !wipe?.covering()
   && !(opening?.running() && opening.phase() !== 'release');
 
+// The pedals on screen and the taxi the player's to drive: `pedalsDue`, less a repair visit until it
+// hands back. The HUD's exit reads it too, so a pedal can be pressed exactly when it can be seen.
+const pedalsLive = () => pedalsDue()
+  && !(opening?.visiting() && opening.phase() !== 'release');
+
 const fareLoopHeld = () => parked() || Boolean(opening?.running())
   || Boolean(wipe?.covering());
 
@@ -3777,7 +3789,7 @@ function frame() {
   // car is out of the door, and a repair visit from the turn-in until it is back on the lane. The
   // same `release` the pedals wait on, so a run's first arrival and every return from the depot
   // are one beat. See the HUD exit block in index.html.
-  setHudAway(!pedalsDue() || Boolean(opening?.visiting() && opening.phase() !== 'release'));
+  setHudAway(!pedalsLive());
   // ...and the drive-through is the same claim about somebody else's car: while one is in the lot
   // this is its physics, so it has to have written the position before the render pass reads it.
   driveThru?.update(dt);
