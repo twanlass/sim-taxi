@@ -913,8 +913,8 @@ markOccluder(police.group);
 // bloom at the right strength by being built rather than by being remembered in two places.
 for (const mesh of traffic.emissiveMeshes) markEmissive(mesh, mesh.userData.bloomKind ?? 'pod');
 if (litPanes) markEmissive(litPanes, 'window');
-// The taxi's own headlights and pools, hung on its group so they ride the body. The group is also
-// what becomes the wreck (see `wreckShell` in sim/traffic.js), so they go dark while it is one.
+// The taxi's own headlights and their cones, hung on its group so they ride the body. The group is
+// also what becomes the wreck (see `wreckShell` in sim/traffic.js), so they go dark while it is one.
 taxiHeadlights = rain.enabled ? createTaxiHeadlights() : null;
 if (taxiHeadlights) {
   taxiHeadlights.setLevel(runningLevel);

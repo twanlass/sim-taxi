@@ -6,11 +6,10 @@ import {
 } from '../util/geo.js';
 import { facadeQuads, setPaneSink } from '../city/buildings.js';
 import { KERB_H } from '../city/ground.js';
-import { CAR_LEN, CAR_W, ROAD_Y } from '../sim/traffic.js';
+import { CAR_LEN, CAR_W } from '../sim/traffic.js';
 import {
-  headlightGeometry, headlightAnchors, headlightMaterial, beamGeometry, beamMaterial,
+  headlightGeometry, headlightAnchors, headlightMaterial, coneGeometry, coneMaterial, coneQuat,
 } from '../geometry/lights.js';
-import { TAXI_SCALE } from '../geometry/taxi.js';
 
 /**
  * The city with its lights on — Rain Mode (`?rain`, game/rain.js). A wet street is mostly a
@@ -361,34 +360,40 @@ function poolMaterial() {
 }
 
 /**
- * The taxi's headlights: the same pods and pools the fleet wears (geometry/lights.js), as ordinary
- * meshes to hang on `taxiGroup`. That group is scaled by `TAXI_SCALE`, which the pods follow for
- * free; the pools are dropped to sit just over the asphalt through that scale, under the rain's
- * mirror clip.
+ * The taxi's headlights: the same pods and light cones the fleet wears (geometry/lights.js), as
+ * ordinary meshes to hang on `taxiGroup` — which is scaled by `TAXI_SCALE`, and both follow for
+ * free. The cones hang on the body on purpose: they say where the light comes from, so they leave
+ * the lamp wherever it is, and the road's depth cuts them where they meet it.
+ *
+ * There used to be a flat pool on the road under each one as well. Parented to the body it rose off
+ * a ramp as a slab and cut into the asphalt on the way down; laid on the road instead, it read as a
+ * second set of lights next to the cones. The cones carry the beam on their own.
  */
 export function createTaxiHeadlights() {
   const group = new THREE.Group();
   group.name = 'taxiHeadlights';
-  const pods = new THREE.Group();
   const podMaterial = headlightMaterial();
-  const poolMaterial_ = beamMaterial();
+  const pods = new THREE.Group();
+  const coneMaterial_ = coneMaterial();
   for (const anchor of headlightAnchors(CAR_LEN, CAR_W)) {
     const pod = new THREE.Mesh(headlightGeometry(), podMaterial);
     pod.position.copy(anchor);
     pods.add(pod);
-    const pool = new THREE.Mesh(beamGeometry(), poolMaterial_);
-    pool.position.set(anchor.x - 0.1, (0.025 - ROAD_Y) / TAXI_SCALE, anchor.z);
-    pool.renderOrder = 1;
-    group.add(pool);
+    const cone = new THREE.Mesh(coneGeometry(), coneMaterial_);
+    cone.name = 'taxiHeadlightCone';
+    cone.position.copy(anchor);
+    cone.quaternion.copy(coneQuat(anchor.z));
+    cone.renderOrder = 1;
+    group.add(cone);
   }
   group.add(pods);
-  const parts = [...pods.children, ...group.children.filter((c) => c !== pods)];
   /**
    * 0..1, the same running-light level the fleet reads (`setRunningLights` in sim/traffic.js): off
-   * in the sun, on once the storm is properly gloomy. A scale about each part's own origin, as the
-   * fleet's pods are, rather than `visible` — so switching on is not the frame a program compiles.
+   * in the sun, on once the storm is properly gloomy. A scale about each part's own origin — the
+   * lamp — as the fleet's are, rather than `visible`, so switching on is not the frame a program
+   * compiles.
    */
-  const setLevel = (level) => { for (const part of parts) part.scale.setScalar(level); };
+  const setLevel = (level) => { for (const part of group.children) part.scale.setScalar(level); };
   setLevel(0);
   return { group, pods, setLevel };
 }

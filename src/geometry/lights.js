@@ -102,11 +102,34 @@ export function brakeLightAnchors(len, width) {
   ];
 }
 
+/**
+ * How wide the *front* indicator is across the car. Narrower than a full pod so the headlight beside
+ * it has room: at the full `LIGHT_W` the lit amber covered 0.34..0.88 of a car's 0.88 half-width and
+ * stood twice the headlight's height right next to it, so the headlight on the blinking side read
+ * as switched off. The rear indicator stays full width — it shares its corner (and its anchor) with
+ * the brake pod, and a narrower one would vanish inside it whenever the brakes are on.
+ */
+const FRONT_SIGNAL_W = 0.3;
+
 /** The front and rear pod on one side — a side's pair blinks together. */
 export function turnSignalAnchors(len, width, side) {
+  const front = lightPodAnchor(1, side, len, width);
+  front.z = side * (width / 2 + LIGHT_PROUD - FRONT_SIGNAL_W / 2);
   return [
-    lightPodAnchor(1, side, len, width),
+    front,
     lightPodAnchor(-1, side, len, width),
+  ];
+}
+
+/**
+ * Each indicator pod's shape, as a scale on the shared pod geometry, in the same order as
+ * `turnSignalAnchors`. Multiplied into the on/off level rather than baked into a second geometry
+ * because the fleet draws a side's front and rear pod from one InstancedMesh.
+ */
+export function turnSignalShapes() {
+  return [
+    new THREE.Vector3(1, 1, FRONT_SIGNAL_W / LIGHT_W),
+    new THREE.Vector3(1, 1, 1),
   ];
 }
 
@@ -121,13 +144,16 @@ export function brakeLightMaterial() {
 }
 
 /**
- * Headlights — Rain Mode only (`?rain`), driven by `setRunningLights` in sim/traffic.js. Two
- * narrow pods set *inboard* of the turn signals, which already own the front corners: centred
- * `HEADLIGHT_INSET` in from the car's own flank, and a third of a signal pod wide so the two never
- * overlap at any car width in the game.
+ * Headlights — in the rain (`?rain`, `?storm`, or under a squall), driven by `setRunningLights` in
+ * sim/traffic.js. Two pods set *inboard* of the front indicators, which own the front corners.
+ * Centred `HEADLIGHT_INSET` in from the car's own flank: on a car that is 0.28..0.54 off the
+ * centreline, a 0.04 gap short of the indicator (`FRONT_SIGNAL_W`) and 0.56 from its partner.
+ *
+ * They used to sit 0.62 in, which put the pair 0.26 apart in the middle of the bumper — one lamp,
+ * at this zoom, throwing two pools so nearly on top of each other they read as one beam.
  */
-const HEADLIGHT_W = 0.2;
-const HEADLIGHT_INSET = 0.62;
+const HEADLIGHT_W = 0.26;
+const HEADLIGHT_INSET = 0.44;
 
 export function headlightGeometry() {
   return new THREE.BoxGeometry(LIGHT_D, LIGHT_H * 0.55, HEADLIGHT_W);
@@ -145,56 +171,78 @@ export function headlightMaterial() {
   return unlitMaterial({ color: color('headlight') });
 }
 
-/** How far a headlight's pool reaches up the road, and how wide it opens. */
-export const BEAM_LEN = 7;
-const BEAM_NEAR_W = 0.9;
-const BEAM_FAR_W = 3.2;
-
 /**
- * The pool a headlight throws on the road ahead: a flat trapezoid starting at its own origin (the
- * bumper) and opening out along +X, carrying a 0..1 fade in `uv.y` along its length. Wound so its
- * face points **up** — asserted in tools/probe.mjs, because an unlit triangle wound the other way
- * does not draw wrong, it does not draw.
+ * The beam itself, as a cone of light out of the lamp: open-ended, starting at the pod's own size
+ * and opening to `CONE_R` over `CONE_LEN`. Built along +X from its own origin, so it hangs off a headlight
+ * anchor the way a pod does and switches on and off as a scale about the lamp.
+ *
+ * It rides the body, pitch and all, and that is deliberate rather than the bug the pools had: a
+ * real headlight dips with the nose, and where this one meets the road it is cut by the road's own
+ * depth, which reads as light hitting tarmac. What looked wrong on the pool was a flat slab of
+ * *ground* lifting into the air.
  */
-export function beamGeometry() {
-  const n = BEAM_NEAR_W / 2;
-  const f = BEAM_FAR_W / 2;
-  const L = BEAM_LEN;
-  // (x, z) corners: near-left, near-right, far-right, far-left, with "left" at -z.
-  const positions = new Float32Array([
-    0, 0, -n,   L, 0, f,    L, 0, -f,
-    0, 0, -n,   0, 0, n,    L, 0, f,
-  ]);
-  const uvs = new Float32Array([
-    0, 0, 1, 1, 0, 1,
-    0, 0, 1, 0, 1, 1,
-  ]);
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+const CONE_LEN = 4.6;
+const CONE_R = 0.85;
+const CONE_TIP_R = 0.1;
+/** Aimed down a little, so the cone's axis reaches the road near its far end. */
+const CONE_TILT = Math.atan2(0.45, CONE_LEN);
+/**
+ * And swung out toward its own side of the car. The toe is what keeps a pair reading as two:
+ * aimed straight ahead, two beams 0.82 apart overlap over most of their width.
+ */
+const CONE_TOE = Math.atan2(0.4, CONE_LEN);
+
+export function coneGeometry() {
+  const geo = new THREE.CylinderGeometry(CONE_TIP_R, CONE_R, CONE_LEN, 18, 6, true);
+  // Cylinder: along Y, top (the tip) at +LEN/2. Tip to the origin, then lay it along X with the
+  // mouth at +X — a quarter turn about Z takes -Y to +X.
+  geo.translate(0, -CONE_LEN / 2, 0);
+  geo.rotateZ(Math.PI / 2);
+  // Tip at 0, mouth at +LEN: the 0..1 along the beam, for the fade, before any instance transform.
+  const pos = geo.attributes.position;
+  const along = new Float32Array(pos.count);
+  for (let i = 0; i < pos.count; i++) along[i] = pos.getX(i) / CONE_LEN;
+  geo.setAttribute('along', new THREE.BufferAttribute(along, 1));
   return geo;
 }
 
 /**
- * Additive and unfogged, fading along the beam and toward its edges. Depth-tested so a building
- * cuts it, never depth-written so two cars' pools add instead of fighting.
+ * The cone's turn about its lamp, for a headlight at car-local `z`: tilted down by `CONE_TILT`, then
+ * toed out by `CONE_TOE`. Negative yaw swings local +X toward +Z (the car's right), so the toe's
+ * sign is the opposite of `z`'s.
  */
-export function beamMaterial() {
+export function coneQuat(z) {
+  const tilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -CONE_TILT);
+  const toe = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.sign(z) * CONE_TOE);
+  return toe.multiply(tilt);
+}
+
+/**
+ * Additive, both sides, never depth-written. Brightest where the camera looks *through* the most of
+ * it — the faces turned toward the view — and soft at the silhouette, which is what makes a hollow
+ * cone read as a volume of lit rain rather than a lampshade. Fades out along its length.
+ */
+export function coneMaterial() {
   return new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: color('headlightBeam') }, uStrength: { value: 0.55 } },
+    uniforms: { uColor: { value: color('headlightBeam') }, uStrength: { value: 0.45 } },
     transparent: true,
     depthWrite: false,
+    side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending,
     vertexShader: /* glsl */ `
       #include <common>
-      varying vec2 vUv;
+      attribute float along;
+      varying float vAlong;
+      varying vec3 vNormalView;
       void main() {
-        vUv = uv;
-        vec3 transformed = position;
-        vec4 mvPosition = vec4(transformed, 1.0);
+        vAlong = along;
+        vec4 mvPosition = vec4(position, 1.0);
+        vec3 n = normal;
         #ifdef USE_INSTANCING
           mvPosition = instanceMatrix * mvPosition;
+          n = mat3(instanceMatrix) * n;
         #endif
+        vNormalView = normalize(normalMatrix * n);
         mvPosition = modelViewMatrix * mvPosition;
         gl_Position = projectionMatrix * mvPosition;
       }
@@ -202,11 +250,12 @@ export function beamMaterial() {
     fragmentShader: /* glsl */ `
       uniform vec3 uColor;
       uniform float uStrength;
-      varying vec2 vUv;
+      varying float vAlong;
+      varying vec3 vNormalView;
       void main() {
-        float along = vUv.y;
-        float edge = 1.0 - abs(vUv.x * 2.0 - 1.0);
-        float a = smoothstep(0.0, 0.12, along) * pow(1.0 - along, 1.6) * smoothstep(0.0, 0.5, edge);
+        // Orthographic: the view direction is view-space +Z everywhere.
+        float facing = abs(normalize(vNormalView).z);
+        float a = pow(1.0 - vAlong, 1.6) * smoothstep(0.0, 0.1, vAlong) * facing;
         gl_FragColor = vec4(uColor * a * uStrength, 1.0);
       }
     `,

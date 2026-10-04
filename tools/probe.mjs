@@ -92,7 +92,9 @@ import {
   markEmissive, unmarkEmissive, emissiveList, BLOOM_LAYER, BLOOM_ORDER, BLOOM_INTENSITY,
   BLOOM_UNIFORMS, BLOOM_KINDS, refreshEmissive as bloomRefreshFor,
 } from '../src/game/bloom.js';
-import { LIGHT_EMISSIVE, LIGHT_PODS } from '../src/geometry/lights.js';
+import {
+  LIGHT_EMISSIVE, LIGHT_PODS, LIGHT_W, headlightAnchors, headlightGeometry, coneGeometry, turnSignalAnchors, turnSignalShapes,
+} from '../src/geometry/lights.js';
 import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
 import { createPicker, choosePick } from '../src/game/pick.js';
 import { setCityOccluders, sightlineClear, groundLineClear } from '../src/game/sightline.js';
@@ -9752,6 +9754,42 @@ check('the taxi is an ordinary car in the traffic array',
   }
   check('a dimming taxi lamp stays where it is', podDrift < 1e-9,
     `${taxi.lights.length} pods, max drift ${podDrift.toExponential(1)} over level 1 → 0`);
+
+  // --- The headlights: two lamps, clear of the indicator, each throwing its cone forward ----------
+  //
+  // The front indicator owns the corner and the headlight sits inboard of it. At full pod width the
+  // lit amber ran right up to the headlight and stood twice its height, and the lamp on the blinking
+  // side read as switched off. Measured on the faces, for every vehicle that wears both.
+  {
+    let worstGap = Infinity;
+    let pairGap = Infinity;
+    for (const [len, width] of [[CAR_LEN, CAR_W], [TRUCK_LEN, TRUCK_W]]) {
+      const heads = headlightAnchors(len, width);
+      const [front] = turnSignalAnchors(len, width, 1);
+      const frontHalf = (LIGHT_W * turnSignalShapes()[0].z) / 2;
+      const head = heads.find((a) => a.z > 0);
+      // Half a headlight's width, off the geometry rather than retyped.
+      const headBox = headlightGeometry();
+      headBox.computeBoundingBox();
+      const headHalf = headBox.boundingBox.max.z;
+      worstGap = Math.min(worstGap, (front.z - frontHalf) - (head.z + headHalf));
+      pairGap = Math.min(pairGap, 2 * (head.z - headHalf));
+    }
+    check('the headlight clears the front indicator, and the pair clears each other',
+      worstGap > 0.02 && pairGap > 0.4,
+      `indicator gap ${worstGap.toFixed(3)}, between the lamps ${pairGap.toFixed(3)}`);
+
+    // The cone has to open *forward* from the lamp. Built pointing the other way it sits inside the
+    // body, and an additive surface behind opaque paint draws nothing at all — which is how the
+    // first one shipped to a screenshot: no cone, no error, the fade reading zero all the way along.
+    const cone = coneGeometry();
+    cone.computeBoundingBox();
+    const along = cone.attributes.along.array;
+    check('the headlight cone opens forward from the lamp',
+      cone.boundingBox.min.x > -1e-6 && cone.boundingBox.max.x > 3
+      && Math.min(...along) > -1e-6 && Math.max(...along) > 0.999,
+      `x ${cone.boundingBox.min.x.toFixed(2)}..${cone.boundingBox.max.x.toFixed(2)}, along ${Math.min(...along).toFixed(2)}..${Math.max(...along).toFixed(2)}`);
+  }
 
   // The rear door (game/taxidoor.js) has to open on the side the rider is running *from*, outward,
   // at any heading — the side is a sign worked out from the yaw, and a flipped sign swings the door
