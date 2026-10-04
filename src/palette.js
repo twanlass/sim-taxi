@@ -60,6 +60,18 @@ export const PALETTE = {
   // the road rather than something lying on it, and a touch of warm brown is what rubber smeared
   // into tarmac actually is.
   skidRubber: '#1E1A18',
+  // The squall's tyre tracks (game/skidmarks.js, the wet instance): where a tyre has pressed the
+  // water film off a wet street, the road stops mirroring the sky and goes darker — and on dry road
+  // past the cell's trail, a wet tread prints darker too. Cool rather than the rubber's warm brown,
+  // so the two never read as the same mark.
+  wetTrack: '#1A2228',
+  // Water thrown off the tyres (game/spray.js). A pale cool white, short of the dust's pure white:
+  // white is dust, and this has to read as water against a grey wet street under a rain cell.
+  waterSpray: '#DCEAF2',
+  waterSprayGlow: '#5E7280',
+  // And the same tracks on a street that is still wet: a tyre's groove holds a line of water that
+  // catches the sky, so on the darkened wet asphalt the trail reads as a pale sheen.
+  wetSheen: '#A9BFCC',
   laneMark: '#D6D2C4',
   crosswalk: '#DAD7CB',
   sidewalk: '#9E9C94',
@@ -823,21 +835,31 @@ export const PALETTE = {
   //
   // A boat is about twenty pixels long at play zoom on a band of dark water, so what has to carry
   // is **value against the river**, not hue. `riverWater` renders around luma 112 and `riverDeep`
-  // 87, so both hulls go dark and both decks go pale: a boat reads as a light shape with a dark
-  // waterline under it, which is what a boat looks like from above.
+  // 87, so the barge's hull goes dark and its deck and load go pale, and the sailboat is white from
+  // the waterline up: either way a boat reads as a value step against the water under it.
   //
   // Neither is allowed near the warm end. The taxi owns 34 degrees, the urgency ramp owns
   // everything from 1 to 126 and the roadworks orange sits at 6 — a working boat in red or orange
   // is a thing the player would look at twice on a board where warm means "act on this".
   bargeHull: '#4A4E55',
-  bargeCargo: '#5F6B78',
-  tugHull: '#3E4A52',
-  // The one exception, and it is a small one: a tug's wheelhouse and funnel are the only saturated
-  // thing on the water. It sits at 213 degrees — inside the same blue window the pond and the river
-  // already occupy, 27 clear of the courier cyan — so it is a *boat* colour rather than a marker
-  // one. What it separates from is its own hull, which is what makes the tug read as taller than
-  // the barge from across the map.
-  tugTrim: '#37698F',
+  // A deck barge's load: shipping containers in the colours a real stack comes in, minus every
+  // warm one. Blues, a green held at 145 degrees (the urgency ramp ends at 126), a slate, a violet
+  // and a white box, and nothing between 170 and 200 where the courier cyan lives. They are
+  // *muted* on purpose — a container yard is the most colourful thing on a river, and it still has
+  // to sit under the taxi and the fares in the frame.
+  bargeContainers: ['#3B5F8C', '#566A8C', '#4A7A5C', '#767C84', '#685D86', '#C9CCC8'],
+  // Loose crates: weathered pale timber rather than new pine, which would land on the taxi's 34
+  // degrees at full saturation.
+  bargeCrate: '#A39A88',
+  // The boat that asks for the lift is a sailboat now, and it is the one **white** thing on the
+  // water — a light hull is value against the river, which is what this whole section is about.
+  sailHull: '#ECECE8',
+  // The one saturated thing on the water, and it is a small one: the sailboat's boot stripe and
+  // its sail cover. 213 degrees sits inside the same blue window the pond and the river already
+  // occupy, 27 clear of the courier cyan — so it is a *boat* colour rather than a marker one.
+  sailTrim: '#37698F',
+  mast: '#C8CCD0',
+  rigging: '#5E636A',
   boatDeck: '#B6B2A6',
   // The wake. Unlit and half transparent, so what reaches the screen is this lifted toward whatever
   // the water under it is doing — a foam white would blow out to a solid arrow at noon and vanish

@@ -52,6 +52,7 @@ import { createDepotCall } from './game/depotcall.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
+import { createSpray } from './game/spray.js';
 import { createCityEntry } from './game/cityentry.js';
 import { createBlast } from './game/blast.js';
 import { createFlames } from './game/flames.js';
@@ -61,7 +62,7 @@ import { createLocoFlame } from './game/locoflame.js';
 import { createWreckage } from './game/wreckage.js';
 import { createEjection, EJECT_CLOSING } from './game/ejection.js';
 import { createTape, createCrashReplay } from './game/replay.js';
-import { carrySpeed } from './util/carry.js';
+import { CARRY_DRAG, carrySpeed, carryTravel } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
 import { createChopper } from './game/chopper.js';
 import { createBirds, chooseRoosts } from './game/birds.js';
@@ -110,7 +111,7 @@ import { findRoute, findRouteVia, findRouteOnto, planOrigin, crossingOrigin } fr
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -131,7 +132,7 @@ import { createSfx } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J, MAX_SPAN } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
-import { PALETTE } from './palette.js';
+import { PALETTE, color as paletteColor } from './palette.js';
 
 // Caches the app shell so a Home Screen launch still opens with no connection — see public/sw.js.
 // Skipped under `npm run dev`: Vite's dev server rewrites module URLs on every change, and a
@@ -386,6 +387,29 @@ let taxiHeadlights = null;
 let runningLevel = 0;
 // The taxi, for the squall's per-position grip and headlights — set once traffic exists.
 let taxiNow = null;
+
+/**
+ * Switch the taxi's headlights to `level`, unless its nose is inside the depot. The cones reach
+ * 5.4 units past the bumper and are drawn additive without writing depth, so with the taxi parked
+ * behind a shut door they came straight out through it — a pool of light on the forecourt and two
+ * glowing lamps seen through the curtain. A parked car has its lights off anyway, so they fade up
+ * as the nose crosses the curtain on the way out (and down on the way back in), over 1.5 units.
+ * Read off `garage.site` rather than the door's state so the answer does not depend on which of
+ * the vignette, the depot run or the tip happens to be holding the door this frame.
+ */
+function setTaxiHeadlights(level) {
+  if (!taxiHeadlights) return;
+  const car = taxiNow?.();
+  let inDepot = 0;
+  if (car && garage) {
+    const { curtainX, doorZ, doorW, bayX } = garage.site;
+    if (Math.abs(car.z - doorZ) < doorW / 2 + 1 && car.x > bayX - 1) {
+      const noseX = car.x + Math.cos(car.yaw) * TAXI_TAILPIPE_BACK;
+      inDepot = 1 - THREE.MathUtils.smoothstep(noseX, curtainX, curtainX + 1.5);
+    }
+  }
+  taxiHeadlights.setLevel(level * (1 - inDepot));
+}
 // How present the squall is, eased: a cell crossing the city greys the whole sky a little.
 let squallPresence = 0;
 
@@ -410,7 +434,7 @@ function applySquall(dt) {
   if (taxiNow) {
     const t = taxiNow();
     setGrip(THREE.MathUtils.lerp(1, GRIP, squall.wetAt(t.x, t.z)));
-    taxiHeadlights?.setLevel(runningLightsAt(t.x, t.z));
+    setTaxiHeadlights(runningLightsAt(t.x, t.z));
   }
   setRunningLights(0);
   setCityLights(0, dt);
@@ -422,16 +446,19 @@ function applySquall(dt) {
 /** How far the whole sky greys while a squall's cell is on the map — the rest of the city is sunny. */
 const SQUALL_GREY = 0.2;
 
+// The storm's one city-wide wetness, for the tyres (`groundWetAt`).
+let stormWet = 0;
 function applyWeather(dt = 0) {
   if (squall) { applySquall(dt); return; }
   if (!storm) return;
   const w = storm.update(dt);
+  stormWet = w.wet;
   rain.setWeather(w, dt);
   setGrip(THREE.MathUtils.lerp(1, GRIP, w.wet));
   runningLevel = THREE.MathUtils.smoothstep(w.dark, 0.25, 0.42);
   setRunningLights(runningLevel);
   // The taxi's own pair on the same level as the fleet's: dark in the sun, on once it is gloomy.
-  taxiHeadlights?.setLevel(runningLevel);
+  setTaxiHeadlights(runningLevel);
   setCityLights(w.dark, dt);
   setHazeTop(fog, THREE.MathUtils.lerp(HAZE_TOP, rain.mood.haze, w.dark));
   daylight.apply();
@@ -832,23 +859,19 @@ const settings = createSettings();
 sfx?.setVolumes(settings.get());
 settings.onChange((v) => sfx?.setVolumes(v));
 
-// The switch lives on the pause screen, with M for a keyboard. The choice is remembered
-// (localStorage, soft — see game/sfx.js).
-const soundButton = document.querySelector('#pause-veil .pause-sound');
-function paintSound() {
-  if (!soundButton || !sfx) return;
-  soundButton.textContent = sfx.state.muted ? 'Sound: Off' : 'Sound: On';
-  soundButton.setAttribute('aria-pressed', String(!sfx.state.muted));
-}
-soundButton?.addEventListener('click', () => { sfx?.toggleMuted(); paintSound(); });
+// The one mute, as the Settings pages on the title and pause screens see it. M flips it from a
+// keyboard; the choice is remembered (localStorage, soft — see game/sfx.js). The pages re-read it
+// each time they come up, so M needs to tell nobody.
+const soundSwitch = {
+  isOn: () => Boolean(sfx && !sfx.state.muted),
+  set: (on) => { sfx?.setMuted(!on); },
+};
 window.addEventListener('keydown', (event) => {
   if (event.key !== 'm' && event.key !== 'M') return;
   // Not while typing initials, where M is a letter — the pause key's rule.
   if (event.target instanceof HTMLInputElement) return;
   sfx?.toggleMuted();
-  paintSound();
 });
-paintSound();
 
 // The patrol cruiser's look (sim/police.js) and its life (game/patrol.js): a police car that
 // crosses town edge to edge with its bar swinging red and blue, and comes after you if you boost in
@@ -874,7 +897,7 @@ const patrol = createPatrol({
     copShout?.show(cop);
     haptic('pick');
   },
-  onCaught: () => bustByPolice(),
+  onCaught: (cop, ram) => bustByPolice(ram),
   // Said by the cruiser that lost you, from over its own roof.
   onLost: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
   onHid: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
@@ -922,8 +945,8 @@ if (litPanes) markEmissive(litPanes, 'window');
 // also what becomes the wreck (see `wreckShell` in sim/traffic.js), so they go dark while it is one.
 taxiHeadlights = rain.enabled ? createTaxiHeadlights() : null;
 if (taxiHeadlights) {
-  taxiHeadlights.setLevel(runningLevel);
   taxiNow = () => traffic.taxi;
+  setTaxiHeadlights(runningLevel);
   traffic.taxiGroup.add(taxiHeadlights.group);
   markEmissive(taxiHeadlights.pods, 'pod');
 }
@@ -1065,6 +1088,7 @@ const pan = shot
   : attachDragPan(controller, renderer.domElement, aspect, isNarrow, releaseCameraToPlayer);
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
+const spray = createSpray(scene, makeRng(seed + 78));
 
 // The city's entrance: buildings and trees rise out of the ground in a wave that spreads from the
 // taxi's spawn — the run starts where the player's car is, and the city builds itself outward from
@@ -1423,6 +1447,19 @@ const SLOW_MO_DURATION = 2100;           // ms wallclock to ramp back to 1.0
 const BUST_BANNER_DELAY = 2000;
 const BUST_SLOW_MO_MIN = 0.42;
 
+// The catch is a ram: the cop's nose into the taxi, played as a bump (the starburst, the bump
+// recording, sparks off the seam, a dent) before the banner. Measured over the probe's staged
+// catches the cop arrives at 3–12 u/s closing, median ~9, and the low end makes a starburst the
+// size of a nudge — so the effects read off at least RAM_MIN_CLOSING, which is what keeps the end
+// of a chase from looking softer than a bump the player shrugged off a minute earlier.
+const RAM_MIN_CLOSING = 10;
+const RAM_SHAKE = 1.2;
+// And the taxi is knocked along the hit, on util/carry.js's drag rather than frozen where it was
+// touched: `closing × RAM_SHOVE` u/s at launch, so ~1.8 units of slide at RAM_MIN_CLOSING. The
+// shells' SHELL_CARRY (0.26) is the same idea one size up.
+const RAM_SHOVE = 0.3;
+let ramShove = null;
+
 // And the third ending gets the same beat on its own dial again. A fare's clock running out has
 // nothing happening *to the taxi* to look at — nothing hit it and nothing pulled it over — so the
 // subject of the shot is the rider instead: they get out where they are, swear about it and go
@@ -1471,9 +1508,9 @@ const REPLAY_LEAD = 1200;
 const REPLAY_TAIL = 350;
 // The same breath when the driver went through the windscreen, held long enough to see them land.
 // The replay hands back ~0.49s of sim past the impact (see REPLAY_LEAD) with the slow-mo already
-// run out, and at the 21 u/s of a boost-cruise T-bone the flight is ~0.93s in the air plus 0.3 to
-// settle flat — 0.74s still to go. Under the card they would land unseen.
-const EJECT_TAIL = 900;
+// run out, and at the 21 u/s of a boost-cruise T-bone the flight is ~1.05s in the air plus 0.3 to
+// settle flat — 0.86s still to go. Under the card they would land unseen.
+const EJECT_TAIL = 1100;
 let replayAt = null;
 // The sim clock the tape is stamped in: the sum of every dilated `dt` the world has been stepped by.
 let simClock = 0;
@@ -1645,7 +1682,11 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
     ...(other.isTruck ? { len: TRUCK_LEN, width: TRUCK_W } : {}),
   });
 
-  endSpot = { x, z };
+  // Framed on the middle of the whole picture when the driver was thrown: the throw runs ~16 units,
+  // past the edge of a portrait phone at wreck zoom if the shot stays on the wreck. Halfway puts
+  // the wreck and the landing each ~8 from the centre.
+  const landing = ejection.active() ? ejection.landing() : null;
+  endSpot = landing ? { x: (x + landing.x) / 2, z: (z + landing.z) / 2 } : { x, z };
   endZoom = WRECK_ZOOM;
   if (replay) {
     replay.arm({ t0: simClock, x, z, yaw });
@@ -1664,18 +1705,38 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
 
 /**
  * The patrol car has caught you — reuses the wreck cinematic (zoom, slow-mo, delayed banner) so the
- * beat is the same as a collision, but the taxi stays visible (no blast) since nothing hit it. The
- * taxi is flagged crashed so it freezes on the spot for the pull-in, and the fare system's
- * title/reason drive the "Busted!" banner.
+ * beat is the same as a collision. The catch is a ram, played as a bump (`ram`, from game/patrol.js:
+ * starburst, bump sound, sparks, a dent, the taxi knocked along the hit) rather than the wreck's
+ * blast — the taxi survives it and stays in shot. It used to be a bare touch and a freeze, which
+ * read as the cop nudging your bumper. The taxi is flagged crashed so it drops out of the sim for
+ * the pull-in, and the fare system's title/reason drive the "Busted!" banner.
  *
  * Called by game/patrol.js, the moment a chasing cop touches the taxi (TOUCH_SLACK). It used to
  * fire the moment the taxi boosted within a block of the cruiser, and then send the cruiser after a
  * taxi that was already frozen; the chase is now the part the player gets to play.
  */
-function bustByPolice() {
+function bustByPolice(ram) {
   if (fares.state.gameOver || traffic.taxi.crashed) return;
-  controller.kickShake(0.9);
-  endSpot = { x: traffic.taxi.x, z: traffic.taxi.z };
+  if (ram) {
+    const closing = Math.max(RAM_MIN_CLOSING, ram.closing);
+    controller.kickShake(RAM_SHAKE);
+    sfx?.play('bump', { gain: 1 });
+    impact.fire(ram.x, ram.z, closing);
+    const normalYaw = Math.atan2(-ram.nz, ram.nx);
+    const count = 8 + Math.round(closing * 0.5);
+    sparks.burst(ram.x, ROAD_Y + 0.6, ram.z, normalYaw + Math.PI / 2, count, closing * 0.5);
+    sparks.burst(ram.x, ROAD_Y + 0.6, ram.z, normalYaw - Math.PI / 2, count, closing * 0.5);
+    dust.burst(ram.x, ram.z, traffic.taxi.yaw, 8, 0.5, { tint: PALETTE.wreckSmoke, linger: 0.7 });
+    taxiDamage.hit(ram.x, ram.z);
+    const v = closing * RAM_SHOVE;
+    ramShove = { x: traffic.taxi.x, z: traffic.taxi.z, vx: ram.nx * v, vz: ram.nz * v, age: 0 };
+  } else {
+    controller.kickShake(0.9);
+  }
+  // Where the shove will leave it rather than where it was touched, so the pull-in lands on it.
+  endSpot = ramShove
+    ? { x: ramShove.x + ramShove.vx / CARRY_DRAG, z: ramShove.z + ramShove.vz / CARRY_DRAG }
+    : { x: traffic.taxi.x, z: traffic.taxi.z };
   endZoom = WRECK_ZOOM;
   crashBannerAt = performance.now() + BUST_BANNER_DELAY;
   slowMoUntil = performance.now() + SLOW_MO_DURATION;
@@ -1691,6 +1752,12 @@ function bustByPolice() {
 // falls straight out of the frustum height.
 const boost = createBoost();
 const skids = createSkidMarks(scene);
+// The squall's tyre tracks: the rubber's streak machinery, repainted per stamp (`wetTyres` below).
+// A bigger pool than the rubber's because it is laid on every straight, not only in a slide: two
+// stamps per TRACK_STEP at the 34 u/s Loco top is ~162 a second, ~450 alive across a 2.8s life.
+const wetTracks = createSkidMarks(scene, {
+  tint: paletteColor('wetTrack'), max: 512, life: 2.8, alpha: 0.5, width: 0.55,
+});
 
 // Lane-width, so it is sized in world units and needs no pixel factor: it is paint on the road
 // rather than an overlay drawn at a constant screen weight.
@@ -3384,12 +3451,90 @@ function layRubber(dt) {
 // of 2 × 0.83 — so what the wide shot keeps is a wider wake, and what the close shot gains is a
 // pair of sources. Same puff either side: this is the one effect duplicated, not a new one.
 let lastDustAt = 0;
+
+// The tyres on a wet road (`?wet=`, see util/shot.js): water spray off the rear pair, and wet
+// tracks behind them. Both read how wet the ground under the car is — the squall's wet map, or
+// the storm's one city-wide level — and the tracks also carry `tyreWet`, how much water the treads
+// are still holding, so they print a little way out onto dry road past the edge of the cell's trail
+// and fade as the car drives it off.
+const WET_TYRES = getWetTyres();
+const WET_DUST_OFF = 0.25;     // ground this wet throws water rather than dust
+const SPRAY_MIN_V = 3;         // below this a tyre rolls through the water rather than throwing it
+const SPRAY_STEP = 0.55;       // units between stamps; per tyre
+const TRACK_STEP = 0.42;       // the rubber's spacing, so the streaks blend the same way
+const TREAD_DRY = 14;          // units of dry road that take the treads' water down by e
+const TRACK_DARK = paletteColor('wetTrack');
+const TRACK_SHEEN = paletteColor('wetSheen');
+const TRACK_HUE = new THREE.Color();
+let roadWet = 0;
+let tyreWet = 0;
+let lastSprayAt = 0;
+let lastTrackAt = 0;
+let lastTyreAt = 0;
+
+function groundWetAt(x, z) {
+  if (squall) return squall.wetAt(x, z);
+  if (storm) return stormWet;
+  return 0;
+}
+
+function wetTyres() {
+  const car = traffic.taxi;
+  roadWet = groundWetAt(car.x, car.z);
+  const moved = car.travelled - lastTyreAt;
+  lastTyreAt = car.travelled;
+  // Soaked straight up off a wet road, wrung out over distance on a dry one.
+  tyreWet = roadWet >= tyreWet ? roadWet : tyreWet * Math.exp(-Math.max(0, moved) / TREAD_DRY);
+
+  const fx = Math.cos(car.yaw), fz = -Math.sin(car.yaw);
+  const rx = Math.sin(car.yaw), rz = Math.cos(car.yaw);
+  const y = deckHeightAt(car.x, car.z).y;
+
+  if (WET_TYRES.spray && roadWet > 0.15 && car.v > SPRAY_MIN_V) {
+    if (car.travelled - lastSprayAt >= SPRAY_STEP) {
+      lastSprayAt = car.travelled;
+      // Speed against the cruise-to-overdrive range, times how much water there is to throw.
+      const pace = THREE.MathUtils.clamp((car.v - SPRAY_MIN_V) / 14, 0, 1);
+      const amount = Math.min(1, roadWet * 1.25) * (0.25 + 0.75 * pace) * (car.boost ? 1.25 : 1);
+      for (const side of [-1, 1]) {
+        spray.add(
+          car.x - fx * TAXI_REAR_AXLE_BACK + rx * side * TAXI_REAR_TRACK,
+          car.z - fz * TAXI_REAR_AXLE_BACK + rz * side * TAXI_REAR_TRACK,
+          car.yaw, car.v, Math.min(1, amount), side, 0.25 + y,
+        );
+      }
+    }
+  } else {
+    lastSprayAt = car.travelled;
+  }
+
+  if (WET_TYRES.tracks && tyreWet > 0.08 && car.v > 0.5) {
+    if (car.travelled - lastTrackAt >= TRACK_STEP) {
+      lastTrackAt = car.travelled;
+      const strength = Math.min(1, tyreWet * 1.4);
+      // Sheen on wet road, a dark print on dry: blended across the trail's own edge.
+      const hue = TRACK_HUE.copy(TRACK_DARK).lerp(TRACK_SHEEN, THREE.MathUtils.smoothstep(roadWet, 0.1, 0.45));
+      for (const side of [-1, 1]) {
+        wetTracks.add(
+          car.x - fx * TAXI_REAR_AXLE_BACK + rx * side * TAXI_REAR_TRACK,
+          car.z - fz * TAXI_REAR_AXLE_BACK + rz * side * TAXI_REAR_TRACK,
+          car.yaw, strength, hue,
+        );
+      }
+    }
+  } else {
+    lastTrackAt = car.travelled;
+  }
+}
+
 function kickDust() {
   const car = traffic.taxi;
   // The brake joins the boost here for the same reason it lays rubber: the point of both effects is
   // that traction has broken, and a locked wheel throws exactly as much off the road as a spinning
   // one does. It stops on its own the moment the car does — this is paced by distance travelled.
-  if ((!car.boost && !car.braking) || car.v < 2) { lastDustAt = car.travelled; return; }
+  // A wet road throws water, not dust — `wetTyres` has the tyres while the ground under them is wet.
+  const wetOut = (WET_TYRES.spray || WET_TYRES.tracks) && roadWet > WET_DUST_OFF;
+  if ((!car.boost && !car.braking) || car.v < 2 || wetOut) { lastDustAt = car.travelled; return; }
   if (car.travelled - lastDustAt < 0.47) return;
   lastDustAt = car.travelled;
   const fx = Math.cos(car.yaw);
@@ -3501,10 +3646,7 @@ function consumeTitleSkip() {
 const wantsTitle = !shot && !consumeTitleSkip()
   && new URLSearchParams(window.location.search).get('title') !== 'off';
 const title = wantsTitle ? createTitleScreen(document.getElementById('title-screen'), {
-  sound: {
-    isOn: () => Boolean(sfx && !sfx.state.muted),
-    set: (on) => { sfx?.setMuted(!on); paintSound(); },
-  },
+  sound: soundSwitch,
   settings,
   onPlay: beginRun,
 }) : null;
@@ -3572,6 +3714,10 @@ const pause = shot ? null : createPause({
   // Nothing left to hold once the run is over — and the retry screen owns the whole display then.
   // Never asked on the way out: a pause can always be lifted.
   canPause: () => !fares.state.gameOver && !title?.holding(),
+  sound: soundSwitch,
+  settings,
+  // Quit abandons the run: a reload without the "Play again" skip flag lands back on the title.
+  onQuit: () => location.reload(),
   onChange: (paused) => {
     // A pause with the gas still down would resume into a boost the player is no longer holding —
     // the pill's own pointer never comes back up, because the veil took the release. Same reason
@@ -3687,6 +3833,7 @@ function frame() {
   }
   updateBoostButton(dt);
   skids.update(dt);
+  wetTracks.update(dt);
   // Before the dust pool ticks, so a building's ground-burst is at age zero on the frame it fires.
   // The "Add to Home Screen" screen (iOS in a tab) *skips* the entrance outright rather than
   // holding it: the overlay shows the city sunk into black, and a city that hasn't built yet is a
@@ -3702,6 +3849,7 @@ function frame() {
     cityEntry.update(dt);
   }
   dust.update(dt);
+  spray.update(dt);
   blast.update(dt);
   flames.update(dt);
   sparks.update(dt);
@@ -3762,7 +3910,27 @@ function frame() {
   // `traffic.update` left the taxi, and a car taken here is staged before this frame's render pass.
   depotRun?.update(dt);
 
+  // The patrol's ram knocking the busted taxi along (`bustByPolice`). Before `traffic.update`, which
+  // is what draws the taxi where this leaves it; a crashed taxi is otherwise never moved.
+  if (ramShove) {
+    ramShove.age += dt;
+    const k = carryTravel(ramShove.age);
+    traffic.taxi.x = ramShove.x + ramShove.vx * k;
+    traffic.taxi.z = ramShove.z + ramShove.vz * k;
+  }
   traffic.update(dt);
+  // A pass carried the taxi straight through a junction its route wanted to turn at, and the sim
+  // dropped the route there (`detoured` in traffic.js). Re-plan from the far side, through the
+  // same owner a dragged band goes through: a burger run or a depot run knows which way it has to
+  // arrive and the plain `routeTo` does not.
+  if (traffic.taxi.detoured) {
+    traffic.taxi.detoured = false;
+    if (traffic.taxi.pendingTarget) {
+      if (burgerRun?.active()) burgerRun.reroute(null);
+      else if (depotRun?.active()) depotRun.reroute(null);
+      else routeTo(traffic.taxi.pendingTarget);
+    }
+  }
   sfx?.update(dt, traffic.taxi, {
     cruise: SPEED,
     top: boostCruise(),
@@ -4161,6 +4329,7 @@ function frame() {
   }
 
   layRubber(dt);
+  wetTyres(dt);
   kickDust();
   // Down here with the rubber and the dust rather than up with `flames.update`, and for the same
   // reason both of those are: it is pinned to the car's position this frame, not emitted and left
@@ -4861,6 +5030,9 @@ window.__taxi = {
   radio,
   carGhosts,
   skids,
+  // The wet tyres — spray and tracks, `?wet=` (see `wetTyres`).
+  spray,
+  wetTracks,
   police,
   /** The patrol cruiser's life — patrol, chase, leave. See game/patrol.js. */
   patrol,

@@ -364,8 +364,7 @@
          leave a strip of live city showing under themselves. */
       #pause-veil {
         position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 23;
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
-        background: rgba(6, 14, 22, 0.72); color: #fff; text-align: center;
+        background: rgba(6, 14, 22, 0.72); color: #fff; text-align: left;
         font: 500 16px/1.5 var(--game-font);
         touch-action: manipulation;
         user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
@@ -374,34 +373,13 @@
          this the veil covers the city from the first frame. Same trap as #run-end. */
       #pause-veil[hidden] { display: none; }
       body.shot-mode #pause-veil { display: none; }
-      /* The run-end title's type, a size down: this is the same kind of statement — one word on
-         nothing — but it is a state the player chose rather than the end of their run. */
+      /* The menu is the title screen's (Resume, Settings, Quit as plain white words, and Settings
+         the same page) — those rules are shared below under `:is(#title-screen, #pause-veil)`. The
+         word "Paused" is the small header over it, set like the title screen's "‹ Back": it names
+         the state, and the three words under it are what the player came here to press. */
       #pause-veil .pause-title {
-        font-size: clamp(28px, 6.2vh, 46px); font-weight: 800; line-height: 1.1;
-        letter-spacing: -0.01em;
+        font-size: 18px; font-weight: 500; opacity: 0.85; padding: 8px 0; margin-bottom: 2px;
       }
-      /* The same yellow pill as "Play again", because it is the same kind of action: the one thing
-         on the screen that puts the game back in the player's hands. */
-      #pause-veil .pause-resume {
-        margin-top: clamp(16px, 4vh, 34px); padding: 14px 26px; border-radius: 999px;
-        cursor: pointer; border: 2px solid #16120a; background: #F5C130; color: #16120a;
-        font: 800 17px/1 var(--game-font);
-        letter-spacing: 0.02em; white-space: nowrap;
-        transition: transform 0.1s ease;
-      }
-      #pause-veil .pause-resume:active { transform: scale(0.95); }
-      /* The sound switch, under Resume and deliberately quieter than it: an outline rather than the
-         yellow, because it changes a setting rather than handing the game back. Here rather than on
-         the HUD because it is set once and left, and the HUD's top edge has no room to spare. M
-         toggles it from a keyboard (main.js). */
-      #pause-veil .pause-sound {
-        margin-top: 14px; padding: 10px 20px; border-radius: 999px; cursor: pointer;
-        border: 2px solid rgba(255, 255, 255, 0.7); background: transparent; color: #fff;
-        font: 700 15px/1 var(--game-font);
-        letter-spacing: 0.02em; white-space: nowrap;
-        transition: transform 0.1s ease;
-      }
-      #pause-veil .pause-sound:active { transform: scale(0.95); }
 
       /* Earnings fly off the taxi so the payout is visibly connected to the drop-off; the flight
          itself (rise, then travel to the counter) is driven from JS so it can aim at the counter's
@@ -1357,7 +1335,7 @@
       #title-screen[data-view="credits"] .title-scrim { opacity: 1; }
 
       /* Every view is a left-aligned column, vertically centred, inset off the notch in landscape. */
-      #title-screen .title-view {
+      :is(#title-screen, #pause-veil) .title-view {
         position: absolute; inset: 0;
         display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
         padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right))
@@ -1365,83 +1343,83 @@
         overflow-y: auto;
         text-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
       }
-      #title-screen .title-view[hidden] { display: none; }
-      #title-screen button {
+      :is(#title-screen, #pause-veil) .title-view[hidden] { display: none; }
+      :is(#title-screen, #pause-veil) button {
         appearance: none; border: 0; background: none; color: inherit; font: inherit;
         text-shadow: inherit; cursor: pointer; text-align: left;
       }
-      #title-screen button:focus-visible { outline: 3px solid #F5C130; outline-offset: 4px; border-radius: 6px; }
+      :is(#title-screen, #pause-veil) button:focus-visible { outline: 3px solid #F5C130; outline-offset: 4px; border-radius: 6px; }
 
-      #title-screen .title-menu { gap: clamp(6px, 1.6vh, 14px); }
-      #title-screen .title-item {
+      :is(#title-screen, #pause-veil) .title-menu { gap: clamp(6px, 1.6vh, 14px); }
+      :is(#title-screen, #pause-veil) .title-item {
         font-size: clamp(36px, 8.5vh, 64px); font-weight: 700; line-height: 1.05;
         letter-spacing: -0.02em; padding: 4px 0;
         transition: transform 0.12s ease, color 0.12s ease;
         transform-origin: left center;
       }
-      @media (hover: hover) { #title-screen .title-item:hover { color: #F5C130; } }
-      #title-screen .title-item:active { transform: scale(0.96); }
+      @media (hover: hover) { :is(#title-screen, #pause-veil) .title-item:hover { color: #F5C130; } }
+      :is(#title-screen, #pause-veil) .title-item:active { transform: scale(0.96); }
 
       /* A page: the way back above the header, smaller than it, then the header, then the body. */
-      #title-screen .title-back {
+      :is(#title-screen, #pause-veil) .title-back {
         display: inline-flex; align-items: center; gap: 6px;
         font-size: 18px; font-weight: 500; opacity: 0.85;
         padding: 8px 0; margin-bottom: 2px;
       }
-      #title-screen .title-back-chevron { font-size: 26px; line-height: 0.8; translate: 0 -1px; }
-      #title-screen .title-back:active { transform: scale(0.96); }
-      #title-screen .title-header {
+      :is(#title-screen, #pause-veil) .title-back-chevron { font-size: 26px; line-height: 0.8; translate: 0 -1px; }
+      :is(#title-screen, #pause-veil) .title-back:active { transform: scale(0.96); }
+      :is(#title-screen, #pause-veil) .title-header {
         font-size: clamp(34px, 7vh, 52px); font-weight: 700; line-height: 1.05;
         letter-spacing: -0.02em; margin-bottom: clamp(16px, 3.6vh, 30px);
       }
-      #title-screen .title-body { width: min(380px, 100%); }
+      :is(#title-screen, #pause-veil) .title-body { width: min(380px, 100%); }
 
       /* Settings rows: label on the left, its control on the right, one per line. */
-      #title-screen .title-row {
+      :is(#title-screen, #pause-veil) .title-row {
         display: flex; align-items: center; justify-content: space-between; gap: 20px;
         width: 100%; min-height: 52px; padding: 6px 0;
         font-size: 18px; font-weight: 500;
       }
-      #title-screen .title-row + .title-row { border-top: 1px solid rgba(255, 255, 255, 0.16); }
-      #title-screen .title-row.is-asleep input { opacity: 0.4; }
+      :is(#title-screen, #pause-veil) .title-row + .title-row { border-top: 1px solid rgba(255, 255, 255, 0.16); }
+      :is(#title-screen, #pause-veil) .title-row.is-asleep input { opacity: 0.4; }
 
-      #title-screen .title-switch {
+      :is(#title-screen, #pause-veil) .title-switch {
         flex: none; position: relative; width: 50px; height: 30px; border-radius: 999px;
         background: rgba(255, 255, 255, 0.28); transition: background 0.18s ease;
       }
-      #title-screen .title-switch-dot {
+      :is(#title-screen, #pause-veil) .title-switch-dot {
         position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%;
         background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
         transition: translate 0.18s ease;
       }
-      #title-screen .title-toggle[aria-checked="true"] .title-switch { background: #F5C130; }
-      #title-screen .title-toggle[aria-checked="true"] .title-switch-dot { translate: 20px 0; }
+      :is(#title-screen, #pause-veil) .title-toggle[aria-checked="true"] .title-switch { background: #F5C130; }
+      :is(#title-screen, #pause-veil) .title-toggle[aria-checked="true"] .title-switch-dot { translate: 20px 0; }
 
       /* The range input, drawn by hand in both engines' spellings. `--fill` is set from script —
          neither engine has a standard part for the run left of the thumb. `touch-action: none` so
          a horizontal drag on a phone moves the thumb instead of being read as a page gesture. */
-      #title-screen input[type="range"] {
+      :is(#title-screen, #pause-veil) input[type="range"] {
         flex: none; width: min(150px, 42vw); height: 30px; margin: 0;
         appearance: none; -webkit-appearance: none; background: transparent; cursor: pointer;
         touch-action: none; user-select: none; -webkit-user-select: none;
       }
-      #title-screen input[type="range"]::-webkit-slider-runnable-track {
+      :is(#title-screen, #pause-veil) input[type="range"]::-webkit-slider-runnable-track {
         height: 6px; border-radius: 999px;
         background: linear-gradient(to right, #F5C130 var(--fill, 100%), rgba(255, 255, 255, 0.28) var(--fill, 100%));
       }
-      #title-screen input[type="range"]::-moz-range-track {
+      :is(#title-screen, #pause-veil) input[type="range"]::-moz-range-track {
         height: 6px; border-radius: 999px;
         background: linear-gradient(to right, #F5C130 var(--fill, 100%), rgba(255, 255, 255, 0.28) var(--fill, 100%));
       }
-      #title-screen input[type="range"]::-webkit-slider-thumb {
+      :is(#title-screen, #pause-veil) input[type="range"]::-webkit-slider-thumb {
         -webkit-appearance: none; appearance: none; width: 24px; height: 24px; margin-top: -9px;
         border-radius: 50%; background: #fff; border: 0; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
       }
-      #title-screen input[type="range"]::-moz-range-thumb {
+      :is(#title-screen, #pause-veil) input[type="range"]::-moz-range-thumb {
         width: 24px; height: 24px; border-radius: 50%; background: #fff; border: 0;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
       }
-      #title-screen input[type="range"]:focus-visible { outline: 3px solid #F5C130; outline-offset: 4px; border-radius: 6px; }
+      :is(#title-screen, #pause-veil) input[type="range"]:focus-visible { outline: 3px solid #F5C130; outline-offset: 4px; border-radius: 6px; }
 
       /* Credits: role over name, top to bottom. */
       #title-screen .title-credits { display: flex; flex-direction: column; gap: clamp(12px, 2.6vh, 20px); }
@@ -1739,9 +1717,12 @@
       </svg>
     </button>
     <div id="pause-veil" role="dialog" aria-modal="true" aria-label="Paused" aria-hidden="true" hidden>
-      <div class="pause-title">Paused</div>
-      <button class="pause-resume" type="button">Resume</button>
-      <button class="pause-sound" type="button" aria-pressed="true" aria-keyshortcuts="M">Sound: On</button>
+      <nav class="title-view title-menu pause-menu" aria-label="Pause menu">
+        <div class="pause-title">Paused</div>
+        <button class="title-item pause-resume" type="button">Resume</button>
+        <button class="title-item pause-settings" type="button">Settings</button>
+        <button class="title-item pause-quit" type="button">Quit</button>
+      </nav>
     </div>
 
     <!-- The two pedals are the Figma file's drawings, inline because the press reaches inside them:

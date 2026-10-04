@@ -1,5 +1,5 @@
 import {
-  CAR_LEN, TRUCK_LEN, CIRCLE_OFFSET, CIRCLE_R, knockCar, shoveCar,
+  CAR_LEN, TRUCK_LEN, CIRCLE_R, circleOffsetOf, knockCar, shoveCar,
 } from './traffic.js';
 
 // Collision detection between the taxi and ambient cars. Deliberately narrow: only the taxi is
@@ -100,9 +100,10 @@ const TRUCK_PUSH_V = 1.5;          // u/s
 // A truck is 5.6 long against a car's 3.4, and the two circles used to sit at the car's offsets
 // on it too — which left 0.7 of cab and 0.7 of cargo box at either end that nothing tested, and
 // the taxi drove through them. Its circles go out to its own length, and it gets a third in the
-// middle so the pair does not leave a waist.
+// middle so the pair does not leave a waist. The offset lives in traffic.js (`circleOffsetOf`) so
+// the boosting taxi's tailgate steers by the same circles this tests.
 function carCircles(car) {
-  const off = car.isTruck ? TRUCK_LEN * 0.28 : CIRCLE_OFFSET;
+  const off = circleOffsetOf(car);
   const fx = Math.cos(car.yaw) * off;
   const fz = -Math.sin(car.yaw) * off;
   const circles = [
@@ -154,6 +155,28 @@ export function touching(a, b, slack = 0) {
     }
   }
   return false;
+}
+
+/**
+ * Where two bodies that are touching (or nearly) meet: the middle of the gap between their nearest
+ * pair of circles, and the unit normal from `a` towards `b` along it. `penetration` answers null
+ * for two cars sitting exactly at the envelope, which is where resolved contact leaves them, so the
+ * patrol's ram (game/patrol.js) asks this instead to put the bump's effects on the seam.
+ */
+export function contact(a, b) {
+  let best = null;
+  for (const p of carCircles(a)) {
+    for (const q of carCircles(b)) {
+      const dx = q.x - p.x;
+      const dz = q.z - p.z;
+      const d = Math.hypot(dx, dz);
+      if (best && d >= best.d) continue;
+      const nx = d > 1e-6 ? dx / d : Math.cos(a.yaw);
+      const nz = d > 1e-6 ? dz / d : -Math.sin(a.yaw);
+      best = { d, nx, nz, cx: (p.x + q.x) / 2, cz: (p.z + q.z) / 2 };
+    }
+  }
+  return best;
 }
 
 // How long two bodies have to be apart before touching again counts as a new hit. Contact is one

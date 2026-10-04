@@ -1954,6 +1954,29 @@ frame of a crash. **The tint is rewritten on every spawn**, including the untint
 a ring buffer shared with the boost trail, and a slot the collar painted grey comes back round half
 a lap later.
 
+### Wet tyres — `game/spray.js`, plus a second `game/skidmarks.js` pool
+
+On a wet road the taxi's tyres throw water instead of dust (`wetTyres` in `main.js`). "Wet" is the
+ground under the car — the squall's wet map (`squall.wetAt`) or the storm's one city-wide level — so
+it follows the cell's trail rather than the rain itself. `?wet=spray|tracks|both|off` picks the
+parts; `both` is the default.
+
+**Spray** comes off the two rear contact patches the dust uses, but at any speed over 3 u/s rather
+than only under boost: a car on a wet street throws water whether or not it is in a hurry. How much
+scales with speed and wetness, from a dribble to a rooster tail. Two particles out of one pool: soft
+**mist** puffs (the dust's squashed icosahedron, so it lights with the same facets) that read at play
+zoom, and a few small **droplets** thrown high and pulled down hard, which are what make it water
+rather than steam. The material is Lambert with an emissive lift (`waterSprayGlow`): under the cell's
+shade a plain lit white came out the grey-brown of the dust.
+
+**Tracks** are the rubber's streak machinery in a second pool, repainted per stamp: a pale sheen
+(`wetSheen`) on wet asphalt, where the darkened, mirrored road made a dark mark vanish, and a dark
+print (`wetTrack`) on dry road. The treads hold water (`tyreWet`), wrung out over `TREAD_DRY` = 14
+units of dry road, so the taxi prints a short fading trail out past the edge of the wet patch.
+
+While either is on and the ground is wetter than `WET_DUST_OFF` (0.25), the boost and brake dust
+stand down.
+
 ### Landing sparks — `game/sparks.js`
 
 The taxi lands a jump twice in a run at most — off a roadworks barricade, and off the crest of an

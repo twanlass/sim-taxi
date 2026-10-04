@@ -54,11 +54,15 @@ const CHURN_EVERY = 2;
 // what makes the barge read as heavy rather than as a tug with a slower wake.
 const KELVIN = 0.354;
 
-// Where an arm starts, off the boat's centreline. Just inboard of the hull's own `BEAM / 2` = 1.1,
-// so the foam comes off the hull rather than running beside it — and far enough out that the two
+// Where an arm starts, off the boat's centreline, for the narrowest hull. Just inboard of its own
+// half-beam, so the foam comes off the hull rather than running beside it — and far enough out that the two
 // arms are two things. At 0.85 they are 1.7 apart against motes that grow to 1.15, so the pair
 // closed into a single column before it had opened and the V went missing at every framing.
 const ARM_OFF = 1.0;
+// ...and for anything wider, the same tenth of a unit inboard of its own side. A six-unit barge
+// throwing its arms from a metre off the centreline would lay them *under its own deck*, and they
+// would come out from beneath it a hull length astern as a single column rather than a V.
+const armOff = (boat) => Math.max(ARM_OFF, (boat.beam ?? 0) / 2 - 0.1);
 
 // Mote sizes, as diameters: at play zoom 1 unit is 7.7px, so an arm mote goes from 3px to 8px.
 const ARM_SIZE = [0.38, 1.05];
@@ -189,7 +193,7 @@ export function createWake(parent, rng, edges, fade) {
    * Lay one mote. `side` is -1, +1 for an arm and 0 for the churn; `born` is how old it already is,
    * which is 0 for anything the running game spawns and a real age for `prime`.
    */
-  function lay(x, z, dir, speed, side, born = 0) {
+  function lay(x, z, dir, speed, side, born = 0, off = ARM_OFF) {
     const slot = next;
     next = (next + 1) % MAX_FOAM;
     laid += 1;
@@ -203,7 +207,7 @@ export function createWake(parent, rng, edges, fade) {
     span[slot] = LIFE * rng.range(SPAN_JITTER[0], SPAN_JITTER[1]);
     age[slot] = born;
     x0[slot] = x;
-    z0[slot] = z + (arm ? side * ARM_OFF : rng.jitter(0.3));
+    z0[slot] = z + (arm ? side * off : rng.jitter(0.3));
     zRate[slot] = rate;
     drift[slot] = arm ? 0 : -dir * CHURN_DRIFT * rng.range(0.7, 1.2);
     from[slot] = (arm ? ARM_SIZE[0] : CHURN_SIZE[0]) * rng.range(0.85, 1.15);
@@ -225,8 +229,8 @@ export function createWake(parent, rng, edges, fade) {
     // an 8.6-unit barge — hung off the origin instead, a barge's foam appears four units inside its
     // own hull.
     const sx = boat.x - boat.dir * boat.len / 2;
-    lay(sx, boat.z, boat.dir, boat.speed, -1);
-    lay(sx, boat.z, boat.dir, boat.speed, 1);
+    lay(sx, boat.z, boat.dir, boat.speed, -1, 0, armOff(boat));
+    lay(sx, boat.z, boat.dir, boat.speed, 1, 0, armOff(boat));
     if (count % CHURN_EVERY === 0) lay(sx, boat.z, boat.dir, boat.speed, 0);
   }
 
@@ -272,8 +276,8 @@ export function createWake(parent, rng, edges, fade) {
       const back = (steps - k) * SPAWN_STEP;
       const sx = boat.x - boat.dir * (back + boat.len / 2);
       const born = back / boat.speed;
-      lay(sx, boat.z, boat.dir, boat.speed, -1, born);
-      lay(sx, boat.z, boat.dir, boat.speed, 1, born);
+      lay(sx, boat.z, boat.dir, boat.speed, -1, born, armOff(boat));
+      lay(sx, boat.z, boat.dir, boat.speed, 1, born, armOff(boat));
       if (k % CHURN_EVERY === 0) lay(sx, boat.z, boat.dir, boat.speed, 0, born);
     }
     foam.carry = 0;

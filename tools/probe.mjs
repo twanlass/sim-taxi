@@ -164,7 +164,7 @@ import {
   WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR, TUG_AIR, ARCH_RISE, DECK_THICK,
 } from '../src/city/river.js';
 import { createBridge, abutmentParts } from '../src/geometry/bridge.js';
-import { createBargeMesh, createTugMesh, BEAM } from '../src/geometry/boat.js';
+import { createBargeMesh, createTugMesh } from '../src/geometry/boat.js';
 import { createDrawbridge, OPEN_SECONDS } from '../src/game/drawbridge.js';
 import { createBoats, BOAT_LANE, LANE_WANDER } from '../src/game/boats.js';
 import { FOAM_LIFE } from '../src/game/wake.js';
@@ -190,7 +190,7 @@ import {
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
 import { createRunTracker, RUNS, LOCO_SHARE, PERFECT_MIN_BOOST, STEALTH_RANGE } from '../src/game/runs.js';
-import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS } from '../src/game/sfx.js';
+import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
 const seed = Number(process.argv[2] ?? 71624);
@@ -4483,6 +4483,41 @@ check('no two cars occupy the same space', worst > 1.6,
     truckFlee === 0 && truckTop > 0 && truckTop < 0.7,
     `scatter envelope peaked at ${truckFlee.toFixed(2)}, speed at ${truckTop.toFixed(2)}x cruise`);
 
+  // 1c. A route that turns at the junction ahead, and a slow car or truck in front of it. That used
+  // to refuse the pass, and a taxi with hit points and no pass on offer rams (`rams` in
+  // traffic.js): a car got launched clear, a truck got hit again and again — "it just keeps
+  // ramming him". The pass goes ahead now, the taxi carries straight on through the junction it
+  // was meant to turn at, and the route is dropped for main.js to re-plan (`detoured`).
+  const turnStage = (asTruck) => {
+    const rTraffic = createTraffic(makeRng(seed + 107), new THREE.Scene(), 2);
+    const [rTaxi, rLead] = rTraffic.cars;
+    rLead.isTruck = asTruck;
+    place(rTaxi, dIn, 12);
+    place(rLead, dIn, 4);
+    rTaxi.route = [leftOf(dIn)];
+    rLead.route = [dIn];
+    rTaxi.hp = TAXI_HP;
+    const rCollisions = createCollisions(rTraffic.cars, rTaxi);
+    let hits = 0;
+    let peak = 0;
+    let detoured = false;
+    rCollisions.onBump(() => { hits += 1; });
+    for (let f = 0; f < 60 * 4; f++) {
+      rTaxi.boost = true;
+      rTraffic.update(1 / 60);
+      rCollisions.update(1 / 60);
+      peak = Math.max(peak, rTaxi.pass);
+      detoured ||= Boolean(rTaxi.detoured);
+    }
+    return { hits, peak, detoured };
+  };
+  for (const asTruck of [false, true]) {
+    const r = turnStage(asTruck);
+    check(`a route turning ahead does not stop the taxi passing a ${asTruck ? 'truck' : 'car'}`,
+      r.hits === 0 && r.peak > 0.95 && r.detoured,
+      `${r.hits} bumps, pass peaked at ${r.peak.toFixed(2)}, detoured=${r.detoured}`);
+  }
+
   // 2. A boosting taxi turning left used to stop dead under a green: the oncoming lane shares its
   // axis, so it kept its green, and the left-turn yield then refused to let the taxi go — waiting
   // on a car that was itself waiting. The priority hold now denies that one direction (`block` in
@@ -4679,6 +4714,8 @@ check('no two cars occupy the same space', worst > 1.6,
       placeCar(lead, pD, pI, pJ, STOP_SETBACK); lead.parked = true;
       placeCar(car, pD, pI, pJ, STOP_SETBACK + MIN_GAP); car.parked = false;
       car.v = 0; lead.v = 0;
+      // Nobody in front: the leader parked on the far side of the road instead.
+      if (opts.alone) { placeCar(lead, opposite(pD), pI, pJ, STOP_SETBACK); lead.parked = true; lead.v = 0; }
     } else {
       placeCar(car, pD, pI, pJ, 26); car.parked = false;
       placeCar(lead, pD, pI, pJ, 14); lead.parked = false;
@@ -4829,8 +4866,10 @@ check('no two cars occupy the same space', worst > 1.6,
   // must not become the weave's old bug — an offset that slides a stationary car sideways for as
   // long as it sits there. A settled `pass` has nothing in flight, so it gets no credit: a taxi
   // held at a red with the button *down* and no reason to pull out stays exactly on its lane
-  // centre. (The weave has its own envelope and is separately asserted above.)
-  const noReason = runOvertake(true, [leftOf(pD), pD, pD], { standing: true });
+  // centre. (The weave has its own envelope and is separately asserted above.) "No reason" was a
+  // route turning left at the junction ahead, until a turning route stopped refusing the pass
+  // (`turnsAhead` in traffic.js); it is an empty road in front now.
+  const noReason = runOvertake(true, [leftOf(pD), pD, pD], { standing: true, alone: true });
   check('a standing taxi with no pass to make does not drift out of its lane',
     pD >= 0 && noReason.peak < 0.02,
     `reached ${(noReason.peak * 2 * LANE).toFixed(2)} units across`);
@@ -9289,8 +9328,14 @@ check('the taxi is an ordinary car in the traffic array',
   const taken = new Set(Object.values(SOUNDS).flat());
   const unwired = [...taken].filter((f) => !(f in files) || !onDisk.includes(f));
   check('every take a sound names is a shipped .m4a', unwired.length === 0, unwired.join(', '));
-  const orphans = onDisk.filter((f) => !taken.has(f));
-  check('every shipped .m4a is some sound\'s take', orphans.length === 0, orphans.join(', '));
+  const tracks = [RADIO.intro, ...RADIO.songs];
+  const offAir = tracks.filter((f) => !(f in createSfx().radioFiles) || !onDisk.includes(f)
+    || !(RADIO.seconds[f] > 0) || !(RADIO.gain[f] > 0));
+  check('every radio track is a shipped .m4a with a length and a level', offAir.length === 0,
+    offAir.join(', '));
+  const orphans = onDisk.filter((f) => !taken.has(f) && !tracks.includes(f));
+  check('every shipped .m4a is some sound\'s take or a radio track', orphans.length === 0,
+    orphans.join(', '));
   const unsorted = Object.keys(SOUNDS).filter((k) => !SFX_EVENTS.has(k) && !LOOPS.has(k));
   check('every sound is either a one-shot or a bed', unsorted.length === 0, unsorted.join(', '));
 
@@ -16827,12 +16872,13 @@ let chopperOrder; // likewise
     const boats = createBoats(rScene, makeRng(seed + 840), bridge);
     let lowest = 1;
     let shutFrames = 0;
-    // Two hulls in the same water, and a mast through a soffit. Both were live before boats were
-    // given lanes: direction and lateral position were independent draws, so an up-river and a
-    // down-river boat shared the channel about four times in five.
+    // Two hulls in the same water, and a mast through a soffit. The river is single file now — a
+    // barge fills three quarters of the channel — so keeping hulls apart is the launch schedule's
+    // job, and what is measured is the closest any two boats came end to end.
     let worstGap = Infinity;
     let worstAir = Infinity;
-    let bothWays = false;
+    let headOn = 0;
+    let pairs = 0;
     // The wake, which is a pool of motes lying on the water rather than a triangle towed behind
     // each hull. Three things are worth a number over a five-minute soak: how far the foam gets
     // from the middle of the channel, whether it stays on the surface, and how much of the pool the
@@ -16850,7 +16896,7 @@ let chopperOrder; // likewise
         peakFoam = Math.max(peakFoam, foam.length);
         for (const mote of foam) {
           // **The bank is the bound, and it is tighter than it sounds.** The water is 7.87 units
-          // across on the narrow build against a lane that already sits 1.6 off the middle, so
+          // across on the narrow build against a barge whose arms start 2.9 off the middle, so
           // there is about a unit of open water outboard of a hull. Arms left to open on the
           // Kelvin angle alone are over the embankment inside a second and a half, and foam lying
           // on a stone walkway is as wrong as this effect goes.
@@ -16876,12 +16922,10 @@ let chopperOrder; // likewise
           if (Math.abs(boat.x - bridge.span.cx) < 5) lowest = Math.min(lowest, bridge.state.lift);
         }
         for (const other of boats.boats) {
-          if (other === boat || other.dir === boat.dir) continue;
-          bothWays = true;
-          // Only a pair that actually meets can collide: hulls overlapping in x is the condition,
-          // and then the beam gap in z is what has to stay positive.
-          if (Math.abs(other.x - boat.x) > (other.len + boat.len) / 2) continue;
-          worstGap = Math.min(worstGap, Math.abs(other.z - boat.z) - BEAM);
+          if (other === boat) continue;
+          pairs += 1;
+          if (other.dir !== boat.dir) headOn += 1;
+          worstGap = Math.min(worstGap, Math.abs(other.x - boat.x) - (other.len + boat.len) / 2);
         }
       }
     }
@@ -16957,11 +17001,11 @@ let chopperOrder; // likewise
 
     check('a tug is never inside the span unless the leaf is fully up', lowest > 0.99,
       `lowest lift with a tug in the span: ${lowest.toFixed(3)}`);
-    check('boats going opposite ways pass rather than share a lane',
-      bothWays && worstGap > 0,
-      bothWays
-        ? `closest passing hulls left ${worstGap.toFixed(2)} units of water between them`
-        : 'no two boats ever met head-on, so nothing was tested');
+    check('single file: boats never meet head-on and never close up end to end',
+      pairs > 0 && headOn === 0 && worstGap > 2,
+      pairs > 0
+        ? `${headOn} frames with boats going opposite ways, closest ${worstGap.toFixed(2)} units bow to stern`
+        : 'never two boats on the river at once, so nothing was tested');
     // The margin is thin by design — every unit outboard is clearance spent — so it is asserted on
     // the **widest lane the generator can hand out**, not on whatever the soak happened to draw.
     // That distinction is the whole check: the old free-for-all put roughly one tug in twenty
