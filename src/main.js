@@ -121,6 +121,7 @@ import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders } from './game/sightline.js';
 import { createBootleg } from './game/bootleg.js';
+import { createNewMove, createSeenFlag, AFTER_DELIVERED, SHOW_DELAY } from './game/newmove.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
@@ -3166,7 +3167,7 @@ window.addEventListener('keydown', (event) => {
   if (parked()) return;
   // The robber's line takes Space as its own answer (game/robberline.js). Registered after this
   // one, so this has to stand down for it rather than the other way round.
-  if (robberLine?.isOpen()) return;
+  if (robberLine?.isOpen() || newMove?.isOpen()) return;
   // A paused run takes no input at all. `frame()` returns before `boost.update`, so a press behind
   // the veil would sit in 'active' burning nothing and then resume into a launch the player never
   // asked for — the mirror image of the release `createPause`'s `onChange` does on the way in. The
@@ -3196,7 +3197,7 @@ window.addEventListener('keydown', (event) => {
   if (event.code !== 'KeyB' || event.repeat) return;
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   if (keyIsSpokenFor(event.target, brakeButton)) return;
-  if (parked() || pause?.state.paused || robberLine?.isOpen()) return;
+  if (parked() || pause?.state.paused || robberLine?.isOpen() || newMove?.isOpen()) return;
   event.preventDefault();
   brakeKeyHeld = true;
   holdBrake();
@@ -3608,6 +3609,39 @@ const pause = shot ? null : createPause({
   },
 });
 
+// "New Move Unlocked": the card that teaches the bootleg, once ever, a beat after the drop-off that
+// brings a run to AFTER_DELIVERED fares. The world stops while it is up — the early return in
+// `frame()` beside the robber's line's. See game/newmove.js for when and why.
+const uturnSeen = createSeenFlag();
+const newMove = shot ? null : createNewMove();
+// Seconds of game time until the card lands, or negative when none is due.
+let newMoveIn = -1;
+/**
+ * Is this run one the card may still be shown in? The tips setting and debug mode turn it off the
+ * way they turn off the opening tutorial (read live: the setting can flip on the title screen), and
+ * it waits out the tutorial's Loco Mode beat — a move built on Loco Mode means nothing to someone
+ * who has not been shown it yet.
+ */
+const newMoveWanted = () => Boolean(newMove) && !uturnSeen.get() && wantsTutorial
+  && settings.get().tips && (!tutorial || tutorial.state.step === 'done');
+/**
+ * Is now a calm beat? Checked when the delay runs out rather than at the drop-off, because the
+ * drop-off of a robber *starts* a patrol chase, and anything that has taken the taxi or the screen
+ * in the meantime outranks a lesson. A beat that is not calm is skipped, and the next drop-off
+ * tries again.
+ */
+const newMoveCalm = () => !fares.state.gameOver && !traffic.taxi.crashed
+  && !robbery?.state.active && !patrol.busy() && !robberLine?.isOpen()
+  && !opening?.visiting() && !depotRun?.active() && !burgerRun?.holdsTaxi()
+  && !replay?.active() && replayAt === null;
+function openNewMove() {
+  if (!newMove?.open()) return false;
+  uturnSeen.set();
+  // Same releases as the pause, for the same reason: the card takes the release of anything held.
+  boost.release(); releaseBrake(); dropPedalGesture(); bootleg.reset();
+  return true;
+}
+
 const clock = new THREE.Clock();
 
 function frame() {
@@ -3622,7 +3656,8 @@ function frame() {
   // drawn: with `preserveDrawingBuffer` off, a resize or a rotation with the veil up repaints the
   // canvas from an empty buffer, and the city would blink out until the player resumed.
   // The sound stops with the world — both of the early returns below — and starts with it again.
-  sfx?.hold(Boolean(pause?.state.paused || robberLine?.isOpen() || inspect?.state.on));
+  sfx?.hold(Boolean(pause?.state.paused || robberLine?.isOpen() || newMove?.isOpen()
+    || inspect?.state.on));
   if (pause?.state.paused) {
     renderFrame();
     return;
@@ -3640,6 +3675,11 @@ function frame() {
   // passing. See game/robberline.js for why this beat stops the world rather than running over it.
   if (robberLine?.isOpen()) {
     robberLine.update(dt);
+    renderFrame();
+    return;
+  }
+  // The New Move card: the same freeze, and nothing ticks — the card's loop is CSS.
+  if (newMove?.isOpen()) {
     renderFrame();
     return;
   }
@@ -3968,6 +4008,10 @@ function frame() {
     if (fares.state.gameOver) depotCall.hide();
     depotCall.update(dt);
   }
+  if (newMoveIn > 0) {
+    newMoveIn -= dt;
+    if (newMoveIn <= 0 && newMoveWanted() && newMoveCalm()) openNewMove();
+  }
   if (radioIn > 0) {
     radioIn -= dt;
     // A getaway over before dispatch got a word in — a wreck in the first second and a half — has
@@ -4002,6 +4046,7 @@ function frame() {
       // target and `depotRun.update` stands down on the next frame. A car already staged in the
       // driveway finishes its visit and `resumeJob` hands it the drop-off on the way out.
     } else if (type === 'delivered') {
+      if (fares.state.delivered >= AFTER_DELIVERED && newMoveWanted()) newMoveIn = SHOW_DELAY;
       // Out they get: open, and shut a beat later once they are clear of the car.
       sfx?.play('doorOpen');
       sfx?.play('doorClose', { delay: 0.7 });
@@ -4905,6 +4950,14 @@ window.__taxi = {
   patrol,
   /** The brake-tap spin (game/bootleg.js) — `spin()` fires one, `state` tallies them. */
   bootleg,
+  /**
+   * The bootleg's "New Move Unlocked" card (game/newmove.js), null in shot mode. `open()` shows it
+   * now, whatever the gates say; `seen` is the remembered flag, `wanted`/`calm` the two gates.
+   */
+  newMove: newMove && {
+    open: openNewMove, isOpen: newMove.isOpen, close: newMove.close,
+    seen: uturnSeen, wanted: newMoveWanted, calm: newMoveCalm, due: () => newMoveIn,
+  },
   fares,
   /** The package courier, or null under `?parcels=0` and in shot mode. See game/parcels.js. */
   parcels,

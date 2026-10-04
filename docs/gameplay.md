@@ -429,6 +429,27 @@ for free rather than hunting the board for their car.
 `?tutorial=off` skips the whole thing, and shot mode never runs it: a screenshot has nobody to
 teach, and the bubble would be the loudest thing in every frame.
 
+## New Move Unlocked: the U-turn card
+
+The bootleg (boost, then two quick brake taps — `game/bootleg.js`) is the one input nobody finds by
+looking, so it gets a card of its own (`game/newmove.js`, `#new-move` in index.html): an eyebrow,
+"U-Turn", and the HUD's own pedal art — cloned off the live buttons — playing the sequence on a
+3.6s loop. Each key starts dimmed and comes up to full colour as it is pressed, so the order things
+light up in *is* the instruction: boost held for 1.15s, then the two brake taps 0.29s apart, inside
+the 350ms combo window.
+
+- **When:** a beat (0.9s) after the drop-off that brings a run to two fares — robbery.js's
+  `MIN_DELIVERED`, the first moment a chase can happen, which is what the move is for. It waits out
+  the opening tutorial's Loco Mode beat, and skips any drop-off that is not calm (a delivered robber
+  hands the taxi a patrol chase, a depot visit, a wreck); the next drop-off tries again.
+- **Once, ever.** Remembered under `simTaxi.seen.uturn`, unlike the opening tutorial: a card calling
+  a move "new" on every retry is lying by the second one. A store that throws costs the memory, so
+  it shows once per visit instead.
+- **The world stops** under it, like the robber's line, and any tap clears it after a 0.7s guard
+  (it lands mid-run, under a thumb that may be tapping the city).
+- The tips setting, debug mode and `?tutorial=off` all turn it off. `__taxi.newMove.open()` shows
+  it on demand; clear the key to see it again in play.
+
 ## The fare loop
 
 `src/game/fares.js`. Each fare is its own little machine — `waiting → riding → gone` — carrying its
