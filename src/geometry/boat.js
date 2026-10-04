@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor } from '../util/geo.js';
+import { bakeColor, setFinish, FINISH } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
 import { BARGE_AIR, TUG_AIR } from '../city/river.js';
 
@@ -22,10 +22,11 @@ import { BARGE_AIR, TUG_AIR } from '../city/river.js';
 // sized off the **water**, which is the thing they are seen against: the water is 9.2 across on an
 // ordinary channel and 7.87 where one bank is an arterial, and a working barge fills most of it.
 
-/** Barge: six units of beam is 76% of the narrow channel's water and 65% of the wide one's — three
- *  and a half cars abreast. Sixteen long is getting on for five cars nose to tail. */
-export const BARGE_LEN = 16;
-export const BARGE_BEAM = 6.0;
+/** Barge: half the water across — 4.2 against 9.2, or 7.87 where one bank is an arterial — and
+ *  eleven long, a little over three cars. It was 16 × 6 for a while, three quarters of the channel,
+ *  which read as big and also as a slab; a trash barge wants to be a *heap* with a boat under it. */
+export const BARGE_LEN = 11;
+export const BARGE_BEAM = 4.2;
 /** Sailboat: a thirty-footer at car scale. Not much longer than the old tug — what grew is the mast. */
 export const TUG_LEN = 6.0;
 export const TUG_BEAM = 2.4;
@@ -102,112 +103,224 @@ function spar(z0, z1, r0, r1, y, col, sides = 8) {
 
 // --- The barge ---------------------------------------------------------------
 //
-// A **deck barge**: a flat steel box raked up at both ends, with whatever it is carrying stood on
-// top in the open. The first cut was a hull with three grey lozenges down the middle, which read
-// as "a boat-shaped thing" and nothing more specific; what makes a barge a barge is its *load*, and
-// the load is where the variety goes. Every barge picks its own mix of containers and crates, so
-// the river is never the same boat twice.
+// A **trash barge**: a rusty scow heaped with rubbish, a wheelhouse at the stern and gulls working
+// the pile (`game/gulls.js`). It was a deck barge with containers, which was tidy and read as
+// nothing in particular; a heap of bin bags with birds over it is a joke the player gets from
+// across the map.
 
-const BARGE_FREEBOARD = 0.45;
+// Low in the water, the way a laden scow sits — and every unit the deck comes down is a unit the
+// wheelhouse can stand taller under the same flat soffit.
+const BARGE_FREEBOARD = 0.32;
 const BARGE_DRAFT = 0.3;
-// Square in plan, raked at both ends: a scow. The bow is drawn in only slightly — a barge that
-// came to a point would be a ship.
-const BARGE_PLAN = [0.95, 1, 1, 1, 1, 1, 1, 1, 0.92];
-const BARGE_RAKE = [0.24, 0, 0, 0, 0, 0, 0, 0, 0.27];
+// Square at the stern, **rounded at the bow**: twenty stations, so the last few can follow a
+// quarter-ellipse over `BOW_ROUND` of the length rather than one raked step. It stops at a 0.38
+// beam fraction instead of a point — a barge that came to a point would be a ship.
+const BARGE_STATIONS = 21;
+const BOW_ROUND = 2.4;
+const BARGE_PLAN = [];
+const BARGE_RAKE = [];
+for (let k = 0; k < BARGE_STATIONS; k++) {
+  const z = (k / (BARGE_STATIONS - 1) - 0.5) * BARGE_LEN;     // stern -L/2 to bow +L/2
+  const toBow = BARGE_LEN / 2 - z;
+  const u = Math.max(0, 1 - toBow / BOW_ROUND);             // 0 aft of the round, 1 at the stem
+  BARGE_PLAN.push(k === 0 ? 0.95 : 0.38 + 0.62 * Math.sqrt(1 - u * u));
+  BARGE_RAKE.push(k === 0 ? 0.2 : 0.24 * u * u);
+}
+/** Half the hull's beam at hull-frame `z`, off the same plan — for anything placed near the side. */
+const halfBeamAt = (z) => {
+  const k = Math.round((z / BARGE_LEN + 0.5) * (BARGE_STATIONS - 1));
+  return (BARGE_BEAM / 2) * BARGE_PLAN[Math.max(0, Math.min(BARGE_STATIONS - 1, k))];
+};
 const BARGE_DECK_Y = BARGE_FREEBOARD + 0.05;   // top of the deck lid, where the load stands
 
-// A container. **Squat by necessity, not by choice**: at car scale a real box would stand 1.95
-// tall, and everything on a barge has to fit under `BARGE_AIR` (1.4) — the flat span's soffit is
-// 1.65 off the water, and a barge that needed the lift would be a second sailboat. So it keeps a
-// real container's *plan* (a 40-footer is 2.4 times as long as it is wide, which is most of what
-// makes a box read as a container rather than as a crate) and gives up height: one tier, 0.8 tall.
-const BOX_W = 1.3;
-const BOX_H = 0.8;
-const BOX_L = 3.0;
-const BOX_GAP = 0.1;
+/**
+ * How high a gull may stand, measured to its feet. Everything on this hull has to clear the flat
+ * span's soffit, 1.65 off the water (`FLAT_SOFFIT - WATER_Y`), and a gull perched on the heap rides
+ * under it with the barge — so the heap is capped low enough that a bird standing on top of it
+ * still fits. `GULL_STAND` is the bird's own height (game/gulls.js asserts the sum in the probe).
+ */
+export const GULL_STAND = 0.34;
+export const PERCH_CEIL = 1.62 - GULL_STAND;
+
+// The wheelhouse, at the stern. It is **not** a perch: it stands to `BARGE_AIR`, above the heap's
+// ceiling, so a gull on its roof would put its head through the flat span.
+const HOUSE_Z = -BARGE_LEN / 2 + 1.05;
+const HOUSE_D = 1.25;
+const HOUSE_W = 1.9;
 
 /**
- * The barge: wide, flat, and carrying a load low enough to pass under everything.
+ * The barge: a scow, a heap and a wheelhouse, all under `BARGE_AIR`.
  *
- * The load is kept **under `BARGE_AIR`** and capped against it rather than trusted to stay there —
- * the whole point of this hull is that it never asks for the bridge, and a box one tier higher
- * would make it the boat that does.
+ * Returns the geometry with `userData.perches` — points on top of the heap and on the bow, in the
+ * hull's own frame (bow toward +Z), for the gulls to land on — and `userData.house`, the
+ * wheelhouse, which game/boats.js draws as a mesh of its own in the cars' metal finish.
  */
 export function createBargeMesh(rng) {
-  const hullCol = jitterColor(PALETTE.bargeHull, rng, { l: 0.03 });
-  const deckCol = jitterColor(PALETTE.boatDeck, rng, { l: 0.03 });
+  const hullCol = jitterColor(PALETTE.trashHull, rng, { l: 0.03 });
+  const deckCol = jitterColor(PALETTE.trashGrime, rng, { l: 0.03 });
+  const ceil = Math.min(BARGE_AIR - 0.02, PERCH_CEIL);
+  const perches = [];
 
   const parts = [
     hullPiece(BARGE_LEN, BARGE_BEAM, -BARGE_DRAFT, BARGE_FREEBOARD, BARGE_PLAN, BARGE_RAKE, hullCol),
-    deckLid(BARGE_LEN, BARGE_BEAM, 0.18, BARGE_FREEBOARD, BARGE_PLAN, deckCol),
+    deckLid(BARGE_LEN, BARGE_BEAM, 0.14, BARGE_FREEBOARD, BARGE_PLAN, deckCol),
   ];
 
-  const ceil = BARGE_AIR - 0.02;
-  const boxH = Math.min(BOX_H, ceil - BARGE_DECK_Y);
+  // A low bulwark round the deck, a shade darker than the hull, so the heap sits *in* something.
+  const wall = jitterColor(PALETTE.trashHull, rng, { l: 0.02 }).offsetHSL(0, 0, -0.04);
+  // Straight down the sides, then round the bow on the hull's own curve in short pieces.
+  const wallZ0 = -BARGE_LEN / 2 + 0.6;
+  const wallZ1 = BARGE_LEN / 2 - BOW_ROUND;
+  for (const side of [-1, 1]) {
+    parts.push(block(0.12, 0.22, wallZ1 - wallZ0, side * (BARGE_BEAM / 2 - 0.2), BARGE_DECK_Y,
+      (wallZ0 + wallZ1) / 2, wall));
+  }
+  const ring = [];
+  for (let k = 0; k <= 8; k++) {
+    const z = wallZ1 + (k / 8) * (BOW_ROUND - 0.25);
+    ring.push(z);
+  }
+  for (const side of [-1, 1]) {
+    for (let k = 0; k < ring.length - 1; k++) {
+      const a = new THREE.Vector3(side * (halfBeamAt(ring[k]) - 0.2), BARGE_DECK_Y + 0.11, ring[k]);
+      const b = new THREE.Vector3(side * (halfBeamAt(ring[k + 1]) - 0.2), BARGE_DECK_Y + 0.11, ring[k + 1]);
+      parts.push(rod(a, b, 0.17, wall));
+    }
+  }
+  const stem = ring[ring.length - 1];
+  parts.push(block((halfBeamAt(stem) - 0.2) * 2 + 0.12, 0.22, 0.12, 0, BARGE_DECK_Y, stem, wall));
 
-  // A barge has a *character*: mostly boxes, mostly crates, or a mix. Drawn once per hull, so two
-  // barges in a row differ in kind and not just in which slot is which colour.
-  const boxShare = rng.pick([0.9, 0.6, 0.25]);
-  const palette = PALETTE.bargeContainers;
-
-  // Rows across the deck, a container long, from just ahead of the wheelhouse to the bow rake.
-  const across = Math.floor((BARGE_BEAM - 0.5 + BOX_GAP) / (BOX_W + BOX_GAP));
-  const fore = BARGE_LEN / 2 - 0.9;
-  const aft = -BARGE_LEN / 2 + 2.2;
-  const rows = Math.floor((fore - aft + 0.15) / (BOX_L + 0.15));
-  const run = rows * (BOX_L + 0.15) - 0.15;
-  const z0 = (fore + aft) / 2 - run / 2;
-  const xAt = (c) => (c - (across - 1) / 2) * (BOX_W + BOX_GAP);
-
-  for (let r = 0; r < rows; r++) {
-    const zc = z0 + r * (BOX_L + 0.15) + BOX_L / 2;
-    if (rng.chance(boxShare)) {
-      for (let c = 0; c < across; c++) {
-        if (rng.chance(0.05)) continue;              // a gap where one has been lifted off
-        if (rng.chance(0.3)) {
-          // Two 20-footers end to end in place of one 40.
-          const half = (BOX_L - BOX_GAP) / 2;
-          for (const end of [-1, 1]) {
-            if (rng.chance(0.05)) continue;
-            parts.push(block(BOX_W, boxH, half, xAt(c), BARGE_DECK_Y, zc + end * (half + BOX_GAP) / 2,
-              jitterColor(rng.pick(palette), rng, { l: 0.04, s: 0.03 })));
-          }
-        } else {
-          parts.push(block(BOX_W, boxH, BOX_L, xAt(c), BARGE_DECK_Y, zc,
-            jitterColor(rng.pick(palette), rng, { l: 0.04, s: 0.03 })));
-        }
-      }
-    } else {
-      // Loose crates on a grid, some missing and some smaller stood on top, each a little off
-      // square. A stack only goes up if it still clears the ceiling.
-      const crateCol = PALETTE.bargeCrate;
-      const nx = across + 1;
-      const nz = 4;
-      for (let cx = 0; cx < nx; cx++) {
-        for (let cz = 0; cz < nz; cz++) {
-          if (rng.chance(0.22)) continue;
-          const sz = rng.range(0.5, 0.72);
-          const x = (cx - (nx - 1) / 2) * ((BARGE_BEAM - 1.2) / (nx - 1)) + rng.jitter(0.08);
-          const z = zc + (cz - (nz - 1) / 2) * 0.75 + rng.jitter(0.06);
-          parts.push(block(sz, sz, sz, x, BARGE_DECK_Y, z, jitterColor(crateCol, rng, { l: 0.06, s: 0.02 })));
-          const s2 = sz * rng.range(0.6, 0.8);
-          if (rng.chance(0.3) && BARGE_DECK_Y + sz + s2 < ceil) {
-            parts.push(block(s2, s2, s2, x + rng.jitter(0.05), BARGE_DECK_Y + sz, z + rng.jitter(0.05),
-              jitterColor(crateCol, rng, { l: 0.06, s: 0.02 })));
-          }
-        }
-      }
+  // Tyres slung over the side as fenders — the detail in every picture of a working barge, and at
+  // play zoom a row of dark dots along the waterline that says "boat" rather than "box".
+  const fenders = 5;
+  for (let k = 0; k < fenders; k++) {
+    // Along the straight sides only: a tyre hung where the bow rounds in would hang in the air.
+    const z = -BARGE_LEN / 2 + 1.2 + (k * (BARGE_LEN - BOW_ROUND - 1.8)) / (fenders - 1);
+    for (const side of [-1, 1]) {
+      const tyre = new THREE.CylinderGeometry(0.2, 0.2, 0.12, 8);
+      tyre.rotateZ(Math.PI / 2);
+      tyre.translate(side * (BARGE_BEAM / 2 + 0.05), BARGE_FREEBOARD - 0.22, z + rng.jitter(0.15));
+      parts.push(bakeColor(tyre, PALETTE.trashTyre));
     }
   }
 
-  // The wheelhouse at the stern, because something has to be steering it — pale, with a dark band
-  // of windows round it, so it reads as a cabin rather than as one more crate.
-  const houseZ = -BARGE_LEN / 2 + 1.25;
-  const houseH = Math.min(0.78, ceil - BARGE_DECK_Y);
-  parts.push(block(2.8, houseH, 1.5, 0, BARGE_DECK_Y, houseZ, deckCol));
-  parts.push(block(2.83, 0.18, 1.53, 0, BARGE_DECK_Y + houseH - 0.32, houseZ, PALETTE.rigging));
+  // --- The heap. A low mound first, so no deck shows between the pieces, then the rubbish on it.
+  const z0 = HOUSE_Z + HOUSE_D / 2 + 0.25;
+  const z1 = BARGE_LEN / 2 - 1.3;   // short of the round, where the hull is still near full beam
+  const zc = (z0 + z1) / 2;
+  const az = (z1 - z0) / 2;
+  const ax = BARGE_BEAM / 2 - 0.4;
+  const peak = ceil - BARGE_DECK_Y;
+  const mound = new THREE.IcosahedronGeometry(1, 1);
+  mound.scale(ax * 0.92, peak * 0.7, az * 0.95);
+  mound.translate(0, BARGE_DECK_Y, zc);
+  // Only the top half is wanted, and a scale cannot cut it — so the lower vertices are pressed flat
+  // onto the deck. Moving a vertex up to a height still under its neighbours turns nothing over.
+  const mp = mound.attributes.position;
+  for (let k = 0; k < mp.count; k++) {
+    if (mp.getY(k) < BARGE_DECK_Y) mp.setY(k, BARGE_DECK_Y - 0.02);
+  }
+  parts.push(bakeColor(mound, PALETTE.trashHeap));
 
-  return merge(parts);
+  // The dome the pieces follow: full height at the middle, nothing at the edges.
+  const heightAt = (x, z) => {
+    const u = 1 - (x / ax) ** 2;
+    const v = 1 - ((z - zc) / az) ** 2;
+    return u > 0 && v > 0 ? peak * Math.sqrt(u * v) : 0;
+  };
+  const kinds = [
+    { w: 0.7, col: PALETTE.trashBag, shape: 'bag' },
+    { w: 0.7, col: PALETTE.trashBag, shape: 'bag' },
+    { w: 0.7, col: PALETTE.trashBag, shape: 'bag' },
+    { w: 0.65, col: PALETTE.trashBagGreen, shape: 'bag' },
+    { w: 0.6, col: PALETTE.trashWhite, shape: 'bag' },
+    { w: 0.6, col: PALETTE.trashBox, shape: 'box' },
+    { w: 0.6, col: PALETTE.trashBox, shape: 'box' },
+    { w: 0.45, col: PALETTE.trashJunk, shape: 'box' },
+    { w: 0.5, col: PALETTE.trashTyre, shape: 'tyre' },
+    { w: 0.42, col: PALETTE.trashBarrel, shape: 'barrel' },
+    { w: 0.5, col: PALETTE.trashWhite, shape: 'box' },
+  ];
+  // Dense enough that the mound under them only shows in the gaps: a heap, not a deck with litter.
+  const pieces = 85;
+  for (let k = 0; k < pieces; k++) {
+    const x = rng.range(-ax, ax) * 0.9;
+    const z = zc + rng.range(-az, az) * 0.92;
+    const kind = rng.pick(kinds);
+    const sz = kind.w * rng.range(0.7, 1.15);
+    const col = jitterColor(kind.col, rng, { l: 0.05, s: 0.03 });
+    let geo;
+    let h;
+    if (kind.shape === 'bag') {
+      geo = new THREE.IcosahedronGeometry(sz / 2, 0);
+      h = sz * 0.8;
+      geo.scale(1, 0.8, rng.range(0.9, 1.3));
+    } else if (kind.shape === 'tyre') {
+      geo = new THREE.CylinderGeometry(sz / 2, sz / 2, sz * 0.32, 8);
+      h = sz * 0.32;
+    } else if (kind.shape === 'barrel') {
+      geo = new THREE.CylinderGeometry(sz * 0.38, sz * 0.38, sz, 8);
+      h = sz;
+    } else {
+      geo = new THREE.BoxGeometry(sz, sz * rng.range(0.6, 1), sz * rng.range(0.8, 1.4));
+      h = geo.parameters.height;
+    }
+    geo.rotateY(rng.range(0, Math.PI));
+    // Bedded into the mound by a third of itself, and never poking through the ceiling.
+    const base = BARGE_DECK_Y + heightAt(x, z) * 0.85 - h * 0.35;
+    const y = Math.min(base, ceil - h);
+    geo.translate(x, Math.max(BARGE_DECK_Y, y) + h / 2, z);
+    parts.push(bakeColor(geo, col));
+    // The tallest pieces near the middle make the perches.
+    if (Math.abs(x) < ax * 0.6 && heightAt(x, z) > peak * 0.5) {
+      perches.push({ x, y: Math.max(BARGE_DECK_Y, y) + h, z });
+    }
+  }
+
+  // --- The wheelhouse: its own geometry, because it wears the cars' **metal** finish — a gloss
+  // material is centred on one geometry's bounds, and the hull's flat-shaded paint is not one. It
+  // stands to `BARGE_AIR`, which is as tall as the flat span lets anything on this boat be: a deck
+  // 0.13 lower than it was and a roof no longer kept down for gulls bought it 0.32 of height.
+  const roofTop = BARGE_AIR - 0.3;
+  const roofY = roofTop - 0.11;
+  const houseH = roofY - BARGE_DECK_Y;
+  const steel = jitterColor(PALETTE.trashHouse, rng, { l: 0.03 });
+  const metal = (g) => setFinish(g, FINISH.METAL);
+  const house = merge([
+    metal(block(HOUSE_W, houseH, HOUSE_D, 0, BARGE_DECK_Y, HOUSE_Z, steel)),
+    // The windows: a band round the top of the house, proud of the walls by a hair so the two
+    // never share a plane, in the cars' glass.
+    setFinish(block(HOUSE_W + 0.03, 0.28, HOUSE_D + 0.03, 0, roofY - 0.38, HOUSE_Z, PALETTE.carGlass),
+      FINISH.GLASS),
+    metal(block(HOUSE_W + 0.16, 0.08, HOUSE_D + 0.16, 0, roofY, HOUSE_Z, steel.clone().offsetHSL(0, 0, -0.12))),
+    metal(block(HOUSE_W + 0.04, 0.03, HOUSE_D + 0.04, 0, roofY + 0.08, HOUSE_Z, steel)),
+  ]);
+
+  // The smoke stack, up through the roof: dark, with a pale band and a black lip — the funnel
+  // every working boat has. It is the tallest thing aboard and stops at `BARGE_AIR` exactly. It
+  // stood off the back wall at first and the house hid it whenever the boat ran away from the
+  // camera; through the roof it shows both ways, which is what the roof's lower line pays for.
+  const stackTop = BARGE_AIR - 0.02;
+  const stackX = 0.4;
+  const stackZ = HOUSE_Z - 0.2;
+  const stackH = stackTop - BARGE_DECK_Y;
+  const stack = new THREE.CylinderGeometry(0.2, 0.2, stackH - 0.06, 10);
+  stack.translate(stackX, BARGE_DECK_Y + (stackH - 0.06) / 2, stackZ);
+  parts.push(bakeColor(stack, PALETTE.trashStack));
+  const band = new THREE.CylinderGeometry(0.215, 0.215, 0.09, 10);
+  band.translate(stackX, stackTop - 0.14, stackZ);
+  parts.push(bakeColor(band, PALETTE.trashWhite));
+  const lip = new THREE.CylinderGeometry(0.225, 0.225, 0.06, 10);
+  lip.translate(stackX, stackTop - 0.03, stackZ);
+  parts.push(bakeColor(lip, PALETTE.trashTyre));
+
+  // ...and the bow, on the stem where the bulwark comes round: a bird on the very front of the boat.
+  perches.push({ x: 0, y: BARGE_DECK_Y + 0.22, z: stem });
+
+  const geo = merge(parts);
+  geo.userData.perches = perches;
+  geo.userData.house = house;
+  return geo;
 }
 
 // --- The sailboat --------------------------------------------------------------

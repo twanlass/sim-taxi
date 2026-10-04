@@ -4570,7 +4570,9 @@ if (shot) {
       // being framed.
       traffic.update(1 / 60);
     }
-    controller.state.target.set(drawbridge.span.cx, 0, (drawbridge.span.z0 + drawbridge.span.z1) / 2);
+    const barge = shot.onBarge ? boats?.boats.find((b) => b.kind === 'barge') : null;
+    if (barge) controller.state.target.set(barge.x, 0, barge.z);
+    else controller.state.target.set(drawbridge.span.cx, 0, (drawbridge.span.z0 + drawbridge.span.z1) / 2);
     controller.update(aspect());
   }
 
