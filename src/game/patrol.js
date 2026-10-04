@@ -1,9 +1,11 @@
-import { GRID_I, GRID_J, PITCH, dirSign, isXAxis, lineX, lineZ } from '../city/grid.js';
+import { DIR, GRID_I, GRID_J, PITCH, dirSign, isXAxis, lineX, lineZ } from '../city/grid.js';
+import { SLAB_X, SLAB_Z } from '../city/ground.js';
 import { SPAWN_CLEARANCE } from '../sim/traffic.js';
 import { contact, touching } from '../sim/collisions.js';
 import { SPOT_RANGE } from '../sim/police.js';
-import { findRoute, planOrigin, junctionAhead, turnsRound } from './route.js';
+import { findRoute, findRouteOnto, planOrigin, junctionAhead, turnsRound } from './route.js';
 import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
+import { groundLineClear } from './sightline.js';
 
 // The patrol cruiser: a police car that crosses town edge to edge, past the taxi, with its bar
 // swinging gently red and blue, and comes after you if you boost in front of it.
@@ -29,7 +31,8 @@ import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
 //   off       waiting out a cooldown, which the difficulty ramp shortens (`setCooldownRange`)
 //   patrol    crossing town, bar swinging gently red and blue: in at one edge of the map, past a
 //             corner near the taxi, out at the opposite edge (see `enter`)
-//   exiting   dissolving at that far edge (FADE_TIME), then retired
+//   exiting   out of traffic, driving straight off the island and dissolving past the slab's
+//             edge (`police.release`), then retired
 //   chase     it spotted you: bar strobing, driving at you — ends caught, or lost
 //   leaving   lost you: bar dark, driving off; retired once out of sight
 //
@@ -39,8 +42,8 @@ import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
 //   - **Caught** — the cop touches the taxi (see TOUCH_SLACK). The run ends "Busted!", as it always
 //     did; it just takes a cop actually getting to you now. The taxi ramming the cop on the pill is
 //     not that: it is a bump, and buys RAMMED_GRACE.
-//   - **Lost** — see ESCAPE_BLOCKS. The bar goes dark and the cruiser drives off, the same
-//     stand-down a robbery's cops do.
+//   - **Lost** — see ESCAPE_BLOCKS, or out of its sight for SIGHT_HOLD. The bar goes dark and the
+//     cruiser drives off, the same stand-down a robbery's cops do.
 //   - **Gone to ground** — the taxi pulls into the depot mid-chase (`hideout`). Lost, by another
 //     door: the cop never saw it go in.
 
@@ -55,13 +58,6 @@ import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
  * to 8-14s) is the other half of how often one is about.
  */
 const PATROL_TIME = 25;
-
-/**
- * How close to its exit junction the cruiser gets before it starts to dissolve, in world units. The
- * fade covers about FADE_TIME of driving — six or seven units at cruise — so starting it a little
- * short of the junction has it gone as it reaches the ring road on the island's edge.
- */
-const EXIT_REACH = 8;
 
 /**
  * How far from the taxi a patrol picks the next corner to drive to, in blocks.
@@ -115,6 +111,48 @@ export const ESCAPE_HOLD = 1.5;
 // The two full-tank catches are both at 0.6s: taxis staged boosting straight into the cop's side.
 // Before the catch-up and the hold, a taxi on the pill lost the cop in a median 4.2s on 5s of boost,
 // the same as on 15 — the blip that was reported. The tank decides it.
+
+/**
+ * The other way to lose it: out of the cop's sight, in seconds. The line from the cop to the taxi
+ * crossing a block (`groundLineClear` in game/sightline.js, at SIGHT_Y) runs this clock; back in
+ * sight it runs down at the same rate, as the escape clock does, so a glimpse across a junction does
+ * not wipe out a getaway that was nearly made.
+ *
+ * Distance alone could not reward the thing a chase in a grid city is actually about — turning off
+ * where the cop cannot see you go. A taxi a block and a half ahead round two corners was as caught
+ * as one a block and a half ahead down a straight road. With this, breaking the line is a second
+ * way out, and one that does not need the tank: it needs corners.
+ *
+ * Long enough that a cop *on your tail* never trips it. Every corner the taxi takes breaks the line
+ * until the cop rounds the same one, and a cop that is going to catch the taxi anyway is still out
+ * of sight for a median ~2s at some point in the chase — mostly held at a red round the corner the
+ * taxi just took. Swept over sixteen staged chases per cell, as ESCAPE_HOLD's table, with the city
+ * built and occluding; "across" drives a route over town, "zigzag" turns at every junction:
+ *
+ *   | hold      | across, off pill  | across, full tank | zigzag, off pill | zigzag, full tank |
+ *   |-----------|-------------------|-------------------|------------------|-------------------|
+ *   | none      | 16/16 caught      | 15/16 lost        | 16/16 caught     | 14/16 caught      |
+ *   | 2.5s      | 9/16 caught       | 15/16 lost        |                  |                   |
+ *   | 3.5s      | 13/16 caught      | 15/16 lost        | 9/16 caught      | 7/16 lost         |
+ *   | 4.5s (now)| 14/16 caught      | 15/16 lost        | 11/16 caught     | 7/16 lost         |
+ *   |  + search | 14/16 caught      | 15/16 lost        | 12/16 caught     | 9/16 lost         |
+ *   | 6s        | 15/16 caught      | 15/16 lost        | 14/16 caught     | 4/16 lost         |
+ *
+ * The right-hand column is the point: a taxi that corners hard used to be caught on a full tank
+ * whatever it did, because turning keeps it near the cop. At 2.5s a cruising taxi got away nearly
+ * half the time, which ends "off the pill you get caught"; 4.5s keeps that and still pays corners.
+ * The rows above it were a cop that steered at the taxi while blind; "+ search" is the cop driving
+ * to where it last saw the taxi instead (`steer`), re-swept at 4.5s (3.5s: 10/16 caught off the
+ * pill zigzagging, 10/16 lost on a full tank; 6s: 14/16 and 5/16), so the hold stayed.
+ */
+export const SIGHT_HOLD = 4.5;
+
+/**
+ * The height the sightline is drawn at: a driver's eye, a little under the cabin top (2.07). High
+ * enough that a hedge, a bench or a bollard does not hide a car, low enough that a building's ground
+ * floor does. Lanes are clear of the height field at any height (measured: 0 on every centreline).
+ */
+const SIGHT_Y = 1.6;
 
 /**
  * The catch-up: how far behind the cop has to be before it starts flooring it, and where it is
@@ -205,6 +243,8 @@ export function createPatrol({
     /** Where it came onto the map and where it leaves it: junctions on opposite edges. */
     entry: null,
     exit: null,
+    /** The grid direction that points off the map at `exit` — the way it drives out. */
+    exitD: null,
     /** The traffic car, from the frame it enters to the frame it leaves. */
     cop: null,
     /** Seconds this chase has run. */
@@ -215,6 +255,10 @@ export function createPatrol({
     rammedGrace: 0,
     /** The escape clock, in seconds of the taxi ESCAPE_BLOCKS clear — see ESCAPE_HOLD. */
     clear: 0,
+    /** The other escape clock, in seconds of the taxi out of the cop's sight — see SIGHT_HOLD. */
+    unseen: 0,
+    /** Where a cop that has lost sight of the taxi is driving: where it last saw it — see `steer`. */
+    searchAt: null,
     /** Seconds since it started leaving — see STAND_DOWN_TIMEOUT. */
     standingDown: 0,
     /** Tallies, for the tools. */
@@ -231,6 +275,7 @@ export function createPatrol({
   let aimedAt = null;
 
   const gap = (cop) => Math.hypot(cop.x - taxi.x, cop.z - taxi.z);
+  const inSight = (cop) => groundLineClear(cop.x, cop.z, taxi.x, taxi.z, SIGHT_Y);
   const clampI = (i) => Math.max(0, Math.min(GRID_I, i));
   const clampJ = (j) => Math.max(0, Math.min(GRID_J, j));
   const routeTo = (cop, target) => {
@@ -247,7 +292,8 @@ export function createPatrol({
    * out mid city". A patrol is a car *passing through*: it enters on the edge of the island furthest
    * from the taxi across one axis of the map, level with the taxi on the other, and leaves by the
    * opposite edge. Level with the taxi so the crossing is one that can meet it, and `cruise` routes
-   * the in leg through a corner near it; the exit is anywhere along the far side.
+   * the in leg through a corner near it; the exit is anywhere along the far side but its two
+   * corners, which have no street carrying on off the island to drive out along.
    */
   function enter() {
     const acrossI = rng.chance(0.5);
@@ -255,8 +301,11 @@ export function createPatrol({
       ? { i: taxi.i > GRID_I / 2 ? 0 : GRID_I, j: clampJ(taxi.j + rng.int(-1, 1)) }
       : { i: clampI(taxi.i + rng.int(-1, 1)), j: taxi.j > GRID_J / 2 ? 0 : GRID_J };
     const exit = acrossI
-      ? { i: GRID_I - entry.i, j: rng.int(0, GRID_J) }
-      : { i: rng.int(0, GRID_I), j: GRID_J - entry.j };
+      ? { i: GRID_I - entry.i, j: rng.int(1, GRID_J - 1) }
+      : { i: rng.int(1, GRID_I - 1), j: GRID_J - entry.j };
+    const exitD = acrossI
+      ? (exit.i === GRID_I ? DIR.PX : DIR.NX)
+      : (exit.j === GRID_J ? DIR.PZ : DIR.NZ);
     // `enterPolice` ranks lanes by distance to the point it is handed and never places one in
     // frame (SPAWN_CLEARANCE), so the car arrives on a road at that edge junction or next to it.
     if (!traffic.enterPolice(1, { x: lineX(entry.i), z: lineZ(entry.j) })) { state.cooldown = 3; return; }
@@ -273,6 +322,7 @@ export function createPatrol({
     state.legTime = 0;
     state.entry = entry;
     state.exit = exit;
+    state.exitD = exitD;
     state.patrols += 1;
     cruisingTo = null;
   }
@@ -310,23 +360,43 @@ export function createPatrol({
     cruisingTo = best.target;
   }
 
-  /** The out leg: for the far edge. Nothing to route is already there, so straight to the fade. */
+  /** On the exit lane: the street running into the ring at `exit`, heading off the map. */
+  const onExitLane = (cop) => cop.d === state.exitD && cop.i === state.exit.i && cop.j === state.exit.j;
+
+  /**
+   * The out leg: onto the street that runs into the ring at the exit, pointed off the map — a lane
+   * rather than the junction (`findRouteOnto`), because a cop that reached the exit along the ring
+   * has nowhere straight on to go. A car already on it has nothing to route.
+   */
   function headOut(cop) {
     state.leg = 'out';
-    if (!routeTo(cop, state.exit)) cop.route = [];
+    if (onExitLane(cop)) { cop.route = []; return; }
+    const route = findRouteOnto(planOrigin(cop), state.exit, state.exitD);
+    if (route?.length) { cop.route = route; cop.routeConsumed = false; }
+    else routeTo(cop, state.exit);
   }
 
-  /** On the out leg: dissolve once it reaches its exit — see EXIT_REACH. */
+  /**
+   * On the out leg: drive off the map once it sets off across the ring.
+   *
+   * It leaves the traffic model at its hold line, the frame its state flips to `turn` — the ring is
+   * give-way, so that is the frame the ring has been judged clear — and `police.release` carries the
+   * cruiser straight on, across the ring and off the asphalt, dissolving only past the slab's edge.
+   * It used to dissolve *at* the exit junction, which is on the ring and in frame whenever the camera
+   * is near that side of town: reported as the patrol "fading out mid city".
+   */
   function crossOut(cop) {
-    const d = Math.hypot(cop.x - lineX(state.exit.i), cop.z - lineZ(state.exit.j));
-    if (d < EXIT_REACH) {
-      police.fadeOut();
-      state.phase = 'exiting';
+    if (onExitLane(cop)) {
+      if (cop.state === 'turn' && traffic.retirePolice(cop)) {
+        police.release(state.exitD, (isXAxis(state.exitD) ? SLAB_X : SLAB_Z) / 2);
+        state.cop = null;
+        state.phase = 'exiting';
+      }
       return;
     }
-    // Out of route short of the exit — the router's last turn is behind it and the dice took it
-    // somewhere else. Point it back.
-    if (!cop.route?.length) routeTo(cop, state.exit);
+    // Out of route short of the exit lane — the router's last turn is behind it and the dice took
+    // it somewhere else. Point it back.
+    if (!cop.route?.length) headOut(cop);
   }
 
   /**
@@ -336,14 +406,33 @@ export function createPatrol({
    * already driving into is empty, and a cop with an empty route rolls the ordinary dice at the
    * junction and wanders off the taxi's tail a beat before it turns.
    */
-  function aimFor(cop) {
-    const at = { i: taxi.i, j: taxi.j };
+  function aimFor(cop, quarry = sighting()) {
+    const at = { i: quarry.i, j: quarry.j };
     const origin = planOrigin(cop);
     if (origin.i !== at.i || origin.j !== at.j) return at;
-    const d = taxi.state === 'turn' && taxi.dOut != null ? taxi.dOut : (taxi.route?.[0] ?? taxi.d);
-    if (isXAxis(d)) at.i += dirSign(d); else at.j += dirSign(d);
+    if (isXAxis(quarry.d)) at.i += dirSign(quarry.d); else at.j += dirSign(quarry.d);
     return { i: clampI(at.i), j: clampJ(at.j) };
   }
+
+  /**
+   * What the cop knows about the taxi right now: the junction it is driving into, the way it means
+   * to leave it, and the junction after that. Taken every frame the cop can see it, and kept as
+   * `lastSeen` for the frames it cannot.
+   */
+  const sighting = () => ({
+    i: taxi.i,
+    j: taxi.j,
+    d: taxi.state === 'turn' && taxi.dOut != null ? taxi.dOut : (taxi.route?.[0] ?? taxi.d),
+    ahead: junctionAhead(taxi, 1),
+  });
+
+  /**
+   * Where the cop last saw the taxi, and where that sends it while it cannot — see `steer`. null
+   * outside a chase.
+   */
+  let lastSeen = null;
+  /** Whether a blind cop has got to `state.searchAt`. */
+  let searched = false;
 
   /**
    * Would turning round in the road get the cop to the taxi sooner than driving on? That is the
@@ -384,7 +473,7 @@ export function createPatrol({
     // or straight on. Aimed at the next one alone, a taxi about to turn onto the cop's road behind
     // it counted as behind the cop — which turned round, and then wanted to turn back once the
     // taxi had come round the corner after it.
-    const target = junctionAhead(taxi, 1);
+    const target = lastSeen?.blind ? lastSeen.ahead : junctionAhead(taxi, 1);
     const key = `${cop.lane.id}|${target.i},${target.j}`;
     if (key !== turnRoundKey) {
       turnRoundKey = key;
@@ -393,15 +482,47 @@ export function createPatrol({
     return turnRoundAnswer;
   }
 
-  function steer(cop) {
-    const key = `${taxi.i},${taxi.j},${taxi.route?.[0] ?? ''}`;
-    if (key === aimedAt && cop.route?.length) return;
-    // Not while it is out overtaking the taxi: the pass was only offered because this route carried
-    // straight on (sim/traffic.js), and a re-aim mid-manoeuvre hands it a turn from the oncoming
-    // lane. Same rule as the robbery's.
-    if (cop.pass > 0) return;
-    routeTo(cop, aimFor(cop));
-    aimedAt = key;
+  /**
+   * In sight, the cop drives at the taxi: the junction it is going into, re-aimed whenever that
+   * changes. Out of sight (SIGHT_HOLD) it drives at where it **last saw** the taxi — that junction,
+   * or the one after it along the way the taxi was heading if the cop is already going into it — and
+   * once it has got there it has nothing left to go on, so it drops its route and takes the ordinary
+   * dice at the next junction: a cop looking for you. It used to steer at where the taxi *was* the
+   * whole time it was blind, which made breaking the line a timer rather than a hiding place; now a
+   * taxi that turns off out of sight is not followed round the corner unless the cop guesses it.
+   *
+   * The plan is keyed on the sighting and left alone in between (see `aimedAt`). A blind cop
+   * re-plans only to the same spot — after a U-turn, which leaves it with no route — never past it,
+   * or it would turn round at the spot and drive back to it.
+   */
+  function steer(cop, seen) {
+    // Never while it is out overtaking the taxi: the pass was only offered because this route
+    // carried straight on (sim/traffic.js), and a re-aim mid-manoeuvre hands it a turn from the
+    // oncoming lane. Same rule as the robbery's.
+    if (seen) {
+      lastSeen = sighting();
+      state.searchAt = null;
+      const key = `${taxi.i},${taxi.j},${taxi.route?.[0] ?? ''}`;
+      if (key === aimedAt && cop.route?.length) return;
+      if (cop.pass > 0) return;
+      routeTo(cop, aimFor(cop));
+      aimedAt = key;
+      return;
+    }
+    const key = `blind:${lastSeen.i},${lastSeen.j},${lastSeen.d}`;
+    if (key !== aimedAt) {
+      if (cop.pass > 0) return;
+      lastSeen.blind = true;
+      state.searchAt = aimFor(cop, lastSeen);
+      searched = false;
+      routeTo(cop, state.searchAt);
+      aimedAt = key;
+      return;
+    }
+    if (searched || cop.route?.length || cop.pass > 0) return;
+    const origin = planOrigin(cop);
+    if (origin.i === state.searchAt.i && origin.j === state.searchAt.j) { searched = true; return; }
+    routeTo(cop, state.searchAt);
   }
 
   /** Lights on, and after the taxi. */
@@ -414,11 +535,12 @@ export function createPatrol({
     state.phase = 'chase';
     state.elapsed = 0;
     state.clear = 0;
+    state.unseen = 0;
     state.grace = grace;
     state.spotted += 1;
     aimedAt = null;
     turnedAt = -Infinity;
-    steer(cop);
+    steer(cop, true);
     onSpotted(cop);
   }
 
@@ -439,6 +561,7 @@ export function createPatrol({
     routeTo(cop, { i: taxi.i > GRID_I / 2 ? 0 : GRID_I, j: taxi.j > GRID_J / 2 ? 0 : GRID_J });
     state.phase = 'leaving';
     state.standingDown = 0;
+    state.searchAt = null;
     aimedAt = null;
   }
 
@@ -478,6 +601,12 @@ export function createPatrol({
       return;
     }
 
+    // Driving off the island with no traffic car under it. Retired once it has dissolved.
+    if (state.phase === 'exiting') {
+      if (!police.state.loose || police.state.loose.done) retire();
+      return;
+    }
+
     const cop = state.cop;
     // Gone out from under us — wrecked by a ram (which is the end of the run), or the fleet cleared.
     if (!cop || cop.crashed || !cop.police) { retire(); return; }
@@ -501,13 +630,6 @@ export function createPatrol({
       return;
     }
 
-    // Dissolving at the far edge. Retired the frame it is gone — and a cop that is still drawn is
-    // never taken off, so a failed retire just waits a frame.
-    if (state.phase === 'exiting') {
-      if (police.state.fade <= 0 && traffic.retirePolice(cop)) retire();
-      return;
-    }
-
     if (state.phase === 'leaving') {
       driveOff(cop, dt);
       return;
@@ -519,7 +641,8 @@ export function createPatrol({
       state.grace = rammedGrace;
       cop.ram = false;
     }
-    steer(cop);
+    const seen = inSight(cop);
+    steer(cop, seen);
     // Asked every frame, so it lapses the moment the taxi turns off. The U-turn re-plans nothing
     // itself: it leaves the cop with no route, and `steer` above picks that up next frame.
     if (cop.uturn) turnedAt = state.elapsed;
@@ -559,7 +682,8 @@ export function createPatrol({
       return;
     }
     state.clear = near > ESCAPE_RANGE ? state.clear + dt : Math.max(0, state.clear - dt);
-    if (state.clear >= ESCAPE_HOLD || state.elapsed > CHASE_MAX) {
+    state.unseen = seen ? Math.max(0, state.unseen - dt) : state.unseen + dt;
+    if (state.clear >= ESCAPE_HOLD || state.unseen >= SIGHT_HOLD || state.elapsed > CHASE_MAX) {
       state.lost += 1;
       leave(cop);
       onLost(cop);

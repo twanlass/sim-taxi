@@ -372,8 +372,8 @@ function stage() {
   }
 
   // Oncoming traffic, spread down the other carriageway so it arrives during a pass rather than
-  // all at once. `PASS_SIGHT` (35 units) is what decides whether the taxi will pull out with one
-  // of these in view — that gate is the whole reason this slider is here.
+  // all at once. Nothing stops the taxi pulling out with one of these in view — the pass is the
+  // player's call — so this slider is what makes a pass dangerous.
   oncomingPool.forEach((car, k) => {
     if (k < knobs.oncoming) reseat(car, DIR.NX, ROAD_EAST - 40 - k * 52);
     else park(car);

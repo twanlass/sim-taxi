@@ -41,7 +41,7 @@ src/
     difficulty.js       the ramp: one scalar, and every knob hung off it
     route.js            Dijkstra over the road network's lanes, road-hierarchy weights
     routeline.js        the route band painted down the taxi's lane
-    pick.js             raycast click picking
+    pick.js             raycast tap picking (pointerup for a finger, click for a mouse)
     sightline.js        which kerb corners the camera can see, settled once per city
     farepointers.js     edge arrows — every off-frame rider, or just the drop-off while carrying;
                         tap one on a phone to ride the camera to it
@@ -51,7 +51,7 @@ src/
     selectpop.js        the swell-and-settle curve a tapped rider and their crystal share
     boost.js            crazy-taxi duty cycle (a pure clock, no scene knowledge)
     boostmeter.js       how the fuel meter reads while it refills — overfill, glow, leading edge
-    fuelarc.js          the fuel gauge's tapered band round the gas pedal, as SVG outlines
+    fuelarc.js          the fuel gauge's tapered band round the gas button, as SVG outlines
     energybits.js       the sparks a drop-off throws from the taxi into the fuel meter
     camera.js           fixed 3/4 orthographic camera
     scene.js            scene, sun, hemisphere fill, sky shader, distance haze
@@ -68,9 +68,13 @@ src/
     flyover.js          the ambient plane that crosses the city every so often — scenery, nothing more
     chopper.js          the helicopter that lands on the city's rooftop helipad, idles and leaves
     flatbed.js          one truck carries crates, hits fake bumps, drops them; anything can smash them
-    birds.js            the park flocks: walk the grass, startled up by the taxi, come back; two per city
+    birds.js            the flocks: walk the grass or a rooftop roost, startled up by the taxi, come back; two per city
     ducks.js            the birds on the pond: paddle, sit, dabble, never leave
     clouds.js           the weather ringing the island — placed on the screen, never over the city
+    rain.js             `?rain`: overcast grade, wet mirrored streets, rain, splashes, drops on the lens
+    storm.js            `?storm`: the clock that runs a storm across the afternoon and back
+    squall.js           the default weather: one rain cell crossing a sunny city, and the wet trail it leaves
+    citylights.js       lit windows, street lamps and the taxi's headlights, switched on by the storm
     robbery.js          the bank robbery: who gets in outside the bank, and the cops that come with them
     arrest.js           the robbery's drop-off: the cops circle the robber on the corner and take them in
     patrol.js           the patrol cruiser's life: across town edge to edge, chase, caught or lost, out
@@ -87,6 +91,8 @@ src/
     runend.js           the run-end blackout: stats counted out, then initials, then the table
     highscores.js       the local top five — localStorage is the whole backend
     homescreen.js       the iOS-only "add it to your Home Screen" screen; parks the run while up
+    titlescreen.js      Play / Settings / Credits over the drifting city; parks the run until Play
+    settings.js         the title screen's remembered settings: the two volumes and the tips
     pause.js            the HUD's ⏸ and the screen behind it; stops the frame loop dead
 
   geometry/             one-off models, all procedural

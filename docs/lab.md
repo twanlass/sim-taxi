@@ -84,7 +84,7 @@ Three departures, all so a scenario can be run twice.
   "straight on" is the sole legal move anyway, so that asserts what the sim would have rolled rather
   than steering it.
 
-Everything else — the pass, the weave, the scatter, the tailgate at `BOOST_GAP`, both gates on when
+Everything else — the pass, the weave, the scatter, the tailgate at `BOOST_GAP`, the rule on when
 pulling out is allowed — is `sim/traffic.js` driving `traffic.taxi` exactly as `main.js` does. **If
 the taxi behaves differently here than it does in the game, that is a bug in the lab.**
 
@@ -101,7 +101,7 @@ midpoint, how far the body is leaning, where the rubber went.
 |---|---|---|---|
 | Cars ahead | `ahead` | 1 | a queue one gap apart, so passing the first puts you on the run-up to the next |
 | Gap | `gap` | 22 | comfortably outside `PASS_TRIGGER` (10), so the run-up is part of what you watch |
-| Oncoming | `oncoming` | 0 | spread down the other carriageway. `PASS_SIGHT` (35 units) decides whether the taxi pulls out with one in view — that gate is the whole reason this slider exists |
+| Oncoming | `oncoming` | 0 | spread down the other carriageway. nothing stops the taxi pulling out with one in view, so this is the slider that makes a pass dangerous |
 | Standing | `standing` | 0 | the queue at a red: everything stopped, the taxi one following distance behind it. See below |
 | Seed | `seed` | random | paint colours and the tree scatter; the manoeuvre itself is deterministic |
 

@@ -673,10 +673,15 @@ re-check — so a car settles at exactly 5.3 behind another car and 6.4 behind a
 asserted directly in `tools/probe.mjs`.
 
 `BOOST_GAP` (the boosting taxi's own tailgate distance in Loco Mode) is deliberately *not* run
-through `followGap`. It's tuned against the taxi's own collision envelope in `sim/collisions.js`,
-which stays `CAR_LEN`-sized for every target including a truck — widening the tailgate for a truck
-while the hitbox that actually matters stayed car-sized would just be a taxi hanging back further
-from a target it can still clip at the old range. The spawn-time clash check in `spawnCars` is
+through `followGap`. It's tuned against the collision envelope in `sim/collisions.js` rather than
+bumper-to-bumper road, so behind a truck it grows by exactly how much further back a truck's rear
+circle sits than a car's (`truckExtra`, 0.62): 5.12 rather than 4.5, the same 0.29 of daylight
+either way. It used to stay at 4.5 on the grounds that the hitbox was car-sized for every vehicle;
+then trucks got circles out to their own length (`circleOffsetOf`, shared by both files now) and the
+tailgate sat 1.98 off a truck's rear circle against a 2.31 envelope. See
+[the taxi never rams a truck](#the-taxi-never-rams-a-truck) for the rest of that.
+
+The spawn-time clash check in `spawnCars` is
 conservative instead of exact: a car's own `isTruck` isn't rolled until after it, so the check
 assumes a possible truck on that side of the pairing — a no-op when `truckChance` is 0, which is
 every scripted scenario in `tools/` but the one that exercises trucks on purpose.
@@ -1237,9 +1242,8 @@ lane — not a moment anything is sliding.
 apart rather than 4, and a 4-unit swing there would park the taxi **on the median**, side by side
 with the car it was passing — the exact failure the old centreline overtake was abandoned for.
 
-`PASS_FADE` and `PASS_SIGHT` scale with it. The fade keeps the peak crab angle at the 31° it was
-tuned to instead of steepening to 45°; the sight line keeps the same margin over an exposure that
-is 60% longer. The manoeuvre comes out at roughly **51 units of road against 32**, so a pass on a
+`PASS_FADE` scales with it, keeping the peak crab angle at the 31° it was tuned to instead of
+steepening to 45°. The manoeuvre comes out at roughly **51 units of road against 32**, so a pass on a
 main street spans two junctions rather than one — the straight-on gate already re-asks per lane, so
 it tucks back in by itself if the route turns.
 
@@ -1287,53 +1291,76 @@ abandons the pass mid-manoeuvre. Measured: 3 of every 4.
 
 #### When it is allowed
 
-Two gates decide *when*, and both were added after watching it wreck rather than pass. Neither was
-in the first version, and without them a third of all overtakes ended in a collision — which is not
-a risk, it is a coin flip the player never chose to toss, because holding the button is something
-you want to do continuously and the pass fires off it automatically.
+**Whenever the road allows it, and never because the sim judged it a bad idea.** Holding the button
+inside `PASS_TRIGGER` of a car is the decision to go round it. The only things that refuse a pass
+are about the road: there has to be an oncoming lane to borrow, and the junction ahead has to have
+a straight on through it (a pass always spans one, and a corner taken from the oncoming lane peels
+the car off its arc). A taxi's exit roll is pinned straight while it is out of its lane
+(right-on-red included).
 
-**Not around a car that is already turning.** A pass wants ~27 units of road against a 12-unit
-lane, so the taxi is *always* still alongside when the leader reaches its junction — which is
-exactly when the left-turn dice are rolled. Measured over 28 overtakes at `?cars=22`, 10 ended in a
-wreck and **every one of them was against a car in the `turn` state**, 6 of those the car being
-passed turning left across the taxi. It was the default outcome, not an edge case.
+**The route is not one of them.** It used to be: a pass was only offered where the route carried
+straight on, and that gate was behind **92%** of the frames a boosting taxi spent within
+`PASS_TRIGGER` of a car on a lane (24 cities, 90s each, button held). Every one of those was a
+rear-end, because a taxi with no way round rams. It got reported as "why is the taxi refusing to
+overtake the box truck? It just keeps ramming him", on a long straight, and the answer was "your
+route turns at the next junction", which nothing on screen says. Tyler's call: holding boost behind
+a car means go round it, and the detour is the player's.
 
-> **Except a straight-through crossing**, which is not what this gate is about, and reading it as
-> one cost the pass for a long time. `car.state === 'turn'` covers *every* junction transition
-> including carrying straight on — the trap the whole codebase warns about — so the gate refused to
-> pull out around any leader that happened to be inside a junction, which on a 20-unit grid is 40%
-> of the time and is exactly the 40% in which the taxi is tailgating hard enough to want to. The
-> danger it exists to stop is a car turning *across* the borrowed lane; a leader whose committed
-> movement is `hand === 'straight'` is going down the same road in the lane the taxi is leaving and
-> sweeps nothing. Narrowing it to that took the [lab](lab.md)'s staged approaches from 117 passes in
-> 160 to 142.
+So a routed taxi whose route turns ahead (`turnsAhead`) still pulls out. At the junction, if it is
+still out of its lane, it takes the straight instead of the corner, the sim drops the route there
+and sets `taxi.detoured`, and `main.js` re-plans from the far side through the same owner a dragged
+band uses (a burger or depot run keeps the side it has to arrive from). With a turn ahead the pass
+also stops sustaining on whatever is next within `PASS_SUSTAIN`: it is for the car it pulled out
+for, or one detour would chain into the next.
 
-Refusing that car's left turn while it is being passed — the same courtesy `priorityJunction.block`
-already extends to oncoming traffic — fixes only 1 in 10 of them, because by the time the taxi
-pulls out the car has usually *already* chosen: a car in `turn` has committed, and the turn
-decision does not run again. The gate that works is refusing to pull out around a car that is
-mid-junction at all. Both are in, since the second one covers a leader that reaches its line later
-in the manoeuvre. Together: 32% → 19% of passes wrecked, and **no same-way collisions at all**.
+| same runs, game truck density | before | after |
+|---|---|---|
+| frames within `PASS_TRIGGER` of a leader | 1105 | 373 |
+| rear-ends on a car in front | 168 | 76 |
+| same car again within 6s | 59 | 13 |
+| ground speed | 23.34 u/s | 23.59 u/s |
 
-**Not into oncoming traffic already in sight.** `PASS_SIGHT` (35 units) is the exposure — the
-manoeuvre plus the tuck-in, ~1.2s, against a closing speed of 22.1 + 8.5 = 30.6 u/s. Asked only at
-the moment of pulling out: a car that emerges into the oncoming lane *during* the pass still costs
-the run, and that is the risk worth keeping, because it is the one the player could not have read.
-Being thrown into a car that was in plain sight the whole time is not — without this the taxi
-pulled out with oncoming traffic **3 units** away, already inside the collision envelope.
+76 detours over those 36 minutes of permanently held boost, about two a minute. What is left
+refusing is a junction ahead with no straight through it: a T at the edge of the map or a park.
 
-> The side test measures against `PASS_LATERAL + CAR_W`, not `HALF_ROAD`. Opposing lane centres are
-> exactly 2·LANE apart, which is exactly HALF_ROAD, so a bound of HALF_ROAD sits precisely on the
-> car being looked for and the weave alone was enough to push it out of sight. That bug made the
-> check look nearly useless (29% → 22%); fixing it took the same check to 17%.
+This replaced two judgement gates, and why they went matters more than how they worked:
 
-What the two gates cost is frequency: 2.7 → 1.8 overtakes a minute, and 19.19 → 18.98 u/s of ground
-covered. What they buy is that the manoeuvre mostly works.
+| gate (removed) | what it refused |
+|---|---|
+| leader in a real turn | pulling out round a car already turning across the borrowed lane |
+| `PASS_SIGHT` (35 units) | pulling out with oncoming traffic in view |
+
+Both were added when any contact ended the run, and measured on those terms they were right:
+without them a third of all overtakes wrecked, 6 of 10 against the leader turning left across the
+taxi. But with hit points (`sim/collisions.js`) a bad pass is a bump, and the cost of the gates was
+paid somewhere the player could not see it. A refused pass is indistinguishable from the button not
+working — and since `rams` drives a taxi with no way round into the car in front, it was also a
+**rear-end** every time. The rule the player can learn is "boost behind a car and you go round it";
+"…unless the sim has decided otherwise" is not one.
+
+Measured over six autoplay runs with boost held throughout, counting frames spent within
+`PASS_TRIGGER` of a leader on a lane:
+
+| | passes started | refused: no route | refused: route turns | other¹ |
+|---|---|---|---|---|
+| with the gates | 9 | 37.6% | 38.5% | 9.5% |
+| **now** | **24** | 5.1% | 52.4% | 4.0% |
+
+¹ With the gates, mostly the gates. Now, frames where the sim's own leader bookkeeping
+(`leaderDist`) reports nothing in front while the script's lane scan finds a car — one that has
+just entered the lane, typically. No gate refuses them.
+
+The route gate that was left here went too; see above.
+
+**One courtesy is kept.** A car being passed still does not *choose* a left turn across the taxi
+(`car === taxi.passTarget` in the exit roll). A car that has already committed to one when the taxi
+pulls out will turn into it — that is the case the old gate existed for, and it is now the player's
+risk to read.
 
 #### How dangerous it should be
 
 The honest way to read the risk is per second of exposure, not per pass — a pass lasts about a
-second, and Loco Mode is lethal anyway:
+second. Measured when the gates were introduced, before hit points:
 
 | | wreck every | |
 |---|---|---|
@@ -1341,11 +1368,8 @@ second, and Loco Mode is lethal anyway:
 | out in the oncoming lane, no gates | 3.3s | **2.7× as dangerous** |
 | out in the oncoming lane, both gates | 7.8s | **1.1×** |
 
-1.1× is arguably now *too* safe, and `PASS_SIGHT` is the dial: lowering it puts more oncoming
-traffic in play. It is a feel judgement rather than a correctness one, so it is left at the value
-that makes the manoeuvre reliable and the remaining deaths readable — oncoming traffic that
-arrives during the pass, cross traffic at a junction being run, and a car turning out of the
-oncoming lane.
+The game now runs the "no gates" row, on purpose. With hit points a contact costs a bump rather
+than the run, and the danger is the point: it is what makes going round a car a decision.
 
 #### It pays, and scatter never needed tuning
 
@@ -1490,6 +1514,48 @@ read as the taxi flinching. Where a pass *is* on — the route carries straight 
 lane, the leader is not mid-turn and the borrowed lane is clear (`canPass`, the overtake's own test) —
 it tailgates exactly as before, because the tailgate is what brings it inside `PASS_TRIGGER` to pull
 out. Ramming is the fallback, not the policy.
+
+### The taxi never rams a truck
+
+Reported as "why is the taxi refusing to overtake the box truck? It just keeps ramming him." The
+ram works on a car because a rear-ended car is launched clear and scatters: one hit and the road is
+open. A truck outweighs the taxi, keeps 0.36 of the hit and doesn't scatter, so the taxi recoiled,
+set off again at boost, caught it a second later and hit it again, all the way to wherever the
+route turned. So `rams()` excludes trucks, and behind one with no way round the taxi tailgates it.
+
+Tailgating it turned out to need more than the lane bookkeeping offers. `leaderDist` walks lanes
+straight on, so a truck crawling round the corner the taxi is about to take (a right turn is
+`TRUCK_RIGHT_TURN_SPEED`, 2.3 u/s), or one whose tail is still in the box after it turned off, is
+nobody's leader. The boosting taxi therefore also brakes for the nearest truck *by its body*
+(`truckRoom`/`truckAhead`, read in both the drive and the junction branch): any truck within ~70°
+of the taxi's heading, ahead of its nose and inside the envelope sideways, plus one landing on the
+same exit lane, measured as the crow flies. Cross traffic is left out on purpose; barging a junction
+stays the mode's own risk. This is the one thing that can stop the taxi inside a box, and it only
+does it with a truck in front of its nose going its way.
+
+It has to be a test the truck agrees with, or the two wait for each other. The first cut parked the
+taxi for the rest of the run in 2 of 24 cities: once shoved level with a truck in one lane (same `s`,
+so the truck held for the taxi as its leader), and once with both merging onto one exit. Hence the
+taxi's centre has to be behind the truck's tail, and on a shared exit the truck has to be further
+round its turn than the taxi.
+
+Measured over 24 cities, 90s each, button held, routed, against the same runs before:
+
+| | rear-ends on a truck in front | same truck again within 6s | ground speed |
+|---|---|---|---|
+| `TRUCK_CHANCE` (1/12), before | 21 | 8 | 23.34 u/s |
+| `TRUCK_CHANCE` (1/12), after | **8** | **2** | 23.06 u/s |
+| 30% trucks, before | 108 | 63 | 22.69 u/s |
+| 30% trucks, after | **17** | **1** | 20.86 u/s |
+| `TRUCK_CHANCE`, with the route no longer refusing passes | 7 | 1 | 23.59 u/s |
+| 30% trucks, likewise | 16 | 1 | 20.72 u/s |
+
+Overtakes of trucks went 23 → 33 at 30%, and 45 once the route stopped refusing them. The ground
+speed is what following a truck costs against shoving one at `TRUCK_PUSH_V`; at the game's own
+density it is noise.
+
+Behind a car there is now nearly always a pass (see [when it is allowed](#when-it-is-allowed)): the
+ram is left for a junction ahead with no straight through it, and one-way roads.
 
 **What a bump does:**
 
@@ -1654,6 +1720,19 @@ for having hit something, the car it hit is shoved harder — and are slewed in 
 taken from which side of the taxi's line it was sitting on. Matched, the pair travels as a rigid
 unit, which reads as a wreck being panned across rather than as one car hitting another.
 
+**A hard enough wreck throws the driver out through the windscreen.** `game/ejection.js`. At a
+closing speed of `EJECT_CLOSING` (18 u/s) or more — a T-bone or a head-on at boost cruise, a
+full-boost rear-end into a stopped queue, anything in overdrive, but not rear-ending traffic going
+the same way — a cabbie in a blue shirt and a dark cap (the riders' rig at 0.8 scale) leaves the
+front of the cabin, tumbles head over heels over whatever was hit, bounces once or twice with a
+puff and a thud, and slides to a sprawl. Thrown slightly away from the struck car's side so they do
+not land in its fireball, and kept to ~8 units of travel so they land inside the wreck zoom. Like
+the shells it is a closed form of its age, and the replay scrubs it through `scrub` rather than off
+the tape: the tumble turns a third of a revolution between 30Hz samples. When it fires, the breath
+after the replay is `EJECT_TAIL` rather than `REPLAY_TAIL`, long enough to watch the landing. Its
+direction is the taxi's heading, so a wreck mid-turn or beside a corner block can throw the figure
+through a building; nothing checks the landing spot.
+
 **A wrecked car's lamps go out.** A crashed car never reaches the render pass again, so whatever
 brake level it last wrote would sit there for the rest of the run — and the frame this fires on is
 exactly the one anything is hardest on the brakes. The ambient car's pods are collapsed to zero in
@@ -1669,6 +1748,48 @@ body would leave two wheels parked on the road; `tools/probe.mjs` asserts all th
 what makes the wreck's paint writable at all: `instanceColor` is RGB and shared with every other
 car in the mesh, so there is nowhere on an instance to put the scorch — or, in the fade this
 replaced, an opacity.
+
+### The replay
+
+`game/replay.js`. A wreck no longer goes straight from the live beat to the retry card. After
+`REPLAY_LEAD` (1.2s) of the slow-mo pull-in, the frame cuts to the moment of impact three more
+times, about a second each: from ~35° off the fixed diagonal, from ~35° the other way, then square
+on and tightest. Cut, crash, cut, crash, cut, crash, card. Each shot opens 0.3s of sim before the
+hit and plays at 0.8× into it and 0.5× through the blast, with a white flash on each cut and the
+crash sound under each one. The last shot then holds its final frame for 0.7s of wall clock
+(`hold` in `SHOTS`), still orbiting, so the last word lands before the card — about 3.9s for all
+three. There is no letterbox or REPLAY tag: the
+first version had both, played the whole approach in slow motion over two longer angles, and ran
+~7s from crash to card. Any tap or key skips straight to the card. A bust and a timeout keep the
+old hold, as does shot mode.
+
+**It is a recording, not a re-run.** Nothing in the sim can be stepped backwards, and re-firing the
+blast for the camera would have been a *different* explosion. So `createTape` samples, at 30Hz of sim
+time, every dynamic `InstancedMesh` in the scene plus every node under the taxi's group. That one
+rule picks up far more than the two cars: the traffic, its lamp pods, and every particle pool the
+wreck is drawn with — `blast.js`, `dust.js`, `sparks.js`, `flames.js` are all instanced, `aAlpha`
+included — so what the replay shows is what the player saw. A sample is ~150KB and the ring holds
+3.2s of it. Playback interpolates between samples, with one exception: an instance that moved more
+than `SNAP_DIST` between two of them was *reused* (a pool slot handed to a new particle, a car
+recycled at the edge) and snaps rather than flying across the map. `tools/check.mjs` plays a tape
+back to assert both, and that the live frame comes back exactly.
+
+**The world is frozen while it plays.** main.js skips the whole update block, as it does for a
+pause, and the tape draws the frame. Boats, pedestrians, skid marks and the sky are not recorded and
+stand where the live beat left them. The wreck shells are scrubbed alongside with `wreckage.seek()`,
+which is free because they were already a closed form of their age; the struck car's shell is
+hidden before the impact (`hideBefore`), because until then that car was an instance on the tape.
+
+**The live beat is also the recording of the aftermath.** The longest shot plays `REPLAY_POST`
+(0.45s of sim) past the hit, and the only frames after the hit are the ones the live beat recorded.
+Under the slow-mo ramp 1.2s of wall clock is ~0.49s of sim, which is the floor on `REPLAY_LEAD`.
+
+**Each swung angle is picked so it can see the crash.** A ~35° swing has never been looked down before,
+and a tower between the camera and the wreck is the one way this fails outright. `pickYaw` marches
+the swung view direction through the same height field the fare board's corner test uses
+(`game/sightline.js`) from the impact and two points back along the approach, and takes the first
+candidate in `YAW_CHOICES` that sees the most of them. Swings stay within 50° on purpose; see
+[rendering.md](rendering.md#camera) for what the yaw does to everything built for one view.
 
 ## Roadworks: a street closed at both ends
 
@@ -2036,7 +2157,7 @@ tail at −2.8), and that the jolt returns to exactly zero.
 ## The building fire
 
 `src/game/fire.js` for the event, `src/geometry/firetruck.js` for the engine. A minute or two into a
-run (`FIRST_WAIT`, 70–130s, then every 150–240s) the top of a facade a couple of blocks from the taxi
+run (`FIRST_WAIT`, 35–60s, then every 110–170s) the top of a facade a couple of blocks from the taxi
 catches fire: flames out of the upper windows and off the roof, a column of soot leaning away from
 the camera. A fire engine comes in off the edge of the frame with its bar going, drives to the street
 in front of the building, **stops in its lane**, swings its ladder round and lifts it, and puts a jet
@@ -2055,6 +2176,13 @@ engine drives off. It carries its own water — nobody hooks up to a hydrant.
 
 Held off while the taxi is staged (the opening, the depot, the drive-through), during a robbery, and
 in shot mode. `?fire=soon` starts one three seconds in.
+
+**Not in the squall.** A building blazing away under a rain cell read as a bug, so a site is skipped
+if the cell is on it or will be within `RAIN_LEAD` (20s) of its current crossing
+(`squall.rainSoon`). That rules out about 29% of site-moments, measured over six seeded 10-minute
+squalls, so the 4-second retry almost always finds a dry one. A fire the cell reaches anyway goes
+out under it (`RAIN_DOUSE`, 2.5s of full rain) in steam, counted as `rainedOut`, and the engine is
+sent home. The one exception is while the engine is spraying, because the jet is already winning.
 
 ### The engine is a guest, not a cop
 
@@ -2521,15 +2649,15 @@ roadblock as a bump rather than a wreck.
 
 ### The arrest: a junction closed to traffic
 
-A delivered robbery ends with the cops circling the robber in the drop-off's junction box
-([gameplay.md](gameplay.md#the-drop-off-the-arrest-and-the-tail)), driven by hand by `game/arrest.js`
-because no lane or turn goes round. A staged car is invisible to every loop in here, so the sim is
+A delivered robbery ends with the cops pulled up in a fan round the robber in the drop-off's
+junction box ([gameplay.md](gameplay.md#the-drop-off-the-arrest-and-the-tail)), driven by hand by
+`game/arrest.js` because no lane or turn parks a car across a junction. A staged car is invisible to every loop in here, so the sim is
 given two things to keep traffic off them:
 
 - **`sealJunction(i, j)`** closes a box: `sealedFor` holds anyone arriving at it exactly as a
   stranded car does (`entryRefused` and all three arrival branches). Only a boosting taxi is let
   through, into the cops, as a bump. The patrol chasing the taxi away is held too — let through at
-  first, it followed the taxi straight through the ring. The arrest seals the box only once the taxi
+  first, it followed the taxi straight through the cops. The arrest seals the box only once the taxi
   is clear of it and the first cop is going in: sealed on the frame of the drop-off, it parked the
   getaway car at its own arrest scene, and every arm queued back through the junction behind with
   the police still in the queue.
@@ -2775,16 +2903,27 @@ only a shell one level in is hidden, so the two lamps stay in the scene's light 
 |---|---|
 | `off` | a cooldown off the difficulty ramp (`policeCooldown`, 16–30s falling to 8–14s) |
 | `patrol` | crossing: in at one edge, through a corner within `PATROL_REACH` (1 block) of the taxi (`PATROL_TIME`, 25s, caps that leg), out at the opposite edge; bar swinging |
-| `exiting` | dissolving at the far edge (`FADE_TIME`), then retired |
+| `exiting` | out of traffic, driving straight off the island (`police.release`), dissolving past the slab's edge, then retired |
 | `chase` | it spotted you — bar strobing at the hunting rate, driving at you |
 | `leaving` | routed to the far corner, retired by `retirePolice` once out of sight |
 
 **It crosses the map.** `enter` picks an axis, puts the car on the edge of the island furthest from
 the taxi across it and level with the taxi along it (`enterPolice` handed that edge junction, which
-still never places a car in frame), and picks an exit anywhere along the opposite edge. It
-**dissolves in** over `FADE_TIME` (0.8s) and **out** at the exit, where it is retired only once the
-fade reaches zero: the materials use `alphaHash`, a define set once at construction, so the car stays
-in the opaque pass and the AO prepass and nothing relinks when it fades.
+still never places a car in frame), and picks an exit anywhere along the opposite edge but its
+corners. It **dissolves in** over `FADE_TIME` (0.8s): the materials use `alphaHash`, a define set
+once at construction, so the car stays in the opaque pass and the AO prepass and nothing relinks when
+it fades.
+
+**It drives off the map to leave.** The out leg is routed onto the *lane* running into the ring at the
+exit, pointed off the island (`findRouteOnto`), and the frame the car sets off from that hold line —
+the ring is give-way, so that is the frame the ring has been judged clear — it leaves the fleet
+through `retirePolice` and `police.release` carries the mesh straight on by itself, across the ring
+and over the asphalt, bar still swinging. The dissolve starts only once it crosses the slab's edge
+(`SLAB_X/2`), so it happens over the fade skirt rather than on a road. It used to dissolve *at* the
+exit junction, which is on the ring and in frame whenever the camera is near that side of town, and
+was reported as the patrol "fading out mid city". The probe measures ~4s off-network. The cost: for
+those seconds it is not a car in traffic, so ring traffic does not queue for it and the taxi cannot
+hit it.
 
 **The in leg goes past you, not at you**: routed to a corner within one block of the taxi — the one
 of six drawn that is the **shortest route** away, re-drawn whenever the taxi drives more than
@@ -2851,6 +2990,26 @@ cars* rather than distance *driven*, because the other reading lets a cop sittin
 you go. The clock runs down rather than resetting when the cop closes back in. The bar goes dark,
 dispatch says `LOST_LINE`, and the car leaves. `CHASE_MAX` (40s) calls off a chase neither car can
 finish.
+
+**Out of sight** is the other way to lose it: the level line from the cop to the taxi at a driver's
+eye height (`SIGHT_Y`, 1.6) crossing a block for `SIGHT_HOLD` (4.5s), on its own clock that runs
+down the same way. The test is `groundLineClear` in game/sightline.js, which marches the same height
+field the fare board's corner test uses — no rays, and no lane centreline in six cities reads above
+0 in it, so two cars on one street always see each other. Distance alone could not reward what a
+chase in a grid city is actually about: a taxi that turns at every junction stays near the cop, and
+on a full tank was caught 14 times in 16. With the line, 7 in 16 get away round the corners. The hold
+is as long as it is because a cop that is going to catch the taxi anyway is still blind for a median
+~2s at some point — mostly held at a red round the corner the taxi just took — and at 2.5s a
+cruising taxi got away 7 times in 16, which ends "off the pill you get caught". The table is in
+`SIGHT_HOLD`'s comment.
+
+**Out of sight, it searches.** A blind cop drives to where it last saw the taxi — the junction the
+taxi was going into, or the one after along the way it was heading if the cop was already going
+into that one (`steer`, `state.searchAt`) — and, once there, drops its route and takes the
+ordinary dice at the next junction. It does not re-aim at the taxi until it sees it again. Steering
+at the live taxi while blind made the line a timer rather than a hiding place: the cop came round
+the right corner every time. With the search, a full tank turning at every junction loses it 9
+times in 16 rather than 7; a cruising taxi is caught as often as before.
 
 **Gone to ground** is the depot. A taxi that turns in at the driveway mid-chase calls it off on the
 frame the opening takes it off the road (`hideout`, called from the depot's `onArrive` in main.js):

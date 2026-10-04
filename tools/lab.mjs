@@ -16,7 +16,7 @@
 
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
-import { setCityNetwork } from '../src/city/roadnet.js';
+import { setCityNetwork, cityNetwork } from '../src/city/roadnet.js';
 import { createTraffic, placeCar, SPEED, MIN_GAP, laysPassRubber } from '../src/sim/traffic.js';
 import { createCollisions, TAXI_HP, penetration } from '../src/sim/collisions.js';
 import { DIR, dirSign, PITCH, HALF_ROAD, LANE } from '../src/city/grid.js';
@@ -83,7 +83,7 @@ function placeAtX(car, d, x) {
   const to = labNodeX(block + 1) - HALF_ROAD;
   const at = Math.min(to, Math.max(from, x));
   const junction = dirSign(d) > 0 ? block + 1 : block;
-  const lane = net.laneByGrid(d, junction);
+  const lane = cityNetwork().laneByGrid(d, junction);
   if (!lane) return false;
   return placeCar(car, d, junction, 0, lane.length - (dirSign(d) > 0 ? at - from : to - at));
 }
@@ -334,9 +334,10 @@ check('with the front wheels turned into it rather than pointing dead ahead',
 // Two things a player reported on the first cut of HP. The taxi lifted off in the last few units
 // before every rear-end, because it was still held to the leader by tailgate rules written for a
 // taxi that must never touch anything; and a car it had just tapped was switched out of the
-// collision test for a couple of seconds, so it drove clean through it. With no route handed over
-// the overtake is never offered (see `approach` above), so the leader is the only answer and the
-// taxi rams it. With the road's one exit handed over as a route and the oncoming lane empty, a pass
+// collision test for a couple of seconds, so it drove clean through it. A route that turns at the
+// next junction used to be what took the overtake off the table, and the ram was staged with one;
+// it no longer refuses a pass (`turnsAhead` in traffic.js), so the ram is staged on a one-way copy
+// of the road instead — no oncoming lane to borrow, no way round. With the road two-way, a pass
 // *is* on, and the taxi must take it rather than ram — ramming is the fallback, not the policy.
 //
 // "Through" is measured as overlap, not as which centre ends up in front. The weave carries the
@@ -345,6 +346,8 @@ check('with the front wheels turned into it rather than pointing dead ahead',
 // the two bodies sinking into each other — contact is resolved a frame late by construction, so
 // the bar is one frame's travel at the top of the overdrive band (34 u/s / 60 ≈ 0.57).
 function ram(parked, route = false) {
+  // Before createTraffic, which reads the network it is handed once.
+  if (!route) setCityNetwork(labNetwork(LAB_BLOCKS, { oneway: true }));
   const scene = new THREE.Scene();
   const traffic = createTraffic(makeRng(4242), scene, 2, 2, 0);
   const taxi = traffic.taxi;
@@ -373,6 +376,7 @@ function ram(parked, route = false) {
     if (taxi.passing) out.passing = true;
     if (taxi.x > leader.x + 4) out.passed = true;
   }
+  setCityNetwork(net);
   return out;
 }
 

@@ -36,6 +36,11 @@
          is still the only way in.) -->
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#A46BFF" />
+    <!-- Space Grotesk, the game's one face, served from this bundle rather than from Google: the
+         iOS build is offline and the web build's service worker should not depend on a third
+         party either. A stylesheet rather than an inline @font-face so Vite fingerprints the
+         .woff2 files it names. -->
+    <link rel="stylesheet" href="/src/fonts.css" />
     <style>
       :root { color-scheme: light; }
       /* The screen's own hardware: status bar / Dynamic Island up top, home indicator below, and
@@ -95,13 +100,20 @@
          phone — so every number in the file is ×0.652 here: the 52px total is 34px, the 40px side
          margin is 26px, the 56px bolt is 36px. The type is Inter Black in the file; this is the
          system face at 900 instead, which is SF Pro on the phones this ships to and near enough to
-         Inter that loading a web font for four digits isn't worth an offline asset. */
+         Inter that loading a web font for four digits isn't worth an offline asset.
+
+         That last call was overtaken by the face changing: the whole game is set in Space Grotesk
+         now, self-hosted from assets/fonts/ (src/fonts.css), so `--game-font` is the one stack
+         every player-facing surface reads. The ⚙️ panel and the ?audio panel keep the system face
+         on purpose — they are tools, not the game. Space Grotesk's axis stops at 700, so every
+         800/900 below lands on its bold. */
       :root {
         --hud-count-size: 34px;
         --hud-row: 41px;
         --hud-top: calc(13px + var(--safe-top));
         --hud-side: 26px;
-        --hud-font: Inter, system-ui, -apple-system, "Helvetica Neue", sans-serif;
+        --game-font: "Space Grotesk", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+        --hud-font: var(--game-font);
         --hud-shadow: 0 2px 2px rgba(0, 0, 0, 0.25);
       }
 
@@ -118,18 +130,19 @@
         display: inline-block; transform-origin: right center;
       }
 
-      /* Loco Mode's fuel, read out as a gauge arc hugging the top of the gas pedal — a tachometer
-         over the control that spends it, so a thumb holding the gas can watch the tank go without
-         looking away to a corner. The arc runs from a third of the way down the pedal's left side,
-         up over its cap, and down to the same height on the right; fuel fills from the left end,
-         so burning it sweeps the front back from the right, over the top, and down to the left.
+      /* Loco Mode's fuel, read out as a gauge arc hugging the top of the round gas button — a
+         tachometer over the control that spends it, so a thumb holding the gas can watch the tank
+         go without looking away to a corner. The arc runs from just under the button's centre on
+         the left, up over the top, and down to the same height on the right; fuel fills from the
+         left end, so burning it sweeps the front back from the right, over the top, and down to the
+         left.
          It is a read-out only — the pedal is the control, and nothing here hit-tests.
 
-         The shape is game/fuelarc.js, not markup: the band is thin at the empty end and thicker at
-         the full one, and a stroke cannot taper, so both the track and the fuel are filled
+         The shape is game/fuelarc.js, not markup: the band used to taper, and a stroke cannot, so
+         both the track and the fuel are filled
          outlines that main.js writes into the two paths' `d` — the track once, the fuel whenever
-         the level moves. The box is #boost's box and the viewBox is the pedal's, so the gauge and
-         the pedal are drawn in one coordinate system.
+         the level moves. The box is #boost's box and the viewBox is the button's, so the gauge and
+         the button are drawn in one coordinate system.
 
          Everything the pedal's old dial did, this does too, off the same three variables
          (`updateBoostButton` in main.js sets them on both): `--pct` is the level, `--fill` is the
@@ -140,29 +153,35 @@
          across the whole arc in user space, not along the fuel, so a colour means a level —
          orange is always the top of the tank. */
       #boost-meter {
-        position: fixed; bottom: var(--ctl-bottom); left: var(--ctl-left); z-index: 19;
-        width: 95px; height: 141px;
+        position: fixed; bottom: var(--ctl-bottom); left: var(--gas-left); z-index: 19;
+        width: var(--gas-d); height: var(--gas-d);
         pointer-events: none; user-select: none;
       }
-      /* The <svg> is the pedal's box grown by 40 units on every side (the viewBox in the markup
+      /* The <svg> is the button's box grown by 50 units on every side (the viewBox in the markup
          says the same), so the whole gauge *and* its glow sit inside it. The crown hung out over
-         the top of a box exactly the pedal's size, on `overflow: visible`, and a `filter` on an
+         the top of a box exactly the button's size, on `overflow: visible`, and a `filter` on an
          element is free to clip to that element's box: when the burn glow came on, the top of the
-         arc was cut off, and it popped back as the glow went. The numbers are 40 units at the
-         pedal's scale — 95/146.266 across, 141/215.545 down. */
+         arc was cut off, and it popped back as the glow went. The numbers are 50 units at the
+         button's scale, `--gas-d` per 150. */
       #boost-meter .boost-arc {
         position: absolute; display: block;
-        left: calc(-40 * 95px / 146.266); top: calc(-40 * 141px / 215.545);
-        width: calc(226.266 * 95px / 146.266); height: calc(295.545 * 141px / 215.545);
-        /* The cap's centre, (76.13, 68.94), in the grown box — so the throb swells the arc evenly
-           off the pedal. */
-        transform-origin: calc(116.13 / 226.266 * 100%) calc(108.94 / 295.545 * 100%);
+        left: calc(-50 * var(--gas-d) / 150); top: calc(-50 * var(--gas-d) / 150);
+        width: calc(250 * var(--gas-d) / 150); height: calc(250 * var(--gas-d) / 150);
+        /* The button's centre, so the throb swells the arc evenly off it. */
+        transform-origin: 50% 50%;
         transition: filter 0.15s ease, transform 0.1s ease;
       }
       /* The track pads the fuel's band by a rim the colour of the pedal's own outline, which keeps a
          full gold arc from melting into the orange pedal beside it. */
       #boost-meter .boost-track { fill: rgba(34, 21, 0, 0.8); }
       #boost-meter .boost-fill { fill: url(#fuel-grad); }
+      /* The glint: a thin white line across the fuel at its front, always on while there is fuel
+         to draw, so the level reads as a lit edge rather than the end of a coloured shape. */
+      #boost-meter .boost-glint {
+        stroke: #fff; stroke-width: 2.5; stroke-linecap: round; opacity: 0.95;
+      }
+      #boost-meter .boost-glint[hidden] { display: none; }
+      #boost-meter.is-empty .boost-glint { opacity: 0.5; }
       /* The leading edge of a pour: a soft bright dot riding the fuel's front, faded in and out by
          the same envelope. The softness is a radial gradient rather than a CSS `blur()`, because a
          CSS filter on an element *inside* an SVG gets a filter region off that element's own tiny
@@ -174,11 +193,12 @@
          yet, so the gold is muted — the pedal's reasoning (see `#boost.is-empty`). */
       #boost-meter.is-empty .boost-fill { filter: saturate(0.35) brightness(0.8); }
       /* A pour landing: the glow and a small throb, off `--fill` and `--pulse`. No transition —
-         every value here is rewritten per frame, and any easing smears the 4Hz throb flat. */
+         every value here is rewritten per frame, and any easing smears the 4Hz throb flat. The
+         throb was 3.5% and read as the whole gauge bouncing; 1.2% is a swell under the glow. */
       #boost-meter.is-filling .boost-arc {
         transition: none;
         filter: drop-shadow(0 0 calc(4px + 8px * var(--pulse, 0)) rgba(255, 190, 0, calc(0.95 * var(--fill, 0))));
-        transform: scale(calc(1 + 0.035 * var(--pulse, 0)));
+        transform: scale(calc(1 + 0.012 * var(--pulse, 0)));
       }
       /* The recharge rides the pour's envelope but not its movement or its full glow: a meter
          bouncing on a pedal that refuses the press reads as pressable. */
@@ -301,9 +321,8 @@
          leave a strip of live city showing under themselves. */
       #pause-veil {
         position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 23;
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
-        background: rgba(6, 14, 22, 0.72); color: #fff; text-align: center;
-        font: 500 16px/1.5 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+        background: rgba(6, 14, 22, 0.72); color: #fff; text-align: left;
+        font: 500 16px/1.5 var(--game-font);
         touch-action: manipulation;
         user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
       }
@@ -311,41 +330,20 @@
          this the veil covers the city from the first frame. Same trap as #run-end. */
       #pause-veil[hidden] { display: none; }
       body.shot-mode #pause-veil { display: none; }
-      /* The run-end title's type, a size down: this is the same kind of statement — one word on
-         nothing — but it is a state the player chose rather than the end of their run. */
+      /* The menu is the title screen's (Resume, Settings, Quit as plain white words, and Settings
+         the same page) — those rules are shared below under `:is(#title-screen, #pause-veil)`. The
+         word "Paused" is the small header over it, set like the title screen's "‹ Back": it names
+         the state, and the three words under it are what the player came here to press. */
       #pause-veil .pause-title {
-        font-size: clamp(28px, 6.2vh, 46px); font-weight: 800; line-height: 1.1;
-        letter-spacing: -0.01em;
+        font-size: 18px; font-weight: 500; opacity: 0.85; padding: 8px 0; margin-bottom: 2px;
       }
-      /* The same yellow pill as "Play again", because it is the same kind of action: the one thing
-         on the screen that puts the game back in the player's hands. */
-      #pause-veil .pause-resume {
-        margin-top: clamp(16px, 4vh, 34px); padding: 14px 26px; border-radius: 999px;
-        cursor: pointer; border: 2px solid #16120a; background: #F5C130; color: #16120a;
-        font: 800 17px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
-        letter-spacing: 0.02em; white-space: nowrap;
-        transition: transform 0.1s ease;
-      }
-      #pause-veil .pause-resume:active { transform: scale(0.95); }
-      /* The sound switch, under Resume and deliberately quieter than it: an outline rather than the
-         yellow, because it changes a setting rather than handing the game back. Here rather than on
-         the HUD because it is set once and left, and the HUD's top edge has no room to spare. M
-         toggles it from a keyboard (main.js). */
-      #pause-veil .pause-sound {
-        margin-top: 14px; padding: 10px 20px; border-radius: 999px; cursor: pointer;
-        border: 2px solid rgba(255, 255, 255, 0.7); background: transparent; color: #fff;
-        font: 700 15px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
-        letter-spacing: 0.02em; white-space: nowrap;
-        transition: transform 0.1s ease;
-      }
-      #pause-veil .pause-sound:active { transform: scale(0.95); }
 
       /* Earnings fly off the taxi so the payout is visibly connected to the drop-off; the flight
          itself (rise, then travel to the counter) is driven from JS so it can aim at the counter's
          actual on-screen position, which changes with the viewport. */
       .earning {
         position: fixed; z-index: 25; pointer-events: none; user-select: none;
-        font: 800 27px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        font: 800 27px/1 var(--game-font);
         color: #6BE08A; text-shadow: 0 2px 10px rgba(10, 30, 20, 0.65);
         transform: translate(-50%, -50%);
       }
@@ -399,7 +397,7 @@
         overflow-y: auto;
         padding: calc(24px + var(--safe-top)) calc(16px + var(--safe-right))
                  calc(24px + var(--safe-bottom)) calc(16px + var(--safe-left));
-        font: 500 16px/1.5 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+        font: 500 16px/1.5 var(--game-font);
         user-select: none;
       }
       /* `display: flex` above beats the UA stylesheet's `[hidden] { display: none }`, so without
@@ -564,7 +562,7 @@
       #run-end .score-ok {
         margin-top: clamp(14px, 3vh, 24px); padding: 10px 30px; border-radius: 999px;
         cursor: pointer; border: 2px solid #F5C130; background: none; color: #F5C130;
-        font: 800 16px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        font: 800 16px/1 var(--game-font);
         letter-spacing: 0.02em;
       }
       #run-end .score-ok:active { transform: scale(0.95); }
@@ -616,7 +614,7 @@
            the same reason — the two gaps are paid on the same axis and a short viewport pays both. */
         margin-top: clamp(16px, 4.9vh, 56px); padding: 14px 26px; border-radius: 999px; cursor: pointer;
         border: 2px solid #16120a; background: #F5C130; color: #16120a;
-        font: 800 17px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        font: 800 17px/1 var(--game-font);
         letter-spacing: 0.02em; white-space: nowrap;
         transition: box-shadow 0.15s ease, transform 0.1s ease;
       }
@@ -630,8 +628,7 @@
       /* The Loco Mode pill and the ⚙️ tweak toggle are gameplay controls; once the run is over
          they are noise behind the retry pill. */
       body.game-over #boost, body.game-over #boost-meter, body.game-over #brake,
-      body.game-over #dbg-toggle, body.game-over #dbg-panel,
-      body.game-over #aud-toggle, body.game-over #aud-panel { display: none; }
+      body.game-over #dbg-toggle, body.game-over #dbg-panel { display: none; }
 
       /* The bottom control row: the gas pedal, the brake pedal beside it, and the pause square in
          the far corner — the Figma frame "boost-active", at the same ×0.652 as the top row.
@@ -649,24 +646,46 @@
          the derived inset is kept because that number was chosen against the gesture strip, and
          the file wasn't. Landscape puts 47pt of notch on one side, and no derived inset is going
          to beat that, so the sides floor at their own `env()`.
-         `--ctl-h` is the row's height — the gas pedal, the tallest thing in it — and everything
-         stacked above the row (the rider chips, the taxi finder, the coach) measures off it. */
+         `--ctl-h` is the row's height — the gas button, the tallest thing in it — and everything
+         stacked above the row (the rider chips, the taxi finder, the coach) measures off it.
+         The gas sits dead centre, so `--gas-left` is half the viewport less its radius; the brake
+         hangs off its left side (see #boost, #brake). */
       :root {
         --ctl-inset: calc((26px + var(--safe-bottom)) / 2);
         --ctl-bottom: var(--ctl-inset);
         --ctl-left: max(var(--ctl-inset), var(--safe-left));
         --ctl-right: max(var(--ctl-inset), var(--safe-right));
-        --ctl-h: 141px;
+        --ctl-h: 100px;
+        --gas-d: 100px;
+        --brake-d: 66px;
+        --gas-left: calc(50% - var(--gas-d) / 2);
         --pause-w: 42px;
       }
 
       body.shot-mode #hud, body.shot-mode #run-end { display: none; }
 
-      /* The pedals. Each is the file's own drawing, inline rather than an <img> because the press
-         has to reach inside it (below). 95×141 and 113×80 are the files' 146×216 and 174×123,
-         strokes included. The two bottoms line up in the file, and the brake tucks against the
-         gas's lower right — 96px along rather than the file's 94 so the two hit boxes don't
-         overlap: `pedalUnder` in main.js hit-tests rectangles and assumes they never do.
+      /* The crash replay (game/replay.js): nothing on screen but the white flash on each cut. It
+         had a letterbox and a REPLAY tag and lost both — the cuts say "replay" on their own, and
+         the bars took a fifth of a phone's height off a shot that is about a second long. The
+         element is still one full-screen tap target: a tap anywhere skips to the card. The HUD
+         goes for the length of it — a money counter over a slow-motion fireball is a game still
+         running underneath a cut scene. */
+      #replay {
+        position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 25;
+        pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none;
+      }
+      #replay[hidden] { display: none; }
+      #replay .replay-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+      body.replaying #hud, body.replaying #pause, body.replaying #boost, body.replaying #boost-meter,
+      body.replaying #brake, body.replaying #rider-finder-stack, body.replaying #taxi-finder,
+      body.replaying .fare-pointer { display: none; }
+
+      /* The pedals: two round buttons, inline SVG rather than an <img> because the press has to
+         reach inside them (below). The gas is centred on the bottom edge; the brake is two thirds
+         of its size, to its left, with the two centres on one line so a thumb sliding between
+         them goes straight across. The gap is wide enough to clear the fuel gauge's left end,
+         which stands ~15px off the gas's outline — and it keeps the two hit boxes apart, because
+         `pedalUnder` in main.js hit-tests rectangles and assumes they never overlap.
 
          Everything that keeps a hold a hold is unchanged from the pills these replace: `none`
          rather than `manipulation`, because pan or pinch starting on a pedal makes the browser
@@ -681,22 +700,28 @@
         user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
         touch-action: none;
       }
-      #boost { left: var(--ctl-left); width: 95px; height: 141px; }
-      #brake { left: calc(var(--ctl-left) + 96px); width: 113px; height: 80px; }
+      #boost { left: var(--gas-left); width: var(--gas-d); height: var(--gas-d); }
+      #brake {
+        left: calc(var(--gas-left) - 22px - var(--brake-d));
+        bottom: calc(var(--ctl-bottom) + (var(--gas-d) - var(--brake-d)) / 2);
+        width: var(--brake-d); height: var(--brake-d);
+      }
       .pedal-art {
         display: block; width: 100%; height: 100%; overflow: visible;
         pointer-events: none;
         transition: filter 0.15s ease;
       }
 
-      /* The press. The pedal's depth is not geometry: it is an inner shadow 28 units thick along
-         the bottom of one flat shape — the dark band reads as the side, the rest as the top. So a
-         press is drawn *inside* the silhouette rather than by moving it: the filter swaps to one
-         with the side band thinned to 11 and a dark inner shadow dropped from the top edge, so the
-         face reads as sunk into its own outline, and the icon drops with it.
+      /* The press. The button's depth is two discs: a dark base, and the face drawn smaller and
+         higher on it, so the base shows as a crescent underneath and reads as the side. (It used
+         to be one shape with a 28-unit inner shadow along its bottom, which on a circle left the
+         face a squashed oval.) A
+         press is drawn *inside* the silhouette rather than by moving it: the face disc drops into
+         the dark base disc under it, its filter adds a dark inner shadow from the top edge, and the
+         icon drops with it.
          It used to squash the whole pedal toward its base (the top came down ~12px). That read as
-         travel, but the fuel gauge now hugs the gas pedal's cap, and a cap that moves 12px away
-         from a gauge that doesn't opens a gap exactly where the thumb is looking. The outline and
+         travel, but the fuel gauge hugs the gas button, and a button that moves 12px away from a
+         gauge that doesn't opens a gap exactly where the thumb is looking. The outline and
          the hit box now stay where they are.
 
          Held is a class and never `:active`, for the pedal slide's reason: the browser pins
@@ -708,11 +733,13 @@
       #brake .pedal-face { filter: url(#brake-up); }
       #boost.is-held .pedal-face, #boost.is-down .pedal-face { filter: url(#gas-down); }
       #brake.is-held .pedal-face, #brake.is-on .pedal-face { filter: url(#brake-down); }
-      /* In the pedal's user units: half the 17 units the side band gave up, so the icon stays
-         centred on the face as it sinks. */
-      .pedal-icon { transition: transform 0.07s ease-out; }
+      /* The face drops into its base, 5 of the 12 units of crescent under it, and the icon rides
+         with it. In the button's user units. The silhouette and the hit box stay put. */
+      .pedal-face, .pedal-icon { transition: transform 0.07s ease-out; }
+      #boost.is-held .pedal-face, #boost.is-down .pedal-face,
+      #brake.is-held .pedal-face, #brake.is-on .pedal-face,
       #boost.is-held .pedal-icon, #boost.is-down .pedal-icon,
-      #brake.is-held .pedal-icon, #brake.is-on .pedal-icon { transform: translateY(8px); }
+      #brake.is-held .pedal-icon, #brake.is-on .pedal-icon { transform: translateY(5px); }
       /* Held brake lights up a touch, the way the taxi's own lamps come on out on the road. */
       #brake.is-on .pedal-art { filter: brightness(1.12); }
 
@@ -1008,7 +1035,7 @@
         /* The fill (a white-to-pale-blue gradient) is set by speech.js, which also has to colour
            the pointer to match whatever part of it the pointer leaves from. */
         background: #fff;
-        font-family: ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        font-family: var(--game-font);
         text-align: left;
       }
       /* Both lines trim to their cap height, as the file does (`text-box-trim`), so the 16px of
@@ -1116,10 +1143,14 @@
          nothing to say yet. `hud-ready` implies it, here rather than in main.js. */
       #hud, #boost-meter, #pause, #boost, #brake, #rider-finder-stack {
         opacity: 0;
-        transition: opacity 0.45s ease, translate 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+        /* Half again the first cut (0.45s / 0.55s), which read as a snap on the depot exit. */
+        transition: opacity 0.7s ease, translate 0.85s cubic-bezier(0.22, 1, 0.36, 1);
       }
       #hud { translate: 0 -160%; }
-      #pause, #boost, #boost-meter, #brake, #rider-finder-stack { translate: 0 200%; }
+      #pause, #boost, #boost-meter, #brake { translate: 0 200%; }
+      /* The chips sit a pill's height up the screen but only `--ctl-left` in from the side, so the
+         left edge is the near one: off by their own width plus that inset. */
+      #rider-finder-stack { translate: calc(-100% - var(--ctl-left) - 8px) 0; }
       /* Invisible is not un-tappable: a 0-opacity pill still takes the tap that was aimed at the
          rider behind it. (#hud and #boost-meter are already pointer-events: none.) The pause button
          rides in the same group for the same reason it waits at all: there is nothing to pause
@@ -1153,13 +1184,37 @@
 
       /* The two top corners land together, and the pause button with the pedals it shares the
          bottom row with. */
-      body.hud-ready #boost, body.hud-ready #boost-meter, body.hud-ready #brake, body.hud-ready #pause { transition-delay: 0.14s; }
+      body.hud-ready #boost, body.hud-ready #boost-meter, body.hud-ready #brake, body.hud-ready #pause { transition-delay: 0.2s; }
       /* ...but on their own cue there is nothing to stagger against. */
       body.pedals-ready:not(.hud-ready) #boost, body.pedals-ready:not(.hud-ready) #boost-meter,
       body.pedals-ready:not(.hud-ready) #brake { transition-delay: 0s; }
-      body.hud-ready #rider-finder-stack { transition-delay: 0.21s; }
+      body.hud-ready #rider-finder-stack { transition-delay: 0.3s; }
+      /* --- ...and its exit, for the depot ------------------------------------
+         `hud-away` sends everything back off the edge it came in from while the taxi is in the
+         garage — from the turn-in at the driveway to the taxi rejoining the lane — and the opening
+         vignette takes it too, so the HUD arrives on the same beat both times: as the car comes out
+         of the door. main.js decides it every frame (`hudAway`). It sits after the ready rules so it
+         outranks them at equal specificity; leaving with no stagger and coming back with the
+         entrance's own delays, which the ready rules supply again the moment it is lifted. The
+         fare pointers are already on the frame's edge and only fade. */
+      body.hud-away #hud { opacity: 0; translate: 0 -160%; }
+      body.hud-away #pause, body.hud-away #boost, body.hud-away #boost-meter,
+      body.hud-away #brake { opacity: 0; translate: 0 200%; }
+      body.hud-away #rider-finder-stack {
+        opacity: 0; translate: calc(-100% - var(--ctl-left) - 8px) 0;
+      }
+      body.hud-away #hud, body.hud-away #boost-meter, body.hud-away #pause, body.hud-away #boost,
+      body.hud-away #brake, body.hud-away #rider-finder-stack { transition-delay: 0s; }
+      /* The chips take taps on their own `pointer-events: auto`, so the stack's none is not enough. */
+      body.hud-away #pause, body.hud-away #boost, body.hud-away #brake,
+      body.hud-away #rider-finder-stack, body.hud-away #rider-finder-stack * { pointer-events: none; }
+      #fare-pointers { transition: opacity 0.7s ease; }
+      body.hud-away #fare-pointers { opacity: 0; }
+      body.hud-away #fare-pointers .fare-pointer { pointer-events: none; }
       @media (prefers-reduced-motion: reduce) {
-        #hud, #boost-meter, #pause, #boost, #brake, #rider-finder-stack { translate: none; }
+        #hud, #boost-meter, #pause, #boost, #brake, #rider-finder-stack,
+        body.hud-away #hud, body.hud-away #boost-meter, body.hud-away #pause, body.hud-away #boost,
+        body.hud-away #brake, body.hud-away #rider-finder-stack { translate: none; }
       }
 
       /* --- "Add to Home Screen" screen — see src/game/homescreen.js -------------
@@ -1181,7 +1236,7 @@
           rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.1) 20%, rgba(0, 0, 0, 0.45) 42%,
           rgba(0, 0, 0, 0.88) 55%, #000 63%);
         color: #fff;
-        font-family: ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        font-family: var(--game-font);
         /* The whole thing is the dismiss target, as the hint says. No long-press callout, no
            double-tap zoom pause between the press and the game starting. */
         cursor: pointer; touch-action: manipulation;
@@ -1189,6 +1244,132 @@
       }
       #home-tip[hidden] { display: none; }
       body.shot-mode #home-tip, body.game-over #home-tip { display: none; }
+
+      /* The title screen — see src/game/titlescreen.js. Full-screen so it takes every tap while it
+         is up (nothing on the city is the player's to press yet), but transparent: the city with
+         its traffic running *is* the backdrop. Under the Home Screen tip (26), which is a gate of
+         its own and answered first, and over the coach bubble and the pause veil it holds back. */
+      #title-screen {
+        position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 25;
+        color: #fff; font-family: var(--game-font);
+        touch-action: manipulation;
+        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+      }
+      #title-screen[hidden] { display: none; }
+      body.shot-mode #title-screen { display: none; }
+      /* The HUD has nothing to say before there is a run — including on `?tutorial=off`, which
+         reveals it at boot. */
+      body.title-up #hud, body.title-up #boost-meter, body.title-up #pause, body.title-up #boost,
+      body.title-up #brake, body.title-up #rider-finder-stack, body.title-up #taxi-finder,
+      body.title-up #fare-pointers { visibility: hidden; }
+
+      /* The dim behind Settings and Credits: a page of text to read wants the city quieter. The
+         menu leaves it off, but keeps a soft shade down the left edge the words stand on, because
+         the city is pale and white type on a sunlit block is not reliably legible on its own. */
+      #title-screen .title-scrim {
+        position: absolute; inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        opacity: 0; transition: opacity 0.25s ease;
+        pointer-events: none;
+      }
+      #title-screen::before {
+        content: ''; position: absolute; inset: 0; pointer-events: none;
+        background: linear-gradient(to right, rgba(6, 14, 22, 0.42), rgba(6, 14, 22, 0) min(70vw, 520px));
+      }
+      #title-screen[data-view="settings"] .title-scrim,
+      #title-screen[data-view="credits"] .title-scrim { opacity: 1; }
+
+      /* Every view is a left-aligned column, vertically centred, inset off the notch in landscape. */
+      :is(#title-screen, #pause-veil) .title-view {
+        position: absolute; inset: 0;
+        display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+        padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right))
+                 calc(24px + var(--safe-bottom)) calc(clamp(24px, 7vw, 72px) + var(--safe-left));
+        overflow-y: auto;
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+      }
+      :is(#title-screen, #pause-veil) .title-view[hidden] { display: none; }
+      :is(#title-screen, #pause-veil) button {
+        appearance: none; border: 0; background: none; color: inherit; font: inherit;
+        text-shadow: inherit; cursor: pointer; text-align: left;
+      }
+      :is(#title-screen, #pause-veil) button:focus-visible { outline: 3px solid #F5C130; outline-offset: 4px; border-radius: 6px; }
+
+      :is(#title-screen, #pause-veil) .title-menu { gap: clamp(6px, 1.6vh, 14px); }
+      :is(#title-screen, #pause-veil) .title-item {
+        font-size: clamp(36px, 8.5vh, 64px); font-weight: 700; line-height: 1.05;
+        letter-spacing: -0.02em; padding: 4px 0;
+        transition: transform 0.12s ease, color 0.12s ease;
+        transform-origin: left center;
+      }
+      @media (hover: hover) { :is(#title-screen, #pause-veil) .title-item:hover { color: #F5C130; } }
+      :is(#title-screen, #pause-veil) .title-item:active { transform: scale(0.96); }
+
+      /* A page: the way back above the header, smaller than it, then the header, then the body. */
+      :is(#title-screen, #pause-veil) .title-back {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 18px; font-weight: 500; opacity: 0.85;
+        padding: 8px 0; margin-bottom: 2px;
+      }
+      :is(#title-screen, #pause-veil) .title-back-chevron { font-size: 26px; line-height: 0.8; translate: 0 -1px; }
+      :is(#title-screen, #pause-veil) .title-back:active { transform: scale(0.96); }
+      :is(#title-screen, #pause-veil) .title-header {
+        font-size: clamp(34px, 7vh, 52px); font-weight: 700; line-height: 1.05;
+        letter-spacing: -0.02em; margin-bottom: clamp(16px, 3.6vh, 30px);
+      }
+      :is(#title-screen, #pause-veil) .title-body { width: min(380px, 100%); }
+
+      /* Settings rows: label on the left, its control on the right, one per line. */
+      :is(#title-screen, #pause-veil) .title-row {
+        display: flex; align-items: center; justify-content: space-between; gap: 20px;
+        width: 100%; min-height: 52px; padding: 6px 0;
+        font-size: 18px; font-weight: 500;
+      }
+      :is(#title-screen, #pause-veil) .title-row + .title-row { border-top: 1px solid rgba(255, 255, 255, 0.16); }
+      :is(#title-screen, #pause-veil) .title-row.is-asleep input { opacity: 0.4; }
+
+      :is(#title-screen, #pause-veil) .title-switch {
+        flex: none; position: relative; width: 50px; height: 30px; border-radius: 999px;
+        background: rgba(255, 255, 255, 0.28); transition: background 0.18s ease;
+      }
+      :is(#title-screen, #pause-veil) .title-switch-dot {
+        position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%;
+        background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        transition: translate 0.18s ease;
+      }
+      :is(#title-screen, #pause-veil) .title-toggle[aria-checked="true"] .title-switch { background: #F5C130; }
+      :is(#title-screen, #pause-veil) .title-toggle[aria-checked="true"] .title-switch-dot { translate: 20px 0; }
+
+      /* The range input, drawn by hand in both engines' spellings. `--fill` is set from script —
+         neither engine has a standard part for the run left of the thumb. `touch-action: none` so
+         a horizontal drag on a phone moves the thumb instead of being read as a page gesture. */
+      :is(#title-screen, #pause-veil) input[type="range"] {
+        flex: none; width: min(150px, 42vw); height: 30px; margin: 0;
+        appearance: none; -webkit-appearance: none; background: transparent; cursor: pointer;
+        touch-action: none; user-select: none; -webkit-user-select: none;
+      }
+      :is(#title-screen, #pause-veil) input[type="range"]::-webkit-slider-runnable-track {
+        height: 6px; border-radius: 999px;
+        background: linear-gradient(to right, #F5C130 var(--fill, 100%), rgba(255, 255, 255, 0.28) var(--fill, 100%));
+      }
+      :is(#title-screen, #pause-veil) input[type="range"]::-moz-range-track {
+        height: 6px; border-radius: 999px;
+        background: linear-gradient(to right, #F5C130 var(--fill, 100%), rgba(255, 255, 255, 0.28) var(--fill, 100%));
+      }
+      :is(#title-screen, #pause-veil) input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none; width: 24px; height: 24px; margin-top: -9px;
+        border-radius: 50%; background: #fff; border: 0; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+      }
+      :is(#title-screen, #pause-veil) input[type="range"]::-moz-range-thumb {
+        width: 24px; height: 24px; border-radius: 50%; background: #fff; border: 0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+      }
+      :is(#title-screen, #pause-veil) input[type="range"]:focus-visible { outline: 3px solid #F5C130; outline-offset: 4px; border-radius: 6px; }
+
+      /* Credits: role over name, top to bottom. */
+      #title-screen .title-credits { display: flex; flex-direction: column; gap: clamp(12px, 2.6vh, 20px); }
+      #title-screen .title-credit dt { font-size: 15px; font-weight: 500; opacity: 0.75; }
+      #title-screen .title-credit dd { font-size: 22px; font-weight: 700; margin-top: 2px; }
 
       /* Bottom-anchored, and the bottom inset clears the home indicator on a notched phone. The
          gutter is a share of the width rather than a fixed pixel count so the block sits the same
@@ -1259,49 +1440,108 @@
         color: rgba(255, 255, 255, 0.45);
       }
 
-      /* --- tweak panel --- */
+      /* --- tweak panel (src/game/debugpanel.js) ---
+         A tool, so it is styled as one rather than as part of the game: neutral greys, the system
+         UI face, hairline borders, one accent. */
+      #dbg-toggle, #dbg-panel {
+        --dbg-bg: rgba(17, 17, 19, 0.94);
+        --dbg-line: rgba(255, 255, 255, 0.08);
+        --dbg-fill: rgba(255, 255, 255, 0.05);
+        --dbg-fill-hi: rgba(255, 255, 255, 0.09);
+        --dbg-text: #ececee;
+        --dbg-mute: #8b8b93;
+        --dbg-accent: #7aa2ff;
+      }
       #dbg-toggle {
         position: fixed; top: calc(16px + var(--safe-top)); right: calc(16px + var(--safe-right)); z-index: 20;
-        width: 38px; height: 38px; border: 0; border-radius: 10px; cursor: pointer;
-        font-size: 18px; line-height: 1; background: rgba(20, 34, 44, 0.72); color: #fff;
+        width: 38px; height: 38px; border: 1px solid var(--dbg-line); border-radius: 10px; cursor: pointer;
+        font-size: 17px; line-height: 1; background: var(--dbg-bg); color: var(--dbg-text);
+        -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
       }
-      #dbg-toggle:hover { background: rgba(20, 34, 44, 0.9); }
+      #dbg-toggle:hover { background: #1f1f23; }
 
       #dbg-panel {
         position: fixed; top: calc(62px + var(--safe-top)); right: calc(16px + var(--safe-right));
-        z-index: 20; width: 258px;
-        padding: 12px 14px 14px; border-radius: 12px;
-        background: rgba(18, 30, 39, 0.92); color: #e8eef2;
-        font: 500 12px/1.4 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+        z-index: 20; width: 280px; box-sizing: border-box;
+        padding: 0 0 6px; border: 1px solid var(--dbg-line); border-radius: 12px;
+        background: var(--dbg-bg); color: var(--dbg-text);
+        -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+        font: 400 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
         max-height: calc(100vh - 90px - var(--safe-top) - var(--safe-bottom)); overflow: auto;
+        overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
       }
       #dbg-panel[hidden] { display: none; }
-      #dbg-panel h4 {
-        margin: 10px 0 6px; font-size: 11px; text-transform: uppercase;
-        letter-spacing: 0.08em; opacity: 0.55; font-weight: 700;
+
+      /* Search, pinned to the top of the scroll so it is there from any depth. */
+      .dbg-head {
+        position: sticky; top: 0; z-index: 1; padding: 10px 10px 8px;
+        background: linear-gradient(var(--dbg-bg) 80%, transparent);
       }
-      #dbg-panel h4:first-child { margin-top: 0; }
-      .dbg-row { display: grid; grid-template-columns: 84px 1fr; gap: 4px 8px; align-items: center; margin-bottom: 7px; }
-      .dbg-row span { opacity: 0.8; }
-      .dbg-row em { grid-column: 2; font-style: normal; font-size: 11px; opacity: 0.6; font-variant-numeric: tabular-nums; }
-      .dbg-row input[type="range"] { width: 100%; accent-color: #F5C130; }
-      .dbg-row input[type="color"] { width: 100%; height: 22px; padding: 0; border: 0; background: none; }
+      .dbg-search {
+        width: 100%; box-sizing: border-box; height: 30px; padding: 0 10px 0 28px;
+        border: 1px solid var(--dbg-line); border-radius: 8px; outline: none;
+        background: var(--dbg-fill) no-repeat 9px 50% / 12px
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238b8b93' stroke-width='1.8' stroke-linecap='round'%3E%3Ccircle cx='7' cy='7' r='5'/%3E%3Cpath d='M11 11l3.5 3.5'/%3E%3C/svg%3E");
+        color: var(--dbg-text); font: inherit; font-size: 12.5px; -webkit-appearance: none; appearance: none;
+      }
+      /* iOS zooms the page into any focused field under 16px. */
+      @media (pointer: coarse) { .dbg-search { font-size: 16px; } }
+      .dbg-search::placeholder { color: var(--dbg-mute); }
+      .dbg-search:focus { border-color: var(--dbg-accent); background-color: var(--dbg-fill-hi); }
+      .dbg-search::-webkit-search-cancel-button { filter: invert(0.6); }
+
+      .dbg-sec { border-top: 1px solid var(--dbg-line); }
+      .dbg-sec[hidden], .dbg-sec-body[hidden], .dbg-miss { display: none !important; }
+      .dbg-sec-head {
+        display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px;
+        border: 0; background: none; color: var(--dbg-text); cursor: pointer; text-align: left;
+        font: inherit; font-weight: 500; line-height: 1.2;
+      }
+      .dbg-sec-head:hover { background: var(--dbg-fill); }
+      .dbg-sec-head span { flex: 1; }
+      .dbg-sec-head small {
+        min-width: 18px; padding: 1px 5px; border-radius: 99px; box-sizing: border-box; text-align: center;
+        background: var(--dbg-fill); color: var(--dbg-mute); font: inherit; font-size: 10px; font-weight: 500;
+        font-variant-numeric: tabular-nums;
+      }
+      .dbg-sec-head small:empty { display: none; }
+      .dbg-sec-head::after {
+        content: ""; width: 6px; height: 6px; margin: 0 2px 2px 0;
+        border-right: 1.5px solid var(--dbg-mute); border-bottom: 1.5px solid var(--dbg-mute);
+        transform: rotate(-45deg); transition: transform 0.15s ease;
+      }
+      .dbg-sec-head[aria-expanded="true"]::after { transform: rotate(45deg); }
+      .dbg-sec-body { padding: 2px 12px 12px; }
+      .dbg-empty { margin: 4px 12px 8px; color: var(--dbg-mute); }
+      .dbg-empty[hidden] { display: none; }
+
+      .dbg-row { display: grid; grid-template-columns: 92px 1fr; gap: 2px 10px; align-items: center; margin-bottom: 6px; }
+      .dbg-row span { color: var(--dbg-mute); }
+      .dbg-row em { grid-column: 2; font-style: normal; font-size: 10.5px; color: var(--dbg-mute); font-variant-numeric: tabular-nums; }
+      .dbg-row input[type="range"] { width: 100%; margin: 4px 0; accent-color: var(--dbg-accent, #7aa2ff); }
+      .dbg-row input[type="checkbox"] { justify-self: start; margin: 0; accent-color: var(--dbg-accent, #7aa2ff); }
+      .dbg-row input[type="color"] {
+        width: 100%; height: 22px; padding: 2px; box-sizing: border-box; border-radius: 6px;
+        border: 1px solid var(--dbg-line, rgba(255, 255, 255, 0.08)); background: none;
+      }
       .dbg-row select {
-        width: 100%; padding: 3px 4px; border: 0; border-radius: 6px;
-        background: rgba(0, 0, 0, 0.35); color: #cfe0ea; font: 500 11px/1.3 inherit;
+        width: 100%; height: 26px; padding: 0 6px; border: 1px solid var(--dbg-line, rgba(255, 255, 255, 0.08));
+        border-radius: 6px; background: rgba(255, 255, 255, 0.05); color: inherit; font: inherit;
       }
       /* The Loco Mode ramp preview — see the Loco section in src/game/debugpanel.js. Sized in
-         the panel's own content width (258px less its 14px sides) so the curve reaches both
-         edges; the taxi's yellow because it is the taxi's speed the curve is describing. */
+         the panel's own content width so the curve reaches both edges; the taxi's yellow because
+         it is the taxi's speed the curve is describing — the one place the game's colour stays. */
       .dbg-ramp {
-        display: block; width: 100%; height: auto; margin: 2px 0 4px;
-        border-radius: 6px; background: rgba(0, 0, 0, 0.3);
+        display: block; width: 100%; height: auto; margin: 2px 0 6px;
+        border-radius: 6px; background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--dbg-line, rgba(255, 255, 255, 0.08)); box-sizing: border-box;
       }
       .dbg-ramp-ref { stroke: rgba(232, 238, 242, 0.22); stroke-width: 1; stroke-dasharray: 2 3; }
       .dbg-ramp-curve { fill: none; stroke: #F5C130; stroke-width: 1.6; stroke-linejoin: round; }
       .dbg-ramp-curve.coast { stroke-dasharray: 3 3; opacity: 0.75; }
       .dbg-note {
-        margin: 0 0 8px; font-size: 10.5px; line-height: 1.4; opacity: 0.6;
+        margin: 0 0 8px; font-size: 10.5px; line-height: 1.45; opacity: 0.6;
         font-variant-numeric: tabular-nums;
       }
       /* A note that reports on the button above it — the Loco stash line under "Reset Loco Mode".
@@ -1309,59 +1549,43 @@
          sit flush and the line reads as part of the button rather than about it. */
       .dbg-wide + .dbg-note { margin-top: 6px; }
       .dbg-actions { display: flex; gap: 6px; margin-top: 10px; }
-      .dbg-wide {
-        width: 100%; margin-top: 10px; padding: 7px 4px; border: 0; border-radius: 8px;
-        cursor: pointer; background: #4E7FC0; color: #fff; font: 700 11px/1 inherit;
+      .dbg-wide, .dbg-wide button, .dbg-actions button {
+        padding: 7px 6px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 7px; cursor: pointer;
+        background: rgba(255, 255, 255, 0.06); color: inherit; font: 500 11.5px/1 system-ui, -apple-system, sans-serif;
       }
+      .dbg-wide:hover:not(:disabled), .dbg-wide button:hover, .dbg-actions button:hover { background: rgba(255, 255, 255, 0.11); }
+      .dbg-wide:disabled { opacity: 0.4; cursor: default; }
+      .dbg-wide { width: 100%; margin-top: 10px; }
+      /* The inspect toolbar is a .dbg-wide div of buttons, not a button: no chrome of its own. */
+      div.dbg-wide { padding: 0; border: 0; background: none; }
+      div.dbg-wide:hover { background: none; }
+      /* The primary action of a pair (Restart with these) is the one solid button in the panel. */
+      .dbg-actions button { flex: 1; }
+      .dbg-actions button:first-child { background: #ececee; border-color: #ececee; color: #18181b; }
+      .dbg-actions button:first-child:hover { background: #fff; }
       .dbg-out {
-        width: 100%; margin-top: 8px; padding: 7px; border: 0; border-radius: 8px; resize: vertical;
-        background: rgba(0, 0, 0, 0.35); color: #cfe0ea;
-        font: 500 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
-      }
-      .dbg-actions button {
-        flex: 1; padding: 7px 4px; border: 0; border-radius: 8px; cursor: pointer;
-        background: #F5C130; color: #23303a; font: 700 11px/1 inherit;
+        width: 100%; box-sizing: border-box; margin-top: 8px; padding: 8px; border-radius: 7px; resize: vertical;
+        border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(0, 0, 0, 0.3); color: inherit;
+        font: 400 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
       }
       body.shot-mode #dbg-toggle, body.shot-mode #dbg-panel { display: none; }
 
-      /* --- audio panel (`?audio`, src/game/audiopanel.js) ---
-         Borrows the tweak panel's rows and buttons; beside the ⚙️ when both are up. */
-      #aud-toggle, #aud-panel { font: 500 12px/1.4 ui-rounded, "SF Pro Rounded", system-ui, sans-serif; }
-      #aud-toggle {
-        position: fixed; top: calc(16px + var(--safe-top)); right: calc(16px + var(--safe-right)); z-index: 20;
-        width: 38px; height: 38px; border: 0; border-radius: 10px; cursor: pointer;
-        font-size: 18px; line-height: 1; background: rgba(20, 34, 44, 0.72); color: #fff;
-      }
-      #aud-toggle:hover { background: rgba(20, 34, 44, 0.9); }
-      #aud-panel {
-        position: fixed; top: calc(62px + var(--safe-top)); right: calc(16px + var(--safe-right));
-        z-index: 21; width: 300px; box-sizing: border-box;
-        padding: 12px 14px 14px; border-radius: 12px;
-        background: rgba(18, 30, 39, 0.94); color: #e8eef2;
-        max-height: calc(100vh - 90px - var(--safe-top) - var(--safe-bottom)); overflow: auto;
-      }
-      #aud-panel[hidden] { display: none; }
-      #aud-panel h4 {
-        margin: 12px 0 6px; font-size: 11px; text-transform: uppercase;
-        letter-spacing: 0.08em; opacity: 0.55; font-weight: 700;
-      }
-      #aud-panel h4:first-of-type { margin-top: 4px; }
-      #aud-panel .dbg-row { grid-template-columns: 104px 1fr; }
-      body.aud-beside-dbg #aud-toggle { right: calc(62px + var(--safe-right)); }
+      /* --- the Audio sections of the tweak panel (src/game/audiopanel.js) --- */
+      #dbg-panel .aud-sound .dbg-row { grid-template-columns: 60px 1fr; }
       .aud-sound {
-        margin: 8px 0; padding: 7px 8px 2px; border-radius: 8px; background: rgba(0, 0, 0, 0.22);
-        border-left: 3px solid transparent;
+        margin: 8px 0; padding: 8px 8px 2px; border-radius: 8px; background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--dbg-line); border-left: 2px solid var(--dbg-line);
       }
-      .aud-sound.is-edited { border-left-color: #F5C130; }
+      .aud-sound.is-edited { border-left-color: var(--dbg-accent); }
       .aud-name { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; }
-      .aud-name strong { font-weight: 700; }
+      .aud-name strong { font-weight: 600; }
       .aud-name span { font-size: 10px; opacity: 0.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .aud-play {
-        flex: none; width: 24px; height: 22px; border: 0; border-radius: 6px; cursor: pointer;
-        background: #F5C130; color: #23303a; font: 700 10px/1 inherit; align-self: center;
+        flex: none; width: 24px; height: 22px; border: 1px solid var(--dbg-line); border-radius: 6px;
+        cursor: pointer; background: var(--dbg-fill); color: var(--dbg-text); font-size: 9px; line-height: 1;
+        align-self: center;
       }
-      #aud-panel .dbg-out { box-sizing: border-box; }
-      body.shot-mode #aud-toggle, body.shot-mode #aud-panel { display: none; }
+      .aud-play:hover { background: var(--dbg-fill-hi); }
 
       /* The renderer readout — `?diag`, see src/game/diag.js. Bottom-left rather than top, which
          is where the boost meter and the money counter live, and above the boost pill's own corner.
@@ -1402,7 +1626,7 @@
          still the thing that went wrong. */
       html[data-native] #error {
         display: grid; place-content: center; text-align: center;
-        font: 600 17px/1.5 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        font: 600 17px/1.5 var(--game-font);
       }
       /* `hidden` is a UA-stylesheet `display: none`, so **any** author `display` beats it — and the
          rule above is one, applying from page load rather than from the first error. Without this
@@ -1435,9 +1659,12 @@
       </svg>
     </button>
     <div id="pause-veil" role="dialog" aria-modal="true" aria-label="Paused" aria-hidden="true" hidden>
-      <div class="pause-title">Paused</div>
-      <button class="pause-resume" type="button">Resume</button>
-      <button class="pause-sound" type="button" aria-pressed="true" aria-keyshortcuts="M">Sound: On</button>
+      <nav class="title-view title-menu pause-menu" aria-label="Pause menu">
+        <div class="pause-title">Paused</div>
+        <button class="title-item pause-resume" type="button">Resume</button>
+        <button class="title-item pause-settings" type="button">Settings</button>
+        <button class="title-item pause-quit" type="button">Quit</button>
+      </nav>
     </div>
 
     <!-- The two pedals are the Figma file's drawings, inline because the press reaches inside them:
@@ -1446,16 +1673,16 @@
          side band thinned (28 → 11 units), the soft shadow under the face moved to match, and an
          inner shadow from the top edge added so the face reads as sunk into its outline.
          `aria-keyshortcuts` is how the Space and B holds announce themselves. -->
-    <!-- Loco Mode's fuel: a gauge arc over the gas pedal, in the pedal's own viewBox. A read-out
+    <!-- Loco Mode's fuel: a gauge arc over the gas button, in the button's own viewBox. A read-out
          only — the pedal is the control. See #boost-meter. -->
     <div id="boost-meter" aria-hidden="true">
-      <svg class="boost-arc" viewBox="-40 -40 226.266 295.545" preserveAspectRatio="none">
+      <svg class="boost-arc" viewBox="-50 -50 250 250">
         <defs>
           <radialGradient id="fuel-edge">
             <stop offset="0.35" stop-color="#FFFDF2" /><stop offset="0.6" stop-color="#FFE9A0" stop-opacity="0.9" />
             <stop offset="1" stop-color="#FFD54A" stop-opacity="0" />
           </radialGradient>
-          <linearGradient id="fuel-grad" x1="-4" y1="0" x2="160" y2="0" gradientUnits="userSpaceOnUse">
+          <linearGradient id="fuel-grad" x1="-25" y1="0" x2="175" y2="0" gradientUnits="userSpaceOnUse">
             <stop stop-color="#FFD500" /><stop offset="1" stop-color="#FF9200" />
           </linearGradient>
         </defs>
@@ -1463,54 +1690,45 @@
         <path class="boost-track" />
         <path class="boost-fill" />
         <circle class="boost-edge" r="0" />
+        <line class="boost-glint" hidden />
       </svg>
     </div>
     <button id="boost" type="button" aria-label="Loco Mode" aria-keyshortcuts="Space">
-      <svg class="pedal-art" viewBox="0 0 146.266 215.545" preserveAspectRatio="none" aria-hidden="true">
+      <svg class="pedal-art" viewBox="0 0 150 150" aria-hidden="true">
         <defs>
-          <filter id="gas-up" x="1.195" y="-4" width="143.876" height="219.545" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+          <filter id="gas-up" x="-4" y="-4" width="158" height="158" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
             <feFlood flood-opacity="0" result="BackgroundImageFix" />
             <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
             <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="-28" />
+            <feOffset dy="6" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0.313068 0 0 0 0 0.194996 0 0 0 0 0.00389115 0 0 0 1 0" />
-            <feBlend in2="shape" result="side" />
+            <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.18 0" />
+            <feBlend in2="shape" result="lit" />
             <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="8" />
-            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.15 0" />
-            <feBlend in2="side" result="lit" />
-            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="-34" />
+            <feOffset dy="-10" />
             <feGaussianBlur stdDeviation="2" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0" />
-            <feBlend in2="lit" />
-          </filter>
-          <filter id="gas-down" x="1.195" y="-4" width="143.876" height="219.545" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-            <feFlood flood-opacity="0" result="BackgroundImageFix" />
-            <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
-            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="-11" />
-            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0.313068 0 0 0 0 0.194996 0 0 0 0 0.00389115 0 0 0 1 0" />
-            <feBlend in2="shape" result="side" />
-            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="8" />
-            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.15 0" />
-            <feBlend in2="side" result="lit" />
-            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="-17" />
-            <feGaussianBlur stdDeviation="2" />
-            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0" />
+            <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.22 0" />
             <feBlend in2="lit" result="shaded" />
-            <!-- The well: an inner shadow dropped from the top edge, so the face reads as sunk
-                 inside its outline rather than as the whole pedal moving. -->
+          </filter>
+          <filter id="gas-down" x="-4" y="-4" width="158" height="158" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+            <feFlood flood-opacity="0" result="BackgroundImageFix" />
+            <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
             <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="16" />
+            <feOffset dy="6" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.18 0" />
+            <feBlend in2="shape" result="lit" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="-10" />
+            <feGaussianBlur stdDeviation="2" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.22 0" />
+            <feBlend in2="lit" result="shaded" />
+            <!-- The well: an inner shadow dropped from the top edge, so the face reads as pushed
+                 into its base. -->
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="10" />
             <feGaussianBlur stdDeviation="2.5" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
             <feColorMatrix values="0 0 0 0 0.313068 0 0 0 0 0.194996 0 0 0 0 0.00389115 0 0 0 0.9 0" />
@@ -1530,60 +1748,58 @@
             <stop stop-color="#FF9E01" /><stop offset="0.157945" stop-color="#FCAD2F" /><stop offset="1" stop-color="#FF9E01" />
           </linearGradient>
         </defs>
-        <path class="pedal-face" d="M11.3785 63.9486C13.9864 30.1196 42.1971 4 76.1265 4C113.959 4 143.782 36.211 140.874 73.9316L134.887 151.597C132.279 185.426 104.069 211.545 70.1392 211.545C32.3066 211.545 2.48319 179.334 5.39114 141.614L11.3785 63.9486Z" fill="url(#gas-fill)" />
-        <path d="M76.127 2C115.124 2.00027 145.865 35.2029 142.868 74.085L136.881 151.751C134.192 186.622 105.113 213.546 70.1387 213.546C31.1412 213.546 0.39997 180.342 3.39746 141.46L9.38477 63.7949C12.073 28.9241 41.1526 2 76.127 2Z" stroke="#221500" stroke-width="4" fill="none" />
-        <path class="pedal-icon" filter="url(#gas-icon)" d="M48.3979 98.1325L81.7166 65.9284C83.3303 64.3687 85.8942 66.2413 84.8993 68.2531L75.3902 87.4814C74.7329 88.8107 75.7 90.368 77.183 90.368H97.8347C99.713 90.368 100.555 92.7229 99.1033 93.9142L61.9627 124.385C60.1205 125.897 57.6537 123.498 59.1132 121.614L72.1451 104.796C73.1634 103.481 72.2267 101.571 70.5641 101.571H49.7878C47.9896 101.571 47.1049 99.3823 48.3979 98.1325Z" fill="#FFE4B9" />
+        <!-- Round all the way down: a dark base disc, and the face a smaller disc sitting at the top of
+             it, so the depth shows as a crescent under the face. The side band used to be an inner
+             shadow cut into one shape, which on a circle left the face a squashed oval. -->
+        <circle cx="75" cy="75" r="69" fill="#503201" />
+        <circle class="pedal-face" cx="75" cy="69" r="63" fill="url(#gas-fill)" />
+        <circle cx="75" cy="75" r="71" stroke="#221500" stroke-width="4" fill="none" />
+        <!-- Moved by the wrapper, not on the path: the press sets a CSS `transform` on
+             `.pedal-icon`, and that would replace a `transform` attribute on the same element. -->
+        <g transform="translate(0.7 -27)">
+          <path class="pedal-icon" filter="url(#gas-icon)" d="M48.3979 98.1325L81.7166 65.9284C83.3303 64.3687 85.8942 66.2413 84.8993 68.2531L75.3902 87.4814C74.7329 88.8107 75.7 90.368 77.183 90.368H97.8347C99.713 90.368 100.555 92.7229 99.1033 93.9142L61.9627 124.385C60.1205 125.897 57.6537 123.498 59.1132 121.614L72.1451 104.796C73.1634 103.481 72.2267 101.571 70.5641 101.571H49.7878C47.9896 101.571 47.1049 99.3823 48.3979 98.1325Z" fill="#FFE4B9" />
+        </g>
       </svg>
     </button>
     <button id="brake" type="button" aria-label="Brake" aria-keyshortcuts="B">
-      <svg class="pedal-art" viewBox="0 0 173.614 123.075" preserveAspectRatio="none" aria-hidden="true">
+      <svg class="pedal-art" viewBox="0 0 150 150" aria-hidden="true">
         <defs>
-          <filter id="brake-up" x="0.136" y="-4" width="173.343" height="127.075" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+          <filter id="brake-up" x="-4" y="-4" width="158" height="158" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
             <feFlood flood-opacity="0" result="BackgroundImageFix" />
             <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
             <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="-28" />
-            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0.240388 0 0 0 0 0.0617962 0 0 0 0 0.0647727 0 0 0 1 0" />
-            <feBlend in2="shape" result="side" />
-            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="8" />
+            <feOffset dy="6" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
             <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.18 0" />
-            <feBlend in2="side" result="lit" />
+            <feBlend in2="shape" result="lit" />
             <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="-34" />
+            <feOffset dy="-10" />
             <feGaussianBlur stdDeviation="2" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0.909804 0 0 0 0 0.203922 0 0 0 0 0.215686 0 0 0 0.28 0" />
-            <feBlend in2="lit" />
-          </filter>
-          <filter id="brake-down" x="0.136" y="-4" width="173.343" height="127.075" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-            <feFlood flood-opacity="0" result="BackgroundImageFix" />
-            <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
-            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="-12" />
-            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0.240388 0 0 0 0 0.0617962 0 0 0 0 0.0647727 0 0 0 1 0" />
-            <feBlend in2="shape" result="side" />
-            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="8" />
-            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.18 0" />
-            <feBlend in2="side" result="lit" />
-            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="-18" />
-            <feGaussianBlur stdDeviation="2" />
-            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0.909804 0 0 0 0 0.203922 0 0 0 0 0.215686 0 0 0 0.28 0" />
+            <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.22 0" />
             <feBlend in2="lit" result="shaded" />
-            <!-- The well: an inner shadow dropped from the top edge, so the face reads as sunk
-                 inside its outline rather than as the whole pedal moving. -->
+          </filter>
+          <filter id="brake-down" x="-4" y="-4" width="158" height="158" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+            <feFlood flood-opacity="0" result="BackgroundImageFix" />
+            <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
             <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-            <feOffset dy="16" />
+            <feOffset dy="6" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.18 0" />
+            <feBlend in2="shape" result="lit" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="-10" />
+            <feGaussianBlur stdDeviation="2" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.22 0" />
+            <feBlend in2="lit" result="shaded" />
+            <!-- The well: an inner shadow dropped from the top edge, so the face reads as pushed
+                 into its base. -->
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="10" />
             <feGaussianBlur stdDeviation="2.5" />
             <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-            <feColorMatrix values="0 0 0 0 0.35 0 0 0 0 0.06 0 0 0 0 0.07 0 0 0 0.8 0" />
+            <feColorMatrix values="0 0 0 0 0.240388 0 0 0 0 0.0617962 0 0 0 0 0.0647727 0 0 0 0.9 0" />
             <feBlend in2="shaded" />
           </filter>
           <filter id="brake-icon" x="63.309" y="29.228" width="45.315" height="41.848" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
@@ -1600,9 +1816,14 @@
             <stop stop-color="#E83437" /><stop offset="0.157945" stop-color="#ED4E50" /><stop offset="1" stop-color="#E83437" />
           </linearGradient>
         </defs>
-        <path class="pedal-face" d="M4.27741 57.5473C6.37383 27.3915 31.448 4 61.6765 4H111.938C145.286 4 171.65 32.2601 169.337 65.528C167.24 95.6838 142.166 119.075 111.938 119.075H61.6765C28.3283 119.075 1.96463 90.8152 4.27741 57.5473Z" fill="url(#brake-fill)" />
-        <path d="M111.938 2L112.745 2.00488C146.87 2.45673 173.707 31.5116 171.332 65.667C169.163 96.8708 143.217 121.075 111.938 121.075H61.6768C27.1694 121.075 -0.110939 91.8325 2.28223 57.4082C4.4517 26.2044 30.3976 2 61.6768 2H111.938Z" stroke="#221500" stroke-width="4" fill="none" />
-        <path class="pedal-icon" filter="url(#brake-icon)" d="M67.8233 30.9787C67.9488 29.9782 68.7994 29.2277 69.8077 29.2277H105.624C106.827 29.2277 107.758 30.2827 107.608 31.4767L103.11 67.3243C102.985 68.3248 102.134 69.0753 101.126 69.0753H65.3096C64.1062 69.0753 63.1753 68.0203 63.3252 66.8263L67.8233 30.9787Z" fill="#FFCCCD" />
+        <circle cx="75" cy="75" r="69" fill="#3D1011" />
+        <circle class="pedal-face" cx="75" cy="69" r="63" fill="url(#brake-fill)" />
+        <!-- 6 wide rather than the gas's 4: the brake is drawn at two thirds of the size, and this
+             keeps the two outlines the same weight on screen. -->
+        <circle cx="75" cy="75" r="72" stroke="#221500" stroke-width="6" fill="none" />
+        <g transform="translate(-10.5 19.9)">
+          <path class="pedal-icon" filter="url(#brake-icon)" d="M67.8233 30.9787C67.9488 29.9782 68.7994 29.2277 69.8077 29.2277H105.624C106.827 29.2277 107.758 30.2827 107.608 31.4767L103.11 67.3243C102.985 68.3248 102.134 69.0753 101.126 69.0753H65.3096C64.1062 69.0753 63.1753 68.0203 63.3252 66.8263L67.8233 30.9787Z" fill="#FFCCCD" />
+        </g>
       </svg>
     </button>
     <div id="rider-finder-stack" role="group" aria-label="Waiting riders"></div>
@@ -1625,8 +1846,12 @@
     <div id="cop-shout" role="status" aria-live="polite" hidden></div>
     <div id="radio" role="status" aria-live="polite" hidden></div>
     <div id="depot-call" role="status" aria-live="polite" hidden></div>
+    <div id="title-screen" hidden></div>
     <div id="home-tip" hidden></div>
     <div id="wipe" aria-hidden="true" hidden></div>
+    <div id="replay" aria-hidden="true" hidden>
+      <div class="replay-flash"></div>
+    </div>
     <div id="run-end" hidden></div>
 
     <div id="diag" hidden></div>
@@ -1685,8 +1910,23 @@
         if (!e.filename && !e.lineno && !e.error) { window.__foreignErrors += 1; return; }
         report(`${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack ?? ''}\n\n`);
       });
+      /* What a rejection was, in words, whatever shape it arrived in.
+
+         `reason.stack ?? reason` printed nothing at all on an iPhone: Safari's stack is the frames
+         *only* (V8 opens it with `Name: message`, WebKit does not), and an error raised by the
+         browser with no script on the call stack — `TypeError: Load failed` from a fetch the
+         network dropped — has an empty one. `''` is not nullish, so the fallback never ran and the
+         panel read "Unhandled rejection:" over a blank screen. Name and message always lead, and
+         the stack follows only when it adds frames. */
+      const describe = (reason) => {
+        if (reason == null || typeof reason !== 'object') return String(reason);
+        const head = `${reason.name ?? 'Error'}: ${reason.message ?? ''}`;
+        const stack = typeof reason.stack === 'string' ? reason.stack.trim() : '';
+        if (!stack) return `${head}\n  (no stack: raised by the browser, not by a line of this game)`;
+        return stack.startsWith(head) ? stack : `${head}\n${stack}`;
+      };
       window.addEventListener('unhandledrejection', (e) => {
-        report(`Unhandled rejection: ${e.reason?.stack ?? e.reason}\n\n`);
+        report(`Unhandled rejection: ${describe(e.reason)}\n\n`);
       });
 
       /* Three's own reports, put where a phone can show them.

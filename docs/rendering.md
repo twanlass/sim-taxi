@@ -94,12 +94,18 @@ the taxi — is `MeshPhongMaterial` rather than the Lambert everything else wear
 on top of `patchProp`. Wrecks stay plain Lambert.
 
 **Four finishes, one program.** `setFinish()` bakes an `aFinish` attribute per part —
-`FINISH.TYRE`, `PAINT`, `GLASS`, `METAL` (the hubcaps, `geometry/wheels.js`) — and the shader
+`FINISH.TYRE`, `PAINT`, `GLASS`, `METAL` (the hubcaps, `geometry/wheels.js`, and the chrome
+bumpers, `geometry/bumpers.js`) — and the shader
 indexes three shared `vec4` uniform arrays with it, so each finish has its own full set of numbers
 (`FINISH_DEFAULTS`: glint, glint sharpness, glint bend, sheen, sheen sharpness, flake, reflect,
 reflect edge, reflect bend, base colour) while every glossy material still compiles to the same
 source. A geometry with no `aFinish` reads 0, so anything untagged comes out as tyre — matte rather
 than mirrored; `tools/probe.mjs` asserts the car and the taxi carry all four.
+
+**Metal is never paint.** The fleet is tinted per car through `instanceColor`, which multiplies
+every vertex; the gloss patch swaps three's `color_vertex` for one that leaves the tint off
+`METAL`, so a red car's bumpers are chrome rather than red. The cruiser's baked repaint
+(`sim/police.js`) skips metal to match.
 
 **Tuning them.** `?debug` → **Car finish**: pick a finish and its ten sliders retarget to it, plus
 flake size, façade darkness and **Show finishes**, which paints each finish a flat false colour
@@ -166,7 +172,15 @@ viewZoom() = zoom * punch // what is drawn — vertical world span is exactly 2 
 No player-facing zoom, and one fixed default framing — that's a gameplay decision, not a limitation.
 A fixed frame is what makes every tap unambiguous and lets the whole city stay on screen. The two
 things that do move it are cinematic and brief: a wreck pulls `zoom` in (`focusOn`), and Loco Mode
-pushes `punch` in. **Anything converting between world units and the frame reads `viewZoom()`**, not
+pushes `punch` in.
+
+**One thing turns it, and only during a cut scene.** `state.yaw` swings the view about world Y, and
+it is zero for the whole of play. The crash replay ([traffic.md](traffic.md#the-replay)) sets it
+with `cutTo` for its swung cuts and hands it back at zero. Everything that is the arithmetic of the
+fixed view is wrong while it is off zero: `BILLBOARD`, `RIGHT`/`UP`, the sightline's `RISE`, and the
+clouds' ring placement. That is acceptable only because the replay hides the HUD, freezes the world
+and frames the crash too tightly for any of it to be in shot. Anything that wants a turned camera
+during play has to redo all of that first. **Anything converting between world units and the frame reads `viewZoom()`**, not
 `state.zoom` — the two differ for as long as the pill is held, which is exactly when the taxi is
 moving fastest and a marker sized off the wrong one drifts furthest from what it is marking.
 
@@ -1250,6 +1264,203 @@ only distinction being made.
 - **The bands are subtle at the shipped `steps` of 3**, since golden hour already puts most of a
   facade in one band. It is a slider for exactly that reason.
 
+## Rain Mode — `game/rain.js`
+
+`?rain`. An exploration and off by default: the city on a wet afternoon. Five layers, plus one
+change to the physics:
+
+- **The grade.** `daylight.setGrade(rain.grade)` grades every keyframe *before* anything reads it,
+  so the haze and the clouds follow for free. The day's own colours are pulled toward the `rain*`
+  palette entries, scaled by the day's own brightness so a rainy night is still night. The sun
+  keeps 32% of its power (soft, faint shadows) and the fill picks up 15%. The haze goes up to
+  `RAIN_HAZE_TOP` 0.34 against 0.19 dry, which is past the point where scene.js says the back of
+  the city stops reading as air and starts reading as weather. That is the point here.
+- **Wet ground.** The ground mesh's own `propMaterial`, patched on top of whatever AO or look mode
+  is already there and keyed `…-wet`. It uses a screen-space face normal (`dFdx`/`dFdy` of world
+  position, because the material is flat-shaded anyway) to find up-facing surfaces. The asphalt
+  (y below 0.08) darkens to 58%. Pavement gets about 60% of that and grass half again. A
+  two-octave noise field lays puddles on the road only.
+- **The reflection.** The whole scene is drawn a second time at half resolution through the main
+  camera mirrored about y = 0. Under an orthographic camera this is exact, with no reflector plane
+  and no oblique clip: the ground reads the mirror back at its own `gl_FragCoord`. A mirror flips
+  handedness, so the pass also flips x in the projection to keep front faces front-facing, and the
+  ground samples at `1 − u` to undo that. A global clipping plane at `CLIP_Y` 0.03 removes the road
+  and its paint, which lie *on* the mirror plane and would otherwise cover everything. The
+  pavement survives and reflects as its own kerb. The pass reuses the frame's shadow map, binds a
+  white AO texture (the real one is a map of the *main* view), and hides the sky dome, the rain
+  and the bloom/crayon overlays. Its clear colour is `rainReflectSky`, a long way darker than the
+  sky. The first cut mirrored the sky itself, and every street came out a pale wash with its paint
+  gone. The ground blurs the read over nine taps along screen y, the way lights smear on real wet
+  asphalt, and wobbles it with procedural ripple rings. A puddle is the same read with almost no
+  blur and 0.72 gloss, against 0.3 for bare asphalt.
+- **Rain and splashes.** 14,000 instanced streaks and 2,600 point-sprite crowns. Both animate
+  entirely in the vertex shader off one clock, wrapped in a box around the ground point under the
+  middle of the frame, so a pan never runs out of weather and the CPU does nothing per drop.
+  Depth-tested, so rain falls *behind* buildings.
+- **The lens.** After the main render, the frame is copied to a `FramebufferTexture` and drawn back
+  through drops on the glass: small beads that appear, sit and dry, fewer large ones, and a few
+  that stick and slip down the screen. Each is an inverted lens with a darker rim and a catch
+  light. This is a copy plus one fullscreen triangle, not a composer, so the main render keeps its
+  MSAA and its stencil. The copied frame is already display-space and the shader writes it back
+  untouched.
+- **Grip.** `setGrip(GRIP)` in `sim/traffic.js` scales `brake()` and `hardBrake()` by 0.6. Cars
+  plan their stops against the same function they brake with, so the wet lengthens every stop
+  instead of making anyone run a red. Measured with `tools/taxi.mjs 30` and `tools/signals.mjs` at
+  grip 0.6: 0 red-light violations, minimum gap 5.30 (5.57 dry, `MIN_GAP` 5.3), throughput 6.97
+  against 7.14.
+
+### The passing storm — `?storm`, `game/storm.js`
+
+`?rain` is a still frame. `?storm` runs a storm across the ordinary afternoon on a 145-second loop:
+30 s clear, 35 s clouding over, 45 s of storm, 35 s clearing. The clock is pure and gives three
+levels, and `applyWeather` in `main.js` hands them out every frame:
+
+| level | follows | drives |
+|---|---|---|
+| `dark` | the sky's envelope | the grade (`rain.grade` via `daylight.apply`), the haze (0.19 → 0.34), the city's lights (`setCityLights`), the headlights (`setRunningLights`, on over `dark` 0.25–0.42) |
+| `rain` | the envelope read 7 s late going in and 7 s early going out, so it always trails the cloud | the streaks' opacity, the share of splash slots firing, the lens drops (which dry off over ~12 s) |
+| `wet` | the rain, up with a 5 s time constant, down with 14 s | the ground's gloss and puddles, the mirror pass, the grip (1 → 0.6) |
+
+Three things make a storm arriving read as weather rather than as a crossfade:
+
+- **The sun goes first.** Its power falls at 1.4 times the rate of `dark`, so shadows soften and
+  vanish while the sky is still only half grey.
+- **The lights come on one at a time.** Every lit pane and every lamp carries an `aLitAt` threshold
+  and fades on when `dark` passes it, over a ramp of 0.08 (about half a second under a squall's
+  edge); a quarter of them, picked off a hash of their anchor, sputter for the first 0.14 past their
+  threshold instead (`litOn` in game/citylights.js, timed off `dt` so shot mode freezes it). Shopfronts go at 0.08–0.5, street
+  lamps close together at 0.28–0.5 (a photocell), and homes and offices across 0.2–0.95. It is one
+  shared uniform, and it reaches the bloom's copies of those materials because `markEmissive` chains
+  the source's `onBeforeCompile`.
+- **The streets stay wet after the rain stops,** 20% as the sky finishes clearing, 7% halfway
+  through the sunny stretch and 2% when the next storm comes. With `DRY` at 28 they never dried at
+  all.
+
+The mirror pass and the lens copy are skipped while there is nothing for them to show. That is
+most of the cost of the mode back during the clear stretch. The mirror still renders once on the
+first frame, so its clipped programs compile before the first cloud rather than on the frame it
+arrives. The streaks and splashes are faded rather than hidden for the same reason.
+
+#### Two moods — the sun shower and the night storm
+
+The first storm peaked most of the way to night, which was too dark to play in. The default peak is
+now a **sun shower** (`MOODS.shower` in game/rain.js). `?storm=night` and `?rain=night` keep the
+old one.
+
+- **The clouds do the dimming, not the sun.** In the shower the sun keeps 115% of its power and
+  most of its warmth. A drifting cloud field (`CLOUD_UNIFORMS`, `CLOUD_GLSL` in util/geo.js) dims
+  only the sun's *direct* light, down to `uCloudFloor` 0.3 under cloud. It is compiled into every
+  `propMaterial()` when a storm is on (`setCloudShadows`). The result is sunlit patches sliding
+  across the city with the wind, with everything between them lit by the sky. It runs before the
+  shadow tint, so cloud shade goes cool the way the sun's own shadows do.
+- **The field had to be stretched.** Two octaves of value noise bunch tightly around 0.5, so at a
+  cover of 0.56 only about a tenth of the city was in sun. It is stretched ×2 about its middle, and
+  the threshold maps cover 0..1 over the stretched range (−0.65..1.65) so that 0 really is clear.
+  The shower peaks at 0.46.
+- **Shafts.** 40 additive quads ride the wind at exactly the field's own drift, so each one stays
+  over the patch of ground it stands on. Each is lit only if the field says there is a gap at its
+  foot, and only while there is cloud around it (cover > 0.08). They point at the sun.
+- **Sunlit wet ground glints.** A warm lift on wet ground, in proportion to the direct light the
+  fragment actually received, so building shadows inside a sunlit patch stay shadows. The first cut
+  sampled the cloud field and lit straight through them. It is not a specular highlight: the sun is
+  behind this camera, so a true one could never face it.
+- **The night still uses the old numbers:** sun to 15%, the cloud lid closed (cover 1.05), and no
+  shafts or glint.
+
+The mirror pass sets `uCloudViewInv` to the mirror camera for its render, because the field is
+placed in world space through whichever camera is drawing.
+
+`?storm=0.6` pins the storm at that level for screenshots. `__taxi.storm` exposes `pin(v)`,
+`seek(t)` and `state`.
+
+### A squall — the default weather, `game/squall.js`
+
+**On in every run** (`getSquall` in util/shot.js), except in shot mode, safe mode, or under
+`?rain`/`?storm`; `?squall=off` drops it. The crossings draw from the run seed (`runSeed + 733`).
+
+The other kind of weather is one rain cell crossing a sunny city, not the whole sky changing. A
+cell comes in over a corner and crosses to the one opposite in `CROSS` 75 s, with a sideways slip so
+crossings take different lines. Then there are 25 s of quiet before the next one, from a different
+corner. `?squall=0.45` pins a cell that far along a crossing. It also fast-forwards the wet map from
+the start of the crossing, so a still frame shows the trail.
+
+Everything that was a level in the storm becomes a position here:
+
+- **The cell's footprint** is a soft, ragged disc: core radius `CELL_R` 30, soft edge `CELL_EDGE`
+  14, and its edge noised over time. It exists twice, as `cellMask` on the CPU and `cellCore` in
+  `CLOUD_GLSL`, built from the same hash, so the grip under the taxi agrees with the rain on
+  screen. Keep the two in step.
+- **Cloud shade.** Under the cell, `CLOUD_LIGHT` cuts the sun's direct light by 88% and the sky's by
+  30%. It reaches 1.6 times the soft edge, past the rain itself, because the cloud is wider than
+  what falls out of it.
+- **Rain and splashes** fade by the footprint at each drop's position. Their wrap box closes in
+  around the cell, 2 × (radius + edge) + 20 across, so all the rain there is falls there, at the
+  density the whole sky had.
+- **The wet map** is a 96² grid over 170 units of island. It soaks toward the footprint with a
+  3 s time constant and dries with 45 s. At 30 s the trail was half gone by the time the cell was
+  halfway across, so the rain read as drying the ground behind itself. The grid is uploaded as an
+  R8 texture each frame, and the ground multiplies its wetness by it (`tWetMap`). Every other mode
+  binds a white texel, so the lookup is one code path. Ripples follow the *rain* and not the wet
+  map: a drying street is still, and only the street being rained on moves.
+- **The lights.** Windows, lamp heads and lamp pools take the larger of the city-wide level and
+  the footprint where they stand (`litLevelAt` in game/citylights.js). Each one still has its own
+  threshold, so a block lights up pane by pane as the cell arrives. The level is read at each
+  light's **anchor** (`aLitXZ` — a pane's centre, a lamp's post), never per vertex: the footprint's
+  22-unit edge varies across one pane by more than the ramp, and read per corner every window wiped
+  on from one side as the edge went over it. Car headlights come from
+  `setRunningLightsAt(fn)` in sim/traffic.js, per car from its own position.
+- **What stays global:** a faint grade (`SQUALL_GREY` 0.2) while a cell is on the map, the grip
+  (read under the *taxi*, so every car brakes as the player's patch of road does), and the lens
+  drops (on while the middle of the frame is under the rain).
+- **Mirror pass.** It runs while any of the map is wet (`maxWet`) and is skipped when the whole
+  island has dried.
+
+### The city's lights — `game/citylights.js`, plus `setRunningLights` in `sim/traffic.js`
+
+A wet street is mostly a mirror for *lamps*, and a daytime city has almost none. The first rain
+build reflected grey buildings into grey asphalt and read as a filter. So the rain switches the
+city on:
+
+- **Lit windows.** `collectPanes()` installs a sink in `city/buildings.js` (`setPaneSink`) for one
+  `createBuildings` call and keeps every façade's openings exactly as they went to `facadeQuads`.
+  About a third of the punched and ribbon panes get a glowing quad (warm, pale or a cool
+  "screen"), as do three quarters of the shopfronts. Each quad sits `LIT_OUT` 0.045 off the wall:
+  in front of the glass at 0.03, behind a door's surround at 0.06. The sink draws no rng, so the
+  city is identical with it installed or not.
+- **Street lamps.** Two per block on random edges: a post on the pavement, an arm out over the
+  kerb, a glowing head (bloom `bay`), and an additive pool on the road. Posts and heads are stamped
+  for the entrance wave and rise with their block.
+- **Headlights and tail lights.** `setRunningLights(1)` puts two white pods inboard of each
+  vehicle's front indicators, which own the corners. The front indicator is narrower than the rear
+  one (`turnSignalShapes`) so the headlight beside it still reads while it blinks; at full width the
+  amber swallowed the lamp next to it. Each pod throws a cone of light (`coneGeometry`): open,
+  additive, toed out and tilted down, hung off the lamp through the body matrix (on the taxi, its
+  group, via `createTaxiHeadlights`) and cut by the road's depth where it meets it. It also gives
+  every car a 0.6 floor on its brake pods, so it shows dim tail lights with a real brake still
+  reading as a change. All of it is hidden while a car is a wreck.
+
+  There is no pool on the road under the cones. One was tried both ways: parented to the body it
+  rose off a ramp as a flat slab and cut into the asphalt on the way down, and laid on the road it
+  read as a second set of lights beside the cones.
+
+The lamp pools sit at 0.025, under the mirror's clip, so they do not reflect themselves. The
+windows and lamp pools stay dark until the entrance wave finishes, so the city arrives and then
+switches its lights on.
+
+### What it is not doing yet
+
+- **Nothing lights anything else.** The pools are additive decals, not lights, and the lamps cast
+  no light on the cars passing under them.
+- **Lamps are placed without asking what else is on the pavement,** so one can stand in a bus
+  stop, a crossing's kerb ramp or the drive-through's apron.
+- **The grade is darker than an honest overcast afternoon** (sun at 22%, fill at 90%) so the lamps
+  read. A real night key under the rain would be the next thing to try.
+- **Cost.** The mirror is a second full scene render, and the first frame with it compiles a
+  clipped variant of every lit program. It has not been measured on a phone.
+- **No spray** off tyres, no wet sheen on roofs or car bodies, and no ripples on the river.
+- **Unlit markers on the road** (the route band, the target discs) are clipped out of the mirror
+  with the road they sit on, so they do not reflect.
+
 ## Bloom — `game/bloom.js`, and the comparison in `game/hdr.js`
 
 Spill around every self-lit thing in the game: brake pods and indicators on every vehicle, a
@@ -1742,6 +1953,29 @@ adds `USE_INSTANCING_COLOR` to the material, so a lazy first call would put a sh
 frame of a crash. **The tint is rewritten on every spawn**, including the untinted ones: the pool is
 a ring buffer shared with the boost trail, and a slot the collar painted grey comes back round half
 a lap later.
+
+### Wet tyres — `game/spray.js`, plus a second `game/skidmarks.js` pool
+
+On a wet road the taxi's tyres throw water instead of dust (`wetTyres` in `main.js`). "Wet" is the
+ground under the car — the squall's wet map (`squall.wetAt`) or the storm's one city-wide level — so
+it follows the cell's trail rather than the rain itself. `?wet=spray|tracks|both|off` picks the
+parts; `both` is the default.
+
+**Spray** comes off the two rear contact patches the dust uses, but at any speed over 3 u/s rather
+than only under boost: a car on a wet street throws water whether or not it is in a hurry. How much
+scales with speed and wetness, from a dribble to a rooster tail. Two particles out of one pool: soft
+**mist** puffs (the dust's squashed icosahedron, so it lights with the same facets) that read at play
+zoom, and a few small **droplets** thrown high and pulled down hard, which are what make it water
+rather than steam. The material is Lambert with an emissive lift (`waterSprayGlow`): under the cell's
+shade a plain lit white came out the grey-brown of the dust.
+
+**Tracks** are the rubber's streak machinery in a second pool, repainted per stamp: a pale sheen
+(`wetSheen`) on wet asphalt, where the darkened, mirrored road made a dark mark vanish, and a dark
+print (`wetTrack`) on dry road. The treads hold water (`tyreWet`), wrung out over `TREAD_DRY` = 14
+units of dry road, so the taxi prints a short fading trail out past the edge of the wet patch.
+
+While either is on and the ground is wetter than `WET_DUST_OFF` (0.25), the boost and brake dust
+stand down.
 
 ### Landing sparks — `game/sparks.js`
 
@@ -2637,6 +2871,21 @@ the greens the others are on. `pickArea` treats *keeping off another flock's law
 exactly two usable parks, so asking those two wants the other way round makes every return leg in
 such a city land on the other flock's grass. The probe drives the pair for ten minutes and asserts
 they never share, on the seed whose city has only the two.
+
+**A few rooftops are roosts too.** `chooseRoosts` picks three flat decks (`createBuildings(...).decks`,
+minus the helipad's) at least 4 × 4 with 40% of their interior clear of furniture, off the *city*
+seed — which roofs the pigeons use is part of the map. They join the parks in `pickArea`'s pool, so
+a flock coming back can land on one; the two flocks share the same roost objects so `avoid` keeps
+them apart by identity, as it does for lawns. Three things change on a roof. The deck's furniture
+footprint (recorded by `roofFurniture` as `keep`, without touching the city's rng) is padded by half
+a bird and walked round like the court, and a spot drawn inside it is redrawn rather than pushed,
+because a cramped deck can leave the push no edge that stays on the roof. The taxi cannot startle a
+rooftop flock — it is a dozen storeys down, and a plan-distance range would launch a corner tower's
+roost every lap of the block — so it leaves on its timer. And heights are measured off the area's
+own ground (`groundOf`): the stand height, the shadow gate (`shadowCeiling`), and a departure's
+climb, which is held at least 3 units above the deck since `ALT` is measured off the grass. The run
+always *opens* in a park: the entrance grows every building out of the ground, and a flock settled
+on a roof would hang over a hole while it did.
 
 **The whole flock is three draw calls.** One `InstancedMesh` for the bodies and one per wing side,
 however many birds there are. A wing beat is a rotation about the shoulder, and a rotation about a
@@ -4116,7 +4365,7 @@ that it returns after a reload, under an emulated iPhone.
 ## Debug panel
 
 `src/game/debugpanel.js`, behind the ⚙️ button top right — only built when the URL carries
-`?debug` or `?settings`. It used to be always on, but at small widths the button sat right where
+`?debug`, `?settings` or `?audio`. It used to be always on, but at small widths the button sat right where
 the streak counter now lives, and it's a tool almost no player needs to see. Split by cost:
 
 - **Live** — day cycle on/off, day length, time of day, sun colour/strength, ambient fill, fare
@@ -4135,6 +4384,20 @@ is that trying the two against each other stops meaning hand-editing the address
 exactly the friction that stops a look from being judged properly.
 
 Pretending a rebuild-only value is live would just show a slider that silently does nothing.
+
+Those flags are **debug mode**, and debug mode also plays differently so the game can sit open
+behind the panel untouched: the tutorial is skipped, and every fare clock is held for the session
+(the same `fares.setPaused` hold the tutorial uses, via `holdFareClocks` in main.js), so no rider
+expires and the run never ends on a missed fare. The title screen's tips setting is not touched.
+
+Every section starts **collapsed**, with a search box pinned above them. The code still builds the
+panel flat — `heading()` then rows — and `organise()` folds it into sections at the end, so a new
+section only has to start with `heading()`. Search matches section titles plus row labels and
+button text (every word has to land somewhere, so "loco brake" finds one slider), forces matching
+sections open and hides the rest. Which sections the user opened is kept in `sessionStorage` and is
+never written while a search is narrowing the panel, so clearing the search restores it. The look
+is deliberately a neutral tool style rather than the game's. The sound designer's mix controls
+are sections here too ([audio.md](audio.md)); `?audio` opens the same panel.
 
 Touching any lighting control stops the day cycle, rather than letting the next frame overwrite the
 change. **Copy settings JSON** exports the live values (not the slider positions, so manual

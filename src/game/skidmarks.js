@@ -14,10 +14,10 @@ import { color } from '../palette.js';
 // Sized against the actual camera, not against the car. At the play zoom one world unit is
 // roughly 7.7 screen pixels, so the first pass — 0.3 wide — was a two-pixel smear of near-black
 // on dark tarmac. It was rendering correctly the whole time and was simply too small to see.
-const MAX_MARKS = 320;
-const LIFE = 3.6;
+const RUBBER_MAX = 320;
+const RUBBER_LIFE = 3.6;
 const MARK_LENGTH = 1.5;
-const MARK_WIDTH = 0.58;
+const RUBBER_WIDTH = 0.58;
 
 // Each mark is a soft-edged patch rather than a hard quad: a 4 × 4 grid of vertices whose alpha
 // falls to nothing at the two ends and to a fraction at the two sides, interpolated in between.
@@ -35,7 +35,7 @@ const VERTS = ALONG.length * ACROSS.length;
 // Per-stamp opacity. Lower than the old 0.85 because stamps now overlap ~2.6 deep at full weight
 // (1.5 long, 0.42 apart, 0.7 of it unfeathered), and alpha compounds: 1 − 0.5^2.6 ≈ 0.84 down the
 // middle of a streak — the old darkness — while the single stamp at each end is 0.5 at most.
-const STAMP_ALPHA = 0.5;
+const RUBBER_ALPHA = 0.5;
 const STAMP_JITTER = 0.2;               // per-stamp intensity spread, so a streak is not one flat band
 const WIDTH_JITTER = 0.08;
 
@@ -55,7 +55,14 @@ const TAIL_EASE = 4;                    // per second
 
 const RUBBER = color('skidRubber');
 
-export function createSkidMarks(scene) {
+/**
+ * `opts` makes the same pool a different mark: the squall's wet tyre tracks are this exact streak
+ * machinery in another colour, a longer life and a lighter hand (see `wetTracks` in main.js). The
+ * defaults are the rubber's.
+ */
+export function createSkidMarks(scene, {
+  tint = RUBBER, max: MAX_MARKS = RUBBER_MAX, life: LIFE = RUBBER_LIFE, alpha: STAMP_ALPHA = RUBBER_ALPHA, width: MARK_WIDTH = RUBBER_WIDTH,
+} = {}) {
   const positions = new Float32Array(MAX_MARKS * VERTS * 3);
   const colors = new Float32Array(MAX_MARKS * VERTS * 4);
   const life = new Float32Array(MAX_MARKS);
@@ -102,7 +109,7 @@ export function createSkidMarks(scene) {
   scene.add(mesh);
 
   for (let v = 0; v < MAX_MARKS * VERTS; v++) {
-    colors[v * 4] = RUBBER.r; colors[v * 4 + 1] = RUBBER.g; colors[v * 4 + 2] = RUBBER.b;
+    colors[v * 4] = tint.r; colors[v * 4 + 1] = tint.g; colors[v * 4 + 2] = tint.b;
   }
 
   let next = 0;
@@ -122,8 +129,13 @@ export function createSkidMarks(scene) {
     return best;
   }
 
-  /** Stamp one mark, centred at (x, z) and lying along `yaw`. */
-  function add(x, z, yaw) {
+  let tinted = false;
+
+  /**
+   * Stamp one mark, centred at (x, z) and lying along `yaw`, at `strength` (0..1) of full weight.
+   * `colour` repaints this one stamp — a THREE.Color, or null for the pool's own tint.
+   */
+  function add(x, z, yaw, strength = 1, colour = null) {
     const before = predecessor(x, z);
     const slot = next;
     next = (next + 1) % MAX_MARKS;
@@ -142,7 +154,7 @@ export function createSkidMarks(scene) {
       chain[slot] = 0;
     }
     const head = chain[slot] < HEAD_RAMP.length ? HEAD_RAMP[chain[slot]] : 1;
-    target[slot] = level[slot] = head * (1 - STAMP_JITTER * Math.random());
+    target[slot] = level[slot] = head * strength * (1 - STAMP_JITTER * Math.random());
 
     const halfL = MARK_LENGTH / 2;
     const halfW = (MARK_WIDTH / 2) * (1 + WIDTH_JITTER * (Math.random() * 2 - 1));
@@ -157,6 +169,13 @@ export function createSkidMarks(scene) {
       }
     }
     geometry.attributes.position.needsUpdate = true;
+    if (colour || tinted) {
+      const c = colour ?? tint;
+      for (let v = slot * VERTS; v < (slot + 1) * VERTS; v++) {
+        colors[v * 4] = c.r; colors[v * 4 + 1] = c.g; colors[v * 4 + 2] = c.b;
+      }
+      tinted = true;
+    }
   }
 
   /** Ease the last few marks of a streak that has just ended. */

@@ -1,5 +1,5 @@
 import {
-  CAR_LEN, TRUCK_LEN, CIRCLE_OFFSET, CIRCLE_R, knockCar, shoveCar,
+  CAR_LEN, TRUCK_LEN, CIRCLE_R, circleOffsetOf, knockCar, shoveCar,
 } from './traffic.js';
 
 // Collision detection between the taxi and ambient cars. Deliberately narrow: only the taxi is
@@ -100,9 +100,10 @@ const TRUCK_PUSH_V = 1.5;          // u/s
 // A truck is 5.6 long against a car's 3.4, and the two circles used to sit at the car's offsets
 // on it too — which left 0.7 of cab and 0.7 of cargo box at either end that nothing tested, and
 // the taxi drove through them. Its circles go out to its own length, and it gets a third in the
-// middle so the pair does not leave a waist.
+// middle so the pair does not leave a waist. The offset lives in traffic.js (`circleOffsetOf`) so
+// the boosting taxi's tailgate steers by the same circles this tests.
 function carCircles(car) {
-  const off = car.isTruck ? TRUCK_LEN * 0.28 : CIRCLE_OFFSET;
+  const off = circleOffsetOf(car);
   const fx = Math.cos(car.yaw) * off;
   const fz = -Math.sin(car.yaw) * off;
   const circles = [
@@ -242,13 +243,15 @@ export function createCollisions(cars, taxi) {
       // left in the world to recover it from: the listener runs after the fact and both cars are
       // out of the sim by then.
       const speed = taxi.v;
+      // Closing speed, not the taxi's own: a car driving away from the bumper is a nudge, one
+      // crossing in front of it is not. Read here rather than inside the bump path because the
+      // wreck needs it too — it is what decides whether the driver goes through the windscreen
+      // (game/ejection.js), and both speeds are zeroed below.
+      const rvx = Math.cos(taxi.yaw) * taxi.v - Math.cos(other.yaw) * other.v;
+      const rvz = -Math.sin(taxi.yaw) * taxi.v + Math.sin(other.yaw) * other.v;
+      const closing = Math.hypot(rvx, rvz);
 
       if (taxi.hp != null) {
-        // Closing speed, not the taxi's own: a car driving away from the bumper is a nudge, one
-        // crossing in front of it is not.
-        const rvx = Math.cos(taxi.yaw) * taxi.v - Math.cos(other.yaw) * other.v;
-        const rvz = -Math.sin(taxi.yaw) * taxi.v + Math.sin(other.yaw) * other.v;
-        const closing = Math.hypot(rvx, rvz);
         const damage = bumpDamage(closing);
         taxi.hp = Math.max(0, taxi.hp - damage);
         if (taxi.hp > 0) {
@@ -268,7 +271,7 @@ export function createCollisions(cars, taxi) {
       other.crashed = true;
       other.v = 0;
 
-      emit({ x: px, z: pz, speed, taxi, other });
+      emit({ x: px, z: pz, speed, closing, taxi, other });
       return;   // one impact per frame is plenty — the taxi is done anyway.
     }
   }

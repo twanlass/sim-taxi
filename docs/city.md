@@ -251,8 +251,8 @@ of the tower generator's hands (`createBuildings` only walks `'built'` blocks) a
 taxi's own depot: a single-storey shed at the back of the block with a roller door on the street, a
 3-unit asphalt forecourt, and a dropped kerb the taxi comes off in
 [the opening vignette](gameplay.md#the-opening-vignette). It is painted in the cab company's own
-colours and carries a radio mast — see [the livery](#the-livery-and-the-mast-on-the-roof) and
-[the mast](#the-mast-and-what-is-derived-from-the-dish) below.
+colours and carries a turning wrench on its roof — see [the livery](#the-livery) and
+[the wrench](#the-wrench-and-what-is-derived-from-it) below.
 
 **A whole block, not a lot.** The depot needs a forecourt to pull out of, and the generated city
 only leaves 0.85 units of pavement between a façade and the kerb — a car pulling out of a door that
@@ -266,7 +266,7 @@ offset stream — so adding the depot moved no park, no arterial and no building
 is the answer, and it may be **null**: a city with nowhere to put one opens without the vignette
 rather than not opening.
 
-### The livery, and the mast on the roof
+### The livery
 
 The depot is the one building the player owns, and it is painted like it. **The envelope itself is
 yellow** — `garageWall`, the biggest exception in `palette.js` to "yellow is reserved for the taxi",
@@ -313,42 +313,49 @@ way [the burger joint](#the-burger-joint-and-its-drive-through) names its apron.
 `KERB_RUN` short of the lip, where the dropped kerb starts falling away — a level strip carried out
 over a ramp is buried in it at one end and hanging over it at the other.
 
-### The mast, and what is derived from the dish
+### The wrench, and what is derived from it
 
-On the roof, a **radio mast** with a **dish sweeping on it** — dispatch has to reach the car
-somehow, and it is the only moving part on the building other than the door. The mast is static and
-rides in the shell's merge like everything else. The dish cannot: the city's entrance wave is a
+On the roof, an **oversized wrench turning on a pole** — the depot is where the taxi comes back for
+repairs and upgrades, and the building has to say so from play zoom before anybody has learned it.
+It is a sign in the burger joint's sense: one big object, canted 45° off vertical, turning about
+once every sixteen seconds (`WRENCH_SPIN`). It replaced a radio mast and dish, which said
+"dispatch" — true, and nothing a player can act on.
+
+It is **one extruded `Shape`**: a combination spanner, open jaw up, hexagon ring down. One outline
+rather than a handle and two heads merged, because three winds an extrusion itself (no hand-written
+triangle to get backwards) and because separate solids would share their flat faces on one plane
+where the handle runs into each head — coplanar overlap, which shimmers. A single-segment bevel puts
+a chamfer round every edge, and that is most of what reads as metal: under `flatShading` a flat slab
+lit by one sun is a cut-out, and the chamfer is a ring of 45° faces that catches the glint as it
+turns. The material is the vehicles' **metal** finish (`propMaterial({ gloss })` with every vertex
+on `FINISH.METAL`) — a darkened base with a tight glint and some sky and skyline reflected in it.
+Under Crayon and Cartoon the gloss is declined and it is an ordinary prop, as the cars are.
+
+The pole is static and rides in the shell's merge. The wrench cannot: the city's entrance wave is a
 vertex shader whose anchor is a *world* coordinate, and a world coordinate in a turning object's
 local space is not a coordinate, so it grows on the CPU through `createCityEntry`'s `objects` list
-exactly as the burger over the drive-through does.
+exactly as the burger does. Its pivot stands at the **pole's foot, on the kerb**, not at the
+wrench's centre: the CPU path owns nothing but `object.scale`, and the shader scales the shell about
+`KERB_H`, so a uniform scale about a point on that plane is the same arithmetic and the wrench rides
+up the pole as the pole grows. It is out of the AO lookup as well as the prepass — the dish before
+it, left receiving, wore a dark blotch of its own roof's crease that moved with the camera.
 
-Where its pivot sits is the subtle part. The CPU path owns nothing but `object.scale`, and the
-shader scales the shell about `KERB_H` — so the pivot stands at the **mast's foot, on the kerb**,
-not at the mast's head. A uniform scale about a point on that plane is the same arithmetic the
-shader is doing, and the dish rides up the mast as the mast grows. Put the pivot at the head and it
-shrinks toward a point two seconds of animation away from where the mast actually is.
+**Almost nothing else up here is a literal** — a habit carried over from the dish, which was
+resized twice, and both times what broke was a hand-tuned number *around* it:
 
-**Almost nothing else up here is a literal, and that is the lesson rather than the style.** The dish
-has been resized twice, and both times what broke was a hand-tuned number *around* it. So they are
-derived from its built geometry instead:
-
-- **The arm** it orbits on is `DISH_R · cos(DISH_TILT) + 0.26`. The disc is tilted about the z axis,
-  so its nearest point to the mast is `arm − DISH_R · cos(DISH_TILT)`; at a fixed arm, doubling the
-  radius put that on the far side of the pole and ran the mast through the dish.
-- **The crossbars** hang off the dish's measured underside with a fixed clearance, rather than at a
-  fraction of `MAST_H`. The dish orbits, so it passes over them once a revolution — a clearance that
-  holds in one pose is not a clearance.
-- **The mast's standoff from the roof corner** is the radius the dish actually sweeps — the furthest
-  any vertex gets from the pivot *axis*, which is not `boundingBox.max.x`, because the box measures
-  a pose the dish holds for an instant — plus a margin. One number answers both things it must not
-  reach: the +Z parapet it could swing out over, and the **curtain plane**, since every sightline
-  out of the door starts there and runs +X, so anything wholly behind it cannot occlude the door at
-  any height.
+- **The pole's height** is wherever the wrench's measured underside clears the roof plant by
+  `WRENCH_CLEAR`. The pole stops at the wrench's centre, inside the handle.
+- **The pole's standoff from the roof corner** is the radius the wrench actually sweeps — the
+  furthest any vertex gets from the pivot *axis*, which is not `boundingBox.max.x`, because the box
+  measures a pose the wrench holds for an instant — plus a margin. One number answers both things it
+  must not reach: the +Z parapet it could swing out over, and the **curtain plane**, since every
+  sightline out of the door starts there and runs +X, so anything wholly behind it cannot occlude
+  the door at any height.
 
 One thing that is *not* derived and cost a probe failure to find: the rooftop plant. Its two boxes
 were placed one offset from the back of the roof in x and one from the front in z, which only ever
-stayed clear of the mast because an ordinary block is 12 wide. A block squeezed between two
-arterials is 9.33, and the mast walked into a box with nothing in the geometry to say so. Both are
+stayed clear of the old radio mast because an ordinary block is 12 wide. A block squeezed between
+two arterials is 9.33, and the mast walked into a box with nothing in the geometry to say so. Both are
 measured off the back corner now, and the probe measures the gap.
 
 ### The site filter is a sightline
@@ -731,6 +738,45 @@ own reach — a tree leaning over a bench is shade, and a tree leaning over a po
 out of it. And the **flock** is handed the pond as a keep-out circle, which is not the same job as
 the other two: a bird has a *path*, and a target pushed to the far shore is a perfectly dry
 destination with a pond in the way of it. `stopAtShore` clips the walk at the water's edge instead.
+
+### A basketball court
+
+**Exactly one a city**, on the pond's terms: scenery, nothing routes round it, nothing on it can be
+tapped. `planCourt` (`city/blacktop.js`) draws after the pond on the same stream and places the
+slab *around* the statue's plaza and the pond rather than instead of them, so it can share a
+district with either — which is what gets every city one. It tries every length from 13 down to 9
+at nine slide positions along each plot's long axis and prefers a district at the longest length
+that fits; a full 13 cannot clear the statue's plaza from either half of a district, so in the
+statue's district it comes out at 12.
+
+- **The court has its own frame** (`u` along, `v` across) and `toWorld` maps it onto whichever axis
+  it lies along. The mapping is a reflection on a Z-axis court, which is harmless only because
+  nothing is built by rotating: boxes are sized through `boxAt` and every flat surface goes through
+  `ShapeGeometry`, which rewinds itself to face up. The probe computes every triangle's normal from
+  its winding.
+- **No fence.** The first build ran a translucent chain-link panel down the far side and across the
+  far end; it came out because the court reads better open to the lawn.
+- **Two meshes, not one.** The slab and its paint merge into the props mesh. The hoops are a mesh of
+  their own, because the props mesh is handed to the fare board's sightline field
+  (`game/sightline.js`), which stamps each triangle's peak across its whole footprint, so thin
+  furniture stamps as a solid column or wall. The fence showed what that costs: its 3.1-high top
+  rail stamped as a wall with no gap under it and threw away a kerb corner a real ray could see 85%
+  of.
+- Benches the slab would stand on are filtered out after the plan (a filter, so no other bench
+  moves); the ones left beside the court face it. Trees keep a crown's reach off it, grass a card's,
+  and both flocks treat it as a rectangular keep-out (`offRect`/`stopAtRect` in `game/birds.js`).
+- The single extra draw lands ahead of the trees in the props stream, so **every seed's park trees
+  moved** when the court arrived, the same trade the pond made.
+
+The players are `game/hoopers.js`, on the run seed (`+313`): one most of the time, two in 60% of
+runs, each with a ball and a hoop of their own and kept on their own half. Dribble out to a spot in
+range, settle, jump shot, watch it, chase the rebound, repeat. The arc is solved for a flight time
+rather than an angle so it always arrives where it was aimed, and make or miss is decided at the
+release as an aim point (dead centre, or a point on the ring). The poses live in
+`geometry/person.js` as pure functions of phase (`dribblePose`, `shotPose`, `handAt`) so the ball
+can be put in the hands that are holding it rather than in a second copy of the arm's geometry.
+The probe runs five minutes of it: the ball never sinks into or leaves the slab, and every miss is
+fetched. `?shot=court` and `?shot=court-far` frame it.
 
 ### Long grass
 

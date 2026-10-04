@@ -43,7 +43,7 @@ import {
 //     costs hit points.
 //
 //   - **And it ends in an arrest, and a tail.** Deliver the robber and they stand on the corner with
-//     their hands up while the cops circle them (game/arrest.js); the nearest cop comes after the
+//     their hands up while the cops fan out round them (game/arrest.js); the nearest cop comes after the
 //     taxi as an ordinary patrol chase instead (`handOff`, game/patrol.js). That chase can bust you,
 //     which the event itself never can — it is only ever the price of having finished it.
 //
@@ -325,9 +325,9 @@ const PAIR_OVERSHOOT = 0.75;
 const ARREST_REACH = 80;
 
 /**
- * How many cars circle the robber, at most and at least. Three is the fleet less the one handed to
+ * How many cars fan out round the robber, at most and at least. Three is the fleet less the one handed to
  * the patrol to chase the taxi (`handOff`). Two is the fewest that reads as *surrounding* anybody
- * rather than one car doing laps, so a drop-off with fewer in reach calls the difference in from
+ * rather than one car pulled up, so a drop-off with fewer in reach calls the difference in from
  * off screen, the way the event brought its police in to start with.
  */
 const ARREST_CREW = 3;
@@ -436,7 +436,7 @@ export function createRobbery({
     for (const cop of fleet()) traffic.retirePolice(cop);
   };
 
-  // The drop-off's scene: the robber on the corner, the cops circling them. See game/arrest.js.
+  // The drop-off's scene: the robber on the corner, the cops fanned out round them. See game/arrest.js.
   const arrest = createArrest({ traffic, taxi, inShot });
   /** Could the player be looking at this car? See `inShot`. */
   const seen = (car) => Boolean(inShot?.(car.x, car.z));

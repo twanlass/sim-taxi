@@ -14,12 +14,13 @@ import { spawnSync } from 'node:child_process';
 const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geometry/taxi.js',
   '../src/game/faremarker.js', '../src/geometry/person.js', '../src/game/routeline.js',
   '../src/game/pathdrag.js', '../src/game/sfx.js', '../src/game/audiopanel.js',
-  '../src/game/dust.js', '../src/game/blast.js', '../src/game/flyover.js', '../src/game/birds.js', '../src/game/ducks.js',
-  '../src/game/clouds.js', '../src/geometry/cloud.js',
+  '../src/game/dust.js', '../src/game/spray.js', '../src/game/blast.js', '../src/game/flyover.js', '../src/game/birds.js', '../src/game/ducks.js',
+  '../src/city/blacktop.js', '../src/game/hoopers.js',
+  '../src/game/clouds.js', '../src/geometry/cloud.js', '../src/game/rain.js', '../src/game/citylights.js', '../src/game/storm.js', '../src/game/squall.js',
   '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/city/burgerjoint.js', '../src/game/drivethru.js',
   '../src/city/bank.js', '../src/game/robbery.js', '../src/game/radio.js',
-  '../src/game/robberline.js', '../src/game/copshout.js', '../src/game/patrol.js',
+  '../src/game/robberline.js', '../src/game/copshout.js', '../src/game/patrol.js', '../src/game/bootleg.js',
   '../src/game/speech.js', '../src/game/depotcall.js',
   '../src/game/coplights.js', '../src/game/cashtrail.js',
   '../src/game/wipe.js',
@@ -29,13 +30,13 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/daylight.js', '../src/game/riderfinder.js',
   '../src/game/taxifinder.js',
   '../src/game/farepointers.js', '../src/game/sirenglow.js', '../src/game/robberyglow.js',
-  '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/runend.js',
+  '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/ejection.js', '../src/game/replay.js', '../src/game/runend.js',
   '../src/game/impact.js', '../src/game/taxidamage.js', '../src/game/taxidoor.js',
   '../src/util/viewport.js',
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
   '../src/game/ssao.js', '../src/game/crayon.js', '../src/game/cartoon.js',
   '../src/game/bloom.js', '../src/game/hdr.js',
-  '../src/game/diag.js', '../src/game/recovery.js', '../src/game/pause.js', '../src/game/inspect.js',
+  '../src/game/diag.js', '../src/game/recovery.js', '../src/game/pause.js', '../src/game/menupage.js', '../src/game/inspect.js',
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',
   '../src/geometry/crate.js', '../src/game/flatbed.js',
   '../src/geometry/firetruck.js', '../src/game/fire.js',
@@ -44,7 +45,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/parcel.js', '../src/geometry/food.js', '../src/geometry/cargo.js',
   '../src/geometry/parcelpad.js', '../src/game/parcels.js',
   '../src/game/cargochip.js',
-  '../src/game/tutorial.js', '../src/game/highscores.js', '../src/game/locostash.js',
+  '../src/game/tutorial.js', '../src/game/titlescreen.js', '../src/game/settings.js', '../src/game/highscores.js', '../src/game/locostash.js',
   '../src/util/platform.js', '../src/util/haptics.js',
   '../src/lab/labroad.js'];
 
@@ -94,6 +95,80 @@ try {
   sunk.customDepthMaterial.onBeforeCompile(stub);
   if (!stub.vertexShader.includes(`mvPosition.z -= ${SHADOW_SINK.toFixed(4)}`)) {
     throw new Error('sinkShadowCaster: the depth patch did not land in the shader');
+  }
+
+  // The crash replay's tape, played back rather than trusted (game/replay.js). Three things it
+  // has to get right and none of them throws when it gets them wrong: a car moving between two
+  // samples is drawn between them, a pool slot reused for a new particle *snaps* rather than flying
+  // the particle in across the map, and the live frame comes back exactly when the replay hands
+  // over. Plus the wreck it scrubs alongside: a struck car's shell must not exist before the impact.
+  {
+    const THREE = await import('three');
+    const { createTape } = await import('../src/game/replay.js');
+    const { createWreckage } = await import('../src/game/wreckage.js');
+    const scene = new THREE.Scene();
+    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 2);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(mesh);
+    const root = new THREE.Group();
+    scene.add(root);
+    const at = (i, x) => mesh.setMatrixAt(i, new THREE.Matrix4().makeTranslation(x, 0, 0));
+    const xOf = (i) => mesh.instanceMatrix.array[i * 16 + 12];
+    const tape = createTape(scene, { roots: [root] });
+    at(0, 0); at(1, 0); root.position.x = 0; tape.record(0);
+    at(0, 1); at(1, 50); root.position.x = 2; tape.record(1 / 30);
+    at(0, 7); at(1, 9); root.position.x = 9;
+    tape.capture();
+    tape.apply(1 / 60);
+    const fail = [];
+    if (Math.abs(xOf(0) - 0.5) > 1e-6) fail.push(`lerp drew ${xOf(0)} for 0.5`);
+    if (xOf(1) !== 50) fail.push(`a 50-unit jump drew ${xOf(1)}, not a snap to 50`);
+    if (Math.abs(root.position.x - 1) > 1e-6) fail.push(`node drew ${root.position.x} for 1`);
+    tape.restore();
+    if (xOf(0) !== 7 || xOf(1) !== 9 || root.position.x !== 9) fail.push('restore did not put the live frame back');
+    const wreckage = createWreckage();
+    const shell = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+    wreckage.take(shell, { hideBefore: true });
+    wreckage.seek(-0.5);
+    if (shell.visible) fail.push('a struck shell drew before its impact');
+    wreckage.seek();
+    if (!shell.visible) fail.push('seek() did not hand the shell back');
+    if (fail.length) throw new Error(`replay tape: ${fail.join('; ')}`);
+  }
+
+  // The driver thrown through the windscreen (game/ejection.js). A closed form like the wreck, so
+  // the same promises: stepped and scrubbed agree, it never goes through the road, it comes to rest
+  // lying down and in frame, and it does not exist before the impact.
+  {
+    const THREE = await import('three');
+    const { createEjection } = await import('../src/game/ejection.js');
+    const scene = new THREE.Scene();
+    const lands = [];
+    const ej = createEjection(scene, { roadY: 0, onLand: (x, z, hard) => lands.push(hard) });
+    ej.fire({ x: 0, z: 0, yaw: 0.7, closing: 21, side: 1 });
+    const fail = [];
+    let low = Infinity;
+    for (let n = 0; n < 180; n++) {
+      ej.update(1 / 60);
+      low = Math.min(low, ej.group.position.y);
+    }
+    const end = ej.group.position.clone();
+    const reach = Math.hypot(end.x, end.z);
+    if (low < 0.25) fail.push(`dipped to y ${low.toFixed(2)}`);
+    if (Math.abs(end.y - 0.3) > 1e-3) fail.push(`rests at y ${end.y.toFixed(3)}, not lying`);
+    if (!(reach > 5 && reach < 11)) fail.push(`landed ${reach.toFixed(1)} units out`);
+    if (lands.length < 2) fail.push(`${lands.length} landings announced`);
+    ej.seek(0.4);
+    const scrubbed = ej.group.position.clone();
+    const replayed = createEjection(new THREE.Scene(), { roadY: 0 });
+    replayed.fire({ x: 0, z: 0, yaw: 0.7, closing: 21, side: 1 });
+    for (let n = 0; n < 24; n++) replayed.update(1 / 60);
+    if (scrubbed.distanceTo(replayed.group.position) > 1e-6) fail.push('seek(0.4) disagrees with stepping to 0.4');
+    ej.seek(-0.1);
+    if (ej.group.visible) fail.push('drew before the impact');
+    ej.seek();
+    if (!ej.group.visible || ej.group.position.distanceTo(end) > 1e-6) fail.push('seek() did not hand it back');
+    if (fail.length) throw new Error(`ejection: ${fail.join('; ')}`);
   }
 
   // Drive a whole day past the lights. Every keyframe gets applied, so a bad colour or a uniform

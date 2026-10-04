@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import { makeRng } from './util/rng.js';
-import { createScene, sinkShadowCaster } from './game/scene.js';
+import { createScene, sinkShadowCaster, setHazeTop, HAZE_TOP } from './game/scene.js';
+import { createRain, GRIP } from './game/rain.js';
+import { createStorm } from './game/storm.js';
+import { createSquall } from './game/squall.js';
+import {
+  collectPanes, litWindows, streetLamps, createTaxiHeadlights, setCityLights,
+} from './game/citylights.js';
 import {
   createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD,
 } from './game/camera.js';
@@ -21,7 +27,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
-  configureSignals,
+  configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice } from './sim/police.js';
@@ -30,7 +36,6 @@ import {
   BOARD_SECONDS,
 } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
-import { createAudioPanel } from './game/audiopanel.js';
 import { createDriveThru } from './game/drivethru.js';
 import { createBurgerRun } from './game/burgerrun.js';
 import { createDepotRun } from './game/depotrun.js';
@@ -38,7 +43,7 @@ import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
-import { bandPath as fuelBandPath, frontAt as fuelFrontAt, RIM as FUEL_RIM } from './game/fuelarc.js';
+import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION } from './game/taxidamage.js';
 import { createTaxiDoor } from './game/taxidoor.js';
@@ -46,6 +51,7 @@ import { createDepotCall } from './game/depotcall.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
+import { createSpray } from './game/spray.js';
 import { createCityEntry } from './game/cityentry.js';
 import { createBlast } from './game/blast.js';
 import { createFlames } from './game/flames.js';
@@ -53,11 +59,15 @@ import { createSparks } from './game/sparks.js';
 import { createRepairFx } from './game/repairfx.js';
 import { createLocoFlame } from './game/locoflame.js';
 import { createWreckage } from './game/wreckage.js';
+import { createEjection, EJECT_CLOSING } from './game/ejection.js';
+import { createTape, createCrashReplay } from './game/replay.js';
 import { CARRY_DRAG, carrySpeed, carryTravel } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
 import { createChopper } from './game/chopper.js';
-import { createBirds } from './game/birds.js';
+import { createBirds, chooseRoosts } from './game/birds.js';
 import { createDucks } from './game/ducks.js';
+import { createHoopers } from './game/hoopers.js';
+import { courtRect } from './city/blacktop.js';
 import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
@@ -88,17 +98,19 @@ import { createHdr } from './game/hdr.js';
 import { createCrayon } from './game/crayon.js';
 import { createCartoon } from './game/cartoon.js';
 import {
-  setAmbientOcclusion, setCrayon, setCartoon, propMaterial, setGlossCity, setGlossGlobal,
+  setAmbientOcclusion, setCrayon, setCartoon, setCloudShadows, propMaterial, setGlossCity, setGlossGlobal,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
+import { createTitleScreen } from './game/titlescreen.js';
+import { createSettings } from './game/settings.js';
 import { createPause } from './game/pause.js';
 import { createInspect } from './game/inspect.js';
 import { findRoute, findRouteVia, findRouteOnto, planOrigin, crossingOrigin } from './game/route.js';
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -108,6 +120,7 @@ import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders } from './game/sightline.js';
+import { createBootleg } from './game/bootleg.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
@@ -118,7 +131,7 @@ import { createSfx } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J, MAX_SPAN } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
-import { PALETTE } from './palette.js';
+import { PALETTE, color as paletteColor } from './palette.js';
 
 // Caches the app shell so a Home Screen launch still opens with no connection — see public/sw.js.
 // Skipped under `npm run dev`: Vite's dev server rewrites module URLs on every change, and a
@@ -133,7 +146,11 @@ import { PALETTE } from './palette.js';
 // build to a player who has already installed the new one. `public/sw.js` bumps that name by hand
 // on the web, which works because a deploy is one atomic thing we control; an app update is not.
 if (!import.meta.env.DEV && !isNative() && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
+  // Caught, because a registration that fails (no connection for the update check) only costs
+  // the offline copy, and left unhandled it would put the error panel over a game that is running.
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((err) => console.warn('sw: not registered', err));
+  });
 }
 
 const shot = getActiveShot();
@@ -215,6 +232,9 @@ setAmbientOcclusion(aoEnabled);
 // `game/crayon.js` for what the three layers of it are.
 const crayonEnabled = budget.crayon;
 setCrayon(crayonEnabled);
+// Cloud shadows are compiled into every lit material, so they are decided here with the look modes,
+// before anything is meshed. See CLOUD_UNIFORMS in util/geo.js.
+setCloudShadows(Boolean(getRain() ?? getStorm() ?? getSquall()));
 // The other look on offer, and independent of it — see `game/cartoon.js`. Its cel bands compile
 // into the same materials, so it is decided in the same breath and for the same reason.
 const cartoonEnabled = budget.cartoon;
@@ -255,6 +275,26 @@ const bloom = createBloom(renderer, {
   enabled: budget.bloom, depth: ao.depth, depthSize: ao.depthSize,
 });
 const crayon = createCrayon(renderer, { enabled: crayonEnabled });
+// The weather. `?storm` runs a storm across the afternoon and back on a loop (game/storm.js);
+// `?rain` is the same storm pinned at its peak. Either way the whole wet city is built up front —
+// see game/rain.js — and `applyWeather` below turns each part of it up and down with the clock.
+//
+// The squall is the other kind of weather, and the default one: not the whole sky changing, but one
+// rain cell crossing a sunny city (game/squall.js), `?squall=off` to drop it. An explicit `?squall`
+// wins over the other two — they are both "the sky over everything" — but the *default* steps aside
+// for either (`getSquall`). Run seed, so `?run=` replays the same crossings.
+const squallFlag = getSquall();
+const stormFlag = squallFlag ? null : (getRain() ?? getStorm());
+const storm = stormFlag ? createStorm(stormFlag) : null;
+const squallRng = makeRng(runSeed + 733);
+const squall = squallFlag ? createSquall({ ...squallFlag, rng: () => squallRng.next() }) : null;
+const rain = createRain(renderer, { enabled: Boolean(storm || squall), mood: stormFlag?.mood });
+if (squall) {
+  rain.attachSquall(squall);
+  // A car's headlights come on as the cell reaches it — from a third of the way into the soft edge
+  // — rather than across the city at once.
+  setRunningLightsAt((x, z) => THREE.MathUtils.smoothstep(squall.rainAt(x, z), 0.15, 0.5));
+}
 const cartoon = createCartoon({ enabled: cartoonEnabled });
 
 // `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
@@ -271,6 +311,10 @@ if (crayon.overlay) scene.add(crayon.overlay);
 // The bloom composite, on the same terms and under it — an ordinary object in the main scene, not
 // a post pass. See `game/bloom.js`; null under `?bloom=off` and under `?hdr`.
 if (bloom.overlay) scene.add(bloom.overlay);
+
+// The falling rain, and the two overlays that must stay out of its mirror pass.
+rain.addTo(scene);
+rain.hideInMirror(crayon.overlay, bloom.overlay, scene.getObjectByName('sky'));
 
 // A GPU that takes the context away gets the budget turned down rather than the player getting a
 // black screen for the rest of the run — see `game/recovery.js` for the two steps and why the
@@ -290,6 +334,10 @@ function renderFrame() {
   // Sized here rather than in the frame loop for the same reason the AO prepass is called here:
   // shot mode and `__taxi.redraw()` both reach a render without ever reaching the loop.
   crayon.prepare();
+  // The wet road's mirror, before anything reads it. A no-op without `?rain`.
+  rainLightsOn?.();
+  rain.update(0, camera);
+  rain.renderReflection(scene, camera);
   ao.render(scene, camera);
   // After the AO prepass, which is what fills the depth buffer the lamps are rejected against.
   bloom.render(scene, camera);
@@ -298,6 +346,8 @@ function renderFrame() {
   // `?hdr` takes the whole frame through a composer instead; a no-op without the flag, and it
   // returns false so the ordinary path below still runs.
   if (!hdr.render(scene, camera)) renderer.render(scene, camera);
+  // Drops on the glass, over the finished frame.
+  rain.renderLens();
 }
 
 // Weather, ringing the island — see game/clouds.js. Scenery on the same terms as the aeroplane and
@@ -316,6 +366,104 @@ const clouds = createClouds(scene, makeRng(runSeed + 277));
 const daylight = createDaylight({ sun, hemi, sky, fog, clouds });
 daylight.setDayLength(DAY_SECONDS);
 daylight.setCycling(false);
+if (rain.grade) daylight.setGrade(rain.grade);
+
+/**
+ * Hand the storm's three levels (game/storm.js) to everything that reads them. Every frame while a
+ * storm is on, and once here so a pinned `?storm=` or `?rain` is in place before the first render.
+ *
+ * - `dark` grades the sky (through `daylight.apply`, which calls `rain.grade`), thickens the haze,
+ *   switches the city's windows and lamps on one at a time, and puts the headlights on — all
+ *   together over a short stretch of it, the way drivers do once it is properly gloomy.
+ * - `rain` is the streaks, the splashes and the drops on the lens (inside `rain.setWeather`).
+ * - `wet` is the ground's gloss and the mirror pass, and the grip: every car brakes softer on a
+ *   wet road and plans its stops against the softer brake.
+ */
+// The taxi's own headlights (game/citylights.js), and the level every set of headlights is at. Both
+// hoisted up here because the first `applyWeather` below runs before the taxi exists; the pair is
+// built with the rest of the taxi's lamps and handed this level then.
+let taxiHeadlights = null;
+let runningLevel = 0;
+// The taxi, for the squall's per-position grip and headlights — set once traffic exists.
+let taxiNow = null;
+
+/**
+ * Switch the taxi's headlights to `level`, unless its nose is inside the depot. The cones reach
+ * 5.4 units past the bumper and are drawn additive without writing depth, so with the taxi parked
+ * behind a shut door they came straight out through it — a pool of light on the forecourt and two
+ * glowing lamps seen through the curtain. A parked car has its lights off anyway, so they fade up
+ * as the nose crosses the curtain on the way out (and down on the way back in), over 1.5 units.
+ * Read off `garage.site` rather than the door's state so the answer does not depend on which of
+ * the vignette, the depot run or the tip happens to be holding the door this frame.
+ */
+function setTaxiHeadlights(level) {
+  if (!taxiHeadlights) return;
+  const car = taxiNow?.();
+  let inDepot = 0;
+  if (car && garage) {
+    const { curtainX, doorZ, doorW, bayX } = garage.site;
+    if (Math.abs(car.z - doorZ) < doorW / 2 + 1 && car.x > bayX - 1) {
+      const noseX = car.x + Math.cos(car.yaw) * TAXI_TAILPIPE_BACK;
+      inDepot = 1 - THREE.MathUtils.smoothstep(noseX, curtainX, curtainX + 1.5);
+    }
+  }
+  taxiHeadlights.setLevel(level * (1 - inDepot));
+}
+// How present the squall is, eased: a cell crossing the city greys the whole sky a little.
+let squallPresence = 0;
+
+/**
+ * The squall's half of `applyWeather`. Nothing here is city-wide except a faint grade while a cell
+ * is on the map: the rain, the wet ground, the cloud shade and the city's lights all follow the
+ * cell, through the uniforms `rain.attachSquall` wired up. What is left to do on the CPU is what
+ * only one place can have — the grip under the taxi, the taxi's own headlights, and the drops on the
+ * lens, which are on when the camera is looking at the rain.
+ */
+function applySquall(dt) {
+  squall.update(dt);
+  const { cell } = squall;
+  squallPresence += ((cell.on ? 1 : 0) - squallPresence) * Math.min(1, dt / 4);
+  const c = rain.centre;
+  rain.setWeather({
+    dark: SQUALL_GREY * squallPresence,
+    rain: cell.on ? 1 : 0,
+    wet: squall.state.maxWet,
+    lens: squall.rainAt(c.x, c.z),
+  }, dt);
+  if (taxiNow) {
+    const t = taxiNow();
+    setGrip(THREE.MathUtils.lerp(1, GRIP, squall.wetAt(t.x, t.z)));
+    setTaxiHeadlights(runningLightsAt(t.x, t.z));
+  }
+  setRunningLights(0);
+  setCityLights(0, dt);
+  setHazeTop(fog, THREE.MathUtils.lerp(HAZE_TOP, rain.mood.haze, SQUALL_GREY * squallPresence));
+  daylight.apply();
+  rain.setSunDir(sun.position);
+}
+
+/** How far the whole sky greys while a squall's cell is on the map — the rest of the city is sunny. */
+const SQUALL_GREY = 0.2;
+
+// The storm's one city-wide wetness, for the tyres (`groundWetAt`).
+let stormWet = 0;
+function applyWeather(dt = 0) {
+  if (squall) { applySquall(dt); return; }
+  if (!storm) return;
+  const w = storm.update(dt);
+  stormWet = w.wet;
+  rain.setWeather(w, dt);
+  setGrip(THREE.MathUtils.lerp(1, GRIP, w.wet));
+  runningLevel = THREE.MathUtils.smoothstep(w.dark, 0.25, 0.42);
+  setRunningLights(runningLevel);
+  // The taxi's own pair on the same level as the fleet's: dark in the sun, on once it is gloomy.
+  setTaxiHeadlights(runningLevel);
+  setCityLights(w.dark, dt);
+  setHazeTop(fog, THREE.MathUtils.lerp(HAZE_TOP, rain.mood.haze, w.dark));
+  daylight.apply();
+  rain.setSunDir(sun.position);
+}
+applyWeather();
 
 // Every generator draws from its own stream so that changing one system doesn't reshuffle the
 // others — editing building code shouldn't move the parks. `layout` was already produced above
@@ -323,7 +471,7 @@ daylight.setCycling(false);
 // `markOccluder` is what puts a mesh into the AO depth prepass. The rule it enforces is that
 // anything lit by `propMaterial()` has to be in there: a mesh that receives AO without casting it
 // samples the occlusion of whatever stands behind it. See `game/ssao.js`.
-scene.add(markOccluder(createGround(makeRng(seed + 11), layout)));
+scene.add(markOccluder(rain.wetGround(createGround(makeRng(seed + 11), layout))));
 
 // The river, and the spans that get over it. Its own stream, like every other generator, so that
 // moving a bridge cannot reshuffle a park.
@@ -356,8 +504,24 @@ if (river) {
 }
 // Held onto for its `pad`: exactly one roof in the city carries a landing circle, and the
 // helicopter below has to be told which one — see `choosePad` in city/buildings.js.
+const stopPanes = rain.enabled ? collectPanes() : null;
 const city = createBuildings(makeRng(seed + 22), layout);
 scene.add(markOccluder(city.mesh));
+
+// Rain Mode's city lights — lit windows over the panes just built, and street lamps. A wet street
+// is a mirror for lamps, and a daytime city has almost none. See game/citylights.js. Their own
+// streams, so switching the rain on cannot move a building.
+const litPanes = stopPanes ? litWindows(makeRng(seed + 391), stopPanes()) : null;
+const lamps = rain.enabled ? streetLamps(makeRng(seed + 392), layout) : null;
+if (litPanes) scene.add(litPanes);
+if (lamps) {
+  scene.add(markOccluder(lamps.posts), lamps.heads, lamps.pools);
+  rain.hideInMirror(lamps.pools);
+}
+// Dark until the entrance wave has finished: the city arrives, then switches its lights on. Set
+// once the wave exists, at the bottom of the scenery; read in `renderFrame`.
+let rainLightsOn = null;
+for (const mesh of [litPanes, lamps?.pools]) if (mesh) mesh.visible = false;
 // Held onto for the entrance animation below — the trees rise out of the parks the same way the
 // buildings rise out of their lots — and for its `pond`: exactly one park in the city has water in
 // it, and the ducks floating on it have to be told which one. Null on a city with no park big
@@ -374,6 +538,13 @@ scene.add(grass.mesh);
 // terms as the grass. See city/canopyfuzz.js.
 const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), [...props.crowns, ...(city.court?.crowns ?? [])]);
 scene.add(canopyFuzz.mesh);
+// The basketball court's hoops, which ride outside the merged props mesh so the fare board's
+// sightline field never sees them (see `courtParts`) — and the people shooting around on the court. Run seed for the players, like the ducks:
+// where the court is is the map, who is out on it is the situation. Built here rather than beside
+// the ducks because the entrance wave below has to be handed them. See city/blacktop.js and
+// game/hoopers.js.
+if (props.courtMesh) scene.add(markOccluder(props.courtMesh));
+const hoopers = createHoopers(scene, makeRng(runSeed + 313), props.court);
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
 // subject of the opening vignette below. `null` on a city with nowhere to put one, which is a
@@ -627,7 +798,7 @@ const robbery = city.bank && !shot
     // Never take a cop off the map where the player can see it — see `inShot` in game/robbery.js.
     inShot,
     // Delivered: the nearest cop comes after the taxi as an ordinary patrol chase — caught on a
-    // touch, lost two and a half blocks out — while the rest circle the robber on the corner
+    // touch, lost two and a half blocks out — while the rest fan out round the robber on the corner
     // (game/arrest.js). The robber is delivered, so the chase can end the run: that is the trade
     // the drop-off asks for, and the full tank the robber boarded with is what pays for it.
     handOff: (cops) => patrol.pursueNearest(cops),
@@ -677,24 +848,25 @@ function boardSound() {
 // The sound — see game/sfx.js. Silent in shot mode, which renders stills and has nobody listening.
 // Its own stream, which draws the take each one-shot plays (the designer's A/B/C variants).
 const sfx = shot ? null : createSfx({ rng: makeRng(runSeed + 811) });
+// The title screen's Settings, remembered across visits (game/settings.js). The two volumes are
+// applied to the engine here and on every change; the tips are read once, when the run starts.
+const settings = createSettings();
+sfx?.setVolumes(settings.get());
+settings.onChange((v) => sfx?.setVolumes(v));
 
-// The switch lives on the pause screen, with M for a keyboard. The choice is remembered
-// (localStorage, soft — see game/sfx.js).
-const soundButton = document.querySelector('#pause-veil .pause-sound');
-function paintSound() {
-  if (!soundButton || !sfx) return;
-  soundButton.textContent = sfx.state.muted ? 'Sound: Off' : 'Sound: On';
-  soundButton.setAttribute('aria-pressed', String(!sfx.state.muted));
-}
-soundButton?.addEventListener('click', () => { sfx?.toggleMuted(); paintSound(); });
+// The one mute, as the Settings pages on the title and pause screens see it. M flips it from a
+// keyboard; the choice is remembered (localStorage, soft — see game/sfx.js). The pages re-read it
+// each time they come up, so M needs to tell nobody.
+const soundSwitch = {
+  isOn: () => Boolean(sfx && !sfx.state.muted),
+  set: (on) => { sfx?.setMuted(!on); },
+};
 window.addEventListener('keydown', (event) => {
   if (event.key !== 'm' && event.key !== 'M') return;
   // Not while typing initials, where M is a letter — the pause key's rule.
   if (event.target instanceof HTMLInputElement) return;
   sfx?.toggleMuted();
-  paintSound();
 });
-paintSound();
 
 // The patrol cruiser's look (sim/police.js) and its life (game/patrol.js): a police car that
 // crosses town edge to edge with its bar swinging red and blue, and comes after you if you boost in
@@ -725,6 +897,19 @@ const patrol = createPatrol({
   onLost: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
   onHid: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
 });
+// Boost, then two quick taps of the brake: the taxi spins round onto the far lane. See game/bootleg.js.
+const bootleg = createBootleg({
+  taxi: traffic.taxi,
+  destination: () => traffic.taxi.pendingTarget ?? null,
+  // It has to land like a hit: the screech, a jolt of shake, a buzz, and all four wheels marking the
+  // road on the frame it starts. `layRubber` carries the streak on from there.
+  onSpin: () => {
+    sfx?.play('skid');
+    haptic('loco');
+    controller.kickShake(0.55);
+    stampAllRubber(traffic.taxi);
+  },
+});
 // The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
 // contact. The ghost outlines hung off the taxi are filtered out inside `markOccluder`.
@@ -750,6 +935,17 @@ markOccluder(police.group);
 // cruiser's own `siren`. Read off the mesh rather than stated here, so a new lamp arrives in the
 // bloom at the right strength by being built rather than by being remembered in two places.
 for (const mesh of traffic.emissiveMeshes) markEmissive(mesh, mesh.userData.bloomKind ?? 'pod');
+if (litPanes) markEmissive(litPanes, 'window');
+// The taxi's own headlights and their cones, hung on its group so they ride the body. The group is
+// also what becomes the wreck (see `wreckShell` in sim/traffic.js), so they go dark while it is one.
+taxiHeadlights = rain.enabled ? createTaxiHeadlights() : null;
+if (taxiHeadlights) {
+  taxiNow = () => traffic.taxi;
+  setTaxiHeadlights(runningLevel);
+  traffic.taxiGroup.add(taxiHeadlights.group);
+  markEmissive(taxiHeadlights.pods, 'pod');
+}
+if (lamps) markEmissive(lamps.heads, 'bay');
 for (const mesh of police.emissiveMeshes) markEmissive(mesh, 'siren');
 // One mesh, three lit things: the pickup window, the menu board and the neon round the roofline
 // are merged into `burger.glow` (see city/burgerjoint.js), so the neon arrived in the bloom with
@@ -856,14 +1052,23 @@ let opening = null;
 // Is the tutorial talking? One of the two things that hold the board's clocks — see holdFareClocks.
 let tutorialTalking = false;
 
+// Debug mode: the ⚙️ panel's flags (`?debug`, `?settings`, or `?audio`). Decided up here rather than
+// beside the panel because two things well before it read it: a tuning session runs with no
+// tutorial and with the fare clocks held, so the game can be left open behind the panel without
+// having to be played to stay alive.
+const debugMode = (() => {
+  const params = new URLSearchParams(window.location.search);
+  return !shot && (params.has('debug') || params.has('settings') || params.has('audio'));
+})();
+
 /**
- * Freeze or free every fare's countdown. Two things hold it and either is enough: the tutorial
- * while it talks, and a repair visit to the depot. One place decides, so neither can release a
- * hold the other still wants — a visit landing mid-lesson would otherwise start the clocks the
- * tutorial had stopped.
+ * Freeze or free every fare's countdown. Three things hold it and any is enough: debug mode, for
+ * good; the tutorial while it talks; and a repair visit to the depot. One place decides, so none
+ * can release a hold another still wants — a visit landing mid-lesson would otherwise start the
+ * clocks the tutorial had stopped.
  */
 function holdFareClocks() {
-  fares.setPaused(tutorialTalking || Boolean(opening?.visiting()));
+  fares.setPaused(debugMode || tutorialTalking || Boolean(opening?.visiting()));
 }
 const releaseCameraToPlayer = () => {
   cameraTakenOver = true;
@@ -878,6 +1083,7 @@ const pan = shot
   : attachDragPan(controller, renderer.domElement, aspect, isNarrow, releaseCameraToPlayer);
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
+const spray = createSpray(scene, makeRng(seed + 78));
 
 // The city's entrance: buildings and trees rise out of the ground in a wave that spreads from the
 // taxi's spawn — the run starts where the player's car is, and the city builds itself outward from
@@ -889,11 +1095,14 @@ const dust = createDust(scene, camera, makeRng(seed + 77));
 const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
-  meshes: [city.mesh, propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? [])],
+  meshes: [city.mesh, propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
+    ...(burger?.meshes ?? []), ...(lamps ? [lamps.posts, lamps.heads] : []),
+    ...(props.courtMesh ? [props.courtMesh] : [])],
   // The two things in the city the wave's vertex shader cannot reach, because they turn: the
-  // depot's radio dish and the burger over the drive-through. See the `objects` note in
+  // depot's wrench and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
-  objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : [])],
+  objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
+    ...hoopers.entryObjects],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
     ...(burger ? [burger.entrySite] : [])],
   dust,
@@ -901,6 +1110,13 @@ const cityEntry = createCityEntry({
   // bottom of this file, which is where the player actually first sees the car.
   from: { x: traffic.taxi.x, z: traffic.taxi.z },
 });
+if (litPanes || lamps) {
+  rainLightsOn = () => {
+    if (cityEntry.running()) return;
+    for (const mesh of [litPanes, lamps?.pools]) if (mesh) mesh.visible = true;
+    rainLightsOn = null;
+  };
+}
 // The whole crash detonation — shockwave, fireball and shards — behind one `fire()` per car. One
 // pool serves both cars: nothing here is re-shot from a stored position, so a second call cannot
 // drag the first car's wreckage across to the second the way the old debris pools could.
@@ -939,6 +1155,48 @@ const locoFlame = createLocoFlame(scene);
 const wreckage = createWreckage({
   smoke: (x, y, z) => dust.add(x, z, traffic.taxi.yaw, 0.5, 0.45, PALETTE.wreckSmoke, y),
 });
+
+// The driver, thrown through the windscreen by a hard enough wreck — see game/ejection.js and
+// EJECT_CLOSING. Each time they hit the road: a small grey puff, and the taxi's own landing thud
+// turned down (there is no recording of a person landing; the jump's is the softest impact in the
+// set).
+const ejection = createEjection(scene, {
+  roadY: ROAD_Y,
+  onLand: (x, z, hard) => {
+    dust.burst(x, z, traffic.taxi.yaw, 4 + Math.round(hard * 6), 0.35 + hard * 0.3,
+      { tint: PALETTE.wreckSmoke, linger: 0.6 });
+    sfx?.play('land', { gain: 0.25 + hard * 0.45 });
+  },
+});
+
+// The crash replay's recording and its director — see game/replay.js, and REPLAY_LEAD for how the
+// two endings fit together. The boats' wake is left off the tape because the boats are: the world
+// is frozen for the replay, and a wake playing back behind a boat standing still is a wake coming
+// off nothing.
+const tape = shot ? null : createTape(scene, {
+  roots: [traffic.taxiGroup],
+  exclude: (mesh) => mesh.name === 'boat-wake',
+});
+const replayOverlay = document.getElementById('replay');
+const replay = tape && createCrashReplay({
+  tape, controller, aspect, wreckage, taxiGroup: traffic.taxiGroup, overlay: replayOverlay,
+  // The bang again on each cut, a little under the live one: it is the same crash being shown,
+  // and at full gain each cut reads as another collision.
+  onImpact: () => sfx?.play('crash', { gain: 0.75 }),
+  hide: [clouds.group],
+  scrub: [ejection],
+});
+// A tap anywhere skips to the card, and so does any key — a replay is a reward for looking, and a
+// player who wants the retry button should not have to sit through it to get there.
+function skipReplay(event) {
+  if (!replay?.active()) return;
+  event?.preventDefault();
+  replay.skip();
+  crashBannerAt = performance.now() + REPLAY_TAIL;
+}
+replayOverlay?.addEventListener('pointerdown', skipReplay);
+replayOverlay?.addEventListener('touchstart', (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
+window.addEventListener('keydown', (e) => { if (replay?.active()) skipReplay(e); });
 
 // A light aircraft crossing the city every minute or so. Scenery and nothing else — see
 // game/flyover.js. On the run seed rather than the city seed: which way it crosses and when is
@@ -984,11 +1242,21 @@ const chopper = createChopper(scene, makeRng(runSeed + 233), city.pad, {
 // handed it as a keep-out. A little wider than the water itself: the outline never exceeds the
 // pond's nominal radius, and the rest is a bird's own length, so one stops *beside* the water
 // rather than with its tail over it.
+//
+// And a few flat roofs they can land on as well — see `chooseRoosts`. City seed, not run seed:
+// which roofs the pigeons use is part of the map, the same way which lawns there are is. Shared by
+// both flocks as the *same objects*, because `avoid` keeps them apart by identity.
+const roosts = chooseRoosts(city.decks, makeRng(seed + 155));
 const flocks = [];
 for (const offset of [199, 211]) {
   flocks.push(createBirds(scene, makeRng(runSeed + offset), layout, {
     avoid: (state) => flocks.filter((f) => f.state !== state).map((f) => f.state.area),
-    keepOut: props.pond ? [{ x: props.pond.x, z: props.pond.z, r: props.pond.r + 0.7 }] : [],
+    keepOut: [
+      ...(props.pond ? [{ x: props.pond.x, z: props.pond.z, r: props.pond.r + 0.7 }] : []),
+      // And the basketball court, with the same bird's length to spare.
+      ...(props.court ? [courtRect(props.court, 0.5)] : []),
+    ],
+    roosts,
   }));
 }
 
@@ -1144,6 +1412,8 @@ const fire = createFire({
   blocked: () => Boolean(shot) || traffic.taxi.staged || Boolean(robbery?.state.active)
     || fares.state.gameOver,
   soon: new URLSearchParams(window.location.search).get('fire') === 'soon',
+  // Not under the squall's cell, nor on its way; and rain that reaches one puts it out.
+  ...(squall && { rainAt: squall.rainAt, rainSoon: squall.rainSoon }),
 });
 // The engine's bar blooms at the cruiser's strength; the flames bloom on their own (`flame`).
 for (const mesh of fire.emissiveMeshes) markEmissive(mesh, 'siren');
@@ -1215,6 +1485,32 @@ let endZoom = WRECK_ZOOM;
 let crashBannerAt = null;
 let slowMoUntil = 0;
 let slowMoMin = SLOW_MO_MIN;
+
+// The wreck's replay (game/replay.js): after the live beat, three quick cuts on the moment of
+// impact from a recording, then the retry card. The live beat is shortened to make room for it —
+// it was the whole CRASH_BANNER_DELAY and is now REPLAY_LEAD — and it has a floor that is not a
+// matter of taste: the replay can only show what the tape recorded, and the tape records the
+// seconds after the impact *during* this beat. Under the slow-mo ramp (SLOW_MO_MIN 0.18 rising
+// over 2100ms) 1.2s of wall clock is ~0.49s of sim, against the REPLAY_POST (0.45) the longest
+// shot plays out past the hit. A shot asking for more than was recorded is cut short, not broken.
+//
+// Not in shot mode — a still has no replay to show — and not for a bust or a timeout: nothing
+// happened fast enough in either to be worth seeing twice.
+const REPLAY_LEAD = 1200;
+// The breath between the last frame of the replay and the card sliding in — long enough that the
+// card arrives on the live wreck rather than on the cut, and that a tap which skipped the replay has
+// let go before the card is there to take it as a tap on the tally.
+const REPLAY_TAIL = 350;
+// The same breath when the driver went through the windscreen, held long enough to see them land.
+// The replay hands back ~0.49s of sim past the impact (see REPLAY_LEAD) with the slow-mo already
+// run out, and at the 21 u/s of a boost-cruise T-bone the flight is ~0.93s in the air plus 0.3 to
+// settle flat — 0.74s still to go. Under the card they would land unseen.
+const EJECT_TAIL = 900;
+let replayAt = null;
+// The sim clock the tape is stamped in: the sum of every dilated `dt` the world has been stepped by.
+let simClock = 0;
+// Set by the impact handler so the tape takes a sample on the impact frame itself — see `record`.
+let tapeImpact = false;
 
 // What the two shells keep of the taxi's speed as they slide out of the impact — the drift and the
 // slew in game/wreckage.js, both on util/carry.js's drag.
@@ -1295,7 +1591,7 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck })
   taxiDamage.hit(x, z, { rearEnd });
 });
 
-collisions.onImpact(({ x, z, speed, other }) => {
+collisions.onImpact(({ x, z, speed, closing, other }) => {
   // One detonation per car — a shockwave ring on the tarmac, a fireball and a scatter of shards,
   // all of it inside game/blast.js. It used to be four effects stacked at each point plus a third
   // wave on a setTimeout, tuned as a simulation; the beat reads better as one graphic bang per
@@ -1361,7 +1657,15 @@ collisions.onImpact(({ x, z, speed, other }) => {
     // opening apart — the pair reads as one impact from either side of it.
     lean: -struckSide,
   });
+  // A hard enough hit throws the driver out through the windscreen, away from the struck car's
+  // side so they do not land in its fireball. Off the closing speed rather than the taxi's own, so
+  // a T-bone or a head-on does it and rear-ending traffic going the same way does not.
+  if (closing >= EJECT_CLOSING) {
+    ejection.fire({ x: traffic.taxi.x, z: traffic.taxi.z, yaw, closing, side: struckSide });
+  }
   wreckage.take(traffic.wreckShell(other), {
+    // A copy made on this frame: before it, the car was an instance the replay draws instead.
+    hideBefore: true,
     driftX: fx * carry * SHELL_CARRY * STRUCK_SHOVE,
     driftZ: fz * carry * SHELL_CARRY * STRUCK_SHOVE,
     spin: struckSide * STRUCK_SPIN,
@@ -1373,7 +1677,15 @@ collisions.onImpact(({ x, z, speed, other }) => {
 
   endSpot = { x, z };
   endZoom = WRECK_ZOOM;
-  crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
+  if (replay) {
+    replay.arm({ t0: simClock, x, z, yaw });
+    tapeImpact = true;
+    replayAt = performance.now() + REPLAY_LEAD;
+    // Held until the replay hands back, which sets it — see the replay block in `frame()`.
+    crashBannerAt = Infinity;
+  } else {
+    crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
+  }
   slowMoUntil = performance.now() + SLOW_MO_DURATION;
   slowMoMin = SLOW_MO_MIN;
   boost.release();
@@ -1429,6 +1741,12 @@ function bustByPolice(ram) {
 // falls straight out of the frustum height.
 const boost = createBoost();
 const skids = createSkidMarks(scene);
+// The squall's tyre tracks: the rubber's streak machinery, repainted per stamp (`wetTyres` below).
+// A bigger pool than the rubber's because it is laid on every straight, not only in a slide: two
+// stamps per TRACK_STEP at the 34 u/s Loco top is ~162 a second, ~450 alive across a 2.8s life.
+const wetTracks = createSkidMarks(scene, {
+  tint: paletteColor('wetTrack'), max: 512, life: 2.8, alpha: 0.5, width: 0.55,
+});
 
 // Lane-width, so it is sized in world units and needs no pixel factor: it is paint on the road
 // rather than an overlay drawn at a constant screen weight.
@@ -1972,7 +2290,10 @@ const robberyGlow = createRobberyGlow({ viewport });
 // It runs on every new game, not just the first: the opening is short, it holds the clocks while it
 // talks, and it costs nothing to sit through. Remembering it across loads was tried (a
 // `localStorage` flag) and taken back out — see docs/gameplay.md.
-const wantsTutorial = new URLSearchParams(window.location.search).get('tutorial') !== 'off';
+// Debug mode skips it too — see `debugMode`. Not by writing the title screen's tips setting, which
+// is the player's and would stay off after the debug session ended.
+const wantsTutorial = !debugMode
+  && new URLSearchParams(window.location.search).get('tutorial') !== 'off';
 // The same escape hatch for the beat before it — see the opening vignette at the bottom of this
 // file, and `?vignette=off` there for why it is a *settle* rather than a skip.
 const wantsVignette = new URLSearchParams(window.location.search).get('vignette') !== 'off';
@@ -1987,6 +2308,12 @@ const wipe = shot ? null : createWipe(document.getElementById('wipe'));
 // everything on frame one.
 const revealPedals = () => document.body.classList.add('pedals-ready');
 const revealHud = () => document.body.classList.add('hud-ready');
+let hudAway = false;
+const setHudAway = (away) => {
+  if (away === hudAway) return;
+  hudAway = away;
+  document.body.classList.toggle('hud-away', away);
+};
 
 // Set on the first successful press of Loco Mode, and never cleared. The tutorial's third beat
 // reads it to pick which line it says — a player who has jabbed the pill is told to hold it down
@@ -2046,7 +2373,7 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // ...and the wipe holds it across a *skipped* vignette, which is the one case where the sequence
   // stops running while the player still cannot see anything: the hold has to last until the black
   // starts lifting rather than until the vignette ends.
-  isBlocked: () => Boolean(homeTip?.state.holding) || cityEntry.running()
+  isBlocked: () => parked() || cityEntry.running()
     || Boolean(opening?.running()) || Boolean(wipe?.covering()),
   // The same guard the picker uses: the click a mouse synthesises at the end of a drag must not
   // count as an answer to the bubble the player was dragging past.
@@ -2067,6 +2394,8 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
 // are simply there from the first frame. The two pedals are the exception and come in earlier —
 // see `pedalsDue` in the frame loop.
 if (!tutorial) revealHud();
+// Debug mode holds the fare clocks for the whole session — see `debugMode`.
+if (debugMode) holdFareClocks();
 
 // --- HUD --------------------------------------------------------------------
 
@@ -2370,7 +2699,8 @@ function updateHud(dt) {
       // during that hold would be sitting in storage before the player had been told the run was
       // over.
       scores: collectScores(),
-      onRetry: () => location.reload(),
+      // "Play again" means the run, not the menu: the reload goes straight past the title screen.
+      onRetry: () => { skipTitleNextLoad(); location.reload(); },
     });
     document.body.classList.add('game-over');
   }
@@ -2388,7 +2718,7 @@ viewport.onChange((w, h) => {
 // --- Crazy taxi button ------------------------------------------------------
 
 const boostButton = document.getElementById('boost');
-// The same fuel, read out on a gauge arc over the gas pedal (see #boost-meter in index.html). It
+// The same fuel, read out on a gauge arc over the gas button (see #boost-meter in index.html). It
 // takes the pedal's classes and variables verbatim, so the two can never disagree about the tank.
 const boostMeterEl = document.getElementById('boost-meter');
 
@@ -2399,12 +2729,13 @@ const boostMeterEl = document.getElementById('boost-meter');
 // fuel level and paints what comes back onto three CSS variables.
 const boostMeter = createBoostMeter();
 
-// The gauge is a tapered band, so it is geometry rather than a stroke (game/fuelarc.js): the track
+// The gauge is a filled band, so it is geometry rather than a stroke (game/fuelarc.js): the track
 // is drawn once and the fuel re-outlined whenever the level moves by more than a hair — a pour or a
 // burn changes it every frame, a parked tank not at all.
 const fuelTrack = boostMeterEl?.querySelector('.boost-track');
 const fuelFill = boostMeterEl?.querySelector('.boost-fill');
 const fuelEdge = boostMeterEl?.querySelector('.boost-edge');
+const fuelGlint = boostMeterEl?.querySelector('.boost-glint');
 fuelTrack?.setAttribute('d', fuelBandPath(0, 1, FUEL_RIM));
 let fuelDrawn = -1;
 function drawFuelArc(level) {
@@ -2416,6 +2747,14 @@ function drawFuelArc(level) {
   fuelEdge.setAttribute('cy', front.y.toFixed(2));
   // Twice the band's half-width: the gradient's solid core is the band, the rest is its halo.
   fuelEdge.setAttribute('r', front.w.toFixed(2));
+  // The glint across the front. Off on an empty tank, where there is no front to mark — a white
+  // tick sitting on the bare track at the empty end would read as fuel.
+  if (fuelGlint) {
+    // An attribute rather than `.hidden`, which is an HTMLElement property and a no-op on SVG.
+    fuelGlint.toggleAttribute('hidden', level < 0.01);
+    const g = fuelGlintAt(level);
+    for (const k of ['x1', 'y1', 'x2', 'y2']) fuelGlint.setAttribute(k, g[k].toFixed(2));
+  }
 }
 
 function updateBoostButton(dt) {
@@ -2595,6 +2934,13 @@ function holdBrake() {
   // Only when there is speed to shed — the pedal's detent is the haptic's job, and a brake noise
   // from a car at a standstill is a car that is not doing what the sound says. From above cruise
   // it is the Loco stop; from cruise it is the ordinary one.
+  // The bootleg: two taps in Loco Mode. Read before the pill is released below, which is the first
+  // tap's own doing — its one-second tail still counts (game/bootleg.js).
+  if (bootleg.brakeTap({ engaged: boost.isEngaged() })) {
+    boost.release();
+    brakeButton?.classList.add('is-on');
+    return true;
+  }
   if (traffic.taxi.v > SPEED * 1.1) sfx?.play('locoBrake');
   else if (traffic.taxi.v > BRAKE_SKID_V) sfx?.play('brake');
   // Gas and brake are one pedal each and the last one pressed wins. Releasing Loco Mode here rather
@@ -2817,7 +3163,7 @@ window.addEventListener('keydown', (event) => {
   // The "Add to Home Screen" screen sits above the run and holds it, and dismisses itself on Space.
   // Same guard the tutorial uses (`isBlocked`): the press that clears that screen must not also
   // spend fuel on a taxi that is parked behind it.
-  if (homeTip?.state.holding) return;
+  if (parked()) return;
   // The robber's line takes Space as its own answer (game/robberline.js). Registered after this
   // one, so this has to stand down for it rather than the other way round.
   if (robberLine?.isOpen()) return;
@@ -2850,7 +3196,7 @@ window.addEventListener('keydown', (event) => {
   if (event.code !== 'KeyB' || event.repeat) return;
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   if (keyIsSpokenFor(event.target, brakeButton)) return;
-  if (homeTip?.state.holding || pause?.state.paused || robberLine?.isOpen()) return;
+  if (parked() || pause?.state.paused || robberLine?.isOpen()) return;
   event.preventDefault();
   brakeKeyHeld = true;
   holdBrake();
@@ -2955,7 +3301,8 @@ function layRubber(dt) {
   // see stampAllRubber. It needs no `boost` term: the pedal is the whole input, and a screech from
   // cruise is as much a skid as one from the overdrive top, just a shorter one (1.0 unit of rubber
   // against 16.5 — see HARD_BRAKE in sim/traffic.js).
-  const skidding = car.braking && car.v > BRAKE_SKID_V;
+  // And the bootleg (game/bootleg.js), which is a skid from start to finish.
+  const skidding = (car.braking && car.v > BRAKE_SKID_V) || car.uturn?.kind === 'spin';
 
   // The screech, once per slide rather than per stamp: on the frame a corner or a lane swap starts
   // breaking traction. Not the launch or the brake, which each already have a sound of their own.
@@ -2983,12 +3330,90 @@ function layRubber(dt) {
 // of 2 × 0.83 — so what the wide shot keeps is a wider wake, and what the close shot gains is a
 // pair of sources. Same puff either side: this is the one effect duplicated, not a new one.
 let lastDustAt = 0;
+
+// The tyres on a wet road (`?wet=`, see util/shot.js): water spray off the rear pair, and wet
+// tracks behind them. Both read how wet the ground under the car is — the squall's wet map, or
+// the storm's one city-wide level — and the tracks also carry `tyreWet`, how much water the treads
+// are still holding, so they print a little way out onto dry road past the edge of the cell's trail
+// and fade as the car drives it off.
+const WET_TYRES = getWetTyres();
+const WET_DUST_OFF = 0.25;     // ground this wet throws water rather than dust
+const SPRAY_MIN_V = 3;         // below this a tyre rolls through the water rather than throwing it
+const SPRAY_STEP = 0.55;       // units between stamps; per tyre
+const TRACK_STEP = 0.42;       // the rubber's spacing, so the streaks blend the same way
+const TREAD_DRY = 14;          // units of dry road that take the treads' water down by e
+const TRACK_DARK = paletteColor('wetTrack');
+const TRACK_SHEEN = paletteColor('wetSheen');
+const TRACK_HUE = new THREE.Color();
+let roadWet = 0;
+let tyreWet = 0;
+let lastSprayAt = 0;
+let lastTrackAt = 0;
+let lastTyreAt = 0;
+
+function groundWetAt(x, z) {
+  if (squall) return squall.wetAt(x, z);
+  if (storm) return stormWet;
+  return 0;
+}
+
+function wetTyres() {
+  const car = traffic.taxi;
+  roadWet = groundWetAt(car.x, car.z);
+  const moved = car.travelled - lastTyreAt;
+  lastTyreAt = car.travelled;
+  // Soaked straight up off a wet road, wrung out over distance on a dry one.
+  tyreWet = roadWet >= tyreWet ? roadWet : tyreWet * Math.exp(-Math.max(0, moved) / TREAD_DRY);
+
+  const fx = Math.cos(car.yaw), fz = -Math.sin(car.yaw);
+  const rx = Math.sin(car.yaw), rz = Math.cos(car.yaw);
+  const y = deckHeightAt(car.x, car.z).y;
+
+  if (WET_TYRES.spray && roadWet > 0.15 && car.v > SPRAY_MIN_V) {
+    if (car.travelled - lastSprayAt >= SPRAY_STEP) {
+      lastSprayAt = car.travelled;
+      // Speed against the cruise-to-overdrive range, times how much water there is to throw.
+      const pace = THREE.MathUtils.clamp((car.v - SPRAY_MIN_V) / 14, 0, 1);
+      const amount = Math.min(1, roadWet * 1.25) * (0.25 + 0.75 * pace) * (car.boost ? 1.25 : 1);
+      for (const side of [-1, 1]) {
+        spray.add(
+          car.x - fx * TAXI_REAR_AXLE_BACK + rx * side * TAXI_REAR_TRACK,
+          car.z - fz * TAXI_REAR_AXLE_BACK + rz * side * TAXI_REAR_TRACK,
+          car.yaw, car.v, Math.min(1, amount), side, 0.25 + y,
+        );
+      }
+    }
+  } else {
+    lastSprayAt = car.travelled;
+  }
+
+  if (WET_TYRES.tracks && tyreWet > 0.08 && car.v > 0.5) {
+    if (car.travelled - lastTrackAt >= TRACK_STEP) {
+      lastTrackAt = car.travelled;
+      const strength = Math.min(1, tyreWet * 1.4);
+      // Sheen on wet road, a dark print on dry: blended across the trail's own edge.
+      const hue = TRACK_HUE.copy(TRACK_DARK).lerp(TRACK_SHEEN, THREE.MathUtils.smoothstep(roadWet, 0.1, 0.45));
+      for (const side of [-1, 1]) {
+        wetTracks.add(
+          car.x - fx * TAXI_REAR_AXLE_BACK + rx * side * TAXI_REAR_TRACK,
+          car.z - fz * TAXI_REAR_AXLE_BACK + rz * side * TAXI_REAR_TRACK,
+          car.yaw, strength, hue,
+        );
+      }
+    }
+  } else {
+    lastTrackAt = car.travelled;
+  }
+}
+
 function kickDust() {
   const car = traffic.taxi;
   // The brake joins the boost here for the same reason it lays rubber: the point of both effects is
   // that traction has broken, and a locked wheel throws exactly as much off the road as a spinning
   // one does. It stops on its own the moment the car does — this is paced by distance travelled.
-  if ((!car.boost && !car.braking) || car.v < 2) { lastDustAt = car.travelled; return; }
+  // A wet road throws water, not dust — `wetTyres` has the tyres while the ground under them is wet.
+  const wetOut = (WET_TYRES.spray || WET_TYRES.tracks) && roadWet > WET_DUST_OFF;
+  if ((!car.boost && !car.braking) || car.v < 2 || wetOut) { lastDustAt = car.travelled; return; }
   if (car.travelled - lastDustAt < 0.47) return;
   lastDustAt = car.travelled;
   const fx = Math.cos(car.yaw);
@@ -3081,6 +3506,53 @@ const homeTip = shot ? null : createHomeScreenTip(document.getElementById('home-
   force: new URLSearchParams(window.location.search).has('hometip'),
 });
 
+// The title screen: Play, Settings, Credits, over the live city — see game/titlescreen.js. It parks
+// the run on the same terms the Home Screen tip does (`parked()` below), and Play is what lets the
+// run begin. Not in shot mode, not on `?title=off` (the escape hatch `?vignette=off` is, for anyone
+// iterating on the run itself), and not on the reload "Play again" does — that player has already
+// pressed Play once.
+const TITLE_SKIP_KEY = 'simTaxi.skipTitle';
+function skipTitleNextLoad() {
+  try { window.sessionStorage.setItem(TITLE_SKIP_KEY, '1'); } catch { /* soft: they see the menu */ }
+}
+function consumeTitleSkip() {
+  try {
+    const skip = window.sessionStorage.getItem(TITLE_SKIP_KEY) === '1';
+    window.sessionStorage.removeItem(TITLE_SKIP_KEY);
+    return skip;
+  } catch { return false; }
+}
+const wantsTitle = !shot && !consumeTitleSkip()
+  && new URLSearchParams(window.location.search).get('title') !== 'off';
+const title = wantsTitle ? createTitleScreen(document.getElementById('title-screen'), {
+  sound: soundSwitch,
+  settings,
+  onPlay: beginRun,
+}) : null;
+// The camera cuts onto the drift on the first frame the title holds, rather than easing to it from
+// wherever boot left it — the menu's first frame is the first frame anyone sees.
+let titleFramed = false;
+
+/** Is the run parked behind a screen that has to be answered first? */
+function parked() {
+  return Boolean(homeTip?.state.holding) || Boolean(title?.holding());
+}
+
+/**
+ * The run starting: Play on the title screen, or boot itself when there is no title screen. The
+ * one thing decided here rather than at boot is the tips — they are a setting the player can flip
+ * on the title screen moments before pressing Play.
+ */
+function beginRun() {
+  if (!settings.get().tips && tutorial) {
+    tutorial = null;
+    tutorialTalking = false;
+    holdFareClocks();
+    revealHud();
+  }
+}
+if (!title) beginRun();
+
 // While that screen is up the run is parked: no fare spawns, and no clock drains. The traffic keeps
 // driving behind the black — the screen sinks the city rather than replacing it, so a frozen one
 // would be visible through the gradient — but the *fare loop* has to wait, or a rider appears
@@ -3105,10 +3577,10 @@ const NO_FARE_EVENTS = [];
  * `?vignette=off` would otherwise put the pedals on top of.
  */
 let pedalsShown = false;
-const pedalsDue = () => !cityEntry.running() && !homeTip?.state.holding && !wipe?.covering()
+const pedalsDue = () => !cityEntry.running() && !parked() && !wipe?.covering()
   && !(opening?.running() && opening.phase() !== 'release');
 
-const fareLoopHeld = () => Boolean(homeTip?.state.holding) || Boolean(opening?.running())
+const fareLoopHeld = () => parked() || Boolean(opening?.running())
   || Boolean(wipe?.covering());
 
 // The ⏸ at the top of the HUD. Unlike the two holds above it this one stops the *whole* frame (see
@@ -3120,7 +3592,11 @@ const pause = shot ? null : createPause({
   veil: document.getElementById('pause-veil'),
   // Nothing left to hold once the run is over — and the retry screen owns the whole display then.
   // Never asked on the way out: a pause can always be lifted.
-  canPause: () => !fares.state.gameOver,
+  canPause: () => !fares.state.gameOver && !title?.holding(),
+  sound: soundSwitch,
+  settings,
+  // Quit abandons the run: a reload without the "Play again" skip flag lands back on the title.
+  onQuit: () => location.reload(),
   onChange: (paused) => {
     // A pause with the gas still down would resume into a boost the player is no longer holding —
     // the pill's own pointer never comes back up, because the veil took the release. Same reason
@@ -3128,7 +3604,7 @@ const pause = shot ? null : createPause({
     // release too, and resuming onto a pedal nobody is holding is the same bug wearing red.
     // `dropPedalGesture` covers a thumb that was on the row when the veil went up; the two explicit
     // releases beside it are for the keyboard's holds, which it knows nothing about.
-    if (paused) { boost.release(); releaseBrake(); dropPedalGesture(); }
+    if (paused) { boost.release(); releaseBrake(); dropPedalGesture(); bootleg.reset(); }
   },
 });
 
@@ -3178,10 +3654,29 @@ function frame() {
   // Held before the crash dilation below: the diagnostics panel's fps is a question about the
   // device, and a slow-motion wreck would otherwise read as one running at a third of its rate.
   const wallDt = dt;
+
+  // The crash replay holds the frame outright. Nothing in the world is stepped while it runs —
+  // the tape is drawing it — so the whole update block below is skipped, exactly as it is for a
+  // pause. The slow-mo ramp keeps running out on its wall clock underneath, so the world the replay
+  // hands back to is already at full speed behind the card.
+  if (replayAt !== null && nowMs >= replayAt) {
+    replayAt = null;
+    // A tape too short to reach back before the impact (a wreck in the first moments of a run)
+    // has nothing to replay, and the card comes up on the old hold instead.
+    if (!replay.start()) crashBannerAt = nowMs + CRASH_BANNER_DELAY - REPLAY_LEAD;
+  }
+  if (replay?.active()) {
+    replay.update(wallDt);
+    if (!replay.active()) crashBannerAt = nowMs + (ejection.active() ? EJECT_TAIL : REPLAY_TAIL);
+    renderFrame();
+    return;
+  }
+
   if (nowMs < slowMoUntil) {
     const t = 1 - (slowMoUntil - nowMs) / SLOW_MO_DURATION;
     dt *= slowMoMin + (1 - slowMoMin) * t;
   }
+  simClock += dt;
 
   // A taxi at a pickup window cannot move, and a pill leaned on there would pour the whole tank
   // into a parked car — fifteen seconds of it, if the queue in front is two cars deep. Released
@@ -3212,10 +3707,12 @@ function frame() {
     // pointer that never came back up — a run ending under the player's thumb takes the button off
     // the screen (`body.game-over #brake`), and a `pointerup` on a removed element is not something
     // to rely on. Same self-healing shape as the two flags above it.
-    traffic.taxi.braking = brakeHeld && !fares.state.gameOver;
+    // Through the bootleg, which holds the brake off from a spin until the pedal comes back up.
+    traffic.taxi.braking = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
   }
   updateBoostButton(dt);
   skids.update(dt);
+  wetTracks.update(dt);
   // Before the dust pool ticks, so a building's ground-burst is at age zero on the frame it fires.
   // The "Add to Home Screen" screen (iOS in a tab) *skips* the entrance outright rather than
   // holding it: the overlay shows the city sunk into black, and a city that hasn't built yet is a
@@ -3223,29 +3720,37 @@ function frame() {
   // for later. `holding` is true from the module's creation (see game/homescreen.js), so the
   // settle lands before the first frame ever draws an empty block. Everyone else — desktop, and
   // installed standalone iOS — never constructs the tip and keeps the animation.
-  if (homeTip?.state.holding) {
+  // The title screen settles it for the same reason and one more: the menu is meant to sit over a
+  // finished city with its traffic running, not over the city building itself.
+  if (parked()) {
     if (cityEntry.running()) cityEntry.settle();
   } else {
     cityEntry.update(dt);
   }
   dust.update(dt);
+  spray.update(dt);
   blast.update(dt);
   flames.update(dt);
   sparks.update(dt);
   repairFx?.update(dt);
   wreckage.update(dt);
+  ejection.update(dt);
   flyover.update(dt);
   chopper.update(dt);
   clouds.update(dt);
+  rain.update(dt, camera);
+  applyWeather(dt);
+  if (taxiHeadlights) taxiHeadlights.group.visible = !traffic.taxi.crashed;
   // Handed last frame's taxi position, which is all a startle needs — it is a distance test with
   // eight units of slack, and running it here rather than after `traffic.update` keeps the whole
   // scenery block in one place.
   for (const flock of flocks) flock.update(dt, traffic.taxi);
   ducks.update(dt);
+  hoopers.update(dt);
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
   burger?.update(dt, SIGN_SPIN);
-  // And the dish on the depot's roof, on the same terms — see DISH_SPIN in city/garage.js.
+  // And the wrench on the depot's roof, on the same terms — see WRENCH_SPIN in city/garage.js.
   garage?.update(dt);
   controller.updateShake(dt, aspect());
   daylight.update(dt);
@@ -3268,6 +3773,11 @@ function frame() {
   // The counters can wait for the lesson; a control cannot, because it is the thing the lesson is
   // standing in front of. A press during the rider beat ends it, by design (`holdLocoMode`).
   if (!pedalsShown && pedalsDue()) { pedalsShown = true; revealPedals(); }
+  // ...and the HUD steps off its edges whenever the taxi is in the garage: the opening before the
+  // car is out of the door, and a repair visit from the turn-in until it is back on the lane. The
+  // same `release` the pedals wait on, so a run's first arrival and every return from the depot
+  // are one beat. See the HUD exit block in index.html.
+  setHudAway(!pedalsDue() || Boolean(opening?.visiting() && opening.phase() !== 'release'));
   // ...and the drive-through is the same claim about somebody else's car: while one is in the lot
   // this is its physics, so it has to have written the position before the render pass reads it.
   driveThru?.update(dt);
@@ -3288,6 +3798,18 @@ function frame() {
     traffic.taxi.z = ramShove.z + ramShove.vz * k;
   }
   traffic.update(dt);
+  // A pass carried the taxi straight through a junction its route wanted to turn at, and the sim
+  // dropped the route there (`detoured` in traffic.js). Re-plan from the far side, through the
+  // same owner a dragged band goes through: a burger run or a depot run knows which way it has to
+  // arrive and the plain `routeTo` does not.
+  if (traffic.taxi.detoured) {
+    traffic.taxi.detoured = false;
+    if (traffic.taxi.pendingTarget) {
+      if (burgerRun?.active()) burgerRun.reroute(null);
+      else if (depotRun?.active()) depotRun.reroute(null);
+      else routeTo(traffic.taxi.pendingTarget);
+    }
+  }
   sfx?.update(dt, traffic.taxi, {
     cruise: SPEED,
     top: boostCruise(),
@@ -3372,8 +3894,13 @@ function frame() {
   // else can be claiming the framing three seconds into a run anyway. It hands back by letting
   // `holdsCamera` go false with the camera already sitting on `restFraming()` below, so there is
   // no gap for the follow-cam to snap across.
+  // The title screen's drift sits above even the vignette, which is held behind it anyway.
   const boosting = boost.isActive();
-  if (opening?.holdsCamera()) {
+  if (title?.holding()) {
+    const p = title.pan(dt);
+    if (titleFramed) controller.focusOn(p.x, p.z, p.zoom, dt, aspect(), 0.8);
+    else { controller.cutTo(p.x, p.z, p.zoom, 0, aspect()); titleFramed = true; }
+  } else if (opening?.holdsCamera()) {
     opening.frameCamera(dt);
   } else if (endSpot) {
     controller.focusOn(endSpot.x, endSpot.z, endZoom, dt, aspect());
@@ -3670,6 +4197,7 @@ function frame() {
   }
 
   layRubber(dt);
+  wetTyres(dt);
   kickDust();
   // Down here with the rubber and the dust rather than up with `flames.update`, and for the same
   // reason both of those are: it is pinned to the car's position this frame, not emitted and left
@@ -3714,6 +4242,10 @@ function frame() {
   // Three assignments: an instanced hull draws `count` instances and nothing watches that for it,
   // while traffic moves it when a truck spawns and when the panel's car slider is dragged.
   cartoon.update();
+  // Last thing before the frame is drawn, so the sample is the frame the player sees. Stops once a
+  // run is over and no replay is coming — a bust or a timeout has nothing to show.
+  if (tape && (!fares.state.gameOver || replay.armed())) tape.record(simClock, tapeImpact);
+  tapeImpact = false;
   renderFrame();
   // After the render, not before: `renderer.info` resets itself at the top of every `render()`,
   // so this is the frame that just went to the screen rather than the one before it.
@@ -3724,7 +4256,9 @@ function frame() {
 // there — most players never open it anyway, so it's opt-in now: `?debug` or `?settings` in the
 // URL, either present with no value needed.
 const debugParams = new URLSearchParams(window.location.search);
-const wantsDebugPanel = debugParams.has('debug') || debugParams.has('settings');
+// `?audio` was the sound designer's own panel; it is the Audio sections of this one now, and the
+// flag still opens it.
+const wantsDebugPanel = debugMode;
 // Freeze-and-zoom for tuning things that are a few pixels across at play zoom — see
 // game/inspect.js. `I` toggles it; the debug panel has the buttons.
 const inspect = !shot && wantsDebugPanel ? createInspect({
@@ -3744,9 +4278,6 @@ const inspect = !shot && wantsDebugPanel ? createInspect({
   // pedal nobody is holding.
   onChange: (on) => { if (on) { boost.release(); releaseBrake(); dropPedalGesture(); } },
 }) : null;
-// The sound designer's panel is its own flag, so it comes up without the rest — see
-// game/audiopanel.js. `?debug&audio` shows both.
-const wantsAudioPanel = debugParams.has('audio');
 // `?finishes` opens on the car finishes' false-colour view (util/geo.js) — the same switch as the
 // panel's "Show finishes", reachable from a screenshot URL, which has no panel.
 if (debugParams.has('finishes')) setGlossGlobal('showFinishes', true);
@@ -3901,6 +4432,7 @@ if (shot) {
     for (let step = 0; step < Math.round(shot.wreckAt * 60); step++) {
       blast.update(1 / 60);
       wreckage.update(1 / 60);
+      ejection.update(1 / 60);
       // The smoke collar is part of the wreck now, and it lives in the dust pool rather than in
       // blast.js — left out of this loop, `?shot=12` would freeze a crash with its smoke still
       // stacked on the impact point at zero age.
@@ -3958,6 +4490,12 @@ if (shot) {
   // anything if both are pointed at the same water.
   if (shot.atPond && ducks.pond) {
     controller.state.target.set(ducks.pond.x, 0, ducks.pond.z);
+    controller.update(aspect());
+  }
+
+  // The basketball court, on the same terms as the pond: one flag for the close and the far frame.
+  if (shot.atCourt && hoopers.court) {
+    controller.state.target.set(hoopers.court.x, 0, hoopers.court.z);
     controller.update(aspect());
   }
 
@@ -4218,7 +4756,7 @@ if (shot) {
         : { x: 0, z: 0 }),
       // The city's own entrance goes first. Both are held behind the Home Screen tip on iOS in a
       // tab, which parks the whole run until it is dismissed.
-      isBlocked: () => Boolean(homeTip?.state.holding) || cityEntry.running(),
+      isBlocked: () => parked() || cityEntry.running(),
       // Off the kerb. The same pool and the same call the boost trail uses, at about half a
       // barricade's power — two wheels coming off a 0.35-unit lip, not a car landing off a ramp.
       onDrop: () => dust.burst(traffic.taxi.x, traffic.taxi.z, traffic.taxi.yaw, 7, 0.5),
@@ -4310,13 +4848,15 @@ if (!shot && wantsDebugPanel) {
     loco,
     /** True when the sliders opened on a tuning restored from a previous session. */
     locoRestored: Boolean(stashedLoco),
+    sfx,
   });
 }
 
-if (sfx && wantsAudioPanel) createAudioPanel({ sfx });
-
 window.__taxi = {
   traffic,
+  // The crash replay and its recording — see game/replay.js.
+  replay,
+  tape,
   daylight,
   boost,
   // The bump's starburst, so a check can fire one where it can see it — see game/impact.js.
@@ -4337,6 +4877,12 @@ window.__taxi = {
    */
   crayon,
   cartoon,
+  /** Rain Mode's handles — uniforms and the mirror target. Inert unless `?rain`. */
+  rain,
+  /** The storm's clock — `pin(v)`, `seek(t)` and its `state`. Null unless `?storm` or `?rain`. */
+  storm,
+  /** The squall — its `cell`, `state`, `pin(v)`, `seek(t)`, `wetAt`, `rainAt`. Null unless `?squall`. */
+  squall,
   /**
    * The two bloom routes — `{ state, set }` each, the same handles the ⚙️ panel drives, plus
    * `target()` on the emissive one so a browser test can look at what the lamps actually wrote.
@@ -4349,9 +4895,14 @@ window.__taxi = {
   radio,
   carGhosts,
   skids,
+  // The wet tyres — spray and tracks, `?wet=` (see `wetTyres`).
+  spray,
+  wetTracks,
   police,
   /** The patrol cruiser's life — patrol, chase, leave. See game/patrol.js. */
   patrol,
+  /** The brake-tap spin (game/bootleg.js) — `spin()` fires one, `state` tallies them. */
+  bootleg,
   fares,
   /** The package courier, or null under `?parcels=0` and in shot mode. See game/parcels.js. */
   parcels,
@@ -4380,6 +4931,14 @@ window.__taxi = {
    */
   garage,
   opening: () => opening,
+  /**
+   * The title screen (null in shot mode, on `?title=off`, and after "Play again"), and the
+   * settings it writes. `title.holding()` is the run's gate; `tutorial()` is live rather than the
+   * snapshot `tutorial` above, because Play with the tips off is what drops it.
+   */
+  title,
+  settings,
+  tutorialNow: () => tutorial,
   /**
    * The burger joint and its drive-through, or null on a city with nowhere to put one.
    * `burger.site` is every number the lane is built from and `driveThru.state.queue` is who is
@@ -4413,6 +4972,8 @@ window.__taxi = {
   flocks,
   /** The birds on the park pond, and `ducks.pond` the water they are on — null if the city has none. */
   ducks,
+  /** The players on the basketball court, and `hoopers.court` the court — absent if the city has none. */
+  hoopers,
   roadwork,
   /** The truck that sheds crates. `flatbed.stage()` starts it now; `state`, `crates`, `loose()`. */
   flatbed,

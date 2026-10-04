@@ -246,6 +246,92 @@ setShadowTint();
 let aoEnabled = false;
 let crayonEnabled = false;
 let cartoonEnabled = false;
+let cloudsEnabled = false;
+
+/**
+ * Cloud shadows — the storm's (game/rain.js). A moving field of cloud dims the **sun's direct light
+ * only**, so where it is covered a surface is lit by the sky alone and where there is a gap the sun
+ * breaks through in a patch that drifts across the city with the wind. Applied before the shadow
+ * tint, so a covered patch goes cool the way a real shadow does.
+ *
+ * `uCloudCover` 0 is a clear sky (the field reads 1 everywhere, the frame is unchanged) and 1 is a
+ * lid of cloud with no gaps at all. `uCloudViewInv` is the camera's world matrix, there to turn
+ * `vViewPosition` back into a world position: the rain's mirror pass draws through a *different*
+ * camera, and sets this to that one's for the length of its render.
+ */
+export const CLOUD_UNIFORMS = {
+  uCloudCover: { value: 0 },
+  uCloudFloor: { value: 0.3 },
+  uCloudTime: { value: 0 },
+  uCloudScale: { value: 30 },
+  uCloudDrift: { value: new THREE.Vector2(-0.1, -0.06) },
+  uCloudViewInv: { value: new THREE.Matrix4() },
+  // The squall's rain cell (game/squall.js): x, z, core radius, and 1 while it is on. Its own clock,
+  // because the footprint has to agree with the CPU copy in `cellMask` that the grip and the
+  // headlights read.
+  uCell: { value: new THREE.Vector4(0, 0, 30, 0) },
+  uCellEdge: { value: 14 },
+  uCellTime: { value: 0 },
+};
+
+/**
+ * The field itself, shared with anything that has to agree with it — the sun shafts in
+ * game/rain.js stand exactly where this says there is a gap. Two octaves of value noise: the first
+ * drifts with the wind (`uCloudDrift`, in noise units a second), the second creeps across it more
+ * slowly so the gaps open and close rather than only sliding. Returns 1 for sun, 0 for cloud.
+ */
+export const CLOUD_GLSL = /* glsl */ `
+float cloudHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float cloudNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(cloudHash(i), cloudHash(i + vec2(1.0, 0.0)), f.x),
+             mix(cloudHash(i + vec2(0.0, 1.0)), cloudHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+// How far into the squall's rain cell a point is — 1 at its core, 0 outside it, ragged at the edge.
+// The same footprint as cellMask in game/squall.js; keep the two in step.
+float cellCore(vec2 xz, vec4 cell, float edge, float t) {
+  if (cell.w < 0.5) return 0.0;
+  float d = length(xz - cell.xy);
+  float r = cell.z * (0.82 + 0.36 * cloudNoise(vec2(xz.x / 16.0 + t * 0.04, xz.y / 16.0 - t * 0.03)));
+  return 1.0 - smoothstep(r, r + edge, d);
+}
+float cloudSun(vec2 xz, float t, float cover, float scale, vec2 drift) {
+  vec2 p = xz / scale + drift * t;
+  float f = 0.68 * cloudNoise(p) + 0.32 * cloudNoise(p * 2.3 + vec2(t * 0.021, -t * 0.017));
+  // Stretched about its middle: two octaves of value noise bunch tightly around 0.5, and unstretched
+  // a cover of 0.56 left about a tenth of the city in sun rather than the third it reads as.
+  f = 0.5 + (f - 0.5) * 2.0;
+  // ...which also spreads it past 0..1, so the threshold has to span the stretched range for a cover
+  // of 0 to be a clear sky and 1 a closed one.
+  float edge = mix(-0.65, 1.65, cover);
+  return smoothstep(edge - 0.07, edge + 0.07, f);
+}
+`;
+
+const CLOUD_LIGHT = /* glsl */ `
+	{
+		vec3 cWorld = (uCloudViewInv * vec4(-vViewPosition, 1.0)).xyz;
+		float cSun = cloudSun(cWorld.xz, uCloudTime, uCloudCover, uCloudScale, uCloudDrift);
+		reflectedLight.directDiffuse *= mix(uCloudFloor, 1.0, cSun);
+		// Under the squall's cell: the sun all but gone and the sky dimmer too, so the cell reads as
+		// a dark patch of weather moving over a sunny city. Reaches a little past the rain itself —
+		// the cloud is wider than what falls out of it.
+		float cCell = cellCore(cWorld.xz, uCell, uCellEdge * 1.6, uCellTime);
+		reflectedLight.directDiffuse *= 1.0 - 0.88 * cCell;
+		reflectedLight.indirectDiffuse *= 1.0 - 0.3 * cCell;
+	}
+`;
+
+/**
+ * Switch cloud shadows on for every `propMaterial()` built after this call — `?storm`/`?rain`,
+ * decided in `main.js` beside the look modes and for the same reason: it is compiled in, so a city
+ * without weather carries none of it.
+ */
+export function setCloudShadows(enabled) {
+  cloudsEnabled = enabled;
+}
 
 /**
  * Switch screen-space ambient occlusion on for every `propMaterial()` built after this call.
@@ -639,6 +725,17 @@ const GLOSS_VERTEX = /* glsl */ `
 	}
 `;
 
+// Three's own colour chunk, with the instance tint kept off metal. The fleet is one InstancedMesh
+// painted per car through `instanceColor`, which multiplies every vertex — so a chrome bumper
+// (geometry/bumpers.js) came out red on a red car, and the hubcaps had always been steel dipped in
+// the car's paint. Metal is the one finish that is never paint. `> 2.5` rather than `== 3.0` for
+// the same rounding reason GLOSS_COLOR uses `int(x + 0.5)`; METAL is the highest finish there is.
+const GLOSS_COLOR_VERTEX = THREE.ShaderChunk.color_vertex.replace(
+  'vColor.xyz *= instanceColor.xyz;',
+  'vColor.xyz *= aFinish > 2.5 ? vec3(1.0) : instanceColor.xyz;',
+);
+if (GLOSS_COLOR_VERTEX === THREE.ShaderChunk.color_vertex) throw new Error('gloss: color_vertex hook missed');
+
 // Read the finish's numbers once, at the top, and darken the base colour by its `diffuse` before
 // any light touches it. `int(x + 0.5)` because a varying that is 2.0 at every vertex can still
 // arrive as 1.9999 — the triangle never mixes finishes, but interpolation does not know that.
@@ -690,7 +787,9 @@ const GLOSS_SPECULAR_TO = /* glsl */ `{
 // so the ray is folded back up off the road: a side panel then sees the street wall opposite,
 // which is what a viewer expects a car to be reflecting. A roof sees what is up-screen of it.
 //
-// Paint's share is scaled per material by `uGloss` (the taxi a touch more, a cargo box less).
+// Paint's share is scaled per material by `uGloss` (the taxi a touch more, a cargo box less), and
+// every other finish's by `uGlossMirror` — 1 on every vehicle, turned down on the depot's wrench,
+// where a thin turning slab bends almost every fragment to a grazing angle and came out sky-blue.
 const GLOSS_FRAGMENT = /* glsl */ `
 	{
 		vec3 gN = inverseTransformDirection(gReflN, viewMatrix);
@@ -700,7 +799,7 @@ const GLOSS_FRAGMENT = /* glsl */ `
 		gR = normalize(gR);
 		vec3 gEnv = mix(uGlossHorizon, uGlossTop, pow(gR.y, 0.6));
 		float gMirror = (gFinB.z + gFinB.w * pow(1.0 - clamp(gReflN.z, 0.0, 1.0), 3.0))
-			* mix(1.0, uGloss, gIsPaint);
+			* mix(uGlossMirror, uGloss, gIsPaint);
 		if (uGlossCityOn > 0.5 && gMirror > 0.0) {
 			float gT = 0.6;
 			for (int k = 0; k < 14; k++) {
@@ -745,18 +844,20 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
   // `?crayon&ao=off` a crayoned material and a bare one would otherwise share a key.
   const useAO = aoEnabled && ao;
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
-    + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? '-gloss' : ''}`;
+    + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? '-gloss' : ''}${cloudsEnabled ? '-clouds' : ''}`;
   material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, AO_UNIFORMS, SHADOW_UNIFORMS);
     if (crayonEnabled) Object.assign(shader.uniforms, CRAYON_UNIFORMS);
     if (cartoonEnabled) Object.assign(shader.uniforms, CARTOON_UNIFORMS);
+    if (cloudsEnabled) Object.assign(shader.uniforms, CLOUD_UNIFORMS);
     if (gloss) {
       // The shared bag plus this body's own shape and paint share, which differ between a car, a
       // truck's cab and the taxi while the source does not — so per material, under one cache key.
       Object.assign(shader.uniforms, GLOSS_UNIFORMS, {
         uGloss: { value: gloss.amount },
+        uGlossMirror: { value: gloss.mirror },
         uGlossCentre: { value: gloss.centre },
         uGlossInvHalf: { value: gloss.invHalf },
       });
@@ -770,7 +871,8 @@ varying vec3 vGlossBulge;
 varying vec3 vGlossObj;
 varying float vGlossFinish;`)
         .replace('#include <project_vertex>', `#include <project_vertex>
-${GLOSS_VERTEX}`);
+${GLOSS_VERTEX}`)
+        .replace('#include <color_vertex>', GLOSS_COLOR_VERTEX);
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>
 uniform sampler2D tGlossCity;
@@ -784,6 +886,7 @@ uniform vec4 uFinishB[4];
 uniform vec4 uFinishC[4];
 uniform vec4 uGlossGlobal;
 uniform float uGloss;
+uniform float uGlossMirror;
 varying vec3 vGlossWorld;
 varying vec3 vGlossBulge;
 varying vec3 vGlossObj;
@@ -805,7 +908,7 @@ ${GLOSS_NORMAL}`)
         .replace('#include <envmap_fragment>', `#include <envmap_fragment>
 ${GLOSS_FRAGMENT}`);
       // Never a blind replace (CLAUDE.md): a hook that matched nothing is a matte car and no error.
-      for (const marker of ['attribute float aFinish', 'vGlossFinish = aFinish']) {
+      for (const marker of ['attribute float aFinish', 'vGlossFinish = aFinish', 'aFinish > 2.5']) {
         if (!shader.vertexShader.includes(marker)) throw new Error(`gloss: vertex hook missed (${marker})`);
       }
       for (const marker of ['uniform float uGloss;', 'gFinA = uFinishA', 'gSpecN = normalize',
@@ -834,7 +937,17 @@ uniform vec3 uToonInkColor;
 uniform float uToonCel;
 uniform float uToonSteps;
 uniform float uToonInk;
-uniform float uToonBite;` : ''}`);
+uniform float uToonBite;` : ''}${cloudsEnabled ? `
+uniform float uCloudCover;
+uniform float uCloudFloor;
+uniform float uCloudTime;
+uniform float uCloudScale;
+uniform vec2 uCloudDrift;
+uniform mat4 uCloudViewInv;
+uniform vec4 uCell;
+uniform float uCellEdge;
+uniform float uCellTime;
+${CLOUD_GLSL}` : ''}`);
 
     if (useAO) {
       // Three's own AO hook is the right seam: `reflectedLight` is complete by then and
@@ -849,6 +962,7 @@ uniform float uToonBite;` : ''}`);
     // the tint reads the banded result.
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+${cloudsEnabled ? CLOUD_LIGHT : ''}
 ${cartoonEnabled ? CARTOON_LIGHT : ''}
 ${SHADOW_LIGHT}`);
 
@@ -927,8 +1041,9 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
  *                        the wheels hanging below it don't pull the crown down toward the road.
  * @param gloss.amount    this material's multiplier on paint's reflection: the taxi a touch more
  *                        than the fleet, a cargo box less.
+ * @param gloss.mirror    the same for every other finish — glass, metal, tyre. 1 on every vehicle.
  */
-function glossShape({ geometry, floor = -Infinity, amount = 1 }) {
+function glossShape({ geometry, floor = -Infinity, amount = 1, mirror = 1 }) {
   if (!geometry.boundingBox) geometry.computeBoundingBox();
   const box = geometry.boundingBox;
   const lo = Math.max(box.min.y, floor);
@@ -939,7 +1054,7 @@ function glossShape({ geometry, floor = -Infinity, amount = 1 }) {
     2 / Math.max(box.max.y - lo, 1e-3),
     2 / Math.max(box.max.z - box.min.z, 1e-3),
   );
-  return { amount, centre, invHalf };
+  return { amount, mirror, centre, invHalf };
 }
 
 /**

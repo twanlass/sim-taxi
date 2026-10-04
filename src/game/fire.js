@@ -42,8 +42,10 @@ import { sirenOn } from '../geometry/lights.js';
 // Scheduling is off the difficulty curve, like the roadworks and the flatbed: it is something to
 // watch, not pressure.
 
-const FIRST_WAIT = [70, 130];   // seconds into the run
-const REPEAT_WAIT = [150, 240]; // ...and between fires after that
+// 70-130 first, and most runs ended without one — the timer only counts while nothing upstages it,
+// and a site has to qualify on top. 35-60 lands one inside an ordinary run.
+const FIRST_WAIT = [35, 60];    // seconds into the run
+const REPEAT_WAIT = [110, 170]; // ...and between fires after that
 const SOON_WAIT = 3;            // ?fire=soon
 const RETRY_WAIT = 4;           // nothing qualified this time — the taxi moves, ask again shortly
 
@@ -57,6 +59,14 @@ const SMOULDER = 3.2;           // steam after the last flame, before the crew p
 const EXIT_REACH = 8;           // how close to its exit corner the engine dissolves
 const LEAVE_MAX = 30;           // ...and the latest it is taken off the road regardless
 const FADE_TIME = 0.8;          // same dissolve as the patrol cruiser (sim/police.js)
+
+// The squall (game/squall.js). A building burning away under a rain cell reads as a mistake, so a
+// fire is not started anywhere the cell is or is about to be — `RAIN_LEAD` covers the flames taking
+// hold and the engine's median 23s drive — and one the cell reaches anyway (it runs late, or the
+// taxi took the fire somewhere the forecast did not cover) is put out by the rain, in steam.
+const RAIN_LEAD = 20;           // seconds of the cell's path a new site has to stay clear of
+const RAIN_CLEAR = 0.02;        // ...as rain at the site, 0..1 — anything past the cell's ragged edge
+const RAIN_DOUSE = 2.5;         // seconds of full rain to put a fire out
 
 // The engine on the way in drives on a share of a chasing cop's kit (`car.chase` in sim/traffic.js):
 // its cruise ceiling lifted by that share of CHASE_SPEED, the car in front pulling out of its way,
@@ -207,7 +217,10 @@ function createPool(scene, rng, { max, geometry, material, renderOrder, gravity 
  *                 robbery); the countdown holds rather than firing the moment it lifts
  * @param soon     `?fire=soon` — first fire a few seconds in, for looking at it
  */
-export function createFire({ rng, scene, blocks, traffic, blocked = () => false, soon = false }) {
+export function createFire({
+  rng, scene, blocks, traffic, blocked = () => false, soon = false,
+  rainAt = () => 0, rainSoon = () => 0,
+}) {
   const taxi = traffic.taxi;
 
   // --- The engine ------------------------------------------------------------
@@ -307,6 +320,9 @@ export function createFire({ rng, scene, blocks, traffic, blocked = () => false,
     fires: 0,
     arrived: 0,
     extinguished: 0,
+    /** Fires the squall put out, and how hard it is raining on this one now. */
+    rainedOut: 0,
+    rained: 0,
     /** Jet motes that reached the building, and the furthest any landed off its facade's plane. */
     landed: 0,
     waterMiss: 0,
@@ -402,7 +418,8 @@ export function createFire({ rng, scene, blocks, traffic, blocked = () => false,
   /** The candidate to burn: in range of the taxi, nearest the ideal distance, a little shuffled. */
   function chooseSite() {
     const all = candidates().map((c) => ({ c, d: Math.hypot(c.x - taxi.x, c.z - taxi.z) }));
-    let pool = all.filter((e) => e.d >= SITE_NEAR && e.d <= SITE_FAR);
+    let pool = all.filter((e) => e.d >= SITE_NEAR && e.d <= SITE_FAR
+      && rainSoon(e.c.x, e.c.z, RAIN_LEAD) <= RAIN_CLEAR);
     if (!pool.length) return null;
     pool = pool.sort((a, b) => Math.abs(a.d - SITE_IDEAL) - Math.abs(b.d - SITE_IDEAL)).slice(0, 4);
     return rng.pick(pool).c;
@@ -430,6 +447,7 @@ export function createFire({ rng, scene, blocks, traffic, blocked = () => false,
     state.dispatchRetry = 0;
     state.parked = false;
     state.doused = false;
+    state.rained = 0;
     state.rig = 0;
     state.fires += 1;
     setPhase('burning');
@@ -691,8 +709,18 @@ export function createFire({ rng, scene, blocks, traffic, blocked = () => false,
       // The taxi wrote it off — the run is ending. Leave the scene as it stands.
       if (truck?.crashed) state.truck = null;
 
-      if (state.phase === 'burning') {
-        state.heat = Math.min(1, state.heat + dt / IGNITE);
+      // Rain on the fire wins whatever phase it is in, and the engine goes home from wherever it
+      // got to. Not while spraying: the jet is already winning, and the crew gets the credit.
+      state.rained = state.site && state.heat > 0 ? rainAt(state.site.x, state.site.z) : 0;
+      const douse = state.rained > RAIN_CLEAR && state.phase !== 'spraying';
+      if (douse) state.heat = Math.max(0, state.heat - dt * state.rained / RAIN_DOUSE);
+
+      if (douse && state.heat <= 0) {
+        state.rainedOut += 1;
+        state.doused = true;
+        setPhase('smoulder');
+      } else if (state.phase === 'burning') {
+        if (!douse) state.heat = Math.min(1, state.heat + dt / IGNITE);
         if (!state.dispatched && state.t >= DISPATCH) {
           state.dispatchRetry -= dt;
           if (state.dispatchRetry <= 0) {
@@ -752,6 +780,7 @@ export function createFire({ rng, scene, blocks, traffic, blocked = () => false,
       // Flames, smoke and steam. Steam is the water winning: it comes while the jet is on and a
       // little after, and fades out through the smoulder.
       const steam = state.phase === 'spraying' ? 1
+        : state.rained > RAIN_CLEAR ? Math.min(1, state.rained * 1.5)
         : state.phase === 'smoulder' && state.doused ? Math.max(0, 1 - state.phaseT / SMOULDER) : 0;
       if (state.site && state.heat > 0) emitFlames(dt);
       if (state.site && (state.heat > 0 || steam > 0)) emitSmoke(dt, steam);

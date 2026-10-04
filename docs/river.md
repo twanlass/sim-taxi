@@ -75,23 +75,29 @@ The chain, measured to the deck's *soffit* since that is what a boat hits:
 | | soffit | clearance over the water |
 |---|---|---|
 | Flat span, deck 0.35 thick | −0.35 | **1.65** |
-| Arched span at the crest, rise 1.1 | +0.75 | **2.75** |
+| Arched span at the crest, rise 1.9 | +1.55 | **3.55** |
 | Barge, air draught 1.4 | | clears both |
-| Tug, air draught 2.4 | | clears the arches by 0.35, **0.75 short of the flat one** |
+| Tug (the sailboat), air draught 3.4 | | clears the arches by 0.15, **1.75 short of the flat one** |
 
 Four numbers across three files, so the probe asserts the **chain** rather than its outcome: move
 any one of them and it fails here rather than shipping a tug that sails under the bridge it opens.
 The tug's mast is positioned *from* `TUG_AIR` rather than eyeballed on top of its superstructure —
-a first cut came out at 2.81, over the arches' 2.75, and would have left the tug unable to reach
-the drawbridge at all.
+a first cut came out at 2.81, over the 2.75 the arches then left, and would have left the tug unable
+to reach the drawbridge at all.
+
+**The rise is what the mast gets.** The gap between the two clearances is the rise and nothing
+else (lower the water and both move together), so how far the sailboat's mast can tower over a
+barge's load is set by `ARCH_RISE`. It went 1.1 → 1.9 for exactly that: at 2.4 off the water the
+mast read as a stub against the cars on the deck above it, and "a big mast, to show why the
+bridge has to open" had no other lever that moves it a long way.
 
 ### The rise is a camera number
 
 A world-Y lift of `h` moves `6.45h` px up the screen at play zoom (`SCREEN_PER_WORLD_Y` 0.838 ×
-7.7 px per unit), so 1.1 is about **7px**. That is deliberately under the roadworks hop's apex,
-which was *raised* to 2.75 because 12px read as a lift rather than a jump: a hump wants to stop
-short of where a jump starts. Peak grade is `rise · π / span` ≈ **16°**, and the arch occludes 1.7
-units of the 12-unit channel behind it, so it never hides the water on its far side.
+7.7 px per unit), so 1.9 is about **12px**. That is still under the roadworks hop's 2.75 apex
+(~18px): a hump wants to stop short of where a jump starts. Peak grade is `rise · π / span` ≈
+**26°** on the 12-unit span and 29° on the narrow one. It opened at 1.1 (7px, 16°) and was raised
+for the sailboat's mast — see above.
 
 ### How a car gets over it
 
@@ -354,6 +360,14 @@ other two, with a counterweight house the size of a bus shelter as its only tell
 replaced it wholesale, which is correct exactly while nothing else holds a closure — a zone standing
 up mid-lift would have reopened the span under it.
 
+The `'drawbridge'` source is also **hard** in the traffic model, which no other closure is. A
+closed lane only zeroes the *dice*; a routed car drives its route regardless, which is right for
+the taxi at roadworks and was wrong at the river: only the taxi is re-planned when the barriers drop,
+so a patrol cruiser carrying a route planned with the span down drove across the open leaf. A routed
+car whose next turn enters a hard-closed lane now drops its route and rolls an exit instead
+(`hardClosed` in `sim/traffic.js`, counted in `stats.routeRefused`), and game/patrol.js re-plans the
+empty route on its next frame.
+
 `setBlockedLanes` is enforced by **skipping** the lane in `search`'s successor expansion rather than
 by pricing it high. A weight, however large, is still a number Dijkstra will pay if it has to — and
 on a city where the bridge is the short way across, "has to" is precisely the case that comes up.
@@ -381,6 +395,14 @@ else, so the hold is gone.
 `geometry/boat.js` builds them, `game/boats.js` runs them. **Run seed, not city seed**: which span
 lifts is a fact about the map and has to stay learnable, but when it lifts is the situation.
 
+**What they look like, and how big.** Sized against the cars (3.4 × 1.7) and the water (9.2 across,
+7.87 on the narrow build). The barge is a 16 × 6 flat deck barge raked at both ends, about three
+quarters of the channel, carrying one tier of containers and loose crates in a mix each hull draws
+for itself — one tier because a container at car scale would stand 1.95 tall and everything has
+to stay under `BARGE_AIR`. The boat that asks for the lift is a 6 × 2.4 white **sailboat** with its
+sails down and a tall mast; the code still calls it the tug (`kind: 'tug'`, `TUG_AIR`, `TUG_LEN`).
+Its masthead sits at `TUG_AIR` exactly.
+
 A barge every 16–34s, a tug every 90–150s and never two at once. Both are slow on purpose — 2.6 and
 3.4 units per second against a car's 8.5 — because what sells a boat is being the slowest thing in
 the frame. The tug's wait went 55–95 → 90–150 with the cycle: a lift is a ten-second event now, and
@@ -404,36 +426,37 @@ would pass through a closed span.
 > the boat to the near side of the bridge and held it there. One tug in 260 seconds instead of four,
 > and the one was going round in circles.
 
-### Lanes
+### Single file
 
-**Which side a boat runs on is keyed to which way it is going** — `midZ + dir * BOAT_LANE`, which
-as it happens is port to port, since heading +x a boat's starboard side is +z. The first cut drew
-the direction and the lateral position as two independent randoms, which put an up-river and a
-down-river boat in the same water about four times in five.
+**Everything runs down the middle** (`BOAT_LANE` is 0, `LANE_WANDER` 0.2), because nothing can pass
+a barge that fills three quarters of the water. Boats used to keep a lane each way, port to port,
+and the two bounds on that lane — a floor so passing hulls do not touch, a ceiling so the tug's mast
+clears the arch off-centre — are what kept the hulls under half the channel wide. The centreline is
+also where the arch is highest: `deckHeightAt` is a function of `z` alone and crests there, so the
+mast's worst clearance is 3.64 against its 3.4 on the narrow channel.
 
-The offset is bounded at both ends and neither bound is taste:
+Keeping hulls apart is the **launch schedule's** job now, three rules in `createBoats`:
 
-- **Floor** — two hulls passing must not touch, so `2 * BOAT_LANE` has to clear `BEAM`. (`BEAM` is
-  exported from `geometry/boat.js` for exactly this: a separation written as a literal somewhere
-  else stops tracking the hull the moment either changes.)
-- **Ceiling, and this is the one that is easy to get backwards.** Every bridge here carries a road
-  running along Z across a river running along X, so the arch humps *across the channel*:
-  `deckHeightAt` is a function of `z` alone and it **crests on the centreline**. Clearance is
-  `1.65 + 1.1 · cos²(π·dz / span)` — best in the middle, falling off both ways. Pushing a boat
-  outboard spends the very clearance the arch exists to provide, so a design that put the **tug**
-  on the outside would be exactly wrong.
+- **Everything on the river goes the same way.** A new boat takes the direction of whatever is
+  already out; only an empty river draws a fresh one. Barges all run at 2.6, so one never closes on
+  another, and nothing meets head-on.
+- **The sailboat only sets off on an empty river.** It is faster than a barge and would run one down.
+- **No barge sets off while the sailboat is out or due.** A barge stops for nothing and would sail
+  into the back of one holding at a shut leaf. Holding them back while it is due is what lets the
+  river drain (a barge takes ~70s to cross) so the sailboat can go at all.
 
-> The old free-for-all was already over that ceiling. `wander` reached 2.4 where `TUG_AIR` needs
-> `|dz| ≤ 2.29`, so about one tug in twenty drove its mast through the soffit of a fixed span,
-> silently. Nothing caught it: the probe's clearance check compares against `ARCH_SOFFIT`, the value
-> at the **crest**, and never looked at where the boat actually was. Its replacement asserts the
-> bound on the widest lane the generator can hand out rather than on whatever a soak happened to
-> draw — a 5% bug passes a five-minute sample most of the time, and did.
+The probe asserts it over a five-minute soak: no frame with two boats going opposite ways, and the
+closest bow-to-stern gap. The staged screenshots break the schedule on purpose — `settle()` puts a
+barge and the sailboat on the river together — so the barge goes 60 units astern, which is what 13
+seconds of staging needs to not sail through the sailboat waiting at the leaf.
 
-At 1.4 ± 0.2 hulls pass with 0.6 of water between them, 0.2 at the worst of the wander, and the
-tug's worst clearance is 2.52 against its 2.4 mast on the narrow channel. There are exactly two
-channel widths, because `arterialX` holds a single line and so at most one bank can be an arterial:
-12.0 and 10.67.
+> The old free-for-all lanes were once over the arch ceiling: `wander` reached 2.4 where `TUG_AIR`
+> needed `|dz| ≤ 2.29`, so about one tug in twenty drove its mast through a fixed span's soffit,
+> silently. The clearance check still asserts the bound on the widest lane the generator can hand
+> out rather than on whatever a soak happened to draw.
+
+There are exactly two channel widths, because `arterialX` holds a single line and so at most one
+bank can be an arterial: 12.0 and 10.67 kerb to kerb.
 
 ### Fading in, and the wake
 
@@ -455,8 +478,8 @@ two things about it that are facts about the river rather than about the effect:
   Keyed to distance it stops being a special case and becomes what the emitter does.
 - **The arms are clamped at the bank.** They open on the Kelvin angle, which is a function of the
   boat's speed and knows nothing about the water it is in — and this water is 7.87 units across on
-  the narrow build against a lane that already sits 1.6 off the middle, so there is about a unit of
-  open water outboard of a hull. Left to open freely the foam is over the embankment inside a second
+  the narrow build against a barge whose arms start 2.9 off the middle (each hull throws them from
+  just inside its own side), so there is about a unit of open water outboard of a hull. Left to open freely the foam is over the embankment inside a second
   and a half. The pool takes `waterEdges()` for that reason, and a mote is held at the bank less its
   own radius, which is also what a wake in a narrow channel actually does.
 

@@ -88,6 +88,7 @@ function sample(hour) {
  */
 export function createDaylight({ sun, hemi, sky, fog = null, clouds = null }, startHour = 16.4) {
   const state = { hour: startHour, cycling: true, dayLength: DAY_SECONDS };
+  let grade = null;
 
   /**
    * Where the sun is *aimed*, held apart from what hour it is.
@@ -115,6 +116,8 @@ export function createDaylight({ sun, hemi, sky, fog = null, clouds = null }, st
   function apply(hour = state.hour) {
     state.hour = ((hour % 24) + 24) % 24;
     const look = sample(state.hour);
+    // Weather, graded over the keyframe before anything reads it — `?rain`, game/rain.js.
+    if (grade) grade(look);
 
     const e = THREE.MathUtils.degToRad(aim.pinned ? aim.elevation : elevationAt(state.hour));
     const a = THREE.MathUtils.degToRad(aim.pinned ? aim.azimuth : azimuthAt(state.hour));
@@ -152,6 +155,8 @@ export function createDaylight({ sun, hemi, sky, fog = null, clouds = null }, st
     apply,
     update,
     setCycling: (on) => { state.cycling = on; },
+    /** Grade every keyframe through `fn(look)` from now on (null to stop), and re-apply. */
+    setGrade: (fn) => { grade = fn; apply(); },
     setDayLength: (seconds) => { state.dayLength = Math.max(10, seconds); },
 
     aim,
