@@ -3613,16 +3613,9 @@ const pause = shot ? null : createPause({
 // brings a run to AFTER_DELIVERED fares. The world stops while it is up — the early return in
 // `frame()` beside the robber's line's. See game/newmove.js for when and why.
 const uturnSeen = createSeenFlag();
-// Centred, and lifted well clear of the gas pedal: no pointer (the move is three buttons, not the
-// one it would point at), and a card sitting on the pedal's rim read as being about it alone.
-const NEW_MOVE_LIFT = 72;
-const newMove = shot ? null : createNewMove({
-  viewport,
-  target: () => {
-    const gas = gasPedalTop();
-    return gas && { x: viewport.width() / 2, y: gas.y - NEW_MOVE_LIFT };
-  },
-});
+// Centred over a dim, with the move acted out inside it — see game/newmove.js. Lit by the city's
+// own sun, like the HUD's chips.
+const newMove = shot ? null : createNewMove({ viewport, sun, hemi });
 // Seconds of game time until the card lands, or negative when none is due.
 let newMoveIn = -1;
 /**
@@ -4966,7 +4959,7 @@ window.__taxi = {
    * now, whatever the gates say; `seen` is the remembered flag, `wanted`/`calm` the two gates.
    */
   newMove: newMove && {
-    open: openNewMove, isOpen: newMove.isOpen, close: newMove.close,
+    open: openNewMove, isOpen: newMove.isOpen, close: newMove.close, seek: newMove.seek,
     seen: uturnSeen, wanted: newMoveWanted, calm: newMoveCalm, due: () => newMoveIn,
   },
   fares,

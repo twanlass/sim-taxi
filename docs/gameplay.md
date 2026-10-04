@@ -433,11 +433,16 @@ teach, and the bubble would be the loudest thing in every frame.
 
 The bootleg (boost, then two quick brake taps — `game/bootleg.js`) is the one input nobody finds by
 looking, so it gets a card (`game/newmove.js`, `#new-move` in index.html). It is the tutorial's
-own speech bubble, centred above the pedals with no pointer: "New Move Unlocked" in the title slot, "U-Turn" as the
-line, and under it the HUD's own pedal art — cloned off the live buttons — playing the sequence on
-a 3.6s loop. No other words; the row is the instruction. Each key starts dimmed and comes up to full colour as it is pressed, so the order things
-light up in *is* the instruction: boost held for 1.15s, then the two brake taps 0.29s apart, inside
-the 350ms combo window.
+own speech bubble, made wider and centred over a dim with no pointer: "New Move Unlocked" in the
+title slot, "U-Turn" as the line, then a clip of the move and the pedal row under it. No other words.
+
+The clip (`game/uturnclip.js`) is a scripted 4.6s loop on a straight street in its own small WebGL
+context, built on open and released on close. It uses the real taxi mesh, the Loco Mode flame, the
+skid marks and the brake lamps, lit by the city's sun. The taxi cruises in, floors it, checks on
+the first brake tap, spins onto the far lane on the second (0.3s later, inside the 350ms combo
+window) and drives back out. The pedal row (the HUD's own pedal art, all three at one size with a
+"+" between) is pressed off the **clip's clock**, so each key goes down on the frame the car does
+the thing it does: dim until pressed, lit from then to the end of the loop.
 
 - **When:** a beat (0.9s) after the drop-off that brings a run to two fares — robbery.js's
   `MIN_DELIVERED`, the first moment a chase can happen, which is what the move is for. It waits out

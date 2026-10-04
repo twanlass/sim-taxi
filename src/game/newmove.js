@@ -1,4 +1,5 @@
 import { createSpeech } from './speech.js';
+import { createUturnClip, clipKeys } from './uturnclip.js';
 
 // "New Move Unlocked": the card that teaches the bootleg (game/bootleg.js) — hold Loco Mode, then
 // tap the brake twice, and the taxi spins round onto the far lane.
@@ -34,9 +35,11 @@ import { createSpeech } from './speech.js';
 // from `frame()` that still draws). The card lands mid-run with the clocks running, and a player
 // reading an animation is not driving.
 //
-// **The tutorial's own card.** It was first a full-screen dimmed screen with its own type and a
-// caption, and Tyler wanted it to be the speech bubble every other tip is: pointed at the pedals it
-// is about, with the row of buttons inside it and no words beyond the title and the name.
+// **The tutorial's own card, with the move acted out in it.** It was first a full-screen dimmed
+// screen with its own type and a caption; Tyler wanted the speech bubble every other tip is, with
+// no words beyond the title and the name; and then a clip of the taxi doing it between the name and
+// the buttons, the buttons pressed in time with the clip so the two connect (game/uturnclip.js),
+// the card wide enough to show it and the screen dimmed under it.
 
 export const SEEN_KEY = 'simTaxi.seen.uturn';
 
@@ -79,22 +82,22 @@ export function createSeenFlag({ storage, key = SEEN_KEY } = {}) {
 }
 
 // The card's words: the tutorial bubble's title slot carries the eyebrow, its line the move's name.
-// Nothing else — the pedal row is the instruction (Tyler, 2026-10-04: no caption, no "tap to
+// Nothing else — the clip and the pedal row are the instruction (Tyler, 2026-10-04: no caption, no "tap to
 // continue"; every tutorial bubble is answered by a tap and this one is no different).
 const TITLE = 'New Move Unlocked';
 const LINE = 'U-Turn';
 
 /**
  * The card itself: the game's speech bubble (game/speech.js) — the same card every tutorial tip
- * uses — centred above the pedals with no pointer, the pedal row under its line. Browser-only: it clones the
- * HUD's pedal art.
+ * uses — centred on the screen over a dim, with no pointer. Under its line, the clip of the move
+ * (game/uturnclip.js) and under that the pedal row, which the clip's own clock presses.
+ * Browser-only: it clones the HUD's pedal art and opens a WebGL context for the clip.
  *
  * @param viewport  util/viewport.js
- * @param target    () => {x, y} | null — the point the card stands over (main.js: centred, lifted
- *                  clear of the gas pedal)
+ * @param sun/hemi  the city's lights, which the clip mirrors
  * @param onClose   () => void — the card has been dismissed
  */
-export function createNewMove({ viewport = null, target = () => null, onClose = () => {} } = {}) {
+export function createNewMove({ viewport = null, sun = null, hemi = null, onClose = () => {} } = {}) {
   const root = document.getElementById('new-move');
   const idle = { isOpen: () => false, open: () => false, close: () => {}, update: () => {} };
   if (!root) return idle;
@@ -110,12 +113,18 @@ export function createNewMove({ viewport = null, target = () => null, onClose = 
     svg.removeAttribute('class');
     return svg;
   };
+  const media = document.createElement('div');
+  media.className = 'nm-media';
+  const canvas = document.createElement('canvas');
+  canvas.className = 'nm-clip';
   const combo = document.createElement('div');
   combo.className = 'nm-combo';
   combo.setAttribute('aria-hidden', 'true');
+  media.append(canvas, combo);
   // All three keys at one size, a "+" between each (Tyler, 2026-10-04): the row is a recipe, and
   // the HUD's big-gas/small-brake sizing read as a hierarchy that is not in the combo.
-  for (const [cls, id] of [['nm-boost', 'boost'], ['nm-brake nm-b1', 'brake'], ['nm-brake nm-b2', 'brake']]) {
+  const keys = {};
+  for (const [name, id] of [['boost', 'boost'], ['brake1', 'brake'], ['brake2', 'brake']]) {
     if (combo.childElementCount) {
       const plus = document.createElement('span');
       plus.className = 'nm-plus';
@@ -123,21 +132,43 @@ export function createNewMove({ viewport = null, target = () => null, onClose = 
       combo.append(plus);
     }
     const key = document.createElement('div');
-    key.className = `nm-key ${cls}`;
+    key.className = `nm-key nm-${id}`;
     const svg = art(id);
     if (svg) key.append(svg);
     combo.append(key);
+    keys[name] = key;
   }
 
   const bubble = createSpeech(root, { viewport, typing: false });
+  // Centred on the screen. The speech card stands *above* its target, so the target is the middle
+  // of the screen pushed down by half the card's own height (measured live: the clip sizes itself
+  // to the viewport's width).
+  const card = () => root.querySelector('.speech-card');
+  const target = () => {
+    const w = viewport ? viewport.width() : window.innerWidth;
+    const h = viewport ? viewport.height() : window.innerHeight;
+    return { x: w / 2, y: h / 2 + (card()?.offsetHeight ?? 0) / 2 };
+  };
+  let clip = null;
   let open = false;
   let openedAt = 0;
+
+  function pressKeys() {
+    const state = clipKeys(clip ? clip.time : 0);
+    for (const [name, key] of Object.entries(keys)) {
+      key.classList.toggle('is-lit', state[name].lit);
+      key.classList.toggle('is-down', state[name].down);
+    }
+  }
 
   function close() {
     if (!open) return;
     open = false;
     bubble.hide();
     document.body.classList.remove('new-move-open');
+    // Shown once ever, so the context goes with it rather than sitting idle for the rest of the run.
+    clip?.dispose();
+    clip = null;
     onClose();
   }
 
@@ -166,17 +197,24 @@ export function createNewMove({ viewport = null, target = () => null, onClose = 
       if (open) return false;
       open = true;
       openedAt = performance.now();
-      // Restart the loop from the top, so every showing opens on the boost press rather than
-      // wherever the animation happened to be left.
-      combo.classList.remove('is-playing');
-      bubble.show(TITLE, LINE, target, combo);
-      void combo.offsetWidth;
-      combo.classList.add('is-playing');
+      if (sun && hemi) {
+        try { clip = createUturnClip({ canvas, sun, hemi }); } catch { clip = null; }
+      }
+      bubble.show(TITLE, LINE, target, media);
+      pressKeys();
       document.body.classList.add('new-move-open');
       return true;
     },
     close,
-    /** Keeps the bubble pinned to the pedal. Called from the frozen frame, on wall time. */
-    update: (dt) => bubble.update(dt),
+    /** The clip, the keys it presses and the bubble's placement. Called from the frozen frame, on
+     * wall time. */
+    update(dt) {
+      if (!open) return;
+      clip?.update(dt);
+      pressKeys();
+      bubble.update(dt);
+    },
+    /** Seek the clip — for the screenshot tooling. */
+    seek(t) { if (clip) { clip.restart(); clip.update(t); pressKeys(); } },
   };
 }
