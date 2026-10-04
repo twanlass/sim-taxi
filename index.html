@@ -1165,10 +1165,14 @@
          nothing to say yet. `hud-ready` implies it, here rather than in main.js. */
       #hud, #boost-meter, #pause, #boost, #brake, #rider-finder-stack {
         opacity: 0;
-        transition: opacity 0.45s ease, translate 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+        /* Half again the first cut (0.45s / 0.55s), which read as a snap on the depot exit. */
+        transition: opacity 0.7s ease, translate 0.85s cubic-bezier(0.22, 1, 0.36, 1);
       }
       #hud { translate: 0 -160%; }
-      #pause, #boost, #boost-meter, #brake, #rider-finder-stack { translate: 0 200%; }
+      #pause, #boost, #boost-meter, #brake { translate: 0 200%; }
+      /* The chips sit a pill's height up the screen but only `--ctl-left` in from the side, so the
+         left edge is the near one: off by their own width plus that inset. */
+      #rider-finder-stack { translate: calc(-100% - var(--ctl-left) - 8px) 0; }
       /* Invisible is not un-tappable: a 0-opacity pill still takes the tap that was aimed at the
          rider behind it. (#hud and #boost-meter are already pointer-events: none.) The pause button
          rides in the same group for the same reason it waits at all: there is nothing to pause
@@ -1202,13 +1206,37 @@
 
       /* The two top corners land together, and the pause button with the pedals it shares the
          bottom row with. */
-      body.hud-ready #boost, body.hud-ready #boost-meter, body.hud-ready #brake, body.hud-ready #pause { transition-delay: 0.14s; }
+      body.hud-ready #boost, body.hud-ready #boost-meter, body.hud-ready #brake, body.hud-ready #pause { transition-delay: 0.2s; }
       /* ...but on their own cue there is nothing to stagger against. */
       body.pedals-ready:not(.hud-ready) #boost, body.pedals-ready:not(.hud-ready) #boost-meter,
       body.pedals-ready:not(.hud-ready) #brake { transition-delay: 0s; }
-      body.hud-ready #rider-finder-stack { transition-delay: 0.21s; }
+      body.hud-ready #rider-finder-stack { transition-delay: 0.3s; }
+      /* --- ...and its exit, for the depot ------------------------------------
+         `hud-away` sends everything back off the edge it came in from while the taxi is in the
+         garage — from the turn-in at the driveway to the taxi rejoining the lane — and the opening
+         vignette takes it too, so the HUD arrives on the same beat both times: as the car comes out
+         of the door. main.js decides it every frame (`hudAway`). It sits after the ready rules so it
+         outranks them at equal specificity; leaving with no stagger and coming back with the
+         entrance's own delays, which the ready rules supply again the moment it is lifted. The
+         fare pointers are already on the frame's edge and only fade. */
+      body.hud-away #hud { opacity: 0; translate: 0 -160%; }
+      body.hud-away #pause, body.hud-away #boost, body.hud-away #boost-meter,
+      body.hud-away #brake { opacity: 0; translate: 0 200%; }
+      body.hud-away #rider-finder-stack {
+        opacity: 0; translate: calc(-100% - var(--ctl-left) - 8px) 0;
+      }
+      body.hud-away #hud, body.hud-away #boost-meter, body.hud-away #pause, body.hud-away #boost,
+      body.hud-away #brake, body.hud-away #rider-finder-stack { transition-delay: 0s; }
+      /* The chips take taps on their own `pointer-events: auto`, so the stack's none is not enough. */
+      body.hud-away #pause, body.hud-away #boost, body.hud-away #brake,
+      body.hud-away #rider-finder-stack, body.hud-away #rider-finder-stack * { pointer-events: none; }
+      #fare-pointers { transition: opacity 0.7s ease; }
+      body.hud-away #fare-pointers { opacity: 0; }
+      body.hud-away #fare-pointers .fare-pointer { pointer-events: none; }
       @media (prefers-reduced-motion: reduce) {
-        #hud, #boost-meter, #pause, #boost, #brake, #rider-finder-stack { translate: none; }
+        #hud, #boost-meter, #pause, #boost, #brake, #rider-finder-stack,
+        body.hud-away #hud, body.hud-away #boost-meter, body.hud-away #pause, body.hud-away #boost,
+        body.hud-away #brake, body.hud-away #rider-finder-stack { translate: none; }
       }
 
       /* --- "Add to Home Screen" screen — see src/game/homescreen.js -------------
