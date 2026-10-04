@@ -14,8 +14,12 @@
 
 export const SETTINGS_KEY = 'simTaxi.settings';
 
-/** A first visit. Both sliders full — the mix in mix.json is the designer's, so full *is* the mix. */
-export const DEFAULT_SETTINGS = Object.freeze({ music: 1, effects: 1, tips: true });
+/**
+ * A first visit. Music full, effects at 75%: with the radio playing at full, the effects at full
+ * buried it (Tyler, by ear, 2026-10-04). The slider is squared on the way to the gain, so 0.75 is
+ * 0.56, about -5 dB under the mix in mix.json. A player with a saved setting keeps theirs.
+ */
+export const DEFAULT_SETTINGS = Object.freeze({ music: 1, effects: 0.75, tips: true });
 
 const unit = (v, fallback) => (typeof v === 'number' && Number.isFinite(v)
   ? Math.min(1, Math.max(0, v)) : fallback);
