@@ -21,7 +21,7 @@ words stand on. Settings holds four things, all remembered across visits:
 | Setting | Where it lives |
 |---|---|
 | Sound on/off | The existing mute (`simTaxi.muted`, game/sfx.js), shared with the pause screen's Settings and **M** — stored once, not twice |
-| Music volume, SFX volume | `simTaxi.settings` (game/settings.js), applied through `sfx.setVolumes`. There is **no music track yet**: the slider steers a real music bus that nothing plays into |
+| Music volume, SFX volume | `simTaxi.settings` (game/settings.js), applied through `sfx.setVolumes`. Music is the radio ([audio.md](audio.md#the-radio)) |
 | Tutorial tips | `simTaxi.settings`. Read on Play (`beginRun` in main.js): off drops the tutorial and lets the HUD in |
 
 **"Play again" skips it.** The retry is a reload, and a player who just pressed Play does not want

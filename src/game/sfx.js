@@ -119,6 +119,35 @@ const LOOP_SECONDS = { idle: 4, locoLoop: 8, signal: 4.53125 };
 const AAC_PRIMING = 2112 / 48000;
 
 /**
+ * The radio: an intro, then songs back to back for as long as the page is open — a fresh pick at
+ * the end of each, at random but never the one that just played. Kept apart from `FILES`/`SOUNDS`
+ * because it is not the taxi and not in the mix: it plays into the music bus, under the Music
+ * slider rather than the effects one, and nothing steers it from the frame.
+ *
+ * `seconds` is each master's true length, which is what the next track is scheduled against (the
+ * same AAC-priming guard `loopWindow` is for, so a decoder that leaves the pad in does not open a
+ * 44ms gap at every change). `gain` levels the four against each other and sits them under the
+ * taxi: measured off the masters (ffmpeg ebur128) the intro is -17.3 LUFS and the songs -13.5
+ * (country), -12.3 (jazz) and -10.8 (rock), against -34 for the engine idle and -22 for a crash —
+ * so each is brought to -24 LUFS at full slider, and the slider only ever turns it down.
+ */
+const RADIO_FILES = {
+  MUSIC_radio_intro: new URL('../../assets/audio/MUSIC_radio_intro.m4a', import.meta.url).href,
+  MUSIC_country: new URL('../../assets/audio/MUSIC_country.m4a', import.meta.url).href,
+  MUSIC_jazz: new URL('../../assets/audio/MUSIC_jazz.m4a', import.meta.url).href,
+  MUSIC_rock: new URL('../../assets/audio/MUSIC_rock.m4a', import.meta.url).href,
+};
+const dB = (d) => 10 ** (d / 20);
+export const RADIO = {
+  intro: 'MUSIC_radio_intro',
+  songs: ['MUSIC_country', 'MUSIC_jazz', 'MUSIC_rock'],
+  seconds: { MUSIC_radio_intro: 15, MUSIC_country: 30, MUSIC_jazz: 30, MUSIC_rock: 30 },
+  gain: {
+    MUSIC_radio_intro: dB(-6.7), MUSIC_country: dB(-10.5), MUSIC_jazz: dB(-11.7), MUSIC_rock: dB(-13.2),
+  },
+};
+
+/**
  * The mix: every number a sound designer might want to move, kept in `assets/audio/mix.json`
  * rather than here, so the `?audio` panel (game/audiopanel.js) can export a file that drops
  * straight over it. Its four parts:
@@ -245,6 +274,9 @@ export function createSfx({ rng } = {}) {
     loaded: 0,
     total: Object.keys(FILES).length,
     held: false,
+    // The radio's last few tracks as scheduled, `{ track, at }` in context seconds — for checking
+    // the rotation from the console (`__taxi.sfx.state.radio`).
+    radio: [],
   };
   const random = rng ? () => rng.next() : Math.random;
   // Live, and read every frame, so the panel can move any number while the car is driving.
@@ -272,7 +304,7 @@ export function createSfx({ rng } = {}) {
       setVolumes: noop,
       locoOn: noop, locoOff: noop,
       tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
-      audition: () => null, stopAuditions: noop, files: FILES,
+      audition: () => null, stopAuditions: noop, files: FILES, radioFiles: RADIO_FILES,
     };
   }
 
@@ -292,7 +324,7 @@ export function createSfx({ rng } = {}) {
   // empty `stack`, so the panel read "Unhandled rejection:" and nothing else. A missing sound is
   // not a broken game; `start()` still awaits the original promise and logs it as one.
   const bytes = {};
-  for (const [key, url] of Object.entries(FILES)) {
+  for (const [key, url] of Object.entries({ ...FILES, ...RADIO_FILES })) {
     bytes[key] = fetch(url).then((r) => {
       if (!r.ok) throw new Error(`${r.status} ${url}`);
       return r.arrayBuffer();
@@ -309,9 +341,7 @@ export function createSfx({ rng } = {}) {
   const resumeCtx = () => { Promise.resolve(ctx.resume()).catch(() => {}); };
   const suspendCtx = () => { Promise.resolve(ctx.suspend()).catch(() => {}); };
   // The music's own level, beside `master` rather than under it, so the two sliders are
-  // independent. **Nothing plays into it yet**: the game ships no music track, and the bus exists
-  // so the Settings slider has something real to steer the day one arrives — connect the track's
-  // source to `musicBus` and it is under the slider and the mute with no other change.
+  // independent. The radio (`startRadio`) is what plays into it.
   let musicBus = null;
   /** What the master gain should read: the mix's master, under the player's slider and the mute. */
   const masterLevel = () => (state.muted ? 0 : mix.master * state.effects ** 2);
@@ -376,7 +406,9 @@ export function createSfx({ rng } = {}) {
     musicBus = ctx.createGain();
     musicBus.gain.value = musicLevel();
     musicBus.connect(ctx.destination);
-    await Promise.all(Object.entries(bytes).map(async ([key, p]) => {
+    startRadio();
+    await Promise.all(Object.keys(FILES).map(async (key) => {
+      const p = bytes[key];
       try {
         const buf = await p;
         buffers[key] = await ctx.decodeAudioData(buf);
@@ -389,6 +421,68 @@ export function createSfx({ rng } = {}) {
     if (buffers[SOUNDS.locoLoop[0]]) loco = makeLoop('locoLoop');
     state.ready = true;
     if (state.held) suspendCtx();
+  }
+
+  // --- the radio ---
+  const radioBuffers = {};
+  let lastSong = null;
+  async function decodeRadio(key) {
+    try {
+      radioBuffers[key] = await ctx.decodeAudioData(await bytes[key]);
+    } catch (err) {
+      console.warn(`sfx: ${key} did not load`, err);
+    }
+  }
+
+  /** Play `key` into the music bus from `when`, calling `onEnd` once it has finished. */
+  function playTrack(key, when, onEnd) {
+    const buffer = radioBuffers[key];
+    const w = loopWindow(buffer, RADIO.seconds[key]);
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const g = ctx.createGain();
+    g.gain.value = RADIO.gain[key];
+    src.connect(g).connect(musicBus);
+    src.onended = onEnd;
+    src.start(when, w.start, w.end - w.start);
+    return when + (w.end - w.start);
+  }
+
+  // Tracks scheduled on the audio clock and not yet ended, and when the last of them ends.
+  let ahead = 0;
+  let queuedEnd = 0;
+  function queue(key) {
+    const when = Math.max(queuedEnd, ctx.currentTime);
+    ahead++;
+    queuedEnd = playTrack(key, when, () => { ahead--; topUp(); });
+    state.radio = [...state.radio.slice(-7), { track: key, at: when }];
+  }
+
+  /**
+   * Keep **two** tracks on the clock: the one playing and the one after it. So the next song is
+   * always already scheduled when the current one ends and the cut is sample-exact, where starting
+   * each song from the previous one's `onended` would leave a gap of however late that event
+   * lands. The clock stops with a hold, so a pause stops the radio mid-song, queue and all.
+   */
+  function topUp() {
+    const loaded = RADIO.songs.filter((k) => radioBuffers[k]);
+    while (ahead < 2 && loaded.length) {
+      const fresh = loaded.length > 1 ? loaded.filter((k) => k !== lastSong) : loaded;
+      lastSong = fresh[Math.floor(random() * fresh.length)];
+      queue(lastSong);
+    }
+  }
+
+  /**
+   * The intro always, then songs for as long as the page is open. The intro is decoded first so it
+   * starts as soon after the tap as it can; the songs decode while it plays. A file that failed to
+   * download is a warning and a gap in the rotation, never an error — the rule for every sound here.
+   */
+  async function startRadio() {
+    await decodeRadio(RADIO.intro);
+    if (radioBuffers[RADIO.intro]) queue(RADIO.intro);
+    await Promise.all(RADIO.songs.map(decodeRadio));
+    topUp();
   }
 
   // The unlock. Created *inside* the gesture, because Safari only lets a context start running
