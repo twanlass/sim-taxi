@@ -3465,6 +3465,7 @@ check('no two cars occupy the same space', worst > 1.6,
   const spawnPrice = new Map();
   let deliveries = 0;
   let wrongCombo = 0;
+  let jobDropped = 0;
 
   // Same perfect-player policy as the multi-fare block above, so the board actually doubles up.
   const aim = () => {
@@ -3509,6 +3510,9 @@ check('no two cars occupy the same space', worst > 1.6,
       }
       if (type === 'pickup') {
         pickups += 1;
+        // A run bonus judges the whole job, keyed on `fares.job()`: the pickup must not hand that
+        // over to anyone else, or the drive to the kerb is forgotten mid-job.
+        if (fares.job() !== fare) jobDropped += 1;
         // The pin is promoted, not replanted — a drop-off that jumped at pickup would make the
         // preview a lie and every judgement made from it worthless.
         if (fare.target.i !== fare.dropoff.i || fare.target.j !== fare.dropoff.j) movedAtPickup += 1;
@@ -3555,6 +3559,8 @@ check('no two cars occupy the same space', worst > 1.6,
   check('a waiting rider shows their diamond', shownOnSpawn > 0 && missingPin === 0,
     `${shownOnSpawn} spawns, ${missingPin} missing`);
   check('the block count matches the trip', wrongCount === 0, `${wrongCount} mismatched`);
+  check('the job a run judges carries through the pickup', pickups > 0 && jobDropped === 0,
+    `${pickups} pickups, ${jobDropped} lost the job`);
   check('a drop-off pays its price times the run verdict', deliveries >= 3 && wrongCombo === 0,
     `${deliveries} delivered, ${wrongCombo} paid wrong`);
   check('a fresh rider\'s diamond opens on full urgency', wrongOpening === 0,

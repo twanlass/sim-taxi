@@ -2349,7 +2349,7 @@ const hud = {
   banner: document.getElementById('run-end'),
 };
 
-// The run tags under the cash, while a rider is aboard: what this ride is on course for
+// The run tags under the cash, while a job is under way: what this ride is on course for
 // (game/runs.js). LOCO carries its live share and lights up once it is over the line; PERFECT and
 // STEALTH appear the moment they are in play and, when lost, show it — a red flinch, a hard shake
 // and a fall out of the HUD — because a bonus that silently stops being on offer cannot change how
@@ -3932,12 +3932,12 @@ function frame() {
 
   // More than one thing can land in a frame now — delivering the last fare clears the board and
   // spawns the next one in the same tick — so this is a list rather than a single event.
-  // The ride's driving, recorded before the fare loop runs so a drop-off this frame is judged on
-  // all of it. The patrol is only a stealth question while it is patrolling or chasing.
+  // The job's driving — from the tap that sent the taxi at a rider to the drop-off — recorded
+  // before the fare loop runs so a drop-off this frame is judged on all of it. The patrol is only a stealth question while it is patrolling or chasing.
   if (!fareLoopHeld()) {
     const cop = patrol.state.cop;
     runs.update(dt, {
-      fare: fares.carrying() ?? null,
+      fare: fares.job(),
       boosting: Boolean(traffic.taxi.boost),
       cop: cop ? { phase: patrol.state.phase, gap: Math.hypot(cop.x - traffic.taxi.x, cop.z - traffic.taxi.z) } : null,
     });

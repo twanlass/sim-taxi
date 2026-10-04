@@ -3,7 +3,13 @@
 // A streak (×1, ×2, ×3 per clean drop-off, back to ×1 on damage) was tried first and only ever
 // asked one thing of the player — don't crash — across the whole run, so the number on screen was
 // mostly a measure of how long ago the last mistake was. A run bonus is decided trip by trip, so
-// every ride is a fresh choice about *how* to drive it:
+// every ride is a fresh choice about *how* to drive it.
+//
+// **A ride is the whole job**: from the tap that sends the taxi at a rider, through the pickup, to
+// the drop-off. It was the leg from pickup to drop-off at first, and that let a taxi bounce off
+// three cars on its way to the kerb and still collect a Perfect Run for a smooth second half.
+// Re-targeting the taxi at a different rider starts a new job.
+//
 //
 //   Loco Run     Loco Mode held for at least LOCO_SHARE of the ride.                       ×2
 //   Perfect Run  no damage on a ride where Loco Mode was actually used (PERFECT_MIN_BOOST). ×1.5
@@ -63,8 +69,9 @@ export function createRunTracker() {
   }
 
   /**
-   * One frame of the ride. `fare` is whoever is aboard (null for nobody) — a new face starts a new
-   * ride, which covers every way a rider gets in, the robber's cut scene included.
+   * One frame of the ride. `fare` is the job in hand — the rider the taxi has been sent at or is
+   * carrying (null for neither). A different fare starts a new ride, which covers a re-target and
+   * every way a rider gets in, the robber's cut scene included.
    * `cop` is the patrol as main.js sees it: `{ phase, gap }`, or null when there is none.
    */
   function update(dt, { fare, boosting, cop }) {

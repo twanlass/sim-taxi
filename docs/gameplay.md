@@ -1633,8 +1633,11 @@ charge; it tweens either way now, and the total never goes below zero (see `char
 
 ### Run bonuses
 
-How a trip was driven multiplies what its drop-off pays (`game/runs.js`). Three, judged per ride
-from pickup to drop-off, multiplied together:
+How a trip was driven multiplies what its drop-off pays (`game/runs.js`). Three, judged over the
+whole job — from the tap that sends the taxi at a rider, through the pickup, to the drop-off — and
+multiplied together. (It was pickup to drop-off at first, which let a taxi bounce off three cars on
+the way to the kerb and still collect a Perfect Run. Re-targeting at another rider starts a new
+job.)
 
 | Run | Earned by | Pays |
 |---|---|---|

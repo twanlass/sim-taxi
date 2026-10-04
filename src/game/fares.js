@@ -1987,6 +1987,12 @@ export function createFareSystem(rng, scene, { reserved = () => [], judgeRun = (
      * taxi and it can only be driving at one of them.
      */
     directed: () => state.fares.find((f) => f.directed) ?? null,
+    /**
+     * The job in hand: the rider the taxi has been sent at, or the one it is carrying. A pickup
+     * clears `directed` for the frame before main.js dispatches the drop-off, so `directed` alone
+     * would lose the job for that frame — this is what a run bonus keys on (game/runs.js).
+     */
+    job: () => state.fares.find((f) => f.directed) ?? carrying(),
     colorOf,
     carrying,
     waiting,
