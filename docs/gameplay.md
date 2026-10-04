@@ -1904,17 +1904,24 @@ too full for four gets fewer.
 Measured over 38 cities, with four: the driving goes from a median 41.5s to 99.7s (×2.45, worst
 ×3.9), and the robber's clock sits at a median 190s. (Two checkpoints measured 68.4s, ×1.74.)
 
-**It is expensive for the board.** 30 paired autoplay runs, robbery on:
+**The rest of the board steps aside while it runs** (`concealed` in game/fares.js). Every rider
+waiting on the kerb is hidden — figure, crystal, disc, edge arrow, finder chip, tap target — with
+their clock **held**, and nobody new spawns; the courier's pads go too (`concealed` in
+game/parcels.js), and driving over one does nothing. The clock is held *because* they are hidden: a
+rider the player cannot see must not be able to time out and end the run. They come back exactly
+as they were when the getaway ends, whichever way it ends.
 
-| | perfect player (1.5s) | slower player (4s) |
-|---|---|---|
-| no checkpoints | 12.7 fares · $358 | 12.6 · $334 |
-| two checkpoints | 11.6 · $308 | 13.0 · $350 |
-| **four checkpoints** | **9.9 · $237** | **12.0 · $301** |
+**Each checkpoint calls in another cop** (`wanted` in game/robbery.js): the fleet is
+`POLICE_FLEET` at the bank and one more per checkpoint touched, up to `POLICE_REINFORCEMENTS`, each
+arriving behind the taxi through the ordinary top-up. That top-up used to lose every race to the
+recycle — both waited on one gap clock and the recycle ticked it — so it only ever fired while no
+cop was lost; it ticks the clock itself now and goes first.
 
-Read it the way the rest of this section's numbers are read: the harness never boosts, so it pays
-for the longer drive and collects none of the tanks. But the cost is the kerb's — riders waiting
-through a hundred-second getaway — and boosting shortens that rather than removing it.
+Four checkpoints were expensive for the board before the riders stepped aside: 9.9 fares · $237 at
+a 1.5s reaction against 12.7 · $358 with no checkpoints, over 30 paired autoplay runs. With the
+board held they **gain**: 14.2 fares · $406 at 1.5s and 15.7 · $439 at 4s — a getaway is now a
+paid breather for the kerb. If that reads as too generous, the lever is to let the clocks run at a
+fraction rather than hold.
 
 ### The robber's line
 

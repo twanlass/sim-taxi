@@ -4093,6 +4093,7 @@ function frame() {
         fareSpots: fares.occupiedSpots(),
         delivered: fares.state.delivered,
         over: fares.state.gameOver,
+        concealed: fares.concealed(),
       })
       : NO_FARE_EVENTS)) {
     if (type === 'pickup') {

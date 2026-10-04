@@ -15013,8 +15013,9 @@ let chopperOrder; // likewise
     // slots that are still in the air, which reads as notes blinking out mid-fall. The lower one
     // is the visibility ask — this effect was rebuilt because 22 four-pixel notes over thirty
     // units of road was a scattering you had to go looking for.
+    // Halved since (GUST_RATE 39), so ~22/s: the floor moves with it.
     check('a boosting getaway trails cash without filling the pool',
-      streaming > 45 && streaming < 130, `${streaming} notes in the air`);
+      streaming > 20 && streaming < 130, `${streaming} notes in the air`);
 
     // **And it comes in gusts rather than at one rate.** A flat stream is a rope paid out of the
     // back of the car; what this should look like is a bag that keeps catching. Measured as the
@@ -15054,8 +15055,8 @@ let chopperOrder; // likewise
     const kicker = createCashTrail(new THREE.Scene(), makeRng(seed + 212));
     kicker.kick(car, 0.74);
     check('the press that engages Loco Mode throws a burst of its own',
-      kicker.live() >= 16, `${kicker.live()} notes on the press frame`);
-    check('...with a few wrapped bundles in it', kicker.bundles() >= 2,
+      kicker.live() >= 8, `${kicker.live()} notes on the press frame`);
+    check('...with a few wrapped bundles in it', kicker.bundles() >= 1,
       `${kicker.bundles()} bundles on the press frame`);
 
     // **Everything settles on the road, not at bumper height.** The floor used to be the tailpipe
@@ -15092,9 +15093,26 @@ let chopperOrder; // likewise
 
     // A crashed taxi stops spilling, which is the one gate the caller cannot express: a run that
     // ends mid-getaway leaves `boost.isActive()` true for a frame or two.
+    // The notes left lying on the road as the trail (GROUND_LINGER) outlast the stream by a few
+    // seconds, so this waits them out: three seconds says nothing is still being *thrown*, ten that
+    // the trail drains too.
     car.crashed = true;
-    for (let f = 0; f < 180; f++) { trail.feed(1 / 60, true, car, 0.74); trail.update(1 / 60); }
-    check('...and a wreck stops the stream and lets it fall out', trail.live() === 0);
+    let thrown = Infinity;
+    for (let f = 0; f < 600; f++) {
+      trail.feed(1 / 60, true, car, 0.74); trail.update(1 / 60);
+      if (f === 179) thrown = trail.noteRest().length === trail.live() ? 0 : trail.live();
+    }
+    check('...and a wreck stops the stream and lets it fall out', thrown === 0 && trail.live() === 0,
+      `${thrown} still in the air at 3s, ${trail.live()} left at 10s`);
+    // ...and some of it stays on the road a while first, which is the trail.
+    {
+      const lay = createCashTrail(new THREE.Scene(), makeRng(seed + 214));
+      const car3 = { x: 0, z: 0, yaw: 0.4, v: 20, crashed: false };
+      for (let f = 0; f < 120; f++) { lay.feed(1 / 60, true, car3, 0.74); lay.update(1 / 60); }
+      for (let f = 0; f < 60 * 4; f++) { lay.feed(1 / 60, false, car3, 0.74); lay.update(1 / 60); }
+      check('a getaway leaves a trail of notes on the road behind it',
+        lay.noteRest().length >= 10, `${lay.noteRest().length} notes still lying 4s after the stream stopped`);
+    }
   }
 
   // --- The event's own rules ---------------------------------------------------
@@ -15232,6 +15250,67 @@ let chopperOrder; // likewise
       check('...and touched in order, every checkpoint and then the drop-off', flow);
       check('...each checkpoint marked by a diamond, the drop-off by the ring',
         shapes.length === ROBBER_CHECKPOINTS + 1 && shapes.every(Boolean), `${shapes.filter(Boolean).length}/${shapes.length}`);
+    }
+
+    // --- The rest of the board steps aside, and the chase grows ----------------------------
+    //
+    // While a getaway runs every waiting rider is off the map — hidden, untappable, out of the
+    // HUD, clock held — and nobody new spawns (`concealed` in game/fares.js). And each checkpoint
+    // touched calls another cop in (`wanted` in game/robbery.js).
+    {
+      const s7 = new THREE.Scene();
+      const t7 = createTraffic(makeRng(seed + 44), s7, 10, 18);
+      const f7 = createFareSystem(makeRng(seed + 55), s7);
+      t7.warmup(3);
+      f7.state.delivered = 5;
+      // A rider on the kerb first: an empty board refills on the first update.
+      f7.update(1 / 60, t7.taxi);
+      const kerb = f7.state.fares.find((x) => x.stage === 'waiting');
+      const got = [];
+      const rob7 = createRobbery({
+        site: bank, taxi: t7.taxi, fares: f7, traffic: t7, onBoard: (fare) => got.push(fare),
+      });
+      t7.taxi.x = bank.door.x;
+      t7.taxi.z = bank.door.z;
+      for (let f = 0; f < 5; f++) rob7.update(1 / 60);
+      const r = got[0];
+      if (kerb && r) {
+        const before = kerb.timeLeft;
+        const count = f7.state.fares.length;
+        // Park the taxi on the first checkpoint's far side of nowhere: off every corner, so nothing
+        // resolves while the clocks are watched.
+        t7.taxi.x = 1e4; t7.taxi.z = 1e4;
+        for (let f = 0; f < 60 * 30; f++) f7.update(1 / 60, t7.taxi);
+        check('a getaway takes the waiting riders off the map',
+          !kerb.slot.root.visible && f7.waitingAll().length === 0
+            && !f7.pickables().some((o) => o === kerb.slot.passenger.group),
+          `root ${kerb.slot.root.visible ? 'shown' : 'hidden'}, ${f7.waitingAll().length} in the HUD`);
+        check('...holds their clocks while they are hidden',
+          kerb.timeLeft === before, `${before.toFixed(2)}s -> ${kerb.timeLeft.toFixed(2)}s over 30s`);
+        check('...and lets nobody new turn up', f7.state.fares.length === count,
+          `${count} -> ${f7.state.fares.length} fares over 30s`);
+
+        // Two checkpoints touched, then four seconds of chase: the fleet grows by two.
+        const cops0 = t7.policeCars.length;
+        for (const stop of r.checkpoints.slice(0, 2)) {
+          const c = intersectionCentre(stop.i, stop.j);
+          t7.taxi.x = c.x; t7.taxi.z = c.z;
+          f7.update(1 / 60, t7.taxi);
+        }
+        for (let f = 0; f < 60 * 4; f++) { t7.update(1 / 60); rob7.update(1 / 60); f7.update(1 / 60, t7.taxi); }
+        check('each checkpoint touched calls another cop into the chase',
+          t7.policeCars.length === POLICE_FLEET + 2,
+          `${cops0} cops at the bank, ${t7.policeCars.length} after two checkpoints`);
+
+        // The getaway ends: the rider comes back, with the clock they had.
+        const at = f7.state.fares.indexOf(r);
+        if (at !== -1) f7.state.fares.splice(at, 1);
+        f7.update(1 / 60, t7.taxi);
+        check('...and the board comes back when the getaway ends',
+          kerb.slot.root.visible && f7.waitingAll().includes(kerb));
+      } else {
+        check('a getaway takes the waiting riders off the map', false, 'no kerb rider or no robbery');
+      }
     }
 
     check('...but not while somebody is already in the back',

@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import {
   GRID_I, GRID_J, halfRoadX, halfRoadZ, isParkBlock, isRiverBlock, lineX, lineZ,
 } from '../city/grid.js';
@@ -569,6 +570,12 @@ export function cornerSeen(i, j) {
  * rebuild every twenty seconds.
  */
 function createSlot(scene, index) {
+  // Everything the slot draws hangs off one identity group, so a getaway can take a whole waiting
+  // rider off the board in one switch (see `concealed` in the fare loop) without fighting the many
+  // places that show and hide the pieces themselves. No lights live under it — see CLAUDE.md on
+  // what a hidden group does to a light.
+  const root = new THREE.Group();
+  scene.add(root);
   const passenger = createPassengerPin(createPerson);
   const destination = createDestinationPin();
 
@@ -588,7 +595,7 @@ function createSlot(scene, index) {
   //
   // The bounce is staggered by slot so two fares live at once don't pulse in lockstep. A fixed
   // offset rather than a random one, because sim time drives it and shots have to reproduce.
-  const marker = createFareMarker(scene, index * 0.31);
+  const marker = createFareMarker(root, index * 0.31);
 
   // Stamped on the roots so a click can be traced back to the fare that owns what was hit. The
   // picker already walks up parents looking for `pickable`; this rides along the same walk.
@@ -598,10 +605,10 @@ function createSlot(scene, index) {
 
   passenger.group.visible = false;
   destination.group.visible = false;
-  scene.add(passenger.group);
-  scene.add(destination.group);
+  root.add(passenger.group);
+  root.add(destination.group);
 
-  return { index, passenger, destination, marker, curse };
+  return { index, root, passenger, destination, marker, curse };
 }
 
 /**
@@ -915,6 +922,17 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
   }
 
   const carrying = () => state.fares.find((f) => f.stage === 'riding') ?? null;
+  /**
+   * A getaway is running: the robber is in the car. For as long as it is, every rider waiting on
+   * the kerb is **off the board** — hidden, untappable, out of the HUD and the edge arrows, with
+   * their clock held — and no new rider spawns. The getaway is the only job on the map.
+   *
+   * The clock is held *because* they are hidden: a rider the player cannot see must not be able to
+   * time out and end the run, which is the rule the whole event is built on (a robbery is imposed,
+   * so it cannot cost the run). It also pays for most of what the checkpoints' longer getaway was
+   * costing the kerb — see docs/gameplay.md.
+   */
+  const concealed = () => state.fares.some((f) => f.robber && f.stage === 'riding');
   // With more than one rider on the kerb the "waiting fare" the game means is the one about to
   // time out — that is who a perfect player takes next.
   //
@@ -927,7 +945,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     .filter((f) => f.stage === 'waiting')
     .reduce((best, f) => (best === null || urgencyOf(f) < urgencyOf(best) ? f : best), null);
   // Every waiting fare, for the HUD stack that surfaces one chip per rider on the kerb.
-  const waitingAll = () => state.fares.filter((f) => f.stage === 'waiting');
+  const waitingAll = () => (concealed() ? [] : state.fares.filter((f) => f.stage === 'waiting'));
 
   /**
    * Every intersection the fare loop currently has a claim on: each rider's kerb corner and, for
@@ -1587,6 +1605,8 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
    * only built once.
    */
   function shouldRefill() {
+    // Nobody new turns up while a getaway runs — see `concealed`.
+    if (concealed()) return false;
     // An empty board always refills, whatever the curve says — the ordinary one-fare loop, and the
     // only spawn that ignores the stagger.
     if (state.fares.length === 0) return true;
@@ -1643,6 +1663,10 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // Read once for the whole frame: every waiting fare's mark answers to it — see the step-back
     // below — and `carrying()` is a scan of the board.
     const occupied = Boolean(carrying());
+    const hush = concealed();
+    for (const slot of slots) {
+      slot.root.visible = !(hush && state.fares.some((f) => f.slot === slot && f.stage === 'waiting'));
+    }
 
     // Refill the board at the top of the frame rather than the bottom, so a fare delivered last
     // frame has visibly cleared its ring before its slot gets handed to the next one. An empty
@@ -1727,7 +1751,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
         }
       }
 
-      if (!state.paused) fare.timeLeft -= dt;
+      if (!state.paused && !(hush && fare.stage === 'waiting')) fare.timeLeft -= dt;
 
       // One clock, one body, wherever the fare currently is. The seconds never reset across the
       // hand-off and neither does the marker — see beginRide.
@@ -1979,8 +2003,9 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
    * them — see `waitingTargets`.
    */
   function pickables() {
+    const hush = concealed();
     return state.fares.flatMap((f) => (f.stage === 'waiting'
-      ? waitingTargets(f.slot)
+      ? (hush ? [] : waitingTargets(f.slot))
       : [f.slot.destination.group]));
   }
 
@@ -2077,6 +2102,8 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     carrying,
     waiting,
     waitingAll,
+    /** A getaway is running and the rest of the board is off the map — see `concealed`. */
+    concealed,
     occupiedSpots,
     focus,
     slots,

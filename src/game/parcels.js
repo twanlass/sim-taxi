@@ -400,7 +400,7 @@ const NO_EVENTS = Object.freeze([]);
  * The meshes one package needs, built once per slot and reused. A parcel is cheap bookkeeping; a
  * box, two pads and a flight copy are not something to rebuild every twenty seconds.
  */
-function createSlot(scene, index) {
+function createSlot(scene, index, board = scene) {
   // `pickable: null` throughout — the kerb box answers a tap through its pin's `postGroup`
   // (geometry/marker.js), and a tag of its own would follow the flight copy onto the road, a trap for
   // whoever next picks against the scene rather than against an explicit target list.
@@ -433,8 +433,8 @@ function createSlot(scene, index) {
 
   pickup.group.visible = false;
   dropoff.group.visible = false;
-  scene.add(pickup.group);
-  scene.add(dropoff.group);
+  board.add(pickup.group);
+  board.add(dropoff.group);
 
   return { index, pickup, dropoff, flight, flightBox };
 }
@@ -467,7 +467,12 @@ export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
     over: false,
   };
 
-  const slots = Array.from({ length: MAX_PARCELS }, (_, index) => createSlot(scene, index));
+  // Every pad and kerb box under one group, so a getaway can take the courier board off the map in
+  // one switch — see `concealed` in `update`. The flying box stays outside it (`createSlot` puts it
+  // on the scene): a package already on its way into the taxi finishes the trip.
+  const board = new THREE.Group();
+  scene.add(board);
+  const slots = Array.from({ length: MAX_PARCELS }, (_, index) => createSlot(scene, index, board));
 
   /**
    * A kind every future package is forced to, or null for the draw. Shot mode only (`forceKind`
@@ -915,7 +920,12 @@ export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
    * `fares.state.gameOver`. Passed in per frame rather than wired up, which is what keeps the
    * dependency one-way.
    */
-  function update(dt, taxiCar, { fareSpots = [], delivered = 0, over = false } = {}) {
+  function update(dt, taxiCar, { fareSpots = [], delivered = 0, over = false, concealed = false } = {}) {
+    // A getaway is running (`concealed` in game/fares.js): the courier board is off the map — no
+    // pads drawn, nothing tappable, nothing collected or delivered by driving over it, nothing new
+    // spawned. A package has no clock, so there is nothing to hold.
+    state.concealed = concealed;
+    board.visible = !concealed;
     // Hide everything on the transition into game-over and stay quiet after it. One seam, inside the
     // module, rather than a call at each of the three places a run can end (a fare's clock, a
     // collision, a police bust) — a cyan pad left glowing on the blackout is the failure mode, and
@@ -945,7 +955,7 @@ export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
     // spawned *this* frame must not also be ticked in it.
     const live = [...state.parcels];
 
-    if (delivered >= PARCEL_MIN_DELIVERED
+    if (!concealed && delivered >= PARCEL_MIN_DELIVERED
       && state.parcels.length < MAX_PARCELS
       && state.elapsed >= state.nextSpawnAt) {
       const spawned = spawn(taxiCar, fareSpots);
@@ -962,7 +972,7 @@ export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
       // renders the same frame every time.
       if (parcel.stage === 'waiting') parcel.slot.pickup.standing?.idle?.(state.elapsed);
 
-      if (distanceTo(parcel.target, taxiCar) >= ARRIVE_RADIUS) continue;
+      if (concealed || distanceTo(parcel.target, taxiCar) >= ARRIVE_RADIUS) continue;
 
       if (parcel.stage === 'waiting') {
         // One cargo slot. A second box the taxi drives past while already loaded is simply left
@@ -1037,7 +1047,7 @@ export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
      * taxi, and a hit box left in the target list over a corner with nothing on it would answer a tap
      * aimed at the street.
      */
-    pickables: () => state.parcels.map((p) => liveEnd(p).group),
+    pickables: () => (state.concealed ? [] : state.parcels.map((p) => liveEnd(p).group)),
     parcelFor,
     acknowledge,
     /** Land every pad's arrival animation at once — shot mode. See `fares.settleMarkers`. */
