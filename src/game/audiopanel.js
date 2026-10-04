@@ -21,6 +21,7 @@
  * them; the file keeps linear gain and a playback rate, because that is what Web Audio takes.
  */
 import { SFX_EVENTS, SHIPPED_MIX, SOUNDS, LOOPS } from './sfx.js';
+import { attachKnobReset } from './knobreset.js';
 
 // v2 with Block 1: a v1 stash holds levels trimmed for the test files, keyed partly by takes that
 // no longer exist, and would quietly override the designer's 0 dB starting point.
@@ -77,7 +78,10 @@ function el(tag, props = {}, ...children) {
 function row(parent, label, input) {
   const name = el('span', { textContent: label });
   const value = el('em');
-  parent.append(el('label', { className: 'dbg-row' }, name, input, value));
+  const { button, sync } = attachKnobReset(input);
+  const wrap = el('label', { className: 'dbg-row' }, name, input, value, button);
+  wrap.addEventListener('pointerenter', sync);
+  parent.append(wrap);
   return value;
 }
 
@@ -106,7 +110,8 @@ export function buildAudioSections(host, sfx) {
     },
   };
 
-  const heading = (text) => host.append(el('h4', { textContent: text }));
+  // `copy` feeds the section's "Copy values" button (debugpanel.js `organise`), in mix.json's shape.
+  const heading = (text, copy) => host.append(Object.assign(el('h4', { textContent: text }), copy ? { copyValues: copy } : {}));
   const note = (text) => {
     const p = el('p', { className: 'dbg-note', textContent: text });
     panel.append(p);
@@ -135,7 +140,7 @@ export function buildAudioSections(host, sfx) {
   }
 
   // --- Master ---------------------------------------------------------------
-  heading('Audio');
+  heading('Audio', () => ({ master: sfx.tuning().master }));
   {
     const input = slider(-30, 12, 0.5, 0);
     const value = row(panel, 'Level', input);
@@ -150,7 +155,7 @@ export function buildAudioSections(host, sfx) {
   }
 
   // --- Beds -----------------------------------------------------------------
-  heading('Engine sound');
+  heading('Engine sound', () => ({ engine: sfx.tuning().engine }));
   note('Beds run all the time and follow the taxi. Drive to hear these.');
   for (const [key, label, min, max, step, show] of ENGINE) {
     const input = slider(min, max, step, sfx.tuning().engine[key]);
@@ -166,7 +171,7 @@ export function buildAudioSections(host, sfx) {
   }
 
   // --- Per file -------------------------------------------------------------
-  heading('Sounds');
+  heading('Sounds', () => ({ sounds: sfx.tuning().sounds, minGap: sfx.tuning().minGap }));
   note('▶ plays the sound once at its level and pitch. A sound with variants plays a different '
     + 'take each press, as the game does, and names the one it played. Its level and pitch cover '
     + 'every take. In the game some one-shots are scaled again where they fire (a bump by closing '

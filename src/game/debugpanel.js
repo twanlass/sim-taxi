@@ -11,6 +11,7 @@ import {
 import { MIN_ELEVATION } from './daylight.js';
 import { BLOOM_INTENSITY, BLOOM_KINDS } from './bloom.js';
 import { buildAudioSections } from './audiopanel.js';
+import { attachKnobReset, copyValuesButton } from './knobreset.js';
 
 // Screen pixels to a world unit at play zoom, for the readouts that need one. Derived rather than
 // written down as the 7.7 that appears as prose all over this project: the frustum is sized by
@@ -31,6 +32,9 @@ const PX_PER_UNIT = (NOMINAL_FRAME_H / 2) / PLAY_ZOOM;
 // controls here are a window onto that: while the cycle runs they show where it has got to, and
 // touching any of them takes manual control so the two aren't fighting over the same lights.
 
+// Controls that get a ↺ (knobreset.js). A checkbox is its own one-click undo.
+const RESETTABLE = new Set(['range', 'color', 'select-one']);
+
 function row(parent, label, input) {
   const wrap = document.createElement('label');
   wrap.className = 'dbg-row';
@@ -38,6 +42,11 @@ function row(parent, label, input) {
   name.textContent = label;
   const value = document.createElement('em');
   wrap.append(name, input, value);
+  if (RESETTABLE.has(input.type)) {
+    const { button, sync } = attachKnobReset(input);
+    wrap.append(button);
+    wrap.addEventListener('pointerenter', sync);
+  }
   parent.append(wrap);
   return value;
 }
@@ -131,14 +140,20 @@ export function createDebugPanel({
 
   document.body.append(toggle, panel);
 
-  const heading = (text) => {
+  // `copy` is what the section's "Copy values" button puts on the clipboard (see `organise`): a
+  // function, so it reads the live state at the moment of the click. Keyed the way the Export
+  // section keys the same values, so a section's copy is a slice of the whole export.
+  const heading = (text, copy) => {
     const h = document.createElement('h4');
     h.textContent = text;
+    if (copy) h.copyValues = copy;
     panel.append(h);
   };
+  const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k]]));
+  const minus = (o, ...keys) => Object.fromEntries(Object.entries(o).filter(([k]) => !keys.includes(k)));
 
   // --- Lighting -------------------------------------------------------------
-  heading('Light');
+  heading('Light', () => ({ light: minus(snapshot().light, 'haze') }));
 
   const cycleBox = document.createElement('input');
   cycleBox.type = 'checkbox';
@@ -301,7 +316,7 @@ export function createDebugPanel({
   });
 
   // --- Game -----------------------------------------------------------------
-  heading('Game');
+  heading('Game', () => ({ game: snapshot().game }));
 
   // Scrubs the whole ramp. Every knob in difficulty.js is a function of this one number, so the
   // late game — four riders on the board, tight clocks, heavy traffic — is reachable without
@@ -369,7 +384,7 @@ export function createDebugPanel({
   // building is a line drawn across a quarter of it; and the boil, because a rate that looks
   // hand-drawn on a still is television static in motion.
   if (crayon.state.enabled) {
-    heading('Crayon');
+    heading('Crayon', () => ({ crayon: minus(crayon.state, 'enabled') }));
     const crayonRow = (label, key, min, max, step, format = (v) => v.toFixed(2)) => {
       const el = slider(min, max, step, crayon.state[key]);
       const value = row(panel, label, el);
@@ -401,7 +416,7 @@ export function createDebugPanel({
   // mode: a hero reads as a hero because its ink is heavier than everything else's, and a single
   // number would collapse the only distinction being made.
   if (cartoon.state.enabled) {
-    heading('Cartoon');
+    heading('Cartoon', () => ({ cartoon: minus(cartoon.state, 'enabled') }));
     const toonRow = (label, key, min, max, step, format = (v) => v.toFixed(2)) => {
       const el = slider(min, max, step, cartoon.state[key]);
       const value = row(panel, label, el);
@@ -454,7 +469,7 @@ export function createDebugPanel({
   // The four vehicle finishes (util/geo.js, FINISH_DEFAULTS). One set of sliders retargeted by the
   // picker rather than four sets of ten, which would be most of the panel. All live: the numbers
   // are shared uniforms, so a slider reaches every car without recompiling anything.
-  heading('Car finish');
+  heading('Car finish', () => ({ carFinish: glossTuning() }));
   // Freeze the world and get the camera in close: a car is ~25px long at play zoom, which is no
   // size to judge a glint at. `I` toggles it from the keyboard too, `N` steps through the cars and
   // the wheel or a pinch zooms. Drag to pan.
@@ -558,7 +573,8 @@ export function createDebugPanel({
   panel.append(resetFinish);
 
   if (bloom.state.enabled) {
-    heading('Bloom');
+    // The per-kind rows write `BLOOM_INTENSITY` itself, not `bloom.state`, so they are copied from there.
+    heading('Bloom', () => ({ bloom: minus(bloom.state, 'enabled', 'hdr'), intensity: { ...BLOOM_INTENSITY } }));
     const bloomRow = (label, key, min, max, step, format = (v) => v.toFixed(2), read = null) => {
       const initial = read ? read() : bloom.state[key];
       const el = slider(min, max, step, initial);
@@ -605,7 +621,7 @@ export function createDebugPanel({
   // city's palette was authored with no tone curve at all, so the first thing anyone looks for is
   // where to put the exposure to get the colours back, and the answer is that you cannot.
   if (hdr.state.enabled) {
-    heading('HDR');
+    heading('HDR', () => ({ hdr: minus(hdr.state, 'enabled') }));
     const hdrRow = (label, key, min, max, step, format = (v) => v.toFixed(2)) => {
       const el = slider(min, max, step, hdr.state[key]);
       const value = row(panel, label, el);
@@ -628,7 +644,7 @@ export function createDebugPanel({
   // every one of them is a judgement about a whole frame that cannot be made from the numbers. The
   // only way to know whether the back of the city has separated from the front is to watch the
   // front stay put while the back moves.
-  heading('Haze');
+  heading('Haze', () => ({ haze: snapshot().light.haze }));
 
   /**
    * Rebuild the fog colour from whatever the sky is showing *now*.
@@ -701,7 +717,7 @@ export function createDebugPanel({
   // band that reads as weather on a desktop is a band a portrait phone never gets to see. So this
   // section exists to be dragged on the device in question.
   if (clouds) {
-    heading('Clouds');
+    heading('Clouds', () => ({ clouds: pick(clouds.state, ['count', 'overlap', 'band', 'speed', 'over']) }));
 
     const amount = slider(0, clouds.POOL, 1, clouds.state.count);
     const amountValue = row(panel, 'Amount', amount);
@@ -768,7 +784,9 @@ export function createDebugPanel({
   // the same tuning the physics reads — rather than from a formula written out again here. A
   // preview with its own copy of the maths is a preview that can be wrong, and it would be wrong
   // in the direction that matters: it would go on looking right after somebody changed the sim.
-  heading('Loco Mode');
+  heading('Loco Mode', () => ({
+    locoMode: pick(loco.get(), ['kick', 'speed', 'accel', 'overdriveSpeed', 'overdriveAccel', 'brake']),
+  }));
 
   const PREVIEW_W = 230, PREVIEW_H = 76;
   const svgNS = 'http://www.w3.org/2000/svg';
@@ -931,7 +949,7 @@ export function createDebugPanel({
   // These reach the police cruiser as well. It drives the taxi's Loco Mode on purpose — one
   // definition of maniac, shared out of sim/traffic.js — so the sliders move both cars, and the
   // room readout below says which car is about to run out of lane.
-  heading('Loco weave');
+  heading('Loco weave', () => ({ locoMode: pick(loco.get(), ['sway', 'swayWave', 'chop', 'chopWave', 'fade']) }));
 
   const weaveNote = document.createElement('p');
   weaveNote.className = 'dbg-note';
@@ -997,7 +1015,7 @@ export function createDebugPanel({
   // shader levers are uniforms — but the animation is over by the time this panel can be opened,
   // so every slider replays the entrance on release: scrub, let go, watch. The values live in
   // the entry module and are read back here, so the Export section captures them with the rest.
-  heading('City entrance');
+  heading('City entrance', () => ({ cityEntrance: cityEntry.tuning() }));
 
   const entryStart = cityEntry.tuning();
 
@@ -1285,6 +1303,7 @@ function organise(panel) {
       body.className = 'dbg-sec-body';
       section.append(head, body);
       el.replaceWith(section);
+      if (el.copyValues) body.append(copyValuesButton(el.copyValues));
       const entry = { title, key: title.toLowerCase(), section, head, count, body, items: [] };
       head.addEventListener('click', () => {
         // During a search the open/closed look is the search's, not the user's — a click then
@@ -1309,6 +1328,12 @@ function organise(panel) {
   empty.className = 'dbg-empty';
   empty.textContent = 'No matches';
   empty.hidden = true;
+
+  // Shown A to Z rather than in build order: with this many sections, finding one by name beats
+  // any grouping the code happens to build them in. Anything that is not a section (nothing, today)
+  // keeps its place ahead of them.
+  sections.sort((a, b) => a.title.localeCompare(b.title));
+  for (const s of sections) panel.append(s.section);
 
   panel.prepend(header);
   panel.append(empty);
