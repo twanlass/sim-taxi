@@ -4337,7 +4337,7 @@ that it returns after a reload, under an emulated iPhone.
 ## Debug panel
 
 `src/game/debugpanel.js`, behind the ⚙️ button top right — only built when the URL carries
-`?debug` or `?settings`. It used to be always on, but at small widths the button sat right where
+`?debug`, `?settings` or `?audio`. It used to be always on, but at small widths the button sat right where
 the streak counter now lives, and it's a tool almost no player needs to see. Split by cost:
 
 - **Live** — day cycle on/off, day length, time of day, sun colour/strength, ambient fill, fare
@@ -4356,6 +4356,20 @@ is that trying the two against each other stops meaning hand-editing the address
 exactly the friction that stops a look from being judged properly.
 
 Pretending a rebuild-only value is live would just show a slider that silently does nothing.
+
+Those flags are **debug mode**, and debug mode also plays differently so the game can sit open
+behind the panel untouched: the tutorial is skipped, and every fare clock is held for the session
+(the same `fares.setPaused` hold the tutorial uses, via `holdFareClocks` in main.js), so no rider
+expires and the run never ends on a missed fare. The title screen's tips setting is not touched.
+
+Every section starts **collapsed**, with a search box pinned above them. The code still builds the
+panel flat — `heading()` then rows — and `organise()` folds it into sections at the end, so a new
+section only has to start with `heading()`. Search matches section titles plus row labels and
+button text (every word has to land somewhere, so "loco brake" finds one slider), forces matching
+sections open and hides the rest. Which sections the user opened is kept in `sessionStorage` and is
+never written while a search is narrowing the panel, so clearing the search restores it. The look
+is deliberately a neutral tool style rather than the game's. The sound designer's mix controls
+are sections here too ([audio.md](audio.md)); `?audio` opens the same panel.
 
 Touching any lighting control stops the day cycle, rather than letting the next frame overwrite the
 change. **Copy settings JSON** exports the live values (not the slider positions, so manual
