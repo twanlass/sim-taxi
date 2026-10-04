@@ -279,6 +279,9 @@ export const PALETTE = {
   // the point — the flash as a note turns over is the thing that catches an eye that is on the road
   // ahead rather than on the trail.
   cashBack: '#EDE9CF',
+  // A getaway checkpoint's ring and its pulsing centre dot (geometry/targetring.js). White, off
+  // the urgency scale on purpose: the clock is cashed at the drop-off, not here.
+  waypoint: '#FFFFFF',
   // The pale end of the *face*, which is a different job from `cashBack` and was at first confused
   // with it. The back is a flash — a value flip as a note turns over — and there is one of it. This
   // is a **spread**: every note rolls its own face somewhere between `cashNote` and here, so the

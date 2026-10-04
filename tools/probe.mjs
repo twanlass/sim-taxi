@@ -3585,7 +3585,9 @@ check('no two cars occupy the same space', worst > 1.6,
   {
     const pin = createDestinationPin();
     const opening = urgencyColor(URGENCY_SEGMENTS).getHexString();
-    const painted = pin.ring.group.children.map((m) => m.material.color.getHexString()).join('/');
+    // Visible layers: the checkpoint's ping dot (`setWaypoint`) rides in the same group, hidden.
+    const painted = pin.ring.group.children.filter((m) => m.visible)
+      .map((m) => m.material.color.getHexString()).join('/');
     // One mark at three weights, so rim, fill and sweep are always the same hex — and it is a hex
     // off the urgency scale now rather than a teal outside it. Which *level* a live drop-off is
     // standing at is asserted against a played run below.
@@ -15227,12 +15229,16 @@ let chopperOrder; // likewise
         // Touch each corner in turn: a checkpoint moves the target on, the last stop delivers.
         if (k === 0) {
           const seen = [];
-          // The mark on the ground: a diamond for a checkpoint, the disc for the drop-off — read
-          // off the rim's own torus, four segments against forty-eight.
-          const corners = () => r.slot.destination.ring.group.children[0].geometry.parameters.tubularSegments;
+          // The mark on the ground: the white waypoint ring with its ping for a checkpoint, the
+          // ordinary disc in the clock's colour for the drop-off.
+          const ring = r.slot.destination.ring;
+          const rimHex = () => ring.group.children[0].material.color.getHexString();
+          const isWaypoint = () => ring.isWaypoint() && rimHex() === 'ffffff'
+            && ring.group.children.some((m) => m.visible && m.geometry.type === 'CircleGeometry'
+              && m.renderOrder === 3.5);
           for (const stop of [...cps, r.dropoff]) {
             if (r.target.i !== stop.i || r.target.j !== stop.j) { flow = false; break; }
-            shapes.push(corners() === (stop === r.dropoff ? 48 : 4));
+            shapes.push(stop === r.dropoff ? !ring.isWaypoint() && rimHex() !== 'ffffff' : isWaypoint());
             const c = intersectionCentre(stop.i, stop.j);
             t6.taxi.x = c.x; t6.taxi.z = c.z;
             for (const e of f6.update(1 / 60, t6.taxi)) seen.push(e.type);
@@ -15248,7 +15254,7 @@ let chopperOrder; // likewise
       check('...on free, visible, dry corners of their own', clash === 0, `${clash} clashes`);
       check('...budgeted into the robber’s one clock', uncovered === 0, `${uncovered} short clocks`);
       check('...and touched in order, every checkpoint and then the drop-off', flow);
-      check('...each checkpoint marked by a diamond, the drop-off by the ring',
+      check('...each checkpoint marked by a white pulsing ring, the drop-off by the ordinary one',
         shapes.length === ROBBER_CHECKPOINTS + 1 && shapes.every(Boolean), `${shapes.filter(Boolean).length}/${shapes.length}`);
     }
 

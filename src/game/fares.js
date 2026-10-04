@@ -1329,7 +1329,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // one clock, visibly changing hands, exactly as it does at a kerb.
     paintDropoff(fare, urgencyLevel(1));
     place(destination, fare.target.i, fare.target.j);
-    destination.ring.setShape(checkpoints.length > 0);
+    destination.ring.setWaypoint(checkpoints.length > 0);
     destination.ring.appear();
     marker.showAt(URGENCY_SEGMENTS, from.x, from.z, false, false);
     marker.beginTransfer();
@@ -1407,8 +1407,8 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     fare.ringLevel = null;
     paintDropoff(fare, urgencyLevel(urgencyOf(fare)));
     place(fare.slot.destination, fare.dropoff.i, fare.dropoff.j);
-    // The slot may last have carried a getaway's checkpoint diamond.
-    fare.slot.destination.ring.setShape(false);
+    // The slot may last have carried a getaway's checkpoint.
+    fare.slot.destination.ring.setWaypoint(false);
     // It grows out of its own centre rather than appearing at full size, on the same frame the kerb
     // disc pulls back into *its* one (faremarker.js, beginTransfer). Two discs switching states in
     // one frame read as two events; two moving in opposite directions read as the one thing that is
@@ -1878,8 +1878,8 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
         fare.checkpoints.shift();
         fare.target = fare.checkpoints[0] ?? fare.dropoff;
         place(fare.slot.destination, fare.target.i, fare.target.j);
-        // A diamond while there are checkpoints left, the ring for the drop-off.
-        fare.slot.destination.ring.setShape(fare.checkpoints.length > 0);
+        // The white waypoint ring while there are checkpoints left, the ordinary one for the drop-off.
+        fare.slot.destination.ring.setWaypoint(fare.checkpoints.length > 0);
         fare.slot.destination.ring.appear();
         emit('checkpoint', fare);
       } else {
