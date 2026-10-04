@@ -2550,6 +2550,16 @@ function fuelScreenPos() {
   return { x: r.left + r.width / 2, y: r.top + 3, r: r.width / 2 + 20 };
 }
 
+/**
+ * Where a run's label pops in the payout sequence: the run tag's own slot, top centre, a little
+ * under the row so its rise ends level with where the tag was.
+ */
+function runLabelScreenPos() {
+  const r = hud.runs?.getBoundingClientRect();
+  if (!r || !r.height) return taxiScreenPos();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 + 40 };
+}
+
 /** Centre of the money counter in viewport coordinates — the flight's target. */
 function counterScreenPos() {
   // Anchor on the `.money` wrapper rather than the `#money` span so the flight lands on the
@@ -2609,16 +2619,23 @@ function rollMoneyTo(target, up = true) {
 }
 
 /**
- * The flying number, off the taxi and onto the counter.
+ * The flying number: it pops just under the counter, top right, and rises into it.
+ *
+ * It flew off the taxi at first, which tied the payout to the drop-off but put it wherever the car
+ * happened to be — and with a run bonus's three steps in a row, that was a lot of reading done
+ * over the busiest part of the map. Tyler moved it up by the score (and the run's label to the top
+ * centre, `runLabelScreenPos`), so the eye stays on the HUD for the whole sequence.
  *
  * Negative is a **charge** — the burger's `BURGER_PRICE` and the depot's `REPAIR_PRICE`. It takes the same
- * flight rather than one of its own, because it is the same claim: this car, here, is what moved the
- * counter. What changes is the sign, the colour (red, `.is-charge`) and nothing else — including the
- * direction, which stays taxi → counter. A charge flown counter → taxi would read as the player
- * being *given* something.
+ * flight rather than one of its own, because it is the same claim: this is what moved the counter.
+ * What changes is the sign, the colour (red, `.is-charge`) and nothing else — including the
+ * direction, which stays up into the counter. A charge flown out of the counter would read as the
+ * player being *given* something.
  */
+const EARNING_DROP = 52;   // px under the counter's centre that the number appears at
 function popEarning(amount, { cls = '', prefix = '', rollTo = null, onLanded = null } = {}) {
-  const start = taxiScreenPos();
+  const counter = counterScreenPos();
+  const start = counter ? { x: counter.x, y: counter.y + EARNING_DROP } : taxiScreenPos();
   const el = document.createElement('div');
   el.className = `${amount < 0 ? 'earning is-charge' : 'earning'} ${cls}`.trim();
   el.textContent = amount < 0 ? `−$${-amount}` : `${prefix}$${amount}`;
@@ -2628,25 +2645,24 @@ function popEarning(amount, { cls = '', prefix = '', rollTo = null, onLanded = n
 
   // The counter's position is resolved *at launch* rather than baked into a CSS keyframe, so a
   // window resize between deliveries still aims each flight at where the counter actually is now.
-  const target = counterScreenPos() ?? { x: start.x, y: start.y - 74 };
+  const target = counter ?? { x: start.x, y: start.y - 74 };
   const dx = target.x - start.x;
   const dy = target.y - start.y;
 
-  // Phase 1: rise off the taxi. Reads as "the payout leaving the world" — same shape as the old
-  // pop, just shorter so it can hand off to phase 2 without dragging.
+  // Phase 1: pop in under the counter and hold a beat, long enough to read the amount.
   const rise = el.animate([
-    { opacity: 0, transform: 'translate(-50%, -50%) translateY(4px)   scale(0.8)' },
-    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-22px) scale(1.06)', offset: 0.5 },
-    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-30px) scale(1)' },
-  ], { duration: 620, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
+    { opacity: 0, transform: 'translate(-50%, -50%) translateY(10px) scale(0.7)' },
+    { opacity: 1, transform: 'translate(-50%, -50%) translateY(0)    scale(1.12)', offset: 0.35 },
+    { opacity: 1, transform: 'translate(-50%, -50%) translateY(0)    scale(1)' },
+  ], { duration: 560, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
 
   rise.onfinish = () => {
-    // Phase 2: fly to the counter and shrink, landing on top of it. Slight scale-down at the end
-    // so the flight has a target rather than a vague fade-in-the-middle.
+    // Phase 2: rise into the counter and shrink, landing on top of it. Slight scale-down at the
+    // end so the flight has a target rather than a vague fade-in-the-middle.
     const fly = el.animate([
-      { opacity: 1, transform: 'translate(-50%, -50%) translateY(-30px) scale(1)' },
+      { opacity: 1, transform: 'translate(-50%, -50%) scale(1)' },
       { opacity: 0, transform: `translate(-50%, -50%) translate(${dx}px, ${dy}px) scale(0.55)` },
-    ], { duration: 460, easing: 'cubic-bezier(0.42, 0, 0.58, 1)', fill: 'forwards' });
+    ], { duration: 380, easing: 'cubic-bezier(0.42, 0, 0.58, 1)', fill: 'forwards' });
     fly.onfinish = () => {
       el.remove();
       // A step of a run-bonus payout rolls to its own partial total (`popRunSequence`), never past
@@ -2659,8 +2675,8 @@ function popEarning(amount, { cls = '', prefix = '', rollTo = null, onLanded = n
 
 /**
  * A drop-off that earned run bonuses (game/runs.js) pays out as a sequence, one item at a time: the
- * fare's own price flies off the taxi into the counter exactly as a plain payout does, then for each
- * run its label pops over the taxi and fades, and the extra cash that run added flies into the
+ * fare's own price rises into the counter exactly as a plain payout does, then for each run its
+ * label pops at the top centre and fades, and the extra cash that run added flies into the
  * counter after it — `$20` → counter, `PERFECT RUN ×2`, `+$20` → counter. Each amount rolls the counter to its own partial total as it lands, so the score
  * climbs in the steps the screen just spelled out.
  *
@@ -2695,7 +2711,7 @@ function popRunSequence(fare) {
       });
       return;
     }
-    const at = taxiScreenPos();
+    const at = runLabelScreenPos();
     const el = document.createElement('div');
     el.className = `run-pop run-${step.key}`;
     el.textContent = step.label;

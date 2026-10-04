@@ -117,8 +117,12 @@
         --hud-shadow: 0 2px 2px rgba(0, 0, 0, 0.25);
       }
 
+      /* Spans the top row edge to edge, inset the same both sides, so its middle is the screen's
+         and the run tags can sit there while still riding #hud's slide in and out (a fixed child
+         of a translated parent is placed against the parent, not the viewport). */
       #hud {
         position: fixed; top: var(--hud-top); right: calc(var(--hud-side) + var(--safe-right));
+        left: calc(var(--hud-side) + var(--safe-left));
         display: flex; flex-direction: column; align-items: flex-end;
         font: 900 14px/1.2 var(--hud-font);
         color: #fff; text-shadow: var(--hud-shadow);
@@ -230,17 +234,19 @@
         100% { transform: scale(1);    color: #fff;    }
       }
 
-      /* The run tags under the cash while a job is under way — see `updateRunTags` in main.js and
-         game/runs.js. Small caps in a dim pill until the bonus is actually earned, then lit in the
-         run's own colour — PERFECT is the payout green. */
+      /* The run tag, top centre on the cash total's row while a job is under way — see
+         `updateRunTags` in main.js and game/runs.js. Small caps in a dim pill until the bonus is
+         actually earned, then lit in the run's own colour — PERFECT is the payout green. It sat
+         under the cash at first; Tyler moved it to the middle, where the payout's label also pops. */
       #hud .runs {
-        display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-top: 2px;
+        position: absolute; top: 0; left: 50%; translate: -50% 0; height: var(--hud-row);
+        display: flex; flex-direction: row; align-items: center; gap: 6px;
       }
       #hud .run-tag {
         font-size: 13px; line-height: 1; letter-spacing: 0.08em; font-variant-numeric: tabular-nums;
         padding: 4px 7px; border-radius: 6px;
         background: rgba(0, 0, 0, 0.28); color: rgba(255, 255, 255, 0.6);
-        transform-origin: right center;
+        transform-origin: center;
         animation: run-tag-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
         transition: color 0.15s ease, background-color 0.15s ease;
       }
@@ -252,7 +258,7 @@
         100% { transform: scale(1); }
       }
       #hud .run-tag.is-done { animation: run-tag-out 0.4s ease-in forwards; }
-      @keyframes run-tag-out { to { opacity: 0; transform: translateX(12px); } }
+      @keyframes run-tag-out { to { opacity: 0; transform: translateY(-10px); } }
       /* Lost: it flinches red, shakes hard for a third of a second, then drops out of the HUD like
          something knocked off a shelf — a fall that accelerates and tips as it fades, so it reads
          as *lost* rather than quietly hidden. A 5px wiggle over 0.6s passed for nothing happening. */
@@ -379,9 +385,9 @@
         font-size: 18px; font-weight: 500; opacity: 0.85; padding: 8px 0; margin-bottom: 2px;
       }
 
-      /* Earnings fly off the taxi so the payout is visibly connected to the drop-off; the flight
-         itself (rise, then travel to the counter) is driven from JS so it can aim at the counter's
-         actual on-screen position, which changes with the viewport. */
+      /* Earnings pop just under the counter and rise into it (`popEarning` in main.js — they flew
+         off the taxi until Tyler moved them up by the score). Driven from JS so it can aim at the
+         counter's actual on-screen position, which changes with the viewport and the digits. */
       .earning {
         position: fixed; z-index: 25; pointer-events: none; user-select: none;
         font: 800 27px/1 var(--game-font);
@@ -389,7 +395,7 @@
         transform: translate(-50%, -50%);
       }
       /* A charge — the burger at the drive-through window, and nothing else so far. Same flight,
-         same size, same anchor on the taxi: only the sign and the colour say which way the money
+         same size, same anchor under the counter: only the sign and the colour say which way the money
          went, which is the whole point of reusing the pop rather than inventing a second one. */
       .earning.is-charge { color: #FF7A6B; text-shadow: 0 2px 10px rgba(40, 12, 10, 0.65); }
       /* A run bonus's label in the drop-off's payout sequence (`popRunSequence` in main.js), and the
