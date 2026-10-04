@@ -11,8 +11,7 @@ import {
   brakeLightMaterial, turnSignalMaterial,
   sirenPodGeometry, sirenRedAnchor, sirenBlueAnchor, sirenRedMaterial, sirenBlueMaterial, sirenOn,
   sirenBaseGeometry, sirenBaseAnchor,
-  headlightGeometry, headlightAnchors, headlightMaterial, beamGeometry, beamMaterial, beamToe,
-  coneGeometry, coneMaterial, coneQuat,
+  headlightGeometry, headlightAnchors, headlightMaterial, coneGeometry, coneMaterial, coneQuat,
 } from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import { bumperGeometries } from '../geometry/bumpers.js';
@@ -3009,30 +3008,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     headlightAnchors(CAR_LEN, CAR_W), ambient, headlightGeometry);
   const truckHeadMesh = lightMesh('truckHeadlights', headlightMaterial,
     headlightAnchors(TRUCK_LEN, TRUCK_W), trucks, headlightGeometry);
-  // ...and the pool each one throws on the road. **Not** a lamp — kept out of `lightMeshes`, so out
-  // of the bloom — and written flat off the car's yaw alone rather than through the body matrix:
-  // seven units of beam hung off a pitching body would dip its far end under the asphalt on every
-  // brake. One pool per headlight, so the `LIGHT_PODS` stride is filled and no slot sits at the
-  // identity matrix. Below the rain's mirror clip, so a pool does not reflect itself.
-  const BEAM_Y = 0.025;
-  const beamMeshes = [];
-  const beamMesh_ = (name, anchors, vehicles) => {
-    const inst = neverCull(new THREE.InstancedMesh(beamGeometry(), beamMaterial(), MAX_AMBIENT * LIGHT_PODS));
-    inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    inst.name = name;
-    inst.count = vehicles.length * LIGHT_PODS;
-    inst.renderOrder = 1;
-    inst.userData.podAnchors = anchors.map((a) => new THREE.Vector3(a.x - 0.1, 0, a.z));
-    // Each pool toed out toward its own side, so a pair reads as two beams rather than one.
-    inst.userData.podQuats = anchors.map((a) => beamToe(a.z));
-    beamMeshes.push(inst);
-    return inst;
-  };
-  const beamMesh = beamMesh_('carHeadlightBeams', headlightAnchors(CAR_LEN, CAR_W), ambient);
-  const truckBeamMesh = beamMesh_('truckHeadlightBeams', headlightAnchors(TRUCK_LEN, TRUCK_W), trucks);
-  // ...and the cone of light each lamp throws to meet its pool (`coneGeometry` in geometry/lights.js).
-  // Written *through* the body matrix like a pod, so it leaves the lamp wherever the lamp is; kept
-  // out of `lightMeshes` like the pools, so out of the bloom, which would turn a haze into a blob.
+  const coneMeshes = [];
+  // ...and the cone of light each lamp throws (`coneGeometry` in geometry/lights.js). Written
+  // *through* the body matrix like a pod, so it leaves the lamp wherever the lamp is; kept out of
+  // `lightMeshes`, so out of the bloom, which would turn a haze into a blob.
   const coneMesh_ = (name, anchors, vehicles) => {
     const inst = neverCull(new THREE.InstancedMesh(coneGeometry(), coneMaterial(), MAX_AMBIENT * LIGHT_PODS));
     inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -3041,7 +3020,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     inst.renderOrder = 1;
     inst.userData.podAnchors = anchors;
     inst.userData.podQuats = anchors.map((a) => coneQuat(a.z));
-    beamMeshes.push(inst);
+    coneMeshes.push(inst);
     return inst;
   };
   const coneMesh = coneMesh_('carHeadlightCones', headlightAnchors(CAR_LEN, CAR_W), ambient);
@@ -3507,7 +3486,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   scene.add(sirenHousingMesh);
   scene.add(policeCabMesh);
   for (const light of lightMeshes) scene.add(light);
-  for (const beam of beamMeshes) scene.add(beam);
+  for (const cone of coneMeshes) scene.add(cone);
 
   // --- Stop bars ------------------------------------------------------------
   //
@@ -3717,7 +3696,6 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     const turnRightInst = car.isTruck ? truckTurnRightMesh : turnRightMesh;
     for (let p = 0; p < LIGHT_PODS; p++) {
       (car.isTruck ? truckHeadMesh : headMesh).setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
-      (car.isTruck ? truckBeamMesh : beamMesh).setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
       (car.isTruck ? truckConeMesh : coneMesh).setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
       brakeInst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
       turnLeftInst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
@@ -3742,7 +3720,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     brakeInst.instanceMatrix.needsUpdate = true;
     turnLeftInst.instanceMatrix.needsUpdate = true;
     turnRightInst.instanceMatrix.needsUpdate = true;
-    for (const inst of [headMesh, truckHeadMesh, ...beamMeshes]) inst.instanceMatrix.needsUpdate = true;
+    for (const inst of [headMesh, truckHeadMesh, ...coneMeshes]) inst.instanceMatrix.needsUpdate = true;
     if (!car.isTruck) {
       sirenRedMesh.instanceMatrix.needsUpdate = true;
       sirenBlueMesh.instanceMatrix.needsUpdate = true;
@@ -3774,24 +3752,6 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
    * the whole of what keeps a fading lamp on the bumper it belongs to. See lightPodGeometry() in
    * geometry/lights.js for what it did when the anchor lived in the vertices instead.
    */
-  const flatMatrix = new THREE.Matrix4();
-  const flatQuat = new THREE.Quaternion();
-  const flatPos = new THREE.Vector3();
-  const Y_AXIS = new THREE.Vector3(0, 1, 0);
-
-  /** `writeLight` for something lying on the road: posed off the car's x, z and yaw only. */
-  function writeFlat(inst, car, level) {
-    flatQuat.setFromAxisAngle(Y_AXIS, car.yaw);
-    flatMatrix.compose(flatPos.set(car.x, BEAM_Y, car.z), flatQuat, scl);
-    const anchors = inst.userData.podAnchors;
-    const quats = inst.userData.podQuats;
-    for (let p = 0; p < anchors.length; p++) {
-      lightLocal.compose(anchors[p], quats ? quats[p] : LIGHT_QUAT, lightScale.setScalar(level));
-      lightMatrix.multiplyMatrices(flatMatrix, lightLocal);
-      inst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, lightMatrix);
-    }
-  }
-
   function writeLight(inst, car, level) {
     const anchors = inst.userData.podAnchors;
     const shapes = inst.userData.podShapes;
@@ -3843,9 +3803,6 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     const running = runningFor(car);
     writeLight(brakeInst, car, Math.max(car.brakeLevel, running * TAIL_FLOOR));
     writeLight(car.isTruck ? truckHeadMesh : headMesh, car, running);
-    // A car drawn by somebody else's mesh (`car.skin`) has had its body matrix zeroed, which hides
-    // every pod — but the pool is posed without that matrix, so it has to be told.
-    writeFlat(car.isTruck ? truckBeamMesh : beamMesh, car, car.skin ? 0 : running);
     writeLight(car.isTruck ? truckConeMesh : coneMesh, car, running);
     writeLight(turnLeftInst, car, car.turnLeftLevel);
     writeLight(turnRightInst, car, car.turnRightLevel);
@@ -6019,10 +5976,6 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // note there: with the default order the roll is applied about the *world* X axis, which
         // only doubles as the car's own axis when it happens to be driving east.
         taxiGroup.rotation.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER);
-        // How far off the road the hop or its landing bounce has the body, for whatever has to know
-        // the car is in the air rather than on it — the headlight pools (game/citylights.js) fade.
-        // Render-only, like the rest of this block.
-        car.airY = airY;
         setTaxiSteer(car.wheelAngle);
         setTaxiLights(Math.max(car.brakeLevel, runningFor(car) * TAIL_FLOOR),
           car.turnLeftLevel, car.turnRightLevel);
@@ -6062,12 +6015,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     policeCabMesh.instanceMatrix.needsUpdate = true;
     headMesh.count = brakeMesh.count;
     truckHeadMesh.count = truckBrakeMesh.count;
-    beamMesh.count = brakeMesh.count;
-    truckBeamMesh.count = truckBrakeMesh.count;
     coneMesh.count = brakeMesh.count;
     truckConeMesh.count = truckBrakeMesh.count;
     for (const light of lightMeshes) light.instanceMatrix.needsUpdate = true;
-    for (const beam of beamMeshes) beam.instanceMatrix.needsUpdate = true;
+    for (const cone of coneMeshes) cone.instanceMatrix.needsUpdate = true;
 
     // --- Stop bar colours, one per approach.
     for (let index = 0; index < bars.length; index++) {

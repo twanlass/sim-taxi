@@ -172,69 +172,8 @@ export function headlightMaterial() {
 }
 
 /**
- * How far a headlight's pool reaches up the road, how wide it opens, and how far its far end swings
- * out toward its own side of the car. The toe is what keeps two pools reading as two: aimed
- * straight ahead, 0.82 apart and 3.2 wide at the far end, they overlapped over most of their width.
- */
-export const BEAM_LEN = 7;
-const BEAM_NEAR_W = 0.45;
-const BEAM_FAR_W = 2.1;
-const BEAM_TOE = Math.atan2(0.55, BEAM_LEN);
-
-/**
- * The yaw that toes one headlight's pool out, for a headlight at car-local `z` — a rotation about the
- * pool's own origin at the bumper, so it composes with the anchor the way a pod's scale does.
- * Negative yaw swings local +X toward +Z (the car's right), so the sign is the opposite of `z`'s.
- */
-export function beamToe(z) {
-  return new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.sign(z) * BEAM_TOE);
-}
-
-/**
- * One row across a pool, `u` of the way along it (0 at the bumper), in the pool's own frame: the
- * forward distance and the half-width there. `beamGeometry` needs only the two ends of what is a
- * trapezoid; the taxi's draped pool (game/citylights.js) samples rows in between.
- */
-export function beamRow(u) {
-  return { x: u * BEAM_LEN, half: THREE.MathUtils.lerp(BEAM_NEAR_W, BEAM_FAR_W, u) / 2 };
-}
-
-/** Rows along a pool — enough for the taxi's to follow a bridge's arch (game/citylights.js). */
-export const BEAM_ROWS = 12;
-
-/**
- * The pool a headlight throws on the road ahead, starting at its own origin (the bumper) and
- * opening out along +X, carrying a 0..1 fade in `uv.y` along its length. One strip of `BEAM_ROWS`
- * rows — the fleet's is a trapezoid either way, the rows are for the taxi's draped copy — wound so
- * every face points **up**, asserted in tools/probe.mjs on the taxi's, which is wound the same way:
- * an unlit triangle wound the other way does not draw wrong, it does not draw.
- */
-export function beamGeometry() {
-  const positions = [];
-  const uvs = [];
-  const index = [];
-  for (let r = 0; r <= BEAM_ROWS; r++) {
-    const u = r / BEAM_ROWS;
-    const { x, half } = beamRow(u);
-    // Left (-z) then right (+z).
-    positions.push(x, 0, -half, x, 0, half);
-    uvs.push(0, u, 1, u);
-    if (r < BEAM_ROWS) {
-      const v = r * 2;
-      index.push(v, v + 3, v + 2, v, v + 1, v + 3);
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geo.setIndex(index);
-  return geo;
-}
-
-/**
  * The beam itself, as a cone of light out of the lamp: open-ended, starting at the pod's own size
- * and opening to `CONE_R` over `CONE_LEN`. The pool on the road says where the light lands; this is
- * what says where it comes *from*. Built along +X from its own origin, so it hangs off a headlight
+ * and opening to `CONE_R` over `CONE_LEN`. Built along +X from its own origin, so it hangs off a headlight
  * anchor the way a pod does and switches on and off as a scale about the lamp.
  *
  * It rides the body, pitch and all, and that is deliberate rather than the bug the pools had: a
@@ -247,6 +186,11 @@ const CONE_R = 0.85;
 const CONE_TIP_R = 0.1;
 /** Aimed down a little, so the cone's axis reaches the road near its far end. */
 const CONE_TILT = Math.atan2(0.45, CONE_LEN);
+/**
+ * And swung out toward its own side of the car. The toe is what keeps a pair reading as two:
+ * aimed straight ahead, two beams 0.82 apart overlap over most of their width.
+ */
+const CONE_TOE = Math.atan2(0.4, CONE_LEN);
 
 export function coneGeometry() {
   const geo = new THREE.CylinderGeometry(CONE_TIP_R, CONE_R, CONE_LEN, 18, 6, true);
@@ -262,10 +206,15 @@ export function coneGeometry() {
   return geo;
 }
 
-/** The cone's turn about its lamp: toed out like the pool, and tilted down by `CONE_TILT`. */
+/**
+ * The cone's turn about its lamp, for a headlight at car-local `z`: tilted down by `CONE_TILT`, then
+ * toed out by `CONE_TOE`. Negative yaw swings local +X toward +Z (the car's right), so the toe's
+ * sign is the opposite of `z`'s.
+ */
 export function coneQuat(z) {
   const tilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -CONE_TILT);
-  return beamToe(z).multiply(tilt);
+  const toe = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.sign(z) * CONE_TOE);
+  return toe.multiply(tilt);
 }
 
 /**
@@ -307,44 +256,6 @@ export function coneMaterial() {
         // Orthographic: the view direction is view-space +Z everywhere.
         float facing = abs(normalize(vNormalView).z);
         float a = pow(1.0 - vAlong, 1.6) * smoothstep(0.0, 0.1, vAlong) * facing;
-        gl_FragColor = vec4(uColor * a * uStrength, 1.0);
-      }
-    `,
-  });
-}
-
-/**
- * Additive and unfogged, fading along the beam and toward its edges. Depth-tested so a building
- * cuts it, never depth-written so two cars' pools add instead of fighting.
- */
-export function beamMaterial() {
-  return new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: color('headlightBeam') }, uStrength: { value: 0.55 } },
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    vertexShader: /* glsl */ `
-      #include <common>
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        vec3 transformed = position;
-        vec4 mvPosition = vec4(transformed, 1.0);
-        #ifdef USE_INSTANCING
-          mvPosition = instanceMatrix * mvPosition;
-        #endif
-        mvPosition = modelViewMatrix * mvPosition;
-        gl_Position = projectionMatrix * mvPosition;
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      uniform vec3 uColor;
-      uniform float uStrength;
-      varying vec2 vUv;
-      void main() {
-        float along = vUv.y;
-        float edge = 1.0 - abs(vUv.x * 2.0 - 1.0);
-        float a = smoothstep(0.0, 0.02, along) * pow(1.0 - along, 1.6) * smoothstep(0.0, 0.5, edge);
         gl_FragColor = vec4(uColor * a * uStrength, 1.0);
       }
     `,

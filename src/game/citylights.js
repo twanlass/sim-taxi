@@ -8,11 +8,8 @@ import { facadeQuads, setPaneSink } from '../city/buildings.js';
 import { KERB_H } from '../city/ground.js';
 import { CAR_LEN, CAR_W } from '../sim/traffic.js';
 import {
-  headlightGeometry, headlightAnchors, headlightMaterial, beamMaterial, beamRow, beamToe,
-  coneGeometry, coneMaterial, coneQuat, BEAM_ROWS,
+  headlightGeometry, headlightAnchors, headlightMaterial, coneGeometry, coneMaterial, coneQuat,
 } from '../geometry/lights.js';
-import { TAXI_SCALE } from '../geometry/taxi.js';
-import { deckHeightAt } from '../city/river.js';
 
 /**
  * The city with its lights on — Rain Mode (`?rain`, game/rain.js). A wet street is mostly a
@@ -362,43 +359,23 @@ function poolMaterial() {
   });
 }
 
-/** Over the asphalt, under the rain's mirror clip — the fleet's `BEAM_Y`. */
-const BEAM_POOL_Y = 0.025;
 /**
- * How high off the road a hop can lift the body before its pools have gone: they thin out from the first
- * of these and are gone by the second. A roadworks hop peaks at `HOP_HEIGHT` = 2.75, so the pools
- * are dark across the middle of the arc and come back as the wheels do.
- */
-const POOL_LIFT_FADE = [0.25, 1.4];
-
-/**
- * The taxi's headlights: the same pods the fleet wears (geometry/lights.js), as ordinary meshes to
- * hang on `taxiGroup` — which is scaled by `TAXI_SCALE`, and the pods follow for free — plus the two
- * pools they throw, which do **not** hang on it.
+ * The taxi's headlights: the same pods and light cones the fleet wears (geometry/lights.js), as
+ * ordinary meshes to hang on `taxiGroup` — which is scaled by `TAXI_SCALE`, and both follow for
+ * free. The cones hang on the body on purpose: they say where the light comes from, so they leave
+ * the lamp wherever it is, and the road's depth cuts them where they meet it.
  *
- * They used to, and that is what went wrong over a jump: a pool parented to the body takes the
- * body's lift and pitch, so off a roadworks ramp it rose into the air as a flat slab, tilted with
- * the nose, and drove its far end through the asphalt on the way down. Light lands on the ground
- * wherever the car is, so the pools are posed on the ground instead — off the car's x, z and yaw
- * alone, the way the fleet's are (`writeFlat` in sim/traffic.js) — and fade as the body leaves it.
- *
- * And they are *draped*, not flat: each is a strip of `BEAM_ROWS` rows whose vertices are set on the
- * road surface under them every frame, `deckHeightAt` included. A flat seven-unit pool on an arched
- * bridge buries its far end in the deck while climbing; with rows, it lies on the curve. Two strips
- * of 26 vertices on the CPU — only the taxi pays it; the fleet keeps its flat instanced pools.
- *
- * The cones (`coneGeometry`) are the other half, and they *do* hang on the body: they say where the
- * light comes from, so they leave the lamp wherever it is, and the road's depth cuts them where
- * they meet it.
+ * There used to be a flat pool on the road under each one as well. Parented to the body it rose off
+ * a ramp as a slab and cut into the asphalt on the way down; laid on the road instead, it read as a
+ * second set of lights next to the cones. The cones carry the beam on their own.
  */
 export function createTaxiHeadlights() {
   const group = new THREE.Group();
   group.name = 'taxiHeadlights';
   const podMaterial = headlightMaterial();
-  const anchors = headlightAnchors(CAR_LEN, CAR_W);
   const pods = new THREE.Group();
   const coneMaterial_ = coneMaterial();
-  for (const anchor of anchors) {
+  for (const anchor of headlightAnchors(CAR_LEN, CAR_W)) {
     const pod = new THREE.Mesh(headlightGeometry(), podMaterial);
     pod.position.copy(anchor);
     pods.add(pod);
@@ -410,84 +387,13 @@ export function createTaxiHeadlights() {
     group.add(cone);
   }
   group.add(pods);
-
-  // Each pool's rows in car-local space, worked out once: the beam's own row, toed out about the
-  // bumper, moved to its headlight and scaled the way the drawn taxi is.
-  const local = [];
-  const toePoint = new THREE.Vector3();
-  for (const anchor of anchors) {
-    const toe = beamToe(anchor.z);
-    for (let r = 0; r <= BEAM_ROWS; r++) {
-      const { x, half } = beamRow(r / BEAM_ROWS);
-      for (const side of [-1, 1]) {
-        toePoint.set(x, 0, side * half).applyQuaternion(toe);
-        local.push((anchor.x - 0.1 + toePoint.x) * TAXI_SCALE, (anchor.z + toePoint.z) * TAXI_SCALE);
-      }
-    }
-  }
-  const perPool = (BEAM_ROWS + 1) * 2;
-  const positions = new Float32Array(anchors.length * perPool * 3);
-  const uvs = new Float32Array(anchors.length * perPool * 2);
-  const index = [];
-  for (let p = 0; p < anchors.length; p++) {
-    for (let r = 0; r <= BEAM_ROWS; r++) {
-      const v = p * perPool + r * 2;
-      uvs.set([0, r / BEAM_ROWS, 1, r / BEAM_ROWS], v * 2);
-      if (r === BEAM_ROWS) continue;
-      // Left/right of this row, then of the next: the same up-facing winding as `beamGeometry`.
-      const [l0, r0, l1, r1] = [v, v + 1, v + 2, v + 3];
-      index.push(l0, r1, l1, l0, r0, r1);
-    }
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
-  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-  geometry.setIndex(index);
-  const poolMaterial_ = beamMaterial();
-  const pools = new THREE.Mesh(geometry, poolMaterial_);
-  pools.name = 'taxiHeadlightPools';
-  pools.renderOrder = 1;
-  // Its vertices are in world space and move every frame; a bounding sphere would be stale at once.
-  pools.frustumCulled = false;
-  const strength = poolMaterial_.uniforms.uStrength.value;
-
-  let level = 0;
   /**
    * 0..1, the same running-light level the fleet reads (`setRunningLights` in sim/traffic.js): off
-   * in the sun, on once the storm is properly gloomy. The pods take it as a scale about their own
-   * origin, as the fleet's do, rather than `visible` — so switching on is not the frame a program
-   * compiles. The pools take it in their strength, for the same reason, at the next `update`.
+   * in the sun, on once the storm is properly gloomy. A scale about each part's own origin — the
+   * lamp — as the fleet's are, rather than `visible`, so switching on is not the frame a program
+   * compiles.
    */
-  const setLevel = (value) => {
-    level = value;
-    for (const part of group.children) part.scale.setScalar(value);
-  };
-
-  /**
-   * Lay the pools on the road in front of `car`, dimmed by how far its hop has it off the ground
-   * (`car.airY`, written by sim/traffic.js). Called after `traffic.update` has posed the taxi, so the
-   * pools are not a frame behind it.
-   */
-  const update = (car) => {
-    const cos = Math.cos(car.yaw);
-    const sin = Math.sin(car.yaw);
-    // The opening vignette's dropped kerb lifts the whole car onto the pavement; the pools go with it.
-    const base = BEAM_POOL_Y + (car.kerbLift || 0);
-    for (let n = 0, k = 0; n < local.length; n += 2, k += 3) {
-      const lx = local[n];
-      const lz = local[n + 1];
-      // Local +X is the heading and +Z the car's right — `rotation.y = yaw`, as `taxiGroup` has it.
-      const x = car.x + lx * cos + lz * sin;
-      const z = car.z - lx * sin + lz * cos;
-      positions[k] = x;
-      positions[k + 1] = base + deckHeightAt(x, z).y;
-      positions[k + 2] = z;
-    }
-    geometry.attributes.position.needsUpdate = true;
-    const onGround = 1 - THREE.MathUtils.smoothstep(car.airY || 0, POOL_LIFT_FADE[0], POOL_LIFT_FADE[1]);
-    poolMaterial_.uniforms.uStrength.value = strength * level * onGround;
-  };
-
+  const setLevel = (level) => { for (const part of group.children) part.scale.setScalar(level); };
   setLevel(0);
-  return { group, pods, pools, setLevel, update };
+  return { group, pods, setLevel };
 }

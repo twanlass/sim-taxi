@@ -333,9 +333,6 @@ function renderFrame() {
   // Sized here rather than in the frame loop for the same reason the AO prepass is called here:
   // shot mode and `__taxi.redraw()` both reach a render without ever reaching the loop.
   crayon.prepare();
-  // The taxi's headlight pools onto the road where traffic last left it — here for the same reason,
-  // ahead of every pass that draws them.
-  taxiHeadlights?.update(traffic.taxi);
   // The wet road's mirror, before anything reads it. A no-op without `?rain`.
   rainLightsOn?.();
   rain.update(0, camera);
@@ -916,15 +913,13 @@ markOccluder(police.group);
 // bloom at the right strength by being built rather than by being remembered in two places.
 for (const mesh of traffic.emissiveMeshes) markEmissive(mesh, mesh.userData.bloomKind ?? 'pod');
 if (litPanes) markEmissive(litPanes, 'window');
-// The taxi's own headlights, hung on its group so they ride the body, and the pools they throw,
-// which lie on the road instead (see createTaxiHeadlights) and are laid there by `renderFrame`. The group is also what becomes the wreck (see `wreckShell` in sim/traffic.js),
-// so both go dark while it is one.
+// The taxi's own headlights and their cones, hung on its group so they ride the body. The group is
+// also what becomes the wreck (see `wreckShell` in sim/traffic.js), so they go dark while it is one.
 taxiHeadlights = rain.enabled ? createTaxiHeadlights() : null;
 if (taxiHeadlights) {
   taxiHeadlights.setLevel(runningLevel);
   taxiNow = () => traffic.taxi;
   traffic.taxiGroup.add(taxiHeadlights.group);
-  scene.add(taxiHeadlights.pools);
   markEmissive(taxiHeadlights.pods, 'pod');
 }
 if (lamps) markEmissive(lamps.heads, 'bay');
@@ -3595,10 +3590,7 @@ function frame() {
   clouds.update(dt);
   rain.update(dt, camera);
   applyWeather(dt);
-  if (taxiHeadlights) {
-    taxiHeadlights.group.visible = !traffic.taxi.crashed;
-    taxiHeadlights.pools.visible = !traffic.taxi.crashed;
-  }
+  if (taxiHeadlights) taxiHeadlights.group.visible = !traffic.taxi.crashed;
   // Handed last frame's taxi position, which is all a startle needs — it is a distance test with
   // eight units of slack, and running it here rather than after `traffic.update` keeps the whole
   // scenery block in one place.

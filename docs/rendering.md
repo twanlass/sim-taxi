@@ -1434,18 +1434,16 @@ city on:
   vehicle's front indicators, which own the corners. The front indicator is narrower than the rear
   one (`turnSignalShapes`) so the headlight beside it still reads while it blinks; at full width the
   amber swallowed the lamp next to it. Each pod throws a cone of light (`coneGeometry`): open,
-  additive, hung off the lamp through the body matrix and cut by the road's depth where it meets
-  it. Under it lies a trapezoid pool seven units up the road; both are toed out toward their own
-  side so a pair reads as two beams. It also gives every car a 0.6 floor on its brake pods, so it
-  shows dim tail lights with a real brake still reading as a change. The pools are posed flat off
-  `x`, `z` and `yaw` rather than through the body matrix, because a pitching body would dip their
-  far end under the asphalt on every stop. The taxi wears the same pods and cones on its own group
-  (`createTaxiHeadlights`), but its pools sit in the scene: draped over the road a row at a time
-  (`deckHeightAt` included, so they lie on a bridge's arch) and faded out by `car.airY` while a hop
-  has it off the ground. Parented to the body, they rose off a ramp as a flat slab and cut into the
-  road on the way down. All of it is hidden while it is a wreck.
+  additive, toed out and tilted down, hung off the lamp through the body matrix (on the taxi, its
+  group, via `createTaxiHeadlights`) and cut by the road's depth where it meets it. It also gives
+  every car a 0.6 floor on its brake pods, so it shows dim tail lights with a real brake still
+  reading as a change. All of it is hidden while a car is a wreck.
 
-Both kinds of pool sit at 0.025, under the mirror's clip, so they do not reflect themselves. The
+  There is no pool on the road under the cones. One was tried both ways: parented to the body it
+  rose off a ramp as a flat slab and cut into the asphalt on the way down, and laid on the road it
+  read as a second set of lights beside the cones.
+
+The lamp pools sit at 0.025, under the mirror's clip, so they do not reflect themselves. The
 windows and lamp pools stay dark until the entrance wave finishes, so the city arrives and then
 switches its lights on.
 
