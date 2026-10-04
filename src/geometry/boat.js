@@ -234,8 +234,8 @@ const MAST_Z = TUG_LEN * 0.12;
  *
  * **The masthead is placed at `TUG_AIR`, not measured afterwards.** It is the tallest thing on the
  * boat and the only number in the clearance chain a bit of styling could quietly break: a first
- * cut of the old tug with a mast eyeballed on top came out at 2.81, which is over the 2.75 an
- * arched span leaves, and would have left it unable to reach the drawbridge at all. Hanging the
+ * cut of the old tug with a mast eyeballed on top came out at 2.81, which was over the 2.75 an
+ * arched span left at the time, and would have left it unable to reach the drawbridge at all. Hanging the
  * mast off the constant means the geometry cannot disagree with the chain — and everything else up
  * there (stays, spreaders) is hung off the masthead and stops short of it.
  *

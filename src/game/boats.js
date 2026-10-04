@@ -301,7 +301,13 @@ export function createBoats(scene, rng, drawbridge) {
       const barge = launch('barge');
       barge.dir = 1;
       barge.mesh.rotation.y = Math.PI / 2;
-      barge.x = gate - 26;
+      // Far enough astern of the sailboat that it cannot run into it while a drawbridge shot steps
+      // the cycle forward. The barge does not stop, the sailboat holds at `HOLD_OFF`, and a staged
+      // shot puts both on the river at once, which the schedule never does — 26 units back, with a
+      // 16-unit hull, the barge sailed straight through the waiting sailboat by the time the leaf
+      // was up. 13 seconds of staging is 34 units of barge, so from 60 back its bow stops 6 short
+      // of the sailboat's stern.
+      barge.x = gate - 60;
       barge.z = laneZ(barge.dir);
       barge.mesh.position.set(barge.x, waterHeightAt(barge.x), barge.z);
       const tug = launch('tug');
@@ -311,7 +317,7 @@ export function createBoats(scene, rng, drawbridge) {
       tug.z = laneZ(tug.dir);
       tug.mesh.position.set(tug.x, waterHeightAt(tug.x), tug.z);
       // After both are in their final place, not inside `launch` — a trail laid at the spawn point
-      // and then teleported with the hull would be twenty-six units up-river of the boat it belongs
+      // and then teleported with the hull would be sixty units up-river of the boat it belongs
       // to, which is a wake in a screenshot of open water.
       for (const boat of boats) wake.prime(boat);
     },
