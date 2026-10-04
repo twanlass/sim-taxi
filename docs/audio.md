@@ -1,6 +1,6 @@
 # Audio
 
-The taxi's sound: engine, Loco Mode, doors, bump, crash, jump and blinker. This is the **one part of the
+The taxi's sound: engine, Loco Mode, doors, bump, crash, jump and blinker — and the radio. This is the **one part of the
 game loaded from files**: the recordings are a sound designer's, and everything else, including
 every mesh and the one texture, is still generated in code.
 
@@ -130,6 +130,29 @@ The per-sound levels live in `mix.json` (below). Block 1 arrives balanced agains
 sound ships at 0 dB, as the designer recommended. The one exception is ours: `copSkid` sits at
 −3.7 dB and pitched down a touch, because it is another car somewhere else on screen.
 
+## The radio
+
+The music is a car radio: `MUSIC_radio_intro` (15 s) always plays first, then a hard cut to one of
+three 30 s songs (`MUSIC_country`, `MUSIC_jazz`, `MUSIC_rock`) at random, and at the end of each a
+fresh pick, never the song that just played. It starts on the first tap with everything else, so
+it opens on the title screen, and since a Retry is a reload every run opens on the intro.
+
+It lives in `sfx.js` beside the effects (`RADIO`, `RADIO_FILES`, `startRadio`) but outside
+`FILES`/`SOUNDS`/the mix: it plays into the **music bus**, so the Music slider and the mute steer
+it and the effects slider does not. Two tracks are always scheduled on the audio clock (the one
+playing and the next), so each change is sample-exact rather than waiting on `onended`, and a
+pause stops it mid-song with the rest of the context. Each track is played for its master's true
+length (`RADIO.seconds`), the same AAC-priming guard as `loopWindow`.
+
+Levels (`RADIO.gain`) bring every track to −24 LUFS at full slider, measured off the masters with
+ffmpeg's `ebur128`: they arrived at −17.3 (intro), −13.5 (country), −12.3 (jazz) and −10.8 (rock),
+against −34 for the engine idle and −22 for a crash. The four `.m4a` are 1.7 MB together, the
+biggest download in the game; they decode to about 40 MB of PCM, held for the session.
+
+They were encoded with ffmpeg's AAC at 128 kbps (`-fflags +bitexact`, reproducible) because the
+cloud session that added them has no `afconvert`. The next `node tools/audio.mjs` on a Mac will
+re-encode them like everything else; that is a one-time diff, not a problem.
+
 ## Gestures, pauses and the phone
 
 - **Nothing can play before a tap.** Every browser keeps an `AudioContext` suspended until the page
@@ -149,7 +172,7 @@ sound ships at 0 dB, as the designer recommended. The one exception is ours: `co
   does.
 - **The player's volumes** are the two Settings sliders (game/settings.js remembers them,
   `sfx.setVolumes` applies them). SFX scales `master`, under the mix's own `master` and the mute;
-  Music scales a separate bus beside it, which nothing feeds yet — the game ships no music. Both
+  Music scales a separate bus beside it, which the radio plays into. Both
   are squared on the way to the gain node, so the slider's middle sounds like the middle.
 - **Shot mode is silent**: `sfx` is `null` there.
 - **Offline**: the service worker caches the audio lazily, the same way it caches any `/assets/*`
