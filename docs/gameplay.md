@@ -3340,8 +3340,10 @@ rubber the moment it lands.
   comes out without the kick. Elsewhere a tap is a brake as before.
 - **The tap owns the brake until the pedal comes back up,** like the bootleg's. A thumb sliding back
   onto the pill releases it anyway, which is the pedal slide doing what it always did.
-- **It outranks the bootleg's first tap and clears it,** so a tap into a corner can't become a spin.
-  On a straight the bootleg is unchanged.
+- **Two taps are still the bootleg, near a corner or not.** The first tap is the same in both
+  moves, so only the second input decides: the pill is the drift kick, a second brake tap inside
+  the bootleg's 350ms window drops the drift and spins (buffered past the junction, as any combo
+  landed mid-junction is). Away from a turn the bootleg is untouched.
 - **No clearance test**, like the bootleg: what the swung tail hits, the collision pass charges.
 
 A prototype: every number is a first guess. `tools/probe.mjs` drives every turn off every lane with

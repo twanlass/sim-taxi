@@ -122,7 +122,7 @@ import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders } from './game/sightline.js';
-import { createBootleg } from './game/bootleg.js';
+import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
@@ -3108,6 +3108,7 @@ const BRAKE_SKID_V = 2.5;
 // pedal comes back up, as the bootleg's does, so a thumb still down doesn't stop the car — though
 // a thumb sliding back onto the pill lets go of it anyway (`holdLocoMode` releases the brake).
 let driftHoldOff = false;
+let driftTapAt = -Infinity;
 let driftsPaid = 0;
 
 /**
@@ -3132,16 +3133,25 @@ function holdBrake() {
   // Only when there is speed to shed — the pedal's detent is the haptic's job, and a brake noise
   // from a car at a standstill is a car that is not doing what the sound says. From above cruise
   // it is the Loco stop; from cruise it is the ordinary one.
-  // Mid-drift the pedal is the drift's: a second stab is not a bootleg, and not a stop.
+  // Mid-drift the pedal is the drift's — except that a second tap hard on the first is the bootleg
+  // asking, and the bootleg wins: the drift is dropped and the spin goes in (buffered by the
+  // bootleg until the taxi is back on a straight lane, as any combo landed mid-junction is). So
+  // two taps are always a U-turn and a tap then the pill is the drift kick; the first tap is the
+  // same in both, and only the second input tells them apart. Any later stab is ignored.
   const drift = traffic.taxi.drift;
   if (drift && drift.phase !== 'carry') {
     brakeButton?.classList.add('is-on');
+    if (!drift.kicked && performance.now() - driftTapAt <= BOOTLEG_GAP_MS) {
+      traffic.taxi.drift = null;
+      bootleg.spin();
+    }
     return true;
   }
   // The drift: Loco Mode, at speed, a turn just ahead. Before the bootleg, and it clears the
   // bootleg's first tap, so the press that starts a slide can't be half of a spin.
   if (boost.isEngaged() && driftTaxi(traffic.taxi) === null) {
     bootleg.reset();
+    driftTapAt = performance.now();
     driftHoldOff = true;
     boost.release();
     brakeButton?.classList.add('is-on');
