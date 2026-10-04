@@ -190,6 +190,7 @@ import {
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
+import { createRunTracker, RUNS, PERFECT_SHARE, TAG_AFTER } from '../src/game/runs.js';
 import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
@@ -2801,9 +2802,8 @@ check('no two cars occupy the same space', worst > 1.6,
           || (spot.i === parcel.dropoff.i && spot.j === parcel.dropoff.j)) clashedWithFare += 1;
       }
       if (!findRoute({ ...parcel.pickup, d: pTraffic.taxi.d }, parcel.dropoff)) unroutable += 1;
-      // Priced exactly as a rider going the same distance is, times the shift it appeared in.
-      const want = Math.round(priceFor(parcel.pickup, parcel.dropoff)
-        * difficulty.payoutMultiplier(parcels.state.delivered) * PARCEL_PAY_FACTOR);
+      // Priced exactly as a rider going the same distance is, off a fresh combo.
+      const want = Math.round(priceFor(parcel.pickup, parcel.dropoff) * PARCEL_PAY_FACTOR);
       if (parcel.value !== want) mispriced += 1;
       // **No clock.** Not "a long one" — none at all, so there is nothing for a hue to step through
       // and nothing that can expire and end a run. Asserted on the shape of the object, because that
@@ -3437,7 +3437,11 @@ check('no two cars occupy the same space', worst > 1.6,
 {
   const tScene = new THREE.Scene();
   const tTraffic = createTraffic(makeRng(seed + 44), tScene, CARS_DEFAULT);
-  const fares = createFareSystem(makeRng(seed + 55), tScene);
+  // A stub verdict, so the wiring is what is under test: every drop-off here is judged a Perfect Run.
+  // The tracker's own rules are checked on their own further down ("Run bonuses").
+  const fares = createFareSystem(makeRng(seed + 55), tScene, {
+    judgeRun: () => ({ runs: [{ key: 'perfect', ...RUNS.perfect }], mult: RUNS.perfect.mult }),
+  });
   tTraffic.warmup(5);
 
   let shownOnSpawn = 0;
@@ -3459,6 +3463,10 @@ check('no two cars occupy the same space', worst > 1.6,
   let stillMarked = 0;   // markers that vanished at pickup instead of flying to the taxi
   let sharedJunction = 0;
   let elapsed = 0;
+  const spawnPrice = new Map();
+  let deliveries = 0;
+  let wrongCombo = 0;
+  let jobDropped = 0;
 
   // Same perfect-player policy as the multi-fare block above, so the board actually doubles up.
   const aim = () => {
@@ -3485,21 +3493,27 @@ check('no two cars occupy the same space', worst > 1.6,
         // VIP's stays full forever rather than draining — see the fillOutOfStep loop below.
         if (fare.slot.marker.getFill() < 0.99) drainedOpening += 1;
         if (fare.blocks !== blockDistance(fare.pickup, fare.dropoff)) wrongCount += 1;
-        // Distance price times the shift's multiplier, both settled at spawn — so this reads the
-        // multiplier as of *this* frame, which is the one the fare was stamped with. A VIP stacks
-        // its own streak multiplier on top (see fares.js); `fare.vipMultiplier` is 1 for everyone
-        // else, so the formula is unchanged for an ordinary fare.
-        const due = Math.round(priceFor(fare.pickup, fare.dropoff)
-          * difficulty.payoutMultiplier(fares.state.delivered)
-          * fare.vipMultiplier);
+        // Distance price, times a VIP's flat multiplier (1 for everyone else), settled at spawn.
+        // The combo is not in it yet — that is applied at the drop-off, checked below.
+        const due = Math.round(priceFor(fare.pickup, fare.dropoff) * fare.vipMultiplier);
         if (fare.value !== due) wrongPrice += 1;
+        spawnPrice.set(fare, fare.value);
         // The clock is budgeted from the driving, so it has to cover it with the run's slack in
         // hand. Below 1.0 the rider cannot be delivered even by a perfect drive.
         if (fare.limit < fare.work) unwinnableClock += 1;
         budgetSlack.push(fare.limit / Math.max(1e-6, fare.work));
       }
+      if (type === 'delivered') {
+        // The verdict multiplies the price stamped at spawn and rides the event out for the pop.
+        deliveries += 1;
+        if (fare.runs?.[0]?.key !== 'perfect' || fare.basePay !== spawnPrice.get(fare)
+          || fare.value !== Math.round(spawnPrice.get(fare) * RUNS.perfect.mult)) wrongCombo += 1;
+      }
       if (type === 'pickup') {
         pickups += 1;
+        // A run bonus judges the whole job, keyed on `fares.job()`: the pickup must not hand that
+        // over to anyone else, or the drive to the kerb is forgotten mid-job.
+        if (fares.job() !== fare) jobDropped += 1;
         // The pin is promoted, not replanted — a drop-off that jumped at pickup would make the
         // preview a lie and every judgement made from it worthless.
         if (fare.target.i !== fare.dropoff.i || fare.target.j !== fare.dropoff.j) movedAtPickup += 1;
@@ -3546,6 +3560,10 @@ check('no two cars occupy the same space', worst > 1.6,
   check('a waiting rider shows their diamond', shownOnSpawn > 0 && missingPin === 0,
     `${shownOnSpawn} spawns, ${missingPin} missing`);
   check('the block count matches the trip', wrongCount === 0, `${wrongCount} mismatched`);
+  check('the job a run judges carries through the pickup', pickups > 0 && jobDropped === 0,
+    `${pickups} pickups, ${jobDropped} lost the job`);
+  check('a drop-off pays its price times the run verdict', deliveries >= 3 && wrongCombo === 0,
+    `${deliveries} delivered, ${wrongCombo} paid wrong`);
   check('a fresh rider\'s diamond opens on full urgency', wrongOpening === 0,
     `${wrongOpening} opened wrong`);
   check('and opens with a full vessel', drainedOpening === 0, `${drainedOpening} opened drained`);
@@ -5845,7 +5863,6 @@ check('the taxi is an ordinary car in the traffic array',
   check('a rider is aboard before the bail is staged', Boolean(riding));
 
   riding.vip = true;
-  bFares.state.vipStreak = 4;
   const { slot } = riding;
   const from = { x: bTaxi.x, z: bTaxi.z };
   riding.timeLeft = 1 / 120;
@@ -5853,8 +5870,6 @@ check('the taxi is an ordinary car in the traffic array',
 
   check('a VIP\'s clock running out does not end the run',
     Boolean(missed) && !bFares.state.gameOver);
-  check('and takes the streak with it', bFares.state.vipStreak === 0,
-    `streak ${bFares.state.vipStreak}`);
   check('the missed VIP leaves the board at once', !bFares.state.fares.includes(riding));
   // The clock is the one thing that goes immediately: it is what ran out.
   check('their crystal goes with the fare', !slot.marker.group.visible);
@@ -17456,6 +17471,64 @@ let chopperOrder; // likewise
   check('no fire can break out on the depot or the burger joint',
     cities > 0 && sites > 0 && onDepot === 0 && onBurger === 0,
     `${sites} candidate sites over ${cities} cities with a depot, ${onDepot} on it, ${onBurger} on the joint`);
+}
+
+// --- The Perfect Run --------------------------------------------------------------
+//
+// game/runs.js on its own: the rule, and the edges that make it fair.
+{
+  const step = 1 / 60;
+  const ride = (tracker, fare, seconds, facts) => {
+    for (let t = 0; t < seconds; t += step) tracker.update(step, { fare, boosting: false, ...facts(t) });
+  };
+  const keys = (v) => v.runs.map((r) => r.key).join(',');
+
+  let r = createRunTracker();
+  const a = { id: 'a' };
+  ride(r, a, 10, () => ({}));
+  check('a job driven off boost earns no Perfect Run', keys(r.judge(a)) === '' && r.judge(a).mult === 1,
+    keys(r.judge(a)));
+
+  r = createRunTracker();
+  ride(r, a, 10, (t) => ({ boosting: t >= 4 }));
+  check(`more than ${PERFECT_SHARE * 100}% boost and no damage is a Perfect Run`,
+    keys(r.judge(a)) === 'perfect' && r.judge(a).mult === RUNS.perfect.mult,
+    `${keys(r.judge(a))} ×${r.judge(a).mult}`);
+
+  r = createRunTracker();
+  ride(r, a, 10, (t) => ({ boosting: t >= 6 }));
+  check('under the share it is not, and its tag never shows', keys(r.judge(a)) === '' && r.live().length === 0,
+    `${keys(r.judge(a))} ${JSON.stringify(r.live())}`);
+
+  // The tag: nothing for the first TAG_AFTER seconds even on course, then latched — a dip under the
+  // share dims it rather than hiding it.
+  r = createRunTracker();
+  ride(r, a, TAG_AFTER - 0.1, () => ({ boosting: true }));
+  const early = r.live().length;
+  ride(r, a, 0.2, () => ({ boosting: true }));
+  const shown = r.live()[0]?.earned === true;
+  ride(r, a, 10, () => ({}));
+  check(`the tag shows ${TAG_AFTER}s in, on course, and stays once shown`,
+    early === 0 && shown && r.live().length === 1 && r.live()[0].earned === false,
+    `early ${early}, shown ${shown}, after ${JSON.stringify(r.live())}`);
+
+  r = createRunTracker();
+  ride(r, a, 5, () => ({ boosting: true }));
+  r.damage();
+  ride(r, a, 5, () => ({ boosting: true }));
+  check('damage takes it, however much boost', keys(r.judge(a)) === '' && r.live()[0]?.broken,
+    keys(r.judge(a)));
+
+  // A new job is a new job: nothing carries over, and damage between jobs belongs to nobody.
+  r = createRunTracker();
+  ride(r, a, 5, () => ({ boosting: true }));
+  r.damage();
+  ride(r, null, 1, () => ({}));
+  r.damage();
+  const b = { id: 'b' };
+  ride(r, b, 5, () => ({ boosting: true }));
+  check('each job is judged on its own', keys(r.judge(b)) === 'perfect'
+    && r.judge(a).mult === 1, `${keys(r.judge(b))}, previous ×${r.judge(a).mult}`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

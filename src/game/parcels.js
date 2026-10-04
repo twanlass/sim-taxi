@@ -13,7 +13,6 @@ import {
   priceFor,
 } from './fares.js';
 import { popEnvelope } from './selectpop.js';
-import * as difficulty from './difficulty.js';
 
 // The package courier: a second cargo slot on a taxi that has one seat.
 //
@@ -206,8 +205,9 @@ export const PARCEL_AFTER_DELIVERY = 20;
 /**
  * Multiplier on a package's distance price. **This is the knob.**
  *
- * A package pays what a rider going the same distance pays (`priceFor`, times the shift multiplier),
- * so at 1 the courier layer is a real second income rather than a rounding error. Named rather than
+ * A package pays what a rider going the same distance pays (`priceFor`) off a fresh combo. The combo
+ * itself is the fare loop's — a package neither grows it nor is multiplied by it, because a detour
+ * taken on a rider's trip would otherwise pay that rider's bonus twice. So at 1 the courier layer is a real second income rather than a rounding error. Named rather than
  * inlined because it is the one number to turn if the soak shows bonus cash flattening the economy —
  * and if it moves, write the measured survival curve down beside it.
  */
@@ -663,9 +663,7 @@ export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
       target: pickup,
       blocks: blockDistance(pickup, dropoff),
       // Priced at spawn for the reason every price here is: it is a fact about the trip, settled the
-      // moment both ends are known. A rider's rate for a rider's distance, times the shift the
-      // package appeared in — so a courier job found during Rush Hour is worth Rush Hour money
-      // whenever it happens to get delivered.
+      // moment both ends are known. A rider's rate for a rider's distance — see PARCEL_PAY_FACTOR.
       value: 0,
       // Sim time of the last tap on this package, and which way its corner answers — see
       // `acknowledge`. Null rather than -Infinity so a package that has never been tapped skips the
@@ -675,7 +673,7 @@ export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
       ackPending: false,
     };
     parcel.value = Math.round(
-      priceFor(pickup, dropoff) * difficulty.payoutMultiplier(state.delivered) * PARCEL_PAY_FACTOR,
+      priceFor(pickup, dropoff) * PARCEL_PAY_FACTOR,
     );
     state.parcels.push(parcel);
 

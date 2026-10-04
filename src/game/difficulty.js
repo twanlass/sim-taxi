@@ -207,18 +207,18 @@ export function policeCooldown(delivered) {
 /**
  * The ramp, as something the player is told rather than something they infer from dying more.
  *
- * Four bands over the delivery count, each with a payout multiplier. Deliberately *not* named
+ * Four bands over the delivery count. Deliberately *not* named
  * after times of day: `daylight.js` runs the sky on its own clock, and a "Night Shift" banner
  * over a midday sky is two systems contradicting each other.
  *
- * The payout steps with the band rather than creeping continuously, so the number on the counter
- * changes on the beat it crosses into a new one.
+ * Each band used to carry a payout multiplier too (1×, 1.25×, 1.5×, 2×). The clean-driving combo
+ * replaced it (see COMBO in fares.js): a shift is now how hard the city is, and nothing else.
  */
 export const SHIFTS = [
-  { at: 0, name: 'Early Shift', payout: 1 },
-  { at: 3, name: 'Busy', payout: 1.25 },
-  { at: 7, name: 'Rush Hour', payout: 1.5 },
-  { at: 12, name: 'Gridlock', payout: 2 },
+  { at: 0, name: 'Early Shift' },
+  { at: 3, name: 'Busy' },
+  { at: 7, name: 'Rush Hour' },
+  { at: 12, name: 'Gridlock' },
 ];
 
 /** Which shift a run is in. Index is what `main.js` compares to spot an entry. */
@@ -228,6 +228,3 @@ export function shiftFor(delivered) {
   for (let k = 0; k < SHIFTS.length; k++) if (at >= SHIFTS[k].at) index = k;
   return { index, ...SHIFTS[index] };
 }
-
-/** What a fare is worth, as a multiple of its distance price. */
-export const payoutMultiplier = (delivered) => shiftFor(delivered).payout;

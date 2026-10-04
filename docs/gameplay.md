@@ -1625,13 +1625,47 @@ number flying from the counter *to* the taxi would read as the player being hand
 charge; it tweens either way now, and the total never goes below zero (see `charge()` in
 `game/fares.js`).
 
-### The multiplier has no counter
+### The Perfect Run
 
-Every fare's price is stamped at spawn with `difficulty.payoutMultiplier`, which steps up on the
-delivery that crosses into a new [shift](difficulty.md#shifts). There used to be an `N×` counter
-for it in the top-right corner; the HUD redesign gave that corner to the cash total and the counter
-was removed outright rather than moved. The multiplier still applies — the prices on the board and
-the payouts that fly to the counter already carry it, which is where the player sees it.
+A job is a **Perfect Run** when the taxi spends **more than half of it in Loco Mode**
+(`PERFECT_SHARE`) and takes **no damage**, and its drop-off then pays **×2** (`RUNS.perfect`,
+`game/runs.js`). A job is the whole of it — from the tap that sends the taxi at a rider, through the
+pickup, to the drop-off — and re-targeting at another rider starts a new one. (It was pickup to
+drop-off at first, which let a taxi bounce off three cars on the way to the kerb and still collect
+it.)
+
+Two edges are deliberate:
+
+- **It needs boost** because off boost it would be free: the taxi drives itself between taps, and a
+  contact off boost costs no HP. Counting every contact instead would charge the player for the
+  traffic model's own nudges. Damage means a hit that costs HP — a car, while boosting.
+- **Half, not "the whole time".** A full tank is 15s and a fare refills a third of it, against a
+  median job longer than that.
+
+`main.js` feeds the tracker each frame (the job in hand, `fares.job()`, and whether Loco Mode is
+on) and `collisions.onBump` reports damage; the fare loop asks for the verdict at the drop-off
+through `createFareSystem`'s `judgeRun` hook. Read there rather than stamped at spawn like the rest
+of a price, because it is about the driving, and nothing shows a price before the drop-off for it to
+contradict. It multiplies everything the drop-off pays, the robbery's clock bonus included. A
+[package](#the-package-courier) is never multiplied.
+
+**It is visible during the job**, because a bonus first heard of at the drop-off cannot change how
+anyone drives. A `PERFECT RUN` tag at the top centre (`#runs`, `updateRunTags`) appears once the job is
+`TAG_AFTER` (2s) old and on course, lit green; from then on it dims if the share slips under the
+line and lights again if it recovers. It showed the share as a percentage at first, which was more
+arithmetic than anyone wants mid-drive. Damage breaks it for good: it flinches red, shakes and falls
+out of the HUD. At the drop-off the payout plays as a sequence (`popRunSequence`) in the middle of
+the screen: the fare's price pops and flies into the counter like any payout, then `PERFECT RUN ×2`
+pops and fades, then the extra it added pops and flies into the counter after it, each amount
+rolling the counter to its own partial total as it lands.
+
+It replaced two multipliers. The [shift](difficulty.md#shifts) used to stamp 1×, 1.25×, 1.5× or 2×
+into every price at spawn, with no counter on screen; and VIPs stacked a streak of their own (3×,
+4×, 5× back to back). Both paid for getting further; this pays for *how*. Two designs were tried on
+the way and dropped: a clean-driving streak (×1, ×2, ×3 per drop-off, back to ×1 on damage), which
+only ever asked "don't crash" across the whole run; and three stacking run bonuses — Loco (80%
+boost, ×2), Perfect (no damage, ×1.5), Stealth (boost past the patrol unspotted, ×1.5) — which was
+more to read than to play. The Perfect Run is the first two of those folded into one rule.
 
 ### Priced by the trip
 
@@ -1652,9 +1686,8 @@ costs the *queue*: every other rider's clock drains while you drive it. Paying m
 game being fair about that afterwards, exactly as before; only the mechanism it is fair about has
 changed.
 
-**The shift multiplier is stamped in at the same moment**, for the same reason — the price is
-settled when the trip is. A rider who appeared during Rush Hour is worth Rush Hour money whenever
-they happen to get delivered, and the table above is the 1× column.
+A [Perfect Run](#the-perfect-run) is the one thing applied later, at the drop-off; the table below
+is the 1× column.
 
 | Blocks | Price |
 |---:|---:|
@@ -1702,14 +1735,9 @@ Everything else about a VIP is the ordinary fare loop with four numbers turned:
   riders ahead of them, so serving the board in the right order works (see [the fare
   clock](#the-clock-is-budgeted)). A VIP's does not: it covers the rider already
   aboard, whom you cannot abandon, its own trip, and nothing else. Jump the queue for it or lose it.
-- **Triple pay, before the streak.** A VIP pays the ordinary distance price times the current shift
-  multiplier, same as anyone — and then again by `VIP_PAYOUT + streak`, where the streak is how many
-  VIPs have been delivered back to back. So the first is worth 3 fares, the next 4, the next 5.
-  (The base multiplier is what makes the first one worth taking at all: before it, `streak + 1` made
-  a fresh VIP worth exactly one ordinary fare.) Stamped at spawn like every other price on the
-  board, so the marker's fixed purple says what this one is worth the moment it appears rather than
-  leaving it to be found out on delivery. A miss resets the streak to zero — the whole tension of
-  stacking VIPs is that one late drop-off gives it all back.
+- **Triple pay.** A VIP pays the ordinary distance price times `VIP_PAYOUT` (3), stamped at spawn,
+  and then a [Perfect Run](#the-perfect-run) at the drop-off like anyone. There used to be a VIP-only
+  streak on top (3×, 4×, 5× back to back, reset by a miss); it went with the shift multiplier.
 - **A full tank on delivery**, rather than the ordinary third. `main.js` reads the boost meter's
   current fraction at the moment the delivery's energy bits land and tops up exactly what's missing,
   so a VIP always leaves Loco Mode topped off regardless of what was left in the tank going in.
@@ -2555,9 +2583,9 @@ square against a disc is read at a glance.
   left where it is — silently swapping the load would throw away a delivery already paid for in
   detour. The probe asserts the seat and the slot never touch: collecting a package does not move
   the rider's target and does not reset, pause or extend their clock.
-- **Priced exactly like a rider going the same distance** — `priceFor`, times the shift multiplier,
-  stamped at spawn. `PARCEL_PAY_FACTOR` is the one number to turn if it plays too rich.
-- **Cash and a splash of fuel.** No multiplier bump (that number means "this is what a *fare* is
+- **Priced exactly like a rider going the same distance** — `priceFor`, stamped
+  at spawn. `PARCEL_PAY_FACTOR` is the one number to turn if it plays too rich.
+- **Cash and a splash of fuel.** No Perfect Run (that number means "this is what a *fare* is
   worth now") and no run-end stat row, but a delivered package does pour **a sixth of a tank** into
   Loco Mode — half what a drop-off pays (`BOOST_PARCEL_REWARD` against `BOOST_FARE_REWARD`). Both
   the payout and the fuel take the same [two-phase flight](#economy) a fare's do, because it is the
@@ -2987,9 +3015,9 @@ good one when the taxi was going that way anyway, which is the whole of the deci
 **Why it is not free.** It was, and free made it a strictly-better detour once found: the only price
 was a clock the player was already spending, so every tap taken on a route that passed the joint was
 pure profit and the decision stopped being one after the first time. Ten dollars is about half a
-median fare early in a run and loose change by the last shift, which is the right way round — the
-tank is worth most when the multiplier is small, and so is the money. It does **not** scale with the
-multiplier: the tank it buys is a flat 2.25 seconds at every point in the run, and a price that
+plain median fare and a quarter of a perfect one, which is the right way round —
+the tank is worth most when the multiplier is small, and so is the money. It does **not** scale with
+the multiplier: the tank it buys is a flat 2.25 seconds at every point in the run, and a price that
 climbed would quietly make the same purchase worse for no reason on screen.
 
 **The counter goes down, visibly.** The charge takes the payout's own flight in reverse sign — a red
@@ -3417,8 +3445,7 @@ makes them the ending rather than an overlay on one.
 
 "Shift" replaced a row called "Streak" that printed `s.delivered` — the same number as "Fares"
 directly above it, formatted with an `x`. Two rows counting out one number is a stat sheet padding
-itself; how deep into the ramp a run got is a genuinely different fact about it, and it is the one
-the multiplier was earned by. It rolls up through the shift names the run passed through, which is
+itself; how deep into the ramp a run got is a genuinely different fact about it. It rolls up through the shift names the run passed through, which is
 what the counter does with every other stat.
 
 The stats are **one row each, label and value side by side**, and both are set in the *same* size,
