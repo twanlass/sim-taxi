@@ -1503,9 +1503,9 @@ const REPLAY_LEAD = 1200;
 const REPLAY_TAIL = 350;
 // The same breath when the driver went through the windscreen, held long enough to see them land.
 // The replay hands back ~0.49s of sim past the impact (see REPLAY_LEAD) with the slow-mo already
-// run out, and at the 21 u/s of a boost-cruise T-bone the flight is ~0.93s in the air plus 0.3 to
-// settle flat — 0.74s still to go. Under the card they would land unseen.
-const EJECT_TAIL = 900;
+// run out, and at the 21 u/s of a boost-cruise T-bone the flight is ~1.05s in the air plus 0.3 to
+// settle flat — 0.86s still to go. Under the card they would land unseen.
+const EJECT_TAIL = 1100;
 let replayAt = null;
 // The sim clock the tape is stamped in: the sum of every dilated `dt` the world has been stepped by.
 let simClock = 0;
@@ -1675,7 +1675,11 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
     ...(other.isTruck ? { len: TRUCK_LEN, width: TRUCK_W } : {}),
   });
 
-  endSpot = { x, z };
+  // Framed on the middle of the whole picture when the driver was thrown: the throw runs ~16 units,
+  // past the edge of a portrait phone at wreck zoom if the shot stays on the wreck. Halfway puts
+  // the wreck and the landing each ~8 from the centre.
+  const landing = ejection.active() ? ejection.landing() : null;
+  endSpot = landing ? { x: (x + landing.x) / 2, z: (z + landing.z) / 2 } : { x, z };
   endZoom = WRECK_ZOOM;
   if (replay) {
     replay.arm({ t0: simClock, x, z, yaw });
