@@ -150,6 +150,13 @@ export function play(runSeed, citySeed,
 
     for (const { type, fare } of events) {
       if (type === 'pickup' || type === 'delivered') margins.push(fare.timeLeft);
+      // A getaway checkpoint moved the robber's target on; the game re-dispatches itself, so the
+      // perfect player does too, with no reaction to pay.
+      if (type === 'checkpoint') {
+        const route = findRoute(planOrigin(taxi), fare.target);
+        if (route === null) routeFailures += 1;
+        else { taxi.route = route; taxi.routeConsumed = false; }
+      }
       if (type === 'delivered') {
         // `index` is which delivery this was, so the rows can be bucketed along the ramp.
         budgets.push({

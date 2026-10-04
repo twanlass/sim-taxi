@@ -1906,6 +1906,47 @@ and a getaway that opened on a dry pill was a chase the taxi could not win on sp
 whose cruise ceiling sits above an unboosted taxi's. Filling it keeps the event's choice — boost
 and risk the wreck, or hold off and risk the clock — a choice.
 
+### Checkpoints on the way
+
+`ROBBER_CHECKPOINTS` in `game/fares.js`. A getaway is not one leg: the taxi has to touch **four
+checkpoints** before the drop-off, and each one pours the boost tank full again (`'checkpoint'` in
+main.js, the same pour as the boarding tank) with a "Checkpoint 1/4" rising off the cab. The mark
+the taxi is driving at *is* the checkpoint — a **white** ring rather than one in the clock's
+colour, with a dot in the middle that grows out and fades, over and over (`setWaypoint` in
+geometry/targetring.js), so a waypoint never reads as the end of the trip. (A diamond was tried
+first and read as another fare crystal.) It hops on to the next corner on arrival, turning back
+into the ordinary ring for the drop-off, and the route
+re-dispatches itself. The clock keeps running straight through; only the drop-off pays.
+
+The drop-off is drawn first, exactly as before (the far side of the map), and the checkpoints
+between it and the bank by random darts: every leg at least 3 blocks so a checkpoint is somewhere
+to drive *to*, and the whole chain at most 3 blocks per checkpoint longer than the straight
+getaway, because a longer getaway is paid for out of every kerbside clock that runs while it does.
+Every leg is budgeted into the robber's one clock, so the 60% over the driving still holds. A board
+too full for four gets fewer.
+
+Measured over 38 cities, with four: the driving goes from a median 41.5s to 99.7s (×2.45, worst
+×3.9), and the robber's clock sits at a median 190s. (Two checkpoints measured 68.4s, ×1.74.)
+
+**The rest of the board steps aside while it runs** (`concealed` in game/fares.js). Every rider
+waiting on the kerb is hidden — figure, crystal, disc, edge arrow, finder chip, tap target — with
+their clock **held**, and nobody new spawns; the courier's pads go too (`concealed` in
+game/parcels.js), and driving over one does nothing. The clock is held *because* they are hidden: a
+rider the player cannot see must not be able to time out and end the run. They come back exactly
+as they were when the getaway ends, whichever way it ends.
+
+**Each checkpoint calls in another cop** (`wanted` in game/robbery.js): the fleet is
+`POLICE_FLEET` at the bank and one more per checkpoint touched, up to `POLICE_REINFORCEMENTS`, each
+arriving behind the taxi through the ordinary top-up. That top-up used to lose every race to the
+recycle — both waited on one gap clock and the recycle ticked it — so it only ever fired while no
+cop was lost; it ticks the clock itself now and goes first.
+
+Four checkpoints were expensive for the board before the riders stepped aside: 9.9 fares · $237 at
+a 1.5s reaction against 12.7 · $358 with no checkpoints, over 30 paired autoplay runs. With the
+board held they **gain**: 14.2 fares · $406 at 1.5s and 15.7 · $439 at 4s — a getaway is now a
+paid breather for the kerb. If that reads as too generous, the lever is to let the clocks run at a
+fraction rather than hold.
+
 ### The robber's line
 
 `game/robberline.js`. The event used to go straight from a drive-past to four cop cars and the radio
