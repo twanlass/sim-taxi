@@ -3016,7 +3016,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const BEAM_Y = 0.025;
   const beamMeshes = [];
   const beamMesh_ = (name, anchors, vehicles) => {
-    const inst = neverCull(new THREE.InstancedMesh(beamGeometry(), beamMaterial(), MAX_AMBIENT * LIGHT_PODS));
+    // The shaft starts at the lamp, which is this far over the pool (see `beamLift`).
+    const lampLift = anchors[0].y + ROAD_Y - BEAM_Y;
+    const inst = neverCull(new THREE.InstancedMesh(
+      beamGeometry(lampLift), beamMaterial(), MAX_AMBIENT * LIGHT_PODS,
+    ));
     inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     inst.name = name;
     inst.count = vehicles.length * LIGHT_PODS;

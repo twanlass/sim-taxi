@@ -199,28 +199,55 @@ export function beamRow(u) {
   return { x: u * BEAM_LEN, half: THREE.MathUtils.lerp(BEAM_NEAR_W, BEAM_FAR_W, u) / 2 };
 }
 
+/** Rows along a pool — enough for the shaft's curve down from the lamp, and for the taxi's pool to
+ * follow a bridge's arch (game/citylights.js). */
+export const BEAM_ROWS = 16;
+
 /**
- * The pool a headlight throws on the road ahead: a flat trapezoid starting at its own origin (the
- * bumper) and opening out along +X, carrying a 0..1 fade in `uv.y` along its length. Wound so its
- * face points **up** — asserted in tools/probe.mjs, because an unlit triangle wound the other way
- * does not draw wrong, it does not draw.
+ * How far along the beam (0..1) it comes down from the lamp onto the road. Laid flat from the
+ * bumper, a pool read as lying on the ground *in front of* the headlights rather than coming out of
+ * them: from this camera the lamp sits half a unit up, and the pool began a body's width of shadow
+ * away from it. So the first stretch of each beam is a shaft that leaves the lamp at the lamp's
+ * height and eases down onto the asphalt by `SHAFT_LAND` of the way along, about 2 units out.
  */
-export function beamGeometry() {
-  const n = BEAM_NEAR_W / 2;
-  const f = BEAM_FAR_W / 2;
-  const L = BEAM_LEN;
-  // (x, z) corners: near-left, near-right, far-right, far-left, with "left" at -z.
-  const positions = new Float32Array([
-    0, 0, -n,   L, 0, f,    L, 0, -f,
-    0, 0, -n,   0, 0, n,    L, 0, f,
-  ]);
-  const uvs = new Float32Array([
-    0, 0, 1, 1, 0, 1,
-    0, 0, 1, 0, 1, 1,
-  ]);
+const SHAFT_LAND = 0.3;
+
+/**
+ * The beam's height over the road `u` of the way along it, for a lamp `lampLift` above the pool.
+ * Squared, so it leaves the lamp angled down and lands tangent to the road rather than with a kink.
+ */
+export function beamLift(u, lampLift) {
+  return lampLift * Math.max(0, 1 - u / SHAFT_LAND) ** 2;
+}
+
+/**
+ * The light a headlight throws ahead: a shaft from the lamp easing down into a pool on the road,
+ * starting at its own origin (the bumper, at road level — the lamp is `lampLift` above it) and
+ * opening out along +X, carrying a 0..1 fade in `uv.y` along its length. One strip of `BEAM_ROWS`
+ * rows, wound so every face points **up** — asserted in tools/probe.mjs on the taxi's, which is
+ * wound the same way, because an unlit triangle wound the other way does not draw wrong, it does
+ * not draw.
+ */
+export function beamGeometry(lampLift = 0) {
+  const positions = [];
+  const uvs = [];
+  const index = [];
+  for (let r = 0; r <= BEAM_ROWS; r++) {
+    const u = r / BEAM_ROWS;
+    const { x, half } = beamRow(u);
+    const y = beamLift(u, lampLift);
+    // Left (-z) then right (+z).
+    positions.push(x, y, -half, x, y, half);
+    uvs.push(0, u, 1, u);
+    if (r < BEAM_ROWS) {
+      const v = r * 2;
+      index.push(v, v + 3, v + 2, v, v + 1, v + 3);
+    }
+  }
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(index);
   return geo;
 }
 
@@ -255,7 +282,7 @@ export function beamMaterial() {
       void main() {
         float along = vUv.y;
         float edge = 1.0 - abs(vUv.x * 2.0 - 1.0);
-        float a = smoothstep(0.0, 0.12, along) * pow(1.0 - along, 1.6) * smoothstep(0.0, 0.5, edge);
+        float a = smoothstep(0.0, 0.02, along) * pow(1.0 - along, 1.6) * smoothstep(0.0, 0.5, edge);
         gl_FragColor = vec4(uColor * a * uStrength, 1.0);
       }
     `,
