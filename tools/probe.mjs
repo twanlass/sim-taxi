@@ -192,7 +192,7 @@ import {
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
 import { createRunTracker, RUNS, PERFECT_SHARE, TAG_AFTER } from '../src/game/runs.js';
-import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO } from '../src/game/sfx.js';
+import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
 const seed = Number(process.argv[2] ?? 71624);
@@ -14537,6 +14537,7 @@ let chopperOrder; // likewise
     let overpaid = 0;
     let slowest = 0;
     let worstBandEnd = 0;
+    const visits = [];
 
     for (const job of jobs) {
       routeTo(job);
@@ -14560,9 +14561,11 @@ let chopperOrder; // likewise
       let entered = false;
       let landed = null;
       let inLot = new Set(runLot.state.queue.map((e) => e.car));
+      let held = 0;
       while (run.active() && clock < 150) {
         runLot.update(S);
         run.update(S);
+        if (run.holdsTaxi()) held += S;
 
         const now = new Set(runLot.state.queue.map((e) => e.car));
         for (const car of now) {
@@ -14579,6 +14582,7 @@ let chopperOrder; // likewise
         clock += S;
       }
       slowest = Math.max(slowest, clock);
+      visits.push(held);
 
       if (!entered) neverEntered += 1;
       if (!landed || Math.hypot(landed.x - site.merge.point.x, landed.z - site.merge.point.z) > 1e-9) {
@@ -14603,6 +14607,16 @@ let chopperOrder; // likewise
     check('...and the job the detour interrupted is put back under the car on the way out',
       notHandedBack === 0 && restored === trips,
       `${restored}/${trips} routes restored`);
+    // ...and it lasts as long as the speaker does, plus a beat. The clip plays from the frame the lot
+    // takes the taxi to the frame it lets go (`driveThruSpeaker` in main.js), so a visit shorter than
+    // the clip cuts the conversation off; the visit is the clip and `DRIVE_THRU_TAIL` of quiet after
+    // it. Half a second either way; every trip here starts with the lane empty, which is the visit
+    // the dwells were sized against.
+    const want = DRIVE_THRU_SECONDS + DRIVE_THRU_TAIL;
+    const offClip = Math.max(...visits.map((v) => Math.abs(v - want)));
+    check('...and the visit lasts the drive-through speaker\'s clip and a beat after it',
+      offClip < 0.5, `visits ${visits.map((v) => v.toFixed(2)).join(', ')}s against a `
+      + `${DRIVE_THRU_SECONDS}s clip + ${DRIVE_THRU_TAIL}s`);
     check('...and the route band ends at the driveway rather than at the junction past it',
       worstBandEnd < 1e-9,
       `band finishes ${worstBandEnd.toFixed(2)} from the mouth at its worst`);

@@ -2387,12 +2387,13 @@ Three things the invitation changes, all of them at the mouth:
 - **There is no roll.** `ENTER_CHANCE` and `FED_COOLDOWN` are how ambient traffic decides; the tap
   is the decision, and the taxi is not put on the cooldown on the way out either. Doing laps of a
   restaurant is a choice the player is paying a fare's clock — and $10 a burger — for.
-- **It eats faster.** 0.6s at the board and 1.0s at the window, against 2.6 and 3.8 plus jitter. An
-  ambient car's dwell is scenery and has to *read* from across the city; the player's is a clock
-  they are paying. 1.6s of standing still out of the **8.0s** the lot takes end to end — measured
-  mouth to kerb with the lane empty — is enough to make the visit read as a visit, and short enough
-  that it is not what the detour costs. What the detour costs is the driving either side of it, and
-  the tenner that comes off the counter at the window.
+- **It is timed to the speaker.** 2.6s at the board and 5.5s at the window, with no jitter, so the
+  visit lasts the 12.93s of the drive-through clip it plays (`driveThru`, [audio.md](audio.md)) and
+  about 2s of quiet after it before the car leaves: 6.83s of driving through the lot with the lane
+  empty, and the two stops share the rest. It used to eat faster (0.6 + 1.0, an **8.4s** visit), on
+  the grounds that the player is paying a clock; the clip is a conversation and cut short it ends
+  mid-sentence, so the visit now costs 6.5s more. `tools/probe.mjs` holds the visit within half a
+  second of the clip plus the tail.
 
 A wreck in the lot — the run ending while the player is at the window — stops where it is, and the
 queue behind it holds, because each car's limit comes from its leader's position.
