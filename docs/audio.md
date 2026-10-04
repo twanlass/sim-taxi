@@ -178,7 +178,9 @@ name to jump to it).
   variants plays a different take each press, the way the game does, and the label says which
   letter it played. **■ Stop previews** cuts them (the Loco activate is 12 s). The engine beds are
   heard by driving.
-- Double-click a slider to put that one knob back. A yellow edge marks a sound that differs from
+- The ↺ beside any control in the ⚙️ panel (not only these) puts it back where it was before you
+  first touched it this session — for A/B-ing a change by ear (`src/game/knobreset.js`).
+- Double-click a slider to put that one knob back to the shipped mix. A yellow edge marks a sound that differs from
   the shipped mix.
 - Edits are kept in `localStorage` (`simtaxi.audio.v2`; v1 held the test files' mix) across reloads, since a crash and Retry is
   a reload. The stash is only read by these sections, which only exist with the ⚙️ panel, so a

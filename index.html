@@ -1518,6 +1518,7 @@
 
       .dbg-row { display: grid; grid-template-columns: 92px 1fr; gap: 2px 10px; align-items: center; margin-bottom: 6px; }
       .dbg-row span { color: var(--dbg-mute); }
+      .dbg-row:has(.dbg-reset) { grid-template-columns: 92px 1fr 18px; }
       .dbg-row em { grid-column: 2; font-style: normal; font-size: 10.5px; color: var(--dbg-mute); font-variant-numeric: tabular-nums; }
       .dbg-row input[type="range"] { width: 100%; margin: 4px 0; accent-color: var(--dbg-accent, #7aa2ff); }
       .dbg-row input[type="checkbox"] { justify-self: start; margin: 0; accent-color: var(--dbg-accent, #7aa2ff); }
@@ -1529,6 +1530,15 @@
         width: 100%; height: 26px; padding: 0 6px; border: 1px solid var(--dbg-line, rgba(255, 255, 255, 0.08));
         border-radius: 6px; background: rgba(255, 255, 255, 0.05); color: inherit; font: inherit;
       }
+      /* The ↺ beside a control (src/game/knobreset.js). Holds its column while hidden so the
+         slider does not change width under the thumb the moment it moves off its baseline. */
+      .dbg-reset {
+        grid-column: 3; grid-row: 1; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%;
+        background: none; color: var(--dbg-accent, #7aa2ff); font: 600 13px/18px system-ui, sans-serif;
+        cursor: pointer; visibility: hidden;
+      }
+      .dbg-reset.is-on { visibility: visible; }
+      .dbg-reset:hover { background: rgba(255, 255, 255, 0.1); }
       /* The Loco Mode ramp preview — see the Loco section in src/game/debugpanel.js. Sized in
          the panel's own content width so the curve reaches both edges; the taxi's yellow because
          it is the taxi's speed the curve is describing — the one place the game's colour stays. */
@@ -1571,7 +1581,7 @@
       body.shot-mode #dbg-toggle, body.shot-mode #dbg-panel { display: none; }
 
       /* --- the Audio sections of the tweak panel (src/game/audiopanel.js) --- */
-      #dbg-panel .aud-sound .dbg-row { grid-template-columns: 60px 1fr; }
+      #dbg-panel .aud-sound .dbg-row { grid-template-columns: 60px 1fr 18px; }
       .aud-sound {
         margin: 8px 0; padding: 8px 8px 2px; border-radius: 8px; background: rgba(255, 255, 255, 0.03);
         border: 1px solid var(--dbg-line); border-left: 2px solid var(--dbg-line);

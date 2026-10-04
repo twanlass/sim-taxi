@@ -11,6 +11,7 @@ import {
 import { MIN_ELEVATION } from './daylight.js';
 import { BLOOM_INTENSITY, BLOOM_KINDS } from './bloom.js';
 import { buildAudioSections } from './audiopanel.js';
+import { attachKnobReset } from './knobreset.js';
 
 // Screen pixels to a world unit at play zoom, for the readouts that need one. Derived rather than
 // written down as the 7.7 that appears as prose all over this project: the frustum is sized by
@@ -31,6 +32,9 @@ const PX_PER_UNIT = (NOMINAL_FRAME_H / 2) / PLAY_ZOOM;
 // controls here are a window onto that: while the cycle runs they show where it has got to, and
 // touching any of them takes manual control so the two aren't fighting over the same lights.
 
+// Controls that get a ↺ (knobreset.js). A checkbox is its own one-click undo.
+const RESETTABLE = new Set(['range', 'color', 'select-one']);
+
 function row(parent, label, input) {
   const wrap = document.createElement('label');
   wrap.className = 'dbg-row';
@@ -38,6 +42,11 @@ function row(parent, label, input) {
   name.textContent = label;
   const value = document.createElement('em');
   wrap.append(name, input, value);
+  if (RESETTABLE.has(input.type)) {
+    const { button, sync } = attachKnobReset(input);
+    wrap.append(button);
+    wrap.addEventListener('pointerenter', sync);
+  }
   parent.append(wrap);
   return value;
 }

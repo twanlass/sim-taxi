@@ -21,6 +21,7 @@
  * them; the file keeps linear gain and a playback rate, because that is what Web Audio takes.
  */
 import { SFX_EVENTS, SHIPPED_MIX, SOUNDS, LOOPS } from './sfx.js';
+import { attachKnobReset } from './knobreset.js';
 
 // v2 with Block 1: a v1 stash holds levels trimmed for the test files, keyed partly by takes that
 // no longer exist, and would quietly override the designer's 0 dB starting point.
@@ -77,7 +78,10 @@ function el(tag, props = {}, ...children) {
 function row(parent, label, input) {
   const name = el('span', { textContent: label });
   const value = el('em');
-  parent.append(el('label', { className: 'dbg-row' }, name, input, value));
+  const { button, sync } = attachKnobReset(input);
+  const wrap = el('label', { className: 'dbg-row' }, name, input, value, button);
+  wrap.addEventListener('pointerenter', sync);
+  parent.append(wrap);
   return value;
 }
 
