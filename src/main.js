@@ -26,7 +26,7 @@ import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
-  boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
+  boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
@@ -2919,6 +2919,16 @@ let brakeHeld = false;
 // brake is drawing.
 const BRAKE_SKID_V = 2.5;
 
+// The drift (`driftTaxi` in sim/traffic.js): in Loco Mode, a brake press just before a turn slides
+// the taxi round it at speed instead of stopping. Its press owns the pedal until the pedal comes
+// back up, as the bootleg's does, so a thumb still down on the way out doesn't stop the car.
+// A landed drift pays back a sip of fuel: holding the pill through a corner already goes round at
+// cruise, so the speed alone is no better than not bothering, and the refund is what makes the
+// brake-and-slide worth learning. A first guess — half a second of Loco.
+const DRIFT_FUEL = 1 / 30;
+let driftHoldOff = false;
+let driftsPaid = 0;
+
 /**
  * The press, from the button, the B key, or a thumb sliding onto the brake from the pill beside it.
  * Returns whether the pedal is now down — false only on a run that is over. Already-held counts as
@@ -2938,6 +2948,25 @@ function holdBrake() {
   // Only when there is speed to shed — the pedal's detent is the haptic's job, and a brake noise
   // from a car at a standstill is a car that is not doing what the sound says. From above cruise
   // it is the Loco stop; from cruise it is the ordinary one.
+  // Mid-drift the pedal is the drift's: a second stab is not a bootleg, and not a stop.
+  const drift = traffic.taxi.drift;
+  if (drift && drift.phase !== 'carry') {
+    brakeButton?.classList.add('is-on');
+    return true;
+  }
+  // The drift: Loco Mode, at speed, a turn just ahead. Before the bootleg, and it clears the
+  // bootleg's first tap, so the press that starts a slide can't be half of a spin.
+  if (boost.isEngaged() && driftTaxi(traffic.taxi) === null) {
+    bootleg.reset();
+    driftHoldOff = true;
+    boost.release();
+    brakeButton?.classList.add('is-on');
+    sfx?.play('skid');
+    haptic('loco');
+    controller.kickShake(0.3);
+    stampAllRubber(traffic.taxi);
+    return true;
+  }
   // The bootleg: two taps in Loco Mode. Read before the pill is released below, which is the first
   // tap's own doing — its one-second tail still counts (game/bootleg.js).
   if (bootleg.brakeTap({ engaged: boost.isEngaged() })) {
@@ -3306,11 +3335,14 @@ function layRubber(dt) {
   // cruise is as much a skid as one from the overdrive top, just a shorter one (1.0 unit of rubber
   // against 16.5 — see HARD_BRAKE in sim/traffic.js).
   // And the bootleg (game/bootleg.js), which is a skid from start to finish.
-  const skidding = (car.braking && car.v > BRAKE_SKID_V) || car.uturn?.kind === 'spin';
+  // And the drift, all four wheels from the press to the exit.
+  const skidding = (car.braking && car.v > BRAKE_SKID_V) || car.uturn?.kind === 'spin'
+    || (car.drift && car.drift.phase !== 'carry');
 
   // The screech, once per slide rather than per stamp: on the frame a corner or a lane swap starts
   // breaking traction. Not the launch or the brake, which each already have a sound of their own.
-  const sliding = cornering || swapping;
+  // A drift screeched on its press (holdBrake), so its corner doesn't screech a second time.
+  const sliding = (cornering || swapping) && !car.drift;
   if (sliding && !wasSliding) sfx?.play('skid');
   wasSliding = sliding;
 
@@ -3712,7 +3744,11 @@ function frame() {
     // the screen (`body.game-over #brake`), and a `pointerup` on a removed element is not something
     // to rely on. Same self-healing shape as the two flags above it.
     // Through the bootleg, which holds the brake off from a spin until the pedal comes back up.
-    traffic.taxi.braking = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
+    // And through the drift, which does the same from its own press (see DRIFT_FUEL).
+    const bootlegBrake = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
+    if (!brakeHeld) driftHoldOff = false;
+    const drifting = traffic.taxi.drift && traffic.taxi.drift.phase !== 'carry';
+    traffic.taxi.braking = bootlegBrake && !driftHoldOff && !drifting;
   }
   updateBoostButton(dt);
   skids.update(dt);
@@ -3802,6 +3838,10 @@ function frame() {
     traffic.taxi.z = ramShove.z + ramShove.vz * k;
   }
   traffic.update(dt);
+  if (traffic.taxi.drifts > driftsPaid) {
+    driftsPaid = traffic.taxi.drifts;
+    if (!fares.state.gameOver) boost.topUp(DRIFT_FUEL);
+  }
   // A pass carried the taxi straight through a junction its route wanted to turn at, and the sim
   // dropped the route there (`detoured` in traffic.js). Re-plan from the far side, through the
   // same owner a dragged band goes through: a burger run or a depot run knows which way it has to

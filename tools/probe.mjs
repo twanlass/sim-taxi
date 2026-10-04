@@ -37,7 +37,7 @@ import { createDriveThru } from '../src/game/drivethru.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, DRIFT_MIN_V, DRIFT_ANGLE, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -16092,6 +16092,93 @@ let chopperOrder; // likewise
   check('...landing square in its lane, still moving, short of the line ahead',
     worstYaw < 0.05 && stalled === 0 && pastLine === 0,
     `worst heading ${worstYaw.toFixed(3)} rad off the lane, ${stalled} came out under cruise, ${pastLine} past the line`);
+}
+
+// --- The drift (`driftTaxi` in sim/traffic.js, wired in holdBrake in main.js) ----------------------
+//
+// Every lane with a real turn off it: the taxi dropped a few units short of its stop line at the
+// boost cruise, the pill just released (so `boostEasing`, which is what the brake press leaves), and
+// the brake pressed into a drift. It has to land on the exit lane, never drop under DRIFT_MIN_V
+// through the arc — the whole point is the speed it carries — and settle square to its new lane.
+// The control is the same corner with the pedal simply held: that is what the drift has to beat.
+{
+  const dTraffic = createTraffic(makeRng(seed + 45), new THREE.Scene(), 1);
+  const taxi = dTraffic.taxi;
+  const net = cityNetwork();
+  const why = {};
+  let tried = 0;
+  let landed = 0;
+  let slowest = Infinity;
+  let worstYaw = 0;
+  let peakSwing = 0;
+  let braked = 0;
+  let straightRefused = 0;
+  for (const lane of net.lanes) {
+    if (lane.degenerate || isLaneClosed(lane.id) || lane.length < 10) continue;
+    const to = net.nodeById.get(lane.to);
+    const d = net.dirOfLane(lane);
+    for (const id of lane.exits) {
+      const turn = net.turnById.get(id);
+      const out = net.laneById.get(turn.outLane);
+      if (isLaneClosed(out.id)) continue;
+      const setup = () => {
+        if (!placeCar(taxi, d, to.gi, to.gj, STOP_SETBACK + 6)) return false;
+        taxi.route = [net.dirOfLane(out)];
+        taxi.drift = null;
+        taxi.uturn = null;
+        taxi.boost = true;
+        taxi.boostEasing = true;
+        taxi.braking = false;
+        taxi.v = 20;
+        return true;
+      };
+      if (!setup()) continue;
+      if (turn.hand === 'straight') {
+        if (driftTaxi(taxi) === 'straight') straightRefused += 1;
+        continue;
+      }
+      tried += 1;
+      const refused = driftTaxi(taxi);
+      if (refused) { why[refused] = (why[refused] ?? 0) + 1; continue; }
+      const before = taxi.drifts;
+      let lowest = Infinity;
+      for (let k = 0; k < 120 && taxi.drifts === before; k++) {
+        dTraffic.update(1 / 60);
+        lowest = Math.min(lowest, taxi.v);
+        peakSwing = Math.max(peakSwing, Math.abs(taxi.driftAmt));
+      }
+      if (taxi.drifts === before || taxi.lane.id !== out.id) continue;
+      landed += 1;
+      slowest = Math.min(slowest, lowest);
+      // The swing is a render-only yaw on top of whatever the lane and the weave say, so it is
+      // read directly: it has to have rocked out and come to rest within a second of the exit.
+      for (let k = 0; k < 60; k++) dTraffic.update(1 / 60);
+      worstYaw = Math.max(worstYaw, Math.abs(taxi.driftAmt * DRIFT_ANGLE));
+      // The control: same corner, pedal held.
+      if (setup()) {
+        taxi.braking = true;
+        let low = Infinity;
+        for (let k = 0; k < 60 && !(taxi.state === 'drive' && taxi.lane.id === out.id); k++) {
+          dTraffic.update(1 / 60);
+          low = Math.min(low, taxi.v);
+        }
+        braked = Math.max(braked, low);
+        taxi.braking = false;
+      }
+    }
+  }
+  taxi.drift = null;
+  const reasons = Object.entries(why).map(([k, n]) => `${n} ${k}`).join(', ') || 'none';
+  check('a brake press in Loco Mode just before a turn drifts it, and the drift lands',
+    tried > 50 && landed === tried, `${landed} of ${tried} landed; refused: ${reasons}`);
+  check('...carrying its speed round the corner, where the held brake stops dead',
+    slowest >= DRIFT_MIN_V && braked < 1,
+    `slowest drift ${slowest.toFixed(1)} u/s against DRIFT_MIN_V ${DRIFT_MIN_V}; fastest held-brake corner bottomed out at ${braked.toFixed(2)}`);
+  check('...swinging its tail out and settling square to the exit lane',
+    peakSwing > 0.8 && worstYaw < 0.02,
+    `peak swing ${peakSwing.toFixed(2)} of DRIFT_ANGLE, ${worstYaw.toFixed(3)} rad of it left 1s after the exit`);
+  check('...and a press with the road going straight on is just a brake', straightRefused > 20,
+    `${straightRefused} straight-on approaches refused`);
 }
 
 // --- The emissive bloom --------------------------------------------------------
