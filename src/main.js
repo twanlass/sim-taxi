@@ -651,16 +651,21 @@ const parcels = parcelsEnabled
     foodPickup: burger ? { i: burger.site.bi + 1, j: burger.site.bj + 1 } : null,
   })
   : null;
-// Sim time the taxi's flourish was stamped at, or null when it is not running. See the frame loop —
+// Seconds since the taxi's flourish was fired, or null when it is not running. See the frame loop —
 // it lights the whole car for the length of a select pop.
 //
-// Two things fire it, and they are the same claim about the car: *this one, here*. A courier box
+// Three things fire it, and they are the same claim about the car: *this one, here*. A courier box
 // landing in it is an acknowledgement that the thing arrived; the camera riding back to it (see
 // `panToTaxi`) is a player who had lost the car being handed it again, at the moment it lands in
-// frame. Reusing one flourish rather than inventing a second is the point — the player learns the
-// gesture once.
-let taxiFlashAt = null;
-const flashTaxi = () => { taxiFlashAt = fares.state.elapsed; };
+// frame; and a tap on the car itself (the picker, below). Reusing one flourish rather than
+// inventing a second is the point — the player learns the gesture once.
+//
+// Its own clock rather than `fares.state.elapsed`, which it used to be stamped against: the fare
+// loop is held through the opening and the first-rider beat (`fareLoopHeld`), so its clock stands
+// still there — and that is exactly when new players tap the car. A flash stamped on a stopped
+// clock never retires, and the taxi stayed lit until the first rider was picked up.
+let taxiFlashAge = null;
+const flashTaxi = () => { taxiFlashAge = 0; };
 // The drive-through, if the city has a joint to run one. Given the cars array for the same reason
 // the police cruiser is: it has to see who is on the road it is pulling cars off and back onto.
 // On the **run** seed rather than the city's — which cars stop for lunch is part of the situation,
@@ -2034,6 +2039,23 @@ createPicker(
     // out of the wait. Only once the vignette owns the camera, as the opening's skip is.
     if (opening?.visiting() && opening.holdsCamera() && !JOB_KINDS.has(kind)) {
       if (wipe) wipe.cut(() => opening.skip()); else opening.skip();
+      return;
+    }
+
+    // **A tap on the taxi honks it.** Playtesters coming from RTS games tap their own car first,
+    // expecting to select it before giving it an order — and nothing here is ever selected, a tap
+    // on a rider is the whole instruction. Making the car a real first step was considered and
+    // turned down: it is a gesture that is only ever made in a player's first few seconds, and a
+    // selection state built for it would be a mode everyone else has to carry. So the tap is
+    // answered rather than obeyed — the horn, and the same flash a tapped rider gets — which is
+    // enough to say "yes, that's yours" and leave the player looking for the next thing to tap.
+    // No haptic: every buzz reports an accepted *order* (src/util/haptics.js), and this is not one.
+    // Not while the opening runs: a tap there is the skip (`skipVignette`, on the press), and the
+    // pointerup that follows it would otherwise honk over the cut to black.
+    if (kind === 'taxi') {
+      if (opening?.running()) return;
+      sfx?.play('horn');
+      flashTaxi();
       return;
     }
 
@@ -4408,13 +4430,13 @@ function frame() {
   // rider gets rather than as a new effect to learn. Written every frame while it runs, so the frame
   // it retires is the one that puts the car back — and clamped at zero on the way out, because a
   // light going negative would dim the taxi below the city it is driving in.
-  if (taxiFlashAt !== null) {
-    const since = fares.state.elapsed - taxiFlashAt;
-    if (since >= POP_TIME) {
+  if (taxiFlashAge !== null) {
+    if (taxiFlashAge >= POP_TIME) {
       traffic.setTaxiHighlight(0);
-      taxiFlashAt = null;
+      taxiFlashAge = null;
     } else {
-      traffic.setTaxiHighlight(popHighlight(since));
+      traffic.setTaxiHighlight(popHighlight(taxiFlashAge));
+      taxiFlashAge += dt;
     }
   }
 

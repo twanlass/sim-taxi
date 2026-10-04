@@ -76,6 +76,7 @@ const FILES = {
   '15_SIGNAL_turn': new URL('../../assets/audio/15_SIGNAL_turn.m4a', import.meta.url).href,
   '16_POLICE_siren_loop': new URL('../../assets/audio/16_POLICE_siren_loop.m4a', import.meta.url).href,
   '17_BURGER_drive_through': new URL('../../assets/audio/17_BURGER_drive_through.m4a', import.meta.url).href,
+  '18_HORN_honk': new URL('../../assets/audio/18_HORN_honk.m4a', import.meta.url).href,
 };
 
 /**
@@ -110,11 +111,13 @@ export const SOUNDS = {
   // burger joint's window, played once per visit.
   siren: ['16_POLICE_siren_loop'],
   driveThru: ['17_BURGER_drive_through'],
+  horn: ['18_HORN_honk'],
 };
 
 /** What `play()` accepts — the one-shots. A typo throws here rather than going silent. */
 export const SFX_EVENTS = new Set(['bump', 'accel', 'brake', 'locoActivate', 'locoLaunch',
-  'locoBrake', 'skid', 'copSkid', 'doorOpen', 'doorClose', 'crash', 'takeoff', 'land', 'driveThru']);
+  'locoBrake', 'skid', 'copSkid', 'doorOpen', 'doorClose', 'crash', 'takeoff', 'land', 'driveThru',
+  'horn']);
 
 /** The beds: steered by `update()`, never fired. */
 export const LOOPS = new Set(['idle', 'locoLoop', 'signal', 'siren']);
