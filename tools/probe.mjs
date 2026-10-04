@@ -189,7 +189,7 @@ import {
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
-import { createRunTracker, RUNS, PERFECT_SHARE } from '../src/game/runs.js';
+import { createRunTracker, RUNS, PERFECT_SHARE, TAG_AFTER } from '../src/game/runs.js';
 import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
@@ -17420,8 +17420,20 @@ let chopperOrder; // likewise
 
   r = createRunTracker();
   ride(r, a, 10, (t) => ({ boosting: t >= 6 }));
-  check('under the share it is not', keys(r.judge(a)) === '' && r.live()[0]?.broken === false,
+  check('under the share it is not, and its tag never shows', keys(r.judge(a)) === '' && r.live().length === 0,
     `${keys(r.judge(a))} ${JSON.stringify(r.live())}`);
+
+  // The tag: nothing for the first TAG_AFTER seconds even on course, then latched — a dip under the
+  // share dims it rather than hiding it.
+  r = createRunTracker();
+  ride(r, a, TAG_AFTER - 0.1, () => ({ boosting: true }));
+  const early = r.live().length;
+  ride(r, a, 0.2, () => ({ boosting: true }));
+  const shown = r.live()[0]?.earned === true;
+  ride(r, a, 10, () => ({}));
+  check(`the tag shows ${TAG_AFTER}s in, on course, and stays once shown`,
+    early === 0 && shown && r.live().length === 1 && r.live()[0].earned === false,
+    `early ${early}, shown ${shown}, after ${JSON.stringify(r.live())}`);
 
   r = createRunTracker();
   ride(r, a, 5, () => ({ boosting: true }));

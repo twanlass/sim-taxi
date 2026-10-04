@@ -26,6 +26,13 @@
 /** Share of the job's seconds spent in Loco Mode that a Perfect Run needs — strictly more than. */
 export const PERFECT_SHARE = 0.5;
 
+/**
+ * Seconds into a job before the HUD tag may appear, and then only once the job is on course. It
+ * used to show from the first press of the button with the share as a percentage, which Tyler
+ * found too much to read mid-drive; now it is a plain "you are on your way to one".
+ */
+export const TAG_AFTER = 2;
+
 export const RUNS = {
   perfect: { label: 'Perfect Run', mult: 2 },
 };
@@ -37,6 +44,7 @@ export function createRunTracker() {
     seconds: 0,
     boosted: 0,
     damaged: false,
+    shown: false,   // whether the HUD tag has appeared — latched, so it does not blink at the line
   };
 
   function begin(fare) {
@@ -44,6 +52,7 @@ export function createRunTracker() {
     ride.seconds = 0;
     ride.boosted = 0;
     ride.damaged = false;
+    ride.shown = false;
   }
 
   /**
@@ -56,30 +65,30 @@ export function createRunTracker() {
     if (!fare) return;
     ride.seconds += dt;
     if (boosting) ride.boosted += dt;
+    if (!ride.shown && ride.seconds >= TAG_AFTER && status()?.earned) ride.shown = true;
   }
 
   /** Any damage to the taxi. Only a job in progress cares. */
   const damage = () => { if (ride.fare) ride.damaged = true; };
 
-  /**
-   * What the job in progress is on course for. Shown once Loco Mode has been used at all. `earned`
-   * can come and go with the share; `broken` is for good — damage cannot be taken back.
-   */
-  function live() {
-    if (!ride.fare || ride.boosted <= 0) return [];
+  /** Where the job in progress stands, shown or not. `broken` is for good — damage cannot be undone. */
+  function status() {
+    if (!ride.fare) return null;
     const share = ride.seconds > 0 ? ride.boosted / ride.seconds : 0;
-    return [{
-      key: 'perfect',
-      share,
-      earned: !ride.damaged && share > PERFECT_SHARE,
-      broken: ride.damaged,
-    }];
+    return { key: 'perfect', share, earned: !ride.damaged && share > PERFECT_SHARE, broken: ride.damaged };
   }
+
+  /**
+   * The HUD's tags: the job's status once the tag has appeared (`TAG_AFTER`, and on course). After
+   * that `earned` can come and go with the share, which the tag shows as lit or dim.
+   */
+  const live = () => (ride.shown ? [status()] : []);
 
   /** The verdict on `fare`'s job: what it earned and the product of their multipliers. */
   function judge(fare) {
     if (fare !== ride.fare) return { runs: [], mult: 1 };
-    const runs = live().filter((r) => r.earned).map((r) => ({ key: r.key, ...RUNS[r.key] }));
+    const s = status();
+    const runs = s?.earned ? [{ key: s.key, ...RUNS[s.key] }] : [];
     return { runs, mult: runs.reduce((m, r) => m * r.mult, 1) };
   }
 

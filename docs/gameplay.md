@@ -1656,12 +1656,14 @@ contradict. It multiplies everything the drop-off pays, the robbery's clock bonu
 [package](#the-package-courier) is never multiplied.
 
 **It is visible during the job**, because a bonus first heard of at the drop-off cannot change how
-anyone drives. A tag under the cash (`#runs`, `updateRunTags`) appears once you boost — `PERFECT
-64%`, the job's boost share — dim until it is over the line and lit green while it is. Damage breaks
-it for good: it flinches red, shakes and falls out of the HUD. At the drop-off the payout plays as a
-sequence (`popRunSequence`): the fare's price flies into the counter like any payout, then
-`PERFECT RUN ×2` pops over the taxi and fades, then the extra it added flies into the counter after
-it, each amount rolling the counter to its own partial total as it lands.
+anyone drives. A `PERFECT RUN` tag at the top centre (`#runs`, `updateRunTags`) appears once the job is
+`TAG_AFTER` (2s) old and on course, lit green; from then on it dims if the share slips under the
+line and lights again if it recovers. It showed the share as a percentage at first, which was more
+arithmetic than anyone wants mid-drive. Damage breaks it for good: it flinches red, shakes and falls
+out of the HUD. At the drop-off the payout plays as a sequence (`popRunSequence`) in the middle of
+the screen: the fare's price pops and flies into the counter like any payout, then `PERFECT RUN ×2`
+pops and fades, then the extra it added pops and flies into the counter after it, each amount
+rolling the counter to its own partial total as it lands.
 
 It replaced two multipliers. The [shift](difficulty.md#shifts) used to stamp 1×, 1.25×, 1.5× or 2×
 into every price at spawn, with no counter on screen; and VIPs stacked a streak of their own (3×,
