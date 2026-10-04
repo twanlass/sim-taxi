@@ -3264,9 +3264,9 @@ cells is the largest thing that still reads as *chequer* at this size. Six cells
 about the finest pitch that survives. Square cells matching the band's own height would want twelve,
 at ~2px each, which alias into a flicker as the car turns.
 
-**Both colours are painted.** Letting the light cells fall through to the body was tried in the app
-icon (`tools/make-icon.mjs` paints three dark cells and shows yellow between them, which is right at
-180px on a static image); on the car it makes a yellow-and-black band, which is a hazard stripe, not
+**Both colours are painted.** Letting the light cells fall through to the body was tried in the old
+hand-drawn app icon (three dark cells with yellow between them, which was right at 180px on a static
+image); on the car it makes a yellow-and-black band, which is a hazard stripe, not
 a taxi. The white is the roof sign's own off-white rather than a new entry, so the livery keeps the
 car to two colours.
 
