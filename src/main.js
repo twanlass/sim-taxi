@@ -1160,7 +1160,8 @@ const replay = tape && createCrashReplay({
   // and at full gain each cut reads as another collision.
   onImpact: () => sfx?.play('crash', { gain: 0.75 }),
   hide: [clouds.group],
-  scrub: [ejection],
+  // The wreck's starburst too: it faces the camera, and a taped facing would be the live one's.
+  scrub: [ejection, blast],
 });
 // A tap anywhere skips to the card, and so does any key — a replay is a reward for looking, and a
 // player who wants the retry button should not have to sit through it to get there.

@@ -6797,12 +6797,14 @@ check('the taxi is an ordinary car in the traffic array',
   blast.update(1 / 60);
 
   check('both cars fit the pools without wrapping',
-    fired === 2 * (12 + 7 + 2 + 1), `${fired} instances`);
-  check('a blast puts a ring, a fireball and shards on the road',
+    fired === 2 * (4 + 7 + 2 + 1), `${fired} instances`);
+  // The pops go off a beat late, so on the first frame only the two big stars are up.
+  const shownStars = () => blast.stars.filter((s) => s.group.visible);
+  check('a blast puts a ring, a starburst and shards on the road',
     liveScales(blast.ringMesh).length === 2
-    && liveScales(blast.puffMesh).length === 24
+    && shownStars().length === 2
     && liveScales(blast.shardMesh).length === 14,
-    `${liveScales(blast.ringMesh).length} rings, ${liveScales(blast.puffMesh).length} puffs, `
+    `${liveScales(blast.ringMesh).length} rings, ${shownStars().length} stars, `
     + `${liveScales(blast.shardMesh).length} shards`);
 
   // Each car's shards wear that car's paint — a shared pool would have repainted the first car's
@@ -6819,16 +6821,42 @@ check('the taxi is an ordinary car in the traffic array',
     shardColors.has(taxiHex) && shardColors.has(otherHex),
     [...shardColors].join(' '));
 
-  // The fireball peaks and then collapses — a blast that only faded left a full-size ghost of
-  // itself hanging over the road for the whole retry screen.
+  // The starburst slams out and then collapses — a blast that only faded left a full-size ghost
+  // of itself hanging over the road for the whole retry screen. And the pops do go off: three per
+  // car, all of them inside the window, which a delay rolled past the life would quietly lose.
   let peak = 0;
+  let popsSeen = 0;
+  const bigScale = () => Math.max(0, ...blast.stars.filter((s) => s.group.visible && s.life > 0.5)
+    .map((s) => s.group.scale.x));
   for (let step = 0; step < 40; step++) {
     blast.update(1 / 60);
-    peak = Math.max(peak, Math.max(0, ...liveScales(blast.puffMesh)));
+    peak = Math.max(peak, bigScale());
+    popsSeen = Math.max(popsSeen, blast.stars.filter((s) => s.group.visible && s.life < 0.5).length);
   }
-  const later = Math.max(0, ...liveScales(blast.puffMesh));
-  check('the fireball blooms and then collapses', peak > 1 && later < peak,
+  const later = bigScale();
+  check('the starburst pops and then collapses', peak > 3 && later < peak,
     `peak ${peak.toFixed(2)}, ${later.toFixed(2)} at 0.67s`);
+  check('the pops go off around it', popsSeen >= 2, `${popsSeen} pops up at once at most`);
+
+  // Its layers are wound to face the camera: a ShapeGeometry is indexed, so walk the index (see
+  // CLAUDE.md), and the star is turned with the camera, so local +Z is the way it has to face.
+  {
+    let backwards = 0;
+    const [a, b, c] = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    for (const star of blast.stars) {
+      for (const { mesh } of star.parts) {
+        const pos = mesh.geometry.attributes.position;
+        const index = mesh.geometry.index;
+        for (let i = 0; i < index.count; i += 3) {
+          a.fromBufferAttribute(pos, index.getX(i));
+          b.fromBufferAttribute(pos, index.getX(i + 1));
+          c.fromBufferAttribute(pos, index.getX(i + 2));
+          if (b.sub(a).cross(c.sub(a)).z <= 0) backwards += 1;
+        }
+      }
+    }
+    check('every starburst triangle faces the camera', backwards === 0, `${backwards} wound away`);
+  }
 
   // And it ends. Every slot back to zero scale, not merely faded — an instance left at size is
   // still a draw, and this pool is never cleared by anything else.
@@ -6836,7 +6864,7 @@ check('the taxi is an ordinary car in the traffic array',
   check('a blast retires completely',
     blast.active() === 0
     && liveScales(blast.ringMesh).length === 0
-    && liveScales(blast.puffMesh).length === 0
+    && shownStars().length === 0
     && liveScales(blast.shardMesh).length === 0,
     `${blast.active()} still alive`);
 
@@ -6881,7 +6909,13 @@ check('the taxi is an ordinary car in the traffic array',
     const out = { ring: 0, puff: 0, shard: 0, side: 0 };
     for (let step = 0; step < 60 * 3; step++) {
       b.update(1 / 60);
-      for (const [key, mesh] of [['ring', b.ringMesh], ['puff', b.puffMesh], ['shard', b.shardMesh]]) {
+      for (const star of b.stars) {
+        if (!star.group.visible) continue;
+        p.copy(star.group.position);
+        out.puff = Math.max(out.puff, p.x * forward.x + p.z * forward.z);
+        out.side = Math.max(out.side, Math.abs(p.x * -forward.z + p.z * forward.x));
+      }
+      for (const [key, mesh] of [['ring', b.ringMesh], ['shard', b.shardMesh]]) {
         for (let i = 0; i < mesh.count; i++) {
           mesh.getMatrixAt(i, m);
           m.decompose(p, new THREE.Quaternion(), sc);
@@ -6904,7 +6938,7 @@ check('the taxi is an ordinary car in the traffic array',
   };
   check('the blast carries downfield, hardest on the heaviest debris',
     drift.ring > 1.5 && drift.puff > drift.ring && drift.shard > drift.puff && drift.shard < 12,
-    `ring +${drift.ring.toFixed(2)}, fireball +${drift.puff.toFixed(2)}, shards +${drift.shard.toFixed(2)}`);
+    `ring +${drift.ring.toFixed(2)}, starburst +${drift.puff.toFixed(2)}, shards +${drift.shard.toFixed(2)}`);
   check('none of the carry leaks across the heading',
     Math.abs(moving.side - still.side) < 1e-6,
     `${still.side.toFixed(2)} at rest vs ${moving.side.toFixed(2)} moving`);
@@ -7265,9 +7299,9 @@ check('the taxi is an ordinary car in the traffic array',
   const middle = radii[Math.floor(radii.length / 2)];
   const overTheCore = radii.filter((r) => r < 1.5).length;
 
-  // blast.js throws its fireball PUFF_REACH 2.8 and draws it at PUFF_SIZE 3.2 on a 0.5-radius
-  // icosahedron. The core — the pale-gold heart, the first puff of each fire() — barely travels,
-  // so what the collar must not cover is the middle. Stated as a shape rather than as a hard floor
+  // blast.js draws its starburst 3.2–4.6 in radius with a pale core at a third of that, so what
+  // the collar must not cover is the middle (it was a fireball reaching about 4 when this was
+  // written, and the numbers carried over). Stated as a shape rather than as a hard floor
   // on the nearest puff: the start radius is rolled per puff so the collar is not a torus (a torus
   // reads as a smoke *ring* once the fire inside it goes out), so the claim is that the bulk of it
   // sits outside the core, not that no single puff ever strays in.
@@ -7334,17 +7368,8 @@ check('the taxi is an ordinary car in the traffic array',
   const collar = createDust(new THREE.Scene(), null, makeRng(seed + 93));
   fire.fire(0, 0, PALETTE.taxiBody);
   collar.wreckSmoke(0, 0);
-  const fireballUp = () => {
-    const matrix = new THREE.Matrix4();
-    const scale = new THREE.Vector3();
-    let live = 0;
-    for (let i = 0; i < fire.puffMesh.count; i++) {
-      fire.puffMesh.getMatrixAt(i, matrix);
-      matrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), scale);
-      if (scale.x > 0) live += 1;
-    }
-    return live;
-  };
+  // The fire is the starburst now (blast.js), which is a pool of groups rather than an instance.
+  const fireballUp = () => fire.stars.filter((star) => star.group.visible).length;
   let flameOut = 0;
   let smokeLeft = 0;
   for (let step = 0; step < 60 * 5; step++) {
@@ -16175,19 +16200,20 @@ let chopperOrder; // likewise
 
   // --- A lamp whose hue is per *instance* rather than in its material.
   //
-  // The wreck's fireball leaves `puffMat.color` white and writes the RAMP into `instanceColor` per
-  // puff (game/blast.js), so "what colour is this lamp" has no answer in the material at all. It
-  // needs nothing special, and this is what says so: `USE_INSTANCING_COLOR` is derived from the
-  // *mesh*, so the pass's own material picks the ramp up on the same InstancedMesh, and the white
-  // it reads off the source is the identity that ramp multiplies. Get this wrong by "fixing" it
-  // and every explosion in the game blooms white.
-  const { puffMesh: fireball } = createBlast(new THREE.Scene(), makeRng(seed + 12));
+  // The landing sparks leave their material white and write a hot-to-cool tint into
+  // `instanceColor` per spark (game/sparks.js), so "what colour is this lamp" has no answer in the
+  // material at all. It needs nothing special, and this is what says so: `USE_INSTANCING_COLOR` is
+  // derived from the *mesh*, so the pass's own material picks the tint up on the same
+  // InstancedMesh, and the white it reads off the source is the identity that tint multiplies. Get
+  // this wrong by "fixing" it and every spark in the game blooms white. (This was asserted on the
+  // wreck's fireball until the wreck became a starburst, which does not bloom.)
+  const { mesh: sparkLamp } = createSparks(new THREE.Scene(), makeRng(seed + 12));
   check("a lamp coloured per instance blooms its instance colour, not its material's",
-    fireball.userData.bloomKind === 'blast'
-    && fireball.userData.bloomMaterial.vertexColors === false
-    && fireball.material.color.getHexString() === 'ffffff',
-    `puff material is white x ${BLOOM_INTENSITY.blast}, and the ramp arrives through the mesh`);
-  mine.push(fireball);
+    sparkLamp.userData.bloomKind === 'flame'
+    && sparkLamp.userData.bloomMaterial.vertexColors === false
+    && sparkLamp.material.color.getHexString() === 'ffffff',
+    `spark material is white x ${BLOOM_INTENSITY.flame}, and the tint arrives through the mesh`);
+  mine.push(sparkLamp);
 
   // --- Every emitter is keyed on a kind the table actually has.
   //

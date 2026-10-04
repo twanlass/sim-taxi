@@ -90,11 +90,6 @@ export const BLOOM_INTENSITY = {
    *  out on its own, which the pass follows. The sparks share it rather than taking a kind of their
    *  own because they are the same thing to this pass: small, hot, and gone in half a second. */
   flame: 3.8,
-  /** The wreck's fireball. Hotter again and for a second and a half only, which is the one moment
-   *  in this game where blowing the frame out is the point rather than a cost. Its hue lives
-   *  entirely in `instanceColor` — see the note in `markEmissive` about why that needs nothing
-   *  special here. */
-  blast: 4.6,
   /** A fare's crystal. **A read-out, and that is the whole argument for keeping this low.** Its hue
    *  is the time remaining, and bloom desaturates toward white as it saturates — so a crystal
    *  pushed hard stops reporting the clock at exactly the moment the clock matters most. 1.4 is a

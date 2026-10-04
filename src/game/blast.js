@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { color } from '../palette.js';
 import { unlitMaterial } from '../util/geo.js';
-import { markEmissive } from './bloom.js';
+import { starShape, ragged } from './impact.js';
 import { wheelGeometry, WHEEL_R } from '../geometry/wheels.js';
 import { carrySpeed, carryTravel } from '../util/carry.js';
 
 // The crash detonation, whole. One call — `fire(x, z, tint, yaw, speed)` — puts a shockwave ring, a
-// fireball and a handful of shards on the road, and a crash makes exactly two of those calls, one
-// per car.
+// comic starburst and a handful of shards on the road, and a crash makes exactly two of those calls,
+// one per car.
 //
 // It replaces a stack of four: sparks.js, smoke.js, debris.js and the `blast()` half of flames.js,
 // each fired twice at two points plus a third wave on a setTimeout. That was ~60 draw calls and
@@ -20,37 +20,58 @@ import { carrySpeed, carryTravel } from '../util/carry.js';
 //   - **Unlit flat colour, not Lambert.** A faceted sphere needs a light to show its facets, and
 //     the sun is behind the camera. These carry no shading at all and read as silhouettes — which
 //     is also what keeps a night-time wreck as bright as a golden-hour one.
-//   - **Colour is the animation.** Each puff walks one ramp over its own life, hot core → flame →
-//     smoke, and the puffs are staggered, so at any instant the cluster holds all three stops at
-//     once. That internal structure is what the flat fill would otherwise cost, and it retires the
-//     separate grey smoke plume: the fireball *becomes* the smoke.
-//   - **Position is a curve, not an integration.** Puffs and rings are `origin + direction × ease(t)`
+//   - **The bang is the bump's starburst, a size up.** A bump pops a flat ragged star on the contact
+//     point (game/impact.js); the wreck pops the same star, bigger, with an orange band in it and a
+//     few small ones going off around it. It used to be a cluster of faceted puffs walking a
+//     core → flame → smoke ramp — a simulated fireball — which made the crash the one hit in the
+//     game that spoke a different visual language from every hit that led up to it.
+//   - **Position is a curve, not an integration.** Stars and rings are `origin + direction × ease(t)`
 //     evaluated from scratch every frame; only the shards carry a ballistic arc, and that one is
 //     closed-form too. Nothing accumulates, so nothing has a drag constant to tune, and a slow-mo
 //     frame is exactly the same shape as a full-speed one. The wreck's downfield momentum is a
 //     second such curve added on top (see the CARRY block below and util/carry.js) rather than a
 //     velocity any of this is integrated against.
 //
-// Three instanced meshes, ~40 live instances at the peak of a two-car wreck.
+// Three instanced meshes plus a small pool of star groups.
 
-const PUFFS_PER_BLAST = 12;
+const POPS_PER_BLAST = 3;
 const SHARDS_PER_BLAST = 7;
 const TYRES_PER_BLAST = 2;
 
 // Two blast sites per crash and a crash ends the run, so these only ever need to hold two of each.
 // Doubled anyway — the pools are ring buffers, and a wrapped slot silently truncates a burst.
-const MAX_PUFFS = 48;
+const MAX_STARS = 2 * 2 * (1 + POPS_PER_BLAST);
 const MAX_SHARDS = 28;
 const MAX_RINGS = 4;
 const MAX_TYRES = 8;
 
-// Fireball. REACH is how far a puff drifts from the origin over its whole life: a two-car wreck
-// spans about 4 units, and at 3.4 the two clusters overlap into one blast rather than reading as
-// two bangs that happen to be adjacent.
-const PUFF_LIFE = 0.95;
-const PUFF_REACH = 2.8;
-const PUFF_RISE = 2.6;
-const PUFF_SIZE = 3.2;
+// The starburst. The bump's star (game/impact.js) is 1.6–2.6 in radius and gone in 0.32s; this is
+// the same graphic at wreck scale — twelve spikes to its nine, 3.2–4.6 in radius off the taxi's
+// speed, and on screen two and a half times as long, because the camera is slowing time and
+// pulling in on it. Two cars a couple of units apart throw two of them, which overlap into one
+// burst rather than reading as two bangs side by side.
+//
+// Four layers to the bump's three: its dark rim, yellow body and pale core, with a band of
+// `blastFlame` orange between the rim and the yellow. That one band is what tells a wreck from a
+// hard bump at a glance — same family, hotter.
+const STAR_LIFE = 0.8;        // s
+const STAR_POP = 0.07;        // s out to the overshoot
+const STAR_SPIKES = 12;
+const STAR_R = 3.2;           // world units at a standstill
+const STAR_R_PER_UNIT = 0.06; // per u/s of the speed the car arrived at
+const STAR_MAX_R = 4.6;
+const STAR_LIFT = 1.6;        // over the roofs, like the bump's
+const STAR_SPIN = 0.6;        // rad/s — slower than the bump's 1.5; a bigger thing turns slower
+// And the pops: small bump-sized stars going off around the big one, a beat apart, so the bang has
+// an after-crackle rather than one shape that swells and shrinks. Placed in a fan around the
+// origin, out at a fraction of the main star's radius so they sit on its edge rather than inside it.
+const POP_LIFE = 0.36;
+const POP_POP = 0.05;
+const POP_DELAY_MIN = 0.06;
+const POP_DELAY_MAX = 0.28;
+const POP_R = 0.4;            // of the main star's radius
+const POP_OUT_MIN = 0.55;     // of the main star's radius, out from its centre
+const POP_OUT_MAX = 0.8;
 
 // Shards. Short-lived and gone in the air — no ground bounce, no friction, no settling. Wreckage
 // coming to rest on the tarmac is a detail for a camera that stays; this one pulls into a close-up
@@ -92,7 +113,7 @@ const TYRE_FADE = 0.3;        // last fraction of life spent fading out
 //   - **Shards keep the most.** They are bits of the car, and a piece of bodywork that separates
 //     from a car at 22 u/s is still doing 22 u/s a moment later. Anything much under this and the
 //     shower fanned out symmetrically around a point the taxi had already driven through.
-//   - **The fireball keeps rather less.** Burning fuel is buoyant gas: it goes with the wreck, but
+//   - **The starburst keeps rather less.** It stands for the fire, and burning fuel is buoyant gas: it goes with the wreck, but
 //     it is dragged back by air the bodywork punches through. At the shards' fraction the flame
 //     front outran the wreckage it came out of, which reads as a fireball being *fired* downfield.
 //   - **The ring keeps least of the three.** It is the ground mark of the bang, so what it wants is
@@ -101,9 +122,10 @@ const TYRE_FADE = 0.3;        // last fraction of life spent fading out
 //   - **The tyres are the odd one out** — theirs is folded into the roll instead, see `fire`.
 //
 // Measured at a boost-speed impact (22.1 u/s), over each effect's own life: the ring drifts 2.0
-// units, the fireball 4.5, and the shards 7.8 on top of their own 6–12 of fan.
+// units, the fireball 4.5, and the shards 7.8 on top of their own 6–12 of fan. The starburst took
+// over the fireball's fraction unchanged.
 const RING_CARRY = 0.30;
-const PUFF_CARRY = 0.42;
+const STAR_CARRY = 0.42;
 const SHARD_CARRY = 0.70;
 // Under the other three because it is spent on a *bearing* that is already up to 66° off the
 // heading, and because a tyre has TYRE_DRAG 0.7 rather than CARRY_DRAG 1.7 to spend it against —
@@ -202,71 +224,108 @@ export function createBlast(scene, rng) {
   // closing again. Without it the arc reads as a tyre sliding up-screen.
   tyreMesh.castShadow = true;
 
-  // --- Fireball -------------------------------------------------------------
-  // Above the shards, so the core of the blast covers the pieces still inside it.
-  const puffGeo = new THREE.IcosahedronGeometry(0.5, 0);
-  const puffMat = unlitMaterial({
-    transparent: true,
-    depthWrite: false,
-  });
-  const puffAlpha = withInstanceAlpha(puffGeo, puffMat, MAX_PUFFS);
-  const puffMesh = makePool(scene, puffGeo, puffMat, MAX_PUFFS, 6);
-  // The fireball glows — see game/bloom.js. Three things about this one would each have needed
-  // handling and none of them does, which is worth knowing because it is the shape most effects in
-  // here have:
+  // --- Starburst -----------------------------------------------------------
+  // Not instanced, and that is forced by the camera rather than chosen. A star is a flat cutout in
+  // the screen plane, and the crash replay (game/replay.js) swings the camera off the diagonal: a
+  // taped instance matrix would hold the live camera's facing and show the burst edge-on from the
+  // side. So these are ordinary groups the tape does not see, posed as a closed form of their age
+  // (`seek`, which the replay scrubs like the ejected driver) and turned to whichever camera is
+  // drawing them on the frame it draws — `onBeforeRender` runs before three reads `matrixWorld`
+  // into the model-view, so the facing set there is the one that renders. The bump's star copies
+  // `camera.quaternion` in its update instead, which is a frame behind a cut and is fine for a
+  // shape that never has to survive one.
   //
-  //   - **Its hue is `instanceColor`,** not the material's colour: `puffMat` is left white and the
-  //     RAMP below is written per puff. That needs nothing, because `USE_INSTANCING_COLOR` is
-  //     derived from the *mesh* rather than the material, so the pass's own material picks the ramp
-  //     up on the same InstancedMesh. The white it reads off `puffMat` is the identity it
-  //     multiplies.
-  //   - **Its alpha is a shader patch** (`withInstanceAlpha`), and MAX_PUFFS slots are dead at any
-  //     moment outside a wreck. `markEmissive` inherits a source's `onBeforeCompile`, so the dead
-  //     ones stay dead rather than blooming as a permanent ball of fire at the origin.
-  //   - **It is pooled**, so this marks once and `aAlpha` does the rest.
-  markEmissive(puffMesh, 'blast');
-
-  // The one ramp every puff walks, keyed on its own fraction of life. Flat stops rather than a
-  // formula for the same reason the daylight keyframes are: the interesting part is the shape of
-  // the hold in the middle — flash, burn, die back, grey out — and a curve smooth enough to
-  // express it would spend most of its range somewhere uninteresting.
-  const RAMP = [
-    { at: 0.00, c: color('blastCore') },
-    { at: 0.12, c: color('blastGold') },
-    { at: 0.42, c: color('blastFlame') },
-    { at: 0.62, c: color('blastFlame') },   // the hold: this is what the blast is *seen* as
-    { at: 0.82, c: color('blastEmber') },
-    { at: 1.00, c: color('blastSmoke') },
+  // Drawn over everything, as the bump's is: a burst half buried in the car that made it is a
+  // burst nobody reads. Not bloomed — the bump's star is not either, and a flat cutout pushed
+  // through the bloom stops being flat.
+  const bigLayers = [
+    { shape: starShape(1.2, 0.6, ragged, STAR_SPIKES), tint: 'impactRim', shrink: 0 },
+    { shape: starShape(1.08, 0.54, ragged, STAR_SPIKES), tint: 'blastFlame', shrink: 0 },
+    { shape: starShape(0.82, 0.44, (n) => ragged(n + 3), STAR_SPIKES), tint: 'impactBody', shrink: 0.2 },
+    { shape: starShape(0.42, 0.26, (n) => ragged(n + 7), STAR_SPIKES), tint: 'impactCore', shrink: 0.6 },
   ];
+  // The pops are the bump's star outright: its three layers, its proportions.
+  const popLayers = [
+    { shape: starShape(1.18, 0.62, ragged), tint: 'impactRim', shrink: 0 },
+    { shape: starShape(1.0, 0.52, ragged), tint: 'impactBody', shrink: 0 },
+    { shape: starShape(0.5, 0.28, (n) => ragged(n + 7)), tint: 'impactCore', shrink: 0.5 },
+  ];
+  const toGeometry = ({ shape, tint, shrink }) => ({ geometry: new THREE.ShapeGeometry(shape), tint, shrink });
+  const bigGeo = bigLayers.map(toGeometry);
+  const popGeo = popLayers.map(toGeometry);
 
-  function rampColor(out, t) {
-    for (let i = 1; i < RAMP.length; i++) {
-      if (t > RAMP[i].at && i < RAMP.length - 1) continue;
-      const span = RAMP[i].at - RAMP[i - 1].at;
-      return out.lerpColors(RAMP[i - 1].c, RAMP[i].c, Math.min(1, (t - RAMP[i - 1].at) / span));
+  function makeStar(layers) {
+    const group = new THREE.Group();
+    const spin = new THREE.Group();
+    group.add(spin);
+    // Turned to the camera at draw time — see the note above. Every layer carries it, so whichever
+    // one three reaches first sets the facing for the rest.
+    const face = (renderer, sc, camera) => {
+      group.quaternion.copy(camera.quaternion);
+      group.updateMatrixWorld(true);
+    };
+    const parts = layers.map(({ geometry, tint, shrink }, order) => {
+      const material = unlitMaterial({
+        color: color(tint), transparent: true, depthTest: false, depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.z = order * 0.01;
+      mesh.renderOrder = 20 + order;
+      mesh.frustumCulled = false;
+      mesh.onBeforeRender = face;
+      spin.add(mesh);
+      return { mesh, material, shrink };
+    });
+    group.visible = false;
+    scene.add(group);
+    return { group, spin, parts };
+  }
+
+  // Half the pool is big stars and half pops, in the proportion one blast fires them, so the two
+  // ring buffers wrap together.
+  const bigStars = Array.from({ length: MAX_STARS / (1 + POPS_PER_BLAST) }, () => makeStar(bigGeo));
+  const popStars = Array.from({ length: MAX_STARS - bigStars.length }, () => makeStar(popGeo));
+  for (const star of bigStars) Object.assign(star, { life: STAR_LIFE, pop: STAR_POP, born: -Infinity, delay: 0 });
+  for (const star of popStars) Object.assign(star, { life: POP_LIFE, pop: POP_POP, born: -Infinity, delay: 0 });
+  const stars = [...bigStars, ...popStars];
+  // Sim seconds since the module was built, advanced by `update`. A star records the clock it was
+  // fired on, so its age is a subtraction rather than a counter — which is what lets `seek` pose
+  // the whole burst at any moment without having stepped through the ones in between.
+  let clock = 0;
+
+  /**
+   * Pose one star `age` seconds after its blast fired — hidden before its own delay and after its
+   * life. The envelope is the bump's: slams out past full size, settles back and shrinks a little
+   * as it fades. The pale heart closes up faster than the rest (`shrink`), so the burst cools from
+   * the middle out as it goes.
+   */
+  function poseStar(star, age) {
+    const t = age - star.delay;
+    if (!(t >= 0 && t < star.life)) {
+      star.group.visible = false;
+      return;
     }
-    return out.copy(RAMP[RAMP.length - 1].c);
+    star.group.visible = true;
+    const k = t < star.pop
+      ? 1.25 * (t / star.pop)
+      : 1.25 - 0.4 * ((t - star.pop) / (star.life - star.pop));
+    // Carried off the blast's age, not the star's own: a pop that goes off late has to go off where
+    // the wreck has got to, not where it started.
+    const drift = carryTravel(Math.max(0, age));
+    star.group.position.set(star.ox + star.cx * drift, star.oy, star.oz + star.cz * drift);
+    star.group.scale.setScalar(star.r * k);
+    star.spin.rotation.z = star.spin0 + star.spinRate * t;
+    const u = t / star.life;
+    const fade = Math.min(1, (star.life - t) / (star.life * 0.4));
+    for (const part of star.parts) {
+      part.mesh.scale.setScalar(1 - part.shrink * u);
+      part.material.opacity = fade;
+    }
   }
 
   // Ring buffers of plain state. Everything below is read straight back into a closed-form
   // position, so a slot holds where it started and how it was thrown — never where it got to.
-  const puff = {
-    life: new Float32Array(MAX_PUFFS),
-    life0: new Float32Array(MAX_PUFFS),
-    ox: new Float32Array(MAX_PUFFS),
-    oy: new Float32Array(MAX_PUFFS),
-    oz: new Float32Array(MAX_PUFFS),
-    dx: new Float32Array(MAX_PUFFS),
-    dz: new Float32Array(MAX_PUFFS),
-    cx: new Float32Array(MAX_PUFFS),
-    cz: new Float32Array(MAX_PUFFS),
-    reach: new Float32Array(MAX_PUFFS),
-    rise: new Float32Array(MAX_PUFFS),
-    size: new Float32Array(MAX_PUFFS),
-    shade: new Float32Array(MAX_PUFFS),
-    spin: new Float32Array(MAX_PUFFS),
-    tilt: new Float32Array(MAX_PUFFS),
-  };
   const shard = {
     life: new Float32Array(MAX_SHARDS),
     life0: new Float32Array(MAX_SHARDS),
@@ -305,14 +364,14 @@ export function createBlast(scene, rng) {
     lean: new Float32Array(MAX_TYRES),
   };
 
-  let nextPuff = 0;
+  let nextBig = 0;
+  let nextPop = 0;
   let nextShard = 0;
   let nextRing = 0;
   let nextTyre = 0;
 
   const dummy = new THREE.Object3D();
   const tintColor = new THREE.Color();
-  const scratch = new THREE.Color();
 
   /**
    * One detonation at (x, z). `tint` paints that car's shards in its own paint, so a two-car wreck
@@ -347,43 +406,39 @@ export function createBlast(scene, rng) {
     ring.cz[nextRing] = fz * RING_CARRY;
     nextRing = (nextRing + 1) % MAX_RINGS;
 
-    for (let k = 0; k < PUFFS_PER_BLAST; k++) {
-      const slot = nextPuff;
-      nextPuff = (nextPuff + 1) % MAX_PUFFS;
+    const big = bigStars[nextBig];
+    nextBig = (nextBig + 1) % bigStars.length;
+    const r = Math.min(STAR_MAX_R, STAR_R + Math.abs(speed || 0) * STAR_R_PER_UNIT);
+    Object.assign(big, {
+      born: clock, delay: 0, r,
+      ox: x, oy: STAR_LIFT, oz: z,
+      cx: fx * STAR_CARRY, cz: fz * STAR_CARRY,
+      spin0: rng.range(0, Math.PI * 2),
+      spinRate: STAR_SPIN * (rng.chance(0.5) ? 1 : -1),
+    });
+    poseStar(big, 0);
 
-      // An even fan with a little jitter, rather than a free random angle. Random angles clump,
-      // and a cluster with a bald side reads as a mistake at exactly the moment the camera pushes
-      // in on it.
-      const angle = (k / PUFFS_PER_BLAST) * Math.PI * 2 + rng.jitter(0.35);
-      // The first puff is the core: it barely travels, so the middle of the fireball stays filled
-      // while the rest of the cluster opens out around it.
-      const spread = k === 0 ? 0.12 : rng.range(0.55, 1.15);
-
-      // A wide spread on the life, which is what staggers the colour ramp: puffs that all reach
-      // the flame stop together read as one flat orange silhouette with no depth in it.
-      puff.life[slot] = PUFF_LIFE * rng.range(0.6, 1.4);
-      puff.life0[slot] = puff.life[slot];
-      puff.ox[slot] = x + rng.jitter(0.3);
-      puff.oy[slot] = 0.7 + rng.range(0, 0.8);
-      puff.oz[slot] = z + rng.jitter(0.3);
-      puff.dx[slot] = Math.cos(angle);
-      puff.dz[slot] = Math.sin(angle);
-      puff.cx[slot] = fx * PUFF_CARRY;
-      puff.cz[slot] = fz * PUFF_CARRY;
-      puff.reach[slot] = PUFF_REACH * spread;
-      puff.rise[slot] = PUFF_RISE * rng.range(0.6, 1.3);
-      puff.size[slot] = PUFF_SIZE * (k === 0 ? 1.35 : rng.range(0.7, 1.15));
-      // A fixed bias along the colour ramp, correlated with how far the puff is thrown: the outer
-      // ones run *ahead* of the ramp and the core runs behind it, so the fireball has a pale-gold
-      // heart and deepens towards its edge.
-      //
-      // Life alone could not produce this. The puffs still alive at any instant are the long-lived
-      // ones, and they all sit at the same stop — which is why a ramp keyed on life alone, however
-      // many colours were in it, rendered as one flat orange.
-      puff.shade[slot] = (spread - 0.8) * 0.3 + rng.jitter(0.05);
-      puff.spin[slot] = rng.range(0, Math.PI * 2);
-      puff.tilt[slot] = rng.range(-1.6, 1.6);
-      puffAlpha[slot] = 1;
+    for (let k = 0; k < POPS_PER_BLAST; k++) {
+      const pop = popStars[nextPop];
+      nextPop = (nextPop + 1) % popStars.length;
+      // An even fan with jitter, as everything else here is thrown: random bearings clump, and
+      // three pops on one side of the bang read as a mistake.
+      const angle = (k / POPS_PER_BLAST) * Math.PI * 2 + rng.jitter(0.6);
+      const out = r * rng.range(POP_OUT_MIN, POP_OUT_MAX);
+      Object.assign(pop, {
+        born: clock,
+        // Staggered across the window, one per third of it, so they crackle in turn rather than
+        // landing together.
+        delay: POP_DELAY_MIN + (POP_DELAY_MAX - POP_DELAY_MIN) * ((k + rng.range(0, 1)) / POPS_PER_BLAST),
+        r: r * POP_R * rng.range(0.85, 1.15),
+        ox: x + Math.cos(angle) * out,
+        oy: STAR_LIFT + rng.jitter(0.5),
+        oz: z + Math.sin(angle) * out,
+        cx: fx * STAR_CARRY, cz: fz * STAR_CARRY,
+        spin0: rng.range(0, Math.PI * 2),
+        spinRate: 1.5 * (rng.chance(0.5) ? 1 : -1),
+      });
+      poseStar(pop, 0);
     }
 
     for (let k = 0; k < SHARDS_PER_BLAST; k++) {
@@ -456,60 +511,27 @@ export function createBlast(scene, rng) {
     }
   }
 
-  function updatePuffs(dt) {
-    let touched = false;
-    for (let slot = 0; slot < MAX_PUFFS; slot++) {
-      if (puff.life[slot] <= 0) continue;
-      touched = true;
-      puff.life[slot] -= dt;
-      const age = puff.life0[slot] - Math.max(0, puff.life[slot]);
-      const t = Math.min(1, age / puff.life0[slot]);
-
-      // Punches out and eases to a stop. This is the whole of the motion — the old fireball
-      // integrated a velocity against an exponential drag to arrive at the same shape.
-      //
-      // Two terms, and they are different curves on purpose: the fan is keyed on `t`, this puff's
-      // own fraction of its own life, and the carry on `age`, real seconds. A puff rolled a short
-      // life would otherwise finish its downfield travel early and hang back while its longer-lived
-      // neighbours went on past it — the fireball would shear rather than move.
-      const ease = 1 - (1 - t) ** 2.2;
-      const drift = carryTravel(age);
-      dummy.position.set(
-        puff.ox[slot] + puff.dx[slot] * puff.reach[slot] * ease + puff.cx[slot] * drift,
-        puff.oy[slot] + puff.rise[slot] * ease,
-        puff.oz[slot] + puff.dz[slot] * puff.reach[slot] * ease + puff.cz[slot] * drift,
-      );
-
-      // Pop, hold, collapse. A fireball that only faded left a full-size ghost hanging over the
-      // road; collapsing it is what makes the blast look like it is being drawn back in.
-      const env = Math.min(1, t / 0.18) * Math.min(1, (1 - t) / 0.42) ** 0.8;
-      dummy.rotation.set(puff.tilt[slot] * 0.3, puff.spin[slot] + puff.tilt[slot] * t, 0);
-      dummy.scale.setScalar(puff.size[slot] * env);
-      dummy.updateMatrix();
-      puffMesh.setMatrixAt(slot, dummy.matrix);
-
-      // Where on the ramp this puff sits: its own life, offset by its shade bias. The bias is what
-      // spreads the cluster *across* the ramp rather than marching it through in lockstep, and a
-      // flat unlit fill has no other source of internal structure.
-      puffMesh.setColorAt(slot, rampColor(scratch, Math.min(1, Math.max(0, t + puff.shade[slot]))));
-
-      // Full opacity almost the whole way, so the tail *darkens* rather than thinning out. Fading
-      // a still-orange puff over its last quarter turned the end of the blast into translucent
-      // pink hexagons hanging over the road; the ramp above has to be allowed to reach smoke
-      // before anything is taken off the alpha.
-      puffAlpha[slot] = Math.min(1, (1 - t) / 0.15);
-
-      if (puff.life[slot] <= 0) {
-        dummy.scale.setScalar(0);
-        dummy.updateMatrix();
-        puffMesh.setMatrixAt(slot, dummy.matrix);
-        puffAlpha[slot] = 0;
-      }
+  function updateStars(dt) {
+    clock += dt;
+    for (const star of stars) {
+      const age = clock - star.born;
+      if (age > star.delay + star.life + dt) continue;
+      poseStar(star, age);
     }
-    if (touched) {
-      puffMesh.instanceMatrix.needsUpdate = true;
-      if (puffMesh.instanceColor) puffMesh.instanceColor.needsUpdate = true;
-      puffGeo.attributes.aAlpha.needsUpdate = true;
+  }
+
+  /**
+   * The starburst as it stood `at` sim seconds after the most recent blast, or at its own age when
+   * `at` is null — game/replay.js scrubs it beside the wreckage and the ejected driver. Both cars'
+   * blasts fire on the same frame, so "the most recent" is the crash; an older star keeps its lead
+   * over it, and so stays hidden for any moment a replay can ask for.
+   */
+  function seek(at = null) {
+    let newest = -Infinity;
+    for (const star of stars) newest = Math.max(newest, star.born);
+    if (newest === -Infinity) return;
+    for (const star of stars) {
+      poseStar(star, at === null ? clock - star.born : at + (newest - star.born));
     }
   }
 
@@ -675,7 +697,7 @@ export function createBlast(scene, rng) {
   }
 
   function update(dt) {
-    updatePuffs(dt);
+    updateStars(dt);
     updateShards(dt);
     updateTyres(dt);
     updateRings(dt);
@@ -684,12 +706,15 @@ export function createBlast(scene, rng) {
   /** For the headless checks — how many instances are still alive, so a wreck can be shown to end. */
   function active() {
     let live = 0;
-    for (let slot = 0; slot < MAX_PUFFS; slot++) if (puff.life[slot] > 0) live += 1;
+    for (const star of stars) {
+      const age = clock - star.born;
+      if (age < star.delay + star.life) live += 1;
+    }
     for (let slot = 0; slot < MAX_SHARDS; slot++) if (shard.life[slot] > 0) live += 1;
     for (let slot = 0; slot < MAX_TYRES; slot++) if (tyre.life[slot] > 0) live += 1;
     for (let slot = 0; slot < MAX_RINGS; slot++) if (ring.life[slot] > 0) live += 1;
     return live;
   }
 
-  return { fire, update, active, tyreAt, puffMesh, shardMesh, ringMesh, tyreMesh };
+  return { fire, update, seek, active, tyreAt, stars, shardMesh, ringMesh, tyreMesh };
 }

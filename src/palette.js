@@ -567,20 +567,11 @@ export const PALETTE = {
   // is the unclaimed-passenger marker.
   routeLine: '#FFE873',
 
-  // The crash — see game/blast.js. Three stops of one ramp rather than three separate effects:
-  // every fireball puff walks core → flame → smoke over its own life, so the cluster carries the
-  // hot centre, the flame front and the smoke tail at the same time. It is drawn unlit, which is
-  // why the smoke stop is a lit-looking grey rather than a true black: nothing here picks up the
-  // sun, so the colour has to arrive already looking like it did.
-  // The ember stop is not decoration, it is what keeps the ramp out of the mud: lerped straight
-  // from flame to smoke a puff spends its whole tail somewhere around #9A603D, which is the brick
-  // in the building list — a fireball dying the colour of the wall behind it. Going through a deep
-  // ember first is both how fire actually dies and a colour that cannot be mistaken for masonry.
-  blastCore: '#FFF3C4',
-  blastGold: '#FFA828',
+  // The crash — see game/blast.js. The wreck's starburst is the bump's (`impact*` below) with one
+  // band of this orange added between the rim and the yellow, which is what tells a wreck from a
+  // hard bump at a glance. It is the survivor of a five-stop ramp the old fireball walked
+  // (core → gold → flame → ember → smoke); the flame stop was the one the fireball was *seen* as.
   blastFlame: '#FF7A1F',
-  blastEmber: '#8C3A12',
-  blastSmoke: '#4B4B55',
   // The shockwave on the tarmac. A pale warm yellow rather than white — white on this asphalt
   // reads as a lighting artefact, and the ring belongs to the fireball above it.
   blastRing: '#FFE9A8',
@@ -590,7 +581,7 @@ export const PALETTE = {
   // pipe itself.
   //
   // Its own three rather than a borrow of the crash's, and the difference is which end is hot. A
-  // fireball is a cluster cooling *outward over time*, so `blastCore`→`blastFlame` is a ramp each
+  // fireball is a cluster cooling *outward over time*, so `blastCore`→`blastFlame` was a ramp each
   // puff walks; this is a jet, hottest where it leaves the pipe and coolest at the tip, so the ramp
   // is a fact about *position* and all three stops are on screen at once. That also lets the core
   // go whiter than a puff's ever does — a still-burning nozzle against a car, rather than the
@@ -599,7 +590,7 @@ export const PALETTE = {
   // The middle stop is the one that had to be argued with. `taxiBody` is #F5C130 — hue 44°, 80%
   // saturated — and the first gold here came out at 42° and 82%, which is the taxi's own paint
   // burning two units behind the taxi's own paint: it read as a lit panel rather than as fire.
-  // Pulling it to 35° puts it in the fireball's neighbourhood (`blastGold` is 36°) and nine degrees
+  // Pulling it to 35° puts it in the fireball's neighbourhood (the old `blastGold` was 36°) and nine degrees
   // clear of the car. The core is at 46° and looks nothing like either, because at 15% saturation
   // it is white with a warm cast rather than a yellow.
   locoFlameOuter: '#FF5D18',
@@ -629,9 +620,8 @@ export const PALETTE = {
   impactCore: '#FFFBEA',
   impactRim: '#6B2E12',
   // The collar of smoke thrown out around a wreck — the construction zone's dust, tinted. It is
-  // set against the **road**, not against `blastSmoke` beside it, and that is the whole of why it
-  // is this light. The fireball is unlit, so its smoke stop can be a dark #4B4B55 and still read;
-  // this pool is Lambert (game/dust.js), it is lying on `asphalt` #636972, and the first attempt
+  // set against the **road**, and that is the whole of why it is this light. The old fireball was
+  // unlit, so its smoke stop could be a dark #4B4B55 and still read; this pool is Lambert (game/dust.js), it is lying on `asphalt` #636972, and the first attempt
   // at #6E6259 — a sensible smoke grey by eye — came out at the same value as the tarmac under it
   // and vanished for the whole of the fire, leaving smoke that only appeared once the flame had
   // gone. Roughly 1.8× the road's value is what it takes to be seen against it. Warm and well

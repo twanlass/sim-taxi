@@ -1541,12 +1541,12 @@ Three things it handles that a naive copy would not, each of which was a real th
   `setGhostOutlines` already identifies them.
 
 And one it handles by doing nothing, which is worth knowing because it looks like it should need
-work: **a hue that lives in `instanceColor` rather than in the material.** The wreck's fireball
-leaves its material white and writes its colour ramp per puff, so "what colour is this lamp" has no
-answer in the material at all. `USE_INSTANCING_COLOR` is derived from the *mesh*, not the material,
-so the pass's own material picks the ramp up on the same `InstancedMesh` — and the white it reads
-off the source is exactly the identity that ramp multiplies. "Fixing" that is how every explosion in
-the game ends up blooming white.
+work: **a hue that lives in `instanceColor` rather than in the material.** The landing sparks
+leave their material white and write a hot-to-cool tint per spark, so "what colour is this lamp" has
+no answer in the material at all. `USE_INSTANCING_COLOR` is derived from the *mesh*, not the
+material, so the pass's own material picks the tint up on the same `InstancedMesh` — and the white
+it reads off the source is exactly the identity that tint multiplies. "Fixing" that is how every
+spark in the game ends up blooming white.
 
 Where to call it from is the same split `markOccluder` has. Anything `sim/` or `city/` owns is
 marked from `main.js`, because neither may import from `game/`; anything already in `game/` marks
@@ -1565,7 +1565,7 @@ dialled to zero does — never by skipping the swap, which is the trap the next 
 
 **What is in it today:** every vehicle's brake pods and indicators, the cruiser's light bar, the
 drive-through's lit windows and menu board, the depot's strip light, the Loco plume and its kickoff
-burst, the wreck's fireball, and — quietly — a fare's crystal and the disc under it.
+burst, the landing sparks, and — quietly — a fare's crystal and the disc under it.
 
 **And one that is wired but ships at zero: the route band.** It is the third member of the
 one-trip-one-hue trio and looks odd as the only one not lifted, so it was tried at 0.6 — already the
@@ -1584,11 +1584,11 @@ the reason that hatch exists: a hand-written `ShaderMaterial` has neither a `col
 `emissive`, so nothing generic can say what it contributes as light. The owner supplies a clone of
 its own material and a `sync` callback that carries the uniforms across each frame.
 
-The fireball is the one place in this game where blowing the frame out is the *point* rather than a
-cost, so it carries the highest intensity in the table. It also demonstrates the whole of the pass
-in one object: its hue is per-instance, its alpha is a shader patch, and it is pooled — so it is
-marked once at construction and everything else follows the frame. The **shockwave ring** beside it
-is deliberately left out: it is a thin annulus, and a thin line is the first thing a blur destroys.
+The wreck is not in it. It used to be — a fireball at the highest intensity in the table — and it
+came out when the fireball became a [comic starburst](#wreck--gameblastjs-gamewreckagejs): the
+bump's star does not bloom, and a flat cutout pushed through a blur stops being flat. The
+**shockwave ring** was always left out: it is a thin annulus, and a thin line is the first thing a
+blur destroys.
 
 Those last two are the ones to be careful with rather than the ones to turn up. Bloom desaturates
 toward white as it saturates, and a fare's ring is a clock whose hue *is* the answer. `crystal` and
@@ -2211,9 +2211,9 @@ immediately, the same bail `traffic.taxi.boost` gets.
 ### Wreck — `game/blast.js`, `game/wreckage.js`, plus a smoke collar out of `game/dust.js`
 
 The crash is **one call per car** — `blast.fire(x, z, tint, yaw, speed)` — and everything *it* puts on the road
-lives in one module: a shockwave ring on the tarmac, a fireball, a scatter of shards in that car's
-paint, and two tyres that bounce out and roll away. Four `InstancedMesh`es, about forty-five live
-instances at the peak of a two-car wreck.
+lives in one module: a shockwave ring on the tarmac, a comic starburst, a scatter of shards in that
+car's paint, and two tyres that bounce out and roll away. Three `InstancedMesh`es and a small pool
+of star groups.
 Around the pair of them goes one call to [`dust.wreckSmoke`](#dust--gamedustjs), which is
 [the collar](#the-smoke-collar) below.
 
@@ -2227,26 +2227,30 @@ rather than physical:
 - **Unlit flat colour, not Lambert.** A faceted sphere needs a light to show its facets and the sun
   is behind the camera, so these carry no shading at all and read as silhouettes. It is also what
   keeps a night-time wreck as bright as a golden-hour one.
-- **Colour is the animation.** Every puff walks one ramp — core → gold → flame → ember → smoke —
-  keyed on its own life *plus a fixed shade bias*, so the cluster is spread across the ramp rather
-  than marching through it together. That internal structure is what a flat fill would otherwise
-  cost, and it retires the separate grey smoke plume: the fireball *becomes* the smoke.
-- **Position is a curve, not an integration.** Puffs and rings are `origin + direction × ease(t)`
+- **The bang is the bump's starburst, a size up.** A survivable bump pops a flat ragged star on
+  the contact point (`game/impact.js`); the wreck pops the same star — twelve spikes to its
+  nine, 3.2–4.6 units in radius off the taxi's speed against the bump's 1.6–2.6, 0.8s against
+  0.32s — with a band of `blastFlame` orange between the dark rim and the yellow, and three small
+  bump-sized stars crackling off around its edge a beat apart. The heart closes up faster than the
+  rest, so it cools from the middle out as it fades.
+- **Position is a curve, not an integration.** Stars and rings are `origin + direction × ease(t)`
   evaluated from scratch each frame; the shards' ballistic arc is closed-form too, floored at the
   tarmac rather than bounced off it. Nothing accumulates, so nothing has a drag constant to tune,
   and a slow-mo frame is the same shape as a full-speed one.
 
-> **The shade bias is what stops it reading mono.** Keyed on life alone the fireball rendered as one
-> flat orange however many colours were in the ramp, because the puffs still alive at any instant
-> are the long-lived ones and they all sit at the same stop. The bias is correlated with how far a
-> puff is thrown — the outer ones run *ahead* of the ramp, the core runs behind it — so the fireball
-> has a pale-gold heart and deepens towards its edge, rather than being noisy.
+> **It used to be a simulated fireball**: twelve faceted puffs per car, each walking a
+> core → gold → flame → ember → smoke ramp. It read, but it made the crash the one hit in the game
+> speaking a different language from every bump that led up to it, so it became the bump's graphic
+> instead. The smoke the fireball used to turn into is the [collar](#the-smoke-collar)'s job alone
+> now.
 
-> The ember stop is load-bearing, not decoration. Lerped straight from flame to smoke a puff spends
-> its whole tail around `#9A603D` — which is `brick` in the building palette, so the fireball died
-> the colour of the wall behind it. The first version also faded a still-orange puff out over its
-> last quarter, which left translucent pink hexagons hanging over the road; the ramp has to be
-> allowed to *reach* smoke before any alpha comes off.
+> **The stars are groups, not instances, and the camera is why.** A star is a cutout in the screen
+> plane and the crash replay swings the camera off the diagonal: a taped instance matrix would hold
+> the live camera's facing and show the burst edge-on. So `blast.js` poses them as a closed form of
+> age, `seek`s them in the replay beside the ejected driver, and turns each one to whichever camera
+> is drawing it in `onBeforeRender` — which three runs before it reads `matrixWorld` into the
+> model-view, so the facing set there is the one that renders. Drawn with `depthTest` off, as the
+> bump's star is: a burst half buried in the car that made it is a burst nobody reads.
 
 The shockwave is the mark that reads first, because a flat ring at this camera projects as an
 ellipse spreading out from under the wreck — the blast has a size before the fireball has grown into
@@ -2331,7 +2335,7 @@ What is per-effect is the fraction, and the ordering is about weight rather than
 | Shards | 0.70 | 7.8 units, on top of their own 6–12 of fan |
 | Shells (`wreckage`) | 0.26, ×0.8 taxi / ×1.25 struck | 2.7 units for the taxi, 4.2 for the car it shunted, both to rest |
 | Smoke collar (`dust`) | 0.50 | 3.2 units |
-| Fireball | 0.42 | 4.5 units |
+| Starburst (was the fireball) | 0.42 | 3.9 units |
 | Shockwave ring | 0.30 | 2.0 units |
 | Tyres | 0.28, on the bearing | 2.5–5.8 units of extra roll |
 
@@ -2442,7 +2446,7 @@ Five numbers, and none of them is free:
   point — which reads *worse* than nothing having moved, because now there is a stationary thing in
   frame for the moving ones to be measured against. The fraction is high against the fireball's 0.42
   only because these puffs are spent against this pool's drag of 3.4 rather than `CARRY_DRAG`'s 1.7.
-- **`wreckSmoke` in the palette is set against the road, not against `blastSmoke`.** The fireball is
+- **`wreckSmoke` in the palette is set against the road, not against the old fireball's smoke.** The fireball is
   unlit, so its smoke stop can be `#4B4B55` and still read; this pool is Lambert and is lying on
   `asphalt` `#636972`. A sensible smoke grey by eye (`#6E6259`) came out at the same value as the
   tarmac and vanished for the entire duration of the fire, leaving smoke that only appeared once the

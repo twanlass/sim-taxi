@@ -273,7 +273,8 @@ ambient car with boost on, `collisions.update()` detonates it through the same h
 uses, and then only the blast and the two wrecks are stepped forward, to `wreckAt` seconds. Traffic is deliberately *not* stepped with them — the rest of the city driving on under a
 frozen wreck is a different picture. Driving the real path rather than firing the effects by hand is
 what stops the framing drifting away from the thing it exists to review; move `wreckAt` to look at a
-different beat of the explosion (0.08 is the flash, 0.22 the peak, 0.9 the embers).
+different beat of the explosion (0.05 is the slam, 0.22 the peak with the pops going off, 0.6 the
+fade).
 
 Shot 17 (`wreck-smoke`) is the same staging one second later, and it exists because shot 12 answers
 only half the question now. The wreck's [smoke collar](rendering.md#the-smoke-collar) is thrown

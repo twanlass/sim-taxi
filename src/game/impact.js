@@ -7,8 +7,8 @@ import { unlitMaterial } from '../util/geo.js';
 // Sparks and a puff of dust were the first answer and they undersold it: both are a few pixels at
 // play zoom, both are the same vocabulary a jump landing already speaks, and neither says *two
 // cars just touched here*. A spiky flat star in the screen plane does, at a glance, from across
-// the map. It is the one stylised graphic in the crash vocabulary on purpose — the wreck has the
-// fireball, the bump gets the comic panel.
+// the map. The wreck used to answer it with a simulated fireball and now speaks the same comic
+// language a size up — see the STARS block in game/blast.js.
 //
 // Three stacked stars — a dark rim, the yellow body, a pale core — each a flat ShapeGeometry facing
 // the camera. Drawn over everything (no depth test): it marks where the hit was, and a burst half
@@ -26,10 +26,12 @@ const R_PER_UNIT = 0.035;
 const MAX_R = 2.6;
 const LIFT = 1.4;           // above the road, so it sits over the two roofs rather than under them
 
-function starShape(outer, inner, rng) {
+// Exported with `ragged` for the wreck's bigger burst (game/blast.js), which is this same star at
+// wreck scale — the two are one vocabulary on purpose, so a crash reads as the bump it grew out of.
+export function starShape(outer, inner, rng, spikes = SPIKES) {
   const shape = new THREE.Shape();
-  for (let n = 0; n < SPIKES * 2; n++) {
-    const a = (n / (SPIKES * 2)) * Math.PI * 2;
+  for (let n = 0; n < spikes * 2; n++) {
+    const a = (n / (spikes * 2)) * Math.PI * 2;
     // Uneven spikes: a regular star reads as a badge, a ragged one as an impact.
     const r = n % 2 === 0 ? outer * (0.78 + 0.22 * rng(n)) : inner;
     const x = Math.cos(a) * r;
@@ -42,7 +44,7 @@ function starShape(outer, inner, rng) {
 
 // Fixed per-spike jitter rather than an rng stream: the shape is baked once at boot and drawing a
 // seed for it would shift every stream downstream of wherever it was taken from.
-const ragged = (n) => (Math.sin(n * 12.9898) * 43758.5453) % 1 * 0.5 + 0.5;
+export const ragged = (n) => (Math.sin(n * 12.9898) * 43758.5453) % 1 * 0.5 + 0.5;
 
 export function createImpact(scene, camera) {
   const layers = [

@@ -59,7 +59,7 @@ src/
     debugpanel.js       the ⚙️ tweak panel
     skidmarks.js        rubber ring buffer
     dust.js             instanced dust puffs
-    blast.js            the crash detonation whole — shockwave, fireball, shards; one per wrecked car
+    blast.js            the crash detonation whole — shockwave, starburst, shards; one per wrecked car
     flames.js           the tailpipe bark on the press that engages Loco Mode
     locoflame.js        the flat stylized plume that burns out of it for the whole hold
     wreckage.js         wrecked bodywork left on the road — carried out, crumpled, scorched, kept
