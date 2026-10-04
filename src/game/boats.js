@@ -5,8 +5,9 @@ import {
   createBargeMesh, createTugMesh, BARGE_LEN, TUG_LEN, BARGE_BEAM, TUG_BEAM,
 } from '../geometry/boat.js';
 import {
-  waterEdges, waterHeightAt, bridgeSpan, drawbridgeLine, BARGE_AIR, TUG_AIR,
+  waterEdges, waterHeightAt, bridgeSpan, bridgeLines, drawbridgeLine, BARGE_AIR, TUG_AIR,
 } from '../city/river.js';
+import { createGullFlock, MOVE_SECONDS, MOVE_REACH, LIFT_RAMP } from './gulls.js';
 import { OPEN_SECONDS } from './drawbridge.js';
 import { createWake } from './wake.js';
 import { SLAB_X, EDGE_FADE } from '../city/ground.js';
@@ -91,9 +92,10 @@ const RELEASE_PAST = TUG_LEN + 4;
 //
 // **Zero: the river is single file.** Boats used to keep to a lane each side so an up-river and a
 // down-river hull could pass, which capped the beam at under half the water — and a barge that
-// narrow read as a toy next to the cars on the bridges. A barge now fills three quarters of the
-// channel, so nothing can pass it, and the passing problem moved from the lanes to the launch
-// schedule (`canLaunch` below). Running down the middle is also the best the arches can offer a
+// narrow read as a toy next to the cars on the bridges. The barge filled three quarters of the
+// channel for a while; the trash barge that replaced it is back to half (4.2), and two of those
+// still do not fit side by side on the narrow build (8.4 against 7.87) — so the passing problem
+// stays with the launch schedule (`riverDir` below) rather than going back to lanes. Running down the middle is also the best the arches can offer a
 // mast: they crest on the centreline.
 //
 // Exported because the ceiling on them is a *clearance* and belongs in the probe.
@@ -121,6 +123,34 @@ export function createBoats(scene, rng, drawbridge) {
   const drawSpan = drawLine === null ? null : bridgeSpan(drawLine);
 
   const midZ = (edges.z0 + edges.z1) / 2;
+
+  // Every span over the water, as an x interval — what a gull changing altitude must not be under.
+  const spans = bridgeLines().map(bridgeSpan).filter(Boolean)
+    .map((s) => [s.cx - s.outer, s.cx + s.outer]);
+  /**
+   * May a barge's gulls take off or land? Only if no span is over the hull, or will be over it
+   * before a move that starts now has finished — the hull's swept interval over `MOVE_SECONDS`,
+   * padded by how far past its ends a bird mid-move can be. See game/gulls.js for why this is the
+   * whole of the bridge problem.
+   */
+  const gullsClear = (boat) => {
+    const half = boat.len / 2 + MOVE_REACH;
+    const ahead = boat.x + boat.dir * boat.speed * MOVE_SECONDS;
+    const lo = Math.min(boat.x, ahead) - half;
+    const hi = Math.max(boat.x, ahead) + half;
+    return spans.every(([a, b]) => hi < a || lo > b);
+  };
+  /**
+   * How far up toward its bridge height a gull at hull-frame `z` must fly: 1 anywhere within a
+   * unit of a span's footprint (a wing's reach, padded), easing to 0 `LIFT_RAMP` beyond it.
+   */
+  const gullLift = (boat) => (z) => {
+    const wx = boat.x + boat.dir * z;
+    let d = Infinity;
+    for (const [a, b] of spans) d = Math.min(d, Math.max(0, a - wx, wx - b));
+    const t = Math.min(1, Math.max(0, (d - 1) / LIFT_RAMP));
+    return 1 - t * t * (3 - 2 * t);
+  };
 
   // The foam, on a stream of its own.
   //
@@ -189,6 +219,14 @@ export function createBoats(scene, rng, drawbridge) {
       beam: kind === 'tug' ? TUG_BEAM : BARGE_BEAM,
     };
     mesh.position.set(boat.x, waterHeightAt(boat.x), boat.z);
+    // The barge's gulls ride in its frame and wear its material, so they fade with it.
+    if (kind === 'barge') {
+      // On a stream of their own, seeded from one draw, for the wake's reason: they spend randoms
+      // every time one lands, and the schedule must not depend on how often that was.
+      boat.gulls = createGullFlock(makeRng(rng.int(0, 0x7fffffff)), geo.userData.perches, mesh.material);
+      boat.gullLift = gullLift(boat);
+      mesh.add(boat.gulls.group);
+    }
     group.add(mesh);
     boats.push(boat);
     if (kind === 'tug') state.tugs += 1; else state.barges += 1;
@@ -252,6 +290,7 @@ export function createBoats(scene, rng, drawbridge) {
       // at the x it was *laid* at rather than at the boat's — it does not travel with the hull, so
       // it cannot inherit the hull's opacity either.
       boat.mesh.material.opacity = fadeAt(boat.x);
+      if (boat.gulls) boat.gulls.update(dt, gullsClear(boat), boat.gullLift);
 
       // Foam is spent per unit of river covered, so a tug clamped at `HOLD_OFF` in front of a leaf
       // that has not come up spends nothing and lies there with the water flat behind it. That used
@@ -281,6 +320,7 @@ export function createBoats(scene, rng, drawbridge) {
     state,
     wake,
     update,
+    gullsClear,
     /**
      * Shot mode ticks the world once and freezes it, so anything that opens at zero is stuck on its
      * first frame. Nothing here is scaled up from nothing, but a river with no boats on it is the
@@ -305,8 +345,8 @@ export function createBoats(scene, rng, drawbridge) {
       // the cycle forward. The barge does not stop, the sailboat holds at `HOLD_OFF`, and a staged
       // shot puts both on the river at once, which the schedule never does — 26 units back, with a
       // 16-unit hull, the barge sailed straight through the waiting sailboat by the time the leaf
-      // was up. 13 seconds of staging is 34 units of barge, so from 60 back its bow stops 6 short
-      // of the sailboat's stern.
+      // was up. 13 seconds of staging is 34 units of barge, so from 60 back its bow stopped 6 short
+      // of the sailboat's stern — and 8.5 short now the hull is 11.
       barge.x = gate - 60;
       barge.z = laneZ(barge.dir);
       barge.mesh.position.set(barge.x, waterHeightAt(barge.x), barge.z);

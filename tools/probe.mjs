@@ -164,7 +164,8 @@ import {
   WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR, TUG_AIR, ARCH_RISE, DECK_THICK,
 } from '../src/city/river.js';
 import { createBridge, abutmentParts } from '../src/geometry/bridge.js';
-import { createBargeMesh, createTugMesh } from '../src/geometry/boat.js';
+import { createBargeMesh, createTugMesh, GULL_STAND, PERCH_CEIL } from '../src/geometry/boat.js';
+import { gullHeight, FLY_HIGH } from '../src/game/gulls.js';
 import { createDrawbridge, OPEN_SECONDS } from '../src/game/drawbridge.js';
 import { createBoats, BOAT_LANE, LANE_WANDER } from '../src/game/boats.js';
 import { FOAM_LIFE } from '../src/game/wake.js';
@@ -16402,6 +16403,21 @@ let chopperOrder; // likewise
   check('the arch is what buys the tug that clearance',
     archGap - flatGap > 0.9, `${(archGap - flatGap).toFixed(2)} units of hump`);
 
+  // The gulls ride under the flat span on the heap, and fly over the arched one with a truck on
+  // it: two more links in the same chain. Perches are read off the barge geometry, not trusted.
+  {
+    const perches = bargeGeo.userData.perches;
+    const highPerch = Math.max(...perches.map((p) => p.y));
+    check('a gull standing on the barge still clears the flat span',
+      gullHeight() <= GULL_STAND + 1e-6 && highPerch <= PERCH_CEIL + 1e-6
+        && PERCH_CEIL + GULL_STAND < flatGap,
+      `${perches.length} perches, highest ${highPerch.toFixed(2)} + a ${gullHeight().toFixed(2)} bird`
+        + ` against ${flatGap.toFixed(2)}`);
+    check('and a flying one clears a truck on the arch crest',
+      FLY_HIGH - 0.5 > -WATER_Y + ARCH_RISE + 2.6,
+      `${(FLY_HIGH - 0.5).toFixed(2)} at the lowest wingtip against ${(-WATER_Y + ARCH_RISE + 2.6).toFixed(2)}`);
+  }
+
   // --- The deck profile.
   //
   // Zero slope at both abutments is the whole reason the hump is a `sin^2` — a curve arriving at
@@ -16883,8 +16899,8 @@ let chopperOrder; // likewise
     const boats = createBoats(rScene, makeRng(seed + 840), bridge);
     let lowest = 1;
     let shutFrames = 0;
-    // Two hulls in the same water, and a mast through a soffit. The river is single file now — a
-    // barge fills three quarters of the channel — so keeping hulls apart is the launch schedule's
+    // Two hulls in the same water, and a mast through a soffit. The river is single file — two
+    // barges side by side need 8.4 of a 7.87 channel — so keeping hulls apart is the launch schedule's
     // job, and what is measured is the closest any two boats came end to end.
     let worstGap = Infinity;
     let worstAir = Infinity;
@@ -16895,6 +16911,13 @@ let chopperOrder; // likewise
     // from the middle of the channel, whether it stays on the surface, and how much of the pool the
     // busiest moment of the river actually spends.
     let peakFoam = 0;
+    // The gulls: a bird under a span has to be one riding the heap, and a bird over one has to be
+    // up at flight height. Anything between is a bird through a bridge deck.
+    const gSpans = bridgeLines().map(bridgeSpan);
+    let gullHits = 0;
+    let gullMoves = 0;
+    let gullsUnder = 0;
+    const gWorld = new THREE.Vector3();
     let outOfChannel = 0;
     let worstBank = 0;
     let offSurface = 0;
@@ -16907,8 +16930,8 @@ let chopperOrder; // likewise
         peakFoam = Math.max(peakFoam, foam.length);
         for (const mote of foam) {
           // **The bank is the bound, and it is tighter than it sounds.** The water is 7.87 units
-          // across on the narrow build against a barge whose arms start 2.9 off the middle, so
-          // there is about a unit of open water outboard of a hull. Arms left to open on the
+          // across on the narrow build against a barge whose arms start 2.0 off the middle, so
+          // there is under two units of open water outboard of a hull. Arms left to open on the
           // Kelvin angle alone are over the embankment inside a second and a half, and foam lying
           // on a stone walkway is as wrong as this effect goes.
           const past = Math.max(mote.z - rWater.z1, rWater.z0 - mote.z) + mote.size / 2;
@@ -16924,6 +16947,24 @@ let chopperOrder; // likewise
       bridge.update(1 / 60, []);
       if (bridge.closed) shutFrames += 1;
       for (const boat of boats.boats) {
+        if (boat.gulls) {
+          if (boat.gulls.moving()) gullMoves += 1;
+          boat.mesh.updateMatrixWorld(true);
+          for (const bird of boat.gulls.birds) {
+            bird.root.getWorldPosition(gWorld);
+            const over = gSpans.some((sp) => Math.abs(gWorld.x - sp.cx) < sp.outer
+              && gWorld.z > sp.z0 && gWorld.z < sp.z1);
+            if (!over) continue;
+            // Against the deck actually overhead, not the flat soffit: the outer spans stand
+            // where the river is already shoaling up to the coast, so a hull rides higher there —
+            // and they are arches, with the room on the centreline to take it.
+            const deck = deckHeightAt(gWorld.x, gWorld.z).y;
+            const under = gWorld.y + GULL_STAND <= deck - DECK_THICK;
+            const above = gWorld.y - 0.5 > deck + 2.6;
+            if (under) gullsUnder += 1;
+            if (!under && !above) gullHits += 1;
+          }
+        }
         // Clearance is a function of **z alone** — the arch crests on the centreline and falls off
         // both ways — so the number that matters is the soffit above the boat's own lane, not the
         // one above the middle of the river. Checking the crest is what let this through before.
@@ -16946,6 +16987,8 @@ let chopperOrder; // likewise
     // pool that replaced it is whether it ever put anything on the water. A particle wake cannot
     // fail that way for a winding reason (three builds the mote), which is one of the things it
     // buys; it can fail for a dozen others, and the checks below are those.
+    check('no gull ever flies through a bridge', gullHits === 0 && gullsUnder > 0 && gullMoves > 0,
+      `${gullHits} bird-frames inside a deck; ${gullsUnder} riding under one, ${gullMoves} frames of take-off or landing`);
     check('a boat under way leaves foam behind it', peakFoam > 0,
       `${peakFoam} motes alive at the busiest frame of five minutes, of ${boats.wake.size}`);
     // Headroom in the ring buffer, the check `dust.js` has twice been resized by. The pool laps
