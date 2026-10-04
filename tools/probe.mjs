@@ -16439,6 +16439,38 @@ let chopperOrder; // likewise
     check('the deck faces the sky', upward > 100, `${upward} up-facing triangles`);
   }
 
+  // ...and every vertical face of the deck faces the side it is on: the edge beams **out**, the kerb
+  // faces **in** toward the carriageway. Both shipped wound the other way round, so a span had no
+  // visible side from outside and the camera saw straight under its footways to the water — a slot
+  // nobody noticed on a 1.1 hump and "a geo gap" the day the rise went to 1.9. Read off the winding,
+  // for the same reason as above.
+  {
+    let wrong = 0;
+    let seen = 0;
+    const a = new THREE.Vector3(); const b = new THREE.Vector3();
+    const c = new THREE.Vector3(); const n = new THREE.Vector3();
+    for (const i of bridgeLines()) {
+      const span = bridgeSpan(i);
+      const geo = createBridge(span, makeRng(seed + 820 + i), { abutments: false, pivotZ: 0 });
+      const p = geo.attributes.position;
+      for (let k = 0; k < p.count; k += 3) {
+        a.fromBufferAttribute(p, k); b.fromBufferAttribute(p, k + 1); c.fromBufferAttribute(p, k + 2);
+        if (Math.abs(a.x - b.x) > 1e-6 || Math.abs(a.x - c.x) > 1e-6) continue;
+        const x = a.x;
+        const onBeam = Math.abs(Math.abs(x) - span.outer) < 1e-6;
+        const onKerb = Math.abs(Math.abs(x) - span.half) < 1e-6;
+        if (!onBeam && !onKerb) continue;
+        n.copy(b).sub(a).cross(c.clone().sub(a));
+        if (n.length() < 1e-9) continue;
+        seen += 1;
+        const want = onBeam ? Math.sign(x) : -Math.sign(x);
+        if (Math.sign(n.x) !== want) wrong += 1;
+      }
+    }
+    check('edge beams face out and kerbs face the carriageway', seen > 0 && wrong === 0,
+      `${wrong} of ${seen} side triangles wound the wrong way`);
+  }
+
   // --- Nothing under a bridge shares a plane with the channel wall.
   //
   // The abutment reaches forward to the water's edge to close the void under the deck's ends, and
