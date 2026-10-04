@@ -1293,11 +1293,35 @@ abandons the pass mid-manoeuvre. Measured: 3 of every 4.
 
 **Whenever the road allows it, and never because the sim judged it a bad idea.** Holding the button
 inside `PASS_TRIGGER` of a car is the decision to go round it. The only things that refuse a pass
-are about geometry, not risk: there has to be an oncoming lane to borrow, and the taxi has to be
-carrying straight on through the junction ahead (a pass always spans one, and a corner taken from
-the oncoming lane peels the car off its arc). A taxi with **no route** — cruising on the dice
-between fares — counts as carrying straight on wherever straight on exists, and its exit roll is
-pinned straight while it is out of its lane (right-on-red included).
+are about the road: there has to be an oncoming lane to borrow, and the junction ahead has to have
+a straight on through it (a pass always spans one, and a corner taken from the oncoming lane peels
+the car off its arc). A taxi's exit roll is pinned straight while it is out of its lane
+(right-on-red included).
+
+**The route is not one of them.** It used to be: a pass was only offered where the route carried
+straight on, and that gate was behind **92%** of the frames a boosting taxi spent within
+`PASS_TRIGGER` of a car on a lane (24 cities, 90s each, button held). Every one of those was a
+rear-end, because a taxi with no way round rams. It got reported as "why is the taxi refusing to
+overtake the box truck? It just keeps ramming him", on a long straight, and the answer was "your
+route turns at the next junction", which nothing on screen says. Tyler's call: holding boost behind
+a car means go round it, and the detour is the player's.
+
+So a routed taxi whose route turns ahead (`turnsAhead`) still pulls out. At the junction, if it is
+still out of its lane, it takes the straight instead of the corner, the sim drops the route there
+and sets `taxi.detoured`, and `main.js` re-plans from the far side through the same owner a dragged
+band uses (a burger or depot run keeps the side it has to arrive from). With a turn ahead the pass
+also stops sustaining on whatever is next within `PASS_SUSTAIN`: it is for the car it pulled out
+for, or one detour would chain into the next.
+
+| same runs, game truck density | before | after |
+|---|---|---|
+| frames within `PASS_TRIGGER` of a leader | 1105 | 373 |
+| rear-ends on a car in front | 168 | 76 |
+| same car again within 6s | 59 | 13 |
+| ground speed | 23.34 u/s | 23.59 u/s |
+
+76 detours over those 36 minutes of permanently held boost, about two a minute. What is left
+refusing is a junction ahead with no straight through it: a T at the edge of the map or a park.
 
 This replaced two judgement gates, and why they went matters more than how they worked:
 
@@ -1326,9 +1350,7 @@ Measured over six autoplay runs with boost held throughout, counting frames spen
 (`leaderDist`) reports nothing in front while the script's lane scan finds a car — one that has
 just entered the lane, typically. No gate refuses them.
 
-**What is left is the route gate**, and it is now most of what a player will still feel as "it
-wouldn't go". It stays because the alternative is the corner-from-the-wrong-lane geometry, not a
-risk judgement — but it is the next thing to look at if passing still reads as inconsistent.
+The route gate that was left here went too; see above.
 
 **One courtesy is kept.** A car being passed still does not *choose* a left turn across the taxi
 (`car === taxi.passTarget` in the exit roll). A car that has already committed to one when the taxi
@@ -1525,13 +1547,15 @@ Measured over 24 cities, 90s each, button held, routed, against the same runs be
 | `TRUCK_CHANCE` (1/12), after | **8** | **2** | 23.06 u/s |
 | 30% trucks, before | 108 | 63 | 22.69 u/s |
 | 30% trucks, after | **17** | **1** | 20.86 u/s |
+| `TRUCK_CHANCE`, with the route no longer refusing passes | 7 | 1 | 23.59 u/s |
+| 30% trucks, likewise | 16 | 1 | 20.72 u/s |
 
-Overtakes of trucks went 23 → 33 at 30%. The ground speed is what following a truck costs against
-shoving one at `TRUCK_PUSH_V`, and at the game's own density it is about 1%.
+Overtakes of trucks went 23 → 33 at 30%, and 45 once the route stopped refusing them. The ground
+speed is what following a truck costs against shoving one at `TRUCK_PUSH_V`; at the game's own
+density it is noise.
 
-A car still gets rammed, and the same "hit it again" happens there too, less visibly because the
-car is launched clear: 40–60 of ~120 rear-ends on cars are the same car again within 6s. That is
-the route gate (see [when it is allowed](#when-it-is-allowed)) more than the ram.
+Behind a car there is now nearly always a pass (see [when it is allowed](#when-it-is-allowed)): the
+ram is left for a junction ahead with no straight through it, and one-way roads.
 
 **What a bump does:**
 

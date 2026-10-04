@@ -3641,7 +3641,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // phase happens to be at the moment you sample it.
   const stats = {
     time: 0, violations: 0, minGap: Infinity, moving: 0, waiting: 0,
-    distance: 0, routeDesync: 0, routeRefused: 0, rightOnRed: 0, chaseOnRed: 0, uturns: 0,
+    distance: 0, routeDesync: 0, routeRefused: 0, passDetours: 0, rightOnRed: 0, chaseOnRed: 0,
+    uturns: 0,
   };
 
   const matrix = new THREE.Matrix4();
@@ -4608,13 +4609,25 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // `route[0]` is undefined — which made boosting between fares a rear-end every time. It
       // counts as carrying straight on wherever straight on exists, and the junction honours that
       // by sending an unrouted taxi that is out of its lane straight across (the exit roll below).
-      const room = (taxi.route?.length
-        ? taxi.route[0] === taxi.d
-        : Boolean(exitToward(net, taxi.lane, taxi.d)))
+      //
+      // **A route that turns does not refuse the pass any more.** It was the refusal behind 92% of
+      // the frames a boosting taxi spent within PASS_TRIGGER of a car on a lane — measured over 24
+      // cities — and every one of those frames was a rear-end, because a taxi with no way round
+      // rams (`rams`). "Boost behind a car and you go round it" was the rule, and the route made
+      // it a lie most of the time. Now the pass goes ahead, the taxi carries straight on through
+      // the junction its route wanted to turn at (the exit roll below: a corner from the oncoming
+      // lane still peels the car off its arc), and main.js re-plans from the far side
+      // (`taxi.detoured`). Holding boost behind a car is the player choosing the detour.
+      const turnsAhead = Boolean(taxi.route?.length) && taxi.route[0] !== taxi.d;
+      const room = Boolean(exitToward(net, taxi.lane, taxi.d))
         && Boolean(net.laneByGrid(opposite(taxi.d), taxi.i, taxi.j));
       // Hysteresis: pull out when the leader starts costing speed, stay out until it is properly
-      // behind. Without the second number the taxi flutters in and out around the trigger.
-      const near = gap !== undefined && gap < (taxi.passing ? PASS_SUSTAIN : PASS_TRIGGER);
+      // behind. Without the second number the taxi flutters in and out around the trigger. Not
+      // with a turn ahead, though: staying out for whatever is next within PASS_SUSTAIN would chain
+      // one detour into the next, so there the pass is for the car it pulled out for and nothing
+      // further back than PASS_TRIGGER.
+      const near = gap !== undefined
+        && gap < (taxi.passing && !turnsAhead ? PASS_SUSTAIN : PASS_TRIGGER);
       // Only re-decided on a lane. Every pass spans a junction by construction — 32 units of
       // manoeuvre against a 12-unit lane — so re-deciding mid-crossing would drop the commitment
       // in the middle of exactly the manoeuvre it exists to hold, and hand the leader brake and
@@ -5402,6 +5415,16 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
             // difference between ambient traffic and a directed vehicle — everything below it
             // (yielding, don't-block-the-box, signals, following distance) applies identically,
             // so the taxi cannot cheat its way to a destination.
+            // ...except the taxi still out of its lane from a pass, whose route wanted a corner here.
+            // It carries straight on (below, with the unrouted taxi) and main.js re-plans — see
+            // `turnsAhead` in the pass block for why the pass was allowed to start at all.
+            if (routed && car === taxi && car.pass > 0 && routed.hand !== 'straight'
+              && options.some((o) => o.hand === 'straight' && !closedLanes.has(o.outLane))) {
+              car.route.length = 0;
+              car.detoured = true;
+              routed = null;
+              stats.passDetours += 1;
+            }
             if (routed) {
               chosen = routed;
               car.routeConsumed = true;

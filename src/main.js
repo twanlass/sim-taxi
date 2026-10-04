@@ -3646,6 +3646,18 @@ function frame() {
   depotRun?.update(dt);
 
   traffic.update(dt);
+  // A pass carried the taxi straight through a junction its route wanted to turn at, and the sim
+  // dropped the route there (`detoured` in traffic.js). Re-plan from the far side, through the
+  // same owner a dragged band goes through: a burger run or a depot run knows which way it has to
+  // arrive and the plain `routeTo` does not.
+  if (traffic.taxi.detoured) {
+    traffic.taxi.detoured = false;
+    if (traffic.taxi.pendingTarget) {
+      if (burgerRun?.active()) burgerRun.reroute(null);
+      else if (depotRun?.active()) depotRun.reroute(null);
+      else routeTo(traffic.taxi.pendingTarget);
+    }
+  }
   sfx?.update(dt, traffic.taxi, {
     cruise: SPEED,
     top: boostCruise(),

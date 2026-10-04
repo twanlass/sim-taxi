@@ -61,7 +61,9 @@ const nodeId = (i) => `lab:${i}`;
  * land on this road instead of failing twelve times out of twelve. Every car it produces is
  * repositioned by the lab before the first frame anyway — see `stage()` in `lab/passing.js`.
  */
-export function labNetwork(blocks = LAB_BLOCKS) {
+// `oneway` drops the westbound carriageway: tools/lab.mjs stages its ram on a road with no oncoming
+// lane to borrow, which is the one way left to take the overtake off the table on a straight.
+export function labNetwork(blocks = LAB_BLOCKS, { oneway = false } = {}) {
   const nodes = [];
   for (let i = 0; i <= blocks; i++) {
     nodes.push({ id: nodeId(i), x: labNodeX(i, blocks), z: 0, gi: i, gj: 0 });
@@ -73,7 +75,10 @@ export function labNetwork(blocks = LAB_BLOCKS) {
     // and the class is what `lane.withWave` and the router's road hierarchy read. Nothing in the
     // lab routes, but a road that claims to be a side street while behaving like the ring would be
     // lying to the next person who reads this.
-    edges.push({ id: `${nodeId(i)}-${nodeId(i + 1)}`, a: nodeId(i), b: nodeId(i + 1), klass: 'ring' });
+    edges.push({
+      id: `${nodeId(i)}-${nodeId(i + 1)}`, a: nodeId(i), b: nodeId(i + 1), klass: 'ring',
+      ...(oneway ? { oneway: 1 } : {}),
+    });
   }
 
   const net = bakeNetwork({ nodes, edges });
