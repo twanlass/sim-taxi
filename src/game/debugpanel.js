@@ -1329,6 +1329,12 @@ function organise(panel) {
   empty.textContent = 'No matches';
   empty.hidden = true;
 
+  // Shown A to Z rather than in build order: with this many sections, finding one by name beats
+  // any grouping the code happens to build them in. Anything that is not a section (nothing, today)
+  // keeps its place ahead of them.
+  sections.sort((a, b) => a.title.localeCompare(b.title));
+  for (const s of sections) panel.append(s.section);
+
   panel.prepend(header);
   panel.append(empty);
 
