@@ -754,20 +754,31 @@ export function createPerson({
   }
 
   /**
-   * Thrown clear of a wreck (game/ejection.js): limbs flung out and windmilling while airborne,
+   * Thrown clear of a wreck (game/ejection.js): arms windmilling and legs bicycling while airborne,
    * eased into a sprawled starfish as `limp` goes 0 → 1 once they have come to rest. Only the limbs
    * are written — the tumble itself is a rotation on whatever holds the figure, because it has to
    * pivot about the middle of the body rather than about the feet, which is where `group` sits.
+   *
+   * The swings are big on purpose. The first cut kicked the legs ±0.5 rad and flapped the arms
+   * ±0.4, which on a figure ~20px tall under a fast tumble read as a stiff doll spinning rather
+   * than as a person flailing: the tumble swamps anything smaller than about a radian. So the arms
+   * swing ±2.6 about the shoulder — near enough a full circle that it reads as a windmill — half a
+   * turn out of phase with each other, and the legs pedal ±1.1 with the knees pumping on the beat.
    */
   function tumble(t, limp = 0) {
     const live = 1 - limp;
-    const kick = Math.sin(t * 19);
-    const flap = Math.sin(t * 23 + 1.3);
-    legL.rotation.set(-0.5 * kick * live, 0, -0.45 - 0.15 * live);
-    legR.rotation.set(0.5 * kick * live, 0, 0.45 + 0.15 * live);
-    armL.rotation.set(0.4 * flap * live, 0, -2.2 + 0.6 * flap * live - 0.6 * limp);
-    armR.rotation.set(-0.4 * flap * live, 0, 2.2 + 0.6 * flap * live + 0.6 * limp);
-    bend(0.6 * live + 0.15, 0.3 * live + 0.15, -0.5 * live, -0.5 * live);
+    const mill = Math.sin(t * 15);
+    const pedal = Math.sin(t * 17);
+    const pump = Math.cos(t * 17);
+    legL.rotation.set(1.1 * pedal * live, 0, -0.35 - 0.25 * limp);
+    legR.rotation.set(-1.1 * pedal * live, 0, 0.35 + 0.25 * limp);
+    armL.rotation.set(2.6 * mill * live, 0, -0.5 - 2.3 * limp);
+    armR.rotation.set(-2.6 * mill * live, 0, 0.5 + 2.3 * limp);
+    bend(
+      (0.75 + 0.6 * pump) * live + 0.15 * limp,
+      (0.75 - 0.6 * pump) * live + 0.15 * limp,
+      -0.6 * live, -0.6 * live,
+    );
     group.rotation.set(0, 0, 0);
     group.position.set(0, 0, 0);
     group.scale.setScalar(1);
