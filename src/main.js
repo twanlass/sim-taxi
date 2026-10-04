@@ -47,6 +47,7 @@ import { createBoostMeter } from './game/boostmeter.js';
 import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION } from './game/taxidamage.js';
+import { createCarDamage } from './game/cardamage.js';
 import { createTaxiDoor } from './game/taxidoor.js';
 import { createDepotCall } from './game/depotcall.js';
 import { flyEnergyToBoost } from './game/energybits.js';
@@ -923,6 +924,8 @@ markOccluder(traffic.wheelMesh);
 markOccluder(traffic.truckMesh);
 markOccluder(traffic.truckWheelMesh);
 markOccluder(traffic.truckBoxMesh);
+markOccluder(traffic.bumperMesh);
+markOccluder(traffic.truckBumperMesh);
 markOccluder(traffic.taxiGroup);
 markOccluder(police.group);
 
@@ -1563,6 +1566,13 @@ const taxiDamage = createTaxiDamage({
   damage: traffic.taxiDamage, group: traffic.taxiGroup, taxi: traffic.taxi, maxHp: TAXI_HP,
   sparks, dust, roadY: ROAD_Y,
 });
+// ...and what the cars it hits wear: the same lids, lamps and bumper, on a pool of rigs. See
+// game/cardamage.js.
+const carDamageRng = makeRng(runSeed + 137);
+const carDamage = createCarDamage({
+  scene, traffic, sparks, roadY: ROAD_Y, rng: () => carDamageRng.next(),
+});
+for (const mesh of carDamage.meshes) markOccluder(mesh);
 // The rear door, swung open on the kerb side while a rider hops in. See game/taxidoor.js.
 const taxiDoor = createTaxiDoor({ setDoor: traffic.setTaxiDoor });
 
@@ -1596,6 +1606,7 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck })
   sparks.burst(x, ROAD_Y + 0.6, z, normalYaw - Math.PI / 2, count, speed * 0.5);
   dust.burst(x, z, yaw, 8, 0.5, { tint: PALETTE.wreckSmoke, linger: 0.7 });
   taxiDamage.hit(x, z, { rearEnd });
+  carDamage.hit(other, x, z, { closing });
 });
 
 collisions.onImpact(({ x, z, speed, closing, other }) => {
@@ -4013,6 +4024,8 @@ function frame() {
   impact.update(dt);
   // After traffic has written the taxi's transform: the lean and the rattle ride on top of it.
   taxiDamage.update(dt);
+  // After traffic too: it hangs the parts off the body matrices traffic wrote this frame.
+  carDamage.update(dt);
   taxiDoor.update(dt, fares.state.fares.find((f) => f.boarding !== undefined) ?? null);
   // After the physics, like the collision check: it measures where traffic left the cop and the
   // taxi this frame, and a catch ends the run the same way a wreck does. Engaged rather than held —
@@ -5079,6 +5092,8 @@ window.__taxi = {
   impact,
   // And the tiers of damage the car wears, so a check can stage one — see game/taxidamage.js.
   taxiDamage,
+  // ...and on the cars it hits — see game/cardamage.js.
+  carDamage,
   /**
    * Loco Mode's speed ramp — `get`, `set`, `reset`, `ramp`, `defaults`. The ⚙️ panel's sliders
    * drive the same handle, so this is where you go for a value past the end of one of them.

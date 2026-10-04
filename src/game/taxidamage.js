@@ -57,7 +57,7 @@ const LAMP_G = 30;                // effective gravity over the wire's length, 1
 const LAMP_C = 1.6;               // 1/s, damping
 const LAMP_ACCEL = 0.9;           // rad/s² per u/s² of the car's acceleration
 const LAMP_ROAD_KICK = 3;         // rad/s per road kick at full speed
-const LAMP_HIT_KICK = 6;          // rad/s, on every hit
+export const LAMP_HIT_KICK = 6;          // rad/s, on every hit
 // It swings freely outward, away from the car, and only a little way back in before it clacks off
 // the bumper face it hangs in front of. A symmetric limit let it swing clean through the body.
 const LAMP_OUT = 1.2;             // rad, away from the car
@@ -69,7 +69,7 @@ const LAMP_CLACK = 0.45;          // of the swing kept off the bumper
 // *slams* against the body and bounces back up. The first cut was a two-sine wobble of ±0.2 rad,
 // which read as a lid that was open — the bounce is what says it is broken. Underdamped on purpose
 // (ζ ≈ 0.2): a kick rings for three or four flaps before it settles.
-const BOOT_REST = 0.6;            // rad, where the lid hangs when nothing is moving it
+export const BOOT_REST = 0.6;            // rad, where the lid hangs when nothing is moving it
 const BOOT_MAX = 1.35;            // rad, about as far as the hinge goes
 const BOOT_K = 55;                // 1/s², spring toward rest
 const BOOT_C = 3;                 // 1/s, damping
@@ -77,14 +77,14 @@ const BOOT_SLAM = 0.55;           // of the swing kept when it hits the body and
 const BOOT_ROAD = [0.12, 0.35];   // s between road kicks at speed
 const BOOT_ROAD_KICK = 7;         // rad/s per kick at full speed
 const BOOT_ACCEL = 1.2;           // rad/s² on the lid per u/s² of the car's own acceleration
-const BOOT_HIT_KICK = 14;         // rad/s, on every bump — it slams shut and flies open
+export const BOOT_HIT_KICK = 14;         // rad/s, on every bump — it slams shut and flies open
 // The bonnet rides the same spring. It rests a little lower — a raised bonnet is in front of the
 // windscreen, and a lid that stood as high as the boot's hid the cabin at this camera — and its first
 // kick is *up*: the catch lets go and it flies open off the body, where the boot's is a slam.
-const HOOD_REST = 0.45;
-const HOOD_POP = 11;              // rad/s, the burst catch
-const SPARK_EVERY = 0.045;        // s between bursts off the bumper while it is dragging
-const SPARK_MIN_V = 2.5;          // u/s — a bumper at walking pace scrapes, it does not spark
+export const HOOD_REST = 0.45;
+export const HOOD_POP = 11;              // rad/s, the burst catch
+export const SPARK_EVERY = 0.045;        // s between bursts off the bumper while it is dragging
+export const SPARK_MIN_V = 2.5;          // u/s — a bumper at walking pace scrapes, it does not spark
 
 const SMOKE_SLOW = 0.2;           // s between puffs at the top of the red
 const SMOKE_FAST = 0.06;          // ... and at the bottom
@@ -92,6 +92,47 @@ const LEAN = 0.07;                // rad of list toward the damaged side
 const LEAN_SINK = 0.05;           // units the body drops on that side
 const RATTLE = 0.035;             // rad of shake at speed
 const RATTLE_BOB = 0.03;          // units
+
+/**
+ * One step of a lid's spring — the boot's or the bonnet's, on the taxi or on a car it has hit
+ * (game/cardamage.js). `moving` is 0..1 of the way to full speed; `accel` the car's own, in u/s².
+ */
+export function stepLid(lid, dt, moving, accel, rng = Math.random) {
+  // Road kicks, both ways, more often and harder the faster the car goes.
+  lid.roadIn -= dt;
+  if (lid.roadIn <= 0 && moving > 0.05) {
+    lid.roadIn = BOOT_ROAD[0] + (BOOT_ROAD[1] - BOOT_ROAD[0]) * rng();
+    lid.v += (rng() - 0.35) * 2 * BOOT_ROAD_KICK * moving;
+  }
+  // The car's own acceleration swings it — clamped, because a bump drops the car's speed in one
+  // frame and reads as hundreds of u/s²; the hit has a kick of its own.
+  lid.v += Math.max(-40, Math.min(40, accel)) * BOOT_ACCEL * dt;
+  lid.v += (-BOOT_K * (lid.angle - lid.rest) - BOOT_C * lid.v) * dt;
+  lid.angle += lid.v * dt;
+  if (lid.angle < 0) { lid.angle = 0; lid.v = -lid.v * BOOT_SLAM; }
+  if (lid.angle > BOOT_MAX) { lid.angle = BOOT_MAX; lid.v = -lid.v * BOOT_SLAM; }
+}
+
+/** One step of a loose lamp's pendulum — see `stepLid` for who shares it. */
+export function stepLamp(lamp, dt, moving, accel, rng = Math.random) {
+  lamp.roadIn -= dt;
+  if (lamp.roadIn <= 0 && moving > 0.05) {
+    lamp.roadIn = BOOT_ROAD[0] + (BOOT_ROAD[1] - BOOT_ROAD[0]) * rng();
+    lamp.v += (rng() - 0.5) * 2 * LAMP_ROAD_KICK * moving;
+  }
+  const a = Math.max(-40, Math.min(40, accel));
+  lamp.v += (-LAMP_G * Math.sin(lamp.angle) - LAMP_C * lamp.v - a * LAMP_ACCEL * Math.cos(lamp.angle)) * dt;
+  lamp.angle += lamp.v * dt;
+  // Angles are + toward the nose, so outward is +end.
+  const lo = lamp.end > 0 ? -LAMP_IN : -LAMP_OUT;
+  const hi = lamp.end > 0 ? LAMP_OUT : LAMP_IN;
+  if (lamp.angle < lo) { lamp.angle = lo; lamp.v = -lamp.v * LAMP_CLACK; }
+  if (lamp.angle > hi) { lamp.angle = hi; lamp.v = -lamp.v * LAMP_CLACK; }
+}
+
+/** A lamp freshly out of its socket at corner (end, side): flung away from the car. */
+export const looseLamp = (end, side, rng = Math.random) =>
+  ({ end, side, angle: 0, v: end * LAMP_HIT_KICK, roadIn: rng() * 0.3 });
 
 export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roadY, rng = Math.random }) {
   const smokeLight = color('damageSmokeLight');
@@ -116,22 +157,6 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
   const boot = { angle: BOOT_REST, v: 0, roadIn: 0, rest: BOOT_REST };
   const hood = { angle: 0, v: 0, roadIn: 0.1, rest: HOOD_REST, open: false };
   let lastV = 0;
-
-  function stepLid(lid, dt, moving, accel) {
-    // Road kicks, both ways, more often and harder the faster the car goes.
-    lid.roadIn -= dt;
-    if (lid.roadIn <= 0 && moving > 0.05) {
-      lid.roadIn = BOOT_ROAD[0] + (BOOT_ROAD[1] - BOOT_ROAD[0]) * rng();
-      lid.v += (rng() - 0.35) * 2 * BOOT_ROAD_KICK * moving;
-    }
-    // The car's own acceleration swings it — clamped, because a bump drops the car's speed in one
-    // frame and reads as hundreds of u/s²; the hit has a kick of its own.
-    lid.v += Math.max(-40, Math.min(40, accel)) * BOOT_ACCEL * dt;
-    lid.v += (-BOOT_K * (lid.angle - lid.rest) - BOOT_C * lid.v) * dt;
-    lid.angle += lid.v * dt;
-    if (lid.angle < 0) { lid.angle = 0; lid.v = -lid.v * BOOT_SLAM; }
-    if (lid.angle > BOOT_MAX) { lid.angle = BOOT_MAX; lid.v = -lid.v * BOOT_SLAM; }
-  }
 
   const fraction = () => (taxi.hp ?? maxHp) / maxHp;
   const tier = () => {
@@ -176,26 +201,7 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
     } else {
       // Out of the socket with a fling away from the car, so it swings out, comes back and clacks.
       const [end, s] = key.split(',').map(Number);
-      lamps.set(key, { end, side: s, angle: 0, v: end * LAMP_HIT_KICK, roadIn: rng() * 0.3 });
-    }
-  }
-
-  function stepLamps(dt, moving, accel) {
-    for (const lamp of lamps.values()) {
-      lamp.roadIn -= dt;
-      if (lamp.roadIn <= 0 && moving > 0.05) {
-        lamp.roadIn = BOOT_ROAD[0] + (BOOT_ROAD[1] - BOOT_ROAD[0]) * rng();
-        lamp.v += (rng() - 0.5) * 2 * LAMP_ROAD_KICK * moving;
-      }
-      const a = Math.max(-40, Math.min(40, accel));
-      lamp.v += (-LAMP_G * Math.sin(lamp.angle) - LAMP_C * lamp.v - a * LAMP_ACCEL * Math.cos(lamp.angle)) * dt;
-      lamp.angle += lamp.v * dt;
-      // Angles are + toward the nose, so outward is +end.
-      const lo = lamp.end > 0 ? -LAMP_IN : -LAMP_OUT;
-      const hi = lamp.end > 0 ? LAMP_OUT : LAMP_IN;
-      if (lamp.angle < lo) { lamp.angle = lo; lamp.v = -lamp.v * LAMP_CLACK; }
-      if (lamp.angle > hi) { lamp.angle = hi; lamp.v = -lamp.v * LAMP_CLACK; }
-      damage.setLamp(lamp.end, lamp.side, lamp.angle);
+      lamps.set(key, looseLamp(end, s, rng));
     }
   }
 
@@ -212,15 +218,18 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
 
     const accel = dt > 1e-6 ? (v - lastV) / dt : 0;
     lastV = v;
-    stepLamps(dt, moving, accel);
+    for (const lamp of lamps.values()) {
+      stepLamp(lamp, dt, moving, accel, rng);
+      damage.setLamp(lamp.end, lamp.side, lamp.angle);
+    }
     if (hood.open) {
-      stepLid(hood, dt, moving, accel);
+      stepLid(hood, dt, moving, accel, rng);
       damage.setHood(hood.angle);
     } else {
       damage.setHood(null);
     }
     if (t >= 2) {
-      stepLid(boot, dt, moving, accel);
+      stepLid(boot, dt, moving, accel, rng);
       damage.setBoot(boot.angle);
       // The bumper bounces clear of the road now and then and comes back down on it.
       const lift = 0.06 * moving * Math.max(0, Math.sin(phase * 1.7));
