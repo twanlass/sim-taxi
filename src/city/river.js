@@ -88,17 +88,22 @@ export const RAIL_POST_PITCH = 1.7;
 // Measured to the deck's soffit, since that is what a boat hits:
 //
 //     flat span, deck 0.35 thick     soffit -0.35    clearance 1.65
-//     arched span at the crest       soffit +0.75    clearance 2.75
+//     arched span at the crest       soffit +1.55    clearance 3.55
 //     barge, air draught 1.4                         clears both
-//     tug, air draught 2.4                           clears the arches by 0.35,
-//                                                    0.75 short of the flat one
+//     tug (the sailboat), air 3.4                    clears the arches by 0.15,
+//                                                    1.75 short of the flat one
+//
+// **The rise is what the mast is allowed to be.** The gap between the two clearances is the rise
+// and nothing else — move the water and both move together — so how far the sailboat's mast can
+// tower over a barge's load is set here. At 1.1 the mast stood 2.4 off the water and read as a
+// stub next to the cars on the deck above it; asked for "a big mast, to show why the bridge has to
+// open", the only lever that moves it a long way is this one.
 //
 // **The rise is a camera number too.** A world-Y lift of `h` moves `6.45h` px up the screen at
-// play zoom (SCREEN_PER_WORLD_Y 0.838 x 7.7 px per unit), so 1.1 is about 7px. That is
-// deliberately under the roadworks hop's apex, which was *raised* to 2.75 because 12px read as a
-// lift rather than a jump: a hump wants to be short of the number a jump starts at. The arch
-// occludes 1.7 units of the 12-unit channel behind it, so it never hides the water on its far side.
-export const ARCH_RISE = 1.1;
+// play zoom (SCREEN_PER_WORLD_Y 0.838 x 7.7 px per unit), so 1.9 is about 12px — a clear hump, and
+// still short of the roadworks hop's 2.75 apex (~18px), so the bridges read as a lift rather than
+// a jump. Peak grade is `rise * pi / span`: 26 degrees on the 12-unit span, 29 on the narrow one.
+export const ARCH_RISE = 1.9;
 export const DECK_THICK = 0.35;
 /** Soffit of a flat span, and of an arched one at its crest. What a boat has to fit under. */
 export const FLAT_SOFFIT = -DECK_THICK;
@@ -106,7 +111,7 @@ export const ARCH_SOFFIT = ARCH_RISE - DECK_THICK;
 
 /** Air draughts, exported so `tools/probe.mjs` can assert the chain above rather than the outcome. */
 export const BARGE_AIR = 1.4;
-export const TUG_AIR = 2.4;
+export const TUG_AIR = 3.4;
 
 // How far a bridge deck reaches beyond the road it carries: its footway, and the edge beam under
 // it. **The same 1.4 the embankment walk is**, deliberately — a pavement that narrowed as it
