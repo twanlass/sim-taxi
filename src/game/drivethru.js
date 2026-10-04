@@ -46,7 +46,7 @@ import { CAR_LEN, SPEED, releaseCar, stageCar } from '../sim/traffic.js';
 //     seconds the trip took, which is a refusal they cannot see coming and did nothing to earn.
 //   - **it does not roll.** A tap is the decision; `ENTER_CHANCE` and `FED_COOLDOWN` are how *ambient*
 //     traffic decides, and neither has any business answering the player.
-//   - **it eats faster.** See `TAXI_ORDER_DWELL`.
+//   - **it is timed to the speaker.** See `TAXI_ORDER_DWELL`.
 
 /**
  * Share of the cars passing the mouth of the lane that pull into it.
@@ -127,19 +127,23 @@ const PICKUP_DWELL = 3.8;
 const DWELL_JITTER = 1.1;
 
 /**
- * ...and what the player waits, which is less than half of it: 0.6s to order and 1.0s at the window.
+ * ...and what the player waits: 2.6s to order and 3.5s at the window.
  *
- * An ambient car's dwell is scenery and is sized to *read* from across the city — a car that stopped
- * for under a second at a window would look like a car that stalled. The taxi's is a clock the player
- * is paying, in the middle of a fare, and every tenth of it is spent on a joke. What it has to be is
- * long enough to be a **stop** rather than a slow corner: 1.6s of standing still out of the 8.0s the
- * lot takes end to end (measured, mouth to kerb, with the lane empty), which is what makes the visit
- * read as a visit.
+ * Sized to the speaker. The visit plays one clip (`driveThru` in game/sfx.js, 12.93s) from the frame
+ * the lot takes the taxi to the frame it hands it back, and the visit is what has to fit the clip
+ * rather than the other way round: the clip is a conversation, and cut short it ends mid-sentence.
+ * The driving part of the lot is 6.83s with the lane empty (measured: 8.43s held end to end at the
+ * old 0.6 + 1.0), so the two stops share the other 6.1. The order is the ambient cars' board dwell
+ * and the window takes the rest. `tools/probe.mjs` holds the visit to the clip's length.
  *
- * No jitter on either. A secret the player is going to go back for should cost the same every time.
+ * It used to be 0.6 + 1.0, sized as a clock the player is paying mid-fare and long enough only to
+ * read as a stop. The fare clocks still run through it, so this is 4.5s dearer than it was.
+ *
+ * No jitter on either. A secret the player is going to go back for should cost the same every time,
+ * and a jittered stop would drift the speaker off the window.
  */
-const TAXI_ORDER_DWELL = 0.6;
-const TAXI_PICKUP_DWELL = 1.0;
+const TAXI_ORDER_DWELL = 2.6;
+const TAXI_PICKUP_DWELL = 3.5;
 
 // The gap a car wants on the road before it pulls out, as a box on the lane it is joining rather
 // than a radius around the merge point — see `mergeClear` in game/opening.js, which is the same

@@ -3489,15 +3489,20 @@ function sirenLevel() {
   return SIREN_FLOOR + (1 - SIREN_FLOOR) * k;
 }
 
-// The drive-through's speaker, once per visit: on the frame the lot takes the taxi, faded out on
-// the frame it hands it back. The clip is 12.9s and the visit is about 8 (game/drivethru.js), so
-// it is cut rather than left talking to a car that has driven off.
+// The drive-through's speaker, once per visit — the player's, never an ambient car's: on the frame
+// the lot takes the taxi, faded out on the frame it hands it back. The visit is timed to the clip
+// (TAXI_ORDER_DWELL in game/drivethru.js), so the fade only ever trims the last few hundredths.
+// The radio ducks for the length of it, or the speaker is under the music.
 let driveThruVoice = null;
 function driveThruSpeaker() {
   const inLot = Boolean(burgerRun?.holdsTaxi());
-  if (inLot && !driveThruVoice) driveThruVoice = sfx?.play('driveThru') ?? false;
+  if (inLot && driveThruVoice == null) {
+    driveThruVoice = sfx?.play('driveThru') ?? false;
+    sfx?.duckMusic(true);
+  }
   if (!inLot && driveThruVoice != null) {
     if (driveThruVoice) sfx.release(driveThruVoice, 0.4);
+    sfx?.duckMusic(false);
     driveThruVoice = null;
   }
 }

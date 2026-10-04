@@ -124,6 +124,19 @@ export const LOOPS = new Set(['idle', 'locoLoop', 'signal', 'siren']);
 // buffer would put 44ms of silence in every cycle — a hiccup in the engine once every four
 // seconds. See `loopWindow`.
 const LOOP_SECONDS = { idle: 4, locoLoop: 8, signal: 4.53125, siren: 2.25 };
+
+/**
+ * The drive-through speaker's true length (afinfo on the master). The taxi's visit is timed to it —
+ * see TAXI_ORDER_DWELL in game/drivethru.js, and the probe that holds the two together.
+ */
+export const DRIVE_THRU_SECONDS = 12.93;
+
+/**
+ * How far the radio drops while something has to be heard over it — the drive-through speaker. The
+ * radio sits at -24 LUFS at full slider and the speaker at about -27 after its mix gain, so it was
+ * under the music; -12 dB puts the radio at about -36, behind the speaker and still playing.
+ */
+const MUSIC_DUCK = 0.25;
 const AAC_PRIMING = 2112 / 48000;
 
 /**
@@ -278,6 +291,8 @@ export function createSfx({ rng } = {}) {
     // the gain node, because a linear gain spends the whole bottom half of a slider on "loud".
     effects: 1,
     music: 1,
+    // The radio pulled down under the drive-through speaker — see `duckMusic`.
+    ducked: false,
     ready: false,
     loaded: 0,
     total: Object.keys(FILES).length,
@@ -310,7 +325,7 @@ export function createSfx({ rng } = {}) {
     return {
       state, play: noop, update: noop, hold: noop, setMuted: noop, toggleMuted: () => true,
       setVolumes: noop,
-      locoOn: noop, locoOff: noop, release: noop,
+      locoOn: noop, locoOff: noop, release: noop, duckMusic: noop,
       tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
       audition: () => null, stopAuditions: noop, files: FILES, radioFiles: RADIO_FILES,
     };
@@ -353,7 +368,7 @@ export function createSfx({ rng } = {}) {
   let musicBus = null;
   /** What the master gain should read: the mix's master, under the player's slider and the mute. */
   const masterLevel = () => (state.muted ? 0 : mix.master * state.effects ** 2);
-  const musicLevel = () => (state.muted ? 0 : state.music ** 2);
+  const musicLevel = () => (state.muted ? 0 : state.music ** 2 * (state.ducked ? MUSIC_DUCK : 1));
   const buffers = {};    // by file name
   const lastAt = {};
   const lastTake = {};   // by sound name: the file it played last
@@ -667,6 +682,16 @@ export function createSfx({ rng } = {}) {
     musicBus.gain.setTargetAtTime(musicLevel(), ctx.currentTime, 0.02);
   }
 
+  /** Pull the radio down under a voice that has to be heard (true), or let it back up (false). */
+  function duckMusic(on) {
+    if (Boolean(on) === state.ducked) return;
+    state.ducked = Boolean(on);
+    if (!ctx) return;
+    // Slower back up than down: the speaker's first word should not be under the chorus, and the
+    // song coming back over half a second reads as a fade rather than a switch.
+    musicBus.gain.setTargetAtTime(musicLevel(), ctx.currentTime, on ? 0.12 : 0.5);
+  }
+
   function tune(partial) {
     tuneMix(partial);
     if (master) master.gain.setTargetAtTime(masterLevel(), ctx.currentTime, 0.02);
@@ -715,6 +740,7 @@ export function createSfx({ rng } = {}) {
     locoOff,
     /** Fade out a voice `play()` returned — the drive-through speaker as the taxi leaves the lot. */
     release: (voice, tau = 0.3) => stopVoice(voice, tau),
+    duckMusic,
     setMuted,
     setVolumes,
     toggleMuted: () => { setMuted(!state.muted); return state.muted; },
