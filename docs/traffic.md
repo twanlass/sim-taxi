@@ -602,7 +602,7 @@ Doubling alone is not enough, and the two failed attempts are the reason `CHASSI
   unreadable.
 
 So the body rises with the wheel and the tread stays proud. Every y in the vehicle geometry — cars,
-taxi, cruiser, and the app icon in `tools/make-icon.mjs` — is still written as the number it was
+taxi and cruiser — is still written as the number it was
 designed at, plus `CHASSIS_LIFT`, which is derived from `WHEEL_R` so the two can't drift apart.
 The result reads as a chunky toy car up close and as an ordinary car at play zoom, which is the
 zoom that matters.

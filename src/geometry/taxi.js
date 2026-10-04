@@ -89,8 +89,7 @@ export function createTaxiMesh() {
   // splitting it into two rows would ask for a 1px row and get mush. One row of alternating cells
   // reads as chequer at this size; a chequerboard reads as a grey smear.
   //
-  // Six is also what the app icon paints (tools/make-icon.mjs), so the car on the home screen and
-  // the car on the road wear the same livery. At CAR_LEN * 0.82 that puts a cell at ~0.55 world
+  // The app icon is rendered from this mesh (tools/icon/), so it wears the same six. At CAR_LEN * 0.82 that puts a cell at ~0.55 world
   // units ≈ 4px — the finest pitch that survives. Twelve cells (square ones, matching the band's
   // own height) measure ~2px each and alias into a flicker as the car turns.
   const STRIPE_CELLS = 6;
