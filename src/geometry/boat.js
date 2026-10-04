@@ -14,17 +14,21 @@ import { BARGE_AIR, TUG_AIR } from '../city/river.js';
 // Built the way every vehicle in this game is: boxes and cylinders, `bakeColor`, one merged mesh,
 // `flatShading`. A boat at play zoom is about twenty pixels long.
 
-/** Hull length. A car is 3.4, so a barge is two and a half cars and the sailboat a little over one. */
-export const BARGE_LEN = 8.6;
-export const TUG_LEN = 4.4;
-/**
- * Hull width, and both boats share it — the channel is what sets it, not the vessel.
- *
- * Exported because it is the **floor on the lane separation**: two boats passing have to be at
- * least a beam apart or their hulls overlap, and a separation written as a literal somewhere else
- * is a number that stops tracking this one the moment either changes.
- */
-export const BEAM = 2.2;
+// --- Sizes, measured against the traffic ---------------------------------------
+//
+// A car is 3.4 × 1.7 (`CAR_LEN`, `CAR_W`). The first cut of these boats was sized off nothing in
+// particular — an 8.6 × 2.2 barge, a 4.4 × 2.2 tug — and on screen next to the cars on the bridges
+// they read as toys: a barge one and a third cars wide in a channel nine units across. They are now
+// sized off the **water**, which is the thing they are seen against: the water is 9.2 across on an
+// ordinary channel and 7.87 where one bank is an arterial, and a working barge fills most of it.
+
+/** Barge: six units of beam is 76% of the narrow channel's water and 65% of the wide one's — three
+ *  and a half cars abreast. Sixteen long is getting on for five cars nose to tail. */
+export const BARGE_LEN = 16;
+export const BARGE_BEAM = 6.0;
+/** Sailboat: a thirty-footer at car scale. Not much longer than the old tug — what grew is the mast. */
+export const TUG_LEN = 6.0;
+export const TUG_BEAM = 2.4;
 
 /**
  * A hull, as a box drawn in along its length.
@@ -40,9 +44,9 @@ export const BEAM = 2.2;
  * Two hulls built off the same `plan` meet exactly along a shared height, which is how the
  * sailboat gets its boot stripe: two pieces stacked, touching, not overlapping.
  */
-function hullPiece(length, y0, y1, plan, rake, col) {
+function hullPiece(length, beam, y0, y1, plan, rake, col) {
   const segs = plan.length - 1;
-  const geo = new THREE.BoxGeometry(BEAM, y1 - y0, length, 1, 1, segs);
+  const geo = new THREE.BoxGeometry(beam, y1 - y0, length, 1, 1, segs);
   geo.translate(0, (y0 + y1) / 2, 0);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
@@ -59,9 +63,9 @@ function hullPiece(length, y0, y1, plan, rake, col) {
  * plan as the hull it sits in, so it cannot poke out through the bow where the hull narrows.
  * Half under the hull's top face and half over it, so the two never share a plane.
  */
-function deckLid(length, inset, y, plan, col) {
+function deckLid(length, beam, inset, y, plan, col) {
   const segs = plan.length - 1;
-  const geo = new THREE.BoxGeometry(BEAM - inset * 2, 0.1, length - inset * 2, 1, 1, segs);
+  const geo = new THREE.BoxGeometry(beam - inset * 2, 0.1, length - inset * 2, 1, 1, segs);
   geo.translate(0, y, 0);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
@@ -108,22 +112,25 @@ const BARGE_FREEBOARD = 0.45;
 const BARGE_DRAFT = 0.3;
 // Square in plan, raked at both ends: a scow. The bow is drawn in only slightly — a barge that
 // came to a point would be a ship.
-const BARGE_PLAN = [0.94, 1, 1, 1, 1, 1, 0.9];
-const BARGE_RAKE = [0.24, 0, 0, 0, 0, 0, 0.27];
+const BARGE_PLAN = [0.95, 1, 1, 1, 1, 1, 1, 1, 0.92];
+const BARGE_RAKE = [0.24, 0, 0, 0, 0, 0, 0, 0, 0.27];
 const BARGE_DECK_Y = BARGE_FREEBOARD + 0.05;   // top of the deck lid, where the load stands
 
-// A container, at the scale of this boat rather than of a car: two fit side by side across the
-// deck and two stack under `BARGE_AIR`. A real 20-foot box is 2.5 times as long as it is wide, and
-// that ratio is most of what makes a box read as a container rather than as a crate.
-const BOX_W = 0.8;
-const BOX_H = 0.4;
-const BOX_L = 1.62;
+// A container. **Squat by necessity, not by choice**: at car scale a real box would stand 1.95
+// tall, and everything on a barge has to fit under `BARGE_AIR` (1.4) — the flat span's soffit is
+// 1.65 off the water, and a barge that needed the lift would be a second sailboat. So it keeps a
+// real container's *plan* (a 40-footer is 2.4 times as long as it is wide, which is most of what
+// makes a box read as a container rather than as a crate) and gives up height: one tier, 0.8 tall.
+const BOX_W = 1.3;
+const BOX_H = 0.8;
+const BOX_L = 3.0;
+const BOX_GAP = 0.1;
 
 /**
- * The barge: long, flat, and carrying a load low enough to pass under everything.
+ * The barge: wide, flat, and carrying a load low enough to pass under everything.
  *
  * The load is kept **under `BARGE_AIR`** and capped against it rather than trusted to stay there —
- * the whole point of this hull is that it never asks for the bridge, and a stack one box higher
+ * the whole point of this hull is that it never asks for the bridge, and a box one tier higher
  * would make it the boat that does.
  */
 export function createBargeMesh(rng) {
@@ -131,52 +138,61 @@ export function createBargeMesh(rng) {
   const deckCol = jitterColor(PALETTE.boatDeck, rng, { l: 0.03 });
 
   const parts = [
-    hullPiece(BARGE_LEN, -BARGE_DRAFT, BARGE_FREEBOARD, BARGE_PLAN, BARGE_RAKE, hullCol),
-    deckLid(BARGE_LEN, 0.14, BARGE_FREEBOARD, BARGE_PLAN, deckCol),
+    hullPiece(BARGE_LEN, BARGE_BEAM, -BARGE_DRAFT, BARGE_FREEBOARD, BARGE_PLAN, BARGE_RAKE, hullCol),
+    deckLid(BARGE_LEN, BARGE_BEAM, 0.18, BARGE_FREEBOARD, BARGE_PLAN, deckCol),
   ];
 
   const ceil = BARGE_AIR - 0.02;
-  const tiers = Math.max(1, Math.min(2, Math.floor((ceil - BARGE_DECK_Y) / (BOX_H + 0.01))));
+  const boxH = Math.min(BOX_H, ceil - BARGE_DECK_Y);
 
   // A barge has a *character*: mostly boxes, mostly crates, or a mix. Drawn once per hull, so two
   // barges in a row differ in kind and not just in which slot is which colour.
-  const boxShare = rng.pick([0.85, 0.55, 0.2]);
+  const boxShare = rng.pick([0.9, 0.6, 0.25]);
   const palette = PALETTE.bargeContainers;
 
-  // Slots down the deck, a container long, from just ahead of the wheelhouse to the bow rake.
-  const fore = BARGE_LEN / 2 - 0.7;
-  const aft = -BARGE_LEN / 2 + 1.35;
-  const slots = Math.floor((fore - aft + 0.08) / (BOX_L + 0.08));
-  const run = slots * (BOX_L + 0.08) - 0.08;
+  // Rows across the deck, a container long, from just ahead of the wheelhouse to the bow rake.
+  const across = Math.floor((BARGE_BEAM - 0.5 + BOX_GAP) / (BOX_W + BOX_GAP));
+  const fore = BARGE_LEN / 2 - 0.9;
+  const aft = -BARGE_LEN / 2 + 2.2;
+  const rows = Math.floor((fore - aft + 0.15) / (BOX_L + 0.15));
+  const run = rows * (BOX_L + 0.15) - 0.15;
   const z0 = (fore + aft) / 2 - run / 2;
+  const xAt = (c) => (c - (across - 1) / 2) * (BOX_W + BOX_GAP);
 
-  for (let k = 0; k < slots; k++) {
-    const zc = z0 + k * (BOX_L + 0.08) + BOX_L / 2;
+  for (let r = 0; r < rows; r++) {
+    const zc = z0 + r * (BOX_L + 0.15) + BOX_L / 2;
     if (rng.chance(boxShare)) {
-      // Two columns across the deck, each a stack of one or two.
-      for (const side of [-1, 1]) {
-        if (rng.chance(0.08)) continue;              // a gap where one has been lifted off
-        const n = rng.chance(0.45) ? tiers : 1;
-        for (let t = 0; t < n; t++) {
-          const col = jitterColor(rng.pick(palette), rng, { l: 0.04, s: 0.03 });
-          parts.push(block(BOX_W, BOX_H, BOX_L, side * (BOX_W / 2 + 0.05),
-            BARGE_DECK_Y + t * (BOX_H + 0.01), zc, col));
+      for (let c = 0; c < across; c++) {
+        if (rng.chance(0.05)) continue;              // a gap where one has been lifted off
+        if (rng.chance(0.3)) {
+          // Two 20-footers end to end in place of one 40.
+          const half = (BOX_L - BOX_GAP) / 2;
+          for (const end of [-1, 1]) {
+            if (rng.chance(0.05)) continue;
+            parts.push(block(BOX_W, boxH, half, xAt(c), BARGE_DECK_Y, zc + end * (half + BOX_GAP) / 2,
+              jitterColor(rng.pick(palette), rng, { l: 0.04, s: 0.03 })));
+          }
+        } else {
+          parts.push(block(BOX_W, boxH, BOX_L, xAt(c), BARGE_DECK_Y, zc,
+            jitterColor(rng.pick(palette), rng, { l: 0.04, s: 0.03 })));
         }
       }
     } else {
-      // Loose crates: a two-by-three grid, some missing and some stacked, each a little off square.
+      // Loose crates on a grid, some missing and some smaller stood on top, each a little off
+      // square. A stack only goes up if it still clears the ceiling.
       const crateCol = PALETTE.bargeCrate;
-      for (let cx = 0; cx < 2; cx++) {
-        for (let cz = 0; cz < 3; cz++) {
-          if (rng.chance(0.2)) continue;
-          const s = rng.range(0.36, 0.46);
-          const x = (cx - 0.5) * 0.82 + rng.jitter(0.06);
-          const z = zc + (cz - 1) * 0.52 + rng.jitter(0.04);
-          const col = jitterColor(crateCol, rng, { l: 0.06, s: 0.02 });
-          parts.push(block(s, s, s, x, BARGE_DECK_Y, z, col));
-          if (rng.chance(0.3) && BARGE_DECK_Y + s * 1.9 < ceil) {
-            const s2 = s * rng.range(0.78, 0.9);
-            parts.push(block(s2, s2, s2, x + rng.jitter(0.04), BARGE_DECK_Y + s, z + rng.jitter(0.04),
+      const nx = across + 1;
+      const nz = 4;
+      for (let cx = 0; cx < nx; cx++) {
+        for (let cz = 0; cz < nz; cz++) {
+          if (rng.chance(0.22)) continue;
+          const sz = rng.range(0.5, 0.72);
+          const x = (cx - (nx - 1) / 2) * ((BARGE_BEAM - 1.2) / (nx - 1)) + rng.jitter(0.08);
+          const z = zc + (cz - (nz - 1) / 2) * 0.75 + rng.jitter(0.06);
+          parts.push(block(sz, sz, sz, x, BARGE_DECK_Y, z, jitterColor(crateCol, rng, { l: 0.06, s: 0.02 })));
+          const s2 = sz * rng.range(0.6, 0.8);
+          if (rng.chance(0.3) && BARGE_DECK_Y + sz + s2 < ceil) {
+            parts.push(block(s2, s2, s2, x + rng.jitter(0.05), BARGE_DECK_Y + sz, z + rng.jitter(0.05),
               jitterColor(crateCol, rng, { l: 0.06, s: 0.02 })));
           }
         }
@@ -184,11 +200,12 @@ export function createBargeMesh(rng) {
     }
   }
 
-  // A small wheelhouse at the stern, because something has to be steering it — pale, with a dark
-  // band of windows round it, so it reads as a cabin rather than as one more crate.
-  const houseZ = -BARGE_LEN / 2 + 0.68;
-  parts.push(block(BEAM * 0.56, 0.5, 0.8, 0, BARGE_DECK_Y, houseZ, deckCol));
-  parts.push(block(BEAM * 0.56 + 0.03, 0.14, 0.83, 0, BARGE_DECK_Y + 0.28, houseZ, PALETTE.rigging));
+  // The wheelhouse at the stern, because something has to be steering it — pale, with a dark band
+  // of windows round it, so it reads as a cabin rather than as one more crate.
+  const houseZ = -BARGE_LEN / 2 + 1.25;
+  const houseH = Math.min(0.78, ceil - BARGE_DECK_Y);
+  parts.push(block(2.8, houseH, 1.5, 0, BARGE_DECK_Y, houseZ, deckCol));
+  parts.push(block(2.83, 0.18, 1.53, 0, BARGE_DECK_Y + houseH - 0.32, houseZ, PALETTE.rigging));
 
   return merge(parts);
 }
@@ -201,16 +218,16 @@ export function createBargeMesh(rng) {
 // stick standing far taller than anything else on the water. The simulation still calls it the
 // tug (`TUG_AIR`, `TUG_LEN`, `kind: 'tug'`) — it is the same boat to everything but the eye.
 
-const SAIL_FREEBOARD = 0.42;
+const SAIL_FREEBOARD = 0.5;
 const SAIL_DRAFT = 0.3;
 // Where the white topsides meet the blue stripe. High enough that a band of it shows above the
 // water: at 0.07 it sat under the surface and the hull read as white all the way down.
-const BOOT_Y = 0.15;
+const BOOT_Y = 0.17;
 // A yacht's planform: a wide transom, fullest just aft of the middle, and a fine entry to a point.
 const SAIL_PLAN = [0.8, 0.95, 1, 0.97, 0.82, 0.5, 0.06];
 const SAIL_RAKE = [0.06, 0, 0, 0.02, 0.1, 0.22, 0.32];
 const SAIL_DECK_Y = SAIL_FREEBOARD + 0.05;
-const MAST_Z = 0.55;
+const MAST_Z = TUG_LEN * 0.12;
 
 /**
  * The sailboat: short, white, and the one that has to ask.
@@ -222,12 +239,11 @@ const MAST_Z = 0.55;
  * mast off the constant means the geometry cannot disagree with the chain — and everything else up
  * there (stays, spreaders) is hung off the masthead and stops short of it.
  *
- * Which is also why the mast is "big" by proportion rather than by height. `TUG_AIR` is capped by
- * the two *arched* spans the boat has to sail under unopened, so the way to make the mast the
- * thing you notice is to put it on the lowest hull on the river: 1.9 units of spar over 0.42 of
- * freeboard, against the barge's whole load stopping at 1.4.
+ * `TUG_AIR` is capped by the two *arched* spans the boat has to sail under unopened, so the arch
+ * rise is the real ceiling on how big this mast can look.
  */
 export function createTugMesh(rng) {
+  const L = TUG_LEN;
   const white = jitterColor(PALETTE.sailHull, rng, { l: 0.015, s: 0.01 });
   const trim = jitterColor(PALETTE.sailTrim, rng, { l: 0.03 });
   // White on deck as well as on the topsides: a glass-fibre boat. The barge's tan deck here made the
@@ -235,50 +251,52 @@ export function createTugMesh(rng) {
   const deckCol = jitterColor(PALETTE.sailHull, rng, { l: 0.04, s: 0.01 }).offsetHSL(0, 0, -0.06);
 
   const parts = [
-    hullPiece(TUG_LEN, -SAIL_DRAFT, BOOT_Y, SAIL_PLAN, SAIL_RAKE, trim),
-    hullPiece(TUG_LEN, BOOT_Y, SAIL_FREEBOARD, SAIL_PLAN, null, white),
-    deckLid(TUG_LEN, 0.12, SAIL_FREEBOARD, SAIL_PLAN, deckCol),
+    hullPiece(L, TUG_BEAM, -SAIL_DRAFT, BOOT_Y, SAIL_PLAN, SAIL_RAKE, trim),
+    hullPiece(L, TUG_BEAM, BOOT_Y, SAIL_FREEBOARD, SAIL_PLAN, null, white),
+    deckLid(L, TUG_BEAM, 0.12, SAIL_FREEBOARD, SAIL_PLAN, deckCol),
   ];
 
   // The coachroof: a low white cabin aft of the mast, with a dark band of windows down each side.
   // The band is a hair wider and shorter than the cabin, so no face of one lies on a face of the
   // other.
-  parts.push(block(1.1, 0.27, 1.55, 0, SAIL_DECK_Y, -0.45, white));
-  parts.push(block(1.12, 0.09, 1.3, 0, SAIL_DECK_Y + 0.1, -0.45, PALETTE.rigging));
+  const cabinZ = -L * 0.1;
+  parts.push(block(1.25, 0.32, L * 0.36, 0, SAIL_DECK_Y, cabinZ, white));
+  parts.push(block(1.27, 0.1, L * 0.36 - 0.25, 0, SAIL_DECK_Y + 0.12, cabinZ, PALETTE.rigging));
 
-  // The mast, from the cabin top to `TUG_AIR` exactly.
+  // The mast, from the deck to `TUG_AIR` exactly.
   const foot = SAIL_DECK_Y;
   const mastH = TUG_AIR - foot;
-  const mast = new THREE.CylinderGeometry(0.05, 0.08, mastH, 8);
+  const mast = new THREE.CylinderGeometry(0.055, 0.09, mastH, 8);
   mast.translate(0, foot + mastH / 2, MAST_Z);
   parts.push(bakeColor(mast, PALETTE.mast));
 
-  // Spreaders, two thirds of the way up, and the shrouds over them to the deck edge.
+  // Spreaders, three fifths of the way up, and the shrouds over them to the deck edge.
   const top = new THREE.Vector3(0, TUG_AIR - 0.06, MAST_Z);
-  const sprY = foot + mastH * 0.62;
-  parts.push(rod(new THREE.Vector3(-0.42, sprY, MAST_Z), new THREE.Vector3(0.42, sprY, MAST_Z), 0.035, PALETTE.mast));
+  const sprY = foot + mastH * 0.6;
+  const sprW = 0.5;
+  parts.push(rod(new THREE.Vector3(-sprW, sprY, MAST_Z), new THREE.Vector3(sprW, sprY, MAST_Z), 0.04, PALETTE.mast));
   for (const side of [-1, 1]) {
-    const tip = new THREE.Vector3(side * 0.42, sprY, MAST_Z);
-    const chain = new THREE.Vector3(side * 0.8, SAIL_DECK_Y, MAST_Z - 0.15);
-    parts.push(rod(top, tip, 0.025, PALETTE.rigging));
-    parts.push(rod(tip, chain, 0.025, PALETTE.rigging));
+    const tip = new THREE.Vector3(side * sprW, sprY, MAST_Z);
+    const chain = new THREE.Vector3(side * (TUG_BEAM / 2 - 0.25), SAIL_DECK_Y, MAST_Z - 0.2);
+    parts.push(rod(top, tip, 0.03, PALETTE.rigging));
+    parts.push(rod(tip, chain, 0.03, PALETTE.rigging));
   }
 
   // Forestay to the stemhead and backstay to the transom: the two lines that make the triangle,
   // and the triangle is what says "sailboat" from across the map. The forestay carries the jib,
   // rolled up round it, so it is drawn as a thin white spar rather than as wire.
-  const stem = new THREE.Vector3(0, SAIL_DECK_Y, TUG_LEN / 2 - 0.12);
-  const transom = new THREE.Vector3(0, SAIL_DECK_Y, -TUG_LEN / 2 + 0.12);
-  parts.push(rod(top, stem, 0.07, white));
-  parts.push(rod(top, transom, 0.025, PALETTE.rigging));
+  const stem = new THREE.Vector3(0, SAIL_DECK_Y, L / 2 - 0.15);
+  const transom = new THREE.Vector3(0, SAIL_DECK_Y, -L / 2 + 0.15);
+  parts.push(rod(top, stem, 0.08, white));
+  parts.push(rod(top, transom, 0.03, PALETTE.rigging));
 
   // The boom, and the mainsail lowered onto it under a blue cover: fat at the mast where the sail
   // is bunched up, thinning aft. This is "sails down" — the one shape on the boat that is not a
   // stick or a box.
-  const boomY = SAIL_DECK_Y + 0.5;
-  const boomAft = -TUG_LEN / 2 + 0.35;
-  parts.push(spar(boomAft, MAST_Z - 0.02, 0.035, 0.035, boomY, PALETTE.mast, 6));
-  parts.push(spar(boomAft + 0.2, MAST_Z - 0.06, 0.07, 0.14, boomY + 0.1, trim, 8));
+  const boomY = SAIL_DECK_Y + 0.6;
+  const boomAft = -L / 2 + 0.45;
+  parts.push(spar(boomAft, MAST_Z - 0.02, 0.04, 0.04, boomY, PALETTE.mast, 6));
+  parts.push(spar(boomAft + 0.25, MAST_Z - 0.08, 0.08, 0.17, boomY + 0.12, trim, 8));
 
   return merge(parts);
 }

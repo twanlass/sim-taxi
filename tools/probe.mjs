@@ -164,7 +164,7 @@ import {
   WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR, TUG_AIR, ARCH_RISE, DECK_THICK,
 } from '../src/city/river.js';
 import { createBridge, abutmentParts } from '../src/geometry/bridge.js';
-import { createBargeMesh, createTugMesh, BEAM } from '../src/geometry/boat.js';
+import { createBargeMesh, createTugMesh } from '../src/geometry/boat.js';
 import { createDrawbridge, OPEN_SECONDS } from '../src/game/drawbridge.js';
 import { createBoats, BOAT_LANE, LANE_WANDER } from '../src/game/boats.js';
 import { FOAM_LIFE } from '../src/game/wake.js';
@@ -16851,12 +16851,13 @@ let chopperOrder; // likewise
     const boats = createBoats(rScene, makeRng(seed + 840), bridge);
     let lowest = 1;
     let shutFrames = 0;
-    // Two hulls in the same water, and a mast through a soffit. Both were live before boats were
-    // given lanes: direction and lateral position were independent draws, so an up-river and a
-    // down-river boat shared the channel about four times in five.
+    // Two hulls in the same water, and a mast through a soffit. The river is single file now — a
+    // barge fills three quarters of the channel — so keeping hulls apart is the launch schedule's
+    // job, and what is measured is the closest any two boats came end to end.
     let worstGap = Infinity;
     let worstAir = Infinity;
-    let bothWays = false;
+    let headOn = 0;
+    let pairs = 0;
     // The wake, which is a pool of motes lying on the water rather than a triangle towed behind
     // each hull. Three things are worth a number over a five-minute soak: how far the foam gets
     // from the middle of the channel, whether it stays on the surface, and how much of the pool the
@@ -16874,7 +16875,7 @@ let chopperOrder; // likewise
         peakFoam = Math.max(peakFoam, foam.length);
         for (const mote of foam) {
           // **The bank is the bound, and it is tighter than it sounds.** The water is 7.87 units
-          // across on the narrow build against a lane that already sits 1.6 off the middle, so
+          // across on the narrow build against a barge whose arms start 2.9 off the middle, so
           // there is about a unit of open water outboard of a hull. Arms left to open on the
           // Kelvin angle alone are over the embankment inside a second and a half, and foam lying
           // on a stone walkway is as wrong as this effect goes.
@@ -16900,12 +16901,10 @@ let chopperOrder; // likewise
           if (Math.abs(boat.x - bridge.span.cx) < 5) lowest = Math.min(lowest, bridge.state.lift);
         }
         for (const other of boats.boats) {
-          if (other === boat || other.dir === boat.dir) continue;
-          bothWays = true;
-          // Only a pair that actually meets can collide: hulls overlapping in x is the condition,
-          // and then the beam gap in z is what has to stay positive.
-          if (Math.abs(other.x - boat.x) > (other.len + boat.len) / 2) continue;
-          worstGap = Math.min(worstGap, Math.abs(other.z - boat.z) - BEAM);
+          if (other === boat) continue;
+          pairs += 1;
+          if (other.dir !== boat.dir) headOn += 1;
+          worstGap = Math.min(worstGap, Math.abs(other.x - boat.x) - (other.len + boat.len) / 2);
         }
       }
     }
@@ -16981,11 +16980,11 @@ let chopperOrder; // likewise
 
     check('a tug is never inside the span unless the leaf is fully up', lowest > 0.99,
       `lowest lift with a tug in the span: ${lowest.toFixed(3)}`);
-    check('boats going opposite ways pass rather than share a lane',
-      bothWays && worstGap > 0,
-      bothWays
-        ? `closest passing hulls left ${worstGap.toFixed(2)} units of water between them`
-        : 'no two boats ever met head-on, so nothing was tested');
+    check('single file: boats never meet head-on and never close up end to end',
+      pairs > 0 && headOn === 0 && worstGap > 2,
+      pairs > 0
+        ? `${headOn} frames with boats going opposite ways, closest ${worstGap.toFixed(2)} units bow to stern`
+        : 'never two boats on the river at once, so nothing was tested');
     // The margin is thin by design — every unit outboard is clearance spent — so it is asserted on
     // the **widest lane the generator can hand out**, not on whatever the soak happened to draw.
     // That distinction is the whole check: the old free-for-all put roughly one tug in twenty

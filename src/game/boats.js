@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { propMaterial } from '../util/geo.js';
 import { makeRng } from '../util/rng.js';
-import { createBargeMesh, createTugMesh, BARGE_LEN, TUG_LEN, BEAM } from '../geometry/boat.js';
+import {
+  createBargeMesh, createTugMesh, BARGE_LEN, TUG_LEN, BARGE_BEAM, TUG_BEAM,
+} from '../geometry/boat.js';
 import {
   waterEdges, waterHeightAt, bridgeSpan, drawbridgeLine, BARGE_AIR, TUG_AIR,
 } from '../city/river.js';
@@ -87,9 +89,15 @@ const RELEASE_PAST = TUG_LEN + 4;
 
 // How far off the middle of the channel a boat runs, and how much of that is left to chance.
 //
-// Exported because the ceiling on them is a *clearance* and belongs in the probe: see `laneZ` in
-// `createBoats` for both bounds and why the tug is the one that pays.
-export const BOAT_LANE = BEAM / 2 + 0.3;
+// **Zero: the river is single file.** Boats used to keep to a lane each side so an up-river and a
+// down-river hull could pass, which capped the beam at under half the water — and a barge that
+// narrow read as a toy next to the cars on the bridges. A barge now fills three quarters of the
+// channel, so nothing can pass it, and the passing problem moved from the lanes to the launch
+// schedule (`canLaunch` below). Running down the middle is also the best the arches can offer a
+// mast: they crest on the centreline.
+//
+// Exported because the ceiling on them is a *clearance* and belongs in the probe.
+export const BOAT_LANE = 0;
 export const LANE_WANDER = 0.2;
 
 // Where a tug stops if the leaf is not up yet.
@@ -124,32 +132,14 @@ export function createBoats(scene, rng, drawbridge) {
   const wake = createWake(group, makeRng(rng.int(0, 0x7fffffff)), edges, fadeAt);
 
   /**
-   * Which side of the channel a boat runs on, keyed to which way it is going.
+   * Where across the channel a boat runs: down the middle, give or take `LANE_WANDER`.
    *
-   * The first cut drew a direction and a lateral position as two independent randoms, which put an
-   * up-river and a down-river boat in the same water about four times in five — reported, fairly,
-   * as "they are about to collide".
-   *
-   * The offset is bounded from both ends and neither bound is a matter of taste:
-   *
-   * - **Floor.** Two hulls passing must not touch, so the separation `2 * BOAT_LANE` has to clear
-   *   `BEAM`. At 1.4 they pass with 0.6 of water between them, and 0.2 at the worst of the wander.
-   * - **Ceiling, and this is the one that is easy to get backwards.** Every bridge here carries a
-   *   road running along Z across a river running along X, so the arch humps *across the channel*:
-   *   `deckHeightAt` is a function of z alone and it **crests on the centreline**. Clearance is
-   *   `1.65 + 1.1 * cos^2(pi * dz / span)` — best in the middle, falling off both ways — so pushing
-   *   a boat outboard spends the very clearance the arch exists to provide. A design that put the
-   *   *tug* on the outside would be exactly wrong.
-   *
-   * The old free-for-all was already over that ceiling: `wander` reached 2.4 where `TUG_AIR` needs
-   * `|dz| <= 2.29`, so about one tug in twenty drove its mast through the soffit of a fixed span,
-   * silently — the clearance check in the probe compares against the crest and never looked at the
-   * boat's z. At 1.4 ± 0.2 the worst case is 2.52 against a 2.4 mast on the narrow channel, which
-   * is thinner than it sounds and is asserted rather than trusted.
-   *
-   * Port to port, as it happens: heading +x a boat's starboard side is +z, so `dir` *is* the sign.
+   * There used to be a lane each way, port to port, and the two bounds on it — a floor so passing
+   * hulls do not touch, a ceiling so the tug's mast clears the arch off-centre — are the reason the
+   * boats were so narrow. Single file has neither: nothing passes, and the centreline is where the
+   * arch is highest.
    */
-  const laneZ = (dir) => midZ + dir * (BOAT_LANE + rng.jitter(LANE_WANDER));
+  const laneZ = (dir) => midZ + dir * BOAT_LANE + rng.jitter(LANE_WANDER);
 
   const boats = [];
   const state = {
@@ -159,6 +149,22 @@ export function createBoats(scene, rng, drawbridge) {
     barges: 0,
   };
 
+  /**
+   * Single file means the schedule is what keeps hulls apart, so it has three rules:
+   *
+   * - **Everything on the river goes the same way.** A new boat takes the direction of whatever is
+   *   already out there; only an empty river gets a fresh draw. Two barges at the same speed one
+   *   behind the other never close up, and nothing ever meets head-on.
+   * - **A sailboat only sets off on an empty river.** It is faster than a barge (3.4 against 2.6)
+   *   and would run one down from behind, and it is the only boat that stops — so…
+   * - **No barge sets off while a sailboat is out**, or is due. A barge does not stop for anything
+   *   and would sail into the back of one holding station at a shut leaf. Holding barges back while
+   *   one is due is what lets the river drain so the sailboat can go at all; at 2.6 u/s a barge is
+   *   off the far end in about 70 seconds.
+   */
+  const riverDir = () => (boats.length ? boats[0].dir : null);
+  const tugOut = () => boats.some((b) => b.kind === 'tug');
+
   function launch(kind) {
     const geo = kind === 'tug' ? createTugMesh(rng) : createBargeMesh(rng);
     const mesh = new THREE.Mesh(geo, propMaterial());
@@ -167,7 +173,8 @@ export function createBoats(scene, rng, drawbridge) {
     // Per-boat material, so each can carry its own opacity as it comes in and goes out.
     mesh.material.transparent = true;
     // The hull is modelled bow-toward +Z; a boat running -X turns to face it.
-    const dir = rng.chance(0.5) ? 1 : -1;
+    const drawn = rng.chance(0.5) ? 1 : -1;
+    const dir = riverDir() ?? drawn;
     mesh.rotation.y = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
     const off = OFF_MAP();
     const boat = {
@@ -179,6 +186,7 @@ export function createBoats(scene, rng, drawbridge) {
       speed: kind === 'tug' ? TUG_SPEED : BARGE_SPEED,
       asked: false,
       len: kind === 'tug' ? TUG_LEN : BARGE_LEN,
+      beam: kind === 'tug' ? TUG_BEAM : BARGE_BEAM,
     };
     mesh.position.set(boat.x, waterHeightAt(boat.x), boat.z);
     group.add(mesh);
@@ -193,15 +201,15 @@ export function createBoats(scene, rng, drawbridge) {
   function update(dt) {
     state.bargeIn -= dt;
     state.tugIn -= dt;
-    if (state.bargeIn <= 0) {
-      launch('barge');
-      state.bargeIn = rng.range(BARGE_WAIT[0], BARGE_WAIT[1]);
-    }
-    // One tug at a time. Two would queue at a bridge that only opens for the first, and a boat
-    // waiting in the channel is a whole behaviour this does not have.
-    if (state.tugIn <= 0 && !boats.some((b) => b.kind === 'tug')) {
+    // One tug at a time, and only onto an empty river — see `riverDir` for why.
+    if (state.tugIn <= 0 && boats.length === 0) {
       launch('tug');
       state.tugIn = rng.range(TUG_WAIT[0], TUG_WAIT[1]);
+    }
+    // A barge that comes due while one is out or due is not dropped, it waits for the next gap.
+    if (state.bargeIn <= 0 && state.tugIn > 0 && !tugOut()) {
+      launch('barge');
+      state.bargeIn = rng.range(BARGE_WAIT[0], BARGE_WAIT[1]);
     }
 
     const gate = spanX();
