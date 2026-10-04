@@ -1629,10 +1629,11 @@ export const MPH_PER_UNIT = 67 / 22.95;
  *
  * `brake` is here despite belonging to *every* car rather than to the boosting taxi: it is what
  * the taxi stops for reds and leaders on through the coast-down. The panel labels it as global.
- * `coast` is the coast-down itself — the taxi's lift-off once the button is let go (COAST). It is also what `LOOKAHEAD` (32) is derived
- * against, so a much softer brake — or a much higher overdrive top — can outrun the horizon the
- * following rule can see. A tuning panel is allowed to drive off the end of a derivation; that is
+ * It is also what `LOOKAHEAD` (32) is derived against, so a much softer brake — or a much higher
+ * overdrive top — can outrun the horizon the following rule can see. A tuning panel is allowed to drive off the end of a derivation; that is
  * simply where the rear-ends come from when it does.
+ *
+ * `coast` is the coast-down itself — the taxi's lift-off once the button is let go (COAST).
  */
 export const LOCO_DEFAULTS = Object.freeze({
   kick: BOOST_KICK,
