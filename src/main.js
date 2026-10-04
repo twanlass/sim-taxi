@@ -2529,6 +2529,27 @@ function rollMoneyTo(target, up = true) {
  * direction, which stays taxi → counter. A charge flown counter → taxi would read as the player
  * being *given* something.
  */
+/**
+ * A word rising off the taxi and fading where it is — the getaway's "Checkpoint 1/2". The first
+ * half of `popEarning`'s flight with no counter to land on, since nothing is being paid.
+ */
+function popLabel(text) {
+  const start = taxiScreenPos();
+  const el = document.createElement('div');
+  el.className = 'earning is-label';
+  el.textContent = text;
+  el.style.left = `${start.x}px`;
+  el.style.top = `${start.y}px`;
+  document.body.append(el);
+  const rise = el.animate([
+    { opacity: 0, transform: 'translate(-50%, -50%) translateY(4px)   scale(0.8)' },
+    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-26px) scale(1.06)', offset: 0.3 },
+    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-34px) scale(1)', offset: 0.75 },
+    { opacity: 0, transform: 'translate(-50%, -50%) translateY(-44px) scale(1)' },
+  ], { duration: 1400, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
+  rise.onfinish = () => el.remove();
+}
+
 function popEarning(amount) {
   const start = taxiScreenPos();
   const el = document.createElement('div');
@@ -3984,6 +4005,21 @@ function frame() {
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       traffic.setTaxiOccupied(false);
+    } else if (type === 'checkpoint') {
+      // A getaway checkpoint (ROBBER_CHECKPOINTS in game/fares.js): a full tank, poured the way the
+      // robber's boarding one is, and the route re-aimed at the next corner — the fare's `target`
+      // has already moved on. The clock keeps running; only the drop-off pays.
+      flyEnergyToBoost({
+        from: taxiScreenPos,
+        to: fuelScreenPos,
+        onArrive: () => boost.topUp(1 - boost.fraction()),
+      });
+      popLabel(`Checkpoint ${fare.checkpointsTotal - fare.checkpoints.length}/${fare.checkpointsTotal}`);
+      haptic('pick');
+      traffic.taxi.route = [];
+      traffic.taxi.pendingTarget = null;
+      dispatchToDropoff(fare);
+      if (burgerRun?.active()) burgerRun.send();
     } else if (type === 'failed') {
       // The run ended on a clock rather than on an impact — see the TIMEOUT_* block. The camera
       // takes wherever the rider is getting out (`failSpot`, set by fares.js as it hands them to

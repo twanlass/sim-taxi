@@ -65,6 +65,7 @@ import {
 } from '../src/game/robberyglow.js';
 import {
   createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES,
+  ROBBER_CHECKPOINTS,
   ARRIVE_RADIUS, onSameBlock, onWaterBlock, CURSE_LIFT, BURGER_PRICE, waitingTargets, stampFareMarker, BOARD_SECONDS,
 } from '../src/game/fares.js';
 import { createCurseBubble, TAIL_DROP } from '../src/geometry/cursebubble.js';
@@ -15167,6 +15168,65 @@ let chopperOrder; // likewise
         `base $${robber.value}, up to $${robber.bonusMax} more`);
     }
 
+    // --- The getaway's checkpoints --------------------------------------------
+    //
+    // ROBBER_CHECKPOINTS in game/fares.js: corners to touch on the way, each a full tank. Checked
+    // over a sweep of traffic draws on this city, since the draw is random among valid chains.
+    {
+      let fewer = 0; let shortLeg = 0; let tooLong = 0; let clash = 0; let uncovered = 0; let n = 0;
+      let flow = true;
+      for (let k = 0; k < 8; k++) {
+        const s6 = new THREE.Scene();
+        const t6 = createTraffic(makeRng(seed + 44 + k * 13), s6, 10, 18);
+        const f6 = createFareSystem(makeRng(seed + 55 + k * 7), s6);
+        t6.warmup(3);
+        f6.state.delivered = 5;
+        const got = [];
+        const rob6 = createRobbery({
+          site: bank, taxi: t6.taxi, fares: f6, traffic: t6, onBoard: (fare) => got.push(fare),
+        });
+        t6.taxi.x = bank.door.x;
+        t6.taxi.z = bank.door.z;
+        for (let f = 0; f < 5; f++) rob6.update(1 / 60);
+        const r = got[0];
+        if (!r) continue;
+        n += 1;
+        const cps = [...r.checkpoints];
+        if (cps.length < ROBBER_CHECKPOINTS) fewer += 1;
+        const chain = [r.pickup, ...cps, r.dropoff];
+        let total = 0;
+        for (let c = 1; c < chain.length; c++) {
+          const leg = blockDistance(chain[c - 1], chain[c]);
+          if (leg < 3) shortLeg += 1;
+          total += leg;
+        }
+        if (total > r.blocks + 6) tooLong += 1;
+        const keys = chain.map((c) => `${c.i},${c.j}`);
+        if (new Set(keys).size !== keys.length
+          || cps.some((c) => onWaterBlock(c) || !cornerSeen(c.i, c.j))) clash += 1;
+        if (!(r.limit >= r.work * 1.6)) uncovered += 1;
+        // Touch each corner in turn: a checkpoint moves the target on, the last stop delivers.
+        if (k === 0) {
+          const seen = [];
+          for (const stop of [...cps, r.dropoff]) {
+            if (r.target.i !== stop.i || r.target.j !== stop.j) { flow = false; break; }
+            const c = intersectionCentre(stop.i, stop.j);
+            t6.taxi.x = c.x; t6.taxi.z = c.z;
+            for (const e of f6.update(1 / 60, t6.taxi)) seen.push(e.type);
+          }
+          const want = [...cps.map(() => 'checkpoint'), 'delivered'];
+          flow = flow && want.every((t, idx) => seen.filter((x) => x === 'checkpoint' || x === 'delivered')[idx] === t);
+        }
+      }
+      check('a getaway touches its checkpoints before the drop-off',
+        n > 0 && fewer === 0, `${n - fewer}/${n} getaways with ${ROBBER_CHECKPOINTS} checkpoints`);
+      check('...each leg a real drive, and the chain only so much longer than the straight run',
+        shortLeg === 0 && tooLong === 0, `${shortLeg} short legs, ${tooLong} chains over +6 blocks`);
+      check('...on free, visible, dry corners of their own', clash === 0, `${clash} clashes`);
+      check('...budgeted into the robber’s one clock', uncovered === 0, `${uncovered} short clocks`);
+      check('...and touched in order: checkpoint, checkpoint, delivered', flow);
+    }
+
     check('...but not while somebody is already in the back',
       !runEvent({ carrying: true }).rob.state.active);
     check('...and not before the player has run the loop a couple of times',
@@ -15727,6 +15787,10 @@ let chopperOrder; // likewise
         const run = { offset, watch, delivered: false };
         runs.push(run);
         if (!robber) continue;
+        // Straight to the drop-off: the checkpoints have their own check, and this one is about
+        // the arrest at the far end.
+        robber.checkpoints.length = 0;
+        robber.target = robber.dropoff;
         const tgt = robber.target;
         for (const d of [0, 1, 2, 3]) if (placeCar(t5.taxi, d, tgt.i, tgt.j, 30)) break;
         t5.taxi.route = [];

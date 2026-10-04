@@ -1884,6 +1884,26 @@ and a getaway that opened on a dry pill was a chase the taxi could not win on sp
 whose cruise ceiling sits above an unboosted taxi's. Filling it keeps the event's choice — boost
 and risk the wreck, or hold off and risk the clock — a choice.
 
+### Checkpoints on the way
+
+`ROBBER_CHECKPOINTS` in `game/fares.js`. A getaway is not one leg: the taxi has to touch **two
+checkpoints** before the drop-off, and each one pours the boost tank full again (`'checkpoint'` in
+main.js, the same pour as the boarding tank) with a "Checkpoint 1/2" rising off the cab. The ring
+the taxi is driving at *is* the checkpoint — it hops on to the next corner on arrival, and the
+route re-dispatches itself. The clock keeps running straight through; only the drop-off pays.
+
+The drop-off is drawn first, exactly as before (the far side of the map), and the checkpoints
+between it and the bank: every leg at least 3 blocks so a checkpoint is somewhere to drive *to*,
+and the whole chain at most 6 blocks longer than the straight getaway, because a longer getaway is
+paid for out of every kerbside clock that runs while it does. Every leg is budgeted into the
+robber's one clock, so the 60% over the driving still holds. A board too full for two gets fewer.
+
+Measured over 38 cities: the driving goes from a median 41.5s to 68.4s (×1.74, worst ×2.2), and the
+clock from about 80s to 132s. Over 30 paired autoplay runs a perfect player at 1.5s lands 11.6
+fares on $308 against 12.7 on $358 without checkpoints; at 4s the two are within noise (13.0 · $350
+against 12.6 · $334). Read that the way the rest of this section's numbers are read: the harness
+never boosts, so it pays for the longer drive and collects none of the tanks.
+
 ### The robber's line
 
 `game/robberline.js`. The event used to go straight from a drive-past to four cop cars and the radio

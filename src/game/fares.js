@@ -250,6 +250,24 @@ const ROBBER_DROPOFF_SPREAD = 1;
 const ROBBER_PAYOUT = 100;
 const ROBBER_BONUS = 50;
 
+/**
+ * The getaway's checkpoints: corners the taxi has to touch on the way to the drop-off, each one
+ * refilling the boost tank (`'checkpoint'` in main.js). The drop-off is drawn first and exactly as
+ * before — the far side of the map — and the checkpoints are drawn between it and the bank.
+ *
+ * **They exist to stretch the drive, and the stretch is capped**, because a longer getaway is
+ * paid for out of every kerbside clock that runs while it does (see ROBBER_DROPOFF_SPREAD). Each
+ * leg is at least `CHECKPOINT_MIN_LEG` blocks, so a checkpoint is a place to drive *to* rather than
+ * a corner the taxi was passing anyway, and the whole chain is at most `CHECKPOINT_MAX_EXTRA`
+ * blocks longer than the straight getaway. Measured over the 40-city sweep in tools/probe.mjs.
+ *
+ * Every leg is budgeted into the robber's one clock (`budgetFor`'s `via`), so the clock still
+ * covers the driving it pays for, with the same 60% over it.
+ */
+export const ROBBER_CHECKPOINTS = 2;
+const CHECKPOINT_MIN_LEG = 3;
+const CHECKPOINT_MAX_EXTRA = 6;
+
 // Cadence and placement of every fare beyond the first.
 //
 // The spawn gap is what turns the game into a prioritisation puzzle rather than a burst event:
@@ -756,12 +774,57 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     return { i, j };
   }
 
+  /**
+   * Up to `n` checkpoints for a getaway from `from` to `to` — see ROBBER_CHECKPOINTS. Same `free`
+   * predicate as every other draw, and off the blocks of both ends and of each other. Every leg at
+   * least CHECKPOINT_MIN_LEG blocks, the chain at most CHECKPOINT_MAX_EXTRA longer than the direct
+   * trip; a board too full to manage that gets fewer checkpoints rather than a cramped chain, and
+   * none at all is an ordinary getaway.
+   */
+  function pickCheckpoints(taxiCar, from, to, n) {
+    const free = freeCorner(taxiCar, from);
+    const options = [];
+    for (let i = 0; i <= GRID_I; i++) {
+      for (let j = 0; j <= GRID_J; j++) {
+        const at = { i, j };
+        if (free(i, j) && !onSameBlock(at, to) && !(i === to.i && j === to.j)) options.push(at);
+      }
+    }
+    const direct = blockDistance(from, to);
+    for (let k = Math.min(n, 2); k > 0; k--) {
+      const chains = [];
+      const legsOk = (chain) => {
+        const stops = [from, ...chain, to];
+        let total = 0;
+        for (let s = 1; s < stops.length; s++) {
+          const leg = blockDistance(stops[s - 1], stops[s]);
+          if (leg < CHECKPOINT_MIN_LEG) return false;
+          total += leg;
+        }
+        return total <= direct + CHECKPOINT_MAX_EXTRA;
+      };
+      if (k === 1) {
+        for (const a of options) if (legsOk([a])) chains.push([a]);
+      } else {
+        for (const a of options) {
+          for (const b of options) {
+            if (a === b || onSameBlock(a, b)) continue;
+            if (legsOk([a, b])) chains.push([a, b]);
+          }
+        }
+      }
+      if (chains.length) return chains[rng.int(0, chains.length - 1)];
+    }
+    return [];
+  }
+
   /** The taxi's next junction and both ends of every live fare. */
   function spokenFor(taxiCar) {
     const avoid = [{ i: taxiCar.i, j: taxiCar.j }];
     for (const f of state.fares) {
       avoid.push(f.target);
       if (f.dropoff) avoid.push(f.dropoff);
+      if (f.checkpoints) avoid.push(...f.checkpoints);
     }
     return avoid;
   }
@@ -830,11 +893,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     dropoffHint = null;
     if (!hint) return null;
 
-    const avoid = [{ i: taxiCar.i, j: taxiCar.j }];
-    for (const f of state.fares) {
-      avoid.push(f.target);
-      if (f.dropoff) avoid.push(f.dropoff);
-    }
+    const avoid = spokenFor(taxiCar);
     // On the map first. `pickIntersection` draws its own candidates from `rng.int(0, GRID_*)` and so
     // can never produce an off-grid one; a hint arrives from outside and can. Without this a bad
     // hint is honoured rather than declined, and the rider's pin is staked off the edge of the
@@ -874,7 +933,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
    * though nothing about it actually breaks.
    */
   const occupiedSpots = () => state.fares.flatMap(
-    (f) => (f.dropoff ? [f.target, f.dropoff] : [f.target]),
+    (f) => [f.target, ...(f.dropoff ? [f.dropoff] : []), ...(f.checkpoints ?? [])],
   );
 
   /** The fare the player is currently working: whichever one the taxi was last sent at. */
@@ -965,7 +1024,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
    *                    Defaults to `vip` so the only call site that passes neither keeps its
    *                    meaning exactly.
    */
-  function budgetFor(taxiCar, pickup, dropoff, { vip = false, jumpsQueue = vip } = {}) {
+  function budgetFor(taxiCar, pickup, dropoff, { vip = false, jumpsQueue = vip, via = [] } = {}) {
     const stops = [];
     // The rider aboard is a commitment: you cannot take a kerbside fare while carrying one
     // (`markDirected` refuses) and the drop-off dispatches itself.
@@ -975,7 +1034,8 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // it is budgeted over is its own trip and nothing else — the shortest chain any fare in this
     // game gets.
     const riding = carrying();
-    if (riding) stops.push(riding.dropoff);
+    // A getaway still owes its checkpoints before its drop-off, so the chain has them too.
+    if (riding) stops.push(...(riding.checkpoints ?? []), riding.dropoff);
     // Then everyone already on the kerb, most urgent first — the same order `waiting()` hands
     // them to the player, and the only order one taxi can work in.
     // `limit > 0` skips the rider currently being budgeted: `spawnFare` pushes them onto the
@@ -995,7 +1055,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
         .sort((a, b) => urgencyOf(a) - urgencyOf(b));
       for (const f of ahead) stops.push(f.pickup, f.dropoff);
     }
-    stops.push(pickup, dropoff);
+    stops.push(pickup, ...via, dropoff);
 
     // `main.js` rerolls any city where `findRoute` fails a pair, so null is the unreachable case
     // rather than a real one. Falling back to the old flat clock keeps an unroutable fare
@@ -1172,12 +1232,14 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // the fallback for a board with nothing free, and has its own last resorts.
     const dropoff = pickFarthest(taxiCar, at, ROBBER_DROPOFF_SPREAD)
       ?? pickIntersection(taxiCar, null, null, at);
+    // ...and the corners to touch on the way, each a full tank — see ROBBER_CHECKPOINTS.
+    const checkpoints = pickCheckpoints(taxiCar, at, dropoff, ROBBER_CHECKPOINTS);
 
     // `jumpsQueue` rather than `vip`: a robber is not a VIP and must not be priced or coloured as
     // one, but its clock covers its own trip and nothing else for exactly the VIP's reason. There
     // is nobody in the seat for it to queue behind — the trigger refuses while there is — and it
     // certainly cannot be budgeted to wait behind the kerb, since it is already driving.
-    const budget = budgetFor(taxiCar, at, dropoff, { jumpsQueue: true });
+    const budget = budgetFor(taxiCar, at, dropoff, { jumpsQueue: true, via: checkpoints });
     const fare = {
       slot,
       stage: 'riding',
@@ -1185,7 +1247,11 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
       // What marks this one out in every `fare` the loop hands back. Read by the delivery branch
       // for the bonus, by the timeout branch for the miss, and by main.js for the HUD.
       robber: true,
-      target: dropoff,
+      // The checkpoints still to touch, nearest first; `target` is the first of them until the
+      // last is reached, then the drop-off. `blocks` stays the bank-to-drop-off distance.
+      checkpoints,
+      checkpointsTotal: checkpoints.length,
+      target: checkpoints[0] ?? dropoff,
       pickup: at,
       dropoff,
       blocks: blockDistance(at, dropoff),
@@ -1239,7 +1305,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // own centre, and the crystal launches off the doorstep and flies to the roof of the car. The
     // one clock, visibly changing hands, exactly as it does at a kerb.
     paintDropoff(fare, urgencyLevel(1));
-    place(destination, dropoff.i, dropoff.j);
+    place(destination, fare.target.i, fare.target.j);
     destination.ring.appear();
     marker.showAt(URGENCY_SEGMENTS, from.x, from.z, false, false);
     marker.beginTransfer();
@@ -1774,6 +1840,14 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
       if (fare.stage === 'waiting') {
         beginRide(fare);
         emit('pickup', fare);
+      } else if (fare.checkpoints?.length) {
+        // A getaway checkpoint: the ring hops on to the next corner (or the drop-off) and the
+        // fare carries on, clock and all. main.js refills the tank and re-dispatches the route.
+        fare.checkpoints.shift();
+        fare.target = fare.checkpoints[0] ?? fare.dropoff;
+        place(fare.slot.destination, fare.target.i, fare.target.j);
+        fare.slot.destination.ring.appear();
+        emit('checkpoint', fare);
       } else {
         // Priced at spawn by the trip's block distance, so longer hauls pay more. The player does
         // not see the length before choosing — what the kerb offers is a clock, and the payout is
