@@ -2244,6 +2244,55 @@ try {
   check('and this page\'s own crashes still open the panel',
     (await panelOpensFor({ message: 'boom', filename: `${baseUrl}/src/main.js`, lineno: 12, colno: 3 })) === true);
 
+  // --- A rejection says what it was, even when the browser gave it no stack.
+  //
+  // Safari's `TypeError: Load failed` (a fetch the network dropped) arrives with `stack === ''`,
+  // and the panel used to print `reason.stack ?? reason` — which is `''` — so an iPhone showed
+  // "Unhandled rejection:" and nothing else. Dispatched as an event rather than by rejecting a
+  // real promise so it cannot also land in `client.errors` below.
+  const rejectionText = await evaluate(`(() => {
+    const el = document.getElementById('error');
+    const before = window.__errorLog;
+    const reason = new TypeError('Load failed');
+    Object.defineProperty(reason, 'stack', { value: '' });
+    window.dispatchEvent(new PromiseRejectionEvent('unhandledrejection',
+      { promise: Promise.resolve(), reason }));
+    const text = window.__errorLog.slice(before.length);
+    window.__errorLog = before; el.textContent = ''; el.hidden = true;
+    return text;
+  })()`);
+  check('a stackless rejection names itself on the panel',
+    rejectionText.includes('TypeError: Load failed'), JSON.stringify(rejectionText));
+
+  // --- A launch that cannot download the sounds is a quiet game, not a crash panel.
+  //
+  // `sfx.js` fetches every recording at load and nobody awaits them until the first tap, so a
+  // failed download used to be an unhandled rejection in between — over the whole screen, on an
+  // iPhone that opened the app on a bad connection. Blocked at the network, on a page the service
+  // worker is told to stay out of (a fresh registration would serve them from its cache).
+  await client.send('Network.setBlockedURLs', { urls: ['*.m4a'] });
+  await client.send('Network.setBypassServiceWorker', { bypass: true });
+  await client.send('Page.reload', { ignoreCache: true });
+  let rebooted = false;
+  const reloadDeadline = Date.now() + 120000;
+  while (Date.now() < reloadDeadline) {
+    if (await evaluate('Boolean(window.__taxi?.traffic?.taxi)').catch(() => false)) { rebooted = true; break; }
+    await sleep(300);
+  }
+  await sleep(1500);
+  const silentLog = await evaluate('window.__errorLog').catch(() => null);
+  check('blocked sound downloads leave the panel shut',
+    rebooted && silentLog === '', JSON.stringify(silentLog));
+  await client.send('Network.setBlockedURLs', { urls: [] });
+  await client.send('Network.setBypassServiceWorker', { bypass: false });
+  await client.send('Page.reload');
+  rebooted = false;
+  const backDeadline = Date.now() + 120000;
+  while (Date.now() < backDeadline) {
+    if (await evaluate('Boolean(navigator.serviceWorker?.controller && window.__taxi?.traffic?.taxi)').catch(() => false)) { rebooted = true; break; }
+    await sleep(300);
+  }
+
   // --- Offline: a Home Screen launch has to work with no connection at all. This only proves
   // anything run against a built preview (`--url http://localhost:4173`) — the worker registration
   // in main.js is skipped under `import.meta.env.DEV` on purpose, since the dev server rewrites

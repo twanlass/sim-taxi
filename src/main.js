@@ -145,7 +145,11 @@ import { PALETTE } from './palette.js';
 // build to a player who has already installed the new one. `public/sw.js` bumps that name by hand
 // on the web, which works because a deploy is one atomic thing we control; an app update is not.
 if (!import.meta.env.DEV && !isNative() && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
+  // Caught, because a registration that fails (no connection for the update check) only costs
+  // the offline copy, and left unhandled it would put the error panel over a game that is running.
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((err) => console.warn('sw: not registered', err));
+  });
 }
 
 const shot = getActiveShot();

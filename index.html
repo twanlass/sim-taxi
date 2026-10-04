@@ -1859,8 +1859,23 @@
         if (!e.filename && !e.lineno && !e.error) { window.__foreignErrors += 1; return; }
         report(`${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack ?? ''}\n\n`);
       });
+      /* What a rejection was, in words, whatever shape it arrived in.
+
+         `reason.stack ?? reason` printed nothing at all on an iPhone: Safari's stack is the frames
+         *only* (V8 opens it with `Name: message`, WebKit does not), and an error raised by the
+         browser with no script on the call stack — `TypeError: Load failed` from a fetch the
+         network dropped — has an empty one. `''` is not nullish, so the fallback never ran and the
+         panel read "Unhandled rejection:" over a blank screen. Name and message always lead, and
+         the stack follows only when it adds frames. */
+      const describe = (reason) => {
+        if (reason == null || typeof reason !== 'object') return String(reason);
+        const head = `${reason.name ?? 'Error'}: ${reason.message ?? ''}`;
+        const stack = typeof reason.stack === 'string' ? reason.stack.trim() : '';
+        if (!stack) return `${head}\n  (no stack: raised by the browser, not by a line of this game)`;
+        return stack.startsWith(head) ? stack : `${head}\n${stack}`;
+      };
       window.addEventListener('unhandledrejection', (e) => {
-        report(`Unhandled rejection: ${e.reason?.stack ?? e.reason}\n\n`);
+        report(`Unhandled rejection: ${describe(e.reason)}\n\n`);
       });
 
       /* Three's own reports, put where a phone can show them.
