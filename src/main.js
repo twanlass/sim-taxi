@@ -2343,10 +2343,8 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // world span is exactly 2 * the drawn zoom. This is what keeps the spotlight the same size on
   // every viewport, and correct when a wreck pulls the zoom in under it or Loco Mode pushes in.
   pixelsPerUnit: () => viewport.height() / (2 * controller.viewZoom()),
-  // The third beat points at a control rather than at something in the city, so its spotlight is
-  // measured off the pedal's own box, and its bubble stands on the pedal's top. Declared after this
-  // call; `function` hoisting covers both.
-  boostAnchor: boostScreenPos,
+  // The third beat points at a control rather than at something in the city: its bubble stands on
+  // the pedal's top. Declared after this call; `function` hoisting covers it.
   boostTarget: gasPedalTop,
   // The one the game means by "the waiting fare" — the shortest clock on the kerb. At this point in
   // a run there is only ever one, but pointing at the same rider the rest of the HUD would is free.
@@ -2440,9 +2438,8 @@ function taxiScreenPos() {
 }
 
 /**
- * Centre of the Punch It pill, and the radius of a circle that clears it. The radius is what the
- * tutorial's third beat sizes its spotlight from; the sparks go to the fuel meter instead
- * (`fuelScreenPos`) and only come here when it can't be measured. Read fresh on every call rather than cached, because the pill's own fill flutter
+ * Centre of the Punch It pill, and the radius of a circle that clears it. The sparks go to the
+ * fuel meter (`fuelScreenPos`) and only come here when it can't be measured. Read fresh on every call rather than cached, because the pill's own fill flutter
  * scales it and a resize moves it.
  */
 function boostScreenPos() {
@@ -2490,7 +2487,6 @@ function gasPedalTop() {
  * Where a delivery's boost sparks land: the crown of the fuel gauge arcing over the gas pedal,
  * since that is what they fill. The track's box is the whole arc, so its top edge is the crown.
  * Falls back to the pedal when the meter isn't measurable, so a flight always has somewhere to go.
- * The tutorial's spotlight stays on the pedal — it is pointing at the control, not the read-out.
  */
 function fuelScreenPos() {
   const arc = boostMeterEl?.querySelector('.boost-track');
