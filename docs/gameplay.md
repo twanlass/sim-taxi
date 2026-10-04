@@ -1663,7 +1663,9 @@ included. A [package](#the-package-courier) is never multiplied.
 anyone drives. Tags under the cash (`#runs`, `updateRunTags`) appear as each comes into play — `LOCO
 64%` once you boost, dim until it is over the line; `PERFECT` once you have boosted a second;
 `STEALTH` on a close shave — and a lost one flinches red, shakes and falls out of the HUD. At the
-drop-off each earned run pops over the payout as its own label, `LOCO RUN ×2`, in its tag's colour.
+drop-off the payout plays as a sequence over the taxi, one item at a time, each fading before the
+next (`popRunSequence`): the fare's price, then each run's label and the extra it added — `$20`,
+`LOCO RUN ×2`, `+$20`, `PERFECT RUN ×1.5`, `+$20` — with the counter ticking up as each amount goes.
 
 They replaced two multipliers. The [shift](difficulty.md#shifts) used to stamp 1×, 1.25×, 1.5× or 2×
 into every price at spawn, with no counter on screen; and VIPs stacked a streak of their own (3×,

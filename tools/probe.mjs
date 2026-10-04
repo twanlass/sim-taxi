@@ -3504,7 +3504,7 @@ check('no two cars occupy the same space', worst > 1.6,
       if (type === 'delivered') {
         // The verdict multiplies the price stamped at spawn and rides the event out for the pop.
         deliveries += 1;
-        if (fare.runs?.[0]?.key !== 'loco'
+        if (fare.runs?.[0]?.key !== 'loco' || fare.basePay !== spawnPrice.get(fare)
           || fare.value !== Math.round(spawnPrice.get(fare) * RUNS.loco.mult)) wrongCombo += 1;
       }
       if (type === 'pickup') {

@@ -1783,6 +1783,7 @@ export function createFareSystem(rng, scene, { reserved = () => [], judgeRun = (
         // `fare.runs` rides the 'delivered' event out to the pop that labels them.
         const verdict = judgeRun(fare);
         fare.runs = verdict.runs;
+        fare.basePay = fare.value;
         fare.value = Math.round(fare.value * verdict.mult);
         state.money += fare.value;
         state.delivered += 1;

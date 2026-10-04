@@ -2551,7 +2551,7 @@ function rollMoneyTo(target, up = true) {
  * direction, which stays taxi → counter. A charge flown counter → taxi would read as the player
  * being *given* something.
  */
-function popEarning(amount, bonuses = []) {
+function popEarning(amount) {
   const start = taxiScreenPos();
   const el = document.createElement('div');
   el.className = amount < 0 ? 'earning is-charge' : 'earning';
@@ -2559,29 +2559,6 @@ function popEarning(amount, bonuses = []) {
   el.style.left = `${start.x}px`;
   el.style.top = `${start.y}px`;
   document.body.append(el);
-
-  // The run bonuses that paid into it (game/runs.js), stacked over the amount: each pops in a beat
-  // after the last, holds while the amount takes off for the counter, and fades where it is. They
-  // stay behind on purpose — the cash is what travels to the HUD, the label is what this trip was.
-  bonuses.forEach((run, k) => {
-    const tag = document.createElement('div');
-    tag.className = `run-pop run-${run.key}`;
-    tag.textContent = `${run.label} ×${run.mult}`;
-    tag.style.left = `${start.x}px`;
-    tag.style.top = `${start.y}px`;
-    document.body.append(tag);
-    // The amount settles 30px up and is ~28px tall, so the first label sits clear of its top.
-    const y = -(64 + 26 * k);
-    const at = (dy, scale) => `translate(-50%, -50%) translateY(${y + dy}px) scale(${scale})`;
-    tag.animate([
-      { opacity: 0, transform: at(14, 0.6) },
-      { opacity: 1, transform: at(-4, 1.14), offset: 0.18 },
-      { opacity: 1, transform: at(0, 1), offset: 0.3 },
-      { opacity: 1, transform: at(-6, 1), offset: 0.75 },
-      { opacity: 0, transform: at(-18, 0.96) },
-    ], { duration: 1700, delay: 160 + k * 160, easing: 'ease-out', fill: 'both' })
-      .onfinish = () => tag.remove();
-  });
 
   // The counter's position is resolved *at launch* rather than baked into a CSS keyframe, so a
   // window resize between deliveries still aims each flight at where the counter actually is now.
@@ -2609,6 +2586,63 @@ function popEarning(amount, bonuses = []) {
       rollMoneyTo(fares.state.money, amount >= 0);
     };
   };
+}
+
+/**
+ * A drop-off that earned run bonuses (game/runs.js) pays out as a sequence over the taxi, one item at
+ * a time, each fading before the next: the fare's own price, then for each run its label and the
+ * extra cash it added — `$20`, `LOCO RUN ×2`, `+$20`, `PERFECT RUN ×1.5`, `+$20`. The counter ticks
+ * up as each amount fades, so the total climbs in the same steps the screen just spelled out.
+ *
+ * Shown in place rather than flown to the counter like a plain payout: three or five flights in a
+ * row read as a stream of separate payments, where this is one payment being explained.
+ *
+ * The extras are the runs' multipliers applied in order to a running total, with the last one
+ * taking up any rounding so they always sum to what the fare actually paid.
+ */
+const RUN_STEP_MS = 720;
+function popRunSequence(fare) {
+  const total = fare.value;
+  const steps = [{ text: `$${fare.basePay}`, cls: 'earning', pays: fare.basePay }];
+  let running = fare.basePay;
+  fare.runs.forEach((run, k) => {
+    const next = k === fare.runs.length - 1 ? total : Math.round(running * run.mult);
+    steps.push({ text: `${run.label} ×${run.mult}`, cls: `run-pop run-${run.key}`, pays: 0 });
+    steps.push({ text: `+$${next - running}`, cls: `earning run-${run.key}`, pays: next - running });
+    running = next;
+  });
+  // Where the counter stood before this fare, so each step can roll it to a partial total.
+  let shown = fares.state.money - total;
+  // Chained off each animation's finish rather than timed off the start, so a slow frame can
+  // never put two of them on screen at once.
+  const play = (k) => {
+    const step = steps[k];
+    if (!step) return;
+    const at = taxiScreenPos();
+    const el = document.createElement('div');
+    el.className = step.cls;
+    el.textContent = step.text;
+    el.style.left = `${at.x}px`;
+    el.style.top = `${at.y}px`;
+    document.body.append(el);
+    const t = (dy, scale) => `translate(-50%, -50%) translateY(${dy}px) scale(${scale})`;
+    el.animate([
+      { opacity: 0, transform: t(-14, 0.7) },
+      { opacity: 1, transform: t(-34, 1.12), offset: 0.22 },
+      { opacity: 1, transform: t(-38, 1), offset: 0.34 },
+      { opacity: 1, transform: t(-42, 1), offset: 0.72 },
+      { opacity: 0, transform: t(-54, 0.96) },
+    ], { duration: RUN_STEP_MS, easing: 'ease-out', fill: 'forwards' }).onfinish = () => {
+      el.remove();
+      if (step.pays > 0) {
+        shown += step.pays;
+        // Never past the real total: another payout may have moved it while this played.
+        rollMoneyTo(Math.min(shown, fares.state.money), true);
+      }
+      play(k + 1);
+    };
+  };
+  play(0);
 }
 
 /**
@@ -3927,7 +3961,8 @@ function frame() {
       // Out they get: open, and shut a beat later once they are clear of the car.
       sfx?.play('doorOpen');
       sfx?.play('doorClose', { delay: 0.7 });
-      popEarning(fare.value, fare.runs);
+      if (fare.runs?.length) popRunSequence(fare);
+      else popEarning(fare.value);
       // A third of a tank of boost fuel as the ordinary delivery reward — the only way any fuel
       // enters the meter otherwise. A VIP pays out bigger here too: the tank tops all the way to
       // full rather than by a third, on the same delayed pour as everything else so it reads as
@@ -4775,8 +4810,9 @@ if (!shot && wantsDebugPanel) {
 
 window.__taxi = {
   traffic,
-  // The run-bonus tracker — see game/runs.js.
+  // The run-bonus tracker — see game/runs.js — and the drop-off sequence that pays it out.
   runs,
+  popRunSequence,
   // The crash replay and its recording — see game/replay.js.
   replay,
   tape,
