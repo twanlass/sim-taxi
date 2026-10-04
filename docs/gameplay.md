@@ -3239,9 +3239,12 @@ already means a pan, a route-band drag or a fare tap.
 
 ## The pedal slide
 
-The bottom row is two pedals — the Figma file's drawings, a tall orange gas pedal with the brake
-tucked against its lower right — and a ⏸ in the far corner. Their depth is not geometry: each is one
-flat shape with a 28-unit inner shadow along its bottom, which reads as the side. A held pedal
+The bottom row is two round pedals — an orange gas button 100px across, dead centre on the bottom
+edge, and a red brake two thirds its size to its left, the two centres on one line so a thumb slides
+straight across — and a ⏸ in the far corner. They were the Figma file's drawings (a tall gas pedal
+with a pill-shaped brake tucked against its lower right) until both went round. Their depth is not
+geometry: each is one flat circle with a 28-unit inner shadow along its bottom, which reads as the
+side. A held pedal
 **sinks** into its own outline: the silhouette stays put while its filter swaps to one with a
 thinner side band and a dark inner shadow from the top edge, and the icon drops 8 units with the
 face (the "The press" rules in `index.html`). It used to squash the whole pedal toward its base, but
@@ -3251,11 +3254,12 @@ out.
 
 **The fuel gauge is an arc over the gas pedal.** It used to be a wedge-shaped bar in the top-left
 corner, which put the read-out as far from the thumb spending it as the screen allows. It is now a
-tachometer-style band (`#boost-meter` in `index.html`, shaped by `game/fuelarc.js`) that follows the
-pedal's cap, from a third of the way down its left side, over the top, to the same height on the
-right. Fuel fills from the left end, so holding the gas sweeps the front back from the right, over
-the crown, and down to the left. The band tapers from 8 units at the empty end to 14 at the full
-one. A stroke can't taper, so the track and the fuel are filled outlines, and `main.js` rewrites the
+tachometer-style band (`#boost-meter` in `index.html`, shaped by `game/fuelarc.js`) round the
+button, from just under its centre on the left, over the top, to the same height on the right. Fuel
+fills from the left end, so holding the gas sweeps the front back from the right, over the crown,
+and down to the left. The band is an even 16 units wide (it used to taper, 8 → 14 round the old
+pedal and briefly 12 → 20 round the button), and a thin white glint sits across the fuel's front
+whenever there is any. A stroke can't taper, so the track and the fuel are filled outlines, and `main.js` rewrites the
 fuel's outline whenever the level moves. The band's inner edge holds 4 units off the pedal's black
 outline all the way round, and the width grows outward. The first build had the right tangent point
 typed 10 units wrong, and the right leg hung visibly further off the pedal than the left, so the

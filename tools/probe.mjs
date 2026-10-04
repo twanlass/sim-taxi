@@ -9561,7 +9561,7 @@ check('the taxi is an ordinary car in the traffic array',
     `left ${a.y.toFixed(3)}, right ${b.y.toFixed(3)}, END_Y ${END_Y}`);
   check('fuel gauge: symmetric about the pedal', Math.abs((CAP.x - a.x) - (b.x - CAP.x)) < 2,
     `left end ${(CAP.x - a.x).toFixed(2)} out, right end ${(b.x - CAP.x).toFixed(2)} out`);
-  check('fuel gauge: thicker at the full end', fuelArc.widthAt(1) > fuelArc.widthAt(0) && BASE_R > outline,
+  check('fuel gauge: one even width end to end', fuelArc.widthAt(1) === fuelArc.widthAt(0) && BASE_R > outline,
     `${fuelArc.widthAt(0)} -> ${fuelArc.widthAt(1)}`);
   check('fuel gauge: an empty tank draws no fuel', fuelArc.bandPath(0, 0) === '', 'bandPath(0, 0)');
 }
@@ -9598,7 +9598,7 @@ check('the taxi is an ordinary car in the traffic array',
   }
 
   const mark = before + BOOST_FARE_REWARD;
-  check('the bar overshoots the fuel it was given', peak > mark + 0.04 && peak < mark + 0.1,
+  check('the bar overshoots the fuel it was given', peak > mark + 0.02 && peak < mark + 0.05,
     `${(before * 100).toFixed(0)}% -> ${(mark * 100).toFixed(0)}%, peaked at ${(peak * 100).toFixed(1)}%`);
   check('the overshoot lands just after the fuel does', peakT > markT && peakT < markT + 0.2,
     `fuel done ${markT.toFixed(2)}s, peak ${peakT.toFixed(2)}s`);
@@ -9612,7 +9612,8 @@ check('the taxi is an ordinary car in the traffic array',
   // ...and it *rings* on the way there rather than easing straight down onto it. Every extremum
   // after the peak, measured against the level the bar ends on: alternating signs, each smaller
   // than the last. An eased fall — the version this replaced — produces none of them, so the
-  // count alone is the check that the spring is still a spring.
+  // count alone is the check that the spring is still a spring. Two, not three: the ring was
+  // tuned down to one dip and one small return so the refill reads as settling, not bouncing.
   const after = trace.filter((s) => s.t > peakT).map((s) => s.pct - settled.pct);
   const swings = [];
   for (let i = 1; i < after.length - 1; i++) {
@@ -9620,7 +9621,7 @@ check('the taxi is an ordinary car in the traffic array',
   }
   const alternates = swings.every((v, i) => i === 0 || (v * swings[i - 1] < 0 && Math.abs(v) < Math.abs(swings[i - 1])));
   check('the settle rings instead of easing flat onto the mark',
-    swings.length >= 3 && swings[0] < -0.01 && alternates,
+    swings.length >= 2 && swings[0] < -0.004 && alternates,
     swings.map((v) => `${(v * 100).toFixed(1)}%`).join(' '));
 
   // The bar climbs the whole way — no stall or step backwards before the peak.

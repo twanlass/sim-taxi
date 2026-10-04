@@ -33,6 +33,12 @@ const scatter = (i) => {
   return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
 };
 
+// Each spark's size against the 11px in index.html, fixed for the same reason the scatter is: six
+// identical dots read as a stamp, and a spread from 6px to 15px reads as a handful of energy.
+// Ordered so neighbours in the ripple differ — big, small, middling — rather than sorted, and the
+// biggest is not first so the swarm doesn't open on its heaviest note.
+const SIZES = [0.85, 1.35, 0.55, 1.1, 0.7, 1.25];
+
 /**
  * Fire the sparks. Both `from` and `to` are functions returning viewport `{x, y}` — see above.
  * `onArrive` fires once, when the first spark reaches the pill, and is what should actually hand
@@ -59,21 +65,22 @@ export function flyEnergyToBoost({ from, to, onArrive }) {
       document.body.append(bit);
 
       const out = scatter(i);
+      const k = SIZES[i % SIZES.length];
       const dx = target.x - start.x;
       const dy = target.y - start.y;
 
       const burst = bit.animate([
-        { opacity: 0, transform: 'translate(-50%, -50%) scale(0.3)' },
-        { opacity: 1, transform: `translate(-50%, -50%) translate(${out.x}px, ${out.y}px) scale(1)` },
+        { opacity: 0, transform: `translate(-50%, -50%) scale(${0.3 * k})` },
+        { opacity: 1, transform: `translate(-50%, -50%) translate(${out.x}px, ${out.y}px) scale(${k})` },
       ], { duration: BURST, delay: i * STAGGER, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'both' });
 
       burst.onfinish = () => {
         // Ease *in* on the way to the pill, not out: the spark should look pulled, accelerating
         // into the button, which is what sells the button as the thing collecting it.
         const fly = bit.animate([
-          { opacity: 1, transform: `translate(-50%, -50%) translate(${out.x}px, ${out.y}px) scale(1)` },
-          { opacity: 0.9, transform: `translate(-50%, -50%) translate(${dx * 0.55}px, ${dy * 0.55}px) scale(0.75)`, offset: 0.6 },
-          { opacity: 0, transform: `translate(-50%, -50%) translate(${dx}px, ${dy}px) scale(0.25)` },
+          { opacity: 1, transform: `translate(-50%, -50%) translate(${out.x}px, ${out.y}px) scale(${k})` },
+          { opacity: 0.9, transform: `translate(-50%, -50%) translate(${dx * 0.55}px, ${dy * 0.55}px) scale(${0.75 * k})`, offset: 0.6 },
+          { opacity: 0, transform: `translate(-50%, -50%) translate(${dx}px, ${dy}px) scale(${0.25 * k})` },
         ], { duration: FLY, easing: 'cubic-bezier(0.5, 0, 0.75, 0.2)', fill: 'forwards' });
 
         fly.onfinish = () => {
