@@ -137,7 +137,7 @@ so the shadow map is already folded into the light: a car in a tower's shadow ha
 with, and the cop's lamps glint off the cars beside it.
 
 **The sheen carries metal flake.** Paint's broad lobe is multiplied by a hash over the body's own
-space, 14.5 cells a unit by default (`flakeSize`) — sub-pixel at play zoom, where it averages into a livelier sheen, and only
+space, 38.5 cells a unit by default (`flakeSize`) — sub-pixel at play zoom, where it averages into a livelier sheen, and only
 sparkle close up. The sheen is also what separates paint from glass when no glint is lined up.
 
 **The reflection marches the city.** The reflected ray is stepped through the height field

@@ -628,17 +628,19 @@ export function setFinish(geometry, finish) {
  */
 //
 // Tuned by eye in `?debug`'s inspect mode, which is what the shape of these says: paint is mostly
-// a broad flaked sheen over a brightened base with a pinpoint glint on top and almost no mirror;
+// a broad flaked sheen over a brightened base with a hard pinpoint glint on top and almost no mirror;
 // glass is near-black with a hard glint and a faint reflection; tyres are darkened rubber. The
-// city reflection survives mainly on glass — paint at 0.02 barely carries it.
+// city reflection survives mainly on glass — paint at 0.03 barely carries it. Retuned 2026-10-04:
+// paint went brighter (diffuse 1.36 → 1.88) with a full-strength glint bent nearly twice as far
+// (0.19 → 1.02, bend 1.02 → 1.97) and a softer sheen (1 → 0.625) under it.
 export const FINISH_DEFAULTS = {
   tyre: {
     glint: 0, glintSharp: 20, glintBend: 0.3, sheen: 0.02, sheenSharp: 6, flake: 0,
     reflect: 0, reflectEdge: 0, reflectBend: 0, diffuse: 0.64,
   },
   paint: {
-    glint: 0.19, glintSharp: 1000, glintBend: 1.02, sheen: 1, sheenSharp: 6, flake: 1,
-    reflect: 0.02, reflectEdge: 0, reflectBend: 1.27, diffuse: 1.36,
+    glint: 1.02, glintSharp: 835, glintBend: 1.97, sheen: 0.625, sheenSharp: 8, flake: 1,
+    reflect: 0.03, reflectEdge: 0.065, reflectBend: 2, diffuse: 1.88,
   },
   glass: {
     glint: 0.42, glintSharp: 795, glintBend: 1.06, sheen: 0, sheenSharp: 1, flake: 0,
@@ -653,11 +655,11 @@ export const FINISH_DEFAULTS = {
 export const GLOSS_GLOBAL_DEFAULTS = {
   // Flake cells per world unit of the body's own space. Sub-pixel at play zoom by design: there the
   // flakes average into a livelier sheen, and only resolve into sparkle close up.
-  flakeSize: 14.5,
-  // How dark a building reads in a reflection, as a fraction of the horizon behind it. Near black,
-  // as tuned: with the reflections this faint, a dark silhouette against the sky is the only part
-  // of them that still reads.
-  facade: 0.08,
+  flakeSize: 38.5,
+  // How dark a building reads in a reflection, as a fraction of the horizon behind it. Was near
+  // black (0.08); lifted to 0.35 on 2026-10-04 alongside the brighter paint, so the skyline in a
+  // panel reads as a soft shadow rather than a hard black band.
+  facade: 0.35,
   // Paints each finish a flat false colour, to check what the geometry tagged as what.
   showFinishes: false,
 };
