@@ -60,6 +60,18 @@ export const PALETTE = {
   // the road rather than something lying on it, and a touch of warm brown is what rubber smeared
   // into tarmac actually is.
   skidRubber: '#1E1A18',
+  // The squall's tyre tracks (game/skidmarks.js, the wet instance): where a tyre has pressed the
+  // water film off a wet street, the road stops mirroring the sky and goes darker — and on dry road
+  // past the cell's trail, a wet tread prints darker too. Cool rather than the rubber's warm brown,
+  // so the two never read as the same mark.
+  wetTrack: '#1A2228',
+  // Water thrown off the tyres (game/spray.js). A pale cool white, short of the dust's pure white:
+  // white is dust, and this has to read as water against a grey wet street under a rain cell.
+  waterSpray: '#DCEAF2',
+  waterSprayGlow: '#5E7280',
+  // And the same tracks on a street that is still wet: a tyre's groove holds a line of water that
+  // catches the sky, so on the darkened wet asphalt the trail reads as a pale sheen.
+  wetSheen: '#A9BFCC',
   laneMark: '#D6D2C4',
   crosswalk: '#DAD7CB',
   sidewalk: '#9E9C94',

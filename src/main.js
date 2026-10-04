@@ -51,6 +51,7 @@ import { createDepotCall } from './game/depotcall.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
+import { createSpray } from './game/spray.js';
 import { createCityEntry } from './game/cityentry.js';
 import { createBlast } from './game/blast.js';
 import { createFlames } from './game/flames.js';
@@ -109,7 +110,7 @@ import { findRoute, findRouteVia, findRouteOnto, planOrigin, crossingOrigin } fr
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -130,7 +131,7 @@ import { createSfx } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J, MAX_SPAN } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
-import { PALETTE } from './palette.js';
+import { PALETTE, color as paletteColor } from './palette.js';
 
 // Caches the app shell so a Home Screen launch still opens with no connection — see public/sw.js.
 // Skipped under `npm run dev`: Vite's dev server rewrites module URLs on every change, and a
@@ -444,10 +445,13 @@ function applySquall(dt) {
 /** How far the whole sky greys while a squall's cell is on the map — the rest of the city is sunny. */
 const SQUALL_GREY = 0.2;
 
+// The storm's one city-wide wetness, for the tyres (`groundWetAt`).
+let stormWet = 0;
 function applyWeather(dt = 0) {
   if (squall) { applySquall(dt); return; }
   if (!storm) return;
   const w = storm.update(dt);
+  stormWet = w.wet;
   rain.setWeather(w, dt);
   setGrip(THREE.MathUtils.lerp(1, GRIP, w.wet));
   runningLevel = THREE.MathUtils.smoothstep(w.dark, 0.25, 0.42);
@@ -1083,6 +1087,7 @@ const pan = shot
   : attachDragPan(controller, renderer.domElement, aspect, isNarrow, releaseCameraToPlayer);
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
+const spray = createSpray(scene, makeRng(seed + 78));
 
 // The city's entrance: buildings and trees rise out of the ground in a wave that spreads from the
 // taxi's spawn — the run starts where the player's car is, and the city builds itself outward from
@@ -1707,6 +1712,12 @@ function bustByPolice() {
 // falls straight out of the frustum height.
 const boost = createBoost();
 const skids = createSkidMarks(scene);
+// The squall's tyre tracks: the rubber's streak machinery, repainted per stamp (`wetTyres` below).
+// A bigger pool than the rubber's because it is laid on every straight, not only in a slide: two
+// stamps per TRACK_STEP at the 34 u/s Loco top is ~162 a second, ~450 alive across a 2.8s life.
+const wetTracks = createSkidMarks(scene, {
+  tint: paletteColor('wetTrack'), max: 512, life: 2.8, alpha: 0.5, width: 0.55,
+});
 
 // Lane-width, so it is sized in world units and needs no pixel factor: it is paint on the road
 // rather than an overlay drawn at a constant screen weight.
@@ -3290,12 +3301,90 @@ function layRubber(dt) {
 // of 2 × 0.83 — so what the wide shot keeps is a wider wake, and what the close shot gains is a
 // pair of sources. Same puff either side: this is the one effect duplicated, not a new one.
 let lastDustAt = 0;
+
+// The tyres on a wet road (`?wet=`, see util/shot.js): water spray off the rear pair, and wet
+// tracks behind them. Both read how wet the ground under the car is — the squall's wet map, or
+// the storm's one city-wide level — and the tracks also carry `tyreWet`, how much water the treads
+// are still holding, so they print a little way out onto dry road past the edge of the cell's trail
+// and fade as the car drives it off.
+const WET_TYRES = getWetTyres();
+const WET_DUST_OFF = 0.25;     // ground this wet throws water rather than dust
+const SPRAY_MIN_V = 3;         // below this a tyre rolls through the water rather than throwing it
+const SPRAY_STEP = 0.55;       // units between stamps; per tyre
+const TRACK_STEP = 0.42;       // the rubber's spacing, so the streaks blend the same way
+const TREAD_DRY = 14;          // units of dry road that take the treads' water down by e
+const TRACK_DARK = paletteColor('wetTrack');
+const TRACK_SHEEN = paletteColor('wetSheen');
+const TRACK_HUE = new THREE.Color();
+let roadWet = 0;
+let tyreWet = 0;
+let lastSprayAt = 0;
+let lastTrackAt = 0;
+let lastTyreAt = 0;
+
+function groundWetAt(x, z) {
+  if (squall) return squall.wetAt(x, z);
+  if (storm) return stormWet;
+  return 0;
+}
+
+function wetTyres() {
+  const car = traffic.taxi;
+  roadWet = groundWetAt(car.x, car.z);
+  const moved = car.travelled - lastTyreAt;
+  lastTyreAt = car.travelled;
+  // Soaked straight up off a wet road, wrung out over distance on a dry one.
+  tyreWet = roadWet >= tyreWet ? roadWet : tyreWet * Math.exp(-Math.max(0, moved) / TREAD_DRY);
+
+  const fx = Math.cos(car.yaw), fz = -Math.sin(car.yaw);
+  const rx = Math.sin(car.yaw), rz = Math.cos(car.yaw);
+  const y = deckHeightAt(car.x, car.z).y;
+
+  if (WET_TYRES.spray && roadWet > 0.15 && car.v > SPRAY_MIN_V) {
+    if (car.travelled - lastSprayAt >= SPRAY_STEP) {
+      lastSprayAt = car.travelled;
+      // Speed against the cruise-to-overdrive range, times how much water there is to throw.
+      const pace = THREE.MathUtils.clamp((car.v - SPRAY_MIN_V) / 14, 0, 1);
+      const amount = Math.min(1, roadWet * 1.25) * (0.25 + 0.75 * pace) * (car.boost ? 1.25 : 1);
+      for (const side of [-1, 1]) {
+        spray.add(
+          car.x - fx * TAXI_REAR_AXLE_BACK + rx * side * TAXI_REAR_TRACK,
+          car.z - fz * TAXI_REAR_AXLE_BACK + rz * side * TAXI_REAR_TRACK,
+          car.yaw, car.v, Math.min(1, amount), side, 0.25 + y,
+        );
+      }
+    }
+  } else {
+    lastSprayAt = car.travelled;
+  }
+
+  if (WET_TYRES.tracks && tyreWet > 0.08 && car.v > 0.5) {
+    if (car.travelled - lastTrackAt >= TRACK_STEP) {
+      lastTrackAt = car.travelled;
+      const strength = Math.min(1, tyreWet * 1.4);
+      // Sheen on wet road, a dark print on dry: blended across the trail's own edge.
+      const hue = TRACK_HUE.copy(TRACK_DARK).lerp(TRACK_SHEEN, THREE.MathUtils.smoothstep(roadWet, 0.1, 0.45));
+      for (const side of [-1, 1]) {
+        wetTracks.add(
+          car.x - fx * TAXI_REAR_AXLE_BACK + rx * side * TAXI_REAR_TRACK,
+          car.z - fz * TAXI_REAR_AXLE_BACK + rz * side * TAXI_REAR_TRACK,
+          car.yaw, strength, hue,
+        );
+      }
+    }
+  } else {
+    lastTrackAt = car.travelled;
+  }
+}
+
 function kickDust() {
   const car = traffic.taxi;
   // The brake joins the boost here for the same reason it lays rubber: the point of both effects is
   // that traction has broken, and a locked wheel throws exactly as much off the road as a spinning
   // one does. It stops on its own the moment the car does — this is paced by distance travelled.
-  if ((!car.boost && !car.braking) || car.v < 2) { lastDustAt = car.travelled; return; }
+  // A wet road throws water, not dust — `wetTyres` has the tyres while the ground under them is wet.
+  const wetOut = (WET_TYRES.spray || WET_TYRES.tracks) && roadWet > WET_DUST_OFF;
+  if ((!car.boost && !car.braking) || car.v < 2 || wetOut) { lastDustAt = car.travelled; return; }
   if (car.travelled - lastDustAt < 0.47) return;
   lastDustAt = car.travelled;
   const fx = Math.cos(car.yaw);
@@ -3593,6 +3682,7 @@ function frame() {
   }
   updateBoostButton(dt);
   skids.update(dt);
+  wetTracks.update(dt);
   // Before the dust pool ticks, so a building's ground-burst is at age zero on the frame it fires.
   // The "Add to Home Screen" screen (iOS in a tab) *skips* the entrance outright rather than
   // holding it: the overlay shows the city sunk into black, and a city that hasn't built yet is a
@@ -3608,6 +3698,7 @@ function frame() {
     cityEntry.update(dt);
   }
   dust.update(dt);
+  spray.update(dt);
   blast.update(dt);
   flames.update(dt);
   sparks.update(dt);
@@ -4068,6 +4159,7 @@ function frame() {
   }
 
   layRubber(dt);
+  wetTyres(dt);
   kickDust();
   // Down here with the rubber and the dust rather than up with `flames.update`, and for the same
   // reason both of those are: it is pinned to the car's position this frame, not emitted and left
@@ -4765,6 +4857,9 @@ window.__taxi = {
   radio,
   carGhosts,
   skids,
+  // The wet tyres — spray and tracks, `?wet=` (see `wetTyres`).
+  spray,
+  wetTracks,
   police,
   /** The patrol cruiser's life — patrol, chase, leave. See game/patrol.js. */
   patrol,
