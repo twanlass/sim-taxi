@@ -16,11 +16,12 @@
  * behind a mask (`.title-scrim`) because they are lists to be read; the menu does not, because it
  * is three words and the city is the show.
  *
- * Sound on/off is the existing mute (sfx.js, shared with the pause screen's pill and the M key) —
+ * Sound on/off is the existing mute (sfx.js, shared with the pause screen's Settings and the M key) —
  * see game/settings.js for why it is not stored twice.
  */
 
 import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
+import { el, menuPage, settingsRows } from './menupage.js';
 
 /** Seconds per lap of the drift. Slow on purpose: ~1 world unit a second is a stroll, not a tour. */
 export const PAN_PERIOD = 120;
@@ -53,14 +54,6 @@ export const CREDITS = [
 
 const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
-/** One element, with a class and optional text. The overlay is small enough not to want a helper. */
-function el(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text != null) node.textContent = text;
-  return node;
-}
-
 /**
  * @param {HTMLElement | null} root  `#title-screen`, empty until this fills it. Null → returns null.
  * @param {object} opts
@@ -86,78 +79,12 @@ export function createTitleScreen(root, { sound, settings, onPlay }) {
   for (const b of [playButton, settingsButton, creditsButton]) b.type = 'button';
   menu.append(playButton, settingsButton, creditsButton);
 
-  /** A sub-page: "‹ Back" over its header, then whatever `body` holds. */
-  function page(name, title) {
-    const section = el('section', `title-view title-page title-${name}`);
-    section.setAttribute('aria-label', title);
-    const back = el('button', 'title-back');
-    back.type = 'button';
-    back.append(el('span', 'title-back-chevron', '‹'), el('span', null, 'Back'));
-    back.addEventListener('click', () => show('menu'));
-    const header = el('h2', 'title-header', title);
-    const body = el('div', 'title-body');
-    section.append(back, header, body);
-    return { section, back, body };
-  }
-
   // --- Settings ---------------------------------------------------------------------------------
-  const settingsPage = page('settings', 'Settings');
-
-  /** An on/off row: the whole row is the switch, so the label is a target too. */
-  function toggleRow(label, read, write) {
-    const row = el('button', 'title-row title-toggle');
-    row.type = 'button';
-    row.setAttribute('role', 'switch');
-    const knob = el('span', 'title-switch');
-    knob.append(el('span', 'title-switch-dot'));
-    row.append(el('span', 'title-label', label), knob);
-    const paint = () => row.setAttribute('aria-checked', String(read()));
-    row.addEventListener('click', () => { write(!read()); paint(); });
-    paint();
-    return { row, paint };
-  }
-
-  /** A 0..1 slider row. The fill left of the thumb is a CSS variable, since range inputs have no
-   *  standard "progress" part to style. */
-  function sliderRow(label, read, write) {
-    const row = el('label', 'title-row title-slider');
-    const input = el('input');
-    input.type = 'range';
-    input.min = '0';
-    input.max = '100';
-    input.step = '1';
-    input.setAttribute('aria-label', label);
-    const paint = () => {
-      const v = Math.round(read() * 100);
-      input.value = String(v);
-      input.style.setProperty('--fill', `${v}%`);
-    };
-    input.addEventListener('input', () => {
-      write(Number(input.value) / 100);
-      input.style.setProperty('--fill', `${input.value}%`);
-    });
-    row.append(el('span', 'title-label', label), input);
-    paint();
-    return { row, paint };
-  }
-
-  const soundRow = toggleRow('Sound', () => sound.isOn(), (on) => { sound.set(on); paintMuted(); });
-  const musicRow = sliderRow('Music volume', () => settings.get().music, (v) => settings.set({ music: v }));
-  const sfxRow = sliderRow('SFX volume', () => settings.get().effects,
-    (v) => settings.set({ effects: v }));
-  const tipsRow = toggleRow('Tutorial tips', () => settings.get().tips, (on) => settings.set({ tips: on }));
-  // The two sliders still move while the sound is off — a player setting levels before unmuting is
-  // a reasonable thing to do — but they read as asleep, which says why moving them is silent.
-  const paintMuted = () => {
-    const off = !sound.isOn();
-    musicRow.row.classList.toggle('is-asleep', off);
-    sfxRow.row.classList.toggle('is-asleep', off);
-  };
-  paintMuted();
-  settingsPage.body.append(soundRow.row, musicRow.row, sfxRow.row, tipsRow.row);
+  const settingsPage = menuPage('settings', 'Settings', () => show('menu'));
+  const settingsBody = settingsRows(settingsPage.body, { sound, settings });
 
   // --- Credits ----------------------------------------------------------------------------------
-  const creditsPage = page('credits', 'Credits');
+  const creditsPage = menuPage('credits', 'Credits', () => show('menu'));
   const list = el('dl', 'title-credits');
   for (const [role, name] of CREDITS) {
     const item = el('div', 'title-credit');
@@ -180,9 +107,8 @@ export function createTitleScreen(root, { sound, settings, onPlay }) {
       node.hidden = name !== next;
       node.setAttribute('aria-hidden', String(name !== next));
     }
-    // The sound row is the one setting that can change from outside this screen (M, or the pause
-    // pill in a previous run), so it is re-read every time the page comes up rather than trusted.
-    if (next === 'settings') { soundRow.paint(); paintMuted(); }
+    // The sound row can change from outside this screen (M), so it is re-read on the way in.
+    if (next === 'settings') settingsBody.refresh();
     // Focus follows the view for a keyboard: onto the way back out of a page, or onto the item that
     // led into it on the way home.
     const focus = next === 'settings' ? settingsPage.back

@@ -854,23 +854,19 @@ const settings = createSettings();
 sfx?.setVolumes(settings.get());
 settings.onChange((v) => sfx?.setVolumes(v));
 
-// The switch lives on the pause screen, with M for a keyboard. The choice is remembered
-// (localStorage, soft — see game/sfx.js).
-const soundButton = document.querySelector('#pause-veil .pause-sound');
-function paintSound() {
-  if (!soundButton || !sfx) return;
-  soundButton.textContent = sfx.state.muted ? 'Sound: Off' : 'Sound: On';
-  soundButton.setAttribute('aria-pressed', String(!sfx.state.muted));
-}
-soundButton?.addEventListener('click', () => { sfx?.toggleMuted(); paintSound(); });
+// The one mute, as the Settings pages on the title and pause screens see it. M flips it from a
+// keyboard; the choice is remembered (localStorage, soft — see game/sfx.js). The pages re-read it
+// each time they come up, so M needs to tell nobody.
+const soundSwitch = {
+  isOn: () => Boolean(sfx && !sfx.state.muted),
+  set: (on) => { sfx?.setMuted(!on); },
+};
 window.addEventListener('keydown', (event) => {
   if (event.key !== 'm' && event.key !== 'M') return;
   // Not while typing initials, where M is a letter — the pause key's rule.
   if (event.target instanceof HTMLInputElement) return;
   sfx?.toggleMuted();
-  paintSound();
 });
-paintSound();
 
 // The patrol cruiser's look (sim/police.js) and its life (game/patrol.js): a police car that
 // crosses town edge to edge with its bar swinging red and blue, and comes after you if you boost in
@@ -3496,10 +3492,7 @@ function consumeTitleSkip() {
 const wantsTitle = !shot && !consumeTitleSkip()
   && new URLSearchParams(window.location.search).get('title') !== 'off';
 const title = wantsTitle ? createTitleScreen(document.getElementById('title-screen'), {
-  sound: {
-    isOn: () => Boolean(sfx && !sfx.state.muted),
-    set: (on) => { sfx?.setMuted(!on); paintSound(); },
-  },
+  sound: soundSwitch,
   settings,
   onPlay: beginRun,
 }) : null;
@@ -3567,6 +3560,10 @@ const pause = shot ? null : createPause({
   // Nothing left to hold once the run is over — and the retry screen owns the whole display then.
   // Never asked on the way out: a pause can always be lifted.
   canPause: () => !fares.state.gameOver && !title?.holding(),
+  sound: soundSwitch,
+  settings,
+  // Quit abandons the run: a reload without the "Play again" skip flag lands back on the title.
+  onQuit: () => location.reload(),
   onChange: (paused) => {
     // A pause with the gas still down would resume into a boost the player is no longer holding —
     // the pill's own pointer never comes back up, because the veil took the release. Same reason
