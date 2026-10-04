@@ -1536,6 +1536,8 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck })
   // Ramming the patrol car on the pill is a bump like any other, not a bust — game/patrol.js
   // `rammed`. The collision pass runs before the patrol's, so this lands the same frame.
   if (taxiStruck && other.police) patrol.rammed(other);
+  // Every bump costs HP, and any damage at all ends the combo (see COMBO in game/fares.js).
+  fares.breakCombo();
   controller.kickShake(BUMP_SHAKE + closing * BUMP_SHAKE_PER_UNIT);
   // The designer's bump — light hits against other cars, a recording of its own since Block 1 —
   // scaled by the same closing speed the shake is. 0.3 at a nudge, full at a T-bone at the Loco top.
@@ -2338,8 +2340,38 @@ if (debugMode) holdFareClocks();
 
 const hud = {
   money: document.getElementById('money'),
+  combo: document.getElementById('combo'),
   banner: document.getElementById('run-end'),
 };
+
+// The combo badge under the cash: `×N` once a clean drop-off has made the next one worth more,
+// hidden at 1× where it would only be saying "nothing yet". It follows `fares.state.combo` each
+// frame rather than being told about events, so a drop-off and a bump on the same frame cannot
+// leave it disagreeing with the payout. Going up it swells green like the counter does; going back
+// to 1× it shows the number it lost in red, shakes, and drops out — the bump that caused it is
+// already loud, so this only has to say what it cost.
+let comboShown = 1;
+function updateCombo() {
+  const el = hud.combo;
+  const combo = fares.state.combo;
+  if (!el || combo === comboShown) return;
+  const lost = combo < comboShown;
+  if (!lost) el.textContent = `×${combo}`;
+  comboShown = combo;
+  el.classList.remove('combo-up', 'combo-lost');
+  void el.offsetWidth;   // restart the animation — see `.money-bumped`
+  if (lost) {
+    // A break from 1× to 1× (a second bump before the next drop-off) never gets here, and a
+    // badge that was never shown has nothing to lose.
+    if (el.hidden) return;
+    el.classList.add('combo-lost');
+    el.onanimationend = () => { el.hidden = true; el.classList.remove('combo-lost'); };
+  } else {
+    el.onanimationend = null;
+    el.hidden = false;
+    el.classList.add('combo-up');
+  }
+}
 
 // The counter lags the payout on purpose: the flying "$X" rises off the taxi, travels to the HUD,
 // and only when it lands does the total tick up — so the payout has a visible path from the world
@@ -2603,6 +2635,7 @@ function collectScores() {
 
 function updateHud(dt) {
   const s = fares.state;
+  updateCombo();
 
   if (s.gameOver && hud.banner && hud.banner.hidden) {
     // Every ending holds the banner while its own closing beat plays — CRASH_BANNER_DELAY for the
@@ -2620,7 +2653,7 @@ function updateHud(dt) {
       // "Shift" replaces what used to be "Streak", which printed `s.delivered` — the same number
       // as Fares directly above it, formatted with an `x`. Two rows counting out one number is a
       // stat sheet padding itself. How far up the difficulty curve the run got is a genuinely
-      // different fact about it, and it is the one the multiplier was earned by.
+      // different fact about it.
       stats: [
         { label: 'Time', value: s.elapsed, format: formatRunTime },
         { label: 'Fares', value: s.delivered, format: (n) => `${n}` },
@@ -3991,7 +4024,7 @@ function frame() {
       // with no visible link to the car would read as a side effect. The fuel is deliberately *half*
       // a fare's (see BOOST_PARCEL_REWARD): an errand pays into the tank, but a fare still fills it
       // twice as fast, so the courier layer stays a detour rather than the way you fuel a run. What
-      // a package still does not touch is the multiplier — that number means "this is what a *fare*
+      // a package still does not touch is the combo — that number means "this is what a *fare*
       // is worth now", and a package is not a fare.
       fares.credit(parcel.value);
       popEarning(parcel.value);

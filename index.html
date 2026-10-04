@@ -230,6 +230,27 @@
         100% { transform: scale(1);    color: #fff;    }
       }
 
+      /* The combo badge under the cash — see `updateCombo` in main.js. Taxi yellow rather than the
+         payout's green: green is money arriving, and this is a rate, not an amount. */
+      #hud .combo {
+        font-size: 22px; line-height: 1; letter-spacing: 0.04em; font-variant-numeric: tabular-nums;
+        color: #FFD23F; display: inline-block; transform-origin: right center;
+      }
+      #hud .combo[hidden] { display: none; }
+      #hud .combo.combo-up { animation: combo-up 0.36s cubic-bezier(0.22, 1, 0.36, 1); }
+      @keyframes combo-up {
+        0%   { transform: scale(1);    }
+        40%  { transform: scale(1.3);  color: #fff; }
+        100% { transform: scale(1);    }
+      }
+      #hud .combo.combo-lost { animation: combo-lost 0.6s ease-out forwards; }
+      @keyframes combo-lost {
+        0%   { transform: translateX(0);    color: #FF7A6B; opacity: 1; }
+        15%  { transform: translateX(-5px); color: #FF7A6B; }
+        30%  { transform: translateX(5px);  color: #FF7A6B; }
+        45%  { transform: translateX(-3px); color: #FF7A6B; opacity: 1; }
+        100% { transform: translateX(0) translateY(8px); color: #FF7A6B; opacity: 0; }
+      }
 
       /* Cargo chip — the courier box, pictured under the cash total while a package is aboard. See
          src/game/cargochip.js for what is inside it and why it lives up here rather than at the end
@@ -1664,6 +1685,8 @@
   <body>
     <div id="hud">
       <div class="money">$<span id="money">0</span></div>
+      <!-- The clean-driving combo, `×N`, written by `updateCombo` in main.js. Hidden at 1×. -->
+      <div id="combo" class="combo" hidden></div>
       <!-- The courier load, drawn into by game/cargochip.js while a package is aboard. Empty here:
            the box inside it is the real `createParcel` mesh in a WebGL context of its own, the same
            way the rider-finder chips draw the real figure. -->

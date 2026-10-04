@@ -1631,13 +1631,28 @@ number flying from the counter *to* the taxi would read as the player being hand
 charge; it tweens either way now, and the total never goes below zero (see `charge()` in
 `game/fares.js`).
 
-### The multiplier has no counter
+### The combo
 
-Every fare's price is stamped at spawn with `difficulty.payoutMultiplier`, which steps up on the
-delivery that crosses into a new [shift](difficulty.md#shifts). There used to be an `N×` counter
-for it in the top-right corner; the HUD redesign gave that corner to the cash total and the counter
-was removed outright rather than moved. The multiplier still applies — the prices on the board and
-the payouts that fly to the counter already carry it, which is where the player sees it.
+Every drop-off pays its price times `fares.state.combo`, and every drop-off grows it by one: the
+first fare of a clean run pays 1×, the next 2×, then 3×, with no ceiling. **Any damage to the taxi
+puts it back to 1×** — `fares.breakCombo()`, called from `collisions.onBump` in `main.js` — and that
+includes the rider aboard when it happens. Damage means a hit that costs HP, which is a contact on
+Loco Mode; a shove off boost costs nothing (see `sim/collisions.js`) and so costs no combo either.
+Loco Mode is therefore a bet against it, which is the tension the system is for.
+
+Read at the drop-off rather than stamped at spawn like the rest of a price, because it is a fact
+about how the trip was *driven*, and nothing shows a price before the drop-off for it to contradict.
+It multiplies everything the drop-off pays, the robbery's clock bonus included. A
+[package](#the-package-courier) neither grows it nor is multiplied by it.
+
+It is shown as a yellow `×N` badge under the cash (`#combo`, `updateCombo` in `main.js`), hidden at
+1×. It swells when it grows, and on a break it shows the number that was lost in red, shakes and
+drops out.
+
+It replaced two multipliers. The [shift](difficulty.md#shifts) used to stamp 1×, 1.25×, 1.5× or 2×
+into every price at spawn, with no counter on screen once the HUD redesign gave its corner to the
+cash; and VIPs stacked a streak of their own (3×, 4×, 5× for VIPs delivered back to back). Both paid
+for getting further. This pays for getting further *without hitting anything*.
 
 ### Priced by the trip
 
@@ -1658,9 +1673,8 @@ costs the *queue*: every other rider's clock drains while you drive it. Paying m
 game being fair about that afterwards, exactly as before; only the mechanism it is fair about has
 changed.
 
-**The shift multiplier is stamped in at the same moment**, for the same reason — the price is
-settled when the trip is. A rider who appeared during Rush Hour is worth Rush Hour money whenever
-they happen to get delivered, and the table above is the 1× column.
+The [combo](#the-combo) is the one thing applied later, at the drop-off; the table below is the
+1× column.
 
 | Blocks | Price |
 |---:|---:|
@@ -1708,14 +1722,10 @@ Everything else about a VIP is the ordinary fare loop with four numbers turned:
   riders ahead of them, so serving the board in the right order works (see [the fare
   clock](#the-clock-is-budgeted)). A VIP's does not: it covers the rider already
   aboard, whom you cannot abandon, its own trip, and nothing else. Jump the queue for it or lose it.
-- **Triple pay, before the streak.** A VIP pays the ordinary distance price times the current shift
-  multiplier, same as anyone — and then again by `VIP_PAYOUT + streak`, where the streak is how many
-  VIPs have been delivered back to back. So the first is worth 3 fares, the next 4, the next 5.
-  (The base multiplier is what makes the first one worth taking at all: before it, `streak + 1` made
-  a fresh VIP worth exactly one ordinary fare.) Stamped at spawn like every other price on the
-  board, so the marker's fixed purple says what this one is worth the moment it appears rather than
-  leaving it to be found out on delivery. A miss resets the streak to zero — the whole tension of
-  stacking VIPs is that one late drop-off gives it all back.
+- **Triple pay.** A VIP pays the ordinary distance price times `VIP_PAYOUT` (3), stamped at spawn,
+  and then the [combo](#the-combo) at the drop-off like anyone. There used to be a VIP-only streak
+  on top (3×, 4×, 5× back to back, reset by a miss); it went when the combo replaced the shift
+  multiplier, so there is one multiplier rather than three.
 - **A full tank on delivery**, rather than the ordinary third. `main.js` reads the boost meter's
   current fraction at the moment the delivery's energy bits land and tops up exactly what's missing,
   so a VIP always leaves Loco Mode topped off regardless of what was left in the tank going in.
@@ -2561,9 +2571,9 @@ square against a disc is read at a glance.
   left where it is — silently swapping the load would throw away a delivery already paid for in
   detour. The probe asserts the seat and the slot never touch: collecting a package does not move
   the rider's target and does not reset, pause or extend their clock.
-- **Priced exactly like a rider going the same distance** — `priceFor`, times the shift multiplier,
-  stamped at spawn. `PARCEL_PAY_FACTOR` is the one number to turn if it plays too rich.
-- **Cash and a splash of fuel.** No multiplier bump (that number means "this is what a *fare* is
+- **Priced exactly like a rider going the same distance** — `priceFor` off a fresh combo, stamped
+  at spawn. `PARCEL_PAY_FACTOR` is the one number to turn if it plays too rich.
+- **Cash and a splash of fuel.** No combo, either way (that number means "this is what a *fare* is
   worth now") and no run-end stat row, but a delivered package does pour **a sixth of a tank** into
   Loco Mode — half what a drop-off pays (`BOOST_PARCEL_REWARD` against `BOOST_FARE_REWARD`). Both
   the payout and the fuel take the same [two-phase flight](#economy) a fare's do, because it is the
@@ -2993,9 +3003,9 @@ good one when the taxi was going that way anyway, which is the whole of the deci
 **Why it is not free.** It was, and free made it a strictly-better detour once found: the only price
 was a clock the player was already spending, so every tap taken on a route that passed the joint was
 pure profit and the decision stopped being one after the first time. Ten dollars is about half a
-median fare early in a run and loose change by the last shift, which is the right way round — the
-tank is worth most when the multiplier is small, and so is the money. It does **not** scale with the
-multiplier: the tank it buys is a flat 2.25 seconds at every point in the run, and a price that
+median fare off a fresh combo and loose change deep into a clean one, which is the right way round —
+the tank is worth most when the multiplier is small, and so is the money. It does **not** scale with
+the multiplier: the tank it buys is a flat 2.25 seconds at every point in the run, and a price that
 climbed would quietly make the same purchase worse for no reason on screen.
 
 **The counter goes down, visibly.** The charge takes the payout's own flight in reverse sign — a red
@@ -3415,8 +3425,7 @@ makes them the ending rather than an overlay on one.
 
 "Shift" replaced a row called "Streak" that printed `s.delivered` — the same number as "Fares"
 directly above it, formatted with an `x`. Two rows counting out one number is a stat sheet padding
-itself; how deep into the ramp a run got is a genuinely different fact about it, and it is the one
-the multiplier was earned by. It rolls up through the shift names the run passed through, which is
+itself; how deep into the ramp a run got is a genuinely different fact about it. It rolls up through the shift names the run passed through, which is
 what the counter does with every other stat.
 
 The stats are **one row each, label and value side by side**, and both are set in the *same* size,

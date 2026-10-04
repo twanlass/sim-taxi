@@ -2800,9 +2800,8 @@ check('no two cars occupy the same space', worst > 1.6,
           || (spot.i === parcel.dropoff.i && spot.j === parcel.dropoff.j)) clashedWithFare += 1;
       }
       if (!findRoute({ ...parcel.pickup, d: pTraffic.taxi.d }, parcel.dropoff)) unroutable += 1;
-      // Priced exactly as a rider going the same distance is, times the shift it appeared in.
-      const want = Math.round(priceFor(parcel.pickup, parcel.dropoff)
-        * difficulty.payoutMultiplier(parcels.state.delivered) * PARCEL_PAY_FACTOR);
+      // Priced exactly as a rider going the same distance is, off a fresh combo.
+      const want = Math.round(priceFor(parcel.pickup, parcel.dropoff) * PARCEL_PAY_FACTOR);
       if (parcel.value !== want) mispriced += 1;
       // **No clock.** Not "a long one" — none at all, so there is nothing for a hue to step through
       // and nothing that can expire and end a run. Asserted on the shape of the object, because that
@@ -3458,6 +3457,9 @@ check('no two cars occupy the same space', worst > 1.6,
   let stillMarked = 0;   // markers that vanished at pickup instead of flying to the taxi
   let sharedJunction = 0;
   let elapsed = 0;
+  const spawnPrice = new Map();
+  let deliveries = 0;
+  let wrongCombo = 0;
 
   // Same perfect-player policy as the multi-fare block above, so the board actually doubles up.
   const aim = () => {
@@ -3484,18 +3486,22 @@ check('no two cars occupy the same space', worst > 1.6,
         // VIP's stays full forever rather than draining — see the fillOutOfStep loop below.
         if (fare.slot.marker.getFill() < 0.99) drainedOpening += 1;
         if (fare.blocks !== blockDistance(fare.pickup, fare.dropoff)) wrongCount += 1;
-        // Distance price times the shift's multiplier, both settled at spawn — so this reads the
-        // multiplier as of *this* frame, which is the one the fare was stamped with. A VIP stacks
-        // its own streak multiplier on top (see fares.js); `fare.vipMultiplier` is 1 for everyone
-        // else, so the formula is unchanged for an ordinary fare.
-        const due = Math.round(priceFor(fare.pickup, fare.dropoff)
-          * difficulty.payoutMultiplier(fares.state.delivered)
-          * fare.vipMultiplier);
+        // Distance price, times a VIP's flat multiplier (1 for everyone else), settled at spawn.
+        // The combo is not in it yet — that is applied at the drop-off, checked below.
+        const due = Math.round(priceFor(fare.pickup, fare.dropoff) * fare.vipMultiplier);
         if (fare.value !== due) wrongPrice += 1;
+        spawnPrice.set(fare, fare.value);
         // The clock is budgeted from the driving, so it has to cover it with the run's slack in
         // hand. Below 1.0 the rider cannot be delivered even by a perfect drive.
         if (fare.limit < fare.work) unwinnableClock += 1;
         budgetSlack.push(fare.limit / Math.max(1e-6, fare.work));
+      }
+      if (type === 'delivered') {
+        // A clean run: no bump can happen here (this taxi has no HP, so its first contact is the
+        // wreck), so every drop-off pays one more × than the last — 1×, 2×, 3×.
+        deliveries += 1;
+        if (fare.combo !== deliveries
+          || fare.value !== Math.round(spawnPrice.get(fare) * deliveries)) wrongCombo += 1;
       }
       if (type === 'pickup') {
         pickups += 1;
@@ -3545,6 +3551,11 @@ check('no two cars occupy the same space', worst > 1.6,
   check('a waiting rider shows their diamond', shownOnSpawn > 0 && missingPin === 0,
     `${shownOnSpawn} spawns, ${missingPin} missing`);
   check('the block count matches the trip', wrongCount === 0, `${wrongCount} mismatched`);
+  check('each clean drop-off pays one more × than the last', deliveries >= 3 && wrongCombo === 0,
+    `${deliveries} delivered, ${wrongCombo} paid at the wrong combo`);
+  // And any damage puts it back to 1× — main.js calls this from `collisions.onBump`.
+  fares.breakCombo();
+  check('damage resets the combo to 1×', fares.state.combo === 1, `combo ${fares.state.combo}`);
   check('a fresh rider\'s diamond opens on full urgency', wrongOpening === 0,
     `${wrongOpening} opened wrong`);
   check('and opens with a full vessel', drainedOpening === 0, `${drainedOpening} opened drained`);
@@ -5805,7 +5816,6 @@ check('the taxi is an ordinary car in the traffic array',
   check('a rider is aboard before the bail is staged', Boolean(riding));
 
   riding.vip = true;
-  bFares.state.vipStreak = 4;
   const { slot } = riding;
   const from = { x: bTaxi.x, z: bTaxi.z };
   riding.timeLeft = 1 / 120;
@@ -5813,8 +5823,6 @@ check('the taxi is an ordinary car in the traffic array',
 
   check('a VIP\'s clock running out does not end the run',
     Boolean(missed) && !bFares.state.gameOver);
-  check('and takes the streak with it', bFares.state.vipStreak === 0,
-    `streak ${bFares.state.vipStreak}`);
   check('the missed VIP leaves the board at once', !bFares.state.fares.includes(riding));
   // The clock is the one thing that goes immediately: it is what ran out.
   check('their crystal goes with the fare', !slot.marker.group.visible);
