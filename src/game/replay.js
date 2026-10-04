@@ -398,6 +398,9 @@ function pickYaw(points, side) {
  * @param controller  the city camera controller (game/camera.js)
  * @param aspect      () => the viewport's aspect ratio
  * @param wreckage    game/wreckage.js — scrubbed alongside the tape with `seek`
+ * @param scrub       anything else drawn as a closed form of the impact's age, scrubbed the same
+ *                    way (`seek(age)`, then `seek()` to hand it back) — the ejected driver
+ *                    (game/ejection.js), whose tumble is too fast to survive the tape's 30Hz
  * @param taxiGroup   the taxi's drawn group, which the camera tracks on the approach
  * @param overlay     the `#replay` element: the flash on each cut, and the tap that skips
  * @param onImpact    called each time a shot crosses the moment of impact — the sound
@@ -409,7 +412,7 @@ function pickYaw(points, side) {
  *                    lights recompiling the city.
  */
 export function createCrashReplay({
-  tape, controller, aspect, wreckage, taxiGroup, overlay, onImpact = () => {}, hide = [],
+  tape, controller, aspect, wreckage, taxiGroup, overlay, onImpact = () => {}, hide = [], scrub = [],
 }) {
   let crash = null;             // { t0, x, z, yaw } — armed at the impact
   let run = null;               // the replay in progress
@@ -482,6 +485,7 @@ export function createCrashReplay({
     const u = run.t - crash.t0;
     tape.apply(run.t);
     wreckage.seek(u);
+    for (const s of scrub) s.seek(u);
 
     // Halfway between the taxi and the impact on the approach: the wreck site stays in frame from
     // the first frame and the taxi drives into it, rather than the camera chasing a car to a point
@@ -527,6 +531,7 @@ export function createCrashReplay({
     if (!run) return;
     tape.restore();
     wreckage.seek();
+    for (const s of scrub) s.seek();
     controller.state.shake = 0;
     controller.cutTo(run.live.x, run.live.z, run.live.zoom, 0, aspect());
     hide.forEach((o, k) => { o.visible = run.shown[k]; });

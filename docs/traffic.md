@@ -1651,6 +1651,19 @@ for having hit something, the car it hit is shoved harder — and are slewed in 
 taken from which side of the taxi's line it was sitting on. Matched, the pair travels as a rigid
 unit, which reads as a wreck being panned across rather than as one car hitting another.
 
+**A hard enough wreck throws the driver out through the windscreen.** `game/ejection.js`. At a
+closing speed of `EJECT_CLOSING` (18 u/s) or more — a T-bone or a head-on at boost cruise, a
+full-boost rear-end into a stopped queue, anything in overdrive, but not rear-ending traffic going
+the same way — a cabbie in a blue shirt and a dark cap (the riders' rig at 0.8 scale) leaves the
+front of the cabin, tumbles head over heels over whatever was hit, bounces once or twice with a
+puff and a thud, and slides to a sprawl. Thrown slightly away from the struck car's side so they do
+not land in its fireball, and kept to ~8 units of travel so they land inside the wreck zoom. Like
+the shells it is a closed form of its age, and the replay scrubs it through `scrub` rather than off
+the tape: the tumble turns a third of a revolution between 30Hz samples. When it fires, the breath
+after the replay is `EJECT_TAIL` rather than `REPLAY_TAIL`, long enough to watch the landing. Its
+direction is the taxi's heading, so a wreck mid-turn or beside a corner block can throw the figure
+through a building; nothing checks the landing spot.
+
 **A wrecked car's lamps go out.** A crashed car never reaches the render pass again, so whatever
 brake level it last wrote would sit there for the rest of the run — and the frame this fires on is
 exactly the one anything is hardest on the brakes. The ambient car's pods are collapsed to zero in
