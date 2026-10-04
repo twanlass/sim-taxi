@@ -1,26 +1,29 @@
 import * as THREE from 'three';
-import { createTaxiMesh, TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK, TAXI_TAILPIPE_BACK } from '../geometry/taxi.js';
+import {
+  createTaxiMesh, TAXI_TAILPIPE_BACK, TAXI_FRONT_AXLE_FWD, TAXI_FRONT_TRACK,
+} from '../geometry/taxi.js';
 import { createLocoFlame } from './locoflame.js';
 import { createSkidMarks } from './skidmarks.js';
 import { DISTANCE } from './camera.js';
 import { riverBanks } from '../city/grid.js';
-import { ROAD_Y } from '../sim/traffic.js';
+import { BODY_EULER_ORDER } from '../util/geo.js';
+import { REEL } from './uturnreel.js';
 
-// The U-turn, acted out: a short scripted clip for the New Move card (game/newmove.js), filmed **in
-// the player's own city**. A real straight street, picked when the card opens, at the game's own
-// 3/4 view, with a stand-in taxi driving one loop of the move — it cruises in, floors it, taps the
-// brake twice and spins round onto the far lane, then drives back out the way it came. The card's
-// pedal row is pressed off **this clip's clock** (`clipKeys`), so the boost key goes down on the frame
-// the flame lights and each brake key on the frame the brake lamps do. That is the whole point of the
+// The U-turn, acted out: a short clip for the New Move card (game/newmove.js), filmed **in the
+// player's own city**. A real straight street, picked when the card opens, at the game's own 3/4
+// view, with a stand-in taxi doing one loop of the move — it cruises in, floors it, taps the brake
+// twice and spins round onto the far lane, then drives back the way it came. The card's pedal row
+// is pressed off **this clip's clock** (`clipKeys`), so the boost key goes down on the frame the
+// flame lights and each brake key on the frame the brake lamps do. That is the whole point of the
 // clip (Tyler, 2026-10-04): the player sees the buttons and the car do the same thing at once.
 //
 // **Filmed with the game's own renderer.** It was first a separate little WebGL scene — a strip of
 // road and the taxi, lit like the HUD's chips — and it read as a HUD model, not as the game. So now
 // the clip is the real frame: `renderFrame` (main.js) with a second camera that is the city camera
 // moved over the chosen street — same view direction, same 400-unit standoff (so the haze band lands
-// where it always does), zoomed in — and the middle of that frame is copied into the card's canvas.
-// Everything the city frame has, the clip has: the buildings, the shadows, the AO, the bloom, the
-// weather, the time of day.
+// where it always does) — and the middle of that frame is copied into the card's canvas. Everything
+// the city frame has, the clip has: the buildings, the shadows, the AO, the bloom, the weather, the
+// time of day.
 //
 // **The city under the card is a still.** The world is frozen while the card is up (main.js), so the
 // screen behind the dim does not need redrawing. On open the frame is drawn once more and copied to
@@ -29,36 +32,27 @@ import { ROAD_Y } from '../sim/traffic.js';
 // frame, the same as a normal frame. On close the still comes down and the next ordinary frame
 // paints over whatever the clip left.
 //
-// **Scripted, not simulated.** The traffic model's spin (`spinTaxi` in sim/traffic.js) needs a live
-// taxi on a lane, and a clip that is meant to show the same thing every loop is exactly what a
-// simulation is not for. So the stand-in is driven by the timeline below, and the parts that make it
-// read as the game's own car are the game's own: `createTaxiMesh`, the Loco Mode flame, the skid
-// marks, the brake lamps.
+// **The game's own U-turn, played back.** The motion is a recording (game/uturnreel.js) of the
+// shipped traffic model driving the taxi through the move with the pedals pressed on the timeline
+// below — Loco Mode's launch and wheelie, the boost weave, `spinTaxi`'s slide and snap, the
+// suspension — made by tools/uturnreel.mjs on the passing lab's straight road, and checked against a
+// fresh take on every `npm run check` so it cannot drift from the game. The first version drove the
+// stand-in off a hand-written timeline instead and it read as fake: quicker than the real spin and
+// rocking where the real car does not (Tyler, 2026-10-04). It is not the sim running live because the
+// card freezes the world, and a second traffic instance would write over the real one's module state.
 
-/** The loop, in seconds. Long enough for the car to leave frame before it comes round again. */
+// The timeline, in seconds into the loop — what the recording pressed, and what the pedal row shows.
+// Boost goes down at BOOST_ON and comes up just before the first brake tap; the two taps are 0.3s
+// apart, inside bootleg.js's 350ms COMBO_GAP_MS, and the second is the spin.
+export const BOOST_ON = 0.5;
+export const BOOST_OFF = 1.5;
+export const TAP_1 = 1.6;
+export const TAP_2 = 1.9;
+export const TAP_LEN = 0.13;          // how long a key reads as pressed
+const KEYS_OFF = 4.2;                 // the row dims for the last beat, then the loop starts again
+
+/** The loop, in seconds: the length of the recording. */
 export const CLIP_LOOP = 4.6;
-
-// The timeline, in seconds into the loop. Boost goes down at BOOST_ON and comes up just before the
-// first brake tap — "last pedal pressed wins" (bootleg.js), so the real gesture releases it too. The
-// two taps are 0.3s apart, inside bootleg.js's 350ms COMBO_GAP_MS; the second is the spin.
-const BOOST_ON = 0.5;
-const BOOST_OFF = 1.5;
-const TAP_1 = 1.6;
-const TAP_2 = 1.9;
-const TAP_LEN = 0.13;          // how long a key reads as pressed
-const SPIN_LEN = 0.45;         // the real spin's ~0.4s at the Loco top, with a hair for the eye
-const SPIN_END = TAP_2 + SPIN_LEN;
-const KEYS_OFF = 4.2;          // the row dims for the last beat, then the loop starts again
-
-// Speeds, world units per second, under the game's (Loco tops out near 20) so the whole move fits
-// the frame. The ratios are what read: cruise, half as fast again, a check on the first tap, and a
-// standing start back the other way. Distances are along the street from the middle of the lane.
-const CRUISE = 8;
-const BOOSTED = 12;
-const CHECKED = 10;
-const RETURN = 12;
-const START_X = -17;           // out of frame; boost lands just as the car comes in
-const SPIN_SLIDE = 1.5;        // how far the car carries forward while it turns
 
 // The frame. The road runs diagonally under this camera — 0.71 of a unit across the screen and 0.39
 // up or down it per unit of street — and the drawn taxi is a lot more car than the sim's CAR_LEN: its
@@ -71,57 +65,31 @@ const SPIN_SLIDE = 1.5;        // how far the car carries forward while it turns
 const BODY_HALF_LEN = TAXI_TAILPIPE_BACK;
 const BODY_HALF_W = 1.2;
 const BODY_TOP = 3.1;
-const FRAME_MARGIN = 1.1;
+const FRAME_MARGIN = 1.15;
 const SEAM = 0.25;
 
-const ease = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
-const clamp01 = (t) => Math.min(1, Math.max(0, t));
-
-/** Forward speed at time t, before the spin. */
-function speedAt(t) {
-  if (t < BOOST_ON) return CRUISE;
-  if (t < BOOST_ON + 0.3) return CRUISE + (BOOSTED - CRUISE) * ease((t - BOOST_ON) / 0.3);
-  if (t < TAP_1) return BOOSTED;
-  return BOOSTED + (CHECKED - BOOSTED) * ease((t - TAP_1) / (TAP_2 - TAP_1));
-}
-
-// The car's distance travelled at the spin, integrated once.
-const SPIN_X = (() => {
-  let x = START_X;
-  const step = 1 / 600;
-  for (let t = 0; t < TAP_2; t += step) x += speedAt(t) * step;
-  return x;
-})();
+// Along the street the clip is centred on the middle of everything the car covers, so the street
+// picker and the framing both work from the street's own centre.
+const ALONGS = REEL.frames.map((f) => f[0]);
+const ALONG_MID = (Math.min(...ALONGS) + Math.max(...ALONGS)) / 2;
 
 /**
- * Where the car is at time t into the loop: {x, side, yaw, pitch} — x along the street from the
- * middle of the lane, side +1 in its own lane and −1 in the far one. Pure, so the probe could walk it.
- * yaw follows the game's convention — forward is (cos yaw, −sin yaw) — so 0 is east and π is west.
+ * The car at time t into the loop, interpolated off the reel: along (from the middle of the run,
+ * + the way the car sets off), lateral (from the centreline, + the driver's right), y, roll, yaw
+ * (from the street's heading, unwrapped), pitch, the wheel lock, the brake lamp and the flame.
  */
-export function clipPose(t) {
-  if (t < TAP_2) {
-    let x = START_X;
-    const step = 1 / 600;
-    for (let s = 0; s < t; s += step) x += speedAt(s) * step;
-    // The nose lifts as Loco Mode bites and settles back as it holds — the HUD's wheelie, small.
-    const lift = t > BOOST_ON ? Math.sin(Math.PI * clamp01((t - BOOST_ON) / 0.6)) * 0.07 : 0;
-    return { x, side: 1, yaw: 0, pitch: lift };
-  }
-  if (t < SPIN_END) {
-    const u = (t - TAP_2) / SPIN_LEN;
-    return {
-      x: SPIN_X + SPIN_SLIDE * (1 - (1 - u) * (1 - u)),
-      side: 1 - 2 * ease(u),
-      // A left-hand spin: yaw climbing turns the nose from +X towards −Z, the far lane.
-      yaw: Math.PI * ease(u),
-      pitch: 0,
-    };
-  }
-  // Standing start back west, up to RETURN over 0.6s and holding it.
-  const s = t - SPIN_END;
-  const ramp = 0.6;
-  const run = s < ramp ? RETURN * s * s / (2 * ramp) : RETURN * (ramp / 2 + (s - ramp));
-  return { x: SPIN_X + SPIN_SLIDE - run, side: -1, yaw: Math.PI, pitch: 0 };
+export function reelAt(t) {
+  const { frames, step } = REEL;
+  const u = Math.min(frames.length - 1, Math.max(0, t / step));
+  const i = Math.min(frames.length - 2, Math.floor(u));
+  const k = u - i;
+  const a = frames[i];
+  const b = frames[i + 1];
+  const at = (n) => a[n] + (b[n] - a[n]) * k;
+  return {
+    along: at(0) - ALONG_MID, lateral: at(1), y: at(2),
+    roll: at(3), yaw: at(4), pitch: at(5), wheel: at(6), brake: at(7), flame: a[8] > 0,
+  };
 }
 
 /**
@@ -138,12 +106,25 @@ export function clipKeys(t) {
 }
 
 
-// Street choice. The clip's whole run, along the street from the middle of the lane, and how wide a
-// corridor it needs kept clear of parked-up traffic either side of the centreline.
-const FRAME_ALONG = (START_X + SPIN_X + SPIN_SLIDE) / 2;
-const RUN_FROM = START_X - 3;
-const RUN_TO = SPIN_X + SPIN_SLIDE + 4;
+// Street choice: the run's whole extent along the street, with a car's length spare at each end,
+// and how wide a corridor it needs kept clear of parked-up traffic either side of the centreline.
+const RUN_FROM = Math.min(...ALONGS) - ALONG_MID - 3;
+const RUN_TO = Math.max(...ALONGS) - ALONG_MID + 3;
 const CLEAR_LATERAL = 5;
+
+/** How far a lane's street runs straight on past its far end, through junctions, while it stays open. */
+function straightReach(network, lane, closed) {
+  let reach = 0;
+  let at = lane;
+  for (let k = 0; k < 4 && network.turnById; k++) {
+    const turn = at.exits?.map((id) => network.turnById.get(id)).find((tr) => tr?.hand === 'straight');
+    const next = turn && network.laneById.get(turn.outLane);
+    if (!next || next.degenerate || next.klass !== lane.klass || closed(next.id)) break;
+    reach += turn.length + next.length;
+    at = next;
+  }
+  return reach;
+}
 
 /**
  * Pick the street to film: a straight two-way side street, off the river, with nothing in the way —
@@ -169,6 +150,11 @@ export function pickStreet({ network, cars, camRight, visible = () => true, clos
     if (t0.x * camRight.x + t0.z * camRight.z <= 0) continue;   // left to right on screen
     const other = lane.edge.lanes.find((l) => l !== lane);
     if (!other || other.degenerate || closed(lane.id) || closed(other.id)) continue;
+    // The run is three blocks long at the game's real speeds, so the street has to carry straight on
+    // through the junctions either side of this block — the same kind of street, open — or the
+    // stand-in drives off the end of a T-junction, into a park or off the map.
+    if (straightReach(network, lane, closed) < RUN_TO - lane.length / 2
+      || straightReach(network, other, closed) < -RUN_FROM - other.length / 2) continue;
 
     const mid = lane.path.at(lane.length / 2);
     const otherMid = other.path.at(other.length / 2);
@@ -211,6 +197,14 @@ export function pickStreet({ network, cars, camRight, visible = () => true, clos
   return best;
 }
 
+/** A point on the street, `along` it from its centre and `lateral` to the right of the centreline. */
+function onStreet(street, along, lateral) {
+  return {
+    x: street.centre.x + street.forward.x * along + street.right.x * lateral,
+    z: street.centre.z + street.forward.z * along + street.right.z * lateral,
+  };
+}
+
 /**
  * What the car sweeps over one loop, in the clip camera's own view space: the middle of it (cx, cy)
  * relative to where the camera looks now, and its width and height, in world units.
@@ -220,10 +214,8 @@ export function frameRun(cam, street, baseYaw) {
   const v = new THREE.Vector3();
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (let t = 0; t <= CLIP_LOOP; t += 0.05) {
-    const p = clipPose(t);
-    const side = p.side * street.offset;
-    const cx = street.centre.x + street.forward.x * p.x + street.right.x * side;
-    const cz = street.centre.z + street.forward.z * p.x + street.right.z * side;
+    const p = reelAt(t);
+    const { x: cx, z: cz } = onStreet(street, p.along, p.lateral);
     const yaw = baseYaw + p.yaw;
     const fx = Math.cos(yaw), fz = -Math.sin(yaw);
     for (const a of [-BODY_HALF_LEN, BODY_HALF_LEN]) {
@@ -267,10 +259,7 @@ export function createUturnClip({ scene, camera, renderFrame, canvas, freeze, ca
 
   const taxi = createTaxiMesh();
   taxi.setOccupied(true);
-  // Yaw on a parent, pitch on the taxi's own group, so the wheelie is about the car's own axle line.
-  const pivot = new THREE.Group();
-  pivot.add(taxi.group);
-  scene.add(pivot);
+  scene.add(taxi.group);
   const flame = createLocoFlame(scene);
   const skids = createSkidMarks(scene);
   const car = { x: 0, z: 0, yaw: 0, crashed: false };
@@ -282,8 +271,7 @@ export function createUturnClip({ scene, camera, renderFrame, canvas, freeze, ca
   clipCam.zoom = 1;
   clipCam.clearViewOffset();
   const toCamera = camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(-DISTANCE);
-  const target = new THREE.Vector3(
-    street.centre.x + street.forward.x * FRAME_ALONG, 0, street.centre.z + street.forward.z * FRAME_ALONG);
+  const target = new THREE.Vector3(street.centre.x, 0, street.centre.z);
   clipCam.position.copy(target).add(toCamera);
   clipCam.lookAt(target);
   clipCam.updateMatrixWorld(true);
@@ -295,7 +283,7 @@ export function createUturnClip({ scene, camera, renderFrame, canvas, freeze, ca
   clipCam.updateMatrixWorld(true);
 
   let t = 0;
-  let lastSkid = -1;
+  let stamped = -1;      // the last reel frame whose rubber is down
   let shotW = canvas.width;
   let shotH = canvas.height;
 
@@ -326,60 +314,68 @@ export function createUturnClip({ scene, camera, renderFrame, canvas, freeze, ca
     ctx.globalAlpha = 1;
   }
 
+  // The reel's transform, laid on the street: what traffic.js's render pass writes on the taxi group.
   function pose() {
-    const p = clipPose(t);
-    const side = p.side * street.offset;
-    car.x = street.centre.x + street.forward.x * p.x + street.right.x * side;
-    car.z = street.centre.z + street.forward.z * p.x + street.right.z * side;
+    const p = reelAt(t);
+    const at = onStreet(street, p.along, p.lateral);
+    car.x = at.x;
+    car.z = at.z;
     car.yaw = baseYaw + p.yaw;
-    pivot.position.set(car.x, ROAD_Y, car.z);
-    pivot.rotation.y = car.yaw;
-    taxi.group.rotation.z = p.pitch;
-    const spinning = t >= TAP_2 && t < SPIN_END;
-    const braking = (t >= TAP_1 && t < TAP_1 + 0.2) || spinning;
-    taxi.setLights(braking ? 1 : 0, 0, 0);
-    taxi.setSteer(spinning ? 0.5 : 0);
+    taxi.group.position.set(car.x, p.y, car.z);
+    taxi.group.rotation.set(p.roll, car.yaw, p.pitch, BODY_EULER_ORDER);
+    taxi.setSteer(p.wheel);
+    taxi.setLights(p.brake, 0, 0);
+    return p;
+  }
+
+  // The rubber the game laid on the take, stamped as main.js stamps it: the rear pair
+  // (`stampRearRubber`, its own hand-typed 1.2 back and 1.04 out) or all four (`stampAllRubber`).
+  function layRubber(upTo) {
+    for (const [n, along, lateral, yaw, kind] of REEL.rubber) {
+      if (n <= stamped || n > upTo) continue;
+      const at = onStreet(street, along - ALONG_MID, lateral);
+      const y = baseYaw + yaw;
+      const fx = Math.cos(y), fz = -Math.sin(y);
+      const rx = Math.sin(y), rz = Math.cos(y);
+      for (const side of [-1, 1]) {
+        skids.add(at.x - fx * 1.2 + rx * side * 1.04, at.z - fz * 1.2 + rz * side * 1.04, y);
+        if (kind === 2) {
+          skids.add(at.x + fx * TAXI_FRONT_AXLE_FWD + rx * side * TAXI_FRONT_TRACK,
+            at.z + fz * TAXI_FRONT_AXLE_FWD + rz * side * TAXI_FRONT_TRACK, y);
+        }
+      }
+    }
+    stamped = upTo;
   }
 
   return {
     get time() { return t; },
-    restart() { t = 0; lastSkid = -1; },
+    restart() { t = 0; stamped = -1; },
     update(dt) {
       // The window was resized under the card: the still is the wrong size, so take it again with
       // the stand-in out of shot.
       if (canvas.width !== shotW || canvas.height !== shotH) {
-        pivot.visible = false;
+        taxi.group.visible = false;
         flame.group.visible = false;
         skids.mesh.visible = false;
         snapshot();
-        pivot.visible = true;
+        taxi.group.visible = true;
         skids.mesh.visible = true;
         shotW = canvas.width;
         shotH = canvas.height;
       }
       const before = t;
       t += dt;
-      if (t >= CLIP_LOOP) { t -= CLIP_LOOP; lastSkid = -1; }
-      pose();
-      flame.update(dt, car, t >= BOOST_ON && t < BOOST_OFF);
-      // Rubber off both rear tyres through the spin and the first bite of the getaway.
-      if (t >= TAP_2 && t < SPIN_END + 0.25 && t - lastSkid >= 0.035) {
-        lastSkid = t;
-        const fx = Math.cos(car.yaw);
-        const fz = -Math.sin(car.yaw);
-        const rx = Math.sin(car.yaw);
-        const rz = Math.cos(car.yaw);
-        for (const sgn of [-1, 1]) {
-          skids.add(car.x - fx * TAXI_REAR_AXLE_BACK + rx * sgn * TAXI_REAR_TRACK,
-            car.z - fz * TAXI_REAR_AXLE_BACK + rz * sgn * TAXI_REAR_TRACK, car.yaw);
-        }
-      }
+      if (t >= CLIP_LOOP) { t -= CLIP_LOOP; stamped = -1; }
+      const p = pose();
+      flame.update(dt, car, p.flame);
+      layRubber(Math.floor(t / REEL.step));
       skids.update(t < before ? 0 : dt);
       frame();
     },
     /** Take the stand-in out of the city and the still down. */
     dispose() {
-      for (const obj of [pivot, flame.group, skids.mesh]) {
+      for (const obj of [taxi.group, flame.group, skids.mesh]) {
         scene.remove(obj);
         obj.traverse((node) => {
           node.geometry?.dispose();

@@ -74,6 +74,9 @@ const TOOLS = [
   // The passing lab at /lab/. Nothing else imports `src/lab/`, so without this the one page in
   // the project whose entire job is to be looked at could stop working silently.
   { name: 'lab',     args: ['tools/lab.mjs'],          pick: /(\d+\/\d+) checks passed/ },
+  // The New Move card's U-turn is a recording of the sim (game/uturnreel.js); this films it again
+  // and fails if the game's U-turn has moved on without it.
+  { name: 'uturn',   args: ['tools/uturnreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
 ];
 
 let failed = 0;
@@ -97,24 +100,30 @@ try {
     throw new Error('sinkShadowCaster: the depth patch did not land in the shader');
   }
 
-  // The New Move card's U-turn clip (game/uturnclip.js). The timeline has to actually do the move —
-  // along the street in its own lane, back the other way in the far one, half a turn — and the
-  // street picker has to find somewhere to film it in the shipped city, and refuse a blocked one.
+  // The New Move card's U-turn clip (game/uturnclip.js). Played back off the reel (whose match
+  // with the sim is tools/uturnreel.mjs's job) it has to actually do the move — along the street in
+  // its own lane, back the other way in the far one, half a turn — and the street picker has to find
+  // somewhere to film it in the shipped city, and refuse a blocked one.
   {
-    const { clipPose, clipKeys, pickStreet, CLIP_LOOP } = await import('../src/game/uturnclip.js');
-    const start = clipPose(0.2);
-    const end = clipPose(3.2);
-    if (!(start.side > 0 && end.side < 0)) throw new Error('uturnclip: the spin does not change lanes');
-    if (Math.abs(end.yaw - Math.PI) > 1e-9 || start.yaw !== 0) throw new Error('uturnclip: not a half turn');
-    if (!(clipPose(1).x > start.x && clipPose(3.6).x < end.x)) throw new Error('uturnclip: car does not drive out then back');
+    const { reelAt, clipKeys, pickStreet, CLIP_LOOP, TAP_2 } = await import('../src/game/uturnclip.js');
+    const start = reelAt(0.2);
+    const end = reelAt(TAP_2 + 1);
+    if (!(start.lateral > 0 && end.lateral < 0)) throw new Error('uturnclip: the spin does not change lanes');
+    if (Math.abs(end.yaw - start.yaw - Math.PI) > 0.05) throw new Error('uturnclip: not a half turn');
+    if (!(reelAt(1).along > start.along && reelAt(CLIP_LOOP).along < end.along)) throw new Error('uturnclip: car does not drive out then back');
     const k = clipKeys(CLIP_LOOP * 0.5);
     if (!(k.boost.lit && k.brake1.lit && k.brake2.lit)) throw new Error('uturnclip: keys not all lit mid-loop');
     if (clipKeys(0).boost.lit) throw new Error('uturnclip: the loop opens with a key already lit');
     const { createLayout } = await import('../src/city/layout.js');
     const { cityNetwork } = await import('../src/city/roadnet.js');
     const { makeRng } = await import('../src/util/rng.js');
-    createLayout(makeRng(7));
     const camRight = { x: Math.SQRT1_2, z: -Math.SQRT1_2 };
+    // Three blocks of straight street is a lot to ask of a city with a river and parks in it.
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      createLayout(makeRng(seed));
+      if (!pickStreet({ network: cityNetwork(), cars: [], camRight })) throw new Error(`uturnclip: no street in city ${seed}`);
+    }
+    createLayout(makeRng(7));
     const street = pickStreet({ network: cityNetwork(), cars: [], camRight });
     if (!street) throw new Error('uturnclip: no street to film in an empty city');
     if (street.forward.x * camRight.x + street.forward.z * camRight.z <= 0) throw new Error('uturnclip: street runs right to left');

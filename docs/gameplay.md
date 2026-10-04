@@ -445,9 +445,19 @@ through a clone of the city camera slid over that street. The middle of each fra
 card. `frameRun` sizes and centres that crop by sweeping a box the size of the drawn taxi over the
 whole loop, because the taxi body is much bigger than `CAR_LEN` and hand framing cut its roof off on
 the spin. A stand-in taxi (the real mesh, the Loco Mode flame, the skid marks and the brake lamps) is
-added to the scene while the card is up and removed on close. The taxi cruises in, floors it, checks on
-the first brake tap, spins onto the far lane on the second (0.3s later, inside the 350ms combo
-window) and drives back out. The pedal row (the HUD's own pedal art, all three at one size with a
+added to the scene while the card is up and removed on close. It cruises in, floors it, checks on the
+first brake tap, spins onto the far lane on the second (0.3s later, inside the 350ms combo window)
+and drives back.
+
+The motion is **the game's own U-turn, recorded**: `tools/uturnreel.mjs` drives the shipped
+traffic model, Loco Mode and bootleg on the passing lab's straight road with the pedals pressed on
+the card's timeline, and writes the taxi group's transform, wheel lock, brake lamp, flame and rubber
+for every frame to `game/uturnreel.js`. `npm run check` films it again and fails if the file no longer
+matches (`node tools/uturnreel.mjs --write` refreshes it). A hand-scripted timeline came first and
+read as fake: quicker than the real spin, and rocking where the real car does not. It is not the sim
+running live because the world is frozen under the card and a second traffic instance would write
+over the real one's module-level state. At the game's real speeds the run is three blocks long, so
+`pickStreet` also needs the street to carry straight on, open, through the junctions at each end. The pedal row (the HUD's own pedal art, all three at one size with a
 "+" between) is pressed off the **clip's clock**, so each key goes down on the frame the car does
 the thing it does: dim until pressed, lit from then to the end of the loop.
 
