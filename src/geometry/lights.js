@@ -22,7 +22,8 @@ import { CHASSIS_LIFT } from './wheels.js';
 // pod's offset lives on its transform and not in its vertices. See lightPodGeometry().
 
 // Brake and turn-signal pods share one size — colour (see LIGHT_EMISSIVE and the two materials
-// below) is what tells them apart, not geometry.
+// below) is what tells them apart, not geometry. A pod is a round lamp: a short disc facing out of
+// the bumper, `LIGHT_H` across in both directions (see roundLamp()).
 export const LIGHT_D = 0.272;                // fore-aft
 export const LIGHT_H = 0.544;
 export const LIGHT_W = 0.544;                // across the car
@@ -66,7 +67,27 @@ export const LIGHT_EMISSIVE = 1.4;
  * use); geometry/taxi.js hangs two ordinary Meshes.
  */
 export function lightPodGeometry() {
-  return new THREE.BoxGeometry(LIGHT_D, LIGHT_H, LIGHT_W);
+  return roundLamp(LIGHT_H / 2, LIGHT_D);
+}
+
+/**
+ * Sides on a lamp's disc. They were boxes once; ten reads as a circle
+ * on the 9-unit close-up and as a dot at play zoom, where a pod is four pixels across. It is not
+ * free: 64 vertices against a box's 24, on up to ~8 pods a car — a few thousand vertices across a
+ * full street, which is noise next to one building.
+ */
+const LAMP_SEGMENTS = 10;
+
+/**
+ * A round lamp, centred on its own origin with its face along ±X — a closed `CylinderGeometry`
+ * laid on its side. Centred for the pivot reason above; the back cap is inside the body and costs
+ * nothing worth saving, and it is what the taxi's loose lamps show swinging on their wires.
+ * Three winds a cylinder outward, so no hand-made triangles here to assert.
+ */
+function roundLamp(radius, depth) {
+  const geo = new THREE.CylinderGeometry(radius, radius, depth, LAMP_SEGMENTS, 1, false);
+  geo.rotateZ(Math.PI / 2);
+  return geo;
 }
 
 /**
@@ -125,10 +146,14 @@ export function turnSignalAnchors(len, width, side) {
  * Each indicator pod's shape, as a scale on the shared pod geometry, in the same order as
  * `turnSignalAnchors`. Multiplied into the on/off level rather than baked into a second geometry
  * because the fleet draws a side's front and rear pod from one InstancedMesh.
+ *
+ * The front one shrinks in height as well as width, so it stays a circle — `FRONT_SIGNAL_W`
+ * across — rather than squashing the round pod into an upright oval.
  */
 export function turnSignalShapes() {
+  const front = FRONT_SIGNAL_W / LIGHT_W;
   return [
-    new THREE.Vector3(1, 1, FRONT_SIGNAL_W / LIGHT_W),
+    new THREE.Vector3(1, front, front),
     new THREE.Vector3(1, 1, 1),
   ];
 }
@@ -155,8 +180,9 @@ export function brakeLightMaterial() {
 const HEADLIGHT_W = 0.26;
 const HEADLIGHT_INSET = 0.44;
 
+/** Round, `HEADLIGHT_W` across. The cone (coneGeometry) starts on its centre, so it still leaves the lamp. */
 export function headlightGeometry() {
-  return new THREE.BoxGeometry(LIGHT_D, LIGHT_H * 0.55, HEADLIGHT_W);
+  return roundLamp(HEADLIGHT_W / 2, LIGHT_D);
 }
 
 export function headlightAnchors(len, width) {
