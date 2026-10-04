@@ -216,8 +216,9 @@ of it** — though the first one is currently switched off:
    fully lit city — the pool aimed correctly at them, sized correctly, at opacity 0. Whatever beat
    comes first has to be the one that turns the light on.
 3. **"Hold to floor it"** — the gas pedal, two seconds after the first rider is *dropped off*,
-   with the bubble standing on the pedal's top and its pointer on it, the spotlight on the pedal and
-   the pedal pulsing under it. Skipped entirely if the player has already fired Loco
+   with the bubble standing on the pedal's top and its pointer on it and the pedal pulsing under it.
+   **No spotlight** — dimming the city hid the taxi and the road ahead, which is the thing the
+   player has to read to know whether it is safe to floor it. Skipped entirely if the player has already fired Loco
    Mode.
 
 The city's own entrance and then the vignette come first: the whole tutorial is held frozen (via its
@@ -271,12 +272,6 @@ Both radii are sized in **world units** and converted per frame, because 1 world
 wrong the moment anything moves the zoom). The clear centre is 6 units — the subject and the kerb it
 stands on, no more. At half again as wide it lit most of a 5×5 city and read as general gloom rather
 than as a light pointed at one thing.
-
-The third beat is the exception: it points at a **control**, which is a fixed thing on the glass at a
-size that has nothing to do with the camera, so its pool is measured off the Loco Mode pill's own
-box instead. Sizing that one in world units would grow and shrink the pool around a button that
-never moved. Its falloff is proportionally wider than the world one, because a corner control
-spends half its falloff off the edge of the glass.
 
 The warm core matters more than it looks: the darkening alone left the subject merely *not dimmed*,
 which at this contrast is not the same as lit.
@@ -347,9 +342,8 @@ routes through `tutorial.dismiss()` explicitly — `holdLocoMode` calls `prevent
 suppress the click a touch would otherwise synthesise — so that call now clears the first two beats
 and deliberately does nothing to the third). Instead it comes *back*: `BOOST_HINT_SHOWS` showings,
 `BOOST_HINT_REPEAT_GAP` apart, with the step falling back to `toBoost` in between so the same
-countdown serves as both the first delay and every gap after it. The budget is there because the
-spotlight dims the whole city by 78% while a showing is up, and this beat is over a live run: three
-showings is 18 seconds of dark city across a whole run, and a player who has not taken it by the
+countdown serves as both the first delay and every gap after it. The budget is there because this
+beat is over a live run: three showings is 18 seconds of bubble across a whole run, and a player who has not taken it by the
 third is not going to. A repeat says `LINES.boostAgain` — "Hold it down — don't tap" — whenever
 `boostUsed` is true, since repeating the original line at someone who is jabbing the pill is a
 louder version of a sentence they have already read and acted on.
