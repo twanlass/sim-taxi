@@ -14,7 +14,8 @@ import {
   headlightGeometry, headlightAnchors, headlightMaterial, coneGeometry, coneMaterial, coneQuat,
 } from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
-import { bumperGeometries } from '../geometry/bumpers.js';
+import { bumperGeometries, bumperAt, bumperLength, BUMPER_D, BUMPER_H } from '../geometry/bumpers.js';
+import { bumperHinge, lampSocket, lampHang } from '../geometry/damage.js';
 import {
   GRID_I, GRID_J, HALF_ROAD, LANE, PITCH, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
   ringAxisAt, isUnsignalised, lineX, lineZ, laneOffsetFor, riverBanks,
@@ -553,6 +554,12 @@ const CHASE_SPEED = 2.55;
  * points of "a cop in the road ahead" and nothing else.
  */
 export const POLICE_FLEET = 4;
+/**
+ * ...and how many more a getaway can call in on top of that: one per checkpoint reached
+ * (`ROBBER_CHECKPOINTS` in game/fares.js, `wanted` in game/robbery.js). Reserved in the instance
+ * buffers alongside the fleet for the same reason the fleet is.
+ */
+export const POLICE_REINFORCEMENTS = 4;
 
 // --- Passing ------------------------------------------------------------------
 //
@@ -651,7 +658,8 @@ const PASS_BANK = 0.14;
 // point of the chase is that the police are driving the way the player is. So a cop gets the
 // taxi's spring, early window and gain while `chase` is on. Keyed on `police` for the spring
 // itself rather than on `chase`, so a cop that stands down mid-corner keeps its spring and settles
-// rather than snapping from the sprung roll to the raw one; at most POLICE_FLEET of them exist.
+// rather than snapping from the sprung roll to the raw one; at most POLICE_FLEET plus
+// POLICE_REINFORCEMENTS of them exist.
 const CORNER_ROLL_OMEGA = 13;    // rad/s — a period of ~0.5s, one visible rock back after the exit
 const CORNER_ROLL_DAMP = 10.4;   // 1/s, against ω = 13: ζ = 0.40, the pitch spring's
 const CORNER_ROLL_GAIN = 1.25;   // boosted rights only: a spring's peak lands under a pulse this short
@@ -2065,9 +2073,13 @@ const CABIN_Y = 1.45 + CHASSIS_LIFT;         // its centre
 /** The roof: what a light bar is bolted to. */
 export const CABIN_TOP = CABIN_Y + CABIN_H / 2;
 
-export function carGeometry() {
+export function carGeometry({ bumpers = true } = {}) {
   // Body is left white so the per-instance colour tints it; the glass is dark enough that the
   // same multiply leaves it dark whatever colour the car is.
+  //
+  // `bumpers: false` for the fleet, which draws them as instances of their own (`bumperMesh` in
+  // createTraffic) so that a car the taxi has hit can wear one hanging off a corner — a bar merged
+  // into the body could not be taken away from the end it left.
   const parts = [];
 
   // Body sits clear of the wheels so they actually show below the sill.
@@ -2080,7 +2092,7 @@ export function carGeometry() {
   parts.push(setFinish(bakeColor(cabin, color('carGlass')), FINISH.GLASS));
 
   parts.push(...wheelGeometries(CAR_LEN, CAR_W));
-  parts.push(...bumperGeometries(CAR_LEN, CAR_W));
+  if (bumpers) parts.push(...bumperGeometries(CAR_LEN, CAR_W));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -2134,7 +2146,7 @@ export const TRUCK_CHASSIS_TOP = TRUCK_BASE_Y + 0.4;
  * as the same kind of part rather than as more of the chassis livery. The cargo box is a further,
  * separate mesh: see truckBoxGeometry().
  */
-function truckCabGeometry() {
+function truckCabGeometry({ bumpers = true } = {}) {
   const parts = [];
   const white = new THREE.Color(1, 1, 1);
   const cabDark = color('carGlass');
@@ -2152,7 +2164,7 @@ function truckCabGeometry() {
   parts.push(setFinish(bakeColor(windshield, cabDark), FINISH.GLASS));
 
   parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W));
-  parts.push(...bumperGeometries(TRUCK_LEN, TRUCK_W));
+  if (bumpers) parts.push(...bumperGeometries(TRUCK_LEN, TRUCK_W));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -3024,7 +3036,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // nowhere to put its cars.
   // ...and one more for the patrol cruiser (game/patrol.js), which is a car in traffic for the whole
   // of its patrol and can be on the road when a robbery brings its own fleet in.
-  const MAX_AMBIENT = Math.max(0, MAX_CARS - 1) + POLICE_FLEET + 1;
+  const MAX_AMBIENT = Math.max(0, MAX_CARS - 1) + POLICE_FLEET + POLICE_REINFORCEMENTS + 1;
 
   /**
    * Take a vehicle mesh out of frustum culling, and say why.
@@ -3070,7 +3082,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // tighter there, but the cars shrink with it). A third of those pixels change, by 12/255 on
   // average and 75/255 at the deepest.
   // Glossy paint: the sun glints off it and the city slides across it (`propMaterial({ gloss })`).
-  const bodyGeometry = carGeometry();
+  const bodyGeometry = carGeometry({ bumpers: false });
   const mesh = neverCull(new THREE.InstancedMesh(
     bodyGeometry, propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y } }), MAX_AMBIENT,
   ));
@@ -3100,7 +3112,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // The truck cab and its front wheels, as their own pair of instanced meshes — same shape as the
   // car pair above, just built from truckCabGeometry() at TRUCK_LEN/TRUCK_W and painted from the
   // same PALETTE.carBody a car is (see paintTruck below).
-  const cabGeometry = truckCabGeometry();
+  const cabGeometry = truckCabGeometry({ bumpers: false });
   const truckMesh = neverCull(
     new THREE.InstancedMesh(cabGeometry, propMaterial({ gloss: { geometry: cabGeometry, floor: SILL_Y } }), MAX_AMBIENT),
   );
@@ -3137,6 +3149,32 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   truckBoxMesh.receiveShadow = true;
   truckBoxMesh.name = 'truckBoxes';
   truckBoxMesh.count = trucks.length;
+
+  // The bumpers, out of the body geometry and into a pair of instanced meshes of their own: two
+  // instances per vehicle, nose then tail, at the stride the steered wheels use. Merged into the
+  // body they cost nothing, but they also cannot leave it — and a car the taxi has hit hangs one
+  // off a corner (game/cardamage.js, through `car.wear`), which has to take the bar away from the
+  // end it came off or the car wears two. Two more draw calls for the fleet; the matrices are two
+  // multiplies a car, composed through the body matrix like the wheels so they ride the bob.
+  // Unpainted: chrome on every car, so `instanceColor` is never made.
+  const bumperGeometryFor = (width) => setFinish(bakeColor(
+    new THREE.BoxGeometry(BUMPER_D, BUMPER_H, bumperLength(width)), color('bumperChrome')), FINISH.METAL);
+  const bumperInstances = (width, name) => {
+    const geometry = bumperGeometryFor(width);
+    const inst = neverCull(new THREE.InstancedMesh(
+      geometry, propMaterial({ gloss: { geometry } }), MAX_AMBIENT * 2,
+    ));
+    inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    inst.castShadow = true;
+    inst.receiveShadow = true;
+    inst.name = name;
+    return inst;
+  };
+  const bumperMesh = bumperInstances(CAR_W, 'carBumpers');
+  bumperMesh.count = ambient.length * 2;
+  const truckBumperMesh = bumperInstances(TRUCK_W, 'truckBumpers');
+  truckBumperMesh.count = trucks.length * 2;
+  const BUMPER_ENDS = [1, -1];
 
   // Brake lights and turn signals: three more instanced meshes per vehicle class, none of them
   // painted — see the note by lightPodGeometry() for why on/off is a matrix write (a scale, or
@@ -3322,6 +3360,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       truckMesh.count = trucks.length;
       truckWheelMesh.count = trucks.length * TRUCK_FRONT.length;
       truckBoxMesh.count = trucks.length;
+      truckBumperMesh.count = trucks.length * 2;
       truckBrakeMesh.count = trucks.length * LIGHT_PODS;
       truckTurnLeftMesh.count = trucks.length * LIGHT_PODS;
       truckTurnRightMesh.count = trucks.length * LIGHT_PODS;
@@ -3362,6 +3401,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       sirenBlueMesh.count = ambient.length * LIGHT_PODS;
       sirenHousingMesh.count = ambient.length;
       policeCabMesh.count = ambient.length;
+      bumperMesh.count = ambient.length * 2;
     }
   }
 
@@ -3510,6 +3550,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     sirenBlueMesh.count = ambient.length * LIGHT_PODS;
     sirenHousingMesh.count = ambient.length;
     policeCabMesh.count = ambient.length;
+    bumperMesh.count = ambient.length * 2;
   }
 
 
@@ -3667,6 +3708,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   scene.add(truckMesh);
   scene.add(truckWheelMesh);
   scene.add(truckBoxMesh);
+  scene.add(bumperMesh);
+  scene.add(truckBumperMesh);
   scene.add(sirenHousingMesh);
   scene.add(policeCabMesh);
   for (const light of lightMeshes) scene.add(light);
@@ -3842,6 +3885,18 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       shell.add(wheel);
     }
 
+    // The bumpers, which are instances of their own now (see `bumperMesh`): both back at their
+    // ends, unpainted, on a material of their own so the chrome is not tinted the car's colour.
+    const bumperInst = car.isTruck ? truckBumperMesh : bumperMesh;
+    const chrome = propMaterial();
+    for (const end of BUMPER_ENDS) {
+      const bar = new THREE.Mesh(bumperInst.geometry, chrome);
+      bumperAt(car.isTruck ? TRUCK_LEN : CAR_LEN, end, bar.position);
+      bar.castShadow = true;
+      bar.receiveShadow = true;
+      shell.add(bar);
+    }
+
     // The cargo box: its own mesh, its own fixed-colour material — never tinted by colorIndex, on
     // the road or in the wreck. game/wreckage.js collects every distinct material under the shell,
     // so a second material here scorches in step with the cab's without extra wiring.
@@ -3873,6 +3928,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     }
     bodyInst.instanceMatrix.needsUpdate = true;
     wheelInst.instanceMatrix.needsUpdate = true;
+    bumperInst.setMatrixAt(car.instanceIndex * 2, matrix);
+    bumperInst.setMatrixAt(car.instanceIndex * 2 + 1, matrix);
+    bumperInst.instanceMatrix.needsUpdate = true;
     // The lights too — a crashed car stops reaching writeAmbient() (the main loop skips anything
     // `crashed`), so whatever it last wrote would otherwise sit there forever. A brake light lit at
     // the moment of impact is exactly the frame this fires on.
@@ -3927,6 +3985,21 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const lightScale = new THREE.Vector3();
   // A pod is never turned relative to its car — only moved to its anchor and scaled by its level.
   const LIGHT_QUAT = new THREE.Quaternion();
+  // ...unless its lamp is hanging loose, when it swings on the wire about the car's own z.
+  const Z_AXIS = new THREE.Vector3(0, 0, 1);
+  const lampAt = new THREE.Vector3();
+  const lampQuat = new THREE.Quaternion();
+  // `${end},${side}`, the key game/cardamage.js files a loose lamp under — read off the anchor's
+  // signs, which is the corner it is pinned to (geometry/lights.js `lightPodAnchor`).
+  const cornerKey = (anchor) => `${Math.sign(anchor.x)},${Math.sign(anchor.z)}`;
+  const bumperLocal = new THREE.Matrix4();
+  const bumperPos = new THREE.Vector3();
+  const bumperEuler = new THREE.Euler();
+  const bumperQuat = new THREE.Quaternion();
+  // From the hinge to the middle of the bar: the hinge holds one end, and the bar runs along −z.
+  const bumperDrop = (width) => new THREE.Matrix4().makeTranslation(0, 0, -bumperLength(width) / 2);
+  const CAR_BUMPER_DROP = bumperDrop(CAR_W);
+  const TRUCK_BUMPER_DROP = bumperDrop(TRUCK_W);
 
   /**
    * Write one lamp's pods for one car, at `level`.
@@ -3937,14 +4010,28 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
    * the whole of what keeps a fading lamp on the bumper it belongs to. See lightPodGeometry() in
    * geometry/lights.js for what it did when the anchor lived in the vertices instead.
    */
-  function writeLight(inst, car, level) {
+  function writeLight(inst, car, level, hangs = true) {
     const anchors = inst.userData.podAnchors;
     const shapes = inst.userData.podShapes;
     const quats = inst.userData.podQuats;
+    // A lamp the taxi has knocked out of its socket (`car.wear.lamps`, game/cardamage.js) carries
+    // its pods down the wire with it, so they still light, blink and brake from where it hangs —
+    // the taxi's own loose lamps do the same (setLamp in geometry/taxi.js). Not the siren bar's:
+    // its pods sit on the roof, and a corner test on their anchors would read them as a rear lamp.
+    const loose = hangs ? car.wear?.lamps : null;
     for (let p = 0; p < anchors.length; p++) {
       if (shapes) lightScale.copy(shapes[p]).multiplyScalar(level);
       else lightScale.setScalar(level);
-      lightLocal.compose(anchors[p], quats ? quats[p] : LIGHT_QUAT, lightScale);
+      const anchor = anchors[p];
+      const angle = loose?.size ? loose.get(cornerKey(anchor)) : undefined;
+      if (angle != null) {
+        lampHang(lampSocket(anchor, Math.sign(anchor.x), lampAt), angle, lampAt);
+        lampQuat.setFromAxisAngle(Z_AXIS, angle);
+        if (quats) lampQuat.multiply(quats[p]);
+        lightLocal.compose(lampAt, lampQuat, lightScale);
+      } else {
+        lightLocal.compose(anchor, quats ? quats[p] : LIGHT_QUAT, lightScale);
+      }
       lightMatrix.multiplyMatrices(matrix, lightLocal);
       inst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, lightMatrix);
     }
@@ -3992,6 +4079,26 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     writeLight(turnLeftInst, car, car.turnLeftLevel);
     writeLight(turnRightInst, car, car.turnRightLevel);
 
+    // The bumpers, each at its end — or, for one the taxi has knocked loose (`car.wear.bumper`,
+    // game/cardamage.js), hanging by a corner with its free end on the road. The same bar either
+    // way, so the end it left goes bare.
+    const bumperInst = car.isTruck ? truckBumperMesh : bumperMesh;
+    const len = car.isTruck ? TRUCK_LEN : CAR_LEN;
+    const hanging = car.wear?.bumper;
+    for (let e = 0; e < 2; e++) {
+      const end = BUMPER_ENDS[e];
+      if (hanging && hanging.end === end) {
+        bumperHinge(len, car.isTruck ? TRUCK_W : CAR_W, hanging.side, end, hanging.lift,
+          bumperPos, bumperEuler);
+        bumperLocal.compose(bumperPos, bumperQuat.setFromEuler(bumperEuler), scl)
+          .multiply(car.isTruck ? TRUCK_BUMPER_DROP : CAR_BUMPER_DROP);
+      } else {
+        bumperLocal.makeTranslation(bumperAt(len, end, bumperPos));
+      }
+      lightMatrix.multiplyMatrices(matrix, bumperLocal);
+      bumperInst.setMatrixAt(car.instanceIndex * 2 + e, lightMatrix);
+    }
+
     // The siren bar. Written for **every** car rather than only the police ones, because the level
     // is what hides it: a car that is not a cop this frame writes zero and its pods collapse. A
     // loop that skipped the others would leave whatever they last wrote standing, which is the same
@@ -4012,8 +4119,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // them". A cop car cruising past on its own business and one that has turned to come after
       // you are otherwise the same blue car.
       const red = sirenOn(stats.time, car.chase > 0) ? lit : 0;
-      writeLight(sirenRedMesh, car, red);
-      writeLight(sirenBlueMesh, car, lit - red);
+      writeLight(sirenRedMesh, car, red, false);
+      writeLight(sirenBlueMesh, car, lit - red, false);
       // The housing by `police`, not `siren` — it is the paint's half of the bar, not the lamps'.
       lightLocal.compose(SIREN_HOUSING_AT, LIGHT_QUAT, lightScale.setScalar(car.police ? 1 : 0));
       lightMatrix.multiplyMatrices(matrix, lightLocal);
@@ -6322,6 +6429,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // lab — a road running due east — could never have caught this.)
       quat.setFromEuler(euler.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER));
       matrix.compose(pos, quat, scl);
+      // A car the taxi has dented keeps its body pose for game/cardamage.js, which hangs its lids
+      // and lamp housings off it. Before the skin below zeroes `matrix`: the cruiser is drawn by
+      // its own group, and its lids still want the pose.
+      if (car.wear) car.wear.matrix.copy(matrix);
       // Drawn by somebody else's mesh: hand it the pose, and collapse this car's instance — body,
       // wheels, pods and bar all compose through `matrix`, so zeroing it hides every part at once.
       // A guest has no instance at all (see `enterGuest`): its owner draws it, and there is no slot
@@ -6341,6 +6452,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     truckMesh.instanceMatrix.needsUpdate = true;
     truckWheelMesh.instanceMatrix.needsUpdate = true;
     truckBoxMesh.instanceMatrix.needsUpdate = true;
+    bumperMesh.instanceMatrix.needsUpdate = true;
+    truckBumperMesh.instanceMatrix.needsUpdate = true;
     sirenHousingMesh.instanceMatrix.needsUpdate = true;
     policeCabMesh.instanceMatrix.needsUpdate = true;
     headMesh.count = brakeMesh.count;
@@ -6370,6 +6483,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   return {
     cars, taxi, taxiGroup, taxiDamage, setTaxiOccupied, setTaxiHighlight, setTaxiDoor, setCarCount, mesh,
     wheelMesh, barMesh, update, warmup,
+    /** The fleet's bumpers, drawn apart from the bodies — see `bumperMesh`. */
+    bumperMesh, truckBumperMesh,
+    /** A car's paint, cop or not: game/cardamage.js paints a lid it has knocked open with it. */
+    bodyColor,
     /**
      * Bring `n` cop cars onto the map, entering from off screen as near `near` as the camera
      * allows. Answers how many actually arrived — a saturated network can legitimately place

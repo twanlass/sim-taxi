@@ -106,6 +106,7 @@ event starts a bed, so no event can leave one stuck on.
 |---|---|
 | Engine idle | Always on. Playback rate 0.9 → 1.35 from standstill to cruise, ducked to a quarter under Loco Mode, faded out when the run ends |
 | Loco engine loop | Fades in 6 s into a Loco hold, over the activate's tail, and out on release. Rate rises across the overdrive band |
+| Police siren | Always running, silent until a car on the map has `siren` set (a patrol giving chase, a robbery's cops, the arrest crew). Its level comes from the nearest one's distance to the taxi (`sirenLevel` in main.js): full inside 18 units, easing to a floor of 0.35 by 70, so a chase across the map is still heard. Faded out when the run ends |
 | Turn signal | Runs while `taxi.signalHand` is set. A new voice starts for each indicating window so it opens on a tick, just as the lamp opens lit. The master ticks every 0.9 s, which is the sim's 1.1 Hz `TURN_SIGNAL_HZ`, so the sound stays in step with the lamp |
 
 **One-shots** fire from the site in `main.js` that already knows the thing happened. Each trigger
@@ -123,12 +124,19 @@ again doesn't repeat the recording exactly:
 | `doorOpen` → `doorClose` | Pickup (the close is `BOARD_SECONDS` later, once the rider is in) and the robber boarding. Drop-off (the close is 0.7 s later) |
 | `takeoff` / `land` | `taxi.hopFrom` turning non-null / `traffic.onTaxiLand`, with the land scaled by the same `hit` that scales the shake |
 | `bump` | A survivable hit on another car (`collisions.onBump`), scaled by closing speed: 0.3 at a nudge, full at a T-bone at the Loco top |
+| `driveThru` | The lot taking the player's taxi on a burger run (`burgerRun.holdsTaxi()` turning true), never an ambient car. The visit is timed to the clip (12.93 s, `DRIVE_THRU_SECONDS`) plus a 2 s tail (`DRIVE_THRU_TAIL`) through the taxi's two dwells in game/drivethru.js, and the probe holds the visit within half a second of that; it is faded out (`sfx.release`) on the frame the lot hands the taxi back. The radio ducks 12 dB for the length of it (`sfx.duckMusic`) |
 | `crash` | The wreck at full volume. The roadworks smash reuses it at half volume, and a crate off the flatbed at 0.3 pitched well up |
+| `horn` | A tap on the taxi itself, with the select-pop flash. New players coming from RTS games tap their own car first, expecting to select it; this answers the tap without inventing a selection state. Not during the opening, where that tap is the skip. The master (`18_HORN_honk`, 48 kHz / 16-bit, Tyler, October 2026) arrived at −10.5 LUFS and a +0.2 dBFS peak, 11 dB hotter than a crash, so it ships at gain 0.3 (about −21 LUFS, level with the crash). It was encoded with ffmpeg's AAC rather than afconvert, from a cloud session with no Mac; re-running `tools/audio.mjs` replaces it harmlessly |
 
 `minGap` keeps a sound from repeating too quickly: a second skid within 0.45 s is the same skid.
 The per-sound levels live in `mix.json` (below). Block 1 arrives balanced against itself, so every
-sound ships at 0 dB, as the designer recommended. The one exception is ours: `copSkid` sits at
-−3.7 dB and pitched down a touch, because it is another car somewhere else on screen.
+sound ships at 0 dB, as the designer recommended. The exceptions are ours: `copSkid` sits at
+−3.7 dB and pitched down a touch, because it is another car somewhere else on screen; and the two
+later additions (October 2026, not the designer's: `16_POLICE_siren_loop`, `17_BURGER_drive_through`,
+the second converted from an MP3 to a 48 kHz WAV master) arrived far hotter than Block 1, so they
+are levelled down to it. Measured as RMS off the masters (ffmpeg was not to hand; RMS reads the
+idle at −34.3, matching its −34 LUFS), the siren is a solid −10.1 dB and ships at gain 0.18
+(−14.9 dB, about a skid at full level), and the speaker is −22.5 dB and ships at 0.6 (−4.4 dB).
 
 ## The radio
 
@@ -220,7 +228,7 @@ and 1.25, a flatbed crate is `crash` at 0.3 and 1.6, and `land` scales with the 
 ## Checking it
 
 `window.__taxi.sfx.state` reports `{ ready, loaded, total, muted, held }`. `loaded` should equal
-`total` (41) after the first tap. `window.__taxi.sfx.play('crash')` fires any one-shot by name, and
+`total` (43) after the first tap. `window.__taxi.sfx.play('crash')` fires any one-shot by name, and
 `tuning()`, `tune(partial)` and `reset()` reach the same mix the Audio sections edit. The
 module is in check.mjs's `BOOT` list, which proves it imports cleanly in node, where it builds a
 no-op.

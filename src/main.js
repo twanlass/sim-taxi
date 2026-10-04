@@ -3,6 +3,7 @@ import { makeRng } from './util/rng.js';
 import { createScene, sinkShadowCaster, setHazeTop, HAZE_TOP } from './game/scene.js';
 import { createRain, GRIP } from './game/rain.js';
 import { createStorm } from './game/storm.js';
+import { createRunTracker } from './game/runs.js';
 import { createSquall } from './game/squall.js';
 import {
   collectPanes, litWindows, streetLamps, createTaxiHeadlights, setCityLights,
@@ -46,6 +47,7 @@ import { createBoostMeter } from './game/boostmeter.js';
 import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION } from './game/taxidamage.js';
+import { createCarDamage } from './game/cardamage.js';
 import { createTaxiDoor } from './game/taxidoor.js';
 import { createDepotCall } from './game/depotcall.js';
 import { flyEnergyToBoost } from './game/energybits.js';
@@ -621,8 +623,12 @@ if (new URLSearchParams(window.location.search).get('lights') === 'on') {
 // `reserved` is how the fare loop learns about the courier's corners without importing it. `parcels`
 // is declared just below and this closure is only ever *called* from the frame loop, long after — the
 // same forward reference `pathDrag`'s `canGrab` makes to `pause`.
+// How each job is being driven — on course for a Perfect Run or not — fed in the frame loop and
+// judged by the fare loop at the drop-off (game/runs.js).
+const runs = createRunTracker();
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   reserved: () => parcels?.occupiedSpots() ?? [],
+  judgeRun: (fare) => runs.judge(fare),
 });
 // The package courier — see game/parcels.js. Its own stream off the run seed, so adding this layer
 // does not reshuffle where every rider spawns. `?parcels=0` turns it off.
@@ -645,16 +651,21 @@ const parcels = parcelsEnabled
     foodPickup: burger ? { i: burger.site.bi + 1, j: burger.site.bj + 1 } : null,
   })
   : null;
-// Sim time the taxi's flourish was stamped at, or null when it is not running. See the frame loop —
+// Seconds since the taxi's flourish was fired, or null when it is not running. See the frame loop —
 // it lights the whole car for the length of a select pop.
 //
-// Two things fire it, and they are the same claim about the car: *this one, here*. A courier box
+// Three things fire it, and they are the same claim about the car: *this one, here*. A courier box
 // landing in it is an acknowledgement that the thing arrived; the camera riding back to it (see
 // `panToTaxi`) is a player who had lost the car being handed it again, at the moment it lands in
-// frame. Reusing one flourish rather than inventing a second is the point — the player learns the
-// gesture once.
-let taxiFlashAt = null;
-const flashTaxi = () => { taxiFlashAt = fares.state.elapsed; };
+// frame; and a tap on the car itself (the picker, below). Reusing one flourish rather than
+// inventing a second is the point — the player learns the gesture once.
+//
+// Its own clock rather than `fares.state.elapsed`, which it used to be stamped against: the fare
+// loop is held through the opening and the first-rider beat (`fareLoopHeld`), so its clock stands
+// still there — and that is exactly when new players tap the car. A flash stamped on a stopped
+// clock never retires, and the taxi stayed lit until the first rider was picked up.
+let taxiFlashAge = null;
+const flashTaxi = () => { taxiFlashAge = 0; };
 // The drive-through, if the city has a joint to run one. Given the cars array for the same reason
 // the police cruiser is: it has to see who is on the road it is pulling cars off and back onto.
 // On the **run** seed rather than the city's — which cars stop for lunch is part of the situation,
@@ -918,6 +929,8 @@ markOccluder(traffic.wheelMesh);
 markOccluder(traffic.truckMesh);
 markOccluder(traffic.truckWheelMesh);
 markOccluder(traffic.truckBoxMesh);
+markOccluder(traffic.bumperMesh);
+markOccluder(traffic.truckBumperMesh);
 markOccluder(traffic.taxiGroup);
 markOccluder(police.group);
 
@@ -1558,6 +1571,13 @@ const taxiDamage = createTaxiDamage({
   damage: traffic.taxiDamage, group: traffic.taxiGroup, taxi: traffic.taxi, maxHp: TAXI_HP,
   sparks, dust, roadY: ROAD_Y,
 });
+// ...and what the cars it hits wear: the same lids, lamps and bumper, on a pool of rigs. See
+// game/cardamage.js.
+const carDamageRng = makeRng(runSeed + 137);
+const carDamage = createCarDamage({
+  scene, traffic, sparks, roadY: ROAD_Y, rng: () => carDamageRng.next(),
+});
+for (const mesh of carDamage.meshes) markOccluder(mesh);
 // The rear door, swung open on the kerb side while a rider hops in. See game/taxidoor.js.
 const taxiDoor = createTaxiDoor({ setDoor: traffic.setTaxiDoor });
 
@@ -1573,6 +1593,8 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck })
   // Ramming the patrol car on the pill is a bump like any other, not a bust — game/patrol.js
   // `rammed`. The collision pass runs before the patrol's, so this lands the same frame.
   if (taxiStruck && other.police) patrol.rammed(other);
+  // Every bump costs HP, and any damage at all costs the ride its Perfect Run (game/runs.js).
+  runs.damage();
   controller.kickShake(BUMP_SHAKE + closing * BUMP_SHAKE_PER_UNIT);
   // The designer's bump — light hits against other cars, a recording of its own since Block 1 —
   // scaled by the same closing speed the shake is. 0.3 at a nudge, full at a T-bone at the Loco top.
@@ -1589,6 +1611,7 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck })
   sparks.burst(x, ROAD_Y + 0.6, z, normalYaw - Math.PI / 2, count, speed * 0.5);
   dust.burst(x, z, yaw, 8, 0.5, { tint: PALETTE.wreckSmoke, linger: 0.7 });
   taxiDamage.hit(x, z, { rearEnd });
+  carDamage.hit(other, x, z, { closing });
 });
 
 collisions.onImpact(({ x, z, speed, closing, other }) => {
@@ -2019,6 +2042,23 @@ createPicker(
       return;
     }
 
+    // **A tap on the taxi honks it.** Playtesters coming from RTS games tap their own car first,
+    // expecting to select it before giving it an order — and nothing here is ever selected, a tap
+    // on a rider is the whole instruction. Making the car a real first step was considered and
+    // turned down: it is a gesture that is only ever made in a player's first few seconds, and a
+    // selection state built for it would be a mode everyone else has to carry. So the tap is
+    // answered rather than obeyed — the horn, and the same flash a tapped rider gets — which is
+    // enough to say "yes, that's yours" and leave the player looking for the next thing to tap.
+    // No haptic: every buzz reports an accepted *order* (src/util/haptics.js), and this is not one.
+    // Not while the opening runs: a tap there is the skip (`skipVignette`, on the press), and the
+    // pointerup that follows it would otherwise honk over the cut to black.
+    if (kind === 'taxi') {
+      if (opening?.running()) return;
+      sfx?.play('horn');
+      flashTaxi();
+      return;
+    }
+
     if (kind === 'burger') {
       sendForBurger();
       return;
@@ -2343,10 +2383,8 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // world span is exactly 2 * the drawn zoom. This is what keeps the spotlight the same size on
   // every viewport, and correct when a wreck pulls the zoom in under it or Loco Mode pushes in.
   pixelsPerUnit: () => viewport.height() / (2 * controller.viewZoom()),
-  // The third beat points at a control rather than at something in the city, so its spotlight is
-  // measured off the pedal's own box, and its bubble stands on the pedal's top. Declared after this
-  // call; `function` hoisting covers both.
-  boostAnchor: boostScreenPos,
+  // The third beat points at a control rather than at something in the city: its bubble stands on
+  // the pedal's top. Declared after this call; `function` hoisting covers it.
   boostTarget: gasPedalTop,
   // The one the game means by "the waiting fare" — the shortest clock on the kerb. At this point in
   // a run there is only ever one, but pointing at the same rider the rest of the HUD would is free.
@@ -2405,8 +2443,52 @@ if (debugMode) holdFareClocks();
 
 const hud = {
   money: document.getElementById('money'),
+  runs: document.getElementById('runs'),
   banner: document.getElementById('run-end'),
 };
+
+// The run tag under the cash, while a job is under way: whether it is on course for a Perfect Run
+// (game/runs.js). It appears once Loco Mode has been used, carries the job's live boost share, and
+// lights up while that is over the line with no damage taken. Damage breaks it for good, and that
+// is shown — a red flinch, a hard shake and a fall out of the HUD — because a bonus that silently
+// stops being on offer cannot change how anyone drives. When the job ends it just fades: the
+// payout sequence says what was earned.
+const runTags = new Map();
+const RUN_TAG_TEXT = {
+  perfect: () => 'PERFECT RUN',
+};
+function updateRunTags() {
+  const box = hud.runs;
+  if (!box) return;
+  const live = runs.live();
+  const seen = new Set();
+  for (const r of live) {
+    seen.add(r.key);
+    let tag = runTags.get(r.key);
+    if (!tag) {
+      tag = { el: document.createElement('div'), lost: false };
+      tag.el.className = `run-tag run-${r.key}`;
+      box.append(tag.el);
+      runTags.set(r.key, tag);
+    }
+    if (tag.lost) continue;
+    tag.el.textContent = RUN_TAG_TEXT[r.key](r);
+    tag.el.classList.toggle('is-earned', r.earned);
+    // The share can climb back over its line; damage cannot be taken back.
+    if (r.broken) {
+      tag.lost = true;
+      tag.el.classList.add('is-lost');
+      tag.el.onanimationend = (e) => { if (e.animationName === 'run-tag-lost') tag.el.remove(); };
+    }
+  }
+  for (const [key, tag] of runTags) {
+    if (seen.has(key)) continue;
+    runTags.delete(key);
+    if (tag.lost) continue;   // already falling out on its own
+    tag.el.classList.add('is-done');
+    tag.el.onanimationend = (e) => { if (e.animationName === 'run-tag-out') tag.el.remove(); };
+  }
+}
 
 // The counter lags the payout on purpose: the flying "$X" rises off the taxi, travels to the HUD,
 // and only when it lands does the total tick up — so the payout has a visible path from the world
@@ -2440,9 +2522,8 @@ function taxiScreenPos() {
 }
 
 /**
- * Centre of the Punch It pill, and the radius of a circle that clears it. The radius is what the
- * tutorial's third beat sizes its spotlight from; the sparks go to the fuel meter instead
- * (`fuelScreenPos`) and only come here when it can't be measured. Read fresh on every call rather than cached, because the pill's own fill flutter
+ * Centre of the Punch It pill, and the radius of a circle that clears it. The sparks go to the
+ * fuel meter (`fuelScreenPos`) and only come here when it can't be measured. Read fresh on every call rather than cached, because the pill's own fill flutter
  * scales it and a resize moves it.
  */
 function boostScreenPos() {
@@ -2490,13 +2571,17 @@ function gasPedalTop() {
  * Where a delivery's boost sparks land: the crown of the fuel gauge arcing over the gas pedal,
  * since that is what they fill. The track's box is the whole arc, so its top edge is the crown.
  * Falls back to the pedal when the meter isn't measurable, so a flight always has somewhere to go.
- * The tutorial's spotlight stays on the pedal — it is pointing at the control, not the read-out.
  */
 function fuelScreenPos() {
   const arc = boostMeterEl?.querySelector('.boost-track');
   const r = arc?.getBoundingClientRect();
   if (!r?.width) return boostScreenPos();
   return { x: r.left + r.width / 2, y: r.top + 3, r: r.width / 2 + 20 };
+}
+
+/** Where a payout pops: the middle of the screen, a little above centre so it clears the pedals' row of thumbs. */
+function payoutScreenPos() {
+  return { x: viewport.width() / 2, y: viewport.height() * 0.42 };
 }
 
 /** Centre of the money counter in viewport coordinates — the flight's target. */
@@ -2558,49 +2643,139 @@ function rollMoneyTo(target, up = true) {
 }
 
 /**
- * The flying number, off the taxi and onto the counter.
+ * The flying number: it pops in the middle of the screen and flies up into the counter.
+ *
+ * It flew off the taxi at first, which put it wherever the car happened to be — and with a run
+ * bonus's three steps in a row, that was a lot of reading done over the busiest part of the map.
+ * Then it popped just under the counter, which was tidy and easy to miss. The middle of the screen
+ * is where the eye can find it every time, and the run's label pops in the same place
+ * (`payoutScreenPos`).
  *
  * Negative is a **charge** — the burger's `BURGER_PRICE` and the depot's `REPAIR_PRICE`. It takes the same
- * flight rather than one of its own, because it is the same claim: this car, here, is what moved the
- * counter. What changes is the sign, the colour (red, `.is-charge`) and nothing else — including the
- * direction, which stays taxi → counter. A charge flown counter → taxi would read as the player
- * being *given* something.
+ * flight rather than one of its own, because it is the same claim: this is what moved the counter.
+ * What changes is the sign, the colour (red, `.is-charge`) and nothing else — including the
+ * direction, which stays up into the counter. A charge flown out of the counter would read as the
+ * player being *given* something.
  */
-function popEarning(amount) {
-  const start = taxiScreenPos();
+function popEarning(amount, { cls = '', prefix = '', rollTo = null, onLanded = null } = {}) {
+  const counter = counterScreenPos();
+  const start = payoutScreenPos();
   const el = document.createElement('div');
-  el.className = amount < 0 ? 'earning is-charge' : 'earning';
-  el.textContent = amount < 0 ? `−$${-amount}` : `$${amount}`;
+  el.className = `${amount < 0 ? 'earning is-charge' : 'earning'} ${cls}`.trim();
+  el.textContent = amount < 0 ? `−$${-amount}` : `${prefix}$${amount}`;
   el.style.left = `${start.x}px`;
   el.style.top = `${start.y}px`;
   document.body.append(el);
 
   // The counter's position is resolved *at launch* rather than baked into a CSS keyframe, so a
   // window resize between deliveries still aims each flight at where the counter actually is now.
-  const target = counterScreenPos() ?? { x: start.x, y: start.y - 74 };
+  const target = counter ?? { x: start.x, y: start.y - 74 };
   const dx = target.x - start.x;
   const dy = target.y - start.y;
 
-  // Phase 1: rise off the taxi. Reads as "the payout leaving the world" — same shape as the old
-  // pop, just shorter so it can hand off to phase 2 without dragging.
+  // Phase 1: pop in and hold a beat, long enough to read the amount.
   const rise = el.animate([
-    { opacity: 0, transform: 'translate(-50%, -50%) translateY(4px)   scale(0.8)' },
-    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-22px) scale(1.06)', offset: 0.5 },
-    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-30px) scale(1)' },
-  ], { duration: 620, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
+    { opacity: 0, transform: 'translate(-50%, -50%) translateY(10px) scale(0.7)' },
+    { opacity: 1, transform: 'translate(-50%, -50%) translateY(0)    scale(1.12)', offset: 0.35 },
+    { opacity: 1, transform: 'translate(-50%, -50%) translateY(0)    scale(1)' },
+  ], { duration: 560, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
 
   rise.onfinish = () => {
-    // Phase 2: fly to the counter and shrink, landing on top of it. Slight scale-down at the end
-    // so the flight has a target rather than a vague fade-in-the-middle.
+    // Phase 2: fly to the counter and shrink, landing on top of it. Slight scale-down at the
+    // end so the flight has a target rather than a vague fade-in-the-middle.
     const fly = el.animate([
-      { opacity: 1, transform: 'translate(-50%, -50%) translateY(-30px) scale(1)' },
+      { opacity: 1, transform: 'translate(-50%, -50%) scale(1)' },
       { opacity: 0, transform: `translate(-50%, -50%) translate(${dx}px, ${dy}px) scale(0.55)` },
-    ], { duration: 460, easing: 'cubic-bezier(0.42, 0, 0.58, 1)', fill: 'forwards' });
+    ], { duration: 380, easing: 'cubic-bezier(0.42, 0, 0.58, 1)', fill: 'forwards' });
     fly.onfinish = () => {
       el.remove();
-      rollMoneyTo(fares.state.money, amount >= 0);
+      // A step of a run-bonus payout rolls to its own partial total (`popRunSequence`), never past
+      // the real one: another payout may have moved it while this was in the air.
+      rollMoneyTo(rollTo === null ? fares.state.money : Math.min(rollTo, fares.state.money), amount >= 0);
+      onLanded?.();
     };
   };
+}
+
+/**
+ * A word rising off the taxi and fading where it is — the getaway's "Checkpoint 1/2". The first
+ * half of `popEarning`'s flight with no counter to land on, since nothing is being paid.
+ */
+function popLabel(text) {
+  const start = taxiScreenPos();
+  const el = document.createElement('div');
+  el.className = 'earning is-label';
+  el.textContent = text;
+  el.style.left = `${start.x}px`;
+  el.style.top = `${start.y}px`;
+  document.body.append(el);
+  const rise = el.animate([
+    { opacity: 0, transform: 'translate(-50%, -50%) translateY(4px)   scale(0.8)' },
+    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-26px) scale(1.06)', offset: 0.3 },
+    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-34px) scale(1)', offset: 0.75 },
+    { opacity: 0, transform: 'translate(-50%, -50%) translateY(-44px) scale(1)' },
+  ], { duration: 1400, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
+  rise.onfinish = () => el.remove();
+}
+
+/**
+ * A drop-off that earned run bonuses (game/runs.js) pays out as a sequence, one item at a time: the
+ * fare's own price pops mid-screen and flies into the counter exactly as a plain payout does, then
+ * for each run its label pops in the same place and fades, and the extra cash that run added flies into the
+ * counter after it — `$20` → counter, `PERFECT RUN ×2`, `+$20` → counter. Each amount rolls the counter to its own partial total as it lands, so the score
+ * climbs in the steps the screen just spelled out.
+ *
+ * The extras are the runs' multipliers applied in order to a running total, with the last one
+ * taking up any rounding so they always sum to what the fare actually paid. Each step is chained off
+ * the previous one's end rather than timed off the start, so a slow frame can never put two of them
+ * on screen at once.
+ */
+const RUN_LABEL_MS = 800;
+function popRunSequence(fare) {
+  const total = fare.value;
+  const steps = [{ pays: fare.basePay }];
+  let running = fare.basePay;
+  fare.runs.forEach((run, k) => {
+    const next = k === fare.runs.length - 1 ? total : Math.round(running * run.mult);
+    steps.push({ label: `${run.label} ×${run.mult}`, key: run.key });
+    steps.push({ pays: next - running, key: run.key, extra: true });
+    running = next;
+  });
+  // Where the counter stood before this fare, so each amount can roll it to a partial total.
+  let rolled = fares.state.money - total;
+  const play = (k) => {
+    const step = steps[k];
+    if (!step) return;
+    if (step.pays !== undefined) {
+      rolled += step.pays;
+      popEarning(step.pays, {
+        cls: step.key ? `run-${step.key}` : '',
+        prefix: step.extra ? '+' : '',
+        rollTo: rolled,
+        onLanded: () => play(k + 1),
+      });
+      return;
+    }
+    const at = payoutScreenPos();
+    const el = document.createElement('div');
+    el.className = `run-pop run-${step.key}`;
+    el.textContent = step.label;
+    el.style.left = `${at.x}px`;
+    el.style.top = `${at.y}px`;
+    document.body.append(el);
+    const t = (dy, scale) => `translate(-50%, -50%) translateY(${dy}px) scale(${scale})`;
+    el.animate([
+      { opacity: 0, transform: t(-14, 0.7) },
+      { opacity: 1, transform: t(-34, 1.12), offset: 0.2 },
+      { opacity: 1, transform: t(-38, 1), offset: 0.32 },
+      { opacity: 1, transform: t(-42, 1), offset: 0.75 },
+      { opacity: 0, transform: t(-54, 0.96) },
+    ], { duration: RUN_LABEL_MS, easing: 'ease-out', fill: 'forwards' }).onfinish = () => {
+      el.remove();
+      play(k + 1);
+    };
+  };
+  play(0);
 }
 
 /**
@@ -2670,6 +2845,7 @@ function collectScores() {
 
 function updateHud(dt) {
   const s = fares.state;
+  updateRunTags();
 
   if (s.gameOver && hud.banner && hud.banner.hidden) {
     // Every ending holds the banner while its own closing beat plays — CRASH_BANNER_DELAY for the
@@ -2687,7 +2863,7 @@ function updateHud(dt) {
       // "Shift" replaces what used to be "Streak", which printed `s.delivered` — the same number
       // as Fares directly above it, formatted with an `x`. Two rows counting out one number is a
       // stat sheet padding itself. How far up the difficulty curve the run got is a genuinely
-      // different fact about it, and it is the one the multiplier was earned by.
+      // different fact about it.
       stats: [
         { label: 'Time', value: s.elapsed, format: formatRunTime },
         { label: 'Fares', value: s.delivered, format: (n) => `${n}` },
@@ -2804,6 +2980,10 @@ function updateBoostButton(dt) {
 // is already running has the pedal down and nothing to kick.
 function holdLocoMode() {
   if (fares.state.gameOver || boostButton?.disabled) return false;
+  // Not while the HUD is off its edges: the opening, the city building itself, a skip's black, a
+  // repair visit. The pill is hidden then and cannot be pressed, but Space can — and it played the
+  // Loco sound on a taxi still parked in the garage.
+  if (!pedalsLive()) return false;
   // Nothing to press against: the drive-through has the wheel and the car is between two kerbs.
   // See the release beside `boost.update` in the frame loop.
   if (burgerRun?.holdsTaxi()) return false;
@@ -2937,6 +3117,9 @@ let driftsPaid = 0;
  */
 function holdBrake() {
   if (fares.state.gameOver) return false;
+  // Same as `holdLocoMode`: B reaches this while the button is hidden, and a skid on a staged car
+  // is a sound with nothing on screen making it.
+  if (!pedalsLive()) return false;
   if (brakeHeld) return true;
   brakeHeld = true;
   // Below the `brakeHeld` guard, so a hold buzzes once on the way down rather than on every event
@@ -3500,6 +3683,46 @@ function copSquealAt(x, z) {
   if (level > 0) sfx?.play('copSkid', { gain: level, rate: 0.94 + Math.random() * 0.12 });
 }
 
+// The siren, heard from where the taxi is: the nearest car with its siren running (`car.siren`, the
+// same flag the bar and the wash are written off — a patrol giving chase, a robbery's cops, the
+// arrest crew), full inside SIREN_NEAR and easing down to SIREN_FLOOR by SIREN_FAR. A floor rather
+// than the squeal's silence past the edge of the frame, because a siren is the one sound that
+// should carry: a chase on the far side of the map is still after *you*, and the off-screen wash
+// (game/sirenglow.js) is already saying so with its light. The master is a hot, solid loop
+// (-10 dB RMS against the crash's -26), which is why its level in mix.json is as low as it is.
+const SIREN_NEAR = 18;
+const SIREN_FAR = 70;
+const SIREN_FLOOR = 0.35;
+function sirenLevel() {
+  let d = Infinity;
+  for (const car of traffic.cars) {
+    if (!car.siren || car.crashed) continue;
+    d = Math.min(d, Math.hypot(car.x - traffic.taxi.x, car.z - traffic.taxi.z));
+  }
+  if (d === Infinity) return 0;
+  const k = Math.min(1, Math.max(0, (SIREN_FAR - d) / (SIREN_FAR - SIREN_NEAR)));
+  return SIREN_FLOOR + (1 - SIREN_FLOOR) * k;
+}
+
+// The drive-through's speaker, once per visit — the player's, never an ambient car's: on the frame
+// the lot takes the taxi, faded out on the frame it hands it back. The visit is timed to the clip
+// (TAXI_ORDER_DWELL in game/drivethru.js) with two seconds to spare, so the fade has nothing left
+// to trim unless the lane was queued.
+// The radio ducks for the length of it, or the speaker is under the music.
+let driveThruVoice = null;
+function driveThruSpeaker() {
+  const inLot = Boolean(burgerRun?.holdsTaxi());
+  if (inLot && driveThruVoice == null) {
+    driveThruVoice = sfx?.play('driveThru') ?? false;
+    sfx?.duckMusic(true);
+  }
+  if (!inLot && driveThruVoice != null) {
+    if (driveThruVoice) sfx.release(driveThruVoice, 0.4);
+    sfx?.duckMusic(false);
+    driveThruVoice = null;
+  }
+}
+
 // Cops in a chase — the robbery's and the patrol's — lay rubber and squeal the way the taxi does — corners carried at
 // speed, their own overtake, and the swing into a roadblock. The rule is `copLaysRubber` in
 // sim/traffic.js; this is only the pools. Rear wheels off the anchors the ambient body is built
@@ -3615,6 +3838,11 @@ const NO_FARE_EVENTS = [];
 let pedalsShown = false;
 const pedalsDue = () => !cityEntry.running() && !parked() && !wipe?.covering()
   && !(opening?.running() && opening.phase() !== 'release');
+
+// The pedals on screen and the taxi the player's to drive: `pedalsDue`, less a repair visit until it
+// hands back. The HUD's exit reads it too, so a pedal can be pressed exactly when it can be seen.
+const pedalsLive = () => pedalsDue()
+  && !(opening?.visiting() && opening.phase() !== 'release');
 
 const fareLoopHeld = () => parked() || Boolean(opening?.running())
   || Boolean(wipe?.covering());
@@ -3817,7 +4045,7 @@ function frame() {
   // car is out of the door, and a repair visit from the turn-in until it is back on the lane. The
   // same `release` the pedals wait on, so a run's first arrival and every return from the depot
   // are one beat. See the HUD exit block in index.html.
-  setHudAway(!pedalsDue() || Boolean(opening?.visiting() && opening.phase() !== 'release'));
+  setHudAway(!pedalsLive());
   // ...and the drive-through is the same claim about somebody else's car: while one is in the lot
   // this is its physics, so it has to have written the position before the render pass reads it.
   driveThru?.update(dt);
@@ -3825,6 +4053,7 @@ function frame() {
   // the call above, and this is what puts a route back under it before `traffic.update` asks which
   // way to go at the next junction.
   burgerRun?.update(dt);
+  driveThruSpeaker();
   // ...and the depot's catch at its driveway, on the same timing: it reads where last frame's
   // `traffic.update` left the taxi, and a car taken here is staged before this frame's render pass.
   depotRun?.update(dt);
@@ -3864,6 +4093,7 @@ function frame() {
     top: boostCruise(),
     holding: boost.isEngaged() && !boost.isCoolingDown(),
     over: fares.state.gameOver,
+    siren: sirenLevel(),
   });
   // After traffic has settled positions for the frame — that's what the overlap check reads, and
   // what the two wreck shells are copied out of. A detected impact takes both cars out of the
@@ -3873,6 +4103,8 @@ function frame() {
   impact.update(dt);
   // After traffic has written the taxi's transform: the lean and the rattle ride on top of it.
   taxiDamage.update(dt);
+  // After traffic too: it hangs the parts off the body matrices traffic wrote this frame.
+  carDamage.update(dt);
   taxiDoor.update(dt, fares.state.fares.find((f) => f.boarding !== undefined) ?? null);
   // After the physics, like the collision check: it measures where traffic left the cop and the
   // taxi this frame, and a catch ends the run the same way a wreck does. Engaged rather than held —
@@ -4026,6 +4258,11 @@ function frame() {
     }
   }
 
+  // The job's driving — from the tap that sent the taxi at a rider to the drop-off — recorded
+  // before the fare loop runs so a drop-off this frame is judged on all of it (game/runs.js).
+  if (!fareLoopHeld()) {
+    runs.update(dt, { fare: fares.job(), boosting: Boolean(traffic.taxi.boost) });
+  }
   // More than one thing can land in a frame now — delivering the last fare clears the board and
   // spawns the next one in the same tick — so this is a list rather than a single event.
   for (const { type, fare } of
@@ -4054,7 +4291,8 @@ function frame() {
       // Out they get: open, and shut a beat later once they are clear of the car.
       sfx?.play('doorOpen');
       sfx?.play('doorClose', { delay: 0.7 });
-      popEarning(fare.value);
+      if (fare.runs?.length) popRunSequence(fare);
+      else popEarning(fare.value);
       // A third of a tank of boost fuel as the ordinary delivery reward — the only way any fuel
       // enters the meter otherwise. A VIP pays out bigger here too: the tank tops all the way to
       // full rather than by a third, on the same delayed pour as everything else so it reads as
@@ -4074,6 +4312,21 @@ function frame() {
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       traffic.setTaxiOccupied(false);
+    } else if (type === 'checkpoint') {
+      // A getaway checkpoint (ROBBER_CHECKPOINTS in game/fares.js): a full tank, poured the way the
+      // robber's boarding one is, and the route re-aimed at the next corner — the fare's `target`
+      // has already moved on. The clock keeps running; only the drop-off pays.
+      flyEnergyToBoost({
+        from: taxiScreenPos,
+        to: fuelScreenPos,
+        onArrive: () => boost.topUp(1 - boost.fraction()),
+      });
+      popLabel(`Checkpoint ${fare.checkpointsTotal - fare.checkpoints.length}/${fare.checkpointsTotal}`);
+      haptic('pick');
+      traffic.taxi.route = [];
+      traffic.taxi.pendingTarget = null;
+      dispatchToDropoff(fare);
+      if (burgerRun?.active()) burgerRun.send();
     } else if (type === 'failed') {
       // The run ended on a clock rather than on an impact — see the TIMEOUT_* block. The camera
       // takes wherever the rider is getting out (`failSpot`, set by fares.js as it hands them to
@@ -4147,6 +4400,7 @@ function frame() {
         fareSpots: fares.occupiedSpots(),
         delivered: fares.state.delivered,
         over: fares.state.gameOver,
+        concealed: fares.concealed(),
       })
       : NO_FARE_EVENTS)) {
     if (type === 'pickup') {
@@ -4204,7 +4458,7 @@ function frame() {
       // with no visible link to the car would read as a side effect. The fuel is deliberately *half*
       // a fare's (see BOOST_PARCEL_REWARD): an errand pays into the tank, but a fare still fills it
       // twice as fast, so the courier layer stays a detour rather than the way you fuel a run. What
-      // a package still does not touch is the multiplier — that number means "this is what a *fare*
+      // a package still does not touch is a run bonus — that number means "this is what a *fare*
       // is worth now", and a package is not a fare.
       fares.credit(parcel.value);
       popEarning(parcel.value);
@@ -4221,13 +4475,13 @@ function frame() {
   // rider gets rather than as a new effect to learn. Written every frame while it runs, so the frame
   // it retires is the one that puts the car back — and clamped at zero on the way out, because a
   // light going negative would dim the taxi below the city it is driving in.
-  if (taxiFlashAt !== null) {
-    const since = fares.state.elapsed - taxiFlashAt;
-    if (since >= POP_TIME) {
+  if (taxiFlashAge !== null) {
+    if (taxiFlashAge >= POP_TIME) {
       traffic.setTaxiHighlight(0);
-      taxiFlashAt = null;
+      taxiFlashAge = null;
     } else {
-      traffic.setTaxiHighlight(popHighlight(since));
+      traffic.setTaxiHighlight(popHighlight(taxiFlashAge));
+      taxiFlashAge += dt;
     }
   }
 
@@ -4905,6 +5159,9 @@ if (!shot && wantsDebugPanel) {
 
 window.__taxi = {
   traffic,
+  // The run-bonus tracker — see game/runs.js — and the drop-off sequence that pays it out.
+  runs,
+  popRunSequence,
   // The crash replay and its recording — see game/replay.js.
   replay,
   tape,
@@ -4914,6 +5171,8 @@ window.__taxi = {
   impact,
   // And the tiers of damage the car wears, so a check can stage one — see game/taxidamage.js.
   taxiDamage,
+  // ...and on the cars it hits — see game/cardamage.js.
+  carDamage,
   /**
    * Loco Mode's speed ramp — `get`, `set`, `reset`, `ramp`, `defaults`. The ⚙️ panel's sliders
    * drive the same handle, so this is where you go for a value past the end of one of them.
