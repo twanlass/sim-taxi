@@ -16,7 +16,8 @@
     "crash": { "file": "12_IMPACT_crash_A-C", "gain": 1, "rate": 1 },
     "takeoff": { "file": "13_JUMP_takeoff_A-C", "gain": 1, "rate": 1 },
     "land": { "file": "14_JUMP_land_A-C", "gain": 1, "rate": 1 },
-    "signal": { "file": "15_SIGNAL_turn", "gain": 1, "rate": 1 }
+    "signal": { "file": "15_SIGNAL_turn", "gain": 1, "rate": 1 },
+    "horn": { "file": "16_HORN_honk", "gain": 0.3, "rate": 1 }
   },
   "minGap": {
     "bump": 0.15,
@@ -31,7 +32,8 @@
     "doorClose": 0,
     "crash": 0,
     "takeoff": 0.25,
-    "land": 0.25
+    "land": 0.25,
+    "horn": 0.5
   },
   "engine": {
     "idleRateLo": 0.9,

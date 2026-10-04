@@ -74,6 +74,7 @@ const FILES = {
   '14_JUMP_land_B': new URL('../../assets/audio/14_JUMP_land_B.m4a', import.meta.url).href,
   '14_JUMP_land_C': new URL('../../assets/audio/14_JUMP_land_C.m4a', import.meta.url).href,
   '15_SIGNAL_turn': new URL('../../assets/audio/15_SIGNAL_turn.m4a', import.meta.url).href,
+  '16_HORN_honk': new URL('../../assets/audio/16_HORN_honk.m4a', import.meta.url).href,
 };
 
 /**
@@ -102,11 +103,12 @@ export const SOUNDS = {
   takeoff: ['13_JUMP_takeoff_A', '13_JUMP_takeoff_B', '13_JUMP_takeoff_C'],
   land: ['14_JUMP_land_A', '14_JUMP_land_B', '14_JUMP_land_C'],
   signal: ['15_SIGNAL_turn'],
+  horn: ['16_HORN_honk'],
 };
 
 /** What `play()` accepts — the one-shots. A typo throws here rather than going silent. */
 export const SFX_EVENTS = new Set(['bump', 'accel', 'brake', 'locoActivate', 'locoLaunch',
-  'locoBrake', 'skid', 'copSkid', 'doorOpen', 'doorClose', 'crash', 'takeoff', 'land']);
+  'locoBrake', 'skid', 'copSkid', 'doorOpen', 'doorClose', 'crash', 'takeoff', 'land', 'horn']);
 
 /** The beds: steered by `update()`, never fired. */
 export const LOOPS = new Set(['idle', 'locoLoop', 'signal']);
