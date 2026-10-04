@@ -474,6 +474,19 @@ export function getStorm() {
 }
 
 /**
+ * What the taxi's tyres do on a wet road — `?wet=spray`, `?wet=tracks`, `?wet=both` or `?wet=off`.
+ * Spray is water thrown off the rear tyres (game/spray.js); tracks are dark wet streaks left behind
+ * every tyre, which follow the car a little way out onto dry road (`wetTracks` in main.js). Either
+ * replaces the boost's dust while the road under the car is wet. Defaults to `both`.
+ */
+export function getWetTyres() {
+  const raw = new URLSearchParams(window.location.search).get('wet');
+  if (raw === null) return { spray: true, tracks: true };
+  if (isOff(raw)) return { spray: false, tracks: false };
+  return { spray: raw === 'spray' || raw === 'both', tracks: raw === 'tracks' || raw === 'both' };
+}
+
+/**
  * A squall — one rain cell crossing a sunny city and leaving a wet trail behind it
  * (game/squall.js). **On by default**: it was a flag nobody loaded, so nobody saw it. `?squall=off`
  * turns it off, `?squall=0.45` pins the cell that far along a crossing, trail and all, for a still
