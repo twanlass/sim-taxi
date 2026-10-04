@@ -7,11 +7,11 @@ import {
   WHEEL_R, CHASSIS_LIFT, SILL_Y, wheelAnchors, wheelGeometry, wheelGeometries,
 } from '../geometry/wheels.js';
 import {
-  lightPodGeometry, brakeLightAnchors, turnSignalAnchors, LIGHT_PODS,
+  lightPodGeometry, brakeLightAnchors, turnSignalAnchors, turnSignalShapes, LIGHT_PODS,
   brakeLightMaterial, turnSignalMaterial,
   sirenPodGeometry, sirenRedAnchor, sirenBlueAnchor, sirenRedMaterial, sirenBlueMaterial, sirenOn,
   sirenBaseGeometry, sirenBaseAnchor,
-  headlightGeometry, headlightAnchors, headlightMaterial, beamGeometry, beamMaterial,
+  headlightGeometry, headlightAnchors, headlightMaterial, beamGeometry, beamMaterial, beamToe,
 } from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import { bumperGeometries } from '../geometry/bumpers.js';
@@ -2997,6 +2997,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     'truckTurnSignalsLeft', turnSignalMaterial, turnSignalAnchors(TRUCK_LEN, TRUCK_W, -1), trucks);
   const truckTurnRightMesh = lightMesh(
     'truckTurnSignalsRight', turnSignalMaterial, turnSignalAnchors(TRUCK_LEN, TRUCK_W, 1), trucks);
+  // The front indicator is narrower than the rear (`turnSignalShapes` in geometry/lights.js), and
+  // both come off one geometry, so the shape rides the pod's scale with its level.
+  for (const inst of [turnLeftMesh, turnRightMesh, truckTurnLeftMesh, truckTurnRightMesh]) {
+    inst.userData.podShapes = turnSignalShapes();
+  }
   // Headlights (Rain Mode). Lamps like the rest, so they are in `lightMeshes` and the bloom; their
   // count is synced to the brake pods' once a frame rather than at every site that resizes the fleet.
   const headMesh = lightMesh('carHeadlights', headlightMaterial,
@@ -3017,6 +3022,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     inst.count = vehicles.length * LIGHT_PODS;
     inst.renderOrder = 1;
     inst.userData.podAnchors = anchors.map((a) => new THREE.Vector3(a.x - 0.1, 0, a.z));
+    // Each pool toed out toward its own side, so a pair reads as two beams rather than one.
+    inst.userData.podQuats = anchors.map((a) => beamToe(a.z));
     beamMeshes.push(inst);
     return inst;
   };
@@ -3759,8 +3766,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     flatQuat.setFromAxisAngle(Y_AXIS, car.yaw);
     flatMatrix.compose(flatPos.set(car.x, BEAM_Y, car.z), flatQuat, scl);
     const anchors = inst.userData.podAnchors;
+    const quats = inst.userData.podQuats;
     for (let p = 0; p < anchors.length; p++) {
-      lightLocal.compose(anchors[p], LIGHT_QUAT, lightScale.setScalar(level));
+      lightLocal.compose(anchors[p], quats ? quats[p] : LIGHT_QUAT, lightScale.setScalar(level));
       lightMatrix.multiplyMatrices(flatMatrix, lightLocal);
       inst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, lightMatrix);
     }
@@ -3768,8 +3776,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
   function writeLight(inst, car, level) {
     const anchors = inst.userData.podAnchors;
+    const shapes = inst.userData.podShapes;
     for (let p = 0; p < anchors.length; p++) {
-      lightLocal.compose(anchors[p], LIGHT_QUAT, lightScale.setScalar(level));
+      if (shapes) lightScale.copy(shapes[p]).multiplyScalar(level);
+      else lightScale.setScalar(level);
+      lightLocal.compose(anchors[p], LIGHT_QUAT, lightScale);
       lightMatrix.multiplyMatrices(matrix, lightLocal);
       inst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, lightMatrix);
     }
@@ -5988,6 +5999,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // note there: with the default order the roll is applied about the *world* X axis, which
         // only doubles as the car's own axis when it happens to be driving east.
         taxiGroup.rotation.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER);
+        // How far off the road the hop or its landing bounce has the body, for whatever has to know
+        // the car is in the air rather than on it — the headlight pools (game/citylights.js) fade.
+        // Render-only, like the rest of this block.
+        car.airY = airY;
         setTaxiSteer(car.wheelAngle);
         setTaxiLights(Math.max(car.brakeLevel, runningFor(car) * TAIL_FLOOR),
           car.turnLeftLevel, car.turnRightLevel);

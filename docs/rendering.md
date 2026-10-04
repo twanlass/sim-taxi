@@ -1430,13 +1430,18 @@ city on:
 - **Street lamps.** Two per block on random edges: a post on the pavement, an arm out over the
   kerb, a glowing head (bloom `bay`), and an additive pool on the road. Posts and heads are stamped
   for the entrance wave and rise with their block.
-- **Headlights and tail lights.** `setRunningLights(1)` puts two narrow white pods inboard of each
-  vehicle's turn signals. The front corners already belong to the signals. It also lays a
-  trapezoid pool seven units up the road from each pod and gives every car a 0.6 floor on its
-  brake pods, so it shows dim tail lights with a real brake still reading as a change. The pools
-  are posed flat off `x`, `z` and `yaw` rather than through the body matrix, because a pitching
-  body would dip their far end under the asphalt on every stop. The taxi gets the same pods and
-  pools on its own group (`createTaxiHeadlights`), hidden while it is a wreck.
+- **Headlights and tail lights.** `setRunningLights(1)` puts two white pods inboard of each
+  vehicle's front indicators, which own the corners. The front indicator is narrower than the rear
+  one (`turnSignalShapes`) so the headlight beside it still reads while it blinks; at full width the
+  amber swallowed the lamp next to it. It also lays a trapezoid pool seven units up the road from
+  each pod, toed out toward its own side so a pair reads as two beams, and gives every car a 0.6
+  floor on its brake pods, so it shows dim tail lights with a real brake still reading as a change.
+  The pools are posed flat off `x`, `z` and `yaw` rather than through the body matrix, because a
+  pitching body would dip their far end under the asphalt on every stop. The taxi wears the same
+  pods on its own group (`createTaxiHeadlights`), but its pools sit in the scene: draped over the
+  road a row at a time (`deckHeightAt` included, so they lie on a bridge's arch) and faded out by
+  `car.airY` while a hop has it off the ground. Parented to the body, they rose off a ramp as a
+  flat slab and cut into the road on the way down. Both are hidden while it is a wreck.
 
 Both kinds of pool sit at 0.025, under the mirror's clip, so they do not reflect themselves. The
 windows and lamp pools stay dark until the entrance wave finishes, so the city arrives and then

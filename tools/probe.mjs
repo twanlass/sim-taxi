@@ -92,7 +92,10 @@ import {
   markEmissive, unmarkEmissive, emissiveList, BLOOM_LAYER, BLOOM_ORDER, BLOOM_INTENSITY,
   BLOOM_UNIFORMS, BLOOM_KINDS, refreshEmissive as bloomRefreshFor,
 } from '../src/game/bloom.js';
-import { LIGHT_EMISSIVE, LIGHT_PODS } from '../src/geometry/lights.js';
+import {
+  LIGHT_EMISSIVE, LIGHT_PODS, LIGHT_W, headlightAnchors, headlightGeometry, turnSignalAnchors, turnSignalShapes,
+} from '../src/geometry/lights.js';
+import { createTaxiHeadlights } from '../src/game/citylights.js';
 import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
 import { createPicker, choosePick } from '../src/game/pick.js';
 import { setCityOccluders, sightlineClear, groundLineClear } from '../src/game/sightline.js';
@@ -9721,6 +9724,94 @@ check('the taxi is an ordinary car in the traffic array',
   }
   check('a dimming taxi lamp stays where it is', podDrift < 1e-9,
     `${taxi.lights.length} pods, max drift ${podDrift.toExponential(1)} over level 1 → 0`);
+
+  // --- The headlights: two lamps, clear of the indicator, and pools that stay on the road ---------
+  //
+  // The front indicator owns the corner and the headlight sits inboard of it. At full pod width the
+  // lit amber ran right up to the headlight and stood twice its height, and the lamp on the blinking
+  // side read as switched off. Measured on the faces, for every vehicle that wears both.
+  {
+    let worstGap = Infinity;
+    let pairGap = Infinity;
+    for (const [len, width] of [[CAR_LEN, CAR_W], [TRUCK_LEN, TRUCK_W]]) {
+      const heads = headlightAnchors(len, width);
+      const [front] = turnSignalAnchors(len, width, 1);
+      const frontHalf = (LIGHT_W * turnSignalShapes()[0].z) / 2;
+      const head = heads.find((a) => a.z > 0);
+      // Half a headlight's width, off the geometry rather than retyped.
+      const headBox = headlightGeometry();
+      headBox.computeBoundingBox();
+      const headHalf = headBox.boundingBox.max.z;
+      worstGap = Math.min(worstGap, (front.z - frontHalf) - (head.z + headHalf));
+      pairGap = Math.min(pairGap, 2 * (head.z - headHalf));
+    }
+    check('the headlight clears the front indicator, and the pair clears each other',
+      worstGap > 0.02 && pairGap > 0.4,
+      `indicator gap ${worstGap.toFixed(3)}, between the lamps ${pairGap.toFixed(3)}`);
+
+    // The pools lie on the ground, not on the body: draped over the road a row at a time, faced up
+    // (an unlit triangle wound the other way does not draw), and gone while the hop has the car in
+    // the air. They used to ride the taxi's group, which put them in the air as a slab off a ramp
+    // and through the asphalt on the way down.
+    const lamps = createTaxiHeadlights();
+    lamps.setLevel(1);
+    const pos = lamps.pools.geometry.attributes.position;
+    const idx = lamps.pools.geometry.index;
+    const faceUp = () => {
+      let down = 0;
+      const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+      for (let t = 0; t < idx.count; t += 3) {
+        a.fromBufferAttribute(pos, idx.getX(t));
+        b.fromBufferAttribute(pos, idx.getX(t + 1));
+        c.fromBufferAttribute(pos, idx.getX(t + 2));
+        if (b.sub(a).cross(c.sub(a)).y <= 0) down += 1;
+      }
+      return down;
+    };
+    let down = 0;
+    for (let k = 0; k < 8; k++) {
+      lamps.update({ x: 0, z: 0, yaw: (k / 8) * Math.PI * 2, airY: 0 });
+      down += faceUp();
+    }
+    const strength = () => lamps.pools.material.uniforms.uStrength.value;
+    lamps.update({ x: 0, z: 0, yaw: 0, airY: 0 });
+    const grounded = strength();
+    const heights = [];
+    for (let i = 0; i < pos.count; i++) heights.push(pos.getY(i));
+    lamps.update({ x: 0, z: 0, yaw: 0, airY: 2.75 });
+    const airborne = strength();
+    const stayed = heights.every((y, i) => y === pos.getY(i));
+    check('the taxi\'s headlight pools face up, stay on the road, and go out in the air',
+      down === 0 && grounded > 0 && airborne === 0 && stayed,
+      `${down} triangles facing down over 8 headings, strength ${grounded.toFixed(2)} → ${airborne.toFixed(2)} at the top of a hop, heights ${stayed ? 'unchanged' : 'moved'}`);
+
+    // And on an arched bridge they lie on the deck rather than cutting into it: between two rows the
+    // strip is a straight line across a curve, so measure it at every midpoint against the deck.
+    let worstSink = -Infinity;
+    let samples = 0;
+    const banks = riverBanks();
+    const perPool = pos.count / 2;
+    for (const i of bridgeLines()) {
+      if (!banks || riverCrossing(i) !== 'fixed') continue;
+      for (const yaw of [-Math.PI / 2, Math.PI / 2]) {
+        for (let z = banks.z0 - 6; z <= banks.z1 + 6; z += 0.5) {
+          lamps.update({ x: lineX(i) + (yaw < 0 ? 1 : -1) * 2, z, yaw, airY: 0 });
+          for (let v = 0; v + 2 < pos.count; v++) {
+            // Same side of the strip, one row on: vertices two apart, within one pool.
+            if (Math.floor(v / perPool) !== Math.floor((v + 2) / perPool)) continue;
+            const mx = (pos.getX(v) + pos.getX(v + 2)) / 2;
+            const mz = (pos.getZ(v) + pos.getZ(v + 2)) / 2;
+            const my = (pos.getY(v) + pos.getY(v + 2)) / 2;
+            worstSink = Math.max(worstSink, deckHeightAt(mx, mz).y - my);
+            samples += 1;
+          }
+        }
+      }
+    }
+    check('the taxi\'s headlight pools lie on a bridge deck rather than through it',
+      samples > 0 && worstSink < 0,
+      `${samples} midpoints, worst ${(-worstSink).toFixed(3)} above the deck`);
+  }
 
   // The rear door (game/taxidoor.js) has to open on the side the rider is running *from*, outward,
   // at any heading — the side is a sign worked out from the yaw, and a flipped sign swings the door

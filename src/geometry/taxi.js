@@ -4,7 +4,8 @@ import { bakeColor, propMaterial, setFinish, FINISH } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT, SILL_Y } from './wheels.js';
 import {
-  lightPodGeometry, brakeLightAnchors, turnSignalAnchors, brakeLightMaterial, turnSignalMaterial,
+  lightPodGeometry, brakeLightAnchors, turnSignalAnchors, turnSignalShapes, brakeLightMaterial,
+  turnSignalMaterial,
 } from './lights.js';
 import { addGhostOutline, addGhostMask } from './ghostoutline.js';
 import { bumperGeometry, bumperLength, BUMPER_D, BUMPER_H, BUMPER_Y } from './bumpers.js';
@@ -226,18 +227,22 @@ export function createTaxiMesh() {
   // are. Hanging each pod at its own anchor makes the anchor the pivot. See lightPodGeometry() for
   // the measurements, and note the taxi's are the *largest* in the game — TAXI_SCALE is on the
   // group above these.
-  const podPair = (anchors, material) => anchors.map((anchor) => {
+  const podPair = (anchors, material, shapes = null) => anchors.map((anchor, n) => {
     // A material each rather than one shared across the pair, matching the one-material-per-mesh
     // habit the rest of this file and `propMaterial()` keep — and `markEmissive` (game/bloom.js)
     // derives a bloom material per *mesh* off the live one, so a shared live material would have
     // two meshes deriving from it.
     const pod = new THREE.Mesh(lightPodGeometry(), material());
     pod.position.copy(anchor);
+    // The pod's shape as a scale, multiplied into its level by setLights() — see turnSignalShapes().
+    pod.userData.shape = shapes ? shapes[n] : new THREE.Vector3(1, 1, 1);
     return pod;
   });
   const brakeLights = podPair(brakeLightAnchors(CAR_LEN, CAR_W), brakeLightMaterial);
-  const turnLeftLight = podPair(turnSignalAnchors(CAR_LEN, CAR_W, -1), turnSignalMaterial);
-  const turnRightLight = podPair(turnSignalAnchors(CAR_LEN, CAR_W, 1), turnSignalMaterial);
+  const turnLeftLight = podPair(turnSignalAnchors(CAR_LEN, CAR_W, -1), turnSignalMaterial,
+    turnSignalShapes());
+  const turnRightLight = podPair(turnSignalAnchors(CAR_LEN, CAR_W, 1), turnSignalMaterial,
+    turnSignalShapes());
   const lightPods = [...brakeLights, ...turnLeftLight, ...turnRightLight];
   for (const light of lightPods) {
     light.scale.setScalar(0);
@@ -301,9 +306,9 @@ export function createTaxiMesh() {
    * car, taxi included, since the taxi is just another entry in the `cars` array physics runs over.
    */
   const setLights = (brakeLevel, turnLeftLevel, turnRightLevel) => {
-    for (const pod of brakeLights) pod.scale.setScalar(brakeLevel);
-    for (const pod of turnLeftLight) pod.scale.setScalar(turnLeftLevel);
-    for (const pod of turnRightLight) pod.scale.setScalar(turnRightLevel);
+    for (const pod of brakeLights) pod.scale.copy(pod.userData.shape).multiplyScalar(brakeLevel);
+    for (const pod of turnLeftLight) pod.scale.copy(pod.userData.shape).multiplyScalar(turnLeftLevel);
+    for (const pod of turnRightLight) pod.scale.copy(pod.userData.shape).multiplyScalar(turnRightLevel);
   };
 
   return {

@@ -102,11 +102,34 @@ export function brakeLightAnchors(len, width) {
   ];
 }
 
+/**
+ * How wide the *front* indicator is across the car. Narrower than a full pod so the headlight beside
+ * it has room: at the full `LIGHT_W` the lit amber covered 0.34..0.88 of a car's 0.88 half-width and
+ * stood twice the headlight's height right next to it, so the headlight on the blinking side read
+ * as switched off. The rear indicator stays full width — it shares its corner (and its anchor) with
+ * the brake pod, and a narrower one would vanish inside it whenever the brakes are on.
+ */
+const FRONT_SIGNAL_W = 0.3;
+
 /** The front and rear pod on one side — a side's pair blinks together. */
 export function turnSignalAnchors(len, width, side) {
+  const front = lightPodAnchor(1, side, len, width);
+  front.z = side * (width / 2 + LIGHT_PROUD - FRONT_SIGNAL_W / 2);
   return [
-    lightPodAnchor(1, side, len, width),
+    front,
     lightPodAnchor(-1, side, len, width),
+  ];
+}
+
+/**
+ * Each indicator pod's shape, as a scale on the shared pod geometry, in the same order as
+ * `turnSignalAnchors`. Multiplied into the on/off level rather than baked into a second geometry
+ * because the fleet draws a side's front and rear pod from one InstancedMesh.
+ */
+export function turnSignalShapes() {
+  return [
+    new THREE.Vector3(1, 1, FRONT_SIGNAL_W / LIGHT_W),
+    new THREE.Vector3(1, 1, 1),
   ];
 }
 
@@ -121,13 +144,16 @@ export function brakeLightMaterial() {
 }
 
 /**
- * Headlights — Rain Mode only (`?rain`), driven by `setRunningLights` in sim/traffic.js. Two
- * narrow pods set *inboard* of the turn signals, which already own the front corners: centred
- * `HEADLIGHT_INSET` in from the car's own flank, and a third of a signal pod wide so the two never
- * overlap at any car width in the game.
+ * Headlights — in the rain (`?rain`, `?storm`, or under a squall), driven by `setRunningLights` in
+ * sim/traffic.js. Two pods set *inboard* of the front indicators, which own the front corners.
+ * Centred `HEADLIGHT_INSET` in from the car's own flank: on a car that is 0.28..0.54 off the
+ * centreline, a 0.04 gap short of the indicator (`FRONT_SIGNAL_W`) and 0.56 from its partner.
+ *
+ * They used to sit 0.62 in, which put the pair 0.26 apart in the middle of the bumper — one lamp,
+ * at this zoom, throwing two pools so nearly on top of each other they read as one beam.
  */
-const HEADLIGHT_W = 0.2;
-const HEADLIGHT_INSET = 0.62;
+const HEADLIGHT_W = 0.26;
+const HEADLIGHT_INSET = 0.44;
 
 export function headlightGeometry() {
   return new THREE.BoxGeometry(LIGHT_D, LIGHT_H * 0.55, HEADLIGHT_W);
@@ -145,10 +171,33 @@ export function headlightMaterial() {
   return unlitMaterial({ color: color('headlight') });
 }
 
-/** How far a headlight's pool reaches up the road, and how wide it opens. */
+/**
+ * How far a headlight's pool reaches up the road, how wide it opens, and how far its far end swings
+ * out toward its own side of the car. The toe is what keeps two pools reading as two: aimed
+ * straight ahead, 0.82 apart and 3.2 wide at the far end, they overlapped over most of their width.
+ */
 export const BEAM_LEN = 7;
-const BEAM_NEAR_W = 0.9;
-const BEAM_FAR_W = 3.2;
+const BEAM_NEAR_W = 0.45;
+const BEAM_FAR_W = 2.1;
+const BEAM_TOE = Math.atan2(0.55, BEAM_LEN);
+
+/**
+ * The yaw that toes one headlight's pool out, for a headlight at car-local `z` — a rotation about the
+ * pool's own origin at the bumper, so it composes with the anchor the way a pod's scale does.
+ * Negative yaw swings local +X toward +Z (the car's right), so the sign is the opposite of `z`'s.
+ */
+export function beamToe(z) {
+  return new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.sign(z) * BEAM_TOE);
+}
+
+/**
+ * One row across a pool, `u` of the way along it (0 at the bumper), in the pool's own frame: the
+ * forward distance and the half-width there. `beamGeometry` needs only the two ends of what is a
+ * trapezoid; the taxi's draped pool (game/citylights.js) samples rows in between.
+ */
+export function beamRow(u) {
+  return { x: u * BEAM_LEN, half: THREE.MathUtils.lerp(BEAM_NEAR_W, BEAM_FAR_W, u) / 2 };
+}
 
 /**
  * The pool a headlight throws on the road ahead: a flat trapezoid starting at its own origin (the
