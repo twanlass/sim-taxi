@@ -4465,6 +4465,39 @@ check('no two cars occupy the same space', worst > 1.6,
     truckFlee === 0 && truckTop > 0 && truckTop < 0.7,
     `scatter envelope peaked at ${truckFlee.toFixed(2)}, speed at ${truckTop.toFixed(2)}x cruise`);
 
+  // 1c. No way round, and a truck in front. A taxi with hit points and a route that turns at the
+  // junction ahead has no pass on offer, and against a car it rams (`rams` in traffic.js) — one
+  // hit, and the car is launched clear. Against a truck that hit was the first of many: a truck
+  // outweighs the taxi and doesn't scatter, so the taxi recoiled, set off again and hit it again,
+  // the "it just keeps ramming him" report. It tailgates a truck instead, by the truck's body
+  // (`truckRoom`), including round the corner they are both taking. Staged both ways, so the car
+  // half pins down that the ram itself is still there. `travelled` is the guard against the fix
+  // being a deadlock: measured 16.4 units in the 4s, behind a truck crawling round a left.
+  const ramStage = (asTruck) => {
+    const rTraffic = createTraffic(makeRng(seed + 107), new THREE.Scene(), 2);
+    const [rTaxi, rLead] = rTraffic.cars;
+    rLead.isTruck = asTruck;
+    place(rTaxi, dIn, 12);
+    place(rLead, dIn, 4);
+    rTaxi.route = [leftOf(dIn)];
+    rLead.route = [leftOf(dIn)];
+    rTaxi.hp = TAXI_HP;
+    const rCollisions = createCollisions(rTraffic.cars, rTaxi);
+    let hits = 0;
+    rCollisions.onBump(() => { hits += 1; });
+    for (let f = 0; f < 60 * 4; f++) {
+      rTaxi.boost = true;
+      rTraffic.update(1 / 60);
+      rCollisions.update(1 / 60);
+    }
+    return { hits, travelled: rTaxi.travelled };
+  };
+  const ramCar = ramStage(false);
+  const ramTruck = ramStage(true);
+  check('a boosting taxi with no way round rams a car but follows a truck',
+    ramCar.hits >= 1 && ramTruck.hits === 0 && ramTruck.travelled > 10,
+    `car ${ramCar.hits} bumps, truck ${ramTruck.hits} bumps, ${ramTruck.travelled.toFixed(1)} units covered behind it`);
+
   // 2. A boosting taxi turning left used to stop dead under a green: the oncoming lane shares its
   // axis, so it kept its green, and the left-turn yield then refused to let the taxi go — waiting
   // on a car that was itself waiting. The priority hold now denies that one direction (`block` in

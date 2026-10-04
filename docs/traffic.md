@@ -673,10 +673,15 @@ re-check — so a car settles at exactly 5.3 behind another car and 6.4 behind a
 asserted directly in `tools/probe.mjs`.
 
 `BOOST_GAP` (the boosting taxi's own tailgate distance in Loco Mode) is deliberately *not* run
-through `followGap`. It's tuned against the taxi's own collision envelope in `sim/collisions.js`,
-which stays `CAR_LEN`-sized for every target including a truck — widening the tailgate for a truck
-while the hitbox that actually matters stayed car-sized would just be a taxi hanging back further
-from a target it can still clip at the old range. The spawn-time clash check in `spawnCars` is
+through `followGap`. It's tuned against the collision envelope in `sim/collisions.js` rather than
+bumper-to-bumper road, so behind a truck it grows by exactly how much further back a truck's rear
+circle sits than a car's (`truckExtra`, 0.62): 5.12 rather than 4.5, the same 0.29 of daylight
+either way. It used to stay at 4.5 on the grounds that the hitbox was car-sized for every vehicle;
+then trucks got circles out to their own length (`circleOffsetOf`, shared by both files now) and the
+tailgate sat 1.98 off a truck's rear circle against a 2.31 envelope. See
+[the taxi never rams a truck](#the-taxi-never-rams-a-truck) for the rest of that.
+
+The spawn-time clash check in `spawnCars` is
 conservative instead of exact: a car's own `isTruck` isn't rolled until after it, so the check
 assumes a possible truck on that side of the pairing — a no-op when `truckChance` is 0, which is
 every scripted scenario in `tools/` but the one that exercises trucks on purpose.
@@ -1487,6 +1492,46 @@ read as the taxi flinching. Where a pass *is* on — the route carries straight 
 lane, the leader is not mid-turn and the borrowed lane is clear (`canPass`, the overtake's own test) —
 it tailgates exactly as before, because the tailgate is what brings it inside `PASS_TRIGGER` to pull
 out. Ramming is the fallback, not the policy.
+
+### The taxi never rams a truck
+
+Reported as "why is the taxi refusing to overtake the box truck? It just keeps ramming him." The
+ram works on a car because a rear-ended car is launched clear and scatters: one hit and the road is
+open. A truck outweighs the taxi, keeps 0.36 of the hit and doesn't scatter, so the taxi recoiled,
+set off again at boost, caught it a second later and hit it again, all the way to wherever the
+route turned. So `rams()` excludes trucks, and behind one with no way round the taxi tailgates it.
+
+Tailgating it turned out to need more than the lane bookkeeping offers. `leaderDist` walks lanes
+straight on, so a truck crawling round the corner the taxi is about to take (a right turn is
+`TRUCK_RIGHT_TURN_SPEED`, 2.3 u/s), or one whose tail is still in the box after it turned off, is
+nobody's leader. The boosting taxi therefore also brakes for the nearest truck *by its body*
+(`truckRoom`/`truckAhead`, read in both the drive and the junction branch): any truck within ~70°
+of the taxi's heading, ahead of its nose and inside the envelope sideways, plus one landing on the
+same exit lane, measured as the crow flies. Cross traffic is left out on purpose; barging a junction
+stays the mode's own risk. This is the one thing that can stop the taxi inside a box, and it only
+does it with a truck in front of its nose going its way.
+
+It has to be a test the truck agrees with, or the two wait for each other. The first cut parked the
+taxi for the rest of the run in 2 of 24 cities: once shoved level with a truck in one lane (same `s`,
+so the truck held for the taxi as its leader), and once with both merging onto one exit. Hence the
+taxi's centre has to be behind the truck's tail, and on a shared exit the truck has to be further
+round its turn than the taxi.
+
+Measured over 24 cities, 90s each, button held, routed, against the same runs before:
+
+| | rear-ends on a truck in front | same truck again within 6s | ground speed |
+|---|---|---|---|
+| `TRUCK_CHANCE` (1/12), before | 21 | 8 | 23.34 u/s |
+| `TRUCK_CHANCE` (1/12), after | **8** | **2** | 23.06 u/s |
+| 30% trucks, before | 108 | 63 | 22.69 u/s |
+| 30% trucks, after | **17** | **1** | 20.86 u/s |
+
+Overtakes of trucks went 23 → 33 at 30%. The ground speed is what following a truck costs against
+shoving one at `TRUCK_PUSH_V`, and at the game's own density it is about 1%.
+
+A car still gets rammed, and the same "hit it again" happens there too, less visibly because the
+car is launched clear: 40–60 of ~120 rear-ends on cars are the same car again within 6s. That is
+the route gate (see [when it is allowed](#when-it-is-allowed)) more than the ram.
 
 **What a bump does:**
 

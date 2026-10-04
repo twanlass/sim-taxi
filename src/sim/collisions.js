@@ -1,5 +1,5 @@
 import {
-  CAR_LEN, TRUCK_LEN, CIRCLE_OFFSET, CIRCLE_R, knockCar, shoveCar,
+  CAR_LEN, TRUCK_LEN, CIRCLE_R, circleOffsetOf, knockCar, shoveCar,
 } from './traffic.js';
 
 // Collision detection between the taxi and ambient cars. Deliberately narrow: only the taxi is
@@ -100,9 +100,10 @@ const TRUCK_PUSH_V = 1.5;          // u/s
 // A truck is 5.6 long against a car's 3.4, and the two circles used to sit at the car's offsets
 // on it too — which left 0.7 of cab and 0.7 of cargo box at either end that nothing tested, and
 // the taxi drove through them. Its circles go out to its own length, and it gets a third in the
-// middle so the pair does not leave a waist.
+// middle so the pair does not leave a waist. The offset lives in traffic.js (`circleOffsetOf`) so
+// the boosting taxi's tailgate steers by the same circles this tests.
 function carCircles(car) {
-  const off = car.isTruck ? TRUCK_LEN * 0.28 : CIRCLE_OFFSET;
+  const off = circleOffsetOf(car);
   const fx = Math.cos(car.yaw) * off;
   const fz = -Math.sin(car.yaw) * off;
   const circles = [
