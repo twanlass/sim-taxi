@@ -36,7 +36,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
   '../src/game/ssao.js', '../src/game/crayon.js', '../src/game/cartoon.js',
   '../src/game/bloom.js', '../src/game/hdr.js',
-  '../src/game/diag.js', '../src/game/recovery.js', '../src/game/pause.js', '../src/game/inspect.js',
+  '../src/game/diag.js', '../src/game/recovery.js', '../src/game/pause.js', '../src/game/menupage.js', '../src/game/inspect.js',
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',
   '../src/geometry/crate.js', '../src/game/flatbed.js',
   '../src/geometry/firetruck.js', '../src/game/fire.js',
@@ -138,14 +138,17 @@ try {
 
   // The driver thrown through the windscreen (game/ejection.js). A closed form like the wreck, so
   // the same promises: stepped and scrubbed agree, it never goes through the road, it comes to rest
-  // lying down and in frame, and it does not exist before the impact.
+  // lying down, and it does not exist before the impact. Plus the one it got wrong at first: thrown
+  // along the taxi's heading it could land inside a building, so a sweep of headings from a
+  // junction must every one come to rest on the road.
   {
     const THREE = await import('three');
     const { createEjection } = await import('../src/game/ejection.js');
+    const { GRID_I, GRID_J, blockBounds, lineX, lineZ } = await import('../src/city/grid.js');
     const scene = new THREE.Scene();
     const lands = [];
     const ej = createEjection(scene, { roadY: 0, onLand: (x, z, hard) => lands.push(hard) });
-    ej.fire({ x: 0, z: 0, yaw: 0.7, closing: 21, side: 1 });
+    ej.fire({ x: lineX(2), z: lineZ(3), yaw: 0, closing: 21, side: 1 });
     const fail = [];
     let low = Infinity;
     for (let n = 0; n < 180; n++) {
@@ -153,15 +156,34 @@ try {
       low = Math.min(low, ej.group.position.y);
     }
     const end = ej.group.position.clone();
-    const reach = Math.hypot(end.x, end.z);
+    const reach = Math.hypot(end.x - lineX(2), end.z - lineZ(3));
     if (low < 0.25) fail.push(`dipped to y ${low.toFixed(2)}`);
     if (Math.abs(end.y - 0.3) > 1e-3) fail.push(`rests at y ${end.y.toFixed(3)}, not lying`);
-    if (!(reach > 5 && reach < 11)) fail.push(`landed ${reach.toFixed(1)} units out`);
+    if (!(reach > 12 && reach < 20)) fail.push(`landed ${reach.toFixed(1)} units out down an open street`);
+    const inBlock = (x, z) => {
+      for (let bi = 0; bi < GRID_I; bi++) {
+        for (let bj = 0; bj < GRID_J; bj++) {
+          const b = blockBounds(bi, bj);
+          if (x > b.x0 && x < b.x1 && z > b.z0 && z < b.z1) return true;
+        }
+      }
+      return false;
+    };
+    for (let k = 0; k < 24; k++) {
+      const probe = createEjection(new THREE.Scene(), { roadY: 0 });
+      probe.fire({ x: lineX(2), z: lineZ(3), yaw: (k / 24) * Math.PI * 2, closing: 34, side: k % 2 ? 1 : -1 });
+      let through = false;
+      for (let n = 0; n < 180; n++) {
+        probe.update(1 / 60);
+        if (probe.group.position.y < 1 && inBlock(probe.group.position.x, probe.group.position.z)) through = true;
+      }
+      if (through) { fail.push(`heading ${k}/24 put the driver on a block`); break; }
+    }
     if (lands.length < 2) fail.push(`${lands.length} landings announced`);
     ej.seek(0.4);
     const scrubbed = ej.group.position.clone();
     const replayed = createEjection(new THREE.Scene(), { roadY: 0 });
-    replayed.fire({ x: 0, z: 0, yaw: 0.7, closing: 21, side: 1 });
+    replayed.fire({ x: lineX(2), z: lineZ(3), yaw: 0, closing: 21, side: 1 });
     for (let n = 0; n < 24; n++) replayed.update(1 / 60);
     if (scrubbed.distanceTo(replayed.group.position) > 1e-6) fail.push('seek(0.4) disagrees with stepping to 0.4');
     ej.seek(-0.1);

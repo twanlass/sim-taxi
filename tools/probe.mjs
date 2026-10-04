@@ -190,7 +190,7 @@ import {
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
-import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS } from '../src/game/sfx.js';
+import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
 const seed = Number(process.argv[2] ?? 71624);
@@ -9314,8 +9314,14 @@ check('the taxi is an ordinary car in the traffic array',
   const taken = new Set(Object.values(SOUNDS).flat());
   const unwired = [...taken].filter((f) => !(f in files) || !onDisk.includes(f));
   check('every take a sound names is a shipped .m4a', unwired.length === 0, unwired.join(', '));
-  const orphans = onDisk.filter((f) => !taken.has(f));
-  check('every shipped .m4a is some sound\'s take', orphans.length === 0, orphans.join(', '));
+  const tracks = [RADIO.intro, ...RADIO.songs];
+  const offAir = tracks.filter((f) => !(f in createSfx().radioFiles) || !onDisk.includes(f)
+    || !(RADIO.seconds[f] > 0) || !(RADIO.gain[f] > 0));
+  check('every radio track is a shipped .m4a with a length and a level', offAir.length === 0,
+    offAir.join(', '));
+  const orphans = onDisk.filter((f) => !taken.has(f) && !tracks.includes(f));
+  check('every shipped .m4a is some sound\'s take or a radio track', orphans.length === 0,
+    orphans.join(', '));
   const unsorted = Object.keys(SOUNDS).filter((k) => !SFX_EVENTS.has(k) && !LOOPS.has(k));
   check('every sound is either a one-shot or a bed', unsorted.length === 0, unsorted.join(', '));
 

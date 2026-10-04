@@ -1724,14 +1724,18 @@ unit, which reads as a wreck being panned across rather than as one car hitting 
 closing speed of `EJECT_CLOSING` (18 u/s) or more — a T-bone or a head-on at boost cruise, a
 full-boost rear-end into a stopped queue, anything in overdrive, but not rear-ending traffic going
 the same way — a cabbie in a blue shirt and a dark cap (the riders' rig at 0.8 scale) leaves the
-front of the cabin, tumbles head over heels over whatever was hit, bounces once or twice with a
-puff and a thud, and slides to a sprawl. Thrown slightly away from the struck car's side so they do
-not land in its fireball, and kept to ~8 units of travel so they land inside the wreck zoom. Like
-the shells it is a closed form of its age, and the replay scrubs it through `scrub` rather than off
-the tape: the tumble turns a third of a revolution between 30Hz samples. When it fires, the breath
-after the replay is `EJECT_TAIL` rather than `REPLAY_TAIL`, long enough to watch the landing. Its
-direction is the taxi's heading, so a wreck mid-turn or beside a corner block can throw the figure
-through a building; nothing checks the landing spot.
+front of the cabin, tumbles head over heels with arms windmilling and legs pedalling, bounces once
+or twice with a puff and a thud, and slides to a sprawl ~16 units down the road. Thrown slightly
+away from the struck car's side so they do not land in its fireball. The end-of-beat camera frames
+the point halfway between the wreck and the landing, so both stay in a portrait phone's shot.
+
+**It never lands in a building.** The throw follows the taxi's heading, so `fire()` walks the
+ground track first and, if it meets a block, unbridged river or the edge of the map, scales every
+horizontal speed down so the figure stops `CLEAR` short of it — the same tumble, shorter and
+steeper. Like the shells it is a closed form of its age, and the replay scrubs it through `scrub`
+rather than off the tape: the tumble turns a third of a revolution between 30Hz samples. When it
+fires, the breath after the replay is `EJECT_TAIL` rather than `REPLAY_TAIL`, long enough to watch
+the landing.
 
 **A wrecked car's lamps go out.** A crashed car never reaches the render pass again, so whatever
 brake level it last wrote would sit there for the rest of the run — and the frame this fires on is
@@ -2966,6 +2970,14 @@ a car length back could only ever catch a taxi that reversed into it. It used to
 8 units for a second of a stopped taxi, two of a moving one — and was reported as a soft fail
 state: a cop filling a bar a car length back is a timer, not a catch. The run ends **Busted!**, and
 the banner only waits for the camera (`BUST_BANNER_DELAY`, 2s).
+
+**The catch is played as a ram.** A bare touch and a freeze read as the cop nudging your bumper, so
+the touch fires a bump's effects on the seam (`contact` in sim/collisions.js): the starburst, the
+bump recording at full gain, sparks, a dent, and the taxi knocked ~1.8 units along the hit on
+util/carry.js's drag (`bustByPolice` in main.js). The probe's staged catches arrive at 3–12 u/s
+closing, median ~9, so the effects read off at least `RAM_MIN_CLOSING` (10) — the end of a chase
+should never look softer than a bump the player shrugged off earlier. Not the wreck's fireball: the
+taxi survives being arrested.
 
 **Ramming the cop on the pill is not caught.** It is a [bump](#bumps-and-hit-points) like any other
 car — HP off, the cop knocked or launched — and buys `RAMMED_GRACE` (1.5s) in which the cop neither

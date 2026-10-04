@@ -61,7 +61,7 @@ import { createLocoFlame } from './game/locoflame.js';
 import { createWreckage } from './game/wreckage.js';
 import { createEjection, EJECT_CLOSING } from './game/ejection.js';
 import { createTape, createCrashReplay } from './game/replay.js';
-import { carrySpeed } from './util/carry.js';
+import { CARRY_DRAG, carrySpeed, carryTravel } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
 import { createChopper } from './game/chopper.js';
 import { createBirds, chooseRoosts } from './game/birds.js';
@@ -854,23 +854,19 @@ const settings = createSettings();
 sfx?.setVolumes(settings.get());
 settings.onChange((v) => sfx?.setVolumes(v));
 
-// The switch lives on the pause screen, with M for a keyboard. The choice is remembered
-// (localStorage, soft — see game/sfx.js).
-const soundButton = document.querySelector('#pause-veil .pause-sound');
-function paintSound() {
-  if (!soundButton || !sfx) return;
-  soundButton.textContent = sfx.state.muted ? 'Sound: Off' : 'Sound: On';
-  soundButton.setAttribute('aria-pressed', String(!sfx.state.muted));
-}
-soundButton?.addEventListener('click', () => { sfx?.toggleMuted(); paintSound(); });
+// The one mute, as the Settings pages on the title and pause screens see it. M flips it from a
+// keyboard; the choice is remembered (localStorage, soft — see game/sfx.js). The pages re-read it
+// each time they come up, so M needs to tell nobody.
+const soundSwitch = {
+  isOn: () => Boolean(sfx && !sfx.state.muted),
+  set: (on) => { sfx?.setMuted(!on); },
+};
 window.addEventListener('keydown', (event) => {
   if (event.key !== 'm' && event.key !== 'M') return;
   // Not while typing initials, where M is a letter — the pause key's rule.
   if (event.target instanceof HTMLInputElement) return;
   sfx?.toggleMuted();
-  paintSound();
 });
-paintSound();
 
 // The patrol cruiser's look (sim/police.js) and its life (game/patrol.js): a police car that
 // crosses town edge to edge with its bar swinging red and blue, and comes after you if you boost in
@@ -896,7 +892,7 @@ const patrol = createPatrol({
     copShout?.show(cop);
     haptic('pick');
   },
-  onCaught: () => bustByPolice(),
+  onCaught: (cop, ram) => bustByPolice(ram),
   // Said by the cruiser that lost you, from over its own roof.
   onLost: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
   onHid: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
@@ -1446,6 +1442,19 @@ const SLOW_MO_DURATION = 2100;           // ms wallclock to ramp back to 1.0
 const BUST_BANNER_DELAY = 2000;
 const BUST_SLOW_MO_MIN = 0.42;
 
+// The catch is a ram: the cop's nose into the taxi, played as a bump (the starburst, the bump
+// recording, sparks off the seam, a dent) before the banner. Measured over the probe's staged
+// catches the cop arrives at 3–12 u/s closing, median ~9, and the low end makes a starburst the
+// size of a nudge — so the effects read off at least RAM_MIN_CLOSING, which is what keeps the end
+// of a chase from looking softer than a bump the player shrugged off a minute earlier.
+const RAM_MIN_CLOSING = 10;
+const RAM_SHAKE = 1.2;
+// And the taxi is knocked along the hit, on util/carry.js's drag rather than frozen where it was
+// touched: `closing × RAM_SHOVE` u/s at launch, so ~1.8 units of slide at RAM_MIN_CLOSING. The
+// shells' SHELL_CARRY (0.26) is the same idea one size up.
+const RAM_SHOVE = 0.3;
+let ramShove = null;
+
 // And the third ending gets the same beat on its own dial again. A fare's clock running out has
 // nothing happening *to the taxi* to look at — nothing hit it and nothing pulled it over — so the
 // subject of the shot is the rider instead: they get out where they are, swear about it and go
@@ -1494,9 +1503,9 @@ const REPLAY_LEAD = 1200;
 const REPLAY_TAIL = 350;
 // The same breath when the driver went through the windscreen, held long enough to see them land.
 // The replay hands back ~0.49s of sim past the impact (see REPLAY_LEAD) with the slow-mo already
-// run out, and at the 21 u/s of a boost-cruise T-bone the flight is ~0.93s in the air plus 0.3 to
-// settle flat — 0.74s still to go. Under the card they would land unseen.
-const EJECT_TAIL = 900;
+// run out, and at the 21 u/s of a boost-cruise T-bone the flight is ~1.05s in the air plus 0.3 to
+// settle flat — 0.86s still to go. Under the card they would land unseen.
+const EJECT_TAIL = 1100;
 let replayAt = null;
 // The sim clock the tape is stamped in: the sum of every dilated `dt` the world has been stepped by.
 let simClock = 0;
@@ -1666,7 +1675,11 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
     ...(other.isTruck ? { len: TRUCK_LEN, width: TRUCK_W } : {}),
   });
 
-  endSpot = { x, z };
+  // Framed on the middle of the whole picture when the driver was thrown: the throw runs ~16 units,
+  // past the edge of a portrait phone at wreck zoom if the shot stays on the wreck. Halfway puts
+  // the wreck and the landing each ~8 from the centre.
+  const landing = ejection.active() ? ejection.landing() : null;
+  endSpot = landing ? { x: (x + landing.x) / 2, z: (z + landing.z) / 2 } : { x, z };
   endZoom = WRECK_ZOOM;
   if (replay) {
     replay.arm({ t0: simClock, x, z, yaw });
@@ -1685,18 +1698,38 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
 
 /**
  * The patrol car has caught you — reuses the wreck cinematic (zoom, slow-mo, delayed banner) so the
- * beat is the same as a collision, but the taxi stays visible (no blast) since nothing hit it. The
- * taxi is flagged crashed so it freezes on the spot for the pull-in, and the fare system's
- * title/reason drive the "Busted!" banner.
+ * beat is the same as a collision. The catch is a ram, played as a bump (`ram`, from game/patrol.js:
+ * starburst, bump sound, sparks, a dent, the taxi knocked along the hit) rather than the wreck's
+ * blast — the taxi survives it and stays in shot. It used to be a bare touch and a freeze, which
+ * read as the cop nudging your bumper. The taxi is flagged crashed so it drops out of the sim for
+ * the pull-in, and the fare system's title/reason drive the "Busted!" banner.
  *
  * Called by game/patrol.js, the moment a chasing cop touches the taxi (TOUCH_SLACK). It used to
  * fire the moment the taxi boosted within a block of the cruiser, and then send the cruiser after a
  * taxi that was already frozen; the chase is now the part the player gets to play.
  */
-function bustByPolice() {
+function bustByPolice(ram) {
   if (fares.state.gameOver || traffic.taxi.crashed) return;
-  controller.kickShake(0.9);
-  endSpot = { x: traffic.taxi.x, z: traffic.taxi.z };
+  if (ram) {
+    const closing = Math.max(RAM_MIN_CLOSING, ram.closing);
+    controller.kickShake(RAM_SHAKE);
+    sfx?.play('bump', { gain: 1 });
+    impact.fire(ram.x, ram.z, closing);
+    const normalYaw = Math.atan2(-ram.nz, ram.nx);
+    const count = 8 + Math.round(closing * 0.5);
+    sparks.burst(ram.x, ROAD_Y + 0.6, ram.z, normalYaw + Math.PI / 2, count, closing * 0.5);
+    sparks.burst(ram.x, ROAD_Y + 0.6, ram.z, normalYaw - Math.PI / 2, count, closing * 0.5);
+    dust.burst(ram.x, ram.z, traffic.taxi.yaw, 8, 0.5, { tint: PALETTE.wreckSmoke, linger: 0.7 });
+    taxiDamage.hit(ram.x, ram.z);
+    const v = closing * RAM_SHOVE;
+    ramShove = { x: traffic.taxi.x, z: traffic.taxi.z, vx: ram.nx * v, vz: ram.nz * v, age: 0 };
+  } else {
+    controller.kickShake(0.9);
+  }
+  // Where the shove will leave it rather than where it was touched, so the pull-in lands on it.
+  endSpot = ramShove
+    ? { x: ramShove.x + ramShove.vx / CARRY_DRAG, z: ramShove.z + ramShove.vz / CARRY_DRAG }
+    : { x: traffic.taxi.x, z: traffic.taxi.z };
   endZoom = WRECK_ZOOM;
   crashBannerAt = performance.now() + BUST_BANNER_DELAY;
   slowMoUntil = performance.now() + SLOW_MO_DURATION;
@@ -3496,10 +3529,7 @@ function consumeTitleSkip() {
 const wantsTitle = !shot && !consumeTitleSkip()
   && new URLSearchParams(window.location.search).get('title') !== 'off';
 const title = wantsTitle ? createTitleScreen(document.getElementById('title-screen'), {
-  sound: {
-    isOn: () => Boolean(sfx && !sfx.state.muted),
-    set: (on) => { sfx?.setMuted(!on); paintSound(); },
-  },
+  sound: soundSwitch,
   settings,
   onPlay: beginRun,
 }) : null;
@@ -3567,6 +3597,10 @@ const pause = shot ? null : createPause({
   // Nothing left to hold once the run is over — and the retry screen owns the whole display then.
   // Never asked on the way out: a pause can always be lifted.
   canPause: () => !fares.state.gameOver && !title?.holding(),
+  sound: soundSwitch,
+  settings,
+  // Quit abandons the run: a reload without the "Play again" skip flag lands back on the title.
+  onQuit: () => location.reload(),
   onChange: (paused) => {
     // A pause with the gas still down would resume into a boost the player is no longer holding —
     // the pill's own pointer never comes back up, because the veil took the release. Same reason
@@ -3759,6 +3793,14 @@ function frame() {
   // `traffic.update` left the taxi, and a car taken here is staged before this frame's render pass.
   depotRun?.update(dt);
 
+  // The patrol's ram knocking the busted taxi along (`bustByPolice`). Before `traffic.update`, which
+  // is what draws the taxi where this leaves it; a crashed taxi is otherwise never moved.
+  if (ramShove) {
+    ramShove.age += dt;
+    const k = carryTravel(ramShove.age);
+    traffic.taxi.x = ramShove.x + ramShove.vx * k;
+    traffic.taxi.z = ramShove.z + ramShove.vz * k;
+  }
   traffic.update(dt);
   // A pass carried the taxi straight through a junction its route wanted to turn at, and the sim
   // dropped the route there (`detoured` in traffic.js). Re-plan from the far side, through the
