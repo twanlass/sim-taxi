@@ -2081,6 +2081,12 @@ the whole of this effect is that it should be impossible to miss. What changed, 
 | Colour | one swatch, #7FC08A | one swatch, #5FD182 | **a spread**, `cashNote` → `cashShade` | See below. |
 | The press | nothing | a 24-note kick | a 24-note kick | An effect that only ramps up says nothing on the frame the button went down, and that is the frame the player is looking at. |
 
+**Halved, and a trail left on the road** (Tyler, after the getaway grew checkpoints): the gust clock
+now runs 39/s and 3.5/s (~22/s mean), the kick is 12 notes and 2 bundles, and a gust throws a
+bundle 15% of the time rather than 30%. Half the notes that come down stay down (`GROUND_STAY`)
+for ~7s, fading over the last 1.5s, and a landed bundle lies 7s rather than 3.4 — so a getaway
+leaves a line of cash across town behind it rather than a cloud that follows the car.
+
 The **colour** is a reversal worth recording. The first cut pulled the hue toward a paper green on
 the argument that the HUD's earnings green is 27px of type on a dark scrim while these are small
 objects on a road. What that missed is the ground they land on: `asphalt` is luma 104 and the lane

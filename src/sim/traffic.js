@@ -553,6 +553,12 @@ const CHASE_SPEED = 2.55;
  * points of "a cop in the road ahead" and nothing else.
  */
 export const POLICE_FLEET = 4;
+/**
+ * ...and how many more a getaway can call in on top of that: one per checkpoint reached
+ * (`ROBBER_CHECKPOINTS` in game/fares.js, `wanted` in game/robbery.js). Reserved in the instance
+ * buffers alongside the fleet for the same reason the fleet is.
+ */
+export const POLICE_REINFORCEMENTS = 4;
 
 // --- Passing ------------------------------------------------------------------
 //
@@ -651,7 +657,8 @@ const PASS_BANK = 0.14;
 // point of the chase is that the police are driving the way the player is. So a cop gets the
 // taxi's spring, early window and gain while `chase` is on. Keyed on `police` for the spring
 // itself rather than on `chase`, so a cop that stands down mid-corner keeps its spring and settles
-// rather than snapping from the sprung roll to the raw one; at most POLICE_FLEET of them exist.
+// rather than snapping from the sprung roll to the raw one; at most POLICE_FLEET plus
+// POLICE_REINFORCEMENTS of them exist.
 const CORNER_ROLL_OMEGA = 13;    // rad/s — a period of ~0.5s, one visible rock back after the exit
 const CORNER_ROLL_DAMP = 10.4;   // 1/s, against ω = 13: ζ = 0.40, the pitch spring's
 const CORNER_ROLL_GAIN = 1.25;   // boosted rights only: a spring's peak lands under a pulse this short
@@ -2910,7 +2917,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // nowhere to put its cars.
   // ...and one more for the patrol cruiser (game/patrol.js), which is a car in traffic for the whole
   // of its patrol and can be on the road when a robbery brings its own fleet in.
-  const MAX_AMBIENT = Math.max(0, MAX_CARS - 1) + POLICE_FLEET + 1;
+  const MAX_AMBIENT = Math.max(0, MAX_CARS - 1) + POLICE_FLEET + POLICE_REINFORCEMENTS + 1;
 
   /**
    * Take a vehicle mesh out of frustum culling, and say why.

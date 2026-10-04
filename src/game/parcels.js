@@ -13,7 +13,6 @@ import {
   priceFor,
 } from './fares.js';
 import { popEnvelope } from './selectpop.js';
-import * as difficulty from './difficulty.js';
 
 // The package courier: a second cargo slot on a taxi that has one seat.
 //
@@ -206,8 +205,9 @@ export const PARCEL_AFTER_DELIVERY = 20;
 /**
  * Multiplier on a package's distance price. **This is the knob.**
  *
- * A package pays what a rider going the same distance pays (`priceFor`, times the shift multiplier),
- * so at 1 the courier layer is a real second income rather than a rounding error. Named rather than
+ * A package pays what a rider going the same distance pays (`priceFor`) off a fresh combo. The combo
+ * itself is the fare loop's — a package neither grows it nor is multiplied by it, because a detour
+ * taken on a rider's trip would otherwise pay that rider's bonus twice. So at 1 the courier layer is a real second income rather than a rounding error. Named rather than
  * inlined because it is the one number to turn if the soak shows bonus cash flattening the economy —
  * and if it moves, write the measured survival curve down beside it.
  */
@@ -400,7 +400,7 @@ const NO_EVENTS = Object.freeze([]);
  * The meshes one package needs, built once per slot and reused. A parcel is cheap bookkeeping; a
  * box, two pads and a flight copy are not something to rebuild every twenty seconds.
  */
-function createSlot(scene, index) {
+function createSlot(scene, index, board = scene) {
   // `pickable: null` throughout — the kerb box answers a tap through its pin's `postGroup`
   // (geometry/marker.js), and a tag of its own would follow the flight copy onto the road, a trap for
   // whoever next picks against the scene rather than against an explicit target list.
@@ -433,8 +433,8 @@ function createSlot(scene, index) {
 
   pickup.group.visible = false;
   dropoff.group.visible = false;
-  scene.add(pickup.group);
-  scene.add(dropoff.group);
+  board.add(pickup.group);
+  board.add(dropoff.group);
 
   return { index, pickup, dropoff, flight, flightBox };
 }
@@ -467,7 +467,12 @@ export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
     over: false,
   };
 
-  const slots = Array.from({ length: MAX_PARCELS }, (_, index) => createSlot(scene, index));
+  // Every pad and kerb box under one group, so a getaway can take the courier board off the map in
+  // one switch — see `concealed` in `update`. The flying box stays outside it (`createSlot` puts it
+  // on the scene): a package already on its way into the taxi finishes the trip.
+  const board = new THREE.Group();
+  scene.add(board);
+  const slots = Array.from({ length: MAX_PARCELS }, (_, index) => createSlot(scene, index, board));
 
   /**
    * A kind every future package is forced to, or null for the draw. Shot mode only (`forceKind`
@@ -663,9 +668,7 @@ export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
       target: pickup,
       blocks: blockDistance(pickup, dropoff),
       // Priced at spawn for the reason every price here is: it is a fact about the trip, settled the
-      // moment both ends are known. A rider's rate for a rider's distance, times the shift the
-      // package appeared in — so a courier job found during Rush Hour is worth Rush Hour money
-      // whenever it happens to get delivered.
+      // moment both ends are known. A rider's rate for a rider's distance — see PARCEL_PAY_FACTOR.
       value: 0,
       // Sim time of the last tap on this package, and which way its corner answers — see
       // `acknowledge`. Null rather than -Infinity so a package that has never been tapped skips the
@@ -675,7 +678,7 @@ export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
       ackPending: false,
     };
     parcel.value = Math.round(
-      priceFor(pickup, dropoff) * difficulty.payoutMultiplier(state.delivered) * PARCEL_PAY_FACTOR,
+      priceFor(pickup, dropoff) * PARCEL_PAY_FACTOR,
     );
     state.parcels.push(parcel);
 
@@ -915,7 +918,12 @@ export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
    * `fares.state.gameOver`. Passed in per frame rather than wired up, which is what keeps the
    * dependency one-way.
    */
-  function update(dt, taxiCar, { fareSpots = [], delivered = 0, over = false } = {}) {
+  function update(dt, taxiCar, { fareSpots = [], delivered = 0, over = false, concealed = false } = {}) {
+    // A getaway is running (`concealed` in game/fares.js): the courier board is off the map — no
+    // pads drawn, nothing tappable, nothing collected or delivered by driving over it, nothing new
+    // spawned. A package has no clock, so there is nothing to hold.
+    state.concealed = concealed;
+    board.visible = !concealed;
     // Hide everything on the transition into game-over and stay quiet after it. One seam, inside the
     // module, rather than a call at each of the three places a run can end (a fare's clock, a
     // collision, a police bust) — a cyan pad left glowing on the blackout is the failure mode, and
@@ -945,7 +953,7 @@ export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
     // spawned *this* frame must not also be ticked in it.
     const live = [...state.parcels];
 
-    if (delivered >= PARCEL_MIN_DELIVERED
+    if (!concealed && delivered >= PARCEL_MIN_DELIVERED
       && state.parcels.length < MAX_PARCELS
       && state.elapsed >= state.nextSpawnAt) {
       const spawned = spawn(taxiCar, fareSpots);
@@ -962,7 +970,7 @@ export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
       // renders the same frame every time.
       if (parcel.stage === 'waiting') parcel.slot.pickup.standing?.idle?.(state.elapsed);
 
-      if (distanceTo(parcel.target, taxiCar) >= ARRIVE_RADIUS) continue;
+      if (concealed || distanceTo(parcel.target, taxiCar) >= ARRIVE_RADIUS) continue;
 
       if (parcel.stage === 'waiting') {
         // One cargo slot. A second box the taxi drives past while already loaded is simply left
@@ -1037,7 +1045,7 @@ export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
      * taxi, and a hit box left in the target list over a corner with nothing on it would answer a tap
      * aimed at the street.
      */
-    pickables: () => state.parcels.map((p) => liveEnd(p).group),
+    pickables: () => (state.concealed ? [] : state.parcels.map((p) => liveEnd(p).group)),
     parcelFor,
     acknowledge,
     /** Land every pad's arrival animation at once — shot mode. See `fares.settleMarkers`. */

@@ -95,11 +95,16 @@ const BOOST_HINT_LINGER = 6;
 // So the hint now comes back, and what closes it for good is a hold long enough to have felt the
 // boost sustain (`LOCO_HINT_HOLD`).
 //
-// The cost of that is the spotlight, which dims the whole city by 78% for as long as a showing is
-// up — this beat runs *alongside* a live run, so a hint that simply sat there until it was obeyed
-// would be a dark city over a taxi the player is trying to drive. Hence a fixed budget rather than
-// a nag: three showings of BOOST_HINT_LINGER, 18 seconds of dimmed city across the whole run, and
-// then it gives up and lets them play. A player who has not taken it by the third is not going to.
+// This beat runs *alongside* a live run, so a hint that simply sat there until it was obeyed would
+// be a bubble over a taxi the player is trying to drive. Hence a fixed budget rather than a nag:
+// three showings of BOOST_HINT_LINGER, and then it gives up and lets them play. A player who has
+// not taken it by the third is not going to.
+//
+// **No spotlight on this beat.** It used to dim the city to a pool around the pill like the rider
+// beat does, and that is exactly wrong for this lesson: whether it is safe to floor it is a
+// question about the road ahead of the taxi, and the spotlight darkened the road and the taxi both
+// (Tyler, 2026-10-04). The pill's own pulse (`coach-boost`) and the bubble's pointer say which
+// control is meant.
 const BOOST_HINT_SHOWS = 3;
 // The gap between showings. Long enough that the bubble is plainly a second attempt rather than a
 // flicker, short enough that the press it is answering (or the absence of one) is still the thing
@@ -131,11 +136,6 @@ const COACH_FOLLOW = 2.0;
 // general gloom rather than as a light pointed at one thing.
 export const POOL_CLEAR = 6;
 export const POOL_EDGE = 17;
-// The pool around the Loco Mode pill runs out to this multiple of its clear radius. Wider in
-// proportion than the world one, because it sits in a screen corner: half the falloff is off the
-// edge of the glass, so a ratio that looks right in the middle of the city reads as a hard-edged
-// disc down there.
-const BUTTON_POOL_FALLOFF = 2.8;
 
 // The steps that own the camera, and the steps that are a bubble waiting to be answered. Everything
 // after the second dismissal is neither: the run is live, the player is driving, and the third beat
@@ -158,8 +158,6 @@ const GATED_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider']);
  * @param viewport      util/viewport.js — the frame the bubble is kept inside
  * @param project       (x, y, z) => {x, y} — world to viewport pixels, for aiming the spotlight
  * @param pixelsPerUnit () => number — the camera's current scale, for sizing it
- * @param boostAnchor   () => {x, y, r} | null — the gas pedal's centre and radius in viewport
- *                      pixels, for the third beat's spotlight
  * @param boostTarget   () => {x, y} | null — the top of the gas pedal, where the third beat's bubble
  *                      points
  * @param waitingFare   () => fare | null — whoever is on the kerb to point at
@@ -183,7 +181,7 @@ const GATED_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider']);
  */
 export function createTutorial({
   controller, aspect, isNarrow, taxi, viewport = null, project, pixelsPerUnit,
-  boostAnchor = () => null, boostTarget = () => null,
+  boostTarget = () => null,
   waitingFare, fareLocation, isDispatched, hasDelivered = () => false,
   boostHeld = () => false, boostUsed = () => false,
   isOver = () => false, isBlocked = () => false, shouldIgnoreTap = () => false,
@@ -221,11 +219,6 @@ export function createTutorial({
   // the player to it, rather than the light snapping on after they arrive.
   const spotlight = document.getElementById('spotlight');
   let spotAt = null;              // {x, z} in world space, or null for "aim at the taxi"
-  // Set by the third beat and never cleared: from its first showing on, the pool belongs to the
-  // pill. It has to outlast `state.step === 'boost'` because the pool is still fading out over the
-  // 0.45s after a showing ends, and a frame that re-aimed it at the rider from beat two would slide
-  // a half-lit pool across the city on its way out — and then bloom from there on the next showing.
-  let spotOnPill = false;
 
   const bubble = createSpeech(root, { viewport, typing: true, onDismiss: () => dismiss() });
   // What each beat's bubble points at. The rider is read off the same point the spotlight is, so
@@ -234,29 +227,17 @@ export function createTutorial({
   const atRider = () => (spotAt ? project(spotAt.x, RIDER_TIP_Y, spotAt.z) : null);
 
   /**
-   * Aim and size the pool for this frame. Cheap — four custom properties on one div.
-   *
-   * Two kinds of subject. The first two beats point at something in the city, so the pool is
-   * anchored in world space and sized in world units. The third points at a *control*, which is a
-   * fixed thing on the glass at a size that has nothing to do with the camera — so it is measured
-   * off the pill's own box instead. Sizing that one in world units would grow and shrink the pool
-   * around a button that never moved.
+   * Aim and size the pool for this frame. Cheap — four custom properties on one div. Anchored in
+   * world space and sized in world units, since both subjects it has ever had are in the city.
    */
   function updateSpotlight() {
     if (!spotlight) return;
-    let at;
-    if (spotOnPill) {
-      const pill = boostAnchor();
-      if (!pill) return;
-      at = { x: pill.x, y: pill.y, r0: pill.r, r1: pill.r * BUTTON_POOL_FALLOFF };
-    } else {
-      const world = spotAt ?? { x: taxi.x, z: taxi.z };
-      // 1.4 up: the middle of a car's flank and about a rider's chest, so the pool is centred on
-      // the subject rather than on the patch of road it is standing on.
-      const p = project(world.x, 1.4, world.z);
-      const px = pixelsPerUnit();
-      at = { x: p.x, y: p.y, r0: POOL_CLEAR * px, r1: POOL_EDGE * px };
-    }
+    const world = spotAt ?? { x: taxi.x, z: taxi.z };
+    // 1.4 up: the middle of a car's flank and about a rider's chest, so the pool is centred on
+    // the subject rather than on the patch of road it is standing on.
+    const p = project(world.x, 1.4, world.z);
+    const px = pixelsPerUnit();
+    const at = { x: p.x, y: p.y, r0: POOL_CLEAR * px, r1: POOL_EDGE * px };
     spotlight.style.setProperty('--sx', `${at.x.toFixed(0)}px`);
     spotlight.style.setProperty('--sy', `${at.y.toFixed(0)}px`);
     spotlight.style.setProperty('--r0', `${at.r0.toFixed(0)}px`);
@@ -317,14 +298,9 @@ export function createTutorial({
     state.step = 'boost';
     linger = BOOST_HINT_LINGER;
     boostShows += 1;
-    spotOnPill = true;
     // Pulses the pill itself, so the bubble is not the only thing saying which control it means.
+    // No spotlight here — see BOOST_HINT_SHOWS.
     document.body.classList.add('coach-boost');
-    // Same treatment the taxi and the rider got. `spotOnPill` is already set, so this picks up the
-    // pill's box rather than the last world subject — aim before the fade, or it blooms from
-    // wherever the previous beat left it.
-    updateSpotlight();
-    document.body.classList.add('spotlight-on');
     // A player who has pressed the pill and still not held it gets told what they are doing rather
     // than told the same thing twice. `boostUsed` is a press of any length, which is exactly the
     // gesture this line is about.
@@ -332,13 +308,13 @@ export function createTutorial({
   }
 
   /**
-   * One showing over, with the hold still not taken: put the city's lights back up and go around
+   * One showing over, with the hold still not taken: take the bubble down and go around
    * again after BOOST_HINT_REPEAT_GAP. Not `end()` — that retires the whole tutorial, and this beat
    * is only finished when it has been *answered* (a hold) or has spent its budget of showings.
    */
   function retireBoostHint() {
     bubble.hide();
-    document.body.classList.remove('spotlight-on', 'coach-boost');
+    document.body.classList.remove('coach-boost');
     if (boostShows >= BOOST_HINT_SHOWS) { end(); return; }
     state.step = 'toBoost';
     boostWait = BOOST_HINT_REPEAT_GAP;
