@@ -46,3 +46,39 @@ export function attachKnobReset(input) {
 
   return { button, sync };
 }
+
+// The "Copy values" button at the top of a ⚙️ panel section: that section's values alone, as JSON,
+// rather than the whole Export payload — so a tweak to one thing can be handed over without the
+// forty other numbers nobody touched riding along with it. `read` is called on the click, so it
+// copies what is live, not what was there when the panel was built.
+export function copyValuesButton(read) {
+  const wrap = document.createElement('div');
+  wrap.className = 'dbg-copy';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'dbg-wide';
+  const label = 'Copy values';
+  button.textContent = label;
+  const output = document.createElement('textarea');
+  output.className = 'dbg-out';
+  output.readOnly = true;
+  output.rows = 8;
+  output.hidden = true;
+  button.addEventListener('click', async () => {
+    const json = JSON.stringify(read(), null, 2);
+    output.value = json;
+    try {
+      await navigator.clipboard.writeText(json);
+      output.hidden = true;
+      button.textContent = 'Copied ✓';
+    } catch {
+      // Clipboard can be refused; the textarea is the fallback, as in the Export section.
+      output.hidden = false;
+      output.select();
+      button.textContent = 'Select and copy below';
+    }
+    setTimeout(() => { button.textContent = label; }, 1800);
+  });
+  wrap.append(button, output);
+  return wrap;
+}

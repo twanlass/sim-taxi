@@ -1566,6 +1566,9 @@
       .dbg-wide:hover:not(:disabled), .dbg-wide button:hover, .dbg-actions button:hover { background: rgba(255, 255, 255, 0.11); }
       .dbg-wide:disabled { opacity: 0.4; cursor: default; }
       .dbg-wide { width: 100%; margin-top: 10px; }
+      /* A section's own "Copy values" (knobreset.js) sits first in its body, so it drops the top margin. */
+      .dbg-copy { margin: 4px 0 10px; }
+      .dbg-copy .dbg-wide { margin-top: 0; }
       /* The inspect toolbar is a .dbg-wide div of buttons, not a button: no chrome of its own. */
       div.dbg-wide { padding: 0; border: 0; background: none; }
       div.dbg-wide:hover { background: none; }
