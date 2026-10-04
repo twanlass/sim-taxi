@@ -1839,6 +1839,24 @@ try {
       type, code: 'Space', key: ' ', windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32,
     });
 
+    // The page was just reloaded, so the opening vignette is running: the taxi is still in the
+    // garage and the pill is off screen. The key must be refused there too (it used to kick Loco
+    // Mode, sound and all, on a car parked behind the door). Then wait the vignette out, since
+    // everything below wants the taxi on the road.
+    const phase = () => evaluate(
+      'window.__taxi.opening() ? window.__taxi.opening().phase() : "done"');
+    const openingAt = await phase();
+    if (openingAt !== 'done' && openingAt !== 'release') {
+      await key('rawKeyDown');
+      await sleep(150);
+      const inGarage = await mode();
+      await key('keyUp');
+      check('the key is refused during the opening', inGarage !== 'active',
+        `phase ${openingAt}, mode ${inGarage}`);
+    }
+    const landDeadline = Date.now() + 180000;
+    while (Date.now() < landDeadline && (await phase()) !== 'done') await sleep(500);
+
     // A paused run takes no input at all. First, before anything below has spent fuel or risked a
     // wreck: `canPause` refuses on a game over, so a crashed taxi would fail this for the wrong
     // reason. `frame()` returns before `boost.update`, so a press behind the veil would sit in

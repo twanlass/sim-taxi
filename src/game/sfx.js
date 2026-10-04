@@ -74,7 +74,9 @@ const FILES = {
   '14_JUMP_land_B': new URL('../../assets/audio/14_JUMP_land_B.m4a', import.meta.url).href,
   '14_JUMP_land_C': new URL('../../assets/audio/14_JUMP_land_C.m4a', import.meta.url).href,
   '15_SIGNAL_turn': new URL('../../assets/audio/15_SIGNAL_turn.m4a', import.meta.url).href,
-  '16_HORN_honk': new URL('../../assets/audio/16_HORN_honk.m4a', import.meta.url).href,
+  '16_POLICE_siren_loop': new URL('../../assets/audio/16_POLICE_siren_loop.m4a', import.meta.url).href,
+  '17_BURGER_drive_through': new URL('../../assets/audio/17_BURGER_drive_through.m4a', import.meta.url).href,
+  '18_HORN_honk': new URL('../../assets/audio/18_HORN_honk.m4a', import.meta.url).href,
 };
 
 /**
@@ -103,21 +105,43 @@ export const SOUNDS = {
   takeoff: ['13_JUMP_takeoff_A', '13_JUMP_takeoff_B', '13_JUMP_takeoff_C'],
   land: ['14_JUMP_land_A', '14_JUMP_land_B', '14_JUMP_land_C'],
   signal: ['15_SIGNAL_turn'],
-  horn: ['16_HORN_honk'],
+  // Not the designer's: delivered separately (October 2026) and named into the same scheme so they
+  // sort after Block 1. The siren is the one bed that is not the taxi — it is the cop coming after
+  // it, which is feedback about the taxi all the same — and the drive-through is the speaker at the
+  // burger joint's window, played once per visit.
+  siren: ['16_POLICE_siren_loop'],
+  driveThru: ['17_BURGER_drive_through'],
+  horn: ['18_HORN_honk'],
 };
 
 /** What `play()` accepts — the one-shots. A typo throws here rather than going silent. */
 export const SFX_EVENTS = new Set(['bump', 'accel', 'brake', 'locoActivate', 'locoLaunch',
-  'locoBrake', 'skid', 'copSkid', 'doorOpen', 'doorClose', 'crash', 'takeoff', 'land', 'horn']);
+  'locoBrake', 'skid', 'copSkid', 'doorOpen', 'doorClose', 'crash', 'takeoff', 'land', 'driveThru',
+  'horn']);
 
 /** The beds: steered by `update()`, never fired. */
-export const LOOPS = new Set(['idle', 'locoLoop', 'signal']);
+export const LOOPS = new Set(['idle', 'locoLoop', 'signal', 'siren']);
 
 // The loops' true lengths, from the masters (afinfo). A decoder that does not trim AAC's 2112
 // frames of encoder priming hands back a buffer that long *plus* the pad, and looping the whole
 // buffer would put 44ms of silence in every cycle — a hiccup in the engine once every four
 // seconds. See `loopWindow`.
-const LOOP_SECONDS = { idle: 4, locoLoop: 8, signal: 4.53125 };
+const LOOP_SECONDS = { idle: 4, locoLoop: 8, signal: 4.53125, siren: 2.25 };
+
+/**
+ * The drive-through speaker's true length (afinfo on the master). The taxi's visit is timed to it —
+ * see TAXI_ORDER_DWELL in game/drivethru.js, and the probe that holds the two together.
+ */
+export const DRIVE_THRU_SECONDS = 12.93;
+/** ...and the quiet after it, before the lot lets the taxi go. Tyler's call: about two seconds. */
+export const DRIVE_THRU_TAIL = 2;
+
+/**
+ * How far the radio drops while something has to be heard over it — the drive-through speaker. The
+ * radio sits at -24 LUFS at full slider and the speaker at about -27 after its mix gain, so it was
+ * under the music; -12 dB puts the radio at about -36, behind the speaker and still playing.
+ */
+const MUSIC_DUCK = 0.25;
 const AAC_PRIMING = 2112 / 48000;
 
 /**
@@ -272,6 +296,8 @@ export function createSfx({ rng } = {}) {
     // the gain node, because a linear gain spends the whole bottom half of a slider on "loud".
     effects: 1,
     music: 1,
+    // The radio pulled down under the drive-through speaker — see `duckMusic`.
+    ducked: false,
     ready: false,
     loaded: 0,
     total: Object.keys(FILES).length,
@@ -304,7 +330,7 @@ export function createSfx({ rng } = {}) {
     return {
       state, play: noop, update: noop, hold: noop, setMuted: noop, toggleMuted: () => true,
       setVolumes: noop,
-      locoOn: noop, locoOff: noop,
+      locoOn: noop, locoOff: noop, release: noop, duckMusic: noop,
       tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
       audition: () => null, stopAuditions: noop, files: FILES, radioFiles: RADIO_FILES,
     };
@@ -347,7 +373,7 @@ export function createSfx({ rng } = {}) {
   let musicBus = null;
   /** What the master gain should read: the mix's master, under the player's slider and the mute. */
   const masterLevel = () => (state.muted ? 0 : mix.master * state.effects ** 2);
-  const musicLevel = () => (state.muted ? 0 : state.music ** 2);
+  const musicLevel = () => (state.muted ? 0 : state.music ** 2 * (state.ducked ? MUSIC_DUCK : 1));
   const buffers = {};    // by file name
   const lastAt = {};
   const lastTake = {};   // by sound name: the file it played last
@@ -370,6 +396,7 @@ export function createSfx({ rng } = {}) {
   let idle = null;       // { src, gain }
   let loco = null;       // the Loco loop bed
   let signal = null;     // the blinker; recreated per indicating window so each opens on a tick
+  let siren = null;      // the police siren; always running, its level steered by `update`
   let activate = null;   // the current Loco activate voice, or null
   let locoSince = -1;    // ctx time the current hold began, or -1
   let signalHand = null;
@@ -420,6 +447,7 @@ export function createSfx({ rng } = {}) {
       }
     }));
     if (buffers[SOUNDS.idle[0]]) idle = makeLoop('idle');
+    if (buffers[SOUNDS.siren[0]]) siren = makeLoop('siren');
     if (buffers[SOUNDS.locoLoop[0]]) loco = makeLoop('locoLoop');
     state.ready = true;
     if (state.held) suspendCtx();
@@ -553,8 +581,10 @@ export function createSfx({ rng } = {}) {
    * @param {number} opts.top     The Loco top (`boostCruise()`).
    * @param {boolean} opts.holding  The pill is held (not the cooldown tail).
    * @param {boolean} opts.over   The run has ended.
+   * @param {number} [opts.siren]  0..1, how loud the nearest running siren is from where the taxi
+   *   is — main.js works it out from distance (see `sirenLevel` there). 0 is no siren on the map.
    */
-  function update(dt, taxi, { cruise, top, holding, over }) {
+  function update(dt, taxi, { cruise, top, holding, over, siren: sirenAt = 0 }) {
     if (!state.ready) return;
     const t = ctx.currentTime;
     const v = Math.max(0, taxi.v);
@@ -617,6 +647,16 @@ export function createSfx({ rng } = {}) {
       signal.gain.gain.setTargetAtTime(mix.sounds.signal.gain, t, 0.02);
       signal.src.playbackRate.setTargetAtTime(mix.sounds.signal.rate, t, 0.02);
     }
+
+    // The siren. A bed like the idle rather than a voice started per chase: it runs silent all
+    // run and the frame says how loud, so a chase that ends any of the ways one can (lost, bust,
+    // the depot, a wreck) can never leave it wailing. A quarter-second glide, so a cop passing
+    // the falloff's edge swells in rather than switching on. Gone with the run, like the engine.
+    if (siren) {
+      const g = over ? 0 : mix.sounds.siren.gain * Math.max(0, Math.min(1, sirenAt));
+      siren.gain.gain.setTargetAtTime(g, t, over ? 0.4 : 0.25);
+      siren.src.playbackRate.setTargetAtTime(mix.sounds.siren.rate, t, 0.02);
+    }
   }
 
   /** Stop the clock under everything — the pause and the robber's line, which stop the world. */
@@ -645,6 +685,16 @@ export function createSfx({ rng } = {}) {
     if (!ctx) return;
     master.gain.setTargetAtTime(masterLevel(), ctx.currentTime, 0.02);
     musicBus.gain.setTargetAtTime(musicLevel(), ctx.currentTime, 0.02);
+  }
+
+  /** Pull the radio down under a voice that has to be heard (true), or let it back up (false). */
+  function duckMusic(on) {
+    if (Boolean(on) === state.ducked) return;
+    state.ducked = Boolean(on);
+    if (!ctx) return;
+    // Slower back up than down: the speaker's first word should not be under the chorus, and the
+    // song coming back over half a second reads as a fade rather than a switch.
+    musicBus.gain.setTargetAtTime(musicLevel(), ctx.currentTime, on ? 0.12 : 0.5);
   }
 
   function tune(partial) {
@@ -693,6 +743,9 @@ export function createSfx({ rng } = {}) {
     hold,
     locoOn,
     locoOff,
+    /** Fade out a voice `play()` returned — the drive-through speaker as the taxi leaves the lot. */
+    release: (voice, tau = 0.3) => stopVoice(voice, tau),
+    duckMusic,
     setMuted,
     setVolumes,
     toggleMuted: () => { setMuted(!state.muted); return state.muted; },

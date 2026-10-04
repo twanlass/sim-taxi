@@ -1624,6 +1624,36 @@ darkened by displacing the merged body's vertices. It looked wrong — a box wit
 off, which reads as a modelling fault rather than as a dent. The damage now says itself through
 parts that come *off* the car, not through the car changing shape.
 
+### The cars it hits wear it too
+
+`game/cardamage.js` puts the same parts on any ambient car the taxi hits — the same lids on the same
+spring, the same lamp on its wire, the same bumper dragging sparks, sized once in
+`geometry/damage.js` for both bodies. What a hit does is read off where on the struck car it landed:
+
+- the lid at that end flies open (the boot for a car rear-ended, the bonnet for one nosed into) and
+  any lid already open slams;
+- the lamp at that corner swings loose, its pods hanging with it;
+- a second hit, or one closing at 15 u/s or more (a T-bone at boost cruise is ~21, a tailgate ~10.5),
+  knocks the bumper off the most-hit end to hang by a corner and drag on the road.
+
+It stays for as long as the car is on the map. **Only a charged hit marks a car** — a boosting one,
+through `onBump`. Off-boost contact is the self-driving taxi's own junction grazes (one every ~100s
+in the never-boosting harness), which cost the taxi nothing, so they cost the other car nothing
+either. There is no smoke and no list: on the taxi those are its hit points, and a smoking car that
+is not the taxi would muddy the one gauge the player reads. Trucks get lamps and a bumper but no lids
+(the cab runs to the nose and the back is a box); the cruiser and the guests are drawn by their own
+meshes and are left out.
+
+**Cost.** The fleet's bumpers came out of the body geometry into a pair of instanced meshes of their
+own (`bumperMesh`, `truckBumperMesh`), because a bar merged into the body cannot leave the end it hung
+from — a car with one hanging would wear two. That is two draw calls and two matrix multiplies a car.
+The lids, openings, housings and wires are four more instanced meshes over a fixed pool of eight
+rigs, every unused instance at a zero scale (they stay visible so their shaders link at boot rather
+than on the frame of the first hit); a pool full of dented cars gives up the one furthest from
+the taxi. A car's loose bumper and lamp pods ride the fleet's own instances through `car.wear`, which
+`writeAmbient` reads, so a rig is released by clearing that one field — when its car is wrecked or
+leaves the map.
+
 **Contact is resolved every frame and charged once.** For as long as the two bodies overlap, the
 struck car is pushed out along the deepest circle pair's normal (`shoveCar`): the part along its own
 lane goes into `s`, so a rear-ended car is bulldozed down the road in the sim; the rest goes into the
@@ -2387,12 +2417,13 @@ Three things the invitation changes, all of them at the mouth:
 - **There is no roll.** `ENTER_CHANCE` and `FED_COOLDOWN` are how ambient traffic decides; the tap
   is the decision, and the taxi is not put on the cooldown on the way out either. Doing laps of a
   restaurant is a choice the player is paying a fare's clock — and $10 a burger — for.
-- **It eats faster.** 0.6s at the board and 1.0s at the window, against 2.6 and 3.8 plus jitter. An
-  ambient car's dwell is scenery and has to *read* from across the city; the player's is a clock
-  they are paying. 1.6s of standing still out of the **8.0s** the lot takes end to end — measured
-  mouth to kerb with the lane empty — is enough to make the visit read as a visit, and short enough
-  that it is not what the detour costs. What the detour costs is the driving either side of it, and
-  the tenner that comes off the counter at the window.
+- **It is timed to the speaker.** 2.6s at the board and 5.5s at the window, with no jitter, so the
+  visit lasts the 12.93s of the drive-through clip it plays (`driveThru`, [audio.md](audio.md)) and
+  about 2s of quiet after it before the car leaves: 6.83s of driving through the lot with the lane
+  empty, and the two stops share the rest. It used to eat faster (0.6 + 1.0, an **8.4s** visit), on
+  the grounds that the player is paying a clock; the clip is a conversation and cut short it ends
+  mid-sentence, so the visit now costs 6.5s more. `tools/probe.mjs` holds the visit within half a
+  second of the clip plus the tail.
 
 A wreck in the lot — the run ending while the player is at the window — stops where it is, and the
 queue behind it holds, because each car's limit comes from its leader's position.
