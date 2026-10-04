@@ -51,11 +51,12 @@ export const AFTER_DELIVERED = 2;
 export const SHOW_DELAY = 0.9;
 
 /**
- * Taps for this long after the card lands are ignored, in ms. It arrives on a timer, mid-run, under
- * a thumb that may well be tapping the city; the first tap after it appears should be one the
- * player meant for it.
+ * Taps for this long after the card lands are ignored, in ms. Any tap or key press dismisses it
+ * (Tyler, 2026-10-04) — but it arrives on a timer, mid-run, under a thumb that may already be
+ * coming down on the city, and that tap should not close a card nobody has seen yet. It was 700ms;
+ * 300 is about the shortest a deliberate tap follows something appearing.
  */
-const TAP_GUARD_MS = 700;
+const TAP_GUARD_MS = 300;
 
 /**
  * @param {object} opts
@@ -85,11 +86,12 @@ const LINE = 'U-Turn';
 
 /**
  * The card itself: the game's speech bubble (game/speech.js) — the same card every tutorial tip
- * uses — pinned to the gas pedal, with the pedal row under its line. Browser-only: it clones the
+ * uses — centred above the pedals with no pointer, the pedal row under its line. Browser-only: it clones the
  * HUD's pedal art.
  *
  * @param viewport  util/viewport.js
- * @param target    () => {x, y} | null — where the pointer touches: the top of the gas pedal
+ * @param target    () => {x, y} | null — the point the card stands over (main.js: centred, lifted
+ *                  clear of the gas pedal)
  * @param onClose   () => void — the card has been dismissed
  */
 export function createNewMove({ viewport = null, target = () => null, onClose = () => {} } = {}) {
@@ -147,6 +149,15 @@ export function createNewMove({ viewport = null, target = () => null, onClose = 
     if (!open || performance.now() - openedAt < TAP_GUARD_MS) return;
     close();
   });
+  // Any key too. Captured on `window` and swallowed, so the Space or B that closes the card does not
+  // also go on to boost or brake a taxi the player was not looking at.
+  window.addEventListener('keydown', (e) => {
+    if (!open) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (e.repeat || performance.now() - openedAt < TAP_GUARD_MS) return;
+    close();
+  }, { capture: true });
 
   return {
     isOpen: () => open,

@@ -3613,7 +3613,16 @@ const pause = shot ? null : createPause({
 // brings a run to AFTER_DELIVERED fares. The world stops while it is up — the early return in
 // `frame()` beside the robber's line's. See game/newmove.js for when and why.
 const uturnSeen = createSeenFlag();
-const newMove = shot ? null : createNewMove({ viewport, target: gasPedalTop });
+// Centred, and lifted well clear of the gas pedal: no pointer (the move is three buttons, not the
+// one it would point at), and a card sitting on the pedal's rim read as being about it alone.
+const NEW_MOVE_LIFT = 72;
+const newMove = shot ? null : createNewMove({
+  viewport,
+  target: () => {
+    const gas = gasPedalTop();
+    return gas && { x: viewport.width() / 2, y: gas.y - NEW_MOVE_LIFT };
+  },
+});
 // Seconds of game time until the card lands, or negative when none is due.
 let newMoveIn = -1;
 /**
