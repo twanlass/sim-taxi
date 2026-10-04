@@ -15175,6 +15175,7 @@ let chopperOrder; // likewise
     {
       let fewer = 0; let shortLeg = 0; let tooLong = 0; let clash = 0; let uncovered = 0; let n = 0;
       let flow = true;
+      const shapes = [];
       for (let k = 0; k < 8; k++) {
         const s6 = new THREE.Scene();
         const t6 = createTraffic(makeRng(seed + 44 + k * 13), s6, 10, 18);
@@ -15208,8 +15209,12 @@ let chopperOrder; // likewise
         // Touch each corner in turn: a checkpoint moves the target on, the last stop delivers.
         if (k === 0) {
           const seen = [];
+          // The mark on the ground: a diamond for a checkpoint, the disc for the drop-off — read
+          // off the rim's own torus, four segments against forty-eight.
+          const corners = () => r.slot.destination.ring.group.children[0].geometry.parameters.tubularSegments;
           for (const stop of [...cps, r.dropoff]) {
             if (r.target.i !== stop.i || r.target.j !== stop.j) { flow = false; break; }
+            shapes.push(corners() === (stop === r.dropoff ? 48 : 4));
             const c = intersectionCentre(stop.i, stop.j);
             t6.taxi.x = c.x; t6.taxi.z = c.z;
             for (const e of f6.update(1 / 60, t6.taxi)) seen.push(e.type);
@@ -15225,6 +15230,8 @@ let chopperOrder; // likewise
       check('...on free, visible, dry corners of their own', clash === 0, `${clash} clashes`);
       check('...budgeted into the robber’s one clock', uncovered === 0, `${uncovered} short clocks`);
       check('...and touched in order, every checkpoint and then the drop-off', flow);
+      check('...each checkpoint marked by a diamond, the drop-off by the ring',
+        shapes.length === ROBBER_CHECKPOINTS + 1 && shapes.every(Boolean), `${shapes.filter(Boolean).length}/${shapes.length}`);
     }
 
     check('...but not while somebody is already in the back',

@@ -1888,9 +1888,11 @@ and risk the wreck, or hold off and risk the clock — a choice.
 
 `ROBBER_CHECKPOINTS` in `game/fares.js`. A getaway is not one leg: the taxi has to touch **four
 checkpoints** before the drop-off, and each one pours the boost tank full again (`'checkpoint'` in
-main.js, the same pour as the boarding tank) with a "Checkpoint 1/4" rising off the cab. The ring
-the taxi is driving at *is* the checkpoint — it hops on to the next corner on arrival, and the
-route re-dispatches itself. The clock keeps running straight through; only the drop-off pays.
+main.js, the same pour as the boarding tank) with a "Checkpoint 1/4" rising off the cab. The mark
+the taxi is driving at *is* the checkpoint — a **diamond** on the ground rather than the disc
+(`setShape` in geometry/targetring.js), so a waypoint never reads as the end of the trip. It hops
+on to the next corner on arrival, turning back into the ring for the drop-off, and the route
+re-dispatches itself. The clock keeps running straight through; only the drop-off pays.
 
 The drop-off is drawn first, exactly as before (the far side of the map), and the checkpoints
 between it and the bank by random darts: every leg at least 3 blocks so a checkpoint is somewhere

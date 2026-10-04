@@ -87,6 +87,25 @@ const SWEEP_GEO = new THREE.TorusGeometry(RING_R, SWEEP_TUBE, 6, 64).rotateX(-Ma
 
 // One revolution every 3.2s — fast enough to read as motion on a glance down at the road, slow
 // enough not to compete with the panic pulse (game/faremarker.js) for the eye's attention.
+// The getaway's checkpoints wear a **diamond** instead of the disc (`setShape`), so the corners a
+// robbery passes through read as waypoints and the ring stays the one place a trip ends. Same three
+// layers, built the same way with four segments instead of 48: three puts a torus's and a circle's
+// first vertex on +X, and after the turn onto the ground the four corners sit on the world axes —
+// which this camera's fixed +X+Z diagonal draws as a diamond (left, right, top and bottom on
+// screen) rather than as a square. A tenth wider than the disc at the corners, because a diamond
+// inscribed in the ring covers two thirds of its area and read as the smaller, lesser mark.
+const DIAMOND_R = RING_R * 1.1;
+const DIAMOND_RIM_GEO = new THREE.TorusGeometry(DIAMOND_R, RING_TUBE, 6, 4).rotateX(-Math.PI / 2);
+const DIAMOND_FILL_GEO = new THREE.CircleGeometry(DIAMOND_R - RING_TUBE / 2, 4).rotateX(-Math.PI / 2);
+const DIAMOND_SWEEP_GEO = new THREE.TorusGeometry(DIAMOND_R, SWEEP_TUBE, 6, 4).rotateX(-Math.PI / 2);
+{
+  // The sweep's angle from `uv.x`, as for the ring above.
+  const uv = DIAMOND_SWEEP_GEO.attributes.uv;
+  const angle = new Float32Array(uv.count);
+  for (let v = 0; v < uv.count; v++) angle[v] = uv.getX(v) * TWO_PI;
+  DIAMOND_SWEEP_GEO.setAttribute('aAngle', new THREE.BufferAttribute(angle, 1));
+}
+
 const SWEEP_SPEED = TWO_PI / 3.2;
 // How much of the circle the glow covers, trailing the head. A third of the ring, so most of its
 // border still reads as the flat rim colour and the beam is a distinct thing riding over it rather
@@ -276,6 +295,16 @@ export function createTargetRing(colorHex) {
      * frame, which already has a crystal flying to the roof and two discs trading places, and a
      * board of markers snapping darker in the middle of that reads as a glitch.
      */
+    /**
+     * The disc, or the checkpoint diamond — see DIAMOND_R. A geometry swap on the same three
+     * meshes and materials, so it costs no new program and the slot keeps whichever it was last
+     * handed: every caller that places this mark says which one it wants.
+     */
+    setShape(diamond) {
+      rim.geometry = diamond ? DIAMOND_RIM_GEO : RIM_GEO;
+      fill.geometry = diamond ? DIAMOND_FILL_GEO : FILL_GEO;
+      sweep.mesh.geometry = diamond ? DIAMOND_SWEEP_GEO : SWEEP_GEO;
+    },
     setDim(amount) {
       const next = THREE.MathUtils.clamp(amount, 0, 1);
       if (next === dim) return;
