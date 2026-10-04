@@ -111,7 +111,15 @@ export function createNewMove({ viewport = null, target = () => null, onClose = 
   const combo = document.createElement('div');
   combo.className = 'nm-combo';
   combo.setAttribute('aria-hidden', 'true');
+  // All three keys at one size, a "+" between each (Tyler, 2026-10-04): the row is a recipe, and
+  // the HUD's big-gas/small-brake sizing read as a hierarchy that is not in the combo.
   for (const [cls, id] of [['nm-boost', 'boost'], ['nm-brake nm-b1', 'brake'], ['nm-brake nm-b2', 'brake']]) {
+    if (combo.childElementCount) {
+      const plus = document.createElement('span');
+      plus.className = 'nm-plus';
+      plus.textContent = '+';
+      combo.append(plus);
+    }
     const key = document.createElement('div');
     key.className = `nm-key ${cls}`;
     const svg = art(id);

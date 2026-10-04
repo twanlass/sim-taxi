@@ -1146,10 +1146,10 @@
       body.game-over #new-move { display: none; }
       body.new-move-open #new-move { pointer-events: auto; cursor: pointer; touch-action: manipulation; }
       body.new-move-open #coach, body.new-move-open #spotlight { visibility: hidden; }
-      .nm-combo { display: flex; align-items: center; gap: 10px; }
-      .nm-key svg { display: block; overflow: visible; }
-      .nm-boost svg { width: 64px; height: 64px; }
-      .nm-brake svg { width: 46px; height: 46px; }
+      .nm-combo { display: flex; align-items: center; gap: 6px; }
+      /* The "+" between keys: the title's ink, so it reads as part of the card's type. */
+      .nm-plus { font: 700 18px/1 var(--game-font); color: #44497d; }
+      .nm-key svg { display: block; overflow: visible; width: 44px; height: 44px; }
       .nm-boost .pedal-face { filter: url(#gas-up); }
       .nm-brake .pedal-face { filter: url(#brake-up); }
 
