@@ -1471,6 +1471,18 @@ const BRAKE = 17.5;           // units/s^2 shedding speed; ~2.1 units to stop fr
 // car lengths of rubber from flat out, where the ordinary brake would take four times as long to
 // look like anything at all.
 const HARD_BRAKE = 2 * BRAKE;
+// What the taxi sheds speed at when Loco Mode is let go and nothing ahead needs it to slow — the
+// lift-off rather than the brake. Before the brake pedal existed, letting go *was* the brake, so
+// the coast-down ran at BRAKE (22.1 → 8.5 in 0.8s, nose dipping hard); with a pedal to stop on,
+// the release can be a coast instead: 22.1 → 8.5 in 1.5s, 34 → 8.5 in 2.8s. Only the speed
+// *ceiling* coasts — a red, a leader or a corner still pulls the car down at BRAKE (see the drive
+// branch), so the softer lift never costs a stop the car could have made before.
+//
+// 9 rather than the 6 first tried, and the number is the chase's: the lift-off keeps speed, and
+// speed is what loses a cop, so a softer coast stretches every slice of tank. tools/probe.mjs's
+// "a third of a tank is a coin flip" caught 2/10 at the old 17.5, **1/10 at 6** (fail) and 2/10
+// at 9 and at 12 — 9 is the softest that leaves the chase where it was.
+const COAST = 9;
 const CORNER_SPEED = SPEED * 0.7;
 
 /**
@@ -1615,12 +1627,13 @@ export const MPH_PER_UNIT = 67 / 22.95;
  * which is the one failure mode a tuning panel must not have. That is also why `BOOST_CRUISE` is
  * no longer a const — it is `boostCruise()`, derived on the call.
  *
- * `brake` is here despite belonging to *every* car rather than to the boosting taxi: it owns the
- * coast-down after the button is let go, which is a phase of the ramp, and there is no separate
- * taxi brake to expose. The panel labels it as global. It is also what `LOOKAHEAD` (32) is derived
- * against, so a much softer brake — or a much higher overdrive top — can outrun the horizon the
- * following rule can see. A tuning panel is allowed to drive off the end of a derivation; that is
+ * `brake` is here despite belonging to *every* car rather than to the boosting taxi: it is what
+ * the taxi stops for reds and leaders on through the coast-down. The panel labels it as global.
+ * It is also what `LOOKAHEAD` (32) is derived against, so a much softer brake — or a much higher
+ * overdrive top — can outrun the horizon the following rule can see. A tuning panel is allowed to drive off the end of a derivation; that is
  * simply where the rear-ends come from when it does.
+ *
+ * `coast` is the coast-down itself — the taxi's lift-off once the button is let go (COAST).
  */
 export const LOCO_DEFAULTS = Object.freeze({
   kick: BOOST_KICK,
@@ -1629,6 +1642,7 @@ export const LOCO_DEFAULTS = Object.freeze({
   overdriveSpeed: OVERDRIVE_SPEED,
   overdriveAccel: OVERDRIVE_ACCEL,
   brake: BRAKE,
+  coast: COAST,
   // The weave — the wander inside the lane that reads as "he is driving like a maniac". Two waves
   // whose periods deliberately do not divide, so they never settle into a metronome; see the
   // SWERVE_* block at the top of this file for the room budget they were sized against. Live for
@@ -1815,7 +1829,7 @@ export function locoRamp({ holdFor = null, dt = 0.002 } = {}) {
       }
       if (released && v <= SPEED + 1e-6) break;
       v = released
-        ? Math.max(SPEED, v - loco.brake * dt)
+        ? Math.max(SPEED, v - loco.coast * dt)
         : Math.min(top, v + boostAccel(v) * dt);
       s += v * dt;
       t += dt;
@@ -5106,17 +5120,29 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // it has been granted. Nothing else needs to know — with a target of 0 the accelerate branch
         // below can never fire, so a braking taxi cannot pull away from a green, out of a queue or
         // into an overtake while the pedal is down.
-        const desired = car.braking ? 0 : Math.min(
-          topSpeed, leadCap, Math.sqrt(2 * brake() * Math.max(0, stopRoom)),
+        // Everything but the ceiling — what the road ahead allows, as opposed to what the car is
+        // permitted. Kept apart so the taxi can coast down to its ceiling while still braking
+        // properly for anything in this term.
+        const roadCap = Math.min(
+          leadCap, Math.sqrt(2 * brake() * Math.max(0, stopRoom)),
           // Arriving at the U-turn window at the arc's speed, on the hard brake: a cop at chase
           // speed needs ~3 units to shed it that way against ~5 at an ordinary one, which is most
           // of the way to the window on a 12-unit lane.
           swing ? Math.sqrt(UTURN_SPEED * UTURN_SPEED
             + 2 * hardBrake() * Math.max(0, swing.lo - UTURN_MARGIN / 2 - car.s)) : Infinity,
         );
-        car.v = desired > car.v
-          ? Math.min(desired, car.v + accel * dt)
-          : Math.max(desired, car.v - (car.braking || swing ? hardBrake() : brake()) * dt);
+        const desired = car.braking ? 0 : Math.min(topSpeed, roadCap);
+        if (desired > car.v) {
+          car.v = Math.min(desired, car.v + accel * dt);
+        } else if (car.isTaxi && !car.braking && !swing) {
+          // Over the ceiling after a Loco Mode release: lift off at COAST, unless the road itself
+          // wants the car slower than that leaves it, in which case brake down to the road's
+          // number as before. Never slower than the ordinary rule would have left the car.
+          car.v = Math.max(desired, Math.min(car.v - loco.coast * dt,
+            Math.max(roadCap, car.v - brake() * dt)));
+        } else {
+          car.v = Math.max(desired, car.v - (car.braking || swing ? hardBrake() : brake()) * dt);
+        }
 
         let step = Math.min(car.v * dt, Math.max(0, allowed));
         // Braking only asymptotes toward the line; snap the last sliver so arrival happens. Keyed
@@ -5504,11 +5530,13 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // hold. That is what keeps `bargesThrough`'s guarantee intact: nothing stops the taxi
         // inside a junction.
         let target = cornerTarget;
+        let leadCap = Infinity;
         const lead = followsLeader(car) && !rams(car) ? leaderOf.get(car) : undefined;
         const leadGap = lead === undefined ? undefined : leaderDist.get(car);
         if (leadGap !== undefined) {
           const room = Math.max(0, leadGap - (car.boost ? boostGap(car) : followGap(car, lead)));
-          target = Math.min(target, lead.v + Math.sqrt(2 * brake() * room));
+          leadCap = lead.v + Math.sqrt(2 * brake() * room);
+          target = Math.min(target, leadCap);
         }
         // The brake pedal, on the same terms as the drive branch. A pedal that only worked on a
         // lane would ignore the player for up to a second at a time — a junction crossed at cruise
@@ -5523,8 +5551,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // SCATTER_SPEED and a junction is 8, so without this the cruise cap above would raise the
         // roof and the car would still cross at the speed it entered.
         const accel = fullPower ? boostAccel(car.v) : chaseAccelFor(car);
+        // Straight on after a Loco Mode release coasts like the lane does (COAST) — otherwise every
+        // junction crossed during the lift-off would be a hard dab of brake in the middle of it.
+        // A real corner is a real constraint and brakes at the ordinary rate.
+        const coasting = car.isTaxi && straightOn && !car.braking;
         car.v = car.v > target
-          ? Math.max(target, car.v - (car.braking ? hardBrake() : brake()) * dt)
+          ? (coasting
+            ? Math.max(target, Math.min(car.v - loco.coast * dt, Math.max(leadCap, car.v - brake() * dt)))
+            : Math.max(target, car.v - (car.braking ? hardBrake() : brake()) * dt))
           : Math.min(target, car.v + accel * dt);
         car.turnT += (car.v * dt) / car.turnLen;
         car.travelled += car.v * dt;

@@ -100,7 +100,7 @@ export function createDebugPanel({
   // against nothing; the section then draws a flat curve and moves a tuning nobody is reading.
   loco = {
     defaults: {
-      kick: 1, speed: 1, accel: 1, overdriveSpeed: 1, overdriveAccel: 1, brake: 1,
+      kick: 1, speed: 1, accel: 1, overdriveSpeed: 1, overdriveAccel: 1, brake: 1, coast: 1,
       sway: 0.4, swayWave: 18, chop: 0.12, chopWave: 9.5, fade: 7,
     },
     get: () => ({ ...loco.defaults }), set: () => {}, reset: () => {},
@@ -916,12 +916,13 @@ export function createDebugPanel({
   locoLever('Punch', 'accel', 4, 300, 1, (v) => `${v.toFixed(0)} u/s²`);
   locoLever('Overdrive', 'overdriveSpeed', 1.2, 20, 0.1, (v) => speedText(SPEED * v));
   locoLever('Band accel', 'overdriveAccel', 0.2, 150, 0.5, (v) => `${v.toFixed(1)} u/s²`);
-  // Not the taxi's alone — there is one brake in the sim and it is what every car stops on. It is
-  // here because it owns the coast-down after the button is let go, which is the last phase of
-  // the curve above; the readout says so rather than leaving it to be discovered. Its top went up
-  // with the rest: shedding 170 u/s at the shipped 11 u/s² is fifteen seconds of coasting, which
-  // is longer than the run-up that earned it.
+  // Not the taxi's alone — there is one brake in the sim and it is what every car stops on; the
+  // readout says so rather than leaving it to be discovered. It used to own the coast-down after
+  // the button is let go too; that is Coast's job now, below.
   locoLever('Brake', 'brake', 3, 80, 0.5, (v) => `${v.toFixed(1)} u/s² · all traffic`);
+  // The taxi's lift-off once the button comes up — the last phase of the curve above. Separate
+  // from Brake because that one is every car's and the stopping distances are derived from it.
+  locoLever('Coast', 'coast', 1, 80, 0.5, (v) => `${v.toFixed(1)} u/s² · on release`);
 
   // --- Loco weave -------------------------------------------------------------
   // The wander inside the lane — the "he is driving like a maniac" tell. Two waves whose periods
@@ -1176,7 +1177,7 @@ export function createDebugPanel({
     // jitter → JITTER, overshoot → OVERSHOOT; dust is the multiplier on the burst power.
     cityEntrance: cityEntry.tuning(),
     // The keys map onto sim/traffic.js's: kick → BOOST_KICK, speed → BOOST_SPEED,
-    // accel → BOOST_ACCEL, overdriveSpeed/overdriveAccel → OVERDRIVE_*, brake → BRAKE. Read from
+    // accel → BOOST_ACCEL, overdriveSpeed/overdriveAccel → OVERDRIVE_*, brake → BRAKE, coast → COAST. Read from
     // the tuning rather than the sliders, so a clamped overdrive ceiling exports as what the sim
     // is actually running.
     locoMode: loco.get(),
