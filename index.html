@@ -1157,10 +1157,15 @@
       #new-move .speech-card { padding: 20px; gap: 8px; border-radius: 20px; }
       #new-move .speech-title { font-size: 12px; }
       #new-move .speech-text { font-size: 22px; }
+      .nm-clip[hidden] { display: none; }
+      /* The city as it stood when the card opened, laid over the game's canvas while the card films
+         its clip through it (game/uturnclip.js). Under the HUD and the dim. */
+      #freeze-frame { position: fixed; left: 0; top: 0; z-index: 1; pointer-events: none; }
+      #freeze-frame[hidden] { display: none; }
       .nm-media { display: flex; flex-direction: column; align-items: center; gap: 14px; }
       .nm-clip {
-        display: block; width: min(300px, calc(100vw - 60px)); aspect-ratio: 7 / 3;
-        border-radius: 12px; background: #9E9C94;
+        display: block; width: min(300px, calc(100vw - 60px)); aspect-ratio: 16 / 9;
+        border-radius: 12px;
       }
       .nm-combo { display: flex; align-items: center; gap: 8px; }
       /* The "+" between keys: the title's ink, so it reads as part of the card's type. */
@@ -1896,6 +1901,7 @@
     <div id="coach" role="status" aria-live="polite" hidden></div>
     <div id="robber-spot" aria-hidden="true"></div>
     <div id="robber-talk" role="status" aria-live="polite" hidden></div>
+    <canvas id="freeze-frame" aria-hidden="true" hidden></canvas>
     <!-- The bootleg's card — a speech layer like the others; see src/game/newmove.js. -->
     <div id="new-move" role="status" aria-live="polite" hidden></div>
     <div id="cop-shout" role="status" aria-live="polite" hidden></div>

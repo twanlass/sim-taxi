@@ -27,7 +27,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
-  configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt,
+  configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice } from './sim/police.js';
@@ -119,9 +119,10 @@ import { createCopShout } from './game/copshout.js';
 import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
-import { setCityOccluders } from './game/sightline.js';
+import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg } from './game/bootleg.js';
 import { createNewMove, createSeenFlag, AFTER_DELIVERED, SHOW_DELAY } from './game/newmove.js';
+import { createUturnClip, pickStreet } from './game/uturnclip.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
@@ -331,22 +332,27 @@ attachContextRecovery({ renderer, sun, budget, onNotice: (text) => diag.note(tex
  * The main render is untouched by the pass in front of it: still the default framebuffer, still
  * its own MSAA, still its own stencil buffer for the ghost outlines.
  */
-function renderFrame() {
+/**
+ * One frame of the city. `cam` is the city camera unless the New Move card is filming its U-turn
+ * clip through a camera of its own (game/uturnclip.js), which wants the whole frame — the AO, the
+ * bloom, the haze — and not a lesser render of its own.
+ */
+function renderFrame(cam = camera) {
   // Sized here rather than in the frame loop for the same reason the AO prepass is called here:
   // shot mode and `__taxi.redraw()` both reach a render without ever reaching the loop.
   crayon.prepare();
   // The wet road's mirror, before anything reads it. A no-op without `?rain`.
   rainLightsOn?.();
-  rain.update(0, camera);
-  rain.renderReflection(scene, camera);
-  ao.render(scene, camera);
+  rain.update(0, cam);
+  rain.renderReflection(scene, cam);
+  ao.render(scene, cam);
   // After the AO prepass, which is what fills the depth buffer the lamps are rejected against.
-  bloom.render(scene, camera);
+  bloom.render(scene, cam);
   // Here rather than in the loop for the AO prepass's reason: shot mode renders without the loop.
   syncRiverWater(scene.fog?.color);
   // `?hdr` takes the whole frame through a composer instead; a no-op without the flag, and it
   // returns false so the ordinary path below still runs.
-  if (!hdr.render(scene, camera)) renderer.render(scene, camera);
+  if (!hdr.render(scene, cam)) renderer.render(scene, cam);
   // Drops on the glass, over the finished frame.
   rain.renderLens();
 }
@@ -3613,9 +3619,23 @@ const pause = shot ? null : createPause({
 // brings a run to AFTER_DELIVERED fares. The world stops while it is up — the early return in
 // `frame()` beside the robber's line's. See game/newmove.js for when and why.
 const uturnSeen = createSeenFlag();
-// Centred over a dim, with the move acted out inside it — see game/newmove.js. Lit by the city's
-// own sun, like the HUD's chips.
-const newMove = shot ? null : createNewMove({ viewport, sun, hemi });
+// Centred over a dim, with the move acted out inside it on a real street of this city — see
+// game/newmove.js and game/uturnclip.js. The street is chosen when the card opens, off the cars
+// where they stand then, since they stay there until it closes.
+const freezeFrame = document.getElementById('freeze-frame');
+const newMove = shot ? null : createNewMove({
+  viewport,
+  makeClip: (cardCanvas) => freezeFrame && createUturnClip({
+    scene, camera, renderFrame, canvas: renderer.domElement, freeze: freezeFrame, cardCanvas,
+    street: pickStreet({
+      network: cityNetwork(),
+      cars: traffic.cars,
+      camRight: new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0),
+      visible: (x, z) => sightlineClear(x, 0.4, z),
+      closed: isLaneClosed,
+    }),
+  }),
+});
 // Seconds of game time until the card lands, or negative when none is due.
 let newMoveIn = -1;
 /**
@@ -3683,8 +3703,8 @@ function frame() {
   // The New Move card: the same freeze. Only the bubble ticks, to stay pinned to the pedal; the
   // pedal row's loop is CSS.
   if (newMove?.isOpen()) {
-    newMove.update(dt);
-    renderFrame();
+    // With a clip, the card draws the frame itself (through the clip camera, under the still).
+    if (!newMove.update(dt)) renderFrame();
     return;
   }
 

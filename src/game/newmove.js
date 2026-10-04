@@ -1,5 +1,5 @@
 import { createSpeech } from './speech.js';
-import { createUturnClip, clipKeys } from './uturnclip.js';
+import { clipKeys } from './uturnclip.js';
 
 // "New Move Unlocked": the card that teaches the bootleg (game/bootleg.js) — hold Loco Mode, then
 // tap the brake twice, and the taxi spins round onto the far lane.
@@ -91,13 +91,14 @@ const LINE = 'U-Turn';
  * The card itself: the game's speech bubble (game/speech.js) — the same card every tutorial tip
  * uses — centred on the screen over a dim, with no pointer. Under its line, the clip of the move
  * (game/uturnclip.js) and under that the pedal row, which the clip's own clock presses.
- * Browser-only: it clones the HUD's pedal art and opens a WebGL context for the clip.
+ * Browser-only: it clones the HUD's pedal art.
  *
  * @param viewport  util/viewport.js
- * @param sun/hemi  the city's lights, which the clip mirrors
+ * @param makeClip  (canvas) => clip | null — main.js films the clip in the city (game/uturnclip.js);
+ *                  null when there is no street to film, and the card shows without one
  * @param onClose   () => void — the card has been dismissed
  */
-export function createNewMove({ viewport = null, sun = null, hemi = null, onClose = () => {} } = {}) {
+export function createNewMove({ viewport = null, makeClip = () => null, onClose = () => {} } = {}) {
   const root = document.getElementById('new-move');
   const idle = { isOpen: () => false, open: () => false, close: () => {}, update: () => {} };
   if (!root) return idle;
@@ -197,22 +198,24 @@ export function createNewMove({ viewport = null, sun = null, hemi = null, onClos
       if (open) return false;
       open = true;
       openedAt = performance.now();
-      if (sun && hemi) {
-        try { clip = createUturnClip({ canvas, sun, hemi }); } catch { clip = null; }
-      }
+      // Shown first, so the card's canvas has its size before the clip measures it.
       bubble.show(TITLE, LINE, target, media);
+      try { clip = makeClip(canvas); } catch (err) { console.warn('U-turn clip:', err); clip = null; }
+      // No street to film: the card without a clip, re-measured.
+      if (!clip) { canvas.hidden = true; bubble.show(TITLE, LINE, target, media); }
       pressKeys();
       document.body.classList.add('new-move-open');
       return true;
     },
     close,
     /** The clip, the keys it presses and the bubble's placement. Called from the frozen frame, on
-     * wall time. */
+     * wall time. Answers whether the clip drew the frame (main.js draws it otherwise). */
     update(dt) {
-      if (!open) return;
+      if (!open) return false;
       clip?.update(dt);
       pressKeys();
       bubble.update(dt);
+      return Boolean(clip);
     },
     /** Seek the clip — for the screenshot tooling. */
     seek(t) { if (clip) { clip.restart(); clip.update(t); pressKeys(); } },

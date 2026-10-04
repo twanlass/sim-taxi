@@ -97,29 +97,32 @@ try {
     throw new Error('sinkShadowCaster: the depth patch did not land in the shader');
   }
 
-  // The New Move card's U-turn clip (game/uturnclip.js). Its street is hand-wound quads — the
-  // winding trap in CLAUDE.md, where a reversed face on a lit material lights wrong and on an unlit
-  // one does not draw at all — so the normal is computed from the winding, not trusted. And the
-  // timeline has to actually do the move: east in the near lane, west in the far one, half a turn.
+  // The New Move card's U-turn clip (game/uturnclip.js). The timeline has to actually do the move —
+  // along the street in its own lane, back the other way in the far one, half a turn — and the
+  // street picker has to find somewhere to film it in the shipped city, and refuse a blocked one.
   {
-    const { groundQuad, clipPose, clipKeys, CLIP_LOOP } = await import('../src/game/uturnclip.js');
-    const pos = groundQuad(-1, 1, -1, 1, 0, '#000').attributes.position.array;
-    for (let tri = 0; tri < 2; tri++) {
-      const v = (k) => [pos[tri * 9 + k * 3], pos[tri * 9 + k * 3 + 1], pos[tri * 9 + k * 3 + 2]];
-      const [a, b, c] = [v(0), v(1), v(2)];
-      const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-      const w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-      const ny = u[2] * w[0] - u[0] * w[2];
-      if (!(ny > 0)) throw new Error(`uturnclip: ground triangle ${tri} faces down (ny ${ny})`);
-    }
+    const { clipPose, clipKeys, pickStreet, CLIP_LOOP } = await import('../src/game/uturnclip.js');
     const start = clipPose(0.2);
     const end = clipPose(3.2);
-    if (!(start.z > 0 && end.z < 0)) throw new Error('uturnclip: the spin does not change lanes');
+    if (!(start.side > 0 && end.side < 0)) throw new Error('uturnclip: the spin does not change lanes');
     if (Math.abs(end.yaw - Math.PI) > 1e-9 || start.yaw !== 0) throw new Error('uturnclip: not a half turn');
-    if (!(clipPose(1).x > start.x && clipPose(3.6).x < end.x)) throw new Error('uturnclip: car does not drive east then west');
+    if (!(clipPose(1).x > start.x && clipPose(3.6).x < end.x)) throw new Error('uturnclip: car does not drive out then back');
     const k = clipKeys(CLIP_LOOP * 0.5);
     if (!(k.boost.lit && k.brake1.lit && k.brake2.lit)) throw new Error('uturnclip: keys not all lit mid-loop');
     if (clipKeys(0).boost.lit) throw new Error('uturnclip: the loop opens with a key already lit');
+    const { createLayout } = await import('../src/city/layout.js');
+    const { cityNetwork } = await import('../src/city/roadnet.js');
+    const { makeRng } = await import('../src/util/rng.js');
+    createLayout(makeRng(7));
+    const camRight = { x: Math.SQRT1_2, z: -Math.SQRT1_2 };
+    const street = pickStreet({ network: cityNetwork(), cars: [], camRight });
+    if (!street) throw new Error('uturnclip: no street to film in an empty city');
+    if (street.forward.x * camRight.x + street.forward.z * camRight.z <= 0) throw new Error('uturnclip: street runs right to left');
+    const parked = [{ x: street.centre.x, z: street.centre.z }];
+    const again = pickStreet({ network: cityNetwork(), cars: parked, camRight });
+    if (again && Math.hypot(again.centre.x - street.centre.x, again.centre.z - street.centre.z) < 1) {
+      throw new Error('uturnclip: picked a street with a car parked on it');
+    }
   }
 
   // The crash replay's tape, played back rather than trusted (game/replay.js). Three things it

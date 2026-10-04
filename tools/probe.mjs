@@ -10152,7 +10152,7 @@ check('the taxi is an ordinary car in the traffic array',
   // Every render path has to run the pass. A frozen shot that skipped it would composite against
   // whatever the previous frame happened to leave in the AO texture.
   const aoMainSource = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
-  const outsideRenderFrame = aoMainSource.replace(/function renderFrame\(\)[\s\S]*?\n}/, '');
+  const outsideRenderFrame = aoMainSource.replace(/function renderFrame\([^)]*\)[\s\S]*?\n}/, '');
   check('every render goes through the AO pass',
     !/renderer\.render\(scene, camera\)/.test(outsideRenderFrame),
     'main.js renders only via renderFrame()');
@@ -10382,7 +10382,7 @@ check('the taxi is an ordinary car in the traffic array',
   // shot mode and __taxi.redraw() both reach a render without ever reaching the frame loop.
   const crayonMainSource = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
   check('every render goes through the crayon prepare',
-    /function renderFrame\(\)[\s\S]*?crayon\.prepare\(\)[\s\S]*?renderer\.render/
+    /function renderFrame\([^)]*\)[\s\S]*?crayon\.prepare\(\)[\s\S]*?renderer\.render/
       .test(crayonMainSource),
     'main.js sizes the page inside renderFrame()');
 }

@@ -436,9 +436,16 @@ looking, so it gets a card (`game/newmove.js`, `#new-move` in index.html). It is
 own speech bubble, made wider and centred over a dim with no pointer: "New Move Unlocked" in the
 title slot, "U-Turn" as the line, then a clip of the move and the pedal row under it. No other words.
 
-The clip (`game/uturnclip.js`) is a scripted 4.6s loop on a straight street in its own small WebGL
-context, built on open and released on close. It uses the real taxi mesh, the Loco Mode flame, the
-skid marks and the brake lamps, lit by the city's sun. The taxi cruises in, floors it, checks on
+The clip (`game/uturnclip.js`) is a scripted 4.6s loop filmed **in the player's own city**, at the
+game's 3/4 view. On open, `pickStreet` chooses a straight two-way side street off the river with no
+car stopped on it, mostly visible past the buildings, and runs the move left to right on screen. The
+city is drawn once more into `#freeze-frame`, a 2D canvas laid over the game's, and from then on the
+game's canvas renders the whole frame (`renderFrame(cam)` in main.js: shadows, AO, bloom, weather)
+through a clone of the city camera slid over that street. The middle of each frame is copied into the
+card. `frameRun` sizes and centres that crop by sweeping a box the size of the drawn taxi over the
+whole loop, because the taxi body is much bigger than `CAR_LEN` and hand framing cut its roof off on
+the spin. A stand-in taxi (the real mesh, the Loco Mode flame, the skid marks and the brake lamps) is
+added to the scene while the card is up and removed on close. The taxi cruises in, floors it, checks on
 the first brake tap, spins onto the far lane on the second (0.3s later, inside the 350ms combo
 window) and drives back out. The pedal row (the HUD's own pedal art, all three at one size with a
 "+" between) is pressed off the **clip's clock**, so each key goes down on the frame the car does
