@@ -19,18 +19,25 @@
  * drawing buffer — the city would blink out and stay out until the player resumed. One static
  * render per frame is the cheap way to stay correct through both.
  *
- * **Only the Resume pill resumes**, not the rest of the veil — a stray tap while reading the
+ * **The screen is the title screen's menu**: "Paused" as a small header, then Resume, Settings and
+ * Quit as plain white words. Settings is the title screen's own page (game/menupage.js), minus the
+ * tutorial tips, which are read once on Play; its Back, or Escape, returns to this menu rather than
+ * resuming. Quit is the caller's (`onQuit`) — main.js reloads, which lands back on the title.
+ *
+ * **Only Resume resumes**, not the rest of the veil — a stray tap while reading the
  * paused screen must not drop the player straight back into traffic. It resumes on `pointerdown`
  * rather than on `click` so the press is what lands: the matching release then falls on the canvas
  * with no `click` synthesised after it — the two ends of the gesture are on different elements —
  * which is what stops the tap that resumes from also dispatching the taxi at whatever it happened
- * to be over. `click` is handled as well, because a keyboard activating the pill fires that and
+ * to be over. `click` is handled as well, because a keyboard activating the word fires that and
  * nothing else. `setPaused` is idempotent, so a pointer gesture that somehow produced both costs
  * nothing.
  *
  * Escape and P toggle it from a keyboard, which is also what makes the button reachable without a
  * pointer at all.
  */
+
+import { menuPage, settingsRows } from './menupage.js';
 
 const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
@@ -48,13 +55,44 @@ const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)'
  * Returns `null` when either element is missing (shot mode strips neither, but the lab page has
  * no HUD at all), so the caller can treat "no pause button on this page" as ordinary.
  */
-export function createPause({ button, veil, canPause = () => true, onChange } = {}) {
+export function createPause({
+  button, veil, canPause = () => true, onChange, sound, settings, onQuit,
+} = {}) {
   if (!button || !veil) return null;
+  const menu = veil.querySelector('.pause-menu');
   const resumeButton = veil.querySelector('.pause-resume');
-  if (!resumeButton) return null;
+  const settingsButton = veil.querySelector('.pause-settings');
+  const quitButton = veil.querySelector('.pause-quit');
+  if (!menu || !resumeButton) return null;
 
-  const state = { paused: false };
+  const state = { paused: false, view: 'menu' };
   let fade = null;
+
+  // Settings is built only when there is a mute and a store to drive; without them (a page that
+  // passes neither) the word is simply not offered.
+  const settingsPage = sound && settings
+    ? menuPage('settings', 'Settings', () => show('menu')) : null;
+  const settingsBody = settingsPage
+    ? settingsRows(settingsPage.body, { sound, settings, tips: false }) : null;
+  if (settingsPage) veil.append(settingsPage.section);
+  else settingsButton?.remove();
+  if (!onQuit) quitButton?.remove();
+
+  const views = { menu, settings: settingsPage?.section };
+
+  function show(next) {
+    const from = state.view;
+    state.view = next;
+    for (const [name, node] of Object.entries(views)) {
+      if (!node) continue;
+      node.hidden = name !== next;
+      node.setAttribute('aria-hidden', String(name !== next));
+    }
+    if (next === 'settings') settingsBody.refresh();
+    // Focus follows the view for a keyboard, as on the title screen.
+    if (next === 'settings') settingsPage.back.focus({ preventScroll: true });
+    else if (from === 'settings') settingsButton?.focus({ preventScroll: true });
+  }
 
   const paint = () => {
     document.body.classList.toggle('is-paused', state.paused);
@@ -88,7 +126,8 @@ export function createPause({ button, veil, canPause = () => true, onChange } = 
     // Stops taking taps on the press that resumes, not on the frame after it — see the header for
     // what a veil still holding the pointer would swallow.
     veil.style.pointerEvents = next ? '' : 'none';
-    if (next) showVeil(); else hideVeil();
+    // Every pause opens on the menu, not on whichever page the last one was left on.
+    if (next) { show('menu'); showVeil(); } else hideVeil();
     onChange?.(next);
   };
 
@@ -97,15 +136,20 @@ export function createPause({ button, veil, canPause = () => true, onChange } = 
   button.addEventListener('click', toggle);
   resumeButton.addEventListener('pointerdown', () => setPaused(false));
   resumeButton.addEventListener('click', () => setPaused(false));
+  settingsButton?.addEventListener('click', () => show('settings'));
+  quitButton?.addEventListener('click', () => onQuit?.());
   window.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' && event.key !== 'p' && event.key !== 'P') return;
     // Not while typing initials into the run-end screen, where P is a letter.
     if (event.target instanceof HTMLInputElement) return;
     event.preventDefault();
+    // Escape walks back out of Settings first; P is a toggle wherever it is pressed.
+    if (state.paused && event.key === 'Escape' && state.view !== 'menu') { show('menu'); return; }
     toggle();
   });
 
   paint();
+  show('menu');
 
-  return { state, toggle, setPaused };
+  return { state, toggle, setPaused, show };
 }
