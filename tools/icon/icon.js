@@ -32,15 +32,14 @@ const RENDER = 2048;
 // 192/512 the manifest, 16/32 the tab.
 const SIZES = [1024, 512, 192, 180, 32, 16];
 
-// Which way the car points. 0 is world +X: bonnet to the lower right, the three-quarter view the
-// old icon drew — but with the Loco flame lit the tailpipe is then at the far end and the plume
-// hides behind the car as a thin spike. 30° swings the car toward profile, nose to the right, so the
-// flame trails out to the left in full view while the near flank's chequer stripe stays on show.
-// 45° is pure profile and loses the bonnet's top face.
-const YAW = THREE.MathUtils.degToRad(30);
-// How much of the frame the widest extent (car plus plume, which is horizontal) fills. The flame
-// tip lands mid-left, clear of the corners iOS's superellipse crops, so this can run wide.
-const FILL = 0.9;
+// Which way the car points. 0 is world +X: bonnet to the lower right, the near flank and its
+// chequer stripe facing the viewer — the three-quarter view the old icon drew. The tailpipe is then
+// at the far end, so the Loco flame shows as a tongue past the rear quarter rather than in full;
+// 30° toward profile showed all of it and was turned down for losing this view of the car.
+const YAW = 0;
+// How much of the frame the widest extent (car plus plume) fills. iOS's superellipse crops about
+// 10% off each corner, and the flame tip reaches toward the upper left one.
+const FILL = 0.7;
 
 const renderer = new THREE.WebGLRenderer({
   antialias: true, stencil: true, preserveDrawingBuffer: true, alpha: false,
