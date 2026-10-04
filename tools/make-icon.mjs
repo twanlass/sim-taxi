@@ -1,213 +1,48 @@
 /**
- * Generates the home-screen icon: a low-poly 3/4-view taxi on the game's purple, matching the
- * palette in src/palette.js so the icon reads as the same visual family as the game itself.
+ * Generates every icon the game ships: the iOS Home Screen icon, the manifest's, the tab favicons
+ * and the App Store icon.
  *
- * Not part of `npm run check` — the icon is a build artefact you regenerate when the design
- * changes, then commit `public/apple-touch-icon.png` (and its .svg source) alongside the code.
+ * The picture is rendered **in the engine** by `tools/icon/` — the real taxi mesh with the real
+ * paint, glass and chrome finishes, lit by the game's sun — so when the car changes, re-running
+ * this is the whole job. This script only serves that page through Vite's dev server, drives a
+ * headless Chromium at it, and screenshots each size it lays out.
  *
- *   node tools/make-icon.mjs        # writes public/apple-touch-icon.svg + .png (180) + -512.png
+ * Not part of `npm run check` — the icons are build artefacts you regenerate when the car's look
+ * changes, then commit. Bump `CACHE_NAME` in `public/sw.js` alongside them: the icons are
+ * unhashed and cache-first, so without it an installed copy keeps the old one.
  *
- * The SVG is authored analytically rather than screenshotting the game mesh: at 180px, per-face
- * flat shading with hand-picked bright/mid/dark tones survives the resample better than
- * MeshLambert output baked through WebGL and downscaled.
+ *   node tools/make-icon.mjs
+ *
+ * Writes public/apple-touch-icon.png (180), public/icon-192.png, public/apple-touch-icon-512.png,
+ * public/favicon-16.png, public/favicon-32.png and the asset catalogue's AppIcon-1024.png.
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdir, writeFile, unlink } from 'node:fs/promises';
+import { mkdir, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-
-// ----- Design constants (mirrors src/palette.js taxi entries) -----
-const BG        = '#A46BFF';   // a purple that is already game canon
-const BODY_TOP  = '#FCD658';   // taxiBody lit from above
-const BODY_X    = '#F5C130';   // taxiBody, base tone (front face)
-const BODY_Z    = '#D9A81E';   // taxiBody in shadow (near side)
-const GLASS_TOP = '#3E4650';
-const GLASS_X   = '#2E3640';   // carGlass
-const GLASS_Z   = '#242A34';
-const SIGN_TOP  = '#F2F0E8';   // taxiSign
-const SIGN_X    = '#D6D3C6';
-const SIGN_Z    = '#C0BDB0';
-const CHECKER   = '#2B2B30';   // taxiTrim
-const TIRE      = '#141419';
-const HUB       = '#3A3D45';
-const SHADOW    = '#3E1878';   // a deep violet, not black — black on #A46BFF greys out and reads dirty
-
-// ----- Geometry (world units — same numbers as src/geometry/taxi.js) -----
-const CAR_LEN = 3.4;
-const CAR_W   = 1.7;
-const LIFT = 0.32;                          // CHASSIS_LIFT in src/geometry/wheels.js
-const BODY_Y0 = 0.38 + LIFT, BODY_Y1 = 1.18 + LIFT;
-const CABIN_L = CAR_LEN * 0.5, CABIN_W = CAR_W * 0.86, CABIN_CX = -0.2;
-const CABIN_Y0 = 1.15 + LIFT, CABIN_Y1 = 1.75 + LIFT;
-const SIGN_X0 = -0.475, SIGN_X1 = 0.275, SIGN_Y0 = 1.75 + LIFT, SIGN_Y1 = 2.09 + LIFT, SIGN_Z0 = -0.2, SIGN_Z1 = 0.2;
-const WHEEL_R = 0.64;
-
-// ----- Iso projection (30° / 30°). +x maps to right-down, +z to left-down, +y up.
-// Camera is on the +x, +y, +z octant so the top, +x front, and +z side faces are visible.
-const SIZE = 512;
-const COS = Math.cos(Math.PI / 6);
-const SIN = Math.sin(Math.PI / 6);
-const U   = 66;
-
-// Projection origin. This is the world origin — the centre of the car's footprint on the ground —
-// and it is *not* where the car ends up: the iso projection is not symmetric about it (the roof
-// sign rises well above y = 0, the wheels barely dip below), so putting the origin at the middle of
-// the canvas leaves the car high and to one side. It used to be nudged by hand-tuned constants,
-// which is how the icon shipped sitting up in the top-left of its frame. Instead, keep the origin
-// plain and re-centre from the *measured* bounding box in RECENTRE below.
-const OX = SIZE / 2;
-const OY = SIZE / 2;
-
-const project = (x, y, z) => [
-  OX + (x - z) * COS * U,
-  OY + (x + z) * SIN * U - y * U,
-];
-
-const fmt = (n) => n.toFixed(1);
-const poly = (pts) => pts.map(([x, y]) => `${fmt(x)},${fmt(y)}`).join(' ');
-
-// ----- Draw a box: emit the three iso-visible faces. Order is bottom-up in paint order:
-// top, +x-face (front), +z-face (near side) — none of these three overlap each other. Draw the
-// next object (cabin, sign) after the previous box entirely so painter's order is correct.
-function boxFaces(x0, x1, y0, y1, z0, z1, cTop, cFront, cSide) {
-  const p = (X, Y, Z) => project(X, Y, Z);
-  return [
-    { pts: [p(x0, y1, z0), p(x1, y1, z0), p(x1, y1, z1), p(x0, y1, z1)], fill: cTop },
-    { pts: [p(x1, y0, z0), p(x1, y1, z0), p(x1, y1, z1), p(x1, y0, z1)], fill: cFront },
-    { pts: [p(x0, y0, z1), p(x1, y0, z1), p(x1, y1, z1), p(x0, y1, z1)], fill: cSide },
-  ];
-}
-
-// ----- Wheel disc: cylinder axle along z, so the visible face is a circle in the x-y plane at
-// z = wheel front. Sample it as a 22-gon and project each vertex — under iso that yields the
-// correct ellipse without an SVG transform matrix.
-function wheelDisc(cx, cy, cz, r, segments = 22) {
-  const pts = [];
-  for (let i = 0; i < segments; i++) {
-    const a = (i / segments) * Math.PI * 2;
-    pts.push(project(cx + r * Math.cos(a), cy + r * Math.sin(a), cz));
-  }
-  return pts;
-}
-
-// ----- Compose the taxi -----
-const layers = [];
-
-// 1. Body
-layers.push(...boxFaces(-CAR_LEN / 2, CAR_LEN / 2, BODY_Y0, BODY_Y1, -CAR_W / 2, CAR_W / 2,
-                        BODY_TOP, BODY_X, BODY_Z));
-
-// 2. Checker stripe on the near (+z) side of the body. Six equal cells (3 dark, 3 body-yellow) —
-// enough to read as "chequer" at 180px without moiré. The stripe sits just proud of the body face
-// so it draws cleanly over it.
-{
-  const stripeZ = CAR_W / 2 + 0.005;
-  const stripeY0 = 0.71 + LIFT, stripeY1 = 0.93 + LIFT;
-  const stripeL = CAR_LEN * 0.82;
-  const cells = 6;
-  const step = stripeL / cells;
-  const startX = -stripeL / 2;
-  for (let i = 0; i < cells; i++) {
-    if (i % 2 !== 0) continue;   // paint dark cells only; the gap shows the yellow body
-    const x0 = startX + i * step;
-    const x1 = x0 + step;
-    layers.push({
-      pts: [project(x0, stripeY0, stripeZ), project(x1, stripeY0, stripeZ),
-            project(x1, stripeY1, stripeZ), project(x0, stripeY1, stripeZ)],
-      fill: CHECKER,
-    });
-  }
-}
-
-// 3. Wheels: near side only. Nudge the disc a hair past the body's +z face (0.85) so the tire
-// sits in front of the sill and reads as a wheel rather than a decal.
-{
-  const wz = CAR_W / 2 + 0.02;
-  for (const wx of [-CAR_LEN * 0.3, CAR_LEN * 0.3]) {
-    layers.push({ pts: wheelDisc(wx, WHEEL_R, wz, WHEEL_R),        fill: TIRE });
-    layers.push({ pts: wheelDisc(wx, WHEEL_R, wz + 0.001, WHEEL_R * 0.42), fill: HUB });
-  }
-}
-
-// 4. Cabin
-layers.push(...boxFaces(CABIN_CX - CABIN_L / 2, CABIN_CX + CABIN_L / 2,
-                        CABIN_Y0, CABIN_Y1,
-                        -CABIN_W / 2, CABIN_W / 2,
-                        GLASS_TOP, GLASS_X, GLASS_Z));
-
-// 5. Roof sign
-layers.push(...boxFaces(SIGN_X0, SIGN_X1, SIGN_Y0, SIGN_Y1, SIGN_Z0, SIGN_Z1,
-                        SIGN_TOP, SIGN_X, SIGN_Z));
-
-// ----- RECENTRE — measure what we actually drew and slide it to the middle of the canvas.
-// Measured over the car alone, deliberately: the contact shadow below is soft-edged and mostly
-// transparent, so letting it pull the centre up would leave the car itself riding high again.
-// Its few px of overhang past the wheels is what a grounded object is supposed to look like.
-const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
-for (const l of layers) for (const [x, y] of l.pts) {
-  if (x < bounds.minX) bounds.minX = x;
-  if (y < bounds.minY) bounds.minY = y;
-  if (x > bounds.maxX) bounds.maxX = x;
-  if (y > bounds.maxY) bounds.maxY = y;
-}
-const DX = SIZE / 2 - (bounds.minX + bounds.maxX) / 2;
-const DY = SIZE / 2 - (bounds.minY + bounds.maxY) / 2;
-
-if (process.env.DEBUG_ICON) {
-  const w = bounds.maxX - bounds.minX, h = bounds.maxY - bounds.minY;
-  console.log(`bounds x[${fmt(bounds.minX)}, ${fmt(bounds.maxX)}] y[${fmt(bounds.minY)}, ${fmt(bounds.maxY)}]`);
-  console.log(`size ${fmt(w)}×${fmt(h)} (${(w / SIZE * 100).toFixed(0)}% of frame), recentre by ${fmt(DX)},${fmt(DY)}`);
-}
-
-// ----- Contact shadow — an ellipse lying on the ground plane, drawn before the car.
-// Authored in world x/z units and pushed through the projection as an SVG matrix rather than
-// hand-fitting screen-space radii: the ground plane's map to screen is exactly linear, so
-// (x, z) → (a·x + c·z + e, b·x + d·z + f) is the whole of it, and the ellipse then shears the way
-// the city's ground planes do. Cheaper than a feGaussianBlur too — a blur's filter region is
-// resolution-dependent and turns to mush at the 16px favicon; a gradient resamples cleanly.
-const SHADOW_RX = 2.30;   // along the car's length (half-length is 1.7)
-const SHADOW_RZ = 1.45;   // across it (half-width is 0.85)
-const groundMatrix = [COS * U, SIN * U, -COS * U, SIN * U, OX, OY].map(fmt).join(',');
-const shadowSvg = `    <ellipse cx="0" cy="0" rx="${SHADOW_RX}" ry="${SHADOW_RZ}"
-      fill="url(#contact)" transform="matrix(${groundMatrix})"/>`;
-
-// ----- Emit SVG -----
-// The gradient is in objectBoundingBox units, i.e. the ellipse's own space, so the falloff is
-// circular *in world terms* and arrives on screen already sheared with the ellipse. Opaque core,
-// then a fast shoulder — a linear ramp reads as a flat grey disc rather than as light falling off.
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SIZE} ${SIZE}" width="${SIZE}" height="${SIZE}">
-  <defs>
-    <radialGradient id="contact">
-      <stop offset="0"    stop-color="${SHADOW}" stop-opacity="0.50"/>
-      <stop offset="0.55" stop-color="${SHADOW}" stop-opacity="0.44"/>
-      <stop offset="0.86" stop-color="${SHADOW}" stop-opacity="0.15"/>
-      <stop offset="1"    stop-color="${SHADOW}" stop-opacity="0"/>
-    </radialGradient>
-  </defs>
-  <rect width="${SIZE}" height="${SIZE}" fill="${BG}"/>
-  <g shape-rendering="geometricPrecision" transform="translate(${fmt(DX)},${fmt(DY)})">
-${shadowSvg}
-${layers.map((l) => `    <polygon points="${poly(l.pts)}" fill="${l.fill}"/>`).join('\n')}
-  </g>
-</svg>
-`;
+import { createServer } from 'vite';
 
 const outDir = path.resolve('public');
-await mkdir(outDir, { recursive: true });
 // The App Store icon does not belong in `public/` — it is a build input for Xcode, not a file the
 // web bundle should be shipping a megabyte of. It goes straight into the asset catalogue instead.
 const iosIconDir = path.resolve('ios/SimTaxi/Assets.xcassets/AppIcon.appiconset');
-await mkdir(iosIconDir, { recursive: true });
-const svgPath = path.join(outDir, 'apple-touch-icon.svg');
-await writeFile(svgPath, svg);
-console.log(`wrote ${svgPath}`);
 
-// ----- Rasterize to PNGs via headless Chromium over CDP -----
-// One chromium instance, many targets. Chromium's `--screenshot` flag misbehaves at small window
-// sizes (16/32) — it clamps the viewport to a minimum and captures a blank frame — so we drive
-// it explicitly with Emulation.setDeviceMetricsOverride, same pattern as tools/shoot.mjs.
+// Size → file. The App Store icon is one file for every slot since Xcode 14 — a single-size
+// AppIcon.appiconset the toolchain downscales for the home screen, Settings and Spotlight. Two
+// Apple rules it has to keep: **fully opaque** (App Store Connect rejects any alpha channel, which
+// is why these are screenshots — see tools/icon/icon.js) and **square corners** (iOS applies its
+// own superellipse mask; pre-rounded artwork shows double-rounded). The purple border the car sits
+// in is sized for that mask to crop into.
+const OUTPUTS = [
+  [1024, path.join(iosIconDir, 'AppIcon-1024.png')],
+  [512, path.join(outDir, 'apple-touch-icon-512.png')],
+  [192, path.join(outDir, 'icon-192.png')],
+  [180, path.join(outDir, 'apple-touch-icon.png')],
+  [32, path.join(outDir, 'favicon-32.png')],
+  [16, path.join(outDir, 'favicon-16.png')],
+];
 
 // A bare name has to be resolved against PATH, not waved through. The old `!c.startsWith('/')`
 // test accepted `chromium` unconditionally, so on a Mac — which has no `chromium` anywhere — the
@@ -259,31 +94,22 @@ async function fetchJson(pathname, method = 'GET') {
   return JSON.parse(await res.text());
 }
 
-// One shared shell page: the SVG scales to whatever viewport CDP dials up, so we don't need a
-// per-size HTML file. `preserveAspectRatio` guarantees square output; the fallback body colour
-// covers any subpixel bleed at the borders.
-const shell = path.join(tmpdir(), `sim-taxi-icon-shell.html`);
-const shellSvg = svg
-  .replace(/width="\d+"/, `width="100%"`)
-  .replace(/height="\d+"/, `height="100%"`)
-  .replace('<svg ', '<svg preserveAspectRatio="xMidYMid meet" ');
-await writeFile(shell,
-`<!doctype html><html><head><meta charset="utf-8">
-<style>html,body{margin:0;padding:0;overflow:hidden;width:100%;height:100%;background:${BG};}
-svg{display:block;width:100%;height:100%;}</style>
-</head><body>${shellSvg}</body></html>`);
 
-const profile = await (await import('node:fs/promises')).mkdtemp(path.join(tmpdir(), 'icon-chrome-'));
+const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: 'error' });
+await server.listen();
+const pageUrl = new URL('/tools/icon/', server.resolvedUrls.local[0]).href;
+
+const profile = await mkdtemp(path.join(tmpdir(), 'icon-chrome-'));
+// WebGL under headless needs SwiftShader, same flags as tools/shoot.mjs.
 const chrome = spawn(CHROME_BIN, [
   '--headless=new', `--remote-debugging-port=${CDP_PORT}`,
   `--user-data-dir=${profile}`,
-  '--disable-gpu', '--no-sandbox', '--hide-scrollbars', '--no-first-run',
-  '--disable-extensions', 'about:blank',
+  '--disable-gpu', '--enable-unsafe-swiftshader', '--use-gl=angle', '--use-angle=swiftshader',
+  '--no-sandbox', '--hide-scrollbars', '--no-first-run', '--disable-extensions', 'about:blank',
 ], { stdio: 'ignore' });
 
 let exitCode = 0;
 try {
-  // Wait for the debugging endpoint to come up rather than sleeping a fixed amount.
   const deadline = Date.now() + 30000;
   let up = false;
   while (Date.now() < deadline) {
@@ -291,61 +117,46 @@ try {
   }
   if (!up) throw new Error('chromium never opened its debugging port');
 
-  async function rasterize(out, size) {
-    const target = await fetchJson(`/json/new?${encodeURIComponent('about:blank')}`, 'PUT');
-    const cdp = connectCdp(target.webSocketDebuggerUrl);
-    await cdp.ready;
-    try {
-      await cdp.send('Page.enable');
-      await cdp.send('Emulation.setDeviceMetricsOverride', {
-        width: size, height: size, deviceScaleFactor: 1, mobile: false,
-      });
-      await cdp.send('Emulation.setDefaultBackgroundColorOverride', {
-        color: { r: 0, g: 0, b: 0, a: 0 },
-      });
-      await cdp.send('Page.navigate', { url: `file://${shell}` });
-      // A short settle after loadEventFired is enough — no image loads, just inline SVG.
-      await new Promise((resolve) => {
-        const done = () => resolve();
-        cdp.send('Page.setLifecycleEventsEnabled', { enabled: true });
-        const t = setTimeout(done, 2000);
-        cdp.send('Runtime.evaluate', { expression: 'new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))', awaitPromise: true })
-          .then(() => { clearTimeout(t); done(); });
-      });
-      const { data } = await cdp.send('Page.captureScreenshot', { format: 'png' });
-      await writeFile(out, Buffer.from(data, 'base64'));
-      console.log(`wrote ${out} (${size}×${size})`);
-    } finally {
-      cdp.close();
-      await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target.id}`).catch(() => {});
-    }
+  const target = await fetchJson(`/json/new?${encodeURIComponent('about:blank')}`, 'PUT');
+  const cdp = connectCdp(target.webSocketDebuggerUrl);
+  await cdp.ready;
+  const evaluate = async (expression) => {
+    const { result, exceptionDetails } = await cdp.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+    if (exceptionDetails) throw new Error(exceptionDetails.exception?.description ?? exceptionDetails.text);
+    return result.value;
+  };
+  await cdp.send('Page.enable');
+  await cdp.send('Runtime.enable');
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1024, height: 1024, deviceScaleFactor: 1, mobile: false });
+  await cdp.send('Page.navigate', { url: pageUrl });
+
+  // Wait for the page to say it has drawn, and surface a thrown error rather than timing out on it.
+  const readyBy = Date.now() + 120000;
+  for (;;) {
+    const state = await evaluate(`document.body?.dataset.iconReady ?? (window.__iconError ?? null)`).catch(() => null);
+    if (state === '1') break;
+    if (state) throw new Error(state);
+    if (Date.now() > readyBy) throw new Error('the icon page never finished drawing');
+    await sleep(250);
   }
 
-  // apple-touch-icon: iOS home screen (180 is the current standard).
-  await rasterize(path.join(outDir, 'apple-touch-icon.png'), 180);
-  // Larger source for Android home-screen / PWA installs.
-  await rasterize(path.join(outDir, 'apple-touch-icon-512.png'), 512);
-  // Tab favicons. Two sizes because the browser picks whichever is closer to its target rather
-  // than downscaling one big source — 16 for the tab, 32 for retina and the bookmarks list.
-  await rasterize(path.join(outDir, 'favicon-16.png'), 16);
-  await rasterize(path.join(outDir, 'favicon-32.png'), 32);
-  // The App Store icon. One file covers every slot since Xcode 14 — a single-size
-  // AppIcon.appiconset, which the toolchain downscales for the home screen, Settings and Spotlight.
-  //
-  // Two Apple rules this artwork already happens to satisfy, so don't "fix" either of them later:
-  // it must be **fully opaque** (App Store Connect rejects any alpha channel outright, and the
-  // screenshot capture below overrides the default transparent background to guarantee this), and
-  // it must have **square corners** — iOS applies its own superellipse mask, so pre-rounding the
-  // artwork shows as a visibly double-rounded icon. The purple border the SVG is drawn with is
-  // sized for exactly that mask to crop into.
-  await rasterize(path.join(iosIconDir, 'AppIcon-1024.png'), 1024);
+  await mkdir(outDir, { recursive: true });
+  await mkdir(iosIconDir, { recursive: true });
+  for (const [size, out] of OUTPUTS) {
+    await evaluate(`window.__showIcon(${size}); new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`);
+    const { data } = await cdp.send('Page.captureScreenshot', {
+      format: 'png', clip: { x: 0, y: 0, width: size, height: size, scale: 1 },
+    });
+    await writeFile(out, Buffer.from(data, 'base64'));
+    console.log(`wrote ${path.relative(process.cwd(), out)} (${size}×${size})`);
+  }
+  cdp.close();
 } catch (err) {
-  console.error(`rasterize failed: ${err.message}`);
-  console.error('The SVG was written; you can convert to PNG by other means if needed.');
+  console.error(`make-icon failed: ${err.message}`);
   exitCode = 1;
 } finally {
   chrome.kill();
-  if (!process.env.KEEP_ICON_SCRATCH) await unlink(shell).catch(() => {});
-  await (await import('node:fs/promises')).rm(profile, { recursive: true, force: true }).catch(() => {});
+  await server.close();
+  await rm(profile, { recursive: true, force: true }).catch(() => {});
 }
 process.exit(exitCode);

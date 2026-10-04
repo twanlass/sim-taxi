@@ -655,16 +655,21 @@ const parcels = parcelsEnabled
     foodPickup: burger ? { i: burger.site.bi + 1, j: burger.site.bj + 1 } : null,
   })
   : null;
-// Sim time the taxi's flourish was stamped at, or null when it is not running. See the frame loop —
+// Seconds since the taxi's flourish was fired, or null when it is not running. See the frame loop —
 // it lights the whole car for the length of a select pop.
 //
-// Two things fire it, and they are the same claim about the car: *this one, here*. A courier box
+// Three things fire it, and they are the same claim about the car: *this one, here*. A courier box
 // landing in it is an acknowledgement that the thing arrived; the camera riding back to it (see
 // `panToTaxi`) is a player who had lost the car being handed it again, at the moment it lands in
-// frame. Reusing one flourish rather than inventing a second is the point — the player learns the
-// gesture once.
-let taxiFlashAt = null;
-const flashTaxi = () => { taxiFlashAt = fares.state.elapsed; };
+// frame; and a tap on the car itself (the picker, below). Reusing one flourish rather than
+// inventing a second is the point — the player learns the gesture once.
+//
+// Its own clock rather than `fares.state.elapsed`, which it used to be stamped against: the fare
+// loop is held through the opening and the first-rider beat (`fareLoopHeld`), so its clock stands
+// still there — and that is exactly when new players tap the car. A flash stamped on a stopped
+// clock never retires, and the taxi stayed lit until the first rider was picked up.
+let taxiFlashAge = null;
+const flashTaxi = () => { taxiFlashAge = 0; };
 // The drive-through, if the city has a joint to run one. Given the cars array for the same reason
 // the police cruiser is: it has to see who is on the road it is pulling cars off and back onto.
 // On the **run** seed rather than the city's — which cars stop for lunch is part of the situation,
@@ -2041,6 +2046,23 @@ createPicker(
       return;
     }
 
+    // **A tap on the taxi honks it.** Playtesters coming from RTS games tap their own car first,
+    // expecting to select it before giving it an order — and nothing here is ever selected, a tap
+    // on a rider is the whole instruction. Making the car a real first step was considered and
+    // turned down: it is a gesture that is only ever made in a player's first few seconds, and a
+    // selection state built for it would be a mode everyone else has to carry. So the tap is
+    // answered rather than obeyed — the horn, and the same flash a tapped rider gets — which is
+    // enough to say "yes, that's yours" and leave the player looking for the next thing to tap.
+    // No haptic: every buzz reports an accepted *order* (src/util/haptics.js), and this is not one.
+    // Not while the opening runs: a tap there is the skip (`skipVignette`, on the press), and the
+    // pointerup that follows it would otherwise honk over the cut to black.
+    if (kind === 'taxi') {
+      if (opening?.running()) return;
+      sfx?.play('horn');
+      flashTaxi();
+      return;
+    }
+
     if (kind === 'burger') {
       sendForBurger();
       return;
@@ -2962,6 +2984,10 @@ function updateBoostButton(dt) {
 // is already running has the pedal down and nothing to kick.
 function holdLocoMode() {
   if (fares.state.gameOver || boostButton?.disabled) return false;
+  // Not while the HUD is off its edges: the opening, the city building itself, a skip's black, a
+  // repair visit. The pill is hidden then and cannot be pressed, but Space can — and it played the
+  // Loco sound on a taxi still parked in the garage.
+  if (!pedalsLive()) return false;
   // Nothing to press against: the drive-through has the wheel and the car is between two kerbs.
   // See the release beside `boost.update` in the frame loop.
   if (burgerRun?.holdsTaxi()) return false;
@@ -3085,6 +3111,9 @@ const BRAKE_SKID_V = 2.5;
  */
 function holdBrake() {
   if (fares.state.gameOver) return false;
+  // Same as `holdLocoMode`: B reaches this while the button is hidden, and a skid on a staged car
+  // is a sound with nothing on screen making it.
+  if (!pedalsLive()) return false;
   if (brakeHeld) return true;
   brakeHeld = true;
   // Below the `brakeHeld` guard, so a hold buzzes once on the way down rather than on every event
@@ -3782,6 +3811,11 @@ let pedalsShown = false;
 const pedalsDue = () => !cityEntry.running() && !parked() && !wipe?.covering()
   && !(opening?.running() && opening.phase() !== 'release');
 
+// The pedals on screen and the taxi the player's to drive: `pedalsDue`, less a repair visit until it
+// hands back. The HUD's exit reads it too, so a pedal can be pressed exactly when it can be seen.
+const pedalsLive = () => pedalsDue()
+  && !(opening?.visiting() && opening.phase() !== 'release');
+
 const fareLoopHeld = () => parked() || Boolean(opening?.running())
   || Boolean(wipe?.covering());
 
@@ -3979,7 +4013,7 @@ function frame() {
   // car is out of the door, and a repair visit from the turn-in until it is back on the lane. The
   // same `release` the pedals wait on, so a run's first arrival and every return from the depot
   // are one beat. See the HUD exit block in index.html.
-  setHudAway(!pedalsDue() || Boolean(opening?.visiting() && opening.phase() !== 'release'));
+  setHudAway(!pedalsLive());
   // ...and the drive-through is the same claim about somebody else's car: while one is in the lot
   // this is its physics, so it has to have written the position before the render pass reads it.
   driveThru?.update(dt);
@@ -4400,13 +4434,13 @@ function frame() {
   // rider gets rather than as a new effect to learn. Written every frame while it runs, so the frame
   // it retires is the one that puts the car back — and clamped at zero on the way out, because a
   // light going negative would dim the taxi below the city it is driving in.
-  if (taxiFlashAt !== null) {
-    const since = fares.state.elapsed - taxiFlashAt;
-    if (since >= POP_TIME) {
+  if (taxiFlashAge !== null) {
+    if (taxiFlashAge >= POP_TIME) {
       traffic.setTaxiHighlight(0);
-      taxiFlashAt = null;
+      taxiFlashAge = null;
     } else {
-      traffic.setTaxiHighlight(popHighlight(since));
+      traffic.setTaxiHighlight(popHighlight(taxiFlashAge));
+      taxiFlashAge += dt;
     }
   }
 
