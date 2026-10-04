@@ -219,6 +219,16 @@ export function createBoats(scene, rng, drawbridge) {
       beam: kind === 'tug' ? TUG_BEAM : BARGE_BEAM,
     };
     mesh.position.set(boat.x, waterHeightAt(boat.x), boat.z);
+    // The wheelhouse is a mesh of its own, in the cars' metal finish (geometry/boat.js says why).
+    // Per-boat for the same reason as the hull's: it fades with the boat.
+    if (geo.userData.house) {
+      const houseGeo = geo.userData.house;
+      boat.house = new THREE.Mesh(houseGeo, propMaterial({ gloss: { geometry: houseGeo } }));
+      boat.house.material.transparent = true;
+      boat.house.castShadow = true;
+      boat.house.receiveShadow = true;
+      mesh.add(boat.house);
+    }
     // The barge's gulls ride in its frame and wear its material, so they fade with it.
     if (kind === 'barge') {
       // On a stream of their own, seeded from one draw, for the wake's reason: they spend randoms
@@ -290,6 +300,7 @@ export function createBoats(scene, rng, drawbridge) {
       // at the x it was *laid* at rather than at the boat's — it does not travel with the hull, so
       // it cannot inherit the hull's opacity either.
       boat.mesh.material.opacity = fadeAt(boat.x);
+      if (boat.house) boat.house.material.opacity = boat.mesh.material.opacity;
       if (boat.gulls) boat.gulls.update(dt, gullsClear(boat), boat.gullLift);
 
       // Foam is spent per unit of river covered, so a tug clamped at `HOLD_OFF` in front of a leaf
@@ -304,6 +315,10 @@ export function createBoats(scene, rng, drawbridge) {
         if (boat.kind === 'tug' && boat.asked && drawbridge) drawbridge.release();
         group.remove(boat.mesh);
         boat.mesh.geometry.dispose();
+        if (boat.house) {
+          boat.house.geometry.dispose();
+          boat.house.material.dispose();
+        }
         // Its foam is **not** retired with it. The motes are in the world, not on the hull, so they
         // go on lying where they were laid and dying of old age — which out here is past the coast
         // fade, where their own `dim` has already taken them to nothing.

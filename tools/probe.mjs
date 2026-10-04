@@ -16397,7 +16397,9 @@ let chopperOrder; // likewise
   const tugGeo = createTugMesh(makeRng(seed + 812));
   bargeGeo.computeBoundingBox();
   tugGeo.computeBoundingBox();
-  const bargeAir = bargeGeo.boundingBox.max.y;
+  // The wheelhouse is a geometry of its own (it wears the metal finish), so it is measured too.
+  bargeGeo.userData.house.computeBoundingBox();
+  const bargeAir = Math.max(bargeGeo.boundingBox.max.y, bargeGeo.userData.house.boundingBox.max.y);
   const tugAir = tugGeo.boundingBox.max.y;
 
   check('a barge clears every span in the city',

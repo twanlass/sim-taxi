@@ -4,7 +4,7 @@ import { bakeColor, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 import { GULL_STAND } from '../geometry/boat.js';
 
-// The gulls that work a trash barge: a few standing on the heap and the wheelhouse roof, a few
+// The gulls that work a trash barge: a few standing on the heap and the bow, a few
 // wheeling over it, and every so often one dropping in or lifting off.
 //
 // **They live in the barge's own frame.** The flock is a child of the hull mesh, so a bird riding

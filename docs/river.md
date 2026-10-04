@@ -76,7 +76,7 @@ The chain, measured to the deck's *soffit* since that is what a boat hits:
 |---|---|---|
 | Flat span, deck 0.35 thick | −0.35 | **1.65** |
 | Arched span at the crest, rise 1.9 | +1.55 | **3.55** |
-| Barge, air draught 1.4 | | clears both |
+| Barge, air draught 1.6 | | clears both |
 | Tug (the sailboat), air draught 3.4 | | clears the arches by 0.15, **1.75 short of the flat one** |
 
 Four numbers across three files, so the probe asserts the **chain** rather than its outcome: move
@@ -397,17 +397,19 @@ lifts is a fact about the map and has to stay learnable, but when it lifts is th
 
 **What they look like, and how big.** Sized against the cars (3.4 × 1.7) and the water (9.2 across,
 7.87 on the narrow build). The barge is an 11 × 4.2 **trash barge**, half the channel: a rusty scow
-raked at both ends with tyre fenders down its sides, a heap of bin bags, cardboard, tyres and drums
-drawn per hull, and a grey wheelhouse with a stack at the stern. It replaced a 16 × 6 container
-barge that read as big and as a slab. Everything on it stays under `BARGE_AIR`, which is why the
-wheelhouse is squat — the heap and the roof stop at `PERCH_CEIL` so a gull standing on them still
-clears the flat span. The boat that asks for the lift is a 6 × 2.4 white **sailboat** with its
+square at the stern and rounded at the bow, with tyre fenders down its sides, a heap of bin bags,
+cardboard, tyres and drums drawn per hull, and a steel wheelhouse with a funnel through its roof at
+the stern. It replaced a 16 × 6 container barge that read as big and as a slab. The wheelhouse is
+its own mesh so it can wear the cars' **metal** finish (`propMaterial({ gloss })`, glass windows
+included). Everything stays under `BARGE_AIR` (1.6, against the flat span's 1.65), and that is
+the only thing bounding how tall the wheelhouse and funnel can be: the heap stops lower, at
+`PERCH_CEIL`, so a gull standing on it still clears the flat span, and the wheelhouse roof is not a
+perch for the same reason. The boat that asks for the lift is a 6 × 2.4 white **sailboat** with its
 sails down and a tall mast; the code still calls it the tug (`kind: 'tug'`, `TUG_AIR`, `TUG_LEN`).
 Its masthead sits at `TUG_AIR` exactly.
 
 **The gulls** (`game/gulls.js`): five per barge, a child of the hull mesh wearing its material, so
-they ride with it and fade with it at the coast. Some stand on the heap, the wheelhouse roof or the
-bow; the rest circle low over it, and every few seconds one lands or takes off. A flying gull is
+they ride with it and fade with it at the coast. Some stand on the heap or the bow; the rest circle low over it, and every few seconds one lands or takes off. A flying gull is
 drawn 1.5× life size (`FLY_SCALE`) — at play zoom a life-size one was a white speck. They draw from
 their own rng stream, seeded with one draw off the boats', so the launch schedule does not depend on
 how often a bird landed.

@@ -857,7 +857,10 @@ export const PALETTE = {
   trashJunk: '#6E7378',
   trashBarrel: '#3B5F8C',
   trashWhite: '#C9CCC8',
-  trashHouse: '#9A9EA2',
+  // The wheelhouse is steel in the cars' metal finish, which darkens its base and adds the sky — so
+  // it is picked pale, near `bumperChrome`'s neighbourhood rather than the grey it ends up reading as.
+  trashHouse: '#C4C9CE',
+  trashStack: '#2F3236',
   // The gulls (game/gulls.js): white bodies, grey backs, and nothing else — a yellow bill would be
   // a warm speck at full saturation and would not survive the 3 pixels it occupies anyway.
   gullBody: '#EEF0F0',
