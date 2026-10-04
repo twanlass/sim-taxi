@@ -2922,9 +2922,9 @@ const BRAKE_SKID_V = 2.5;
 // The drift (`driftTaxi` in sim/traffic.js): in Loco Mode, a brake press just before a turn slides
 // the taxi round it at speed instead of stopping. Its press owns the pedal until the pedal comes
 // back up, as the bootleg's does, so a thumb still down on the way out doesn't stop the car.
-// A landed drift pays back a sip of fuel: holding the pill through a corner already goes round at
-// cruise, so the speed alone is no better than not bothering, and the refund is what makes the
-// brake-and-slide worth learning. A first guess — half a second of Loco.
+// The reward is speed: a boosted corner lifts to 0.7× cruise (BOOST_LEFT_TURN in sim/traffic.js),
+// a drift goes round at the full cruise and comes out with a kick above it. A landed drift also
+// pays back a sip of fuel, half a second of Loco. Both first guesses.
 const DRIFT_FUEL = 1 / 30;
 let driftHoldOff = false;
 let driftsPaid = 0;
@@ -3840,7 +3840,12 @@ function frame() {
   traffic.update(dt);
   if (traffic.taxi.drifts > driftsPaid) {
     driftsPaid = traffic.taxi.drifts;
-    if (!fares.state.gameOver) boost.topUp(DRIFT_FUEL);
+    if (!fares.state.gameOver) {
+      boost.topUp(DRIFT_FUEL);
+      // The exit kick (DRIFT_EXIT in sim/traffic.js) wants to be felt as well as seen.
+      haptic('loco');
+      controller.kickShake(0.2);
+    }
   }
   // A pass carried the taxi straight through a junction its route wanted to turn at, and the sim
   // dropped the route there (`detoured` in traffic.js). Re-plan from the far side, through the

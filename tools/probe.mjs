@@ -4320,7 +4320,9 @@ check('no two cars occupy the same space', worst > 1.6,
   // 0.52 is the two waves' peak sum; the margin covers a frame landing mid-corner-exit. The frame
   // floor is the sample size: at boost speed a junction arrives about every 1.1s, so barely half
   // of these 20s are spent in the 'drive' state at all.
-  check('the boosting taxi holds its lane', widest < 0.6 && straightFrames > 400,
+  // The floor was 400 until boosted corners started lifting (BOOST_LEFT_TURN): slower corners are
+  // more of the 20s spent in 'turn', and this seed came out at exactly 400.
+  check('the boosting taxi holds its lane', widest < 0.6 && straightFrames > 350,
     `widest ${widest.toFixed(2)} units off the lane centre over ${straightFrames} frames`);
   check('the boosting taxi actually weaves', widest > 0.25, `widest ${widest.toFixed(2)}`);
   setPriorityJunction(null);
@@ -4894,8 +4896,10 @@ check('no two cars occupy the same space', worst > 1.6,
   check('...and rocks back through level on the way out', median(rock) > 0.08,
     `median ${median(rock).toFixed(2)} rad the other way`);
   const leftPeak = traces.left.map((t) => Math.max(...t));
-  check('a boosted left still leans out as hard as it did', traces.left.length > 2
-    && median(leftPeak) > 0.6, `median peak ${median(leftPeak).toFixed(2)} rad`);
+  // 0.6 until boosted corners started lifting to 0.7× cruise for the drift (BOOST_LEFT_TURN): the
+  // lean scales with speed, and a left at 15.5 measured 0.59. The spring is what is under test.
+  check('a boosted left still leans out hard', traces.left.length > 2
+    && median(leftPeak) > 0.5, `median peak ${median(leftPeak).toFixed(2)} rad`);
 }
 
 // --- Loco Mode momentum cooldown --------------------------------------------
@@ -8004,7 +8008,9 @@ check('the taxi is an ordinary car in the traffic array',
   check('a full tank of Loco Mode gets away', count(runs.boosting, 'lost') >= runs.boosting.length * 0.7,
     `${count(runs.boosting, 'lost')}/${runs.boosting.length} lost ${ESCAPE_BLOCKS} blocks clear, median ${median(boostLost.map((r) => r.t)).toFixed(1)}s`);
   // The blip that was reported: on the pill the cop used to be gone in ~4s whatever the tank held.
-  check('...and not in a blip: the cop keeps up for a while first', median(boostLost.map((r) => r.t)) >= 6,
+  // 6 until boosted corners started lifting for the drift (BOOST_LEFT_TURN): that moved this
+  // median 6.0 → 5.1 on the same seeds, still clear of the ~4s that was the complaint.
+  check('...and not in a blip: the cop keeps up for a while first', median(boostLost.map((r) => r.t)) >= 5,
     `median ${median(boostLost.map((r) => r.t)).toFixed(1)}s to lose it`);
   // And the tank is what decides it: a third of one is the coin flip — some get away, some do not.
   check('a third of a tank is a coin flip', count(runs.third, 'caught') >= runs.third.length * 0.2
@@ -16112,6 +16118,8 @@ let chopperOrder; // likewise
   let worstYaw = 0;
   let peakSwing = 0;
   let braked = 0;
+  let held = 0;
+  let exitPeak = Infinity;
   let straightRefused = 0;
   for (const lane of net.lanes) {
     if (lane.degenerate || isLaneClosed(lane.id) || lane.length < 10) continue;
@@ -16121,8 +16129,8 @@ let chopperOrder; // likewise
       const turn = net.turnById.get(id);
       const out = net.laneById.get(turn.outLane);
       if (isLaneClosed(out.id)) continue;
-      const setup = () => {
-        if (!placeCar(taxi, d, to.gi, to.gj, STOP_SETBACK + 6)) return false;
+      const setup = (back = STOP_SETBACK + 6) => {
+        if (!placeCar(taxi, d, to.gi, to.gj, back)) return false;
         taxi.route = [net.dirOfLane(out)];
         taxi.drift = null;
         taxi.uturn = null;
@@ -16152,7 +16160,9 @@ let chopperOrder; // likewise
       slowest = Math.min(slowest, lowest);
       // The swing is a render-only yaw on top of whatever the lane and the weave say, so it is
       // read directly: it has to have rocked out and come to rest within a second of the exit.
-      for (let k = 0; k < 60; k++) dTraffic.update(1 / 60);
+      let peak = 0;
+      for (let k = 0; k < 60; k++) { dTraffic.update(1 / 60); peak = Math.max(peak, taxi.v); }
+      exitPeak = Math.min(exitPeak, peak);
       worstYaw = Math.max(worstYaw, Math.abs(taxi.driftAmt * DRIFT_ANGLE));
       // The control: same corner, pedal held.
       if (setup()) {
@@ -16165,6 +16175,20 @@ let chopperOrder; // likewise
         braked = Math.max(braked, low);
         taxi.braking = false;
       }
+      // And the same corner with the pill simply held, from the overdrive top at the start of the
+      // lane — the lift only sees the lane it is on, so this is the most a held pill can carry.
+      if (setup(lane.length - 1)) {
+        // What the lift would have let it carry this far out (the lane before is where it starts).
+        const vc = boostCruise() * (turn.hand === 'right' ? 0.6 : 0.7);
+        taxi.v = Math.min(34, Math.sqrt(vc * vc + 2 * locoTuning().brake * (lane.length - 1)));
+        taxi.boostEasing = false;
+        let low = Infinity;
+        for (let k = 0; k < 90 && !(taxi.state === 'drive' && taxi.lane.id === out.id); k++) {
+          dTraffic.update(1 / 60);
+          low = Math.min(low, taxi.v);
+        }
+        held = Math.max(held, low);
+      }
     }
   }
   taxi.drift = null;
@@ -16174,6 +16198,9 @@ let chopperOrder; // likewise
   check('...carrying its speed round the corner, where the held brake stops dead',
     slowest >= DRIFT_MIN_V && braked < 1,
     `slowest drift ${slowest.toFixed(1)} u/s against DRIFT_MIN_V ${DRIFT_MIN_V}; fastest held-brake corner bottomed out at ${braked.toFixed(2)}`);
+  check('...faster than holding the pill through the same corner, and kicked out of it',
+    slowest > held + 2 && exitPeak > boostCruise() + 1,
+    `slowest drift ${slowest.toFixed(1)} against the fastest pill-held corner's ${held.toFixed(1)}; slowest exit kick ${exitPeak.toFixed(1)} against the cruise ${boostCruise().toFixed(1)}`);
   check('...swinging its tail out and settling square to the exit lane',
     peakSwing > 0.8 && worstYaw < 0.02,
     `peak swing ${peakSwing.toFixed(2)} of DRIFT_ANGLE, ${worstYaw.toFixed(3)} rad of it left 1s after the exit`);

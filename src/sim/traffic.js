@@ -1519,6 +1519,16 @@ export function spinTaxi(car) {
   return null;
 }
 
+// Loco Mode's corner speeds, as fractions of the boost cruise (22.1). Holding the pill through a
+// corner used to cost nothing on a left (full cruise) and a quarter on a right, which left the
+// drift with nothing to beat. Now the boosted taxi lifts for every real turn, on the approach as
+// well as in the arc (`cornerCap` in the drive branch), so the corner is a real speed loss —
+// 34 → 15.5 on a left from the overdrive top — and the drift, which goes round at the full
+// cruise, is the way to keep it. Rights stay the tighter of the two for the reason the 0.75 did:
+// the arc is half the length and reads as sped up at the same speed.
+const BOOST_LEFT_TURN = 0.7;
+const BOOST_RIGHT_TURN = 0.6;
+
 // --- The drift: boost, then brake into a corner ------------------------------------------------
 //
 // In Loco Mode, a brake press with a real turn just ahead (or just begun) is not a stop. The taxi
@@ -1534,8 +1544,10 @@ export const DRIFT_MIN_V = 13;
 const DRIFT_LEAD = 0.6;
 /** How far round the arc a late press still counts, as a fraction of it. */
 const DRIFT_LATE = 0.35;
-/** Seconds the drift speed is held after the exit, before the coast-down. */
-const DRIFT_CARRY = 0.5;
+/** Seconds the exit kick is held after the exit, before the coast-down. */
+const DRIFT_CARRY = 0.6;
+/** The exit kick: a landed drift comes out above the boost cruise, as a fraction of it. */
+const DRIFT_EXIT = 1.2;
 /** A drift that has not landed in this long has gone wrong somewhere; let it go. */
 const DRIFT_MAX = 2.5;
 /** How far the nose swings past the heading at the height of the slide, in radians (~31°). */
@@ -1576,7 +1588,9 @@ export function driftTaxi(car) {
   car.drift = {
     phase,
     lane: car.lane.id,
-    v: Math.min(car.v, boostCruise()),
+    // The full boost cruise, whatever the approach had already shed: the boosted taxi lifts for
+    // corners now (BOOST_LEFT_TURN), and a drift is how you don't.
+    v: boostCruise(),
     t: 0,
     carry: DRIFT_CARRY,
   };
@@ -1600,11 +1614,12 @@ function stepDrift(car, dt) {
       return drop();
     }
   } else if (d.phase === 'arc') {
-    if (car.state === 'drive') { d.phase = 'carry'; car.drifts += 1; }
+    if (car.state === 'drive') { d.phase = 'carry'; d.v = boostCruise() * DRIFT_EXIT; car.drifts += 1; }
   } else {
-    // A fresh press of the pedal on the way out is a brake again.
+    // A fresh press of the pedal on the way out is a brake again, and a fresh press of the pill
+    // hands the speed straight back to the boost.
     d.carry -= dt;
-    if (d.carry <= 0 || car.braking || car.state !== 'drive') return drop();
+    if (d.carry <= 0 || car.braking || car.state !== 'drive' || (car.boost && !car.boostEasing)) return drop();
   }
 }
 
@@ -4149,6 +4164,45 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
    * cannot disagree; a closure, a flee or a veto drops it and re-rolls under the
    * conditions that hold at the line.
    */
+  /**
+   * The boosted taxi's speed ceiling for the next real turn on its route (BOOST_LEFT_TURN), as
+   * the speed it can still shed to the corner's at `brake()` over the road left before the arc.
+   * Looks one straight-on junction further than the lane it is on: a lane is ~11 units and
+   * shedding the overdrive top to a left's 15.5 takes 26, so a lift that only saw its own lane
+   * arrived at a right-hander at 25.8 and went round it barely slower than before.
+   */
+  function boostCornerCap(car) {
+    const real = (turn) => turn && turn.hand !== 'straight';
+    const cap = (turn, dist) => {
+      const vc = boostCruise() * (turn.hand === 'right' ? BOOST_RIGHT_TURN : BOOST_LEFT_TURN);
+      return Math.sqrt(vc * vc + 2 * brake() * Math.max(0, dist));
+    };
+    const across = (from, to) => {
+      const a = from.path.at(from.length);
+      const b = to.path.at(0);
+      return Math.hypot(b.x - a.x, b.z - a.z);
+    };
+    // Routed only, which in the game is every taxi that is moving: an unrouted car's intent is a
+    // dice roll, and rolling it a lane early for a speed cap reshuffles every draw after it.
+    if (!car.route?.length) return Infinity;
+    if (car.state === 'drive') {
+      const next = exitToward(net, car.lane, car.route[0]);
+      if (!next) return Infinity;
+      const toEdge = car.lane.length - car.s;
+      if (real(next)) return cap(next, toEdge);
+      if (car.route.length < 2) return Infinity;
+      const out = net.laneById.get(next.outLane);
+      const after = exitToward(net, out, car.route[1]);
+      return real(after) ? cap(after, toEdge + across(car.lane, out) + out.length) : Infinity;
+    }
+    // Crossing a junction straight on: the route has already shifted to the one after it.
+    if (car.turn?.hand !== 'straight') return Infinity;
+    const out = net.laneById.get(car.turn.outLane);
+    const after = exitToward(net, out, car.route[0]);
+    return real(after)
+      ? cap(after, (1 - Math.min(car.turnT, 1)) * car.turnLen + out.length) : Infinity;
+  }
+
   function intentFor(car) {
     if (car.route?.length) return exitToward(net, car.lane, car.route[0]);
     if (car.intentLane !== car.lane.id) {
@@ -5320,7 +5374,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // A drift holds its own speed: the pill came up with the brake press, so `fullPower` is
         // off and the cruise cap would otherwise haul the taxi down to 8.5 before the corner.
         const topSpeed = car.drift ? car.drift.v : fullPower ? overdriveTop() : cruiseCap;
-        const accel = fullPower
+        // The boosted taxi lifts on the approach to a real turn, so it arrives at the corner
+        // speed (BOOST_LEFT_TURN) rather than shedding it inside an arc too short to shed it in.
+        const cornerCap = car.isTaxi && fullPower && !car.drift ? boostCornerCap(car) : Infinity;
+        const accel = fullPower || car.drift
           ? boostAccel(car.v)
           : chaseAccelFor(car);
         // The brake pedal outranks every one of them, including the boost ceiling: holding it means
@@ -5329,7 +5386,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // below can never fire, so a braking taxi cannot pull away from a green, out of a queue or
         // into an overtake while the pedal is down.
         const desired = car.braking ? 0 : Math.min(
-          topSpeed, leadCap, Math.sqrt(2 * brake() * Math.max(0, stopRoom)),
+          topSpeed, leadCap, cornerCap, Math.sqrt(2 * brake() * Math.max(0, stopRoom)),
           // Arriving at the U-turn window at the arc's speed, on the hard brake: a cop at chase
           // speed needs ~3 units to shed it that way against ~5 at an ordinary one, which is most
           // of the way to the window on a 12-unit lane.
@@ -5691,13 +5748,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // needs. Only a real turn is capped at `cruise`, which is what makes a corner cost the top
         // end rather than merely interrupt it.
         const straightTop = fullPower ? overdriveTop() : cruise;
-        // Crazy mode doesn't lift for left-turns or straights — it goes round them at full pelt,
-        // and the lean plus the rubber on the road sell it instead of a speed drop. Right turns
-        // are the exception: with right-hand traffic they cut across the near corner (chord ≈
-        // HALF_ROAD − LANE per leg) instead of the far diagonal a left turn sweeps, so at full
-        // boost the whole arc completes in ~0.35s vs a left's ~0.7s and reads as *sped up*. A
-        // softer target on rights (0.75× cruise) keeps the no-brakes feel while giving the tight
-        // arc back its visual weight.
+        // Crazy mode doesn't lift for straights, but it does for a real turn now — see
+        // BOOST_LEFT_TURN, and the drift, which is how a player keeps the speed. Rights are the
+        // tighter of the two: with right-hand traffic they cut across the near corner (chord ≈
+        // HALF_ROAD − LANE per leg) instead of the far diagonal a left turn sweeps, so the arc is
+        // over in half the time and reads as *sped up* at the same speed.
         const isRight = car.turn.hand === 'right';
         // A chasing cop corners between the two — see CHASE_CORNER_SPEED. Lerped on `car.chase`
         // rather than branched on it so a cop handed its own paint back at the end of an event
@@ -5706,7 +5761,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         const chaseTurn = CORNER_SPEED
           + (cruise * CHASE_CORNER_SPEED - CORNER_SPEED) * car.chase;
         const boostTurn = fullPower
-          ? (isRight ? cruise * 0.75 : cruise)
+          ? cruise * (isRight ? BOOST_RIGHT_TURN : BOOST_LEFT_TURN)
           : car.isTruck
             ? (isRight ? TRUCK_RIGHT_TURN_SPEED : TRUCK_CORNER_SPEED)
             : chaseTurn;
@@ -5737,6 +5792,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // hold. That is what keeps `bargesThrough`'s guarantee intact: nothing stops the taxi
         // inside a junction.
         let target = cornerTarget;
+        // Straight on through one junction toward a turn at the next: start lifting for it here.
+        if (straightOn && car.isTaxi && fullPower && !car.drift) target = Math.min(target, boostCornerCap(car));
         const lead = followsLeader(car) && !rams(car, leaderOf.get(car)) ? leaderOf.get(car) : undefined;
         const leadGap = lead === undefined ? undefined : leaderDist.get(car);
         if (leadGap !== undefined) {
@@ -5762,9 +5819,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // climb to is not a ceiling. At plain ACCEL a fleeing car needs 24 units to reach
         // SCATTER_SPEED and a junction is 8, so without this the cruise cap above would raise the
         // roof and the car would still cross at the speed it entered.
-        const accel = fullPower ? boostAccel(car.v) : chaseAccelFor(car);
+        const accel = fullPower || car.drift ? boostAccel(car.v) : chaseAccelFor(car);
+        // A boosted taxi in a real turn scrubs speed at the pedal's rate: a right-hander's arc is
+        // ~0.25s, and at `brake()` it gave back 4 u/s of whatever it arrived with.
+        const scrub = car.braking || (car.isTaxi && fullPower && !straightOn && !car.drift);
         car.v = car.v > target
-          ? Math.max(target, car.v - (car.braking ? hardBrake() : brake()) * dt)
+          ? Math.max(target, car.v - (scrub ? hardBrake() : brake()) * dt)
           : Math.min(target, car.v + accel * dt);
         car.turnT += (car.v * dt) / car.turnLen;
         car.travelled += car.v * dt;

@@ -3261,24 +3261,26 @@ already means a pan, a route-band drag or a fare tap.
 `driftTaxi` in `sim/traffic.js`, wired in `holdBrake` in main.js. In Loco Mode, at 13 u/s or more
 (`DRIFT_MIN_V`, so only off the pill), a brake press with a real turn just ahead is a drift instead
 of a stop. "Just ahead" is the last 0.6s of approach (never under 8 units) or the first 35% of the
-arc. The taxi sheds anything above the boost cruise, swings its nose ~31° into the turn on a spring
-(`DRIFT_ANGLE`, render only; the front wheels countersteer), goes round at that speed with all four
-wheels marking the road, holds it for half a second out of the exit, then coasts down as after any
-release. The press screeches, buzzes and gives a small shake.
+arc. The taxi swings its nose ~31° into the turn on a spring (`DRIFT_ANGLE`, render only; the front
+wheels countersteer), goes round at the full boost cruise with all four wheels marking the road,
+and comes out with a kick to 1.2× cruise (`DRIFT_EXIT`) for 0.6s before coasting down as after any
+release. The press screeches, buzzes and gives a small shake; the exit buzzes again.
 
-- **The reward is fuel, and that is deliberate.** Holding the pill through a left already goes round
-  at the boost cruise, so a drift cannot beat it on speed there. It beats it on a *right* (boost
-  drops those to 0.75× cruise; a drift does not), it beats a braked corner by a mile, and a landed
-  drift pays back 1/30 of a tank (`DRIFT_FUEL`, half a second of Loco). Boost, drift, boost again
-  is cheaper than holding through.
+- **The reward is speed, because holding the pill through a corner now costs some.** A boosted
+  taxi lifts for every real turn on its route, to 0.7× cruise on a left and 0.6× on a right
+  (`BOOST_LEFT_TURN` / `BOOST_RIGHT_TURN` in [traffic.md](traffic.md#boost-crazy-taxi-mode)),
+  and starts lifting a junction early so the overdrive band can't carry it through. A drift goes
+  round at the full cruise instead. A landed drift also pays back 1/30 of a tank (`DRIFT_FUEL`).
 - **It owns the pedal until the pedal comes back up,** like the bootleg: the thumb that pressed it
-  is still down on the exit. A fresh press during the half-second carry is a brake again.
+  is still down on the exit. A fresh press of the brake during the exit kick is a brake again, and
+  a fresh press of the pill hands the speed straight back to the boost.
 - **It outranks the bootleg's first tap and clears it,** so a drift can't turn into a spin. A tap
   mid-drift is ignored. On a straight the bootleg is unchanged.
 - **No clearance test**, like the bootleg: what the swung tail hits, the collision pass charges.
 
 A prototype: every number is a first guess. `tools/probe.mjs` drifts every turn off every lane and
-checks it lands, never drops under `DRIFT_MIN_V`, and settles square within a second.
+checks it lands, stays over `DRIFT_MIN_V`, beats the same corner with the pill held, kicks out above
+cruise and settles square within a second.
 
 ## The pedal slide
 
