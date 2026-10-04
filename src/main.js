@@ -3,6 +3,7 @@ import { makeRng } from './util/rng.js';
 import { createScene, sinkShadowCaster, setHazeTop, HAZE_TOP } from './game/scene.js';
 import { createRain, GRIP } from './game/rain.js';
 import { createStorm } from './game/storm.js';
+import { createRunTracker } from './game/runs.js';
 import { createSquall } from './game/squall.js';
 import {
   collectPanes, litWindows, streetLamps, createTaxiHeadlights, setCityLights,
@@ -594,8 +595,12 @@ if (new URLSearchParams(window.location.search).get('lights') === 'on') {
 // `reserved` is how the fare loop learns about the courier's corners without importing it. `parcels`
 // is declared just below and this closure is only ever *called* from the frame loop, long after — the
 // same forward reference `pathDrag`'s `canGrab` makes to `pause`.
+// How each ride is being driven — Loco, Perfect, Stealth — fed in the frame loop and judged by the
+// fare loop at the drop-off (game/runs.js).
+const runs = createRunTracker();
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   reserved: () => parcels?.occupiedSpots() ?? [],
+  judgeRun: (fare) => runs.judge(fare),
 });
 // The package courier — see game/parcels.js. Its own stream off the run seed, so adding this layer
 // does not reshuffle where every rider spawns. `?parcels=0` turns it off.
@@ -1536,8 +1541,8 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck })
   // Ramming the patrol car on the pill is a bump like any other, not a bust — game/patrol.js
   // `rammed`. The collision pass runs before the patrol's, so this lands the same frame.
   if (taxiStruck && other.police) patrol.rammed(other);
-  // Every bump costs HP, and any damage at all ends the combo (see COMBO in game/fares.js).
-  fares.breakCombo();
+  // Every bump costs HP, and any damage at all costs the ride its Perfect Run (game/runs.js).
+  runs.damage();
   controller.kickShake(BUMP_SHAKE + closing * BUMP_SHAKE_PER_UNIT);
   // The designer's bump — light hits against other cars, a recording of its own since Block 1 —
   // scaled by the same closing speed the shake is. 0.3 at a nudge, full at a T-bone at the Loco top.
@@ -2340,36 +2345,51 @@ if (debugMode) holdFareClocks();
 
 const hud = {
   money: document.getElementById('money'),
-  combo: document.getElementById('combo'),
+  runs: document.getElementById('runs'),
   banner: document.getElementById('run-end'),
 };
 
-// The combo badge under the cash: `×N` once a clean drop-off has made the next one worth more,
-// hidden at 1× where it would only be saying "nothing yet". It follows `fares.state.combo` each
-// frame rather than being told about events, so a drop-off and a bump on the same frame cannot
-// leave it disagreeing with the payout. Going up it swells green like the counter does; going back
-// to 1× it shows the number it lost in red, shakes, and drops out — the bump that caused it is
-// already loud, so this only has to say what it cost.
-let comboShown = 1;
-function updateCombo() {
-  const el = hud.combo;
-  const combo = fares.state.combo;
-  if (!el || combo === comboShown) return;
-  const lost = combo < comboShown;
-  if (!lost) el.textContent = `×${combo}`;
-  comboShown = combo;
-  el.classList.remove('combo-up', 'combo-lost');
-  void el.offsetWidth;   // restart the animation — see `.money-bumped`
-  if (lost) {
-    // A break from 1× to 1× (a second bump before the next drop-off) never gets here, and a
-    // badge that was never shown has nothing to lose.
-    if (el.hidden) return;
-    el.classList.add('combo-lost');
-    el.onanimationend = () => { el.hidden = true; el.classList.remove('combo-lost'); };
-  } else {
-    el.onanimationend = null;
-    el.hidden = false;
-    el.classList.add('combo-up');
+// The run tags under the cash, while a rider is aboard: what this ride is on course for
+// (game/runs.js). LOCO carries its live share and lights up once it is over the line; PERFECT and
+// STEALTH appear the moment they are in play and, when lost, show it — a red flinch, a hard shake
+// and a fall out of the HUD — because a bonus that silently stops being on offer cannot change how
+// anyone drives. When the ride ends they just fade: the payout pop says what was earned.
+const runTags = new Map();
+const RUN_TAG_TEXT = {
+  loco: (r) => `LOCO ${Math.round(r.share * 100)}%`,
+  perfect: () => 'PERFECT',
+  stealth: () => 'STEALTH',
+};
+function updateRunTags() {
+  const box = hud.runs;
+  if (!box) return;
+  const live = runs.live();
+  const seen = new Set();
+  for (const r of live) {
+    seen.add(r.key);
+    let tag = runTags.get(r.key);
+    if (!tag) {
+      tag = { el: document.createElement('div'), lost: false };
+      tag.el.className = `run-tag run-${r.key}`;
+      box.append(tag.el);
+      runTags.set(r.key, tag);
+    }
+    if (tag.lost) continue;
+    tag.el.textContent = RUN_TAG_TEXT[r.key](r);
+    tag.el.classList.toggle('is-earned', r.earned);
+    // Loco can climb back over its line; the other two cannot come back once broken.
+    if (!r.earned && r.key !== 'loco') {
+      tag.lost = true;
+      tag.el.classList.add('is-lost');
+      tag.el.onanimationend = (e) => { if (e.animationName === 'run-tag-lost') tag.el.remove(); };
+    }
+  }
+  for (const [key, tag] of runTags) {
+    if (seen.has(key)) continue;
+    runTags.delete(key);
+    if (tag.lost) continue;   // already falling out on its own
+    tag.el.classList.add('is-done');
+    tag.el.onanimationend = (e) => { if (e.animationName === 'run-tag-out') tag.el.remove(); };
   }
 }
 
@@ -2531,7 +2551,7 @@ function rollMoneyTo(target, up = true) {
  * direction, which stays taxi → counter. A charge flown counter → taxi would read as the player
  * being *given* something.
  */
-function popEarning(amount) {
+function popEarning(amount, bonuses = []) {
   const start = taxiScreenPos();
   const el = document.createElement('div');
   el.className = amount < 0 ? 'earning is-charge' : 'earning';
@@ -2539,6 +2559,29 @@ function popEarning(amount) {
   el.style.left = `${start.x}px`;
   el.style.top = `${start.y}px`;
   document.body.append(el);
+
+  // The run bonuses that paid into it (game/runs.js), stacked over the amount: each pops in a beat
+  // after the last, holds while the amount takes off for the counter, and fades where it is. They
+  // stay behind on purpose — the cash is what travels to the HUD, the label is what this trip was.
+  bonuses.forEach((run, k) => {
+    const tag = document.createElement('div');
+    tag.className = `run-pop run-${run.key}`;
+    tag.textContent = `${run.label} ×${run.mult}`;
+    tag.style.left = `${start.x}px`;
+    tag.style.top = `${start.y}px`;
+    document.body.append(tag);
+    // The amount settles 30px up and is ~28px tall, so the first label sits clear of its top.
+    const y = -(64 + 26 * k);
+    const at = (dy, scale) => `translate(-50%, -50%) translateY(${y + dy}px) scale(${scale})`;
+    tag.animate([
+      { opacity: 0, transform: at(14, 0.6) },
+      { opacity: 1, transform: at(-4, 1.14), offset: 0.18 },
+      { opacity: 1, transform: at(0, 1), offset: 0.3 },
+      { opacity: 1, transform: at(-6, 1), offset: 0.75 },
+      { opacity: 0, transform: at(-18, 0.96) },
+    ], { duration: 1700, delay: 160 + k * 160, easing: 'ease-out', fill: 'both' })
+      .onfinish = () => tag.remove();
+  });
 
   // The counter's position is resolved *at launch* rather than baked into a CSS keyframe, so a
   // window resize between deliveries still aims each flight at where the counter actually is now.
@@ -2635,7 +2678,7 @@ function collectScores() {
 
 function updateHud(dt) {
   const s = fares.state;
-  updateCombo();
+  updateRunTags();
 
   if (s.gameOver && hud.banner && hud.banner.hidden) {
     // Every ending holds the banner while its own closing beat plays — CRASH_BANNER_DELAY for the
@@ -3848,6 +3891,16 @@ function frame() {
 
   // More than one thing can land in a frame now — delivering the last fare clears the board and
   // spawns the next one in the same tick — so this is a list rather than a single event.
+  // The ride's driving, recorded before the fare loop runs so a drop-off this frame is judged on
+  // all of it. The patrol is only a stealth question while it is patrolling or chasing.
+  if (!fareLoopHeld()) {
+    const cop = patrol.state.cop;
+    runs.update(dt, {
+      fare: fares.carrying() ?? null,
+      boosting: Boolean(traffic.taxi.boost),
+      cop: cop ? { phase: patrol.state.phase, gap: Math.hypot(cop.x - traffic.taxi.x, cop.z - traffic.taxi.z) } : null,
+    });
+  }
   for (const { type, fare } of
     (fareLoopHeld() ? NO_FARE_EVENTS : fares.update(dt, traffic.taxi))) {
     if (type === 'pickup') {
@@ -3874,7 +3927,7 @@ function frame() {
       // Out they get: open, and shut a beat later once they are clear of the car.
       sfx?.play('doorOpen');
       sfx?.play('doorClose', { delay: 0.7 });
-      popEarning(fare.value);
+      popEarning(fare.value, fare.runs);
       // A third of a tank of boost fuel as the ordinary delivery reward — the only way any fuel
       // enters the meter otherwise. A VIP pays out bigger here too: the tank tops all the way to
       // full rather than by a third, on the same delayed pour as everything else so it reads as
@@ -4024,7 +4077,7 @@ function frame() {
       // with no visible link to the car would read as a side effect. The fuel is deliberately *half*
       // a fare's (see BOOST_PARCEL_REWARD): an errand pays into the tank, but a fare still fills it
       // twice as fast, so the courier layer stays a detour rather than the way you fuel a run. What
-      // a package still does not touch is the combo — that number means "this is what a *fare*
+      // a package still does not touch is a run bonus — that number means "this is what a *fare*
       // is worth now", and a package is not a fare.
       fares.credit(parcel.value);
       popEarning(parcel.value);
@@ -4722,6 +4775,8 @@ if (!shot && wantsDebugPanel) {
 
 window.__taxi = {
   traffic,
+  // The run-bonus tracker — see game/runs.js.
+  runs,
   // The crash replay and its recording — see game/replay.js.
   replay,
   tape,

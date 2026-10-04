@@ -189,6 +189,7 @@ import {
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
+import { createRunTracker, RUNS, LOCO_SHARE, PERFECT_MIN_BOOST, STEALTH_RANGE } from '../src/game/runs.js';
 import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
@@ -3435,7 +3436,11 @@ check('no two cars occupy the same space', worst > 1.6,
 {
   const tScene = new THREE.Scene();
   const tTraffic = createTraffic(makeRng(seed + 44), tScene, CARS_DEFAULT);
-  const fares = createFareSystem(makeRng(seed + 55), tScene);
+  // A stub verdict, so the wiring is what is under test: every drop-off here is judged a Loco Run.
+  // The tracker's own rules are checked on their own further down ("Run bonuses").
+  const fares = createFareSystem(makeRng(seed + 55), tScene, {
+    judgeRun: () => ({ runs: [{ key: 'loco', ...RUNS.loco }], mult: RUNS.loco.mult }),
+  });
   tTraffic.warmup(5);
 
   let shownOnSpawn = 0;
@@ -3497,11 +3502,10 @@ check('no two cars occupy the same space', worst > 1.6,
         budgetSlack.push(fare.limit / Math.max(1e-6, fare.work));
       }
       if (type === 'delivered') {
-        // A clean run: no bump can happen here (this taxi has no HP, so its first contact is the
-        // wreck), so every drop-off pays one more × than the last — 1×, 2×, 3×.
+        // The verdict multiplies the price stamped at spawn and rides the event out for the pop.
         deliveries += 1;
-        if (fare.combo !== deliveries
-          || fare.value !== Math.round(spawnPrice.get(fare) * deliveries)) wrongCombo += 1;
+        if (fare.runs?.[0]?.key !== 'loco'
+          || fare.value !== Math.round(spawnPrice.get(fare) * RUNS.loco.mult)) wrongCombo += 1;
       }
       if (type === 'pickup') {
         pickups += 1;
@@ -3551,11 +3555,8 @@ check('no two cars occupy the same space', worst > 1.6,
   check('a waiting rider shows their diamond', shownOnSpawn > 0 && missingPin === 0,
     `${shownOnSpawn} spawns, ${missingPin} missing`);
   check('the block count matches the trip', wrongCount === 0, `${wrongCount} mismatched`);
-  check('each clean drop-off pays one more × than the last', deliveries >= 3 && wrongCombo === 0,
-    `${deliveries} delivered, ${wrongCombo} paid at the wrong combo`);
-  // And any damage puts it back to 1× — main.js calls this from `collisions.onBump`.
-  fares.breakCombo();
-  check('damage resets the combo to 1×', fares.state.combo === 1, `combo ${fares.state.combo}`);
+  check('a drop-off pays its price times the run verdict', deliveries >= 3 && wrongCombo === 0,
+    `${deliveries} delivered, ${wrongCombo} paid wrong`);
   check('a fresh rider\'s diamond opens on full urgency', wrongOpening === 0,
     `${wrongOpening} opened wrong`);
   check('and opens with a full vessel', drainedOpening === 0, `${drainedOpening} opened drained`);
@@ -17343,6 +17344,71 @@ let chopperOrder; // likewise
   check('no fire can break out on the depot or the burger joint',
     cities > 0 && sites > 0 && onDepot === 0 && onBurger === 0,
     `${sites} candidate sites over ${cities} cities with a depot, ${onDepot} on it, ${onBurger} on the joint`);
+}
+
+// --- Run bonuses --------------------------------------------------------------------
+//
+// game/runs.js on its own: each rule, the edges that make it fair, and the product.
+{
+  const step = 1 / 60;
+  const ride = (tracker, fare, seconds, facts) => {
+    for (let t = 0; t < seconds; t += step) tracker.update(step, { fare, boosting: false, cop: null, ...facts(t) });
+  };
+  const keys = (v) => v.runs.map((r) => r.key).sort().join(',');
+
+  let r = createRunTracker();
+  const a = { id: 'a' };
+  ride(r, a, 10, () => ({}));
+  check('a ride driven off boost earns no run bonus', keys(r.judge(a)) === '' && r.judge(a).mult === 1,
+    keys(r.judge(a)));
+
+  r = createRunTracker();
+  ride(r, a, 10, (t) => ({ boosting: t >= 1.5 }));
+  check(`Loco Mode for ${LOCO_SHARE * 100}%+ of a clean ride is a Loco Run and a Perfect Run`,
+    keys(r.judge(a)) === 'loco,perfect' && r.judge(a).mult === RUNS.loco.mult * RUNS.perfect.mult,
+    `${keys(r.judge(a))} ×${r.judge(a).mult}`);
+
+  r = createRunTracker();
+  ride(r, a, 10, (t) => ({ boosting: t >= 3 }));
+  check('under the share it is not a Loco Run', !keys(r.judge(a)).includes('loco'), keys(r.judge(a)));
+
+  r = createRunTracker();
+  ride(r, a, 10, (t) => ({ boosting: t < PERFECT_MIN_BOOST * 0.5 }));
+  check('a dab of boost does not make an undamaged ride Perfect', !keys(r.judge(a)).includes('perfect'),
+    keys(r.judge(a)));
+
+  r = createRunTracker();
+  ride(r, a, 5, () => ({ boosting: true }));
+  r.damage();
+  ride(r, a, 5, () => ({ boosting: true }));
+  check('damage takes the Perfect Run, not the Loco Run', keys(r.judge(a)) === 'loco', keys(r.judge(a)));
+
+  r = createRunTracker();
+  ride(r, a, 4, () => ({ boosting: true, cop: { phase: 'patrol', gap: STEALTH_RANGE - 5 } }));
+  ride(r, a, 4, () => ({ boosting: true, cop: { phase: 'patrol', gap: 80 } }));
+  check('boosting past a patrol unspotted is a Stealth Run', keys(r.judge(a)) === 'loco,perfect,stealth'
+    && r.judge(a).mult === RUNS.loco.mult * RUNS.perfect.mult * RUNS.stealth.mult,
+    `${keys(r.judge(a))} ×${r.judge(a).mult}`);
+
+  r = createRunTracker();
+  ride(r, a, 4, () => ({ boosting: true, cop: { phase: 'patrol', gap: STEALTH_RANGE - 5 } }));
+  ride(r, a, 4, () => ({ boosting: true, cop: { phase: 'chase', gap: 10 } }));
+  check('getting spotted takes it back', !keys(r.judge(a)).includes('stealth'), keys(r.judge(a)));
+
+  r = createRunTracker();
+  ride(r, a, 4, () => ({ boosting: true, cop: { phase: 'patrol', gap: STEALTH_RANGE + 10 } }));
+  check('no patrol inside two blocks, no Stealth Run', !keys(r.judge(a)).includes('stealth'), keys(r.judge(a)));
+
+  // A new rider is a new ride: nothing carries over, and damage between rides belongs to nobody.
+  r = createRunTracker();
+  ride(r, a, 5, () => ({ boosting: true }));
+  r.damage();
+  ride(r, null, 1, () => ({}));
+  r.damage();
+  const b = { id: 'b' };
+  ride(r, b, 5, () => ({ boosting: true }));
+  check('each rider\'s ride is judged on its own', keys(r.judge(b)) === 'loco,perfect'
+    && r.judge(a).mult === 1, `${keys(r.judge(b))}, previous ×${r.judge(a).mult}`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

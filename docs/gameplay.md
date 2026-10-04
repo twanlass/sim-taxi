@@ -1631,28 +1631,45 @@ number flying from the counter *to* the taxi would read as the player being hand
 charge; it tweens either way now, and the total never goes below zero (see `charge()` in
 `game/fares.js`).
 
-### The combo
+### Run bonuses
 
-Every drop-off pays its price times `fares.state.combo`, and every drop-off grows it by one: the
-first fare of a clean run pays 1×, the next 2×, then 3×, with no ceiling. **Any damage to the taxi
-puts it back to 1×** — `fares.breakCombo()`, called from `collisions.onBump` in `main.js` — and that
-includes the rider aboard when it happens. Damage means a hit that costs HP, which is a contact on
-Loco Mode; a shove off boost costs nothing (see `sim/collisions.js`) and so costs no combo either.
-Loco Mode is therefore a bet against it, which is the tension the system is for.
+How a trip was driven multiplies what its drop-off pays (`game/runs.js`). Three, judged per ride
+from pickup to drop-off, multiplied together:
 
-Read at the drop-off rather than stamped at spawn like the rest of a price, because it is a fact
-about how the trip was *driven*, and nothing shows a price before the drop-off for it to contradict.
-It multiplies everything the drop-off pays, the robbery's clock bonus included. A
-[package](#the-package-courier) neither grows it nor is multiplied by it.
+| Run | Earned by | Pays |
+|---|---|---|
+| **Loco Run** | Loco Mode held for at least 80% of the ride (`LOCO_SHARE`) | ×2 |
+| **Perfect Run** | no damage, on a ride that used at least 1s of Loco Mode (`PERFECT_MIN_BOOST`) | ×1.5 |
+| **Stealth Run** | boosting inside two blocks of a patrolling cruiser (`STEALTH_RANGE`) and never being chased | ×1.5 |
 
-It is shown as a yellow `×N` badge under the cash (`#combo`, `updateCombo` in `main.js`), hidden at
-1×. It swells when it grows, and on a break it shows the number that was lost in red, shakes and
-drops out.
+So the full set pays ×4.5. Three edges are deliberate:
 
-It replaced two multipliers. The [shift](difficulty.md#shifts) used to stamp 1×, 1.25×, 1.5× or 2×
-into every price at spawn, with no counter on screen once the HUD redesign gave its corner to the
-cash; and VIPs stacked a streak of their own (3×, 4×, 5× for VIPs delivered back to back). Both paid
-for getting further. This pays for getting further *without hitting anything*.
+- **Perfect needs boost** because off boost it would be free: the taxi drives itself between taps,
+  and a contact off boost costs no HP. Counting every contact instead would charge the player for
+  the traffic model's own nudges.
+- **Loco is a share, not "the whole time".** A full tank is 15s and a fare refills a third of it,
+  so "pickup to drop-off" would only ever pay on a VIP trip.
+- **Stealth is a close shave, not an absence.** Not being spotted is free with no patrol out, so it
+  has to be earned near one: spotting is one block (`SPOT_RANGE`), stealth is the band out to two.
+
+`main.js` feeds the tracker each frame (who is aboard, whether Loco Mode is on, the patrol's phase
+and distance) and `collisions.onBump` reports damage; the fare loop asks for the verdict at the
+drop-off through `createFareSystem`'s `judgeRun` hook. Read there rather than stamped at spawn like
+the rest of a price, because it is about the driving, and nothing shows a price before the drop-off
+for it to contradict. It multiplies everything the drop-off pays, the robbery's clock bonus
+included. A [package](#the-package-courier) is never multiplied.
+
+**It is visible during the ride**, because a bonus first heard of at the drop-off cannot change how
+anyone drives. Tags under the cash (`#runs`, `updateRunTags`) appear as each comes into play — `LOCO
+64%` once you boost, dim until it is over the line; `PERFECT` once you have boosted a second;
+`STEALTH` on a close shave — and a lost one flinches red, shakes and falls out of the HUD. At the
+drop-off each earned run pops over the payout as its own label, `LOCO RUN ×2`, in its tag's colour.
+
+They replaced two multipliers. The [shift](difficulty.md#shifts) used to stamp 1×, 1.25×, 1.5× or 2×
+into every price at spawn, with no counter on screen; and VIPs stacked a streak of their own (3×,
+4×, 5× back to back). Both paid for getting further; these pay for *how*. A clean-driving streak
+(×1, ×2, ×3 per drop-off, back to ×1 on damage) was tried in between and dropped: it only ever asked
+"don't crash", across the whole run.
 
 ### Priced by the trip
 
@@ -1673,8 +1690,8 @@ costs the *queue*: every other rider's clock drains while you drive it. Paying m
 game being fair about that afterwards, exactly as before; only the mechanism it is fair about has
 changed.
 
-The [combo](#the-combo) is the one thing applied later, at the drop-off; the table below is the
-1× column.
+A [run bonus](#run-bonuses) is the one thing applied later, at the drop-off; the table below is
+the 1× column.
 
 | Blocks | Price |
 |---:|---:|
@@ -1723,9 +1740,8 @@ Everything else about a VIP is the ordinary fare loop with four numbers turned:
   clock](#the-clock-is-budgeted)). A VIP's does not: it covers the rider already
   aboard, whom you cannot abandon, its own trip, and nothing else. Jump the queue for it or lose it.
 - **Triple pay.** A VIP pays the ordinary distance price times `VIP_PAYOUT` (3), stamped at spawn,
-  and then the [combo](#the-combo) at the drop-off like anyone. There used to be a VIP-only streak
-  on top (3×, 4×, 5× back to back, reset by a miss); it went when the combo replaced the shift
-  multiplier, so there is one multiplier rather than three.
+  and then any [run bonus](#run-bonuses) at the drop-off like anyone. There used to be a VIP-only
+  streak on top (3×, 4×, 5× back to back, reset by a miss); it went with the shift multiplier.
 - **A full tank on delivery**, rather than the ordinary third. `main.js` reads the boost meter's
   current fraction at the moment the delivery's energy bits land and tops up exactly what's missing,
   so a VIP always leaves Loco Mode topped off regardless of what was left in the tank going in.
@@ -2571,9 +2587,9 @@ square against a disc is read at a glance.
   left where it is — silently swapping the load would throw away a delivery already paid for in
   detour. The probe asserts the seat and the slot never touch: collecting a package does not move
   the rider's target and does not reset, pause or extend their clock.
-- **Priced exactly like a rider going the same distance** — `priceFor` off a fresh combo, stamped
+- **Priced exactly like a rider going the same distance** — `priceFor`, stamped
   at spawn. `PARCEL_PAY_FACTOR` is the one number to turn if it plays too rich.
-- **Cash and a splash of fuel.** No combo, either way (that number means "this is what a *fare* is
+- **Cash and a splash of fuel.** No run bonus (that number means "this is what a *fare* is
   worth now") and no run-end stat row, but a delivered package does pour **a sixth of a tank** into
   Loco Mode — half what a drop-off pays (`BOOST_PARCEL_REWARD` against `BOOST_FARE_REWARD`). Both
   the payout and the fuel take the same [two-phase flight](#economy) a fare's do, because it is the
@@ -3003,7 +3019,7 @@ good one when the taxi was going that way anyway, which is the whole of the deci
 **Why it is not free.** It was, and free made it a strictly-better detour once found: the only price
 was a clock the player was already spending, so every tap taken on a route that passed the joint was
 pure profit and the decision stopped being one after the first time. Ten dollars is about half a
-median fare off a fresh combo and loose change deep into a clean one, which is the right way round —
+plain median fare and loose change against a Loco Run, which is the right way round —
 the tank is worth most when the multiplier is small, and so is the money. It does **not** scale with
 the multiplier: the tank it buys is a flat 2.25 seconds at every point in the run, and a price that
 climbed would quietly make the same purchase worse for no reason on screen.

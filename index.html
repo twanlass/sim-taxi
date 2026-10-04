@@ -230,34 +230,48 @@
         100% { transform: scale(1);    color: #fff;    }
       }
 
-      /* The combo badge under the cash — see `updateCombo` in main.js. Taxi yellow rather than the
-         payout's green: green is money arriving, and this is a rate, not an amount. */
-      #hud .combo {
-        font-size: 22px; line-height: 1; letter-spacing: 0.04em; font-variant-numeric: tabular-nums;
-        color: #FFD23F; display: inline-block; transform-origin: right center;
+      /* The run tags under the cash while a rider is aboard — see `updateRunTags` in main.js and
+         game/runs.js. Small caps in a dim pill until the bonus is actually earned, then lit in the
+         run's own colour: LOCO the boost gold, PERFECT the payout green, STEALTH the patrol's blue. */
+      #hud .runs {
+        display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-top: 2px;
       }
-      #hud .combo[hidden] { display: none; }
-      #hud .combo.combo-up { animation: combo-up 0.36s cubic-bezier(0.22, 1, 0.36, 1); }
-      @keyframes combo-up {
-        0%   { transform: scale(1);    }
-        40%  { transform: scale(1.3);  color: #fff; }
-        100% { transform: scale(1);    }
+      #hud .run-tag {
+        font-size: 13px; line-height: 1; letter-spacing: 0.08em; font-variant-numeric: tabular-nums;
+        padding: 4px 7px; border-radius: 6px;
+        background: rgba(0, 0, 0, 0.28); color: rgba(255, 255, 255, 0.6);
+        transform-origin: right center;
+        animation: run-tag-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+        transition: color 0.15s ease, background-color 0.15s ease;
       }
-      /* Lost: it flinches red at the size of the hit, shakes hard for a third of a second, then
-         drops out of the HUD like something knocked off a shelf — a fall that accelerates (ease-in)
-         and tips as it fades, so it reads as *lost*, not as quietly hidden. The first cut was a 5px
-         wiggle and an 8px fade over 0.6s, and on a phone it passed for nothing having happened. */
-      #hud .combo.combo-lost { animation: combo-lost 1.1s linear forwards; }
-      @keyframes combo-lost {
-        0%   { transform: translate(0, 0) rotate(0) scale(1.25);         color: #FF5A48; opacity: 1; }
-        6%   { transform: translate(-9px, 0) rotate(-6deg) scale(1.2);   color: #FF5A48; }
-        12%  { transform: translate(9px, 0) rotate(6deg) scale(1.15);    color: #FF5A48; }
-        18%  { transform: translate(-7px, 0) rotate(-4deg) scale(1.1);   color: #FF5A48; }
-        24%  { transform: translate(6px, 0) rotate(3deg) scale(1.05);    color: #FF5A48; }
-        30%  { transform: translate(-3px, 0) rotate(-1deg) scale(1);     color: #FF5A48; }
-        36%  { transform: translate(0, 0) rotate(0) scale(1);            color: #FF5A48; opacity: 1;
+      #hud .run-tag.is-earned { background: rgba(0, 0, 0, 0.4); }
+      #hud .run-loco.is-earned { color: #FFD23F; }
+      #hud .run-perfect.is-earned { color: #6BE08A; }
+      #hud .run-stealth.is-earned { color: #7FC8FF; }
+      @keyframes run-tag-in {
+        0%   { transform: scale(0.6); opacity: 0; }
+        60%  { transform: scale(1.12); opacity: 1; }
+        100% { transform: scale(1); }
+      }
+      #hud .run-tag.is-done { animation: run-tag-out 0.4s ease-in forwards; }
+      @keyframes run-tag-out { to { opacity: 0; transform: translateX(12px); } }
+      /* Lost: it flinches red, shakes hard for a third of a second, then drops out of the HUD like
+         something knocked off a shelf — a fall that accelerates and tips as it fades, so it reads
+         as *lost* rather than quietly hidden. A 5px wiggle over 0.6s passed for nothing happening. */
+      #hud .run-tag.is-lost {
+        animation: run-tag-lost 1.1s linear forwards;
+        color: #FF5A48; background: rgba(40, 0, 0, 0.45);
+      }
+      @keyframes run-tag-lost {
+        0%   { transform: translate(0, 0) rotate(0) scale(1.25); opacity: 1; }
+        6%   { transform: translate(-9px, 0) rotate(-6deg) scale(1.2); }
+        12%  { transform: translate(9px, 0) rotate(6deg) scale(1.15); }
+        18%  { transform: translate(-7px, 0) rotate(-4deg) scale(1.1); }
+        24%  { transform: translate(6px, 0) rotate(3deg) scale(1.05); }
+        30%  { transform: translate(-3px, 0) rotate(-1deg) scale(1); }
+        36%  { transform: translate(0, 0) rotate(0) scale(1); opacity: 1;
                animation-timing-function: cubic-bezier(0.4, 0, 0.8, 0.6); }
-        100% { transform: translate(-6px, 56px) rotate(-18deg) scale(0.9); color: #FF5A48; opacity: 0; }
+        100% { transform: translate(-6px, 56px) rotate(-18deg) scale(0.9); opacity: 0; }
       }
 
       /* Cargo chip — the courier box, pictured under the cash total while a package is aboard. See
@@ -402,6 +416,17 @@
          same size, same anchor on the taxi: only the sign and the colour say which way the money
          went, which is the whole point of reusing the pop rather than inventing a second one. */
       .earning.is-charge { color: #FF7A6B; text-shadow: 0 2px 10px rgba(40, 12, 10, 0.65); }
+      /* A run bonus's label over the payout it multiplied (`popEarning` in main.js). Upper case
+         and smaller than the amount, in the same colour its tag wore in the HUD during the ride. */
+      .run-pop {
+        position: fixed; z-index: 25; pointer-events: none; user-select: none; white-space: nowrap;
+        font: 700 16px/1 var(--game-font); letter-spacing: 0.06em; text-transform: uppercase;
+        color: #fff; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+        transform: translate(-50%, -50%);
+      }
+      .run-pop.run-loco { color: #FFD23F; }
+      .run-pop.run-perfect { color: #6BE08A; }
+      .run-pop.run-stealth { color: #7FC8FF; }
 
       /* The boost half of a drop-off's payout — see src/game/energybits.js. Small, bright and
          round, so it reads as *energy* against the flying "$20"'s green text: the two currencies
@@ -1693,8 +1718,9 @@
   <body>
     <div id="hud">
       <div class="money">$<span id="money">0</span></div>
-      <!-- The clean-driving combo, `×N`, written by `updateCombo` in main.js. Hidden at 1×. -->
-      <div id="combo" class="combo" hidden></div>
+      <!-- What the ride aboard is on course for — Loco, Perfect, Stealth. Filled by `updateRunTags`
+           in main.js; empty between rides. -->
+      <div id="runs" class="runs"></div>
       <!-- The courier load, drawn into by game/cargochip.js while a package is aboard. Empty here:
            the box inside it is the real `createParcel` mesh in a WebGL context of its own, the same
            way the rider-finder chips draw the real figure. -->

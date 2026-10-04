@@ -73,8 +73,8 @@ export const FARE_PER_BLOCK = 3;
  * second time as well as the first.
  *
  * Ten against a fare board that pays $8 for the shortest ride and $20 for a median one (`FARE_BASE`
- * and `FARE_PER_BLOCK` above), before the combo — so a burger is half a fare off a fresh combo and
- * loose change deep into a clean one, which is the right way round: the tank matters most when the
+ * and `FARE_PER_BLOCK` above), before any run bonus — so a burger is half a plain fare and loose
+ * change against a Loco Run, which is the right way round: the tank matters most when the
  * multiplier is small and the cash matters most then too. Deliberately *not* scaled by that
  * multiplier, because the reward it buys is a flat 2.25 seconds of boost at every point in the run
  * — a price that climbed with the board would make the same purchase steadily worse for no reason
@@ -135,12 +135,12 @@ export const MAX_FARES = 4;
 // down with them.
 //
 // The payout is the ordinary distance price times VIP_PAYOUT, stamped at spawn like every other
-// price on the board (see spawnFare), and then times the clean-driving combo at the drop-off like
-// every other fare (see COMBO below).
+// price on the board (see spawnFare), and then times any run bonus at the drop-off like every
+// other fare (see "Run bonuses" below).
 //
 // There used to be a second, VIP-only streak on top — 3×, then 4×, then 5× for VIPs delivered
-// back to back, reset by a miss. It went with the shift multiplier when the combo replaced both:
-// one multiplier the player can see and hold on to, rather than three stacked ones they cannot.
+// back to back, reset by a miss. It went with the shift multiplier when run bonuses replaced both:
+// the multipliers the player can see are the ones on the trip they are driving.
 // Three ordinary fares is still the number that makes a detour worth taking on sight.
 const VIP_MIN_DELIVERED = 1;      // never on the tutorial fare — nothing to distinguish it against yet
 const VIP_COOLDOWN = 55;          // seconds between opportunities, so a VIP stays a rare event
@@ -241,29 +241,22 @@ const ROBBER_DROPOFF_SPREAD = 1;
  * the one event in the game that takes the wheel, fills the streets with police and cannot be
  * declined. It read as a slightly better fare. At $100–150 it is five or six ordinary fares' worth —
  * a jackpot, which is what an event this loud should pay. Flat means the same number every time,
- * so a player can learn it — before the combo, which multiplies a robber's drop-off like any other.
+ * so a player can learn it — before any run bonus, which multiplies a robber's drop-off like any other.
  */
 const ROBBER_PAYOUT = 100;
 const ROBBER_BONUS = 50;
 
-// --- The combo ------------------------------------------------------------------
+// --- Run bonuses -----------------------------------------------------------------
 //
-// Every drop-off pays its price times `state.combo`, and a drop-off grows it by one: the first fare
-// of a clean run pays 1×, the next 2×, then 3×, with no ceiling. Any damage to the taxi — a hit
-// that costs HP, which is a contact on Loco Mode (see sim/collisions.js; a shove off boost is free
-// and costs nothing here either) — puts it straight back to 1×, including for the rider aboard at
-// the time. `breakCombo` is the call main.js makes from `collisions.onBump`.
+// How the trip was driven — a Loco Run, a Perfect Run, a Stealth Run — multiplies what the drop-off
+// pays (game/runs.js). Judged at the drop-off through the `judgeRun` hook main.js hands in, rather
+// than stamped at spawn like the rest of a price: it is a fact about the driving, and the driving
+// has not happened when the rider appears. Nothing on the board shows a price before the drop-off,
+// so nothing has been promised that this could contradict.
 //
-// Read at the drop-off rather than stamped at spawn, which is the one way it differs from every
-// other number in a price: a combo is a fact about how the *trip* was driven, and the trip has not
-// happened yet when the rider appears. Nothing on the board shows a price before the drop-off, so
-// nothing has been promised that this could contradict.
-//
-// It replaced two multipliers: the shift's (1×, 1.25×, 1.5×, 2× over the ramp, stamped at spawn,
-// shown nowhere once the HUD lost its `N×` counter) and the VIP streak's. Both paid for getting
-// further; this pays for getting further *without hitting anything*, and Loco Mode is now a bet
-// against it.
-const COMBO_START = 1;
+// It replaced two multipliers: the shift's (1× to 2× over the ramp, stamped at spawn and shown
+// nowhere) and the VIP's (3×, 4×, 5× back to back). Both paid for getting further; this pays for
+// *how*.
 
 // Cadence and placement of every fare beyond the first.
 //
@@ -625,7 +618,7 @@ export const waitingTargets = (slot) => [slot.passenger.group, slot.marker.group
  *                  keep working with nothing on top of it, which a hard import would quietly end.
  *                  Read per call, since the set moves every time a package is collected.
  */
-export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
+export function createFareSystem(rng, scene, { reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }) } = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
     // waiting on the kerb at once — the whole prioritisation puzzle.
@@ -633,11 +626,6 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     elapsed: 0,
     money: 0,
     delivered: 0,
-    // What the next drop-off is multiplied by. Up one per delivery, back to COMBO_START on any
-    // damage — see COMBO above.
-    combo: COMBO_START,
-    // The highest combo a drop-off was paid at this run, for the run-end card.
-    bestCombo: 0,
     // Time of the most recent spawn, so refills stagger by difficulty.spawnGap() rather than
     // bursting.
     // -Infinity so the very first spawn is unrestricted.
@@ -1099,8 +1087,8 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // hidden meter that ticked while driving would punish traffic and reward Loco Mode for the
     // wrong reasons.
     //
-    // A VIP's flat multiplier is stamped in at the same moment. The combo is not: it is read at
-    // the drop-off, because it is about how the trip gets driven (see COMBO).
+    // A VIP's flat multiplier is stamped in at the same moment. A run bonus is not: it is read at
+    // the drop-off, because it is about how the trip gets driven (see "Run bonuses").
     fare.vipMultiplier = vip ? VIP_PAYOUT : 1;
     fare.value = Math.round(priceFor(spot, fare.dropoff) * fare.vipMultiplier);
 
@@ -1790,12 +1778,12 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
         // same number — the alternative was a second, smaller flight arriving from nowhere for a
         // reason the screen never explains. See ROBBER_PAYOUT.
         if (fare.bonusMax) fare.value += Math.round(fare.bonusMax * urgencyOf(fare));
-        // The combo, last, so it multiplies everything the drop-off pays — robbery bonus included —
-        // and `fare.value` stays the one number the pop, the counter and the card all read.
-        fare.combo = state.combo;
-        fare.value = Math.round(fare.value * fare.combo);
-        state.bestCombo = Math.max(state.bestCombo, fare.combo);
-        state.combo += 1;
+        // The run bonuses, last, so they multiply everything the drop-off pays — robbery bonus
+        // included — and `fare.value` stays the one number the pop, the counter and the card read.
+        // `fare.runs` rides the 'delivered' event out to the pop that labels them.
+        const verdict = judgeRun(fare);
+        fare.runs = verdict.runs;
+        fare.value = Math.round(fare.value * verdict.mult);
         state.money += fare.value;
         state.delivered += 1;
         // Pull the fare out of the puzzle immediately — the board is free to refill — while
@@ -1953,8 +1941,6 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
      * call rather than main.js reaching into another module's state to do it by hand.
      */
     credit: (amount) => { state.money += amount; },
-    /** Any damage to the taxi: the combo goes back to 1×. See COMBO. */
-    breakCombo: () => { state.combo = COMBO_START; },
     /**
      * Take money back out of the run's total — the burger run's counter charge (game/burgerrun.js),
      * and so far the only thing in the game that costs cash rather than time.
