@@ -7,6 +7,7 @@ import {
   lightPodGeometry, brakeLightAnchors, turnSignalAnchors, brakeLightMaterial, turnSignalMaterial,
 } from './lights.js';
 import { addGhostOutline, addGhostMask } from './ghostoutline.js';
+import { bumperGeometry, bumperLength, BUMPER_D, BUMPER_H, BUMPER_Y } from './bumpers.js';
 
 // The player's taxi. Built as its own Group rather than an instance in the traffic InstancedMesh
 // because it needs to be raycast against for picking, and because it wears things the ambient cars
@@ -18,7 +19,7 @@ import { addGhostOutline, addGhostMask } from './ghostoutline.js';
 
 const CAR_LEN = 3.4;
 const CAR_W = 1.7;
-const TAXI_SCALE = 1.18;
+export const TAXI_SCALE = 1.18;
 
 // World-space distance from the taxi origin back to the bumper — used by the tailpipe flame burst
 // (main.js). Kept here rather than in flames.js so both offsets follow if the mesh ever resizes.
@@ -133,6 +134,20 @@ export function createTaxiMesh() {
   // first painted a yellow streak along the rocker panel of a fully visible car.
   addGhostOutline(shell);
 
+  // The chrome bumpers, one mesh per end rather than merged into the shell, so a bumper knocked
+  // loose (`setBumper` in buildDamage) leaves the end it came off bare instead of wearing two. On
+  // the shell's own material: same object space, same program. Masked, not rimmed — a 0.2 bar is
+  // too thin to carry a hull and sits inside the shell's (see addGhostMask).
+  const bumpers = new Map([1, -1].map((end) => {
+    const bumper = new THREE.Mesh(bumperGeometry(CAR_LEN, CAR_W, end), shell.material);
+    bumper.castShadow = true;
+    bumper.receiveShadow = true;
+    bumper.userData.pickable = 'taxi';
+    addGhostMask(bumper);
+    group.add(bumper);
+    return [end, bumper];
+  }));
+
   // Steered front wheels. One shared material, one mesh each, pivoting about their own hubs — the
   // group's transform carries them along, so nothing here has to know where the taxi is.
   const steeredGeometry = wheelGeometry();
@@ -233,7 +248,7 @@ export function createTaxiMesh() {
     addGhostOutline(light, { rim: 0.08 });
   }
 
-  const damage = buildDamage(group, lightPods);
+  const damage = buildDamage(group, lightPods, bumpers, shell.material);
   const door = buildDoors(group);
 
   // Slightly oversized against ambient traffic. The player has to find this car at a glance in a
@@ -447,10 +462,9 @@ const HOOD_LEN = CAR_LEN / 2 - HOOD_HINGE_X - 0.02;
 const BODY_TOP = 1.18 + CHASSIS_LIFT;
 const BOOT_LEN = CAR_LEN / 2 + BOOT_HINGE_X - 0.02;
 // A bumper hangs by one corner and drags its free end on the road at the corner that has taken the
-// most hits — nose or tail, left or right — so the sparks come off where the damage is.
-const BUMPER_LEN = CAR_W * 0.9;
-const BUMPER_T = 0.14;
-const BUMPER_Y = 0.46 + CHASSIS_LIFT;
+// most hits — nose or tail, left or right — so the sparks come off where the damage is. It is the
+// chrome bumper off that end (geometry/bumpers.js), the same bar, and the end it left goes bare.
+const BUMPER_LEN = bumperLength(CAR_W);
 // There was a fifth piece: the struck corner of the shell crushed in, down and darkened, a vertex
 // displacement on the merged body. It read at close zoom and looked wrong — a box with one corner
 // sheared off, which at play zoom reads as a modelling fault rather than as a dent — and came out.
@@ -467,7 +481,7 @@ const LAMP_WIRE = 0.6;            // socket to the centre of the housing
 const LAMP_OUT = 0.06;            // the socket sits this far proud of the bumper face
 const LAMP_SIZE = [0.24, 0.46, 0.46];
 
-function buildDamage(group, lightPods) {
+function buildDamage(group, lightPods, bumpers, chrome) {
   // The boot lid, on a hinge at the back of the cabin, over a dark opening that only shows when the
   // lid is up. The lid's underside sits exactly on the body's top face, and that is fine: it faces
   // down and is culled before it can fight anything (see the coplanar notes in CLAUDE.md).
@@ -537,14 +551,14 @@ function buildDamage(group, lightPods) {
   }
   const lampAt = new THREE.Vector3();
 
-  // The bumper: a dark bar hinged at one rear corner, its free end down on the tarmac. The geometry
+  // The bumper: the chrome bar hinged at one corner, its free end down on the tarmac. The geometry
   // runs from the hinge along −z; the other side is the same bar turned half round about the hinge,
   // which keeps the winding (a mirror by negative scale would not).
   const bumperHinge = new THREE.Group();
   bumperHinge.rotation.order = 'YXZ';
-  const barGeo = new THREE.BoxGeometry(BUMPER_T, BUMPER_T, BUMPER_LEN);
+  const barGeo = new THREE.BoxGeometry(BUMPER_D, BUMPER_H, BUMPER_LEN);
   barGeo.translate(0, 0, -BUMPER_LEN / 2);
-  const bar = new THREE.Mesh(bakeColor(barGeo, color('taxiTrim')), propMaterial());
+  const bar = new THREE.Mesh(setFinish(bakeColor(barGeo, color('bumperChrome')), FINISH.METAL), chrome);
   bar.castShadow = true;
   bar.userData.pickable = 'taxi';
   bumperHinge.add(bar);
@@ -559,8 +573,8 @@ function buildDamage(group, lightPods) {
   for (const part of [lid, hole, hood, bay, bar]) addGhostMask(part);
   for (const lamp of lamps.values()) { addGhostMask(lamp.housing); addGhostMask(lamp.wire); }
 
-  const droopToRoad = Math.asin(Math.min(1, (BUMPER_Y - BUMPER_T / 2) / BUMPER_LEN));
-  const tipLocal = new THREE.Vector3(0, -BUMPER_T / 2, -BUMPER_LEN);
+  const droopToRoad = Math.asin(Math.min(1, (BUMPER_Y - BUMPER_H / 2) / BUMPER_LEN));
+  const tipLocal = new THREE.Vector3(0, -BUMPER_H / 2, -BUMPER_LEN);
 
   return {
     /**
@@ -606,8 +620,9 @@ function buildDamage(group, lightPods) {
      */
     setBumper(side, end = -1, lift = 0) {
       bumperHinge.scale.setScalar(side ? 1 : 0);
+      for (const [at, bumper] of bumpers) bumper.visible = !side || at !== end;
       if (!side) return;
-      bumperHinge.position.set(end * (CAR_LEN / 2 + BUMPER_T / 2), BUMPER_Y, side * (CAR_W / 2 - 0.05));
+      bumperHinge.position.set(end * (CAR_LEN / 2 + BUMPER_D / 2), BUMPER_Y, side * (CAR_W / 2 - 0.05));
       bumperHinge.rotation.set(-(droopToRoad - lift), side > 0 ? 0 : Math.PI, 0);
     },
     /** World position of the bumper's dragging end, for the sparks. Needs a current matrixWorld. */
@@ -622,6 +637,7 @@ function buildDamage(group, lightPods) {
       hoodHinge.scale.setScalar(0);
       bay.scale.setScalar(0);
       bumperHinge.scale.setScalar(0);
+      for (const bumper of bumpers.values()) bumper.visible = true;
     },
   };
 }

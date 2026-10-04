@@ -250,7 +250,7 @@ shot mode never puts the taxi in the bay. They are newer than the building: for 
 reason to look at the depot was the vignette, the vignette framed itself. It wears a livery now, so
 there is something to look at from outside the cut scene. Close: does the chequer read as a
 **chequer** — it did not at first, being square on the wall and therefore a row of narrow bars in a
-foreshortened frame — and does a tilted frustum on a mast read as a dish. At play zoom: is the
+foreshortened frame — and does the thing turning on the roof read as a wrench. At play zoom: is the
 depot a block you can pick out of a city of muted concrete, which is what the yellow is for, and is
 it still distinguishable from the taxi, which is the thing that yellow costs.
 

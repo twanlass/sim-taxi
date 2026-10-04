@@ -334,10 +334,12 @@ check('with the front wheels turned into it rather than pointing dead ahead',
 // Two things a player reported on the first cut of HP. The taxi lifted off in the last few units
 // before every rear-end, because it was still held to the leader by tailgate rules written for a
 // taxi that must never touch anything; and a car it had just tapped was switched out of the
-// collision test for a couple of seconds, so it drove clean through it. With no route handed over
-// the overtake is never offered (see `approach` above), so the leader is the only answer and the
-// taxi rams it. With the road's one exit handed over as a route and the oncoming lane empty, a pass
-// *is* on, and the taxi must take it rather than ram — ramming is the fallback, not the policy.
+// collision test for a couple of seconds, so it drove clean through it. The one thing that takes
+// the overtake off the table now is a route that turns at the next junction, so the ram is staged
+// with one: a step onto the cross street, kept topped up each frame. The lab's road has no cross
+// street, so a junction drops it as a desync and the taxi rolls straight on — and the top-up puts
+// it straight back, so `room` never holds and there is never a pass to make. With the road's one exit handed over as a route, a pass *is* on, and the taxi must take it
+// rather than ram — ramming is the fallback, not the policy.
 //
 // "Through" is measured as overlap, not as which centre ends up in front. The weave carries the
 // taxi a unit or so sideways, so a hit often turns into a glance: the car is shoved aside and the
@@ -366,6 +368,7 @@ function ram(parked, route = false) {
     taxi.boost = true;
     taxi.boostEasing = false;
     if (route) while (taxi.route.length < 3) taxi.route.push(taxi.d);
+    else if (!taxi.route.length) taxi.route.push(DIR.PZ);
     traffic.update(STEP);
     collisions.update(STEP);
     if (!hits.length) out.minV = Math.min(out.minV, taxi.v);

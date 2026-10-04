@@ -22,7 +22,13 @@ import {
   BENCH_LEN, STATUE_PLAZA, treeParts, MEDIAN_TREE_H, MEDIAN_TREE_TRUNK,
 } from '../src/city/props.js';
 import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
+import { createGrass, planGrass, grassGeometry } from '../src/city/grass.js';
+import { createCanopyFuzz } from '../src/city/canopyfuzz.js';
 import { createDucks } from '../src/game/ducks.js';
+import {
+  planCourt, courtParts, courtRect, clearBenches, COURT_TOP_Y, RIM_Y, RIM_R,
+} from '../src/city/blacktop.js';
+import { createHoopers } from '../src/game/hoopers.js';
 import { createGarage, garageSite } from '../src/city/garage.js';
 import {
   createBurgerJoint, burgerSite, burgerGeometry, BURGER_R, SIGN_SPIN, VIEW_RISE, ROOF_Y, CAP_Y,
@@ -31,11 +37,13 @@ import { createDriveThru } from '../src/game/drivethru.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createFlatbed, CRATES, LOAD_YAW } from '../src/game/flatbed.js';
+import { createFire } from '../src/game/fire.js';
+import { clearCityOccluders } from '../src/game/sightline.js';
 import { TRUCK_LEN, TRUCK_BOX_LEN } from '../src/sim/traffic.js';
 import { CRATE, CRATE_REST_Y, CRATE_CHIP_REST_Y, DECK_TOP, DECK_REAR } from '../src/geometry/crate.js';
 import { createDust } from '../src/game/dust.js';
@@ -43,7 +51,7 @@ import { createSkidMarks } from '../src/game/skidmarks.js';
 import { createSparks } from '../src/game/sparks.js';
 import { createRepairFx } from '../src/game/repairfx.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
-import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, laneCost } from '../src/game/route.js';
+import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, setHazardLanes, laneCost } from '../src/game/route.js';
 import { createCollisions, TAXI_HP, bumpDamage, penetration } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
 import { createTaxiDoor } from '../src/game/taxidoor.js';
@@ -76,7 +84,7 @@ import { createFoodOrder } from '../src/geometry/food.js';
 import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createRobbery, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
-import { createPatrol, ESCAPE_BLOCKS, TOUCH_SLACK } from '../src/game/patrol.js';
+import { createPatrol, ESCAPE_BLOCKS, TOUCH_SLACK, SIGHT_HOLD } from '../src/game/patrol.js';
 import { touching } from '../src/sim/collisions.js';
 import { createCashTrail, noteGeometry, NOTE_FOLD, BRICK_H } from '../src/game/cashtrail.js';
 import { createCopLights } from '../src/game/coplights.js';
@@ -87,7 +95,7 @@ import {
 import { LIGHT_EMISSIVE, LIGHT_PODS } from '../src/geometry/lights.js';
 import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
 import { createPicker, choosePick } from '../src/game/pick.js';
-import { setCityOccluders, sightlineClear } from '../src/game/sightline.js';
+import { setCityOccluders, sightlineClear, groundLineClear } from '../src/game/sightline.js';
 import {
   createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
@@ -113,6 +121,7 @@ import {
 } from '../src/geometry/bird.js';
 import {
   createBirds, bodyQuaternion, parkAreas, SETTLE_MIN, STARTLE_RANGE, SHADOW_CEILING,
+  chooseRoosts, shadowCeiling, groundOf, ROOSTS,
 } from '../src/game/birds.js';
 import {
   propMaterial, unlitMaterial, setAmbientOcclusion, setCrayon, setCartoon,
@@ -811,6 +820,167 @@ const onGrass = (city, i, j) => {
   check('and the water lies level', offLevel === 0, `${offLevel} sloping triangles`);
 }
 
+// --- The parks' grass ---------------------------------------------------------
+//
+// Hand-written cards, so their winding is asserted rather than trusted: under `FrontSide` a card
+// wound away from the camera does not draw at all (see CLAUDE.md on the boats' wake). And the
+// placement is swept over seeds the way the pond's is — the tuft through a bench is on some other
+// city than this one. Planned off the same streams `main.js` builds them from: props at +33, grass
+// at +122.
+{
+  const toCamera = new THREE.Vector3(1, 0.92, 1).normalize();
+  const built = createGrass(makeRng(seed + 122), layout, propsBuild);
+  const pos = built.mesh.geometry.attributes.position;
+  const nrm = built.mesh.geometry.attributes.normal;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  let away = 0;
+  let notUp = 0;
+  for (let i = 0; i < pos.count; i += 3) {
+    a.fromBufferAttribute(pos, i);
+    b.fromBufferAttribute(pos, i + 1);
+    c.fromBufferAttribute(pos, i + 2);
+    b.sub(a).cross(c.sub(a));
+    if (b.dot(toCamera) <= 0) away += 1;
+  }
+  for (let i = 0; i < nrm.count; i++) if (nrm.getY(i) < 0.999) notUp += 1;
+  check('every grass card is wound to face the camera', pos.count > 0 && away === 0,
+    `${pos.count / 3 - away}/${pos.count / 3} facing it`);
+  check('and lit with the lawn\'s normal rather than its own', notUp === 0, `${notUp} vertices off vertical`);
+  check('grass receives shadows and casts none',
+    built.mesh.receiveShadow && !built.mesh.castShadow && built.mesh.material.alphaTest > 0);
+
+  let tufts = 0;
+  let offLawn = 0;
+  let inWater = 0;
+  let onPlaza = 0;
+  let inBench = 0;
+  for (let s = 0; s < 30; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 41));
+    const plots = parkPlots(cityLayout);
+    const rng = makeRng(seed + s * 41 + 33);
+    const { benches, statue } = planParkFurniture(rng, plots);
+    const pond = planPond(rng, plots, statue);
+    const planned = planGrass(makeRng(seed + s * 41 + 122), cityLayout, { benches, statue, pond });
+    // The card's two ends are what has to stay on the grass, and they are read off the *built*
+    // geometry rather than re-derived from the yaw: a re-derivation shares whatever sign the
+    // planner got wrong, and this one did (π/4 − yaw for π/4 + yaw) and passed against itself.
+    const cards = grassGeometry(planned, makeRng(1)).attributes.position;
+    for (const [k, t] of planned.entries()) {
+      tufts += 1;
+      const ends = [[cards.getX(k * 6), cards.getZ(k * 6)], [cards.getX(k * 6 + 1), cards.getZ(k * 6 + 1)]];
+      const inside = plots.some(({ bounds }) => ends.every(([x, z]) =>
+        x > bounds.x0 + PARK_EDGE && x < bounds.x1 - PARK_EDGE
+        && z > bounds.z0 + PARK_EDGE && z < bounds.z1 - PARK_EDGE));
+      if (!inside) offLawn += 1;
+      if (pond && Math.hypot(t.x - pond.x, t.z - pond.z) < pond.r) inWater += 1;
+      if (statue && Math.abs(t.x - statue.x) < STATUE_PLAZA / 2
+        && Math.abs(t.z - statue.z) < STATUE_PLAZA / 2) onPlaza += 1;
+      for (const bench of benches) {
+        const cos = Math.cos(bench.yaw);
+        const sin = Math.sin(bench.yaw);
+        const dx = t.x - bench.x;
+        const dz = t.z - bench.z;
+        if (Math.abs(dx * cos - dz * sin) < BENCH_LEN / 2 && Math.abs(dx * sin + dz * cos) < 0.34) inBench += 1;
+      }
+    }
+  }
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+  check('every tuft stands wholly on a lawn', tufts > 0 && offLawn === 0, `${offLawn} of ${tufts} over the walk`);
+  check('and none in the pond, on the statue\'s plaza or under a bench', inWater + onPlaza + inBench === 0,
+    `${inWater} in water, ${onPlaza} on the plaza, ${inBench} under a bench`);
+}
+
+// --- Leaf fuzz on the crowns ---------------------------------------------------
+//
+// The crowns are recorded by `treeParts` as it builds them, and the promise that makes that safe is
+// that recording spends nothing from the stream — so a tree grown with `crowns` is byte-for-byte the
+// tree grown without. Asserted on the geometry rather than trusted, because a single stray draw
+// here moves every tree planted after it.
+{
+  const bare = treeParts(3, 4, makeRng(91));
+  const crowns = [];
+  const recorded = treeParts(3, 4, makeRng(91), { crowns });
+  const same = bare.length === recorded.length && bare.every((g, i) => {
+    const a = g.attributes.position.array;
+    const b = recorded[i].attributes.position.array;
+    return a.length === b.length && a.every((v, k) => v === b[k]);
+  });
+  check('recording a tree\'s crowns leaves the tree untouched', same && crowns.length >= 2,
+    `${crowns.length} lobes recorded`);
+
+  const fuzz = createCanopyFuzz(makeRng(seed + 144), propsBuild.crowns);
+  const pos = fuzz.mesh.geometry.attributes.position;
+  const toCamera = new THREE.Vector3(1, 0.92, 1).normalize();
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  let away = 0;
+  for (let i = 0; i < pos.count; i += 3) {
+    a.fromBufferAttribute(pos, i);
+    b.fromBufferAttribute(pos, i + 1);
+    c.fromBufferAttribute(pos, i + 2);
+    b.sub(a).cross(c.sub(a));
+    if (b.dot(toCamera) <= 0) away += 1;
+  }
+  check('every leaf card is wound to face the camera', pos.count > 0 && away === 0,
+    `${pos.count / 3 - away}/${pos.count / 3} facing it, ${propsBuild.crowns.length} lobes`);
+  check('leaf fuzz receives shadows and casts none',
+    fuzz.mesh.receiveShadow && !fuzz.mesh.castShadow && fuzz.mesh.material.alphaTest > 0);
+}
+
+// --- Soft crowns, hard everything else ------------------------------------------
+//
+// The props and buildings meshes are smooth-shaded so the crowns can light as soft masses, and the
+// only thing keeping every wall, bench and plinth faceted is that `bakeColors` gave each face its
+// own normal. So: every triangle whose vertex normals disagree with its winding has to be part of a
+// crown, and every crown has to have been softened. Across a seed sweep, because the courtyard —
+// the one crown in the buildings mesh — is one block in some cities and none in others.
+{
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const face = new THREE.Vector3();
+  const vn = new THREE.Vector3();
+  let strays = 0;
+  let soft = 0;
+  let crowned = 0;
+  const scan = (mesh, crowns) => {
+    const pos = mesh.geometry.attributes.position;
+    const nrm = mesh.geometry.attributes.normal;
+    for (let i = 0; i < pos.count; i += 3) {
+      a.fromBufferAttribute(pos, i);
+      b.fromBufferAttribute(pos, i + 1);
+      c.fromBufferAttribute(pos, i + 2);
+      face.copy(b).sub(a).cross(c.clone().sub(a));
+      if (face.lengthSq() < 1e-12) continue;
+      face.normalize();
+      let bent = false;
+      for (let k = 0; k < 3; k++) if (vn.fromBufferAttribute(nrm, i + k).dot(face) < 0.999) bent = true;
+      const inCrown = crowns.some((l) => Math.hypot(a.x - l.x, a.y - l.y, a.z - l.z) < l.r * 1.3);
+      if (bent && !inCrown) strays += 1;
+      if (inCrown) crowned += 1;
+      if (bent && inCrown) soft += 1;
+    }
+  };
+  for (let s = 0; s < 8; s++) {
+    const citySeed = seed + s * 59;
+    const cityLayout = createLayout(makeRng(citySeed));
+    const builtProps = createProps(makeRng(citySeed + 33), cityLayout);
+    const builtCity = createBuildings(makeRng(citySeed + 22), cityLayout);
+    // Generous on purpose: a trunk or a bench under a crown falls inside its 1.3 r and is let off.
+    // What this is for is a wall, a roof or a plinth going soft, which nothing near a tree is.
+    scan(builtProps.mesh, builtProps.crowns);
+    scan(builtCity.mesh, builtCity.court?.crowns ?? []);
+  }
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+  check('only the tree crowns are smooth-shaded; every other face keeps its facet', strays === 0,
+    `${strays} faceted triangles bent outside a crown`);
+  check('and the crowns themselves are soft', crowned > 0 && soft / crowned > 0.6,
+    `${soft} of ${crowned} triangles near a crown carry bent normals`);
+}
+
 // Nothing planted in the water, read off the merged mesh rather than off the plan — every part
 // carries its own object's ground anchor for the entrance animation (`stampEntry`), so "what stands
 // here" is a question the props mesh itself can answer. Same read as the statue's clearing above.
@@ -840,6 +1010,184 @@ const onGrass = (city, i, j) => {
   }
   check('nothing is planted in the pond', !!pond && inTheWater === 0,
     pond ? `${inTheWater} vertices of something else inside it` : 'no pond');
+}
+
+// --- The basketball court ------------------------------------------------------
+//
+// One a city, on the lawn, clear of the statue's plaza and the pond, with no bench left standing on
+// it and nothing planted through it. Swept over seeds for the pond's reason: the court that escapes
+// is the longest one in the narrowest park, and the city you are looking at is not that one.
+{
+  let cities = 0;
+  let courts = 0;
+  let offLawn = 0;
+  let onPlaza = 0;
+  let inPond = 0;
+  let benchOn = 0;
+  let pocket = 0;
+  const SEEDS = 40;
+  for (let s = 0; s < SEEDS; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 37));
+    const plots = parkPlots(cityLayout);
+    if (!plots.length) continue;
+    cities += 1;
+    // One stream, in `createProps`' order: the furniture, then the pond, then the court.
+    const rng = makeRng(seed + s * 37 + 33);
+    const plan = planParkFurniture(rng, plots);
+    const pond = planPond(rng, plots, plan.statue);
+    const court = planCourt(rng, plots, plan.statue, pond);
+    if (!court) continue;
+    courts += 1;
+    if (!court.plot.district) pocket += 1;
+    const r = courtRect(court);
+    const b = court.plot.bounds;
+    if (r.x0 < b.x0 + PARK_EDGE || r.x1 > b.x1 - PARK_EDGE
+      || r.z0 < b.z0 + PARK_EDGE || r.z1 > b.z1 - PARK_EDGE) offLawn += 1;
+    const half = STATUE_PLAZA / 2;
+    if (plan.statue && r.x0 < plan.statue.x + half && r.x1 > plan.statue.x - half
+      && r.z0 < plan.statue.z + half && r.z1 > plan.statue.z - half) onPlaza += 1;
+    if (pond) {
+      const dx = Math.max(r.x0 - pond.x, 0, pond.x - r.x1);
+      const dz = Math.max(r.z0 - pond.z, 0, pond.z - r.z1);
+      if (Math.hypot(dx, dz) < pond.r) inPond += 1;
+    }
+    for (const bench of clearBenches(court, plan.benches, BENCH_LEN)) {
+      // Any corner of the bench's footprint on the slab.
+      const along = Math.abs(Math.cos(bench.yaw)) > 0.5;
+      const hx = along ? BENCH_LEN / 2 : 0.34;
+      const hz = along ? 0.34 : BENCH_LEN / 2;
+      if (bench.x + hx > r.x0 && bench.x - hx < r.x1 && bench.z + hz > r.z0 && bench.z - hz < r.z1) benchOn += 1;
+    }
+  }
+  createLayout(makeRng(seed));     // put the probe's city back — `createLayout` installs its network
+
+  check('every city with a park gets a basketball court', courts === cities,
+    `${courts} across ${cities} cities, ${pocket} in a pocket park`);
+  check('the court lies on the lawn, off the statue\'s plaza and out of the pond',
+    offLawn + onPlaza + inPond === 0, `${offLawn} over the walk, ${onPlaza} on the plaza, ${inPond} in the water`);
+  check('and no bench is left standing on it', benchOn === 0, `${benchOn} benches on the blacktop`);
+}
+
+// Its geometry, by winding rather than by normal attribute (CLAUDE.md, the roadworks ramp): every
+// level triangle of the slab and its paint faces the sky — `ShapeGeometry` is trusted to rewind a
+// reflected outline, and this is where that trust is checked.
+{
+  const rng = makeRng(seed + 33);
+  const plots = parkPlots(layout);
+  const plan = planParkFurniture(rng, plots);
+  const pond = planPond(rng, plots, plan.statue);
+  const court = planCourt(rng, plots, plan.statue, pond);
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  const normals = (part, each) => {
+    const pos = part.attributes.position;
+    for (let i = 0; i < pos.count; i += 3) {
+      a.fromBufferAttribute(pos, i);
+      b.fromBufferAttribute(pos, i + 1);
+      c.fromBufferAttribute(pos, i + 2);
+      const level = Math.abs(a.y - b.y) < 1e-6 && Math.abs(a.y - c.y) < 1e-6;
+      n.copy(b).sub(a).cross(c.clone().sub(a));
+      if (n.lengthSq() < 1e-12) continue;
+      each(n.normalize(), level, a.y);
+    }
+  };
+  let flats = 0;
+  let down = 0;
+  let below = 0;
+  if (court) {
+    const parts = courtParts(court, makeRng(seed + 7));
+    for (const part of parts.solid) {
+      normals(part, (nrm, level, y) => {
+        if (!level || nrm.y > -0.5 && nrm.y < 0.5) return;
+        // The slab's underside is meant to face down; everything level above the lawn is not.
+        if (y < COURT_TOP_Y - 0.01) return;
+        flats += 1;
+        if (nrm.y < 0.999) down += 1;
+      });
+    }
+    // The rim is up where a player has to jump to, and every hoop's rim is over the slab.
+    for (const hoop of court.hoops) {
+      const r = courtRect(court);
+      if (hoop.x - RIM_R < r.x0 || hoop.x + RIM_R > r.x1 || hoop.z - RIM_R < r.z0 || hoop.z + RIM_R > r.z1) below += 1;
+    }
+  }
+  check('every level face of the court points at the sky', !!court && flats > 0 && down === 0,
+    `${flats - down}/${flats} facing up`);
+  check('both rims hang over the blacktop', !!court && below === 0, `${below} off the slab`);
+}
+
+// Nothing planted through the court, read off the merged props mesh by entrance anchor the way the
+// pond's check is: every tree carries its trunk's position, so a trunk within a crown's reach of the
+// slab is a crown over the hoops.
+{
+  const rng = makeRng(seed + 33);
+  const plots = parkPlots(layout);
+  const plan = planParkFurniture(rng, plots);
+  const pond = planPond(rng, plots, plan.statue);
+  const court = planCourt(rng, plots, plan.statue, pond);
+  const entry = props.geometry.attributes.aEntry;
+  const reach = court ? courtRect(court, 1.5) : null;
+  let through = 0;
+  if (court) {
+    for (let i = 0; i < entry.count; i++) {
+      const ax = entry.getX(i);
+      const az = entry.getY(i);
+      if (Math.abs(ax - court.x) < 1e-4 && Math.abs(az - court.z) < 1e-4) continue;   // the court itself
+      if (ax > reach.x0 && ax < reach.x1 && az > reach.z0 && az < reach.z1) through += 1;
+    }
+  }
+  check('nothing is planted on the court', !!court && through === 0,
+    court ? `${through} vertices of something else on it` : 'no court');
+  check('and the props hand back the court they built', !!propsBuild.court && !!propsBuild.courtMesh
+    && Math.abs(propsBuild.court.x - court.x) < 1e-9,
+    'court and hoops');
+}
+
+// --- The players on it ---------------------------------------------------------
+//
+// Five minutes of shooting around. What has to hold: the ball never goes through the floor, never
+// leaves the blacktop, and the players stay on it too — and they actually play, which is to say
+// shots go up, some drop, some do not, and every miss gets fetched.
+{
+  const hoopScene = new THREE.Scene();
+  const court = propsBuild.court;
+  let worstFloor = Infinity;
+  let ballOff = 0;
+  let playerOff = 0;
+  let shots = 0;
+  let makes = 0;
+  let pickups = 0;
+  let mates = 0;
+  for (const run of [313, 314, 315, 316]) {
+    const crew = createHoopers(hoopScene, makeRng(seed + run), court);
+    mates = Math.max(mates, crew.players.length);
+    const r = courtRect(court, 0.05);
+    const was = crew.players.map((p) => p.ball.mode);
+    for (let step = 0; step < 300 * 60; step++) {
+      crew.update(1 / 60);
+      crew.players.forEach((p, i) => {
+        const m = p.ballMesh.position;
+        worstFloor = Math.min(worstFloor, m.y - COURT_TOP_Y);
+        if (m.x < r.x0 || m.x > r.x1 || m.z < r.z0 || m.z > r.z1) ballOff += 1;
+        const h = p.holder.position;
+        if (h.x < r.x0 || h.x > r.x1 || h.z < r.z0 || h.z > r.z1) playerOff += 1;
+        const mode = p.ball.mode;
+        if (mode === 'flight' && was[i] !== 'flight') {
+          shots += 1;
+          if (p.ball.flight.make) makes += 1;
+        }
+        if (mode === 'held' && was[i] === 'loose') pickups += 1;
+        was[i] = mode;
+      });
+    }
+  }
+  check('the ball never sinks into the court', worstFloor > 0.29, `lowest centre ${worstFloor.toFixed(3)} up`);
+  check('and never leaves the blacktop, nor do the players', ballOff + playerOff === 0,
+    `${ballOff} ball-frames and ${playerOff} player-frames off it`);
+  check('they shoot, make some, miss some, and fetch every one', shots > 40 && makes > 0 && makes < shots
+    && pickups >= shots - 8, `${shots} shots, ${makes} made, ${pickups} fetched, up to ${mates} players`);
 }
 
 // --- The ducks on it ---------------------------------------------------------
@@ -2893,8 +3241,10 @@ check('no two cars occupy the same space', worst > 1.6,
       // afterwards. A part left out of setHighlight's list is a car whose body lights while a wheel
       // stays dark, which reads as the paint changing rather than the car reacting. (It was five while
       // a parcel rode the rear deck — the load is a chip in the HUD now, and there is nothing on the
-      // car to light.)
-      moved.filter(Boolean).length === 4
+      // car to light.) Seven meshes move for those four parts: both chrome bumpers and the bumper
+      // that hangs off once it is knocked loose draw on the shell's own material, so they light
+      // with it rather than needing a place in the list.
+      moved.filter(Boolean).length === 7
       && new Set(movedTo).size === 1
       && back.every((h, n) => h === dark[n]),
       `${moved.filter(Boolean).length} parts moved to ${new Set(movedTo).size} value(s), all restored ${back.every((h, n) => h === dark[n])}`);
@@ -3920,7 +4270,9 @@ check('no two cars occupy the same space', worst > 1.6,
   let straightFrames = 0;
   for (let f = 0; f < 60 * 20; f++) {
     wTraffic.update(1 / 60);
-    if (wTaxi.state !== 'drive') continue;
+    // A pass is a deliberate trip out of the lane, not the weave; this taxi is unrouted and
+    // boosting through traffic, so it overtakes now and then and those frames are not this check's.
+    if (wTaxi.state !== 'drive' || wTaxi.pass > 0) continue;
     straightFrames += 1;
     // Distance from the lane centre, measured off the rendered position — the offset is applied
     // at render, so reading `car.x/car.z` is reading what the player sees. On the travel axis the
@@ -4293,12 +4645,13 @@ check('no two cars occupy the same space', worst > 1.6,
       //
       // Which means this staging is calibrated to *when the decision is taken*, and has to move
       // whenever that moment does. It went from one lane back to **two blocks** back when a leader
-      // crossing a junction in a straight line became passable (see `passable` in traffic.js): the
+      // crossing a junction in a straight line became passable (the old `passable` gate, since removed): the
       // taxi now pulls out several tenths of a second earlier, and at the old staging the oncoming
       // car had already swept 0.7 units *past* it by then — so the gate correctly reported a clear
       // road and the check was passing on an empty scenario rather than on the rule. Measured at
       // the new staging, the oncoming car is 34 units out and closing as the taxi reaches
-      // PASS_TRIGGER, which is inside PASS_SIGHT and is the trap this is meant to lay.
+      // PASS_TRIGGER, which is the trap this is meant to lay (and which the taxi now drives into: the
+      // oncoming-sight gate it was built for has gone, see docs/traffic.md).
       const back = roads.nodeById.get(car.lane.from);
       const facing = roads.laneByGrid(opposite(pD), back.gi, back.gj);
       placeCar(onc, opposite(pD), back.gi, back.gj, facing.length + PITCH * 2);
@@ -4309,11 +4662,19 @@ check('no two cars occupy the same space', worst > 1.6,
     let got = false;
     let leadTurned = false;
     let outWhileLeadTurning = 0;   // how far out the taxi got while the lead was mid-junction
+    // How far out the taxi was while taking a real corner at a junction it could have crossed
+    // straight. One with no straight exit (a T at the map edge) has to be cornered whatever.
+    let cornered = 0;
     for (let f = 0; f < 60 * 6; f++) {
       car.boost = held;
       car.boostEasing = false;
       traffic.update(1 / 60);
       peak = Math.max(peak, car.pass);
+      if (car.state === 'turn' && car.turn && car.turn.hand !== 'straight'
+        && roads.laneById.get(car.turn.inLane).exits
+          .some((id) => roads.turnById.get(id).hand === 'straight')) {
+        cornered = Math.max(cornered, car.pass);
+      }
       if (lead.state === 'turn' && !lead.crashed) {
         leadTurned = true;
         outWhileLeadTurning = Math.max(outWhileLeadTurning, car.pass);
@@ -4325,7 +4686,7 @@ check('no two cars occupy the same space', worst > 1.6,
         if (rel < -CAR_LEN) got = true;
       }
     }
-    return { peak, closest, got, leadTurned, outWhileLeadTurning };
+    return { peak, closest, got, leadTurned, outWhileLeadTurning, cornered };
   };
 
   const over = runOvertake(true, [pD, pD, pD]);
@@ -4352,33 +4713,36 @@ check('no two cars occupy the same space', worst > 1.6,
   check('no overtake is offered when the route turns at the next junction',
     pD >= 0 && turnOff.peak < 0.02, `reached ${(turnOff.peak * 2 * LANE).toFixed(2)} units across`);
 
+  // A taxi with no route is cruising on the dice, which is what it does between fares — and it
+  // used to be refused a pass outright, so boosting there was a rear-end every time. It passes, and
+  // its junction roll is pinned straight while it is out of its lane. Routed through the first
+  // junction only, which the taxi crosses before it reaches the leader: from there on it is on the
+  // dice, and a dice roll at that first junction would turn it away before there was a pass to make.
+  const unrouted = runOvertake(true, [pD]);
+  check('an unrouted taxi overtakes too, and carries straight on while it does',
+    pD >= 0 && unrouted.peak > 0.95 && unrouted.got && unrouted.cornered === 0,
+    `reached ${(unrouted.peak * 2 * LANE).toFixed(2)} of ${2 * LANE} units across, got by=${unrouted.got}, `
+    + `cornered while out ${unrouted.cornered.toFixed(2)}`);
+
   // And the control: the pass is the button. Not holding it is not a pass.
   const coasting = runOvertake(false, [pD, pD, pD]);
   check('an overtake needs the button held',
     pD >= 0 && coasting.peak < 0.02, `reached ${(coasting.peak * 2 * LANE).toFixed(2)} units across`);
 
-  // The two gates that decide *when* it is allowed, both added after watching it wreck rather
-  // than pass. A pass wants ~27 units of road against a 12-unit lane, so the taxi is always still
-  // alongside when the leader reaches its junction — which is exactly when the left-turn dice are
-  // rolled. Passing a car that is already crossing one means driving into its arc.
-  //
-  // Asserted as "the taxi never got out of its lane while that car was in the junction" rather
-  // than as an absence of contact: a no-contact check passes whether the rule works or the
-  // scenario simply never set it up, and this one has to prove the trap was laid. `leadTurned` is
-  // that proof.
+  // The pass is the player's call, not the sim's. There used to be two gates here — no pass round a
+  // leader turning across the borrowed lane, none into oncoming traffic in sight — and they read as
+  // the button not working, then as a rear-end. Both scenarios are the traps they guarded against,
+  // so they now assert the taxi takes the lane anyway. `leadTurned` proves the trap was laid.
   const turningLead = runOvertake(true, [pD, pD, pD], { leadRoute: [leftOf(pD), pD, pD] });
-  check('no overtake of a car that is already turning across the lane being borrowed',
-    pD >= 0 && turningLead.leadTurned && turningLead.outWhileLeadTurning < 0.02,
-    `lead turned=${turningLead.leadTurned}, taxi got `
-    + `${(turningLead.outWhileLeadTurning * 2 * LANE).toFixed(2)} units across while it did`);
+  check('Loco Mode pulls out even round a car that is turning across the borrowed lane',
+    pD >= 0 && turningLead.leadTurned && turningLead.peak > 0.95,
+    `lead turned=${turningLead.leadTurned}, taxi reached `
+    + `${(turningLead.peak * 2 * LANE).toFixed(2)} of ${2 * LANE} units across`);
 
-  // And the borrowed lane has to be empty to start with. Without this the taxi pulled out with
-  // oncoming traffic 3 units away — inside the envelope, and nothing the player could have read.
-  // A car that arrives *during* the pass still costs the run; that one is visible and is the risk.
   const intoTraffic = runOvertake(true, [pD, pD, pD], { oncoming: true });
-  check('no overtake into oncoming traffic that is already in sight',
-    pD >= 0 && intoTraffic.peak < 0.02,
-    `reached ${(intoTraffic.peak * 2 * LANE).toFixed(2)} units across`);
+  check('Loco Mode pulls out even with oncoming traffic in sight',
+    pD >= 0 && intoTraffic.peak > 0.95,
+    `reached ${(intoTraffic.peak * 2 * LANE).toFixed(2)} of ${2 * LANE} units across`);
 
   // --- And the same manoeuvre from a dead stop, which is the one a player actually asks for.
   //
@@ -7065,6 +7429,18 @@ check('the taxi is an ordinary car in the traffic array',
     if (Math.hypot(g.x - cop.x, g.z - cop.z) > 0.6) adrift += 1;
     nearest = Math.min(nearest, gap);
   }
+  // Out of the fleet at its hold line, the cruiser drives itself off the island (`police.release`):
+  // follow it until the patrol retires it, noting where it was when the dissolve began.
+  const slabAlong = (g) => Math.max(Math.abs(g.x) - SLAB_X / 2, Math.abs(g.z) - SLAB_Z / 2);
+  let fadeStartedPast = null;
+  let looseFrames = 0;
+  for (let step = 0; step < 60 * 20 && pPatrol.state.phase === 'exiting'; step++) {
+    const before = pPolice.state.fade;
+    tick();
+    looseFrames += 1;
+    if (fadeStartedPast === null && pPolice.state.fade < before) fadeStartedPast = slabAlong(pPolice.group.position);
+  }
+  exitingFrom = retiredAt;
   check('it dissolves in rather than appearing', fadeAtArrival < 0.1 && fadedInBy !== null
     && fadedInBy <= FADE_TIME + 0.1, `fade ${fadeAtArrival.toFixed(2)} on arrival, whole by ${fadedInBy?.toFixed(2)}s`);
   check('on patrol its bar swings red and blue, never strobing', swinging > 0,
@@ -7082,8 +7458,13 @@ check('the taxi is an ordinary car in the traffic array',
     && Math.hypot(exitingFrom.x - cameIn.x, exitingFrom.z - cameIn.z) > 3 * PITCH,
     exitingFrom ? `${offEdge(exitingFrom.x, exitingFrom.z).toFixed(1)} from the ring, `
       + `${Math.hypot(exitingFrom.x - cameIn.x, exitingFrom.z - cameIn.z).toFixed(0)} from where it came in` : 'never exited');
-  check('...dissolving out, and off the road only once it has', retiredAt !== null && fadeOnRetire === 0
-    && pPatrol.state.phase === 'off', `fade ${fadeOnRetire} when retired`);
+  // Leaves the fleet whole and dissolves only once it is off the asphalt — the fade used to start
+  // at the exit junction, on the ring and in frame ("fading out mid city").
+  check('...out of traffic still whole, driving off the island and dissolving past its edge',
+    retiredAt !== null && fadeOnRetire === 1 && fadeStartedPast !== null && fadeStartedPast >= 0
+    && pPatrol.state.phase === 'off',
+    `fade ${fadeOnRetire} leaving the fleet, dissolve from ${fadeStartedPast?.toFixed(1)} past the slab, `
+      + `${(looseFrames / 60).toFixed(1)}s off-network`);
   const shellShown = pPolice.group.children.some((c) => !c.isLight && c.visible);
   check('...and the cruiser goes dark and hidden until the next', !pPolice.state.active
     && !pPolice.state.lit && !shellShown && pPatrol.state.cooldown >= pPatrol.state.cooldownRange[0]);
@@ -7588,6 +7969,127 @@ check('the taxi is an ordinary car in the traffic array',
   check('...and the cop stands down as a lost one does', hid.every((r) => r.dark && r.backOnPatrol
     && r.retiredFar >= SPAWN_CLEARANCE - 0.5),
     `${hid.filter((r) => r.dark && r.backOnPatrol).length}/${hid.length}`);
+}
+
+// --- Out of the cop's sight -------------------------------------------------
+// game/patrol.js SIGHT_HOLD. The chases above run with no city standing, so the sightline never
+// breaks and they measure distance alone. These put the towers back and ask the other half: that a
+// taxi turning at every junction can lose the cop round the corners — on a full tank it used to be
+// caught 14 times in 16, because turning keeps it near — and that a cruising taxi driving a route
+// over town is still caught, which is what keeps the hold from being shorter.
+{
+  const zigzag = (taxi, rng) => {
+    if (taxi.route?.length) return;
+    const target = {
+      i: Math.max(0, Math.min(GRID_I, taxi.i + rng.pick([-1, 1]))),
+      j: Math.max(0, Math.min(GRID_J, taxi.j + rng.pick([-1, 1]))),
+    };
+    const route = planRoute(planOrigin(taxi), target);
+    if (route?.length) { taxi.route = route; taxi.routeConsumed = false; }
+  };
+  const across = (taxi) => {
+    if (taxi.route?.length) return;
+    const target = { i: taxi.i > GRID_I / 2 ? 0 : GRID_I, j: taxi.j > GRID_J / 2 ? 0 : GRID_J };
+    const route = planRoute(planOrigin(taxi), target);
+    if (route?.length) { taxi.route = route; taxi.routeConsumed = false; }
+  };
+  let laneSamples = 0;
+  let laneBlocked = 0;
+  // A blind cop drives to where it last saw the taxi (`steer`): one spot per stretch out of sight,
+  // never re-aimed at where the taxi has since gone.
+  let searchFrames = 0;
+  let staleFrames = 0;
+  let reaimed = 0;
+  const chase = (s, tank, drive) => {
+    const sLayout = createLayout(makeRng(s));
+    setCityOccluders(createBuildings(makeRng(s + 22), sLayout).mesh, createProps(makeRng(s + 33), sLayout).mesh);
+    const net = cityNetwork();
+    // The roads themselves never block: a cop and a taxi on the same street always see each other.
+    for (const lane of net.lanes) {
+      if (lane.degenerate) continue;
+      const a = lane.path.at(0);
+      const b = lane.path.at(lane.length);
+      laneSamples += 1;
+      if (!groundLineClear(a.x, a.z, b.x, b.z, 1.6)) laneBlocked += 1;
+    }
+    const sScene = new THREE.Scene();
+    const sTraffic = createTraffic(makeRng(s + 44), sScene, CARS_DEFAULT);
+    const sPolice = createPolice(sScene);
+    const taxi = sTraffic.taxi;
+    const drng = makeRng(s + 7);
+    let how = null;
+    const sPatrol = createPatrol({
+      rng: makeRng(s + 66), police: sPolice, traffic: sTraffic, taxi,
+      onCaught: () => { how = 'caught'; taxi.crashed = true; },
+      onLost: () => { how = sPatrol.state.unseen >= SIGHT_HOLD ? 'sight' : 'distance'; },
+    });
+    sPatrol.state.cooldown = 0;
+    let onPatrol = 0;
+    for (let step = 0; step < 60 * 90 && onPatrol < 180; step++) {
+      sTraffic.update(1 / 60); sPatrol.update(1 / 60); sPolice.update(1 / 60);
+      if (sPatrol.state.phase === 'patrol') onPatrol += 1;
+    }
+    if (sPatrol.state.phase !== 'patrol') return null;
+    const cp = sPolice.group.position;
+    let spot = null;
+    for (const lane of net.lanes) {
+      if (lane.degenerate || isLaneClosed(lane.id) || lane.length < 6) continue;
+      for (let back = 4; back < lane.length - 1 && !spot; back += 1) {
+        const at = lane.path.at(lane.length - back);
+        const r = Math.hypot(at.x - cp.x, at.z - cp.z);
+        if (r < 8 || r > 18) continue;
+        if (sTraffic.cars.some((c) => c !== taxi && Math.hypot(c.x - at.x, c.z - at.z) < 7)) continue;
+        const to = net.nodeById.get(lane.to);
+        spot = { d: net.dirOfLane(lane), i: to.gi, j: to.gj, back };
+      }
+      if (spot) break;
+    }
+    if (!spot || !placeCar(taxi, spot.d, spot.i, spot.j, spot.back)) return null;
+    taxi.route = [];
+    const at = taxi.lane.path.at(taxi.s);
+    taxi.x = at.x;
+    taxi.z = at.z;
+    sPatrol.update(1 / 60, { boosting: true });
+    if (sPatrol.state.phase !== 'chase') return null;
+    let searching = null;
+    for (let t = 0; t < 45 && !how; t += 1 / 60) {
+      const boosting = t < tank;
+      taxi.boost = boosting;
+      drive(taxi, drng);
+      sTraffic.update(1 / 60);
+      sPatrol.update(1 / 60, { boosting });
+      sPolice.update(1 / 60);
+      const at = sPatrol.state.searchAt;
+      if (at && !how) {
+        searchFrames += 1;
+        if (at.i !== taxi.i || at.j !== taxi.j) staleFrames += 1;
+        if (searching && (searching.i !== at.i || searching.j !== at.j)) reaimed += 1;
+      }
+      searching = at;
+    }
+    return how ?? 'none';
+  };
+  const cornering = [];
+  const cruising = [];
+  for (let k = 0; k < 8; k++) {
+    const a = chase(seed + 500 + k, BOOST_DURATION, zigzag);
+    const b = chase(seed + 500 + k, 0, across);
+    if (a) cornering.push(a);
+    if (b) cruising.push(b);
+  }
+  clearCityOccluders();
+  createLayout(makeRng(seed));   // createLayout installs the network it builds — put ours back
+  const n = (list, how) => list.filter((r) => r === how).length;
+  check('a lane end to end is never out of sight of itself', laneBlocked === 0,
+    `${laneBlocked} of ${laneSamples} lanes blocked`);
+  check('out of sight, the cop drives to where it last saw the taxi, not where it is',
+    searchFrames > 0 && staleFrames > 0 && reaimed === 0,
+    `${searchFrames} frames searching, ${staleFrames} of them somewhere the taxi no longer is, ${reaimed} re-aims`);
+  check('cornering on the pill can lose the cop round the corners', n(cornering, 'sight') >= 2,
+    `${n(cornering, 'sight')}/${cornering.length} lost out of sight, ${n(cornering, 'caught')} caught`);
+  check('...while a cruising taxi is still caught with the city standing',
+    n(cruising, 'caught') >= cruising.length * 0.7,
+    `${n(cruising, 'caught')}/${cruising.length} caught, ${n(cruising, 'sight')} lost out of sight`);
 }
 
 // --- Ramming the patrol car is a bump, not a bust ------------------------------
@@ -9064,7 +9566,7 @@ check('the taxi is an ordinary car in the traffic array',
     `left ${a.y.toFixed(3)}, right ${b.y.toFixed(3)}, END_Y ${END_Y}`);
   check('fuel gauge: symmetric about the pedal', Math.abs((CAP.x - a.x) - (b.x - CAP.x)) < 2,
     `left end ${(CAP.x - a.x).toFixed(2)} out, right end ${(b.x - CAP.x).toFixed(2)} out`);
-  check('fuel gauge: thicker at the full end', fuelArc.widthAt(1) > fuelArc.widthAt(0) && BASE_R > outline,
+  check('fuel gauge: one even width end to end', fuelArc.widthAt(1) === fuelArc.widthAt(0) && BASE_R > outline,
     `${fuelArc.widthAt(0)} -> ${fuelArc.widthAt(1)}`);
   check('fuel gauge: an empty tank draws no fuel', fuelArc.bandPath(0, 0) === '', 'bandPath(0, 0)');
 }
@@ -9101,7 +9603,7 @@ check('the taxi is an ordinary car in the traffic array',
   }
 
   const mark = before + BOOST_FARE_REWARD;
-  check('the bar overshoots the fuel it was given', peak > mark + 0.04 && peak < mark + 0.1,
+  check('the bar overshoots the fuel it was given', peak > mark + 0.02 && peak < mark + 0.05,
     `${(before * 100).toFixed(0)}% -> ${(mark * 100).toFixed(0)}%, peaked at ${(peak * 100).toFixed(1)}%`);
   check('the overshoot lands just after the fuel does', peakT > markT && peakT < markT + 0.2,
     `fuel done ${markT.toFixed(2)}s, peak ${peakT.toFixed(2)}s`);
@@ -9115,7 +9617,8 @@ check('the taxi is an ordinary car in the traffic array',
   // ...and it *rings* on the way there rather than easing straight down onto it. Every extremum
   // after the peak, measured against the level the bar ends on: alternating signs, each smaller
   // than the last. An eased fall — the version this replaced — produces none of them, so the
-  // count alone is the check that the spring is still a spring.
+  // count alone is the check that the spring is still a spring. Two, not three: the ring was
+  // tuned down to one dip and one small return so the refill reads as settling, not bouncing.
   const after = trace.filter((s) => s.t > peakT).map((s) => s.pct - settled.pct);
   const swings = [];
   for (let i = 1; i < after.length - 1; i++) {
@@ -9123,7 +9626,7 @@ check('the taxi is an ordinary car in the traffic array',
   }
   const alternates = swings.every((v, i) => i === 0 || (v * swings[i - 1] < 0 && Math.abs(v) < Math.abs(swings[i - 1])));
   check('the settle rings instead of easing flat onto the mark',
-    swings.length >= 3 && swings[0] < -0.01 && alternates,
+    swings.length >= 2 && swings[0] < -0.004 && alternates,
     swings.map((v) => `${(v * 100).toFixed(1)}%`).join(' '));
 
   // The bar climbs the whole way — no stall or step backwards before the peak.
@@ -9191,8 +9694,10 @@ check('the taxi is an ordinary car in the traffic array',
     if (node.material.visible === false) return;   // the invisible pick volume
     if (!node.children.some((c) => c.name === 'ghostMask')) unmasked.push(node);
   });
-  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 27,
-    `${unmasked.length} unmasked, ${masks.length} masks (10 outlined parts + 13 damage pieces + 4 door pieces)`);
+  // Two more for the chrome bumpers (geometry/bumpers.js), masked without a rim for the reason the
+  // damage pieces are: a 0.2 bar inside the shell's hull, too thin to carry one of its own.
+  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 29,
+    `${unmasked.length} unmasked, ${masks.length} masks (10 outlined parts + 13 damage pieces + 4 door pieces + 2 bumpers)`);
 
   // --- A dimming lamp must dim where it stands ---------------------------------------------------
   //
@@ -10640,7 +11145,9 @@ check('the taxi is an ordinary car in the traffic array',
   const standoffs = [
     hull.max.y - cargoBox.max.y,   // box roof
     hull.max.x - cabBox.max.x,     // cab nose
-    cargoBox.min.x - hull.min.x,   // tail
+    // Off whichever reaches further back — the chassis and its rear bumper, past the box's 0.15 tail
+    // gap. Measured off the box alone it read 0.60 the day the bumpers went on.
+    Math.min(cabBox.min.x, cargoBox.min.x) - hull.min.x,   // tail
     hull.max.z - Math.max(cabBox.max.z, cargoBox.max.z),
   ];
   check('the truck rim stands off cab and cargo box alike',
@@ -11393,9 +11900,11 @@ let chopperOrder; // likewise
   check('the wings span what geometry/bird.js says they do', Math.abs(span - BIRD_SPAN) < 1e-6,
     `${span.toFixed(2)} tip to tip`);
 
-  // Ten minutes of a flock's life, which is several visits and a lot more standing about.
+  // Ten minutes of a flock's life, which is several visits and a lot more standing about — with the
+  // city's rooftop roosts on offer, so the roof legs are asked the same questions as the lawns.
   const birdScene = new THREE.Scene();
-  const flock = createBirds(birdScene, makeRng(seed + 199), layout);
+  const roosts = chooseRoosts(buildings.decks, makeRng(seed + 155));
+  const flock = createBirds(birdScene, makeRng(seed + 199), layout, { roosts });
   const [flockBody, flockLeft, flockRight] = flock.meshes;
 
   let onGround = 0;
@@ -11406,6 +11915,9 @@ let chopperOrder; // likewise
   let fadeStep = 0;                   // the biggest one-frame change in opacity
   let wingFaults = 0;                 // frames where the two wings disagreed about which way is up
   let shadowAloft = 0;                // frames casting shadows with a bird well off the ground
+  let roofFrames = 0;                 // frames spent on the ground on a roof
+  let roofOffDeck = 0;                // walking birds on a roof but not standing on its deck
+  let inFurniture = 0;                // walking birds inside a plant room, AC unit or tank
   let lastFade = flock.state.fade;
 
   const matrix = new THREE.Matrix4();
@@ -11440,8 +11952,19 @@ let chopperOrder; // likewise
         && (bird.x < area.x0 || bird.x > area.x1 || bird.z < area.z0 || bird.z > area.z1)) {
         offTheGrass++;
       }
+      if (flock.state.mode === 'ground' && area.roof) {
+        if (Math.abs(bird.y - BIRD_STAND_Y - area.y) > 0.05) roofOffDeck++;
+        // Against the furniture's *own* footprint rather than the padded one the birds walk round,
+        // so this fails on a bird in a box and not on one brushing the padding.
+        const deck = buildings.decks.find((d) => Math.abs(d.cx - (area.x0 + area.x1) / 2) < 1e-9
+          && Math.abs(d.cz - (area.z0 + area.z1) / 2) < 1e-9);
+        if (deck.keep.some((k) => bird.x > k.x0 && bird.x < k.x1 && bird.z > k.z0 && bird.z < k.z1)) {
+          inFurniture++;
+        }
+      }
     }
-    if (flockBody.castShadow && highest > SHADOW_CEILING) shadowAloft++;
+    if (flock.state.mode === 'ground' && area.roof) roofFrames++;
+    if (flockBody.castShadow && highest > shadowCeiling(area)) shadowAloft++;
 
     if (flock.state.mode === 'ground') {
       onGround++;
@@ -11482,6 +12005,35 @@ let chopperOrder; // likewise
     `${flock.meshes.length} meshes for the whole flock`);
   check('the city has parks for it to live in', parkAreas(layout).length > 0,
     `${parkAreas(layout).length} green areas`);
+  check('a few flat roofs are roosts too, and none of them is the helipad',
+    roosts.length === ROOSTS && roosts.every((r) => !buildings.pad
+      || Math.hypot((r.x0 + r.x1) / 2 - buildings.pad.x, (r.z0 + r.z1) / 2 - buildings.pad.z) > 1e-6),
+    `${roosts.length} roosts from ${buildings.decks.length} flat decks`);
+  check('a flock on a roof stands on its deck, round its furniture',
+    roofOffDeck === 0 && inFurniture === 0,
+    `${(roofFrames / 60).toFixed(0)}s on roofs: ${roofOffDeck} bird-frames off the deck, `
+      + `${inFurniture} inside a plant room or tank`);
+
+  // Settled straight onto a roost and left there, so the roof leg is asked on every seed rather than
+  // only when the ten-minute run above happens to draw one. Shadows are the point: a roosting flock
+  // is a long way above the grass, and measured off the grass it would never cast.
+  if (roosts.length) {
+    const roofScene = new THREE.Scene();
+    const roofFlock = createBirds(roofScene, makeRng(seed + 213), layout, { roosts });
+    const roost = roosts[0];
+    roofFlock.settle(roost);
+    roofFlock.update(1 / 60);
+    const standing = roofFlock.birds.every((b) => Math.abs(b.y - BIRD_STAND_Y - groundOf(roost)) < 0.05);
+    check('a flock settled on a roof stands on it and shadows it',
+      standing && roofFlock.meshes[0].castShadow,
+      `deck at ${roost.y.toFixed(2)}, shadows ${roofFlock.meshes[0].castShadow ? 'on' : 'off'}`);
+    // And it climbs *off* the roof when it leaves, rather than levelling out on top of it.
+    roofFlock.takeOff();
+    for (let step = 0; step < 120; step++) roofFlock.update(1 / 60);
+    const lowestAloft = Math.min(...roofFlock.birds.map((b) => b.y));
+    check('a flock leaving a roof climbs away from it', lowestAloft > roost.y + 2,
+      `lowest bird ${(lowestAloft - roost.y).toFixed(2)} above the deck after 2s`);
+  }
 
   // The taxi coming past is what puts them up. Driven as a car that *shadows* the flock at a fixed
   // gap, which is not a thing that happens in a run — but a car parked somewhere plausible next to
@@ -13082,39 +13634,37 @@ let chopperOrder; // likewise
       paintFar < RAMP_FROM + 1e-6,
       `paint to x ${paintFar.toFixed(2)}, ramp from ${RAMP_FROM.toFixed(2)}`);
 
-    // --- The mast, and the dish orbiting on it.
+    // --- The pole, and the wrench turning on it.
     //
-    // Every number here is derived in `garage.js` from the dish's own measured bounds rather than
-    // hand-tuned, and each of these is the claim that derivation was supposed to guarantee. They
-    // are worth asserting anyway: the dish has been resized twice, and both times it was one of
-    // these that broke.
-    garage.dish.geometry.computeBoundingBox();
-    const bb = garage.dish.geometry.boundingBox;
-    const dishLow = KERB_H + bb.min.y;
-    const dishHigh = KERB_H + bb.max.y;
-    const axis = garage.dishPivot.position;
+    // Every number here is derived in `garage.js` from the wrench's own measured bounds rather than
+    // hand-tuned, and each of these is the claim that derivation was supposed to guarantee. The
+    // dish that stood here before it was resized twice, and both times it was one of these that
+    // broke.
+    garage.wrench.geometry.computeBoundingBox();
+    const bb = garage.wrench.geometry.boundingBox;
+    const wrenchLow = KERB_H + bb.min.y;
+    const axis = garage.wrenchPivot.position;
 
     // The radius it actually sweeps — the furthest any vertex gets from the pivot's axis, not the
-    // bounding box's x, because the pose the box measures is one the dish only holds for an instant.
-    const dp = garage.dish.geometry.attributes.position;
+    // bounding box's x, because the pose the box measures is one the wrench only holds for an
+    // instant.
+    const dp = garage.wrench.geometry.attributes.position;
     let orbit = 0;
     for (let i = 0; i < dp.count; i++) orbit = Math.max(orbit, Math.hypot(dp.getX(i), dp.getZ(i)));
 
-    // The one thing a mast on this roof could break is the shot the whole depot exists for, and it
+    // The one thing a sign on this roof could break is the shot the whole depot exists for, and it
     // cannot break it for a reason that is about **x**, not about height: every ray out of the
     // opening starts on the curtain plane and runs +X, so anything wholly behind that plane is
     // unreachable at any height.
-    check('the sweeping dish stays behind the plane the door\u2019s sightlines leave from',
+    check('the turning wrench stays behind the plane the door’s sightlines leave from',
       axis.x + orbit < site.curtainX,
       `orbit reaches x ${(axis.x + orbit).toFixed(2)}, curtain at ${site.curtainX.toFixed(2)}`);
     // ...and stays inside the +Z parapet, rather than swinging out over the street the door faces.
     //
-    // Only that edge, and the reason is arithmetic rather than visibility — an overhang on any of
-    // the four would be seen, since this camera looks down on the roof and throws anything tall
-    // up-screen. It is that the +Z one is satisfiable by construction (`mastZ` is placed from
-    // `bz1`) and the −X one is not: a block squeezed between two arterials leaves a roof 5.43 wide
-    // against the 5.48 a centred orbit would need, so demanding it would be a check that fails on
-    // a city the generator is allowed to build. On every seed swept it clears by over a unit.
+    // Only that edge, and the reason is arithmetic rather than visibility: the +Z one is
+    // satisfiable by construction (the pole is placed from `bz1`) and the −X one is not on a block
+    // squeezed between two arterials, so demanding it would be a check that fails on a city the
+    // generator is allowed to build. It sweeps over the back parapet there, a long way above it.
     check('...and stays inside the parapet it could swing out over',
       axis.z + orbit < bounds.z1 - 0.9,
       `orbit to z ${(axis.z + orbit).toFixed(2)}, parapet at ${(bounds.z1 - 0.9).toFixed(2)}`);
@@ -13122,56 +13672,81 @@ let chopperOrder; // likewise
     // The entrance wave's contract, and the reason the pivot is where it is. The shader scales the
     // shell about KERB_H; `objects` in game/cityentry.js owns nothing but `object.scale`, so the
     // only way a CPU-grown object rises with the mesh it stands on is for its pivot to sit on that
-    // same plane. Anywhere else and the dish shrinks toward a point the mast has not reached.
+    // same plane. Anywhere else and the wrench shrinks toward a point the pole has not reached.
     check('...and its pivot sits on the plane the entrance wave scales about',
       Math.abs(axis.y - KERB_H) < 1e-9,
       `pivot y ${axis.y.toFixed(3)} against ${KERB_H}`);
 
-    // The two things the dish is squeezed between on the pole. Both are measured off the mast's own
-    // vertices — the ones within a plinth's width of its axis — rather than off MAST_H, so a change
-    // to either end shows up here.
-    let barTop = -Infinity;
+    // The pole stops at the wrench's centre — inside the handle, so the tool is mounted on it
+    // rather than floating over it or skewered through it. Measured off the pole's own vertices,
+    // the topmost trim within a plinth's width of the axis.
     let poleHead = -Infinity;
     for (let i = 0; i < pos.count; i++) {
       if (Math.hypot(pos.getX(i) - axis.x, pos.getZ(i) - axis.z) > 0.62) continue;
-      const y = pos.getY(i);
-      if (y > KERB_H + 5.5 && y < dishLow) barTop = Math.max(barTop, y);
-      // The pole's head, which is where the whip takes over: the topmost `garageTrim` vertex on the
-      // axis. The whip itself is `pole`-coloured and sits above it.
-      if (at(i) === TRIM && y > KERB_H + 5.5) poleHead = Math.max(poleHead, y);
+      if (at(i) === TRIM && pos.getY(i) > KERB_H + 5.5) poleHead = Math.max(poleHead, pos.getY(i));
     }
-    // It orbits, so it passes over the crossbars once a revolution: the clearance is not a static
-    // one and cannot be read off a single pose.
-    check('...and clears the crossbars under it all the way round',
-      dishLow - barTop > 0.1, `${(dishLow - barTop).toFixed(2)} units`);
-    // And the pole shows past the top of it, or the whip appears to grow out of the dish's rim.
-    check('...with the pole\u2019s head still showing above it',
-      poleHead > dishHigh, `head ${poleHead.toFixed(2)} against dish top ${dishHigh.toFixed(2)}`);
+    check('...on a pole that ends at its centre',
+      Math.abs(poleHead - garage.hub) < 1e-6,
+      `pole head ${poleHead.toFixed(2)}, wrench centre ${garage.hub.toFixed(2)}`);
 
-    // The roof's own plant, which the mast walked into once already: the standoff grew with the
-    // dish and took the mast to a corner a unit box was standing in.
+    // The roof's own plant, which the old mast walked into once already: the standoff grows with
+    // the sweep and can take the pole to a corner a unit box is standing in. And the wrench's low
+    // end, which passes over the same boxes once a revolution.
     const PLANT = [color('rooftop').getHexString(), color('rooftopIron').getHexString()];
     let plantGap = Infinity;
+    let plantTop = -Infinity;
     for (let i = 0; i < pos.count; i++) {
       if (pos.getY(i) < KERB_H + 5 || !PLANT.includes(at(i))) continue;
       plantGap = Math.min(plantGap,
         Math.hypot(pos.getX(i) - axis.x, pos.getZ(i) - axis.z));
+      plantTop = Math.max(plantTop, pos.getY(i));
     }
-    check('...and the roof\u2019s plant is clear of the mast standing among it',
-      plantGap > 0.6, `nearest box corner ${plantGap.toFixed(2)} from the mast`);
+    check('...and the roof’s plant is clear of the pole standing among it',
+      plantGap > 0.6, `nearest box corner ${plantGap.toFixed(2)} from the pole`);
+    check('...and of the wrench sweeping over it',
+      wrenchLow - plantTop > 0.2,
+      `${(wrenchLow - plantTop).toFixed(2)} units over the tallest box`);
 
-    // Last: the dish is out of both lists it must not be in. The wave cannot animate it — it turns,
-    // and the anchor a vertex scales about is a world coordinate — so it is not a stamped mesh; it
-    // is an `entryObject` instead.
+    // Its two flat faces wound to face outward. It is an extrusion, which three winds itself — but
+    // this is the check the boats' wake and the roadworks ramp did not have (CLAUDE.md), and on an
+    // object that turns, a reversed face is the one you see half the time. The cant is about z and
+    // the lift is along y, so the caps still sit at ±z; a cap triangle's normal, from its winding,
+    // has to point the way its own z does.
+    let capsWrong = 0;
+    let caps = 0;
+    const zMax = bb.max.z;
+    const tri = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    const n = new THREE.Vector3();
+    for (let t = 0; t < dp.count; t += 3) {
+      for (let k = 0; k < 3; k++) tri[k].fromBufferAttribute(dp, t + k);
+      if (!tri.every((v) => Math.abs(Math.abs(v.z) - zMax) < 1e-6 && v.z * tri[0].z > 0)) continue;
+      n.subVectors(tri[1], tri[0]).cross(new THREE.Vector3().subVectors(tri[2], tri[0]));
+      if (n.lengthSq() < 1e-12) continue;
+      caps++;
+      if (n.z * tri[0].z <= 0) capsWrong++;
+    }
+    check('...with both its faces wound to face out', caps > 20 && capsWrong === 0,
+      `${capsWrong} of ${caps} cap triangles reversed`);
+
+    // Steel: every vertex on the metal finish, and the material actually carrying the gloss patch.
+    const finish = garage.wrench.geometry.attributes.aFinish;
+    check('...in the vehicles’ metal finish',
+      finish && Array.from(finish.array).every((f) => f === FINISH.METAL)
+      && garage.wrench.material.customProgramCacheKey().includes('gloss'),
+      `program key "${garage.wrench.material.customProgramCacheKey()}"`);
+
+    // Last: the wrench is out of both lists it must not be in. The wave cannot animate it — it
+    // turns, and the anchor a vertex scales about is a world coordinate — so it is not a stamped
+    // mesh; it is an `entryObject` instead.
     check('...and it is an entrance *object*, not one of the stamped meshes',
-      !garage.meshes.includes(garage.dish) && garage.entryObject.object === garage.dishPivot);
+      !garage.meshes.includes(garage.wrench) && garage.entryObject.object === garage.wrenchPivot);
     // And having been kept out of the AO depth prepass, it must not *receive* AO either. Receiving
     // is the default, so a mesh that is not in the prepass reads the occlusion of whatever is
-    // behind it on screen — for the dish, its own roof and the crease under its own mast. The flag
-    // is visible from here because `patchProp` folds it into the program cache key.
+    // behind it on screen — for the dish that stood here, its own roof and the crease under its
+    // own mast. The flag is visible from here because `patchProp` folds it into the program key.
     check('...and out of the AO lookup, since it is not in the prepass that feeds it',
-      !garage.dish.material.customProgramCacheKey().includes('ssao'),
-      `program key "${garage.dish.material.customProgramCacheKey()}"`);
+      !garage.wrench.material.customProgramCacheKey().includes('ssao'),
+      `program key "${garage.wrench.material.customProgramCacheKey()}"`);
   }
 
   // --- Can the camera see the door?
@@ -15016,9 +15591,9 @@ let chopperOrder; // likewise
     // --- The drop-off: the arrest, and the one who comes after you -------------------------
     //
     // game/arrest.js. A delivered robber stays on the kerb with their hands up, the robbery's cops
-    // circle them, one pulls up and takes them, and the rest are handed back to traffic; the
-    // nearest cop is handed to the patrol to chase the taxi (`handOff`). The cops going round are
-    // *staged* — out of traffic, driven by hand — so nothing in the sim keeps them off anything,
+    // screech up in a fan pointed at them, the robber gets into the nearest, and they are handed
+    // back to traffic; the nearest cop is handed to the patrol to chase the taxi (`handOff`). The
+    // cops in the box are *staged* — out of traffic, driven by hand — so nothing in the sim keeps them off anything,
     // and every clause below is a way the first builds of it put a car through something.
     //
     // Four traffic draws on this city, two with the taxi driving off (the scene ends out of shot,
@@ -15062,7 +15637,10 @@ let chopperOrder; // likewise
         }
         if (!run.delivered) continue;
         const J5 = { x: lineX(tgt.i), z: lineZ(tgt.j) };
-        run.circled = 0;
+        run.fanned = 0;
+        run.fanMax = 0;
+        run.aimWorst = 0;
+        run.offRoad = 0;
         run.nearRobber = Infinity;
         run.overlap = 0;
         run.snap = 0;
@@ -15074,7 +15652,18 @@ let chopperOrder; // likewise
           rob5.update(1 / 60);
           f5.update(1 / 60, t5.taxi);
           const crew = rob5.arrest.crew();
-          if (crew.some((m) => m.mode === 'ring' && m.rail)) run.circled += 1 / 60;
+          const parkedNow = crew.filter((m) => m.mode === 'parked');
+          if (parkedNow.length) run.fanned += 1 / 60;
+          run.fanMax = Math.max(run.fanMax, parkedNow.length);
+          const fig = rob5.arrest.figure();
+          // Settled in its slot, bonnet on the robber: the angle between where it points and where
+          // they stand. The slide is allowed a few frames to settle (`parked` eases it square).
+          if (fig && rob5.arrest.state.phase === 'standoff') {
+            for (const m of parkedNow) {
+              const want = Math.atan2(-(fig.z - m.car.z), fig.x - m.car.x);
+              run.aimWorst = Math.max(run.aimWorst, Math.abs(Math.atan2(Math.sin(m.car.yaw - want), Math.cos(m.car.yaw - want))));
+            }
+          }
           for (const c of t5.policeCars) {
             if (c.staged) crewCars.add(c);
             // Handed back: where the lane puts it against where the hand-drive left it.
@@ -15083,6 +15672,23 @@ let chopperOrder; // likewise
             }
             last.set(c, { x: c.x, z: c.z, staged: c.staged });
             if (!c.staged) continue;
+            // Every corner of a staged car on the road: not in one of the four blocks round the
+            // junction, by more than the kerb's own lip.
+            {
+              const fx = Math.cos(c.yaw);
+              const fz = -Math.sin(c.yaw);
+              const hx = halfRoadZ(tgt.i);
+              const hz = halfRoadX(tgt.j);
+              for (const a of [1, -1]) {
+                for (const b of [1, -1]) {
+                  const px = c.x + fx * a * CAR_LEN / 2 - fz * b * CAR_W / 2 - J5.x;
+                  const pz = c.z + fz * a * CAR_LEN / 2 + fx * b * CAR_W / 2 - J5.z;
+                  if (Math.abs(px) < 12 && Math.abs(pz) < 12) {
+                    run.offRoad = Math.max(run.offRoad, Math.min(Math.abs(px) - hx, Math.abs(pz) - hz));
+                  }
+                }
+              }
+            }
             if (run.figure?.settled() && rob5.arrest.state.phase !== 'board') {
               run.nearRobber = Math.min(run.nearRobber, Math.hypot(c.x - run.figure.x, c.z - run.figure.z));
             }
@@ -15106,12 +15712,22 @@ let chopperOrder; // likewise
       check('a delivered robber stays on the kerb for the police',
         played.length >= 3 && played.every((r) => r.figure?.settled()),
         `${played.length} of ${runs.length} delivered, ${played.filter((r) => r.figure?.settled()).length} standing`);
-      check('...and the cops circle them, and one takes them in',
-        played.every((r) => r.circled > 2 && r.arrests === 1),
-        `circled ${fmt((r) => `${r.circled.toFixed(1)}s`)}, arrests ${fmt((r) => r.arrests)}`);
-      // The robber is 6.4 from the middle of a street's box on the diagonal and the ring its edge;
-      // the car that picks them up stops beside them. Two units, centre to figure, is a car's
-      // half-width and most of a unit to spare — the first peel-off measured 0.98, on the kerb.
+      // A fan of at least two on most runs, not all: a cop that reaches the junction queued
+      // directly behind traffic the seal is holding has no room to pull round it (`tryStage`'s
+      // `lead`), and that scene goes ahead with the cars that made it — one, on 1 run in 4 here.
+      check('...and the cops pull up in a fan round them, and one takes them in',
+        played.every((r) => r.fanned > 2 && r.arrests === 1)
+          && played.filter((r) => r.fanMax >= 2).length >= played.length - 1,
+        `fanned ${fmt((r) => `${r.fanned.toFixed(1)}s × ${r.fanMax}`)}, arrests ${fmt((r) => r.arrests)}`);
+      check('...every bonnet pointed at the robber',
+        played.every((r) => r.aimWorst < 0.12),
+        `worst ${fmt((r) => `${(r.aimWorst * 180 / Math.PI).toFixed(1)}°`)}`);
+      check('...and no corner of a car up on the pavement',
+        played.every((r) => r.offRoad < 0.15),
+        `deepest ${fmt((r) => r.offRoad.toFixed(2))}`);
+      // The robber is on the kerb corner and the fan's cars 5.5 off them, nose 3.8. Two units,
+      // centre to figure, is a car's half-width and most of a unit to spare — the old ring's first
+      // peel-off measured 0.98, on the kerb.
       check('...without a car ever going through the robber',
         played.every((r) => r.nearRobber >= 2),
         `nearest ${fmt((r) => r.nearRobber.toFixed(2))}`);
@@ -15320,6 +15936,52 @@ let chopperOrder; // likewise
   // `setCityOccluders` is the same shape of module state one layer up. Put both back.
   createLayout(makeRng(seed));
   setCityOccluders(buildings.mesh, props);
+}
+
+// --- The bootleg (game/bootleg.js, `spinTaxi` in sim/traffic.js) ----------------------------------
+//
+// Every lane in the city, the taxi dropped mid-lane at chase speed and spun. Where it goes it has to
+// land on the far lane facing back the way it came, upright, on the road and short of the stop line
+// it is now driving toward — and still moving. Where it does not, the reason has to be the road: an
+// arterial's median or a bridge, never a lane that simply happened not to work.
+{
+  const bTraffic = createTraffic(makeRng(seed + 44), new THREE.Scene(), CARS_DEFAULT);
+  const taxi = bTraffic.taxi;
+  const net = cityNetwork();
+  const why = {};
+  let spun = 0;
+  let landedWrong = 0;
+  let stalled = 0;
+  let pastLine = 0;
+  let worstYaw = 0;
+  for (const lane of net.lanes) {
+    if (lane.degenerate || isLaneClosed(lane.id) || lane.length < 6) continue;
+    const to = net.nodeById.get(lane.to);
+    const d = net.dirOfLane(lane);
+    if (!placeCar(taxi, d, to.gi, to.gj, lane.length / 2)) continue;
+    taxi.route = [];
+    taxi.uturn = null;
+    taxi.v = 15;
+    const was = taxi.d;
+    const refused = spinTaxi(taxi);
+    if (refused) { why[refused] = (why[refused] ?? 0) + 1; continue; }
+    spun += 1;
+    for (let k = 0; k < 60 && taxi.uturn; k++) bTraffic.update(1 / 60);
+    const tangent = taxi.lane.path.tangentAt(taxi.s);
+    const want = Math.atan2(-tangent.z, tangent.x);
+    worstYaw = Math.max(worstYaw, Math.abs(Math.atan2(Math.sin(taxi.yaw - want), Math.cos(taxi.yaw - want))));
+    if (taxi.uturn || taxi.d !== opposite(was)) landedWrong += 1;
+    if (taxi.v < SPEED * 0.9) stalled += 1;
+    if (taxi.state === 'drive' && taxi.s > taxi.lane.length - STOP_SETBACK) pastLine += 1;
+  }
+  const reasons = Object.entries(why).map(([k, n]) => `${n} ${k}`).join(', ') || 'none';
+  check('the bootleg spins the taxi round on the ordinary streets', spun > 20 && landedWrong === 0,
+    `${spun} spun, ${landedWrong} landed facing the wrong way or still spinning; refused: ${reasons}`);
+  check('...and refuses only for the road: a median, a bridge or a short lane',
+    Object.keys(why).every((k) => k === 'median' || k === 'bridge' || k === 'short'), reasons);
+  check('...landing square in its lane, still moving, short of the line ahead',
+    worstYaw < 0.05 && stalled === 0 && pastLine === 0,
+    `worst heading ${worstYaw.toFixed(3)} rad off the lane, ${stalled} came out under cruise, ${pastLine} past the line`);
 }
 
 // --- The emissive bloom --------------------------------------------------------
@@ -16048,6 +16710,39 @@ let chopperOrder; // likewise
     for (let f = 0; f < 60 * (OPEN_SECONDS + 1); f++) bridge.update(1 / 60, []);
     check('and goes up once it clears', bridge.state.lift > 0.99, bridge.state.phase);
 
+    // **A routed car does not drive onto a raised leaf.** The dice weigh a shut lane at zero, but a
+    // route is obeyed, and only the taxi is re-planned when the barriers drop — so a patrol cruiser
+    // carrying a route planned with the span down drove straight across the open river. Staged as
+    // the worst case: a car already on the approach, its route pointing over the water, the leaf up.
+    {
+      const cScene = new THREE.Scene();
+      const cTraffic = createTraffic(makeRng(seed + 836), cScene, 2);
+      const cNet = cityNetwork();
+      const cop = cTraffic.cars.find((car) => car !== cTraffic.taxi);
+      const shut = new Set(bridge.laneIds);
+      const approach = cNet.laneByGrid(1, bridge.span.line, bridge.span.row);
+      const onto = cNet.laneByGrid(1, bridge.span.line, bridge.span.row + 1);
+      let crossed = 0;
+      let leftApproach = false;
+      if (cop && approach && onto && shut.has(onto.id)) {
+        placeCar(cop, 1, bridge.span.line, bridge.span.row, 8);
+        cop.route = [1, 1, 1];
+        cop.routeConsumed = false;
+        setClosedLanes(bridge.laneIds, 'drawbridge');
+        for (let f = 0; f < 60 * 30; f++) {
+          cTraffic.update(1 / 60);
+          if (shut.has(cop.lane?.id) || shut.has(cop.turn?.outLane)) crossed += 1;
+          if (cop.lane && cop.lane.id !== approach.id) leftApproach = true;
+        }
+        setClosedLanes([], 'drawbridge');
+      }
+      check('a routed car never drives onto a raised leaf',
+        Boolean(cop && approach && onto) && crossed === 0,
+        `${crossed} frames on the span, ${cTraffic.stats.routeRefused} route(s) refused`);
+      check('...and turns off rather than waiting at the water', leftApproach && cTraffic.stats.routeRefused >= 1,
+        leftApproach ? 'turned off' : 'still on the approach after 30s');
+    }
+
     // The boats, over a full run. The tug must never be inside the span with the leaf anywhere but
     // fully up — which is the boat's own doing (`HOLD_OFF`), not the bridge's.
     const boats = createBoats(rScene, makeRng(seed + 840), bridge);
@@ -16378,6 +17073,204 @@ let chopperOrder; // likewise
     crate.phase === 'smashed' && hits.length === 1 && hits[0].byTaxi && flying > 0 && chipsDown
     && taxi.hp === hpBefore,
     `${crate.phase}, ${hits.length} smash events, ${flying} chips`);
+}
+
+// --- The building fire --------------------------------------------------------------------
+// One fire, start to finish, on the probe's own city. What can go wrong with nothing thrown: the
+// flames on a wall the camera cannot see, the engine never getting there or stopping somewhere other
+// than the street in front of the fire, traffic driving *through* a parked engine rather than
+// queueing behind it, the jet landing in the road, the fire going out by timing out rather than by
+// being put out, and a closure left on the street after the engine has gone — which looks like
+// nothing at all, just traffic avoiding a road forever.
+{
+  createLayout(makeRng(seed));   // the probe's network, in case a sweep above replaced it
+  setClosedLanes([]);
+  setClosedLanes([], 'fire');
+  setCityOccluders(buildings.mesh);
+  const fScene = new THREE.Scene();
+  const fTraffic = createTraffic(makeRng(seed + 610), fScene, 24, 24);
+  for (let step = 0; step < 120; step++) fTraffic.update(1 / 60);
+  const fire = createFire({
+    rng: makeRng(seed + 611), scene: fScene, blocks: layout, traffic: fTraffic, soon: true,
+  });
+
+  let site = null;
+  let parkedAt = null;
+  let parkedDrift = 0;
+  let throughCars = 0;
+  let closedWhileParked = true;
+  let hazardWhileParked = true;
+  let aimErr = 0;
+  let queued = 0;
+  let enteredAfter = 0;
+  let laneCarsAtPark = null;
+  let peakWater = 0;
+  let planted = null;
+  let plantedGap = null;
+  let retired = false;
+  let steps = 0;
+  const pivot = new THREE.Vector3();
+  const tip = new THREE.Vector3();
+  for (; steps < 60 * 240; steps++) {
+    fTraffic.update(1 / 60);
+    fire.update(1 / 60);
+    const st = fire.state;
+    if (!site && st.site) site = st.site;
+    const truck = st.truck;
+    if (truck && st.parked && ['rigging', 'spraying', 'smoulder', 'stowing'].includes(st.phase)) {
+      if (!parkedAt) {
+        parkedAt = { x: truck.x, z: truck.z, s: truck.s, lane: truck.lane };
+        // Plant a car at the head of the lane, coming on at cruise, so there is always somebody to
+        // queue: on a quiet street the engine can come and go without anything behind it at all.
+        planted = fTraffic.cars.find((c) => !c.isTaxi && !c.guest && !c.isTruck && c.state === 'drive'
+          && c.lane !== truck.lane);
+        if (planted) {
+          const k = site.laneKey;
+          placeCar(planted, k.d, k.i, k.j, truck.lane.length - 0.3);
+          planted.v = SPEED;
+          planted.route = [];
+        }
+        laneCarsAtPark = new Set(fTraffic.cars.filter((c) => c.lane === truck.lane).map((c) => c));
+      }
+      if (planted && st.phase === 'smoulder' && plantedGap === null && planted.lane === truck.lane) {
+        plantedGap = { gap: truck.s - planted.s, v: planted.v };
+      }
+      parkedDrift = Math.max(parkedDrift, Math.hypot(truck.x - parkedAt.x, truck.z - parkedAt.z));
+      closedWhileParked &&= isLaneClosed(site.lane.id);
+      hazardWhileParked &&= laneCost(site.lane) > 2;
+      for (const car of fTraffic.cars) {
+        if (car === truck || car.lane !== truck.lane || car.state !== 'drive') continue;
+        // Nothing may stand inside the engine: a car behind it is at least a car's half-length
+        // plus the engine's back from its centre.
+        const gap = truck.s - car.s;
+        if (gap > -TRUCK_LEN / 2 && gap < (TRUCK_LEN + CAR_LEN) / 2 - 0.2) throughCars += 1;
+        if (gap > 0 && car.v < 0.1) queued = Math.max(queued, 1);
+        if (!laneCarsAtPark.has(car)) { enteredAfter += 1; laneCarsAtPark.add(car); }
+      }
+      if (st.phase === 'spraying') {
+        fire.engine.group.updateMatrixWorld(true);
+        fire.engine.ladderYaw.getWorldPosition(pivot);
+        fire.engine.nozzle.getWorldPosition(tip);
+        const want = Math.atan2(site.z - pivot.z, site.x - pivot.x);
+        const got = Math.atan2(tip.z - pivot.z, tip.x - pivot.x);
+        aimErr = Math.max(aimErr, Math.abs(((got - want + Math.PI * 3) % (Math.PI * 2)) - Math.PI));
+        peakWater = Math.max(peakWater, fire.water.live());
+      }
+    }
+    if (st.fires && st.phase === 'waiting') { retired = true; break; }
+  }
+  const st = fire.state;
+  check('a fire breaks out on a camera-facing wall a tall building stands behind, in clear sight',
+    !!site && (site.nx === 1 || site.nz === 1) && site.height >= 3.6
+      && sightlineClear(site.x + site.nx * 0.4, site.y, site.z + site.nz * 0.4),
+    site ? `normal (${site.nx}, ${site.nz}), height ${site.height.toFixed(1)}` : 'no site');
+  check('the engine drives to the fire and stops in the lane in front of it, short of the hold line',
+    !!parkedAt && parkedAt.lane === site.lane && Math.abs(parkedAt.s - site.stopS) < 1.5
+      && parkedAt.s < site.lane.length - STOP_SETBACK - TRUCK_LEN / 2,
+    parkedAt ? `stopped at s ${parkedAt.s.toFixed(2)} for ${site.stopS.toFixed(2)} of ${site.lane.length.toFixed(2)}` : `phase ${st.phase}`);
+  check('a parked engine stays put, and nothing in its lane drives through it',
+    !!parkedAt && parkedDrift < 0.05 && throughCars === 0,
+    `drift ${parkedDrift.toFixed(3)}, ${throughCars} frames of a car inside it, queue ${queued}`);
+  check('a car coming up behind the parked engine stops and waits behind it',
+    !!plantedGap && plantedGap.v < 0.1 && plantedGap.gap > (TRUCK_LEN + CAR_LEN) / 2
+      && plantedGap.gap < (TRUCK_LEN + CAR_LEN) / 2 + 4,
+    plantedGap ? `${plantedGap.gap.toFixed(2)} behind at ${plantedGap.v.toFixed(2)} u/s` : 'no car planted');
+  check('while it is parked its lane is shut to new traffic and priced up for the taxi',
+    !!parkedAt && closedWhileParked && hazardWhileParked && enteredAfter === 0,
+    `closed ${closedWhileParked}, hazard ${hazardWhileParked}, ${enteredAfter} cars came in after it parked`);
+  check('the ladder swings round to the fire and the jet lands on the wall',
+    aimErr < 0.035 && st.landed > 50 && st.waterMiss < 1.2 && peakWater > 0,
+    `aim off by ${(aimErr * 180 / Math.PI).toFixed(1)}°, ${st.landed} landed, furthest ${st.waterMiss.toFixed(2)} off the facade`);
+  check('the water puts the fire out — it does not just time out',
+    st.extinguished === 1 && st.arrived === 1,
+    `extinguished ${st.extinguished}, arrived ${st.arrived}, after ${(steps / 60).toFixed(1)}s`);
+  check('the engine leaves, is taken off the road, and the street reopens behind it',
+    retired && !fTraffic.cars.some((c) => c.guest) && !!site && !isLaneClosed(site.lane.id)
+      && laneCost(site.lane) <= 1,
+    `retired ${retired}, guests ${fTraffic.cars.filter((c) => c.guest).length}, phase ${st.phase}`);
+  setClosedLanes([], 'fire');
+  clearCityOccluders();
+}
+
+// The squall's cell (game/squall.js): no fire breaks out where it is raining or about to, and one the
+// rain reaches anyway goes out in steam with the engine sent home — a building burning away under a
+// rain cell read as a mistake. Fake weather rather than a real squall, so the check does not ride on
+// where a seeded crossing happens to be.
+{
+  createLayout(makeRng(seed));
+  setClosedLanes([]);
+  setClosedLanes([], 'fire');
+  setCityOccluders(buildings.mesh);
+  const rScene = new THREE.Scene();
+  const rTraffic = createTraffic(makeRng(seed + 610), rScene, 24, 24);
+  for (let step = 0; step < 120; step++) rTraffic.update(1 / 60);
+  // Raining everywhere ahead: nothing qualifies.
+  const wet = createFire({
+    rng: makeRng(seed + 611), scene: rScene, blocks: layout, traffic: rTraffic, soon: true,
+    rainAt: () => 1, rainSoon: () => 1,
+  });
+  for (let step = 0; step < 600; step++) wet.update(1 / 60);
+  // Dry at ignition, then the cell arrives over it.
+  let raining = false;
+  const late = createFire({
+    rng: makeRng(seed + 611), scene: rScene, blocks: layout, traffic: rTraffic, soon: true,
+    rainAt: () => (raining ? 1 : 0),
+  });
+  let steps = 0;
+  let steamed = false;
+  for (; steps < 60 * 30; steps++) {
+    rTraffic.update(1 / 60);
+    late.update(1 / 60);
+    if (late.state.fires && late.state.heat >= 1) raining = true;
+    if (raining && late.smoke.live() && late.state.phase === 'smoulder') steamed = true;
+    if (late.state.fires && late.state.phase === 'waiting') break;
+  }
+  check('no fire breaks out under the squall, and rain that reaches one puts it out',
+    wet.state.fires === 0 && late.state.fires === 1 && late.state.rainedOut === 1
+      && late.state.extinguished === 0 && steamed && late.state.phase === 'waiting'
+      && !rTraffic.cars.some((c) => c.guest),
+    `${wet.state.fires} fires in the rain; rained out ${late.state.rainedOut}, phase ${late.state.phase} after ${(steps / 60).toFixed(1)}s`);
+  setClosedLanes([], 'fire');
+  setHazardLanes([]);
+  clearCityOccluders();
+}
+
+// The depot never burns, nor the burger joint. Swept over cities rather than asserted on the probe's
+// one, since which block the depot takes is a draw — and every candidate site is checked, not just
+// the one a fire happened to pick.
+{
+  const near = (site, block) => block && site.x >= block.bounds.x0 - 0.5 && site.x <= block.bounds.x1 + 0.5
+    && site.z >= block.bounds.z0 - 0.5 && site.z <= block.bounds.z1 + 0.5;
+  let sites = 0;
+  let cities = 0;
+  let onDepot = 0;
+  let onBurger = 0;
+  for (let c = 0; c < 8; c++) {
+    const cityLayout = createLayout(makeRng(seed + c * 71));
+    if (!cityLayout.garageBlock) continue;
+    cities += 1;
+    // The same field main.js builds: towers, depot and joint. With the towers alone the depot is a
+    // hole in the height field and could never be found as a wall — which is what the first cut of
+    // this check measured, and it passed with the depot filter switched off.
+    const dGarage = createGarage(cityLayout.garageBlock, makeRng(seed + c * 71 + 99));
+    const dBurger = cityLayout.burgerBlock
+      ? createBurgerJoint(cityLayout.burgerBlock, makeRng(seed + c * 71 + 111)) : null;
+    setCityOccluders(createBuildings(makeRng(seed + c * 71 + 22), cityLayout).mesh,
+      ...dGarage.meshes, ...(dBurger?.meshes ?? []));
+    const dScene = new THREE.Scene();
+    const dTraffic = createTraffic(makeRng(seed + c), dScene, 4, 4);
+    const dFire = createFire({ rng: makeRng(seed + c), scene: dScene, blocks: cityLayout, traffic: dTraffic });
+    for (const site of dFire.candidates()) {
+      sites += 1;
+      if (near(site, cityLayout.garageBlock)) onDepot += 1;
+      if (near(site, cityLayout.burgerBlock)) onBurger += 1;
+    }
+  }
+  clearCityOccluders();
+  createLayout(makeRng(seed));   // put the probe's city back
+  check('no fire can break out on the depot or the burger joint',
+    cities > 0 && sites > 0 && onDepot === 0 && onBurger === 0,
+    `${sites} candidate sites over ${cities} cities with a depot, ${onDepot} on it, ${onBurger} on the joint`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

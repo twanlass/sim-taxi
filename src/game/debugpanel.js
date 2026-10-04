@@ -10,6 +10,7 @@ import {
 } from '../util/geo.js';
 import { MIN_ELEVATION } from './daylight.js';
 import { BLOOM_INTENSITY, BLOOM_KINDS } from './bloom.js';
+import { buildAudioSections } from './audiopanel.js';
 
 // Screen pixels to a world unit at play zoom, for the readouts that need one. Derived rather than
 // written down as the 7.7 that appears as prose all over this project: the frustum is sized by
@@ -114,6 +115,9 @@ export function createDebugPanel({
   clouds = null,
   // Freeze-and-zoom (game/inspect.js), or null in the boot pass and in shot mode.
   inspect = null,
+  // The sound effects (game/sfx.js), for the Audio sections — null in the boot pass and in shot
+  // mode, which have no audio, and then the sections are left out.
+  sfx = null,
 }) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
@@ -1112,6 +1116,15 @@ export function createDebugPanel({
   toggle.addEventListener('click', () => { if (!panel.hidden) showCount(); });
   panel.append(wipe);
 
+  // --- Audio ----------------------------------------------------------------
+  // The sound designer's sections — game/audiopanel.js. Its status line polls only while the
+  // panel is open, so it hears about the toggle; registered after the one above, so `panel.hidden`
+  // is already the new state.
+  if (sfx) {
+    const audio = buildAudioSections(panel, sfx);
+    toggle.addEventListener('click', () => (panel.hidden ? audio.close() : audio.open()));
+  }
+
   // --- Export ---------------------------------------------------------------
   // Reads live objects rather than the slider positions, so it captures manual overrides too —
   // e.g. a sun colour picked after the time-of-day slider suggested a different one.
@@ -1204,5 +1217,153 @@ export function createDebugPanel({
   fareTime.dispatchEvent(new Event('input'));
   refresh();
 
+  organise(panel);
+
   return { panel, toggle, snapshot };
+}
+
+// --- Sections and search -----------------------------------------------------
+// The panel is built flat — a heading, then whatever follows it until the next one — and folded
+// into collapsible sections afterwards, rather than threading a section container through every
+// `row(panel, ...)` above. That keeps each section's code exactly as it reads, and a section added
+// later gets folded for free as long as it starts with `heading()`.
+//
+// Everything starts collapsed: the panel grew to a dozen sections and well over a hundred controls,
+// and opened flat it was a scroll hunt for the one slider anyone came for. Which sections are open
+// is remembered for the browser session (sessionStorage, so a reload keeps the place but a new tab
+// starts clean) — and never written while a search is forcing sections open, so clearing the
+// search puts back exactly what was open before it.
+
+const OPEN_KEY = 'dbg-open';
+
+function loadOpen() {
+  try { return new Set(JSON.parse(sessionStorage.getItem(OPEN_KEY)) || []); } catch { return new Set(); }
+}
+
+function saveOpen(open) {
+  try { sessionStorage.setItem(OPEN_KEY, JSON.stringify([...open])); } catch { /* private mode */ }
+}
+
+/** What a search matches an item on: a row's label, a button's text, or a `data-search`. */
+function itemText(el) {
+  if (el.dataset?.search) return el.dataset.search;
+  if (el.classList.contains('dbg-row')) return el.firstElementChild?.textContent ?? '';
+  if (el.matches('button')) return el.textContent;
+  const buttons = el.querySelectorAll('button');
+  return buttons.length ? [...buttons].map((b) => b.textContent).join(' ') : '';
+}
+
+function organise(panel) {
+  const open = loadOpen();
+
+  const search = document.createElement('input');
+  search.type = 'search';
+  search.className = 'dbg-search';
+  search.placeholder = 'Search';
+  search.spellcheck = false;
+  search.autocomplete = 'off';
+  search.setAttribute('aria-label', 'Search controls');
+
+  const header = document.createElement('div');
+  header.className = 'dbg-head';
+  header.append(search);
+
+  const sections = [];
+  let current = null;
+  for (const el of [...panel.children]) {
+    if (el.tagName === 'H4') {
+      const title = el.textContent;
+      const section = document.createElement('section');
+      section.className = 'dbg-sec';
+      const head = document.createElement('button');
+      head.type = 'button';
+      head.className = 'dbg-sec-head';
+      const name = document.createElement('span');
+      name.textContent = title;
+      const count = document.createElement('small');
+      head.append(name, count);
+      const body = document.createElement('div');
+      body.className = 'dbg-sec-body';
+      section.append(head, body);
+      el.replaceWith(section);
+      const entry = { title, key: title.toLowerCase(), section, head, count, body, items: [] };
+      head.addEventListener('click', () => {
+        // During a search the open/closed look is the search's, not the user's — a click then
+        // still toggles, but only this view of it.
+        const on = body.hidden;
+        setOpen(entry, on);
+        if (!query) {
+          if (on) open.add(title); else open.delete(title);
+          saveOpen(open);
+        }
+      });
+      sections.push(entry);
+      setOpen(entry, open.has(title));
+      current = entry;
+    } else if (current) {
+      current.body.append(el);
+      current.items.push({ el, key: itemText(el).toLowerCase() });
+    }
+  }
+
+  const empty = document.createElement('p');
+  empty.className = 'dbg-empty';
+  empty.textContent = 'No matches';
+  empty.hidden = true;
+
+  panel.prepend(header);
+  panel.append(empty);
+
+  // A section's badge counts its rows, or its matches while a search is narrowing it.
+  const rowCount = (s) => String(s.items.filter((i) => i.el.classList.contains('dbg-row')
+    || i.el.dataset?.search).length || '');
+  for (const s of sections) s.count.textContent = rowCount(s);
+
+  function setOpen(s, on) {
+    s.body.hidden = !on;
+    s.head.setAttribute('aria-expanded', String(on));
+  }
+
+  let query = '';
+  function filter() {
+    query = search.value.trim().toLowerCase();
+    const words = query.split(/\s+/).filter(Boolean);
+    let any = false;
+    for (const s of sections) {
+      if (!words.length) {
+        s.section.hidden = false;
+        for (const i of s.items) i.el.classList.remove('dbg-miss');
+        setOpen(s, open.has(s.title));
+        s.count.textContent = rowCount(s);
+        continue;
+      }
+      // Every word has to land somewhere in "section title + item label", so "sun height" and
+      // "loco brake" find the one control without the section having to be named exactly.
+      const titleHit = words.every((w) => s.key.includes(w));
+      let hits = 0;
+      for (const i of s.items) {
+        const hit = titleHit || (i.key && words.every((w) => s.key.includes(w) || i.key.includes(w)));
+        i.el.classList.toggle('dbg-miss', !hit);
+        if (hit && i.key) hits++;
+      }
+      const show = titleHit || hits > 0;
+      s.section.hidden = !show;
+      if (show) setOpen(s, true);
+      s.count.textContent = titleHit ? rowCount(s) : String(hits);
+      any ||= show;
+    }
+    empty.hidden = !words.length || any;
+  }
+
+  search.addEventListener('input', filter);
+  // Typing in the box must not drive the game: `I`, `N`, `+`, `-` and the arrow keys all have
+  // window-level handlers. Same guard as the audio panel's.
+  search.addEventListener('keydown', (event) => {
+    event.stopPropagation();
+    if (event.key === 'Escape' && search.value) {
+      search.value = '';
+      filter();
+    }
+  });
+  search.addEventListener('keyup', (event) => event.stopPropagation());
 }

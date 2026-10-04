@@ -275,6 +275,15 @@ function fullFaces(w, d) {
 }
 
 /**
+ * Somebody who wants to know where every pane went — Rain Mode's lit windows (game/citylights.js).
+ * Handed `{ rects, side, cx, cz, hw, hd, kind }` for each façade's openings, exactly as they went
+ * to `facadeQuads`, so a light can be laid over a pane without the generator knowing about it.
+ * Draws no rng, so the city is the same with a sink installed or without. Null otherwise.
+ */
+let paneSink = null;
+export function setPaneSink(fn) { paneSink = fn; }
+
+/**
  * Punched openings: a grid of individual windows, one per bay per floor.
  *
  * This is the masonry half of the façade rule. It is worth the triangles that a continuous band
@@ -309,6 +318,7 @@ function punchedWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, 
         rects.push({ u, y: cy, w: winW, h: WIN_H, g: [yb, yb, yt, yt] });
       }
     }
+    paneSink?.({ rects, side, cx, cz, hw: w / 2, hd: d / 2, kind: 'punched' });
     parts.push(facadeQuads(rects, side, cx, cz, w / 2, d / 2, windowColor, EPS, sky));
   }
 }
@@ -351,6 +361,7 @@ function ribbonWindows(parts, cx, base, cz, w, d, h, firstFloorH, windowColor, p
         rects.push({ u: (uL + uR) / 2, y: cy, w: uR - uL, h: bandH, g: [wL, wR, wR, wL] });
       }
     }
+    paneSink?.({ rects, side, cx, cz, hw: w / 2, hd: d / 2, kind: 'ribbon' });
     parts.push(facadeQuads(rects, side, cx, cz, w / 2, d / 2, windowColor, EPS, sky));
   }
 }
@@ -376,8 +387,10 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng) {
     // and a half tall, and what it catches is the sky over the street opposite — brightest along
     // its head, gone by the sill. No streak, because there is nothing here for one to cross.
     const lit = FACING[side];
+    const shop = { u: 0, y: glassY, w: faceW * 0.74, h: glassH };
+    paneSink?.({ rects: [shop], side, cx, cz, hw: w / 2, hd: d / 2, kind: 'shop' });
     parts.push(facadeQuads(
-      [{ u: 0, y: glassY, w: faceW * 0.74, h: glassH, g: [0, 0, 0.5 * lit, 0.5 * lit] }],
+      [{ ...shop, g: [0, 0, 0.5 * lit, 0.5 * lit] }],
       side, cx, cz, w / 2, d / 2, color('shopfront'), EPS, sky,
     ));
   }
@@ -608,21 +621,32 @@ function roofKit(parts, cx, cz, cw, cd, y, style, body, rng, stats) {
   // middle of one is the single thing a deck like that cannot have. So the winner's furniture comes
   // back off. Building it and dropping it costs one roof's worth of boxes a city, and it buys the
   // pad decision the thing it actually needs, which is to be taken *after* every deck exists.
-  const site = { cx, cz, cw, cd, deck, from: parts.length, to: parts.length };
+  //
+  // `keep` is the footprint of everything the furniture stands on the deck, as rectangles, so the
+  // flocks that roost on a few of these roofs (game/birds.js) can walk round the plant room rather
+  // than through it. Recorded, not drawn — it touches no `rng`, so the city is the same city.
+  const site = { cx, cz, cw, cd, deck, from: parts.length, to: parts.length, keep: [] };
   stats.decks.push(site);
-  roofFurniture(parts, cx, cz, cw, cd, deck, rng);
+  roofFurniture(parts, cx, cz, cw, cd, deck, rng, site.keep);
   site.to = parts.length;
 }
 
 /** The plant room, the AC, and the one-in-eight water tower or mast. */
-function roofFurniture(parts, cx, cz, cw, cd, deck, rng) {
+function roofFurniture(parts, cx, cz, cw, cd, deck, rng, keep = []) {
   const area = cw * cd;
+  const footprint = (x, z, w, d) => keep.push({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2 });
 
   // Plant room / stair bulkhead. Every roof used to get one, which made a skyline of identical
   // boxes wearing identical smaller boxes.
   if (rng.chance(0.55) && area > 6) {
-    parts.push(box(cw * rng.range(0.26, 0.46), rng.range(0.7, 1.6), cd * rng.range(0.26, 0.46),
-      cx + rng.jitter(cw * 0.2), deck, cz + rng.jitter(cd * 0.2), color('rooftop')));
+    // Drawn into locals in the order the call used to evaluate them, so the stream is unchanged.
+    const pw = cw * rng.range(0.26, 0.46);
+    const ph = rng.range(0.7, 1.6);
+    const pd = cd * rng.range(0.26, 0.46);
+    const px = cx + rng.jitter(cw * 0.2);
+    const pz = cz + rng.jitter(cd * 0.2);
+    parts.push(box(pw, ph, pd, px, deck, pz, color('rooftop')));
+    footprint(px, pz, pw, pd);
   }
 
   // Air conditioning. Sized up a touch from the first pass, where at 0.5–0.85 wide they were four
@@ -636,6 +660,7 @@ function roofFurniture(parts, cx, cz, cw, cd, deck, rng) {
     const ux = cx + rng.jitter(Math.max(0, cw / 2 - uw));
     const uz = cz + rng.jitter(Math.max(0, cd / 2 - ud));
     parts.push(box(uw, uh, ud, ux, deck, uz, color('rooftop')));
+    footprint(ux, uz, uw, ud);
     // The fan grille on top, as a plate rather than a disc: a cylinder here is 24 triangles for
     // something four pixels across.
     parts.push(box(uw * 0.62, 0.06, ud * 0.62, ux, deck + uh, uz, color('rooftopIron')));
@@ -656,6 +681,7 @@ function roofFurniture(parts, cx, cz, cw, cd, deck, rng) {
   if (area > 12 && deck < MID_RISE && deck + TOWER_H < SKYLINE_CEILING && rng.chance(0.125)) {
     const tx = cx + rng.jitter(Math.max(0, cw / 2 - TANK_R - 0.5));
     const tz = cz + rng.jitter(Math.max(0, cd / 2 - TANK_R - 0.5));
+    footprint(tx, tz, TANK_R * 2, TANK_R * 2);
 
     for (const [lx, lz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
       parts.push(box(0.13, LEG_H, 0.13, tx + lx * TANK_R * 0.62, deck, tz + lz * TANK_R * 0.62,
@@ -681,6 +707,7 @@ function roofFurniture(parts, cx, cz, cw, cd, deck, rng) {
   if (deck > 9 && deck + MAST_H < SKYLINE_CEILING && rng.chance(0.4)) {
     const mast = new THREE.CylinderGeometry(0.1, 0.15, MAST_H, 5);
     mast.translate(cx, deck + MAST_H / 2, cz);
+    footprint(cx, cz, 0.3, 0.3);
     parts.push(bakeColor(mast, color('pole')));
   }
 }
@@ -942,6 +969,7 @@ function buildCourtyard(lot, block, rng, parts) {
   const reachPerHeight = treeShape(1, TREE_TRUNK).crownReach;   // off the generator, not restated
   const room = Math.min(yw, yd) / 2 - 0.4;
   const planted = [];
+  const crowns = [];
   for (let n = 0; n < trees; n++) {
     // Sized against the *front* wings, which are the only ones that occlude anything — the tall
     // pair behind sit past the courtyard, not between it and the camera. Grown from the tall
@@ -970,7 +998,7 @@ function buildCourtyard(lot, block, rng, parts) {
     const tx = alongX ? along : across;
     const tz = alongX ? across : along;
     planted.push({ x: tx, z: tz, ...shape });
-    parts.push(...treeParts(tx, tz, rng, { height, trunk: TREE_TRUNK }));
+    parts.push(...treeParts(tx, tz, rng, { height, trunk: TREE_TRUNK, crowns }));
   }
 
   // One AC unit or two on the tallest wing, reached through the same kit as everything else —
@@ -985,7 +1013,7 @@ function buildCourtyard(lot, block, rng, parts) {
   // Handed back so the yard can be measured rather than eyeballed: how much of each trunk clears
   // the wing in front of it is the whole reason the numbers above are the numbers they are, and
   // `tools/probe.mjs` holds it across seeds. See "the yard shows its trunks" there.
-  return { yard, wing: t, front, trees: planted };
+  return { yard, wing: t, front, trees: planted, crowns };
 }
 
 export function createBuildings(rng, blocks) {
@@ -1096,7 +1124,8 @@ export function createBuildings(rng, blocks) {
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 
-  const mesh = new THREE.Mesh(merged, propMaterial());
+  // Smooth for the courtyard's crowns (`treeParts`); every wall still lights off its own face normal.
+  const mesh = new THREE.Mesh(merged, propMaterial({ smooth: true }));
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = 'buildings';
@@ -1106,6 +1135,10 @@ export function createBuildings(rng, blocks) {
     // point on it is what `game/robbery.js` measures the trigger range from, and what the robber
     // comes running out of.
     bank,
+    // Every flat roof that is still a roof — the helipad's deck is spoken for — with the footprint
+    // of what stands on it. The flocks pick their rooftop roosts from these; see `chooseRoosts` in
+    // game/birds.js.
+    decks: stats.decks.filter((d) => d !== site),
     pitched: stats.pitched, helipads: stats.helipads,
   };
 }

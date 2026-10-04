@@ -9,11 +9,11 @@ behind it that aren't obvious from the code.
 | [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts and the duck pond, the depot, the burger joint and the bank, ground/buildings/props | `src/city/` |
 | [river.md](river.md) | The river, its three bridges, the span that lifts and the boats it lifts for | `src/city/river.js`, `src/game/drawbridge.js` |
 | [roadnet.md](roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces | `src/city/roadnet.js`, `src/city/curves.js` |
-| [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the drive-through, cop cars in ambient traffic, and the patrol cruiser | `src/sim/` |
+| [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the drive-through, the building fire and its engine, cop cars in ambient traffic, the patrol cruiser, and the wreck and its replay | `src/sim/`, `game/wreckage.js`, `game/replay.js` |
 | [gameplay.md](gameplay.md) | The opening vignette, the opening tutorial, the fare loop, routing, dragging the route, the bank robbery, the package courier, picking, the travelling clock, economy, crazy-taxi mode, the burger run, repairs at the depot, pause | `src/game/` |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
 | [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, Crayon and Cartoon Mode, bloom, effects, sirens | `src/game/scene.js`, `src/geometry/` |
-| [audio.md](audio.md) | The taxi's sound: the designer's files and how they're encoded, the engine and Loco beds, the one-shots and where they fire, the tap unlock, pause and mute, the `?audio` mix panel | `src/game/sfx.js`, `src/game/audiopanel.js`, `assets/audio/` |
+| [audio.md](audio.md) | The taxi's sound: the designer's files and how they're encoded, the engine and Loco beds, the one-shots and where they fire, the tap unlock, pause and mute, the Audio sections of the ⚙️ panel (`?audio`) | `src/game/sfx.js`, `src/game/audiopanel.js`, `assets/audio/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 | [lab.md](lab.md) | The passing lab at `/lab/` — one straight road with no lights, for watching Loco Mode overtake | `src/lab/`, `lab/` |
 | [ios.md](ios.md) | The App Store build: the WKWebView shell, why a custom URL scheme rather than `file://`, the native flag | `ios/`, `src/util/platform.js` |
@@ -99,9 +99,18 @@ road and two workers standing over it. Ambient traffic routes around it while th
 is told the street is cheap, so it is the emptiest road in the city with a ramp at each end — and a
 fare that leads you down it. See [traffic.md](traffic.md#roadworks-a-street-closed-at-both-ends).
 
+One park in every city has a **basketball court** in it — a blacktop with a hoop at each end —
+with one or two people dribbling and shooting around on it. Scenery,
+like the duck pond; see [city.md](city.md#a-basketball-court).
+
 One of the city's trucks is a **flatbed stacked with crates**. Some while into a run it starts
 hitting bumps and the load comes off the back into the road; drive through one and it smashes, for
 nothing but the fun of it — no hit points. See [traffic.md](traffic.md#the-flatbed-that-sheds-its-load).
+
+Now and then a **building catches fire**: flames out of the top floors and a column of smoke. A fire
+engine comes in with its bar going, stops in the street in front of it — and the traffic behind it
+queues — swings its ladder up and hoses the fire out, then drives off. See
+[traffic.md](traffic.md#the-building-fire).
 
 The route the taxi is driving is drawn as a yellow band down the lane, and it is **draggable**:
 press it and pull sideways and the junction under your finger becomes a waypoint the route has to

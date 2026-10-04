@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
+import { propMaterial, BODY_EULER_ORDER, FINISH } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { SILL_Y } from '../geometry/wheels.js';
 import {
@@ -9,7 +9,7 @@ import {
 } from '../geometry/lights.js';
 import {
   wheelAnchors, wheelGeometry, CHASSIS_LIFT,
-  carGeometry, policeCabGeometry, CAR_LEN, CAR_W, CABIN_X, CABIN_TOP,
+  carGeometry, policeCabGeometry, CAR_LEN, CAR_W, CABIN_X, CABIN_TOP, SPEED,
 } from './traffic.js';
 
 // The patrol cruiser's *look*: its body, its light bar and the two real lamps on it.
@@ -51,6 +51,15 @@ export const SPOT_RANGE = 20;
 export const FADE_TIME = 0.8;
 
 /**
+ * The drive off the island (`release`): what it pulls away at, in u/s², and the speed it settles
+ * at — the ambient cruise, so nothing about the car changes as it leaves the traffic model. It is
+ * often released from a standstill (the ring is give-way, so it waits at its line first), and at
+ * 4 u/s² it covers the ~16 units from the line to the slab's edge in under three seconds.
+ */
+const LOOSE_ACCEL = 4;
+const LOOSE_SPEED = SPEED;
+
+/**
  * The patrol lamps' peak, against the hunting strobe's 130: about half, so the wash says a cop is
  * about without the road going the colour of a chase.
  */
@@ -60,14 +69,17 @@ const PATROL_LAMP = 70;
  * An ambient car, painted. `carGeometry()` bakes its body white and its glass dark so the fleet's
  * `instanceColor` can tint it; this is that same multiply done once into the vertex colours, so the
  * cruiser and a cop car in the fleet come out the same colour on every part, glass and tyres
- * included. The cab shell the fleet draws as a second instanced mesh is merged in here — it is never
+ * included — all but the metal, which the fleet's shader keeps the tint off (util/geo.js), so the
+ * bumpers and hubcaps are skipped here to match. The cab shell the fleet draws as a second instanced mesh is merged in here — it is never
  * switched separately from the body on a car there is only one of.
  */
 function policeGeometry() {
   const car = carGeometry();
   const tint = color('policeBody');
   const colors = car.attributes.color;
+  const finish = car.attributes.aFinish;
   for (let i = 0; i < colors.count; i++) {
+    if (finish.getX(i) === FINISH.METAL) continue;
     colors.setXYZ(i, colors.getX(i) * tint.r, colors.getY(i) * tint.g, colors.getZ(i) * tint.b);
   }
   const cab = policeCabGeometry();
@@ -201,6 +213,11 @@ export function createPolice(scene) {
     fade: 1,
     /** Which way the fade is heading: +1 in, -1 out. */
     fading: 0,
+    /**
+     * Driving off the island on its own, out of the traffic model — see `release`. null, or
+     * `{ dx, dz, v, edge }`; `done` once it has dissolved, for game/patrol.js to retire it.
+     */
+    loose: null,
   };
 
   const skin = (pos, quat, car) => {
@@ -217,6 +234,7 @@ export function createPolice(scene) {
    * same body, so the swap is invisible as long as nothing dissolves in.
    */
   function wear(car, { fade = true } = {}) {
+    state.loose = null;
     state.cop = car;
     state.active = true;
     car.skin = skin;
@@ -228,8 +246,30 @@ export function createPolice(scene) {
 
   /** Dissolve in from nothing — the frame `wear` is called on, the car is still invisible. */
   function fadeIn() { state.fade = 0; state.fading = 1; }
-  /** ...and out. `state.fade` reaches 0 FADE_TIME later; game/patrol.js retires the car then. */
+  /** ...and out. `state.fade` reaches 0 FADE_TIME later. */
   function fadeOut() { state.fading = -1; }
+
+  /**
+   * Let go of the traffic car and drive the cruiser off the map by itself: straight on along
+   * grid direction `d` from where it was last posed, dissolving once it crosses `edge` — the
+   * coordinate along that axis where the asphalt slab gives way to its fade skirt.
+   *
+   * The road network ends at the ring road, so there is no lane off the island for the traffic
+   * model to carry it down. The fade used to start at the exit junction instead, which is on the
+   * ring and so on screen whenever the camera is near that side of town: reported as the patrol
+   * car "fading out mid city". The caller takes the car out of the fleet; this keeps the mesh,
+   * the bar and the lamps going until it is past the edge and gone (`state.loose.done`).
+   */
+  function release(d, edge) {
+    const v = state.cop ? Math.max(0, state.cop.v) : LOOSE_SPEED;
+    if (state.cop) state.cop.skin = null;
+    state.cop = null;
+    state.fading = 0;
+    wheels.forEach((wheel) => { wheel.rotation.y = 0; });
+    const dx = d === 0 ? 1 : d === 2 ? -1 : 0;
+    const dz = d === 1 ? 1 : d === 3 ? -1 : 0;
+    state.loose = { dx, dz, v, edge, done: false };
+  }
 
   /**
    * What the bar is doing. **Patrol**: a slow, soft swing from red to blue (`patrolSwing`), which is
@@ -253,6 +293,7 @@ export function createPolice(scene) {
     state.chasing = false;
     state.fade = 1;
     state.fading = 0;
+    state.loose = null;
     shell.visible = false;
     lights.redLamp.intensity = 0;
     lights.blueLamp.intensity = 0;
@@ -266,13 +307,23 @@ export function createPolice(scene) {
     // fire.
     if (cop && (!cop.police || cop.crashed)) shed();
 
+    const loose = state.loose;
+    if (loose && !loose.done) {
+      loose.v = Math.min(LOOSE_SPEED, loose.v + LOOSE_ACCEL * dt);
+      group.position.x += loose.dx * loose.v * dt;
+      group.position.z += loose.dz * loose.v * dt;
+      const along = loose.dx ? group.position.x * loose.dx : group.position.z * loose.dz;
+      if (!state.fading && state.fade > 0 && along >= loose.edge) fadeOut();
+    }
+
     if (state.fading) {
       state.fade = Math.max(0, Math.min(1, state.fade + state.fading * dt / FADE_TIME));
       if (state.fade === 1 || state.fade === 0) state.fading = 0;
+      if (loose && state.fade === 0) loose.done = true;
     }
     for (const material of faders) material.opacity = state.fade;
 
-    state.lit = Boolean(state.cop) && state.bar !== 'off';
+    state.lit = Boolean(state.cop || state.loose) && state.bar !== 'off';
     state.chasing = state.lit && state.bar === 'strobe';
     // The pods' bloom does not fade with them (game/bloom.js draws its own material), so a bar on a
     // car still dissolving in stays dark until the car is mostly there.
@@ -312,6 +363,7 @@ export function createPolice(scene) {
     shed,
     setBar,
     fadeOut,
+    release,
     group,
     /** Both halves of the light bar, for `main.js` to put in the bloom. See game/bloom.js. */
     emissiveMeshes: [lights.red, lights.blue],

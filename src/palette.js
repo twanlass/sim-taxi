@@ -65,6 +65,9 @@ export const PALETTE = {
   sidewalk: '#9E9C94',
   kerb: '#8A887F',
   park: '#6F9A5A',
+  // The tips of the parks' long grass (city/grass.js); the roots are `park` itself so a tuft grows
+  // out of the lawn rather than sitting on it. Lighter and warmer — sun through a blade's tip.
+  grassTip: '#AEC664',
 
   // Building envelopes — deliberately muted so height and massing read before colour does.
   concrete: '#B7B2A6',
@@ -184,11 +187,13 @@ export const PALETTE = {
   // than being neutral greys. That was contrast against a grey wall and it is complement against a
   // yellow one: a warm chequer on `garageWall` would read as two more shades of the building.
   //
-  // The pale one doubles as the radio dish on the roof, and that is consolidation rather than
-  // coincidence — the same argument `rooftopIron` makes. There is one white thing on this
-  // building and it is used twice.
   garageWhite: '#E9EBEE',
   garageCheck: '#33373D',
+  // The wrench turning over the roof (city/garage.js). Steel, on the vehicles' metal finish, which
+  // multiplies this by 0.7 and adds sky — so it is picked well under `bumperChrome` and keeps the
+  // ironwork's blue cast rather than going neutral: the reflection does the brightening. #C3CBD4
+  // was tried first and read as pale plastic once the sky had been added to it.
+  wrenchSteel: '#6E7782',
 
   // --- The burger joint -------------------------------------------------------
   // The city's one drive-through (city/burgerjoint.js). Like the depot above it, its envelope
@@ -338,9 +343,11 @@ export const PALETTE = {
   //     saturation where it is, is what reserves it. tools/probe.mjs asserts the clearance.
   carBodyGhost: ['#DA887D', '#71CDD2', '#85A7D4', '#D0CABE', '#80C5A1', '#AC96C7', '#D0C7B4', '#8D9BAD'],
   carGlass: '#2E3640',
-  // Hubcaps (geometry/wheels.js) — the one metal finish on a vehicle. Light enough to read as
-  // steel inside the tyre's near-black; the car's paint tint multiplies over it on the fleet.
+  // Hubcaps (geometry/wheels.js), on the metal finish. Light enough to read as steel inside the
+  // tyre's near-black. The fleet's paint tint is kept off metal (util/geo.js), so it stays steel.
   hubcap: '#C4C8CC',
+  // The bumpers (geometry/bumpers.js) — metal too, and a step brighter than the hubcaps: chrome.
+  bumperChrome: '#E6EAEE',
   // A box truck's cab is painted from carBody, same colorIndex and everything — one taxi-company
   // fleet's palette covers both, and it is what makes a truck read as "one more vehicle in this
   // traffic" rather than a prop dropped in from elsewhere. Only the cargo box breaks from that: it
@@ -372,6 +379,24 @@ export const PALETTE = {
   policeBody: '#55A8E6',
   // Cooler and brighter than the two cream civilians (#E4E1DA, #D9D2C3).
   policeCab: '#F2F4F7',
+
+  // --- The building fire (game/fire.js) -----------------------------------------------------
+  //
+  // The engine is a fire-engine red a step deeper than `lightRed`, so the lamps on its roof still
+  // read as lamps against the bodywork carrying them, with a white band down each flank and the
+  // ladder in bare aluminium. The flames run hot yellow at the core to orange at the tips and are
+  // drawn additive, so their colours are what they *add* to the facade behind them, not what they
+  // cover it with. Smoke is a warm soot rather than a neutral grey, and turns to `steam` where the
+  // water is landing — the one colour change that says the hose is winning.
+  fireTruckBody: '#C8261E',
+  fireTruckTrim: '#F3EFE6',
+  fireTruckLadder: '#C9CFD6',
+  fireTruckLocker: '#9E1E18',
+  flameCore: '#FFC04A',
+  flameTip: '#FF6A1A',
+  smoke: '#3B3633',
+  steam: '#E6ECEF',
+  hoseWater: '#CFEBFF',
 
   // The ambient flyover — see geometry/plane.js. A white aeroplane against a pale sky is a blank
   // shape, so it carries a cheatline; red because it is the one hue in the game with nothing else
@@ -656,6 +681,20 @@ export const PALETTE = {
   // An ambient car's turn signal — deliberately more orange than lightYellow above so a blinking
   // indicator doesn't read as a stop-bar amber lifted onto a car.
   turnSignal: '#FF8A1E',
+  // Headlights, and the pool each one throws on the road — Rain Mode only (`?rain`). A warm white
+  // rather than a pure one: under the overcast grade a pure white lamp reads as a hole in the frame.
+  headlight: '#FFF1CF',
+  headlightBeam: '#FFE2A6',
+  // Street lamps (game/citylights.js): the post, and the sodium-ish glow of the head and its pool.
+  // The post was #2E3238 and read as a black stroke against the asphalt (#636972); a galvanised
+  // grey a step above the road keeps it a thin dark line once its shaded faces are lit.
+  lampPost: '#7A818A',
+  lampHead: '#FFD38A',
+  lampPool: '#FFB85C',
+  // Lit windows, drawn from at random: mostly warm rooms, a few cool screens.
+  litWarm: '#FFC56E',
+  litPale: '#FFE4AE',
+  litCool: '#A9D2FF',
   lightOff: '#333940',
   pole: '#4C5158',
 
@@ -689,6 +728,30 @@ export const PALETTE = {
   // against 140) and the `sidewalk` a park's walk is paved in (156), so the pond has an edge
   // against everything it touches.
   pondBank: '#8C7F6B',
+
+  // The basketball court — see city/blacktop.js. A sports court has to read as *paved* inside a
+  // lawn, which is a value break before it is a hue: the blacktop at luma ~80 is a dark slab against
+  // the park's 140, the same way the pond is a hole. The playing surface inside the lines is a brick
+  // red rather than the textbook green or blue, because green vanishes into the lawn and blue is
+  // what this game paints water — and it stays well under the saturation of anything the player is
+  // meant to tap. The keys go a step lighter so the two ends read as ends from across the map.
+  courtTop: '#4A4F57',
+  courtPaint: '#93594A',
+  courtKey: '#B0735A',
+  courtLine: '#E6E1D5',
+  // The hoops: a dark steel pole, a white board, an orange rim, a white net.
+  hoopPole: '#3B444F',
+  backboard: '#EDEDEA',
+  backboardMark: '#B8473A',
+  rim: '#D5642A',
+  net: '#E8E6E0',
+  // The players and their ball (game/hoopers.js). Muted jerseys for the fare-marker reason: a
+  // saturated figure on a kerb is the description of a rider. One light, one dark, so the two are
+  // told apart at 24px.
+  hooperA: '#E4E0D6',
+  hooperB: '#A84A3E',
+  hooperShorts: '#33363F',
+  basketball: '#D06A2C',
 
   // --- The river ------------------------------------------------------------
   //
@@ -844,6 +907,11 @@ export const PALETTE = {
   // The vest is *more* saturated than the cones and lighter, so a worker still reads as a figure
   // against the props standing around them rather than as one more cone.
   hiVis: '#FF7A33',
+  // The cabbie thrown through the windscreen in a hard wreck (game/ejection.js). A work-shirt blue
+  // so they separate from both the taxi's yellow and the fireball's orange they fly out of, and a
+  // dark cap — the hat is most of what says *driver* rather than *another rider* at this size.
+  driverShirt: '#4F7BC0',
+  driverCap: '#33333C',
   hardHat: '#F0ECE0',
   // Dug-up spoil: the road base under the asphalt, not garden soil. Browner than the kerb and
   // darker than the sidewalk, so the heap has an edge against both.
@@ -881,6 +949,29 @@ export const PALETTE = {
   // hole rather than as a line. Two points of warmth and a lift off zero is enough to stop that
   // without ever reading as brown.
   toonInk: '#141110',
+
+  // Rain Mode (`?rain`, game/rain.js). An overcast grade laid over whatever hour the day clock is
+  // at, so the sky is a lid of cloud rather than a colour: blue-grey overhead, a paler wash at the
+  // horizon, a sun that has lost most of its colour, and a fill that has turned cool. The haze
+  // follows the sky through `hazeColor` like it always does.
+  rainSkyTop: '#5B6878',
+  rainSkyBottom: '#9AA5AF',
+  rainSun: '#C9CCD2',
+  rainHemiSky: '#9FB0C4',
+  rainHemiGround: '#3A3F46',
+  // The streaks and the crowns. Pale and a touch blue, never white: at 0.3 alpha over asphalt a
+  // white streak reads as snow.
+  rainStreak: '#C8D6E6',
+  rainSplash: '#DCE6F0',
+  // The glint a ripple throws off a puddle — the sky it is tilting towards.
+  rainSheen: '#B8C6D6',
+  // What a wet street mirrors where nothing stands over it — the cloud, a long way darker than it
+  // looks overhead. See `skyTint` in game/rain.js for why it cannot be the sky's own colour.
+  rainReflectSky: '#2C343E',
+  // The same, under a sun shower's lighter sky (MOODS.shower in game/rain.js).
+  rainReflectShower: '#6A7684',
+  // A shaft of sun standing in the rain over a gap in the cloud: warm, and drawn additive.
+  sunShaft: '#FFE0A6',
 };
 
 export function color(value) {

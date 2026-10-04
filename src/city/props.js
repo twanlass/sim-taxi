@@ -5,6 +5,7 @@ import { PALETTE, jitterColor } from '../palette.js';
 import { KERB_H, MEDIAN_EDGE, PARK_EDGE, roundedRectShape } from './ground.js';
 import { MEDIAN_W, medianRuns } from './grid.js';
 import { planPond, pondParts } from './pond.js';
+import { clearBenches, courtParts, courtRect, planCourt } from './blacktop.js';
 
 /**
  * Where a tree of a given height puts its parts: how much of it is bare trunk, how big the crown
@@ -42,8 +43,12 @@ export function treeShape(height, trunk = 0.42) {
  * A caller that needs to know what it is getting draws the height itself and passes it in — that
  * is one draw off the same stream in the same place, so a tree handed its height is the tree it
  * would have grown anyway.
+ *
+ * `crowns`, if handed an array, collects each canopy lobe as `{ x, y, z, r, color, tx, tz }` — the
+ * ellipsoid `city/canopyfuzz.js` dresses in leaf cards. Recorded, never drawn: it spends nothing
+ * from `rng`, so a tree grown with it is the tree grown without it.
  */
-export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.42 } = {}) {
+export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.42, crowns = null } = {}) {
   const parts = [];
   const shape = treeShape(height ?? rng.range(low, high), trunk);
   const { trunkH, crownR: r, crownY: base } = shape;
@@ -73,7 +78,9 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.
     jitterVertices(geo, rng, radius * 0.1);
     geo.scale(1.05, 0.9, 1.05);
     geo.translate(x + ox, base + oy, z + oz);
-    parts.push(bakeColor(geo, jitterColor(canopy, rng, { h: 0.02, l: 0.07 })));
+    const tint = jitterColor(canopy, rng, { h: 0.02, l: 0.07 });
+    parts.push(softCrown(bakeColor(geo, tint), x + ox, base + oy, z + oz));
+    crowns?.push({ x: x + ox, y: base + oy, z: z + oz, r: radius, color: tint, tx: x, tz: z });
   };
 
   blob(r, 0, 0, 0, 1);
@@ -86,6 +93,29 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.
   }
 
   return parts;
+}
+
+// The lobe's ellipsoid normal at every vertex, so the crown lights as one soft mass rather than
+// as twenty facets. Taken off the ellipsoid rather than averaged from the faces: the jitter makes
+// neighbouring faces disagree by up to the jitter's own slope, and averaging those keeps a mottle
+// the radial direction doesn't have. It is also what the leaf cards (city/canopyfuzz.js) carry, so
+// card and crown light identically. Only reaches the screen through a `propMaterial({ smooth })` —
+// under the flat-shaded default this attribute is ignored.
+const CROWN_SCALE = [1.05, 0.9, 1.05];
+function softCrown(geo, cx, cy, cz) {
+  const pos = geo.attributes.position;
+  const nrm = geo.attributes.normal;
+  const n = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    n.set(
+      (pos.getX(i) - cx) / CROWN_SCALE[0] ** 2,
+      (pos.getY(i) - cy) / CROWN_SCALE[1] ** 2,
+      (pos.getZ(i) - cz) / CROWN_SCALE[2] ** 2,
+    ).normalize();
+    nrm.setXYZ(i, n.x, n.y, n.z);
+  }
+  nrm.needsUpdate = true;
+  return geo;
 }
 
 // --- Flower beds --------------------------------------------------------------
@@ -525,8 +555,10 @@ export function createProps(rng, blocks) {
   // can pop each one individually out of the merged mesh. The x/z draws stay in the same order the
   // bare `treeParts` calls made them, and the jitter is a hash rather than a draw — see the note
   // in createBuildings — so the planting a seed produces is untouched.
+  // Every canopy lobe planted here, for the leaf cards (city/canopyfuzz.js).
+  const crowns = [];
   const plant = (x, z, size) => {
-    const tree = treeParts(x, z, rng, size);
+    const tree = treeParts(x, z, rng, { ...size, crowns });
     const rand = hash01(x, z);
     for (const part of tree) stampEntry(part, x, z, rand);
     parts.push(...tree);
@@ -541,13 +573,20 @@ export function createProps(rng, blocks) {
   // The furniture is placed before the planting, because the planting has to keep out of its way:
   // a tree growing through the statue is the one arrangement a park cannot have.
   const plots = parkPlots(blocks);
-  const { benches, statue } = planParkFurniture(rng, plots);
+  let { benches, statue } = planParkFurniture(rng, plots);
   // And the pond with the furniture, for the same reason — a tree standing in the water is the
   // other one. This does mean a seed's trees are planted in different spots than they were before
   // there were ponds: two draws land in this stream ahead of them now. Everything *outside*
   // `createProps` runs on its own offset and has not moved, which is the separation that matters
   // (see the seeding note in docs/architecture.md).
   const pond = planPond(rng, plots, statue);
+  // And the basketball court, last of the three and for the pond's reason: drawn after it, it cannot
+  // move the water, and the trees below keep out of it. It is placed *around* the statue and the
+  // pond rather than instead of them, so it may share a district with either. The benches it would
+  // stand on are struck out after the fact — a filter rather than a draw, so no bench left standing
+  // moves. See city/blacktop.js.
+  const court = planCourt(rng, plots, statue, pond);
+  benches = clearBenches(court, benches, BENCH_LEN);
 
   const SURFACE_Y = KERB_H + 0.01;
   for (const bench of benches) {
@@ -568,6 +607,22 @@ export function createProps(rng, blocks) {
     const built = pondParts(pond, rng);
     for (const part of built) stampEntry(part, pond.x, pond.z, hash01(pond.x, pond.z));
     parts.push(...built);
+  }
+  // The court, on one anchor for the pond's reason: the slab, its lines and its hoops are one object
+  // and should arrive on one frame. Only the slab rides in this mesh. The hoops get one of their own,
+  // on the same anchor, because this mesh is handed to the fare board's sightline field and they
+  // must not be (see `courtParts`).
+  let courtMesh = null;
+  if (court) {
+    const { solid, frame } = courtParts(court, rng);
+    const rand = hash01(court.x, court.z);
+    for (const part of [...solid, ...frame]) stampEntry(part, court.x, court.z, rand);
+    parts.push(...solid);
+    courtMesh = new THREE.Mesh(mergeGeometries(frame, false), propMaterial());
+    frame.forEach((p) => p.dispose());
+    courtMesh.name = 'court-frame';
+    courtMesh.castShadow = true;
+    courtMesh.receiveShadow = true;
   }
 
   // The plaza's own square, plus a pace: a trunk right on the paving's edge leans its crown over
@@ -599,7 +654,14 @@ export function createProps(rng, blocks) {
   // `treeParts`' height range.
   const clearOfPond = (x, z) => !pond || Math.hypot(x - pond.x, z - pond.z) > pond.r + 1.8;
 
-  const clearOfFurniture = (x, z) => clearOfStatue(x, z) && clearOfBenches(x, z) && clearOfPond(x, z);
+  // And off the court, by a crown's reach on every side: a trunk on the blacktop is the obvious
+  // failure, and a crown hanging over the hoops is the one the camera would actually show.
+  const courtClear = court ? courtRect(court, 1.6) : null;
+  const clearOfCourt = (x, z) => !courtClear
+    || x < courtClear.x0 || x > courtClear.x1 || z < courtClear.z0 || z > courtClear.z1;
+
+  const clearOfFurniture = (x, z) => clearOfStatue(x, z) && clearOfBenches(x, z) && clearOfPond(x, z)
+    && clearOfCourt(x, z);
 
   // Districts are planted as one area so trees fall across the old road line too — nothing
   // gives away a merged park faster than a treeless stripe down the middle of it.
@@ -638,7 +700,7 @@ export function createProps(rng, blocks) {
     // Stamped to the *bed's* anchor rather than its own, so the tree and the flowers it stands in
     // arrive on the same frame of the entrance wave instead of the island growing in two goes.
     if (!bed.tree) continue;
-    const tree = treeParts(bed.tree.x, bed.tree.z, rng, bed.tree);
+    const tree = treeParts(bed.tree.x, bed.tree.z, rng, { ...bed.tree, crowns });
     for (const part of tree) stampEntry(part, bed.x, bed.z, rand);
     parts.push(...tree);
   }
@@ -646,12 +708,14 @@ export function createProps(rng, blocks) {
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 
-  const mesh = new THREE.Mesh(merged, propMaterial());
+  // Smooth for the crowns' sake; everything else here still lights flat off its own face normals.
+  const mesh = new THREE.Mesh(merged, propMaterial({ smooth: true }));
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = 'props';
   // `{ mesh, pond }` rather than the bare mesh, the same shape `createBuildings` hands back its
   // `pad` in: exactly one park in the city has water in it, and `game/ducks.js` has to be told
-  // which one. Null on a city with no park big enough — no pond, no ducks.
-  return { mesh, pond };
+  // which one. Null on a city with no park big enough — no pond, no ducks. The benches and the
+  // statue ride along for `city/grass.js`, which has to keep its tufts out of them.
+  return { mesh, pond, benches, statue, crowns, court, courtMesh };
 }

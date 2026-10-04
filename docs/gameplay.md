@@ -1,5 +1,34 @@
 # Gameplay
 
+## The title screen
+
+`src/game/titlescreen.js`, in `#title-screen`. A load opens on **Play, Settings, Credits**, left
+aligned over the live city, with the camera drifting a slow ellipse across it (`panAt`: one lap
+every two minutes at zoom 34, against play's 52). The menu is the only thing on screen: no HUD, no
+⏸, no riders.
+
+**It parks the run the way the Home Screen tip does.** `parked()` in `main.js` is the one gate both
+answer to: the fare board is not seeded, the tutorial and the vignette are held, Space and B do
+nothing, the ⏸ refuses, and the city's entrance wave is *settled* rather than played — the menu sits
+over a finished city with its traffic running, which is the whole point of the backdrop. **Play**
+lets go of all of it at once, so what follows is exactly the run that used to start on load: down
+to the garage door, the door up, the taxi out, the tips. The drift sits at the top of the camera's
+priority list while the title holds, and the vignette's approach eases from wherever it left off.
+
+**Settings** and **Credits** dim the city behind a mask; the menu only shades the left edge its
+words stand on. Settings holds four things, all remembered across visits:
+
+| Setting | Where it lives |
+|---|---|
+| Sound on/off | The existing mute (`simTaxi.muted`, game/sfx.js), shared with the pause pill and **M** — stored once, not twice |
+| Music volume, SFX volume | `simTaxi.settings` (game/settings.js), applied through `sfx.setVolumes`. There is **no music track yet**: the slider steers a real music bus that nothing plays into |
+| Tutorial tips | `simTaxi.settings`. Read on Play (`beginRun` in main.js): off drops the tutorial and lets the HUD in |
+
+**"Play again" skips it.** The retry is a reload, and a player who just pressed Play does not want
+the menu again, so `onRetry` sets a one-shot `sessionStorage` flag the next boot consumes.
+**`?title=off`** skips it too, the same escape hatch `?vignette=off` is; `tools/smoke.mjs` runs every
+page but its own title check that way. Shot mode never builds it.
+
 ## The opening vignette
 
 `src/game/opening.js`, over the depot in [city/garage.js](city.md#the-depot-block). A run does not
@@ -2206,25 +2235,31 @@ way past.
 `game/arrest.js`, `robbery.js` (`stop`, `handOff`), `patrol.js` (`pursueNearest`). The getaway
 ends in two scenes at once.
 
-**The robber stays on the corner with their hands up, and the police circle them.** The robber
-climbs out the way any rider does and stops on the kerb instead of fading (`beginExit`'s `hold` in
-`game/fares.js` hands back the figure; `surrender` in `geometry/person.js` is the pose). The cops
-near enough — up to three, and at least two, calling in the difference from off screen — are
-routed to the junction and held at its line; once the taxi is clear they are taken onto a ring
-round the junction box one at a time, sliding nose-in, bars going, each on its own wobble. After a
-few seconds one peels off, pulls up at the kerb beside the robber, and the robber runs to it and is
-gone. The rest peel off down the arms one by one and are handed back to traffic, bars off, to drive
-away the way a [stood-down](traffic.md#standing-down) cop does. A car nobody can see is simply
+**The robber stays on the corner with their hands up, and the police screech up in a fan pointed at
+them.** The robber climbs out the way any rider does and stops on the kerb instead of fading
+(`beginExit`'s `hold` in `game/fares.js` hands back the figure; `surrender` in
+`geometry/person.js` is the pose). The cops near enough — up to three, and at least two, calling in
+the difference from off screen — are routed to the junction and held at its line; once the taxi is
+clear they come into the box one at a time and handbrake into one of three slots round the robber,
+5.5 off them and 40° apart, bonnet on the robber, bars going. After a three-second standoff the
+robber walks to the nearest car and gets in the back, and the cars pull out one by one — the one
+with the robber first — and are handed back to traffic, bars off, to drive away the way a
+[stood-down](traffic.md#standing-down) cop does. A car nobody can see is simply
 retired instead — "nobody can see" asked of the camera, not of the taxi, because a player who pans
 over to watch the arrest is exactly who would otherwise see the police blink out (the first build
 did that, on the frame the robber was taken in).
 
-It is the junction they go round, not the robber, and that is geometry: a kerb corner is half a
-unit onto a block whose buildings start 0.35 further in, so no ring centred on the figure stays on
-the road. The ring is the box's own edge, and it passes about a unit off the robber's shoulder.
+It used to be a ring: the cops circled the junction box for a few seconds before one pulled up at
+the kerb. It read as cars going round in circles rather than as an arrest. The fan sits in the box
+on the robber's side of it — a kerb corner has road on only a quarter of the directions out from it
+— and fills from the slot furthest from each car first, because the cops mostly come down the same
+arm and the slot nearest its mouth is parked right across it. A slot that faces back the way a car
+came is reached by sliding the body round over the last stretch of the run (`slideIn`), not by a lap
+of road the box does not have. Every run in and every pull-out is sampled before it is driven — four
+corners on the road, the centre clear of every other car — and a car without a clear one waits.
 
-The circling cars are **driven by hand**: nothing in the traffic model can drive a circle, so they
-are taken out of traffic the way the opening vignette takes the taxi into its garage (`stageCar`),
+The fanned cars are **driven by hand**: nothing in the traffic model parks a car across a junction
+pointed at the pavement, so they are taken out of traffic the way the opening vignette takes the taxi into its garage (`stageCar`),
 and put back with `releaseCar`. Everything traffic would have done for them is the module's job —
 see its header and [traffic.md](traffic.md#the-arrest-a-junction-closed-to-traffic). A scene that
 cannot happen (no cop gets there within 14s, nowhere to pull up) lets the robber walk off.
@@ -2885,11 +2920,11 @@ time stuck behind traffic drops from 10.4% of boosting to 4.5% — and the numbe
 the reason an earlier version of this was abandoned are all in
 [traffic.md](traffic.md#overtaking).
 
-It will not pull out around a car that is already turning across the lane it wants, or into
-oncoming traffic that is already in sight. Both of those are collisions the player could not have
-seen coming, and without those two gates a third of all overtakes ended in one. What is left is
-what you *can* read: a car arriving in the oncoming lane while you are out there, cross traffic at
-a junction you are running, and a car turning out of the far lane.
+It pulls out whenever the road allows — an oncoming lane to borrow, and straight on through the
+junction ahead — and never because the sim decided it was a bad idea. A car already turning across
+the lane you want, or oncoming traffic in plain sight, is yours to read: holding the button is the
+decision. There used to be two gates refusing exactly those, and they read as the button not
+working and then as a rear-end; see [traffic.md](traffic.md#when-it-is-allowed).
 
 **And it does not stop.** Not for a full exit lane, not for a car stranded in the box, not to
 yield on a left — the three ambient courtesies that could still bring it to a halt at a junction
@@ -3169,11 +3204,49 @@ the brake, so a two-thumbed player never ends up spending fuel against a speed t
 tank keeps whatever is left in it. The sim doesn't depend on that arbitration: hold both by any
 means and the brake still wins, because it replaces the target the boost ceiling would have set.
 
+### The bootleg: boost, then brake twice
+
+`game/bootleg.js`, `spinTaxi` in `sim/traffic.js`, wired in `holdBrake` in main.js. In Loco Mode, tap
+the brake twice within 350ms and the taxi spins 180° onto the far lane in 0.42s. It slides on down
+the road as it turns and keeps 55% of its speed, never less than cruise. The body whips round with
+a small overshoot, and the spin comes with a screech, a jolt of shake, a haptic buzz and four-wheel
+rubber.
+
+It exists because a chase gave the player nothing to do but hold the pill. In a getaway the cut-off
+cops are in the junctions *ahead* (see [the chase](#the-chase)), and a 180 puts every one of them
+behind you.
+
+- **The combo checks Loco Mode as *engaged*, not held.** The first tap is an ordinary brake and
+  releases the pill (last pedal pressed wins). The pill's one-second tail (`BOOST_COOLDOWN`) is
+  still engaged at the second tap, so that is what the combo reads. B pressed twice does it on a
+  keyboard.
+- **There is no clearance test.** The cop's U-turn (`uturnWindow`) waits for a narrow window and a
+  clear road, which suits a car the collision pass does not test. The taxi *is* tested
+  (`sim/collisions.js`), so whatever it spins into is a bump it pays for. Doing it in traffic has a
+  cost, and that is the cost.
+- **A combo that lands mid-junction or mid-overtake waits** up to 0.7s for a straight lane. At
+  chase speed the taxi is crossing a junction a large share of the time, and refusing those taps was
+  the commonest refusal in a bot sweep.
+- **It lands short of the stop line ahead.** The landing point is clamped to stop short of the far
+  lane's stop line. That line belongs to the junction behind the taxi, and landing past it would run
+  the light (see CLAUDE.md).
+- **The brake is ignored until it comes back up.** The second tap is usually still held when the
+  spin lands, and braking then would stop the taxi broadside.
+- **It is refused on arterials, on bridges and below 4 u/s.** An arterial's centreline is a planted
+  median, and a bridge deck is arched. A refused combo is simply a brake. `tools/probe.mjs` spins
+  the taxi on every lane: on its seed, 106 lanes spin and 26 refuse (20 median, 6 bridge).
+
+The first prototype was a swipe back down the road. Playtesting dropped it: on a phone, a swipe
+already means a pan, a route-band drag or a fare tap.
+
 ## The pedal slide
 
-The bottom row is two pedals — the Figma file's drawings, a tall orange gas pedal with the brake
-tucked against its lower right — and a ⏸ in the far corner. Their depth is not geometry: each is one
-flat shape with a 28-unit inner shadow along its bottom, which reads as the side. A held pedal
+The bottom row is two round pedals — an orange gas button 100px across, dead centre on the bottom
+edge, and a red brake two thirds its size to its left, the two centres on one line so a thumb slides
+straight across — and a ⏸ in the far corner. They were the Figma file's drawings (a tall gas pedal
+with a pill-shaped brake tucked against its lower right) until both went round. Their depth is not
+geometry: each is one flat circle with a 28-unit inner shadow along its bottom, which reads as the
+side. A held pedal
 **sinks** into its own outline: the silhouette stays put while its filter swaps to one with a
 thinner side band and a dark inner shadow from the top edge, and the icon drops 8 units with the
 face (the "The press" rules in `index.html`). It used to squash the whole pedal toward its base, but
@@ -3183,11 +3256,12 @@ out.
 
 **The fuel gauge is an arc over the gas pedal.** It used to be a wedge-shaped bar in the top-left
 corner, which put the read-out as far from the thumb spending it as the screen allows. It is now a
-tachometer-style band (`#boost-meter` in `index.html`, shaped by `game/fuelarc.js`) that follows the
-pedal's cap, from a third of the way down its left side, over the top, to the same height on the
-right. Fuel fills from the left end, so holding the gas sweeps the front back from the right, over
-the crown, and down to the left. The band tapers from 8 units at the empty end to 14 at the full
-one. A stroke can't taper, so the track and the fuel are filled outlines, and `main.js` rewrites the
+tachometer-style band (`#boost-meter` in `index.html`, shaped by `game/fuelarc.js`) round the
+button, from just under its centre on the left, over the top, to the same height on the right. Fuel
+fills from the left end, so holding the gas sweeps the front back from the right, over the crown,
+and down to the left. The band is an even 16 units wide (it used to taper, 8 → 14 round the old
+pedal and briefly 12 → 20 round the button), and a thin white glint sits across the fuel's front
+whenever there is any. A stroke can't taper, so the track and the fuel are filled outlines, and `main.js` rewrites the
 fuel's outline whenever the level moves. The band's inner edge holds 4 units off the pedal's black
 outline all the way round, and the width grows outward. The first build had the right tangent point
 typed 10 units wrong, and the right leg hung visibly further off the pedal than the left, so the

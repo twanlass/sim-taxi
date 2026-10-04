@@ -106,7 +106,7 @@ try {
   // for the waiting riders instead (game/farepointers.js), and the chips are kept behind the flag
   // to compare against. The two chip checks below are the only browser coverage the module has, so
   // this page turns them back on; the arrows are on either way and are checked here too.
-  await client.send('Page.navigate', { url: `${baseUrl}?chips=on` });
+  await client.send('Page.navigate', { url: `${baseUrl}?chips=on&title=off` });
 
   const evaluate = async (expression) => {
     const { result } = await client.send('Runtime.evaluate', { expression, returnByValue: true });
@@ -217,7 +217,7 @@ try {
     await skipClient.ready;
     await skipClient.send('Runtime.enable');
     await skipClient.send('Page.enable');
-    await skipClient.send('Page.navigate', { url: baseUrl });
+    await skipClient.send('Page.navigate', { url: `${baseUrl}?title=off` });
 
     const skipEval = async (expression) => {
       const { result } = await skipClient.send('Runtime.evaluate', {
@@ -290,6 +290,111 @@ try {
 
     skipClient.close();
     await fetch(`http://127.0.0.1:${PORT}/json/close/${skip.id}`).catch(() => {});
+  }
+
+  // --- The title screen, on a page of its own (everything else here runs `?title=off`).
+  //
+  // What only a page can prove: that it holds the run while it is up — no rider on the board, the
+  // vignette waiting, the city settled rather than building itself — that Settings writes through to
+  // the audio engine and survives a reload, and that Play with the tips switched off lets the run go
+  // with no tutorial and the HUD up. Settings are put back to the defaults at the end, because this
+  // profile is shared with the score checks further down.
+  {
+    const tab = await fetchJson(`/json/new?${encodeURIComponent('about:blank')}`, 'PUT');
+    const tc = connect(tab.webSocketDebuggerUrl);
+    await tc.ready;
+    await tc.send('Runtime.enable');
+    await tc.send('Page.enable');
+    const tEval = async (expression) => {
+      const { result } = await tc.send('Runtime.evaluate', { expression, returnByValue: true });
+      return result.value;
+    };
+    const bootTitle = async () => {
+      await tc.send('Page.navigate', { url: baseUrl });
+      const deadline = Date.now() + 120000;
+      while (Date.now() < deadline) {
+        if (await tEval('Boolean(window.__taxi?.title)').catch(() => false)) return true;
+        await sleep(300);
+      }
+      return false;
+    };
+
+    const up = await bootTitle();
+    check('the title screen comes up on a plain load', up);
+    if (up) {
+      // Let the sim run a while behind it before asking what it held.
+      await sleep(3000);
+      const held = JSON.parse(await tEval(`JSON.stringify({
+        holding: window.__taxi.title.holding(),
+        items: [...document.querySelectorAll('#title-screen .title-menu button')].map((b) => b.textContent),
+        onTop: Boolean(document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('#title-screen')),
+        fares: window.__taxi.fares.state.fares.length,
+        phase: window.__taxi.opening()?.phase() ?? 'none',
+        building: window.__taxi.cityEntry.running(),
+        font: getComputedStyle(document.querySelector('#title-screen .title-item')).fontFamily,
+      })`));
+      check('...with Play, Settings and Credits', held.items.join(',') === 'Play,Settings,Credits',
+        held.items.join(','));
+      check('...taking the taps', held.onTop);
+      check('...holding the run behind it', held.holding && held.fares === 0
+        && (held.phase === 'wait' || held.phase === 'none'),
+        `fares ${held.fares}, vignette ${held.phase}`);
+      check('...over a city that is already built', held.building === false);
+      check('...set in Space Grotesk', held.font.startsWith('"Space Grotesk"'), held.font);
+
+      // Settings: the tips off and the effects slider to 40%, through the controls themselves.
+      const wrote = JSON.parse(await tEval(`(() => {
+        const items = [...document.querySelectorAll('#title-screen .title-menu button')];
+        items.find((b) => b.textContent === 'Settings').click();
+        const rows = [...document.querySelectorAll('#title-screen .title-settings .title-row')];
+        const tips = rows.find((r) => r.textContent.includes('Tutorial tips'));
+        tips.click();
+        const sfx = rows.find((r) => r.textContent.includes('SFX volume')).querySelector('input');
+        sfx.value = '40';
+        sfx.dispatchEvent(new Event('input', { bubbles: true }));
+        return JSON.stringify({
+          view: window.__taxi.title.view(),
+          tips: tips.getAttribute('aria-checked'),
+          stored: JSON.parse(localStorage.getItem('simTaxi.settings')),
+          engine: window.__taxi.sfx?.state.effects ?? null,
+        });
+      })()`));
+      check('Settings opens and writes through', wrote.view === 'settings' && wrote.tips === 'false'
+        && wrote.stored?.tips === false && wrote.stored?.effects === 0.4,
+        JSON.stringify(wrote.stored));
+
+      // A fresh load reads them back.
+      const again = await bootTitle();
+      const kept = again && JSON.parse(await tEval(`JSON.stringify({
+        tips: window.__taxi.settings.get().tips,
+        effects: window.__taxi.settings.get().effects,
+      })`));
+      check('...and survives a reload', kept && kept.tips === false && kept.effects === 0.4,
+        JSON.stringify(kept));
+
+      // Play, with the tips off: the gate lifts, the tutorial is dropped and the HUD is let in.
+      if (again) {
+        await tEval(`[...document.querySelectorAll('#title-screen .title-menu button')]
+          .find((b) => b.textContent === 'Play').click()`);
+        let rolling = false;
+        const deadline = Date.now() + 60000;
+        while (Date.now() < deadline) {
+          if (await tEval('window.__taxi.opening()?.phase() !== "wait"')) { rolling = true; break; }
+          await sleep(300);
+        }
+        const after = JSON.parse(await tEval(`JSON.stringify({
+          holding: window.__taxi.title.holding(),
+          tutorial: Boolean(window.__taxi.tutorialNow()),
+          hud: document.body.classList.contains('hud-ready'),
+        })`));
+        check('Play lets the run go', rolling && !after.holding, `vignette rolling: ${rolling}`);
+        check('...with no tips when they are switched off', !after.tutorial && after.hud);
+      }
+      await tEval("localStorage.removeItem('simTaxi.settings')");
+    }
+
+    tc.close();
+    await fetch(`http://127.0.0.1:${PORT}/json/close/${tab.id}`).catch(() => {});
   }
 
   // --- Tap the taxi: it should select.
@@ -1546,7 +1651,7 @@ try {
       platform: 'iPhone',
     });
     await iosClient.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
-    await iosClient.send('Page.navigate', { url: baseUrl });
+    await iosClient.send('Page.navigate', { url: `${baseUrl}?title=off` });
 
     const iosEval = async (expression) => {
       const { result } = await iosClient.send('Runtime.evaluate', {
@@ -1668,7 +1773,7 @@ try {
   // run whose score goes on the table.
   {
     const boot = async (query) => {
-      await client.send('Page.navigate', { url: `${baseUrl}${query}` });
+      await client.send('Page.navigate', { url: `${baseUrl}${query ? `${query}&` : '?'}title=off` });
       const deadline = Date.now() + 20000;
       while (Date.now() < deadline) {
         if (await evaluate('Boolean(window.__taxi?.loco)').catch(() => false)) return true;
@@ -2138,6 +2243,55 @@ try {
     (await panelOpensFor({ message: 'Script error.', filename: '', lineno: 0, colno: 0 })) === false);
   check('and this page\'s own crashes still open the panel',
     (await panelOpensFor({ message: 'boom', filename: `${baseUrl}/src/main.js`, lineno: 12, colno: 3 })) === true);
+
+  // --- A rejection says what it was, even when the browser gave it no stack.
+  //
+  // Safari's `TypeError: Load failed` (a fetch the network dropped) arrives with `stack === ''`,
+  // and the panel used to print `reason.stack ?? reason` — which is `''` — so an iPhone showed
+  // "Unhandled rejection:" and nothing else. Dispatched as an event rather than by rejecting a
+  // real promise so it cannot also land in `client.errors` below.
+  const rejectionText = await evaluate(`(() => {
+    const el = document.getElementById('error');
+    const before = window.__errorLog;
+    const reason = new TypeError('Load failed');
+    Object.defineProperty(reason, 'stack', { value: '' });
+    window.dispatchEvent(new PromiseRejectionEvent('unhandledrejection',
+      { promise: Promise.resolve(), reason }));
+    const text = window.__errorLog.slice(before.length);
+    window.__errorLog = before; el.textContent = ''; el.hidden = true;
+    return text;
+  })()`);
+  check('a stackless rejection names itself on the panel',
+    rejectionText.includes('TypeError: Load failed'), JSON.stringify(rejectionText));
+
+  // --- A launch that cannot download the sounds is a quiet game, not a crash panel.
+  //
+  // `sfx.js` fetches every recording at load and nobody awaits them until the first tap, so a
+  // failed download used to be an unhandled rejection in between — over the whole screen, on an
+  // iPhone that opened the app on a bad connection. Blocked at the network, on a page the service
+  // worker is told to stay out of (a fresh registration would serve them from its cache).
+  await client.send('Network.setBlockedURLs', { urls: ['*.m4a'] });
+  await client.send('Network.setBypassServiceWorker', { bypass: true });
+  await client.send('Page.reload', { ignoreCache: true });
+  let rebooted = false;
+  const reloadDeadline = Date.now() + 120000;
+  while (Date.now() < reloadDeadline) {
+    if (await evaluate('Boolean(window.__taxi?.traffic?.taxi)').catch(() => false)) { rebooted = true; break; }
+    await sleep(300);
+  }
+  await sleep(1500);
+  const silentLog = await evaluate('window.__errorLog').catch(() => null);
+  check('blocked sound downloads leave the panel shut',
+    rebooted && silentLog === '', JSON.stringify(silentLog));
+  await client.send('Network.setBlockedURLs', { urls: [] });
+  await client.send('Network.setBypassServiceWorker', { bypass: false });
+  await client.send('Page.reload');
+  rebooted = false;
+  const backDeadline = Date.now() + 120000;
+  while (Date.now() < backDeadline) {
+    if (await evaluate('Boolean(navigator.serviceWorker?.controller && window.__taxi?.traffic?.taxi)').catch(() => false)) { rebooted = true; break; }
+    await sleep(300);
+  }
 
   // --- Offline: a Home Screen launch has to work with no connection at all. This only proves
   // anything run against a built preview (`--url http://localhost:4173`) — the worker registration

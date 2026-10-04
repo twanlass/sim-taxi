@@ -177,7 +177,7 @@ export const SHOTS = [
   // looked at it for was the vignette — and the vignette frames itself. It has a livery now, so
   // there is something to look at from outside the cut scene. Same pair as everything else here.
   // Close: do the yellow band and the chequer course under it read as a *livery* rather than as a
-  // stripe, and does a frustum on a mast read as a dish. At play zoom: is the depot a block you can
+  // stripe, and does the thing turning on the roof read as a wrench. At play zoom: is the depot a block you can
   // pick out of the skyline, which is what all that paint is for.
   //
   // The door is shut in both. Shot mode never stages the taxi, so `setDoor(0)` is what main.js
@@ -228,6 +228,12 @@ export const SHOTS = [
   //
   // Appended, for the reason given above `parcel` and `wreck-rest`: shots are addressed by index.
   { name: 'median', description: 'the arterial median, its bedding and its small trees', target: [20, 0], zoom: 11, warmup: 12 },
+  // The basketball court (city/blacktop.js, game/hoopers.js). Appended, for the index-addressing
+  // reason stated above the `birds` entry. The pond's pair of framings: close, do the lines and
+  // the hoops read as a court and the figures as players with a ball; far, is it a place
+  // you notice while driving past.
+  { name: 'court', description: 'the basketball court, close', target: [0, 0], zoom: 10, warmup: 12, atCourt: true },
+  { name: 'court-far', description: 'the basketball court at play zoom', target: [0, 0], zoom: 52, warmup: 12, atCourt: true },
 ];
 
 export function getActiveShot() {
@@ -448,6 +454,53 @@ export function getCrayon(fallback = false) {
   // A bare `?crayon` is a request, so it wins over safe mode: the flag exists to be switched on by
   // hand on the device that is hardest on it.
   return !isOff(raw);
+}
+
+/**
+ * The passing storm, via `?storm` — the ordinary afternoon clouds over into a sun shower, and clears
+ * again, on a loop (game/storm.js). `?storm=0.6` pins it at that point instead, for a still frame;
+ * `?storm=night` runs the darker storm (MOODS in game/rain.js). Returns null when off, otherwise
+ * `{ pin, mood }`, with `pin` null for the running cycle.
+ */
+export function getStorm() {
+  const raw = new URLSearchParams(window.location.search).get('storm');
+  if (raw === null || isOff(raw)) return null;
+  if (raw === 'night') return { pin: null, mood: 'night' };
+  const pin = Number(raw);
+  return {
+    pin: raw !== '' && Number.isFinite(pin) ? Math.min(1, Math.max(0, pin)) : null,
+    mood: 'shower',
+  };
+}
+
+/**
+ * A squall — one rain cell crossing a sunny city and leaving a wet trail behind it
+ * (game/squall.js). **On by default**: it was a flag nobody loaded, so nobody saw it. `?squall=off`
+ * turns it off, `?squall=0.45` pins the cell that far along a crossing, trail and all, for a still
+ * frame. The default stands down for shot mode (screenshots shouldn't move under the weather), for
+ * `?rain`/`?storm` (the sky over everything wins over one cell in it), and in safe mode, whose
+ * whole point is the cheapest frame — the squall brings the mirror pass and the wet shader with it.
+ * Returns null when off, otherwise `{ pin }`.
+ */
+export function getSquall(
+  fallback = !getSafeMode() && getActiveShot() === null && getRain() === null && getStorm() === null,
+) {
+  const raw = new URLSearchParams(window.location.search).get('squall');
+  if (raw === null) return fallback ? { pin: null } : null;
+  if (isOff(raw)) return null;
+  const pin = Number(raw);
+  return { pin: raw !== '' && Number.isFinite(pin) ? Math.min(1, Math.max(0, pin)) : null };
+}
+
+/**
+ * Rain Mode, via `?rain` — overcast light, wet reflective streets, falling rain, drops on the lens,
+ * softer brakes. Off by default: an exploration, see `game/rain.js`. A flag rather than a setting
+ * because the ground's wet shader is compiled into its material before the first frame.
+ */
+export function getRain() {
+  const raw = new URLSearchParams(window.location.search).get('rain');
+  if (raw === null || isOff(raw)) return null;
+  return { pin: 1, mood: raw === 'night' ? 'night' : 'shower' };
 }
 
 /**

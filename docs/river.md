@@ -354,6 +354,14 @@ other two, with a counterweight house the size of a bus shelter as its only tell
 replaced it wholesale, which is correct exactly while nothing else holds a closure — a zone standing
 up mid-lift would have reopened the span under it.
 
+The `'drawbridge'` source is also **hard** in the traffic model, which no other closure is. A
+closed lane only zeroes the *dice*; a routed car drives its route regardless, which is right for
+the taxi at roadworks and was wrong at the river: only the taxi is re-planned when the barriers drop,
+so a patrol cruiser carrying a route planned with the span down drove across the open leaf. A routed
+car whose next turn enters a hard-closed lane now drops its route and rolls an exit instead
+(`hardClosed` in `sim/traffic.js`, counted in `stats.routeRefused`), and game/patrol.js re-plans the
+empty route on its next frame.
+
 `setBlockedLanes` is enforced by **skipping** the lane in `search`'s successor expansion rather than
 by pricing it high. A weight, however large, is still a number Dijkstra will pay if it has to — and
 on a city where the bridge is the short way across, "has to" is precisely the case that comes up.

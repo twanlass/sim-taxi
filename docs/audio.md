@@ -8,7 +8,7 @@ every mesh and the one texture, is still generated in code.
 |---|---|
 | `src/game/sfx.js` | The context, loading, the beds, the one-shots, mute |
 | `assets/audio/mix.json` | The mix: every level, pitch, repeat gap and engine-bed number |
-| `src/game/audiopanel.js` | The `?audio` panel that edits the mix live and exports it |
+| `src/game/audiopanel.js` | The Audio sections of the ⚙️ panel, which edit the mix live and export it |
 | `assets/audio-src/*.wav` | The designer's masters, committed, never shipped |
 | `assets/audio/*.m4a` | The shipped files, one per master |
 | `tools/audio.mjs` | WAV masters → AAC |
@@ -144,15 +144,20 @@ sound ships at 0 dB, as the designer recommended. The one exception is ours: `co
   rather than mixing with it; `'ambient'` did the opposite and left a phone on silent hearing
   nothing. The shell's scheme handler
   serves `.m4a` as `audio/mp4`.
-- **Mute** is the "Sound: On/Off" pill on the pause screen, or **M**. It is remembered in
-  `localStorage`, soft-failing the way `highscores.js` does.
+- **Mute** is the "Sound: On/Off" pill on the pause screen, the Sound switch on the title screen's
+  Settings, or **M** — one flag, remembered in `localStorage`, soft-failing the way `highscores.js`
+  does.
+- **The player's volumes** are the two Settings sliders (game/settings.js remembers them,
+  `sfx.setVolumes` applies them). SFX scales `master`, under the mix's own `master` and the mute;
+  Music scales a separate bus beside it, which nothing feeds yet — the game ships no music. Both
+  are squared on the way to the gain node, so the slider's middle sounds like the middle.
 - **Shot mode is silent**: `sfx` is `null` there.
 - **Offline**: the service worker caches the audio lazily, the same way it caches any `/assets/*`
   request. The file URLs are inside the JS bundle, not in `index.html`, so the install-time
   precache can't see them. A device that has only ever been online for one visit may therefore play
   silently offline. Nothing breaks: each missing file logs one warning and its events stay quiet.
 
-## Tuning the mix: the `?audio` panel
+## Tuning the mix: the Audio sections
 
 Every number a sound designer would want to move is in **`assets/audio/mix.json`**, not in code:
 
@@ -163,9 +168,11 @@ Every number a sound designer would want to move is in **`assets/audio/mix.json`
 | `minGap.<name>` | Per one-shot: seconds before it may fire again. 0 is no limit |
 | `engine.*` | The beds: idle and Loco pitch at each end of their speed range, how far the idle ducks under Loco, when and how fast the Loco loop comes in, pitch glide and release time constants, the self-brake level, and how long the taxi must stand before pulling away plays `accel`. Each is described at `SHIPPED_MIX` in `sfx.js` |
 
-Open the game with **`?audio`** for a 🔊 button with every one of those as a live slider, levels in
-dB and pitch in semitones. It is deliberately separate from the ⚙️ panel (`?debug`), so the
-designer is not scrolling past the sun; `?debug&audio` shows both side by side.
+Open the game with **`?audio`** (or `?debug`, the same panel) and the ⚙️ panel's **Audio**,
+**Engine sound**, **Sounds** and **Audio export** sections have every one of those as a live slider,
+levels in dB and pitch in semitones. It used to be a separate 🔊 panel so the designer was not
+scrolling past the sun; collapsed sections and the panel's search do that job now (type a sound's
+name to jump to it).
 
 - **▶** on each sound plays it once at its current level and pitch, loops included. A sound with
   variants plays a different take each press, the way the game does, and the label says which
@@ -174,8 +181,8 @@ designer is not scrolling past the sun; `?debug&audio` shows both side by side.
 - Double-click a slider to put that one knob back. A yellow edge marks a sound that differs from
   the shipped mix.
 - Edits are kept in `localStorage` (`simtaxi.audio.v2`; v1 held the test files' mix) across reloads, since a crash and Retry is
-  a reload. The stash is only read by this panel, so a half-finished mix never reaches a normal
-  session. **Reset to shipped mix** clears it.
+  a reload. The stash is only read by these sections, which only exist with the ⚙️ panel, so a
+  half-finished mix never reaches a normal session. **Reset to shipped mix** clears it.
 - **Download mix.json** saves the whole mix; **Open file…** or **Apply pasted** loads one back.
   An import replaces the mix outright, and anything unknown or out of range in it is dropped or
   clamped by `sfx.tune`.
@@ -191,6 +198,6 @@ and 1.25, a flatbed crate is `crash` at 0.3 and 1.6, and `land` scales with the 
 
 `window.__taxi.sfx.state` reports `{ ready, loaded, total, muted, held }`. `loaded` should equal
 `total` (41) after the first tap. `window.__taxi.sfx.play('crash')` fires any one-shot by name, and
-`tuning()`, `tune(partial)` and `reset()` reach the same mix the `?audio` panel edits. The
+`tuning()`, `tune(partial)` and `reset()` reach the same mix the Audio sections edit. The
 module is in check.mjs's `BOOT` list, which proves it imports cleanly in node, where it builds a
 no-op.

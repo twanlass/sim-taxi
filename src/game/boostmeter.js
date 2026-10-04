@@ -7,7 +7,7 @@
 // Three outputs, all 0..1:
 //   pct    the bar to draw — the real fuel level plus the overshoot, clamped to the pill
 //   fill   envelope for "fuel is arriving": drives the glow's alpha and the leading edge's opacity
-//   pulse  the throb inside that envelope, drives the glow's blur radius and the pill's scale
+//   pulse  the throb inside that envelope, drives the glow's blur radius and the gauge's scale
 
 // The overrun is scripted, not simulated. The obvious version — model the drawn bar as a spring
 // chasing the real fuel level and let its momentum carry it past the mark — was tried first and
@@ -16,20 +16,21 @@
 // 0.5-tank/s pour against any ω fast enough to not look sluggish leaves nothing to work with. So
 // the bounce is authored. It starts on the frame the pour finishes, which is why it doesn't read as
 // a jump: the bar is already travelling at the pour rate and the kick just carries it further.
-export const OVERSHOOT = 0.045;       // 4.5% of a tank past the mark ≈ 6px on the pill — small, but it reads
+export const OVERSHOOT = 0.025;       // 2.5% of a tank past the mark ≈ 4px of arc — small, but it reads
 export const OVERSHOOT_RISE = 0.1;    // seconds out to the peak: faster than the pour, so it snaps
 
 // Coming back is a damped ring, not a curve back to the mark. An eased fall reached the mark and
 // simply stopped, which is the one moment the eye is watching and it read as linear — the bar
 // *arrived* rather than *settled*. This is the spring the scripted kick doesn't get for free:
 // the peak releases into a decaying cosine, so the bar dips a little under the mark, comes back
-// over it smaller, and converges. Amplitudes off 4.5%: -1.7%, +0.6%, -0.2%, done. Tuned down from
-// a 7%/7-decay original that read as too bouncy — smaller kick, faster decay, quicker to rest.
+// over it smaller, and converges. Amplitudes off 2.5%: -0.6%, +0.2%, done. Tuned down twice for
+// reading as too bouncy: from a 7%/7-decay original to 4.5%/8 (-1.7%, +0.6%, -0.2%), and then to
+// this — half the kick and a faster decay, so it is one dip and a settle rather than a wobble.
 const SETTLE_HZ = 4;                  // ring frequency — one full wobble every 250ms
-const SETTLE_DECAY = 8;               // e-folding rate: each wobble is ~33% of the one before
+const SETTLE_DECAY = 11;              // e-folding rate: each wobble is ~25% of the one before
 // Below this the ring is under a fifth of a pixel, so cut it and snap to the real level rather
-// than trailing a tail nobody can see. Works out at ~0.43s of settle.
-const SETTLE_FLOOR = 0.0015;
+// than trailing a tail nobody can see. Works out at ~0.29s of settle.
+const SETTLE_FLOOR = 0.001;
 const SETTLE_TIME = Math.log(OVERSHOOT / SETTLE_FLOOR) / SETTLE_DECAY;
 
 // Attack is short enough that the glow is up while the first fuel is still landing. Release is the

@@ -236,6 +236,11 @@ export function createSfx({ rng } = {}) {
     && (window.AudioContext || window.webkitAudioContext);
   const state = {
     muted: hasAudio ? readMuted() : true,
+    // The player's two volume sliders on the title screen's Settings (game/settings.js owns
+    // remembering them; this only applies them). 0..1 as the slider reads, squared on the way to
+    // the gain node, because a linear gain spends the whole bottom half of a slider on "loud".
+    effects: 1,
+    music: 1,
     ready: false,
     loaded: 0,
     total: Object.keys(FILES).length,
@@ -264,6 +269,7 @@ export function createSfx({ rng } = {}) {
     const noop = () => {};
     return {
       state, play: noop, update: noop, hold: noop, setMuted: noop, toggleMuted: () => true,
+      setVolumes: noop,
       locoOn: noop, locoOff: noop,
       tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
       audition: () => null, stopAuditions: noop, files: FILES,
@@ -277,16 +283,39 @@ export function createSfx({ rng } = {}) {
   try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* old */ }
 
   // Fetched now, decoded once there is a context to decode into.
+  //
+  // Each download is marked handled the moment it is made, because nothing else listens to it
+  // until the first tap runs `start()` — and a download that fails before then is an *unhandled*
+  // rejection in the meantime, which index.html's panel puts over the whole screen. That is a
+  // launch with a bad connection: a Home Screen launch that lands on a dropped or still-attaching
+  // network fails every uncached file at once, and Safari's `TypeError: Load failed` carries an
+  // empty `stack`, so the panel read "Unhandled rejection:" and nothing else. A missing sound is
+  // not a broken game; `start()` still awaits the original promise and logs it as one.
   const bytes = {};
   for (const [key, url] of Object.entries(FILES)) {
     bytes[key] = fetch(url).then((r) => {
       if (!r.ok) throw new Error(`${r.status} ${url}`);
       return r.arrayBuffer();
     });
+    bytes[key].catch(() => {});
   }
 
   let ctx = null;
   let master = null;
+  // `resume()` and `suspend()` return promises that WebKit rejects (a context it has closed behind
+  // the app's back, a resume it will not allow outside a gesture). Every call here is
+  // fire-and-forget and the next gesture tries again, so a refusal is not an error worth a panel.
+  // (`Promise.resolve` because the prefixed `webkitAudioContext` of an older iOS returns nothing.)
+  const resumeCtx = () => { Promise.resolve(ctx.resume()).catch(() => {}); };
+  const suspendCtx = () => { Promise.resolve(ctx.suspend()).catch(() => {}); };
+  // The music's own level, beside `master` rather than under it, so the two sliders are
+  // independent. **Nothing plays into it yet**: the game ships no music track, and the bus exists
+  // so the Settings slider has something real to steer the day one arrives — connect the track's
+  // source to `musicBus` and it is under the slider and the mute with no other change.
+  let musicBus = null;
+  /** What the master gain should read: the mix's master, under the player's slider and the mute. */
+  const masterLevel = () => (state.muted ? 0 : mix.master * state.effects ** 2);
+  const musicLevel = () => (state.muted ? 0 : state.music ** 2);
   const buffers = {};    // by file name
   const lastAt = {};
   const lastTake = {};   // by sound name: the file it played last
@@ -342,8 +371,11 @@ export function createSfx({ rng } = {}) {
     const Ctor = window.AudioContext || window.webkitAudioContext;
     ctx = new Ctor({ latencyHint: 'interactive' });
     master = ctx.createGain();
-    master.gain.value = state.muted ? 0 : mix.master;
+    master.gain.value = masterLevel();
     master.connect(ctx.destination);
+    musicBus = ctx.createGain();
+    musicBus.gain.value = musicLevel();
+    musicBus.connect(ctx.destination);
     await Promise.all(Object.entries(bytes).map(async ([key, p]) => {
       try {
         const buf = await p;
@@ -356,7 +388,7 @@ export function createSfx({ rng } = {}) {
     if (buffers[SOUNDS.idle[0]]) idle = makeLoop('idle');
     if (buffers[SOUNDS.locoLoop[0]]) loco = makeLoop('locoLoop');
     state.ready = true;
-    if (state.held) ctx.suspend();
+    if (state.held) suspendCtx();
   }
 
   // The unlock. Created *inside* the gesture, because Safari only lets a context start running
@@ -364,15 +396,15 @@ export function createSfx({ rng } = {}) {
   // will also suspend it behind the app's back (a phone call, the app backgrounded).
   const unlock = () => {
     if (!ctx) start();
-    else if (ctx.state !== 'running' && !state.held) ctx.resume();
+    else if (ctx.state !== 'running' && !state.held) resumeCtx();
   };
   for (const type of ['pointerdown', 'touchend', 'keydown']) {
     window.addEventListener(type, unlock, { capture: true, passive: true });
   }
   document.addEventListener('visibilitychange', () => {
     if (!ctx) return;
-    if (document.hidden) ctx.suspend();
-    else if (!state.held) ctx.resume();
+    if (document.hidden) suspendCtx();
+    else if (!state.held) resumeCtx();
   });
 
   /**
@@ -496,21 +528,32 @@ export function createSfx({ rng } = {}) {
     if (on === state.held) return;
     state.held = on;
     if (!ctx) return;
-    if (on) ctx.suspend();
-    else if (!document.hidden) ctx.resume();
+    if (on) suspendCtx();
+    else if (!document.hidden) resumeCtx();
   }
 
   function setMuted(on) {
     state.muted = Boolean(on);
     writeMuted(state.muted);
     if (!ctx) return;
-    master.gain.setTargetAtTime(state.muted ? 0 : mix.master, ctx.currentTime, 0.02);
+    master.gain.setTargetAtTime(masterLevel(), ctx.currentTime, 0.02);
+    musicBus.gain.setTargetAtTime(musicLevel(), ctx.currentTime, 0.02);
     if (state.muted) { stopVoice(signal, 0.02); signal = null; signalHand = null; }
+  }
+
+  /** The player's sliders, 0..1 each; either may be omitted. Applied at once if the context is up. */
+  function setVolumes({ effects, music } = {}) {
+    const unit = (v, was) => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : was);
+    state.effects = unit(effects, state.effects);
+    state.music = unit(music, state.music);
+    if (!ctx) return;
+    master.gain.setTargetAtTime(masterLevel(), ctx.currentTime, 0.02);
+    musicBus.gain.setTargetAtTime(musicLevel(), ctx.currentTime, 0.02);
   }
 
   function tune(partial) {
     tuneMix(partial);
-    if (master && !state.muted) master.gain.setTargetAtTime(mix.master, ctx.currentTime, 0.02);
+    if (master) master.gain.setTargetAtTime(masterLevel(), ctx.currentTime, 0.02);
   }
 
   // The panel's audition voices, tracked so an 11-second activate can be stopped.
@@ -555,6 +598,7 @@ export function createSfx({ rng } = {}) {
     locoOn,
     locoOff,
     setMuted,
+    setVolumes,
     toggleMuted: () => { setMuted(!state.muted); return state.muted; },
   };
 }
