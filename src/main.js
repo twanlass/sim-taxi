@@ -385,6 +385,29 @@ let taxiHeadlights = null;
 let runningLevel = 0;
 // The taxi, for the squall's per-position grip and headlights — set once traffic exists.
 let taxiNow = null;
+
+/**
+ * Switch the taxi's headlights to `level`, unless its nose is inside the depot. The cones reach
+ * 5.4 units past the bumper and are drawn additive without writing depth, so with the taxi parked
+ * behind a shut door they came straight out through it — a pool of light on the forecourt and two
+ * glowing lamps seen through the curtain. A parked car has its lights off anyway, so they fade up
+ * as the nose crosses the curtain on the way out (and down on the way back in), over 1.5 units.
+ * Read off `garage.site` rather than the door's state so the answer does not depend on which of
+ * the vignette, the depot run or the tip happens to be holding the door this frame.
+ */
+function setTaxiHeadlights(level) {
+  if (!taxiHeadlights) return;
+  const car = taxiNow?.();
+  let inDepot = 0;
+  if (car && garage) {
+    const { curtainX, doorZ, doorW, bayX } = garage.site;
+    if (Math.abs(car.z - doorZ) < doorW / 2 + 1 && car.x > bayX - 1) {
+      const noseX = car.x + Math.cos(car.yaw) * TAXI_TAILPIPE_BACK;
+      inDepot = 1 - THREE.MathUtils.smoothstep(noseX, curtainX, curtainX + 1.5);
+    }
+  }
+  taxiHeadlights.setLevel(level * (1 - inDepot));
+}
 // How present the squall is, eased: a cell crossing the city greys the whole sky a little.
 let squallPresence = 0;
 
@@ -409,7 +432,7 @@ function applySquall(dt) {
   if (taxiNow) {
     const t = taxiNow();
     setGrip(THREE.MathUtils.lerp(1, GRIP, squall.wetAt(t.x, t.z)));
-    taxiHeadlights?.setLevel(runningLightsAt(t.x, t.z));
+    setTaxiHeadlights(runningLightsAt(t.x, t.z));
   }
   setRunningLights(0);
   setCityLights(0, dt);
@@ -430,7 +453,7 @@ function applyWeather(dt = 0) {
   runningLevel = THREE.MathUtils.smoothstep(w.dark, 0.25, 0.42);
   setRunningLights(runningLevel);
   // The taxi's own pair on the same level as the fleet's: dark in the sun, on once it is gloomy.
-  taxiHeadlights?.setLevel(runningLevel);
+  setTaxiHeadlights(runningLevel);
   setCityLights(w.dark, dt);
   setHazeTop(fog, THREE.MathUtils.lerp(HAZE_TOP, rain.mood.haze, w.dark));
   daylight.apply();
@@ -917,8 +940,8 @@ if (litPanes) markEmissive(litPanes, 'window');
 // also what becomes the wreck (see `wreckShell` in sim/traffic.js), so they go dark while it is one.
 taxiHeadlights = rain.enabled ? createTaxiHeadlights() : null;
 if (taxiHeadlights) {
-  taxiHeadlights.setLevel(runningLevel);
   taxiNow = () => traffic.taxi;
+  setTaxiHeadlights(runningLevel);
   traffic.taxiGroup.add(taxiHeadlights.group);
   markEmissive(taxiHeadlights.pods, 'pod');
 }
