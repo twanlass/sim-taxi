@@ -149,9 +149,9 @@ ffmpeg's `ebur128`: they arrived at −17.3 (intro), −13.5 (country), −12.3 
 against −34 for the engine idle and −22 for a crash. The four `.m4a` are 1.7 MB together, the
 biggest download in the game; they decode to about 40 MB of PCM, held for the session.
 
-They were encoded with ffmpeg's AAC at 128 kbps (`-fflags +bitexact`, reproducible) because the
-cloud session that added them has no `afconvert`. The next `node tools/audio.mjs` on a Mac will
-re-encode them like everything else; that is a one-time diff, not a problem.
+They are encoded by `tools/audio.mjs` like every other sound. afconvert on macOS 26.6 does not
+reproduce the Block 1 files byte for byte (17 of 41 differ, mostly at the same size), so commit
+only the .m4a files whose masters changed.
 
 ## Gestures, pauses and the phone
 
