@@ -767,6 +767,45 @@ try {
   // destination it is already driving to.
   check('and the click it synthesises is spoken for', doubleTap.ok && doubleTap.swallowed);
 
+  // --- Tap a street to send the route down it (game/streettap.js).
+  //
+  // The router half is in tools/probe.mjs. What only a browser can check is the wiring: a click on
+  // bare road reaching the picker as a miss, carrying its ray, and the miss turning into a re-plan.
+  // Every street one block either side of the taxi's next junction is tried until one bends the
+  // route; each is a real click at the street's midpoint on screen, and the route is put back
+  // before the next try so they are all judged against the same plan.
+  const streetTap = JSON.parse(await evaluate(`(() => {
+    const T = window.__taxi;
+    const taxi = T.traffic.taxi;
+    const target = taxi.pendingTarget;
+    if (!target) return JSON.stringify({ ok: false, why: 'no destination' });
+    const c = ${GAME_CANVAS};
+    const click = (p) => c.dispatchEvent(new MouseEvent('click', {
+      clientX: p.x, clientY: p.y, bubbles: true, cancelable: true }));
+    const inView = (p) => p && p.x > 0 && p.y > 0 && p.x < innerWidth && p.y < innerHeight;
+    let tried = 0;
+    for (let di = -2; di <= 2; di++) {
+      for (let dj = -2; dj <= 2; dj++) {
+        for (const alongX of [true, false]) {
+          const a = { i: taxi.i + di, j: taxi.j + dj };
+          const b = alongX ? { i: a.i + 1, j: a.j } : { i: a.i, j: a.j + 1 };
+          const p = T.streetScreenPosition({ a, b });
+          if (!inView(p)) continue;
+          T.routeTo(target);
+          const before = taxi.route.join(',');
+          tried += 1;
+          click(p);
+          if (taxi.route.join(',') !== before && taxi.pendingTarget === target) {
+            return JSON.stringify({ ok: true, tried, street: [a, b], legs: [before.split(',').length, taxi.route.length] });
+          }
+        }
+      }
+    }
+    return JSON.stringify({ ok: false, why: 'no street tap bent the route in ' + tried + ' tries' });
+  })()`));
+  check('a tap on a street next to the route re-plans it down that street', streetTap.ok,
+    streetTap.ok ? `${streetTap.tried} tap(s), ${streetTap.legs[0]} legs to ${streetTap.legs[1]}` : streetTap.why);
+
   // --- Tapping a rider-finder chip pans the camera to that rider rather than cutting to them.
   // The curve itself is covered in tools/probe.mjs; what only a browser can check is the wiring —
   // the chip's click reaching main.js, and the frame loop stepping the pan afterwards. Both are

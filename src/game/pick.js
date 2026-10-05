@@ -46,7 +46,8 @@ import * as THREE from 'three';
  *
  * @param getTargets () => Object3D[]  candidate roots, re-evaluated on every click so the set can
  *                                     follow game state
- * @param onPick     (kind, hit) => void  kind is null when nothing pickable was under the cursor
+ * @param onPick     (kind, hit, ray) => void  kind is null when nothing pickable was under the
+ *                                          cursor, and only then is `ray` passed
  * @param shouldIgnore () => boolean   true for a click that closed out a camera drag
  * @param claims     (kind) => boolean  whether a drawn surface of this kind outranks a stand-in in
  *                                      front of it right now. See above.
@@ -99,7 +100,9 @@ export function createPicker(
 
     const picked = choosePick(raycaster.intersectObjects(getTargets(), true), claims);
     if (picked) onPick(picked.kind, picked.hit);
-    else onPick(null, null);
+    // A miss still hands over the ray, for the street tap (game/streettap.js) — the one thing that
+    // answers a tap on bare road.
+    else onPick(null, null, raycaster.ray);
   }
 }
 
