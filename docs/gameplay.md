@@ -429,14 +429,14 @@ for free rather than hunting the board for their car.
 `?tutorial=off` skips the whole thing, and shot mode never runs it: a screenshot has nobody to
 teach, and the bubble would be the loudest thing in every frame.
 
-## New Move Unlocked: the U-turn card
+## New Move Unlocked: the U-turn and drift cards
 
 The bootleg (boost, then two quick brake taps — `game/bootleg.js`) is the one input nobody finds by
 looking, so it gets a card (`game/newmove.js`, `#new-move` in index.html). It is the tutorial's
 own speech bubble, made wider and centred over a dim with no pointer: "New Move Unlocked" in the
 title slot, "U-Turn" as the line, then a clip of the move and the pedal row under it. No other words.
 
-The clip (`game/uturnclip.js`) is a scripted 4.6s loop filmed **in the player's own city**, at the
+The clip (`game/uturnclip.js` and `game/moveclip.js`) is a scripted 4.6s loop filmed **in the player's own city**, at the
 game's 3/4 view. On open, `pickStreet` chooses a straight two-way side street off the river with no
 car stopped on it, mostly visible past the buildings, and runs the move left to right on screen. The
 city is drawn once more into `#freeze-frame`, a 2D canvas laid over the game's, and from then on the
@@ -473,6 +473,33 @@ the thing it does: dim until pressed, lit from then to the end of the loop.
   so the Space that closes it does not also boost.
 - The tips setting, debug mode and `?tutorial=off` all turn it off. `__taxi.newMove.open()` shows
   it on demand; clear the key to see it again in play.
+
+The camera, the stand-in and the still are shared with the drift's card below, in
+`game/moveclip.js`; `game/uturnclip.js` keeps the U-turn's timeline, reel and street picker.
+
+### The drift card
+
+The drift (Loco Mode, a tap of the brake just before a turn, Loco Mode again — `driftTaxi` /
+`kickDrift` in sim/traffic.js) gets the same card: "Drift" as the line, and a pedal row of Loco,
+brake, Loco. Its clip (`game/driftclip.js`) is a 3s loop: the stand-in comes up the street, floors
+it, taps the brake 0.2s before it starts into a left turn, gets back on the pill mid-arc, and comes
+out on the kick's purple twin plume with the bark out of the pipe.
+
+- **Recorded on a corner.** A drift needs a turn, so `tools/driftreel.mjs` films it on a grid of side
+  streets with the lights taken out, not on the lab's straight, and writes `game/driftreel.js` in the
+  corner's own frame (from the junction's centre, along the approach and across it). `npm run check`
+  films it again, as for the U-turn (`node tools/driftreel.mjs --write` refreshes it). The pill is
+  held to the end of the loop: let go, the brake lamps come on as the boost eases off, and that
+  would read as a brake the pedal row never pressed.
+- **Played on a matching corner.** `pickCorner` lays the reel on a left turn of the player's city
+  whose path matches the recorded turn's entry, middle and exit within 0.05, which admits side
+  streets and the ring and rules out anything with an arterial in it (a unit and a third wider). The
+  approach and the exit both run left to right on screen, so the car draws a V down and back up.
+  It needs straight road enough before and after, nothing parked within 5 of the path, stays off
+  the river, and prefers corners off the ring, which put half the clip over the coast's fade.
+- **When:** a beat after the drop-off that brings a run to four fares, and only once the U-turn's
+  card has been seen, so the two never land on one drop-off and always come in order. Remembered
+  under `simTaxi.seen.drift`. `__taxi.newMove.open('drift')` shows it on demand.
 
 ## The fare loop
 

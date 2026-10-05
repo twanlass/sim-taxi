@@ -1,8 +1,12 @@
 import { createSpeech } from './speech.js';
-import { clipKeys } from './uturnclip.js';
 
-// "New Move Unlocked": the card that teaches the bootleg (game/bootleg.js) — hold Loco Mode, then
-// tap the brake twice, and the taxi spins round onto the far lane.
+// "New Move Unlocked": the card that teaches a move the player cannot find by looking — the bootleg
+// (game/bootleg.js: hold Loco Mode, then tap the brake twice, and the taxi spins round onto the far
+// lane) and the drift (`driftTaxi` in sim/traffic.js: Loco Mode, a tap of the brake just before a
+// turn, Loco Mode again, and the taxi slides round the corner and kicks out of it). One card, one
+// move at a time; main.js says which (`MOVES` below).
+//
+// What follows was written for the U-turn, the first of them, and holds for both.
 //
 // The bootleg is the one control in the game a player cannot find by looking. Every other input is
 // a button that does what it says the first time it is pressed; this one is a *sequence* on two
@@ -14,7 +18,7 @@ import { clipKeys } from './uturnclip.js';
 // a loop: each starts dimmed, and comes up to full colour as it is pressed, so the order is the
 // order things light up in.
 //
-// **When.** Once, ever, on the drop-off that brings the run to `AFTER_DELIVERED` fares — the first
+// **When.** The U-turn: once, ever, on the drop-off that brings the run to `AFTER_DELIVERED` fares — the first
 // moment a robbery is allowed to happen (robbery.js `MIN_DELIVERED`), which is what the move exists
 // for: the cut-off cops sit in the junctions *ahead* of the taxi and a 180 puts every one of them
 // behind it. Taught any later and the first chase can arrive before it; taught earlier and it is
@@ -24,6 +28,11 @@ import { clipKeys } from './uturnclip.js';
 // beat: nothing is chasing anyone, the seat has just emptied, and the next fare has not been
 // picked. A drop-off that *starts* something — a delivered robber hands the taxi a patrol chase —
 // is not, and main.js skips it and waits for the next one.
+//
+// The drift comes after it, from `MOVES.drift.after` deliveries and never on the same drop-off — two
+// cards back to back is a lecture, and the drift reads as the second chapter of the same idea (the
+// brake is a Loco Mode button too). It waits for the U-turn's card to have been seen, so a run whose
+// early drop-offs were all busy still shows them in order, one drop-off apart at the least.
 //
 // **Remembered**, unlike the opening tutorial, which runs every game on purpose (see tutorial.js).
 // That one is a tap long and is also the only thing that shows a returning player which car is
@@ -45,6 +54,22 @@ export const SEEN_KEY = 'simTaxi.seen.uturn';
 
 /** Deliveries into a run before the card can show — robbery.js's MIN_DELIVERED; see above. */
 export const AFTER_DELIVERED = 2;
+
+/**
+ * The moves, in the order they are taught. `after` is the deliveries into a run before each can
+ * show; `keys` the pedal row, each [name, HUD button] — the name is what the clip's `clipKeys` answers
+ * for (game/uturnclip.js, game/driftclip.js).
+ */
+export const MOVES = {
+  uturn: {
+    seenKey: SEEN_KEY, after: AFTER_DELIVERED, line: 'U-Turn',
+    keys: [['boost', 'boost'], ['brake1', 'brake'], ['brake2', 'brake']],
+  },
+  drift: {
+    seenKey: 'simTaxi.seen.drift', after: 4, line: 'Drift',
+    keys: [['boost', 'boost'], ['brake', 'brake'], ['kick', 'boost']],
+  },
+};
 
 /**
  * A beat after the drop-off before the card lands, in seconds of game time, so the payout pop and
@@ -85,20 +110,21 @@ export function createSeenFlag({ storage, key = SEEN_KEY } = {}) {
 // Nothing else — the clip and the pedal row are the instruction (Tyler, 2026-10-04: no caption, no "tap to
 // continue"; every tutorial bubble is answered by a tap and this one is no different).
 const TITLE = 'New Move Unlocked';
-const LINE = 'U-Turn';
 
 /**
  * The card itself: the game's speech bubble (game/speech.js) — the same card every tutorial tip
  * uses — centred on the screen over a dim, with no pointer. Under its line, the clip of the move
- * (game/uturnclip.js) and under that the pedal row, which the clip's own clock presses.
+ * (game/moveclip.js) and under that the pedal row, which the clip's own clock presses.
  * Browser-only: it clones the HUD's pedal art.
  *
+ * `open(move)` takes one of MOVES with two more fields from main.js: `clipKeys` (the clip module's
+ * own) and `makeClip`, (canvas) => clip | null, which films the clip in the city — null when there is
+ * nowhere to film it, and the card shows without one.
+ *
  * @param viewport  util/viewport.js
- * @param makeClip  (canvas) => clip | null — main.js films the clip in the city (game/uturnclip.js);
- *                  null when there is no street to film, and the card shows without one
  * @param onClose   () => void — the card has been dismissed
  */
-export function createNewMove({ viewport = null, makeClip = () => null, onClose = () => {} } = {}) {
+export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
   const root = document.getElementById('new-move');
   const idle = { isOpen: () => false, open: () => false, close: () => {}, update: () => {} };
   if (!root) return idle;
@@ -123,21 +149,26 @@ export function createNewMove({ viewport = null, makeClip = () => null, onClose 
   combo.setAttribute('aria-hidden', 'true');
   media.append(canvas, combo);
   // All three keys at one size, a "+" between each (Tyler, 2026-10-04): the row is a recipe, and
-  // the HUD's big-gas/small-brake sizing read as a hierarchy that is not in the combo.
-  const keys = {};
-  for (const [name, id] of [['boost', 'boost'], ['brake1', 'brake'], ['brake2', 'brake']]) {
-    if (combo.childElementCount) {
-      const plus = document.createElement('span');
-      plus.className = 'nm-plus';
-      plus.textContent = '+';
-      combo.append(plus);
+  // the HUD's big-gas/small-brake sizing read as a hierarchy that is not in the combo. Built per
+  // move, on open.
+  let keys = {};
+  function buildKeys(row) {
+    combo.replaceChildren();
+    keys = {};
+    for (const [name, id] of row) {
+      if (combo.childElementCount) {
+        const plus = document.createElement('span');
+        plus.className = 'nm-plus';
+        plus.textContent = '+';
+        combo.append(plus);
+      }
+      const key = document.createElement('div');
+      key.className = `nm-key nm-${id}`;
+      const svg = art(id);
+      if (svg) key.append(svg);
+      combo.append(key);
+      keys[name] = key;
     }
-    const key = document.createElement('div');
-    key.className = `nm-key nm-${id}`;
-    const svg = art(id);
-    if (svg) key.append(svg);
-    combo.append(key);
-    keys[name] = key;
   }
 
   const bubble = createSpeech(root, { viewport, typing: false });
@@ -151,11 +182,12 @@ export function createNewMove({ viewport = null, makeClip = () => null, onClose 
     return { x: w / 2, y: h / 2 + (card()?.offsetHeight ?? 0) / 2 };
   };
   let clip = null;
+  let move = null;
   let open = false;
   let openedAt = 0;
 
   function pressKeys() {
-    const state = clipKeys(clip ? clip.time : 0);
+    const state = move.clipKeys(clip ? clip.time : 0);
     for (const [name, key] of Object.entries(keys)) {
       key.classList.toggle('is-lit', state[name].lit);
       key.classList.toggle('is-down', state[name].down);
@@ -193,16 +225,21 @@ export function createNewMove({ viewport = null, makeClip = () => null, onClose 
 
   return {
     isOpen: () => open,
+    /** The move on the card, or null. */
+    move: () => (open ? move : null),
     /** Answers whether it opened. */
-    open() {
+    open(next) {
       if (open) return false;
       open = true;
+      move = next;
       openedAt = performance.now();
+      buildKeys(move.keys);
+      canvas.hidden = false;
       // Shown first, so the card's canvas has its size before the clip measures it.
-      bubble.show(TITLE, LINE, target, media);
-      try { clip = makeClip(canvas); } catch (err) { console.warn('U-turn clip:', err); clip = null; }
-      // No street to film: the card without a clip, re-measured.
-      if (!clip) { canvas.hidden = true; bubble.show(TITLE, LINE, target, media); }
+      bubble.show(TITLE, move.line, target, media);
+      try { clip = move.makeClip(canvas); } catch (err) { console.warn(`${move.line} clip:`, err); clip = null; }
+      // Nowhere to film: the card without a clip, re-measured.
+      if (!clip) { canvas.hidden = true; bubble.show(TITLE, move.line, target, media); }
       pressKeys();
       document.body.classList.add('new-move-open');
       return true;

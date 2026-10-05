@@ -20,7 +20,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/city/burgerjoint.js', '../src/game/drivethru.js',
   '../src/city/bank.js', '../src/game/robbery.js', '../src/game/radio.js',
-  '../src/game/robberline.js', '../src/game/copshout.js', '../src/game/patrol.js', '../src/game/bootleg.js', '../src/game/newmove.js', '../src/game/uturnclip.js',
+  '../src/game/robberline.js', '../src/game/copshout.js', '../src/game/patrol.js', '../src/game/bootleg.js', '../src/game/newmove.js', '../src/game/uturnclip.js', '../src/game/driftclip.js', '../src/game/moveclip.js',
   '../src/game/speech.js', '../src/game/depotcall.js',
   '../src/game/coplights.js', '../src/game/cashtrail.js',
   '../src/game/wipe.js',
@@ -77,6 +77,8 @@ const TOOLS = [
   // The New Move card's U-turn is a recording of the sim (game/uturnreel.js); this films it again
   // and fails if the game's U-turn has moved on without it.
   { name: 'uturn',   args: ['tools/uturnreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
+  // ...and the drift's card the same (game/driftreel.js).
+  { name: 'drift',   args: ['tools/driftreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
 ];
 
 let failed = 0;
@@ -131,6 +133,45 @@ try {
     const again = pickStreet({ network: cityNetwork(), cars: parked, camRight });
     if (again && Math.hypot(again.centre.x - street.centre.x, again.centre.z - street.centre.z) < 1) {
       throw new Error('uturnclip: picked a street with a car parked on it');
+    }
+  }
+
+  // The drift's clip (game/driftclip.js): the reel has to come up the approach in its own lane, go
+  // round to the left and leave up the exit, on the keys' timeline; and the corner picker has to
+  // find a corner in the shipped city whose turn is the recorded one, and refuse a blocked one.
+  {
+    const { reelAt, clipKeys, pickCorner, CLIP_LOOP, TAP } = await import('../src/game/driftclip.js');
+    const { MOVES } = await import('../src/game/newmove.js');
+    const start = reelAt(0);
+    const end = reelAt(CLIP_LOOP);
+    if (!(start.along < -20 && start.lateral > 0)) throw new Error('driftclip: does not come up the approach');
+    if (!(end.lateral < -15 && Math.abs(end.along - 2) < 1)) throw new Error('driftclip: does not leave up the exit lane');
+    if (Math.abs(end.yaw - start.yaw - Math.PI / 2) > 0.15) throw new Error('driftclip: not a left turn');
+    if (!(reelAt(TAP).along < -4)) throw new Error('driftclip: the tap lands after the corner');
+    const k = clipKeys(CLIP_LOOP * 0.7);
+    if (!(k.boost.lit && k.brake.lit && k.kick.lit)) throw new Error('driftclip: keys not all lit late in the loop');
+    if (clipKeys(0).boost.lit) throw new Error('driftclip: the loop opens with a key already lit');
+    // Every key on each card's pedal row is one its clip presses.
+    const { clipKeys: uturnKeys } = await import('../src/game/uturnclip.js');
+    for (const [move, keys] of [[MOVES.uturn, uturnKeys(0)], [MOVES.drift, k]]) {
+      for (const [name] of move.keys) if (!(name in keys)) throw new Error(`newmove: ${move.line} has no key ${name}`);
+    }
+    if (!(MOVES.drift.after > MOVES.uturn.after)) throw new Error('newmove: the drift is taught before the U-turn');
+    const { createLayout } = await import('../src/city/layout.js');
+    const { cityNetwork } = await import('../src/city/roadnet.js');
+    const { makeRng } = await import('../src/util/rng.js');
+    const camRight = { x: Math.SQRT1_2, z: -Math.SQRT1_2 };
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      createLayout(makeRng(seed));
+      if (!pickCorner({ network: cityNetwork(), cars: [], camRight })) throw new Error(`driftclip: no corner in city ${seed}`);
+    }
+    createLayout(makeRng(7));
+    const corner = pickCorner({ network: cityNetwork(), cars: [], camRight });
+    if (!corner) throw new Error('driftclip: no corner to film in an empty city');
+    const parked = [{ x: corner.centre.x, z: corner.centre.z }];
+    const again = pickCorner({ network: cityNetwork(), cars: parked, camRight });
+    if (again && Math.hypot(again.centre.x - corner.centre.x, again.centre.z - corner.centre.z) < 1) {
+      throw new Error('driftclip: picked a corner with a car parked on it');
     }
   }
 
