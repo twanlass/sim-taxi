@@ -946,6 +946,18 @@ export const PALETTE = {
   coneBand: '#EDE9DF',
   barrier: '#E5551D',
   barrierBand: '#EDE9DF',
+  // The drawbridge gate's warning lamps (game/drawbridge.js). Lit, they are the signal's own amber
+  // (`lightYellow`) — a lamp telling you to stop is the same lamp wherever it is mounted. Off, they
+  // are this: a dark brown-amber lens, deep enough against the orange arm that a lit lamp is
+  // plainly a change of state rather than the same colour a bit brighter, and still a lens rather
+  // than a hole when the arm is standing idle.
+  gateLampOff: '#3A2A16',
+  // The gate arms' diagonal stripes. Black and white rather than the roadworks' `barrier` orange:
+  // the drawbridge gate is a railway-style crossing arm, and the stripes are what make it read as
+  // one. Not pure black, which goes to a hole on the shaded side, and the light stripe is the same
+  // off-white as the other bands so it does not blow out under a golden-hour sun.
+  gateStripeDark: '#26282C',
+  gateStripeLight: '#EDE9DF',
   // The vest is *more* saturated than the cones and lighter, so a worker still reads as a figure
   // against the props standing around them rather than as one more cone.
   hiVis: '#FF7A33',

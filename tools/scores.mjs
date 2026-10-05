@@ -200,6 +200,23 @@ const cashes = (store) => loadScores(store).map((e) => e.cash).join(',');
   check('but keeps the initials — a preference, not a score', lastName(store) === 'TWA');
 }
 
+// --- The New Move card's seen flag (game/newmove.js) ------------------------
+// Same soft store, same contract: remembered when it can be, once per visit when it cannot.
+{
+  const { createSeenFlag } = await import('../src/game/newmove.js');
+  const store = fakeStore();
+  const first = createSeenFlag({ storage: store });
+  check('the U-turn card starts unseen', first.get() === false);
+  first.set();
+  check('and is seen once shown', first.get() === true);
+  check('and stays seen on the next load', createSeenFlag({ storage: store }).get() === true);
+  const broken = createSeenFlag({ storage: fakeStore({ throwOnRead: true, throwOnWrite: true }) });
+  check('a store that throws reads unseen', broken.get() === false);
+  broken.set();
+  check('and remembers for this visit only', broken.get() === true);
+  check('no store at all is unseen', createSeenFlag({ storage: null }).get() === false);
+}
+
 const passed = results.filter(Boolean).length;
 for (const line of failures.slice(0, 12)) console.log(`  FAIL ${line}`);
 console.log(`${passed}/${results.length} checks passed`);
