@@ -1583,6 +1583,107 @@ export function spinTaxi(car) {
   return null;
 }
 
+// --- The drift: Loco, tap the brake, Loco again --------------------------------------------------
+//
+// Holding Loco Mode into a real turn, a tap of the brake (`driftTaxi`) is not a stop: the taxi goes
+// round with its nose swung past the heading on a spring (`car.driftAmt` below) and four wheels of
+// rubber (layRubber in main.js), at the boost cruise, rights included, deaf to the pedal. Plain
+// Loco corners keep the lean alone, so the slide is the combo's own look. Get back on the pill before the
+// arc is over (`kickDrift`) and it comes out of the corner with a kick, DRIFT_EXIT of the cruise
+// held for DRIFT_CARRY. Skip the second half and it is just the slide. `car.drifts` counts kicks.
+//
+// It is a prototype and every number below is a first guess, not a measurement.
+
+/** Slower than this and a brake press is a brake: ~1.5× cruise, so only Loco Mode gets here. */
+export const DRIFT_MIN_V = 13;
+/** Seconds of approach the tap may land in, as road at the current speed (never under 8). */
+const DRIFT_LEAD = 0.6;
+/** How far round the arc a late tap still counts, as a fraction of it. */
+const DRIFT_LATE = 0.35;
+/** Seconds the exit kick is held after the exit, before the boost takes over again. */
+const DRIFT_CARRY = 0.6;
+/** The exit kick, as a fraction of the boost cruise: 26.5 u/s, put on in one frame. */
+export const DRIFT_EXIT = 1.2;
+/** A drift that has not landed in this long has gone wrong somewhere; let it go. */
+const DRIFT_MAX = 2.5;
+/** How far the nose swings past the heading at the height of the slide, in radians (~31°). */
+export const DRIFT_ANGLE = 0.55;
+const DRIFT_OMEGA = 11;         // the swing's spring: ~0.55s period, so the exit rocks once
+const DRIFT_DAMP = 2 * 0.42 * DRIFT_OMEGA;
+
+/** +1 or -1: the way yaw moves from heading `d` to heading `dOut`. */
+function turnYawSign(d, dOut) {
+  const from = dirYaw(d);
+  const to = dirYaw(dOut);
+  return Math.atan2(Math.sin(to - from), Math.cos(to - from)) >= 0 ? 1 : -1;
+}
+
+/**
+ * The combo's first half: start a drift, or say why not — `'slow'` under DRIFT_MIN_V, `'straight'`
+ * with no real turn within reach, `'busy'` mid-spin, mid-U-turn, staged, or already drifting.
+ */
+export function driftTaxi(car) {
+  if (car.crashed || car.staged || car.uturn || car.drift) return 'busy';
+  if (car.v < DRIFT_MIN_V) return 'slow';
+  const net = cityNetwork();
+  let turn = null;
+  let phase = 'approach';
+  if (car.state === 'turn') {
+    const into = Math.min(car.turnT, 1) * car.turnLen - car.leadIn;
+    if (into > DRIFT_LATE * (car.turnLen - car.leadIn)) return 'straight';
+    turn = car.turn;
+    phase = 'arc';
+  } else if (car.state === 'drive') {
+    if (car.pass > 0 || car.passing) return 'busy';
+    const toLine = car.lane.length - STOP_SETBACK - car.s;
+    if (toLine > Math.max(8, car.v * DRIFT_LEAD)) return 'straight';
+    if (car.route?.length) turn = exitToward(net, car.lane, car.route[0]);
+    else if (car.intentLane === car.lane.id && car.intentTurn) turn = net.turnById.get(car.intentTurn);
+  }
+  if (!turn || turn.hand === 'straight') return 'straight';
+  car.drift = { phase, lane: car.lane.id, v: boostCruise(), t: 0, carry: DRIFT_CARRY, kicked: false };
+  // `car.lane` is still the approach lane mid-turn: it only becomes the exit lane on landing.
+  car.driftSign = turnYawSign(car.d, net.dirOfLane(net.laneById.get(turn.outLane)));
+  return null;
+}
+
+/** The combo's second half: back on the pill before the arc is over. Answers whether it counted. */
+export function kickDrift(car) {
+  if (!car.drift || car.drift.phase === 'carry') return false;
+  car.drift.kicked = true;
+  return true;
+}
+
+/** Advance a drift's phase, or drop it. Called once a frame for the taxi, before its physics. */
+function stepDrift(car, dt) {
+  const d = car.drift;
+  if (!d) return;
+  d.t += dt;
+  const drop = () => { car.drift = null; };
+  if (car.crashed || car.staged || car.uturn || d.t > DRIFT_MAX) return drop();
+  if (d.phase === 'approach') {
+    if (car.state === 'turn') {
+      if (car.turn.hand === 'straight') return drop();
+      d.phase = 'arc';
+    } else if (car.lane.id !== d.lane || car.v < DRIFT_MIN_V / 2) {
+      return drop();
+    }
+  } else if (d.phase === 'arc') {
+    if (car.state !== 'drive') return;
+    // Landed. Without the second half it was only a slide, and the boost (or the coast-down) has
+    // the car back. With it, the kick goes on in one frame — a surge, like BOOST_KICK — and holds.
+    if (!d.kicked) return drop();
+    d.phase = 'carry';
+    d.v = boostCruise() * DRIFT_EXIT;
+    car.v = Math.max(car.v, d.v);
+    car.drifts += 1;
+  } else {
+    // A fresh press of the brake on the way out is a brake again.
+    d.carry -= dt;
+    if (d.carry <= 0 || car.braking || car.state !== 'drive') return drop();
+  }
+}
+
 const YIELD_RANGE = 15;          // how far ahead oncoming traffic blocks a left turn
 const TURN_WEIGHTS = [0.62, 0.24, 0.14]; // straight, right, left
 
@@ -2390,6 +2491,13 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // The taxi's corner lean, sprung — see CORNER_ROLL_OMEGA. Ambient cars never touch these.
       cornerRoll: 0,
       cornerRollV: 0,
+      // The drift (`driftTaxi`): the live one, the swing's spring, which way it swings, and a tally
+      // of the ones that landed. Taxi only.
+      drift: null,
+      driftAmt: 0,
+      driftAmtV: 0,
+      driftSign: 0,
+      drifts: 0,
       // 0..1 brightness for the brake and turn-signal light pods. brakeLevel is eased (see
       // BRAKE_LIGHT_RISE/FALL) — off frame one along with prevV/v agreeing there is no accel yet.
       // The turn-signal levels are not eased; they jump straight to their blink target.
@@ -2639,6 +2747,9 @@ export function stageCar(car, x, z, yaw) {
   car.pitchV = 0;
   car.cornerRoll = 0;
   car.cornerRollV = 0;
+  car.drift = null;
+  car.driftAmt = 0;
+  car.driftAmtV = 0;
   car.wheelAngle = 0;
   // Both differencers the render pass keeps, primed so the first staged frame reports no step.
   // `prevTravelled` feeds the steering ease and `prevSteerYaw` the wheel angle — a stale pair
@@ -5225,6 +5336,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // comes from — the pitch spring downstream reads the resulting deceleration off car.v
       // directly, and from the overdrive top it is a longer, deeper one.
       const fullPower = car.boost && !car.boostEasing;
+      if (car.drift) stepDrift(car, dt);
 
       if (car.state === 'drive' && car.uturn?.kind === 'spin') {
         // --- Mid-spin (`spinTaxi`): on a clock rather than an arc speed, and deaf to the brake.
@@ -5380,8 +5492,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // The ceiling at full boost is the *overdrive* top, not the BOOST_SPEED one — but the
         // acceleration tapers above BOOST_SPEED, so the band past 18.7 is only ever reached by a
         // car that has had 40 units of straight road and a clear `allowed` to spend it on.
-        const topSpeed = fullPower ? overdriveTop() : cruiseCap;
-        const accel = fullPower
+        // A drift holds its own speed: the brake tap releases the pill, so `fullPower` is off
+        // until the player is back on it, and the cruise cap would haul the taxi down to 8.5.
+        const topSpeed = car.drift ? car.drift.v : fullPower ? overdriveTop() : cruiseCap;
+        const accel = fullPower || car.drift
           ? boostAccel(car.v)
           : chaseAccelFor(car);
         // The brake pedal outranks every one of them, including the boost ceiling: holding it means
@@ -5771,7 +5885,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           : car.isTruck
             ? (isRight ? TRUCK_RIGHT_TURN_SPEED : TRUCK_CORNER_SPEED)
             : chaseTurn;
-        const cornerTarget = straightOn ? straightTop : boostTurn;
+        // A drift goes round at the boost cruise, rights included, pill or no pill.
+        const cornerTarget = car.drift ? car.drift.v : straightOn ? straightTop : boostTurn;
 
         // Don't close on the car in front while crossing a junction.
         //
@@ -5822,7 +5937,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // climb to is not a ceiling. At plain ACCEL a fleeing car needs 24 units to reach
         // SCATTER_SPEED and a junction is 8, so without this the cruise cap above would raise the
         // roof and the car would still cross at the speed it entered.
-        const accel = fullPower ? boostAccel(car.v) : chaseAccelFor(car);
+        const accel = fullPower || car.drift ? boostAccel(car.v) : chaseAccelFor(car);
         car.v = car.v > target
           ? Math.max(target, car.v - (car.braking ? hardBrake() : brake()) * dt)
           : Math.min(target, car.v + accel * dt);
@@ -6018,6 +6133,27 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       car.prevTravelled = car.travelled;
       car.wheelAngle = steerToward(car.wheelAngle, car.yaw, car.prevSteerYaw, ds);
       car.prevSteerYaw = car.yaw;
+
+      // The drift's tail-out: the nose swung past the heading into the turn, on a spring so it
+      // rocks back through straight once on the way out. After the wheel angle, because this is a
+      // slide and not a steering input — the front wheels point back along the road instead
+      // (`driftSteer`, read where the taxi's wheels are set).
+      if (car.isTaxi) {
+        // Only a drift (the brake tap) slides. Every boosted corner did for a while, and it made
+        // the combo hard to tell apart from just holding the pill, so plain Loco corners went back
+        // to the lean alone.
+        const want = car.drift?.phase === 'arc' ? 1
+          : car.drift?.phase === 'approach' ? 0.2 : 0;
+        car.driftAmtV += ((want - car.driftAmt) * DRIFT_OMEGA * DRIFT_OMEGA - car.driftAmtV * DRIFT_DAMP) * dt;
+        car.driftAmt += car.driftAmtV * dt;
+        if (!car.drift && Math.abs(car.driftAmt) < 1e-3 && Math.abs(car.driftAmtV) < 1e-2) {
+          car.driftAmt = 0;
+          car.driftAmtV = 0;
+        }
+        const swing = car.driftSign * DRIFT_ANGLE * car.driftAmt;
+        car.yaw += swing;
+        car.driftSteer = Math.max(-STEER_MAX, Math.min(STEER_MAX, -swing));
+      }
 
       // The pull-over: shove kerb-ward. (car.right = (sin(yaw), cos(yaw)); the taxi's weave uses
       // the same basis with the sign flipped.) At full yield a body edge sits 4.34 off the road
@@ -6319,7 +6455,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // note there: with the default order the roll is applied about the *world* X axis, which
         // only doubles as the car's own axis when it happens to be driving east.
         taxiGroup.rotation.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER);
-        setTaxiSteer(car.wheelAngle);
+        setTaxiSteer(car.driftAmt ? car.driftSteer : car.wheelAngle);
         setTaxiLights(Math.max(car.brakeLevel, runningFor(car) * TAIL_FLOOR),
           car.turnLeftLevel, car.turnRightLevel);
         continue;

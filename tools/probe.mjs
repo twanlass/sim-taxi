@@ -37,7 +37,7 @@ import { createDriveThru } from '../src/game/drivethru.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -7265,6 +7265,23 @@ check('the taxi is an ordinary car in the traffic array',
   hold(still, 1, true);
   hold({ ...still, crashed: true }, 1, true);
   check('a wrecked taxi stops burning', flame.group.visible === false && flame.state.heat === 0);
+
+  // The drift kick's surge: two plumes either side of the pipe, longer, and burning with the pill
+  // up — then back to one when it ends.
+  {
+    const scene = new THREE.Scene();
+    const twin = createLocoFlame(scene);
+    for (let step = 0; step < 30; step++) twin.update(1 / 60, still, false, true);
+    const [b0, b1] = twin.group.children;
+    const purple = new THREE.Color(PALETTE.locoFlameDriftOuter);
+    const split = twin.group.visible && b1.visible && b1.position.z - b0.position.z > 0.8
+      && twin.group.scale.x > 1.5 && twin.materials[0].color.getHex() === purple.getHex();
+    for (let step = 0; step < 30; step++) twin.update(1 / 60, still, true, false);
+    check('the drift kick splits the flame into two longer violet barrels, and lets them go after',
+      split && !twin.group.children[1].visible && Math.abs(twin.group.children[0].position.z) < 1e-6
+        && twin.materials[0].color.getHex() === new THREE.Color(PALETTE.locoFlameOuter).getHex(),
+      `split ${split}, scale ${twin.group.scale.x.toFixed(2)} after`);
+  }
 }
 
 // --- The tyres that get away -------------------------------------------------
@@ -16421,6 +16438,121 @@ let chopperOrder; // likewise
   check('...landing square in its lane, still moving, short of the line ahead',
     worstYaw < 0.05 && stalled === 0 && pastLine === 0,
     `worst heading ${worstYaw.toFixed(3)} rad off the lane, ${stalled} came out under cruise, ${pastLine} past the line`);
+}
+
+// --- The drift (`driftTaxi` / `kickDrift` in sim/traffic.js, wired in main.js) -------------------
+//
+// Every lane with a real turn off it: the taxi dropped a few units short of its stop line at the
+// boost cruise, the pill just released by the brake tap (so `boostEasing`), and the tap made. Each
+// corner is driven twice — once with the pill back on mid-slide (the combo) and once without — and
+// once more with the brake simply held, which is what the tap has to not be.
+{
+  const dTraffic = createTraffic(makeRng(seed + 45), new THREE.Scene(), 1);
+  const taxi = dTraffic.taxi;
+  const net = cityNetwork();
+  const why = {};
+  let tried = 0;
+  let landed = 0;
+  let slowest = Infinity;
+  let worstYaw = 0;
+  let peakSwing = 0;
+  let braked = 0;
+  let kickLow = Infinity;
+  let unkickedHigh = 0;
+  let straightRefused = 0;
+  let plainSwing = 0;
+  for (const lane of net.lanes) {
+    if (lane.degenerate || isLaneClosed(lane.id) || lane.length < 10) continue;
+    const to = net.nodeById.get(lane.to);
+    const d = net.dirOfLane(lane);
+    for (const id of lane.exits) {
+      const turn = net.turnById.get(id);
+      const out = net.laneById.get(turn.outLane);
+      if (isLaneClosed(out.id)) continue;
+      const setup = () => {
+        if (!placeCar(taxi, d, to.gi, to.gj, STOP_SETBACK + 6)) return false;
+        taxi.route = [net.dirOfLane(out)];
+        taxi.drift = null;
+        taxi.uturn = null;
+        taxi.boost = true;
+        taxi.boostEasing = true;
+        taxi.braking = false;
+        taxi.v = 20;
+        taxi.driftAmt = 0;
+        taxi.driftAmtV = 0;
+        return true;
+      };
+      if (!setup()) continue;
+      if (turn.hand === 'straight') {
+        if (driftTaxi(taxi) === 'straight') straightRefused += 1;
+        continue;
+      }
+      tried += 1;
+      // The combo: tap, then back on the pill a beat later.
+      const refused = driftTaxi(taxi);
+      if (refused) { why[refused] = (why[refused] ?? 0) + 1; continue; }
+      const before = taxi.drifts;
+      let lowest = Infinity;
+      for (let k = 0; k < 120 && taxi.drifts === before; k++) {
+        if (k === 6) { kickDrift(taxi); taxi.boostEasing = false; }
+        dTraffic.update(1 / 60);
+        lowest = Math.min(lowest, taxi.v);
+        peakSwing = Math.max(peakSwing, Math.abs(taxi.driftAmt));
+      }
+      if (taxi.drifts === before || taxi.lane.id !== out.id) continue;
+      landed += 1;
+      slowest = Math.min(slowest, lowest);
+      kickLow = Math.min(kickLow, taxi.v);
+      // The swing is a render-only yaw on top of whatever the lane and the weave say, so it is
+      // read directly: it has to have rocked out and come to rest within a second of the exit.
+      taxi.boost = false;
+      for (let k = 0; k < 60; k++) dTraffic.update(1 / 60);
+      worstYaw = Math.max(worstYaw, Math.abs(taxi.driftAmt * DRIFT_ANGLE));
+      // The tap alone: a slide, no kick.
+      if (setup() && driftTaxi(taxi) === null) {
+        for (let k = 0; k < 120 && !(taxi.state === 'drive' && taxi.lane.id === out.id); k++) dTraffic.update(1 / 60);
+        unkickedHigh = Math.max(unkickedHigh, taxi.v);
+      }
+      // No tap at all, the pill held: the old lean, no slide.
+      if (setup()) {
+        taxi.boostEasing = false;
+        let swing = 0;
+        for (let k = 0; k < 120 && !(taxi.state === 'drive' && taxi.lane.id === out.id); k++) {
+          dTraffic.update(1 / 60);
+          swing = Math.max(swing, Math.abs(taxi.driftAmt));
+        }
+        plainSwing = Math.max(plainSwing, swing);
+      }
+      // The control: same corner, pedal held.
+      if (setup()) {
+        taxi.braking = true;
+        let low = Infinity;
+        for (let k = 0; k < 60 && !(taxi.state === 'drive' && taxi.lane.id === out.id); k++) {
+          dTraffic.update(1 / 60);
+          low = Math.min(low, taxi.v);
+        }
+        braked = Math.max(braked, low);
+        taxi.braking = false;
+      }
+    }
+  }
+  taxi.drift = null;
+  const reasons = Object.entries(why).map(([k, n]) => `${n} ${k}`).join(', ') || 'none';
+  check('Loco, a brake tap before a turn, Loco again: the drift lands with its kick',
+    tried > 50 && landed === tried, `${landed} of ${tried} landed; refused: ${reasons}`);
+  check('...carrying its speed round the corner, where the held brake stops dead',
+    slowest >= DRIFT_MIN_V && braked < 1,
+    `slowest drift ${slowest.toFixed(1)} u/s against DRIFT_MIN_V ${DRIFT_MIN_V}; fastest held-brake corner bottomed out at ${braked.toFixed(2)}`);
+  check('...coming out at the kick, and the tap alone does not get one',
+    kickLow >= boostCruise() * DRIFT_EXIT - 0.01 && unkickedHigh < boostCruise() * DRIFT_EXIT - 1,
+    `slowest kick ${kickLow.toFixed(1)} against ${(boostCruise() * DRIFT_EXIT).toFixed(1)}; fastest tap-only exit ${unkickedHigh.toFixed(1)}`);
+  check('...swinging its tail out and settling square to the exit lane',
+    peakSwing > 0.8 && worstYaw < 0.02,
+    `peak swing ${peakSwing.toFixed(2)} of DRIFT_ANGLE, ${worstYaw.toFixed(3)} rad of it left 1s after the exit`);
+  check('a Loco corner without the tap keeps the plain lean: the slide is the combo\'s alone',
+    plainSwing < 0.01, `largest swing ${plainSwing.toFixed(3)} of DRIFT_ANGLE with the pill simply held`);
+  check('...and a tap with the road going straight on is just a brake', straightRefused > 20,
+    `${straightRefused} straight-on approaches refused`);
 }
 
 // --- The emissive bloom --------------------------------------------------------

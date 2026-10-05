@@ -779,6 +779,11 @@ the arc is over in ~0.35s against a left's ~0.7s and reads as *sped up*. 0.75× 
 tight arc its weight back. It is the only deliberate speed drop left in the mode, and it accounts
 for ~9% of boosted frames.
 
+A brake tap into a boosted corner turns it into a drift — the nose swung ~31° past the heading on
+a spring (`driftAmt`, render only) with four wheels of rubber — and the pill again before the arc
+is over earns a kick out of it. Both live in
+[gameplay.md](gameplay.md#the-drift-loco-tap-the-brake-loco-again).
+
 **The speed drop alone does not give a right-hander weight.** A boosting taxi mostly arrives in the
 overdrive band (~30 u/s) and has no room to shed it before a 4-unit arc, so a lean locked to the
 arc's position lasted **7 frames** against a left's 34 — same peak, read as a twitch. The taxi's

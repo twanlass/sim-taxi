@@ -3364,6 +3364,50 @@ behind you.
 The first prototype was a swipe back down the road. Playtesting dropped it: on a phone, a swipe
 already means a pan, a route-band drag or a fare tap.
 
+### The drift: Loco, tap the brake, Loco again
+
+`driftTaxi` / `kickDrift` in `sim/traffic.js`, wired in `holdBrake` and `holdLocoMode` in main.js.
+
+**Only the combo slides.** Through a drift the nose swings ~31° past the heading on a spring
+(`DRIFT_ANGLE`, render only; the front wheels countersteer) and rocks back once on the exit, and
+all four wheels mark the road. Every boosted corner did this for one iteration; it made the combo
+hard to tell from simply holding the pill, so a plain Loco corner went back to its lean and rear
+rubber. Corner speeds are unchanged either way — a left at the boost cruise, a right at 0.75× —
+because slowing every corner to make room for a reward was tried and was a bummer.
+
+**The move is a combo for an exit kick.** Holding Loco into a turn, tap the brake in the last 0.6s
+of approach (never under 8 units) or the first 35% of the arc, then get back on the pill before the
+arc is over. The taxi comes out at 1.2× the boost cruise (`DRIFT_EXIT`, 26.5 u/s), put on in one
+frame and held for 0.6s. The tap screeches and lays four-wheel rubber the moment it lands.
+
+The kick has to read at a glance, and a buzz and a shake alone did not: the first playtest could
+not tell when it had worked. It now says so with the tailpipe flame splitting into two longer
+violet barrels (`locoFlameDrift*` in palette.js, so it is a different fire from the ordinary
+orange one) for as long as the kick holds (`surge` in `game/locoflame.js`), a bark of fire, the Loco
+whoosh, a bigger jolt, and the gauge filling. (A "DRIFT BOOST!" word off the roof was tried and
+cut.)
+
+**A landed kick refunds a sixth of a tank** (`DRIFT_FUEL`, the same as a parcel), so a player
+running low can drift their way to a drop-off. It needs *some* fuel to start — the combo is a
+Loco press — and a kick costs well under a second of Loco against the 2.5s it pays, so chaining
+corners is net positive. That is deliberate: it is the skill being paid.
+
+- **The tap alone is a slide, not a stop.** At 13 u/s or more (`DRIFT_MIN_V`, so only off the pill)
+  with a real turn within reach, the taxi goes round at the boost cruise, rights included, and
+  comes out without the kick. Elsewhere a tap is a brake as before.
+- **The tap owns the brake until the pedal comes back up,** like the bootleg's. A thumb sliding back
+  onto the pill releases it anyway, which is the pedal slide doing what it always did.
+- **Two taps are still the bootleg, near a corner or not.** The first tap is the same in both
+  moves, so only the second input decides: the pill is the drift kick, a second brake tap inside
+  the bootleg's 350ms window drops the drift and spins (buffered past the junction, as any combo
+  landed mid-junction is). Away from a turn the bootleg is untouched.
+- **No clearance test**, like the bootleg: what the swung tail hits, the collision pass charges.
+
+A prototype: every number is a first guess. `tools/probe.mjs` drives every turn off every lane with
+the combo, with the tap alone, with the pill simply held and with the brake held, and checks the
+kick lands, the tap alone earns none, a plain Loco corner does not slide, and the swing settles
+within a second.
+
 ## The pedal slide
 
 The bottom row is two round pedals — an orange gas button 100px across, dead centre on the bottom

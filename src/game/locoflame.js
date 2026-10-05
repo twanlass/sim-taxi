@@ -66,9 +66,9 @@ const FRAME_TIME = 1 / 16;
 // each is the same silhouette scaled, so an inner tongue is strictly inside the one behind it and
 // the plume reads as a hot core in a cooler sheath without a single translucent pixel.
 const LAYERS = [
-  { color: PALETTE.locoFlameOuter, scale: [1, 1], order: 6 },
-  { color: PALETTE.locoFlameMid, scale: [0.72, 0.64], order: 7 },
-  { color: PALETTE.locoFlameCore, scale: [0.50, 0.44], order: 8 },
+  { color: PALETTE.locoFlameOuter, drift: PALETTE.locoFlameDriftOuter, scale: [1, 1], order: 6 },
+  { color: PALETTE.locoFlameMid, drift: PALETTE.locoFlameDriftMid, scale: [0.72, 0.64], order: 7 },
+  { color: PALETTE.locoFlameCore, drift: PALETTE.locoFlameDriftCore, scale: [0.50, 0.44], order: 8 },
 ];
 
 // How fast the plume comes up and how fast it dies. The attack is nearly instant — the flame is the
@@ -77,6 +77,16 @@ const LAYERS = [
 // the flame is out before the car has finished coasting back down.
 const ATTACK = 0.05;
 const RELEASE = 0.16;
+
+// The drift kick's surge (`surge` in `update`): the one plume splits into two, side by side, and
+// both run longer — the double-barrel read that says "that worked" while the car is coming out of
+// the corner. Each barrel sits this far either side of the pipe (the taxi is 2.0 wide, so the pair
+// spans most of the bumper), and the plume grows by up to SURGE_LEN of its length.
+const BARREL_OFFSET = 0.45;
+const SURGE_LEN = 0.8;
+// How fast the split eases in and out, so the second barrel slides out of the first rather than
+// popping in beside it.
+const SURGE_EASE = 0.08;
 
 // Cross-sections along the tongue. 10 is what it takes for the ruffle to read as an edge that
 // wavers rather than as a polygon with a kink in it, at 2 triangles a section.
@@ -180,8 +190,15 @@ export function createLocoFlame(scene) {
     depthWrite: false,
   }));
 
-  // One group per flipbook frame; exactly one is visible at a time.
-  const frames = TONGUES.map((geometry) => {
+  const baseColors = LAYERS.map(({ color }) => new THREE.Color(color));
+  const driftColors = LAYERS.map(({ drift }) => new THREE.Color(drift));
+
+  // One group per flipbook frame; exactly one is visible at a time. Built twice, once per barrel:
+  // the second only shows during a surge, and shares every geometry and material with the first.
+  const barrels = [new THREE.Group(), new THREE.Group()];
+  barrels[1].visible = false;
+  barrels.forEach((barrel) => group.add(barrel));
+  const buildFrames = (barrel) => TONGUES.map((geometry) => {
     const frame = new THREE.Group();
     frame.visible = false;
     LAYERS.forEach(({ scale: [len, wide], order }, k) => {
@@ -194,13 +211,16 @@ export function createLocoFlame(scene) {
       mesh.frustumCulled = false;
       frame.add(mesh);
     });
-    group.add(frame);
+    barrel.add(frame);
     return frame;
   });
+  const frames = buildFrames(barrels[0]);
+  const twinFrames = buildFrames(barrels[1]);
 
   const state = {
     heat: 0,     // 0 out, 1 burning — the attack/release envelope
     frame: 0,    // which silhouette is up
+    split: 0,    // 0 one plume, 1 the drift kick's two — eased toward `surge`
   };
 
   let clock = 0;
@@ -209,9 +229,13 @@ export function createLocoFlame(scene) {
    * @param dt   sim seconds, so a paused run holds the flame rather than letting it flicker on
    * @param car  the taxi — `x`, `z`, `yaw` and `crashed` are all this reads
    * @param on   is Loco Mode being held right now?
+   * @param surge is the drift kick on? Splits the plume into two and lengthens it — and burns even
+   *              with the pill up, since the kick is speed the flame should be answering for.
    */
-  function update(dt, car, on) {
-    const want = on && !car.crashed ? 1 : 0;
+  function update(dt, car, on, surge = false) {
+    const want = (on || surge) && !car.crashed ? 1 : 0;
+    const splitTo = surge && !car.crashed ? 1 : 0;
+    state.split += Math.sign(splitTo - state.split) * Math.min(Math.abs(splitTo - state.split), dt / SURGE_EASE);
     const step = dt / (want > state.heat ? ATTACK : RELEASE);
     state.heat = want > state.heat
       ? Math.min(want, state.heat + step)
@@ -221,6 +245,7 @@ export function createLocoFlame(scene) {
       if (group.visible) {
         group.visible = false;
         frames[state.frame].visible = false;
+        twinFrames[(state.frame + 2) % FRAMES].visible = false;
       }
       // The clock is deliberately *not* reset: a re-press mid-cooldown snaps the car back to full
       // send, and restarting the flipbook from frame 0 each time would make a rapid press-release-
@@ -245,18 +270,29 @@ export function createLocoFlame(scene) {
     // Two beats rather than one. A single sine is a plume *breathing*; the second, faster and
     // shallower, is what stops the length and the flipbook from locking into one visible period.
     const pulse = 1 + 0.10 * Math.sin(clock * 23) + 0.05 * Math.sin(clock * 41);
-    group.scale.set(heat * pulse, heat * (2 - pulse), 1);
+    group.scale.set(heat * pulse * (1 + SURGE_LEN * state.split), heat * (2 - pulse), 1);
+    // Local Z is across the car (the plume's plane is local XY). The twin runs half a flipbook out
+    // of step with the first, so the pair licks rather than moving as one shape.
+    barrels[0].position.z = -BARREL_OFFSET * state.split;
+    barrels[1].position.z = BARREL_OFFSET * state.split;
+    barrels[1].visible = state.split > 0;
 
     const next = Math.floor(clock / FRAME_TIME) % FRAMES;
     if (next !== state.frame) {
       frames[state.frame].visible = false;
+      twinFrames[(state.frame + 2) % FRAMES].visible = false;
       state.frame = next;
     }
     frames[state.frame].visible = true;
+    twinFrames[(state.frame + 2) % FRAMES].visible = true;
 
     // Fades with the envelope as well as shrinking with it: a plume that only scales pops out of
-    // existence at its smallest size instead of going out.
-    for (const material of materials) material.opacity = heat;
+    // existence at its smallest size instead of going out. And turns violet with the split, so the
+    // drift kick is a different fire from the ordinary one (`locoFlameDrift*` in palette.js).
+    materials.forEach((material, k) => {
+      material.opacity = heat;
+      material.color.lerpColors(baseColors[k], driftColors[k], state.split);
+    });
   }
 
   return { group, frames, materials, state, update };

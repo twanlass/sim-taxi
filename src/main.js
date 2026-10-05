@@ -27,7 +27,7 @@ import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
-  boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
+  boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
@@ -123,7 +123,7 @@ import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders, sightlineClear } from './game/sightline.js';
-import { createBootleg } from './game/bootleg.js';
+import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
 import { createNewMove, createSeenFlag, AFTER_DELIVERED, SHOW_DELAY } from './game/newmove.js';
 import { createUturnClip, pickStreet } from './game/uturnclip.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
@@ -3016,6 +3016,9 @@ function holdLocoMode() {
   // brake button with one thumb and jabbing the pill with the other would spend fuel on a car the
   // brake is still pinning to the road.
   releaseBrake();
+  // The drift's second half: back on the pill mid-slide. Read before the press, which is all it
+  // needs — the kick itself goes on as the taxi lands (see `driftsPaid`).
+  kickDrift(traffic.taxi);
   if (boost.press()) {
     kickLocoMode();
   }
@@ -3115,6 +3118,18 @@ let brakeHeld = false;
 // brake is drawing.
 const BRAKE_SKID_V = 2.5;
 
+// The drift (`driftTaxi` / `kickDrift` in sim/traffic.js): Loco, tap the brake just before a turn,
+// Loco again. The tap slides the taxi round at the boost cruise instead of stopping it; getting
+// back on the pill before the arc is over earns the exit kick. The tap owns the brake until the
+// pedal comes back up, as the bootleg's does, so a thumb still down doesn't stop the car — though
+// a thumb sliding back onto the pill lets go of it anyway (`holdLocoMode` releases the brake).
+// A landed kick also pays Loco back: a sixth of a tank, as much as a parcel. It is what lets a
+// player running low drift their way to a drop-off rather than crawl there.
+const DRIFT_FUEL = 1 / 6;
+let driftHoldOff = false;
+let driftTapAt = -Infinity;
+let driftsPaid = 0;
+
 /**
  * The press, from the button, the B key, or a thumb sliding onto the brake from the pill beside it.
  * Returns whether the pedal is now down — false only on a run that is over. Already-held counts as
@@ -3137,6 +3152,34 @@ function holdBrake() {
   // Only when there is speed to shed — the pedal's detent is the haptic's job, and a brake noise
   // from a car at a standstill is a car that is not doing what the sound says. From above cruise
   // it is the Loco stop; from cruise it is the ordinary one.
+  // Mid-drift the pedal is the drift's — except that a second tap hard on the first is the bootleg
+  // asking, and the bootleg wins: the drift is dropped and the spin goes in (buffered by the
+  // bootleg until the taxi is back on a straight lane, as any combo landed mid-junction is). So
+  // two taps are always a U-turn and a tap then the pill is the drift kick; the first tap is the
+  // same in both, and only the second input tells them apart. Any later stab is ignored.
+  const drift = traffic.taxi.drift;
+  if (drift && drift.phase !== 'carry') {
+    brakeButton?.classList.add('is-on');
+    if (!drift.kicked && performance.now() - driftTapAt <= BOOTLEG_GAP_MS) {
+      traffic.taxi.drift = null;
+      bootleg.spin();
+    }
+    return true;
+  }
+  // The drift: Loco Mode, at speed, a turn just ahead. Before the bootleg, and it clears the
+  // bootleg's first tap, so the press that starts a slide can't be half of a spin.
+  if (boost.isEngaged() && driftTaxi(traffic.taxi) === null) {
+    bootleg.reset();
+    driftTapAt = performance.now();
+    driftHoldOff = true;
+    boost.release();
+    brakeButton?.classList.add('is-on');
+    sfx?.play('skid');
+    haptic('loco');
+    controller.kickShake(0.3);
+    stampAllRubber(traffic.taxi);
+    return true;
+  }
   // The bootleg: two taps in Loco Mode. Read before the pill is released below, which is the first
   // tap's own doing — its one-second tail still counts (game/bootleg.js).
   if (bootleg.brakeTap({ engaged: boost.isEngaged() })) {
@@ -3515,11 +3558,13 @@ function layRubber(dt) {
   // cruise is as much a skid as one from the overdrive top, just a shorter one (1.0 unit of rubber
   // against 16.5 — see HARD_BRAKE in sim/traffic.js).
   // Not the bootleg, which is a skid from start to finish but lays its own — see spinTrail above.
-  const skidding = car.braking && car.v > BRAKE_SKID_V;
+  // The drift does: all four wheels from the press to the exit.
+  const skidding = (car.braking && car.v > BRAKE_SKID_V) || (car.drift && car.drift.phase !== 'carry');
 
   // The screech, once per slide rather than per stamp: on the frame a corner or a lane swap starts
   // breaking traction. Not the launch or the brake, which each already have a sound of their own.
-  const sliding = cornering || swapping;
+  // A drift screeched on its press (holdBrake), so its corner doesn't screech a second time.
+  const sliding = (cornering || swapping) && !car.drift;
   if (sliding && !wasSliding) sfx?.play('skid');
   wasSliding = sliding;
 
@@ -4023,7 +4068,11 @@ function frame() {
     // the screen (`body.game-over #brake`), and a `pointerup` on a removed element is not something
     // to rely on. Same self-healing shape as the two flags above it.
     // Through the bootleg, which holds the brake off from a spin until the pedal comes back up.
-    traffic.taxi.braking = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
+    // And through the drift, which does the same from its own tap (see `driftHoldOff`).
+    const bootlegBrake = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
+    if (!brakeHeld) driftHoldOff = false;
+    const drifting = traffic.taxi.drift && traffic.taxi.drift.phase !== 'carry';
+    traffic.taxi.braking = bootlegBrake && !driftHoldOff && !drifting;
   }
   updateBoostButton(dt);
   skids.update(dt);
@@ -4114,6 +4163,26 @@ function frame() {
     traffic.taxi.z = ramShove.z + ramShove.vz * k;
   }
   traffic.update(dt);
+  if (traffic.taxi.drifts > driftsPaid) {
+    driftsPaid = traffic.taxi.drifts;
+    // The exit kick (DRIFT_EXIT in sim/traffic.js) has to read at a glance — playtesting said it
+    // didn't, with only a buzz and a shake. So it says so: a bark of fire out of the pipe on top of
+    // the double-barrelled plume (`locoFlame` below), the Loco whoosh, and the fuel pouring into the
+    // gauge. (A "DRIFT BOOST!" word off the roof was tried and cut.)
+    if (!fares.state.gameOver) {
+      boost.topUp(DRIFT_FUEL);
+      const car = traffic.taxi;
+      haptic('loco');
+      controller.kickShake(0.5);
+      sfx?.locoOn();
+      flames.burst(
+        car.x - Math.cos(car.yaw) * TAXI_TAILPIPE_BACK,
+        TAXI_TAILPIPE_HEIGHT,
+        car.z + Math.sin(car.yaw) * TAXI_TAILPIPE_BACK,
+        car.yaw,
+      );
+    }
+  }
   // A pass carried the taxi straight through a junction its route wanted to turn at, and the sim
   // dropped the route there (`detoured` in traffic.js). Re-plan from the far side, through the
   // same owner a dragged band goes through: a burger run or a depot run knows which way it has to
@@ -4549,7 +4618,8 @@ function frame() {
   // reason both of those are: it is pinned to the car's position this frame, not emitted and left
   // behind. At the Loco Mode top the taxi covers 0.57 units in a frame, so a plume ticked before
   // `traffic.update` would sit visibly off the back of the bumper the whole time it burned.
-  locoFlame.update(dt, traffic.taxi, boost.isActive());
+  // The drift kick burns double-barrelled for as long as it holds (DRIFT_CARRY in sim/traffic.js).
+  locoFlame.update(dt, traffic.taxi, boost.isActive(), traffic.taxi.drift?.phase === 'carry');
   copRubber();
   // `sim/` publishes where its cars are and this side owns anything that reaches into the scene
   // — the patrol cruiser's rubber included, since it is one of `traffic.policeCars` now. Off the
