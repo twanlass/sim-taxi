@@ -140,6 +140,8 @@ export const WRECK_STYLES = {
   quick: { life: 0.55, size: 0.8, reach: 0.9, rise: 0.6, lift: 1, squash: 1, hole: 0, core: true, ring: 1 },
   flat: { life: 0.8, size: 0.85, reach: 1.25, rise: 0.12, lift: 0.3, squash: 0.42, hole: 1.6, core: false, ring: 1.4 },
 };
+// Tyler picked flat after comparing all three on a phone (2026-10-05). The other two stay switchable.
+export const DEFAULT_WRECK_STYLE = 'flat';
 
 /**
  * Per-instance alpha. `instanceColor` is RGB only and a 4-component colour attribute takes a
@@ -339,7 +341,7 @@ export function createBlast(scene, rng) {
   let nextShard = 0;
   let nextRing = 0;
   let nextTyre = 0;
-  let style = WRECK_STYLES.classic;
+  let style = WRECK_STYLES[DEFAULT_WRECK_STYLE];
 
   const dummy = new THREE.Object3D();
   const tintColor = new THREE.Color();
@@ -733,9 +735,9 @@ export function createBlast(scene, rng) {
     return live;
   }
 
-  /** Which of WRECK_STYLES the *next* `fire` uses. Unknown names fall back to classic. */
+  /** Which of WRECK_STYLES the *next* `fire` uses. Unknown names fall back to the default. */
   function setStyle(name) {
-    style = WRECK_STYLES[name] ?? WRECK_STYLES.classic;
+    style = WRECK_STYLES[name] ?? WRECK_STYLES[DEFAULT_WRECK_STYLE];
   }
 
   return { fire, update, active, tyreAt, setStyle, puffMesh, shardMesh, ringMesh, tyreMesh };

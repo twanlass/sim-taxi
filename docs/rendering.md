@@ -2287,7 +2287,7 @@ ellipse spreading out from under the wreck — the blast has a size before the f
 one. Fourteen segments, so the flat sides show at the wreck zoom.
 
 **Three cuts of the fireball** (`WRECK_STYLES`, picked with `?wreck=classic|quick|flat` or the ⚙️
-panel's *Wreck fire*, read at detonation). Classic hid the two cars the run ended on for most of a
+panel's *Wreck fire*, read at detonation). **flat is the default** (Tyler's pick); classic hid the two cars the run ended on for most of a
 second. `quick` is the same fire smaller and over in ~55% of the time. `flat` squashes each puff to
 0.42 of its height, starts it on a ring 1.6 units out from the car instead of on it, drops the core
 puff and keeps the whole skirt under ~1.4 units, so the fire rolls outward along the road and the

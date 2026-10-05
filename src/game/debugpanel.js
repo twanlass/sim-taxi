@@ -346,7 +346,7 @@ export function createDebugPanel({
   // Live, and it only reaches the *next* crash: the style is read at detonation. Mirrored into the
   // URL so a Retry that reloads keeps it, and so the choice can be pasted as a link.
   if (wreck) {
-    const wreckStyle = dropdown(wreck.styles, wreck.styles.includes(wreck.current) ? wreck.current : 'classic');
+    const wreckStyle = dropdown(wreck.styles, wreck.styles.includes(wreck.current) ? wreck.current : 'flat');
     row(panel, 'Wreck fire', wreckStyle);
     wreckStyle.addEventListener('change', () => {
       wreck.set(wreckStyle.value);
