@@ -173,6 +173,8 @@ const GATED_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider']);
  * @param isOver        () => boolean — run ended under the tutorial (a wreck, say); drop everything
  * @param isBlocked     () => boolean — something else is holding the run in front of this, so say
  *                      nothing and take no taps until it lets go
+ * @param isQuiet       () => boolean — the run is live but busy (a getaway): the Loco Mode beat comes
+ *                      down if it is up and waits, without spending one of its showings
  * @param shouldIgnoreTap () => boolean — true for the click that closes out a camera drag, so a
  *                      swipe does not also dismiss the bubble it dragged past
  * @param onRunning     (running: boolean) => void — fires on start and on the *second* dismissal;
@@ -184,7 +186,8 @@ export function createTutorial({
   boostTarget = () => null,
   waitingFare, fareLocation, isDispatched, hasDelivered = () => false,
   boostHeld = () => false, boostUsed = () => false,
-  isOver = () => false, isBlocked = () => false, shouldIgnoreTap = () => false,
+  isOver = () => false, isBlocked = () => false, isQuiet = () => false,
+  shouldIgnoreTap = () => false,
   onRunning = () => {},
 }) {
   const root = document.getElementById('coach');
@@ -429,6 +432,21 @@ export function createTutorial({
     // because on a desktop the restore glide can still be running when the delivery lands.
     if (boostWait > 0 && hasDelivered()
       && (state.step === 'restore' || state.step === 'toBoost')) boostWait -= dt;
+
+    // A getaway: no bubble over the road. Only the Loco Mode beat can be live this late (a robbery
+    // waits for two drop-offs, and the first two beats end on the first dispatch), so this is that
+    // beat stepping back to its countdown — the showing handed back, since nobody read it — and a
+    // fresh gap once it is over, so the hint does not land on the frame the chase ends.
+    if (isQuiet() && (state.step === 'toBoost' || state.step === 'boost')) {
+      if (state.step === 'boost') {
+        bubble.hide();
+        document.body.classList.remove('coach-boost');
+        boostShows -= 1;
+        state.step = 'toBoost';
+      }
+      boostWait = Math.max(boostWait, BOOST_HINT_REPEAT_GAP);
+      return;
+    }
 
     if (state.step === 'toBoost') {
       // Already discovered it — and *discovered* means held, not pressed. Nothing left to say, so
