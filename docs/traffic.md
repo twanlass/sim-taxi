@@ -1790,8 +1790,9 @@ replaced, an opacity.
 times, about a second each: from ~35° off the fixed diagonal, from ~35° the other way, then square
 on and tightest. Cut, crash, cut, crash, cut, crash, card. Each shot opens 0.3s of sim before the
 hit and plays at 0.8× into it and 0.5× through the blast, with a white flash on each cut and the
-crash sound under each one. The last shot then holds its final frame for 0.7s of wall clock
-(`hold` in `SHOTS`), still orbiting, so the last word lands before the card — about 3.9s for all
+crash sound under each one. The last shot eases further, to 0.25× over a longer ramp (`slow` and
+`ramp` in `SHOTS`), so the final hit plays in real slow motion, then holds its final frame for 0.4s
+of wall clock (`hold`), still orbiting, so the last word lands before the card — about 4.7s for all
 three. There is no letterbox or REPLAY tag: the
 first version had both, played the whole approach in slow motion over two longer angles, and ran
 ~7s from crash to card. Any tap or key skips straight to the card. A bust and a timeout keep the

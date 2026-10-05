@@ -305,11 +305,15 @@ export function createTape(scene, { roots = [], exclude = () => false } = {}) {
 // three-beat stutter reads as the crash being too big to show once. `hold` is wall seconds the shot
 // stays on its last frame before handing back, the camera still drifting round on its orbit: the
 // last word wants a beat to land, and it cannot be bought with more `post` — the tape only runs as
-// far past the hit as the live beat recorded (see REPLAY_LEAD in main.js).
+// far past the hit as the live beat recorded (see REPLAY_LEAD in main.js). `slow` and `ramp`
+// override the playback rate below for one shot: the last word sinks to a quarter speed over a
+// longer ease, so the hit lands in real slow motion rather than at the 0.5 the first two cuts
+// stutter at. That slow-mo stretches the shot's own 0.45s of blast to 1.8s of wall clock, which
+// buys what most of the old 0.7s hold was for, so the hold is shorter.
 const SHOTS = [
   { pre: 0.3, post: 0.3, zoomFrom: 17, zoomTo: 14, side: 1 },
   { pre: 0.3, post: 0.3, zoomFrom: 14, zoomTo: 11.5, side: -1 },
-  { pre: 0.3, post: 0.45, zoomFrom: 11, zoomTo: 9, side: 0, hold: 0.7 },
+  { pre: 0.3, post: 0.45, zoomFrom: 11, zoomTo: 9, side: 0, slow: 0.25, ramp: 0.22, hold: 0.4 },
 ];
 // The furthest past the impact any shot plays, in sim seconds. The tape only holds what the live
 // beat recorded after the hit, which is what sets REPLAY_LEAD's floor in main.js.
@@ -317,7 +321,8 @@ export const REPLAY_POST = Math.max(...SHOTS.map((s) => s.post));
 
 // Playback rate, as a fraction of real time: near full speed into the hit, dropping over the last
 // RAMP seconds before it and holding there through the blast. At these numbers a 0.3 + 0.3 shot is
-// ~0.95s of wall clock and the last ~1.25s plus its 0.7s hold — about 3.9s for all three.
+// ~0.95s of wall clock, and the last (at its own 0.25 over a 0.22 ramp) ~2.4s plus its 0.4s hold —
+// about 4.7s for all three.
 const FAST = 0.8;
 const SLOW = 0.5;
 const RAMP = 0.12;
@@ -344,11 +349,13 @@ function easeInOut(t) {
   return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
 }
 
-function rate(u) {
-  if (u >= 0) return SLOW;
-  if (u <= -RAMP) return FAST;
-  const s = 1 + u / RAMP;                        // 0 at the start of the ramp, 1 at the impact
-  return FAST + (SLOW - FAST) * s * s * (3 - 2 * s);
+function rate(u, shot) {
+  const slow = shot.slow ?? SLOW;
+  const ramp = shot.ramp ?? RAMP;
+  if (u >= 0) return slow;
+  if (u <= -ramp) return FAST;
+  const s = 1 + u / ramp;                        // 0 at the start of the ramp, 1 at the impact
+  return FAST + (slow - FAST) * s * s * (3 - 2 * s);
 }
 
 const viewDir = new THREE.Vector3();
@@ -497,7 +504,7 @@ export function createCrashReplay({
     const span = run.to - run.from;
     const k = span > 0 ? THREE.MathUtils.clamp((run.t - run.from) / span, 0, 1) : 1;
     // The hold keeps the orbit going at the rate the shot ended on, so a held frame is never a still.
-    const wallSpan = span / SLOW;
+    const wallSpan = span / (run.shot.slow ?? SLOW);
     const orbitK = k + (wallSpan > 0 ? run.held / wallSpan : 0);
     const ratio = aspect();
     const zoom = (run.shot.zoomFrom + (run.shot.zoomTo - run.shot.zoomFrom) * easeInOut(k))
@@ -511,7 +518,7 @@ export function createCrashReplay({
   function update(wallDt) {
     if (!run) return false;
     const before = run.t - crash.t0;
-    run.t = Math.min(run.to, run.t + wallDt * rate(before));
+    run.t = Math.min(run.to, run.t + wallDt * rate(before, run.shot));
     if (!run.hit && run.t >= crash.t0) {
       run.hit = true;
       controller.kickShake(REPLAY_SHAKE);
