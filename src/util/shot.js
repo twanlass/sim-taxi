@@ -580,9 +580,10 @@ export function getHdr(fallback = false) {
 
 /**
  * The wreck fireball's cut, via `?wreck=classic|quick|flat` — see WRECK_STYLES in game/blast.js.
- * Returned as the raw name; `blast.setStyle` falls back to classic on anything it does not know.
+ * Returned as the raw name; `blast.setStyle` falls back to the default on anything it does not know.
+ * The fallback is flat, Tyler's pick — `?wreck=classic` brings the old fireball back.
  */
-export function getWreckStyle(fallback = 'classic') {
+export function getWreckStyle(fallback = 'flat') {
   return new URLSearchParams(window.location.search).get('wreck') ?? fallback;
 }
 
