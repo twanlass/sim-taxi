@@ -55,7 +55,7 @@ import { createSkidMarks, createTyreTrail } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
 import { createSpray } from './game/spray.js';
 import { createCityEntry } from './game/cityentry.js';
-import { createBlast } from './game/blast.js';
+import { createBlast, WRECK_STYLES } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createSparks } from './game/sparks.js';
 import { createRepairFx } from './game/repairfx.js';
@@ -114,7 +114,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -842,10 +842,11 @@ const robbery = city.bank && !shot
       traffic.taxi.pendingTarget = null;
       traffic.setTaxiOccupied(true);
       dispatchToDropoff(fare);
-      // ...and the burger, if one was running, goes back in front of the car with the getaway as
-      // what to return to — the same line the `'pickup'` handler runs, and for the same reason: a
-      // detour the player asked for is still their standing instruction.
-      if (burgerRun?.active()) burgerRun.send();
+      // ...and a burger run, if one was going, is called off rather than put back in front of the
+      // car the way the `'pickup'` handler does: the drive-through is shut for the getaway
+      // (`getaway()` below), and a detour to it with four cop cars behind is not a standing
+      // instruction anybody would want kept.
+      burgerRun?.abandon();
       // A full tank for the getaway, poured the way a VIP's reward is: exactly what is missing,
       // read when the bits land. The event is imposed — it takes the seat whatever the meter says —
       // and a getaway opened on a dry pill is a slow chase the player never chose, with every cop
@@ -912,6 +913,19 @@ const depotCall = garage && !shot
   ? createDepotCall({ site: garage.site, project: projectToScreen, viewport })
   : null;
 let depotCallArmed = true;
+
+/**
+ * Is a getaway on? The robbery owns the run while it is: the depot and the drive-through both
+ * refuse the taxi (`canRepair`, `sendForBurger`, the picker's stand-in rule), since a repair or a
+ * burger mid-chase is a pause button with cops waiting outside it.
+ */
+const getaway = () => Boolean(robbery?.state.active);
+/**
+ * ...and the wider version the tips are held behind: a getaway, or the chase its drop-off hands to
+ * the patrol (`handOff`). Tyler got "Head to the shop for repairs" over the road mid-getaway. A
+ * held tip is *deferred*, not dropped — see the depot call and `quiet` in game/tutorial.js.
+ */
+const hushTips = () => getaway() || patrol.busy();
 const patrol = createPatrol({
   rng: makeRng(runSeed + 66),
   police,
@@ -1155,6 +1169,7 @@ if (litPanes || lamps) {
 // pool serves both cars: nothing here is re-shot from a stored position, so a second call cannot
 // drag the first car's wreckage across to the second the way the old debris pools could.
 const blast = createBlast(scene, makeRng(runSeed + 88));
+blast.setStyle(getWreckStyle());
 const flames = createFlames(scene, makeRng(runSeed + 133));
 // Sparks off the underside of the car as it lands a jump — see game/sparks.js and `landedHard`
 // below. Run seed, like the flames: which way a shower scatters is part of the situation, and a
@@ -2031,7 +2046,7 @@ const tapPoint = new THREE.Vector3();
  * player, on whatever clock is already running. See game/burgerrun.js.
  */
 function sendForBurger() {
-  if (!burgerRun) return;
+  if (!burgerRun || getaway()) return;
   // Same rule as the fare and package taps: the buzz reports that the taxi is now going somewhere
   // else, so it is gated on the route actually being taken.
   if (burgerRun.send()) haptic('pick');
@@ -2051,6 +2066,8 @@ function sendForRepairs() {
 /** Whether a tap on the depot would be taken right now — `sendForRepairs`'s refusals, and the picker's. */
 function canRepair() {
   if (!depotRun || !opening || opening.running() || opening.visiting()) return false;
+  // Shut for a getaway — see `getaway`.
+  if (getaway()) return false;
   // Nor while anything else is driving the car — the drive-through, mostly. A route planned under a
   // staged taxi would be overwritten by the job that trip hands back on the way out.
   if (traffic.taxi.staged || traffic.taxi.hp >= TAXI_HP) return false;
@@ -2183,7 +2200,7 @@ createPicker(
   // A tap on the depot's or the joint's own wall is a tap on the building, even where a rider's
   // invisible hit box stands in front of it — see the stand-in rule in game/pick.js. The depot only
   // while it would take the car: a tap it would refuse keeps meaning the rider.
-  (kind) => (kind === 'depot' ? canRepair() : kind === 'burger' && Boolean(burgerRun)),
+  (kind) => (kind === 'depot' ? canRepair() : kind === 'burger' && Boolean(burgerRun) && !getaway()),
 );
 
 // The band is only draggable once there is one: a destination is set, the run is live, and the
@@ -2479,6 +2496,9 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   boostHeld: () => locoHeld,
   boostUsed: () => locoUsed,
   isOver: () => fares.state.gameOver,
+  // Not a word during a getaway — see `hushTips`. The Loco Mode beat is the one that can still be
+  // waiting this late (a player who has never held the pill), and it waits a little longer.
+  isQuiet: hushTips,
   // The "Add to Home Screen" screen gets there first on iOS in a tab, and holds the run until it is
   // tapped. `homeTip` is declared further down and only ever read from the frame loop, which is
   // long after this module has finished evaluating. The city's own entrance holds the tutorial the
@@ -4426,7 +4446,11 @@ function frame() {
   if (depotCall) {
     const smoking = traffic.taxi.hp <= TAXI_HP * SMOKE_FRACTION;
     if (!smoking) depotCallArmed = true;
-    else if (depotCallArmed) {
+    // Held through a getaway rather than spent on it: left armed, so a car still smoking when the
+    // chase is over hears it then. One already up when the robber gets in comes down and re-arms.
+    else if (hushTips()) {
+      if (depotCall.state.open) { depotCall.hide(); depotCallArmed = true; }
+    } else if (depotCallArmed) {
       depotCallArmed = false;
       // Not while the taxi is already on its way in, or inside: the advice has been taken.
       if (!fares.state.gameOver && !depotRun?.active() && !opening?.visiting()) depotCall.show();
@@ -4519,7 +4543,6 @@ function frame() {
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       dispatchToDropoff(fare);
-      if (burgerRun?.active()) burgerRun.send();
     } else if (type === 'failed') {
       // The run ended on a clock rather than on an impact — see the TIMEOUT_* block. The camera
       // takes wherever the rider is getting out (`failSpot`, set by fares.js as it hands them to
@@ -5345,6 +5368,7 @@ if (!shot && wantsDebugPanel) {
     /** True when the sliders opened on a tuning restored from a previous session. */
     locoRestored: Boolean(stashedLoco),
     sfx,
+    wreck: { styles: Object.keys(WRECK_STYLES), current: getWreckStyle(), set: blast.setStyle },
   });
 }
 

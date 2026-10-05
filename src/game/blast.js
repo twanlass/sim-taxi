@@ -119,6 +119,28 @@ const RING_START = 1.2;
 const RING_END = 5.5;
 const RING_Y = 0.06;      // above the road paint at 0.02 and the route band at 0.03
 
+// Three cuts of the fireball, for comparing on a phone (`?wreck=` or the ⚙️ panel's Game section).
+// The complaint they answer is that the classic one *hides the crash*: twelve puffs per car, each
+// up to 4.3 units across, centred on the bodywork and held at full size for most of a second, so
+// the two cars the run just ended on are behind an orange cloud for the frames the slow-mo
+// stretches out. Each knob is a multiplier on the constants above, so classic is the identity.
+//
+//   - **quick** is the same fireball, smaller and over in a bit over half the time: the cars are
+//     covered for the first instant and back in view while the camera is still pushing in.
+//   - **flat** is a shockwave of fire: the puffs are squashed to under half their height, start on
+//     a ring HOLE units out rather than on the car, hug the road (LIFT, RISE) and roll *outward*,
+//     so the fire is a burning skirt around the wreck and the bodywork sits in the clear middle of
+//     it. No core puff — the core is the one that would sit on the cars. The ring is thrown wider
+//     to lead the skirt out.
+//
+// Read at `fire` and stored per instance, so switching style mid-wreck cannot reshape a blast that
+// is already in the air.
+export const WRECK_STYLES = {
+  classic: { life: 1, size: 1, reach: 1, rise: 1, lift: 1, squash: 1, hole: 0, core: true, ring: 1 },
+  quick: { life: 0.55, size: 0.8, reach: 0.9, rise: 0.6, lift: 1, squash: 1, hole: 0, core: true, ring: 1 },
+  flat: { life: 0.8, size: 0.85, reach: 1.25, rise: 0.12, lift: 0.3, squash: 0.42, hole: 1.6, core: false, ring: 1.4 },
+};
+
 /**
  * Per-instance alpha. `instanceColor` is RGB only and a 4-component colour attribute takes a
  * different code path in three, so opacity has to ride its own attribute and be multiplied in by
@@ -266,6 +288,8 @@ export function createBlast(scene, rng) {
     cx: new Float32Array(MAX_PUFFS),
     cz: new Float32Array(MAX_PUFFS),
     reach: new Float32Array(MAX_PUFFS),
+    hole: new Float32Array(MAX_PUFFS),
+    squash: new Float32Array(MAX_PUFFS),
     rise: new Float32Array(MAX_PUFFS),
     size: new Float32Array(MAX_PUFFS),
     shade: new Float32Array(MAX_PUFFS),
@@ -296,6 +320,7 @@ export function createBlast(scene, rng) {
     oz: new Float32Array(MAX_RINGS),
     cx: new Float32Array(MAX_RINGS),
     cz: new Float32Array(MAX_RINGS),
+    end: new Float32Array(MAX_RINGS),
   };
   const tyre = {
     life: new Float32Array(MAX_TYRES),
@@ -314,6 +339,7 @@ export function createBlast(scene, rng) {
   let nextShard = 0;
   let nextRing = 0;
   let nextTyre = 0;
+  let style = WRECK_STYLES.classic;
 
   const dummy = new THREE.Object3D();
   const tintColor = new THREE.Color();
@@ -350,6 +376,7 @@ export function createBlast(scene, rng) {
     ring.oz[nextRing] = z;
     ring.cx[nextRing] = fx * RING_CARRY;
     ring.cz[nextRing] = fz * RING_CARRY;
+    ring.end[nextRing] = RING_END * style.ring;
     nextRing = (nextRing + 1) % MAX_RINGS;
 
     for (let k = 0; k < PUFFS_PER_BLAST; k++) {
@@ -362,22 +389,25 @@ export function createBlast(scene, rng) {
       const angle = (k / PUFFS_PER_BLAST) * Math.PI * 2 + rng.jitter(0.35);
       // The first puff is the core: it barely travels, so the middle of the fireball stays filled
       // while the rest of the cluster opens out around it.
-      const spread = k === 0 ? 0.12 : rng.range(0.55, 1.15);
+      const core = k === 0 && style.core;
+      const spread = core ? 0.12 : rng.range(0.55, 1.15);
 
       // A wide spread on the life, which is what staggers the colour ramp: puffs that all reach
       // the flame stop together read as one flat orange silhouette with no depth in it.
-      puff.life[slot] = PUFF_LIFE * rng.range(0.6, 1.4);
+      puff.life[slot] = PUFF_LIFE * style.life * rng.range(0.6, 1.4);
       puff.life0[slot] = puff.life[slot];
       puff.ox[slot] = x + rng.jitter(0.3);
-      puff.oy[slot] = 0.7 + rng.range(0, 0.8);
+      puff.oy[slot] = (0.7 + rng.range(0, 0.8)) * style.lift;
       puff.oz[slot] = z + rng.jitter(0.3);
       puff.dx[slot] = Math.cos(angle);
       puff.dz[slot] = Math.sin(angle);
       puff.cx[slot] = fx * PUFF_CARRY;
       puff.cz[slot] = fz * PUFF_CARRY;
-      puff.reach[slot] = PUFF_REACH * spread;
-      puff.rise[slot] = PUFF_RISE * rng.range(0.6, 1.3);
-      puff.size[slot] = PUFF_SIZE * (k === 0 ? 1.35 : rng.range(0.7, 1.15));
+      puff.reach[slot] = PUFF_REACH * style.reach * spread;
+      puff.hole[slot] = style.hole;
+      puff.squash[slot] = style.squash;
+      puff.rise[slot] = PUFF_RISE * style.rise * rng.range(0.6, 1.3);
+      puff.size[slot] = PUFF_SIZE * style.size * (core ? 1.35 : rng.range(0.7, 1.15));
       // A fixed bias along the colour ramp, correlated with how far the puff is thrown: the outer
       // ones run *ahead* of the ramp and the core runs behind it, so the fireball has a pale-gold
       // heart and deepens towards its edge.
@@ -477,19 +507,26 @@ export function createBlast(scene, rng) {
       // own fraction of its own life, and the carry on `age`, real seconds. A puff rolled a short
       // life would otherwise finish its downfield travel early and hang back while its longer-lived
       // neighbours went on past it — the fireball would shear rather than move.
+      // `hole` is where on the fan the puff starts: 0 for a fireball, a ring round the cars for
+      // the flat style.
       const ease = 1 - (1 - t) ** 2.2;
       const drift = carryTravel(age);
+      const out = puff.hole[slot] + puff.reach[slot] * ease;
       dummy.position.set(
-        puff.ox[slot] + puff.dx[slot] * puff.reach[slot] * ease + puff.cx[slot] * drift,
+        puff.ox[slot] + puff.dx[slot] * out + puff.cx[slot] * drift,
         puff.oy[slot] + puff.rise[slot] * ease,
-        puff.oz[slot] + puff.dz[slot] * puff.reach[slot] * ease + puff.cz[slot] * drift,
+        puff.oz[slot] + puff.dz[slot] * out + puff.cz[slot] * drift,
       );
 
       // Pop, hold, collapse. A fireball that only faded left a full-size ghost hanging over the
       // road; collapsing it is what makes the blast look like it is being drawn back in.
       const env = Math.min(1, t / 0.18) * Math.min(1, (1 - t) / 0.42) ** 0.8;
-      dummy.rotation.set(puff.tilt[slot] * 0.3, puff.spin[slot] + puff.tilt[slot] * t, 0);
-      dummy.scale.setScalar(puff.size[slot] * env);
+      // A squashed puff keeps its tilt off: rolled, a flattened icosahedron stands its long axis
+      // back up and the skirt grows spikes.
+      const squash = puff.squash[slot];
+      dummy.rotation.set(squash < 1 ? 0 : puff.tilt[slot] * 0.3, puff.spin[slot] + puff.tilt[slot] * t, 0);
+      const s = puff.size[slot] * env;
+      dummy.scale.set(s, s * squash, s);
       dummy.updateMatrix();
       puffMesh.setMatrixAt(slot, dummy.matrix);
 
@@ -653,7 +690,7 @@ export function createBlast(scene, rng) {
 
       // Snaps out and decelerates hard — the ring is the leading edge of the bang, so all of its
       // travel belongs at the front of its life.
-      const spread = RING_START + (RING_END - RING_START) * (1 - (1 - t) ** 2.6);
+      const spread = RING_START + (ring.end[slot] - RING_START) * (1 - (1 - t) ** 2.6);
       const drift = carryTravel(age);
       dummy.position.set(
         ring.ox[slot] + ring.cx[slot] * drift,
@@ -696,5 +733,10 @@ export function createBlast(scene, rng) {
     return live;
   }
 
-  return { fire, update, active, tyreAt, puffMesh, shardMesh, ringMesh, tyreMesh };
+  /** Which of WRECK_STYLES the *next* `fire` uses. Unknown names fall back to classic. */
+  function setStyle(name) {
+    style = WRECK_STYLES[name] ?? WRECK_STYLES.classic;
+  }
+
+  return { fire, update, active, tyreAt, setStyle, puffMesh, shardMesh, ringMesh, tyreMesh };
 }
