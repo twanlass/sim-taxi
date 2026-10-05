@@ -66,9 +66,9 @@ const FRAME_TIME = 1 / 16;
 // each is the same silhouette scaled, so an inner tongue is strictly inside the one behind it and
 // the plume reads as a hot core in a cooler sheath without a single translucent pixel.
 const LAYERS = [
-  { color: PALETTE.locoFlameOuter, scale: [1, 1], order: 6 },
-  { color: PALETTE.locoFlameMid, scale: [0.72, 0.64], order: 7 },
-  { color: PALETTE.locoFlameCore, scale: [0.50, 0.44], order: 8 },
+  { color: PALETTE.locoFlameOuter, drift: PALETTE.locoFlameDriftOuter, scale: [1, 1], order: 6 },
+  { color: PALETTE.locoFlameMid, drift: PALETTE.locoFlameDriftMid, scale: [0.72, 0.64], order: 7 },
+  { color: PALETTE.locoFlameCore, drift: PALETTE.locoFlameDriftCore, scale: [0.50, 0.44], order: 8 },
 ];
 
 // How fast the plume comes up and how fast it dies. The attack is nearly instant — the flame is the
@@ -190,6 +190,9 @@ export function createLocoFlame(scene) {
     depthWrite: false,
   }));
 
+  const baseColors = LAYERS.map(({ color }) => new THREE.Color(color));
+  const driftColors = LAYERS.map(({ drift }) => new THREE.Color(drift));
+
   // One group per flipbook frame; exactly one is visible at a time. Built twice, once per barrel:
   // the second only shows during a surge, and shares every geometry and material with the first.
   const barrels = [new THREE.Group(), new THREE.Group()];
@@ -284,8 +287,12 @@ export function createLocoFlame(scene) {
     twinFrames[(state.frame + 2) % FRAMES].visible = true;
 
     // Fades with the envelope as well as shrinking with it: a plume that only scales pops out of
-    // existence at its smallest size instead of going out.
-    for (const material of materials) material.opacity = heat;
+    // existence at its smallest size instead of going out. And turns violet with the split, so the
+    // drift kick is a different fire from the ordinary one (`locoFlameDrift*` in palette.js).
+    materials.forEach((material, k) => {
+      material.opacity = heat;
+      material.color.lerpColors(baseColors[k], driftColors[k], state.split);
+    });
   }
 
   return { group, frames, materials, state, update };

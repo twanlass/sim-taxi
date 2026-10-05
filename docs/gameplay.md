@@ -3337,7 +3337,8 @@ frame and held for 0.6s. The tap screeches and lays four-wheel rubber the moment
 
 The kick has to read at a glance, and a buzz and a shake alone did not: the first playtest could
 not tell when it had worked. It now says so with the tailpipe flame splitting into two longer
-barrels for as long as the kick holds (`surge` in `game/locoflame.js`), a bark of fire, the Loco
+violet barrels (`locoFlameDrift*` in palette.js, so it is a different fire from the ordinary
+orange one) for as long as the kick holds (`surge` in `game/locoflame.js`), a bark of fire, the Loco
 whoosh, a bigger jolt, and the gauge filling. (A "DRIFT BOOST!" word off the roof was tried and
 cut.)
 

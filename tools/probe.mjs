@@ -7273,11 +7273,13 @@ check('the taxi is an ordinary car in the traffic array',
     const twin = createLocoFlame(scene);
     for (let step = 0; step < 30; step++) twin.update(1 / 60, still, false, true);
     const [b0, b1] = twin.group.children;
+    const purple = new THREE.Color(PALETTE.locoFlameDriftOuter);
     const split = twin.group.visible && b1.visible && b1.position.z - b0.position.z > 0.8
-      && twin.group.scale.x > 1.5;
+      && twin.group.scale.x > 1.5 && twin.materials[0].color.getHex() === purple.getHex();
     for (let step = 0; step < 30; step++) twin.update(1 / 60, still, true, false);
-    check('the drift kick splits the flame into two longer barrels, and lets them go after',
-      split && !twin.group.children[1].visible && Math.abs(twin.group.children[0].position.z) < 1e-6,
+    check('the drift kick splits the flame into two longer violet barrels, and lets them go after',
+      split && !twin.group.children[1].visible && Math.abs(twin.group.children[0].position.z) < 1e-6
+        && twin.materials[0].color.getHex() === new THREE.Color(PALETTE.locoFlameOuter).getHex(),
       `split ${split}, scale ${twin.group.scale.x.toFixed(2)} after`);
   }
 }

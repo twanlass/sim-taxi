@@ -620,6 +620,12 @@ export const PALETTE = {
   locoFlameOuter: '#FF5D18',
   locoFlameMid: '#FF9E12',
   locoFlameCore: '#FFF6D8',
+  // The drift kick's double-barrelled plume (game/locoflame.js `surge`): the same three tongues in
+  // violet, so the combo reads as a different fire from the ordinary Loco one at a glance. Same
+  // ramp shape — saturated outside, pale at the pipe — so it still reads as a flame and not a light.
+  locoFlameDriftOuter: '#9B3DFF',
+  locoFlameDriftMid: '#C77DFF',
+  locoFlameDriftCore: '#F3E6FF',
 
   // Sparks off the underside of the taxi as it lands a jump — see game/sparks.js. Two stops, one
   // per end of a shower rather than a ramp each spark walks: a spark is on screen for half a second
