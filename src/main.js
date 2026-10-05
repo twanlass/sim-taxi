@@ -3107,6 +3107,9 @@ const BRAKE_SKID_V = 2.5;
 // back on the pill before the arc is over earns the exit kick. The tap owns the brake until the
 // pedal comes back up, as the bootleg's does, so a thumb still down doesn't stop the car — though
 // a thumb sliding back onto the pill lets go of it anyway (`holdLocoMode` releases the brake).
+// A landed kick also pays Loco back: a sixth of a tank, as much as a parcel. It is what lets a
+// player running low drift their way to a drop-off rather than crawl there.
+const DRIFT_FUEL = 1 / 6;
 let driftHoldOff = false;
 let driftTapAt = -Infinity;
 let driftsPaid = 0;
@@ -4083,9 +4086,11 @@ function frame() {
   if (traffic.taxi.drifts > driftsPaid) {
     driftsPaid = traffic.taxi.drifts;
     // The exit kick (DRIFT_EXIT in sim/traffic.js) has to read at a glance — playtesting said it
-    // didn't, with only a buzz and a shake. So it says so: the word off the roof, a bark of fire out
-    // of the pipe on top of the double-barrelled plume (`locoFlame` below), and the Loco whoosh.
+    // didn't, with only a buzz and a shake. So it says so: a bark of fire out of the pipe on top of
+    // the double-barrelled plume (`locoFlame` below), the Loco whoosh, and the fuel pouring into the
+    // gauge. (A "DRIFT BOOST!" word off the roof was tried and cut.)
     if (!fares.state.gameOver) {
+      boost.topUp(DRIFT_FUEL);
       const car = traffic.taxi;
       haptic('loco');
       controller.kickShake(0.5);
@@ -4096,7 +4101,6 @@ function frame() {
         car.z + Math.sin(car.yaw) * TAXI_TAILPIPE_BACK,
         car.yaw,
       );
-      popLabel('DRIFT BOOST!');
     }
   }
   // A pass carried the taxi straight through a junction its route wanted to turn at, and the sim

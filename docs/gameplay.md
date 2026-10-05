@@ -3335,9 +3335,15 @@ arc is over. The taxi comes out at 1.2× the boost cruise (`DRIFT_EXIT`, 26.5 u/
 frame and held for 0.6s. The tap screeches and lays four-wheel rubber the moment it lands.
 
 The kick has to read at a glance, and a buzz and a shake alone did not: the first playtest could
-not tell when it had worked. It now says so four ways at once — **DRIFT BOOST!** rising off the
-roof (`popLabel`), the tailpipe flame splitting into two longer barrels for as long as the kick
-holds (`surge` in `game/locoflame.js`), a bark of fire and the Loco whoosh, and a bigger jolt.
+not tell when it had worked. It now says so with the tailpipe flame splitting into two longer
+barrels for as long as the kick holds (`surge` in `game/locoflame.js`), a bark of fire, the Loco
+whoosh, a bigger jolt, and the gauge filling. (A "DRIFT BOOST!" word off the roof was tried and
+cut.)
+
+**A landed kick refunds a sixth of a tank** (`DRIFT_FUEL`, the same as a parcel), so a player
+running low can drift their way to a drop-off. It needs *some* fuel to start — the combo is a
+Loco press — and a kick costs well under a second of Loco against the 2.5s it pays, so chaining
+corners is net positive. That is deliberate: it is the skill being paid.
 
 - **The tap alone is a slide, not a stop.** At 13 u/s or more (`DRIFT_MIN_V`, so only off the pill)
   with a real turn within reach, the taxi goes round at the boost cruise, rights included, and
