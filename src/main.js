@@ -109,7 +109,8 @@ import { createTitleScreen } from './game/titlescreen.js';
 import { createSettings } from './game/settings.js';
 import { createPause } from './game/pause.js';
 import { createInspect } from './game/inspect.js';
-import { findRoute, findRouteVia, findRouteOnto, planOrigin, crossingOrigin } from './game/route.js';
+import { findRoute, findRouteVia, findRouteOnto, findRouteAlong, planOrigin, crossingOrigin } from './game/route.js';
+import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.js';
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
@@ -135,7 +136,7 @@ import { isNative } from './util/platform.js';
 import { tap as haptic } from './util/haptics.js';
 import { createSfx } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
-import { isCityConnected, GRID_I, GRID_J, MAX_SPAN } from './city/grid.js';
+import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
 import { PALETTE, color as paletteColor } from './palette.js';
 
@@ -1880,13 +1881,19 @@ const selected = true;
  * mouth opens off one kerbside lane and a route that arrives from any other side drives past it —
  * and `findRouteOnto` carries why the obvious `via` version does not work.
  *
+ * `along` is a tapped street, `{ a, b }`, which the route has to drive down rather than merely touch
+ * — see game/streettap.js. It takes `maxDetour` the way `via` does, and never comes with `onto`:
+ * the street tap stands down during the two trips that need a lane (see `tapStreet`).
+ *
  * The target object's *identity* is what the band's rollout sweep keys off, so a re-plan that
  * keeps the same destination must pass the same object rather than an equal one — otherwise every
  * frame of a drag replays the sweep and the band never finishes drawing itself.
  */
-function routeTo(target, { via = null, maxDetour, onto = null } = {}) {
+function routeTo(target, { via = null, along = null, maxDetour, onto = null } = {}) {
   const car = traffic.taxi;
-  const plan = (from) => (via
+  const plan = (from) => (along
+    ? findRouteAlong(from, along, target, { maxDetour })
+    : via
     // `undefined` falls through to `findRouteVia`'s own default rather than reading as "no cap".
     ? findRouteVia(from, via, target, { maxDetour, onto })
     : onto !== null
@@ -1994,6 +2001,43 @@ function divertToParcel(parcel) {
 }
 
 /**
+ * A tap on empty road: drive the trip down that street instead. See game/streettap.js.
+ *
+ * Only ever reached for a tap the picker found nothing under, so every rider, pin, package and
+ * building outranks it. Gated like the band drag (`canGrab`): there has to be a trip to bend. And
+ * it stands down during a burger run or a repair visit, whose destinations are lanes rather than
+ * junctions — their own `reroute` carries that, and a junction-level re-plan would drop it.
+ *
+ * Refusals are silent, the same as a tap on the sky always was: a tap on a building, on a street
+ * the plan already drives, or on one past the detour cap. The last is the one a player might wonder
+ * about, and the band not moving is the answer — the same answer a drag gives at the cap.
+ */
+function tapStreet(ray) {
+  if (!ray || !pathDrag || !canBendRoute()) return;
+  if (burgerRun?.active() || depotRun?.active()) return;
+  const point = ray.intersectPlane(GROUND_PLANE, tapPoint);
+  if (!point) return;
+  // A finger on a roof is a finger on the roof. The ray reaches the ground a long way up-screen of
+  // where it went in, so without this a tap on a tower re-routes the taxi down a street behind it.
+  if (!sightlineClear(point.x, 0.1, point.z)) return;
+  const street = streetAt(point.x, point.z);
+  if (!street) return;
+
+  const car = traffic.taxi;
+  if (routeDrives(planOrigin(car), car.route, street)) return;
+  const before = car.route.join(',');
+  if (!routeTo(car.pendingTarget, { along: street, maxDetour: STREET_TAP_MAX_DETOUR })) return;
+  if (car.route.join(',') === before) return;
+  // Same destination, so `pendingTarget`'s identity is unchanged and the band would snap into its
+  // new shape with no rollout. Ask for it, the way the double-tap reset does.
+  routeLine.replaySweep();
+  pathDrag.ping(point.x, point.z);
+  haptic('pick');
+}
+const GROUND_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const tapPoint = new THREE.Vector3();
+
+/**
  * A tap on the burger joint. The one thing on the map that is not a job.
  *
  * It reads like every other dispatch — the taxi is re-aimed and the band redraws on the same frame —
@@ -2067,7 +2111,7 @@ createPicker(
   renderer.domElement,
   () => [traffic.taxiGroup, ...fares.pickables(), ...(parcels?.pickables() ?? []),
     ...(burger ? [burger.group] : []), ...(garage ? [garage.group] : [])],
-  (kind, hit) => {
+  (kind, hit, ray) => {
     if (fares.state.gameOver) return;
 
     // **A tap skips a repair visit**, behind the opening's own cut to black — unless it lands on a
@@ -2111,6 +2155,12 @@ createPicker(
     // below this line would find one.
     if (kind === 'parcel' || kind === 'parcel-dropoff') {
       divertToParcel(parcels?.parcelFor(hit.object));
+      return;
+    }
+
+    // Nothing pickable under the finger: if it is on a street, that is a street tap.
+    if (kind === null) {
+      tapStreet(ray);
       return;
     }
 
@@ -2171,12 +2221,23 @@ pathDrag = createPathDrag({
       : routeTo(traffic.taxi.pendingTarget, { via })),
   // `pause` is declared further down and only ever read from a pointer handler, which is long
   // after this module has finished evaluating — same as `homeTip` in the tutorial's guards.
-  canGrab: () => Boolean(
+  canGrab: () => routeDragOn && canBendRoute(),
+});
+
+// **The band drag is off unless `?drag=on`.** Tyler's call (2026-10-05), to find out what the game
+// is like with the street tap as the only way to bend a route (game/streettap.js). The double-tap
+// reset lives in pathdrag.js too, so it goes with it: a tapped detour's only undo is tapping the
+// destination pin, which re-plans it direct. Everything stays wired so the experiment is one flag to reverse.
+const routeDragOn = new URLSearchParams(window.location.search).get('drag') === 'on';
+
+/** Whether the route can be bent by hand right now — the band drag and the street tap alike. */
+function canBendRoute() {
+  return Boolean(
     !shot && selected && traffic.taxi.pendingTarget
     && !fares.state.gameOver && !traffic.taxi.crashed && !traffic.taxi.staged
     && !pause?.state.paused,
-  ),
-});
+  );
+}
 
 // Camera shortcut: frame the waiting rider on demand. At play zoom on a phone the rider is a
 // handful of pixels somewhere on a map that no longer fits in one screen, so taking the camera to
@@ -5545,6 +5606,16 @@ window.__taxi = {
    * has to press on to test the drag. Taken off the same `routePath` the band is built from, so a
    * band that stopped being drawn where the tool thinks it is fails rather than drifting.
    */
+  /**
+   * Where a street's midpoint lands on screen, for tools/smoke.mjs's street tap — `{ a, b }` as
+   * game/streettap.js names one. Null if that point is behind a building, which a real finger could
+   * not tap either.
+   */
+  streetScreenPosition: ({ a, b }) => {
+    const x = (lineX(a.i) + lineX(b.i)) / 2;
+    const z = (lineZ(a.j) + lineZ(b.j)) / 2;
+    return sightlineClear(x, 0.1, z) ? projectToScreen(x, 0, z) : null;
+  },
   routeScreenPosition: (fraction = 0.45) => {
     const path = routePath(traffic.taxi, traffic.taxi.route);
     if (path.length < 2) return null;

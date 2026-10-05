@@ -301,6 +301,49 @@ export function findRouteVia(from, via, target, { maxDetour = MAX_VIA_DETOUR, on
 }
 
 /**
+ * The route from `from` to `target` that drives one particular street, or null. A tapped street —
+ * see game/streettap.js.
+ *
+ * `street` is a block-long piece of road, `{ a, b }`, two neighbouring junctions with `a` the lower
+ * index. It is **a lane, not a junction**, which is the whole difference from `findRouteVia`: a
+ * player tapping the middle of a street is asking to drive *down* it, and routing through either of
+ * its ends would happily touch the corner and turn away again without ever using the road that was
+ * tapped. So each direction of the street is tried as a `findRouteOnto` to its far end, the heading
+ * is carried across the join exactly as `findRouteVia` carries it, and the shorter of the two wins.
+ *
+ * A car already on one of the two lanes is driving the street right now, so that direction costs
+ * nothing extra and answers with the direct route. The caller does not get here in that case (a
+ * tap on a street the plan already uses is a no-op), but `routeTo` also plans from
+ * `crossingOrigin`, which can be.
+ *
+ * Null for the same refusals as `findRouteVia` — either half unreachable (a street under a park, a
+ * stretch of river with no bridge, a raised drawbridge), or the detour past `maxDetour`.
+ */
+export function findRouteAlong(from, street, target, { maxDetour = MAX_VIA_DETOUR } = {}) {
+  const direct = findRoute(from, target);
+  if (direct === null) return null;
+
+  const { a, b } = street;
+  const alongX = a.j === b.j;
+  // Arriving at `b` travelling a → b, and arriving at `a` travelling b → a.
+  const ways = alongX
+    ? [[b, 0], [a, 2]]          // DIR.PX, DIR.NX
+    : [[b, 1], [a, 3]];         // DIR.PZ, DIR.NZ
+
+  let best = null;
+  for (const [end, d] of ways) {
+    if (from.i === end.i && from.j === end.j && from.d === d) return direct;
+    const toEnd = findRouteOnto(from, end, d);
+    if (toEnd === null) continue;
+    const onward = findRoute({ i: end.i, j: end.j, d }, target);
+    if (onward === null) continue;
+    const route = [...toEnd, ...onward];
+    if (!best || route.length < best.length) best = route;
+  }
+  return best && best.length <= direct.length + maxDetour ? best : null;
+}
+
+/**
  * Where planning must start from for a given car.
  *
  * A car in the middle of a turn has *already* committed its choice at (i, j), so planning from

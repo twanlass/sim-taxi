@@ -1208,6 +1208,36 @@ which is what makes the assertion exact rather than tolerant: no frame runs betw
 detour and resetting it, so the taxi has not moved and the route afterwards is compared against the
 direct plan character for character instead of against a leg count that shrinks on its own.
 
+#### Tap a street to send the route down it
+
+**The band drag is switched off unless `?drag=on`** (Tyler, 2026-10-05), to test the street tap as
+the only way to bend a route. The double-tap reset goes with it.
+
+`src/game/streettap.js`. **A tap on bare road re-plans the trip down that street** — same
+destination, same fare, same clock, the drag's decision without the drag's aiming. It is the
+package tap (`divertToParcel`) for plain road.
+
+- **A street, not a junction.** `findRouteAlong` (game/route.js) tries both lanes of the tapped
+  block as a `findRouteOnto` to the far end and keeps the shorter. A route through either *end* of
+  the street could touch the corner and turn away without driving the road that was tapped.
+- **Everything else wins.** The picker hands a tap here only when nothing pickable was under it, so
+  riders, pins, packages, the depot, the burger joint and the taxi all keep their taps. A tap on a
+  roof is not a tap on the street behind it: the ground point is checked with `sightlineClear`.
+- **Within `STREET_SLOP` (2) of the kerb** counts as the street; the middle 8 units of an ordinary
+  block answer to nothing. In a junction box the arm whose centreline is closer wins.
+- **Capped at `STREET_TAP_MAX_DETOUR` (4) extra legs**, tighter than the drag's 6: a drag shows the
+  detour growing before it is let go, a tap takes it in one go. Refusals are silent and the band
+  not moving is the answer.
+- **A tap on a street the plan already drives does nothing**, including the block the car is on.
+  That is also what keeps a tap on the band (the first half of the double-tap reset) inert.
+- **Spent when planned**, like the package tap: nothing remembers the street, so the next re-plan
+  (a pickup, the drawbridge, an overtake detour) is free to drop it.
+- **Stands down during a burger run or a repair visit**, whose destinations are lanes; their own
+  `reroute` carries that and a junction-level plan would drop it.
+
+Acknowledged with the band's rollout sweep, the drag's grommet landing on the new stretch and
+letting go (`pathDrag.ping`), and a `pick` buzz — only when the route actually changed.
+
 #### The grab flourish
 
 A finger landing on the band has to be answered **on the band**, and answered before anything has

@@ -178,8 +178,9 @@ import {
 import { cityNetwork } from '../src/city/roadnet.js';
 import { routePath, nearestOnPath, HEAD_GAP, ROUTE_OPACITY } from '../src/game/routeline.js';
 import {
-  findRoute, findRouteVia, findRouteOnto, MAX_VIA_DETOUR, allIntersections,
+  findRoute, findRouteVia, findRouteOnto, findRouteAlong, MAX_VIA_DETOUR, allIntersections,
 } from '../src/game/route.js';
+import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from '../src/game/streettap.js';
 import { GRAB_RADIUS } from '../src/game/pathdrag.js';
 import { nearestJunction, nextIntersection } from '../src/city/grid.js';
 import { DIR, dirYaw, laneOffsetCoord } from '../src/city/grid.js';
@@ -5527,6 +5528,126 @@ check('every intersection is routable from every approach', unroutable === 0,
     check('dragging desyncs nothing and runs no reds',
       dTraffic.stats.routeDesync === 0 && dTraffic.stats.violations === 0,
       `${dTraffic.stats.routeDesync} desyncs, ${dTraffic.stats.violations} violations`);
+  }
+}
+
+// --- Tapping a street to re-route -------------------------------------------
+// A tap on bare road sends the trip down that street (game/streettap.js). Same three questions as
+// the drag above, asked of a street rather than a junction: does a finger on a street name that
+// street, does the re-plan actually drive it, and does the taxi still arrive.
+{
+  const tScene = new THREE.Scene();
+  const tTraffic = createTraffic(makeRng(seed + 137), tScene, 1);
+  const tTaxi = tTraffic.taxi;
+  tTraffic.warmup(4);
+
+  const dest = { i: tTaxi.i > GRID_I / 2 ? 0 : GRID_I, j: tTaxi.j > GRID_J / 2 ? 0 : GRID_J };
+  const origin = planOrigin(tTaxi);
+  const direct = findRoute(origin, dest);
+
+  const streets = [];
+  for (let i = 0; i <= GRID_I; i++) {
+    for (let j = 0; j <= GRID_J; j++) {
+      if (i < GRID_I) streets.push({ a: { i, j }, b: { i: i + 1, j } });
+      if (j < GRID_J) streets.push({ a: { i, j }, b: { i, j: j + 1 } });
+    }
+  }
+  const same = (s, t) => s && t && s.a.i === t.a.i && s.a.j === t.a.j && s.b.i === t.b.i && s.b.j === t.b.j;
+
+  // The hit test. Anywhere across a street's carriageway, and 35-65% of the way along it, names that
+  // street; the middle of a block names nothing. Nearer the ends is the junction box, which belongs
+  // to whichever arm's centreline is closer — at 25% a finger on the far edge of an arterial is
+  // already nearer the cross street, which is the rule working rather than failing.
+  let misnamed = 0;
+  for (const st of streets) {
+    const alongX = st.a.j === st.b.j;
+    const half = alongX ? halfRoadX(st.a.j) : halfRoadZ(st.a.i);
+    for (const t of [0.35, 0.5, 0.65]) {
+      for (const off of [-half, -half / 2, 0, half / 2, half]) {
+        const x = alongX ? lineX(st.a.i) + t * PITCH : lineX(st.a.i) + off;
+        const z = alongX ? lineZ(st.a.j) + off : lineZ(st.a.j) + t * PITCH;
+        if (!same(streetAt(x, z), st)) misnamed += 1;
+      }
+    }
+  }
+  let blockHits = 0;
+  for (let bi = 0; bi < GRID_I; bi++) {
+    for (let bj = 0; bj < GRID_J; bj++) {
+      if (streetAt(lineX(bi) + PITCH / 2, lineZ(bj) + PITCH / 2)) blockHits += 1;
+    }
+  }
+  check('a tap on a street names that street', misnamed === 0, `${misnamed} misnamed of ${streets.length * 15}`);
+  check('and a tap in the middle of a block names none', blockHits === 0, `${blockHits} blocks answered`);
+
+  // The re-plan, for every street on the map: an accepted one is driven, ends where it should, and
+  // stays inside the cap; the streets the plan already drives are recognised as such.
+  const junctions = (from, route) => {
+    const out = [{ i: from.i, j: from.j }];
+    for (const d of route) out.push(nextIntersection(d, out.at(-1).i, out.at(-1).j));
+    return out;
+  };
+  const drives = (from, route, st) => {
+    const js = junctions(from, route);
+    for (let k = 1; k < js.length; k++) {
+      if (same(st, { a: js[k - 1], b: js[k] }) || same(st, { a: js[k], b: js[k - 1] })) return true;
+    }
+    return false;
+  };
+  let accepted = 0;
+  let notDriven = 0;
+  let wrongEnd = 0;
+  let overCap = 0;
+  let onPlanMissed = 0;
+  const detours = [];
+  for (const st of streets) {
+    if (drives(origin, direct, st) && !routeDrives(origin, direct, st)) onPlanMissed += 1;
+    const route = findRouteAlong(origin, st, dest, { maxDetour: STREET_TAP_MAX_DETOUR });
+    if (!route) continue;
+    accepted += 1;
+    if (!drives(origin, route, st) && !routeDrives(origin, [], st)) notDriven += 1;
+    const end = junctions(origin, route).at(-1);
+    if (end.i !== dest.i || end.j !== dest.j) wrongEnd += 1;
+    if (route.length > direct.length + STREET_TAP_MAX_DETOUR) overCap += 1;
+    if (route.length > direct.length && !drives(origin, direct, st)) detours.push({ st, route });
+  }
+  check('a tapped street is actually driven', accepted > 10 && notDriven === 0,
+    `${accepted} of ${streets.length} streets accepted, ${notDriven} not driven`);
+  check('and the destination does not move', wrongEnd === 0);
+  check('no tapped detour exceeds the cap', overCap === 0, `cap ${STREET_TAP_MAX_DETOUR}`);
+  check('a street the plan already drives is recognised', onPlanMissed === 0,
+    `${onPlanMissed} streets on the plan read as off it`);
+
+  // And it arrives, down the street that was tapped. One re-plan, then hands off — the tap is spent
+  // when it is planned, which is exactly what this exercises.
+  detours.sort((p, q) => q.route.length - p.route.length);
+  const pick = detours[0];
+  if (!pick) {
+    check('a tapped street is driven and the taxi arrives', false, 'no detour street on this seed');
+  } else {
+    const legs = pick.route.length;
+    tTaxi.route = [...pick.route];
+    tTaxi.routeConsumed = false;
+    tTaxi.parked = false;
+    const alongX = pick.st.a.j === pick.st.b.j;
+    const mid = {
+      x: alongX ? lineX(pick.st.a.i) + PITCH / 2 : lineX(pick.st.a.i),
+      z: alongX ? lineZ(pick.st.a.j) : lineZ(pick.st.a.j) + PITCH / 2,
+    };
+    const destCentre = { x: lineX(dest.i), z: lineZ(dest.j) };
+    let nearest = Infinity;
+    let arrived = false;
+    let elapsed = 0;
+    while (elapsed < 180) {
+      tTraffic.update(1 / 60);
+      elapsed += 1 / 60;
+      nearest = Math.min(nearest, Math.hypot(tTaxi.x - mid.x, tTaxi.z - mid.z));
+      if (Math.hypot(tTaxi.x - destCentre.x, tTaxi.z - destCentre.z) < ARRIVE_RADIUS) { arrived = true; break; }
+    }
+    check('a tapped street is driven and the taxi arrives', arrived && nearest < 4,
+      `street (${pick.st.a.i},${pick.st.a.j})-(${pick.st.b.i},${pick.st.b.j}), ${legs} legs against ${direct.length}, closest ${nearest.toFixed(1)}, ${elapsed.toFixed(1)}s`);
+    check('and runs no reds doing it',
+      tTraffic.stats.routeDesync === 0 && tTraffic.stats.violations === 0,
+      `${tTraffic.stats.routeDesync} desyncs, ${tTraffic.stats.violations} violations`);
   }
 }
 
