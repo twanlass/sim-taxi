@@ -1529,10 +1529,10 @@ export function spinTaxi(car) {
 
 // --- The drift: Loco, tap the brake, Loco again --------------------------------------------------
 //
-// Every boosted corner *looks* like a drift — the nose swung past the heading on a spring, four
-// wheels of rubber (`car.driftAmt` below, layRubber in main.js). This is the move on top of it.
 // Holding Loco Mode into a real turn, a tap of the brake (`driftTaxi`) is not a stop: the taxi goes
-// round at the boost cruise, rights included, deaf to the pedal. Get back on the pill before the
+// round with its nose swung past the heading on a spring (`car.driftAmt` below) and four wheels of
+// rubber (layRubber in main.js), at the boost cruise, rights included, deaf to the pedal. Plain
+// Loco corners keep the lean alone, so the slide is the combo's own look. Get back on the pill before the
 // arc is over (`kickDrift`) and it comes out of the corner with a kick, DRIFT_EXIT of the cruise
 // held for DRIFT_CARRY. Skip the second half and it is just the slide. `car.drifts` counts kicks.
 //
@@ -6064,11 +6064,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // slide and not a steering input — the front wheels point back along the road instead
       // (`driftSteer`, read where the taxi's wheels are set).
       if (car.isTaxi) {
-        // Every boosted real turn slides, the whole crossing from the hold line; a drift (the
-        // brake tap) also leans in a touch on the approach.
-        const corner = car.boost && car.state === 'turn' && car.dOut !== car.d && !car.uturn;
-        if (corner && !car.drift) car.driftSign = turnYawSign(car.d, car.dOut);
-        const want = corner || car.drift?.phase === 'arc' ? 1
+        // Only a drift (the brake tap) slides. Every boosted corner did for a while, and it made
+        // the combo hard to tell apart from just holding the pill, so plain Loco corners went back
+        // to the lean alone.
+        const want = car.drift?.phase === 'arc' ? 1
           : car.drift?.phase === 'approach' ? 0.2 : 0;
         car.driftAmtV += ((want - car.driftAmt) * DRIFT_OMEGA * DRIFT_OMEGA - car.driftAmtV * DRIFT_DAMP) * dt;
         car.driftAmt += car.driftAmtV * dt;

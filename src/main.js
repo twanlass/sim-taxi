@@ -3548,9 +3548,7 @@ function layRubber(dt) {
   if (car.travelled - lastSkidAt < 0.42) return;
   lastSkidAt = car.travelled;
 
-  // A boosted corner is a drift now (the tail swung out, `driftAmt` in sim/traffic.js), so it marks
-  // the road with all four, like the brake.
-  if (skidding || cornering) stampAllRubber(car); else stampRearRubber(car);
+  if (skidding) stampAllRubber(car); else stampRearRubber(car);
 }
 
 // Dust comes off the back of the car whenever it's boosting and actually moving — not only in

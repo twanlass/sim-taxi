@@ -3323,11 +3323,12 @@ already means a pan, a route-band drag or a fare tap.
 
 `driftTaxi` / `kickDrift` in `sim/traffic.js`, wired in `holdBrake` and `holdLocoMode` in main.js.
 
-**Every boosted corner is a drift to look at.** Through a real turn in Loco Mode the nose swings
-~31° past the heading on a spring (`DRIFT_ANGLE`, render only; the front wheels countersteer) and
-rocks back once on the exit, and all four wheels mark the road. The speed is unchanged — a left at
-the boost cruise, a right at 0.75× — because slowing every corner to make room for a reward was
-tried and was a bummer.
+**Only the combo slides.** Through a drift the nose swings ~31° past the heading on a spring
+(`DRIFT_ANGLE`, render only; the front wheels countersteer) and rocks back once on the exit, and
+all four wheels mark the road. Every boosted corner did this for one iteration; it made the combo
+hard to tell from simply holding the pill, so a plain Loco corner went back to its lean and rear
+rubber. Corner speeds are unchanged either way — a left at the boost cruise, a right at 0.75× —
+because slowing every corner to make room for a reward was tried and was a bummer.
 
 **The move is a combo for an exit kick.** Holding Loco into a turn, tap the brake in the last 0.6s
 of approach (never under 8 units) or the first 35% of the arc, then get back on the pill before the
@@ -3358,8 +3359,8 @@ corners is net positive. That is deliberate: it is the skill being paid.
 
 A prototype: every number is a first guess. `tools/probe.mjs` drives every turn off every lane with
 the combo, with the tap alone, with the pill simply held and with the brake held, and checks the
-kick lands, the tap alone earns none, every Loco corner swings, and the swing settles within a
-second.
+kick lands, the tap alone earns none, a plain Loco corner does not slide, and the swing settles
+within a second.
 
 ## The pedal slide
 

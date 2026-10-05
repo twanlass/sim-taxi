@@ -16458,7 +16458,7 @@ let chopperOrder; // likewise
   let kickLow = Infinity;
   let unkickedHigh = 0;
   let straightRefused = 0;
-  let plainSwing = Infinity;
+  let plainSwing = 0;
   for (const lane of net.lanes) {
     if (lane.degenerate || isLaneClosed(lane.id) || lane.length < 10) continue;
     const to = net.nodeById.get(lane.to);
@@ -16511,7 +16511,7 @@ let chopperOrder; // likewise
         for (let k = 0; k < 120 && !(taxi.state === 'drive' && taxi.lane.id === out.id); k++) dTraffic.update(1 / 60);
         unkickedHigh = Math.max(unkickedHigh, taxi.v);
       }
-      // No tap at all, the pill held: still swings its tail out, because every Loco corner does.
+      // No tap at all, the pill held: the old lean, no slide.
       if (setup()) {
         taxi.boostEasing = false;
         let swing = 0;
@@ -16519,7 +16519,7 @@ let chopperOrder; // likewise
           dTraffic.update(1 / 60);
           swing = Math.max(swing, Math.abs(taxi.driftAmt));
         }
-        plainSwing = Math.min(plainSwing, swing);
+        plainSwing = Math.max(plainSwing, swing);
       }
       // The control: same corner, pedal held.
       if (setup()) {
@@ -16547,8 +16547,8 @@ let chopperOrder; // likewise
   check('...swinging its tail out and settling square to the exit lane',
     peakSwing > 0.8 && worstYaw < 0.02,
     `peak swing ${peakSwing.toFixed(2)} of DRIFT_ANGLE, ${worstYaw.toFixed(3)} rad of it left 1s after the exit`);
-  check('every Loco corner swings its tail out, tap or no tap', plainSwing > 0.8,
-    `smallest swing ${plainSwing.toFixed(2)} of DRIFT_ANGLE with the pill simply held`);
+  check('a Loco corner without the tap keeps the plain lean: the slide is the combo\'s alone',
+    plainSwing < 0.01, `largest swing ${plainSwing.toFixed(3)} of DRIFT_ANGLE with the pill simply held`);
   check('...and a tap with the road going straight on is just a brake', straightRefused > 20,
     `${straightRefused} straight-on approaches refused`);
 }
