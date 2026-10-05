@@ -1463,12 +1463,53 @@ function startUturn(car, sw) {
 // the first frame so traffic coming the other way sees it at once, and the render pass draws the
 // slide and the rotation from the lane it left.
 
-/** How long the spin takes, in seconds. Snappy is the brief: under half a second, nose to tail. */
-export const SPIN_TIME = 0.42;
+/**
+ * How long the spin takes, in seconds. The first cut was 0.42 — one clean half turn — and read as
+ * "almost a too perfect rotation". The choreography below has three beats in it, and under ~0.6s
+ * the first and last of them are over before the eye finds them.
+ */
+export const SPIN_TIME = 0.62;
 /** Fraction of its speed the taxi keeps through the spin, and the floor it comes out at. */
 const SPIN_KEEP = 0.55;
 /** How far it slides on down the road while it spins, as a fraction of the road it would cover. */
 const SPIN_SLIDE = 0.45;
+
+// The shape of the spin, as the angle turned toward the far lane (radians) at each key of `t`. A
+// real handbrake turn is not one clean half turn: the driver flicks the nose *away* first to load
+// the car up, it then swings round past the 180 as the tail lets go, and the tail whips back and
+// catches before it settles. Every key is a turning point of the angle, so each span eases in and
+// out (a smoothstep) and the rate is zero exactly where the motion reverses.
+const SPIN_KEYS = [
+  [0, 0],
+  [0.15, -0.34],                // the flick out, away from the far lane
+  [0.6, Math.PI + 0.5],         // the oversteer, well past the 180
+  [0.8, Math.PI - 0.16],        // the tail whips back...
+  [1, Math.PI],                 // ...and catches, square in the lane
+];
+/** How far the flick carries the body sideways, away from the far lane, in units. */
+const SPIN_FLICK_SHIFT = 0.7;
+/** Most the body tilts in a spin, in radians, and the rate (rad/s) that buys about three quarters of it. */
+const SPIN_TILT = 0.3;
+const SPIN_TILT_RATE = 6;
+
+/**
+ * The spin's angle toward the far lane at `t` (0..1), and its rate in radians per unit `t`. The
+ * render pass draws the yaw off the first and the body's tilt off the second.
+ */
+export function spinAngle(t) {
+  const u = Math.max(0, Math.min(1, t));
+  for (let k = 1; k < SPIN_KEYS.length; k++) {
+    const [t1, a1] = SPIN_KEYS[k];
+    if (u > t1 && k < SPIN_KEYS.length - 1) continue;
+    const [t0, a0] = SPIN_KEYS[k - 1];
+    const f = (u - t0) / (t1 - t0);
+    return {
+      a: a0 + (a1 - a0) * f * f * (3 - 2 * f),
+      rate: ((a1 - a0) * 6 * f * (1 - f)) / (t1 - t0),
+    };
+  }
+  return { a: Math.PI, rate: 0 };
+}
 
 /**
  * Spin the taxi round to the far lane, or say why not: `'median'` on an arterial (the centreline is
@@ -5823,17 +5864,19 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // Nothing here — the position derivation is the whole of what is skipped.
       } else if (car.uturn?.kind === 'spin') {
         // The bootleg: slide from where it was to where it lands, decelerating, while the body
-        // whips round half a turn and overshoots a touch before it settles — the snap is the point.
-        const { p, q, dir, yaw0 } = car.uturn;
+        // flicks out, swings round past the 180 and whips back to square (SPIN_KEYS).
+        const { p, q, h, dir, yaw0 } = car.uturn;
         const t = Math.min(1, car.uturn.t);
         const m = 1 - (1 - t) ** 3;
-        const k = 1.25;
-        const snap = 1 + (k + 1) * (t - 1) ** 3 + k * (t - 1) ** 2;
-        car.x = p.x + (q.x - p.x) * m;
-        car.z = p.z + (q.z - p.z) * m;
+        // The flick carries the body a little toward the near kerb before the slide takes it
+        // across. `dir * (-h.z, h.x)` points at the far lane (see `spinTaxi`), so this is minus that,
+        // on a hump that is over by the time the car is broadside.
+        const out = SPIN_FLICK_SHIFT * Math.sin(Math.PI * Math.min(1, t / 0.5)) ** 2;
+        car.x = p.x + (q.x - p.x) * m + dir * h.z * out;
+        car.z = p.z + (q.z - p.z) * m - dir * h.x * out;
         // `dir` is +1 when the far lane is on the side a *negative* yaw turns toward (yawOf is
         // atan2(-z, x), so +yaw swings +X toward -Z): subtract it to put the nose into the far lane.
-        car.yaw = yaw0 - dir * Math.PI * snap;
+        car.yaw = yaw0 - dir * spinAngle(t).a;
       } else if (car.uturn) {
         // The swing: a semicircle from where it left its old lane to where it lands on the new
         // one, bulging forward by the radius. `h` is the old heading, `n` across to the far lane.
@@ -6028,11 +6071,23 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           const lean = 0.3 * Math.min(2.2, Math.max(0.7, car.v / SPEED));
           roll = -turnDir * lean * Math.sin(Math.PI * Math.min(1, along01));
         }
+      } else if (car.uturn?.kind === 'spin') {
+        // Off the rate the body is turning at, leaning outward like any corner — so it tips one way
+        // on the flick, hard the other through the swing, and back again on the whip. Squashed
+        // through a tanh so the two small beats still read beside the big one.
+        const rate = spinAngle(car.uturn.t).rate / SPIN_TIME;
+        roll = -car.uturn.dir * SPIN_TILT * Math.tanh(rate / SPIN_TILT_RATE);
       } else if (car.uturn) {
         const lean = 0.3 * Math.min(2.2, Math.max(0.7, car.v / SPEED));
         roll = -car.uturn.dir * lean * Math.sin(Math.PI * Math.min(1, car.uturn.t));
       }
-      if (car.isTaxi || car.police) {
+      if (car.uturn?.kind === 'spin' && dt > 0) {
+        // Driven directly rather than through the spring: its ~0.5s period would smear three beats
+        // a tenth of a second apart into one lazy rock. The spring is handed the tilt and its rate
+        // as it stands, so it picks the body up without a jolt the frame the spin lands.
+        car.cornerRollV = (roll - car.cornerRoll) / dt;
+        car.cornerRoll = roll;
+      } else if (car.isTaxi || car.police) {
         // Semi-implicit Euler, as the pitch spring below: stable at any frame rate this game sees.
         const target = roll * (early && hard ? CORNER_ROLL_GAIN : 1);
         car.cornerRollV += ((target - car.cornerRoll) * CORNER_ROLL_OMEGA * CORNER_ROLL_OMEGA
