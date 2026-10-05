@@ -122,7 +122,7 @@
       #hud {
         position: fixed; top: var(--hud-top); right: calc(var(--hud-side) + var(--safe-right));
         left: calc(var(--hud-side) + var(--safe-left));
-        display: flex; flex-direction: column; align-items: flex-end;
+        display: flex; flex-direction: column; align-items: flex-start;
         font: 900 14px/1.2 var(--hud-font);
         color: #fff; text-shadow: var(--hud-shadow);
         pointer-events: none; user-select: none;
@@ -130,7 +130,7 @@
       #hud .money {
         font-size: var(--hud-count-size); line-height: var(--hud-row);
         letter-spacing: 0.05em; font-variant-numeric: tabular-nums;
-        display: inline-block; transform-origin: right center;
+        display: inline-block; transform-origin: left center;
       }
 
       /* Loco Mode's fuel, read out as a gauge arc hugging the top of the round gas button — a
@@ -277,21 +277,33 @@
         100% { transform: translate(-6px, 56px) rotate(-18deg) scale(0.9); opacity: 0; }
       }
 
-      /* Cargo chip — the courier box, pictured under the cash total while a package is aboard. See
-         src/game/cargochip.js for what is inside it and why it lives up here rather than at the end
-         of the rider-finder row.
+      /* Cargo chip — the courier box, pictured in the bottom-right corner while a package is aboard.
+         See src/game/cargochip.js for what is inside it. It sat under the cash total until Tyler's
+         HUD shuffle (2026-10-05) gave the top-left to the cash and the top-right to the pause, and
+         put the box in the corner the pause left.
 
-         **The box and nothing else.** No disc behind it, no rim around it. A rider chip needs its
+         `#cargo-dock` is the corner and the chip's slide on and off with the bottom row; the chip
+         inside keeps `transform` and `opacity` to itself, for its pop and its flight in. Two
+         elements because the entrance and the pickup animate the same opacity, and one element
+         cannot fade with the HUD and with its own arrival at once. `pointer-events: none` for the
+         reason it had while it lived in #hud: a package cannot be selected, so a thumb landing on
+         it goes through to the city. */
+      #cargo-dock {
+        position: fixed; z-index: 20;
+        right: var(--ctl-right); bottom: var(--ctl-bottom);
+        width: 42px; height: 42px;
+        pointer-events: none; user-select: none;
+      }
+      /* **The box and nothing else.** No disc behind it, no rim around it. A rider chip needs its
          disc because the ring around it is a clock and a clock needs a dial to be read against; the
          courier layer's defining property is that a package *has* no clock, so there was nothing for
          a ring to say — and once the ring goes, the disc is a plate under an object that does not
-         need one. What is left reads like the cash total above it: a bare mark on the sky.
+         need one. What is left reads like the cash total does: a bare mark on the sky.
 
          The drop shadow stays, and is the same one they wear — `#hud`'s own `text-shadow` in its
-         filter form, so the box holds against pale asphalt exactly as the digits above it do. It is
+         filter form, so the box holds against pale asphalt exactly as the digits do. It is
          a lift off the background rather than a background of its own. */
       #cargo-chip {
-        margin-top: 4px;
         width: 42px; height: 42px;
         display: grid; place-items: center;
         filter: drop-shadow(0 2px 6px rgba(20, 40, 55, 0.65));
@@ -305,7 +317,7 @@
            and a 0.16s transition running underneath would be a second fade on the same property.
 
            Nothing here is driven off sim time, so shot mode has nothing to land (see the `settle()`
-           note in CLAUDE.md); the whole chip is hidden with #hud there anyway. */
+           note in CLAUDE.md); the whole dock is hidden with #hud there anyway. */
         opacity: 0; transform: scale(0.55); transform-origin: center;
         transition: opacity 0.16s ease, transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
       }
@@ -318,8 +330,11 @@
         #cargo-chip, #cargo-chip.is-on { transform: none; transition: opacity 0.16s ease; }
       }
 
-      /* Pause — the black square in the bottom-right corner, and the screen behind it. See
+      /* Pause — the black square in the top-right corner, and the screen behind it. See
          src/game/pause.js.
+
+         Top right since Tyler's HUD shuffle (2026-10-05), on the cash total's row, vertically centred
+         on it. The note below is the history of how it got to the bottom row first.
 
          It used to sit in the middle of the top row, between the cash total and a streak counter
          that is gone now. The Figma frame gives that row to the boost meter and the total, which
@@ -331,7 +346,8 @@
          triangle it swaps to under the veil isn't in the file, so it's drawn to match. */
       #pause {
         position: fixed; z-index: 24;
-        right: var(--ctl-right); bottom: var(--ctl-bottom);
+        right: calc(var(--hud-side) + var(--safe-right));
+        top: calc(var(--hud-top) + (var(--hud-row) - var(--pause-w)) / 2);
         width: var(--pause-w); height: var(--pause-w); padding: 0; border: 0; background: #000;
         display: grid; place-items: center; cursor: pointer;
         /* The tap wants to land now, not after the browser has waited out a double-tap — and there
@@ -723,7 +739,7 @@
         --pause-w: 42px;
       }
 
-      body.shot-mode #hud, body.shot-mode #run-end { display: none; }
+      body.shot-mode #hud, body.shot-mode #cargo-dock, body.shot-mode #run-end { display: none; }
 
       /* The crash replay (game/replay.js): nothing on screen but the white flash on each cut. It
          had a letterbox and a REPLAY tag and lost both — the cuts say "replay" on their own, and
@@ -737,7 +753,7 @@
       }
       #replay[hidden] { display: none; }
       #replay .replay-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
-      body.replaying #hud, body.replaying #pause, body.replaying #boost, body.replaying #boost-meter,
+      body.replaying #hud, body.replaying #cargo-dock, body.replaying #pause, body.replaying #boost, body.replaying #boost-meter,
       body.replaying #brake, body.replaying #rider-finder-stack, body.replaying #taxi-finder,
       body.replaying .fare-pointer { display: none; }
 
@@ -1260,13 +1276,16 @@
          `pedals-ready`, which lands earlier — as the taxi joins the lane at the end of the opening
          vignette — because a control the player cannot reach is a wait, not an instrument that has
          nothing to say yet. `hud-ready` implies it, here rather than in main.js. */
-      #hud, #boost-meter, #pause, #boost, #brake, #rider-finder-stack {
+      #hud, #boost-meter, #pause, #boost, #brake, #rider-finder-stack, #cargo-dock {
         opacity: 0;
         /* Half again the first cut (0.45s / 0.55s), which read as a snap on the depot exit. */
         transition: opacity 0.7s ease, translate 0.85s cubic-bezier(0.22, 1, 0.36, 1);
       }
       #hud { translate: 0 -160%; }
-      #pause, #boost, #boost-meter, #brake { translate: 0 200%; }
+      /* The pause is in the top row now and leaves by the top edge, off by its own height plus the
+         inset over it — a percentage of a 42px square does not clear a notch's safe area. */
+      #pause { translate: 0 calc(-100% - var(--hud-top) - 8px); }
+      #cargo-dock, #boost, #boost-meter, #brake { translate: 0 200%; }
       /* The chips sit a pill's height up the screen but only `--ctl-left` in from the side, so the
          left edge is the near one: off by their own width plus that inset. */
       #rider-finder-stack { translate: calc(-100% - var(--ctl-left) - 8px) 0; }
@@ -1277,7 +1296,7 @@
       body:not(.hud-ready) #pause, body:not(.hud-ready):not(.pedals-ready) #boost,
       body:not(.hud-ready):not(.pedals-ready) #brake,
       body:not(.hud-ready) #rider-finder-stack { pointer-events: none; }
-      body.hud-ready #hud, body.hud-ready #boost-meter, body.hud-ready #pause,
+      body.hud-ready #hud, body.hud-ready #boost-meter, body.hud-ready #pause, body.hud-ready #cargo-dock,
       body.hud-ready #boost, body.hud-ready #brake, body.pedals-ready #boost, body.pedals-ready #brake,
       body.pedals-ready #boost-meter,
       body.hud-ready #rider-finder-stack { opacity: 1; translate: 0 0; }
@@ -1301,9 +1320,9 @@
         }
       }
 
-      /* The two top corners land together, and the pause button with the pedals it shares the
-         bottom row with. */
-      body.hud-ready #boost, body.hud-ready #boost-meter, body.hud-ready #brake, body.hud-ready #pause { transition-delay: 0.2s; }
+      /* The two top corners land together (the cash and the pause), then the bottom row: the pedals
+         and the cargo corner beside them. */
+      body.hud-ready #boost, body.hud-ready #boost-meter, body.hud-ready #brake, body.hud-ready #cargo-dock { transition-delay: 0.2s; }
       /* ...but on their own cue there is nothing to stagger against. */
       body.pedals-ready:not(.hud-ready) #boost, body.pedals-ready:not(.hud-ready) #boost-meter,
       body.pedals-ready:not(.hud-ready) #brake { transition-delay: 0s; }
@@ -1317,13 +1336,14 @@
          entrance's own delays, which the ready rules supply again the moment it is lifted. The
          fare pointers are already on the frame's edge and only fade. */
       body.hud-away #hud { opacity: 0; translate: 0 -160%; }
-      body.hud-away #pause, body.hud-away #boost, body.hud-away #boost-meter,
+      body.hud-away #pause { opacity: 0; translate: 0 calc(-100% - var(--hud-top) - 8px); }
+      body.hud-away #cargo-dock, body.hud-away #boost, body.hud-away #boost-meter,
       body.hud-away #brake { opacity: 0; translate: 0 200%; }
       body.hud-away #rider-finder-stack {
         opacity: 0; translate: calc(-100% - var(--ctl-left) - 8px) 0;
       }
       body.hud-away #hud, body.hud-away #boost-meter, body.hud-away #pause, body.hud-away #boost,
-      body.hud-away #brake, body.hud-away #rider-finder-stack { transition-delay: 0s; }
+      body.hud-away #brake, body.hud-away #rider-finder-stack, body.hud-away #cargo-dock { transition-delay: 0s; }
       /* The chips take taps on their own `pointer-events: auto`, so the stack's none is not enough. */
       body.hud-away #pause, body.hud-away #boost, body.hud-away #brake,
       body.hud-away #rider-finder-stack, body.hud-away #rider-finder-stack * { pointer-events: none; }
@@ -1331,9 +1351,9 @@
       body.hud-away #fare-pointers { opacity: 0; }
       body.hud-away #fare-pointers .fare-pointer { pointer-events: none; }
       @media (prefers-reduced-motion: reduce) {
-        #hud, #boost-meter, #pause, #boost, #brake, #rider-finder-stack,
+        #hud, #boost-meter, #pause, #boost, #brake, #rider-finder-stack, #cargo-dock,
         body.hud-away #hud, body.hud-away #boost-meter, body.hud-away #pause, body.hud-away #boost,
-        body.hud-away #brake, body.hud-away #rider-finder-stack { translate: none; }
+        body.hud-away #brake, body.hud-away #rider-finder-stack, body.hud-away #cargo-dock { translate: none; }
       }
 
       /* --- "Add to Home Screen" screen — see src/game/homescreen.js -------------
@@ -1378,7 +1398,7 @@
       body.shot-mode #title-screen { display: none; }
       /* The HUD has nothing to say before there is a run — including on `?tutorial=off`, which
          reveals it at boot. */
-      body.title-up #hud, body.title-up #boost-meter, body.title-up #pause, body.title-up #boost,
+      body.title-up #hud, body.title-up #cargo-dock, body.title-up #boost-meter, body.title-up #pause, body.title-up #boost,
       body.title-up #brake, body.title-up #rider-finder-stack, body.title-up #taxi-finder,
       body.title-up #fare-pointers { visibility: hidden; }
 
@@ -1764,9 +1784,11 @@
       <!-- What the ride aboard is on course for — Loco, Perfect, Stealth. Filled by `updateRunTags`
            in main.js; empty between rides. -->
       <div id="runs" class="runs"></div>
-      <!-- The courier load, drawn into by game/cargochip.js while a package is aboard. Empty here:
-           the box inside it is the real `createParcel` mesh in a WebGL context of its own, the same
-           way the rider-finder chips draw the real figure. -->
+    </div>
+    <!-- The courier load, drawn into by game/cargochip.js while a package is aboard. Empty here:
+         the box inside it is the real `createParcel` mesh in a WebGL context of its own, the same
+         way the rider-finder chips draw the real figure. -->
+    <div id="cargo-dock">
       <div id="cargo-chip" role="img" aria-label="Package aboard" aria-hidden="true"></div>
     </div>
 
