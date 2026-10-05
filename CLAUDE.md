@@ -4,7 +4,8 @@ Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-**Sim Taxi** — a low-poly 3D browser game. Crazy Taxi meets Flight Control: a fixed 3/4 view of a
+**Rocket Rides** (formerly Sim Taxi — the repo, the iOS target, the `simtaxi://` scheme and the
+`simtaxi.*` storage keys keep the old name so saved scores and settings survive) — a low-poly 3D browser game. Crazy Taxi meets Flight Control: a fixed 3/4 view of a
 5-by-6 block city with a river down the middle of it, ambient traffic obeying real signals, and one
 taxi you route by tapping fares.
 
