@@ -1,4 +1,4 @@
-# Sim Taxi 🚕
+# Rocket Rides 🚕
 
 Crazy Taxi meets Flight Control. A fixed 3/4 view of a small city with real traffic signals, and
 one taxi you route by tapping. Three.js — every mesh is generated in code; the sound effects are

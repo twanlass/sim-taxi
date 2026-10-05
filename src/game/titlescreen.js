@@ -95,7 +95,7 @@ export function createTitleScreen(root, { sound, settings, onPlay }) {
 
   root.append(scrim, menu, settingsPage.section, creditsPage.section);
   root.setAttribute('role', 'dialog');
-  root.setAttribute('aria-label', 'Sim Taxi');
+  root.setAttribute('aria-label', 'Rocket Rides');
 
   const views = { menu, settings: settingsPage.section, credits: creditsPage.section };
 
