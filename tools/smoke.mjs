@@ -404,7 +404,7 @@ try {
   // listener, raycast and hit-test path; it just doesn't cover Chrome's OS-level input plumbing.
   // `body > canvas` rather than `canvas`. The game's canvas is appended to the body, but the HUD
   // chips each carry a small WebGL canvas of their own — 38px inside `#rider-finder-stack`, 42px
-  // inside `#cargo-chip`, which is earlier still, being the first element in the body — and both
+  // inside `#cargo-chip`, which comes straight after `#hud` near the top of the body — and both
   // sit *before* the game's in the DOM, so a bare `querySelector('canvas')` hands back a chip.
   // Every gesture below was landing on that: the drag check failed because
   // `attachDragPan` never saw the events, and the tap check passed for the wrong reason, since a
@@ -1402,12 +1402,12 @@ try {
   //
   // Driven with a hand-made hand-off rather than a real one, for the reason the states above are: a
   // courier job is minutes of software-rendered sim away. The numbers are a plausible one — a box a
-  // few hundred pixels down and right of the HUD corner.
+  // few hundred pixels up and left of the chip's bottom-right corner, out in the city.
   const flightStart = JSON.parse(await evaluate(`(() => {
     const chip = window.__taxi.cargoChip;
     if (!chip) return JSON.stringify({ missing: true });
     chip.setCarrying(false);
-    chip.flyIn({ x: 420, y: 380, yaw: 0.8 });
+    chip.flyIn({ x: 120, y: 380, yaw: 0.8 });
     const el = document.getElementById('cargo-chip');
     const s = getComputedStyle(el);
     const m = new DOMMatrix(s.transform);
@@ -1418,11 +1418,11 @@ try {
       offset: Math.hypot(m.e, m.f),
       scale: m.a,
       opacity: Number(s.opacity),
-      // ...and that the slide points the right way: the box is down and to the right of the corner,
-      // so the chip must start down and to the right of its slot. A sign error here is a chip sliding
+      // ...and that the slide points the right way: the box is up and to the left of the corner,
+      // so the chip must start up and to the left of its slot. A sign error here is a chip sliding
       // in from the opposite quadrant, which is the one way the direction can be wrong and still move.
-      down: m.f > 0,
-      right: m.e > 0,
+      up: m.f < 0,
+      left: m.e < 0,
       animations: el.getAnimations().length,
     });
   })()`));
@@ -1430,7 +1430,7 @@ try {
     flightStart.missing !== true
     && flightStart.on === true && flightStart.flying === true
     && flightStart.offset > 40 && flightStart.scale < 0.9 && flightStart.opacity < 0.5
-    && flightStart.down === true && flightStart.right === true
+    && flightStart.up === true && flightStart.left === true
     && flightStart.animations > 0,
     flightStart.missing ? 'no courier layer on this page'
       : `starts ${flightStart.offset.toFixed(0)}px out at ${flightStart.scale.toFixed(2)}x, `
