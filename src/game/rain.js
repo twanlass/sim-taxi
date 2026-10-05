@@ -244,20 +244,41 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
    * Patch the ground mesh's material in place. Chained onto whatever `propMaterial` already
    * installed (AO, the shadow tint, a look mode), and keyed on top of its key so it cannot share
    * a program with the unpatched props.
+   *
+   * **Not just the ground: the bridges too.** A deck is its own mesh, so for as long as only the
+   * ground was patched every span stayed bone dry through a downpour, between two stretches of
+   * shining road (reported off a phone in a squall). The drawbridge needs nothing more than the
+   * patch — it is flat, so its carriageway is at y = 0 like any street and its footway at `KERB_H`.
+   * An arch does: the shader tells road from pavement by **height** (`rainRoad`, asphalt is below
+   * 0.08), and a carriageway climbing to `ARCH_RISE` reads as a rooftop by its first metre. So
+   * `{ deck }` hands it the profile — `deck(x, z)` is the road surface's height under a world point,
+   * baked once per vertex into `rainDeck` — and the road test reads height *above the deck*. The
+   * slope test (`rainUp`) still reads the real surface, so the hump's flanks stay as wet as the
+   * camera can see they ought to be.
    */
-  function wetGround(mesh) {
+  function wetGround(mesh, { deck = null } = {}) {
     const material = mesh.material;
+    if (deck) {
+      const pos = mesh.geometry.attributes.position;
+      const lift = new Float32Array(pos.count);
+      for (let k = 0; k < pos.count; k++) lift[k] = deck(pos.getX(k), pos.getZ(k));
+      mesh.geometry.setAttribute('rainDeck', new THREE.BufferAttribute(lift, 1));
+    }
     const prevCompile = material.onBeforeCompile;
     const prevKey = material.customProgramCacheKey();
-    material.customProgramCacheKey = () => `${prevKey}-wet`;
+    material.customProgramCacheKey = () => `${prevKey}-wet${deck ? '-deck' : ''}`;
     material.onBeforeCompile = (shader, r) => {
       prevCompile.call(material, shader, r);
       Object.assign(shader.uniforms, groundUniforms);
 
       shader.vertexShader = inject(shader.vertexShader, '#include <common>', `#include <common>
-varying vec3 vRainWorld;`, 'ground vertex');
+varying vec3 vRainWorld;
+varying float vRainLift;
+varying float vRainDeck;${deck ? '\nattribute float rainDeck;' : ''}`, 'ground vertex');
       shader.vertexShader = inject(shader.vertexShader, '#include <project_vertex>', `#include <project_vertex>
-vRainWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;`, 'ground vertex');
+vRainWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
+vRainDeck = ${deck ? 'rainDeck' : '0.0'};
+vRainLift = vRainWorld.y - vRainDeck;`, 'ground vertex');
 
       shader.fragmentShader = inject(shader.fragmentShader, '#include <common>', `#include <common>
 ${WET_COMMON}`, 'ground fragment');
@@ -702,6 +723,10 @@ uniform vec3 uRainSheen;
 uniform float uRainGlint;
 uniform vec3 uRainGlintColor;
 varying vec3 vRainWorld;
+// Height above the road surface under this point, and that surface's own height: the same as
+// vRainWorld.y and zero everywhere but on an arched bridge deck.
+varying float vRainLift;
+varying float vRainDeck;
 
 float rainHash(vec2 p) {
   p = fract(p * vec2(123.34, 456.21));
@@ -749,10 +774,14 @@ float rainNow = uCell.w > 0.5 ? cellCore(vRainWorld.xz, uCell, uCellEdge, uCellT
 vec3 rainDx = dFdx(vRainWorld);
 vec3 rainDy = dFdy(vRainWorld);
 float rainUp = smoothstep(0.8, 0.95, abs(normalize(cross(rainDx, rainDy)).y));
-float rainRoad = 1.0 - smoothstep(0.08, 0.2, vRainWorld.y);
+float rainRoad = 1.0 - smoothstep(0.08, 0.2, vRainLift);
 float rainGrass = step(diffuseColor.r * 1.08, diffuseColor.g) * step(diffuseColor.b, diffuseColor.g);
 float rainPuddleN = rainNoise(vRainWorld.xz * 0.16) * 0.7 + rainNoise(vRainWorld.xz * 0.9 + 3.0) * 0.3;
-float rainPuddle = smoothstep(0.62, 0.68, rainPuddleN) * rainRoad * rainUp * rainHere;
+// No puddles up on a hump: water runs off one. It is also where the mirror would lie — the
+// reflection is rendered about y = 0, so a puddle 1.9 up would show the city two metres out of
+// place, and a puddle is the one wet surface sharp enough for that to read.
+float rainPuddle = smoothstep(0.62, 0.68, rainPuddleN) * rainRoad * rainUp * rainHere
+  * (1.0 - smoothstep(0.1, 0.4, vRainDeck));
 float rainWet = rainHere * mix(0.55, 1.0, rainUp) * mix(0.6, 1.0, rainRoad) * (1.0 - 0.5 * rainGrass);
 diffuseColor.rgb *= mix(1.0, 0.58, rainWet);
 diffuseColor.rgb *= mix(1.0, 0.7, rainPuddle);
