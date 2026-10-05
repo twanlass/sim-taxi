@@ -124,8 +124,9 @@ import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
-import { createNewMove, createSeenFlag, AFTER_DELIVERED, SHOW_DELAY } from './game/newmove.js';
-import { createUturnClip, pickStreet } from './game/uturnclip.js';
+import { createNewMove, createSeenFlag, MOVES, SHOW_DELAY } from './game/newmove.js';
+import { createUturnClip, pickStreet, clipKeys as uturnKeys } from './game/uturnclip.js';
+import { createDriftClip, pickCorner, clipKeys as driftKeys } from './game/driftclip.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
@@ -3911,37 +3912,57 @@ const pause = shot ? null : createPause({
   },
 });
 
-// "New Move Unlocked": the card that teaches the bootleg, once ever, a beat after the drop-off that
-// brings a run to AFTER_DELIVERED fares. The world stops while it is up — the early return in
-// `frame()` beside the robber's line's. See game/newmove.js for when and why.
-const uturnSeen = createSeenFlag();
+// "New Move Unlocked": the card that teaches the bootleg and then the drift, each once ever, a beat
+// after the drop-off that brings a run to that move's `after` fares (MOVES in game/newmove.js). The
+// world stops while it is up — the early return in `frame()` beside the robber's line's. See
+// game/newmove.js for when and why.
 // Centred over a dim, with the move acted out inside it on a real street of this city — see
-// game/newmove.js and game/uturnclip.js. The street is chosen when the card opens, off the cars
-// where they stand then, since they stay there until it closes.
+// game/moveclip.js. The street (or for the drift, the corner) is chosen when the card opens, off the
+// cars where they stand then, since they stay there until it closes.
 const freezeFrame = document.getElementById('freeze-frame');
-const newMove = shot ? null : createNewMove({
-  viewport,
-  makeClip: (cardCanvas) => freezeFrame && createUturnClip({
-    scene, camera, renderFrame, canvas: renderer.domElement, freeze: freezeFrame, cardCanvas,
-    street: pickStreet({
-      network: cityNetwork(),
-      cars: traffic.cars,
-      camRight: new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0),
-      visible: (x, z) => sightlineClear(x, 0.4, z),
-      closed: isLaneClosed,
-    }),
-  }),
+const clipSite = () => ({
+  network: cityNetwork(),
+  cars: traffic.cars,
+  camRight: new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0),
+  visible: (x, z) => sightlineClear(x, 0.4, z),
+  closed: isLaneClosed,
 });
-// Seconds of game time until the card lands, or negative when none is due.
+const clipStage = (cardCanvas) => ({
+  scene, camera, renderFrame, canvas: renderer.domElement, freeze: freezeFrame, cardCanvas,
+});
+const moves = {
+  uturn: {
+    ...MOVES.uturn, seen: createSeenFlag({ key: MOVES.uturn.seenKey }), clipKeys: uturnKeys,
+    makeClip: (cardCanvas) => freezeFrame
+      && createUturnClip({ ...clipStage(cardCanvas), street: pickStreet(clipSite()) }),
+  },
+  drift: {
+    ...MOVES.drift, seen: createSeenFlag({ key: MOVES.drift.seenKey }), clipKeys: driftKeys,
+    makeClip: (cardCanvas) => freezeFrame
+      && createDriftClip({ ...clipStage(cardCanvas), corner: pickCorner(clipSite()) }),
+  },
+};
+const newMove = shot ? null : createNewMove({ viewport });
+// Seconds of game time until the card lands, or negative when none is due, and which move it is.
 let newMoveIn = -1;
+let newMoveDue = null;
+/**
+ * The move a drop-off at `delivered` fares would teach, or null: the first not yet seen, in order,
+ * if the run is far enough in for it. In order means the drift waits for the U-turn's card, so one
+ * drop-off never has two to show.
+ */
+function nextMove(delivered) {
+  const move = Object.values(moves).find((m) => !m.seen.get());
+  return move && delivered >= move.after ? move : null;
+}
 /**
  * Is this run one the card may still be shown in? The tips setting and debug mode turn it off the
  * way they turn off the opening tutorial (read live: the setting can flip on the title screen), and
  * it waits out the tutorial's Loco Mode beat — a move built on Loco Mode means nothing to someone
  * who has not been shown it yet.
  */
-const newMoveWanted = () => Boolean(newMove) && !uturnSeen.get() && wantsTutorial
-  && settings.get().tips && (!tutorial || tutorial.state.step === 'done');
+const newMoveWanted = (move = newMoveDue) => Boolean(newMove) && Boolean(move) && !move.seen.get()
+  && wantsTutorial && settings.get().tips && (!tutorial || tutorial.state.step === 'done');
 /**
  * Is now a calm beat? Checked when the delay runs out rather than at the drop-off, because the
  * drop-off of a robber *starts* a patrol chase, and anything that has taken the taxi or the screen
@@ -3952,9 +3973,9 @@ const newMoveCalm = () => !fares.state.gameOver && !traffic.taxi.crashed
   && !robbery?.state.active && !patrol.busy() && !robberLine?.isOpen()
   && !opening?.visiting() && !depotRun?.active() && !burgerRun?.holdsTaxi()
   && !replay?.active() && replayAt === null;
-function openNewMove() {
-  if (!newMove?.open()) return false;
-  uturnSeen.set();
+function openNewMove(move = newMoveDue ?? moves.uturn) {
+  if (!newMove?.open(move)) return false;
+  move.seen.set();
   // Same releases as the pause, for the same reason: the card takes the release of anything held.
   boost.release(); releaseBrake(); dropPedalGesture(); bootleg.reset();
   return true;
@@ -4399,7 +4420,8 @@ function frame() {
       // target and `depotRun.update` stands down on the next frame. A car already staged in the
       // driveway finishes its visit and `resumeJob` hands it the drop-off on the way out.
     } else if (type === 'delivered') {
-      if (fares.state.delivered >= AFTER_DELIVERED && newMoveWanted()) newMoveIn = SHOW_DELAY;
+      newMoveDue = nextMove(fares.state.delivered);
+      if (newMoveWanted()) newMoveIn = SHOW_DELAY;
       // Out they get: open, and shut a beat later once they are clear of the car.
       sfx?.play('doorOpen');
       sfx?.play('doorClose', { delay: 0.7 });
@@ -5324,12 +5346,15 @@ window.__taxi = {
   /** The brake-tap spin (game/bootleg.js) — `spin()` fires one, `state` tallies them. */
   bootleg,
   /**
-   * The bootleg's "New Move Unlocked" card (game/newmove.js), null in shot mode. `open()` shows it
-   * now, whatever the gates say; `seen` is the remembered flag, `wanted`/`calm` the two gates.
+   * The "New Move Unlocked" card (game/newmove.js), null in shot mode. `open(name)` shows that
+   * move's card ('uturn', the default, or 'drift') now, whatever the gates say; `seen` is the
+   * U-turn's remembered flag and `moves` every move's, `wanted`/`calm` the two gates, `next` the
+   * move a drop-off at that many deliveries would teach.
    */
   newMove: newMove && {
-    open: openNewMove, isOpen: newMove.isOpen, close: newMove.close, seek: newMove.seek,
-    seen: uturnSeen, wanted: newMoveWanted, calm: newMoveCalm, due: () => newMoveIn,
+    open: (name = 'uturn') => openNewMove(moves[name]), isOpen: newMove.isOpen, close: newMove.close,
+    seek: newMove.seek, seen: moves.uturn.seen, moves, wanted: newMoveWanted, calm: newMoveCalm,
+    due: () => newMoveIn, next: (n) => nextMove(n)?.line ?? null, showing: () => newMove.move()?.line ?? null,
   },
   fares,
   /** The package courier, or null under `?parcels=0` and in shot mode. See game/parcels.js. */
