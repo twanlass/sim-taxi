@@ -3404,7 +3404,7 @@ because slowing every corner to make room for a reward was tried and was a bumme
 
 **The move is a combo for an exit kick.** Holding Loco into a turn, tap the brake in the last 0.6s
 of approach (never under 8 units) or the first 35% of the arc, then get back on the pill before the
-arc is over. The taxi comes out at 1.2× the boost cruise (`DRIFT_EXIT`, 26.5 u/s), put on in one
+arc is over. The taxi comes out at 1.4× the boost cruise (`DRIFT_EXIT`, 30.9 u/s; 1.2× read as too timid), put on in one
 frame and held for 0.6s. The tap screeches and lays four-wheel rubber the moment it lands.
 
 The kick has to read at a glance, and a buzz and a shake alone did not: the first playtest could
