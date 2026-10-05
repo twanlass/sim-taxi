@@ -80,9 +80,19 @@ const RELEASE = 0.16;
 
 // The drift kick's surge (`surge` in `update`): the one plume splits into two, side by side, and
 // both run longer — the double-barrel read that says "that worked" while the car is coming out of
-// the corner. Each barrel sits this far either side of the pipe (the taxi is 2.0 wide, so the pair
-// spans most of the bumper), and the plume grows by up to SURGE_LEN of its length.
-const BARREL_OFFSET = 0.45;
+// the corner. Each barrel sits this far either side of the pipe (the drawn taxi is 2.36 wide), and
+// the plume grows by up to SURGE_LEN of its length.
+//
+// The barrels also splay into a V, BARREL_SPLAY each side of straight back. Parallel, they did not
+// read as two: each tongue is a vertical sheet a unit tall, and under the fixed diagonal view two
+// sheets 0.9 apart project almost on top of each other on most headings, so the kick drew as one
+// fatter violet flame (reported as "just a single tailpipe"). Splayed, the tips land 3.1 units
+// apart (probe.mjs measures it) and the pair reads as a V on every heading; 0.5 also worked and
+// looked like antlers. The splay is applied inside the group's non-uniform
+// scale, which stretches local X by up to ~1.8 during a surge, so the angle on the road is about
+// half of this.
+const BARREL_OFFSET = 0.6;
+const BARREL_SPLAY = 0.32;
 const SURGE_LEN = 0.8;
 // How fast the split eases in and out, so the second barrel slides out of the first rather than
 // popping in beside it.
@@ -273,8 +283,12 @@ export function createLocoFlame(scene) {
     group.scale.set(heat * pulse * (1 + SURGE_LEN * state.split), heat * (2 - pulse), 1);
     // Local Z is across the car (the plume's plane is local XY). The twin runs half a flipbook out
     // of step with the first, so the pair licks rather than moving as one shape.
+    // Rotating +X about +Y by a positive angle swings it toward −Z, so each barrel turns out
+    // toward its own side.
     barrels[0].position.z = -BARREL_OFFSET * state.split;
     barrels[1].position.z = BARREL_OFFSET * state.split;
+    barrels[0].rotation.y = BARREL_SPLAY * state.split;
+    barrels[1].rotation.y = -BARREL_SPLAY * state.split;
     barrels[1].visible = state.split > 0;
 
     const next = Math.floor(clock / FRAME_TIME) % FRAMES;

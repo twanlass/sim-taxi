@@ -7310,13 +7310,19 @@ check('the taxi is an ordinary car in the traffic array',
     for (let step = 0; step < 30; step++) twin.update(1 / 60, still, false, true);
     const [b0, b1] = twin.group.children;
     const purple = new THREE.Color(PALETTE.locoFlameDriftOuter);
+    // ...and splayed, so the two read as two from the fixed diagonal camera: parallel sheets 0.9
+    // apart projected nearly on top of each other. Measured as how far apart the tips are.
+    twin.group.updateMatrixWorld(true);
+    const tip = (b) => b.localToWorld(new THREE.Vector3(3, 0, 0));
+    const tipGap = tip(b0).distanceTo(tip(b1));
     const split = twin.group.visible && b1.visible && b1.position.z - b0.position.z > 0.8
-      && twin.group.scale.x > 1.5 && twin.materials[0].color.getHex() === purple.getHex();
+      && tipGap > 2.5 && twin.group.scale.x > 1.5 && twin.materials[0].color.getHex() === purple.getHex();
     for (let step = 0; step < 30; step++) twin.update(1 / 60, still, true, false);
     check('the drift kick splits the flame into two longer violet barrels, and lets them go after',
       split && !twin.group.children[1].visible && Math.abs(twin.group.children[0].position.z) < 1e-6
+        && Math.abs(twin.group.children[0].rotation.y) < 1e-6
         && twin.materials[0].color.getHex() === new THREE.Color(PALETTE.locoFlameOuter).getHex(),
-      `split ${split}, scale ${twin.group.scale.x.toFixed(2)} after`);
+      `split ${split}, tips ${tipGap.toFixed(2)} apart, scale ${twin.group.scale.x.toFixed(2)} after`);
   }
 }
 
