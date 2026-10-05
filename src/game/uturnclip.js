@@ -331,10 +331,12 @@ export function createUturnClip({ scene, camera, renderFrame, canvas, freeze, ca
   // The rubber the game laid on the take, stamped as main.js stamps it: the rear pair
   // (`stampRearRubber`, its own hand-typed 1.2 back and 1.04 out) or all four (`stampAllRubber`).
   function layRubber(upTo) {
-    for (const [n, along, lateral, yaw, kind] of REEL.rubber) {
+    for (const [n, along, lateral, yaw, kind, strength] of REEL.rubber) {
       if (n <= stamped || n > upTo) continue;
       const at = onStreet(street, along - ALONG_MID, lateral);
       const y = baseYaw + yaw;
+      // The spin's own trail: one mark, already at its tyre (createTyreTrail).
+      if (kind === 3) { skids.add(at.x, at.z, y, strength); continue; }
       const fx = Math.cos(y), fz = -Math.sin(y);
       const rx = Math.sin(y), rz = Math.cos(y);
       for (const side of [-1, 1]) {

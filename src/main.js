@@ -51,7 +51,7 @@ import { createCarDamage } from './game/cardamage.js';
 import { createTaxiDoor } from './game/taxidoor.js';
 import { createDepotCall } from './game/depotcall.js';
 import { flyEnergyToBoost } from './game/energybits.js';
-import { createSkidMarks } from './game/skidmarks.js';
+import { createSkidMarks, createTyreTrail } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
 import { createSpray } from './game/spray.js';
 import { createCityEntry } from './game/cityentry.js';
@@ -3468,48 +3468,18 @@ function stampAllRubber(car) {
   }
 }
 
-// The bootleg's rubber is laid along each tyre's own path. Everything else stamps on the car's
-// heading every so far down the road, which is right while the tyres point where they are going —
-// and a spin is the one manoeuvre where they don't: stamped that way it left a ladder of short
-// rungs lying across the slide instead of four curving streaks, which is what a handbrake turn
-// actually writes. The rears drag harder than the fronts, as a pulled handbrake does.
-const SPIN_MARK_STEP = 0.4;     // under the 1.5 mark length, so the stamps overlap into a band
-const SPIN_TYRES = [
-  [-TAXI_REAR_AXLE_BACK, -TAXI_REAR_TRACK, 1], [-TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK, 1],
-  [TAXI_FRONT_AXLE_FWD, -TAXI_FRONT_TRACK, 0.65], [TAXI_FRONT_AXLE_FWD, TAXI_FRONT_TRACK, 0.65],
-];
-let spinTyres = null;           // where each tyre's last stamp went, while a spin is on
-
-function spinRubber(car) {
-  if (car.uturn?.kind !== 'spin') { spinTyres = null; return; }
-  const fx = Math.cos(car.yaw), fz = -Math.sin(car.yaw);
-  const rx = Math.sin(car.yaw), rz = Math.cos(car.yaw);
-  const first = !spinTyres;
-  spinTyres ??= SPIN_TYRES.map(() => ({ x: 0, z: 0 }));
-  SPIN_TYRES.forEach(([along, across, strength], k) => {
-    const x = car.x + fx * along + rx * across;
-    const z = car.z + fz * along + rz * across;
-    const last = spinTyres[k];
-    if (first) { last.x = x; last.z = z; return; }
-    const dx = x - last.x, dz = z - last.z;
-    const len = Math.hypot(dx, dz);
-    if (len < SPIN_MARK_STEP) return;
-    // Along the tyre's own motion, the stamps evenly spaced however far it went this frame.
-    const yaw = Math.atan2(-dz, dx);
-    const n = Math.floor(len / SPIN_MARK_STEP);
-    for (let i = 1; i <= n; i++) {
-      const f = (i * SPIN_MARK_STEP) / len;
-      skids.add(last.x + dx * f, last.z + dz * f, yaw, strength);
-    }
-    last.x += (dx * n * SPIN_MARK_STEP) / len;
-    last.z += (dz * n * SPIN_MARK_STEP) / len;
-  });
-}
+// The bootleg's rubber, along each tyre's own path rather than on the heading (game/skidmarks.js).
+const spinTrail = createTyreTrail();
+const stampSkid = (x, z, yaw, strength) => skids.add(x, z, yaw, strength);
 
 function layRubber(dt) {
   const car = traffic.taxi;
-  spinRubber(car);
-  if (spinTyres) { lastSkidAt = car.travelled; return; }
+  if (car.uturn?.kind === 'spin') {
+    spinTrail.update(car, stampSkid);
+    lastSkidAt = car.travelled;
+    return;
+  }
+  spinTrail.reset();
   if (launchSkidT > 0) launchSkidT = Math.max(0, launchSkidT - dt);
 
   // `state === 'turn'` covers every junction crossing, including going straight on — which is why
@@ -3535,8 +3505,8 @@ function layRubber(dt) {
   // see stampAllRubber. It needs no `boost` term: the pedal is the whole input, and a screech from
   // cruise is as much a skid as one from the overdrive top, just a shorter one (1.0 unit of rubber
   // against 16.5 — see HARD_BRAKE in sim/traffic.js).
-  // Not the bootleg, which is a skid from start to finish but lays its own — see spinRubber.
-  const skidding = car.braking && car.v > BRAKE_SKID_V && car.uturn?.kind !== 'spin';
+  // Not the bootleg, which is a skid from start to finish but lays its own — see spinTrail above.
+  const skidding = car.braking && car.v > BRAKE_SKID_V;
 
   // The screech, once per slide rather than per stamp: on the frame a corner or a lane swap starts
   // breaking traction. Not the launch or the brake, which each already have a sound of their own.
