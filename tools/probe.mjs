@@ -52,7 +52,8 @@ import { createSparks } from '../src/game/sparks.js';
 import { createRepairFx } from '../src/game/repairfx.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
 import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, setHazardLanes, laneCost } from '../src/game/route.js';
-import { createCollisions, TAXI_HP, bumpDamage, penetration } from '../src/sim/collisions.js';
+import { createCollisions, TAXI_HP, bumpDamage, penetration, chargeHit, LAST_LEG, SMOKE_FRACTION, CRITICAL_FRACTION } from '../src/sim/collisions.js';
+const BUMP_MAX_PROBE = bumpDamage(1e6);
 import { createTaxiDamage } from '../src/game/taxidamage.js';
 import { createCarDamage } from '../src/game/cardamage.js';
 import { BUMPER_H as BUMPER_H_PROBE, bumperLength as bumperLengthProbe } from '../src/geometry/bumpers.js';
@@ -6335,6 +6336,14 @@ check('the taxi is an ordinary car in the traffic array',
   // the car is being translated back into place.
   check('it steers back into the lane rather than sliding into it', steered > 0.3,
     `${(steered * 180 / Math.PI).toFixed(0)}° of lock at most`);
+
+  // The car always smokes before it wrecks: a hit that would empty a car above the smoke line leaves
+  // it in the plume instead, one bump from the end; below the line it is charged in full.
+  check('no hit wrecks a car that is not yet smoking',
+    chargeHit(TAXI_HP, BUMP_MAX_PROBE) > 0 && chargeHit(SMOKE_FRACTION * TAXI_HP + 1, BUMP_MAX_PROBE) === LAST_LEG
+      && LAST_LEG <= CRITICAL_FRACTION * TAXI_HP && LAST_LEG < bumpDamage(0)
+      && chargeHit(SMOKE_FRACTION * TAXI_HP, BUMP_MAX_PROBE) === 0 && chargeHit(80, 30) === 50,
+    `from ${SMOKE_FRACTION * TAXI_HP + 1} HP a ${BUMP_MAX_PROBE} hit leaves ${chargeHit(SMOKE_FRACTION * TAXI_HP + 1, BUMP_MAX_PROBE)}`);
 
   // Out of HP, the next contact is the wreck through the old path.
   hTaxi.hp = 1;

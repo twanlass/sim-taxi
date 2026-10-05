@@ -1611,6 +1611,14 @@ play zoom on its own. Each adds a distinct ingredient rather than turning the la
    standing or driving — so a car one hit from the end is never seen without it. The billows above
    come and go; this is the one thing that is always there.
 
+**The car always smokes before it wrecks** (`chargeHit` in `sim/collisions.js`). A hit costs up to
+60, so between 35 and 60 HP the car showed only a boot and a bumper while one hard hit from the end,
+and two overdrive hits wrecked a fresh car that had never smoked — reported as "I just wrecked but
+the taxi looked to be in pretty good shape". A hit that would empty a car still above the smoke line
+now leaves it on `LAST_LEG` (10 HP) instead: inside the plume, and under the cheapest bump (12), so
+the next contact is the wreck. Below the line every hit is charged in full. The cost is one more
+overdrive hit per run (three rather than two); slower hits come out the same.
+
 And one piece off the tiers: **rear-ending a car pops the bonnet**, however much HP is left. It is the
 boot's mirror image, hinged at the foot of the windscreen, and it flaps on the same spring for the
 rest of the run — first kick *up*, the catch letting go, where every later hit slams it. It belongs to

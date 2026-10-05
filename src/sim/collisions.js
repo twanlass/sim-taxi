@@ -53,8 +53,9 @@ import {
 // the harder it is leant on. Worked through against the speeds that actually happen, at 100 HP:
 //   rear-ending a car at boost cruise (~19 against 8.5, closing ~10.5)   → 24, four of those
 //   T-boning cross traffic at boost cruise (closing ~21)                   → 37, three
-//   anything in the overdrive band (closing 30+)                           → 49–55, two
-// so a clumsy tailgate is forgiven a few times and a red light run flat out is not.
+//   anything in the overdrive band (closing 30+)                           → 49–55, three
+// so a clumsy tailgate is forgiven a few times and a red light run flat out is not. (Overdrive was
+// two, and the second came out of a car that had never smoked — see `chargeHit` below.)
 export const TAXI_HP = 100;
 const BUMP_BASE = 10;
 const BUMP_PER_UNIT = 1.3;       // HP per u/s of closing speed
@@ -62,6 +63,25 @@ const BUMP_MIN = 12;
 const BUMP_MAX = 60;
 export const bumpDamage = (closing) =>
   Math.round(Math.max(BUMP_MIN, Math.min(BUMP_MAX, BUMP_BASE + closing * BUMP_PER_UNIT)));
+
+// Where the car's own damage display changes gear (game/taxidamage.js): smoke from SMOKE_FRACTION
+// down, and from CRITICAL_FRACTION down the plume that says one more hit is the end. They live
+// here rather than there because the rule below has to agree with them.
+export const SMOKE_FRACTION = 0.34;
+export const CRITICAL_FRACTION = 0.2;
+// **The car always smokes before it wrecks.** The car is the only health display there is, so a
+// wreck out of a car that was not smoking is a death with no warning — and the prices above make
+// that the ordinary case at speed rather than a corner one: a hit runs up to BUMP_MAX = 60, so
+// anywhere from 35 to 60 HP the car is wearing nothing worse than a boot lid and a bumper and is
+// one overdrive T-bone from the end, and two hits in the overdrive band (49–55 each) wreck a fresh
+// car without it ever having smoked. So a hit that would empty a car still *above* the smoke line
+// leaves it on LAST_LEG instead: inside the plume, under the cheapest bump there is, so the plume's
+// "one more hit is the wreck" is exactly true. Below the line every hit is charged in full.
+export const LAST_LEG = 10;
+export const chargeHit = (hp, damage, maxHp = TAXI_HP) => {
+  const left = Math.max(0, hp - damage);
+  return left === 0 && hp > maxHp * SMOKE_FRACTION ? LAST_LEG : left;
+};
 
 // What a survivable hit does to the two cars. The taxi keeps under half its speed — enough that it
 // visibly *hit* something, not so much that the pill is dead under the thumb.
@@ -253,7 +273,7 @@ export function createCollisions(cars, taxi) {
 
       if (taxi.hp != null) {
         const damage = bumpDamage(closing);
-        taxi.hp = Math.max(0, taxi.hp - damage);
+        taxi.hp = chargeHit(taxi.hp, damage);
         if (taxi.hp > 0) {
           bump(other, closing, damage, pen.cx, pen.cz, pen);
           continue;

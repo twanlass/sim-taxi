@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { color } from '../palette.js';
 import { TAXI_DECK_Y } from '../geometry/taxi.js';
+import { SMOKE_FRACTION, CRITICAL_FRACTION } from '../sim/collisions.js';
 
 // The taxi wearing its damage — four steps down its hit points, so the car itself is the gauge. See buildDamage() in geometry/taxi.js for the parts and why they are
 // what they are (silhouette, because at ~30px long nothing finer reads).
@@ -29,14 +30,16 @@ import { TAXI_DECK_Y } from '../geometry/taxi.js';
 // damaged, so none of this can move a car off its lane or change a speed.
 
 const MID = 0.67;
-// Exported as SMOKE_FRACTION: the depot's call to come in for repairs (game/depotcall.js) goes out
-// on the frame the car starts smoking, so the call and the car say it together.
-const LOW = 0.34;
-export { LOW as SMOKE_FRACTION };
+// SMOKE_FRACTION, owned by sim/collisions.js because no hit from above it is allowed to be the
+// wreck (`chargeHit`) — the car always smokes first. Re-exported for the depot's call to come in for
+// repairs (game/depotcall.js), which goes out on the frame the car starts smoking, so the call and
+// the car say it together.
+const LOW = SMOKE_FRACTION;
+export { SMOKE_FRACTION };
 // The last warning. The billows above come and go in puffs; this is a stream — small, dark, one
 // every PLUME_EVERY whatever the car is doing, standing or driving — so a car that is nearly done
 // is never seen without it. The pool is 200 puffs of a second each; 25 a second is an eighth of it.
-const CRITICAL = 0.2;
+const CRITICAL = CRITICAL_FRACTION;
 const PLUME_EVERY = 0.04;         // s
 const PLUME_SIZE = 0.8;
 // Where the smoke comes from: just above the bonnet, which is the top of the body — TAXI_DECK_Y, 1.77
