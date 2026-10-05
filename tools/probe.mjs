@@ -7116,6 +7116,42 @@ check('the taxi is an ordinary car in the traffic array',
   // on a wreck detonating where it happened.
   check('a blast with no momentum detonates on the spot', still.ring === 0,
     `ring reached ${still.ring.toFixed(3)}`);
+
+  // The two alternative cuts (WRECK_STYLES) exist to stop the fire hiding the cars, so that is
+  // what is asserted: `flat` never puts a puff over the car it came out of and stays low, and
+  // `quick` is out before classic is half way through its puffs.
+  const puffsAt = (style, seconds) => {
+    const b = createBlast(new THREE.Scene(), makeRng(seed + 92));
+    b.setStyle(style);
+    b.fire(0, 0, PALETTE.taxiBody);
+    const m = new THREE.Matrix4();
+    const p = new THREE.Vector3();
+    const sc = new THREE.Vector3();
+    const out = { live: 0, nearest: Infinity, top: 0 };
+    for (let step = 0; step < Math.round(seconds * 60); step++) b.update(1 / 60);
+    for (let i = 0; i < b.puffMesh.count; i++) {
+      b.puffMesh.getMatrixAt(i, m);
+      m.decompose(p, new THREE.Quaternion(), sc);
+      if (sc.x <= 0) continue;
+      out.live += 1;
+      out.nearest = Math.min(out.nearest, Math.hypot(p.x, p.z));
+      out.top = Math.max(out.top, p.y + 0.5 * sc.y);
+    }
+    return out;
+  };
+  let flatNearest = Infinity;
+  let flatTop = 0;
+  for (const seconds of [0.05, 0.1, 0.22, 0.4, 0.6]) {
+    const at = puffsAt('flat', seconds);
+    flatNearest = Math.min(flatNearest, at.nearest);
+    flatTop = Math.max(flatTop, at.top);
+  }
+  check('the flat wreck fire leaves the car in the clear middle', flatNearest > 1.2 && flatTop < 1.4,
+    `nearest puff ${flatNearest.toFixed(2)} off centre, top ${flatTop.toFixed(2)}`);
+  const quickLate = puffsAt('quick', 0.8).live;
+  const classicLate = puffsAt('classic', 0.8).live;
+  check('the quick wreck fire is out while the classic one still burns', quickLate === 0 && classicLate > 0,
+    `${quickLate} quick puffs vs ${classicLate} classic at 0.8s`);
 }
 
 // --- The Loco Mode tailpipe flame -------------------------------------------

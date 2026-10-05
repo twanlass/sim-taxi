@@ -55,7 +55,7 @@ import { createSkidMarks, createTyreTrail } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
 import { createSpray } from './game/spray.js';
 import { createCityEntry } from './game/cityentry.js';
-import { createBlast } from './game/blast.js';
+import { createBlast, WRECK_STYLES } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createSparks } from './game/sparks.js';
 import { createRepairFx } from './game/repairfx.js';
@@ -113,7 +113,7 @@ import { findRoute, findRouteVia, findRouteOnto, planOrigin, crossingOrigin } fr
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -1154,6 +1154,7 @@ if (litPanes || lamps) {
 // pool serves both cars: nothing here is re-shot from a stored position, so a second call cannot
 // drag the first car's wreckage across to the second the way the old debris pools could.
 const blast = createBlast(scene, makeRng(runSeed + 88));
+blast.setStyle(getWreckStyle());
 const flames = createFlames(scene, makeRng(runSeed + 133));
 // Sparks off the underside of the car as it lands a jump — see game/sparks.js and `landedHard`
 // below. Run seed, like the flames: which way a shower scatters is part of the situation, and a
@@ -5290,6 +5291,7 @@ if (!shot && wantsDebugPanel) {
     /** True when the sliders opened on a tuning restored from a previous session. */
     locoRestored: Boolean(stashedLoco),
     sfx,
+    wreck: { styles: Object.keys(WRECK_STYLES), current: getWreckStyle(), set: blast.setStyle },
   });
 }
 
