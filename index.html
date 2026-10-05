@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Sim Taxi 🚕</title>
+    <title>Rocket Rides 🚕</title>
     <!-- Home-screen icon. iOS's mask is round-cornered, so the artwork is centred with a purple
          border that the mask crops into. Every size is rendered from the game's own taxi by
          `node tools/make-icon.mjs` — regenerate them together, and bump CACHE_NAME in sw.js. -->
@@ -12,7 +12,7 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="/apple-touch-icon-512.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="apple-mobile-web-app-title" content="Sim Taxi" />
+    <meta name="apple-mobile-web-app-title" content="Rocket Rides" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <!-- Chrome's spelling of the tag above; Chrome 117+ ignores the `apple-` one on its own. -->
     <meta name="mobile-web-app-capable" content="yes" />
@@ -1113,6 +1113,12 @@
         color: #2c3052;
         text-box: trim-both cap alphabetic;
       }
+      /* Something shown under the line (the New Move card's pedal row, game/newmove.js). The card
+         grows to fit it: the 178px cap is about where *text* breaks, and a row of buttons does not
+         wrap. */
+      .speech-card.has-media { max-width: calc(100vw - 20px); }
+      .speech-media { margin-top: 8px; }
+      .speech-media[hidden] { display: none; }
       /* The line types itself out: the typed part, then the rest of the line laid out but unseen,
          so every letter sits where it will finish and nothing moves as it types. */
       .speech-rest { visibility: hidden; }
@@ -1183,6 +1189,58 @@
       body.shot-mode #robber-spot, body.game-over #robber-spot { display: none; }
       body.robber-talk #coach, body.robber-talk #spotlight { visibility: hidden; }
       body.robber-talk #robber-talk { pointer-events: auto; cursor: pointer; }
+
+      /* --- New Move Unlocked (src/game/newmove.js) ----------------------------
+         The card that teaches the bootleg: the tutorial's own speech card (title "New Move
+         Unlocked", line "U-Turn"), centred over a dim, no pointer. Under the line, a clip of the
+         taxi doing the move (game/uturnclip.js), and under that the pedal row, pressed off the
+         clip's own clock — `is-lit` from the frame a key is first pressed, `is-down` while it is
+         held — so the buttons and the car do the same thing at the same moment.
+
+         Its own layer, like the robber's, and a full-screen tap catcher while it is up — the world
+         is frozen under it, so the next tap anywhere is the answer and must not route the taxi.
+         Above the ⏸ (24): any tap closes the card (Tyler, 2026-10-04), the pause button included,
+         rather than pausing a world that is already frozen. */
+      #new-move {
+        position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 25;
+        user-select: none; -webkit-user-select: none;
+        background: rgba(6, 14, 22, 0); transition: background 0.25s ease;
+      }
+      #new-move[hidden] { display: none; }
+      body.game-over #new-move { display: none; }
+      body.new-move-open #new-move {
+        pointer-events: auto; cursor: pointer; touch-action: manipulation;
+        background: rgba(6, 14, 22, 0.72);
+      }
+      body.new-move-open #coach, body.new-move-open #spotlight { visibility: hidden; }
+      #new-move .speech-pointer { display: none; }
+      /* Bigger than a tip: the clip is the content. */
+      #new-move .speech-card { padding: 20px; gap: 8px; border-radius: 20px; }
+      #new-move .speech-title { font-size: 12px; }
+      #new-move .speech-text { font-size: 22px; }
+      .nm-clip[hidden] { display: none; }
+      /* The city as it stood when the card opened, laid over the game's canvas while the card films
+         its clip through it (game/uturnclip.js). Under the HUD and the dim. */
+      #freeze-frame { position: fixed; left: 0; top: 0; z-index: 1; pointer-events: none; }
+      #freeze-frame[hidden] { display: none; }
+      .nm-media { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+      .nm-clip {
+        display: block; width: min(300px, calc(100vw - 60px)); aspect-ratio: 16 / 9;
+        border-radius: 12px;
+      }
+      .nm-combo { display: flex; align-items: center; gap: 8px; }
+      /* The "+" between keys: the title's ink, so it reads as part of the card's type. */
+      .nm-plus { font: 700 18px/1 var(--game-font); color: #44497d; }
+      .nm-key svg { display: block; overflow: visible; width: 44px; height: 44px; }
+      .nm-boost .pedal-face { filter: url(#gas-up); }
+      .nm-brake .pedal-face { filter: url(#brake-up); }
+
+      /* Dim until pressed, lit from the press to the end of the loop; the face drops into its base
+         while held, the HUD pedals' own 5 units. */
+      .nm-key { filter: grayscale(0.85) brightness(0.8); opacity: 0.45; transition: filter 0.08s, opacity 0.08s; }
+      .nm-key.is-lit { filter: none; opacity: 1; }
+      .nm-key :is(.pedal-face, .pedal-icon) { transition: transform 0.06s ease-out; }
+      .nm-key.is-down :is(.pedal-face, .pedal-icon) { transform: translateY(5px); }
 
       /* --- the HUD's entrance ------------------------------------------------
          Everything the player will need but cannot use yet starts off its own screen edge, and
@@ -1907,6 +1965,9 @@
     <div id="coach" role="status" aria-live="polite" hidden></div>
     <div id="robber-spot" aria-hidden="true"></div>
     <div id="robber-talk" role="status" aria-live="polite" hidden></div>
+    <canvas id="freeze-frame" aria-hidden="true" hidden></canvas>
+    <!-- The bootleg's card — a speech layer like the others; see src/game/newmove.js. -->
+    <div id="new-move" role="status" aria-live="polite" hidden></div>
     <div id="cop-shout" role="status" aria-live="polite" hidden></div>
     <div id="radio" role="status" aria-live="polite" hidden></div>
     <div id="depot-call" role="status" aria-live="polite" hidden></div>

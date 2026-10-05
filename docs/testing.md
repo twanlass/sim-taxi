@@ -100,6 +100,7 @@ node tools/roadwork-pull.mjs                  # how often a run actually meets t
 node tools/diag.mjs                           # ad-hoc scratch diagnostics
 node tools/alloc.mjs 6000 110                 # bytes of garbage per simulated frame
 node tools/links.mjs --url http://localhost:5173   # shaders compiled *during* a run
+node tools/perf.mjs --url http://localhost:5173    # draws/tris per pass, JS per frame (counts exact, times not)
 node tools/smoke.mjs --url http://localhost:4173   # real browser, real DOM
 node tools/native-smoke.mjs --url http://localhost:4173   # the iOS fork, both ways
 ./shots.sh                                    # render the screenshot set

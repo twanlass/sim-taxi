@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
 import { MAX_SPAN } from '../city/grid.js';
+import { countInEveryPass } from '../util/geo.js';
 import { DISTANCE, PLAY_ZOOM, DEPTH_PER_SCREEN_UNIT } from './camera.js';
 
 /** The dome's gradient curve. Exported because the haze reads the same gradient — see hazeColor. */
@@ -224,7 +225,8 @@ export function createScene({ shadowMapSize = 2048 } = {}) {
   scene.add(sky);
 
   const hemi = new THREE.HemisphereLight(PALETTE.hemiSky, PALETTE.hemiGround, SUN.fill);
-  scene.add(hemi);
+  // On every layer, so the AO and bloom prepasses count it too — see countInEveryPass.
+  scene.add(countInEveryPass(hemi));
 
   // Angled across the grid rather than along it — a sun parallel to the streets throws shadows
   // that line up with the roads and the whole city flattens out.
@@ -259,7 +261,7 @@ export function createScene({ shadowMapSize = 2048 } = {}) {
   // wall a long way behind the face being lit and there is nothing to fight. A bridge is the one
   // caster in this game that is a thin shell, and it needs `sinkShadowCaster` below rather than
   // more of these — see the arithmetic there for why raising either one is the wrong trade.
-  scene.add(sun);
+  scene.add(countInEveryPass(sun));
   scene.add(sun.target);
 
   return { scene, sun, hemi, sky: sky.material, fog: scene.fog };

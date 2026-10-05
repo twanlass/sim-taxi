@@ -113,7 +113,7 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
   // every player, and inside the one handler whose whole job is to survive that moment. It threw
   // *before* the reload into safe mode, so the recovery path it aborted was the one that would have
   // got the picture back. Caught by a swiftshader box dropping the context under a headless run.
-  if (!element) return { update: () => {}, note: () => {} };
+  if (!element) return { frameStart: () => {}, update: () => {}, note: () => {} };
 
   const gl = renderer.getContext();
   const { renderer: gpu, vendor } = describeGpu(gl);
@@ -142,11 +142,19 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
       + `${flags.safe ? ` [safe:${flags.safeSource ?? '?'}]` : ''}`,
   ].join('\n');
 
-  // Averaged over a second rather than reported per frame: a number that changes sixty times a
-  // second is unreadable on a screen you are holding, and the question here is "is this device
-  // drawing at all", not "how long was this particular frame".
+  // Averaged over half a second rather than reported per frame: a number that changes sixty times
+  // a second is unreadable on a screen you are holding. The worst frame in the window rides along,
+  // because an average of 58 can be 57 smooth frames or 50 fast ones and a hitch, and those are
+  // different problems.
   let sinceFlush = 0;
   let frames = 0;
+  let worst = 0;
+  let last = 0;
+  // Counted across the whole frame rather than per `render()` call. Three resets `renderer.info`
+  // at the top of every render by default, so `calls` used to report only the last pass drawn —
+  // the main render — and hide the shadow map, the AO prepass, the bloom and (in a squall) the
+  // mirror, which are over half the frame. `frameStart()` resets it once per frame instead.
+  renderer.info.autoReset = false;
   const drawingBuffer = new THREE.Vector2();
   // Sticky, because the events worth noting here are the ones that have already happened by the
   // time anyone reads the panel — a context loss and what was given up to survive it.
@@ -196,14 +204,32 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
     return `${centre[0]},${centre[1]},${centre[2]}`;
   }
 
-  function update(dt) {
+  /** Called at the top of `renderFrame`, before the first pass. */
+  function frameStart() {
+    renderer.info.reset();
+  }
+
+  /**
+   * Called at the end of `renderFrame`, so it counts every frame that draws — paused, replaying
+   * a crash or behind the robber's line alike, which the frame loop's update block never reaches.
+   * Times itself off the wall clock for the same reason: the loop's `dt` is clamped and dilated.
+   */
+  function update() {
+    const now = performance.now();
+    const dt = last ? (now - last) / 1000 : 0;
+    last = now;
+    if (!dt) return;
     frames += 1;
     sinceFlush += dt;
+    worst = Math.max(worst, dt);
     if (sinceFlush < 0.5) return;
 
     const fps = frames / sinceFlush;
+    const avgMs = (sinceFlush / frames) * 1000;
+    const worstMs = worst * 1000;
     frames = 0;
     sinceFlush = 0;
+    worst = 0;
 
     const info = renderer.info.render;
     // Marked stale rather than left to be misread. `render()` returns at its first line while the
@@ -211,15 +237,17 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
     // frame that actually drew — which reads as "40 draw calls a frame, and still black".
     const lost = gl.isContextLost();
     renderer.getDrawingBufferSize(drawingBuffer);
-    element.textContent = `${header}\n`
-      // The line that decides it. `calls` is the count from the frame just drawn — three resets
-      // `renderer.info` at the top of every `render()`, so this is one frame's work rather than a
-      // running total.
+    // First, because it is the line people open the panel for now that the device questions below
+    // are answered.
+    element.textContent = `${fps.toFixed(0)} fps · ${avgMs.toFixed(1)} ms avg`
+      + ` · worst ${worstMs.toFixed(1)} ms\n`
+      + `${header}\n`
+      // The line that decides a black screen. `calls` is the whole of the frame just drawn, every
+      // pass included — see `frameStart`.
       + `ctx ${lost ? 'LOST' : 'ok'}`
       + ` · calls ${info.calls}${lost ? ' (stale)' : ''} · tris ${info.triangles}`
       + ` · progs ${renderer.info.programs?.length ?? '?'}\n`
       + `${drawingBuffer.x}x${drawingBuffer.y} @${window.devicePixelRatio}`
-      + ` · ${fps.toFixed(0)}fps`
       // Last, because it is the line you only need once the two above have failed to explain
       // anything. `mid` is the centre pixel of the frame on screen: black here and black on the
       // screen agree, and anything else means the frame was drawn and never presented.
@@ -228,6 +256,7 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
   }
 
   return {
+    frameStart,
     update,
     /**
      * Record something that happened to the renderer since it was built — a context loss, a

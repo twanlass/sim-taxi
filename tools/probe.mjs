@@ -10331,7 +10331,7 @@ check('the taxi is an ordinary car in the traffic array',
   // Every render path has to run the pass. A frozen shot that skipped it would composite against
   // whatever the previous frame happened to leave in the AO texture.
   const aoMainSource = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
-  const outsideRenderFrame = aoMainSource.replace(/function renderFrame\(\)[\s\S]*?\n}/, '');
+  const outsideRenderFrame = aoMainSource.replace(/function renderFrame\([^)]*\)[\s\S]*?\n}/, '');
   check('every render goes through the AO pass',
     !/renderer\.render\(scene, camera\)/.test(outsideRenderFrame),
     'main.js renders only via renderFrame()');
@@ -10561,7 +10561,7 @@ check('the taxi is an ordinary car in the traffic array',
   // shot mode and __taxi.redraw() both reach a render without ever reaching the frame loop.
   const crayonMainSource = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
   check('every render goes through the crayon prepare',
-    /function renderFrame\(\)[\s\S]*?crayon\.prepare\(\)[\s\S]*?renderer\.render/
+    /function renderFrame\([^)]*\)[\s\S]*?crayon\.prepare\(\)[\s\S]*?renderer\.render/
       .test(crayonMainSource),
     'main.js sizes the page inside renderFrame()');
 }
@@ -17573,6 +17573,84 @@ let chopperOrder; // likewise
       check('the barriers rise on a curve rather than snapping back',
         sawRaising && worstStep < 0.1 && gate.state.barrier === 0,
         `largest single-frame step ${worstStep.toFixed(3)} of the arm's travel`);
+      gate.dispose();
+    }
+
+    // **The gate lamps warn either side of the lift, not only during it.** Dark on a fresh span (it
+    // starts `open` at t = 0, and a tail that counted from there would flash a bridge that never
+    // moved), lit from the frame the arms start down — before the leaf — still lit while the arms go
+    // back up, out again shortly after, and at every lit frame exactly one lamp per arm, the two
+    // halves of each arm taking turns. Read off the bloom's per-mesh scale, which is what makes a
+    // lamp spill light, so a lamp that changed colour but not glow (or the reverse) fails too.
+    {
+      const gate = createDrawbridge(rScene, makeRng(seed + 836), {});
+      const lit = (lamp) => (lamp.userData.bloomScale ?? 1) > 0;
+      const litCount = () => gate.lamps.filter(lit).length;
+      gate.update(1 / 60, []);
+      const darkAtStart = litCount() === 0;
+      gate.request();
+      let litBeforeLeaf = false;
+      let litWhileRaising = false;
+      let badFrames = 0;
+      let swaps = 0;
+      let lastFirst = null;
+      let darkAgainAt = -1;
+      for (let f = 0; f < 60 * 60; f++) {
+        gate.update(1 / 60, []);
+        const n = litCount();
+        if (n > 0) {
+          if (gate.state.phase === 'closing' && gate.state.lift === 0) litBeforeLeaf = true;
+          if (gate.state.phase === 'raising') litWhileRaising = true;
+          // One per arm, and on each arm the two lamps disagree.
+          for (let a = 0; a < gate.lamps.length; a += 2) {
+            if (lit(gate.lamps[a]) === lit(gate.lamps[a + 1])) badFrames++;
+          }
+          const first = lit(gate.lamps[0]);
+          if (lastFirst !== null && first !== lastFirst) swaps++;
+          lastFirst = first;
+          // A lit lamp is drawn lit as well as glowing.
+          if (gate.lamps.some((l) => lit(l) !== (l.material.color.getHex() === new THREE.Color(PALETTE.lightYellow).getHex()))) badFrames++;
+        } else if (litBeforeLeaf && darkAgainAt < 0) {
+          darkAgainAt = gate.state.phase === 'open' ? gate.state.t : -2;
+        }
+      }
+      // The striped arms are built by shearing boxes and clamping their ends (`stripedBar`), which
+      // is hand-built geometry: assert every face still points out of its own stripe, from the
+      // winding, rather than trusting the argument in the comment.
+      let inward = 0;
+      let faces = 0;
+      const perArm = [];
+      gate.group.traverse((o) => {
+        if (o.name !== 'drawbridge-arm') return;
+        const colours = new Set();
+        perArm.push(colours);
+        const pos = o.geometry.attributes.position;
+        const col = o.geometry.attributes.color;
+        const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+        const n = new THREE.Vector3(), mid = new THREE.Vector3(), centre = new THREE.Vector3();
+        for (let s0 = 0; s0 < pos.count; s0 += 36) {
+          centre.set(0, 0, 0);
+          for (let v = s0; v < s0 + 36; v++) centre.add(a.fromBufferAttribute(pos, v));
+          centre.divideScalar(36);
+          colours.add(new THREE.Color().fromBufferAttribute(col, s0).getHexString());
+          for (let t = s0; t < s0 + 36; t += 3) {
+            a.fromBufferAttribute(pos, t); b.fromBufferAttribute(pos, t + 1); c.fromBufferAttribute(pos, t + 2);
+            n.subVectors(b, a).cross(c.clone().sub(a));
+            if (n.length() < 1e-9) continue;
+            faces++;
+            mid.copy(a).add(b).add(c).divideScalar(3).sub(centre);
+            if (n.dot(mid) <= 0) inward++;
+          }
+        }
+      });
+      check('the gate arms are striped in two colours with every face wound outward',
+        faces > 0 && inward === 0 && perArm.length === 2 && perArm.every((c) => c.size === 2),
+        `${faces} faces, ${inward} inward, ${perArm.map((c) => c.size).join('/')} colours per arm`);
+      check('the gate lamps flash before, during and after the lift, alternately',
+        darkAtStart && litBeforeLeaf && litWhileRaising && badFrames === 0 && swaps > 10
+          && darkAgainAt > 0.5 && darkAgainAt < 1.5 && litCount() === 0,
+        `${gate.lamps.length} lamps, ${swaps} swaps, ${badFrames} bad frames,`
+        + ` dark again ${darkAgainAt.toFixed(2)}s after the arms were up`);
       gate.dispose();
     }
 

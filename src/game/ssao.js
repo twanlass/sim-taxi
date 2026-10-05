@@ -354,7 +354,16 @@ export function createAmbientOcclusion(
     magFilter: THREE.NearestFilter,
     stencilBuffer: false,
   });
-  const depthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+  // Four copies of one material, one per kind of mesh it is drawn on — plain, instanced, and
+  // instanced with an `instanceColor`. Three keeps a material's current program on the material,
+  // and those three kinds each compile a different one, so a single shared depth material flipped
+  // programs at every change of kind down the draw list: about ten trips through `getProgram` a
+  // frame (parameters, cache-key string, lookup) to land on a program it already had.
+  const depthMaterials = [0, 1, 2, 3].map(
+    () => new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }),
+  );
+  const depthMaterialFor = (mesh) =>
+    depthMaterials[(mesh.isInstancedMesh ? 1 : 0) + (mesh.instanceColor ? 2 : 0)];
 
   // Linear filtering here *is* the blur. A jittered SSAO needs a bilateral pass to hide its noise;
   // fixed taps have none, so the hardware's upsample is the whole of the softening.
@@ -499,7 +508,7 @@ export function createAmbientOcclusion(
       for (const mesh of occluders) {
         swapped[count] = mesh;
         savedMaterials[count] = mesh.material;
-        mesh.material = mesh.userData.aoDepthMaterial || depthMaterial;
+        mesh.material = mesh.userData.aoDepthMaterial || depthMaterialFor(mesh);
         count += 1;
       }
 
@@ -538,7 +547,7 @@ export function createAmbientOcclusion(
     dispose() {
       depthTarget.dispose();
       aoTarget.dispose();
-      depthMaterial.dispose();
+      depthMaterials.forEach((material) => material.dispose());
       aoQuad.geometry.dispose();
       aoQuad.material.dispose();
       AO_UNIFORMS.tAmbientOcclusion.value = null;

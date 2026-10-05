@@ -429,6 +429,51 @@ for free rather than hunting the board for their car.
 `?tutorial=off` skips the whole thing, and shot mode never runs it: a screenshot has nobody to
 teach, and the bubble would be the loudest thing in every frame.
 
+## New Move Unlocked: the U-turn card
+
+The bootleg (boost, then two quick brake taps — `game/bootleg.js`) is the one input nobody finds by
+looking, so it gets a card (`game/newmove.js`, `#new-move` in index.html). It is the tutorial's
+own speech bubble, made wider and centred over a dim with no pointer: "New Move Unlocked" in the
+title slot, "U-Turn" as the line, then a clip of the move and the pedal row under it. No other words.
+
+The clip (`game/uturnclip.js`) is a scripted 4.6s loop filmed **in the player's own city**, at the
+game's 3/4 view. On open, `pickStreet` chooses a straight two-way side street off the river with no
+car stopped on it, mostly visible past the buildings, and runs the move left to right on screen. The
+city is drawn once more into `#freeze-frame`, a 2D canvas laid over the game's, and from then on the
+game's canvas renders the whole frame (`renderFrame(cam)` in main.js: shadows, AO, bloom, weather)
+through a clone of the city camera slid over that street. The middle of each frame is copied into the
+card. `frameRun` sizes and centres that crop by sweeping a box the size of the drawn taxi over the
+whole loop, because the taxi body is much bigger than `CAR_LEN` and hand framing cut its roof off on
+the spin. A stand-in taxi (the real mesh, the Loco Mode flame, the skid marks and the brake lamps) is
+added to the scene while the card is up and removed on close. It cruises in, floors it, checks on the
+first brake tap, spins onto the far lane on the second (0.3s later, inside the 350ms combo window)
+and drives back.
+
+The motion is **the game's own U-turn, recorded**: `tools/uturnreel.mjs` drives the shipped
+traffic model, Loco Mode and bootleg on the passing lab's straight road with the pedals pressed on
+the card's timeline, and writes the taxi group's transform, wheel lock, brake lamp, flame and rubber
+for every frame to `game/uturnreel.js`. `npm run check` films it again and fails if the file no longer
+matches (`node tools/uturnreel.mjs --write` refreshes it). A hand-scripted timeline came first and
+read as fake: quicker than the real spin, and rocking where the real car does not. It is not the sim
+running live because the world is frozen under the card and a second traffic instance would write
+over the real one's module-level state. At the game's real speeds the run is three blocks long, so
+`pickStreet` also needs the street to carry straight on, open, through the junctions at each end. The pedal row (the HUD's own pedal art, all three at one size with a
+"+" between) is pressed off the **clip's clock**, so each key goes down on the frame the car does
+the thing it does: dim until pressed, lit from then to the end of the loop.
+
+- **When:** a beat (0.9s) after the drop-off that brings a run to two fares — robbery.js's
+  `MIN_DELIVERED`, the first moment a chase can happen, which is what the move is for. It waits out
+  the opening tutorial's Loco Mode beat, and skips any drop-off that is not calm (a delivered robber
+  hands the taxi a patrol chase, a depot visit, a wreck); the next drop-off tries again.
+- **Once, ever.** Remembered under `simTaxi.seen.uturn`, unlike the opening tutorial: a card calling
+  a move "new" on every retry is lying by the second one. A store that throws costs the memory, so
+  it shows once per visit instead.
+- **The world stops** under it, like the robber's line, and any tap or key press clears it after a
+  0.3s guard (it lands mid-run, under a thumb that may be tapping the city). The key is swallowed,
+  so the Space that closes it does not also boost.
+- The tips setting, debug mode and `?tutorial=off` all turn it off. `__taxi.newMove.open()` shows
+  it on demand; clear the key to see it again in play.
+
 ## The fare loop
 
 `src/game/fares.js`. Each fare is its own little machine — `waiting → riding → gone` — carrying its

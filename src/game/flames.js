@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { skipWhenEmpty } from '../util/emptypools.js';
 import { unlitMaterial } from '../util/geo.js';
 import { markEmissive } from './bloom.js';
 
@@ -42,7 +43,7 @@ export function createFlames(scene, rng) {
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
   };
 
-  const mesh = new THREE.InstancedMesh(geometry, material, MAX_FLAMES);
+  const mesh = skipWhenEmpty(new THREE.InstancedMesh(geometry, material, MAX_FLAMES));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.renderOrder = 6;     // above the road decals — the flame is the brightest thing on screen
   mesh.frustumCulled = false;

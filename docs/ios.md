@@ -1,6 +1,6 @@
 # The iOS app
 
-The App Store build of Sim Taxi: the same web bundle, byte for byte, inside a native shell that
+The App Store build of Rocket Rides: the same web bundle, byte for byte, inside a native shell that
 serves it over a custom URL scheme.
 
 Everything native lives under `ios/`. Nothing under `src/` knows about it except through one flag —
@@ -361,7 +361,7 @@ still show on iOS Safari, which is the half that stops the fix from being "delet
 Then, in the Simulator:
 
 1. The game boots, the city renders, a tap routes the taxi.
-2. Attach **Safari Web Inspector** (Develop ▸ Simulator ▸ Sim Taxi; `isInspectable` is DEBUG-only).
+2. Attach **Safari Web Inspector** (Develop ▸ Simulator ▸ Rocket Rides; `isInspectable` is DEBUG-only).
 3. Console: `window.__native === true`; `navigator.serviceWorker.controller === null`; no
    `#dbg-toggle` in the DOM; the Add-to-Home-Screen gate never appears.
 4. **Play a run to game over, enter initials, force-quit, relaunch — is the score still there?**

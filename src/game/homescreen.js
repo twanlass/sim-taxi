@@ -167,7 +167,7 @@ export function showHomeScreenTip(root, { force = false, onHide } = {}) {
   root.append(sheet);
   root.setAttribute('role', 'dialog');
   root.setAttribute('aria-modal', 'true');
-  root.setAttribute('aria-label', 'Add Sim Taxi to your Home Screen');
+  root.setAttribute('aria-label', 'Add Rocket Rides to your Home Screen');
   root.hidden = false;
 
   /**

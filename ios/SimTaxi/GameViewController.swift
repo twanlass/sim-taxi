@@ -80,7 +80,7 @@ final class GameViewController: UIViewController {
         webView.scrollView.backgroundColor = Self.sky
         webView.allowsBackForwardNavigationGestures = false
 
-        // Safari Web Inspector against the running app — Develop ▸ <device> ▸ Sim Taxi. This is the
+        // Safari Web Inspector against the running app — Develop ▸ <device> ▸ Rocket Rides. This is the
         // only realistic way to debug the game on device: it gives the console `?diag` prints to,
         // the network pane that shows what the scheme handler served, and a storage inspector for
         // the `localStorage` question. DEBUG only, so a shipped build is not inspectable.
