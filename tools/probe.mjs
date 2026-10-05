@@ -7265,6 +7265,21 @@ check('the taxi is an ordinary car in the traffic array',
   hold(still, 1, true);
   hold({ ...still, crashed: true }, 1, true);
   check('a wrecked taxi stops burning', flame.group.visible === false && flame.state.heat === 0);
+
+  // The drift kick's surge: two plumes either side of the pipe, longer, and burning with the pill
+  // up — then back to one when it ends.
+  {
+    const scene = new THREE.Scene();
+    const twin = createLocoFlame(scene);
+    for (let step = 0; step < 30; step++) twin.update(1 / 60, still, false, true);
+    const [b0, b1] = twin.group.children;
+    const split = twin.group.visible && b1.visible && b1.position.z - b0.position.z > 0.8
+      && twin.group.scale.x > 1.5;
+    for (let step = 0; step < 30; step++) twin.update(1 / 60, still, true, false);
+    check('the drift kick splits the flame into two longer barrels, and lets them go after',
+      split && !twin.group.children[1].visible && Math.abs(twin.group.children[0].position.z) < 1e-6,
+      `split ${split}, scale ${twin.group.scale.x.toFixed(2)} after`);
+  }
 }
 
 // --- The tyres that get away -------------------------------------------------

@@ -4082,10 +4082,21 @@ function frame() {
   traffic.update(dt);
   if (traffic.taxi.drifts > driftsPaid) {
     driftsPaid = traffic.taxi.drifts;
-    // The exit kick (DRIFT_EXIT in sim/traffic.js) wants to be felt as well as seen.
+    // The exit kick (DRIFT_EXIT in sim/traffic.js) has to read at a glance — playtesting said it
+    // didn't, with only a buzz and a shake. So it says so: the word off the roof, a bark of fire out
+    // of the pipe on top of the double-barrelled plume (`locoFlame` below), and the Loco whoosh.
     if (!fares.state.gameOver) {
+      const car = traffic.taxi;
       haptic('loco');
-      controller.kickShake(0.35);
+      controller.kickShake(0.5);
+      sfx?.locoOn();
+      flames.burst(
+        car.x - Math.cos(car.yaw) * TAXI_TAILPIPE_BACK,
+        TAXI_TAILPIPE_HEIGHT,
+        car.z + Math.sin(car.yaw) * TAXI_TAILPIPE_BACK,
+        car.yaw,
+      );
+      popLabel('DRIFT BOOST!');
     }
   }
   // A pass carried the taxi straight through a junction its route wanted to turn at, and the sim
@@ -4518,7 +4529,8 @@ function frame() {
   // reason both of those are: it is pinned to the car's position this frame, not emitted and left
   // behind. At the Loco Mode top the taxi covers 0.57 units in a frame, so a plume ticked before
   // `traffic.update` would sit visibly off the back of the bumper the whole time it burned.
-  locoFlame.update(dt, traffic.taxi, boost.isActive());
+  // The drift kick burns double-barrelled for as long as it holds (DRIFT_CARRY in sim/traffic.js).
+  locoFlame.update(dt, traffic.taxi, boost.isActive(), traffic.taxi.drift?.phase === 'carry');
   copRubber();
   // `sim/` publishes where its cars are and this side owns anything that reaches into the scene
   // — the patrol cruiser's rubber included, since it is one of `traffic.policeCars` now. Off the

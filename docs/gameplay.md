@@ -3332,8 +3332,12 @@ tried and was a bummer.
 **The move is a combo for an exit kick.** Holding Loco into a turn, tap the brake in the last 0.6s
 of approach (never under 8 units) or the first 35% of the arc, then get back on the pill before the
 arc is over. The taxi comes out at 1.2× the boost cruise (`DRIFT_EXIT`, 26.5 u/s), put on in one
-frame and held for 0.6s, with a buzz and a jolt of shake. The tap screeches and lays four-wheel
-rubber the moment it lands.
+frame and held for 0.6s. The tap screeches and lays four-wheel rubber the moment it lands.
+
+The kick has to read at a glance, and a buzz and a shake alone did not: the first playtest could
+not tell when it had worked. It now says so four ways at once — **DRIFT BOOST!** rising off the
+roof (`popLabel`), the tailpipe flame splitting into two longer barrels for as long as the kick
+holds (`surge` in `game/locoflame.js`), a bark of fire and the Loco whoosh, and a bigger jolt.
 
 - **The tap alone is a slide, not a stop.** At 13 u/s or more (`DRIFT_MIN_V`, so only off the pill)
   with a real turn within reach, the taxi goes round at the boost cruise, rights included, and
