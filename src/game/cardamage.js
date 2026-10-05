@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { skipWhenEmpty } from '../util/emptypools.js';
 import { bakeColor, propMaterial, setFinish, FINISH } from '../util/geo.js';
 import { color } from '../palette.js';
 import { lightPodAnchor } from '../geometry/lights.js';
@@ -55,7 +56,7 @@ const SPARK_EVERY = 0.09;
 
 export function createCarDamage({ scene, traffic, sparks, roadY, rng = Math.random, pool: POOL = POOL_SIZE }) {
   const instanced = (geometry, max, name) => {
-    const mesh = new THREE.InstancedMesh(geometry, propMaterial(), max);
+    const mesh = skipWhenEmpty(new THREE.InstancedMesh(geometry, propMaterial(), max));
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     // Every instance moves with its car, all over the map — see `neverCull` in sim/traffic.js.
     mesh.frustumCulled = false;

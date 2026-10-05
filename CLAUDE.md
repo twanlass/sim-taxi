@@ -125,6 +125,13 @@ Omit the whole section if there's nothing to note.
   material's parameters *before* the patch runs, so a patched material collides with every unpatched
   one sharing those parameters and gets handed whichever program compiled first. The diamond's fill
   drew with a building's shader and went missing with nothing logged.
+- **A light the prepasses cannot see re-resolves every lit program, every frame.** Three gathers a
+  render's lights in the same layer-tested walk as its meshes, so the AO and bloom prepasses
+  (`camera.layers.set(...)`) counted no lights and the main render counted them all — and since all
+  three share one render state, its light version moved twice a frame and **~100 lit materials** a
+  frame went back through `getProgram` to find the program they already had (~2.6 ms of JS on a
+  desktop core). Nothing looks wrong and no shader compiles, so `tools/links.mjs` is silent; only a
+  profile shows it. Any light in the main scene goes through `countInEveryPass` (util/geo.js).
 - **A light under a hidden group is not dim, it is gone — and its absence recompiles the whole
   city.** Three collects the scene's lights with `traverseVisible`, so `group.visible = false` on
   something carrying a `PointLight` drops `numPointLights`, and the light counts are part of every

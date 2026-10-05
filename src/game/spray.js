@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { skipWhenEmpty } from '../util/emptypools.js';
 import { color } from '../palette.js';
 
 // Water thrown off the taxi's tyres on a wet road — the squall's answer to the boost's dust
@@ -58,7 +59,7 @@ export function createSpray(scene, rng) {
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
   };
 
-  const mesh = new THREE.InstancedMesh(geometry, material, MAX);
+  const mesh = skipWhenEmpty(new THREE.InstancedMesh(geometry, material, MAX));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.renderOrder = 3;      // with the dust: above the rubber, below the cars
   mesh.frustumCulled = false;

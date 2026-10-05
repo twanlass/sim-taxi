@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
+import { countInEveryPass } from '../util/geo.js';
 import { sirenOn } from '../geometry/lights.js';
 import { CHASSIS_LIFT } from '../geometry/wheels.js';
 
@@ -76,8 +77,10 @@ export function createCopLights(scene, { enabled = true } = {}) {
     const blue = new THREE.PointLight(new THREE.Color(PALETTE.sirenBlue), 0, RANGE, DECAY);
     // No shadows. These are cheap fill standing in for a lamp that is a few pixels across, and a
     // shadow-casting point light is six more render passes for something nothing is lit by.
-    scene.add(red);
-    scene.add(blue);
+    // On every layer, or the prepasses' light count differs from the main render's and every lit
+    // program in the city is re-resolved each frame — see countInEveryPass.
+    scene.add(countInEveryPass(red));
+    scene.add(countInEveryPass(blue));
     lamps.push({ red, blue });
   }
 

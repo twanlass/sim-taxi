@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { skipWhenEmpty } from '../util/emptypools.js';
 import { GRID_I, GRID_J, DIR, lineX, lineZ } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 import {
@@ -132,7 +133,7 @@ function patchAlpha(material) {
 function createPool(scene, rng, { max, geometry, material, renderOrder, gravity = 0, drag = 0, look }) {
   const alphas = new Float32Array(max);
   geometry.setAttribute('aAlpha', new THREE.InstancedBufferAttribute(alphas, 1));
-  const mesh = new THREE.InstancedMesh(geometry, patchAlpha(material), max);
+  const mesh = skipWhenEmpty(new THREE.InstancedMesh(geometry, patchAlpha(material), max));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.frustumCulled = false;   // a moving InstancedMesh — see CLAUDE.md
   mesh.renderOrder = renderOrder;

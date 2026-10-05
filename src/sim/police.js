@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { propMaterial, BODY_EULER_ORDER, FINISH } from '../util/geo.js';
+import { propMaterial, BODY_EULER_ORDER, FINISH, countInEveryPass } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { SILL_Y } from '../geometry/wheels.js';
 import {
@@ -137,7 +137,8 @@ function lightBar(shell, carrier) {
   const lamp = (hex, z) => {
     const light = new THREE.PointLight(new THREE.Color(hex), 0, 34, 1.7);
     light.position.set(CABIN_X, 2.1 + CHASSIS_LIFT, z);
-    carrier.add(light);
+    // ...and on every layer, for the same reason one level up: see countInEveryPass.
+    carrier.add(countInEveryPass(light));
     return light;
   };
 

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { skipWhenEmpty } from '../util/emptypools.js';
 import { CAR_LEN, CAR_W, TRUCK_LEN, TRUCK_W, TRUCK_BOX_X } from '../sim/traffic.js';
 import { TAXI_TAILPIPE_BACK } from '../geometry/taxi.js';
 import { propMaterial } from '../util/geo.js';
@@ -170,7 +171,7 @@ export function createFlatbed(rng, scene, traffic, camera = null, { soon = false
   crateMesh.receiveShadow = true;
   group.add(crateMesh);
 
-  const chipMesh = new THREE.InstancedMesh(crateChipGeometry(), propMaterial(), CHIP_POOL);
+  const chipMesh = skipWhenEmpty(new THREE.InstancedMesh(crateChipGeometry(), propMaterial(), CHIP_POOL));
   chipMesh.name = 'flatbed-chips';
   chipMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   chipMesh.frustumCulled = false;

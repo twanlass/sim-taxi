@@ -18,6 +18,29 @@ import { PALETTE } from '../palette.js';
 export const BODY_EULER_ORDER = 'YXZ';
 
 /**
+ * Put a light on every layer, so every pass that renders the city counts it.
+ *
+ * **This is a performance call, and a large one.** Three collects a render's lights during the
+ * same layer-tested walk that collects its meshes, so the AO prepass (`camera.layers.set(AO_LAYER)`)
+ * and the bloom pass (`BLOOM_LAYER`) each saw *no* lights at all, and the main render then saw the
+ * sun, the fill and the siren lamps again. All three share one render state, and its light setup
+ * bumps a version number whenever the set of lights differs from the last render's — so the
+ * version moved twice a frame, and every lit material in the main render failed its
+ * `lightsStateVersion` check and went back through `getProgram`: rebuild the parameters, build the
+ * cache-key string, look it up, find the program it already had. About **100 of those a frame**,
+ * measured, and ~2.6 ms of JS on a desktop core (~45% of setProgram time) for no change at all.
+ *
+ * Nothing in either prepass is lit (depth materials and `unlitMaterial` copies), so counting the
+ * lights there changes no pixel; both passes hold `shadowMap.autoUpdate` off, so the sun's
+ * shadow map is not drawn twice either. Any new light in the main scene wants this call, or the
+ * churn comes back — silently, since the picture is identical either way.
+ */
+export function countInEveryPass(light) {
+  light.layers.enableAll();
+  return light;
+}
+
+/**
  * Normalizes a geometry into the form the whole project agrees on:
  *   - non-indexed, so computeVertexNormals() yields genuinely flat facets
  *   - a baked `color` attribute instead of a per-instance material
