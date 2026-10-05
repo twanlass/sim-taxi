@@ -1602,8 +1602,9 @@ const DRIFT_LEAD = 0.6;
 const DRIFT_LATE = 0.35;
 /** Seconds the exit kick is held after the exit, before the boost takes over again. */
 const DRIFT_CARRY = 0.6;
-/** The exit kick, as a fraction of the boost cruise: 26.5 u/s, put on in one frame. */
-export const DRIFT_EXIT = 1.2;
+/** The exit kick, as a fraction of the boost cruise: 30.9 u/s, put on in one frame. 1.2 (26.5)
+ * read as too timid in play — barely past the cruise it was already doing. */
+export const DRIFT_EXIT = 1.4;
 /** A drift that has not landed in this long has gone wrong somewhere; let it go. */
 const DRIFT_MAX = 2.5;
 /** How far the nose swings past the heading at the height of the slide, in radians (~31°). */
