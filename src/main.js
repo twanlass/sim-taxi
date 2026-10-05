@@ -51,7 +51,7 @@ import { createCarDamage } from './game/cardamage.js';
 import { createTaxiDoor } from './game/taxidoor.js';
 import { createDepotCall } from './game/depotcall.js';
 import { flyEnergyToBoost } from './game/energybits.js';
-import { createSkidMarks } from './game/skidmarks.js';
+import { createSkidMarks, createTyreTrail } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
 import { createSpray } from './game/spray.js';
 import { createCityEntry } from './game/cityentry.js';
@@ -3477,8 +3477,18 @@ function stampAllRubber(car) {
   }
 }
 
+// The bootleg's rubber, along each tyre's own path rather than on the heading (game/skidmarks.js).
+const spinTrail = createTyreTrail();
+const stampSkid = (x, z, yaw, strength) => skids.add(x, z, yaw, strength);
+
 function layRubber(dt) {
   const car = traffic.taxi;
+  if (car.uturn?.kind === 'spin') {
+    spinTrail.update(car, stampSkid);
+    lastSkidAt = car.travelled;
+    return;
+  }
+  spinTrail.reset();
   if (launchSkidT > 0) launchSkidT = Math.max(0, launchSkidT - dt);
 
   // `state === 'turn'` covers every junction crossing, including going straight on — which is why
@@ -3504,8 +3514,8 @@ function layRubber(dt) {
   // see stampAllRubber. It needs no `boost` term: the pedal is the whole input, and a screech from
   // cruise is as much a skid as one from the overdrive top, just a shorter one (1.0 unit of rubber
   // against 16.5 — see HARD_BRAKE in sim/traffic.js).
-  // And the bootleg (game/bootleg.js), which is a skid from start to finish.
-  const skidding = (car.braking && car.v > BRAKE_SKID_V) || car.uturn?.kind === 'spin';
+  // Not the bootleg, which is a skid from start to finish but lays its own — see spinTrail above.
+  const skidding = car.braking && car.v > BRAKE_SKID_V;
 
   // The screech, once per slide rather than per stamp: on the frame a corner or a lane swap starts
   // breaking traction. Not the launch or the brake, which each already have a sound of their own.
