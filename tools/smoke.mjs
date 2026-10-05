@@ -106,7 +106,7 @@ try {
   // for the waiting riders instead (game/farepointers.js), and the chips are kept behind the flag
   // to compare against. The two chip checks below are the only browser coverage the module has, so
   // this page turns them back on; the arrows are on either way and are checked here too.
-  await client.send('Page.navigate', { url: `${baseUrl}?chips=on&title=off` });
+  await client.send('Page.navigate', { url: `${baseUrl}?chips=on&title=off&drag=on` });
 
   const evaluate = async (expression) => {
     const { result } = await client.send('Runtime.evaluate', { expression, returnByValue: true });

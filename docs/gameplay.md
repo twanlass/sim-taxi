@@ -1210,6 +1210,9 @@ direct plan character for character instead of against a leg count that shrinks 
 
 #### Tap a street to send the route down it
 
+**The band drag is switched off unless `?drag=on`** (Tyler, 2026-10-05), to test the street tap as
+the only way to bend a route. The double-tap reset goes with it.
+
 `src/game/streettap.js`. **A tap on bare road re-plans the trip down that street** — same
 destination, same fare, same clock, the drag's decision without the drag's aiming. It is the
 package tap (`divertToParcel`) for plain road.

@@ -2221,8 +2221,14 @@ pathDrag = createPathDrag({
       : routeTo(traffic.taxi.pendingTarget, { via })),
   // `pause` is declared further down and only ever read from a pointer handler, which is long
   // after this module has finished evaluating — same as `homeTip` in the tutorial's guards.
-  canGrab: () => canBendRoute(),
+  canGrab: () => routeDragOn && canBendRoute(),
 });
+
+// **The band drag is off unless `?drag=on`.** Tyler's call (2026-10-05), to find out what the game
+// is like with the street tap as the only way to bend a route (game/streettap.js). The double-tap
+// reset lives in pathdrag.js too, so it goes with it: a tapped detour's only undo is tapping the
+// destination pin, which re-plans it direct. Everything stays wired so the experiment is one flag to reverse.
+const routeDragOn = new URLSearchParams(window.location.search).get('drag') === 'on';
 
 /** Whether the route can be bent by hand right now — the band drag and the street tap alike. */
 function canBendRoute() {
