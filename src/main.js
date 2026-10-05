@@ -517,6 +517,9 @@ if (river) {
     // shape the sun's shadow map cannot separate from its own underside. See `sinkShadowCaster`.
     sinkShadowCaster(mesh);
     mesh.name = `bridge-${line}`;
+    // Wet like the street either side of it, with the hump handed over so the carriageway still
+    // reads as road two metres up — see `wetGround`.
+    rain.wetGround(mesh, { deck: (x, z) => deckHeightAt(x, z).y });
     scene.add(markOccluder(mesh));
   }
 }
@@ -1306,6 +1309,7 @@ const ducks = createDucks(scene, makeRng(runSeed + 299), props.pond);
 // a module that reached in to assign `car.route` itself would skip everything else that function
 // does to a route already part-driven.
 const drawbridge = createDrawbridge(scene, makeRng(seed + 66), {
+  wet: rain.wetGround,
   // The leaf coming home is the one moment in the cycle with an impact in it, and it was landing in
   // silence. A puff at each abutment, out of the same pool the roadworks smash and the boosting
   // taxi both throw — a bridge dropping a hundred tonnes onto a stone seat kicks up what a car

@@ -155,7 +155,7 @@ function stripedBar(len, dark, light) {
   return bar;
 }
 
-export function createDrawbridge(scene, rng, { replan = null, onLand = null } = {}) {
+export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet = (mesh) => mesh } = {}) {
   const line = drawbridgeLine();
   if (line === null) return null;
   const span = bridgeSpan(line);
@@ -188,6 +188,10 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null } = 
   // Same shell as a fixed span — flat rather than arched, and it self-shadowed just the same, in a
   // band down the carriageway. See `sinkShadowCaster` (game/scene.js).
   sinkShadowCaster(leaf);
+  // Wet in the rain like the road it carries (`wetGround` in game/rain.js). Flat, so it needs no
+  // deck profile: lowered, its carriageway is at road level; raised, it is a wall, and the shader's
+  // own slope test dries it.
+  wet(leaf);
   leaf.name = 'drawbridge-leaf';
 
   // The pivot carries the leaf; the leaf's own geometry is built with its hinge on the origin.
