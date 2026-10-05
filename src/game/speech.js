@@ -204,6 +204,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
         <div class="speech-card">
           <div class="speech-title"></div>
           <div class="speech-text"><span class="speech-typed"></span><span class="speech-rest"></span></div>
+          <div class="speech-media" hidden></div>
         </div>
         ${POINTER_SVG}
       </div>
@@ -215,6 +216,7 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
   const typed = root.querySelector('.speech-typed');
   const rest = root.querySelector('.speech-rest');
   const pointer = root.querySelector('.speech-pointer');
+  const mediaEl = root.querySelector('.speech-media');
   card.style.background = CARD_FILL;
 
   let text = '';
@@ -281,10 +283,15 @@ export function createSpeech(root, { viewport = null, typing = false, onDismiss 
      * @param title   who is talking — "TIP", "POLICE DISPATCH"; set in caps by the stylesheet
      * @param line    what they say
      * @param at      () => {x, y} | null — the point the pointer touches, viewport px, per frame
+     * @param media   optional element shown under the line — the New Move card's pedal row
+     *                (game/newmove.js). The card widens to fit it rather than wrapping it.
      */
-    show(title, line, at) {
+    show(title, line, at, media = null) {
       if (closing) { clearTimeout(closing); closing = null; }
       titleEl.textContent = title;
+      mediaEl.replaceChildren(...(media ? [media] : []));
+      mediaEl.hidden = !media;
+      card.classList.toggle('has-media', Boolean(media));
       text = line;
       target = at;
       if (typing && !prefersReducedMotion()) {

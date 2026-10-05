@@ -28,7 +28,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
-  configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt,
+  configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice } from './sim/police.js';
@@ -122,8 +122,10 @@ import { createCopShout } from './game/copshout.js';
 import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
-import { setCityOccluders } from './game/sightline.js';
+import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg } from './game/bootleg.js';
+import { createNewMove, createSeenFlag, AFTER_DELIVERED, SHOW_DELAY } from './game/newmove.js';
+import { createUturnClip, pickStreet } from './game/uturnclip.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
@@ -333,7 +335,12 @@ attachContextRecovery({ renderer, sun, budget, onNotice: (text) => diag.note(tex
  * The main render is untouched by the pass in front of it: still the default framebuffer, still
  * its own MSAA, still its own stencil buffer for the ghost outlines.
  */
-function renderFrame() {
+/**
+ * One frame of the city. `cam` is the city camera unless the New Move card is filming its U-turn
+ * clip through a camera of its own (game/uturnclip.js), which wants the whole frame — the AO, the
+ * bloom, the haze — and not a lesser render of its own.
+ */
+function renderFrame(cam = camera) {
   // Sized here rather than in the frame loop for the same reason the AO prepass is called here:
   // shot mode and `__taxi.redraw()` both reach a render without ever reaching the loop.
   crayon.prepare();
@@ -344,16 +351,16 @@ function renderFrame() {
   cullEmptyPools();
   // The wet road's mirror, before anything reads it. A no-op without `?rain`.
   rainLightsOn?.();
-  rain.update(0, camera);
-  rain.renderReflection(scene, camera);
-  ao.render(scene, camera);
+  rain.update(0, cam);
+  rain.renderReflection(scene, cam);
+  ao.render(scene, cam);
   // After the AO prepass, which is what fills the depth buffer the lamps are rejected against.
-  bloom.render(scene, camera);
+  bloom.render(scene, cam);
   // Here rather than in the loop for the AO prepass's reason: shot mode renders without the loop.
   syncRiverWater(scene.fog?.color);
   // `?hdr` takes the whole frame through a composer instead; a no-op without the flag, and it
   // returns false so the ordinary path below still runs.
-  if (!hdr.render(scene, camera)) renderer.render(scene, camera);
+  if (!hdr.render(scene, cam)) renderer.render(scene, cam);
   // Drops on the glass, over the finished frame.
   rain.renderLens();
   // After everything has drawn, so its counters and centre pixel are the frame on screen, and here
@@ -3362,7 +3369,7 @@ window.addEventListener('keydown', (event) => {
   if (parked()) return;
   // The robber's line takes Space as its own answer (game/robberline.js). Registered after this
   // one, so this has to stand down for it rather than the other way round.
-  if (robberLine?.isOpen()) return;
+  if (robberLine?.isOpen() || newMove?.isOpen()) return;
   // A paused run takes no input at all. `frame()` returns before `boost.update`, so a press behind
   // the veil would sit in 'active' burning nothing and then resume into a launch the player never
   // asked for — the mirror image of the release `createPause`'s `onChange` does on the way in. The
@@ -3392,7 +3399,7 @@ window.addEventListener('keydown', (event) => {
   if (event.code !== 'KeyB' || event.repeat) return;
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   if (keyIsSpokenFor(event.target, brakeButton)) return;
-  if (parked() || pause?.state.paused || robberLine?.isOpen()) return;
+  if (parked() || pause?.state.paused || robberLine?.isOpen() || newMove?.isOpen()) return;
   event.preventDefault();
   brakeKeyHeld = true;
   holdBrake();
@@ -3849,6 +3856,55 @@ const pause = shot ? null : createPause({
   },
 });
 
+// "New Move Unlocked": the card that teaches the bootleg, once ever, a beat after the drop-off that
+// brings a run to AFTER_DELIVERED fares. The world stops while it is up — the early return in
+// `frame()` beside the robber's line's. See game/newmove.js for when and why.
+const uturnSeen = createSeenFlag();
+// Centred over a dim, with the move acted out inside it on a real street of this city — see
+// game/newmove.js and game/uturnclip.js. The street is chosen when the card opens, off the cars
+// where they stand then, since they stay there until it closes.
+const freezeFrame = document.getElementById('freeze-frame');
+const newMove = shot ? null : createNewMove({
+  viewport,
+  makeClip: (cardCanvas) => freezeFrame && createUturnClip({
+    scene, camera, renderFrame, canvas: renderer.domElement, freeze: freezeFrame, cardCanvas,
+    street: pickStreet({
+      network: cityNetwork(),
+      cars: traffic.cars,
+      camRight: new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0),
+      visible: (x, z) => sightlineClear(x, 0.4, z),
+      closed: isLaneClosed,
+    }),
+  }),
+});
+// Seconds of game time until the card lands, or negative when none is due.
+let newMoveIn = -1;
+/**
+ * Is this run one the card may still be shown in? The tips setting and debug mode turn it off the
+ * way they turn off the opening tutorial (read live: the setting can flip on the title screen), and
+ * it waits out the tutorial's Loco Mode beat — a move built on Loco Mode means nothing to someone
+ * who has not been shown it yet.
+ */
+const newMoveWanted = () => Boolean(newMove) && !uturnSeen.get() && wantsTutorial
+  && settings.get().tips && (!tutorial || tutorial.state.step === 'done');
+/**
+ * Is now a calm beat? Checked when the delay runs out rather than at the drop-off, because the
+ * drop-off of a robber *starts* a patrol chase, and anything that has taken the taxi or the screen
+ * in the meantime outranks a lesson. A beat that is not calm is skipped, and the next drop-off
+ * tries again.
+ */
+const newMoveCalm = () => !fares.state.gameOver && !traffic.taxi.crashed
+  && !robbery?.state.active && !patrol.busy() && !robberLine?.isOpen()
+  && !opening?.visiting() && !depotRun?.active() && !burgerRun?.holdsTaxi()
+  && !replay?.active() && replayAt === null;
+function openNewMove() {
+  if (!newMove?.open()) return false;
+  uturnSeen.set();
+  // Same releases as the pause, for the same reason: the card takes the release of anything held.
+  boost.release(); releaseBrake(); dropPedalGesture(); bootleg.reset();
+  return true;
+}
+
 const clock = new THREE.Clock();
 
 function frame() {
@@ -3863,7 +3919,8 @@ function frame() {
   // drawn: with `preserveDrawingBuffer` off, a resize or a rotation with the veil up repaints the
   // canvas from an empty buffer, and the city would blink out until the player resumed.
   // The sound stops with the world — both of the early returns below — and starts with it again.
-  sfx?.hold(Boolean(pause?.state.paused || robberLine?.isOpen() || inspect?.state.on));
+  sfx?.hold(Boolean(pause?.state.paused || robberLine?.isOpen() || newMove?.isOpen()
+    || inspect?.state.on));
   if (pause?.state.paused) {
     renderFrame();
     return;
@@ -3882,6 +3939,13 @@ function frame() {
   if (robberLine?.isOpen()) {
     robberLine.update(dt);
     renderFrame();
+    return;
+  }
+  // The New Move card: the same freeze. Only the bubble ticks, to stay pinned to the pedal; the
+  // pedal row's loop is CSS.
+  if (newMove?.isOpen()) {
+    // With a clip, the card draws the frame itself (through the clip camera, under the still).
+    if (!newMove.update(dt)) renderFrame();
     return;
   }
 
@@ -4213,6 +4277,10 @@ function frame() {
     if (fares.state.gameOver) depotCall.hide();
     depotCall.update(dt);
   }
+  if (newMoveIn > 0) {
+    newMoveIn -= dt;
+    if (newMoveIn <= 0 && newMoveWanted() && newMoveCalm()) openNewMove();
+  }
   if (radioIn > 0) {
     radioIn -= dt;
     // A getaway over before dispatch got a word in — a wreck in the first second and a half — has
@@ -4252,6 +4320,7 @@ function frame() {
       // target and `depotRun.update` stands down on the next frame. A car already staged in the
       // driveway finishes its visit and `resumeJob` hands it the drop-off on the way out.
     } else if (type === 'delivered') {
+      if (fares.state.delivered >= AFTER_DELIVERED && newMoveWanted()) newMoveIn = SHOW_DELAY;
       // Out they get: open, and shut a beat later once they are clear of the car.
       sfx?.play('doorOpen');
       sfx?.play('doorClose', { delay: 0.7 });
@@ -5174,6 +5243,14 @@ window.__taxi = {
   patrol,
   /** The brake-tap spin (game/bootleg.js) — `spin()` fires one, `state` tallies them. */
   bootleg,
+  /**
+   * The bootleg's "New Move Unlocked" card (game/newmove.js), null in shot mode. `open()` shows it
+   * now, whatever the gates say; `seen` is the remembered flag, `wanted`/`calm` the two gates.
+   */
+  newMove: newMove && {
+    open: openNewMove, isOpen: newMove.isOpen, close: newMove.close, seek: newMove.seek,
+    seen: uturnSeen, wanted: newMoveWanted, calm: newMoveCalm, due: () => newMoveIn,
+  },
   fares,
   /** The package courier, or null under `?parcels=0` and in shot mode. See game/parcels.js. */
   parcels,
