@@ -579,6 +579,14 @@ export function getHdr(fallback = false) {
 }
 
 /**
+ * The wreck fireball's cut, via `?wreck=classic|quick|flat` — see WRECK_STYLES in game/blast.js.
+ * Returned as the raw name; `blast.setStyle` falls back to classic on anything it does not know.
+ */
+export function getWreckStyle(fallback = 'classic') {
+  return new URLSearchParams(window.location.search).get('wreck') ?? fallback;
+}
+
+/**
  * Multisampling, via `?msaa=off`.
  *
  * Not the same request as the stencil buffer, even though the two ride in the same back buffer:

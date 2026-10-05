@@ -2286,6 +2286,13 @@ The shockwave is the mark that reads first, because a flat ring at this camera p
 ellipse spreading out from under the wreck — the blast has a size before the fireball has grown into
 one. Fourteen segments, so the flat sides show at the wreck zoom.
 
+**Three cuts of the fireball** (`WRECK_STYLES`, picked with `?wreck=classic|quick|flat` or the ⚙️
+panel's *Wreck fire*, read at detonation). Classic hid the two cars the run ended on for most of a
+second. `quick` is the same fire smaller and over in ~55% of the time. `flat` squashes each puff to
+0.42 of its height, starts it on a ring 1.6 units out from the car instead of on it, drops the core
+puff and keeps the whole skirt under ~1.4 units, so the fire rolls outward along the road and the
+bodywork stays visible in the middle; `tools/probe.mjs` asserts both of those claims.
+
 Shards are the whole of what is left of the old debris: seven per car, one tetrahedron squashed
 per instance into plates and chunks, tinted with that car's paint so a two-car wreck comes apart in
 two colours. They no longer bounce, settle or come to rest: a shard is a piece of the *moment* of
