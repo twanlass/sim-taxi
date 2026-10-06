@@ -1298,8 +1298,9 @@ change to the physics:
   middle of the frame, so a pan never runs out of weather and the CPU does nothing per drop.
   Depth-tested, so rain falls *behind* buildings.
 - **The lens.** After the main render, the frame is copied to a `FramebufferTexture` and drawn back
-  through drops on the glass: small beads that appear, sit and dry, fewer large ones, and a few
-  that stick and slip down the screen. Each is an inverted lens with a darker rim and a catch
+  through drops on the glass: small beads that appear, sit and dry, a few large ones, and two
+  sizes of drop that stick and slip down the screen, each trailing a tapering wet streak and
+  stranded beads. Each is an inverted lens with a darker rim and a catch
   light. This is a copy plus one fullscreen triangle, not a composer, so the main render keeps its
   MSAA and its stencil. The copied frame is already display-space and the shader writes it back
   untouched.
