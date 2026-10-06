@@ -1786,9 +1786,10 @@ the point halfway between the wreck and the landing, so both stay in a portrait 
 ground track first and, if it meets a block, unbridged river or the edge of the map, scales every
 horizontal speed down so the figure stops `CLEAR` short of it — the same tumble, shorter and
 steeper. Like the shells it is a closed form of its age, and the replay scrubs it through `scrub`
-rather than off the tape: the tumble turns a third of a revolution between 30Hz samples. When it
-fires, the breath after the replay is `EJECT_TAIL` rather than `REPLAY_TAIL`, long enough to watch
-the landing.
+rather than off the tape: the tumble turns a third of a revolution between 30Hz samples. The replay
+jump cuts straight to the card, so a flight still going when the last shot ends lands unseen; there
+used to be an `EJECT_TAIL` that handed back to the live wreck for 1.1s to watch it, dropped with the
+rest of the real-time tail.
 
 **A wrecked car's lamps go out.** A crashed car never reaches the render pass again, so whatever
 brake level it last wrote would sit there for the rest of the run — and the frame this fires on is
@@ -1816,7 +1817,8 @@ hit and plays at 0.8× into it and 0.5× through the blast, with a white flash o
 crash sound under each one. The last shot eases further, to 0.25× over a longer ramp (`slow` and
 `ramp` in `SHOTS`), so the final hit plays in real slow motion, then holds its final frame for 0.4s
 of wall clock (`hold`), still orbiting, so the last word lands before the card — about 4.7s for all
-three. There is no letterbox or REPLAY tag: the
+three. The card then comes up on that frame: a jump cut, with no hand back to the live wreck in
+between. There is no letterbox or REPLAY tag: the
 first version had both, played the whole approach in slow motion over two longer angles, and ran
 ~7s from crash to card. Any tap or key skips straight to the card. A bust and a timeout keep the
 old hold, as does shot mode.
