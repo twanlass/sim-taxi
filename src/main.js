@@ -1309,7 +1309,12 @@ function heliTarget(dt) {
     if (figure) return figure;
     const car = arrest.boarder();
     if (car) heliTail = { car, left: HELI_TAIL_SECONDS };
-    else if (!heliTail) return null;
+    else if (!heliTail) {
+      // The robber is still climbing out on the scene's first frames: hold over the corner rather
+      // than turning for home and straight back.
+      const J = arrest.state.phase === 'converge' ? arrest.junction() : null;
+      return J ? { x: lineX(J.i), z: lineZ(J.j) } : null;
+    }
   }
   if (!heliTail) return null;
   const { car } = heliTail;

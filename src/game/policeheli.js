@@ -86,9 +86,9 @@ const POOL_LIFT = 0.32;
  * round the pool is darkened — the light reads by contrast with its surroundings, which is how a
  * searchlight is actually seen in daylight on film.
  */
-const BEAM = { day: 0.5, night: 0.38 };
-const POOL = { day: 0.55, night: 0.75 };
-const SHADE = { day: 0.3, night: 0.12 };
+const BEAM = { day: 0.75, night: 0.38 };
+const POOL = { day: 1.0, night: 0.75 };
+const SHADE = { day: 0.45, night: 0.12 };
 
 // --- Rotor -----------------------------------------------------------------------------
 const TAIL_RATIO = 4.6;
