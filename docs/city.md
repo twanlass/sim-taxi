@@ -680,6 +680,19 @@ built before anything has decided where the statue goes, so a plaza planned in o
 another would be two things to keep in step), and the trees are planted afterwards and keep out of
 its clearing.
 
+### Three species, parks only
+
+A park tree is a **broadleaf** half the time, a **spruce** (three stacked cones, dark blue-green) a
+quarter, and a **Lombardy poplar** (a column of three lobes, yellow-green) a quarter —
+`parkSpecies()` in `props.js`, off a hash of the trunk position rather than a draw. Each park tree
+grows off its own stream keyed to that position, because the species spend different numbers of
+draws and on the shared stream retuning the mix would reshuffle every median bed planted after it.
+The courtyard and the median stay broadleaf: each is sized off a measurement the new shapes were
+never part of. Both new species sit inside the broadleaf's envelope — no taller at the top of the
+range, no wider than the 1.8 `clearOfPond` keeps off the water — so nothing a park could hide
+before changes; the probe measures that on built geometry. The spruce records no crowns and gets no
+leaf fuzz: its tiers are already the ragged outline the cards give a round crown.
+
 The figure is hand-built from boxes rather than taken from `geometry/person.js`: that one is a rig,
 a Group of separately-pivoting limbs with materials of their own, and what a merged props mesh needs
 is geometry that never moves again.

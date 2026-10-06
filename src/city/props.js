@@ -5,6 +5,7 @@ import { PALETTE, jitterColor } from '../palette.js';
 import { KERB_H, MEDIAN_EDGE, PARK_EDGE, roundedRectShape } from './ground.js';
 import { MEDIAN_W, medianRuns } from './grid.js';
 import { planPond, pondParts } from './pond.js';
+import { makeRng } from '../util/rng.js';
 import { clearBenches, courtParts, courtRect, planCourt } from './blacktop.js';
 
 /**
@@ -48,14 +49,16 @@ export function treeShape(height, trunk = 0.42) {
  * ellipsoid `city/canopyfuzz.js` dresses in leaf cards. Recorded, never drawn: it spends nothing
  * from `rng`, so a tree grown with it is the tree grown without it.
  */
-export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.42, crowns = null } = {}) {
+export function treeParts(x, z, rng, {
+  low = 3.4, high = 5.6, height, trunk = 0.42, crowns = null, species = 'broadleaf',
+} = {}) {
+  if (species === 'conifer') return coniferParts(x, z, rng, height ?? rng.range(low, high));
+  if (species === 'poplar') return poplarParts(x, z, rng, height ?? rng.range(low, high), crowns);
   const parts = [];
   const shape = treeShape(height ?? rng.range(low, high), trunk);
   const { trunkH, crownR: r, crownY: base } = shape;
 
-  const trunkGeo = new THREE.CylinderGeometry(shape.height * 0.035, shape.height * 0.055, trunkH, 6);
-  trunkGeo.translate(x, KERB_H + trunkH / 2, z);
-  parts.push(bakeColor(trunkGeo, jitterColor(PALETTE.trunk, rng, { l: 0.05 })));
+  parts.push(trunkPart(x, z, rng, shape.height, trunkH));
 
   // Canopy: a main blob plus a couple of smaller ones pushed into it. Overlapping solids read as
   // a fuller crown than a single sphere and hide the seams where they meet.
@@ -64,24 +67,9 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.
   // tree-to-tree while the blobs of one crown stay siblings. Hashed from the trunk position
   // rather than drawn, same reason as the entry stamp (util/geo.js hash01): spending a draw
   // here would reshuffle every tree planted after this one.
-  const canopy = new THREE.Color(PALETTE.foliage);
-  const hsl = { h: 0, s: 0, l: 0 };
-  canopy.getHSL(hsl);
-  canopy.setHSL(
-    (hsl.h + (hash01(x, z) - 0.5) * 0.07 + 1) % 1,
-    THREE.MathUtils.clamp(hsl.s + (hash01(z, x) - 0.5) * 0.14, 0, 1),
-    THREE.MathUtils.clamp(hsl.l + (hash01(x + z, x - z) - 0.5) * 0.10, 0.05, 0.95),
-  );
-
-  const blob = (radius, ox, oy, oz, detail) => {
-    const geo = new THREE.IcosahedronGeometry(radius, detail);
-    jitterVertices(geo, rng, radius * 0.1);
-    geo.scale(1.05, 0.9, 1.05);
-    geo.translate(x + ox, base + oy, z + oz);
-    const tint = jitterColor(canopy, rng, { h: 0.02, l: 0.07 });
-    parts.push(softCrown(bakeColor(geo, tint), x + ox, base + oy, z + oz));
-    crowns?.push({ x: x + ox, y: base + oy, z: z + oz, r: radius, color: tint, tx: x, tz: z });
-  };
+  const canopy = treeTint(PALETTE.foliage, x, z);
+  const blob = (radius, ox, oy, oz, detail) =>
+    crownLobe(parts, crowns, rng, canopy, radius, x, z, x + ox, base + oy, z + oz, detail);
 
   blob(r, 0, 0, 0, 1);
   const lobes = rng.int(1, 2);
@@ -93,6 +81,94 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.
   }
 
   return parts;
+}
+
+function trunkPart(x, z, rng, height, trunkH) {
+  const trunkGeo = new THREE.CylinderGeometry(height * 0.035, height * 0.055, trunkH, 6);
+  trunkGeo.translate(x, KERB_H + trunkH / 2, z);
+  return bakeColor(trunkGeo, jitterColor(PALETTE.trunk, rng, { l: 0.05 }));
+}
+
+/** A species' foliage colour, nudged per tree off a hash of its trunk position (no draw). */
+function treeTint(base, x, z) {
+  const canopy = new THREE.Color(base);
+  const hsl = { h: 0, s: 0, l: 0 };
+  canopy.getHSL(hsl);
+  canopy.setHSL(
+    (hsl.h + (hash01(x, z) - 0.5) * 0.07 + 1) % 1,
+    THREE.MathUtils.clamp(hsl.s + (hash01(z, x) - 0.5) * 0.14, 0, 1),
+    THREE.MathUtils.clamp(hsl.l + (hash01(x + z, x - z) - 0.5) * 0.10, 0.05, 0.95),
+  );
+  return canopy;
+}
+
+/** One soft canopy lobe at (cx, cy, cz), recorded for the leaf fuzz against trunk (tx, tz). */
+function crownLobe(parts, crowns, rng, canopy, radius, tx, tz, cx, cy, cz, detail) {
+  const geo = new THREE.IcosahedronGeometry(radius, detail);
+  jitterVertices(geo, rng, radius * 0.1);
+  geo.scale(1.05, 0.9, 1.05);
+  geo.translate(cx, cy, cz);
+  const tint = jitterColor(canopy, rng, { h: 0.02, l: 0.07 });
+  parts.push(softCrown(bakeColor(geo, tint), cx, cy, cz));
+  crowns?.push({ x: cx, y: cy, z: cz, r: radius, color: tint, tx, tz });
+}
+
+// --- The parks' other two species ----------------------------------------------
+//
+// Parks only. The courtyard and the median each size their broadleaf off a measurement
+// (`TREE_TRUNK` in buildings.js, `MEDIAN_TREE_H` below), and neither measurement knows about these.
+// Both are held inside the broadleaf's envelope at the same height, so nothing a park tree was
+// already allowed to hide changes: the top stays under the broadleaf's ~0.95 h and the reach under
+// `clearOfPond`'s 1.8 at the top of the range (asserted in tools/probe.mjs).
+
+// A spruce: a short trunk under three stacked cones. Faceted, not softened, and records no crowns —
+// leaf cards on a cone read as a broadleaf in a cone costume, and the tiers' stepped outline is
+// already the ragged silhouette the fuzz exists to give a round crown.
+const CONIFER_TIERS = 3;
+const CONIFER_REACH = 0.29;   // of the height: the bottom tier's radius
+function coniferParts(x, z, rng, height) {
+  const parts = [];
+  const trunkH = height * 0.16;
+  parts.push(trunkPart(x, z, rng, height, trunkH));
+  const green = treeTint(PALETTE.foliageConifer, x, z);
+  const coneH = height * 0.35;   // 0.38 topped out 0.02 over the broadleaf at h = 5.6
+  const step = height * 0.22;
+  for (let k = 0; k < CONIFER_TIERS; k++) {
+    const radius = height * CONIFER_REACH * (1 - k * 0.26);
+    const geo = new THREE.ConeGeometry(radius, coneH, 7);
+    jitterVertices(geo, rng, radius * 0.06);
+    geo.rotateY(rng.range(0, Math.PI * 2));
+    geo.translate(x, KERB_H + trunkH + k * step + coneH / 2, z);
+    parts.push(bakeColor(geo, jitterColor(green, rng, { h: 0.01, l: 0.05 })));
+  }
+  return parts;
+}
+
+// A Lombardy poplar: a column of three lobes on a leggy trunk, the broadleaf's own lobes so it
+// softens and takes leaf cards like one. Drawn a tenth taller than the range it is handed, because
+// a column's whole character is height — and its slenderness keeps the top under the broadleaf's.
+function poplarParts(x, z, rng, given, crowns) {
+  const parts = [];
+  const height = given * 1.1;
+  const trunkH = height * 0.2;
+  parts.push(trunkPart(x, z, rng, height, trunkH));
+  const green = treeTint(PALETTE.foliagePoplar, x, z);
+  const r = height * 0.17;
+  const sizes = [1, 0.95, 0.72];
+  sizes.forEach((size, k) => {
+    const cy = KERB_H + trunkH + r * 0.8 + k * r * 1.3;
+    crownLobe(parts, crowns, rng, green, r * size, x, z,
+      x + rng.jitter(r * 0.08), cy, z + rng.jitter(r * 0.08), k === 0 ? 1 : 0);
+  });
+  return parts;
+}
+
+// Which species a park tree is, off a hash of where it stands rather than a draw, so the choice can
+// be retuned without moving anything else. Half broadleaf, so the parks still read as the same
+// green as the courtyards and medians; a quarter each of the other two.
+export function parkSpecies(x, z) {
+  const h = hash01(x * 1.31 + 7.7, z * 0.73 - 3.9);
+  return h < 0.5 ? 'broadleaf' : h < 0.75 ? 'conifer' : 'poplar';
 }
 
 // The lobe's ellipsoid normal at every vertex, so the crown lights as one soft mass rather than
@@ -557,8 +633,13 @@ export function createProps(rng, blocks) {
   // in createBuildings — so the planting a seed produces is untouched.
   // Every canopy lobe planted here, for the leaf cards (city/canopyfuzz.js).
   const crowns = [];
-  const plant = (x, z, size) => {
-    const tree = treeParts(x, z, rng, { ...size, crowns });
+  //
+  // Each park tree grows off a stream of its own, keyed to its trunk position, because the species
+  // spend different numbers of draws: on the shared stream, retuning the mix would reshuffle every
+  // median bed planted after the parks.
+  const plant = (x, z) => {
+    const own = makeRng(Math.floor(hash01(x, z) * 0x7fffffff));
+    const tree = treeParts(x, z, own, { crowns, species: parkSpecies(x, z) });
     const rand = hash01(x, z);
     for (const part of tree) stampEntry(part, x, z, rand);
     parts.push(...tree);

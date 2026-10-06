@@ -738,6 +738,12 @@ export const PALETTE = {
 
   trunk: '#6B4E35',
   foliage: '#4F8F4A',
+  // The parks' other two species (city/props.js). The spruce goes darker and bluer, the poplar
+  // yellower — both by value as much as hue, so a park reads as three trees rather than one tree in
+  // three tints. The poplar stays under the lawn's luma (123 against `park`'s 133) so a crown never
+  // dissolves into the grass under it.
+  foliageConifer: '#2E6448',
+  foliagePoplar: '#6A9235',
 
   // The duck pond — see city/pond.js. The only water in the game, so these three have nothing to
   // agree with and two things to stay clear of.
