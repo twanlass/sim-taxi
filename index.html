@@ -1322,19 +1322,10 @@
         50%      { filter: drop-shadow(0 0 14px rgba(245, 193, 48, 0.95)); }
       }
       body.coach-boost #boost { animation: coach-boost-pulse 1.3s ease-in-out infinite; }
-      /* The overtake's cue (game/overtake.js): a pass is on offer right now — a car ahead in range
-         and a way round it — so the blip will take. A quick white throb, not the coach's slow gold, so
-         the two never read as the same message. Armed (or under way), it holds steady: the combo
-         took, keep holding. */
-      @keyframes pass-ready-pulse {
-        0%, 100% { filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.4)); }
-        50%      { filter: drop-shadow(0 0 12px rgba(255, 255, 255, 1)); }
-      }
-      #boost.is-pass-ready { animation: pass-ready-pulse 0.45s ease-in-out infinite; }
+      /* The overtake combo took (game/overtake.js): armed or under way, a steady white glow — keep
+         holding. There was a quick white throb before it for "a blip would take now"; Tyler had it
+         taken out, so the moment to throw the combo is the player's to judge. */
       #boost.is-pass-armed { filter: drop-shadow(0 0 12px rgba(255, 255, 255, 1)); }
-      @media (prefers-reduced-motion: reduce) {
-        #boost.is-pass-ready { animation: none; filter: drop-shadow(0 0 9px rgba(255, 255, 255, 0.85)); }
-      }
       @media (prefers-reduced-motion: reduce) {
         body.coach-boost #boost {
           animation: none; filter: drop-shadow(0 0 12px rgba(245, 193, 48, 0.85));

@@ -4989,9 +4989,6 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       taxi.canPass = (locoHeld || taxi.passPending === true) && gap !== undefined
         && (room || asking)
         && (taxi.passArmed !== false || taxi.passing || asking);
-      // Whether the pull-out would go if the combo were thrown now — the HUD's cue for it
-      // (`#boost.is-pass-ready` in index.html).
-      taxi.passRoom = room;
 
       if (taxi.state === 'drive') {
         const was = taxi.passing;

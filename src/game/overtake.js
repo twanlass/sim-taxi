@@ -112,9 +112,6 @@ export function createOvertakeCombo({ taxi }) {
 
     taxi.passArmed = state.armed;
     taxi.passPending = !held && pending();
-    // The HUD's cue: a pass is on offer right now — a car within range, a way round it, nothing
-    // already armed or under way — so the moment to throw the combo is visible rather than guessed.
-    state.ready = !state.armed && !taxi.passing && behind() && taxi.passRoom === true;
   }
 
   return { state, update, reset };

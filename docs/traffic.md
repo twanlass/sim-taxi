@@ -1184,10 +1184,10 @@ Loco held, a 250ms reaction to a car within 20 units, then a release — measure
 Three fixes. The blip window went from 250ms to 400 (`OVERTAKE_BLIP_MS`): 250 was a cliff, and a
 relaxed thumb lift on a phone is 150-350ms. The blip and an armed combo waiting for a way round no
 longer ram (`taxi.passPending`, `asking` in `canPass`): the player was throwing the combo, and a
-ram there reads as the game eating the input. And the Loco pill now says when a blip will take —
-a quick white throb (`#boost.is-pass-ready`) while a car is in range with a way round it, held
-steady once armed or out. What is left is mostly roads with no way round (no straight on, no
-oncoming lane), where an arm lapses — the cue does not light there, which is the point of it.
+ram there reads as the game eating the input. And the Loco pill glows steady white once the combo
+is armed or the pass is out (`#boost.is-pass-armed`). A quick throb for "a blip would take now"
+came before it and Tyler had it removed. What is left is mostly roads with no way round (no
+straight on, no oncoming lane), where an arm lapses.
 
 Measured over 16 cities × 40s with the button held: from a car coming within 30 units to the ram
 is a median of 0.58s (p10 0.23s, p90 1.62s). The short end is cars that turn in close from a cross
