@@ -145,7 +145,10 @@ final class GameViewController: UIViewController {
     /// `isNarrow()` in `src/main.js` already switches the HUD over on narrow ones — so every
     /// orientation is genuinely playable and there is no reason to lock one. Info.plist carries the
     /// same list; this is here so the answer does not depend on which one UIKit consults.
+    ///
+    /// iPhone only (`TARGETED_DEVICE_FAMILY = 1`), so there is no iPad branch: on an iPad the app
+    /// runs in iPhone compatibility mode, where the idiom reads `.phone` anyway.
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-        UIDevice.current.userInterfaceIdiom == .pad ? .all : [.portrait, .landscape]
+        [.portrait, .landscape]
     }
 }
