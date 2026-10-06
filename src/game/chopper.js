@@ -23,6 +23,8 @@ import { BODY_EULER_ORDER } from '../util/geo.js';
 // the gaps are longer — two of these overlapping would read as an airport rather than as an event.
 // Deliberately not on the difficulty curve: nothing about this is pressure.
 const FIRST_WAIT = [26, 48];
+// Held off by the police helicopter, it waits at least this long after that one has gone.
+const HOLD_AFTER = 12;
 const WAIT = [95, 165];
 
 // --- The approach ----------------------------------------------------------------
@@ -545,8 +547,17 @@ export function createChopper(scene, rng, pad, { onWash = () => {} } = {}) {
     }
   }
 
-  function update(dt) {
+  /**
+   * @param hold  true while the getaway's police helicopter is up (game/policeheli.js): a visit
+   *              already under way finishes, but a new one waits. Both fly at `CRUISE_ALT`, the
+   *              one safe height, so the two must not share the sky.
+   */
+  function update(dt, { hold = false } = {}) {
     if (state.mode === 'away') {
+      if (hold) {
+        state.cooldown = Math.max(state.cooldown, HOLD_AFTER);
+        return;
+      }
       state.cooldown -= dt;
       if (state.cooldown <= 0) visit();
       return;

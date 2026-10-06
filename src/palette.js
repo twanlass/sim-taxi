@@ -456,6 +456,12 @@ export const PALETTE = {
   // `lightRed`: it is drawn unlit at four pixels across and has to survive being that small, and a
   // signal red at this size reads as a brake light on a car parked on a roof.
   heliBeacon: '#FF2E2E',
+  // The getaway's police helicopter (game/policeheli.js): the cruisers' light blue a stop deeper,
+  // since it is seen over pale roofs and pavement rather than beside other cars, with the cars'
+  // white cab carried over as the upper band and a navy under it.
+  heliPoliceBody: '#3F8ED0',
+  heliPoliceBandHi: '#F2F4F7',
+  heliPoliceBandLo: '#1E3A66',
 
   // The park flock — see geometry/bird.js. These bases are kept near-neutral on purpose: a bird
   // is a couple of pixels of moving colour, which is exactly the description of a fare marker,
@@ -626,6 +632,14 @@ export const PALETTE = {
   locoFlameDriftOuter: '#9B3DFF',
   locoFlameDriftMid: '#C77DFF',
   locoFlameDriftCore: '#F3E6FF',
+  // ...and up a drift chain (DRIFT_CHAIN in sim/traffic.js), cooling as it climbs: blue at the
+  // second kick, teal at the third. Same ramp shape again.
+  locoFlameChain2Outer: '#2F6BFF',
+  locoFlameChain2Mid: '#6FA0FF',
+  locoFlameChain2Core: '#E3EEFF',
+  locoFlameChain3Outer: '#00BFA6',
+  locoFlameChain3Mid: '#4DE8D0',
+  locoFlameChain3Core: '#E0FFF9',
 
   // Sparks off the underside of the taxi as it lands a jump — see game/sparks.js. Two stops, one
   // per end of a shower rather than a ramp each spark walks: a spark is on screen for half a second

@@ -239,7 +239,7 @@ shares the picker's `didPan()` guard, so a swipe that dragged the map is not als
 ### Speech bubbles
 
 Everything that talks on screen — these tips, [the robber](#the-bank-robbery), dispatch, the
-cop's shout and [the depot's call in for repairs](#the-depot-calls-you-in) — is one bubble, `game/speech.js`: the Figma file's "bubble-ui" card (a caps title
+and the cop's shout — is one bubble, `game/speech.js`: the Figma file's "bubble-ui" card (a caps title
 saying who is talking over a bold line, and a pointer), at the HUD's ×0.652.
 
 **Pinned to what it is about.** Each bubble is handed a target, a function returning a screen point
@@ -2470,6 +2470,25 @@ the robber gets out.
 (game/patrol.js) is why: a third of a tank is five seconds of boost, which loses the cop 8 times in
 16; none is caught 15 in 16; a full tank gets away 14 in 16.
 
+### The police helicopter
+
+`game/policeheli.js`, the `police` livery in `geometry/helicopter.js`, `heliTarget` in `main.js`.
+Once the taxi makes its **first checkpoint** a police helicopter flies in from the far side of the
+city and holds station behind the cab and a little toward the camera, with its searchlight on it,
+until the drop-off. There it moves over the robber on the corner for the standoff, follows the car
+the robber is put in for a few seconds as it pulls away, and leaves the island.
+
+It is **cinematic only**. Nothing in the robbery, the arrest or the patrol reads it, and it cannot
+catch, find or block the taxi. The rooftop chopper (`game/chopper.js`) holds off starting a visit
+while it is up, because both fly at `CRUISE_ALT`, the one height that clears every tower.
+
+The light is faked rather than a `SpotLight`, which would add a light to every lit program and
+shine through towers with no shadow map behind it: an additive cone from the lamp under the nose, an
+additive pool where it lands, and a normally blended dark ring round the pool. The ring carries the
+daytime read; an additive pool on a sunlit street is too faint to see on its own. The strengths ease
+between day and night off the sun's power. The rotor sound is synthesised in `game/sfx.js`
+(`makeRotor`) because the designer's set has no recording of one.
+
 ## The package courier
 
 `src/game/parcels.js`. A brown parcel sits on a kerb corner on a cyan rounded-square pad. Drive
@@ -3236,22 +3255,33 @@ spilling out from under it while the shop works — and then the opening itself 
 a clean car in a lit doorway, out, down the kerb and back into traffic.
 `game/depotrun.js` is the trip there; `enter()` in `game/opening.js` is everything from the lane on.
 
-### The depot calls you in
+### The depot's card
 
-Nothing used to say a repair was a tap on the depot. The car wears its damage, but a smoking car is
-a warning without an instruction, and the garage is a building like any other until you know what
-it is for. So on the frame the taxi starts smoking — `SMOKE_FRACTION`, 34% HP, the third of the
-four [damage tiers](../src/game/taxidamage.js) — the depot says **"TAXI DEPOT / Head to the shop for
-repairs."** from a [speech bubble](#speech-bubbles) over its own door (`game/depotcall.js`). Earlier
-and it would be nagging about a swinging lamp; at the 20% plume it is one hit from too late.
+Nothing would otherwise say a repair is a tap on the depot. The car wears its damage, but a smoking
+car is a warning without an instruction, and the garage is a building like any other until you know
+what it is for. So a beat (`SHOW_DELAY`, 0.9s) after the taxi first starts smoking —
+`SMOKE_FRACTION`, 34% HP, the third of the four [damage tiers](../src/game/taxidamage.js) — the
+[New Move card](#new-move-unlocked-the-u-turn-and-drift-cards) goes up with **"TAXI DEPOT / Tap for
+Repairs"** (`REPAIR` in game/newmove.js). Earlier and it would be nagging about a swinging lamp; at
+the 20% plume it is one hit from too late.
 
-Pinned over the door, the bubble is also the answer to *where*: the depot is usually off frame while
-the taxi is out working, so the call opens at the screen's edge pointing at it. It speaks once per
-bout of damage — main.js re-arms it only when the HP is back above the line, which in practice means
-a repair — and stays up its full `DEPOT_CALL_LINGER` (5s of game time, longer than dispatch because
-it is an instruction and usually pointing off screen). It cannot be tapped away, and tapping the
-depot no longer takes it down either: that lost it too easily before it had been read. Only the run
-ending cuts it short. Not said at all if the taxi is already on its way in or inside.
+It was a speech bubble over the garage door, once per bout of damage; Tyler swapped it for the card
+(2026-10-06). The card is **once ever** (`simTaxi.seen.repair`), stops the world like the move cards,
+and answers to the same gates: the tips setting, debug mode, the opening tutorial being done, and a
+calm beat (`newMoveCalm`) — a getaway, a patrol chase or a taxi already on its way in defers it, and
+it is tried again every half second for as long as the car is still smoking. No pedal row: the
+instruction is a tap, so the line says it. A finger tapping the door in the clip was tried and cut
+(Tyler, 2026-10-06): the clip is just the visit.
+
+**The clip** (`game/repairclip.js`, ~9s) is filmed on the player's own depot: a smoking stand-in
+(the real damage rig, three knocks in: bonnet, boot, dragging bumper) comes up the lane and turns in, the door comes down to `REPAIR_GAP` and the shop welds, and the
+door goes up on a clean car that drives back out onto the street. It is not a recording like the
+move clips: the visit is a script, not physics, so `scriptVisit` runs the same script again off the
+same `entryPath`/`exitPath` and the same numbers (`VISIT` in game/opening.js). Its two departures are
+on purpose: the shop works `CLIP_REPAIR` (1.2s, against the game's 2.4) and the door starts down as
+soon as the car is wholly behind the curtain, because a loop is watched more than once. The door and
+the welding are the city's own, borrowed while the world is frozen and put back shut on close; the
+player's taxi and the frozen traffic are hidden from the clip and left in the still. `__taxi.newMove.open('repair')` opens it.
 
 | Phase | What happens | Length |
 |---|---|---|
@@ -3448,7 +3478,9 @@ because slowing every corner to make room for a reward was tried and was a bumme
 **The move is a combo for an exit kick.** Holding Loco into a turn, tap the brake in the last 0.6s
 of approach (never under 8 units) or the first 35% of the arc, then get back on the pill before the
 arc is over. The taxi comes out at 1.4× the boost cruise (`DRIFT_EXIT`, 30.9 u/s; 1.2× read as too timid), put on in one
-frame and held for 0.6s. The tap screeches and lays four-wheel rubber the moment it lands.
+frame and held for 0.6s, straight on through the next junction if the route goes that way (dropping
+it at the junction cut every kick to ~0.4s, the time a 31 u/s car takes to cross the ~12-unit exit
+lane) and ended by a real turn or the brake. The tap screeches and lays four-wheel rubber the moment it lands.
 
 The kick has to read at a glance, and a buzz and a shake alone did not: the first playtest could
 not tell when it had worked. It now says so with the tailpipe flame splitting into two longer
@@ -3457,7 +3489,15 @@ orange one) for as long as the kick holds (`surge` in `game/locoflame.js`), a ba
 whoosh, a bigger jolt, and the gauge filling. (A "DRIFT BOOST!" word off the roof was tried and
 cut.)
 
-**A landed kick refunds a sixth of a tank** (`DRIFT_FUEL`, the same as a parcel), so a player
+**Kicks chain, up to three** (`DRIFT_CHAIN` in sim/traffic.js). Start the next drift within 2.5s
+of the last kick running out and land it, and it comes out a tier harder: 1.4×/0.6s, 1.55×/0.75s,
+1.7×/0.9s (30.9, 34.3, 37.6 u/s), the flame and the jolt 1.3× and 1.6× bigger, and the flame
+cooling from violet to blue to teal (`locoFlameChain*` in palette.js). The window lapsing, a
+tap that only slides, or any HP lost since the last kick puts the next one back at tier 1.
+
+**A landed kick refunds a sixth of a tank** at tier 1 (`DRIFT_CHAIN.fuel`, the same as a parcel),
+a ninth at tier 2 and a twelfth at tier 3 — a harder kick on the full refund is a boost that never
+runs out. So a player
 running low can drift their way to a drop-off. It needs *some* fuel to start — the combo is a
 Loco press — and a kick costs well under a second of Loco against the 2.5s it pays, so chaining
 corners is net positive. That is deliberate: it is the skill being paid.
@@ -3628,7 +3668,7 @@ Escape and P toggle it from a keyboard.
 `src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends three ways — a fare's
 clock hitting zero (aboard, or the third [strike](difficulty.md#strikes) on the kerb), a collision,
 a police bust — and all three land on the same screen: a title, the
-reason, the run's four stats, the [high-score table](#high-scores), and **Play again**. The title is
+reason, the run's two stats (**Cash**, then **Time**), the [high-score table](#high-scores), and **Play again**. The title is
 set by the caller, so a timeout reads **Too Slow!**, a collision reads **Wrecked!**, and a police
 bust reads **Busted!**.
 
@@ -3644,15 +3684,16 @@ floated a blurred card on top of it, and the card's edges turned out to be the l
 screen. Blacking the whole viewport out puts the run's numbers on nothing at all, which is what
 makes them the ending rather than an overlay on one.
 
-"Shift" replaced a row called "Streak" that printed `s.delivered` — the same number as "Fares"
-directly above it, formatted with an `x`. Two rows counting out one number is a stat sheet padding
-itself; how deep into the ramp a run got is a genuinely different fact about it. It rolls up through the shift names the run passed through, which is
-what the counter does with every other stat.
+There used to be four rows — Time, Fares, Shift, Cash — and Fares and Shift were cut. Each
+rider's clock is budgeted off the work the fare takes ([difficulty.md](difficulty.md)), so how many
+fares a run carried and how far up the ramp it got both mostly restate how long it lasted, and four
+rows of near-synonyms buried Cash, the one number the table ranks by. Cash comes first for that
+reason.
 
 The stats are **one row each, label and value side by side**, and both are set in the *same* size,
 weight and colour. A small grey caption over a big yellow number made the label read as chrome and
 the number as the content, when the pairing is the content; matched type makes each row one phrase
-— "Fares  9" — and the rows read as a list being counted out, which is what the stagger is
+— "Cash  $412" — and the rows read as a list being counted out, which is what the stagger is
 doing.
 
 It reads as a **ledger**: label pinned to the left edge, value to the right, on a `1fr auto` grid
@@ -3680,8 +3721,8 @@ inside that cap, so a two-line reason comes out as two even lines rather than a 
 a short orphan word on the second.
 
 Type and rhythm scale with the viewport, off whichever axis is tighter: height for the list as a
-whole (a landscape phone runs it past the fold) and width for the rows (the longest, `"Shift  Early
-Shift"`, is the one `nowrap` risks pushing off a 320px screen rather than wrapping it). If it still
+whole (a landscape phone runs it past the fold) and width for the rows (`nowrap` would rather push a
+long row off a 320px screen than wrap it). If it still
 doesn't fit, the overlay scrolls — centred by `margin: auto` on the content rather than
 `justify-content`, which clips its own overflow at the top, where the title is.
 
@@ -3695,7 +3736,7 @@ appearing only once the table has landed, so the player isn't invited to leave m
 
 **The stats, the prompt and the table are one slot taking turns**, not a list that grows. `#run-end
 .run-end-body` holds whichever screen is current and cross-fades to the next. Stacking them was the
-first shape and it does not fit: a title, a reason, four stat rows, a prompt and five table rows is
+first shape and it does not fit: a title, a reason, the stat rows, a prompt and five table rows is
 well past what a landscape phone shows at once, and this card's whole layout exists to keep **Play
 again** above the fold. Swapping also makes each beat a screen of its own, which is the point of the
 sequence — read your run, sign it, see where it placed. The slot is pinned to a `min-height` taken

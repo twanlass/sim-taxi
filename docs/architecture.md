@@ -80,7 +80,7 @@ src/
     patrol.js           the patrol cruiser's life: across town edge to edge, chase, caught or lost, out
     copshout.js         "Taxi: pull over now" over the patrol car's roof when it spots the taxi
     speech.js           the one speech bubble: pinned on its target, waiting at the edge when it's off frame
-    depotcall.js        "Head to the shop for repairs." over the depot's door once the taxi starts smoking
+    repairclip.js       the depot's tip card clip: a smoking taxi tapped in for repairs and back out clean
     radio.js            the dispatch bubble that says the fare who just got in is a robber
     robberline.js       the robber's line: the world stops, the taxi is spotlit, the robber shouts
     coplights.js        the red and blue a cop car throws on the road while a robbery runs

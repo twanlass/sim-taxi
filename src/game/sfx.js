@@ -149,6 +149,10 @@ const MUSIC_DUCK = 0.25;
 // the song ending rather than being cut, short enough that it is gone before the stats finish
 // counting up.
 const MUSIC_FADE_OUT = 1.5;
+// The police helicopter's synthesised rotor (`makeRotor`): its blade-pass rate in Hz, and its level
+// at full presence. Not in mix.json, which is keyed by the designer's files and has no file for it.
+const ROTOR_CHOP = 11;
+const ROTOR_GAIN = 0.16;
 const AAC_PRIMING = 2112 / 48000;
 
 /**
@@ -406,6 +410,7 @@ export function createSfx({ rng } = {}) {
   let loco = null;       // the Loco loop bed
   let signal = null;     // the blinker; recreated per indicating window so each opens on a tick
   let siren = null;      // the police siren; always running, its level steered by `update`
+  let rotor = null;      // the police helicopter's rotor, synthesised; level steered by `update`
   let activate = null;   // the current Loco activate voice, or null
   let locoSince = -1;    // ctx time the current hold began, or -1
   let signalHand = null;
@@ -435,6 +440,48 @@ export function createSfx({ rng } = {}) {
     try { v.src.stop(t + tau * 6); } catch { /* already stopped */ }
   }
 
+  /**
+   * The police helicopter's rotor (game/policeheli.js). **Synthesised, as a stand-in**: there is no
+   * recording of one in the designer's set, and a getaway's chopper with no sound reads as a model
+   * on a wire. Low-passed noise for the wash, chopped by a ROTOR_CHOP Hz tremolo for the blade
+   * slap, with a low sine under it for the thump. Runs silent all run like the siren, and the
+   * frame says how loud. Swap for a recording when there is one.
+   */
+  function makeRotor() {
+    const length = ctx.sampleRate * 2;
+    const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;   // not `random`: that stream draws the takes
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    noise.loop = true;
+    const lowpass = ctx.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.value = 520;
+    lowpass.Q.value = 0.9;
+    const thump = ctx.createOscillator();
+    thump.frequency.value = 58;
+    const thumpGain = ctx.createGain();
+    thumpGain.gain.value = 0.55;
+    // The chop: a gain swung between 0.08 and 1 by a sine at the blade-pass rate.
+    const chop = ctx.createGain();
+    chop.gain.value = 0.54;
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = ROTOR_CHOP;
+    const depth = ctx.createGain();
+    depth.gain.value = 0.46;
+    lfo.connect(depth).connect(chop.gain);
+    const g = ctx.createGain();
+    g.gain.value = 0;
+    noise.connect(lowpass).connect(chop);
+    thump.connect(thumpGain).connect(chop);
+    chop.connect(g).connect(master);
+    noise.start();
+    thump.start();
+    lfo.start();
+    return { gain: g };
+  }
+
   async function start() {
     const Ctor = window.AudioContext || window.webkitAudioContext;
     ctx = new Ctor({ latencyHint: 'interactive' });
@@ -458,6 +505,7 @@ export function createSfx({ rng } = {}) {
     if (buffers[SOUNDS.idle[0]]) idle = makeLoop('idle');
     if (buffers[SOUNDS.siren[0]]) siren = makeLoop('siren');
     if (buffers[SOUNDS.locoLoop[0]]) loco = makeLoop('locoLoop');
+    rotor = makeRotor();
     state.ready = true;
     if (state.held) suspendCtx();
   }
@@ -593,7 +641,7 @@ export function createSfx({ rng } = {}) {
    * @param {number} [opts.siren]  0..1, how loud the nearest running siren is from where the taxi
    *   is — main.js works it out from distance (see `sirenLevel` there). 0 is no siren on the map.
    */
-  function update(dt, taxi, { cruise, top, holding, over, siren: sirenAt = 0 }) {
+  function update(dt, taxi, { cruise, top, holding, over, siren: sirenAt = 0, rotor: rotorAt = 0 }) {
     if (!state.ready) return;
     const t = ctx.currentTime;
     const v = Math.max(0, taxi.v);
@@ -665,6 +713,10 @@ export function createSfx({ rng } = {}) {
       const g = over ? 0 : mix.sounds.siren.gain * Math.max(0, Math.min(1, sirenAt));
       siren.gain.gain.setTargetAtTime(g, t, over ? 0.4 : 0.25);
       siren.src.playbackRate.setTargetAtTime(mix.sounds.siren.rate, t, 0.02);
+    }
+    if (rotor) {
+      const g = over ? 0 : ROTOR_GAIN * Math.max(0, Math.min(1, rotorAt));
+      rotor.gain.gain.setTargetAtTime(g, t, over ? 0.4 : 0.3);
     }
   }
 

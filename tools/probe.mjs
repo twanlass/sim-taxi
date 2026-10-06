@@ -38,7 +38,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -16810,6 +16810,58 @@ let chopperOrder; // likewise
     plainSwing < 0.01, `largest swing ${plainSwing.toFixed(3)} of DRIFT_ANGLE with the pill simply held`);
   check('...and a tap with the road going straight on is just a brake', straightRefused > 20,
     `${straightRefused} straight-on approaches refused`);
+
+  // The chain (DRIFT_CHAIN): the same corner over and over, each tap a beat after the last kick
+  // ran out. Three kicks climb a tier each and the fourth holds at the top; a gap past the window,
+  // a tap that only slides, or a knock to the HP each put the next kick back at tier 1.
+  const corner = net.lanes.map((lane) => {
+    if (lane.degenerate || isLaneClosed(lane.id) || lane.length < 10) return null;
+    const id = lane.exits.find((e) => net.turnById.get(e).hand !== 'straight' && !isLaneClosed(net.turnById.get(e).outLane));
+    return id && { lane, turn: net.turnById.get(id) };
+  }).find(Boolean);
+  const to = net.nodeById.get(corner.lane.to);
+  const out = net.laneById.get(corner.turn.outLane);
+  const cTaxi = taxi;
+  cTaxi.driftTier = 0;
+  cTaxi.hp = 3;
+  const run = (kick) => {
+    placeCar(cTaxi, net.dirOfLane(corner.lane), to.gi, to.gj, STOP_SETBACK + 6);
+    // Straight on after the corner, so the carry runs to its own end rather than the next turn's.
+    Object.assign(cTaxi, { route: [net.dirOfLane(out), net.dirOfLane(out), net.dirOfLane(out)], uturn: null, boost: true, boostEasing: true, braking: false, v: 20 });
+    if (driftTaxi(cTaxi)) return { tier: -1, v: 0, carry: 0 };
+    const before = cTaxi.drifts;
+    for (let k = 0; k < 120 && cTaxi.drift; k++) {
+      if (k === 6 && kick) { kickDrift(cTaxi); cTaxi.boostEasing = false; }
+      dTraffic.update(1 / 60);
+      if (cTaxi.drifts > before) break;
+    }
+    const v = cTaxi.v;
+    let carry = 0;
+    while (cTaxi.drift?.phase === 'carry' && carry < 300) { dTraffic.update(1 / 60); carry += 1; }
+    cTaxi.boost = false;
+    return { tier: cTaxi.drifts > before ? cTaxi.driftTier : 0, v, carry: carry / 60 };
+  };
+  const wait = (sec) => { for (let k = 0; k < sec * 60; k++) dTraffic.update(1 / 60); };
+  const climb = [run(true), run(true), run(true), run(true)];
+  wait(DRIFT_CHAIN.window + 0.2);
+  const lapsed = run(true);
+  run(true);
+  run(false);
+  const afterSlide = run(true);
+  run(true);
+  cTaxi.hp -= 1;
+  const afterHit = run(true);
+  cTaxi.drift = null;
+  cTaxi.driftTier = 0;
+  const tiers = climb.map((r) => r.tier).join(' ');
+  check('drifts chain: each kick a tier harder and held longer, up to three',
+    tiers === '1 2 3 3'
+      && climb.every((r, k) => Math.abs(r.v - boostCruise() * DRIFT_CHAIN.exit[Math.min(k, 2)]) < 0.05)
+      && climb.every((r, k) => Math.abs(r.carry - DRIFT_CHAIN.carry[Math.min(k, 2)]) < 0.05),
+    `tiers ${tiers}; kicks ${climb.map((r) => r.v.toFixed(1)).join(' ')} u/s held ${climb.map((r) => r.carry.toFixed(2)).join(' ')}s`);
+  check('...and the window lapsing, a tap that only slides, or damage starts it over',
+    lapsed.tier === 1 && afterSlide.tier === 1 && afterHit.tier === 1,
+    `after the window ${lapsed.tier}, after a slide ${afterSlide.tier}, after a hit ${afterHit.tier}`);
 }
 
 // --- The emissive bloom --------------------------------------------------------
