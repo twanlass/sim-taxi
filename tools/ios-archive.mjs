@@ -1,9 +1,9 @@
 /**
  * Build a Release archive and upload it to App Store Connect, for `npm run archive:ios`.
  *
- *   node tools/ios-archive.mjs               # build, archive, verify, upload to App Store Connect
- *   node tools/ios-archive.mjs --no-upload   # stop at a signed .ipa in ios/build/export/
- *   node tools/ios-archive.mjs --dirty       # allow uncommitted changes (the upload won't match a commit)
+ *   node tools/ios-archive.mjs --build-number 42               # build, archive, verify, upload
+ *   node tools/ios-archive.mjs --build-number 42 --no-upload   # stop at a signed .ipa in ios/build/export/
+ *   node tools/ios-archive.mjs --build-number 42 --dirty       # allow uncommitted changes
  *
  * `push:ios` is the wrong tool for this and not by accident: it builds **Debug**, because Web
  * Inspector is the only console the game has on a phone and it is `#if DEBUG`. What goes to Apple
@@ -12,13 +12,14 @@
  * it archives whatever `ios/SimTaxi/web/` happens to hold. That is the stale-bundle trap with the
  * App Store on the other end of it.
  *
- * **The build number is a UTC timestamp, passed on the command line.** App Store Connect refuses an
- * upload whose `CFBundleVersion` it has seen before for that version, so it has to move every time.
- * Not the commit count: CI clones shallow (this container's is 164 commits deep), and a count that
- * depends on clone depth can go backwards. And not an edit to `project.pbxproj`, which would leave
- * the tree dirty after every upload. `20261006.1432` is a valid three-part bundle version and sorts
- * after anything an earlier run produced. If Xcode Cloud is set up later, give it the same scheme
- * (or a start number above today's timestamp), or its smaller numbers will be refused.
+ * **This is the fallback; Xcode Cloud is the normal uploader** (`ios/ci_scripts/`, docs/ios.md).
+ * The two share one build-number sequence in App Store Connect, which refuses any upload numbered
+ * at or below one it already has for that version. Xcode Cloud stamps its own `CI_BUILD_NUMBER`, a
+ * small integer counting up from 1, so anything automatic here would collide with it: a timestamp
+ * (the first draft) sits above every Xcode Cloud build forever and locks it out, and the commit
+ * count would do the same until Xcode Cloud caught up. So the number is **required and explicit**:
+ * look up the latest build in App Store Connect ▸ TestFlight and pass one above it. It goes in on the
+ * command line rather than into `project.pbxproj`, so the tree stays clean after an upload.
  *
  * **Uploading needs Xcode signed in to the Apple account** (Settings ▸ Accounts) — that is what
  * `-allowProvisioningUpdates` uses to make the distribution certificate and profile on the first
@@ -40,6 +41,8 @@ const OPTIONS = path.join(OUT, 'ExportOptions.plist');
 const args = process.argv.slice(2);
 const upload = !args.includes('--no-upload');
 const allowDirty = args.includes('--dirty');
+const buildAt = args.indexOf('--build-number');
+const buildNumber = buildAt >= 0 ? args[buildAt + 1] : undefined;
 
 function run(command, argv) {
   return new Promise((resolve) => {
@@ -60,6 +63,12 @@ const die = (message, detail) => {
 
 const step = (n, message) => console.log(`archive:ios  ${n}/5  ${message}`);
 
+if (!/^\d+(\.\d+){0,2}$/.test(buildNumber ?? '')) {
+  console.error('archive:ios  needs --build-number N, one above the latest build in App Store Connect ▸ TestFlight.\n'
+    + '             Xcode Cloud uploads into the same sequence; see the header of tools/ios-archive.mjs.');
+  process.exit(1);
+}
+
 // ----- 1. A clean tree -------------------------------------------------------------------------
 // An upload is a release. One built from uncommitted changes can't be traced back to a commit when
 // a review note or a crash report points at it.
@@ -72,10 +81,6 @@ step(1, 'checking the working tree');
     die('there are uncommitted changes. Commit them, or pass --dirty to archive anyway.', out);
   }
 }
-const now = new Date();
-const pad = (n) => String(n).padStart(2, '0');
-const buildNumber = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}`
-  + `.${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`;
 console.log(`             build ${buildNumber}`);
 
 // ----- 2. The web bundle -----------------------------------------------------------------------
