@@ -64,9 +64,11 @@ reported as "you can pick any rider and have plenty of time".
 
 ## Strikes
 
-A rider let go on the kerb is a strike. The third ends the run (`MAX_STRIKES` in fares.js), and the
-HUD shows three rings under the cash total. A rider whose clock runs out **aboard** still ends the
-run on the spot — picking them up was the commitment, and their crystal told you how long you had.
+A rider whose clock runs out is a strike, on the kerb or **aboard**. The third ends the run
+(`MAX_STRIKES` in fares.js), and the HUD shows three rings under the cash total. A rider aboard
+used to end the run on the spot, on the theory that picking them up was the commitment; in play it
+read as a bug, because nothing on screen says the rider in the cab is worth all three rings. The
+cost of one rule is that grabbing a rider you cannot make is now cheaper (a strike, not the run).
 A VIP or a robber running out costs no strike: a VIP costs the streak, a robber the bonus.
 
 ## What the sweep found
@@ -80,11 +82,14 @@ Shipped, over 21 cities:
 
 | | p10 | median | ended by | pace driven | picks with a choice |
 |---|---|---|---|---|---|
-| cruise | 4 | 8 | 12 strikes, 9 aboard | 1.06 | 7% |
-| loco | 10 | 12 | 19 strikes, 1 aboard, 1 wreck | 0.96 | 10% |
+| cruise | 8 | 9 | 21 strikes | 1.05 | 7% |
+| loco | 11 | 12 | 20 strikes, 1 wreck | 0.96 | 10% |
 
-**The pace dial works.** A player who never touches the pedal is done around the seventh fare; one
-who boosts when behind lasts nearly twice as long. The old slack curve gave the never-boosting player
+(Before a rider aboard became a strike, the cruise player's p10 was 4 and median 8, with 9 of its 21
+runs ended by a rider in the cab; the loco player's numbers barely moved.)
+
+**The pace dial works, though less sharply since the in-cab strike.** A player who never touches the
+pedal is done around the ninth fare; one who boosts when behind lasts to the twelfth. The old slack curve gave the never-boosting player
 a median of 14 — Loco Mode was never needed.
 
 **The pressure dial does not yet deliver choice.** Only about one kerbside pick in ten is made with

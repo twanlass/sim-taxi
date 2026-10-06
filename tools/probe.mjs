@@ -5905,7 +5905,10 @@ check('the taxi is an ordinary car in the traffic array',
 // standing where the bail should have started is a frozen pin and no event at all; and the bail
 // itself runs *after* `gameOver` is set, which is the one place in this module where an early
 // return would freeze it on its first frame with nothing else changing.
-{
+// Drive the opening fare all the way to a pickup, so the clock that expires belongs to a rider
+// *aboard* — the case where the rider throws the door open in the middle of the road rather than
+// walking off a kerb they never left. Shared by the strike check and the run-ending one below.
+function rideToPickup() {
   const tScene = new THREE.Scene();
   const tTraffic = createTraffic(makeRng(seed + 44), tScene, CARS_DEFAULT);
   const tFares = createFareSystem(makeRng(seed + 55), tScene);
@@ -5920,9 +5923,6 @@ check('the taxi is an ordinary car in the traffic array',
     return true;
   };
 
-  // Drive the opening fare all the way to a pickup first, so the clock that expires belongs to a
-  // rider *aboard* — the case the beat exists for, where the rider throws the door open in the
-  // middle of the road rather than walking off a kerb they never left.
   let riding = null;
   let elapsed = 0;
   while (elapsed < 200 && !tFares.state.gameOver && !riding) {
@@ -5934,18 +5934,40 @@ check('the taxi is an ordinary car in the traffic array',
     const waiting = tFares.waiting();
     if (waiting && !waiting.directed && routeTo(waiting.target)) tFares.markDirected(waiting);
   }
-
   check('a rider is aboard before the timeout is staged', Boolean(riding),
     `${elapsed.toFixed(1)}s without a pickup`);
+  // The opening fare is never a VIP, but pin it: a VIP's clock running out never costs anything,
+  // and these blocks would then be asserting nothing.
+  if (riding) riding.vip = false;
+  return { tFares, tTaxi, riding };
+}
 
-  // The opening fare is never a VIP, but pin it: a VIP's clock running out is the one timeout that
-  // doesn't end the run, and this block would then be asserting nothing.
-  riding.vip = false;
+{
+  // A rider whose clock runs out *aboard* is a strike like one let go on the kerb (Tyler, 2026-10-06:
+  // the instant fail read as a bug, because nothing said the cab rider was any different). They get
+  // out mid-street, the seat comes free, and the run carries on.
+  const { tFares, tTaxi, riding } = rideToPickup();
+  riding.timeLeft = 1 / 120;
+  const events = tFares.update(1 / 60, tTaxi);
+  check('a rider who runs out of time aboard is a strike, not the end of the run',
+    !tFares.state.gameOver && tFares.state.strikes === 1
+      && events.some((e) => e.type === 'missed' && e.fare === riding)
+      && !tFares.state.fares.includes(riding),
+    `strikes ${tFares.state.strikes}, over ${tFares.state.gameOver}`);
+  check('and they get out of the cab swearing about it',
+    riding.slot.passenger.group.visible && riding.slot.curse.isShowing());
+}
+
+{
+  // The third strike landing on a rider aboard ends the run on this beat.
+  const { tFares, tTaxi, riding } = rideToPickup();
+  tFares.state.strikes = MAX_STRIKES - 1;
+
   riding.timeLeft = 1 / 120;                   // one more tick takes it under zero
   const gotOutAt = { x: tTaxi.x, z: tTaxi.z };
   const failed = tFares.update(1 / 60, tTaxi).find((e) => e.type === 'failed');
 
-  check('a missed drop-off ends the run', Boolean(failed) && tFares.state.gameOver,
+  check('a missed drop-off that is the third strike ends the run', Boolean(failed) && tFares.state.gameOver,
     `gameOver ${tFares.state.gameOver}`);
 
   const spot = tFares.state.failSpot;
