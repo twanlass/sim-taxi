@@ -11,3 +11,4 @@ ios/SimTaxi/web/
 ios/**/xcuserdata/
 ios/**/*.xcuserstate
 ios/DerivedData/
+ios/build/

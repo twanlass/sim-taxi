@@ -32,9 +32,10 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readdir, readFile, rm } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { checkBundleLayout } from './ios-layout.mjs';
 
 const PROJECT = 'ios/SimTaxi.xcodeproj';
 const SCHEME = 'SimTaxi';
@@ -151,30 +152,10 @@ step(3, `building ${configuration} for the device`);
 
 step(4, 'checking the bundle layout');
 const appPath = path.join(DERIVED, 'Build/Products', `${configuration}-iphoneos`, `${SCHEME}.app`);
-if (!existsSync(appPath)) die(`the build reported success but produced no app at ${appPath}`);
 {
-  const scripts = [];
-  const walk = async (dir, rel = '') => {
-    for (const entry of await readdir(dir, { withFileTypes: true })) {
-      const at = rel ? `${rel}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) { await walk(path.join(dir, entry.name), at); continue; }
-      if (entry.name.endsWith('.js') || entry.name === 'index.html') scripts.push(at);
-    }
-  };
-  await walk(appPath);
-
-  const stray = scripts.filter((f) => !f.startsWith('web/'));
-  if (!scripts.includes('web/index.html')) {
-    die('the app has no web/index.html — BundleSchemeHandler will fatalError on launch.\n'
-      + `          Found instead: ${scripts.join(', ') || '(nothing)'}\n`
-      + '          Fix: docs/ios.md — the sync group needs explicitFolders = ( web, ).');
-  }
-  if (stray.length) {
-    die('the web bundle was flattened into the app root — every asset path will 404.\n'
-      + `          Loose at the root: ${stray.join(', ')}\n`
-      + '          Fix: docs/ios.md — the sync group needs explicitFolders = ( web, ).');
-  }
-  console.log(`          ${scripts.length} files under web/, none loose at the root`);
+  const layout = await checkBundleLayout(appPath);
+  if (!layout.ok) die(layout.message);
+  console.log(`          ${layout.count} files under web/, none loose at the root`);
 }
 
 // ----- 5. Install, and launch if the phone is awake --------------------------------------------
