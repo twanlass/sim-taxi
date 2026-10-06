@@ -22,7 +22,7 @@ words stand on. Settings holds four things, all remembered across visits:
 |---|---|
 | Sound on/off | The existing mute (`simTaxi.muted`, game/sfx.js), shared with the pause screen's Settings and **M** — stored once, not twice |
 | Music volume, SFX volume | `simTaxi.settings` (game/settings.js), applied through `sfx.setVolumes`. Music is the radio ([audio.md](audio.md#the-radio)) |
-| Tutorial tips | `simTaxi.settings`. Read on Play (`beginRun` in main.js): off drops the tutorial and lets the HUD in |
+| Tutorial tips | `simTaxi.settings`, on both the title and pause screens. Read on Play (`beginRun` in main.js): off drops the tutorial and lets the HUD in. Off mid-run (pause screen) does the same (`dropTutorial`); the New Move cards read it live |
 
 **"Play again" skips it.** The retry is a reload, and a player who just pressed Play does not want
 the menu again, so `onRetry` sets a one-shot `sessionStorage` flag the next boot consumes.

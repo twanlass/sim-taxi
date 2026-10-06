@@ -86,20 +86,15 @@ const EVENTS = new Set(['pick', 'grab', 'snap', 'brake', 'loco', 'parcel-in', 'p
  * - `perfect`      — PERFECT RUN ×2 paying out: three rising clicks and a shimmer.
  * - `perfect-lost` — a bump that costs a Perfect Run the HUD was showing: two falling thuds.
  *
- * Each maps to what it fired before these existed (`null` for nothing), which is what the Settings
- * switch "Combo haptics" turns them back into — a prototype being judged against what it replaces
- * wants the old feel one tap away, on the same phone, mid-run.
+ * They had a Settings switch of their own, "Combo haptics", that played them as the plain knocks
+ * they replaced, for comparing the two on the phone. It went once the patterns were judged
+ * (2026-10-06): the one "Haptics" switch now turns everything here on or off.
  */
-const CLASSIC = {
-  drift: 'loco', 'drift-kick': 'loco', uturn: 'loco', overtake: null, perfect: null,
-  'perfect-lost': null,
-};
 
-/** The player's two switches, pushed in from game/settings.js by main.js. */
-const prefs = { haptics: true, comboHaptics: true };
-export function setHapticPrefs({ haptics, comboHaptics }) {
+/** The player's switch, pushed in from game/settings.js by main.js. */
+const prefs = { haptics: true };
+export function setHapticPrefs({ haptics }) {
   if (typeof haptics === 'boolean') prefs.haptics = haptics;
-  if (typeof comboHaptics === 'boolean') prefs.comboHaptics = comboHaptics;
 }
 
 /**
@@ -113,8 +108,7 @@ export function setHapticPrefs({ haptics, comboHaptics }) {
 export function tap(event) {
   if (!EVENTS.has(event)) throw new Error(`unknown haptic event: ${event}`);
   if (!prefs.haptics) return;
-  if (event in CLASSIC && !prefs.comboHaptics) event = CLASSIC[event];
-  if (!event || !isNative()) return;
+  if (!isNative()) return;
   try {
     window.webkit?.messageHandlers?.haptics?.postMessage(event);
   } catch { /* no handler installed — the game does not care */ }

@@ -198,6 +198,7 @@ export function createTutorial({
     holdsCamera: () => false,
     releaseCamera: () => {},
     dismiss: () => {},
+    stop: () => {},
   };
   if (!root) return idle;
 
@@ -495,5 +496,7 @@ export function createTutorial({
      */
     releaseCamera() { cameraReleased = true; },
     dismiss,
+    /** Tutorial tips switched off mid-run (the pause screen): take whatever is up down, for good. */
+    stop: end,
   };
 }

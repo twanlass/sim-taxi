@@ -1,7 +1,7 @@
 /**
  * The player's settings from the title screen, remembered across visits in `localStorage`.
  *
- * All but one live here: the two volume sliders, the tutorial tips and the two haptics switches.
+ * All but one live here: the two volume sliders, the tutorial tips and the haptics switch.
  * **Sound on/off is not
  * one of them** — it already had a home before this screen existed (`simTaxi.muted`, owned by
  * game/sfx.js, shared with the pause screen's pill and the M key), and a second copy of it here
@@ -22,9 +22,12 @@ export const SETTINGS_KEY = 'simTaxi.settings';
  */
 export const DEFAULT_SETTINGS = Object.freeze({
   music: 1, effects: 0.75, tips: true,
-  // The phone's Taptic Engine (util/haptics.js) — rows that only appear inside the iOS app.
-  // `comboHaptics` off plays the combos as the single knocks they had before their patterns.
-  haptics: true, comboHaptics: true,
+  // The phone's Taptic Engine (util/haptics.js) — a row that only appears inside the iOS app.
+  // There used to be a second switch, `comboHaptics`, for A/B-ing the combo patterns against the
+  // plain knocks they replaced; Tyler folded it into this one (2026-10-06). A stored
+  // `comboHaptics: false` is dropped rather than read as "haptics off": it chose the old knocks,
+  // not silence.
+  haptics: true,
 });
 
 const unit = (v, fallback) => (typeof v === 'number' && Number.isFinite(v)
@@ -38,8 +41,6 @@ export function cleanSettings(raw) {
     effects: unit(src.effects, DEFAULT_SETTINGS.effects),
     tips: typeof src.tips === 'boolean' ? src.tips : DEFAULT_SETTINGS.tips,
     haptics: typeof src.haptics === 'boolean' ? src.haptics : DEFAULT_SETTINGS.haptics,
-    comboHaptics: typeof src.comboHaptics === 'boolean' ? src.comboHaptics
-      : DEFAULT_SETTINGS.comboHaptics,
   };
 }
 

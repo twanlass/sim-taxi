@@ -885,7 +885,8 @@ function boardSound() {
 // Its own stream, which draws the take each one-shot plays (the designer's A/B/C variants).
 const sfx = shot ? null : createSfx({ rng: makeRng(runSeed + 811) });
 // The title screen's Settings, remembered across visits (game/settings.js). The two volumes are
-// applied to the engine here and on every change; the tips are read once, when the run starts.
+// applied to the engine here and on every change; the tips on Play, and again if the pause screen's
+// copy switches them off mid-run (`dropTutorial`).
 const settings = createSettings();
 sfx?.setVolumes(settings.get());
 settings.onChange((v) => sfx?.setVolumes(v));
@@ -3996,14 +3997,23 @@ function parked() {
  * one thing decided here rather than at boot is the tips — they are a setting the player can flip
  * on the title screen moments before pressing Play.
  */
+let runBegun = false;
 function beginRun() {
-  if (!settings.get().tips && tutorial) {
-    tutorial = null;
-    tutorialTalking = false;
-    holdFareClocks();
-    revealHud();
-  }
+  runBegun = true;
+  if (!settings.get().tips) dropTutorial();
 }
+function dropTutorial() {
+  if (!tutorial) return;
+  tutorial.stop();
+  tutorial = null;
+  tutorialTalking = false;
+  holdFareClocks();
+  revealHud();
+}
+// The pause screen's Settings has the tips switch too. Off mid-run silences a tutorial still
+// talking; on again cannot bring it back, but the New Move cards read the setting live and resume.
+// Before Play it waits for `beginRun` — dropping it under the title screen would let the HUD in.
+settings.onChange((v) => { if (runBegun && !v.tips) dropTutorial(); });
 if (!title) beginRun();
 
 // While that screen is up the run is parked: no fare spawns, and no clock drains. The traffic keeps

@@ -20,8 +20,7 @@
  * render per frame is the cheap way to stay correct through both.
  *
  * **The screen is the title screen's menu**: "Paused" as a small header, then Resume, Settings and
- * Quit as plain white words. Settings is the title screen's own page (game/menupage.js), minus the
- * tutorial tips, which are read once on Play; its Back, or Escape, returns to this menu rather than
+ * Quit as plain white words. Settings is the title screen's own page (game/menupage.js); its Back, or Escape, returns to this menu rather than
  * resuming. Quit is the caller's (`onQuit`) — main.js reloads, which lands back on the title.
  *
  * **Only Resume resumes**, not the rest of the veil — a stray tap while reading the
@@ -73,7 +72,7 @@ export function createPause({
   const settingsPage = sound && settings
     ? menuPage('settings', 'Settings', () => show('menu')) : null;
   const settingsBody = settingsPage
-    ? settingsRows(settingsPage.body, { sound, settings, tips: false }) : null;
+    ? settingsRows(settingsPage.body, { sound, settings }) : null;
   if (settingsPage) veil.append(settingsPage.section);
   else settingsButton?.remove();
   if (!onQuit) quitButton?.remove();
