@@ -27,7 +27,7 @@ import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
-  boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift,
+  boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, DRIFT_CHAIN,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
@@ -3267,9 +3267,9 @@ const BRAKE_SKID_V = 2.5;
 // back on the pill before the arc is over earns the exit kick. The tap owns the brake until the
 // pedal comes back up, as the bootleg's does, so a thumb still down doesn't stop the car — though
 // a thumb sliding back onto the pill lets go of it anyway (`holdLocoMode` releases the brake).
-// A landed kick also pays Loco back: a sixth of a tank, as much as a parcel. It is what lets a
-// player running low drift their way to a drop-off rather than crawl there.
-const DRIFT_FUEL = 1 / 6;
+// A landed kick also pays Loco back: a sixth of a tank at tier 1, as much as a parcel, and less
+// further up a chain (DRIFT_CHAIN.fuel). It is what lets a player running low drift their way to a
+// drop-off rather than crawl there.
 let driftHoldOff = false;
 let driftTapAt = -Infinity;
 let driftsPaid = 0;
@@ -4354,15 +4354,19 @@ function frame() {
     // `topUp`, so the meter grew with nothing to say why. (A "DRIFT BOOST!" word off the roof was
     // tried and cut.) No HANDOFF: there is no payout coin here to wait behind.
     if (!fares.state.gameOver) {
+      const car = traffic.taxi;
+      const tier = car.driftTier - 1;
+      const fuel = DRIFT_CHAIN.fuel[tier];
       flyEnergyToBoost({
         from: taxiScreenPos,
         to: fuelScreenPos,
         delay: 0,
-        onArrive: () => boost.topUp(DRIFT_FUEL),
+        onArrive: () => boost.topUp(fuel),
       });
-      const car = traffic.taxi;
       haptic('drift-kick');
-      controller.kickShake(0.5);
+      // Harder up a chain, as the plume is (`locoFlame` below): the tier has to be felt, since
+      // nothing writes it on screen.
+      controller.kickShake(0.5 * DRIFT_CHAIN.flame[tier]);
       sfx?.locoOn();
       flames.burst(
         car.x - Math.cos(car.yaw) * TAXI_TAILPIPE_BACK,
@@ -4812,8 +4816,10 @@ function frame() {
   // reason both of those are: it is pinned to the car's position this frame, not emitted and left
   // behind. At the Loco Mode top the taxi covers 0.57 units in a frame, so a plume ticked before
   // `traffic.update` would sit visibly off the back of the bumper the whole time it burned.
-  // The drift kick burns double-barrelled for as long as it holds (DRIFT_CARRY in sim/traffic.js).
-  locoFlame.update(dt, traffic.taxi, boost.isActive(), traffic.taxi.drift?.phase === 'carry');
+  // The drift kick burns double-barrelled for as long as it holds (`carry` in DRIFT_CHAIN), and
+  // bigger the further up a chain it is.
+  locoFlame.update(dt, traffic.taxi, boost.isActive(), traffic.taxi.drift?.phase === 'carry',
+    DRIFT_CHAIN.flame[Math.max(0, traffic.taxi.driftTier - 1)], Math.max(0, traffic.taxi.driftTier - 1));
   copRubber();
   // `sim/` publishes where its cars are and this side owns anything that reaches into the scene
   // — the patrol cruiser's rubber included, since it is one of `traffic.policeCars` now. Off the
