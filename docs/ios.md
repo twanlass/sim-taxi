@@ -457,7 +457,7 @@ Not built yet, roughly in value-for-effort order:
   [audio.md](audio.md)), and the page asks for `navigator.audioSession.type = 'playback'`, so it
   plays through the silent switch. Still to check on a device: that WKWebView honours that the same
   way Safari does. If not, set `AVAudioSession` to `.playback` in the shell.
-- **App Store submission**: the privacy policy and support URLs are `public/privacy.html` and
-  `public/support.html` on the Netlify deploy (the app makes no network requests at all, so the
-  nutrition label is "Data Not Collected"; keep the page true if that changes). Still to do: age
-  rating, and 6.9" iPhone screenshots at 1320×2868.
+- **App Store submission**: a privacy policy URL and a support URL (required even though the app
+  collects nothing — it makes no network requests at all, so the nutrition label is "Data Not
+  Collected"; they will live on the game's own website), age rating, and 6.9" iPhone screenshots
+  at 1320×2868.

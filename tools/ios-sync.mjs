@@ -34,11 +34,8 @@ const DEST = path.resolve('ios/SimTaxi/web');
  *   bundle is already local, and a cache-first worker survives an App Store update and serves the
  *   old game to someone who just installed the new one). Nothing would load it, but shipping the
  *   file anyway invites a future reader to wire it back up.
- * - **`privacy.html`, `support.html`** — the App Store listing's privacy policy and support URLs.
- *   They are web pages *about* the app, served from the Netlify deploy, with no route to them from
- *   inside the game.
  */
-const EXCLUDE = new Set(['lab', 'sw.js', 'privacy.html', 'support.html']);
+const EXCLUDE = new Set(['lab', 'sw.js']);
 
 /**
  * The lab's *code*, which is a separate problem from the lab's page.
