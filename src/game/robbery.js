@@ -1275,6 +1275,15 @@ export function createRobbery({
     junction,
     range,
     raiseAlarm,
+    /**
+     * For the tools: start one now, past the cooldown and the delivered count — the seat still has
+     * to be empty. Returns whether one is running; how a browser test stages a getaway
+     * without driving past the bank.
+     */
+    force() {
+      if (!state.active && !fares.carrying() && !taxi.crashed) start();
+      return state.active;
+    },
     /** The scene at the drop-off — see game/arrest.js. */
     arrest,
     /**
