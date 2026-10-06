@@ -3759,8 +3759,19 @@ the retry pill is `disabled` (and so `pointer-events: none`) until then, which b
 invisible button from reloading the run mid-tally and lets a tap aimed at it fall through to the
 skip.
 
-**The skip is per-beat, not a jump to the end**, and the initials prompt is why. Every other beat is
-on a timer; the prompt is waiting on the *player*, so nothing skips it and no timer runs past it.
+**The review waits for a tap.** Once the stats have landed, the card holds on them with a quiet,
+breathing "Tap to continue" laid over the Play again pill's (still empty) slot, and only a tap moves
+on to the prompt or the table. It used to hold for 420ms and swap itself, so a run summary was
+something you could miss by glancing away. A tap *during* the count still lands the numbers, but on
+the review rather than past it, and the tap that leaves is only armed `HOLD_MS` after the last
+number lands — the thumb still on the glass when the taxi wrecked is the likeliest tap of all, and
+it should not carry through to the table. With no table to show (no scores) there is no extra
+wait: the next thing is the Play again pill, which waits for a tap of its own. Under reduced motion
+the screens stack, so the review is never off screen and nothing waits.
+
+**The skip is per-beat, not a jump to the end**, and the initials prompt is why. Every other beat
+but the review is on a timer; the prompt is waiting on the *player*, so nothing skips it and no timer
+runs past it.
 That is why the handler is a single mutable `skip` that each beat installs on its way in and the
 prompt leaves null, rather than one listener that finishes every animation on the screen. The first
 shape landed the whole timeline at once, which blew straight through the field and threw away the

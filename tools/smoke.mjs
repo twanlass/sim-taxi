@@ -2280,6 +2280,38 @@ try {
   await client.send('Emulation.setTouchEmulationEnabled', { enabled: false });
   await client.send('Emulation.setEmulatedMedia', { features: [] });
 
+  // --- The review waits for a tap before the table.
+  //
+  // It used to hold the stats for 420ms and swap to the table on its own, so a player who looked
+  // away for a moment never saw their run. Now the stats sit there behind "Tap to continue" — and
+  // a tap *during* the count lands the numbers without leaving, because the thumb that was still
+  // on the screen when the taxi wrecked is the likeliest tap of all. Real motion here, so the
+  // timeline is the one a player sees; dispatched on the overlay because that is where the skip
+  // listens.
+  {
+    const board = () => evaluate("!!document.querySelector('#run-end .score-board')");
+    const hint = () => evaluate("!!document.querySelector('#run-end .run-end-continue')");
+    const tap = () => evaluate(
+      "document.getElementById('run-end').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))");
+    await evaluate(`window.__taxi.showRunEnd({
+      scores: { rank: null, id: 'smoke', entries: [{ id: 'x', name: 'ABC', money: 10, elapsed: 60 }] },
+    })`);
+    await sleep(700);
+    await tap();                       // mid-count: lands the stats, stays on them
+    await sleep(2500);
+    const held = { board: await board(), hint: await hint() };
+    check('the review holds until tapped, even past a tap mid-count',
+      held.board === false && held.hint === true,
+      `3.2s in after one early tap: board ${held.board}, hint ${held.hint}`);
+    await tap();
+    await sleep(2000);                 // a 240ms swap, but headless frames can run slow
+    const moved = { board: await board(), hint: await hint() };
+    check('and a tap on the review moves on to the table',
+      moved.board === true && moved.hint === false,
+      `board ${moved.board}, hint ${moved.hint}`);
+    await evaluate("document.getElementById('run-end').hidden = true");
+  }
+
   // --- The crash panel opens for this page's crashes and nobody else's.
   //
   // A cross-origin script's exception reaches `window.onerror` anonymised — `Script error.` at
