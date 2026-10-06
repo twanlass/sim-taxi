@@ -429,7 +429,16 @@ for free rather than hunting the board for their car.
 `?tutorial=off` skips the whole thing, and shot mode never runs it: a screenshot has nobody to
 teach, and the bubble would be the loudest thing in every frame.
 
-## New Move Unlocked: the U-turn and drift cards
+## New Move Unlocked: the overtake, U-turn and drift cards
+
+**The overtake comes first** (`game/overtakeclip.js`), from the first drop-off: holding Loco Mode
+behind a car rams it unless the combo is thrown (`game/overtake.js`), so it is the one move a player
+is punished for not knowing. Its clip is two cars — the reel carries the car being passed too
+(`REEL.lead`, drawn by `game/moveclip.js`) — and its camera **follows** that car (`track` on
+`reelPlayer`) rather than standing still, because a pass takes ~80 units of road at the Loco top and
+a frame that held all of it drew both cars at a third the size. That length is also why its street
+picker accepts the ring road as well as side streets. The pedal row is Loco, then Loco again: the
+first key goes dark at the blip and the second lights. Recorded by `tools/overtakereel.mjs`.
 
 The bootleg (boost, then two quick brake taps — `game/bootleg.js`) is the one input nobody finds by
 looking, so it gets a card (`game/newmove.js`, `#new-move` in index.html). It is the tutorial's

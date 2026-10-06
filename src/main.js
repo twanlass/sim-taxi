@@ -129,6 +129,7 @@ import { createOvertakeCombo } from './game/overtake.js';
 import { createNewMove, createSeenFlag, MOVES, SHOW_DELAY } from './game/newmove.js';
 import { createUturnClip, pickStreet, clipKeys as uturnKeys } from './game/uturnclip.js';
 import { createDriftClip, pickCorner, clipKeys as driftKeys } from './game/driftclip.js';
+import { createOvertakeClip, pickOvertakeStreet, clipKeys as overtakeKeys } from './game/overtakeclip.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
@@ -4019,6 +4020,11 @@ const clipStage = (cardCanvas) => ({
   scene, camera, renderFrame, canvas: renderer.domElement, freeze: freezeFrame, cardCanvas,
 });
 const moves = {
+  overtake: {
+    ...MOVES.overtake, seen: createSeenFlag({ key: MOVES.overtake.seenKey }), clipKeys: overtakeKeys,
+    makeClip: (cardCanvas) => freezeFrame
+      && createOvertakeClip({ ...clipStage(cardCanvas), street: pickOvertakeStreet(clipSite()) }),
+  },
   uturn: {
     ...MOVES.uturn, seen: createSeenFlag({ key: MOVES.uturn.seenKey }), clipKeys: uturnKeys,
     makeClip: (cardCanvas) => freezeFrame
