@@ -4526,15 +4526,15 @@ check('no two cars occupy the same space', worst > 1.6,
       `${r.hits} bumps, pass peaked at ${r.peak.toFixed(2)}, detoured=${r.detoured}`);
   }
 
-  // 1d. The overtake combo (game/overtake.js). Holding Loco behind a car on its own only tailgates
-  // it — no pass, and no ram either, because a way round still exists (`canPass`) — and a blip off
+  // 1d. The overtake combo (game/overtake.js). Holding Loco behind a car on its own rams it — no
+  // pass, and no following either (`canPass` is false until the combo is thrown) — and a blip off
   // the pill and back on is what pulls out. The blip is driven through the combo itself, against
   // the sim's own `boost`/`boostEasing` as main.js sets them, so the gap it reads is the real one.
   // A blip with the brake in it is the drift, and must not arm.
   const comboStage = (gesture) => {
     const cTraffic = createTraffic(makeRng(seed + 109), new THREE.Scene(), 2);
     const [cTaxi, cLead] = cTraffic.cars;
-    place(cTaxi, dIn, 32);
+    place(cTaxi, dIn, 36);
     place(cLead, dIn, 24);
     cTaxi.route = [dIn];
     cLead.route = [dIn];
@@ -4545,7 +4545,7 @@ check('no two cars occupy the same space', worst > 1.6,
     let peak = 0;
     let before = 0;
     cCollisions.onBump(() => { hits += 1; });
-    const blipAt = 30;
+    const blipAt = 15;
     const blipFrames = Math.floor((OVERTAKE_BLIP_MS / 1000) * 60 * 0.6);
     // Two seconds: enough to pull out and get by, and short of the map's edge, where the road has
     // no straight on and a taxi with no way round rams by design (`rams` in traffic.js).
@@ -4562,8 +4562,8 @@ check('no two cars occupy the same space', worst > 1.6,
     return { hits, peak, before, arms: combo.state.arms };
   };
   const held = comboStage('hold');
-  check('holding Loco behind a car tailgates it without the overtake combo',
-    held.hits === 0 && held.peak === 0,
+  check('holding Loco behind a car rams it without the overtake combo',
+    held.hits > 0 && held.peak === 0,
     `${held.hits} bumps, pass peaked at ${held.peak.toFixed(2)}`);
   const blipped = comboStage('blip');
   check('a blip off Loco and back on behind a car overtakes it',

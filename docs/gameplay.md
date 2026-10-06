@@ -3097,7 +3097,7 @@ corners, lays **skid marks** off the line and through turns, and kicks up **dust
 **And it overtakes.** A slower car in front on a straight road is no longer something to sit
 behind: **blip the button (off and straight back on) while you're behind it, and the taxi pulls a
 full lane into the oncoming side, goes past, and comes back** for as long as you keep holding.
-Holding alone just tailgates (`game/overtake.js`). Letting go is the abort — it tucks in behind
+Holding alone rams it (`game/overtake.js`), so it's the combo or the brake. Letting go is the abort — it tucks in behind
 instead. So the button stops
 being a throttle at exactly the moment it gets interesting and becomes a question: is that lane
 clear enough, and is that car about to turn across you? Nothing protects you either way. Collision

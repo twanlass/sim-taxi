@@ -27,14 +27,19 @@ export const OVERTAKE_BLIP_MS = 250;
  */
 export const OVERTAKE_PRE_HOLD = 0.2;
 /**
- * Behind a car means a leader within this many units, at the release and at the re-press. Wider
- * than the 4.5-unit tailgate because the taxi eases off during the blip and the gap opens a little,
- * and wider than PASS_TRIGGER (10) so a blip on the approach still counts: the taxi closes the rest
- * and pulls out as it gets there.
+ * Behind a car means a leader within this many units, at the release and at the re-press. Since a
+ * taxi held behind a car without the combo rams it (`canPass` in sim/traffic.js), this is the
+ * player's whole reaction window, and it was 16 at first: measured over 16 cities × 40s with the
+ * button held, a car went from 16 units off to rammed in a median of 0.52s (p10 0.23s), which is
+ * less than the gesture itself takes with OVERTAKE_PRE_HOLD in front of it. 30 adds the ~1.5s it
+ * takes to close the extra 14 units at a boosting taxi's usual 8-10 u/s on traffic.
  */
-export const OVERTAKE_ARM_RANGE = 16;
-/** An armed combo that has not pulled out inside this many seconds lapses — no road, or the car turned off. */
-export const OVERTAKE_ARM_WINDOW = 1.0;
+export const OVERTAKE_ARM_RANGE = 30;
+/**
+ * An armed combo that has not pulled out inside this many seconds lapses — no road, or the car
+ * turned off. Long enough to close from OVERTAKE_ARM_RANGE to PASS_TRIGGER (10) at ~8 u/s.
+ */
+export const OVERTAKE_ARM_WINDOW = 3.0;
 
 /**
  * @param taxi  the traffic model's taxi; reads `passGap` and `passing`, writes `passArmed`

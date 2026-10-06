@@ -4972,8 +4972,13 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
       // Whether there is a way round the car in front right now — the same conditions the pull-out
       // below asks, minus `near`. Read by `rams()`: where this is false, a taxi with hit points
-      // stops following the leader and drives into it. Only the road itself can say no now.
-      taxi.canPass = locoHeld && gap !== undefined && room;
+      // stops following the leader and drives into it. Only the road itself can say no now —
+      // and, where main.js runs the overtake combo (game/overtake.js), the player: a taxi held
+      // behind a car without throwing it rams the car, so the choice is the combo or the brake
+      // (Tyler, 2026-10-06; it tailgated first and that let you sit there for free). A truck is
+      // still tailgated rather than rammed (`rams`), for the reason given there.
+      taxi.canPass = locoHeld && gap !== undefined && room
+        && (taxi.passArmed !== false || taxi.passing);
 
       if (taxi.state === 'drive') {
         const was = taxi.passing;
