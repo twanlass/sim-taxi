@@ -1161,6 +1161,24 @@ button becomes a decision at the one moment it previously made none. It is the o
 boost-only rule stays armed through the cooldown tail because those are *hazards* and hazards
 should outlive the release, but this is an input, and letting go has to steer the car back.
 
+**In the game it now wants a combo** (`game/overtake.js`): holding the button behind a car
+**rams it**, and a quick blip off the pill and back on (`OVERTAKE_BLIP_MS`, 250ms) while behind it
+(`OVERTAKE_ARM_RANGE`, 30 units) is what pulls out. So the choice is the combo or the brake (Tyler,
+2026-10-06; it tailgated at first, which let you sit behind a car for free). From there it is the
+rule above: the pass runs while the button stays down and letting go tucks in. A pass that ends
+spends the combo, so the next car wants another blip. A brake inside the blip is the drift or the
+bootleg and does not arm. Trucks are still tailgated rather than rammed (`rams` in traffic.js). The
+sim reads it as `taxi.passArmed` — `undefined` keeps the old holding-is-enough rule, which the lab
+and the probe still drive — and `canPass` is false until it is thrown. While armed and waiting to
+pull out, or behind a truck, the taxi tailgates `COMBO_TAILGATE` (1.5) further back than
+`BOOST_GAP`, because 0.29 of daylight did not survive a tailgate longer than a fraction of a second.
+
+Measured over 16 cities × 40s with the button held: from a car coming within 30 units to the ram
+is a median of 0.58s (p10 0.23s, p90 1.62s). The short end is cars that turn in close from a cross
+street, which no range fixes. A player feathering the pill at random — a 60-220ms lift every 1-4s
+— armed 38 passes in that time against 55 for one throwing the combo on purpose, so feathering
+behind a car *is* the gesture.
+
 **This was built once before and abandoned, and why matters.** The old overtake pulled out to the
 road *centreline*, which is the single worst place on the road:
 

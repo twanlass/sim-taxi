@@ -152,6 +152,10 @@ playing and the next), so each change is sample-exact rather than waiting on `on
 pause stops it mid-song with the rest of the context. Each track is played for its master's true
 length (`RADIO.seconds`), the same AAC-priming guard as `loopWindow`.
 
+When the game-over screen appears the music bus fades to silence over 1.5 s (`fadeOutMusic`,
+`MUSIC_FADE_OUT`); effects carry on. It is latched, so moving the Music slider on that screen does
+not bring it back. Retry and Quit both reload the page, so the next run opens on the intro as usual.
+
 Levels (`RADIO.gain`) bring every track to −24 LUFS at full slider, measured off the masters with
 ffmpeg's `ebur128`: they arrived at −17.3 (intro), −13.5 (country), −12.3 (jazz) and −10.8 (rock),
 against −34 for the engine idle and −22 for a crash. The four `.m4a` are 1.7 MB together, the

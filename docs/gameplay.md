@@ -429,7 +429,16 @@ for free rather than hunting the board for their car.
 `?tutorial=off` skips the whole thing, and shot mode never runs it: a screenshot has nobody to
 teach, and the bubble would be the loudest thing in every frame.
 
-## New Move Unlocked: the U-turn and drift cards
+## New Move Unlocked: the overtake, U-turn and drift cards
+
+**The overtake comes first** (`game/overtakeclip.js`), from the first drop-off: holding Loco Mode
+behind a car rams it unless the combo is thrown (`game/overtake.js`), so it is the one move a player
+is punished for not knowing. Its clip is two cars — the reel carries the car being passed too
+(`REEL.lead`, drawn by `game/moveclip.js`) — and its camera **follows** that car (`track` on
+`reelPlayer`) rather than standing still, because a pass takes ~80 units of road at the Loco top and
+a frame that held all of it drew both cars at a third the size. That length is also why its street
+picker accepts the ring road as well as side streets. The pedal row is Loco, then Loco again: the
+first key goes dark at the blip and the second lights. Recorded by `tools/overtakereel.mjs`.
 
 The bootleg (boost, then two quick brake taps — `game/bootleg.js`) is the one input nobody finds by
 looking, so it gets a card (`game/newmove.js`, `#new-move` in index.html). It is the tutorial's
@@ -3095,8 +3104,10 @@ corners, lays **skid marks** off the line and through turns, and kicks up **dust
 [rendering.md](rendering.md#effects) for how those two are drawn.
 
 **And it overtakes.** A slower car in front on a straight road is no longer something to sit
-behind: **keep holding the button and the taxi pulls a full lane into the oncoming side, goes
-past, and comes back.** Letting go is the abort — it tucks in behind instead. So the button stops
+behind: **blip the button (off and straight back on) while you're behind it, and the taxi pulls a
+full lane into the oncoming side, goes past, and comes back** for as long as you keep holding.
+Holding alone rams it (`game/overtake.js`), so it's the combo or the brake. Letting go is the abort — it tucks in behind
+instead. So the button stops
 being a throttle at exactly the moment it gets interesting and becomes a question: is that lane
 clear enough, and is that car about to turn across you? Nothing protects you either way. Collision
 detection is armed for the whole of Loco Mode, so an oncoming car is the run. It buys real speed —
