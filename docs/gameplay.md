@@ -239,7 +239,7 @@ shares the picker's `didPan()` guard, so a swipe that dragged the map is not als
 ### Speech bubbles
 
 Everything that talks on screen — these tips, [the robber](#the-bank-robbery), dispatch, the
-cop's shout and [the depot's call in for repairs](#the-depot-calls-you-in) — is one bubble, `game/speech.js`: the Figma file's "bubble-ui" card (a caps title
+and the cop's shout — is one bubble, `game/speech.js`: the Figma file's "bubble-ui" card (a caps title
 saying who is talking over a bold line, and a pointer), at the HUD's ×0.652.
 
 **Pinned to what it is about.** Each bubble is handed a target, a function returning a screen point
@@ -3253,22 +3253,33 @@ spilling out from under it while the shop works — and then the opening itself 
 a clean car in a lit doorway, out, down the kerb and back into traffic.
 `game/depotrun.js` is the trip there; `enter()` in `game/opening.js` is everything from the lane on.
 
-### The depot calls you in
+### The depot's card
 
-Nothing used to say a repair was a tap on the depot. The car wears its damage, but a smoking car is
-a warning without an instruction, and the garage is a building like any other until you know what
-it is for. So on the frame the taxi starts smoking — `SMOKE_FRACTION`, 34% HP, the third of the
-four [damage tiers](../src/game/taxidamage.js) — the depot says **"TAXI DEPOT / Head to the shop for
-repairs."** from a [speech bubble](#speech-bubbles) over its own door (`game/depotcall.js`). Earlier
-and it would be nagging about a swinging lamp; at the 20% plume it is one hit from too late.
+Nothing would otherwise say a repair is a tap on the depot. The car wears its damage, but a smoking
+car is a warning without an instruction, and the garage is a building like any other until you know
+what it is for. So a beat (`SHOW_DELAY`, 0.9s) after the taxi first starts smoking —
+`SMOKE_FRACTION`, 34% HP, the third of the four [damage tiers](../src/game/taxidamage.js) — the
+[New Move card](#new-move-unlocked-the-u-turn-and-drift-cards) goes up with **"TAXI DEPOT / Tap for
+Repairs"** (`REPAIR` in game/newmove.js). Earlier and it would be nagging about a swinging lamp; at
+the 20% plume it is one hit from too late.
 
-Pinned over the door, the bubble is also the answer to *where*: the depot is usually off frame while
-the taxi is out working, so the call opens at the screen's edge pointing at it. It speaks once per
-bout of damage — main.js re-arms it only when the HP is back above the line, which in practice means
-a repair — and stays up its full `DEPOT_CALL_LINGER` (5s of game time, longer than dispatch because
-it is an instruction and usually pointing off screen). It cannot be tapped away, and tapping the
-depot no longer takes it down either: that lost it too easily before it had been read. Only the run
-ending cuts it short. Not said at all if the taxi is already on its way in or inside.
+It was a speech bubble over the garage door, once per bout of damage; Tyler swapped it for the card
+(2026-10-06). The card is **once ever** (`simTaxi.seen.repair`), stops the world like the move cards,
+and answers to the same gates: the tips setting, debug mode, the opening tutorial being done, and a
+calm beat (`newMoveCalm`) — a getaway, a patrol chase or a taxi already on its way in defers it, and
+it is tried again every half second for as long as the car is still smoking. No pedal row: the
+instruction is a tap, so the line says it. A finger tapping the door in the clip was tried and cut
+(Tyler, 2026-10-06): the clip is just the visit.
+
+**The clip** (`game/repairclip.js`, ~9s) is filmed on the player's own depot: a smoking stand-in
+(the real damage rig, three knocks in: bonnet, boot, dragging bumper) comes up the lane and turns in, the door comes down to `REPAIR_GAP` and the shop welds, and the
+door goes up on a clean car that drives back out onto the street. It is not a recording like the
+move clips: the visit is a script, not physics, so `scriptVisit` runs the same script again off the
+same `entryPath`/`exitPath` and the same numbers (`VISIT` in game/opening.js). Its two departures are
+on purpose: the shop works `CLIP_REPAIR` (1.2s, against the game's 2.4) and the door starts down as
+soon as the car is wholly behind the curtain, because a loop is watched more than once. The door and
+the welding are the city's own, borrowed while the world is frozen and put back shut on close; the
+player's taxi and the frozen traffic are hidden from the clip and left in the still. `__taxi.newMove.open('repair')` opens it.
 
 | Phase | What happens | Length |
 |---|---|---|

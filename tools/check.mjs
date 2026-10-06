@@ -20,8 +20,8 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/city/burgerjoint.js', '../src/game/drivethru.js',
   '../src/city/bank.js', '../src/game/robbery.js', '../src/game/radio.js',
-  '../src/game/robberline.js', '../src/game/copshout.js', '../src/game/patrol.js', '../src/game/bootleg.js', '../src/game/newmove.js', '../src/game/uturnclip.js', '../src/game/driftclip.js', '../src/game/moveclip.js',
-  '../src/game/speech.js', '../src/game/depotcall.js',
+  '../src/game/robberline.js', '../src/game/copshout.js', '../src/game/patrol.js', '../src/game/bootleg.js', '../src/game/newmove.js', '../src/game/uturnclip.js', '../src/game/driftclip.js', '../src/game/moveclip.js', '../src/game/repairclip.js',
+  '../src/game/speech.js',
   '../src/game/coplights.js', '../src/game/cashtrail.js',
   '../src/game/wipe.js',
   '../src/game/chopper.js', '../src/game/policeheli.js',
@@ -200,6 +200,39 @@ try {
     if (again && Math.hypot(again.centre.x - corner.centre.x, again.centre.z - corner.centre.z) < 1) {
       throw new Error('driftclip: picked a corner with a car parked on it');
     }
+  }
+
+  // The depot's card (game/repairclip.js): the visit it acts has to never drive the car through a door that is not up, turn it round only while the door
+  // is down to its gap, and leave it on the lane heading away; and the card is not a move.
+  {
+    const { scriptVisit, CLIP_REPAIR } = await import('../src/game/repairclip.js');
+    const { REPAIR_GAP, entryPath } = await import('../src/game/opening.js');
+    const { REPAIR, MOVES } = await import('../src/game/newmove.js');
+    const { garageSite } = await import('../src/city/garage.js');
+    const { TAXI_TAILPIPE_BACK } = await import('../src/geometry/taxi.js');
+    const { createLayout } = await import('../src/city/layout.js');
+    const { makeRng } = await import('../src/util/rng.js');
+    if (REPAIR.keys.length) throw new Error('repairclip: the depot card has a pedal row');
+    if (Object.values(MOVES).some((m) => m.seenKey === REPAIR.seenKey)) throw new Error('newmove: the depot card shares a move\'s seen flag');
+    for (const seed of [1, 2, 3]) {
+      const site = garageSite(createLayout(makeRng(seed)).garageBlock);
+      const { frames, step } = scriptVisit(site);
+      const swap = frames.findIndex((f) => f.repaired);
+      if (swap < 0 || Math.abs(frames[swap].door - REPAIR_GAP) > 1e-6) throw new Error('repairclip: the car is turned round with the door not at its gap');
+      const working = frames.filter((f) => f.work).length * step;
+      if (Math.abs(working - CLIP_REPAIR) > 2 * step) throw new Error(`repairclip: the shop works ${working.toFixed(2)}s`);
+      for (const f of frames) {
+        const across = f.x - TAXI_TAILPIPE_BACK < site.curtainX && f.x + TAXI_TAILPIPE_BACK > site.curtainX
+          && Math.abs(f.z - site.doorZ) < 2;
+        if (across && f.door < 0.99) throw new Error(`repairclip: the car crosses the door at ${f.door.toFixed(2)} open (${f.phase})`);
+      }
+      const last = frames.at(-1);
+      const mouth = entryPath(site).mouth;
+      if (!(Math.abs(last.yaw + Math.PI / 2) < 1e-6 && last.z > site.doorZ + site.turnR && Math.abs(last.x - mouth.x) < 0.01)) {
+        throw new Error('repairclip: does not leave up the lane');
+      }
+    }
+    createLayout(makeRng(7));
   }
 
   // The crash replay's tape, played back rather than trusted (game/replay.js). Three things it
