@@ -79,6 +79,8 @@ const TOOLS = [
   { name: 'uturn',   args: ['tools/uturnreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
   // ...and the drift's card the same (game/driftreel.js).
   { name: 'drift',   args: ['tools/driftreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
+  // ...and the overtake's (game/overtakereel.js).
+  { name: 'overtake', args: ['tools/overtakereel.mjs'], pick: /(\d+\/\d+) checks passed/ },
 ];
 
 let failed = 0;
@@ -100,6 +102,31 @@ try {
   sunk.customDepthMaterial.onBeforeCompile(stub);
   if (!stub.vertexShader.includes(`mvPosition.z -= ${SHADOW_SINK.toFixed(4)}`)) {
     throw new Error('sinkShadowCaster: the depth patch did not land in the shader');
+  }
+
+  // ...and the overtake's (game/overtakeclip.js): the taxi starts behind the car in its own lane, is
+  // out in the far one past it, and finishes back in its own lane in front of it; and the picker
+  // finds a long enough street (side or ring) in the shipped cities.
+  {
+    const { reelAt, clipKeys, pickOvertakeStreet, CLIP_LOOP } = await import('../src/game/overtakeclip.js');
+    const { REEL } = await import('../src/game/overtakereel.js');
+    const leadAt = (t) => REEL.lead[Math.min(REEL.lead.length - 1, Math.round(t / REEL.step))];
+    const start = reelAt(0);
+    const end = reelAt(CLIP_LOOP);
+    if (!(start.lateral > 0 && end.lateral > 0)) throw new Error('overtakeclip: does not start and finish in its own lane');
+    if (!REEL.frames.some((f) => f[1] < 0)) throw new Error('overtakeclip: never pulls out');
+    if (!(start.along < leadAt(0)[0] - REEL.frames[0][0] + start.along)) throw new Error('overtakeclip: does not start behind the car');
+    if (!(REEL.frames.at(-1)[0] > REEL.lead.at(-1)[0])) throw new Error('overtakeclip: does not finish in front of the car');
+    const k = clipKeys(CLIP_LOOP * 0.5);
+    if (!(k.boost.lit && k.blip.lit && k.blip.down && !k.boost.down)) throw new Error('overtakeclip: keys wrong mid-loop');
+    const { createLayout } = await import('../src/city/layout.js');
+    const { cityNetwork } = await import('../src/city/roadnet.js');
+    const { makeRng } = await import('../src/util/rng.js');
+    const camRight = { x: Math.SQRT1_2, z: -Math.SQRT1_2 };
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      createLayout(makeRng(seed));
+      if (!pickOvertakeStreet({ network: cityNetwork(), cars: [], camRight })) throw new Error(`overtakeclip: no street in city ${seed}`);
+    }
   }
 
   // The New Move card's U-turn clip (game/uturnclip.js). Played back off the reel (whose match

@@ -61,6 +61,13 @@ export const AFTER_DELIVERED = 2;
  * for (game/uturnclip.js, game/driftclip.js).
  */
 export const MOVES = {
+  // First, and on the first drop-off it can: holding Loco Mode behind a car rams it unless the combo
+  // is thrown (game/overtake.js), so a player who has not been shown it is being punished for the
+  // button doing what it always did.
+  overtake: {
+    seenKey: 'simTaxi.seen.overtake', after: 1, line: 'Overtake',
+    keys: [['boost', 'boost'], ['blip', 'boost']],
+  },
   uturn: {
     seenKey: SEEN_KEY, after: AFTER_DELIVERED, line: 'U-Turn',
     keys: [['boost', 'boost'], ['brake1', 'brake'], ['brake2', 'brake']],

@@ -125,9 +125,11 @@ import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
+import { createOvertakeCombo } from './game/overtake.js';
 import { createNewMove, createSeenFlag, MOVES, SHOW_DELAY } from './game/newmove.js';
 import { createUturnClip, pickStreet, clipKeys as uturnKeys } from './game/uturnclip.js';
 import { createDriftClip, pickCorner, clipKeys as driftKeys } from './game/driftclip.js';
+import { createOvertakeClip, pickOvertakeStreet, clipKeys as overtakeKeys } from './game/overtakeclip.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
@@ -958,6 +960,8 @@ const bootleg = createBootleg({
     stampAllRubber(traffic.taxi);
   },
 });
+// Loco behind a car, a blip off the pill and back on: the taxi goes round. See game/overtake.js.
+const overtake = createOvertakeCombo({ taxi: traffic.taxi });
 // The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
 // contact. The ghost outlines hung off the taxi are filtered out inside `markOccluder`.
@@ -4003,7 +4007,7 @@ const pause = shot ? null : createPause({
     // release too, and resuming onto a pedal nobody is holding is the same bug wearing red.
     // `dropPedalGesture` covers a thumb that was on the row when the veil went up; the two explicit
     // releases beside it are for the keyboard's holds, which it knows nothing about.
-    if (paused) { boost.release(); releaseBrake(); dropPedalGesture(); bootleg.reset(); }
+    if (paused) { boost.release(); releaseBrake(); dropPedalGesture(); bootleg.reset(); overtake.reset(); }
   },
 });
 
@@ -4026,6 +4030,11 @@ const clipStage = (cardCanvas) => ({
   scene, camera, renderFrame, canvas: renderer.domElement, freeze: freezeFrame, cardCanvas,
 });
 const moves = {
+  overtake: {
+    ...MOVES.overtake, seen: createSeenFlag({ key: MOVES.overtake.seenKey }), clipKeys: overtakeKeys,
+    makeClip: (cardCanvas) => freezeFrame
+      && createOvertakeClip({ ...clipStage(cardCanvas), street: pickOvertakeStreet(clipSite()) }),
+  },
   uturn: {
     ...MOVES.uturn, seen: createSeenFlag({ key: MOVES.uturn.seenKey }), clipKeys: uturnKeys,
     makeClip: (cardCanvas) => freezeFrame
@@ -4072,7 +4081,7 @@ function openNewMove(move = newMoveDue ?? moves.uturn) {
   if (!newMove?.open(move)) return false;
   move.seen.set();
   // Same releases as the pause, for the same reason: the card takes the release of anything held.
-  boost.release(); releaseBrake(); dropPedalGesture(); bootleg.reset();
+  boost.release(); releaseBrake(); dropPedalGesture(); bootleg.reset(); overtake.reset();
   return true;
 }
 
@@ -4187,6 +4196,7 @@ function frame() {
     // And through the drift, which does the same from its own tap (see `driftHoldOff`).
     const bootlegBrake = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
     if (!brakeHeld) driftHoldOff = false;
+    overtake.update(dt, { held: boost.isActive() && !traffic.taxi.staged, brakeHeld });
     const drifting = traffic.taxi.drift && traffic.taxi.drift.phase !== 'carry';
     traffic.taxi.braking = bootlegBrake && !driftHoldOff && !drifting;
   }
@@ -5455,6 +5465,7 @@ window.__taxi = {
   patrol,
   /** The brake-tap spin (game/bootleg.js) — `spin()` fires one, `state` tallies them. */
   bootleg,
+  overtake,
   /**
    * The "New Move Unlocked" card (game/newmove.js), null in shot mode. `open(name)` shows that
    * move's card ('uturn', the default, or 'drift') now, whatever the gates say; `seen` is the
