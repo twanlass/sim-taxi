@@ -277,7 +277,7 @@
         100% { transform: translate(-6px, 56px) rotate(-18deg) scale(0.9); opacity: 0; }
       }
 
-      /* Cargo chip — the courier box, pictured in the bottom-right corner while a package is aboard.
+      /* Cargo chip — the courier box, pictured right of the gas pedal while a package is aboard.
          See src/game/cargochip.js for what is inside it. It sat under the cash total until Tyler's
          HUD shuffle (2026-10-05) gave the top-left to the cash and the top-right to the pause, and
          put the box in the corner the pause left.
@@ -288,9 +288,13 @@
          cannot fade with the HUD and with its own arrival at once. `pointer-events: none` for the
          reason it had while it lived in #hud: a package cannot be selected, so a thumb landing on
          it goes through to the city. */
+      /* Centred where a mirror of the brake would be — the same 22px off the gas pedal on its
+         right as the brake is on its left, and on the same centre line (Tyler, 2026-10-06), so the
+         bottom row reads as brake · gas · box rather than a box stranded in the corner. */
       #cargo-dock {
         position: fixed; z-index: 20;
-        right: var(--ctl-right); bottom: var(--ctl-bottom);
+        left: calc(var(--gas-left) + var(--gas-d) + 22px + (var(--brake-d) - 42px) / 2);
+        bottom: calc(var(--ctl-bottom) + (var(--gas-d) - 42px) / 2);
         width: 42px; height: 42px;
         pointer-events: none; user-select: none;
       }
