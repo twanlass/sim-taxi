@@ -3122,6 +3122,11 @@ function updateBoostButton(dt) {
   // The pedal sinks while it is held, however it is held — the Space key never touches the
   // pointer's `is-held`. See "The press" in index.html.
   boostButton.classList.toggle('is-down', boost.state.held);
+  // The overtake combo's cue: throb while a blip would take, hold steady once it has.
+  const taxi = traffic.taxi;
+  const live = !taxi.crashed && !fares.state.gameOver && boost.isEngaged();
+  boostButton.classList.toggle('is-pass-ready', live && overtake.state.ready);
+  boostButton.classList.toggle('is-pass-armed', live && (overtake.state.armed || taxi.passing));
   // Dead until there is something worth pressing for: a drop-off pouring fuel back in, or the
   // trickle finishing its climb to a quarter tank (game/boost.js). A pressable-looking pill over a
   // tank with a sixtieth of a second in it would be a lie, so 'empty' covers the whole recharge and
