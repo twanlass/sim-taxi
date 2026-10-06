@@ -461,7 +461,7 @@ export function crossingOrigin(car) {
 // **The 4.35s is not estimator slop, it is the city.** The same route driven twice differs by
 // about that much depending on which signal phase the taxi meets and what it queues behind;
 // worst observed miss was 26s on a 49.5s trip. No function of (blocks, turns) can do better than
-// that variance, which is precisely why the deadline is `budget * slack(d)` and not `budget`:
+// that variance, which is precisely why the deadline is `budget * pace(d)` and not `budget`:
 // slack is what pays for the traffic you happen to get, and shrinking it is what makes the game
 // harder.
 export const SEC_PER_BLOCK = 2.94;

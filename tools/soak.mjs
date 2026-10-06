@@ -57,7 +57,7 @@ console.log(`delivered over ${RUNS} runs: p10 ${pct(delivered, 0.1)} · median $
   + `· worst ${delivered[0]} · best ${delivered[delivered.length - 1]} (of ${FARES})`);
 
 // How much of each fare's budget the drive actually ate, bucketed along the ramp. This is the
-// direct read on `slack(d)`: if late fares still land with half their clock unspent then the ramp
+// direct read on `pace(d)`: if late fares still land with half their clock unspent then the ramp
 // is not ramping, whatever the survival numbers happen to say. Deliveries per bucket are printed
 // too, because the late buckets are thin by construction — only long runs reach them.
 const rows = runs.flatMap((r) => r.budgets);

@@ -531,7 +531,8 @@ and because the taxi has one seat, all but one of those are riders waiting on th
    [The drop-off dispatches itself](#the-drop-off-dispatches-itself).
 4. Deliver → the fare pays out (`FARE_BASE + FARE_PER_BLOCK × blocks`, times the shift's
    multiplier, see [Economy](#economy)), and the board refills.
-5. **Any** fare's clock expiring ends the run.
+5. A rider's clock running out **aboard** ends the run. One running out on the kerb is a
+   [strike](difficulty.md#strikes); the third ends the run.
 
 ## The drop-off dispatches itself
 
@@ -662,8 +663,10 @@ draining on the kerb while you decide who to grab. Tapping a waiting rider while
 one is refused outright, rather than driving there and quietly not picking anyone up — and the
 board says so on both sides of the tap, see [the board steps back](#the-board-steps-back-while-the-seat-is-full).
 
-Two waiting riders on the board at the same time is the whole difficulty of the game: you can't
-take both, and the wrong pick loses one of the two clocks. `fares.waiting()` returns the *most
+Two waiting riders on the board at the same time is meant to be the whole difficulty of the game:
+each clock assumes it is the one you take, so late in the ramp you can't take both, and the one you
+leave is a [strike](difficulty.md#strikes). How often the board actually offers that choice is
+measured in [difficulty.md](difficulty.md#what-the-sweep-found), and it is not yet often. `fares.waiting()` returns the *most
 urgent* waiter (lowest `timeLeft`) so the finder button and the "perfect player" in the soak both
 default to serving that one first.
 
@@ -672,10 +675,9 @@ Rules for when the extras appear. Everything in the first group is a point on th
 
 | Rule | Early | Late | Why |
 |---|---|---|---|
-| `maxFares` | 1 fare | 4 fares | Second at 1 delivery, third at 2, fourth at 10. The first fare teaches the loop with nothing else on screen; the fourth is an endgame beat, well past where two clocks stopped being novel. |
-| `spawnGap` | 15s | 7s | Extras arrive one at a time. Spawning them together gives one hard moment then a lull; staggering makes each clock a decision. Tightening it is pressure with no extra clutter. |
-| `spawnRadius` | 3 blocks | whole map | How far from the bias point an extra may land. Used to be a fairness patch — see below. |
-| `slack` | 2.0× | 1.15× | The margin on top of the driving each fare costs. The main lever. |
+| `pace` | 1.5× | 0.85× | A rider's clock over their own trip at cruise. Below 1.0 needs Loco Mode. |
+| `pressure` | 0.5 | 1.4 | Riders offered per rider one taxi can serve; sets the spawn gap (`FARE_CYCLE / pressure`). |
+| `maxFares` | 1 fare | 4 fares | One until the tutorial fare is delivered, then the whole board. |
 
 And the ones that are still fixed, shaping the "second fare while carrying" hand-off:
 
@@ -690,7 +692,7 @@ closing on their drop-off, the new rider appears near that drop-off — the clas
 while carrying" hand-off. When nobody is aboard, the extra lands near the taxi's current
 intersection instead. Either way the radius is the same, so the two paths read alike.
 
-**`spawnRadius` builds a box, not a true block-distance circle** — it walks `±radius` on each axis
+**`SPAWN_RADIUS` builds a box, not a true block-distance circle** — it walks `±radius` on each axis
 independently, so a corner of that box can sit up to `2 × radius` blocks out on the diagonal. Fine
 for an ordinary extra, where the point is "reachable", not "exactly this close". The very first
 fare of the run wants a real promise, though — especially now that the taxi itself
@@ -752,10 +754,10 @@ run, and the scalar can be eased where a flag cannot.
 **The disc darkens rather than disappearing, and that is the whole design decision.** The disc is
 the half of the mark that survives this camera — a rider whose crystal is behind a tower still has
 colour on the tarmac ([corners the camera cannot see](#corners-the-camera-cannot-see)) — and the
-colour it is carrying is that rider's clock. A waiting fare running out **ends the run**, and
-[the clock is budgeted](#the-clock-is-budgeted) so that every new arrival pays for the whole waiting
-queue ahead of it: which rider is closest to the edge is exactly what the player should be reading
-on the way to a drop-off. Hiding the disc would take the ordering puzzle off the road at the moment
+colour it is carrying is that rider's clock. A waiting fare running out is a
+[strike](difficulty.md#strikes), and [the clock is budgeted](#the-clock-is-budgeted) as if each
+rider were the one served next: which rider is still makeable is exactly what the player should be
+reading on the way to a drop-off. Hiding the disc would take the ordering puzzle off the road at the moment
 it is being driven. What *can* go is the sweep — the beam circling the rim means "this is a live
 target" and nothing else, so it is the one layer that was saying something untrue.
 
@@ -819,7 +821,7 @@ back is the same lesson in a fraction of the time. The *second* fare is already 
 this is a first-fare exemption, not a gentler opening.
 
 The clock floor is the part that isn't obvious, and it was measured the hard way. **A short trip
-budgets a short clock, and a short clock is the tight one.** The budget is `work × slack` with a
+budgets a short clock, and a short clock is the tight one.** The budget is `work × pace` with a
 fixed reaction allowance inside it, so a fare's absolute margin scales with its length: 1.5s of a
 slow player's reaction, or one red light they didn't expect, is a few percent of a fifty-second
 haul and a third of a seventeen-second hop. Shipping the two caps without the floor made the run's
@@ -838,12 +840,14 @@ on a one-or-two-block trip pays $8–11 where the old unbiased draw paid a media
 fare out of a run, and pricing the tutorial hop as the tutorial hop it is beats special-casing the
 economy's own formula.
 
-**The radius used to be load-bearing and is now a difficulty knob.** Under the old flat clock an
+**The radius used to be load-bearing, then a ramped knob, and is now a constant (`SPAWN_RADIUS`, 3
+blocks).** Under the old flat clock an
 extra rider *had* to land near the current drop-off: their 60 seconds had to cover the tail of that
 delivery plus a fresh pickup drive, and charging them for a whole drop-off leg was ruinous —
 measured 7-fare median → 3 at 1.5s reaction. A rider dropped in the far corner had a clock the taxi
 could not possibly reach in time, which turned "prioritise" into "roll the dice". Budgeted clocks
-pay for the distance explicitly, so the radius is free to open all the way up as the run goes on.
+pay for the distance explicitly, so how far out a rider lands changes how long their clock is and
+not how hard it is.
 
 `spawnGap` is what turns the board into a prioritisation puzzle rather than a burst: extras land
 staggered, so their kerbside clocks drain out of phase and the player has to keep picking which to
@@ -862,12 +866,13 @@ diamond over their head carrying how close each one is to giving up.
 One deadline covers **spawn to drop-off**, and it does not reset at pickup. Collecting a rider
 quickly is what buys the time to deliver them, and that is the entire tension of the game.
 
-It is not a flat number. A rider's clock is the *estimated driving their trip costs*, plus whatever
-the taxi is already committed to, times the run's current slack:
+It is not a flat number. A rider's clock is the *estimated driving their trip costs*, plus the rider
+already aboard if there is one, times the run's current [pace](difficulty.md#two-dials) — and
+nobody else waiting on the kerb is in it:
 
 ```
-budget = queue ahead + drive to the pickup + drive to the drop-off + reaction allowance
-limit  = clamp(budget × slack(deliveries), 15s, 240s)
+budget = rider aboard + drive to the pickup + drive to the drop-off + reaction allowance
+limit  = clamp(budget × pace(deliveries), 12s, 240s)
 ```
 
 The run's **first** fare takes a floor of `FIRST_FARE_MIN_CLOCK` on top of that, because the caps
@@ -1839,13 +1844,10 @@ that is an alarm rather than a countdown: it says *now*, not *how long*.
 
 Everything else about a VIP is the ordinary fare loop with four numbers turned:
 
-- **A short clock, and one that assumes you drop everything.** Budgeted the same way as everyone
-  else's — from the driving the trip actually costs, plus the same reaction allowance — but at a
-  fraction of the run's own slack (`VIP_SLACK_FACTOR`, floored at `VIP_MIN_SLACK`), and, far more
-  importantly, **without the kerb queue in the chain**. Every ordinary rider's clock pays for the
-  riders ahead of them, so serving the board in the right order works (see [the fare
-  clock](#the-clock-is-budgeted)). A VIP's does not: it covers the rider already
-  aboard, whom you cannot abandon, its own trip, and nothing else. Jump the queue for it or lose it.
+- **The shortest clock on the board.** Budgeted the same way as everyone else's — served next,
+  from the driving the trip actually costs, plus the same reaction allowance — but at a fraction of
+  the run's own pace (`VIP_PACE_FACTOR`, floored at `VIP_MIN_PACE`, about as fast as Loco Mode
+  gets round the map). Letting one go costs the streak, never a strike.
 - **Triple pay.** A VIP pays the ordinary distance price times `VIP_PAYOUT` (3), stamped at spawn,
   and then a [Perfect Run](#the-perfect-run) at the drop-off like anyone. There used to be a VIP-only
   streak on top (3×, 4×, 5× back to back, reset by a miss); it went with the shift multiplier.
@@ -2119,12 +2121,12 @@ nothing else, because a robbery cannot start with somebody in the seat. That is 
 VIP gets and for the same reason, and on its own it would buy a robber a *longer* clock than an
 ordinary rider on the same trip.
 
-**And the slack factor is turned up on top of that.** `ROBBER_SLACK_FACTOR` is 1.3, floored at 1.6,
+**And the pace factor is turned up on top of that.** `ROBBER_PACE_FACTOR` is 1.3, floored at 1.6,
 so a getaway always has at least 60% more clock than driving — measured on the probe's staged event,
 118s against 60.8s of driving, where an ordinary rider on the same trip would get 91s.
 
 It used to be the tightest clock in the game: 0.62 floored at 1.05, which is `work × 1.05` from the
-very first robbery since the run's slack starts at 1.7. That left no seconds to spend on a roadblock,
+very first robbery since the old slack curve started at 1.7. That left no seconds to spend on a roadblock,
 a detour or a ram, and made the chase something to escape rather than something to play with.
 
 **And the payout is the one price in this game not settled at spawn.** Every other fare is stamped
@@ -2294,7 +2296,7 @@ and anything that turns over between two re-picks has been out of the frame it w
 most of it.
 
 **Four cars, flat, not on the difficulty ramp.** The event already tightens with the run — a robber's
-clock is budgeted off `difficulty.slack`, so the same getaway is a harder drive on delivery forty than
+clock is budgeted off `difficulty.pace`, so the same getaway is a harder drive on delivery forty than
 on delivery three — and hanging a second knob off the same ramp would make the event's difficulty a
 product of two curves neither of which could then be read on its own. Four is also what a five-block
 city can show at once: a block is about a third of a phone's frame at play zoom, so four cars spread
@@ -3664,7 +3666,8 @@ Escape and P toggle it from a keyboard.
 ## The run-end screen
 
 `src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends three ways — a fare's
-clock hitting zero, a collision, a police bust — and all three land on the same screen: a title, the
+clock hitting zero (aboard, or the third [strike](difficulty.md#strikes) on the kerb), a collision,
+a police bust — and all three land on the same screen: a title, the
 reason, the run's two stats (**Cash**, then **Time**), the [high-score table](#high-scores), and **Play again**. The title is
 set by the caller, so a timeout reads **Too Slow!**, a collision reads **Wrecked!**, and a police
 bust reads **Busted!**.

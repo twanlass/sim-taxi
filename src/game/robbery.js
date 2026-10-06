@@ -141,7 +141,7 @@ const MIN_DELIVERED = 2;
  * copies of that number would be a fleet that quietly stops arriving the day somebody changes one.
  *
  * Flat rather than on the difficulty ramp, and that is a decision. The event already tightens with
- * the run: a robber's clock is budgeted off `difficulty.slack`, so the same getaway is a harder
+ * the run: a robber's clock is budgeted off `difficulty.pace`, so the same getaway is a harder
  * drive on delivery forty than on delivery three. Hanging a second knob off the same ramp would
  * make the event's difficulty a product of two curves neither of which could then be read on its
  * own — the trap `difficulty.md` describes as a survival curve going flat against every knob

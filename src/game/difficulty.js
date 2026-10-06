@@ -32,91 +32,73 @@ const TUNING = {
   // because something new keeps arriving.
   rampFares: 12,
 
-  // The main lever: how much more than the estimated work a rider's clock is worth.
+  // **Two dials.** Everything about how hard the fare game is comes down to these, and each one
+  // answers a question the player can feel:
   //
-  // It cannot go below 1.0 — a deadline shorter than the driving it pays for is unwinnable by
-  // construction, and `tools/probe.mjs` asserts that across the whole curve. The floor sits above
-  // 1.0 anyway, because `estimateSeconds` has a measured MAE of 4.35s against real trips (see
-  // route.js) and slack is what pays for the traffic you happen to get.
+  //   pace      how hard do I have to drive to make this rider?
+  //   pressure  can I take everyone, or do I have to choose?
   //
-  // **Slack is the fraction of the clock left at the drop-off**, near enough to read off directly:
-  // a fare served straight through eats its estimate and hands back `1 - 1/slack`. At 2.0 that is
-  // half the ring still lit, which is why the shipped game read as generous however the survival
-  // numbers looked — the player is watching the diamond, not the median. 1.7 lands an on-time
-  // drop-off at ~41% (orange) and the end of the ramp at ~5% (red).
+  // **Pace** is a rider's clock over their own trip at cruise — `estimateSeconds`, which is fitted
+  // against a taxi driving the speed limit and stopping at every red (route.js). At 1.0 a clean,
+  // legal drive arrives on the last second. Above it there is room for a wrong turn; below it
+  // there is not enough road at the speed limit, and the seconds have to come out of Loco Mode,
+  // running reds and taking the overtake. That is the driving the game is meant to ask for, so
+  // the end of the ramp sits *below* 1.0 on purpose.
   //
-  // Swept over 21 cities × 2 reaction times (`node tools/difficulty-sweep.mjs 21 slack`), median
-  // fares delivered by a perfect player at 1.5s / 4s, and the mean share of the clock a fare's
-  // drive actually ate at deliveries 1-3 / 12+:
+  // It used to be `slack`, held above 1.0 by an assertion, because any rider timing out ended the
+  // run: a clock the legal drive could not meet was a guaranteed loss. A rider let go on the kerb
+  // is a strike now (`MAX_STRIKES` in fares.js), so a clock that asks for Loco Mode is a demand
+  // rather than a trap. The floor that does still matter is how fast the taxi can actually go:
+  // `LOCO_PACE_SELF` in tools/autoplay.mjs is that number, measured, and `tools/probe.mjs`
+  // asserts the curve never asks for less.
   //
-  //   2.0 → 1.15   20 / 15   58% → 84%   — was shipped; p10 12/11
-  //   1.7 → 1.10   15 / 11   65% → 85%   — p10 11/4
-  //   1.7 → 1.05   14 / 11   64% → 87%   <- shipped; p10 9/7
-  //   1.6 → 1.05   13 / 12   66% → 86%   — a run died on fare 2 at 1.5s (p10 2)
+  // It is the fraction of the clock left at an on-time drop-off, near enough: a fare driven at
+  // cruise hands back `1 - 1/pace`, so 1.5 lands a legal drive with a third of the ring lit and
+  // 0.85 lands it 18% short of the drop-off — the ring empties with the rider still in the back.
   //
-  // 1.7 → 1.05 is the last row where nobody dies during the tutorial. Below it the tail starts
-  // eating first-fare runs, which is the one failure a score-attack cannot have. The floor is not
-  // 1.0 even at the end of the ramp because `estimateSeconds` has a measured MAE of 4.35s against
-  // real trips (see route.js) — at 1.0 the traffic you happen to get decides the fare, not you.
+  // Swept with `node tools/difficulty-sweep.mjs 21 opening` (21 cities, 2s reaction), deliveries
+  // p10 / median for a player who never boosts and one who boosts whenever the job in hand would
+  // not make it at cruise:
   //
-  // 2.0 → 1.15 was measured at a median of 15/13 when it shipped and re-measured at 20/15 here:
-  // the build drifted easier underneath the tuning. Re-run the sweep before trusting a row above.
-  slackStart: 1.7,
-  slackEnd: 1.05,
+  //                                 cruise    loco
+  //   pace 1.3→0.85, pressure 0.7    2 / 6    9 / 11
+  //   pace 1.5→0.85, pressure 0.7    3 / 8    8 / 12
+  //   pace 1.3→0.85, pressure 0.5    2 / 7   10 / 12
+  //   pace 1.5→0.85, pressure 0.5    3 / 7   10 / 12   <- shipped
+  //
+  // The gap between the two columns is the dial working: a player who drives it like a bus is
+  // done by the seventh fare, and one who drives it like a getaway car lasts nearly twice as long.
+  // The old slack curve, for comparison, gave a never-boosting perfect player a median of 14.
+  paceStart: 1.5,
+  paceEnd: 0.85,
+
+  // **Pressure** is riders offered over riders one taxi can serve. Below 1.0 the board drains
+  // faster than it fills and any order works; above it riders arrive faster than anyone can take
+  // them, and the game becomes choosing who to let go. It sets the spawn stagger through
+  // `FARE_CYCLE` below, and nothing else: the board size, the spacing and the spawn radius all
+  // used to be knobs of their own, and between them they were only ever saying this one thing.
+  pressureStart: 0.5,
+  pressureEnd: 1.4,
 
   // Floor and ceiling on the resulting clock, in seconds.
   //
   // Both are guards, not shapers: they exist to catch the arithmetic going somewhere silly, and if
   // either is binding on an ordinary fare then the budget is what needs fixing. The floor stops a
   // next-door hop from being an instant panic — a rider who appears with 9 seconds reads as a bug
-  // however fair the sums were. The ceiling has to clear a full board's queue, which at four fares
-  // is three whole trips plus a drop-off ahead of this one.
+  // however fair the sums were. The ceiling only has to clear one rider aboard plus a corner-to-
+  // corner trip now that a clock no longer covers the queue in front of it.
   //
-  // Both earlier values were binding and both did damage. 90 clipped ordinary late-game clocks,
-  // quietly reintroducing the unmeetable deadline the queue chain exists to remove. 180 was
-  // subtler and worse: with a saturated board the median clock issued sat at 175s against a 180s
-  // cap, so `limit` was `min(ceiling, work × slack)` with the ceiling winning — and the whole
-  // slack curve stopped doing anything. Sweeping slack from 1.35 down to 1.05 moved the median run
-  // length by less than a fare, because the clamp was setting the real slack. The ceiling has to
-  // sit clear of the deepest queue the board cap allows, or it *is* the difficulty curve.
-  //
-  // The floor came down from 20 with the slack end: a median 16.4s trip (tools/eta.mjs) budgets
-  // 19.8s at slack 1.05, so 20 had quietly become the clock every short late fare was issued —
-  // `tools/probe.mjs` caught it. **A floor has to be re-checked against the tightest slack on the
-  // curve**, because that is the only place it can start binding.
-  clockFloor: 15,
+  // A binding ceiling silently becomes the difficulty curve: at 180, with every clock covering the
+  // whole queue, the median clock issued sat at 175s and sweeping the slack moved nothing. That is
+  // the failure to watch for if this ever comes down.
+  clockFloor: 12,
   clockCeiling: 240,
 
   // Seconds allowed for the player to notice a rider and tap them. Charged once per fare, not
   // twice: the drop-off dispatches itself, so the only reaction a fare actually costs is on the
-  // kerb. It sits inside the slack multiplier, so early fares are forgiving about it and late
+  // kerb. It sits inside the pace multiplier, so early fares are forgiving about it and late
   // ones are not.
   reactionAllowance: 2.5,
-
-  // Deliveries at which the board is allowed to hold 2, 3 and 4 fares. The first fare teaches the
-  // loop with nothing else on screen; two clocks is where the game becomes a prioritisation
-  // puzzle; the fourth is an endgame beat, well past where that shape has been learned.
-  boardSteps: [1, 2, 10],
-
-  // Seconds between successive spawns on a non-empty board. The floor is 7 rather than lower
-  // because `tools/probe.mjs` asserts a minimum stagger of 6.5s, and because extras landing closer
-  // together than that stop reading as separate decisions.
-  //
-  // **Widening it does not make the game easier, it makes the opening more fragile.** Swept over
-  // 9 cities × 3 reaction times (`node tools/difficulty-sweep.mjs 9 gap`), the median run length
-  // is flat at 12–15 fares across everything from 15→7 to 40→18 — but the *worst* runs get much
-  // worse, p10 falling from 7–12 down to 1–6. A sparse board means short queues, short queues mean
-  // short budgeted clocks, and a short clock has less absolute margin to absorb one bad set of
-  // lights. The stagger shapes how the board reads; it is not the difficulty.
-  spawnGapStart: 15,
-  spawnGapEnd: 7,
-
-  // Blocks from the bias point an extra rider may spawn within. This only became a knob once
-  // clocks were budgeted: it used to be a fairness patch, holding extras near the current
-  // drop-off because a flat 60s could not pay for a distant one. The budget pays for it now, so
-  // the radius is free to open up — and the grid's own count is the whole map.
-  spawnRadiusStart: 3,
-  spawnRadiusEnd: 5,
 
   // Total vehicles, taxi included. Pushed into the sim by main.js; `?cars=N` overrides it outright
   // and the headless tools pin their own so their baselines stay comparable across builds.
@@ -137,6 +119,21 @@ const TUNING = {
   policeCooldownEnd: [8, 14],
 };
 
+/**
+ * Seconds one taxi spends per delivery, start to finish, at the shipped pace of play: the reaction,
+ * the drive to the kerb and the trip. Pressure is measured against it — a spawn every
+ * `FARE_CYCLE / pressure` seconds is `pressure` riders for every one the taxi can carry.
+ *
+ * Measured, not chosen: `node tools/difficulty-sweep.mjs 21 shipped` prints the `cycle` column,
+ * the mean seconds per delivery of a perfect player across 21 cities — 40–44s for one who never
+ * boosts and 33–35s for one who does. 35 sits at the boosting end on purpose: the taxi the game is
+ * asking for is the one driving hard, and pressure is "riders per rider *that* taxi can serve".
+ */
+export const FARE_CYCLE = 35;
+
+/** Board size. The mesh pool in fares.js is built for exactly this many. */
+export const BOARD_MAX = 4;
+
 export const setTuning = (patch) => Object.assign(TUNING, patch);
 export const getTuning = () => ({ ...TUNING });
 
@@ -151,14 +148,18 @@ export const getPinned = () => pinned;
 export const difficulty = (delivered) =>
   pinned ?? clamp01(delivered / TUNING.rampFares);
 
-// --- The knobs ----------------------------------------------------------------
+// --- The two dials --------------------------------------------------------------
 // Each takes the delivery count so no caller has to hold `d` itself, and each is a plain lerp
 // along the curve. Linear on purpose: a curve shape is one more thing to justify, and the sweep
 // showed the endpoints matter far more than the path between them.
 
-/** Multiplier on a fare's estimated work to get its deadline. */
-export const slack = (delivered) =>
-  lerp(TUNING.slackStart, TUNING.slackEnd, difficulty(delivered));
+/** A rider's clock over their own trip at cruise. Below 1.0 means Loco Mode. */
+export const pace = (delivered) =>
+  lerp(TUNING.paceStart, TUNING.paceEnd, difficulty(delivered));
+
+/** Riders offered per rider one taxi can serve. Above 1.0 means some have to be let go. */
+export const pressure = (delivered) =>
+  lerp(TUNING.pressureStart, TUNING.pressureEnd, difficulty(delivered));
 
 /**
  * How many seconds a rider gets, given the estimated seconds of driving they cost.
@@ -167,27 +168,24 @@ export const slack = (delivered) =>
  * notice a rider is squeezed by the ramp along with everything else.
  */
 export function fareLimit(workSeconds, delivered) {
-  const raw = (workSeconds + TUNING.reactionAllowance) * slack(delivered);
+  const raw = (workSeconds + TUNING.reactionAllowance) * pace(delivered);
   return Math.max(TUNING.clockFloor, Math.min(TUNING.clockCeiling, raw));
 }
 
-/** How many fares may be on the board at once. */
+// --- What the dials decide ------------------------------------------------------
+
+/**
+ * How many fares may be on the board at once: the first fare alone, so the loop is taught with
+ * nothing else on screen, and then the whole board. How *full* it gets is pressure's job — a board
+ * that drains faster than it fills never reaches four, and one that fills faster always does.
+ */
 export function maxFares(delivered) {
-  // Stepped, not lerped: the board is a count, and the steps are the design statement — "the
-  // third rider arrives at two deliveries" is the rule, not a point on a ramp.
   const at = pinned === null ? delivered : pinned * TUNING.rampFares;
-  let n = 1;
-  for (const step of TUNING.boardSteps) if (at >= step) n += 1;
-  return n;
+  return at >= 1 ? BOARD_MAX : 1;
 }
 
 /** Seconds between successive spawns on a non-empty board. */
-export const spawnGap = (delivered) =>
-  lerp(TUNING.spawnGapStart, TUNING.spawnGapEnd, difficulty(delivered));
-
-/** Blocks from the bias point an extra rider may land within. */
-export const spawnRadius = (delivered) =>
-  Math.round(lerp(TUNING.spawnRadiusStart, TUNING.spawnRadiusEnd, difficulty(delivered)));
+export const spawnGap = (delivered) => FARE_CYCLE / pressure(delivered);
 
 /** Ambient car count the sim should be running at. */
 export const carCount = (delivered) =>

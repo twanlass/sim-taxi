@@ -277,6 +277,28 @@
         100% { transform: translate(-6px, 56px) rotate(-18deg) scale(0.9); opacity: 0; }
       }
 
+      /* Strikes — riders let go on the kerb. Three small rings under the cash total (top left), filling red as
+         they are spent. Rings rather than numbers because the count that matters is how many are
+         *left*, and three shapes say that without being read. A fresh strike pops so it registers
+         on the frame the rider storms off, wherever the player's eyes happen to be. */
+      #strikes { display: flex; gap: 6px; margin-top: 6px; }
+      #strikes .strike {
+        width: 12px; height: 12px; border-radius: 50%;
+        box-sizing: border-box; border: 2px solid rgba(255, 255, 255, 0.85);
+        box-shadow: var(--hud-shadow);
+        transition: background-color 0.2s ease, border-color 0.2s ease;
+      }
+      #strikes .strike.is-used { background: #FF5A4A; border-color: #FF5A4A; }
+      #strikes .strike.is-new { animation: strike-pop 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
+      @keyframes strike-pop {
+        0%   { transform: scale(1); }
+        40%  { transform: scale(1.7); }
+        100% { transform: scale(1); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #strikes .strike.is-new { animation: none; }
+      }
+
       /* Cargo chip — the courier box, pictured right of the gas pedal while a package is aboard.
          See src/game/cargochip.js for what is inside it. It sat under the cash total until Tyler's
          HUD shuffle (2026-10-05) gave the top-left to the cash and the top-right to the pause, and
@@ -1787,6 +1809,11 @@
   <body>
     <div id="hud">
       <div class="money">$<span id="money">0</span></div>
+      <!-- Riders let go on the kerb, out of MAX_STRIKES (game/fares.js). Three marks, lit one at a
+           time by main.js as `missed` events land; the third never lights, because it ends the run. -->
+      <div id="strikes" role="img" aria-label="No riders lost">
+        <span class="strike"></span><span class="strike"></span><span class="strike"></span>
+      </div>
       <!-- What the ride aboard is on course for — Loco, Perfect, Stealth. Filled by `updateRunTags`
            in main.js; empty between rides. -->
       <div id="runs" class="runs"></div>
