@@ -4273,12 +4273,20 @@ function frame() {
     driftsPaid = traffic.taxi.drifts;
     // The exit kick (DRIFT_EXIT in sim/traffic.js) has to read at a glance — playtesting said it
     // didn't, with only a buzz and a shake. So it says so: a bark of fire out of the pipe on top of
-    // the double-barrelled plume (`locoFlame` below), the Loco whoosh, and the fuel pouring into the
-    // gauge. (A "DRIFT BOOST!" word off the roof was tried and cut.)
+    // the double-barrelled plume (`locoFlame` below), the Loco whoosh, and the fuel flying off the
+    // car into the gauge on the same sparks a drop-off pays with — it once went straight into
+    // `topUp`, so the meter grew with nothing to say why. (A "DRIFT BOOST!" word off the roof was
+    // tried and cut.) No HANDOFF: there is no payout coin here to wait behind.
     if (!fares.state.gameOver) {
       const car = traffic.taxi;
       const tier = car.driftTier - 1;
-      boost.topUp(DRIFT_CHAIN.fuel[tier]);
+      const fuel = DRIFT_CHAIN.fuel[tier];
+      flyEnergyToBoost({
+        from: taxiScreenPos,
+        to: fuelScreenPos,
+        delay: 0,
+        onArrive: () => boost.topUp(fuel),
+      });
       haptic('loco');
       // Harder up a chain, as the plume is (`locoFlame` below): the tier has to be felt, since
       // nothing writes it on screen.

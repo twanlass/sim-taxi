@@ -3435,7 +3435,9 @@ because slowing every corner to make room for a reward was tried and was a bumme
 **The move is a combo for an exit kick.** Holding Loco into a turn, tap the brake in the last 0.6s
 of approach (never under 8 units) or the first 35% of the arc, then get back on the pill before the
 arc is over. The taxi comes out at 1.4× the boost cruise (`DRIFT_EXIT`, 30.9 u/s; 1.2× read as too timid), put on in one
-frame and held for 0.6s. The tap screeches and lays four-wheel rubber the moment it lands.
+frame and held for 0.6s, straight on through the next junction if the route goes that way (dropping
+it at the junction cut every kick to ~0.4s, the time a 31 u/s car takes to cross the ~12-unit exit
+lane) and ended by a real turn or the brake. The tap screeches and lays four-wheel rubber the moment it lands.
 
 The kick has to read at a glance, and a buzz and a shake alone did not: the first playtest could
 not tell when it had worked. It now says so with the tailpipe flame splitting into two longer
@@ -3444,7 +3446,14 @@ orange one) for as long as the kick holds (`surge` in `game/locoflame.js`), a ba
 whoosh, a bigger jolt, and the gauge filling. (A "DRIFT BOOST!" word off the roof was tried and
 cut.)
 
-**A landed kick refunds a sixth of a tank** (`DRIFT_FUEL`, the same as a parcel), so a player
+**Kicks chain, up to three** (`DRIFT_CHAIN` in sim/traffic.js). Start the next drift within 2.5s
+of the last kick running out and land it, and it comes out a tier harder: 1.4×/0.6s, 1.55×/0.75s,
+1.7×/0.9s (30.9, 34.3, 37.6 u/s), the flame and the jolt 1.3× and 1.6× bigger. The window lapsing, a
+tap that only slides, or any HP lost since the last kick puts the next one back at tier 1.
+
+**A landed kick refunds a sixth of a tank** at tier 1 (`DRIFT_CHAIN.fuel`, the same as a parcel),
+a ninth at tier 2 and a twelfth at tier 3 — a harder kick on the full refund is a boost that never
+runs out. So a player
 running low can drift their way to a drop-off. It needs *some* fuel to start — the combo is a
 Loco press — and a kick costs well under a second of Loco against the 2.5s it pays, so chaining
 corners is net positive. That is deliberate: it is the skill being paid.
