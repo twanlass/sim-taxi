@@ -277,6 +277,28 @@
         100% { transform: translate(-6px, 56px) rotate(-18deg) scale(0.9); opacity: 0; }
       }
 
+      /* Strikes — riders let go on the kerb. Three small rings under the cash total (top left), filling red as
+         they are spent. Rings rather than numbers because the count that matters is how many are
+         *left*, and three shapes say that without being read. A fresh strike pops so it registers
+         on the frame the rider storms off, wherever the player's eyes happen to be. */
+      #strikes { display: flex; gap: 6px; margin-top: 6px; }
+      #strikes .strike {
+        width: 12px; height: 12px; border-radius: 50%;
+        box-sizing: border-box; border: 2px solid rgba(255, 255, 255, 0.85);
+        box-shadow: var(--hud-shadow);
+        transition: background-color 0.2s ease, border-color 0.2s ease;
+      }
+      #strikes .strike.is-used { background: #FF5A4A; border-color: #FF5A4A; }
+      #strikes .strike.is-new { animation: strike-pop 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
+      @keyframes strike-pop {
+        0%   { transform: scale(1); }
+        40%  { transform: scale(1.7); }
+        100% { transform: scale(1); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #strikes .strike.is-new { animation: none; }
+      }
+
       /* Cargo chip — the courier box, pictured right of the gas pedal while a package is aboard.
          See src/game/cargochip.js for what is inside it. It sat under the cash total until Tyler's
          HUD shuffle (2026-10-05) gave the top-left to the cash and the top-right to the pause, and
@@ -334,7 +356,7 @@
         #cargo-chip, #cargo-chip.is-on { transform: none; transition: opacity 0.16s ease; }
       }
 
-      /* Pause — the black square in the top-right corner, and the screen behind it. See
+      /* Pause — the bare glyph in the top-right corner, and the screen behind it. See
          src/game/pause.js.
 
          Top right since Tyler's HUD shuffle (2026-10-05), on the cash total's row, vertically centred
@@ -352,7 +374,7 @@
         position: fixed; z-index: 24;
         right: calc(var(--hud-side) + var(--safe-right));
         top: calc(var(--hud-top) + (var(--hud-row) - var(--pause-w)) / 2);
-        width: var(--pause-w); height: var(--pause-w); padding: 0; border: 0; background: #000;
+        width: var(--pause-w); height: var(--pause-w); padding: 0; border: 0; background: none;
         display: grid; place-items: center; cursor: pointer;
         /* The tap wants to land now, not after the browser has waited out a double-tap — and there
            is nothing here to select or long-press. */
@@ -361,6 +383,10 @@
         transition: transform 0.1s ease;
       }
       #pause:active { transform: scale(0.92); }
+      /* No plate behind it (Tyler, 2026-10-06): a bare mark like the cash total beside it, held off
+         pale asphalt by the same lift the digits wear — #hud's `text-shadow` in its filter form. The
+         button keeps its full square, so the tap target is unchanged. */
+      #pause .glyph-pause, #pause .glyph-play { filter: drop-shadow(var(--hud-shadow)); }
       /* 18×23 is the file's 28×36. */
       #pause .glyph-pause { display: block; width: 18px; height: 23px; }
       #pause .glyph-play { width: 20px; height: 22px; fill: #fff; }
@@ -1062,8 +1088,7 @@
 
       /* --- speech bubbles -------------------------------------------------
          Every line anybody says on screen: the tutorial's tips (#coach), the robber
-         (#robber-talk), dispatch (#radio), the cop's shout (#cop-shout) and the depot's call in
-         for repairs (#depot-call). One bubble, built and
+         (#robber-talk), dispatch (#radio) and the cop's shout (#cop-shout). One bubble, built and
          pinned by src/game/speech.js — which is where "pinned to what it is about, and waiting at
          the screen's edge when that is off frame" lives. This is the look: the Figma file's
          "bubble-ui" (Taxi 🚕, node 180:1286) at the HUD's ×0.652 — 24px padding and radius become
@@ -1076,18 +1101,16 @@
 
          Not `#tip`/`#intro`/`#banner`/`#popup`: those sit on ad-blocker filter lists, and one
          match takes the module graph down with ERR_BLOCKED_BY_CLIENT (CLAUDE.md). */
-      #coach, #robber-talk, #radio, #cop-shout, #depot-call {
+      #coach, #robber-talk, #radio, #cop-shout {
         position: fixed; inset: 0; z-index: 22;
         pointer-events: none; user-select: none; -webkit-user-select: none;
       }
-      #coach[hidden], #robber-talk[hidden], #radio[hidden], #cop-shout[hidden],
-      #depot-call[hidden] { display: none; }
+      #coach[hidden], #robber-talk[hidden], #radio[hidden], #cop-shout[hidden] { display: none; }
       /* Never over a screenshot, and never over the retry screen: the run is the thing then. */
       body.shot-mode #coach, body.game-over #coach,
       body.shot-mode #robber-talk, body.game-over #robber-talk,
       body.shot-mode #radio, body.game-over #radio,
-      body.shot-mode #cop-shout, body.game-over #cop-shout,
-      body.shot-mode #depot-call, body.game-over #depot-call { display: none; }
+      body.shot-mode #cop-shout, body.game-over #cop-shout { display: none; }
 
       .speech { position: absolute; left: 0; top: 0; will-change: transform; }
       /* The entrance and exit. Grows out of the pointer (speech.js sets the origin on it), so the
@@ -1249,6 +1272,7 @@
         border-radius: 12px;
       }
       .nm-combo { display: flex; align-items: center; gap: 8px; }
+      .nm-combo[hidden] { display: none; }
       /* The "+" between keys: the title's ink, so it reads as part of the card's type. */
       .nm-plus { font: 700 18px/1 var(--game-font); color: #44497d; }
       .nm-key svg { display: block; overflow: visible; width: 44px; height: 44px; }
@@ -1785,6 +1809,11 @@
   <body>
     <div id="hud">
       <div class="money">$<span id="money">0</span></div>
+      <!-- Riders let go on the kerb, out of MAX_STRIKES (game/fares.js). Three marks, lit one at a
+           time by main.js as `missed` events land; the third never lights, because it ends the run. -->
+      <div id="strikes" role="img" aria-label="No riders lost">
+        <span class="strike"></span><span class="strike"></span><span class="strike"></span>
+      </div>
       <!-- What the ride aboard is on course for — Loco, Perfect, Stealth. Filled by `updateRunTags`
            in main.js; empty between rides. -->
       <div id="runs" class="runs"></div>
@@ -1996,7 +2025,6 @@
     <div id="new-move" role="status" aria-live="polite" hidden></div>
     <div id="cop-shout" role="status" aria-live="polite" hidden></div>
     <div id="radio" role="status" aria-live="polite" hidden></div>
-    <div id="depot-call" role="status" aria-live="polite" hidden></div>
     <div id="title-screen" hidden></div>
     <div id="home-tip" hidden></div>
     <div id="wipe" aria-hidden="true" hidden></div>

@@ -141,7 +141,7 @@ const MIN_DELIVERED = 2;
  * copies of that number would be a fleet that quietly stops arriving the day somebody changes one.
  *
  * Flat rather than on the difficulty ramp, and that is a decision. The event already tightens with
- * the run: a robber's clock is budgeted off `difficulty.slack`, so the same getaway is a harder
+ * the run: a robber's clock is budgeted off `difficulty.pace`, so the same getaway is a harder
  * drive on delivery forty than on delivery three. Hanging a second knob off the same ramp would
  * make the event's difficulty a product of two curves neither of which could then be read on its
  * own — the trap `difficulty.md` describes as a survival curve going flat against every knob
@@ -1275,6 +1275,15 @@ export function createRobbery({
     junction,
     range,
     raiseAlarm,
+    /**
+     * For the tools: start one now, past the cooldown and the delivered count — the seat still has
+     * to be empty. Returns whether one is running; how a browser test stages a getaway
+     * without driving past the bank.
+     */
+    force() {
+      if (!state.active && !fares.carrying() && !taxi.crashed) start();
+      return state.active;
+    },
     /** The scene at the drop-off — see game/arrest.js. */
     arrest,
     /**

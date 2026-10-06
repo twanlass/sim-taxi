@@ -91,13 +91,20 @@ function straightReach(network, lane, closed) {
  * @param camRight  the city camera's screen-right vector, in world space
  * @param visible   (x, z) => boolean — is this patch of road seen past the buildings
  * @param closed    (laneId) => boolean — roadworks
+ * @param run       {from, to} — the run's extent along the street from its centre; the U-turn's by
+ *                  default, and the overtake's clip asks for its own (game/overtakeclip.js)
+ * @param klasses   the road classes to film on: side streets, and the ring for the overtake
  * @returns {centre, forward, right, offset} or null when nothing qualifies
  */
-export function pickStreet({ network, cars, camRight, visible = () => true, closed = () => false }) {
+export function pickStreet({
+  network, cars, camRight, visible = () => true, closed = () => false,
+  run = { from: RUN_FROM, to: RUN_TO }, klasses = ['side'],
+}) {
   const banks = riverBanks();
+  const { from: RUN_FROM, to: RUN_TO } = run;
   let best = null;
   for (const lane of network?.lanes ?? []) {
-    if (lane.degenerate || lane.klass !== 'side' || !lane.path || lane.edge.oneway) continue;
+    if (lane.degenerate || !klasses.includes(lane.klass) || !lane.path || lane.edge.oneway) continue;
     const t0 = lane.path.tangentAt(0);
     const t1 = lane.path.tangentAt(lane.length);
     if (t0.x * t1.x + t0.z * t1.z < 0.9999) continue;          // straight only

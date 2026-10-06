@@ -7,6 +7,10 @@ import { unmarkEmissive } from './bloom.js';
 import { DISTANCE } from './camera.js';
 import { BODY_EULER_ORDER } from '../util/geo.js';
 import { makeRng } from '../util/rng.js';
+import { propMaterial } from '../util/geo.js';
+import { PALETTE } from '../palette.js';
+import { carGeometry, CAR_LEN, CAR_W, ROAD_Y } from '../sim/traffic.js';
+import { wheelAnchors, wheelGeometry } from '../geometry/wheels.js';
 
 // A move, acted out: the short clip on a New Move card (game/newmove.js), filmed **in the player's
 // own city**. A real stretch of road, picked when the card opens, at the game's own 3/4 view, with a
@@ -57,12 +61,32 @@ const SEAM = 0.25;
  * flame (0 out, 1 lit, 2 the drift kick's twin plume). `alongShift` is taken off every along, so a
  * reel can be centred on whatever point its placement names.
  */
-export function reelPlayer(reel, { alongShift = 0 } = {}) {
+export function reelPlayer(reel, { alongShift = 0, track = null } = {}) {
   const { frames, step } = reel;
+  const index = (t) => {
+    const u = Math.min(frames.length - 1, Math.max(0, t / step));
+    const i = Math.min(frames.length - 2, Math.floor(u));
+    return [i, u - i];
+  };
   return {
     reel,
     alongShift,
     loop: frames.length * step,
+    /**
+     * Where along the street the camera is at time t, from where it starts — 0 throughout unless the
+     * clip asks to `track` something. A move that covers more road than one frame can hold at a
+     * readable size (the overtake: ~80 units) follows it instead, and the city slides by under it.
+     */
+    track: (t) => (track ? track(t) - track(0) : 0),
+    /** The car being passed, at time t, when the reel has one: {along, lateral, yaw, brake}. */
+    lead(t) {
+      if (!reel.lead) return null;
+      const [i, k] = index(t);
+      const a = reel.lead[i];
+      const b = reel.lead[i + 1];
+      const at = (n) => a[n] + (b[n] - a[n]) * k;
+      return { along: at(0) - alongShift, lateral: at(1), yaw: at(2), brake: at(3) };
+    },
     at(t) {
       const u = Math.min(frames.length - 1, Math.max(0, t / step));
       const i = Math.min(frames.length - 2, Math.floor(u));
@@ -94,10 +118,10 @@ export function frameRun(cam, place, baseYaw, player) {
   const inv = cam.matrixWorldInverse;
   const v = new THREE.Vector3();
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-  for (let t = 0; t <= player.loop; t += 0.05) {
-    const p = player.at(t);
-    const { x: cx, z: cz } = onStreet(place, p.along, p.lateral);
-    const yaw = baseYaw + p.yaw;
+  // Measured relative to the camera's track, so a tracking clip is framed on what it holds at once
+  // rather than on everything it passes.
+  const sweep = (along, lateral, yaw) => {
+    const { x: cx, z: cz } = onStreet(place, along, lateral);
     const fx = Math.cos(yaw), fz = -Math.sin(yaw);
     for (const a of [-BODY_HALF_LEN, BODY_HALF_LEN]) {
       for (const b of [-BODY_HALF_W, BODY_HALF_W]) {
@@ -108,8 +132,134 @@ export function frameRun(cam, place, baseYaw, player) {
         }
       }
     }
+  };
+  for (let t = 0; t <= player.loop; t += 0.05) {
+    const p = player.at(t);
+    const track = player.track(t);
+    sweep(p.along - track, p.lateral, baseYaw + p.yaw);
+    const lead = player.lead(t);
+    if (lead) sweep(lead.along - track, lead.lateral, baseYaw + lead.yaw);
   }
   return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: x1 - x0, h: y1 - y0 };
+}
+
+/**
+ * The same measurement off a list of car poses ({x, z, yaw}) rather than a reel, plus any `extra`
+ * world points ({x, y, z}) the frame has to hold as well — game/repairclip.js's depot door.
+ */
+export function framePoses(cam, poses, extra = []) {
+  const inv = cam.matrixWorldInverse;
+  const v = new THREE.Vector3();
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  const take = () => {
+    v.applyMatrix4(inv);
+    x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x);
+    y0 = Math.min(y0, v.y); y1 = Math.max(y1, v.y);
+  };
+  for (const { x: cx, z: cz, yaw } of poses) {
+    const fx = Math.cos(yaw), fz = -Math.sin(yaw);
+    for (const a of [-BODY_HALF_LEN, BODY_HALF_LEN]) {
+      for (const b of [-BODY_HALF_W, BODY_HALF_W]) {
+        for (const y of [0, BODY_TOP]) {
+          v.set(cx + fx * a - fz * b, y, cz + fz * a + fx * b);
+          take();
+        }
+      }
+    }
+  }
+  for (const p of extra) { v.set(p.x, p.y, p.z); take(); }
+  return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: x1 - x0, h: y1 - y0 };
+}
+
+/**
+ * The darkroom every clip shares: the still laid over the game, a clip camera that is the city
+ * camera's own projection and view direction, and the copy of the middle of each frame into the
+ * card. The depot's clip (game/repairclip.js) uses it: it is not a reel and frames itself off a
+ * scripted drive rather than a recording, so it shares this part and not createMoveClip.
+ *
+ * `film(run, alpha)` draws one frame zoomed so `run` — frameRun's shape, in the clip camera's view
+ * space after `centre` — fits with FRAME_MARGIN to spare.
+ */
+export function createClipStage({ camera, renderFrame, canvas, freeze, cardCanvas }) {
+  // The still, first, while the scene is still exactly the city the player was looking at.
+  function snapshot() {
+    renderFrame(camera);
+    freeze.width = canvas.width;
+    freeze.height = canvas.height;
+    freeze.style.width = canvas.style.width || `${canvas.clientWidth}px`;
+    freeze.style.height = canvas.style.height || `${canvas.clientHeight}px`;
+    freeze.getContext('2d').drawImage(canvas, 0, 0);
+    freeze.hidden = false;
+  }
+  snapshot();
+
+  const clipCam = camera.clone();
+  // The framing below is all in world units; whatever push-in the city camera had is not part of it.
+  clipCam.zoom = 1;
+  clipCam.clearViewOffset();
+  const toCamera = camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(-DISTANCE);
+
+  let shotW = canvas.width;
+  let shotH = canvas.height;
+
+  return {
+    clipCam,
+    snapshot,
+    /** Point the clip camera at a spot on the ground, from the city camera's standoff. */
+    aim(x, z) {
+      const target = new THREE.Vector3(x, 0, z);
+      clipCam.position.copy(target).add(toCamera);
+      clipCam.lookAt(target);
+      clipCam.updateMatrixWorld(true);
+    },
+    /** Slide the camera across its own image plane onto the middle of `run`: same depth, same haze. */
+    centre(run) {
+      clipCam.position
+        .add(new THREE.Vector3().setFromMatrixColumn(clipCam.matrixWorld, 0).multiplyScalar(run.cx))
+        .add(new THREE.Vector3().setFromMatrixColumn(clipCam.matrixWorld, 1).multiplyScalar(run.cy));
+      clipCam.updateMatrixWorld(true);
+    },
+    /** The window was resized under the card: the still is the wrong size. `hide(bool)` takes the
+     * clip's own props out of shot while it is taken again. */
+    resized(hide) {
+      if (canvas.width === shotW && canvas.height === shotH) return;
+      hide(true);
+      snapshot();
+      hide(false);
+      shotW = canvas.width;
+      shotH = canvas.height;
+    },
+    film(run, alpha) {
+      // The card's canvas, in device pixels of the game's own canvas, so the copy is 1:1.
+      const cssW = cardCanvas.clientWidth;
+      const cssH = cardCanvas.clientHeight;
+      const viewW = canvas.clientWidth || 1;
+      const viewH = canvas.clientHeight || 1;
+      if (!cssW || !cssH) return;
+      const scale = canvas.width / viewW;
+      const sw = Math.round(cssW * scale);
+      const sh = Math.round(cssH * scale);
+      if (cardCanvas.width !== sw || cardCanvas.height !== sh) { cardCanvas.width = sw; cardCanvas.height = sh; }
+      // Zoomed so the middle cssW × cssH of the full frame holds the whole run.
+      const ppu = Math.min(cssW / (run.w * FRAME_MARGIN), cssH / (run.h * FRAME_MARGIN));
+      clipCam.left = -viewW / 2 / ppu;
+      clipCam.right = viewW / 2 / ppu;
+      clipCam.top = viewH / 2 / ppu;
+      clipCam.bottom = -viewH / 2 / ppu;
+      clipCam.updateProjectionMatrix();
+      renderFrame(clipCam);
+      const sx = Math.round((canvas.width - sw) / 2);
+      const sy = Math.round((canvas.height - sh) / 2);
+      const ctx = cardCanvas.getContext('2d');
+      ctx.clearRect(0, 0, sw, sh);
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+      ctx.globalAlpha = 1;
+    },
+    /** Fade a loop in and out at its seam. */
+    seam: (t, loop) => Math.min(1, t / SEAM, (loop - t) / SEAM),
+    dispose() { freeze.hidden = true; },
+  };
 }
 
 /**
@@ -150,6 +300,24 @@ export function createMoveClip({ scene, camera, renderFrame, canvas, freeze, car
   const skids = createSkidMarks(scene);
   const car = { x: 0, z: 0, yaw: 0, crashed: false };
   const baseYaw = Math.atan2(-place.forward.z, place.forward.x);
+  // The car being passed, when the reel has one: an ambient car built the way the fleet's wreck
+  // shells are — its body (rear wheels baked in) and the front pair, in one paint.
+  const leadCar = reel.lead ? (() => {
+    const group = new THREE.Group();
+    const material = propMaterial();
+    material.color.set(PALETTE.carBody[1]);
+    const body = new THREE.Mesh(carGeometry(), material);
+    group.add(body);
+    const wheel = wheelGeometry();
+    for (const anchor of wheelAnchors(CAR_LEN, CAR_W).filter((a) => a.front)) {
+      const mesh = new THREE.Mesh(wheel, material);
+      mesh.position.set(anchor.x, anchor.y, anchor.z);
+      group.add(mesh);
+    }
+    group.traverse((node) => { node.castShadow = true; node.receiveShadow = true; });
+    scene.add(group);
+    return group;
+  })() : null;
 
   // The clip camera: the city camera's own projection and view direction, centred on the road.
   const clipCam = camera.clone();
@@ -167,6 +335,7 @@ export function createMoveClip({ scene, camera, renderFrame, canvas, freeze, car
     .add(new THREE.Vector3().setFromMatrixColumn(clipCam.matrixWorld, 0).multiplyScalar(run.cx))
     .add(new THREE.Vector3().setFromMatrixColumn(clipCam.matrixWorld, 1).multiplyScalar(run.cy));
   clipCam.updateMatrixWorld(true);
+  const camBase = clipCam.position.clone();
 
   let t = 0;
   let stamped = -1;      // the last reel frame whose rubber and bursts are down
@@ -191,6 +360,11 @@ export function createMoveClip({ scene, camera, renderFrame, canvas, freeze, car
     clipCam.top = viewH / 2 / ppu;
     clipCam.bottom = -viewH / 2 / ppu;
     clipCam.updateProjectionMatrix();
+    const track = player.track(t);
+    clipCam.position.set(
+      camBase.x + place.forward.x * track, camBase.y, camBase.z + place.forward.z * track,
+    );
+    clipCam.updateMatrixWorld(true);
     renderFrame(clipCam);
     const ctx = cardCanvas.getContext('2d');
     ctx.clearRect(0, 0, sw, sh);
@@ -211,6 +385,12 @@ export function createMoveClip({ scene, camera, renderFrame, canvas, freeze, car
     taxi.group.rotation.set(p.roll, car.yaw, p.pitch, BODY_EULER_ORDER);
     taxi.setSteer(p.wheel);
     taxi.setLights(p.brake, 0, 0);
+    const lead = player.lead(t);
+    if (lead) {
+      const at2 = onStreet(place, lead.along, lead.lateral);
+      leadCar.position.set(at2.x, ROAD_Y, at2.z);
+      leadCar.rotation.set(0, baseYaw + lead.yaw, 0);
+    }
     return p;
   }
 
@@ -252,11 +432,13 @@ export function createMoveClip({ scene, camera, renderFrame, canvas, freeze, car
       // the stand-in out of shot.
       if (canvas.width !== shotW || canvas.height !== shotH) {
         taxi.group.visible = false;
+        if (leadCar) leadCar.visible = false;
         flame.group.visible = false;
         skids.mesh.visible = false;
         if (flames) flames.mesh.visible = false;
         snapshot();
         taxi.group.visible = true;
+        if (leadCar) leadCar.visible = true;
         skids.mesh.visible = true;
         if (flames) flames.mesh.visible = true;
         shotW = canvas.width;
@@ -274,7 +456,7 @@ export function createMoveClip({ scene, camera, renderFrame, canvas, freeze, car
     },
     /** Take the stand-in out of the city and the still down. */
     dispose() {
-      for (const obj of [taxi.group, flame.group, skids.mesh, flames?.mesh].filter(Boolean)) {
+      for (const obj of [taxi.group, leadCar, flame.group, skids.mesh, flames?.mesh].filter(Boolean)) {
         scene.remove(obj);
         unmarkEmissive(obj);
         obj.traverse((node) => {

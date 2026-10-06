@@ -72,7 +72,35 @@ import { isNative } from './platform.js';
  *                  notification pattern rather than a single knock. See `HapticsBridge.swift`.
  */
 const EVENTS = new Set(['pick', 'grab', 'snap', 'brake', 'loco', 'parcel-in', 'parcel-out',
-  'burger']);
+  'burger', ...['drift', 'drift-kick', 'uturn', 'overtake', 'perfect', 'perfect-lost']]);
+
+/**
+ * **The combo moments** are a third kind: neither a control answering nor plain news, but a *move*
+ * with a shape in time, and the native side plays each one as a Core Haptics pattern rather than a
+ * single knock (`ComboHaptics.swift` has the envelopes and the reasoning).
+ *
+ * - `drift`        — Loco + a brake tap kicks the tail out: a bite, then a scrub that dies away.
+ * - `drift-kick`   — the drift's exit kick: a thump and a surge that rises in pitch.
+ * - `uturn`        — the bootleg spin: chirps that go round, then a sharp catch.
+ * - `overtake`     — the taxi pulling out round a car: a light whoosh, no knock.
+ * - `perfect`      — PERFECT RUN ×2 paying out: three rising clicks and a shimmer.
+ * - `perfect-lost` — a bump that costs a Perfect Run the HUD was showing: two falling thuds.
+ *
+ * Each maps to what it fired before these existed (`null` for nothing), which is what the Settings
+ * switch "Combo haptics" turns them back into — a prototype being judged against what it replaces
+ * wants the old feel one tap away, on the same phone, mid-run.
+ */
+const CLASSIC = {
+  drift: 'loco', 'drift-kick': 'loco', uturn: 'loco', overtake: null, perfect: null,
+  'perfect-lost': null,
+};
+
+/** The player's two switches, pushed in from game/settings.js by main.js. */
+const prefs = { haptics: true, comboHaptics: true };
+export function setHapticPrefs({ haptics, comboHaptics }) {
+  if (typeof haptics === 'boolean') prefs.haptics = haptics;
+  if (typeof comboHaptics === 'boolean') prefs.comboHaptics = comboHaptics;
+}
 
 /**
  * Fire one haptic. Silent everywhere it cannot work, which is most places.
@@ -84,7 +112,9 @@ const EVENTS = new Set(['pick', 'grab', 'snap', 'brake', 'loco', 'parcel-in', 'p
  */
 export function tap(event) {
   if (!EVENTS.has(event)) throw new Error(`unknown haptic event: ${event}`);
-  if (!isNative()) return;
+  if (!prefs.haptics) return;
+  if (event in CLASSIC && !prefs.comboHaptics) event = CLASSIC[event];
+  if (!event || !isNative()) return;
   try {
     window.webkit?.messageHandlers?.haptics?.postMessage(event);
   } catch { /* no handler installed — the game does not care */ }

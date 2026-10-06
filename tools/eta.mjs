@@ -3,7 +3,7 @@
  *
  * A fare's deadline is now budgeted from `estimateSeconds()`, so that function's error is a
  * difficulty knob whether or not anyone tuned it. If it is biased low, every clock is tight and
- * the game reads as unfair; if it is noisy, `slack(d)` spends itself absorbing the noise and the
+ * the game reads as unfair; if it is noisy, `pace(d)` spends itself absorbing the noise and the
  * ramp never bites. Neither failure looks like anything from the outside — the game is just
  * harder or easier than the curve says — which is exactly the sort of thing that has to be
  * measured rather than eyeballed.

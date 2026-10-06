@@ -17,12 +17,15 @@
  * offsets reads as a difficulty change with no way to tell whether it generalises, and it usually
  * doesn't. Every variant plays the *same* cities and situations so the comparison is paired.
  *
+ * Every variant is played twice: by a player who drives at cruise, and by one who holds Loco Mode
+ * whenever there is fuel (`loco`). The gap between the two is the point of the pace dial — below
+ * 1.0 the cruise player should be losing riders the loco player makes.
+ *
  * Presets:
- *   slack     the main lever — how much more than the estimated work a clock is worth
+ *   pace      how hard you have to drive: a clock over its own trip at cruise
+ *   pressure  how many riders are offered per rider one taxi can serve
  *   ramp      how many deliveries the curve takes to run its length
- *   board     when the 2nd/3rd/4th rider are allowed onto the board
- *   gap       the stagger between spawns
- *   shipped   just the current tuning, at three reaction times
+ *   shipped   just the current tuning
  */
 import { play, pct, mean } from './autoplay.mjs';
 import { setTuning, getTuning } from '../src/game/difficulty.js';
@@ -34,7 +37,8 @@ const FIRST_SEED = 71624;
 const CITY_SEED = 71624;
 const SEED_STRIDE = 613;
 const CITY_STRIDE = 7919;
-const REACTIONS = [1.5, 3, 4];
+const REACTION = 2;
+const STYLES = [{ name: 'cruise', loco: false }, { name: 'loco', loco: true }];
 
 const BASE = getTuning();
 
@@ -42,48 +46,34 @@ const BASE = getTuning();
 const PRESETS = {
   shipped: [{ label: 'shipped' }],
 
-  slack: [
-    { label: 'slack 2.0→1.15', slackStart: 2.0, slackEnd: 1.15 },
-    { label: 'slack 1.7→1.10', slackStart: 1.7, slackEnd: 1.10 },
-    { label: 'slack 1.7→1.05 (shipped)' },
-    { label: 'slack 1.6→1.05', slackStart: 1.6, slackEnd: 1.05 },
+  pace: [
+    { label: 'pace 1.5→1.0', paceEnd: 1.0 },
+    { label: 'pace 1.5→0.9', paceEnd: 0.9 },
+    { label: 'pace 1.5→0.85 (shipped)' },
+    { label: 'pace 1.5→0.8', paceEnd: 0.8 },
   ],
 
-  // How fast the ramp arrives, rather than where it ends up. Swept because a player who finds the
-  // shipped curve loose is asking for the hard part sooner as much as for it to be harder — but
-  // the answer was no: at 8 fares both rows below drop p10 to 2 at a 4s reaction, which is the
-  // ramp landing on a player still learning the board. Tighten `slack`, not `rampFares`.
+  pressure: [
+    { label: 'pressure 0.5→1.0', pressureEnd: 1.0 },
+    { label: 'pressure 0.5→1.4 (shipped)' },
+    { label: 'pressure 0.5→1.8', pressureEnd: 1.8 },
+  ],
+
+  // The opening: what decides whether a player who never touches Loco Mode survives long enough to
+  // learn they should.
+  opening: [
+    { label: 'pace 1.3, pressure 0.7', paceStart: 1.3, pressureStart: 0.7 },
+    { label: 'pace 1.5, pressure 0.7', pressureStart: 0.7 },
+    { label: 'pace 1.3, pressure 0.5', paceStart: 1.3 },
+    { label: 'pace 1.5, pressure 0.5 (shipped)' },
+  ],
+
+  // How fast the ramp arrives, rather than where it ends up. The old answer, under slack, was not
+  // to shorten it: at 8 fares the curve landed on a player still learning the board.
   ramp: [
     { label: 'ramp 12 (shipped)' },
-    { label: 'ramp 8, slack 1.8→1.05', rampFares: 8, slackStart: 1.8, slackEnd: 1.05 },
-    { label: 'ramp 8, slack 1.7→1.08', rampFares: 8, slackStart: 1.7, slackEnd: 1.08 },
-  ],
-
-  board: [
-    { label: 'board 1/2/10 (shipped)' },
-    { label: 'board 1/4/12', boardSteps: [1, 4, 12] },
-    { label: 'board 2/6/14', boardSteps: [2, 6, 14] },
-    { label: 'board 2/8/18', boardSteps: [2, 8, 18] },
-    { label: 'board 3/10/22', boardSteps: [3, 10, 22] },
-  ],
-
-  gap: [
-    { label: 'gap 15→7 (shipped)' },
-    { label: 'gap 22→10', spawnGapStart: 22, spawnGapEnd: 10 },
-    { label: 'gap 30→14', spawnGapStart: 30, spawnGapEnd: 14 },
-    { label: 'gap 40→18', spawnGapStart: 40, spawnGapEnd: 18 },
-  ],
-
-  // The one that matters once the queue is budgeted: a shallow board keeps clocks short and
-  // readable, a deep one pushes them past three minutes and the game goes slack. Gap and slack
-  // move together here because the gap sets how much work is queued and the slack sets how much
-  // margin that work is given.
-  shape: [
-    { label: 'shipped' },
-    { label: 'gap 30→14, slack 2.0→1.15', spawnGapStart: 30, spawnGapEnd: 14, slackStart: 2.0, slackEnd: 1.15 },
-    { label: 'gap 30→18, slack 1.9→1.15', spawnGapStart: 30, spawnGapEnd: 18, slackStart: 1.9, slackEnd: 1.15 },
-    { label: 'gap 26→16, slack 1.9→1.10', spawnGapStart: 26, spawnGapEnd: 16, slackStart: 1.9, slackEnd: 1.10 },
-    { label: 'gap 26→16, slack 1.8→1.05', spawnGapStart: 26, spawnGapEnd: 16, slackStart: 1.8, slackEnd: 1.05 },
+    { label: 'ramp 8', rampFares: 8 },
+    { label: 'ramp 16', rampFares: 16 },
   ],
 };
 
@@ -93,45 +83,72 @@ if (!variants) {
   process.exit(1);
 }
 
-/** One variant at one reaction time, over the shared seed set. */
-function evaluate(patch, reaction) {
+/** One variant for one style of driving, over the shared seed set. */
+function evaluate(patch, loco) {
   setTuning({ ...BASE, ...patch });
   const runs = Array.from({ length: RUNS }, (_, k) => play(
     FIRST_SEED + k * SEED_STRIDE, CITY_SEED + k * CITY_STRIDE,
-    { fares: FARES, reaction },
+    { fares: FARES, reaction: REACTION, loco },
   ));
 
   const delivered = runs.map((r) => r.delivered).sort((a, b) => a - b);
   const rows = runs.flatMap((r) => r.budgets);
   const late = rows.filter((b) => b.index >= 8);
+  const paces = rows.map((b) => b.pace).filter((p) => p !== null);
   return {
     p10: pct(delivered, 0.1),
     median: delivered[delivered.length >> 1],
     p90: pct(delivered, 0.9),
     mean: mean(delivered),
-    // How much of its clock the average late fare ate. If this stays low while runs get longer,
-    // the ramp is not the thing ending them — the board is.
+    // How much of its clock the average late fare ate. Over 100% is not possible for a delivered
+    // fare — this is the margin the survivors had.
     lateSpend: late.length ? mean(late.map((b) => b.spent)) : null,
+    // The pace this player actually drove at: seconds from spawn to drop-off over the estimate.
+    // Read at the `loco` rows, it is the floor `paceEnd` must stay above (LOCO_PACE_SELF).
+    pace: paces.length ? mean(paces) : null,
+    // Seconds per delivery — what `FARE_CYCLE` in difficulty.js is measured off.
+    cycle: mean(runs.filter((r) => r.delivered).map((r) => r.elapsed / r.delivered)),
+    strikes: mean(runs.map((r) => r.strikes)),
+    // Share of kerbside picks made with more than one rider waiting — how often the board actually
+    // offered a choice.
+    choice: (() => {
+      const all = runs.flatMap((r) => r.choices);
+      return all.length ? all.filter((n) => n > 1).length / all.length : 0;
+    })(),
+    // Runs that ended on a wreck rather than a clock — only the loco player can have one.
+    wrecks: runs.filter((r) => r.wrecked).length,
+    // How the runs that ended, ended: kerb = the third strike, aboard = a rider's clock running out
+    // in the back seat.
+    endings: runs.reduce((acc, r) => {
+      if (r.wrecked) acc.wreck += 1;
+      else if (r.failReason?.startsWith('Three')) acc.kerb += 1;
+      else if (r.failReason) acc.aboard += 1;
+      return acc;
+    }, { wreck: 0, kerb: 0, aboard: 0 }),
     endless: runs.filter((r) => r.delivered >= FARES).length,
-    broken: runs.reduce((a, r) => a + r.routeFailures + r.violations, 0),
+    broken: runs.reduce((a, r) => a + r.routeFailures, 0),
   };
 }
 
-console.log(`preset "${PRESET}" · ${RUNS} cities × ${REACTIONS.length} reaction times`);
+console.log(`preset "${PRESET}" · ${RUNS} cities · ${REACTION}s reaction`);
 console.log('');
 const pad = Math.max(...variants.map((v) => v.label.length));
-console.log(`${'tuning'.padEnd(pad)}  react  p10  med  p90   mean  late-spend  ran-out`);
+console.log(`${'tuning'.padEnd(pad)}  style    p10  med  p90   mean  late-spend  pace  cycle  strikes  choice  wrecks  ran-out`);
 
-const results = [];
 for (const { label, ...patch } of variants) {
-  for (const reaction of REACTIONS) {
-    const r = evaluate(patch, reaction);
-    results.push({ label, reaction, ...r });
-    console.log(`${label.padEnd(pad)}  ${reaction.toFixed(1)}s  `
+  for (const { name, loco } of STYLES) {
+    const r = evaluate(patch, loco);
+    console.log(`${label.padEnd(pad)}  ${name.padEnd(6)}  `
       + `${String(r.p10).padStart(3)}  ${String(r.median).padStart(3)}  ${String(r.p90).padStart(3)}  `
       + `${r.mean.toFixed(1).padStart(5)}  `
       + `${(r.lateSpend === null ? '—' : `${(100 * r.lateSpend).toFixed(0)}%`).padStart(10)}  `
+      + `${(r.pace === null ? '—' : r.pace.toFixed(2)).padStart(4)}  `
+      + `${r.cycle.toFixed(0).padStart(4)}s  `
+      + `${r.strikes.toFixed(1).padStart(7)}  `
+      + `${`${(100 * r.choice).toFixed(0)}%`.padStart(6)}  `
+      + `${String(r.wrecks).padStart(6)}  `
       + `${String(r.endless).padStart(7)}`
+      + `   (ended: ${r.endings.kerb} strikes, ${r.endings.aboard} aboard, ${r.endings.wreck} wrecks)`
       + `${r.broken ? `   BROKEN ${r.broken}` : ''}`);
   }
   console.log('');
@@ -142,5 +159,5 @@ setTuning(BASE);
 
 // The shape being aimed at. Quoted here rather than in a doc because this is the file that can
 // actually check it, and a target nothing measures is a wish.
-console.log('target: p10 >= 3 at every reaction (nobody dies during the tutorial),');
-console.log('        median ~12-15 at 1.5s and ~6-8 at 4s, and ran-out 0 (the run still ends).');
+console.log('target: p10 >= 3 for both styles (nobody dies during the tutorial), loco clearly');
+console.log('        ahead of cruise once pace drops under 1.0, and ran-out 0 (the run still ends).');

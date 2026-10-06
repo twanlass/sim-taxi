@@ -1188,7 +1188,20 @@ const closingFloor = (car, leader) => Math.max(0, (leader.v ?? 0) * Math.cos(lea
  */
 const boostGap = (car, leader) => (car.passOffset > 0
   ? Math.min(BOOST_GAP + truckExtra(leader), envelopeGap(car.passOffset, leader))
-  : BOOST_GAP + truckExtra(leader));
+  : BOOST_GAP + truckExtra(leader) + (car.passArmed !== undefined && !car.passing ? COMBO_TAILGATE : 0));
+/**
+ * Extra daylight behind a car the taxi is not passing, wherever the overtake combo
+ * (game/overtake.js) decides passes — held until the pull-out actually starts, not just until the
+ * combo arms, because an arm thrown mid-junction waits for the next lane (passes are only decided
+ * on one) and closing to BOOST_GAP in the meantime bumped the car it was about to go round.
+ * BOOST_GAP's 0.29 was sized for a tailgate that lasted a
+ * fraction of a second before the taxi pulled out; held behind a car indefinitely at 17-23 u/s it is
+ * too thin to survive the leader's own small hiccups, and one is built in: a car landing off a
+ * junction drops the frame's overshoot (`car.s = 0` below), a 0.24-unit step backwards at 17 u/s,
+ * which bumped the taxi on the probe's staging every time. 1.5 is still visibly on its bumper —
+ * and well inside PASS_TRIGGER, so the pass starts the frame the combo arms.
+ */
+const COMBO_TAILGATE = 1.5;
 /**
  * How far clear of the car it just passed the taxi must be before it may cut back in.
  *
@@ -1590,7 +1603,12 @@ export function spinTaxi(car) {
 // rubber (layRubber in main.js), at the boost cruise, rights included, deaf to the pedal. Plain
 // Loco corners keep the lean alone, so the slide is the combo's own look. Get back on the pill before the
 // arc is over (`kickDrift`) and it comes out of the corner with a kick, DRIFT_EXIT of the cruise
-// held for DRIFT_CARRY. Skip the second half and it is just the slide. `car.drifts` counts kicks.
+// held for its `carry`. Skip the second half and it is just the slide. `car.drifts` counts kicks.
+//
+// Kicks chain (DRIFT_CHAIN): start the next drift within `window` seconds of the last kick running
+// out and land it, and it comes out a tier harder — faster and held longer — up to three. A tap
+// that only slides, any damage, or the window lapsing puts the next kick back at tier 1.
+// `car.driftTier` is the tier of the last kick, 0 once the chain has broken.
 //
 // It is a prototype and every number below is a first guess, not a measurement.
 
@@ -1600,11 +1618,25 @@ export const DRIFT_MIN_V = 13;
 const DRIFT_LEAD = 0.6;
 /** How far round the arc a late tap still counts, as a fraction of it. */
 const DRIFT_LATE = 0.35;
-/** Seconds the exit kick is held after the exit, before the boost takes over again. */
-const DRIFT_CARRY = 0.6;
-/** The exit kick, as a fraction of the boost cruise: 30.9 u/s, put on in one frame. 1.2 (26.5)
- * read as too timid in play — barely past the cruise it was already doing. */
-export const DRIFT_EXIT = 1.4;
+/**
+ * The chain, one entry per tier. `exit` is the kick as a fraction of the boost cruise, put on in
+ * one frame (tier 1's 1.4 is 30.9 u/s; 1.2, 26.5, read as too timid in play — barely past the
+ * cruise it was already doing), and `carry` the seconds it is held after the exit before the boost
+ * takes over again. `fuel` (fraction of a tank) and `flame` (plume size) are read by main.js.
+ *
+ * `fuel` shrinks as the chain grows on purpose: tier 1 alone already pays back about what a corner
+ * of Loco costs, so a harder kick on a full refund is a boost that never runs out.
+ */
+export const DRIFT_CHAIN = {
+  window: 2.5,
+  exit:  [1.4, 1.55, 1.7],
+  carry: [0.6, 0.75, 0.9],
+  fuel:  [1 / 6, 1 / 9, 1 / 12],
+  flame: [1, 1.3, 1.6],
+};
+const DRIFT_TIERS = DRIFT_CHAIN.exit.length;
+/** Tier 1's kick: the one an unchained drift gets. */
+export const DRIFT_EXIT = DRIFT_CHAIN.exit[0];
 /** A drift that has not landed in this long has gone wrong somewhere; let it go. */
 const DRIFT_MAX = 2.5;
 /** How far the nose swings past the heading at the height of the slide, in radians (~31°). */
@@ -1642,7 +1674,7 @@ export function driftTaxi(car) {
     else if (car.intentLane === car.lane.id && car.intentTurn) turn = net.turnById.get(car.intentTurn);
   }
   if (!turn || turn.hand === 'straight') return 'straight';
-  car.drift = { phase, lane: car.lane.id, v: boostCruise(), t: 0, carry: DRIFT_CARRY, kicked: false };
+  car.drift = { phase, lane: car.lane.id, v: boostCruise(), t: 0, carry: 0, kicked: false };
   // `car.lane` is still the approach lane mid-turn: it only becomes the exit lane on landing.
   car.driftSign = turnYawSign(car.d, net.dirOfLane(net.laneById.get(turn.outLane)));
   return null;
@@ -1655,12 +1687,22 @@ export function kickDrift(car) {
   return true;
 }
 
-/** Advance a drift's phase, or drop it. Called once a frame for the taxi, before its physics. */
+/** Advance a drift's phase, or drop it, and run down the chain's window between drifts. Called
+ * once a frame for the taxi, before its physics. */
 function stepDrift(car, dt) {
   const d = car.drift;
-  if (!d) return;
+  if (!d) {
+    // The window is to *start* the next one: it stops running the moment a tap does.
+    if (car.driftTier > 0 && (car.driftLapse -= dt) <= 0) car.driftTier = 0;
+    return;
+  }
   d.t += dt;
-  const drop = () => { car.drift = null; };
+  // Dropped on the way out, the chain's window opens; dropped any earlier, it was not a kick.
+  const drop = () => {
+    if (d.phase === 'carry') car.driftLapse = DRIFT_CHAIN.window;
+    else car.driftTier = 0;
+    car.drift = null;
+  };
   if (car.crashed || car.staged || car.uturn || d.t > DRIFT_MAX) return drop();
   if (d.phase === 'approach') {
     if (car.state === 'turn') {
@@ -1674,14 +1716,25 @@ function stepDrift(car, dt) {
     // Landed. Without the second half it was only a slide, and the boost (or the coast-down) has
     // the car back. With it, the kick goes on in one frame — a surge, like BOOST_KICK — and holds.
     if (!d.kicked) return drop();
+    // A tier up on the last kick if nothing has hurt the car since it — `hp` is only ever armed on
+    // the taxi, and a repair raising it is fine.
+    const hp = car.hp ?? 0;
+    const chained = car.driftTier > 0 && hp >= car.driftHp;
+    car.driftTier = chained ? Math.min(car.driftTier + 1, DRIFT_TIERS) : 1;
+    car.driftHp = hp;
     d.phase = 'carry';
-    d.v = boostCruise() * DRIFT_EXIT;
+    d.carry = DRIFT_CHAIN.carry[car.driftTier - 1];
+    d.v = boostCruise() * DRIFT_CHAIN.exit[car.driftTier - 1];
     car.v = Math.max(car.v, d.v);
     car.drifts += 1;
   } else {
-    // A fresh press of the brake on the way out is a brake again.
+    // A fresh press of the brake on the way out is a brake again. Straight on through the next
+    // junction keeps it: the exit lane is ~12 units, which a 31 u/s kick crosses in 0.4s, so
+    // dropping it there cut every carry to about that whatever it was set to, and a chain's longer
+    // carry measured as no longer at all. A real turn still ends it.
     d.carry -= dt;
-    if (d.carry <= 0 || car.braking || car.state !== 'drive') return drop();
+    const turning = car.state === 'turn' && car.turn.hand !== 'straight';
+    if (d.carry <= 0 || car.braking || turning || (car.state !== 'drive' && car.state !== 'turn')) return drop();
   }
 }
 
@@ -2499,6 +2552,13 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       driftAmtV: 0,
       driftSign: 0,
       drifts: 0,
+      // The chain (DRIFT_CHAIN): the last kick's tier, the seconds left to start the next drift,
+      // and the HP the car had at the last kick, so damage since breaks it.
+      driftTier: 0,
+      driftLapse: 0,
+      driftHp: 0,
+      // A tally of the taxi's pull-outs round a car, read by main.js for the overtake's haptic.
+      overtakes: 0,
       // 0..1 brightness for the brake and turn-signal light pods. brakeLevel is eased (see
       // BRAKE_LIGHT_RISE/FALL) — off frame one along with prevV/v agreeing there is no accel yet.
       // The turn-signal levels are not eased; they jump straight to their blink target.
@@ -2536,6 +2596,9 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       pass: 0,
       passing: false,
       passTarget: null,   // the car currently being overtaken, latched for the whole manoeuvre
+      // May a pass start? Set by the overtake combo (game/overtake.js); undefined means yes.
+      passArmed: undefined,
+      passGap: Infinity,  // the leader's gap as the pass block last saw it, for the combo
       // What `pass` is turned into: the smoothstepped offset the body is drawn at, the slope of
       // that offset (which *is* the tangent of the steering angle, since it is per unit of road),
       // and the roll that comes off its curvature. Derived every frame from `pass`; kept on the car
@@ -2749,6 +2812,7 @@ export function stageCar(car, x, z, yaw) {
   car.cornerRoll = 0;
   car.cornerRollV = 0;
   car.drift = null;
+  car.driftTier = 0;
   car.driftAmt = 0;
   car.driftAmtV = 0;
   car.wheelAngle = 0;
@@ -4452,6 +4516,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       if (car.turnT >= 0.95 || car.braking || car.roadblock > 0) heldAt.add(`${car.i},${car.j}`);
     }
 
+    const straightThrough = (car) => car.turn?.hand === 'straight';
     for (const car of cars) {
       // A crashed car is not in traffic at all. A *boosting* taxi used to be skipped here too, on
       // the grounds that it had left its lane; now that it only weaves within it, it belongs in
@@ -4495,13 +4560,28 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // left turn's arc is 15). Keeping it and moving only where it *starts* is deliberate: the
         // defect is the discontinuity at `turnT === 0`, and this makes the handover exact — a car
         // at the line reads at `lane.length - STOP_SETBACK` in both states.
-        laneS = car.lane.length - car.leadIn + car.turnT * (car.leadIn + 5);
+        //
+        // **Except straight on**, where the fiction is not free. A straight crossing is the one turn
+        // `ahead()` walks through, charging it the box's real `turn.length`, so a car reading 5
+        // units across it here and 8 from the far side jumped 4.36 units at the 0.6 handover — in
+        // whichever direction flatters nobody: the follower saw 4.36 units of road appear, then
+        // vanish. Ambient traffic never spends it. A boosting taxi tailgating a car across a
+        // junction at 23 u/s against 17 does: it closed on a gap that was not there and rear-ended
+        // the car on the far side, every time on the probe's staging. It only became reachable once
+        // the overtake wanted a combo (game/overtake.js) and holding Loco behind a car went back
+        // to tailgating it. So straight on reads the real distance travelled, on both lists, and
+        // the two meet exactly: `turnLen - leadIn` *is* that crossing's `turn.length`.
+        laneS = straightThrough(car)
+          ? car.lane.length - car.leadIn + Math.min(car.turnT, 1) * car.turnLen
+          : car.lane.length - car.leadIn + car.turnT * (car.leadIn + 5);
       } else {
         // Second half: hand the car over to the lane it is about to land in, still short of that
         // lane's start. Without this it is invisible to that lane's traffic for the rest of the
         // turn, and then materialises on top of whatever drove into the gap.
         lane = net.laneById.get(car.turn.outLane);
-        laneS = -(1 - car.turnT) * 5;
+        laneS = straightThrough(car)
+          ? (Math.min(car.turnT, 1) - 1) * car.turnLen
+          : -(1 - car.turnT) * 5;
       }
 
       if (!lanes.has(lane.id)) lanes.set(lane.id, []);
@@ -4857,6 +4937,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
     if (taxiActive) {
       const gap = leaderDist.get(taxi);
+      // Published for the overtake combo, which arms only behind a car.
+      taxi.passGap = gap ?? Infinity;
       const locoHeld = taxi.boost && !taxi.boostEasing;
       // Sized against the road under the taxi, not against a constant — see `PASS_LATERAL`. The
       // fade scales with the swing so the peak crab angle is the same 31° on a 6.67-unit lane
@@ -4938,18 +5020,29 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
       // Whether there is a way round the car in front right now — the same conditions the pull-out
       // below asks, minus `near`. Read by `rams()`: where this is false, a taxi with hit points
-      // stops following the leader and drives into it. Only the road itself can say no now.
-      taxi.canPass = locoHeld && gap !== undefined && room;
+      // stops following the leader and drives into it. Only the road itself can say no now —
+      // and, where main.js runs the overtake combo (game/overtake.js), the player: a taxi held
+      // behind a car without throwing it rams the car, so the choice is the combo or the brake
+      // (Tyler, 2026-10-06; it tailgated first and that let you sit there for free). A truck is
+      // still tailgated rather than rammed (`rams`), for the reason given there.
+      taxi.canPass = locoHeld && gap !== undefined && room
+        && (taxi.passArmed !== false || taxi.passing);
 
       if (taxi.state === 'drive') {
         const was = taxi.passing;
+        // Pulling out wants the overtake combo (game/overtake.js) where main.js runs one — a blip
+        // off the pill and back on behind the car. `passArmed` undefined is the old rule, holding
+        // is enough, which the passing lab and the probe still drive. Staying out does not ask.
         taxi.passing = locoHeld
           && ((taxi.passing && alongside())
-            || (room && near));
+            || (room && near && taxi.passArmed !== false));
         // Latched on the frame the taxi pulls out and held for the whole manoeuvre, rather than
         // re-read per frame: half way through a pass the taxi is *ahead* of this car in lane
         // coordinates, so `leaderOf` has already moved on to whatever is in front of them both.
-        if (taxi.passing && !was) taxi.passTarget = leader ?? null;
+        if (taxi.passing && !was) {
+          taxi.passTarget = leader ?? null;
+          taxi.overtakes += 1;
+        }
         if (!taxi.passing) taxi.passTarget = null;
       }
 
@@ -5337,7 +5430,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // comes from — the pitch spring downstream reads the resulting deceleration off car.v
       // directly, and from the overdrive top it is a longer, deeper one.
       const fullPower = car.boost && !car.boostEasing;
-      if (car.drift) stepDrift(car, dt);
+      if (car.drift || car.driftTier) stepDrift(car, dt);
 
       if (car.state === 'drive' && car.uturn?.kind === 'spin') {
         // --- Mid-spin (`spinTaxi`): on a clock rather than an arc speed, and deaf to the brake.
