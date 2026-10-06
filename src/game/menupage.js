@@ -76,16 +76,16 @@ function sliderRow(label, read, write) {
  * up: the sound switch is the one setting that can change from outside the page (M, or the other
  * screen's copy of it), so it is re-read rather than trusted.
  *
- * `tips: false` leaves the Tutorial tips row out. The pause screen does: the tips are read once, on
- * Play, so a switch mid-run would move and change nothing.
+ * Both screens show the Tutorial tips row. It was once left off the pause screen, on the grounds
+ * that the tips were read once on Play; the New Move cards read it live, and switching it off
+ * mid-run now also drops a tutorial still talking (`dropTutorial` in main.js).
  *
  * @param {HTMLElement} body
  * @param {object} opts
  * @param {{ isOn: () => boolean, set: (on: boolean) => void }} opts.sound  The game's one mute.
  * @param {ReturnType<import('./settings.js').createSettings>} opts.settings
- * @param {boolean} [opts.tips]
  */
-export function settingsRows(body, { sound, settings, tips = true }) {
+export function settingsRows(body, { sound, settings }) {
   const soundRow = toggleRow('Sound', () => sound.isOn(), (on) => { sound.set(on); paintMuted(); });
   const musicRow = sliderRow('Music volume', () => settings.get().music, (v) => settings.set({ music: v }));
   const sfxRow = sliderRow('SFX volume', () => settings.get().effects,
@@ -99,35 +99,25 @@ export function settingsRows(body, { sound, settings, tips = true }) {
   };
   paintMuted();
   body.append(soundRow.row, musicRow.row, sfxRow.row);
-  if (tips) {
-    const tipsRow = toggleRow('Tutorial tips', () => settings.get().tips, (on) => settings.set({ tips: on }));
-    body.append(tipsRow.row);
-  }
-  // Haptics only exist inside the iOS app (util/haptics.js), so on the web the rows would be two
-  // switches that do nothing. "Combo haptics" off plays the combos as the plain knocks they had
-  // before their patterns — kept as a switch so the two can be compared on the phone, mid-run,
-  // from the pause screen.
+  const tipsRow = toggleRow('Tutorial tips', () => settings.get().tips, (on) => settings.set({ tips: on }));
+  body.append(tipsRow.row);
+  // Haptics only exist inside the iOS app (util/haptics.js), so on the web the row would be a
+  // switch that does nothing.
   const hapticRows = [];
   if (isNative()) {
-    const hapticsRow = toggleRow('Haptics', () => settings.get().haptics, (on) => {
-      settings.set({ haptics: on });
-      paintHaptics();
-    });
-    const comboRow = toggleRow('Combo haptics', () => settings.get().comboHaptics,
-      (on) => settings.set({ comboHaptics: on }));
-    hapticRows.push(hapticsRow, comboRow);
-    body.append(hapticsRow.row, comboRow.row);
+    const hapticsRow = toggleRow('Haptics', () => settings.get().haptics,
+      (on) => settings.set({ haptics: on }));
+    hapticRows.push(hapticsRow);
+    body.append(hapticsRow.row);
   }
-  const paintHaptics = () => hapticRows[1]?.row.classList.toggle('is-asleep', !settings.get().haptics);
-  paintHaptics();
   return {
     refresh() {
       soundRow.paint();
       musicRow.paint();
       sfxRow.paint();
       paintMuted();
+      tipsRow.paint();
       for (const r of hapticRows) r.paint();
-      paintHaptics();
     },
   };
 }

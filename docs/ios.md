@@ -156,8 +156,8 @@ particular, because the default insets by the safe area and would double up on t
 - **Haptics.** `UIImpactFeedbackGenerator`, via a `haptics` script message handler — and, for the
   six combo moments, `CHHapticEngine` patterns with intensity and sharpness envelopes
   (`ComboHaptics.swift`), because a combo is a move with a shape in time and an impact generator
-  can only knock. Settings has a **Haptics** switch and a **Combo haptics** switch, both shown only
-  in the app; the second plays the combos as the single knocks they had before. The one
+  can only knock. Settings has one **Haptics** switch, shown only in the app, covering both (a
+  second "Combo haptics" switch for A/B-ing the patterns was folded into it). The one
   capability here the web build cannot fake even badly: `navigator.vibrate` has never shipped in
   Safari on any platform, so on the open web this game has no route to the Taptic Engine — see
   [`src/util/haptics.js`](../src/util/haptics.js) for why there is no Android fallback either.
