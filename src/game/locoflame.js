@@ -231,6 +231,7 @@ export function createLocoFlame(scene) {
     heat: 0,     // 0 out, 1 burning — the attack/release envelope
     frame: 0,    // which silhouette is up
     split: 0,    // 0 one plume, 1 the drift kick's two — eased toward `surge`
+    size: 1,     // the kick's chain tier as a scale on the pair — eased toward `size`
   };
 
   let clock = 0;
@@ -241,11 +242,15 @@ export function createLocoFlame(scene) {
    * @param on   is Loco Mode being held right now?
    * @param surge is the drift kick on? Splits the plume into two and lengthens it — and burns even
    *              with the pill up, since the kick is speed the flame should be answering for.
+   * @param size  how much bigger a chained kick burns (DRIFT_CHAIN.flame); only applies while it
+   *              surges, and eases so a tier up swells the pair rather than snapping it.
    */
-  function update(dt, car, on, surge = false) {
+  function update(dt, car, on, surge = false, size = 1) {
     const want = (on || surge) && !car.crashed ? 1 : 0;
     const splitTo = surge && !car.crashed ? 1 : 0;
     state.split += Math.sign(splitTo - state.split) * Math.min(Math.abs(splitTo - state.split), dt / SURGE_EASE);
+    const sizeTo = 1 + (size - 1) * state.split;
+    state.size += Math.sign(sizeTo - state.size) * Math.min(Math.abs(sizeTo - state.size), dt / SURGE_EASE);
     const step = dt / (want > state.heat ? ATTACK : RELEASE);
     state.heat = want > state.heat
       ? Math.min(want, state.heat + step)
@@ -280,7 +285,8 @@ export function createLocoFlame(scene) {
     // Two beats rather than one. A single sine is a plume *breathing*; the second, faster and
     // shallower, is what stops the length and the flipbook from locking into one visible period.
     const pulse = 1 + 0.10 * Math.sin(clock * 23) + 0.05 * Math.sin(clock * 41);
-    group.scale.set(heat * pulse * (1 + SURGE_LEN * state.split), heat * (2 - pulse), 1);
+    group.scale.set(heat * pulse * (1 + SURGE_LEN * state.split) * state.size,
+      heat * (2 - pulse) * state.size, state.size);
     // Local Z is across the car (the plume's plane is local XY). The twin runs half a flipbook out
     // of step with the first, so the pair licks rather than moving as one shape.
     // Rotating +X about +Y by a positive angle swings it toward −Z, so each barrel turns out

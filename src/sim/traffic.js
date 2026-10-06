@@ -1590,7 +1590,12 @@ export function spinTaxi(car) {
 // rubber (layRubber in main.js), at the boost cruise, rights included, deaf to the pedal. Plain
 // Loco corners keep the lean alone, so the slide is the combo's own look. Get back on the pill before the
 // arc is over (`kickDrift`) and it comes out of the corner with a kick, DRIFT_EXIT of the cruise
-// held for DRIFT_CARRY. Skip the second half and it is just the slide. `car.drifts` counts kicks.
+// held for its `carry`. Skip the second half and it is just the slide. `car.drifts` counts kicks.
+//
+// Kicks chain (DRIFT_CHAIN): start the next drift within `window` seconds of the last kick running
+// out and land it, and it comes out a tier harder — faster and held longer — up to three. A tap
+// that only slides, any damage, or the window lapsing puts the next kick back at tier 1.
+// `car.driftTier` is the tier of the last kick, 0 once the chain has broken.
 //
 // It is a prototype and every number below is a first guess, not a measurement.
 
@@ -1600,11 +1605,25 @@ export const DRIFT_MIN_V = 13;
 const DRIFT_LEAD = 0.6;
 /** How far round the arc a late tap still counts, as a fraction of it. */
 const DRIFT_LATE = 0.35;
-/** Seconds the exit kick is held after the exit, before the boost takes over again. */
-const DRIFT_CARRY = 0.6;
-/** The exit kick, as a fraction of the boost cruise: 30.9 u/s, put on in one frame. 1.2 (26.5)
- * read as too timid in play — barely past the cruise it was already doing. */
-export const DRIFT_EXIT = 1.4;
+/**
+ * The chain, one entry per tier. `exit` is the kick as a fraction of the boost cruise, put on in
+ * one frame (tier 1's 1.4 is 30.9 u/s; 1.2, 26.5, read as too timid in play — barely past the
+ * cruise it was already doing), and `carry` the seconds it is held after the exit before the boost
+ * takes over again. `fuel` (fraction of a tank) and `flame` (plume size) are read by main.js.
+ *
+ * `fuel` shrinks as the chain grows on purpose: tier 1 alone already pays back about what a corner
+ * of Loco costs, so a harder kick on a full refund is a boost that never runs out.
+ */
+export const DRIFT_CHAIN = {
+  window: 2.5,
+  exit:  [1.4, 1.55, 1.7],
+  carry: [0.6, 0.75, 0.9],
+  fuel:  [1 / 6, 1 / 9, 1 / 12],
+  flame: [1, 1.3, 1.6],
+};
+const DRIFT_TIERS = DRIFT_CHAIN.exit.length;
+/** Tier 1's kick: the one an unchained drift gets. */
+export const DRIFT_EXIT = DRIFT_CHAIN.exit[0];
 /** A drift that has not landed in this long has gone wrong somewhere; let it go. */
 const DRIFT_MAX = 2.5;
 /** How far the nose swings past the heading at the height of the slide, in radians (~31°). */
@@ -1642,7 +1661,7 @@ export function driftTaxi(car) {
     else if (car.intentLane === car.lane.id && car.intentTurn) turn = net.turnById.get(car.intentTurn);
   }
   if (!turn || turn.hand === 'straight') return 'straight';
-  car.drift = { phase, lane: car.lane.id, v: boostCruise(), t: 0, carry: DRIFT_CARRY, kicked: false };
+  car.drift = { phase, lane: car.lane.id, v: boostCruise(), t: 0, carry: 0, kicked: false };
   // `car.lane` is still the approach lane mid-turn: it only becomes the exit lane on landing.
   car.driftSign = turnYawSign(car.d, net.dirOfLane(net.laneById.get(turn.outLane)));
   return null;
@@ -1655,12 +1674,22 @@ export function kickDrift(car) {
   return true;
 }
 
-/** Advance a drift's phase, or drop it. Called once a frame for the taxi, before its physics. */
+/** Advance a drift's phase, or drop it, and run down the chain's window between drifts. Called
+ * once a frame for the taxi, before its physics. */
 function stepDrift(car, dt) {
   const d = car.drift;
-  if (!d) return;
+  if (!d) {
+    // The window is to *start* the next one: it stops running the moment a tap does.
+    if (car.driftTier > 0 && (car.driftLapse -= dt) <= 0) car.driftTier = 0;
+    return;
+  }
   d.t += dt;
-  const drop = () => { car.drift = null; };
+  // Dropped on the way out, the chain's window opens; dropped any earlier, it was not a kick.
+  const drop = () => {
+    if (d.phase === 'carry') car.driftLapse = DRIFT_CHAIN.window;
+    else car.driftTier = 0;
+    car.drift = null;
+  };
   if (car.crashed || car.staged || car.uturn || d.t > DRIFT_MAX) return drop();
   if (d.phase === 'approach') {
     if (car.state === 'turn') {
@@ -1674,14 +1703,25 @@ function stepDrift(car, dt) {
     // Landed. Without the second half it was only a slide, and the boost (or the coast-down) has
     // the car back. With it, the kick goes on in one frame — a surge, like BOOST_KICK — and holds.
     if (!d.kicked) return drop();
+    // A tier up on the last kick if nothing has hurt the car since it — `hp` is only ever armed on
+    // the taxi, and a repair raising it is fine.
+    const hp = car.hp ?? 0;
+    const chained = car.driftTier > 0 && hp >= car.driftHp;
+    car.driftTier = chained ? Math.min(car.driftTier + 1, DRIFT_TIERS) : 1;
+    car.driftHp = hp;
     d.phase = 'carry';
-    d.v = boostCruise() * DRIFT_EXIT;
+    d.carry = DRIFT_CHAIN.carry[car.driftTier - 1];
+    d.v = boostCruise() * DRIFT_CHAIN.exit[car.driftTier - 1];
     car.v = Math.max(car.v, d.v);
     car.drifts += 1;
   } else {
-    // A fresh press of the brake on the way out is a brake again.
+    // A fresh press of the brake on the way out is a brake again. Straight on through the next
+    // junction keeps it: the exit lane is ~12 units, which a 31 u/s kick crosses in 0.4s, so
+    // dropping it there cut every carry to about that whatever it was set to, and a chain's longer
+    // carry measured as no longer at all. A real turn still ends it.
     d.carry -= dt;
-    if (d.carry <= 0 || car.braking || car.state !== 'drive') return drop();
+    const turning = car.state === 'turn' && car.turn.hand !== 'straight';
+    if (d.carry <= 0 || car.braking || turning || (car.state !== 'drive' && car.state !== 'turn')) return drop();
   }
 }
 
@@ -2499,6 +2539,11 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       driftAmtV: 0,
       driftSign: 0,
       drifts: 0,
+      // The chain (DRIFT_CHAIN): the last kick's tier, the seconds left to start the next drift,
+      // and the HP the car had at the last kick, so damage since breaks it.
+      driftTier: 0,
+      driftLapse: 0,
+      driftHp: 0,
       // 0..1 brightness for the brake and turn-signal light pods. brakeLevel is eased (see
       // BRAKE_LIGHT_RISE/FALL) — off frame one along with prevV/v agreeing there is no accel yet.
       // The turn-signal levels are not eased; they jump straight to their blink target.
@@ -2749,6 +2794,7 @@ export function stageCar(car, x, z, yaw) {
   car.cornerRoll = 0;
   car.cornerRollV = 0;
   car.drift = null;
+  car.driftTier = 0;
   car.driftAmt = 0;
   car.driftAmtV = 0;
   car.wheelAngle = 0;
@@ -5337,7 +5383,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // comes from — the pitch spring downstream reads the resulting deceleration off car.v
       // directly, and from the overdrive top it is a longer, deeper one.
       const fullPower = car.boost && !car.boostEasing;
-      if (car.drift) stepDrift(car, dt);
+      if (car.drift || car.driftTier) stepDrift(car, dt);
 
       if (car.state === 'drive' && car.uturn?.kind === 'spin') {
         // --- Mid-spin (`spinTaxi`): on a clock rather than an arc speed, and deaf to the brake.
