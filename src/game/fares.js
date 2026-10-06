@@ -128,11 +128,16 @@ export const priceFor = (pickup, dropoff) =>
 export const MAX_FARES = 4;
 
 /**
- * How many riders the player may let go on the kerb before the run ends. Picked over "any expiry
+ * How many riders the player may let run out of time before the run ends. Picked over "any expiry
  * ends the run" so that clocks can be budgeted as if each rider were the one you take next — two
  * riders on the kerb late in the ramp cannot both be made, and choosing which to drop is the game.
- * A rider who is already **aboard** when their clock runs out still ends the run: picking them up
- * was the commitment. A VIP or a robber running out costs no strike, for their own reasons below.
+ *
+ * A rider **aboard** whose clock runs out is a strike too. It used to end the run outright, on the
+ * theory that picking them up was the commitment, and in play it read as a bug: the HUD shows three
+ * rings and nothing that says the rider in the cab is worth all three (Tyler, 2026-10-06). The
+ * price of the rule being one rule is that grabbing a rider you cannot make is cheaper than it was —
+ * a strike rather than the run — which is the lever to pull if that turns out to be exploited.
+ * A VIP or a robber running out costs no strike, for their own reasons below.
  */
 export const MAX_STRIKES = 3;
 
@@ -1773,10 +1778,10 @@ export function createFareSystem(rng, scene, { reserved = () => [], judgeRun = (
           emit('vip-missed', fare);
           continue;
         }
-        // An ordinary rider let go on the kerb: a strike, and the board carries on exactly as it does
-        // for a missed VIP — they storm off, the taxi is freed if it was on its way. The third one
-        // falls through to the ending below. A rider aboard always does: see MAX_STRIKES.
-        if (fare.stage === 'waiting' && state.strikes + 1 < MAX_STRIKES) {
+        // An ordinary rider running out, on the kerb or aboard: a strike, and the board carries on
+        // exactly as it does for a missed VIP — they storm off (out of the cab, if they were in it)
+        // and the taxi is freed. The third one falls through to the ending below. See MAX_STRIKES.
+        if (state.strikes + 1 < MAX_STRIKES) {
           state.strikes += 1;
           const missed = state.fares.indexOf(fare);
           if (missed !== -1) state.fares.splice(missed, 1);
@@ -1784,11 +1789,9 @@ export function createFareSystem(rng, scene, { reserved = () => [], judgeRun = (
           emit('missed', fare);
           continue;
         }
-        if (fare.stage === 'waiting') state.strikes += 1;
+        state.strikes += 1;
         state.gameOver = true;
-        state.failReason = fare.stage === 'riding'
-          ? "Patience wasn't your fare's strong suit."
-          : 'Three riders gave up on you.';
+        state.failReason = 'Three riders gave up on you.';
         // The point the camera pulls into for the closing beat: **wherever this rider gets out**,
         // because the closing beat is now them getting out (`beginBail` below).
         //

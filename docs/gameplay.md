@@ -531,8 +531,8 @@ and because the taxi has one seat, all but one of those are riders waiting on th
    [The drop-off dispatches itself](#the-drop-off-dispatches-itself).
 4. Deliver → the fare pays out (`FARE_BASE + FARE_PER_BLOCK × blocks`, times the shift's
    multiplier, see [Economy](#economy)), and the board refills.
-5. A rider's clock running out **aboard** ends the run. One running out on the kerb is a
-   [strike](difficulty.md#strikes); the third ends the run.
+5. A rider's clock running out, on the kerb or **aboard**, is a [strike](difficulty.md#strikes):
+   they get out and storm off, the taxi is freed, and the third strike ends the run.
 
 ## The drop-off dispatches itself
 
@@ -3715,8 +3715,8 @@ free to run past this box on a wide enough title, still centred on the same axis
 **The title is the headline; the reason is a caption under it, not a second headline.** The title's
 clamp was raised so "Wrecked!" reads as the loudest thing on the card, and the reason sits at a
 noticeably smaller size beneath it. `matchReasonWidth` in `runend.js` caps the reason's width at the
-title's own rendered width — measured, not assumed, since "Busted!" and "Patience wasn't your fare's
-strong suit." are nowhere near the same length — and CSS `text-wrap: balance` picks the break point
+title's own rendered width — measured, not assumed, since "Busted!" and "Three riders gave up on
+you." are nowhere near the same length — and CSS `text-wrap: balance` picks the break point
 inside that cap, so a two-line reason comes out as two even lines rather than a long first line and
 a short orphan word on the second.
 

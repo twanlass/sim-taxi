@@ -117,14 +117,13 @@ function evaluate(patch, loco) {
     })(),
     // Runs that ended on a wreck rather than a clock — only the loco player can have one.
     wrecks: runs.filter((r) => r.wrecked).length,
-    // How the runs that ended, ended: kerb = the third strike, aboard = a rider's clock running out
-    // in the back seat.
+    // How the runs that ended, ended: the third strike (on the kerb or aboard, they count alike),
+    // or a wreck.
     endings: runs.reduce((acc, r) => {
       if (r.wrecked) acc.wreck += 1;
-      else if (r.failReason?.startsWith('Three')) acc.kerb += 1;
-      else if (r.failReason) acc.aboard += 1;
+      else if (r.failReason) acc.strikes += 1;
       return acc;
-    }, { wreck: 0, kerb: 0, aboard: 0 }),
+    }, { wreck: 0, strikes: 0 }),
     endless: runs.filter((r) => r.delivered >= FARES).length,
     broken: runs.reduce((a, r) => a + r.routeFailures, 0),
   };
@@ -148,7 +147,7 @@ for (const { label, ...patch } of variants) {
       + `${`${(100 * r.choice).toFixed(0)}%`.padStart(6)}  `
       + `${String(r.wrecks).padStart(6)}  `
       + `${String(r.endless).padStart(7)}`
-      + `   (ended: ${r.endings.kerb} strikes, ${r.endings.aboard} aboard, ${r.endings.wreck} wrecks)`
+      + `   (ended: ${r.endings.strikes} strikes, ${r.endings.wreck} wrecks)`
       + `${r.broken ? `   BROKEN ${r.broken}` : ''}`);
   }
   console.log('');
