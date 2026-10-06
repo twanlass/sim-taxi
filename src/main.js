@@ -1601,15 +1601,12 @@ let slowMoMin = SLOW_MO_MIN;
 // Not in shot mode — a still has no replay to show — and not for a bust or a timeout: nothing
 // happened fast enough in either to be worth seeing twice.
 const REPLAY_LEAD = 1200;
-// The breath between the last frame of the replay and the card sliding in — long enough that the
-// card arrives on the live wreck rather than on the cut, and that a tap which skipped the replay has
-// let go before the card is there to take it as a tap on the tally.
+// The breath between a tap that skips the replay and the card arriving — long enough that the tap
+// has let go before the card is there to take it as a tap on the tally. A replay that plays out
+// has no tail: its last slow-mo frame jump cuts straight to the card. It used to hand back to the
+// live wreck for 350ms first (1100ms when the driver was ejected, to watch them land), and a beat
+// of real-time wreck after three slow-mo cuts read as an anticlimax rather than an ending.
 const REPLAY_TAIL = 350;
-// The same breath when the driver went through the windscreen, held long enough to see them land.
-// The replay hands back ~0.49s of sim past the impact (see REPLAY_LEAD) with the slow-mo already
-// run out, and at the 21 u/s of a boost-cruise T-bone the flight is ~1.05s in the air plus 0.3 to
-// settle flat — 0.86s still to go. Under the card they would land unseen.
-const EJECT_TAIL = 1100;
 let replayAt = null;
 // The sim clock the tape is stamped in: the sum of every dilated `dt` the world has been stepped by.
 let simClock = 0;
@@ -4201,7 +4198,11 @@ function frame() {
   }
   if (replay?.active()) {
     replay.update(wallDt);
-    if (!replay.active()) crashBannerAt = nowMs + (ejection.active() ? EJECT_TAIL : REPLAY_TAIL);
+    // The last cut goes straight to the card, on this frame — see REPLAY_TAIL.
+    if (!replay.active()) {
+      crashBannerAt = nowMs;
+      updateHud(0);
+    }
     renderFrame();
     return;
   }
