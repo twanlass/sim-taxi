@@ -2499,6 +2499,8 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       driftAmtV: 0,
       driftSign: 0,
       drifts: 0,
+      // A tally of the taxi's pull-outs round a car, read by main.js for the overtake's haptic.
+      overtakes: 0,
       // 0..1 brightness for the brake and turn-signal light pods. brakeLevel is eased (see
       // BRAKE_LIGHT_RISE/FALL) — off frame one along with prevV/v agreeing there is no accel yet.
       // The turn-signal levels are not eased; they jump straight to their blink target.
@@ -4949,7 +4951,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // Latched on the frame the taxi pulls out and held for the whole manoeuvre, rather than
         // re-read per frame: half way through a pass the taxi is *ahead* of this car in lane
         // coordinates, so `leaderOf` has already moved on to whatever is in front of them both.
-        if (taxi.passing && !was) taxi.passTarget = leader ?? null;
+        if (taxi.passing && !was) {
+          taxi.passTarget = leader ?? null;
+          taxi.overtakes += 1;
+        }
         if (!taxi.passing) taxi.passTarget = null;
       }
 
