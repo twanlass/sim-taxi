@@ -138,8 +138,11 @@ export const DRIVE_THRU_TAIL = 2;
 
 /**
  * How far the radio drops while something has to be heard over it — the drive-through speaker. The
- * radio sits at -24 LUFS at full slider and the speaker at about -27 after its mix gain, so it was
- * under the music; -12 dB puts the radio at about -36, behind the speaker and still playing.
+ * radio sits at -24 LUFS at full slider; -12 dB puts it at about -36, behind the speaker and still
+ * playing. The speaker's master is -21.8 LUFS; at its first mix gain (0.6) and the default effects
+ * slider (0.75, squared) it landed near -31, only 5 LU over the ducked radio, and on a phone it could
+ * not be heard. At 1.2 it is near -25. Its one transient (0 dBFS, 11s in) still clears full scale at
+ * the default slider; above about 0.91 effects that single hit clips, the rest peaks at -4 to -7.
  */
 const MUSIC_DUCK = 0.25;
 const AAC_PRIMING = 2112 / 48000;

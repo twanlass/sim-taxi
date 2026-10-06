@@ -135,7 +135,7 @@ import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
 import { createViewport } from './util/viewport.js';
 import { isNative } from './util/platform.js';
-import { tap as haptic } from './util/haptics.js';
+import { tap as haptic, setHapticPrefs } from './util/haptics.js';
 import { createSfx } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
@@ -888,6 +888,8 @@ const sfx = shot ? null : createSfx({ rng: makeRng(runSeed + 811) });
 const settings = createSettings();
 sfx?.setVolumes(settings.get());
 settings.onChange((v) => sfx?.setVolumes(v));
+setHapticPrefs(settings.get());
+settings.onChange(setHapticPrefs);
 
 // The one mute, as the Settings pages on the title and pause screens see it. M flips it from a
 // keyboard; the choice is remembered (localStorage, soft — see game/sfx.js). The pages re-read it
@@ -953,7 +955,7 @@ const bootleg = createBootleg({
   // road on the frame it starts. `layRubber` carries the streak on from there.
   onSpin: () => {
     sfx?.play('skid');
-    haptic('loco');
+    haptic('uturn');
     controller.kickShake(0.55);
     stampAllRubber(traffic.taxi);
   },
@@ -1634,8 +1636,11 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck })
   // Ramming the patrol car on the pill is a bump like any other, not a bust — game/patrol.js
   // `rammed`. The collision pass runs before the patrol's, so this lands the same frame.
   if (taxiStruck && other.police) patrol.rammed(other);
-  // Every bump costs HP, and any damage at all costs the ride its Perfect Run (game/runs.js).
+  // Every bump costs HP, and any damage at all costs the ride its Perfect Run (game/runs.js). When
+  // the HUD was showing one on course, the hand is told it has gone as the tag falls.
+  const perfectWasOn = runs.live()[0]?.earned && !runs.live()[0].broken;
   runs.damage();
+  if (perfectWasOn) haptic('perfect-lost');
   controller.kickShake(BUMP_SHAKE + closing * BUMP_SHAKE_PER_UNIT);
   // The designer's bump — light hits against other cars, a recording of its own since Block 1 —
   // scaled by the same closing speed the shake is. 0.3 at a nudge, full at a T-bone at the Loco top.
@@ -2863,6 +2868,9 @@ function popRunSequence(fare) {
       return;
     }
     const at = payoutScreenPos();
+    // On the label's pop, not the cash's landing: the three beats of the pattern climb into the
+    // scale-up that peaks at 20% of RUN_LABEL_MS (ComboHaptics.swift).
+    if (step.key === 'perfect') haptic('perfect');
     const el = document.createElement('div');
     el.className = `run-pop run-${step.key}`;
     el.textContent = step.label;
@@ -3219,6 +3227,8 @@ const DRIFT_FUEL = 1 / 6;
 let driftHoldOff = false;
 let driftTapAt = -Infinity;
 let driftsPaid = 0;
+// The same tally-and-catch-up for the taxi's overtakes (`car.overtakes` in sim/traffic.js).
+let overtakesFelt = 0;
 
 /**
  * The press, from the button, the B key, or a thumb sliding onto the brake from the pill beside it.
@@ -3265,7 +3275,7 @@ function holdBrake() {
     boost.release();
     brakeButton?.classList.add('is-on');
     sfx?.play('skid');
-    haptic('loco');
+    haptic('drift');
     controller.kickShake(0.3);
     stampAllRubber(traffic.taxi);
     return true;
@@ -4279,16 +4289,27 @@ function frame() {
     traffic.taxi.z = ramShove.z + ramShove.vz * k;
   }
   traffic.update(dt);
+  if (traffic.taxi.overtakes > overtakesFelt) {
+    overtakesFelt = traffic.taxi.overtakes;
+    if (!fares.state.gameOver) haptic('overtake');
+  }
   if (traffic.taxi.drifts > driftsPaid) {
     driftsPaid = traffic.taxi.drifts;
     // The exit kick (DRIFT_EXIT in sim/traffic.js) has to read at a glance — playtesting said it
     // didn't, with only a buzz and a shake. So it says so: a bark of fire out of the pipe on top of
-    // the double-barrelled plume (`locoFlame` below), the Loco whoosh, and the fuel pouring into the
-    // gauge. (A "DRIFT BOOST!" word off the roof was tried and cut.)
+    // the double-barrelled plume (`locoFlame` below), the Loco whoosh, and the fuel flying off the
+    // car into the gauge on the same sparks a drop-off pays with — it once went straight into
+    // `topUp`, so the meter grew with nothing to say why. (A "DRIFT BOOST!" word off the roof was
+    // tried and cut.) No HANDOFF: there is no payout coin here to wait behind.
     if (!fares.state.gameOver) {
-      boost.topUp(DRIFT_FUEL);
+      flyEnergyToBoost({
+        from: taxiScreenPos,
+        to: fuelScreenPos,
+        delay: 0,
+        onArrive: () => boost.topUp(DRIFT_FUEL),
+      });
       const car = traffic.taxi;
-      haptic('loco');
+      haptic('drift-kick');
       controller.kickShake(0.5);
       sfx?.locoOn();
       flames.burst(

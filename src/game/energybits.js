@@ -43,8 +43,10 @@ const SIZES = [0.85, 1.35, 0.55, 1.1, 0.7, 1.25];
  * Fire the sparks. Both `from` and `to` are functions returning viewport `{x, y}` — see above.
  * `onArrive` fires once, when the first spark reaches the pill, and is what should actually hand
  * the fuel over: the meter starting to fill before the energy lands reads exactly backwards.
+ * `delay` defaults to HANDOFF, which only means anything behind a payout; a refund with no coin to
+ * wait for (the drift's) passes 0 and leaves the car on the frame it was earned.
  */
-export function flyEnergyToBoost({ from, to, onArrive }) {
+export function flyEnergyToBoost({ from, to, onArrive, delay = HANDOFF }) {
   setTimeout(() => {
     const start = from();
     const target = to();
@@ -92,5 +94,5 @@ export function flyEnergyToBoost({ from, to, onArrive }) {
         };
       };
     }
-  }, HANDOFF);
+  }, delay);
 }

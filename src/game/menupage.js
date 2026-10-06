@@ -9,6 +9,8 @@
  * `:is(#title-screen, #pause-veil)`.
  */
 
+import { isNative } from '../util/platform.js';
+
 /** One element, with a class and optional text. */
 export function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -101,12 +103,31 @@ export function settingsRows(body, { sound, settings, tips = true }) {
     const tipsRow = toggleRow('Tutorial tips', () => settings.get().tips, (on) => settings.set({ tips: on }));
     body.append(tipsRow.row);
   }
+  // Haptics only exist inside the iOS app (util/haptics.js), so on the web the rows would be two
+  // switches that do nothing. "Combo haptics" off plays the combos as the plain knocks they had
+  // before their patterns — kept as a switch so the two can be compared on the phone, mid-run,
+  // from the pause screen.
+  const hapticRows = [];
+  if (isNative()) {
+    const hapticsRow = toggleRow('Haptics', () => settings.get().haptics, (on) => {
+      settings.set({ haptics: on });
+      paintHaptics();
+    });
+    const comboRow = toggleRow('Combo haptics', () => settings.get().comboHaptics,
+      (on) => settings.set({ comboHaptics: on }));
+    hapticRows.push(hapticsRow, comboRow);
+    body.append(hapticsRow.row, comboRow.row);
+  }
+  const paintHaptics = () => hapticRows[1]?.row.classList.toggle('is-asleep', !settings.get().haptics);
+  paintHaptics();
   return {
     refresh() {
       soundRow.paint();
       musicRow.paint();
       sfxRow.paint();
       paintMuted();
+      for (const r of hapticRows) r.paint();
+      paintHaptics();
     },
   };
 }

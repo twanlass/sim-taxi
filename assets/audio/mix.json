@@ -18,7 +18,7 @@
     "land": { "file": "14_JUMP_land_A-C", "gain": 1, "rate": 1 },
     "signal": { "file": "15_SIGNAL_turn", "gain": 1, "rate": 1 },
     "siren": { "file": "16_POLICE_siren_loop", "gain": 0.18, "rate": 1 },
-    "driveThru": { "file": "17_BURGER_drive_through", "gain": 0.6, "rate": 1 },
+    "driveThru": { "file": "17_BURGER_drive_through", "gain": 1.2, "rate": 1 },
     "horn": { "file": "18_HORN_honk", "gain": 0.3, "rate": 1 }
   },
   "minGap": {
