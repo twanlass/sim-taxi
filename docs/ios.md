@@ -277,7 +277,38 @@ Two things in it are worth knowing rather than discovering:
 A locked phone refuses the launch and only the launch — the install has already landed by then, so
 the script says so and exits 0.
 
-### Uploading to App Store Connect
+### Cloud builds: Xcode Cloud to TestFlight
+
+`push:ios` needs the Mac awake and on the phone's network. Xcode Cloud doesn't: it archives on
+Apple's machines on every push to `main` and hands the build to TestFlight, which updates the phone
+by itself. It is free inside the Developer Program's 25 compute hours a month, and it is the same
+archive-and-upload path App Store submission uses.
+
+The repo side is two scripts in [`ios/ci_scripts/`](../ios/ci_scripts/) — Xcode Cloud only looks
+for them beside the `.xcodeproj`:
+
+- **`ci_post_clone.sh`** installs Node 22 and runs `npm ci && npm run build:ios`. Without it the
+  clone has no `web/` (it is gitignored) and the archive goes green around a shell with no game.
+- **`ci_post_xcodebuild.sh`** makes `push:ios`'s bundle-layout assertion against the archived
+  `.app`, so a flattened `web/` fails the build instead of reaching TestFlight.
+
+Build numbers need nothing: Xcode Cloud stamps its own over `CURRENT_PROJECT_VERSION`, which is why
+that can stay at `1`.
+
+A TestFlight build is **Release**, so Safari Web Inspector cannot attach to it (`isInspectable` is
+`#if DEBUG`). Debugging on a device is still a `push:ios` job.
+
+One-time setup, in Xcode on the Mac:
+
+1. App Store Connect: create the app record for `com.twanlass.simtaxi` if it does not exist.
+2. Xcode: Product ▸ Xcode Cloud ▸ Create Workflow, and grant it access to the GitHub repo.
+3. Edit the workflow: start condition **Branch Changes** on `main`; one **Archive** action for iOS,
+   deployment preparation **TestFlight (Internal Testing Only)**; post-action **TestFlight Internal
+   Testing** with a group you are in.
+4. Install TestFlight on the phone. Each merge to `main` arrives there a few minutes after the
+   build finishes.
+
+### Fallback upload from the Mac
 
 Xcode Cloud is the normal uploader. `npm run archive:ios -- --build-number N`
 ([`tools/ios-archive.mjs`](../tools/ios-archive.mjs)) is the fallback from the Mac:
