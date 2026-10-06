@@ -65,10 +65,14 @@ const FRAME_TIME = 1 / 16;
 // The three tongues, as (length, width) fractions of the outer one. Nested rather than blended:
 // each is the same silhouette scaled, so an inner tongue is strictly inside the one behind it and
 // the plume reads as a hot core in a cooler sheath without a single translucent pixel.
+// `drift` is one colour per drift-chain tier: violet, then blue, then teal.
 const LAYERS = [
-  { color: PALETTE.locoFlameOuter, drift: PALETTE.locoFlameDriftOuter, scale: [1, 1], order: 6 },
-  { color: PALETTE.locoFlameMid, drift: PALETTE.locoFlameDriftMid, scale: [0.72, 0.64], order: 7 },
-  { color: PALETTE.locoFlameCore, drift: PALETTE.locoFlameDriftCore, scale: [0.50, 0.44], order: 8 },
+  { color: PALETTE.locoFlameOuter, scale: [1, 1], order: 6,
+    drift: [PALETTE.locoFlameDriftOuter, PALETTE.locoFlameChain2Outer, PALETTE.locoFlameChain3Outer] },
+  { color: PALETTE.locoFlameMid, scale: [0.72, 0.64], order: 7,
+    drift: [PALETTE.locoFlameDriftMid, PALETTE.locoFlameChain2Mid, PALETTE.locoFlameChain3Mid] },
+  { color: PALETTE.locoFlameCore, scale: [0.50, 0.44], order: 8,
+    drift: [PALETTE.locoFlameDriftCore, PALETTE.locoFlameChain2Core, PALETTE.locoFlameChain3Core] },
 ];
 
 // How fast the plume comes up and how fast it dies. The attack is nearly instant — the flame is the
@@ -201,7 +205,8 @@ export function createLocoFlame(scene) {
   }));
 
   const baseColors = LAYERS.map(({ color }) => new THREE.Color(color));
-  const driftColors = LAYERS.map(({ drift }) => new THREE.Color(drift));
+  const driftColors = LAYERS.map(({ drift }) => drift.map((c) => new THREE.Color(c)));
+  const tierColor = new THREE.Color();
 
   // One group per flipbook frame; exactly one is visible at a time. Built twice, once per barrel:
   // the second only shows during a surge, and shares every geometry and material with the first.
@@ -232,6 +237,7 @@ export function createLocoFlame(scene) {
     frame: 0,    // which silhouette is up
     split: 0,    // 0 one plume, 1 the drift kick's two — eased toward `surge`
     size: 1,     // the kick's chain tier as a scale on the pair — eased toward `size`
+    tier: 0,     // which chain colour the pair burns, 0..2 — eased toward `tier`, so it shifts hue
   };
 
   let clock = 0;
@@ -244,13 +250,16 @@ export function createLocoFlame(scene) {
    *              with the pill up, since the kick is speed the flame should be answering for.
    * @param size  how much bigger a chained kick burns (DRIFT_CHAIN.flame); only applies while it
    *              surges, and eases so a tier up swells the pair rather than snapping it.
+   * @param tier  the drift chain's tier, 0-based: picks the kick's colour (violet, blue, teal).
    */
-  function update(dt, car, on, surge = false, size = 1) {
+  function update(dt, car, on, surge = false, size = 1, tier = 0) {
     const want = (on || surge) && !car.crashed ? 1 : 0;
     const splitTo = surge && !car.crashed ? 1 : 0;
     state.split += Math.sign(splitTo - state.split) * Math.min(Math.abs(splitTo - state.split), dt / SURGE_EASE);
     const sizeTo = 1 + (size - 1) * state.split;
     state.size += Math.sign(sizeTo - state.size) * Math.min(Math.abs(sizeTo - state.size), dt / SURGE_EASE);
+    // Only moves while the pair is lit, so a chain breaking does not fade the dying flame to violet.
+    if (surge) state.tier += Math.sign(tier - state.tier) * Math.min(Math.abs(tier - state.tier), dt / SURGE_EASE);
     const step = dt / (want > state.heat ? ATTACK : RELEASE);
     state.heat = want > state.heat
       ? Math.min(want, state.heat + step)
@@ -311,7 +320,10 @@ export function createLocoFlame(scene) {
     // drift kick is a different fire from the ordinary one (`locoFlameDrift*` in palette.js).
     materials.forEach((material, k) => {
       material.opacity = heat;
-      material.color.lerpColors(baseColors[k], driftColors[k], state.split);
+      const ramp = driftColors[k];
+      const lo = Math.min(Math.floor(state.tier), ramp.length - 1);
+      tierColor.lerpColors(ramp[lo], ramp[Math.min(lo + 1, ramp.length - 1)], state.tier - lo);
+      material.color.lerpColors(baseColors[k], tierColor, state.split);
     });
   }
 

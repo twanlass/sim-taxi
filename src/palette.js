@@ -626,6 +626,14 @@ export const PALETTE = {
   locoFlameDriftOuter: '#9B3DFF',
   locoFlameDriftMid: '#C77DFF',
   locoFlameDriftCore: '#F3E6FF',
+  // ...and up a drift chain (DRIFT_CHAIN in sim/traffic.js), cooling as it climbs: blue at the
+  // second kick, teal at the third. Same ramp shape again.
+  locoFlameChain2Outer: '#2F6BFF',
+  locoFlameChain2Mid: '#6FA0FF',
+  locoFlameChain2Core: '#E3EEFF',
+  locoFlameChain3Outer: '#00BFA6',
+  locoFlameChain3Mid: '#4DE8D0',
+  locoFlameChain3Core: '#E0FFF9',
 
   // Sparks off the underside of the taxi as it lands a jump — see game/sparks.js. Two stops, one
   // per end of a shower rather than a ramp each spark walks: a spark is on screen for half a second

@@ -3448,7 +3448,8 @@ cut.)
 
 **Kicks chain, up to three** (`DRIFT_CHAIN` in sim/traffic.js). Start the next drift within 2.5s
 of the last kick running out and land it, and it comes out a tier harder: 1.4×/0.6s, 1.55×/0.75s,
-1.7×/0.9s (30.9, 34.3, 37.6 u/s), the flame and the jolt 1.3× and 1.6× bigger. The window lapsing, a
+1.7×/0.9s (30.9, 34.3, 37.6 u/s), the flame and the jolt 1.3× and 1.6× bigger, and the flame
+cooling from violet to blue to teal (`locoFlameChain*` in palette.js). The window lapsing, a
 tap that only slides, or any HP lost since the last kick puts the next one back at tier 1.
 
 **A landed kick refunds a sixth of a tank** at tier 1 (`DRIFT_CHAIN.fuel`, the same as a parcel),
