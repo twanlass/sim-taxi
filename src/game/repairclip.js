@@ -13,8 +13,7 @@ import { createClipStage, framePoses } from './moveclip.js';
 // "Head to the shop for repairs." bubble that used to go up over the garage door (Tyler,
 // 2026-10-06: "instead of a tool tip, a tutorial screen like drift and U-turn"). Filmed on the
 // player's own depot, through the same darkroom as the move clips (game/moveclip.js
-// `createClipStage`): a smoking stand-in taxi comes up the lane, a finger taps the door, the taxi
-// turns in, the door comes down to its gap and the shop welds, and the door goes up on a clean car
+// `createClipStage`): a smoking stand-in taxi comes up the lane and turns in, the door comes down to its gap and the shop welds, and the door goes up on a clean car
 // that drives back out onto the street.
 //
 // **The game's own visit, re-acted rather than recorded.** The move clips play back a recording
@@ -34,13 +33,10 @@ import { createClipStage, framePoses } from './moveclip.js';
 
 /** Seconds of shop work in the clip — REPAIR is 2.4, which is long to sit through on a loop. */
 export const CLIP_REPAIR = 1.2;
-/** How far down the lane short of the turn-in the clip starts, so there is time to see the tap. */
-const LEAD = 4;
+/** How far down the lane short of the turn-in the clip starts: enough to see the smoke first. */
+const LEAD = 3;
 /** And how long it runs on up the lane after the car is back on it. */
 const TAIL = 0.35;
-/** The tap on the door: when, and how long the finger and its ring take. */
-export const TAP_AT = 0.15;
-const TAP_LEN = 0.75;
 /** How hurt the stand-in is: under SMOKE_FRACTION, which is when the card goes up for real. */
 const STAND_IN_HP = 0.3;
 const STEP = 1 / 60;
@@ -193,17 +189,8 @@ export function scriptVisit(site) {
   return { frames, step: STEP, loop: frames.length * STEP };
 }
 
-/** No pedals on this card — the tap in the clip is the instruction. */
+/** No pedals on this card: the line says what to do, and the clip shows what happens. */
 export const clipKeys = () => ({});
-
-/**
- * The finger on the door at time t into the loop: null when it is not there, otherwise how far
- * through the tap it is (0..1). Drawn by the clip over its frame.
- */
-export function tapAt(t) {
-  const k = (t - TAP_AT) / TAP_LEN;
-  return k >= 0 && k < 1 ? k : null;
-}
 
 /**
  * The clip, filmed in the main scene. Returns null with no depot; the card then shows without one.
@@ -215,7 +202,8 @@ export function tapAt(t) {
  * @param dust       game/dust.js's pool
  * @param hide       objects taken out of the clip while it films — the player's own taxi, which is
  *                   smoking wherever it was when the card went up and, near the depot, reads as a
- *                   second stand-in. In the still, where the player left it; put back on close.
+ *                   second stand-in, and the frozen traffic, which can be parked on the stand-in's
+ *                   lane. Still in the still, where the player left them; put back on close.
  * the rest are createClipStage's — see game/moveclip.js
  */
 export function createRepairClip({
@@ -253,7 +241,7 @@ export function createRepairClip({
   };
   knock();
 
-  // Framed on the whole drive plus the top of the door, so the tap lands inside the shot.
+  // Framed on the whole drive plus the top of the door.
   stage.aim(site.focus.x, site.focus.z);
   const top = { x: site.frontX, y: site.doorH + 1, z: site.doorZ };
   const run = framePoses(stage.clipCam, frames.filter((_, n) => n % 3 === 0), [top]);
@@ -275,36 +263,6 @@ export function createRepairClip({
     if (!healed) damage.update(dt);
   }
 
-  // A fingertip pressing the door and a ring going out from it.
-  function overlay(ctx, toCard, scale) {
-    const k = tapAt(t);
-    if (k === null) return;
-    const at = toCard(site.focus.x, site.focus.y, site.focus.z);
-    const r = 13 * scale;
-    const press = k < 0.25 ? 1 - 0.2 * smoothstep(k / 0.25) : 0.8;
-    const dot = Math.min(1, k / 0.1) * (1 - smoothstep((k - 0.45) / 0.3));
-    ctx.save();
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
-    ctx.shadowBlur = 6 * scale;
-    if (dot > 0) {
-      ctx.globalAlpha = 0.9 * dot;
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(at.x, at.y, r * press, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    const ring = (k - 0.2) / 0.8;
-    if (ring > 0) {
-      ctx.globalAlpha = 0.9 * (1 - ring);
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 3 * scale;
-      ctx.beginPath();
-      ctx.arc(at.x, at.y, r * (1 + 1.8 * ring), 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
   return {
     get time() { return t; },
     restart() { t = 0; healed = false; knock(); },
@@ -316,7 +274,7 @@ export function createRepairClip({
       workshop?.update(dt);
       dust.update(dt);
       sparks.update(dt);
-      stage.film(run, stage.seam(t, loop), overlay);
+      stage.film(run, stage.seam(t, loop));
     },
     /** Take the stand-in out of the city, the depot back to shut and quiet, and the still down. */
     dispose() {

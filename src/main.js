@@ -4028,7 +4028,12 @@ const repairCard = {
   ...REPAIR, seen: createSeenFlag({ key: REPAIR.seenKey }), clipKeys: repairKeys,
   makeClip: (cardCanvas) => freezeFrame && garage && createRepairClip({
     ...clipStage(cardCanvas), site: garage.site, setDoor: garage.setDoor, workshop: repairFx, sparks, dust,
-    hide: [traffic.taxiGroup],
+    // The player's taxi, and the ambient traffic frozen wherever it stood — a car stopped on the
+    // depot's lane sat on the stand-in's path. Meshes only, so none of this changes the light count
+    // (the cruiser, which carries lamps, stays: CLAUDE.md).
+    hide: [traffic.taxiGroup, traffic.mesh, traffic.wheelMesh, traffic.truckMesh, traffic.truckWheelMesh,
+      traffic.truckBoxMesh, traffic.bumperMesh, traffic.truckBumperMesh, ...traffic.emissiveMeshes,
+      ...carDamage.meshes],
   }),
 };
 // Seconds of game time until it lands, or negative while the car is not smoking.

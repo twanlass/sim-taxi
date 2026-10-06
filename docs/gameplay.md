@@ -3238,18 +3238,18 @@ It was a speech bubble over the garage door, once per bout of damage; Tyler swap
 and answers to the same gates: the tips setting, debug mode, the opening tutorial being done, and a
 calm beat (`newMoveCalm`) — a getaway, a patrol chase or a taxi already on its way in defers it, and
 it is tried again every half second for as long as the car is still smoking. No pedal row: the
-instruction is a tap, so the line says it and the clip shows it.
+instruction is a tap, so the line says it. A finger tapping the door in the clip was tried and cut
+(Tyler, 2026-10-06): the clip is just the visit.
 
-**The clip** (`game/repairclip.js`, ~9.3s) is filmed on the player's own depot: a smoking stand-in
-(the real damage rig, three knocks in: bonnet, boot, dragging bumper) comes up the lane, a fingertip
-taps the door, the taxi turns in, the door comes down to `REPAIR_GAP` and the shop welds, and the
+**The clip** (`game/repairclip.js`, ~9s) is filmed on the player's own depot: a smoking stand-in
+(the real damage rig, three knocks in: bonnet, boot, dragging bumper) comes up the lane and turns in, the door comes down to `REPAIR_GAP` and the shop welds, and the
 door goes up on a clean car that drives back out onto the street. It is not a recording like the
 move clips: the visit is a script, not physics, so `scriptVisit` runs the same script again off the
 same `entryPath`/`exitPath` and the same numbers (`VISIT` in game/opening.js). Its two departures are
 on purpose: the shop works `CLIP_REPAIR` (1.2s, against the game's 2.4) and the door starts down as
 soon as the car is wholly behind the curtain, because a loop is watched more than once. The door and
 the welding are the city's own, borrowed while the world is frozen and put back shut on close; the
-player's taxi is hidden from the clip and left in the still. `__taxi.newMove.open('repair')` opens it.
+player's taxi and the frozen traffic are hidden from the clip and left in the still. `__taxi.newMove.open('repair')` opens it.
 
 | Phase | What happens | Length |
 |---|---|---|

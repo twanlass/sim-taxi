@@ -133,9 +133,8 @@ export function framePoses(cam, poses, extra = []) {
  * card. The reel clips below use it, and so does the depot's (game/repairclip.js), which is not a
  * reel and frames itself off a scripted drive rather than a recording.
  *
- * `film(run, alpha, overlay)` draws one frame zoomed so `run` — frameRun's shape, in the clip
- * camera's view space after `centre` — fits with FRAME_MARGIN to spare. `overlay(ctx, toCard)`, when
- * given, draws over the copied frame; `toCard(x, y, z)` is a world point in the card canvas's pixels.
+ * `film(run, alpha)` draws one frame zoomed so `run` — frameRun's shape, in the clip camera's view
+ * space after `centre` — fits with FRAME_MARGIN to spare.
  */
 export function createClipStage({ camera, renderFrame, canvas, freeze, cardCanvas }) {
   // The still, first, while the scene is still exactly the city the player was looking at.
@@ -155,18 +154,9 @@ export function createClipStage({ camera, renderFrame, canvas, freeze, cardCanva
   clipCam.zoom = 1;
   clipCam.clearViewOffset();
   const toCamera = camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(-DISTANCE);
-  const v = new THREE.Vector3();
 
   let shotW = canvas.width;
   let shotH = canvas.height;
-  let sx = 0;
-  let sy = 0;
-  let sw = 0;
-  let sh = 0;
-  const toCard = (x, y, z) => {
-    v.set(x, y, z).project(clipCam);
-    return { x: (v.x + 1) / 2 * canvas.width - sx, y: (1 - v.y) / 2 * canvas.height - sy };
-  };
 
   return {
     clipCam,
@@ -195,7 +185,7 @@ export function createClipStage({ camera, renderFrame, canvas, freeze, cardCanva
       shotW = canvas.width;
       shotH = canvas.height;
     },
-    film(run, alpha, overlay = null) {
+    film(run, alpha) {
       // The card's canvas, in device pixels of the game's own canvas, so the copy is 1:1.
       const cssW = cardCanvas.clientWidth;
       const cssH = cardCanvas.clientHeight;
@@ -203,8 +193,8 @@ export function createClipStage({ camera, renderFrame, canvas, freeze, cardCanva
       const viewH = canvas.clientHeight || 1;
       if (!cssW || !cssH) return;
       const scale = canvas.width / viewW;
-      sw = Math.round(cssW * scale);
-      sh = Math.round(cssH * scale);
+      const sw = Math.round(cssW * scale);
+      const sh = Math.round(cssH * scale);
       if (cardCanvas.width !== sw || cardCanvas.height !== sh) { cardCanvas.width = sw; cardCanvas.height = sh; }
       // Zoomed so the middle cssW × cssH of the full frame holds the whole run.
       const ppu = Math.min(cssW / (run.w * FRAME_MARGIN), cssH / (run.h * FRAME_MARGIN));
@@ -214,14 +204,13 @@ export function createClipStage({ camera, renderFrame, canvas, freeze, cardCanva
       clipCam.bottom = -viewH / 2 / ppu;
       clipCam.updateProjectionMatrix();
       renderFrame(clipCam);
-      sx = Math.round((canvas.width - sw) / 2);
-      sy = Math.round((canvas.height - sh) / 2);
+      const sx = Math.round((canvas.width - sw) / 2);
+      const sy = Math.round((canvas.height - sh) / 2);
       const ctx = cardCanvas.getContext('2d');
       ctx.clearRect(0, 0, sw, sh);
       ctx.globalAlpha = alpha;
       ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
       ctx.globalAlpha = 1;
-      overlay?.(ctx, toCard, scale);
     },
     /** Fade a loop in and out at its seam. */
     seam: (t, loop) => Math.min(1, t / SEAM, (loop - t) / SEAM),

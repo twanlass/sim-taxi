@@ -175,11 +175,10 @@ try {
     }
   }
 
-  // The depot's card (game/repairclip.js): the visit it acts has to tap the door before the car
-  // turns in, never drive the car through a door that is not up, turn it round only while the door
+  // The depot's card (game/repairclip.js): the visit it acts has to never drive the car through a door that is not up, turn it round only while the door
   // is down to its gap, and leave it on the lane heading away; and the card is not a move.
   {
-    const { scriptVisit, tapAt, TAP_AT, CLIP_REPAIR } = await import('../src/game/repairclip.js');
+    const { scriptVisit, CLIP_REPAIR } = await import('../src/game/repairclip.js');
     const { REPAIR_GAP, entryPath } = await import('../src/game/opening.js');
     const { REPAIR, MOVES } = await import('../src/game/newmove.js');
     const { garageSite } = await import('../src/city/garage.js');
@@ -191,8 +190,6 @@ try {
     for (const seed of [1, 2, 3]) {
       const site = garageSite(createLayout(makeRng(seed)).garageBlock);
       const { frames, step } = scriptVisit(site);
-      const turnIn = frames.findIndex((f) => f.phase !== 'lane') * step;
-      if (!(tapAt(TAP_AT + 0.05) !== null && TAP_AT < turnIn)) throw new Error('repairclip: the tap does not come before the turn-in');
       const swap = frames.findIndex((f) => f.repaired);
       if (swap < 0 || Math.abs(frames[swap].door - REPAIR_GAP) > 1e-6) throw new Error('repairclip: the car is turned round with the door not at its gap');
       const working = frames.filter((f) => f.work).length * step;
