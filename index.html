@@ -1342,6 +1342,10 @@
         50%      { filter: drop-shadow(0 0 14px rgba(245, 193, 48, 0.95)); }
       }
       body.coach-boost #boost { animation: coach-boost-pulse 1.3s ease-in-out infinite; }
+      /* The overtake combo took (game/overtake.js): armed or under way, a steady white glow — keep
+         holding. There was a quick white throb before it for "a blip would take now"; Tyler had it
+         taken out, so the moment to throw the combo is the player's to judge. */
+      #boost.is-pass-armed { filter: drop-shadow(0 0 12px rgba(255, 255, 255, 1)); }
       @media (prefers-reduced-motion: reduce) {
         body.coach-boost #boost {
           animation: none; filter: drop-shadow(0 0 12px rgba(245, 193, 48, 0.85));

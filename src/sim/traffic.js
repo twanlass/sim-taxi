@@ -5025,8 +5025,16 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // behind a car without throwing it rams the car, so the choice is the combo or the brake
       // (Tyler, 2026-10-06; it tailgated first and that let you sit there for free). A truck is
       // still tailgated rather than rammed (`rams`), for the reason given there.
-      taxi.canPass = locoHeld && gap !== undefined && room
-        && (taxi.passArmed !== false || taxi.passing);
+      //
+      // Two things are not rams even so (Tyler, 2026-10-06: "really hard to execute"). The blip
+      // itself — the pill is up for it, and a taxi that drove into the car *because the player was
+      // throwing the combo* was 1 in 6 of a bot's attempts at a clean 180ms blip. And an armed combo
+      // waiting for a way round: the player asked to pass, and a ram there reads as the game eating
+      // the input. Both tailgate instead, for as long as the blip or the arm lasts.
+      const asking = taxi.passArmed === true || taxi.passPending === true;
+      taxi.canPass = (locoHeld || taxi.passPending === true) && gap !== undefined
+        && (room || asking)
+        && (taxi.passArmed !== false || taxi.passing || asking);
 
       if (taxi.state === 'drive') {
         const was = taxi.passing;

@@ -19,8 +19,13 @@
 //
 // First guesses, not measurements — tune here.
 
-/** A release this short or shorter, then the pill again, is the blip. A deliberate one is ~100-200ms. */
-export const OVERTAKE_BLIP_MS = 250;
+/**
+ * A release this short or shorter, then the pill again, is the blip. It was 250, and that was a
+ * cliff: a bot throwing the combo with a 300ms release passed **0 of 118** cars against 46 of 98 at
+ * 180ms, and a thumb lifting and landing on a phone pill is 150-350ms. 400 takes in a relaxed lift
+ * and is still well short of a release meant as a release — that runs to the cooldown tail (1s).
+ */
+export const OVERTAKE_BLIP_MS = 400;
 /**
  * How long the pill has to have been down before the blip, in seconds — "holding Loco behind a
  * car" rather than tapping it. Keeps a player stabbing at the pill from a standstill from arming it.
@@ -59,6 +64,8 @@ export function createOvertakeCombo({ taxi }) {
   let wasPassing = false;
 
   const behind = () => (taxi.passGap ?? Infinity) < OVERTAKE_ARM_RANGE;
+  /** Is a release that could still be the blip in progress? Read by sim/traffic.js `canPass`. */
+  const pending = () => blip !== null && blip <= OVERTAKE_BLIP_MS / 1000;
 
   function reset() {
     state.armed = false;
@@ -68,6 +75,7 @@ export function createOvertakeCombo({ taxi }) {
     blip = null;
     wasPassing = false;
     taxi.passArmed = false;
+    taxi.passPending = false;
   }
 
   /**
@@ -103,6 +111,7 @@ export function createOvertakeCombo({ taxi }) {
     wasPassing = Boolean(taxi.passing);
 
     taxi.passArmed = state.armed;
+    taxi.passPending = !held && pending();
   }
 
   return { state, update, reset };

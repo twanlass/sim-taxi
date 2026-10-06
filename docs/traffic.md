@@ -1173,6 +1173,22 @@ and the probe still drive — and `canPass` is false until it is thrown. While a
 pull out, or behind a truck, the taxi tailgates `COMBO_TAILGATE` (1.5) further back than
 `BOOST_GAP`, because 0.29 of daylight did not survive a tailgate longer than a fraction of a second.
 
+**Making it executable** (Tyler, 2026-10-06: "really hard to execute"). A bot playing the combo —
+Loco held, a 250ms reaction to a car within 20 units, then a release — measured where it failed:
+
+| | passed | rammed in the blip | rammed while armed | 300ms release |
+|---|---|---|---|---|
+| as shipped (#400) | 42 of 100 | 7 | 11 | **0 of 116 passed** |
+| after | 49 of 87 | 0 | 0 | 45 of 81 |
+
+Three fixes. The blip window went from 250ms to 400 (`OVERTAKE_BLIP_MS`): 250 was a cliff, and a
+relaxed thumb lift on a phone is 150-350ms. The blip and an armed combo waiting for a way round no
+longer ram (`taxi.passPending`, `asking` in `canPass`): the player was throwing the combo, and a
+ram there reads as the game eating the input. And the Loco pill glows steady white once the combo
+is armed or the pass is out (`#boost.is-pass-armed`). A quick throb for "a blip would take now"
+came before it and Tyler had it removed. What is left is mostly roads with no way round (no
+straight on, no oncoming lane), where an arm lapses.
+
 Measured over 16 cities × 40s with the button held: from a car coming within 30 units to the ram
 is a median of 0.58s (p10 0.23s, p90 1.62s). The short end is cars that turn in close from a cross
 street, which no range fixes. A player feathering the pill at random — a 60-220ms lift every 1-4s
