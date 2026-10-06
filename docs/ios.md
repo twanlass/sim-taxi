@@ -249,6 +249,7 @@ particular, because the default insets by the safe area and would double up on t
 ```bash
 npm run build:ios     # vite build, then tools/ios-sync.mjs copies dist/ -> ios/SimTaxi/web/
 npm run push:ios      # the above, then build + sign + install to a paired iPhone over Wi-Fi
+npm run archive:ios -- --build-number N   # fallback: a Release archive uploaded to App Store Connect
 ```
 
 The sync mirrors rather than merges — the destination is emptied first, or the previous build's
@@ -311,6 +312,27 @@ One-time setup, in Xcode on the Mac:
    Testing** with a group you are in.
 4. Install TestFlight on the phone. Each merge to `main` arrives there a few minutes after the
    build finishes.
+
+### Fallback upload from the Mac
+
+Xcode Cloud is the normal uploader. `npm run archive:ios -- --build-number N`
+([`tools/ios-archive.mjs`](../tools/ios-archive.mjs)) is the fallback from the Mac:
+clean-tree check, `build:ios`, `xcodebuild archive`, the same bundle-layout assertion as
+`push:ios` (both use [`tools/ios-layout.mjs`](../tools/ios-layout.mjs)), then an export that *is*
+the upload. `--no-upload` stops at an `.ipa` in `ios/build/export/` for Transporter. Archiving from
+Xcode's own Product ▸ Archive skips `build:ios` and ships whatever `web/` holds, so don't.
+
+The build number is required and explicit: one above the latest in App Store Connect ▸ TestFlight.
+Xcode Cloud numbers its uploads with its own counter from 1 into the same sequence, and App Store
+Connect refuses anything at or below a number it has seen for that version, so an automatic scheme
+here (a timestamp, the commit count) would lock Xcode Cloud out. It is passed on the command line,
+so the project file never changes.
+
+**iPhone only.** `TARGETED_DEVICE_FAMILY = 1`: 1.0 ships without an iPad build, so the listing
+needs no 13" screenshots and review needs no iPad pass. An iPad still runs it in iPhone
+compatibility mode, so it has to boot there. Going universal later is that setting, the
+`UISupportedInterfaceOrientations~ipad` list in Info.plist, and the iPad branch in
+`GameViewController.supportedInterfaceOrientations`.
 
 ## First-time Xcode setup
 
@@ -440,7 +462,7 @@ Not built yet, roughly in value-for-effort order:
   [audio.md](audio.md)), and the page asks for `navigator.audioSession.type = 'playback'`, so it
   plays through the silent switch. Still to check on a device: that WKWebView honours that the same
   way Safari does. If not, set `AVAudioSession` to `.playback` in the shell.
-- **App Store submission**: a privacy policy URL (required even though the app collects nothing —
-  it makes no network requests at all, so the nutrition label is "Data Not Collected"), age rating,
-  and screenshots. `tools/shoot.mjs` can render the required sizes — 6.9" iPhone at 1320×2868, and
-  13" iPad at 2064×2752 if iPad ships.
+- **App Store submission**: a privacy policy URL and a support URL (required even though the app
+  collects nothing — it makes no network requests at all, so the nutrition label is "Data Not
+  Collected"; they will live on the game's own website), age rating, and 6.9" iPhone screenshots
+  at 1320×2868.
