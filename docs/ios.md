@@ -299,7 +299,7 @@ A TestFlight build is **Release**, so Safari Web Inspector cannot attach to it (
 
 One-time setup, in Xcode on the Mac:
 
-1. App Store Connect: create the app record for `com.twanlass.simtaxi` if it does not exist.
+1. App Store Connect: create the app record for `com.twanlass.rocketrides` if it does not exist.
 2. Xcode: Product ▸ Xcode Cloud ▸ Create Workflow, and grant it access to the GitHub repo.
 3. Edit the workflow: start condition **Branch Changes** on `main`; one **Archive** action for iOS,
    deployment preparation **TestFlight (Internal Testing Only)**; post-action **TestFlight Internal
@@ -314,7 +314,7 @@ no project to recreate. Two steps on a fresh clone:
 
 1. Open `ios/SimTaxi.xcodeproj`, select the target, and set **Signing ▸ Team** to your own.
    `DEVELOPMENT_TEAM` is committed as one specific Apple developer account and is the only line in
-   the file that cannot be shared; `PRODUCT_BUNDLE_IDENTIFIER` is `com.twanlass.simtaxi`, which
+   the file that cannot be shared; `PRODUCT_BUNDLE_IDENTIFIER` is `com.twanlass.rocketrides`, which
    another team will have to change too.
 2. `npm run build:ios`. `ios/SimTaxi/web/` is gitignored — it is the build output — so a fresh clone
    has nothing for the scheme handler to serve and the app dies at `BundleSchemeHandler`'s
