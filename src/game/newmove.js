@@ -72,6 +72,18 @@ export const MOVES = {
 };
 
 /**
+ * The same card for the depot (game/repairclip.js), which is not a move and is not taught on a
+ * drop-off: it goes up once ever, a beat after the taxi first starts smoking (`SMOKE_FRACTION`),
+ * which is when the "Head to the shop for repairs." bubble it replaced used to (Tyler, 2026-10-06).
+ * No pedal row — the instruction is a tap, and the clip shows a finger making it on the door — so the
+ * line carries it in words, and the eyebrow is the depot's own name rather than "New Move Unlocked",
+ * which a repair is not. Kept out of MOVES because main.js walks those in order on drop-offs.
+ */
+export const REPAIR = {
+  seenKey: 'simTaxi.seen.repair', title: 'Taxi Depot', line: 'Tap for Repairs', keys: [],
+};
+
+/**
  * A beat after the drop-off before the card lands, in seconds of game time, so the payout pop and
  * the door have happened first and the card reads as the next thing rather than as interrupting
  * the last one.
@@ -117,7 +129,7 @@ const TITLE = 'New Move Unlocked';
  * (game/moveclip.js) and under that the pedal row, which the clip's own clock presses.
  * Browser-only: it clones the HUD's pedal art.
  *
- * `open(move)` takes one of MOVES with two more fields from main.js: `clipKeys` (the clip module's
+ * `open(move)` takes one of MOVES (or REPAIR; `title` overrides the eyebrow) with two more fields from main.js: `clipKeys` (the clip module's
  * own) and `makeClip`, (canvas) => clip | null, which films the clip in the city — null when there is
  * nowhere to film it, and the card shows without one.
  *
@@ -154,6 +166,7 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
   let keys = {};
   function buildKeys(row) {
     combo.replaceChildren();
+    combo.hidden = !row.length;
     keys = {};
     for (const [name, id] of row) {
       if (combo.childElementCount) {
@@ -236,10 +249,10 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
       buildKeys(move.keys);
       canvas.hidden = false;
       // Shown first, so the card's canvas has its size before the clip measures it.
-      bubble.show(TITLE, move.line, target, media);
+      bubble.show(move.title ?? TITLE, move.line, target, media);
       try { clip = move.makeClip(canvas); } catch (err) { console.warn(`${move.line} clip:`, err); clip = null; }
       // Nowhere to film: the card without a clip, re-measured.
-      if (!clip) { canvas.hidden = true; bubble.show(TITLE, move.line, target, media); }
+      if (!clip) { canvas.hidden = true; bubble.show(move.title ?? TITLE, move.line, target, media); }
       pressKeys();
       document.body.classList.add('new-move-open');
       return true;

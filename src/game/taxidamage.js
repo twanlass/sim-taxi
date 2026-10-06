@@ -29,8 +29,8 @@ import { TAXI_DECK_Y } from '../geometry/taxi.js';
 // damaged, so none of this can move a car off its lane or change a speed.
 
 const MID = 0.67;
-// Exported as SMOKE_FRACTION: the depot's call to come in for repairs (game/depotcall.js) goes out
-// on the frame the car starts smoking, so the call and the car say it together.
+// Exported as SMOKE_FRACTION: the depot's tip card (REPAIR in game/newmove.js) goes up a beat after
+// the car starts smoking, so the card and the car say it together.
 const LOW = 0.34;
 export { LOW as SMOKE_FRACTION };
 // The last warning. The billows above come and go in puffs; this is a stream — small, dark, one

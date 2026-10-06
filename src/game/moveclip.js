@@ -91,25 +91,142 @@ export function onStreet(place, along, lateral) {
  * relative to where the camera looks now, and its width and height, in world units.
  */
 export function frameRun(cam, place, baseYaw, player) {
+  const poses = [];
+  for (let t = 0; t <= player.loop; t += 0.05) {
+    const p = player.at(t);
+    poses.push({ ...onStreet(place, p.along, p.lateral), yaw: baseYaw + p.yaw });
+  }
+  return framePoses(cam, poses);
+}
+
+/**
+ * The same measurement off a list of car poses ({x, z, yaw}) rather than a reel, plus any `extra`
+ * world points ({x, y, z}) the frame has to hold as well — game/repairclip.js's depot door.
+ */
+export function framePoses(cam, poses, extra = []) {
   const inv = cam.matrixWorldInverse;
   const v = new THREE.Vector3();
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-  for (let t = 0; t <= player.loop; t += 0.05) {
-    const p = player.at(t);
-    const { x: cx, z: cz } = onStreet(place, p.along, p.lateral);
-    const yaw = baseYaw + p.yaw;
+  const take = () => {
+    v.applyMatrix4(inv);
+    x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x);
+    y0 = Math.min(y0, v.y); y1 = Math.max(y1, v.y);
+  };
+  for (const { x: cx, z: cz, yaw } of poses) {
     const fx = Math.cos(yaw), fz = -Math.sin(yaw);
     for (const a of [-BODY_HALF_LEN, BODY_HALF_LEN]) {
       for (const b of [-BODY_HALF_W, BODY_HALF_W]) {
         for (const y of [0, BODY_TOP]) {
-          v.set(cx + fx * a - fz * b, y, cz + fz * a + fx * b).applyMatrix4(inv);
-          x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x);
-          y0 = Math.min(y0, v.y); y1 = Math.max(y1, v.y);
+          v.set(cx + fx * a - fz * b, y, cz + fz * a + fx * b);
+          take();
         }
       }
     }
   }
+  for (const p of extra) { v.set(p.x, p.y, p.z); take(); }
   return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: x1 - x0, h: y1 - y0 };
+}
+
+/**
+ * The darkroom every clip shares: the still laid over the game, a clip camera that is the city
+ * camera's own projection and view direction, and the copy of the middle of each frame into the
+ * card. The reel clips below use it, and so does the depot's (game/repairclip.js), which is not a
+ * reel and frames itself off a scripted drive rather than a recording.
+ *
+ * `film(run, alpha, overlay)` draws one frame zoomed so `run` — frameRun's shape, in the clip
+ * camera's view space after `centre` — fits with FRAME_MARGIN to spare. `overlay(ctx, toCard)`, when
+ * given, draws over the copied frame; `toCard(x, y, z)` is a world point in the card canvas's pixels.
+ */
+export function createClipStage({ camera, renderFrame, canvas, freeze, cardCanvas }) {
+  // The still, first, while the scene is still exactly the city the player was looking at.
+  function snapshot() {
+    renderFrame(camera);
+    freeze.width = canvas.width;
+    freeze.height = canvas.height;
+    freeze.style.width = canvas.style.width || `${canvas.clientWidth}px`;
+    freeze.style.height = canvas.style.height || `${canvas.clientHeight}px`;
+    freeze.getContext('2d').drawImage(canvas, 0, 0);
+    freeze.hidden = false;
+  }
+  snapshot();
+
+  const clipCam = camera.clone();
+  // The framing below is all in world units; whatever push-in the city camera had is not part of it.
+  clipCam.zoom = 1;
+  clipCam.clearViewOffset();
+  const toCamera = camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(-DISTANCE);
+  const v = new THREE.Vector3();
+
+  let shotW = canvas.width;
+  let shotH = canvas.height;
+  let sx = 0;
+  let sy = 0;
+  let sw = 0;
+  let sh = 0;
+  const toCard = (x, y, z) => {
+    v.set(x, y, z).project(clipCam);
+    return { x: (v.x + 1) / 2 * canvas.width - sx, y: (1 - v.y) / 2 * canvas.height - sy };
+  };
+
+  return {
+    clipCam,
+    snapshot,
+    /** Point the clip camera at a spot on the ground, from the city camera's standoff. */
+    aim(x, z) {
+      const target = new THREE.Vector3(x, 0, z);
+      clipCam.position.copy(target).add(toCamera);
+      clipCam.lookAt(target);
+      clipCam.updateMatrixWorld(true);
+    },
+    /** Slide the camera across its own image plane onto the middle of `run`: same depth, same haze. */
+    centre(run) {
+      clipCam.position
+        .add(new THREE.Vector3().setFromMatrixColumn(clipCam.matrixWorld, 0).multiplyScalar(run.cx))
+        .add(new THREE.Vector3().setFromMatrixColumn(clipCam.matrixWorld, 1).multiplyScalar(run.cy));
+      clipCam.updateMatrixWorld(true);
+    },
+    /** The window was resized under the card: the still is the wrong size. `hide(bool)` takes the
+     * clip's own props out of shot while it is taken again. */
+    resized(hide) {
+      if (canvas.width === shotW && canvas.height === shotH) return;
+      hide(true);
+      snapshot();
+      hide(false);
+      shotW = canvas.width;
+      shotH = canvas.height;
+    },
+    film(run, alpha, overlay = null) {
+      // The card's canvas, in device pixels of the game's own canvas, so the copy is 1:1.
+      const cssW = cardCanvas.clientWidth;
+      const cssH = cardCanvas.clientHeight;
+      const viewW = canvas.clientWidth || 1;
+      const viewH = canvas.clientHeight || 1;
+      if (!cssW || !cssH) return;
+      const scale = canvas.width / viewW;
+      sw = Math.round(cssW * scale);
+      sh = Math.round(cssH * scale);
+      if (cardCanvas.width !== sw || cardCanvas.height !== sh) { cardCanvas.width = sw; cardCanvas.height = sh; }
+      // Zoomed so the middle cssW × cssH of the full frame holds the whole run.
+      const ppu = Math.min(cssW / (run.w * FRAME_MARGIN), cssH / (run.h * FRAME_MARGIN));
+      clipCam.left = -viewW / 2 / ppu;
+      clipCam.right = viewW / 2 / ppu;
+      clipCam.top = viewH / 2 / ppu;
+      clipCam.bottom = -viewH / 2 / ppu;
+      clipCam.updateProjectionMatrix();
+      renderFrame(clipCam);
+      sx = Math.round((canvas.width - sw) / 2);
+      sy = Math.round((canvas.height - sh) / 2);
+      const ctx = cardCanvas.getContext('2d');
+      ctx.clearRect(0, 0, sw, sh);
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+      ctx.globalAlpha = 1;
+      overlay?.(ctx, toCard, scale);
+    },
+    /** Fade a loop in and out at its seam. */
+    seam: (t, loop) => Math.min(1, t / SEAM, (loop - t) / SEAM),
+    dispose() { freeze.hidden = true; },
+  };
 }
 
 /**
@@ -127,18 +244,7 @@ export function frameRun(cam, place, baseYaw, player) {
 export function createMoveClip({ scene, camera, renderFrame, canvas, freeze, cardCanvas, place, player }) {
   if (!place) return null;
   const { reel } = player;
-
-  // The still, first, while the scene is still exactly the city the player was looking at.
-  function snapshot() {
-    renderFrame(camera);
-    freeze.width = canvas.width;
-    freeze.height = canvas.height;
-    freeze.style.width = canvas.style.width || `${canvas.clientWidth}px`;
-    freeze.style.height = canvas.style.height || `${canvas.clientHeight}px`;
-    freeze.getContext('2d').drawImage(canvas, 0, 0);
-    freeze.hidden = false;
-  }
-  snapshot();
+  const stage = createClipStage({ camera, renderFrame, canvas, freeze, cardCanvas });
 
   const taxi = createTaxiMesh();
   taxi.setOccupied(true);
@@ -152,53 +258,12 @@ export function createMoveClip({ scene, camera, renderFrame, canvas, freeze, car
   const baseYaw = Math.atan2(-place.forward.z, place.forward.x);
 
   // The clip camera: the city camera's own projection and view direction, centred on the road.
-  const clipCam = camera.clone();
-  // The framing below is all in world units; whatever push-in the city camera had is not part of it.
-  clipCam.zoom = 1;
-  clipCam.clearViewOffset();
-  const toCamera = camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(-DISTANCE);
-  const target = new THREE.Vector3(place.centre.x, 0, place.centre.z);
-  clipCam.position.copy(target).add(toCamera);
-  clipCam.lookAt(target);
-  clipCam.updateMatrixWorld(true);
-  const run = frameRun(clipCam, place, baseYaw, player);
-  // Slide the camera across its own image plane onto the middle of the run: same depth, same haze.
-  clipCam.position
-    .add(new THREE.Vector3().setFromMatrixColumn(clipCam.matrixWorld, 0).multiplyScalar(run.cx))
-    .add(new THREE.Vector3().setFromMatrixColumn(clipCam.matrixWorld, 1).multiplyScalar(run.cy));
-  clipCam.updateMatrixWorld(true);
+  stage.aim(place.centre.x, place.centre.z);
+  const run = frameRun(stage.clipCam, place, baseYaw, player);
+  stage.centre(run);
 
   let t = 0;
   let stamped = -1;      // the last reel frame whose rubber and bursts are down
-  let shotW = canvas.width;
-  let shotH = canvas.height;
-
-  function frame() {
-    // The card's canvas, in device pixels of the game's own canvas, so the copy is 1:1.
-    const cssW = cardCanvas.clientWidth;
-    const cssH = cardCanvas.clientHeight;
-    const viewW = canvas.clientWidth || 1;
-    const viewH = canvas.clientHeight || 1;
-    if (!cssW || !cssH) return;
-    const scale = canvas.width / viewW;
-    const sw = Math.round(cssW * scale);
-    const sh = Math.round(cssH * scale);
-    if (cardCanvas.width !== sw || cardCanvas.height !== sh) { cardCanvas.width = sw; cardCanvas.height = sh; }
-    // Zoomed so the middle cssW × cssH of the full frame holds the whole run.
-    const ppu = Math.min(cssW / (run.w * FRAME_MARGIN), cssH / (run.h * FRAME_MARGIN));
-    clipCam.left = -viewW / 2 / ppu;
-    clipCam.right = viewW / 2 / ppu;
-    clipCam.top = viewH / 2 / ppu;
-    clipCam.bottom = -viewH / 2 / ppu;
-    clipCam.updateProjectionMatrix();
-    renderFrame(clipCam);
-    const ctx = cardCanvas.getContext('2d');
-    ctx.clearRect(0, 0, sw, sh);
-    ctx.globalAlpha = Math.min(1, t / SEAM, (player.loop - t) / SEAM);
-    ctx.drawImage(canvas,
-      Math.round((canvas.width - sw) / 2), Math.round((canvas.height - sh) / 2), sw, sh, 0, 0, sw, sh);
-    ctx.globalAlpha = 1;
-  }
 
   // The reel's transform, laid on the road: what traffic.js's render pass writes on the taxi group.
   function pose() {
@@ -250,18 +315,12 @@ export function createMoveClip({ scene, camera, renderFrame, canvas, freeze, car
     update(dt) {
       // The window was resized under the card: the still is the wrong size, so take it again with
       // the stand-in out of shot.
-      if (canvas.width !== shotW || canvas.height !== shotH) {
-        taxi.group.visible = false;
-        flame.group.visible = false;
-        skids.mesh.visible = false;
-        if (flames) flames.mesh.visible = false;
-        snapshot();
-        taxi.group.visible = true;
-        skids.mesh.visible = true;
-        if (flames) flames.mesh.visible = true;
-        shotW = canvas.width;
-        shotH = canvas.height;
-      }
+      stage.resized((hide) => {
+        taxi.group.visible = !hide;
+        if (hide) flame.group.visible = false;
+        skids.mesh.visible = !hide;
+        if (flames) flames.mesh.visible = !hide;
+      });
       const before = t;
       t += dt;
       if (t >= player.loop) { t -= player.loop; stamped = -1; }
@@ -270,7 +329,7 @@ export function createMoveClip({ scene, camera, renderFrame, canvas, freeze, car
       layRubber(Math.floor(t / reel.step));
       skids.update(t < before ? 0 : dt);
       flames?.update(dt);
-      frame();
+      stage.film(run, stage.seam(t, player.loop));
     },
     /** Take the stand-in out of the city and the still down. */
     dispose() {
@@ -282,7 +341,7 @@ export function createMoveClip({ scene, camera, renderFrame, canvas, freeze, car
           for (const m of [node.material].flat()) m?.dispose?.();
         });
       }
-      freeze.hidden = true;
+      stage.dispose();
     },
   };
 }

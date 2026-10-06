@@ -169,6 +169,16 @@ export const REPAIR_GAP = 0.2;
 // the fade to black it replaced cost in wall-clock time (160 + 1000 + 300 ms, then a 0.45 beat).
 const REPAIR = 2.4;
 
+/**
+ * The visit's numbers, for the clip on the depot's tip card (game/repairclip.js), which acts the
+ * same drive out off the same paths — so a change to how the taxi comes and goes here changes the
+ * clip with it rather than leaving it showing last month's.
+ */
+export const VISIT = {
+  ACCEL, BRAKE, CREEP, TURN_V, MERGE_V, ENTER_V, IN_CREEP, DOOR_TIME, DOOR_SHUT, DOOR_CLOSE_TIME,
+  REVEAL, REPAIR, DROP_FROM, DROP_TO, DROP_PITCH, RISE_PITCH, MOUNT_PITCH, MOUNT_SETTLE,
+};
+
 const smoothstep = (k) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k));
 
 /**

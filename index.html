@@ -1062,8 +1062,7 @@
 
       /* --- speech bubbles -------------------------------------------------
          Every line anybody says on screen: the tutorial's tips (#coach), the robber
-         (#robber-talk), dispatch (#radio), the cop's shout (#cop-shout) and the depot's call in
-         for repairs (#depot-call). One bubble, built and
+         (#robber-talk), dispatch (#radio) and the cop's shout (#cop-shout). One bubble, built and
          pinned by src/game/speech.js — which is where "pinned to what it is about, and waiting at
          the screen's edge when that is off frame" lives. This is the look: the Figma file's
          "bubble-ui" (Taxi 🚕, node 180:1286) at the HUD's ×0.652 — 24px padding and radius become
@@ -1076,18 +1075,16 @@
 
          Not `#tip`/`#intro`/`#banner`/`#popup`: those sit on ad-blocker filter lists, and one
          match takes the module graph down with ERR_BLOCKED_BY_CLIENT (CLAUDE.md). */
-      #coach, #robber-talk, #radio, #cop-shout, #depot-call {
+      #coach, #robber-talk, #radio, #cop-shout {
         position: fixed; inset: 0; z-index: 22;
         pointer-events: none; user-select: none; -webkit-user-select: none;
       }
-      #coach[hidden], #robber-talk[hidden], #radio[hidden], #cop-shout[hidden],
-      #depot-call[hidden] { display: none; }
+      #coach[hidden], #robber-talk[hidden], #radio[hidden], #cop-shout[hidden] { display: none; }
       /* Never over a screenshot, and never over the retry screen: the run is the thing then. */
       body.shot-mode #coach, body.game-over #coach,
       body.shot-mode #robber-talk, body.game-over #robber-talk,
       body.shot-mode #radio, body.game-over #radio,
-      body.shot-mode #cop-shout, body.game-over #cop-shout,
-      body.shot-mode #depot-call, body.game-over #depot-call { display: none; }
+      body.shot-mode #cop-shout, body.game-over #cop-shout { display: none; }
 
       .speech { position: absolute; left: 0; top: 0; will-change: transform; }
       /* The entrance and exit. Grows out of the pointer (speech.js sets the origin on it), so the
@@ -1249,6 +1246,7 @@
         border-radius: 12px;
       }
       .nm-combo { display: flex; align-items: center; gap: 8px; }
+      .nm-combo[hidden] { display: none; }
       /* The "+" between keys: the title's ink, so it reads as part of the card's type. */
       .nm-plus { font: 700 18px/1 var(--game-font); color: #44497d; }
       .nm-key svg { display: block; overflow: visible; width: 44px; height: 44px; }
@@ -1996,7 +1994,6 @@
     <div id="new-move" role="status" aria-live="polite" hidden></div>
     <div id="cop-shout" role="status" aria-live="polite" hidden></div>
     <div id="radio" role="status" aria-live="polite" hidden></div>
-    <div id="depot-call" role="status" aria-live="polite" hidden></div>
     <div id="title-screen" hidden></div>
     <div id="home-tip" hidden></div>
     <div id="wipe" aria-hidden="true" hidden></div>

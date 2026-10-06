@@ -49,7 +49,6 @@ import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION } from './game/taxidamage.js';
 import { createCarDamage } from './game/cardamage.js';
 import { createTaxiDoor } from './game/taxidoor.js';
-import { createDepotCall } from './game/depotcall.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks, createTyreTrail } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
@@ -125,9 +124,10 @@ import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
-import { createNewMove, createSeenFlag, MOVES, SHOW_DELAY } from './game/newmove.js';
+import { createNewMove, createSeenFlag, MOVES, REPAIR, SHOW_DELAY } from './game/newmove.js';
 import { createUturnClip, pickStreet, clipKeys as uturnKeys } from './game/uturnclip.js';
 import { createDriftClip, pickCorner, clipKeys as driftKeys } from './game/driftclip.js';
+import { createRepairClip, clipKeys as repairKeys } from './game/repairclip.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
@@ -906,13 +906,6 @@ window.addEventListener('keydown', (event) => {
 // front of it. "Pull over!" goes up over its roof the moment it does (game/copshout.js).
 const police = createPolice(scene);
 const copShout = shot ? null : createCopShout({ project: projectToScreen, viewport });
-// The depot calling the taxi in for repairs once it starts smoking — see game/depotcall.js. Armed
-// while the car is above the line and fired on the frame it drops below it, so it speaks once per
-// bout of damage; a repair (or anything else that puts the HP back) re-arms it.
-const depotCall = garage && !shot
-  ? createDepotCall({ site: garage.site, project: projectToScreen, viewport })
-  : null;
-let depotCallArmed = true;
 
 /**
  * Is a getaway on? The robbery owns the run while it is: the depot and the drive-through both
@@ -923,7 +916,8 @@ const getaway = () => Boolean(robbery?.state.active);
 /**
  * ...and the wider version the tips are held behind: a getaway, or the chase its drop-off hands to
  * the patrol (`handOff`). Tyler got "Head to the shop for repairs" over the road mid-getaway. A
- * held tip is *deferred*, not dropped — see the depot call and `quiet` in game/tutorial.js.
+ * held tip is *deferred*, not dropped — see the depot's card (`newMoveCalm`) and `quiet` in
+ * game/tutorial.js.
  */
 const hushTips = () => getaway() || patrol.busy();
 const patrol = createPatrol({
@@ -4027,6 +4021,18 @@ const moves = {
       && createDriftClip({ ...clipStage(cardCanvas), corner: pickCorner(clipSite()) }),
   },
 };
+// The depot's card, on the same layer: once ever, a beat after the taxi first starts smoking. It
+// replaced a "Head to the shop for repairs." bubble over the garage door — see REPAIR in
+// game/newmove.js and game/repairclip.js.
+const repairCard = {
+  ...REPAIR, seen: createSeenFlag({ key: REPAIR.seenKey }), clipKeys: repairKeys,
+  makeClip: (cardCanvas) => freezeFrame && garage && createRepairClip({
+    ...clipStage(cardCanvas), site: garage.site, setDoor: garage.setDoor, workshop: repairFx, sparks, dust,
+    hide: [traffic.taxiGroup],
+  }),
+};
+// Seconds of game time until it lands, or negative while the car is not smoking.
+let repairCardIn = -1;
 const newMove = shot ? null : createNewMove({ viewport });
 // Seconds of game time until the card lands, or negative when none is due, and which move it is.
 let newMoveIn = -1;
@@ -4449,22 +4455,19 @@ function frame() {
   if (!fareLoopHeld()) robbery?.update(dt);
   radio?.update(dt, { over: fares.state.gameOver });
   copShout?.update(dt, { over: fares.state.gameOver });
-  if (depotCall) {
-    const smoking = traffic.taxi.hp <= TAXI_HP * SMOKE_FRACTION;
-    if (!smoking) depotCallArmed = true;
-    // Held through a getaway rather than spent on it: left armed, so a car still smoking when the
-    // chase is over hears it then. One already up when the robber gets in comes down and re-arms.
-    else if (hushTips()) {
-      if (depotCall.state.open) { depotCall.hide(); depotCallArmed = true; }
-    } else if (depotCallArmed) {
-      depotCallArmed = false;
-      // Not while the taxi is already on its way in, or inside: the advice has been taken.
-      if (!fares.state.gameOver && !depotRun?.active() && !opening?.visiting()) depotCall.show();
+  // The depot's card: SHOW_DELAY after the car starts smoking, so the hit that did it has landed
+  // first. A beat that is not calm — a getaway, a chase, the taxi already on its way in for repairs —
+  // defers it rather than spending it: it is tried again every half second for as long as the car
+  // is still smoking, and a car repaired in the meantime starts the count again next time.
+  if (garage && newMove && !repairCard.seen.get()) {
+    if (traffic.taxi.hp > TAXI_HP * SMOKE_FRACTION) repairCardIn = -1;
+    else if (repairCardIn < 0) repairCardIn = SHOW_DELAY;
+    else {
+      repairCardIn -= dt;
+      if (repairCardIn <= 0) {
+        if (!(newMoveWanted(repairCard) && newMoveCalm() && openNewMove(repairCard))) repairCardIn = 0.5;
+      }
     }
-    // Taken down early only by a run that ends. A tap on the depot used to take it down too, which
-    // lost it before it had been read; it runs its full DEPOT_CALL_LINGER either way.
-    if (fares.state.gameOver) depotCall.hide();
-    depotCall.update(dt);
   }
   if (newMoveIn > 0) {
     newMoveIn -= dt;
@@ -5441,7 +5444,7 @@ window.__taxi = {
    * move a drop-off at that many deliveries would teach.
    */
   newMove: newMove && {
-    open: (name = 'uturn') => openNewMove(moves[name]), isOpen: newMove.isOpen, close: newMove.close,
+    open: (name = 'uturn') => openNewMove(name === 'repair' ? repairCard : moves[name]), isOpen: newMove.isOpen, close: newMove.close,
     seek: newMove.seek, seen: moves.uturn.seen, moves, wanted: newMoveWanted, calm: newMoveCalm,
     due: () => newMoveIn, next: (n) => nextMove(n)?.line ?? null, showing: () => newMove.move()?.line ?? null,
   },
@@ -5505,8 +5508,8 @@ window.__taxi = {
   burgerRun,
   /** The trip back to the depot for repairs — `depotRun.send()` is the tap on the garage. */
   depotRun,
-  /** The depot's call in for repairs, or null — `show()` puts it up. See game/depotcall.js. */
-  depotCall,
+  /** The depot's tip card — `newMove.open('repair')` opens it. See game/repairclip.js. */
+  repairCard,
   sendForRepairs,
   /** The opening rise-out-of-the-ground animation. `cityEntry.replay()` reruns it on demand. */
   cityEntry,
