@@ -76,7 +76,7 @@ The chain, measured to the deck's *soffit* since that is what a boat hits:
 |---|---|---|
 | Flat span, deck 0.35 thick | −0.35 | **1.65** |
 | Arched span at the crest, rise 1.9 | +1.55 | **3.55** |
-| Barge, air draught 1.4 | | clears both |
+| Barge, air draught 1.6 | | clears both |
 | Tug (the sailboat), air draught 3.4 | | clears the arches by 0.15, **1.75 short of the flat one** |
 
 Four numbers across three files, so the probe asserts the **chain** rather than its outcome: move
@@ -309,6 +309,20 @@ moment the leaf touched down both barriers vanished and reappeared lying flat �
 as "the gates disappear and pop back in". Lowering a barrier and raising it are not the same
 transition and cannot share a phase.
 
+The arms are striped black and white on the diagonal, like a railway crossing arm, and the stripes
+are geometry rather than a texture: each is a box sheared along the arm so its edges run at 45
+degrees across both faces the camera sees, with the end stripes clamped square (`stripedBar`).
+
+Each arm carries **two amber warning lamps**, one near either end, flashing alternately at a level
+crossing's rate (`LAMP_PERIOD`, one flash a second per lamp). They come on with the first frame of
+`closing`, so they are already flashing while the arms drop and the deck clears ahead of the leaf,
+run through the whole lift, and go out `LAMP_TAIL` (1s) after `raising` has the arms back up. Both
+arms flash in step so the pair across the road reads as one signal. A lamp is switched on its
+colour (`lightYellow` against the dark `gateLampOff` lens) *and* its bloom scale, with a hard
+switch rather than a fade: at that rate a fade spends most of its time at half brightness and reads
+as a dim lamp. Shot 42 (`drawbridge-gate`) frames them; `tools/probe.mjs` asserts the timing and the
+alternation.
+
 The end of `lowering` fires an **`onLand` callback with both abutment feet**, and `main.js` throws a
 puff of dust at each out of the pool the roadworks smash and the boosting taxi already share. The
 leaf coming home is the one moment in the cycle with an impact in it and it was landing in silence;
@@ -396,12 +410,31 @@ else, so the hold is gone.
 lifts is a fact about the map and has to stay learnable, but when it lifts is the situation.
 
 **What they look like, and how big.** Sized against the cars (3.4 × 1.7) and the water (9.2 across,
-7.87 on the narrow build). The barge is a 16 × 6 flat deck barge raked at both ends, about three
-quarters of the channel, carrying one tier of containers and loose crates in a mix each hull draws
-for itself — one tier because a container at car scale would stand 1.95 tall and everything has
-to stay under `BARGE_AIR`. The boat that asks for the lift is a 6 × 2.4 white **sailboat** with its
+7.87 on the narrow build). The barge is an 11 × 4.2 **trash barge**, half the channel: a rusty scow
+square at the stern and rounded at the bow, with tyre fenders down its sides, a heap of bin bags,
+cardboard, tyres and drums drawn per hull, and a steel wheelhouse with a funnel through its roof at
+the stern. It replaced a 16 × 6 container barge that read as big and as a slab. The wheelhouse is
+its own mesh so it can wear the cars' **metal** finish (`propMaterial({ gloss })`, glass windows
+included). Everything stays under `BARGE_AIR` (1.6, against the flat span's 1.65), and that is
+the only thing bounding how tall the wheelhouse and funnel can be: the heap stops lower, at
+`PERCH_CEIL`, so a gull standing on it still clears the flat span, and the wheelhouse roof is not a
+perch for the same reason. The boat that asks for the lift is a 6 × 2.4 white **sailboat** with its
 sails down and a tall mast; the code still calls it the tug (`kind: 'tug'`, `TUG_AIR`, `TUG_LEN`).
 Its masthead sits at `TUG_AIR` exactly.
+
+**The gulls** (`game/gulls.js`): five per barge, a child of the hull mesh wearing its material, so
+they ride with it and fade with it at the coast. Some stand on the heap or the bow; the rest circle low over it, and every few seconds one lands or takes off. A flying gull is
+drawn 1.5× life size (`FLY_SCALE`) — at play zoom a life-size one was a white speck. They draw from
+their own rng stream, seeded with one draw off the boats', so the launch schedule does not depend on
+how often a bird landed.
+
+The bridges are the constraint, and there are two rules for them. A gull only takes off or lands
+when no span is over the hull for the length of the move (`gullsClear` in boats.js) — a perched bird
+fits under the flat soffit (`PERCH_CEIL + GULL_STAND` = 1.62 against 1.65) and a bird mid-move does
+not. And the circle is flown at `FLY_LOW`, 3.8–4.9 off the water, but each bird climbs to `FLY_HIGH`
+(7.4, over a truck on the arch crest) as it nears a span and drops back once past. The first cut flew
+at bridge height the whole time and the birds hung so far up-screen they read as gulls over the far
+bank. The probe soaks five minutes and counts bird-frames inside a deck: zero.
 
 A barge every 16–34s, a tug every 90–150s and never two at once. Both are slow on purpose — 2.6 and
 3.4 units per second against a car's 8.5 — because what sells a boat is being the slowest thing in
@@ -428,8 +461,9 @@ would pass through a closed span.
 
 ### Single file
 
-**Everything runs down the middle** (`BOAT_LANE` is 0, `LANE_WANDER` 0.2), because nothing can pass
-a barge that fills three quarters of the water. Boats used to keep a lane each way, port to port,
+**Everything runs down the middle** (`BOAT_LANE` is 0, `LANE_WANDER` 0.2). It started when the
+barge filled three quarters of the water, and it survived the barge shrinking to half: two 4.2-wide
+hulls need 8.4 of a 7.87 channel on the narrow build. Boats used to keep a lane each way, port to port,
 and the two bounds on that lane — a floor so passing hulls do not touch, a ceiling so the tug's mast
 clears the arch off-centre — are what kept the hulls under half the channel wide. The centreline is
 also where the arch is highest: `deckHeightAt` is a function of `z` alone and crests there, so the
@@ -478,8 +512,8 @@ two things about it that are facts about the river rather than about the effect:
   Keyed to distance it stops being a special case and becomes what the emitter does.
 - **The arms are clamped at the bank.** They open on the Kelvin angle, which is a function of the
   boat's speed and knows nothing about the water it is in — and this water is 7.87 units across on
-  the narrow build against a barge whose arms start 2.9 off the middle (each hull throws them from
-  just inside its own side), so there is about a unit of open water outboard of a hull. Left to open freely the foam is over the embankment inside a second
+  the narrow build against a barge whose arms start 2.0 off the middle (each hull throws them from
+  just inside its own side), so there is under two units of open water outboard of a hull. Left to open freely the foam is over the embankment inside a second
   and a half. The pool takes `waterEdges()` for that reason, and a mote is held at the bank less its
   own radius, which is also what a wake in a narrow channel actually does.
 
@@ -545,7 +579,8 @@ because what shows through it there is sky.
 ## Looking at it
 
 `?shot=14` frames the river, `?shot=15` the leaf half way up with the tug holding station,
-`?shot=16` the leaf fully up with the tug going through, and `?shot=17` the coast at the mouth.
+`?shot=16` the leaf fully up with the tug going through, `?shot=17` the coast at the mouth, and
+`?shot=41` the trash barge and its gulls, close.
 That last one is deliberately much tighter than play zoom: every failure at the mouth has been a
 bright speck of sky a few pixels across, which a wide framing cannot resolve at all — the way to
 check it is to count pixels brighter than the ground, not to look. All three step the **real** state machine

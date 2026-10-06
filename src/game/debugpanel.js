@@ -118,6 +118,8 @@ export function createDebugPanel({
   // The sound effects (game/sfx.js), for the Audio sections — null in the boot pass and in shot
   // mode, which have no audio, and then the sections are left out.
   sfx = null,
+  // The wreck fireball's cut — `{ styles, current, set }` over game/blast.js's WRECK_STYLES.
+  wreck = null,
 }) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
@@ -360,6 +362,19 @@ export function createDebugPanel({
   const blend = dropdown(Object.keys(ROUTE_BLENDS), routeLine.blend());
   row(panel, 'Route blend', blend);
   blend.addEventListener('change', () => routeLine.setBlend(blend.value));
+
+  // Live, and it only reaches the *next* crash: the style is read at detonation. Mirrored into the
+  // URL so a Retry that reloads keeps it, and so the choice can be pasted as a link.
+  if (wreck) {
+    const wreckStyle = dropdown(wreck.styles, wreck.styles.includes(wreck.current) ? wreck.current : 'flat');
+    row(panel, 'Wreck fire', wreckStyle);
+    wreckStyle.addEventListener('change', () => {
+      wreck.set(wreckStyle.value);
+      const url = new URL(window.location.href);
+      url.searchParams.set('wreck', wreckStyle.value);
+      window.history.replaceState(null, '', url);
+    });
+  }
 
   // Strength only. Whether the pass runs at all is `?ao=off`, and it has to be a URL flag rather
   // than a control here: the AO lookup is compiled into every prop material at build time, so

@@ -1,6 +1,6 @@
 {
-  "name": "Sim Taxi",
-  "short_name": "Sim Taxi",
+  "name": "Rocket Rides",
+  "short_name": "Rocket Rides",
   "start_url": "/",
   "display": "standalone",
   "display_override": ["fullscreen"],
@@ -8,6 +8,7 @@
   "theme_color": "#A46BFF",
   "icons": [
     { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "/apple-touch-icon-512.png", "sizes": "512x512", "type": "image/png" }
   ]
 }

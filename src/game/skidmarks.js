@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { unlitMaterial } from '../util/geo.js';
 import { color } from '../palette.js';
+import { TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK, TAXI_FRONT_AXLE_FWD, TAXI_FRONT_TRACK } from '../geometry/taxi.js';
 
 // Rubber left on the road when the taxi throws it around a corner in crazy mode.
 //
@@ -102,6 +103,12 @@ export function createSkidMarks(scene, {
       transparent: true,
       depthWrite: false,
       side: THREE.DoubleSide,
+      // One pass, not three's default two. A transparent DoubleSide material is drawn back faces
+      // first and then front faces, and three flips `side` and sets `needsUpdate` around each half
+      // — two draws and two trips through `getProgram` a frame, for each of the two mark pools
+      // (rubber and wet). Every mark is a flat strip wound to face up under a camera that never
+      // goes below the road, so the back-face half never had a fragment to draw.
+      forceSinglePass: true,
     }),
   );
   mesh.renderOrder = 2;   // over the tarmac, under the cars and every game marker
@@ -218,4 +225,55 @@ export function createSkidMarks(scene, {
   }
 
   return { mesh, add, update, live };
+}
+
+/**
+ * Rubber laid along each tyre's own path, for the bootleg. Everything else stamps on the car's
+ * heading every so far down the road, which is right while the tyres point where they are going —
+ * and a spin is the one manoeuvre where they don't: stamped that way it left a ladder of short rungs
+ * lying across the slide instead of the curving streaks a handbrake turn actually writes.
+ *
+ * `tyres` is [along, across, strength] per wheel in the car's own frame (+along forward, +across
+ * to its right). `update(car, add)` takes anything with `x`, `z`, `yaw` and calls
+ * `add(x, z, yaw, strength)` per stamp; `reset()` ends the trail, so the next update only anchors.
+ * Shared with tools/uturnreel.mjs so the New Move card's clip lays exactly what the game does.
+ */
+export const TYRE_MARK_STEP = 0.4;     // under the 1.5 mark length, so the stamps overlap into a band
+
+/** The taxi's four, for the bootleg. The rears drag harder than the fronts, as a pulled handbrake does. */
+export const SPIN_TYRES = [
+  [-TAXI_REAR_AXLE_BACK, -TAXI_REAR_TRACK, 1], [-TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK, 1],
+  [TAXI_FRONT_AXLE_FWD, -TAXI_FRONT_TRACK, 0.65], [TAXI_FRONT_AXLE_FWD, TAXI_FRONT_TRACK, 0.65],
+];
+
+export function createTyreTrail(tyres = SPIN_TYRES) {
+  let last = null;
+  return {
+    get active() { return last !== null; },
+    reset() { last = null; },
+    update(car, add) {
+      const fx = Math.cos(car.yaw), fz = -Math.sin(car.yaw);
+      const rx = Math.sin(car.yaw), rz = Math.cos(car.yaw);
+      const first = !last;
+      last ??= tyres.map(() => ({ x: 0, z: 0 }));
+      tyres.forEach(([along, across, strength], k) => {
+        const x = car.x + fx * along + rx * across;
+        const z = car.z + fz * along + rz * across;
+        const at = last[k];
+        if (first) { at.x = x; at.z = z; return; }
+        const dx = x - at.x, dz = z - at.z;
+        const len = Math.hypot(dx, dz);
+        if (len < TYRE_MARK_STEP) return;
+        // Along the tyre's own motion, evenly spaced however far it went this frame.
+        const yaw = Math.atan2(-dz, dx);
+        const n = Math.floor(len / TYRE_MARK_STEP);
+        for (let i = 1; i <= n; i++) {
+          const f = (i * TYRE_MARK_STEP) / len;
+          add(at.x + dx * f, at.z + dz * f, yaw, strength);
+        }
+        at.x += (dx * n * TYRE_MARK_STEP) / len;
+        at.z += (dz * n * TYRE_MARK_STEP) / len;
+      });
+    },
+  };
 }

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { skipWhenEmpty } from '../util/emptypools.js';
 import { unlitMaterial } from '../util/geo.js';
 import { waterHeightAt } from '../city/river.js';
 import { PALETTE } from '../palette.js';
@@ -146,7 +147,7 @@ export function createWake(parent, rng, edges, fade) {
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
   };
 
-  const mesh = new THREE.InstancedMesh(geometry, material, MAX_FOAM);
+  const mesh = skipWhenEmpty(new THREE.InstancedMesh(geometry, material, MAX_FOAM));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.name = 'boat-wake';
   mesh.renderOrder = -1;      // after the water at -2, before everything on the land

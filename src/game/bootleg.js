@@ -23,7 +23,7 @@ import { spinTaxi } from '../sim/traffic.js';
 // the speeds and the window are first guesses that felt right.
 
 /** Two brake taps inside this, in ms, are the combo. A deliberate double tap is ~150-250ms. */
-const COMBO_GAP_MS = 350;
+export const COMBO_GAP_MS = 350;
 /** Slower than this and there is nothing to spin: a standing car turning round is a three-point turn. */
 const SPIN_MIN_V = 4;
 /**

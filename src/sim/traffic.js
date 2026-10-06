@@ -14,7 +14,8 @@ import {
   headlightGeometry, headlightAnchors, headlightMaterial, coneGeometry, coneMaterial, coneQuat,
 } from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
-import { bumperGeometries } from '../geometry/bumpers.js';
+import { bumperGeometries, bumperAt, bumperLength, BUMPER_D, BUMPER_H } from '../geometry/bumpers.js';
+import { bumperHinge, lampSocket, lampHang } from '../geometry/damage.js';
 import {
   GRID_I, GRID_J, HALF_ROAD, LANE, PITCH, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
   ringAxisAt, isUnsignalised, lineX, lineZ, laneOffsetFor, riverBanks,
@@ -553,6 +554,12 @@ const CHASE_SPEED = 2.55;
  * points of "a cop in the road ahead" and nothing else.
  */
 export const POLICE_FLEET = 4;
+/**
+ * ...and how many more a getaway can call in on top of that: one per checkpoint reached
+ * (`ROBBER_CHECKPOINTS` in game/fares.js, `wanted` in game/robbery.js). Reserved in the instance
+ * buffers alongside the fleet for the same reason the fleet is.
+ */
+export const POLICE_REINFORCEMENTS = 4;
 
 // --- Passing ------------------------------------------------------------------
 //
@@ -651,7 +658,8 @@ const PASS_BANK = 0.14;
 // point of the chase is that the police are driving the way the player is. So a cop gets the
 // taxi's spring, early window and gain while `chase` is on. Keyed on `police` for the spring
 // itself rather than on `chase`, so a cop that stands down mid-corner keeps its spring and settles
-// rather than snapping from the sprung roll to the raw one; at most POLICE_FLEET of them exist.
+// rather than snapping from the sprung roll to the raw one; at most POLICE_FLEET plus
+// POLICE_REINFORCEMENTS of them exist.
 const CORNER_ROLL_OMEGA = 13;    // rad/s — a period of ~0.5s, one visible rock back after the exit
 const CORNER_ROLL_DAMP = 10.4;   // 1/s, against ω = 13: ζ = 0.40, the pitch spring's
 const CORNER_ROLL_GAIN = 1.25;   // boosted rights only: a spring's peak lands under a pulse this short
@@ -1180,7 +1188,20 @@ const closingFloor = (car, leader) => Math.max(0, (leader.v ?? 0) * Math.cos(lea
  */
 const boostGap = (car, leader) => (car.passOffset > 0
   ? Math.min(BOOST_GAP + truckExtra(leader), envelopeGap(car.passOffset, leader))
-  : BOOST_GAP + truckExtra(leader));
+  : BOOST_GAP + truckExtra(leader) + (car.passArmed !== undefined && !car.passing ? COMBO_TAILGATE : 0));
+/**
+ * Extra daylight behind a car the taxi is not passing, wherever the overtake combo
+ * (game/overtake.js) decides passes — held until the pull-out actually starts, not just until the
+ * combo arms, because an arm thrown mid-junction waits for the next lane (passes are only decided
+ * on one) and closing to BOOST_GAP in the meantime bumped the car it was about to go round.
+ * BOOST_GAP's 0.29 was sized for a tailgate that lasted a
+ * fraction of a second before the taxi pulled out; held behind a car indefinitely at 17-23 u/s it is
+ * too thin to survive the leader's own small hiccups, and one is built in: a car landing off a
+ * junction drops the frame's overshoot (`car.s = 0` below), a 0.24-unit step backwards at 17 u/s,
+ * which bumped the taxi on the probe's staging every time. 1.5 is still visibly on its bumper —
+ * and well inside PASS_TRIGGER, so the pass starts the frame the combo arms.
+ */
+const COMBO_TAILGATE = 1.5;
 /**
  * How far clear of the car it just passed the taxi must be before it may cut back in.
  *
@@ -1455,12 +1476,64 @@ function startUturn(car, sw) {
 // the first frame so traffic coming the other way sees it at once, and the render pass draws the
 // slide and the rotation from the lane it left.
 
-/** How long the spin takes, in seconds. Snappy is the brief: under half a second, nose to tail. */
-export const SPIN_TIME = 0.42;
+/**
+ * How long the spin takes, in seconds. The first cut was 0.42 — one clean half turn — and read as
+ * "almost a too perfect rotation". The choreography below has three beats in it, and under ~0.6s
+ * the first and last of them are over before the eye finds them; the last ~0.1s on top is the
+ * straight run-in (SPIN_KEYS), which at 0.62 without it still read as rotating on the spot.
+ */
+export const SPIN_TIME = 0.76;
 /** Fraction of its speed the taxi keeps through the spin, and the floor it comes out at. */
 const SPIN_KEEP = 0.55;
 /** How far it slides on down the road while it spins, as a fraction of the road it would cover. */
-const SPIN_SLIDE = 0.45;
+const SPIN_SLIDE = 0.5;
+
+// The shape of the spin, as the angle turned toward the far lane (radians) at each key of `t`. A
+// real handbrake turn is not one clean half turn: the driver flicks the nose *away* first to load
+// the car up, it then swings round past the 180 as the tail lets go, and settles back. Every key is
+// a turning point of the angle, so each span eases in and out (a smoothstep) and the rate is zero
+// exactly where the motion reverses. The first cut swung 0.5 past the 180 and whipped 0.16 back
+// under it, with twice this tilt, and read as springy; this is the calmer second pass.
+const SPIN_KEYS = [
+  [0, 0],
+  [0.14, 0],                    // carrying on straight, so the spin reads as momentum, not a pivot
+  [0.32, -0.28],                // the flick out, away from the far lane
+  [0.74, Math.PI + 0.22],       // the oversteer, past the 180
+  [1, Math.PI],                 // the tail settles back, square in the lane
+];
+/** The span of `t` the car crosses to the far lane over — after the run-in, done before it settles. */
+const SPIN_CROSS = [0.3, 0.9];
+/**
+ * How deep the arc runs: the furthest down the road it reaches, as a fraction of the road its speed
+ * would cover over the spin, at `t` = SPIN_PEAK — after which it slides back to where it lands, as
+ * a car that has turned round and is now driving the other way does.
+ */
+const SPIN_REACH = 0.6;
+const SPIN_PEAK = 0.7;
+/** How far the flick carries the body sideways, away from the far lane, in units — the arc's width. */
+const SPIN_FLICK_SHIFT = 1.1;
+/** Most the body tilts in a spin, in radians, and the rate (rad/s) that buys about three quarters of it. */
+const SPIN_TILT = 0.14;
+const SPIN_TILT_RATE = 6;
+
+/**
+ * The spin's angle toward the far lane at `t` (0..1), and its rate in radians per unit `t`. The
+ * render pass draws the yaw off the first and the body's tilt off the second.
+ */
+export function spinAngle(t) {
+  const u = Math.max(0, Math.min(1, t));
+  for (let k = 1; k < SPIN_KEYS.length; k++) {
+    const [t1, a1] = SPIN_KEYS[k];
+    if (u > t1 && k < SPIN_KEYS.length - 1) continue;
+    const [t0, a0] = SPIN_KEYS[k - 1];
+    const f = (u - t0) / (t1 - t0);
+    return {
+      a: a0 + (a1 - a0) * f * f * (3 - 2 * f),
+      rate: ((a1 - a0) * 6 * f * (1 - f)) / (t1 - t0),
+    };
+  }
+  return { a: Math.PI, rate: 0 };
+}
 
 /**
  * Spin the taxi round to the far lane, or say why not: `'median'` on an arterial (the centreline is
@@ -1491,7 +1564,7 @@ export function spinTaxi(car) {
   const c = car.s + ((p.x - o.x) * t.x + (p.z - o.z) * t.z);
   // Land past the slide, but never inside the far lane's own stop line (that junction is the one
   // behind the taxi, and landing there runs its light — see CLAUDE.md) or in the junction ahead.
-  const slide = Math.min(car.v * SPIN_TIME * SPIN_SLIDE, 6);
+  const slide = Math.min(car.v * SPIN_TIME * SPIN_SLIDE, 7);
   const hi = back.length - STOP_SETBACK - 1;
   const lo = CAR_LEN / 2 + 1;
   if (hi < lo) return 'short';
@@ -1501,8 +1574,12 @@ export function spinTaxi(car) {
   const n = { x: q.x - p.x, z: q.z - p.z };
   const dir = n.x * -h.z + n.z * h.x > 0 ? 1 : -1;
   const v0 = car.v;
+  // How far on down the road the arc reaches before it comes back to land: as far as the speed
+  // carries it, but not past the end of the lane it is leaving, into the junction ahead.
+  const down = (q.x - p.x) * h.x + (q.z - p.z) * h.z;
+  const reach = Math.max(down, Math.min(v0 * SPIN_TIME * SPIN_REACH, lane.length - car.s - 0.5));
   car.uturn = {
-    kind: 'spin', p, q, h, dir, t: 0, yaw0: yawOf(h), v0, v1: Math.max(SPEED, v0 * SPIN_KEEP),
+    kind: 'spin', p, q, h, dir, t: 0, yaw0: yawOf(h), v0, v1: Math.max(SPEED, v0 * SPIN_KEEP), reach,
   };
   car.uturnWanted = false;
   car.lane = back;
@@ -1517,6 +1594,108 @@ export function spinTaxi(car) {
   car.route = [];
   car.routeConsumed = false;
   return null;
+}
+
+// --- The drift: Loco, tap the brake, Loco again --------------------------------------------------
+//
+// Holding Loco Mode into a real turn, a tap of the brake (`driftTaxi`) is not a stop: the taxi goes
+// round with its nose swung past the heading on a spring (`car.driftAmt` below) and four wheels of
+// rubber (layRubber in main.js), at the boost cruise, rights included, deaf to the pedal. Plain
+// Loco corners keep the lean alone, so the slide is the combo's own look. Get back on the pill before the
+// arc is over (`kickDrift`) and it comes out of the corner with a kick, DRIFT_EXIT of the cruise
+// held for DRIFT_CARRY. Skip the second half and it is just the slide. `car.drifts` counts kicks.
+//
+// It is a prototype and every number below is a first guess, not a measurement.
+
+/** Slower than this and a brake press is a brake: ~1.5× cruise, so only Loco Mode gets here. */
+export const DRIFT_MIN_V = 13;
+/** Seconds of approach the tap may land in, as road at the current speed (never under 8). */
+const DRIFT_LEAD = 0.6;
+/** How far round the arc a late tap still counts, as a fraction of it. */
+const DRIFT_LATE = 0.35;
+/** Seconds the exit kick is held after the exit, before the boost takes over again. */
+const DRIFT_CARRY = 0.6;
+/** The exit kick, as a fraction of the boost cruise: 30.9 u/s, put on in one frame. 1.2 (26.5)
+ * read as too timid in play — barely past the cruise it was already doing. */
+export const DRIFT_EXIT = 1.4;
+/** A drift that has not landed in this long has gone wrong somewhere; let it go. */
+const DRIFT_MAX = 2.5;
+/** How far the nose swings past the heading at the height of the slide, in radians (~31°). */
+export const DRIFT_ANGLE = 0.55;
+const DRIFT_OMEGA = 11;         // the swing's spring: ~0.55s period, so the exit rocks once
+const DRIFT_DAMP = 2 * 0.42 * DRIFT_OMEGA;
+
+/** +1 or -1: the way yaw moves from heading `d` to heading `dOut`. */
+function turnYawSign(d, dOut) {
+  const from = dirYaw(d);
+  const to = dirYaw(dOut);
+  return Math.atan2(Math.sin(to - from), Math.cos(to - from)) >= 0 ? 1 : -1;
+}
+
+/**
+ * The combo's first half: start a drift, or say why not — `'slow'` under DRIFT_MIN_V, `'straight'`
+ * with no real turn within reach, `'busy'` mid-spin, mid-U-turn, staged, or already drifting.
+ */
+export function driftTaxi(car) {
+  if (car.crashed || car.staged || car.uturn || car.drift) return 'busy';
+  if (car.v < DRIFT_MIN_V) return 'slow';
+  const net = cityNetwork();
+  let turn = null;
+  let phase = 'approach';
+  if (car.state === 'turn') {
+    const into = Math.min(car.turnT, 1) * car.turnLen - car.leadIn;
+    if (into > DRIFT_LATE * (car.turnLen - car.leadIn)) return 'straight';
+    turn = car.turn;
+    phase = 'arc';
+  } else if (car.state === 'drive') {
+    if (car.pass > 0 || car.passing) return 'busy';
+    const toLine = car.lane.length - STOP_SETBACK - car.s;
+    if (toLine > Math.max(8, car.v * DRIFT_LEAD)) return 'straight';
+    if (car.route?.length) turn = exitToward(net, car.lane, car.route[0]);
+    else if (car.intentLane === car.lane.id && car.intentTurn) turn = net.turnById.get(car.intentTurn);
+  }
+  if (!turn || turn.hand === 'straight') return 'straight';
+  car.drift = { phase, lane: car.lane.id, v: boostCruise(), t: 0, carry: DRIFT_CARRY, kicked: false };
+  // `car.lane` is still the approach lane mid-turn: it only becomes the exit lane on landing.
+  car.driftSign = turnYawSign(car.d, net.dirOfLane(net.laneById.get(turn.outLane)));
+  return null;
+}
+
+/** The combo's second half: back on the pill before the arc is over. Answers whether it counted. */
+export function kickDrift(car) {
+  if (!car.drift || car.drift.phase === 'carry') return false;
+  car.drift.kicked = true;
+  return true;
+}
+
+/** Advance a drift's phase, or drop it. Called once a frame for the taxi, before its physics. */
+function stepDrift(car, dt) {
+  const d = car.drift;
+  if (!d) return;
+  d.t += dt;
+  const drop = () => { car.drift = null; };
+  if (car.crashed || car.staged || car.uturn || d.t > DRIFT_MAX) return drop();
+  if (d.phase === 'approach') {
+    if (car.state === 'turn') {
+      if (car.turn.hand === 'straight') return drop();
+      d.phase = 'arc';
+    } else if (car.lane.id !== d.lane || car.v < DRIFT_MIN_V / 2) {
+      return drop();
+    }
+  } else if (d.phase === 'arc') {
+    if (car.state !== 'drive') return;
+    // Landed. Without the second half it was only a slide, and the boost (or the coast-down) has
+    // the car back. With it, the kick goes on in one frame — a surge, like BOOST_KICK — and holds.
+    if (!d.kicked) return drop();
+    d.phase = 'carry';
+    d.v = boostCruise() * DRIFT_EXIT;
+    car.v = Math.max(car.v, d.v);
+    car.drifts += 1;
+  } else {
+    // A fresh press of the brake on the way out is a brake again.
+    d.carry -= dt;
+    if (d.carry <= 0 || car.braking || car.state !== 'drive') return drop();
+  }
 }
 
 const YIELD_RANGE = 15;          // how far ahead oncoming traffic blocks a left turn
@@ -1961,9 +2140,13 @@ const CABIN_Y = 1.45 + CHASSIS_LIFT;         // its centre
 /** The roof: what a light bar is bolted to. */
 export const CABIN_TOP = CABIN_Y + CABIN_H / 2;
 
-export function carGeometry() {
+export function carGeometry({ bumpers = true } = {}) {
   // Body is left white so the per-instance colour tints it; the glass is dark enough that the
   // same multiply leaves it dark whatever colour the car is.
+  //
+  // `bumpers: false` for the fleet, which draws them as instances of their own (`bumperMesh` in
+  // createTraffic) so that a car the taxi has hit can wear one hanging off a corner — a bar merged
+  // into the body could not be taken away from the end it left.
   const parts = [];
 
   // Body sits clear of the wheels so they actually show below the sill.
@@ -1976,7 +2159,7 @@ export function carGeometry() {
   parts.push(setFinish(bakeColor(cabin, color('carGlass')), FINISH.GLASS));
 
   parts.push(...wheelGeometries(CAR_LEN, CAR_W));
-  parts.push(...bumperGeometries(CAR_LEN, CAR_W));
+  if (bumpers) parts.push(...bumperGeometries(CAR_LEN, CAR_W));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -2030,7 +2213,7 @@ export const TRUCK_CHASSIS_TOP = TRUCK_BASE_Y + 0.4;
  * as the same kind of part rather than as more of the chassis livery. The cargo box is a further,
  * separate mesh: see truckBoxGeometry().
  */
-function truckCabGeometry() {
+function truckCabGeometry({ bumpers = true } = {}) {
   const parts = [];
   const white = new THREE.Color(1, 1, 1);
   const cabDark = color('carGlass');
@@ -2048,7 +2231,7 @@ function truckCabGeometry() {
   parts.push(setFinish(bakeColor(windshield, cabDark), FINISH.GLASS));
 
   parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W));
-  parts.push(...bumperGeometries(TRUCK_LEN, TRUCK_W));
+  if (bumpers) parts.push(...bumperGeometries(TRUCK_LEN, TRUCK_W));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -2322,6 +2505,15 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // The taxi's corner lean, sprung — see CORNER_ROLL_OMEGA. Ambient cars never touch these.
       cornerRoll: 0,
       cornerRollV: 0,
+      // The drift (`driftTaxi`): the live one, the swing's spring, which way it swings, and a tally
+      // of the ones that landed. Taxi only.
+      drift: null,
+      driftAmt: 0,
+      driftAmtV: 0,
+      driftSign: 0,
+      drifts: 0,
+      // A tally of the taxi's pull-outs round a car, read by main.js for the overtake's haptic.
+      overtakes: 0,
       // 0..1 brightness for the brake and turn-signal light pods. brakeLevel is eased (see
       // BRAKE_LIGHT_RISE/FALL) — off frame one along with prevV/v agreeing there is no accel yet.
       // The turn-signal levels are not eased; they jump straight to their blink target.
@@ -2359,6 +2551,9 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       pass: 0,
       passing: false,
       passTarget: null,   // the car currently being overtaken, latched for the whole manoeuvre
+      // May a pass start? Set by the overtake combo (game/overtake.js); undefined means yes.
+      passArmed: undefined,
+      passGap: Infinity,  // the leader's gap as the pass block last saw it, for the combo
       // What `pass` is turned into: the smoothstepped offset the body is drawn at, the slope of
       // that offset (which *is* the tangent of the steering angle, since it is per unit of road),
       // and the roll that comes off its curvature. Derived every frame from `pass`; kept on the car
@@ -2571,6 +2766,9 @@ export function stageCar(car, x, z, yaw) {
   car.pitchV = 0;
   car.cornerRoll = 0;
   car.cornerRollV = 0;
+  car.drift = null;
+  car.driftAmt = 0;
+  car.driftAmtV = 0;
   car.wheelAngle = 0;
   // Both differencers the render pass keeps, primed so the first staged frame reports no step.
   // `prevTravelled` feeds the steering ease and `prevSteerYaw` the wheel angle — a stale pair
@@ -2910,7 +3108,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // nowhere to put its cars.
   // ...and one more for the patrol cruiser (game/patrol.js), which is a car in traffic for the whole
   // of its patrol and can be on the road when a robbery brings its own fleet in.
-  const MAX_AMBIENT = Math.max(0, MAX_CARS - 1) + POLICE_FLEET + 1;
+  const MAX_AMBIENT = Math.max(0, MAX_CARS - 1) + POLICE_FLEET + POLICE_REINFORCEMENTS + 1;
 
   /**
    * Take a vehicle mesh out of frustum culling, and say why.
@@ -2956,7 +3154,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // tighter there, but the cars shrink with it). A third of those pixels change, by 12/255 on
   // average and 75/255 at the deepest.
   // Glossy paint: the sun glints off it and the city slides across it (`propMaterial({ gloss })`).
-  const bodyGeometry = carGeometry();
+  const bodyGeometry = carGeometry({ bumpers: false });
   const mesh = neverCull(new THREE.InstancedMesh(
     bodyGeometry, propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y } }), MAX_AMBIENT,
   ));
@@ -2986,7 +3184,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // The truck cab and its front wheels, as their own pair of instanced meshes — same shape as the
   // car pair above, just built from truckCabGeometry() at TRUCK_LEN/TRUCK_W and painted from the
   // same PALETTE.carBody a car is (see paintTruck below).
-  const cabGeometry = truckCabGeometry();
+  const cabGeometry = truckCabGeometry({ bumpers: false });
   const truckMesh = neverCull(
     new THREE.InstancedMesh(cabGeometry, propMaterial({ gloss: { geometry: cabGeometry, floor: SILL_Y } }), MAX_AMBIENT),
   );
@@ -3023,6 +3221,32 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   truckBoxMesh.receiveShadow = true;
   truckBoxMesh.name = 'truckBoxes';
   truckBoxMesh.count = trucks.length;
+
+  // The bumpers, out of the body geometry and into a pair of instanced meshes of their own: two
+  // instances per vehicle, nose then tail, at the stride the steered wheels use. Merged into the
+  // body they cost nothing, but they also cannot leave it — and a car the taxi has hit hangs one
+  // off a corner (game/cardamage.js, through `car.wear`), which has to take the bar away from the
+  // end it came off or the car wears two. Two more draw calls for the fleet; the matrices are two
+  // multiplies a car, composed through the body matrix like the wheels so they ride the bob.
+  // Unpainted: chrome on every car, so `instanceColor` is never made.
+  const bumperGeometryFor = (width) => setFinish(bakeColor(
+    new THREE.BoxGeometry(BUMPER_D, BUMPER_H, bumperLength(width)), color('bumperChrome')), FINISH.METAL);
+  const bumperInstances = (width, name) => {
+    const geometry = bumperGeometryFor(width);
+    const inst = neverCull(new THREE.InstancedMesh(
+      geometry, propMaterial({ gloss: { geometry } }), MAX_AMBIENT * 2,
+    ));
+    inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    inst.castShadow = true;
+    inst.receiveShadow = true;
+    inst.name = name;
+    return inst;
+  };
+  const bumperMesh = bumperInstances(CAR_W, 'carBumpers');
+  bumperMesh.count = ambient.length * 2;
+  const truckBumperMesh = bumperInstances(TRUCK_W, 'truckBumpers');
+  truckBumperMesh.count = trucks.length * 2;
+  const BUMPER_ENDS = [1, -1];
 
   // Brake lights and turn signals: three more instanced meshes per vehicle class, none of them
   // painted — see the note by lightPodGeometry() for why on/off is a matrix write (a scale, or
@@ -3208,6 +3432,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       truckMesh.count = trucks.length;
       truckWheelMesh.count = trucks.length * TRUCK_FRONT.length;
       truckBoxMesh.count = trucks.length;
+      truckBumperMesh.count = trucks.length * 2;
       truckBrakeMesh.count = trucks.length * LIGHT_PODS;
       truckTurnLeftMesh.count = trucks.length * LIGHT_PODS;
       truckTurnRightMesh.count = trucks.length * LIGHT_PODS;
@@ -3248,6 +3473,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       sirenBlueMesh.count = ambient.length * LIGHT_PODS;
       sirenHousingMesh.count = ambient.length;
       policeCabMesh.count = ambient.length;
+      bumperMesh.count = ambient.length * 2;
     }
   }
 
@@ -3396,6 +3622,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     sirenBlueMesh.count = ambient.length * LIGHT_PODS;
     sirenHousingMesh.count = ambient.length;
     policeCabMesh.count = ambient.length;
+    bumperMesh.count = ambient.length * 2;
   }
 
 
@@ -3553,6 +3780,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   scene.add(truckMesh);
   scene.add(truckWheelMesh);
   scene.add(truckBoxMesh);
+  scene.add(bumperMesh);
+  scene.add(truckBumperMesh);
   scene.add(sirenHousingMesh);
   scene.add(policeCabMesh);
   for (const light of lightMeshes) scene.add(light);
@@ -3728,6 +3957,18 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       shell.add(wheel);
     }
 
+    // The bumpers, which are instances of their own now (see `bumperMesh`): both back at their
+    // ends, unpainted, on a material of their own so the chrome is not tinted the car's colour.
+    const bumperInst = car.isTruck ? truckBumperMesh : bumperMesh;
+    const chrome = propMaterial();
+    for (const end of BUMPER_ENDS) {
+      const bar = new THREE.Mesh(bumperInst.geometry, chrome);
+      bumperAt(car.isTruck ? TRUCK_LEN : CAR_LEN, end, bar.position);
+      bar.castShadow = true;
+      bar.receiveShadow = true;
+      shell.add(bar);
+    }
+
     // The cargo box: its own mesh, its own fixed-colour material — never tinted by colorIndex, on
     // the road or in the wreck. game/wreckage.js collects every distinct material under the shell,
     // so a second material here scorches in step with the cab's without extra wiring.
@@ -3759,6 +4000,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     }
     bodyInst.instanceMatrix.needsUpdate = true;
     wheelInst.instanceMatrix.needsUpdate = true;
+    bumperInst.setMatrixAt(car.instanceIndex * 2, matrix);
+    bumperInst.setMatrixAt(car.instanceIndex * 2 + 1, matrix);
+    bumperInst.instanceMatrix.needsUpdate = true;
     // The lights too — a crashed car stops reaching writeAmbient() (the main loop skips anything
     // `crashed`), so whatever it last wrote would otherwise sit there forever. A brake light lit at
     // the moment of impact is exactly the frame this fires on.
@@ -3813,6 +4057,21 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const lightScale = new THREE.Vector3();
   // A pod is never turned relative to its car — only moved to its anchor and scaled by its level.
   const LIGHT_QUAT = new THREE.Quaternion();
+  // ...unless its lamp is hanging loose, when it swings on the wire about the car's own z.
+  const Z_AXIS = new THREE.Vector3(0, 0, 1);
+  const lampAt = new THREE.Vector3();
+  const lampQuat = new THREE.Quaternion();
+  // `${end},${side}`, the key game/cardamage.js files a loose lamp under — read off the anchor's
+  // signs, which is the corner it is pinned to (geometry/lights.js `lightPodAnchor`).
+  const cornerKey = (anchor) => `${Math.sign(anchor.x)},${Math.sign(anchor.z)}`;
+  const bumperLocal = new THREE.Matrix4();
+  const bumperPos = new THREE.Vector3();
+  const bumperEuler = new THREE.Euler();
+  const bumperQuat = new THREE.Quaternion();
+  // From the hinge to the middle of the bar: the hinge holds one end, and the bar runs along −z.
+  const bumperDrop = (width) => new THREE.Matrix4().makeTranslation(0, 0, -bumperLength(width) / 2);
+  const CAR_BUMPER_DROP = bumperDrop(CAR_W);
+  const TRUCK_BUMPER_DROP = bumperDrop(TRUCK_W);
 
   /**
    * Write one lamp's pods for one car, at `level`.
@@ -3823,14 +4082,28 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
    * the whole of what keeps a fading lamp on the bumper it belongs to. See lightPodGeometry() in
    * geometry/lights.js for what it did when the anchor lived in the vertices instead.
    */
-  function writeLight(inst, car, level) {
+  function writeLight(inst, car, level, hangs = true) {
     const anchors = inst.userData.podAnchors;
     const shapes = inst.userData.podShapes;
     const quats = inst.userData.podQuats;
+    // A lamp the taxi has knocked out of its socket (`car.wear.lamps`, game/cardamage.js) carries
+    // its pods down the wire with it, so they still light, blink and brake from where it hangs —
+    // the taxi's own loose lamps do the same (setLamp in geometry/taxi.js). Not the siren bar's:
+    // its pods sit on the roof, and a corner test on their anchors would read them as a rear lamp.
+    const loose = hangs ? car.wear?.lamps : null;
     for (let p = 0; p < anchors.length; p++) {
       if (shapes) lightScale.copy(shapes[p]).multiplyScalar(level);
       else lightScale.setScalar(level);
-      lightLocal.compose(anchors[p], quats ? quats[p] : LIGHT_QUAT, lightScale);
+      const anchor = anchors[p];
+      const angle = loose?.size ? loose.get(cornerKey(anchor)) : undefined;
+      if (angle != null) {
+        lampHang(lampSocket(anchor, Math.sign(anchor.x), lampAt), angle, lampAt);
+        lampQuat.setFromAxisAngle(Z_AXIS, angle);
+        if (quats) lampQuat.multiply(quats[p]);
+        lightLocal.compose(lampAt, lampQuat, lightScale);
+      } else {
+        lightLocal.compose(anchor, quats ? quats[p] : LIGHT_QUAT, lightScale);
+      }
       lightMatrix.multiplyMatrices(matrix, lightLocal);
       inst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, lightMatrix);
     }
@@ -3878,6 +4151,26 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     writeLight(turnLeftInst, car, car.turnLeftLevel);
     writeLight(turnRightInst, car, car.turnRightLevel);
 
+    // The bumpers, each at its end — or, for one the taxi has knocked loose (`car.wear.bumper`,
+    // game/cardamage.js), hanging by a corner with its free end on the road. The same bar either
+    // way, so the end it left goes bare.
+    const bumperInst = car.isTruck ? truckBumperMesh : bumperMesh;
+    const len = car.isTruck ? TRUCK_LEN : CAR_LEN;
+    const hanging = car.wear?.bumper;
+    for (let e = 0; e < 2; e++) {
+      const end = BUMPER_ENDS[e];
+      if (hanging && hanging.end === end) {
+        bumperHinge(len, car.isTruck ? TRUCK_W : CAR_W, hanging.side, end, hanging.lift,
+          bumperPos, bumperEuler);
+        bumperLocal.compose(bumperPos, bumperQuat.setFromEuler(bumperEuler), scl)
+          .multiply(car.isTruck ? TRUCK_BUMPER_DROP : CAR_BUMPER_DROP);
+      } else {
+        bumperLocal.makeTranslation(bumperAt(len, end, bumperPos));
+      }
+      lightMatrix.multiplyMatrices(matrix, bumperLocal);
+      bumperInst.setMatrixAt(car.instanceIndex * 2 + e, lightMatrix);
+    }
+
     // The siren bar. Written for **every** car rather than only the police ones, because the level
     // is what hides it: a car that is not a cop this frame writes zero and its pods collapse. A
     // loop that skipped the others would leave whatever they last wrote standing, which is the same
@@ -3898,8 +4191,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // them". A cop car cruising past on its own business and one that has turned to come after
       // you are otherwise the same blue car.
       const red = sirenOn(stats.time, car.chase > 0) ? lit : 0;
-      writeLight(sirenRedMesh, car, red);
-      writeLight(sirenBlueMesh, car, lit - red);
+      writeLight(sirenRedMesh, car, red, false);
+      writeLight(sirenBlueMesh, car, lit - red, false);
       // The housing by `police`, not `siren` — it is the paint's half of the bar, not the lamps'.
       lightLocal.compose(SIREN_HOUSING_AT, LIGHT_QUAT, lightScale.setScalar(car.police ? 1 : 0));
       lightMatrix.multiplyMatrices(matrix, lightLocal);
@@ -4177,6 +4470,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       if (car.turnT >= 0.95 || car.braking || car.roadblock > 0) heldAt.add(`${car.i},${car.j}`);
     }
 
+    const straightThrough = (car) => car.turn?.hand === 'straight';
     for (const car of cars) {
       // A crashed car is not in traffic at all. A *boosting* taxi used to be skipped here too, on
       // the grounds that it had left its lane; now that it only weaves within it, it belongs in
@@ -4220,13 +4514,28 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // left turn's arc is 15). Keeping it and moving only where it *starts* is deliberate: the
         // defect is the discontinuity at `turnT === 0`, and this makes the handover exact — a car
         // at the line reads at `lane.length - STOP_SETBACK` in both states.
-        laneS = car.lane.length - car.leadIn + car.turnT * (car.leadIn + 5);
+        //
+        // **Except straight on**, where the fiction is not free. A straight crossing is the one turn
+        // `ahead()` walks through, charging it the box's real `turn.length`, so a car reading 5
+        // units across it here and 8 from the far side jumped 4.36 units at the 0.6 handover — in
+        // whichever direction flatters nobody: the follower saw 4.36 units of road appear, then
+        // vanish. Ambient traffic never spends it. A boosting taxi tailgating a car across a
+        // junction at 23 u/s against 17 does: it closed on a gap that was not there and rear-ended
+        // the car on the far side, every time on the probe's staging. It only became reachable once
+        // the overtake wanted a combo (game/overtake.js) and holding Loco behind a car went back
+        // to tailgating it. So straight on reads the real distance travelled, on both lists, and
+        // the two meet exactly: `turnLen - leadIn` *is* that crossing's `turn.length`.
+        laneS = straightThrough(car)
+          ? car.lane.length - car.leadIn + Math.min(car.turnT, 1) * car.turnLen
+          : car.lane.length - car.leadIn + car.turnT * (car.leadIn + 5);
       } else {
         // Second half: hand the car over to the lane it is about to land in, still short of that
         // lane's start. Without this it is invisible to that lane's traffic for the rest of the
         // turn, and then materialises on top of whatever drove into the gap.
         lane = net.laneById.get(car.turn.outLane);
-        laneS = -(1 - car.turnT) * 5;
+        laneS = straightThrough(car)
+          ? (Math.min(car.turnT, 1) - 1) * car.turnLen
+          : -(1 - car.turnT) * 5;
       }
 
       if (!lanes.has(lane.id)) lanes.set(lane.id, []);
@@ -4582,6 +4891,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
     if (taxiActive) {
       const gap = leaderDist.get(taxi);
+      // Published for the overtake combo, which arms only behind a car.
+      taxi.passGap = gap ?? Infinity;
       const locoHeld = taxi.boost && !taxi.boostEasing;
       // Sized against the road under the taxi, not against a constant — see `PASS_LATERAL`. The
       // fade scales with the swing so the peak crab angle is the same 31° on a 6.67-unit lane
@@ -4663,18 +4974,29 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
       // Whether there is a way round the car in front right now — the same conditions the pull-out
       // below asks, minus `near`. Read by `rams()`: where this is false, a taxi with hit points
-      // stops following the leader and drives into it. Only the road itself can say no now.
-      taxi.canPass = locoHeld && gap !== undefined && room;
+      // stops following the leader and drives into it. Only the road itself can say no now —
+      // and, where main.js runs the overtake combo (game/overtake.js), the player: a taxi held
+      // behind a car without throwing it rams the car, so the choice is the combo or the brake
+      // (Tyler, 2026-10-06; it tailgated first and that let you sit there for free). A truck is
+      // still tailgated rather than rammed (`rams`), for the reason given there.
+      taxi.canPass = locoHeld && gap !== undefined && room
+        && (taxi.passArmed !== false || taxi.passing);
 
       if (taxi.state === 'drive') {
         const was = taxi.passing;
+        // Pulling out wants the overtake combo (game/overtake.js) where main.js runs one — a blip
+        // off the pill and back on behind the car. `passArmed` undefined is the old rule, holding
+        // is enough, which the passing lab and the probe still drive. Staying out does not ask.
         taxi.passing = locoHeld
           && ((taxi.passing && alongside())
-            || (room && near));
+            || (room && near && taxi.passArmed !== false));
         // Latched on the frame the taxi pulls out and held for the whole manoeuvre, rather than
         // re-read per frame: half way through a pass the taxi is *ahead* of this car in lane
         // coordinates, so `leaderOf` has already moved on to whatever is in front of them both.
-        if (taxi.passing && !was) taxi.passTarget = leader ?? null;
+        if (taxi.passing && !was) {
+          taxi.passTarget = leader ?? null;
+          taxi.overtakes += 1;
+        }
         if (!taxi.passing) taxi.passTarget = null;
       }
 
@@ -5062,6 +5384,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // comes from — the pitch spring downstream reads the resulting deceleration off car.v
       // directly, and from the overdrive top it is a longer, deeper one.
       const fullPower = car.boost && !car.boostEasing;
+      if (car.drift) stepDrift(car, dt);
 
       if (car.state === 'drive' && car.uturn?.kind === 'spin') {
         // --- Mid-spin (`spinTaxi`): on a clock rather than an arc speed, and deaf to the brake.
@@ -5217,8 +5540,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // The ceiling at full boost is the *overdrive* top, not the BOOST_SPEED one — but the
         // acceleration tapers above BOOST_SPEED, so the band past 18.7 is only ever reached by a
         // car that has had 40 units of straight road and a clear `allowed` to spend it on.
-        const topSpeed = fullPower ? overdriveTop() : cruiseCap;
-        const accel = fullPower
+        // A drift holds its own speed: the brake tap releases the pill, so `fullPower` is off
+        // until the player is back on it, and the cruise cap would haul the taxi down to 8.5.
+        const topSpeed = car.drift ? car.drift.v : fullPower ? overdriveTop() : cruiseCap;
+        const accel = fullPower || car.drift
           ? boostAccel(car.v)
           : chaseAccelFor(car);
         // The brake pedal outranks every one of them, including the boost ceiling: holding it means
@@ -5608,7 +5933,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           : car.isTruck
             ? (isRight ? TRUCK_RIGHT_TURN_SPEED : TRUCK_CORNER_SPEED)
             : chaseTurn;
-        const cornerTarget = straightOn ? straightTop : boostTurn;
+        // A drift goes round at the boost cruise, rights included, pill or no pill.
+        const cornerTarget = car.drift ? car.drift.v : straightOn ? straightTop : boostTurn;
 
         // Don't close on the car in front while crossing a junction.
         //
@@ -5659,7 +5985,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // climb to is not a ceiling. At plain ACCEL a fleeing car needs 24 units to reach
         // SCATTER_SPEED and a junction is 8, so without this the cruise cap above would raise the
         // roof and the car would still cross at the speed it entered.
-        const accel = fullPower ? boostAccel(car.v) : chaseAccelFor(car);
+        const accel = fullPower || car.drift ? boostAccel(car.v) : chaseAccelFor(car);
         car.v = car.v > target
           ? Math.max(target, car.v - (car.braking ? hardBrake() : brake()) * dt)
           : Math.min(target, car.v + accel * dt);
@@ -5716,17 +6042,36 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // Nothing here — the position derivation is the whole of what is skipped.
       } else if (car.uturn?.kind === 'spin') {
         // The bootleg: slide from where it was to where it lands, decelerating, while the body
-        // whips round half a turn and overshoots a touch before it settles — the snap is the point.
-        const { p, q, dir, yaw0 } = car.uturn;
+        // flicks out, swings round past the 180 and whips back to square (SPIN_KEYS).
+        const { p, q, h, dir, yaw0, v0, reach } = car.uturn;
         const t = Math.min(1, car.uturn.t);
-        const m = 1 - (1 - t) ** 3;
-        const k = 1.25;
-        const snap = 1 + (k + 1) * (t - 1) ** 3 + k * (t - 1) ** 2;
-        car.x = p.x + (q.x - p.x) * m;
-        car.z = p.z + (q.z - p.z) * m;
+        // Down the road and across it on two clocks. Down the road starts at the speed the car was
+        // doing — an ease-out whose opening slope is v0 — so there is no hitch on the frame the
+        // spin begins; it was one shared ease, and the car started across and round at once, which
+        // read as a pivot on the spot. Across waits for the run-in and the flick (SPIN_CROSS).
+        const dx = q.x - p.x, dz = q.z - p.z;
+        const down = dx * h.x + dz * h.z;
+        // Out to `reach` by SPIN_PEAK, then back to where it lands.
+        const k = reach > 0.1 ? Math.max(1.2, Math.min(4, (v0 * SPIN_TIME * SPIN_PEAK) / reach)) : 2;
+        let along;
+        if (t < SPIN_PEAK) {
+          along = reach * (1 - (1 - t / SPIN_PEAK) ** k);
+        } else {
+          const b = (t - SPIN_PEAK) / (1 - SPIN_PEAK);
+          along = reach + (down - reach) * b * b * (3 - 2 * b);
+        }
+        const c = Math.max(0, Math.min(1, (t - SPIN_CROSS[0]) / (SPIN_CROSS[1] - SPIN_CROSS[0])));
+        const across = c * c * (3 - 2 * c);
+        // The flick carries the body a little toward the near kerb before the slide takes it
+        // across. `dir * (-h.z, h.x)` points at the far lane (see `spinTaxi`), so this is minus that,
+        // on a hump that is over by the time the car is broadside.
+        const f = Math.max(0, Math.min(1, (t - 0.14) / 0.5));
+        const out = SPIN_FLICK_SHIFT * Math.sin(Math.PI * f) ** 2;
+        car.x = p.x + h.x * along + (dx - h.x * down) * across + dir * h.z * out;
+        car.z = p.z + h.z * along + (dz - h.z * down) * across - dir * h.x * out;
         // `dir` is +1 when the far lane is on the side a *negative* yaw turns toward (yawOf is
         // atan2(-z, x), so +yaw swings +X toward -Z): subtract it to put the nose into the far lane.
-        car.yaw = yaw0 - dir * Math.PI * snap;
+        car.yaw = yaw0 - dir * spinAngle(t).a;
       } else if (car.uturn) {
         // The swing: a semicircle from where it left its old lane to where it lands on the new
         // one, bulging forward by the radius. `h` is the old heading, `n` across to the far lane.
@@ -5837,6 +6182,27 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       car.wheelAngle = steerToward(car.wheelAngle, car.yaw, car.prevSteerYaw, ds);
       car.prevSteerYaw = car.yaw;
 
+      // The drift's tail-out: the nose swung past the heading into the turn, on a spring so it
+      // rocks back through straight once on the way out. After the wheel angle, because this is a
+      // slide and not a steering input — the front wheels point back along the road instead
+      // (`driftSteer`, read where the taxi's wheels are set).
+      if (car.isTaxi) {
+        // Only a drift (the brake tap) slides. Every boosted corner did for a while, and it made
+        // the combo hard to tell apart from just holding the pill, so plain Loco corners went back
+        // to the lean alone.
+        const want = car.drift?.phase === 'arc' ? 1
+          : car.drift?.phase === 'approach' ? 0.2 : 0;
+        car.driftAmtV += ((want - car.driftAmt) * DRIFT_OMEGA * DRIFT_OMEGA - car.driftAmtV * DRIFT_DAMP) * dt;
+        car.driftAmt += car.driftAmtV * dt;
+        if (!car.drift && Math.abs(car.driftAmt) < 1e-3 && Math.abs(car.driftAmtV) < 1e-2) {
+          car.driftAmt = 0;
+          car.driftAmtV = 0;
+        }
+        const swing = car.driftSign * DRIFT_ANGLE * car.driftAmt;
+        car.yaw += swing;
+        car.driftSteer = Math.max(-STEER_MAX, Math.min(STEER_MAX, -swing));
+      }
+
       // The pull-over: shove kerb-ward. (car.right = (sin(yaw), cos(yaw)); the taxi's weave uses
       // the same basis with the sign flipped.) At full yield a body edge sits 4.34 off the road
       // centreline, inside the 4.85 where the building façades start.
@@ -5921,11 +6287,23 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           const lean = 0.3 * Math.min(2.2, Math.max(0.7, car.v / SPEED));
           roll = -turnDir * lean * Math.sin(Math.PI * Math.min(1, along01));
         }
+      } else if (car.uturn?.kind === 'spin') {
+        // Off the rate the body is turning at, leaning outward like any corner — so it tips one way
+        // on the flick, hard the other through the swing, and back again on the whip. Squashed
+        // through a tanh so the two small beats still read beside the big one.
+        const rate = spinAngle(car.uturn.t).rate / SPIN_TIME;
+        roll = -car.uturn.dir * SPIN_TILT * Math.tanh(rate / SPIN_TILT_RATE);
       } else if (car.uturn) {
         const lean = 0.3 * Math.min(2.2, Math.max(0.7, car.v / SPEED));
         roll = -car.uturn.dir * lean * Math.sin(Math.PI * Math.min(1, car.uturn.t));
       }
-      if (car.isTaxi || car.police) {
+      if (car.uturn?.kind === 'spin' && dt > 0) {
+        // Driven directly rather than through the spring: its ~0.5s period would smear three beats
+        // a tenth of a second apart into one lazy rock. The spring is handed the tilt and its rate
+        // as it stands, so it picks the body up without a jolt the frame the spin lands.
+        car.cornerRollV = (roll - car.cornerRoll) / dt;
+        car.cornerRoll = roll;
+      } else if (car.isTaxi || car.police) {
         // Semi-implicit Euler, as the pitch spring below: stable at any frame rate this game sees.
         const target = roll * (early && hard ? CORNER_ROLL_GAIN : 1);
         car.cornerRollV += ((target - car.cornerRoll) * CORNER_ROLL_OMEGA * CORNER_ROLL_OMEGA
@@ -6125,7 +6503,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // note there: with the default order the roll is applied about the *world* X axis, which
         // only doubles as the car's own axis when it happens to be driving east.
         taxiGroup.rotation.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER);
-        setTaxiSteer(car.wheelAngle);
+        setTaxiSteer(car.driftAmt ? car.driftSteer : car.wheelAngle);
         setTaxiLights(Math.max(car.brakeLevel, runningFor(car) * TAIL_FLOOR),
           car.turnLeftLevel, car.turnRightLevel);
         continue;
@@ -6141,6 +6519,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // lab — a road running due east — could never have caught this.)
       quat.setFromEuler(euler.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER));
       matrix.compose(pos, quat, scl);
+      // A car the taxi has dented keeps its body pose for game/cardamage.js, which hangs its lids
+      // and lamp housings off it. Before the skin below zeroes `matrix`: the cruiser is drawn by
+      // its own group, and its lids still want the pose.
+      if (car.wear) car.wear.matrix.copy(matrix);
       // Drawn by somebody else's mesh: hand it the pose, and collapse this car's instance — body,
       // wheels, pods and bar all compose through `matrix`, so zeroing it hides every part at once.
       // A guest has no instance at all (see `enterGuest`): its owner draws it, and there is no slot
@@ -6160,6 +6542,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     truckMesh.instanceMatrix.needsUpdate = true;
     truckWheelMesh.instanceMatrix.needsUpdate = true;
     truckBoxMesh.instanceMatrix.needsUpdate = true;
+    bumperMesh.instanceMatrix.needsUpdate = true;
+    truckBumperMesh.instanceMatrix.needsUpdate = true;
     sirenHousingMesh.instanceMatrix.needsUpdate = true;
     policeCabMesh.instanceMatrix.needsUpdate = true;
     headMesh.count = brakeMesh.count;
@@ -6189,6 +6573,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   return {
     cars, taxi, taxiGroup, taxiDamage, setTaxiOccupied, setTaxiHighlight, setTaxiDoor, setCarCount, mesh,
     wheelMesh, barMesh, update, warmup,
+    /** The fleet's bumpers, drawn apart from the bodies — see `bumperMesh`. */
+    bumperMesh, truckBumperMesh,
+    /** A car's paint, cop or not: game/cardamage.js paints a lid it has knocked open with it. */
+    bodyColor,
     /**
      * Bring `n` cop cars onto the map, entering from off screen as near `near` as the camera
      * allows. Answers how many actually arrived — a saturated network can legitimately place

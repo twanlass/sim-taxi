@@ -214,7 +214,7 @@ if (!bundleId) {
   } else if (/Locked|could not be, unlocked/.test(out)) {
     // Not a failure. The app is installed; iOS just will not open it onto a locked screen.
     console.log(`\npush:ios  done — installed, but ${device.name} is locked, so it was not launched.`);
-    console.log('          Unlock it and tap Sim Taxi.');
+    console.log('          Unlock it and tap Rocket Rides.');
   } else {
     die('installed, but the launch failed', out);
   }

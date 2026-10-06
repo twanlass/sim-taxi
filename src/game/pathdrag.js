@@ -151,6 +151,10 @@ const HANDLE_IN_SCALE = 1.7;
 const HANDLE_OUT = 0.22;
 const HANDLE_OUT_SCALE = 2.1;
 
+// How long a `ping` holds the handle after it has landed, before throwing it open — long enough to
+// be seen arriving on the new stretch of band, short enough not to read as a grab left behind.
+const PING_HOLD = 0.25;
+
 // A slow breathe while held, so the handle is visibly live under a finger that is not moving.
 const HANDLE_BREATHE_HZ = 1.6;
 const HANDLE_BREATHE = 0.06;
@@ -290,6 +294,8 @@ export function createPathDrag({
   // player who drags a waypoint, lifts, and presses again to adjust it is mid-gesture, not asking
   // for the thing they just drew to be thrown away.
   let lastTap = null;
+  // Seconds left on a `ping` before the handle lets go of the road by itself, or 0.
+  let pingLeft = 0;
 
   /** Where a pointer is pointing, on the road. */
   function groundAt(clientX, clientY) {
@@ -467,6 +473,10 @@ export function createPathDrag({
      */
     update(dt) {
       handle.update(dt);
+      if (pingLeft > 0) {
+        pingLeft -= dt;
+        if (pingLeft <= 0 && !grab) handle.release();
+      }
       if (!grab) return;
 
       // The run ended, or the fare did, mid-gesture.
@@ -517,6 +527,20 @@ export function createPathDrag({
      * without this the one thing the shot is for would be missing from it.
      */
     stage(x, z) { handle.grab(x, z); },
+    /**
+     * Land the handle on the band nearest a world point and let it go again by itself — a grab with
+     * no finger behind it. The street tap's acknowledgement (game/streettap.js): it marks the street
+     * the route was just sent down with the same grommet a drag would have left there, so a tap
+     * reads as the drag's shortcut rather than as something new.
+     */
+    ping(x, z) {
+      if (grab) return;
+      const path = currentPath();
+      const near = path && nearestOnPath(path, x, z);
+      if (!near) return;
+      handle.grab(near.x, near.z);
+      pingLeft = HANDLE_IN + PING_HOLD;
+    },
     /**
      * True for the click the browser synthesises after a gesture the band has already answered —
      * a drag, or a double-tap reset. Both mean the same thing to a caller: whatever the finger

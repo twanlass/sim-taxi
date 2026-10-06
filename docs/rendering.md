@@ -2081,6 +2081,12 @@ the whole of this effect is that it should be impossible to miss. What changed, 
 | Colour | one swatch, #7FC08A | one swatch, #5FD182 | **a spread**, `cashNote` → `cashShade` | See below. |
 | The press | nothing | a 24-note kick | a 24-note kick | An effect that only ramps up says nothing on the frame the button went down, and that is the frame the player is looking at. |
 
+**Halved, and a trail left on the road** (Tyler, after the getaway grew checkpoints): the gust clock
+now runs 39/s and 3.5/s (~22/s mean), the kick is 12 notes and 2 bundles, and a gust throws a
+bundle 15% of the time rather than 30%. Half the notes that come down stay down (`GROUND_STAY`)
+for ~7s, fading over the last 1.5s, and a landed bundle lies 7s rather than 3.4 — so a getaway
+leaves a line of cash across town behind it rather than a cloud that follows the car.
+
 The **colour** is a reversal worth recording. The first cut pulled the hue toward a paper green on
 the argument that the HUD's earnings green is 27px of type on a dark scrim while these are small
 objects on a road. What that missed is the ground they land on: `asphalt` is luma 104 and the lane
@@ -2279,6 +2285,13 @@ rather than physical:
 The shockwave is the mark that reads first, because a flat ring at this camera projects as an
 ellipse spreading out from under the wreck — the blast has a size before the fireball has grown into
 one. Fourteen segments, so the flat sides show at the wreck zoom.
+
+**Three cuts of the fireball** (`WRECK_STYLES`, picked with `?wreck=classic|quick|flat` or the ⚙️
+panel's *Wreck fire*, read at detonation). **flat is the default** (Tyler's pick); classic hid the two cars the run ended on for most of a
+second. `quick` is the same fire smaller and over in ~55% of the time. `flat` squashes each puff to
+0.42 of its height, starts it on a ring 1.6 units out from the car instead of on it, drops the core
+puff and keeps the whole skirt under ~1.4 units, so the fire rolls outward along the road and the
+bodywork stays visible in the middle; `tools/probe.mjs` asserts both of those claims.
 
 Shards are the whole of what is left of the old debris: seven per car, one tetrahedron squashed
 per instance into plates and chunks, tinted with that car's paint so a two-car wreck comes apart in
@@ -3258,9 +3271,9 @@ cells is the largest thing that still reads as *chequer* at this size. Six cells
 about the finest pitch that survives. Square cells matching the band's own height would want twelve,
 at ~2px each, which alias into a flicker as the car turns.
 
-**Both colours are painted.** Letting the light cells fall through to the body was tried in the app
-icon (`tools/make-icon.mjs` paints three dark cells and shows yellow between them, which is right at
-180px on a static image); on the car it makes a yellow-and-black band, which is a hazard stripe, not
+**Both colours are painted.** Letting the light cells fall through to the body was tried in the old
+hand-drawn app icon (three dark cells with yellow between them, which was right at 180px on a static
+image); on the car it makes a yellow-and-black band, which is a hazard stripe, not
 a taxi. The white is the roof sign's own off-white rather than a new entry, so the livery keeps the
 car to two colours.
 

@@ -602,7 +602,7 @@ Doubling alone is not enough, and the two failed attempts are the reason `CHASSI
   unreadable.
 
 So the body rises with the wheel and the tread stays proud. Every y in the vehicle geometry — cars,
-taxi, cruiser, and the app icon in `tools/make-icon.mjs` — is still written as the number it was
+taxi and cruiser — is still written as the number it was
 designed at, plus `CHASSIS_LIFT`, which is derived from `WHEEL_R` so the two can't drift apart.
 The result reads as a chunky toy car up close and as an ordinary car at play zoom, which is the
 zoom that matters.
@@ -778,6 +778,11 @@ right-hand traffic they cut the near corner instead of sweeping the far diagonal
 the arc is over in ~0.35s against a left's ~0.7s and reads as *sped up*. 0.75× cruise gives the
 tight arc its weight back. It is the only deliberate speed drop left in the mode, and it accounts
 for ~9% of boosted frames.
+
+A brake tap into a boosted corner turns it into a drift — the nose swung ~31° past the heading on
+a spring (`driftAmt`, render only) with four wheels of rubber — and the pill again before the arc
+is over earns a kick out of it. Both live in
+[gameplay.md](gameplay.md#the-drift-loco-tap-the-brake-loco-again).
 
 **The speed drop alone does not give a right-hander weight.** A boosting taxi mostly arrives in the
 overdrive band (~30 u/s) and has no room to shed it before a 4-unit arc, so a lean locked to the
@@ -1155,6 +1160,24 @@ button becomes a decision at the one moment it previously made none. It is the o
 `traffic.js` that reads the narrower `boost && !boostEasing` rather than `car.boost`: every other
 boost-only rule stays armed through the cooldown tail because those are *hazards* and hazards
 should outlive the release, but this is an input, and letting go has to steer the car back.
+
+**In the game it now wants a combo** (`game/overtake.js`): holding the button behind a car
+**rams it**, and a quick blip off the pill and back on (`OVERTAKE_BLIP_MS`, 250ms) while behind it
+(`OVERTAKE_ARM_RANGE`, 30 units) is what pulls out. So the choice is the combo or the brake (Tyler,
+2026-10-06; it tailgated at first, which let you sit behind a car for free). From there it is the
+rule above: the pass runs while the button stays down and letting go tucks in. A pass that ends
+spends the combo, so the next car wants another blip. A brake inside the blip is the drift or the
+bootleg and does not arm. Trucks are still tailgated rather than rammed (`rams` in traffic.js). The
+sim reads it as `taxi.passArmed` — `undefined` keeps the old holding-is-enough rule, which the lab
+and the probe still drive — and `canPass` is false until it is thrown. While armed and waiting to
+pull out, or behind a truck, the taxi tailgates `COMBO_TAILGATE` (1.5) further back than
+`BOOST_GAP`, because 0.29 of daylight did not survive a tailgate longer than a fraction of a second.
+
+Measured over 16 cities × 40s with the button held: from a car coming within 30 units to the ram
+is a median of 0.58s (p10 0.23s, p90 1.62s). The short end is cars that turn in close from a cross
+street, which no range fixes. A player feathering the pill at random — a 60-220ms lift every 1-4s
+— armed 38 passes in that time against 55 for one throwing the combo on purpose, so feathering
+behind a car *is* the gesture.
 
 **This was built once before and abandoned, and why matters.** The old overtake pulled out to the
 road *centreline*, which is the single worst place on the road:
@@ -1624,6 +1647,36 @@ darkened by displacing the merged body's vertices. It looked wrong — a box wit
 off, which reads as a modelling fault rather than as a dent. The damage now says itself through
 parts that come *off* the car, not through the car changing shape.
 
+### The cars it hits wear it too
+
+`game/cardamage.js` puts the same parts on any ambient car the taxi hits — the same lids on the same
+spring, the same lamp on its wire, the same bumper dragging sparks, sized once in
+`geometry/damage.js` for both bodies. What a hit does is read off where on the struck car it landed:
+
+- the lid at that end flies open (the boot for a car rear-ended, the bonnet for one nosed into) and
+  any lid already open slams;
+- the lamp at that corner swings loose, its pods hanging with it;
+- a second hit, or one closing at 15 u/s or more (a T-bone at boost cruise is ~21, a tailgate ~10.5),
+  knocks the bumper off the most-hit end to hang by a corner and drag on the road.
+
+It stays for as long as the car is on the map. **Only a charged hit marks a car** — a boosting one,
+through `onBump`. Off-boost contact is the self-driving taxi's own junction grazes (one every ~100s
+in the never-boosting harness), which cost the taxi nothing, so they cost the other car nothing
+either. There is no smoke and no list: on the taxi those are its hit points, and a smoking car that
+is not the taxi would muddy the one gauge the player reads. Trucks get lamps and a bumper but no lids
+(the cab runs to the nose and the back is a box); the cruiser and the guests are drawn by their own
+meshes and are left out.
+
+**Cost.** The fleet's bumpers came out of the body geometry into a pair of instanced meshes of their
+own (`bumperMesh`, `truckBumperMesh`), because a bar merged into the body cannot leave the end it hung
+from — a car with one hanging would wear two. That is two draw calls and two matrix multiplies a car.
+The lids, openings, housings and wires are four more instanced meshes over a fixed pool of eight
+rigs, every unused instance at a zero scale (they stay visible so their shaders link at boot rather
+than on the frame of the first hit); a pool full of dented cars gives up the one furthest from
+the taxi. A car's loose bumper and lamp pods ride the fleet's own instances through `car.wear`, which
+`writeAmbient` reads, so a rig is released by clearing that one field — when its car is wrecked or
+leaves the map.
+
 **Contact is resolved every frame and charged once.** For as long as the two bodies overlap, the
 struck car is pushed out along the deepest circle pair's normal (`shoveCar`): the part along its own
 lane goes into `s`, so a rear-ended car is bulldozed down the road in the sim; the rest goes into the
@@ -1724,14 +1777,18 @@ unit, which reads as a wreck being panned across rather than as one car hitting 
 closing speed of `EJECT_CLOSING` (18 u/s) or more — a T-bone or a head-on at boost cruise, a
 full-boost rear-end into a stopped queue, anything in overdrive, but not rear-ending traffic going
 the same way — a cabbie in a blue shirt and a dark cap (the riders' rig at 0.8 scale) leaves the
-front of the cabin, tumbles head over heels over whatever was hit, bounces once or twice with a
-puff and a thud, and slides to a sprawl. Thrown slightly away from the struck car's side so they do
-not land in its fireball, and kept to ~8 units of travel so they land inside the wreck zoom. Like
-the shells it is a closed form of its age, and the replay scrubs it through `scrub` rather than off
-the tape: the tumble turns a third of a revolution between 30Hz samples. When it fires, the breath
-after the replay is `EJECT_TAIL` rather than `REPLAY_TAIL`, long enough to watch the landing. Its
-direction is the taxi's heading, so a wreck mid-turn or beside a corner block can throw the figure
-through a building; nothing checks the landing spot.
+front of the cabin, tumbles head over heels with arms windmilling and legs pedalling, bounces once
+or twice with a puff and a thud, and slides to a sprawl ~16 units down the road. Thrown slightly
+away from the struck car's side so they do not land in its fireball. The end-of-beat camera frames
+the point halfway between the wreck and the landing, so both stay in a portrait phone's shot.
+
+**It never lands in a building.** The throw follows the taxi's heading, so `fire()` walks the
+ground track first and, if it meets a block, unbridged river or the edge of the map, scales every
+horizontal speed down so the figure stops `CLEAR` short of it — the same tumble, shorter and
+steeper. Like the shells it is a closed form of its age, and the replay scrubs it through `scrub`
+rather than off the tape: the tumble turns a third of a revolution between 30Hz samples. When it
+fires, the breath after the replay is `EJECT_TAIL` rather than `REPLAY_TAIL`, long enough to watch
+the landing.
 
 **A wrecked car's lamps go out.** A crashed car never reaches the render pass again, so whatever
 brake level it last wrote would sit there for the rest of the run — and the frame this fires on is
@@ -1756,8 +1813,9 @@ replaced, an opacity.
 times, about a second each: from ~35° off the fixed diagonal, from ~35° the other way, then square
 on and tightest. Cut, crash, cut, crash, cut, crash, card. Each shot opens 0.3s of sim before the
 hit and plays at 0.8× into it and 0.5× through the blast, with a white flash on each cut and the
-crash sound under each one. The last shot then holds its final frame for 0.7s of wall clock
-(`hold` in `SHOTS`), still orbiting, so the last word lands before the card — about 3.9s for all
+crash sound under each one. The last shot eases further, to 0.25× over a longer ramp (`slow` and
+`ramp` in `SHOTS`), so the final hit plays in real slow motion, then holds its final frame for 0.4s
+of wall clock (`hold`), still orbiting, so the last word lands before the card — about 4.7s for all
 three. There is no letterbox or REPLAY tag: the
 first version had both, played the whole approach in slow motion over two longer angles, and ran
 ~7s from crash to card. Any tap or key skips straight to the card. A bust and a timeout keep the
@@ -2383,12 +2441,13 @@ Three things the invitation changes, all of them at the mouth:
 - **There is no roll.** `ENTER_CHANCE` and `FED_COOLDOWN` are how ambient traffic decides; the tap
   is the decision, and the taxi is not put on the cooldown on the way out either. Doing laps of a
   restaurant is a choice the player is paying a fare's clock — and $10 a burger — for.
-- **It eats faster.** 0.6s at the board and 1.0s at the window, against 2.6 and 3.8 plus jitter. An
-  ambient car's dwell is scenery and has to *read* from across the city; the player's is a clock
-  they are paying. 1.6s of standing still out of the **8.0s** the lot takes end to end — measured
-  mouth to kerb with the lane empty — is enough to make the visit read as a visit, and short enough
-  that it is not what the detour costs. What the detour costs is the driving either side of it, and
-  the tenner that comes off the counter at the window.
+- **It is timed to the speaker.** 2.6s at the board and 5.5s at the window, with no jitter, so the
+  visit lasts the 12.93s of the drive-through clip it plays (`driveThru`, [audio.md](audio.md)) and
+  about 2s of quiet after it before the car leaves: 6.83s of driving through the lot with the lane
+  empty, and the two stops share the rest. It used to eat faster (0.6 + 1.0, an **8.4s** visit), on
+  the grounds that the player is paying a clock; the clip is a conversation and cut short it ends
+  mid-sentence, so the visit now costs 6.5s more. `tools/probe.mjs` holds the visit within half a
+  second of the clip plus the tail.
 
 A wreck in the lot — the run ending while the player is at the window — stops where it is, and the
 queue behind it holds, because each car's limit comes from its leader's position.
@@ -2966,6 +3025,14 @@ a car length back could only ever catch a taxi that reversed into it. It used to
 8 units for a second of a stopped taxi, two of a moving one — and was reported as a soft fail
 state: a cop filling a bar a car length back is a timer, not a catch. The run ends **Busted!**, and
 the banner only waits for the camera (`BUST_BANNER_DELAY`, 2s).
+
+**The catch is played as a ram.** A bare touch and a freeze read as the cop nudging your bumper, so
+the touch fires a bump's effects on the seam (`contact` in sim/collisions.js): the starburst, the
+bump recording at full gain, sparks, a dent, and the taxi knocked ~1.8 units along the hit on
+util/carry.js's drag (`bustByPolice` in main.js). The probe's staged catches arrive at 3–12 u/s
+closing, median ~9, so the effects read off at least `RAM_MIN_CLOSING` (10) — the end of a chase
+should never look softer than a bump the player shrugged off earlier. Not the wreck's fireball: the
+taxi survives being arrested.
 
 **Ramming the cop on the pill is not caught.** It is a [bump](#bumps-and-hit-points) like any other
 car — HP off, the cop knocked or launched — and buys `RAMMED_GRACE` (1.5s) in which the cop neither

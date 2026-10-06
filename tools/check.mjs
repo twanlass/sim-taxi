@@ -20,7 +20,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/city/burgerjoint.js', '../src/game/drivethru.js',
   '../src/city/bank.js', '../src/game/robbery.js', '../src/game/radio.js',
-  '../src/game/robberline.js', '../src/game/copshout.js', '../src/game/patrol.js', '../src/game/bootleg.js',
+  '../src/game/robberline.js', '../src/game/copshout.js', '../src/game/patrol.js', '../src/game/bootleg.js', '../src/game/newmove.js', '../src/game/uturnclip.js', '../src/game/driftclip.js', '../src/game/moveclip.js',
   '../src/game/speech.js', '../src/game/depotcall.js',
   '../src/game/coplights.js', '../src/game/cashtrail.js',
   '../src/game/wipe.js',
@@ -41,7 +41,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/crate.js', '../src/game/flatbed.js',
   '../src/geometry/firetruck.js', '../src/game/fire.js',
   '../src/city/river.js', '../src/geometry/bridge.js',
-  '../src/geometry/boat.js', '../src/game/drawbridge.js', '../src/game/boats.js', '../src/game/wake.js',
+  '../src/geometry/boat.js', '../src/game/drawbridge.js', '../src/game/boats.js', '../src/game/wake.js', '../src/game/gulls.js',
   '../src/geometry/parcel.js', '../src/geometry/food.js', '../src/geometry/cargo.js',
   '../src/geometry/parcelpad.js', '../src/game/parcels.js',
   '../src/game/cargochip.js',
@@ -74,6 +74,13 @@ const TOOLS = [
   // The passing lab at /lab/. Nothing else imports `src/lab/`, so without this the one page in
   // the project whose entire job is to be looked at could stop working silently.
   { name: 'lab',     args: ['tools/lab.mjs'],          pick: /(\d+\/\d+) checks passed/ },
+  // The New Move card's U-turn is a recording of the sim (game/uturnreel.js); this films it again
+  // and fails if the game's U-turn has moved on without it.
+  { name: 'uturn',   args: ['tools/uturnreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
+  // ...and the drift's card the same (game/driftreel.js).
+  { name: 'drift',   args: ['tools/driftreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
+  // ...and the overtake's (game/overtakereel.js).
+  { name: 'overtake', args: ['tools/overtakereel.mjs'], pick: /(\d+\/\d+) checks passed/ },
 ];
 
 let failed = 0;
@@ -95,6 +102,104 @@ try {
   sunk.customDepthMaterial.onBeforeCompile(stub);
   if (!stub.vertexShader.includes(`mvPosition.z -= ${SHADOW_SINK.toFixed(4)}`)) {
     throw new Error('sinkShadowCaster: the depth patch did not land in the shader');
+  }
+
+  // ...and the overtake's (game/overtakeclip.js): the taxi starts behind the car in its own lane, is
+  // out in the far one past it, and finishes back in its own lane in front of it; and the picker
+  // finds a long enough street (side or ring) in the shipped cities.
+  {
+    const { reelAt, clipKeys, pickOvertakeStreet, CLIP_LOOP } = await import('../src/game/overtakeclip.js');
+    const { REEL } = await import('../src/game/overtakereel.js');
+    const leadAt = (t) => REEL.lead[Math.min(REEL.lead.length - 1, Math.round(t / REEL.step))];
+    const start = reelAt(0);
+    const end = reelAt(CLIP_LOOP);
+    if (!(start.lateral > 0 && end.lateral > 0)) throw new Error('overtakeclip: does not start and finish in its own lane');
+    if (!REEL.frames.some((f) => f[1] < 0)) throw new Error('overtakeclip: never pulls out');
+    if (!(start.along < leadAt(0)[0] - REEL.frames[0][0] + start.along)) throw new Error('overtakeclip: does not start behind the car');
+    if (!(REEL.frames.at(-1)[0] > REEL.lead.at(-1)[0])) throw new Error('overtakeclip: does not finish in front of the car');
+    const k = clipKeys(CLIP_LOOP * 0.5);
+    if (!(k.boost.lit && k.blip.lit && k.blip.down && !k.boost.down)) throw new Error('overtakeclip: keys wrong mid-loop');
+    const { createLayout } = await import('../src/city/layout.js');
+    const { cityNetwork } = await import('../src/city/roadnet.js');
+    const { makeRng } = await import('../src/util/rng.js');
+    const camRight = { x: Math.SQRT1_2, z: -Math.SQRT1_2 };
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      createLayout(makeRng(seed));
+      if (!pickOvertakeStreet({ network: cityNetwork(), cars: [], camRight })) throw new Error(`overtakeclip: no street in city ${seed}`);
+    }
+  }
+
+  // The New Move card's U-turn clip (game/uturnclip.js). Played back off the reel (whose match
+  // with the sim is tools/uturnreel.mjs's job) it has to actually do the move — along the street in
+  // its own lane, back the other way in the far one, half a turn — and the street picker has to find
+  // somewhere to film it in the shipped city, and refuse a blocked one.
+  {
+    const { reelAt, clipKeys, pickStreet, CLIP_LOOP, TAP_2 } = await import('../src/game/uturnclip.js');
+    const start = reelAt(0.2);
+    const end = reelAt(TAP_2 + 1);
+    if (!(start.lateral > 0 && end.lateral < 0)) throw new Error('uturnclip: the spin does not change lanes');
+    if (Math.abs(end.yaw - start.yaw - Math.PI) > 0.05) throw new Error('uturnclip: not a half turn');
+    if (!(reelAt(1).along > start.along && reelAt(CLIP_LOOP).along < end.along)) throw new Error('uturnclip: car does not drive out then back');
+    const k = clipKeys(CLIP_LOOP * 0.5);
+    if (!(k.boost.lit && k.brake1.lit && k.brake2.lit)) throw new Error('uturnclip: keys not all lit mid-loop');
+    if (clipKeys(0).boost.lit) throw new Error('uturnclip: the loop opens with a key already lit');
+    const { createLayout } = await import('../src/city/layout.js');
+    const { cityNetwork } = await import('../src/city/roadnet.js');
+    const { makeRng } = await import('../src/util/rng.js');
+    const camRight = { x: Math.SQRT1_2, z: -Math.SQRT1_2 };
+    // Three blocks of straight street is a lot to ask of a city with a river and parks in it.
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      createLayout(makeRng(seed));
+      if (!pickStreet({ network: cityNetwork(), cars: [], camRight })) throw new Error(`uturnclip: no street in city ${seed}`);
+    }
+    createLayout(makeRng(7));
+    const street = pickStreet({ network: cityNetwork(), cars: [], camRight });
+    if (!street) throw new Error('uturnclip: no street to film in an empty city');
+    if (street.forward.x * camRight.x + street.forward.z * camRight.z <= 0) throw new Error('uturnclip: street runs right to left');
+    const parked = [{ x: street.centre.x, z: street.centre.z }];
+    const again = pickStreet({ network: cityNetwork(), cars: parked, camRight });
+    if (again && Math.hypot(again.centre.x - street.centre.x, again.centre.z - street.centre.z) < 1) {
+      throw new Error('uturnclip: picked a street with a car parked on it');
+    }
+  }
+
+  // The drift's clip (game/driftclip.js): the reel has to come up the approach in its own lane, go
+  // round to the left and leave up the exit, on the keys' timeline; and the corner picker has to
+  // find a corner in the shipped city whose turn is the recorded one, and refuse a blocked one.
+  {
+    const { reelAt, clipKeys, pickCorner, CLIP_LOOP, TAP } = await import('../src/game/driftclip.js');
+    const { MOVES } = await import('../src/game/newmove.js');
+    const start = reelAt(0);
+    const end = reelAt(CLIP_LOOP);
+    if (!(start.along < -20 && start.lateral > 0)) throw new Error('driftclip: does not come up the approach');
+    if (!(end.lateral < -15 && Math.abs(end.along - 2) < 1)) throw new Error('driftclip: does not leave up the exit lane');
+    if (Math.abs(end.yaw - start.yaw - Math.PI / 2) > 0.15) throw new Error('driftclip: not a left turn');
+    if (!(reelAt(TAP).along < -4)) throw new Error('driftclip: the tap lands after the corner');
+    const k = clipKeys(CLIP_LOOP * 0.7);
+    if (!(k.boost.lit && k.brake.lit && k.kick.lit)) throw new Error('driftclip: keys not all lit late in the loop');
+    if (clipKeys(0).boost.lit) throw new Error('driftclip: the loop opens with a key already lit');
+    // Every key on each card's pedal row is one its clip presses.
+    const { clipKeys: uturnKeys } = await import('../src/game/uturnclip.js');
+    for (const [move, keys] of [[MOVES.uturn, uturnKeys(0)], [MOVES.drift, k]]) {
+      for (const [name] of move.keys) if (!(name in keys)) throw new Error(`newmove: ${move.line} has no key ${name}`);
+    }
+    if (!(MOVES.drift.after > MOVES.uturn.after)) throw new Error('newmove: the drift is taught before the U-turn');
+    const { createLayout } = await import('../src/city/layout.js');
+    const { cityNetwork } = await import('../src/city/roadnet.js');
+    const { makeRng } = await import('../src/util/rng.js');
+    const camRight = { x: Math.SQRT1_2, z: -Math.SQRT1_2 };
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      createLayout(makeRng(seed));
+      if (!pickCorner({ network: cityNetwork(), cars: [], camRight })) throw new Error(`driftclip: no corner in city ${seed}`);
+    }
+    createLayout(makeRng(7));
+    const corner = pickCorner({ network: cityNetwork(), cars: [], camRight });
+    if (!corner) throw new Error('driftclip: no corner to film in an empty city');
+    const parked = [{ x: corner.centre.x, z: corner.centre.z }];
+    const again = pickCorner({ network: cityNetwork(), cars: parked, camRight });
+    if (again && Math.hypot(again.centre.x - corner.centre.x, again.centre.z - corner.centre.z) < 1) {
+      throw new Error('driftclip: picked a corner with a car parked on it');
+    }
   }
 
   // The crash replay's tape, played back rather than trusted (game/replay.js). Three things it
@@ -138,14 +243,17 @@ try {
 
   // The driver thrown through the windscreen (game/ejection.js). A closed form like the wreck, so
   // the same promises: stepped and scrubbed agree, it never goes through the road, it comes to rest
-  // lying down and in frame, and it does not exist before the impact.
+  // lying down, and it does not exist before the impact. Plus the one it got wrong at first: thrown
+  // along the taxi's heading it could land inside a building, so a sweep of headings from a
+  // junction must every one come to rest on the road.
   {
     const THREE = await import('three');
     const { createEjection } = await import('../src/game/ejection.js');
+    const { GRID_I, GRID_J, blockBounds, lineX, lineZ } = await import('../src/city/grid.js');
     const scene = new THREE.Scene();
     const lands = [];
     const ej = createEjection(scene, { roadY: 0, onLand: (x, z, hard) => lands.push(hard) });
-    ej.fire({ x: 0, z: 0, yaw: 0.7, closing: 21, side: 1 });
+    ej.fire({ x: lineX(2), z: lineZ(3), yaw: 0, closing: 21, side: 1 });
     const fail = [];
     let low = Infinity;
     for (let n = 0; n < 180; n++) {
@@ -153,15 +261,34 @@ try {
       low = Math.min(low, ej.group.position.y);
     }
     const end = ej.group.position.clone();
-    const reach = Math.hypot(end.x, end.z);
+    const reach = Math.hypot(end.x - lineX(2), end.z - lineZ(3));
     if (low < 0.25) fail.push(`dipped to y ${low.toFixed(2)}`);
     if (Math.abs(end.y - 0.3) > 1e-3) fail.push(`rests at y ${end.y.toFixed(3)}, not lying`);
-    if (!(reach > 5 && reach < 11)) fail.push(`landed ${reach.toFixed(1)} units out`);
+    if (!(reach > 12 && reach < 20)) fail.push(`landed ${reach.toFixed(1)} units out down an open street`);
+    const inBlock = (x, z) => {
+      for (let bi = 0; bi < GRID_I; bi++) {
+        for (let bj = 0; bj < GRID_J; bj++) {
+          const b = blockBounds(bi, bj);
+          if (x > b.x0 && x < b.x1 && z > b.z0 && z < b.z1) return true;
+        }
+      }
+      return false;
+    };
+    for (let k = 0; k < 24; k++) {
+      const probe = createEjection(new THREE.Scene(), { roadY: 0 });
+      probe.fire({ x: lineX(2), z: lineZ(3), yaw: (k / 24) * Math.PI * 2, closing: 34, side: k % 2 ? 1 : -1 });
+      let through = false;
+      for (let n = 0; n < 180; n++) {
+        probe.update(1 / 60);
+        if (probe.group.position.y < 1 && inBlock(probe.group.position.x, probe.group.position.z)) through = true;
+      }
+      if (through) { fail.push(`heading ${k}/24 put the driver on a block`); break; }
+    }
     if (lands.length < 2) fail.push(`${lands.length} landings announced`);
     ej.seek(0.4);
     const scrubbed = ej.group.position.clone();
     const replayed = createEjection(new THREE.Scene(), { roadY: 0 });
-    replayed.fire({ x: 0, z: 0, yaw: 0.7, closing: 21, side: 1 });
+    replayed.fire({ x: lineX(2), z: lineZ(3), yaw: 0, closing: 21, side: 1 });
     for (let n = 0; n < 24; n++) replayed.update(1 / 60);
     if (scrubbed.distanceTo(replayed.group.position) > 1e-6) fail.push('seek(0.4) disagrees with stepping to 0.4');
     ej.seek(-0.1);

@@ -43,7 +43,6 @@ ramp along `d` — they are the world, not the fare game.
 
 | World knob | `d = 0` | `d = 1` | |
 |---|---|---|---|
-| `payoutMultiplier` | 1× | 2× | Stepped with the [shift](#shifts). |
 | `carCount` | 12 | 22 | Ambient traffic. Pushed into `sim/traffic.js`. |
 | `policeCooldown` | 16–30s | 8–14s | Between patrols. Pushed into `game/patrol.js`. |
 
@@ -81,8 +80,8 @@ Shipped, over 21 cities:
 
 | | p10 | median | ended by | pace driven | picks with a choice |
 |---|---|---|---|---|---|
-| cruise | 3 | 7 | 10 strikes, 11 aboard | 1.05 | 8% |
-| loco | 10 | 12 | 21 strikes | 0.95 | 11% |
+| cruise | 4 | 8 | 12 strikes, 9 aboard | 1.06 | 7% |
+| loco | 10 | 12 | 19 strikes, 1 aboard, 1 wreck | 0.96 | 10% |
 
 **The pace dial works.** A player who never touches the pedal is done around the seventh fare; one
 who boosts when behind lasts nearly twice as long. The old slack curve gave the never-boosting player
@@ -104,17 +103,17 @@ of the build gets faster or slower to drive.
 
 ## Shifts
 
-Four bands over the delivery count — 0, 3, 7, 12 — each with a payout multiplier, reflected in the
-prices from the delivery that crosses into it (there is [no counter](gameplay.md#the-multiplier-has-no-counter)
-for it). The ramp is otherwise invisible: clocks tighten, riders arrive closer together and the board grows, and
+Four bands over the delivery count — 0, 3, 7, 12. They used to carry a payout multiplier each (1×,
+1.25×, 1.5×, 2×); [the Perfect Run](gameplay.md#the-perfect-run) replaced it, so a shift is now only how hard
+the city is. The ramp is otherwise invisible: clocks tighten, riders arrive closer together and the board grows, and
 a player experiencing all three at once has no way to tell "the game got harder" from "I got worse".
 
-| Shift | From | Pays |
-|---|---|---|
-| Early Shift | 0 | 1× |
-| Busy | 3 | 1.25× |
-| Rush Hour | 7 | 1.5× |
-| Gridlock | 12 | 2× |
+| Shift | From |
+|---|---|
+| Early Shift | 0 |
+| Busy | 3 |
+| Rush Hour | 7 |
+| Gridlock | 12 |
 
 Deliberately **not** named after times of day: `daylight.js` runs the sky on its own clock, and a
 "Night Shift" banner over a midday sky is two systems contradicting each other.

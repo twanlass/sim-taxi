@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { skipWhenEmpty } from '../util/emptypools.js';
 import { color } from '../palette.js';
 import { carrySpeed } from '../util/carry.js';
 
@@ -106,7 +107,7 @@ export function createDust(scene, camera, rng) {
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
   };
 
-  const mesh = new THREE.InstancedMesh(geometry, material, MAX_PUFFS);
+  const mesh = skipWhenEmpty(new THREE.InstancedMesh(geometry, material, MAX_PUFFS));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.renderOrder = 3;      // above the rubber, below the cars and the game markers
   mesh.frustumCulled = false;

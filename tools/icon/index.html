@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- The app icon's render page — not part of the game and not in the build (vite.config.js
+         names only the game and /lab/). The dev server serves it to tools/make-icon.mjs, which
+         reads back the PNGs it leaves on `window.__icons`. Open it by hand at
+         http://localhost:5173/tools/icon/ to look at the framing. -->
+    <title>Rocket Rides icon</title>
+    <style>
+      html, body { margin: 0; background: #222; }
+      body { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px; align-items: flex-end; }
+      canvas, img { display: block; }
+      #render { width: 512px; height: 512px; }
+    </style>
+  </head>
+  <body>
+    <script>
+      // Reported to make-icon.mjs, which would otherwise wait out its timeout on a dead page.
+      addEventListener('error', (e) => { window.__iconError = String(e.error?.stack ?? e.message); });
+    </script>
+    <script type="module" src="./icon.js"></script>
+  </body>
+</html>

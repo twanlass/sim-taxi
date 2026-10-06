@@ -1,7 +1,8 @@
 /**
  * The player's settings from the title screen, remembered across visits in `localStorage`.
  *
- * Three of the four live here: the two volume sliders and the tutorial tips. **Sound on/off is not
+ * All but one live here: the two volume sliders, the tutorial tips and the two haptics switches.
+ * **Sound on/off is not
  * one of them** — it already had a home before this screen existed (`simTaxi.muted`, owned by
  * game/sfx.js, shared with the pause screen's pill and the M key), and a second copy of it here
  * would be two switches that can disagree. The title screen reads and writes that one through sfx.
@@ -14,8 +15,17 @@
 
 export const SETTINGS_KEY = 'simTaxi.settings';
 
-/** A first visit. Both sliders full — the mix in mix.json is the designer's, so full *is* the mix. */
-export const DEFAULT_SETTINGS = Object.freeze({ music: 1, effects: 1, tips: true });
+/**
+ * A first visit. Music full, effects at 75%: with the radio playing at full, the effects at full
+ * buried it (Tyler, by ear, 2026-10-04). The slider is squared on the way to the gain, so 0.75 is
+ * 0.56, about -5 dB under the mix in mix.json. A player with a saved setting keeps theirs.
+ */
+export const DEFAULT_SETTINGS = Object.freeze({
+  music: 1, effects: 0.75, tips: true,
+  // The phone's Taptic Engine (util/haptics.js) — rows that only appear inside the iOS app.
+  // `comboHaptics` off plays the combos as the single knocks they had before their patterns.
+  haptics: true, comboHaptics: true,
+});
 
 const unit = (v, fallback) => (typeof v === 'number' && Number.isFinite(v)
   ? Math.min(1, Math.max(0, v)) : fallback);
@@ -27,6 +37,9 @@ export function cleanSettings(raw) {
     music: unit(src.music, DEFAULT_SETTINGS.music),
     effects: unit(src.effects, DEFAULT_SETTINGS.effects),
     tips: typeof src.tips === 'boolean' ? src.tips : DEFAULT_SETTINGS.tips,
+    haptics: typeof src.haptics === 'boolean' ? src.haptics : DEFAULT_SETTINGS.haptics,
+    comboHaptics: typeof src.comboHaptics === 'boolean' ? src.comboHaptics
+      : DEFAULT_SETTINGS.comboHaptics,
   };
 }
 

@@ -234,6 +234,13 @@ export const SHOTS = [
   // you notice while driving past.
   { name: 'court', description: 'the basketball court, close', target: [0, 0], zoom: 10, warmup: 12, atCourt: true },
   { name: 'court-far', description: 'the basketball court at play zoom', target: [0, 0], zoom: 52, warmup: 12, atCourt: true },
+  // The trash barge and its gulls, close. Staged through the drawbridge cycle because that is what
+  // puts a barge on the river at all (`boats.settle()`), then framed on the barge rather than the
+  // span — the gulls are a few pixels each and only a close framing says whether they read.
+  { name: 'barge', description: 'the trash barge and its gulls', target: [0, 0], zoom: 9, warmup: 12, drawbridgeAt: 13.0, onBarge: true },
+  // The gates close up, with the leaf on its way up behind them: the warning lamps on the arms are
+  // a few pixels each at play zoom, and this is the framing that shows whether they read as lamps.
+  { name: 'drawbridge-gate', description: 'the gate arms down and their lamps flashing', target: [0, 0], zoom: 9, warmup: 12, drawbridgeAt: 4.0 },
 ];
 
 export function getActiveShot() {
@@ -569,6 +576,15 @@ export function getHdr(fallback = false) {
   const raw = params.get('hdr');
   if (raw === null) return fallback;
   return !isOff(raw);
+}
+
+/**
+ * The wreck fireball's cut, via `?wreck=classic|quick|flat` — see WRECK_STYLES in game/blast.js.
+ * Returned as the raw name; `blast.setStyle` falls back to the default on anything it does not know.
+ * The fallback is flat, Tyler's pick — `?wreck=classic` brings the old fireball back.
+ */
+export function getWreckStyle(fallback = 'flat') {
+  return new URLSearchParams(window.location.search).get('wreck') ?? fallback;
 }
 
 /**

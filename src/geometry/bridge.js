@@ -46,6 +46,8 @@ const ABUT_DEPTH = 0.9;          // how far the abutment reaches back under the 
 // the geometry under there is for. Standing it proud keeps what the desktop happened to draw while
 // the tie stood, and closes the plane completely instead of leaving a slot behind it.
 const ABUT_WALL_CLEAR = 0.1;
+// Depth stations along the abutment, so its top can follow the arch's soffit — see `abutmentParts`.
+const ABUT_TOP_SEGMENTS = 8;
 
 // The dashes down the middle, matched to `markRoad`'s own so a bridge reads as the road carrying
 // on. They ride the deck rather than the ground, which is the whole reason they are here: a flat
@@ -132,7 +134,15 @@ function flankStrip(x, span, rise, top, bottom, sign, from = 0, to = 1) {
     const zb = ub * span;
     const ya = profileAt(ua, span, rise).y;
     const yb = profileAt(ub, span, rise).y;
-    const quad = sign > 0
+    // **Wound to face `sign`, and it used to face the other way.** Down then along is
+    // (0, -h, 0) × (0, ·, dz) = -x, so the first order below faces -x and belongs to `sign < 0`.
+    // It shipped the other way round: every edge beam faced *into* the deck and every kerb face
+    // out under its footway, so from the outside a span had no side at all and the camera looked
+    // through it, under the footway and out the far side to the water. On a flat deck that is a
+    // slot `KERB_H + DECK_THICK` tall and was never reported; once the arches went to a 1.9 rise it
+    // read as the deck coming away from the road at both ends. The probe now checks each face
+    // against the side it is on, from the winding rather than from the normal attribute.
+    const quad = sign < 0
       ? [x, ya + top, za, x, ya - bottom, za, x, yb - bottom, zb,
          x, ya + top, za, x, yb - bottom, zb, x, yb + top, zb]
       : [x, ya + top, za, x, yb - bottom, zb, x, ya - bottom, za,
@@ -249,6 +259,30 @@ export function bridgeParts(span, rng, range = [0, 1]) {
     ));
   }
 
+  // **End caps**, where this call reaches an abutment. The deck is built as surfaces rather than as a
+  // solid — running surface, footways, kerb faces, edge beams, soffit — and nothing closed its two
+  // ends, so looking along the bank at a span's end showed straight into it: under the footway,
+  // through the hollow slab and out to the water. A box at each end, set in by a few thousandths
+  // on every side that would otherwise lie on a deck surface's plane, so it closes the hole
+  // without fighting anything. Skipped at the drawbridge's hinge, which is not an end.
+  const CAP = 0.05;
+  const IN = 0.003;
+  for (const end of [0, 1]) {
+    if (end === 0 ? from > 1e-9 : to < 1 - 1e-9) continue;
+    const zc = end === 0 ? CAP / 2 : length - CAP / 2;
+    const cap = (x0, x1, y0, y1, col) => {
+      const box = new THREE.BoxGeometry(x1 - x0, y1 - y0, CAP);
+      box.translate((x0 + x1) / 2, (y0 + y1) / 2, zc);
+      parts.push(bakeColor(box, col));
+    };
+    cap(-span.half + IN, span.half - IN, -DECK_THICK + IN, -0.03, soffitCol);
+    for (const sign of [-1, 1]) {
+      const [x0, x1] = sign > 0
+        ? [span.half + IN, span.outer - IN] : [-span.outer + IN, -span.half - IN];
+      cap(x0, x1, -DECK_THICK + IN, KERB_H - IN, trimCol);
+    }
+  }
+
   // Centre-line dashes, walked in arc length rather than in z so the spacing does not stretch over
   // the crest. Only on the stretch this call covers.
   for (let s = DASH_GAP; s + DASH < length; s += DASH + DASH_GAP) {
@@ -295,10 +329,36 @@ export function abutmentParts(span, rng, end) {
   // and is back-facing under this camera. One line fixes both, and the invisible one is fixed too,
   // because "you cannot see it from here" is not a reason for two surfaces to share a plane.
   const depth = ABUT_DEPTH + DECK_OVERHANG + ABUT_WALL_CLEAR;
-  const box = new THREE.BoxGeometry(span.outer * 2, height, depth);
+  const length = span.z1 - span.z0;
+  const rise = span.kind === 'fixed' ? ARCH_RISE : 0;
+  // A hair narrower than the deck when its top follows the arch: the top is a chord between
+  // stations, a convex curve's chord sits just above it, and where it pokes into the deck slab its
+  // sides would otherwise lie on the edge beams' own planes.
+  const width = span.outer * 2 - (rise > 0 ? 0.01 : 0);
+  const box = new THREE.BoxGeometry(width, height, depth, 1, 1, rise > 0 ? ABUT_TOP_SEGMENTS : 1);
   const mid = depth / 2 - ABUT_DEPTH;
-  const z = end === 0 ? mid : (span.z1 - span.z0) - mid;
+  const z = end === 0 ? mid : length - mid;
   box.translate(0, -DECK_THICK - height / 2, z);
+
+  // **Its top follows the soffit, not the abutment's own flat line.** The arch leaves the bank at
+  // zero slope, but the abutment reaches `DECK_OVERHANG` + `ABUT_WALL_CLEAR` out over the water, and
+  // across that stretch the soffit has already climbed — `rise · sin²(πu)`, 0.24 by the wall at a
+  // rise of 1.9. A flat-topped box left a wedge of open air that tall between itself and the deck,
+  // open from the side, with the water and the coast showing through it: reported as "a geo gap
+  // here" the day the rise went from 1.1 to 1.9. It was there at 1.1 too, at 0.14 tall and about a
+  // pixel at play zoom. Each top vertex is lifted to the soffit above it, a hundredth under it so
+  // the two never share a plane (the soffit faces down and is culled from up here anyway).
+  if (rise > 0) {
+    const pos = box.attributes.position;
+    const top = -DECK_THICK - 1e-6;
+    for (let k = 0; k < pos.count; k++) {
+      if (pos.getY(k) < top) continue;
+      const u = pos.getZ(k) / length;
+      if (u <= 0 || u >= 1) continue;
+      pos.setY(k, archAt(u, length, rise).y - DECK_THICK - 0.01);
+    }
+    box.computeVertexNormals();
+  }
   return [bakeColor(box, trimCol)];
 }
 

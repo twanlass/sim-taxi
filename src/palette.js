@@ -279,6 +279,9 @@ export const PALETTE = {
   // the point — the flash as a note turns over is the thing that catches an eye that is on the road
   // ahead rather than on the trail.
   cashBack: '#EDE9CF',
+  // A getaway checkpoint's ring and its pulsing centre dot (geometry/targetring.js). White, off
+  // the urgency scale on purpose: the clock is cashed at the drop-off, not here.
+  waypoint: '#FFFFFF',
   // The pale end of the *face*, which is a different job from `cashBack` and was at first confused
   // with it. The back is a flash — a value flip as a note turns over — and there is one of it. This
   // is a **spread**: every note rolls its own face somewhere between `cashNote` and here, so the
@@ -617,6 +620,12 @@ export const PALETTE = {
   locoFlameOuter: '#FF5D18',
   locoFlameMid: '#FF9E12',
   locoFlameCore: '#FFF6D8',
+  // The drift kick's double-barrelled plume (game/locoflame.js `surge`): the same three tongues in
+  // violet, so the combo reads as a different fire from the ordinary Loco one at a glance. Same
+  // ramp shape — saturated outside, pale at the pipe — so it still reads as a flame and not a light.
+  locoFlameDriftOuter: '#9B3DFF',
+  locoFlameDriftMid: '#C77DFF',
+  locoFlameDriftCore: '#F3E6FF',
 
   // Sparks off the underside of the taxi as it lands a jump — see game/sparks.js. Two stops, one
   // per end of a shower rather than a ramp each spark walks: a spark is on screen for half a second
@@ -693,9 +702,12 @@ export const PALETTE = {
   // An ambient car's turn signal — deliberately more orange than lightYellow above so a blinking
   // indicator doesn't read as a stop-bar amber lifted onto a car.
   turnSignal: '#FF8A1E',
-  // Headlights, and the pool each one throws on the road — Rain Mode only (`?rain`). A warm white
-  // rather than a pure one: under the overcast grade a pure white lamp reads as a hole in the frame.
-  headlight: '#FFF1CF',
+  // Headlights, and the beam each one throws — Rain Mode only (`?rain`). A warm white rather than a
+  // pure one: under the overcast grade a pure white lamp reads as a hole in the frame. The lens is
+  // a deeper amber than the beam because it draws unlit and then blooms, and both push it toward
+  // white: at '#FFF1CF', and even at the beam's own '#FFE2A6', it rendered as plain white next to a
+  // warm beam. This value lands on screen at roughly the beam's colour.
+  headlight: '#FFD98C',
   headlightBeam: '#FFE2A6',
   // Street lamps (game/citylights.js): the post, and the sodium-ish glow of the head and its pool.
   // The post was #2E3238 and read as a black stroke against the asphalt (#636972); a galvanised
@@ -841,16 +853,30 @@ export const PALETTE = {
   // Neither is allowed near the warm end. The taxi owns 34 degrees, the urgency ramp owns
   // everything from 1 to 126 and the roadworks orange sits at 6 — a working boat in red or orange
   // is a thing the player would look at twice on a board where warm means "act on this".
-  bargeHull: '#4A4E55',
-  // A deck barge's load: shipping containers in the colours a real stack comes in, minus every
-  // warm one. Blues, a green held at 145 degrees (the urgency ramp ends at 126), a slate, a violet
-  // and a white box, and nothing between 170 and 200 where the courier cyan lives. They are
-  // *muted* on purpose — a container yard is the most colourful thing on a river, and it still has
-  // to sit under the taxi and the fares in the frame.
-  bargeContainers: ['#3B5F8C', '#566A8C', '#4A7A5C', '#767C84', '#685D86', '#C9CCC8'],
-  // Loose crates: weathered pale timber rather than new pine, which would land on the taxi's 34
-  // degrees at full saturation.
-  bargeCrate: '#A39A88',
+  // The trash barge (geometry/boat.js). Rust is a warm hue, so it is spent the only way this board
+  // allows a warm one: at low saturation and low value, where it reads as dirty steel rather than
+  // as an orange. The hull stays dark against the water (luma ~70 against the river's 87-112) and
+  // the heap is where the variety lives — black bags, a muted green one held at 145 degrees (the
+  // urgency ramp ends at 126), grey cardboard, a blue drum, a few white scraps that catch the sun.
+  trashHull: '#4F4843',
+  trashGrime: '#3E3B37',
+  // The mound the rubbish sits in, lighter than the bags so they read as bags against it.
+  trashHeap: '#6B655C',
+  trashTyre: '#26272A',
+  trashBag: '#2B2E33',
+  trashBagGreen: '#4C6B55',
+  trashBox: '#8E8576',
+  trashJunk: '#6E7378',
+  trashBarrel: '#3B5F8C',
+  trashWhite: '#C9CCC8',
+  // The wheelhouse is steel in the cars' metal finish, which darkens its base and adds the sky — so
+  // it is picked pale, near `bumperChrome`'s neighbourhood rather than the grey it ends up reading as.
+  trashHouse: '#C4C9CE',
+  trashStack: '#2F3236',
+  // The gulls (game/gulls.js): white bodies, grey backs, and nothing else — a yellow bill would be
+  // a warm speck at full saturation and would not survive the 3 pixels it occupies anyway.
+  gullBody: '#EEF0F0',
+  gullWing: '#A7ADB3',
   // The boat that asks for the lift is a sailboat now, and it is the one **white** thing on the
   // water — a light hull is value against the river, which is what this whole section is about.
   sailHull: '#ECECE8',
@@ -926,6 +952,18 @@ export const PALETTE = {
   coneBand: '#EDE9DF',
   barrier: '#E5551D',
   barrierBand: '#EDE9DF',
+  // The drawbridge gate's warning lamps (game/drawbridge.js). Lit, they are the signal's own amber
+  // (`lightYellow`) — a lamp telling you to stop is the same lamp wherever it is mounted. Off, they
+  // are this: a dark brown-amber lens, deep enough against the orange arm that a lit lamp is
+  // plainly a change of state rather than the same colour a bit brighter, and still a lens rather
+  // than a hole when the arm is standing idle.
+  gateLampOff: '#3A2A16',
+  // The gate arms' diagonal stripes. Black and white rather than the roadworks' `barrier` orange:
+  // the drawbridge gate is a railway-style crossing arm, and the stripes are what make it read as
+  // one. Not pure black, which goes to a hole on the shaded side, and the light stripe is the same
+  // off-white as the other bands so it does not blow out under a golden-hour sun.
+  gateStripeDark: '#26282C',
+  gateStripeLight: '#EDE9DF',
   // The vest is *more* saturated than the cones and lighter, so a worker still reads as a figure
   // against the props standing around them rather than as one more cone.
   hiVis: '#FF7A33',

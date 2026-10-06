@@ -1,5 +1,5 @@
 ---
-description: Build Sim Taxi and push it to the paired iPhone over Wi-Fi
+description: Build Rocket Rides and push it to the paired iPhone over Wi-Fi
 allowed-tools: Bash(npm run push:ios), Bash(npm run push:ios -- *), Bash(npm run check), Bash(xcrun devicectl list devices*)
 ---
 
@@ -20,7 +20,7 @@ Notes for reading the output:
 - **A locked phone is not a failure.** The script says so explicitly and exits 0 — the app is
   installed and needs a tap. Don't rebuild.
 - **Debug is deliberate**, not an oversight. `isInspectable` in `GameViewController.swift` is
-  `#if DEBUG`, and Safari Web Inspector (Develop ▸ device ▸ Sim Taxi) is the only console the game
+  `#if DEBUG`, and Safari Web Inspector (Develop ▸ device ▸ Rocket Rides) is the only console the game
   has on hardware. Only use `--release` if asked.
 - **The layout assertion is the one that matters.** If it fires, the fix is in
   [docs/ios.md](../../docs/ios.md) — the sync group needs `explicitFolders = ( web, )` — and

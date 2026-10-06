@@ -21,7 +21,7 @@ words stand on. Settings holds four things, all remembered across visits:
 | Setting | Where it lives |
 |---|---|
 | Sound on/off | The existing mute (`simTaxi.muted`, game/sfx.js), shared with the pause screen's Settings and **M** — stored once, not twice |
-| Music volume, SFX volume | `simTaxi.settings` (game/settings.js), applied through `sfx.setVolumes`. There is **no music track yet**: the slider steers a real music bus that nothing plays into |
+| Music volume, SFX volume | `simTaxi.settings` (game/settings.js), applied through `sfx.setVolumes`. Music is the radio ([audio.md](audio.md#the-radio)) |
 | Tutorial tips | `simTaxi.settings`. Read on Play (`beginRun` in main.js): off drops the tutorial and lets the HUD in |
 
 **"Play again" skips it.** The retry is a reload, and a player who just pressed Play does not want
@@ -216,8 +216,9 @@ of it** — though the first one is currently switched off:
    fully lit city — the pool aimed correctly at them, sized correctly, at opacity 0. Whatever beat
    comes first has to be the one that turns the light on.
 3. **"Hold to floor it"** — the gas pedal, two seconds after the first rider is *dropped off*,
-   with the bubble standing on the pedal's top and its pointer on it, the spotlight on the pedal and
-   the pedal pulsing under it. Skipped entirely if the player has already fired Loco
+   with the bubble standing on the pedal's top and its pointer on it and the pedal pulsing under it.
+   **No spotlight** — dimming the city hid the taxi and the road ahead, which is the thing the
+   player has to read to know whether it is safe to floor it. Skipped entirely if the player has already fired Loco
    Mode.
 
 The city's own entrance and then the vignette come first: the whole tutorial is held frozen (via its
@@ -271,12 +272,6 @@ Both radii are sized in **world units** and converted per frame, because 1 world
 wrong the moment anything moves the zoom). The clear centre is 6 units — the subject and the kerb it
 stands on, no more. At half again as wide it lit most of a 5×5 city and read as general gloom rather
 than as a light pointed at one thing.
-
-The third beat is the exception: it points at a **control**, which is a fixed thing on the glass at a
-size that has nothing to do with the camera, so its pool is measured off the Loco Mode pill's own
-box instead. Sizing that one in world units would grow and shrink the pool around a button that
-never moved. Its falloff is proportionally wider than the world one, because a corner control
-spends half its falloff off the edge of the glass.
 
 The warm core matters more than it looks: the darkening alone left the subject merely *not dimmed*,
 which at this contrast is not the same as lit.
@@ -347,9 +342,8 @@ routes through `tutorial.dismiss()` explicitly — `holdLocoMode` calls `prevent
 suppress the click a touch would otherwise synthesise — so that call now clears the first two beats
 and deliberately does nothing to the third). Instead it comes *back*: `BOOST_HINT_SHOWS` showings,
 `BOOST_HINT_REPEAT_GAP` apart, with the step falling back to `toBoost` in between so the same
-countdown serves as both the first delay and every gap after it. The budget is there because the
-spotlight dims the whole city by 78% while a showing is up, and this beat is over a live run: three
-showings is 18 seconds of dark city across a whole run, and a player who has not taken it by the
+countdown serves as both the first delay and every gap after it. The budget is there because this
+beat is over a live run: three showings is 18 seconds of bubble across a whole run, and a player who has not taken it by the
 third is not going to. A repeat says `LINES.boostAgain` — "Hold it down — don't tap" — whenever
 `boostUsed` is true, since repeating the original line at someone who is jabbing the pill is a
 louder version of a sentence they have already read and acted on.
@@ -434,6 +428,87 @@ for free rather than hunting the board for their car.
 
 `?tutorial=off` skips the whole thing, and shot mode never runs it: a screenshot has nobody to
 teach, and the bubble would be the loudest thing in every frame.
+
+## New Move Unlocked: the overtake, U-turn and drift cards
+
+**The overtake comes first** (`game/overtakeclip.js`), from the first drop-off: holding Loco Mode
+behind a car rams it unless the combo is thrown (`game/overtake.js`), so it is the one move a player
+is punished for not knowing. Its clip is two cars — the reel carries the car being passed too
+(`REEL.lead`, drawn by `game/moveclip.js`) — and its camera **follows** that car (`track` on
+`reelPlayer`) rather than standing still, because a pass takes ~80 units of road at the Loco top and
+a frame that held all of it drew both cars at a third the size. That length is also why its street
+picker accepts the ring road as well as side streets. The pedal row is Loco, then Loco again: the
+first key goes dark at the blip and the second lights. Recorded by `tools/overtakereel.mjs`.
+
+The bootleg (boost, then two quick brake taps — `game/bootleg.js`) is the one input nobody finds by
+looking, so it gets a card (`game/newmove.js`, `#new-move` in index.html). It is the tutorial's
+own speech bubble, made wider and centred over a dim with no pointer: "New Move Unlocked" in the
+title slot, "U-Turn" as the line, then a clip of the move and the pedal row under it. No other words.
+
+The clip (`game/uturnclip.js` and `game/moveclip.js`) is a scripted 4.6s loop filmed **in the player's own city**, at the
+game's 3/4 view. On open, `pickStreet` chooses a straight two-way side street off the river with no
+car stopped on it, mostly visible past the buildings, and runs the move left to right on screen. The
+city is drawn once more into `#freeze-frame`, a 2D canvas laid over the game's, and from then on the
+game's canvas renders the whole frame (`renderFrame(cam)` in main.js: shadows, AO, bloom, weather)
+through a clone of the city camera slid over that street. The middle of each frame is copied into the
+card. `frameRun` sizes and centres that crop by sweeping a box the size of the drawn taxi over the
+whole loop, because the taxi body is much bigger than `CAR_LEN` and hand framing cut its roof off on
+the spin. A stand-in taxi (the real mesh, the Loco Mode flame, the skid marks and the brake lamps) is
+added to the scene while the card is up and removed on close. It cruises in, floors it, checks on the
+first brake tap, spins onto the far lane on the second (0.3s later, inside the 350ms combo window)
+and drives back.
+
+The motion is **the game's own U-turn, recorded**: `tools/uturnreel.mjs` drives the shipped
+traffic model, Loco Mode and bootleg on the passing lab's straight road with the pedals pressed on
+the card's timeline, and writes the taxi group's transform, wheel lock, brake lamp, flame and rubber
+for every frame to `game/uturnreel.js`. `npm run check` films it again and fails if the file no longer
+matches (`node tools/uturnreel.mjs --write` refreshes it). A hand-scripted timeline came first and
+read as fake: quicker than the real spin, and rocking where the real car does not. It is not the sim
+running live because the world is frozen under the card and a second traffic instance would write
+over the real one's module-level state. At the game's real speeds the run is three blocks long, so
+`pickStreet` also needs the street to carry straight on, open, through the junctions at each end. The pedal row (the HUD's own pedal art, all three at one size with a
+"+" between) is pressed off the **clip's clock**, so each key goes down on the frame the car does
+the thing it does: dim until pressed, lit from then to the end of the loop.
+
+- **When:** a beat (0.9s) after the drop-off that brings a run to two fares — robbery.js's
+  `MIN_DELIVERED`, the first moment a chase can happen, which is what the move is for. It waits out
+  the opening tutorial's Loco Mode beat, and skips any drop-off that is not calm (a delivered robber
+  hands the taxi a patrol chase, a depot visit, a wreck); the next drop-off tries again.
+- **Once, ever.** Remembered under `simTaxi.seen.uturn`, unlike the opening tutorial: a card calling
+  a move "new" on every retry is lying by the second one. A store that throws costs the memory, so
+  it shows once per visit instead.
+- **The world stops** under it, like the robber's line, and any tap or key press clears it after a
+  0.3s guard (it lands mid-run, under a thumb that may be tapping the city). The key is swallowed,
+  so the Space that closes it does not also boost.
+- The tips setting, debug mode and `?tutorial=off` all turn it off. `__taxi.newMove.open()` shows
+  it on demand; clear the key to see it again in play.
+
+The camera, the stand-in and the still are shared with the drift's card below, in
+`game/moveclip.js`; `game/uturnclip.js` keeps the U-turn's timeline, reel and street picker.
+
+### The drift card
+
+The drift (Loco Mode, a tap of the brake just before a turn, Loco Mode again — `driftTaxi` /
+`kickDrift` in sim/traffic.js) gets the same card: "Drift" as the line, and a pedal row of Loco,
+brake, Loco. Its clip (`game/driftclip.js`) is a 3s loop: the stand-in comes up the street, floors
+it, taps the brake 0.2s before it starts into a left turn, gets back on the pill mid-arc, and comes
+out on the kick's purple twin plume with the bark out of the pipe.
+
+- **Recorded on a corner.** A drift needs a turn, so `tools/driftreel.mjs` films it on a grid of side
+  streets with the lights taken out, not on the lab's straight, and writes `game/driftreel.js` in the
+  corner's own frame (from the junction's centre, along the approach and across it). `npm run check`
+  films it again, as for the U-turn (`node tools/driftreel.mjs --write` refreshes it). The pill is
+  held to the end of the loop: let go, the brake lamps come on as the boost eases off, and that
+  would read as a brake the pedal row never pressed.
+- **Played on a matching corner.** `pickCorner` lays the reel on a left turn of the player's city
+  whose path matches the recorded turn's entry, middle and exit within 0.05, which admits side
+  streets and the ring and rules out anything with an arterial in it (a unit and a third wider). The
+  approach and the exit both run left to right on screen, so the car draws a V down and back up.
+  It needs straight road enough before and after, nothing parked within 5 of the path, stays off
+  the river, and prefers corners off the ring, which put half the clip over the coast's fade.
+- **When:** a beat after the drop-off that brings a run to four fares, and only once the U-turn's
+  card has been seen, so the two never land on one drop-off and always come in order. Remembered
+  under `simTaxi.seen.drift`. `__taxi.newMove.open('drift')` shows it on demand.
 
 ## The fare loop
 
@@ -1147,6 +1222,36 @@ which is what makes the assertion exact rather than tolerant: no frame runs betw
 detour and resetting it, so the taxi has not moved and the route afterwards is compared against the
 direct plan character for character instead of against a leg count that shrinks on its own.
 
+#### Tap a street to send the route down it
+
+**The band drag is switched off unless `?drag=on`** (Tyler, 2026-10-05), to test the street tap as
+the only way to bend a route. The double-tap reset goes with it.
+
+`src/game/streettap.js`. **A tap on bare road re-plans the trip down that street** — same
+destination, same fare, same clock, the drag's decision without the drag's aiming. It is the
+package tap (`divertToParcel`) for plain road.
+
+- **A street, not a junction.** `findRouteAlong` (game/route.js) tries both lanes of the tapped
+  block as a `findRouteOnto` to the far end and keeps the shorter. A route through either *end* of
+  the street could touch the corner and turn away without driving the road that was tapped.
+- **Everything else wins.** The picker hands a tap here only when nothing pickable was under it, so
+  riders, pins, packages, the depot, the burger joint and the taxi all keep their taps. A tap on a
+  roof is not a tap on the street behind it: the ground point is checked with `sightlineClear`.
+- **Within `STREET_SLOP` (2) of the kerb** counts as the street; the middle 8 units of an ordinary
+  block answer to nothing. In a junction box the arm whose centreline is closer wins.
+- **Capped at `STREET_TAP_MAX_DETOUR` (4) extra legs**, tighter than the drag's 6: a drag shows the
+  detour growing before it is let go, a tap takes it in one go. Refusals are silent and the band
+  not moving is the answer.
+- **A tap on a street the plan already drives does nothing**, including the block the car is on.
+  That is also what keeps a tap on the band (the first half of the double-tap reset) inert.
+- **Spent when planned**, like the package tap: nothing remembers the street, so the next re-plan
+  (a pickup, the drawbridge, an overtake detour) is free to drop it.
+- **Stands down during a burger run or a repair visit**, whose destinations are lanes; their own
+  `reroute` carries that and a junction-level plan would drop it.
+
+Acknowledged with the band's rollout sweep, the drag's grommet landing on the new stretch and
+letting go (`pathDrag.ping`), and a `pick` buzz — only when the route actually changed.
+
 #### The grab flourish
 
 A finger landing on the band has to be answered **on the band**, and answered before anything has
@@ -1636,13 +1741,47 @@ number flying from the counter *to* the taxi would read as the player being hand
 charge; it tweens either way now, and the total never goes below zero (see `charge()` in
 `game/fares.js`).
 
-### The multiplier has no counter
+### The Perfect Run
 
-Every fare's price is stamped at spawn with `difficulty.payoutMultiplier`, which steps up on the
-delivery that crosses into a new [shift](difficulty.md#shifts). There used to be an `N×` counter
-for it in the top-right corner; the HUD redesign gave that corner to the cash total and the counter
-was removed outright rather than moved. The multiplier still applies — the prices on the board and
-the payouts that fly to the counter already carry it, which is where the player sees it.
+A job is a **Perfect Run** when the taxi spends **more than half of it in Loco Mode**
+(`PERFECT_SHARE`) and takes **no damage**, and its drop-off then pays **×2** (`RUNS.perfect`,
+`game/runs.js`). A job is the whole of it — from the tap that sends the taxi at a rider, through the
+pickup, to the drop-off — and re-targeting at another rider starts a new one. (It was pickup to
+drop-off at first, which let a taxi bounce off three cars on the way to the kerb and still collect
+it.)
+
+Two edges are deliberate:
+
+- **It needs boost** because off boost it would be free: the taxi drives itself between taps, and a
+  contact off boost costs no HP. Counting every contact instead would charge the player for the
+  traffic model's own nudges. Damage means a hit that costs HP — a car, while boosting.
+- **Half, not "the whole time".** A full tank is 15s and a fare refills a third of it, against a
+  median job longer than that.
+
+`main.js` feeds the tracker each frame (the job in hand, `fares.job()`, and whether Loco Mode is
+on) and `collisions.onBump` reports damage; the fare loop asks for the verdict at the drop-off
+through `createFareSystem`'s `judgeRun` hook. Read there rather than stamped at spawn like the rest
+of a price, because it is about the driving, and nothing shows a price before the drop-off for it to
+contradict. It multiplies everything the drop-off pays, the robbery's clock bonus included. A
+[package](#the-package-courier) is never multiplied.
+
+**It is visible during the job**, because a bonus first heard of at the drop-off cannot change how
+anyone drives. A `PERFECT RUN` tag at the top centre (`#runs`, `updateRunTags`) appears once the job is
+`TAG_AFTER` (2s) old and on course, lit green; from then on it dims if the share slips under the
+line and lights again if it recovers. It showed the share as a percentage at first, which was more
+arithmetic than anyone wants mid-drive. Damage breaks it for good: it flinches red, shakes and falls
+out of the HUD. At the drop-off the payout plays as a sequence (`popRunSequence`) in the middle of
+the screen: the fare's price pops and flies into the counter like any payout, then `PERFECT RUN ×2`
+pops and fades, then the extra it added pops and flies into the counter after it, each amount
+rolling the counter to its own partial total as it lands.
+
+It replaced two multipliers. The [shift](difficulty.md#shifts) used to stamp 1×, 1.25×, 1.5× or 2×
+into every price at spawn, with no counter on screen; and VIPs stacked a streak of their own (3×,
+4×, 5× back to back). Both paid for getting further; this pays for *how*. Two designs were tried on
+the way and dropped: a clean-driving streak (×1, ×2, ×3 per drop-off, back to ×1 on damage), which
+only ever asked "don't crash" across the whole run; and three stacking run bonuses — Loco (80%
+boost, ×2), Perfect (no damage, ×1.5), Stealth (boost past the patrol unspotted, ×1.5) — which was
+more to read than to play. The Perfect Run is the first two of those folded into one rule.
 
 ### Priced by the trip
 
@@ -1663,9 +1802,8 @@ costs the *queue*: every other rider's clock drains while you drive it. Paying m
 game being fair about that afterwards, exactly as before; only the mechanism it is fair about has
 changed.
 
-**The shift multiplier is stamped in at the same moment**, for the same reason — the price is
-settled when the trip is. A rider who appeared during Rush Hour is worth Rush Hour money whenever
-they happen to get delivered, and the table above is the 1× column.
+A [Perfect Run](#the-perfect-run) is the one thing applied later, at the drop-off; the table below
+is the 1× column.
 
 | Blocks | Price |
 |---:|---:|
@@ -1710,14 +1848,9 @@ Everything else about a VIP is the ordinary fare loop with four numbers turned:
   from the driving the trip actually costs, plus the same reaction allowance — but at a fraction of
   the run's own pace (`VIP_PACE_FACTOR`, floored at `VIP_MIN_PACE`, about as fast as Loco Mode
   gets round the map). Letting one go costs the streak, never a strike.
-- **Triple pay, before the streak.** A VIP pays the ordinary distance price times the current shift
-  multiplier, same as anyone — and then again by `VIP_PAYOUT + streak`, where the streak is how many
-  VIPs have been delivered back to back. So the first is worth 3 fares, the next 4, the next 5.
-  (The base multiplier is what makes the first one worth taking at all: before it, `streak + 1` made
-  a fresh VIP worth exactly one ordinary fare.) Stamped at spawn like every other price on the
-  board, so the marker's fixed purple says what this one is worth the moment it appears rather than
-  leaving it to be found out on delivery. A miss resets the streak to zero — the whole tension of
-  stacking VIPs is that one late drop-off gives it all back.
+- **Triple pay.** A VIP pays the ordinary distance price times `VIP_PAYOUT` (3), stamped at spawn,
+  and then a [Perfect Run](#the-perfect-run) at the drop-off like anyone. There used to be a VIP-only
+  streak on top (3×, 4×, 5× back to back, reset by a miss); it went with the shift multiplier.
 - **A full tank on delivery**, rather than the ordinary third. `main.js` reads the boost meter's
   current fraction at the moment the delivery's energy bits land and tops up exactly what's missing,
   so a VIP always leaves Loco Mode topped off regardless of what was left in the tank going in.
@@ -1885,6 +2018,47 @@ front (`onBoard` in `main.js`). The event is imposed: it takes the seat whatever
 and a getaway that opened on a dry pill was a chase the taxi could not win on speed, against cops
 whose cruise ceiling sits above an unboosted taxi's. Filling it keeps the event's choice — boost
 and risk the wreck, or hold off and risk the clock — a choice.
+
+### Checkpoints on the way
+
+`ROBBER_CHECKPOINTS` in `game/fares.js`. A getaway is not one leg: the taxi has to touch **four
+checkpoints** before the drop-off, and each one pours the boost tank full again (`'checkpoint'` in
+main.js, the same pour as the boarding tank) with a "Checkpoint 1/4" rising off the cab. The mark
+the taxi is driving at *is* the checkpoint — a **white** ring rather than one in the clock's
+colour, with a dot in the middle that grows out and fades, over and over (`setWaypoint` in
+geometry/targetring.js), so a waypoint never reads as the end of the trip. (A diamond was tried
+first and read as another fare crystal.) It hops on to the next corner on arrival, turning back
+into the ordinary ring for the drop-off, and the route
+re-dispatches itself. The clock keeps running straight through; only the drop-off pays.
+
+The drop-off is drawn first, exactly as before (the far side of the map), and the checkpoints
+between it and the bank by random darts: every leg at least 3 blocks so a checkpoint is somewhere
+to drive *to*, and the whole chain at most 3 blocks per checkpoint longer than the straight
+getaway, because a longer getaway is paid for out of every kerbside clock that runs while it does.
+Every leg is budgeted into the robber's one clock, so the 60% over the driving still holds. A board
+too full for four gets fewer.
+
+Measured over 38 cities, with four: the driving goes from a median 41.5s to 99.7s (×2.45, worst
+×3.9), and the robber's clock sits at a median 190s. (Two checkpoints measured 68.4s, ×1.74.)
+
+**The rest of the board steps aside while it runs** (`concealed` in game/fares.js). Every rider
+waiting on the kerb is hidden — figure, crystal, disc, edge arrow, finder chip, tap target — with
+their clock **held**, and nobody new spawns; the courier's pads go too (`concealed` in
+game/parcels.js), and driving over one does nothing. The clock is held *because* they are hidden: a
+rider the player cannot see must not be able to time out and end the run. They come back exactly
+as they were when the getaway ends, whichever way it ends.
+
+**Each checkpoint calls in another cop** (`wanted` in game/robbery.js): the fleet is
+`POLICE_FLEET` at the bank and one more per checkpoint touched, up to `POLICE_REINFORCEMENTS`, each
+arriving behind the taxi through the ordinary top-up. That top-up used to lose every race to the
+recycle — both waited on one gap clock and the recycle ticked it — so it only ever fired while no
+cop was lost; it ticks the clock itself now and goes first.
+
+Four checkpoints were expensive for the board before the riders stepped aside: 9.9 fares · $237 at
+a 1.5s reaction against 12.7 · $358 with no checkpoints, over 30 paired autoplay runs. With the
+board held they **gain**: 14.2 fares · $406 at 1.5s and 15.7 · $439 at 4s — a getaway is now a
+paid breather for the kerb. If that reads as too generous, the lever is to let the clocks run at a
+fraction rather than hold.
 
 ### The robber's line
 
@@ -2563,9 +2737,9 @@ square against a disc is read at a glance.
   left where it is — silently swapping the load would throw away a delivery already paid for in
   detour. The probe asserts the seat and the slot never touch: collecting a package does not move
   the rider's target and does not reset, pause or extend their clock.
-- **Priced exactly like a rider going the same distance** — `priceFor`, times the shift multiplier,
-  stamped at spawn. `PARCEL_PAY_FACTOR` is the one number to turn if it plays too rich.
-- **Cash and a splash of fuel.** No multiplier bump (that number means "this is what a *fare* is
+- **Priced exactly like a rider going the same distance** — `priceFor`, stamped
+  at spawn. `PARCEL_PAY_FACTOR` is the one number to turn if it plays too rich.
+- **Cash and a splash of fuel.** No Perfect Run (that number means "this is what a *fare* is
   worth now") and no run-end stat row, but a delivered package does pour **a sixth of a tank** into
   Loco Mode — half what a drop-off pays (`BOOST_PARCEL_REWARD` against `BOOST_FARE_REWARD`). Both
   the payout and the fuel take the same [two-phase flight](#economy) a fare's do, because it is the
@@ -2932,8 +3106,10 @@ corners, lays **skid marks** off the line and through turns, and kicks up **dust
 [rendering.md](rendering.md#effects) for how those two are drawn.
 
 **And it overtakes.** A slower car in front on a straight road is no longer something to sit
-behind: **keep holding the button and the taxi pulls a full lane into the oncoming side, goes
-past, and comes back.** Letting go is the abort — it tucks in behind instead. So the button stops
+behind: **blip the button (off and straight back on) while you're behind it, and the taxi pulls a
+full lane into the oncoming side, goes past, and comes back** for as long as you keep holding.
+Holding alone rams it (`game/overtake.js`), so it's the combo or the brake. Letting go is the abort — it tucks in behind
+instead. So the button stops
 being a throttle at exactly the moment it gets interesting and becomes a question: is that lane
 clear enough, and is that car about to turn across you? Nothing protects you either way. Collision
 detection is armed for the whole of Loco Mode, so an oncoming car is the run. It buys real speed —
@@ -2995,9 +3171,9 @@ good one when the taxi was going that way anyway, which is the whole of the deci
 **Why it is not free.** It was, and free made it a strictly-better detour once found: the only price
 was a clock the player was already spending, so every tap taken on a route that passed the joint was
 pure profit and the decision stopped being one after the first time. Ten dollars is about half a
-median fare early in a run and loose change by the last shift, which is the right way round — the
-tank is worth most when the multiplier is small, and so is the money. It does **not** scale with the
-multiplier: the tank it buys is a flat 2.25 seconds at every point in the run, and a price that
+plain median fare and a quarter of a perfect one, which is the right way round —
+the tank is worth most when the multiplier is small, and so is the money. It does **not** scale with
+the multiplier: the tank it buys is a flat 2.25 seconds at every point in the run, and a price that
 climbed would quietly make the same purchase worse for no reason on screen.
 
 **The counter goes down, visibly.** The charge takes the payout's own flight in reverse sign — a red
@@ -3258,6 +3434,50 @@ behind you.
 The first prototype was a swipe back down the road. Playtesting dropped it: on a phone, a swipe
 already means a pan, a route-band drag or a fare tap.
 
+### The drift: Loco, tap the brake, Loco again
+
+`driftTaxi` / `kickDrift` in `sim/traffic.js`, wired in `holdBrake` and `holdLocoMode` in main.js.
+
+**Only the combo slides.** Through a drift the nose swings ~31° past the heading on a spring
+(`DRIFT_ANGLE`, render only; the front wheels countersteer) and rocks back once on the exit, and
+all four wheels mark the road. Every boosted corner did this for one iteration; it made the combo
+hard to tell from simply holding the pill, so a plain Loco corner went back to its lean and rear
+rubber. Corner speeds are unchanged either way — a left at the boost cruise, a right at 0.75× —
+because slowing every corner to make room for a reward was tried and was a bummer.
+
+**The move is a combo for an exit kick.** Holding Loco into a turn, tap the brake in the last 0.6s
+of approach (never under 8 units) or the first 35% of the arc, then get back on the pill before the
+arc is over. The taxi comes out at 1.4× the boost cruise (`DRIFT_EXIT`, 30.9 u/s; 1.2× read as too timid), put on in one
+frame and held for 0.6s. The tap screeches and lays four-wheel rubber the moment it lands.
+
+The kick has to read at a glance, and a buzz and a shake alone did not: the first playtest could
+not tell when it had worked. It now says so with the tailpipe flame splitting into two longer
+violet barrels (`locoFlameDrift*` in palette.js, so it is a different fire from the ordinary
+orange one) for as long as the kick holds (`surge` in `game/locoflame.js`), a bark of fire, the Loco
+whoosh, a bigger jolt, and the gauge filling. (A "DRIFT BOOST!" word off the roof was tried and
+cut.)
+
+**A landed kick refunds a sixth of a tank** (`DRIFT_FUEL`, the same as a parcel), so a player
+running low can drift their way to a drop-off. It needs *some* fuel to start — the combo is a
+Loco press — and a kick costs well under a second of Loco against the 2.5s it pays, so chaining
+corners is net positive. That is deliberate: it is the skill being paid.
+
+- **The tap alone is a slide, not a stop.** At 13 u/s or more (`DRIFT_MIN_V`, so only off the pill)
+  with a real turn within reach, the taxi goes round at the boost cruise, rights included, and
+  comes out without the kick. Elsewhere a tap is a brake as before.
+- **The tap owns the brake until the pedal comes back up,** like the bootleg's. A thumb sliding back
+  onto the pill releases it anyway, which is the pedal slide doing what it always did.
+- **Two taps are still the bootleg, near a corner or not.** The first tap is the same in both
+  moves, so only the second input decides: the pill is the drift kick, a second brake tap inside
+  the bootleg's 350ms window drops the drift and spins (buffered past the junction, as any combo
+  landed mid-junction is). Away from a turn the bootleg is untouched.
+- **No clearance test**, like the bootleg: what the swung tail hits, the collision pass charges.
+
+A prototype: every number is a first guess. `tools/probe.mjs` drives every turn off every lane with
+the combo, with the tap alone, with the pill simply held and with the brake held, and checks the
+kick lands, the tap alone earns none, a plain Loco corner does not slide, and the swing settles
+within a second.
+
 ## The pedal slide
 
 The bottom row is two round pedals — an orange gas button 100px across, dead centre on the bottom
@@ -3426,8 +3646,7 @@ makes them the ending rather than an overlay on one.
 
 "Shift" replaced a row called "Streak" that printed `s.delivered` — the same number as "Fares"
 directly above it, formatted with an `x`. Two rows counting out one number is a stat sheet padding
-itself; how deep into the ramp a run got is a genuinely different fact about it, and it is the one
-the multiplier was earned by. It rolls up through the shift names the run passed through, which is
+itself; how deep into the ramp a run got is a genuinely different fact about it. It rolls up through the shift names the run passed through, which is
 what the counter does with every other stat.
 
 The stats are **one row each, label and value side by side**, and both are set in the *same* size,

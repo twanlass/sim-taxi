@@ -37,12 +37,29 @@ final class HapticsBridge: NSObject, WKScriptMessageHandler {
     /// this file the player earned rather than merely caused.
     private let notice = UINotificationFeedbackGenerator()
 
+    /// The combo moments, which are shaped patterns rather than knocks — see `ComboHaptics.swift`.
+    /// Made once, here, for the same reason the generators above are: an engine spun up on the
+    /// frame a combo lands would be late for it.
+    private let combos = ComboHaptics()
+
     /// Silently ignored on hardware without a Taptic Engine — every iPad, and the Simulator. Worth
     /// knowing before concluding a bridge is broken: in the Simulator the JavaScript arrives here
     /// and the generator runs, and nothing whatsoever happens. This needs a real phone to test.
     func userContentController(_ controller: WKUserContentController,
                                didReceive message: WKScriptMessage) {
         guard let event = message.body as? String else { return }
+
+        if ComboHaptics.events.contains(event) {
+            if combos.play(event) { return }
+            // No Core Haptics on this phone: the nearest knock, so the combo is still felt.
+            switch event {
+            case "perfect": notice.notificationOccurred(.success)
+            case "perfect-lost": notice.notificationOccurred(.error)
+            case "overtake": medium.impactOccurred()
+            default: heavy.impactOccurred()
+            }
+            return
+        }
 
         switch event {
         case "pick":

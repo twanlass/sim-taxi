@@ -25,14 +25,14 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 // the box while a burger was still fading out over the kerb would break the one continuity this whole
 // hand-off is built to keep.
 //
-// ## Why it sits with the money and not with the rider chips
+// ## Where it sits
 //
-// The bottom-left row is the reach zone: everything in it — the Loco Mode pill, every rider chip —
-// is a control, and a chip parked at the end of that row would be the one that does nothing when
-// pressed. **A package cannot be selected**; that is the whole of game/parcels.js. Up beside the
-// cash total it is unambiguously a readout, in the corner the run's other state already lives in,
-// and it inherits `#hud`'s `pointer-events: none` so a thumb that lands on it goes through to the
-// city underneath.
+// The bottom row, right of the gas pedal where a mirrored brake would be (Tyler, 2026-10-06; the
+// HUD shuffle of 2026-10-05 had moved it from under the cash total to the far corner). The reasoning
+// that kept it out of the rider-chip row still holds: everything bottom-left is a control, and **a
+// package cannot be selected** — that is the whole of game/parcels.js. It reads as a readout, not a
+// third pedal, and `#cargo-dock` is `pointer-events: none` so a thumb that lands on it
+// goes through to the city underneath.
 //
 // ## The box and nothing else
 //

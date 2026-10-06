@@ -106,7 +106,7 @@ try {
   // for the waiting riders instead (game/farepointers.js), and the chips are kept behind the flag
   // to compare against. The two chip checks below are the only browser coverage the module has, so
   // this page turns them back on; the arrows are on either way and are checked here too.
-  await client.send('Page.navigate', { url: `${baseUrl}?chips=on&title=off` });
+  await client.send('Page.navigate', { url: `${baseUrl}?chips=on&title=off&drag=on` });
 
   const evaluate = async (expression) => {
     const { result } = await client.send('Runtime.evaluate', { expression, returnByValue: true });
@@ -404,7 +404,7 @@ try {
   // listener, raycast and hit-test path; it just doesn't cover Chrome's OS-level input plumbing.
   // `body > canvas` rather than `canvas`. The game's canvas is appended to the body, but the HUD
   // chips each carry a small WebGL canvas of their own — 38px inside `#rider-finder-stack`, 42px
-  // inside `#cargo-chip`, which is earlier still, being the first element in the body — and both
+  // inside `#cargo-chip`, which comes straight after `#hud` near the top of the body — and both
   // sit *before* the game's in the DOM, so a bare `querySelector('canvas')` hands back a chip.
   // Every gesture below was landing on that: the drag check failed because
   // `attachDragPan` never saw the events, and the tap check passed for the wrong reason, since a
@@ -766,6 +766,45 @@ try {
   // tap target. Without this the gesture would reset the route *and* re-dispatch the taxi at a
   // destination it is already driving to.
   check('and the click it synthesises is spoken for', doubleTap.ok && doubleTap.swallowed);
+
+  // --- Tap a street to send the route down it (game/streettap.js).
+  //
+  // The router half is in tools/probe.mjs. What only a browser can check is the wiring: a click on
+  // bare road reaching the picker as a miss, carrying its ray, and the miss turning into a re-plan.
+  // Every street one block either side of the taxi's next junction is tried until one bends the
+  // route; each is a real click at the street's midpoint on screen, and the route is put back
+  // before the next try so they are all judged against the same plan.
+  const streetTap = JSON.parse(await evaluate(`(() => {
+    const T = window.__taxi;
+    const taxi = T.traffic.taxi;
+    const target = taxi.pendingTarget;
+    if (!target) return JSON.stringify({ ok: false, why: 'no destination' });
+    const c = ${GAME_CANVAS};
+    const click = (p) => c.dispatchEvent(new MouseEvent('click', {
+      clientX: p.x, clientY: p.y, bubbles: true, cancelable: true }));
+    const inView = (p) => p && p.x > 0 && p.y > 0 && p.x < innerWidth && p.y < innerHeight;
+    let tried = 0;
+    for (let di = -2; di <= 2; di++) {
+      for (let dj = -2; dj <= 2; dj++) {
+        for (const alongX of [true, false]) {
+          const a = { i: taxi.i + di, j: taxi.j + dj };
+          const b = alongX ? { i: a.i + 1, j: a.j } : { i: a.i, j: a.j + 1 };
+          const p = T.streetScreenPosition({ a, b });
+          if (!inView(p)) continue;
+          T.routeTo(target);
+          const before = taxi.route.join(',');
+          tried += 1;
+          click(p);
+          if (taxi.route.join(',') !== before && taxi.pendingTarget === target) {
+            return JSON.stringify({ ok: true, tried, street: [a, b], legs: [before.split(',').length, taxi.route.length] });
+          }
+        }
+      }
+    }
+    return JSON.stringify({ ok: false, why: 'no street tap bent the route in ' + tried + ' tries' });
+  })()`));
+  check('a tap on a street next to the route re-plans it down that street', streetTap.ok,
+    streetTap.ok ? `${streetTap.tried} tap(s), ${streetTap.legs[0]} legs to ${streetTap.legs[1]}` : streetTap.why);
 
   // --- Tapping a rider-finder chip pans the camera to that rider rather than cutting to them.
   // The curve itself is covered in tools/probe.mjs; what only a browser can check is the wiring —
@@ -1402,12 +1441,12 @@ try {
   //
   // Driven with a hand-made hand-off rather than a real one, for the reason the states above are: a
   // courier job is minutes of software-rendered sim away. The numbers are a plausible one — a box a
-  // few hundred pixels down and right of the HUD corner.
+  // few hundred pixels up and left of the chip's bottom-right corner, out in the city.
   const flightStart = JSON.parse(await evaluate(`(() => {
     const chip = window.__taxi.cargoChip;
     if (!chip) return JSON.stringify({ missing: true });
     chip.setCarrying(false);
-    chip.flyIn({ x: 420, y: 380, yaw: 0.8 });
+    chip.flyIn({ x: 120, y: 380, yaw: 0.8 });
     const el = document.getElementById('cargo-chip');
     const s = getComputedStyle(el);
     const m = new DOMMatrix(s.transform);
@@ -1418,11 +1457,11 @@ try {
       offset: Math.hypot(m.e, m.f),
       scale: m.a,
       opacity: Number(s.opacity),
-      // ...and that the slide points the right way: the box is down and to the right of the corner,
-      // so the chip must start down and to the right of its slot. A sign error here is a chip sliding
+      // ...and that the slide points the right way: the box is up and to the left of the corner,
+      // so the chip must start up and to the left of its slot. A sign error here is a chip sliding
       // in from the opposite quadrant, which is the one way the direction can be wrong and still move.
-      down: m.f > 0,
-      right: m.e > 0,
+      up: m.f < 0,
+      left: m.e < 0,
       animations: el.getAnimations().length,
     });
   })()`));
@@ -1430,7 +1469,7 @@ try {
     flightStart.missing !== true
     && flightStart.on === true && flightStart.flying === true
     && flightStart.offset > 40 && flightStart.scale < 0.9 && flightStart.opacity < 0.5
-    && flightStart.down === true && flightStart.right === true
+    && flightStart.up === true && flightStart.left === true
     && flightStart.animations > 0,
     flightStart.missing ? 'no courier layer on this page'
       : `starts ${flightStart.offset.toFixed(0)}px out at ${flightStart.scale.toFixed(2)}x, `
@@ -1838,6 +1877,24 @@ try {
     const key = (type) => client.send('Input.dispatchKeyEvent', {
       type, code: 'Space', key: ' ', windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32,
     });
+
+    // The page was just reloaded, so the opening vignette is running: the taxi is still in the
+    // garage and the pill is off screen. The key must be refused there too (it used to kick Loco
+    // Mode, sound and all, on a car parked behind the door). Then wait the vignette out, since
+    // everything below wants the taxi on the road.
+    const phase = () => evaluate(
+      'window.__taxi.opening() ? window.__taxi.opening().phase() : "done"');
+    const openingAt = await phase();
+    if (openingAt !== 'done' && openingAt !== 'release') {
+      await key('rawKeyDown');
+      await sleep(150);
+      const inGarage = await mode();
+      await key('keyUp');
+      check('the key is refused during the opening', inGarage !== 'active',
+        `phase ${openingAt}, mode ${inGarage}`);
+    }
+    const landDeadline = Date.now() + 180000;
+    while (Date.now() < landDeadline && (await phase()) !== 'done') await sleep(500);
 
     // A paused run takes no input at all. First, before anything below has spent fuel or risked a
     // wreck: `canPause` refuses on a game over, so a crashed taxi would fail this for the wrong
