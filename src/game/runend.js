@@ -29,12 +29,17 @@
  * The slot never shrinks below the stats' own height, so the handover is a cross-fade rather than
  * a card that collapses and re-centres under the title between every beat.
  *
- * ## The one phase that waits
+ * ## The phases that wait
  *
- * Every beat but the prompt is on a timer, and a pointerdown anywhere fast-forwards it — counting
- * four rows out is worth ~3.5s of curtain call the first few times and a wall the twentieth. The
- * prompt is different: it is waiting on the *player*, so nothing skips it and no timer runs past
- * it. That is why the skip is a single mutable handler (`skip`) that each phase installs and the
+ * Every beat but two is on a timer, and a pointerdown anywhere fast-forwards it — counting the
+ * rows out is worth a few seconds of curtain call the first few times and a wall the twentieth.
+ * The two that wait are the **review** and the prompt. Once the stats have landed, the card holds
+ * on them behind a "Tap to continue" until the player taps; it used to hold for `HOLD_MS` and
+ * swap itself to the table, which was a run summary you could miss by looking away. A tap during
+ * the count still lands the numbers, but it lands them on the review rather than past it, and the
+ * tap that leaves is only armed `HOLD_MS` after the last number lands — so the thumb that was still
+ * mashing when the taxi wrecked cannot carry straight through to the table. The prompt waits on
+ * the player too, so nothing skips it and no timer runs past it. That is why the skip is a single mutable handler (`skip`) that each phase installs and the
  * prompt sets to null, rather than one listener that finishes every animation on the screen. An
  * earlier shape had the skip land the whole timeline at once, which blew straight through the
  * initials field and threw away the name the player was mid-way through typing.
@@ -62,8 +67,9 @@ const RETRY_GAP = 240;        // beat between the last number landing and the bu
 const ROW_MS = COUNT_LEAD + COUNT_MS + LAND_MS;
 const STAT_STRIDE = ROW_MS + ROW_GAP;   // start-to-start, so rows never overlap
 
-/** Held beat after the last number lands, before the body swaps out from under it. */
+/** Beat after the last number lands before the review takes the tap that leaves it. */
 const HOLD_MS = 420;
+const HINT_MS = 360;          // "Tap to continue" fading up, and back out on the tap
 const SWAP_OUT_MS = 240;      // the outgoing screen leaving
 const SWAP_IN_MS = 420;       // and the next one arriving in its place
 
@@ -621,6 +627,34 @@ export function showRunEnd(root, { title, reason, stats, scores = null, onRetry 
     });
   }
 
+  /**
+   * The review: the stats sit on screen until the player taps. Only when a table follows — with
+   * no scores the next thing is the Play again pill, and that already waits for a tap of its own.
+   *
+   * The hint is laid over the pill's slot rather than added to the flow: the pill is already
+   * holding that space (transparent, disabled), and a line that took space of its own would grow
+   * the card and re-centre the title under it for as long as it was up.
+   */
+  function awaitReview() {
+    if (still || !scores) { afterStats(); return; }
+    const hint = el('span', 'run-end-continue', 'Tap to continue');
+    hint.style.top = `${retry.offsetTop}px`;
+    hint.style.height = `${retry.offsetHeight}px`;
+    card.append(hint);
+    hint.animate([{ opacity: 0 }, { opacity: 1 }],
+      { duration: HINT_MS, delay: HOLD_MS, easing: 'ease-out', fill: 'backwards' });
+    const leave = () => {
+      skip = null;
+      const from = getComputedStyle(hint).opacity;   // wherever the breathe has it
+      hint.getAnimations().forEach((anim) => anim.cancel());
+      hint.style.animation = 'none';
+      hint.animate([{ opacity: from }, { opacity: 0 }],
+        { duration: SWAP_OUT_MS, easing: 'ease-in', fill: 'forwards' }).onfinish = () => hint.remove();
+      afterStats();
+    };
+    timer = setTimeout(() => { skip = leave; }, HOLD_MS);
+  }
+
   function afterStats() {
     if (!scores) { playRetry(); return; }
     if (scores.rank) { playEntry(); return; }
@@ -639,8 +673,8 @@ export function showRunEnd(root, { title, reason, stats, scores = null, onRetry 
 
   const startStats = () => beat(
     (anims, landings) => statsScreen.play(anims, landings),
-    statsScreen.duration + HOLD_MS,
-    afterStats,
+    statsScreen.duration,
+    awaitReview,
   );
 
   // Under reduced motion the whole sequence resolves in this one call — every `beat` finishes the

@@ -539,6 +539,7 @@
 
       #run-end .run-end-card {
         display: flex; flex-direction: column; align-items: center; margin: auto;
+        position: relative;   /* the offset parent for `.run-end-continue` */
         /* No panel of its own — this only holds the content together and gives it a width to be
            measured against. Capped at a phone's content width (390px screen less the 16px gutters
            either side) so the desktop layout *is* the mobile layout: the stats rows push label and
@@ -731,6 +732,18 @@
          pointer has to pass *through* it while it waits: a tap there is a tap on the overlay, which
          is what skips to the end of the sequence. */
       #run-end .retry:disabled { pointer-events: none; }
+
+      /* "Tap to continue" under the review, laid over the retry pill's slot (`awaitReview` in
+         runend.js sets its top and height from the pill) so it takes no space of its own. Quiet on
+         purpose — the stats are what is being read — with a slow breathe so it reads as waiting. */
+      #run-end .run-end-continue {
+        position: absolute; left: 0; right: 0;
+        display: flex; align-items: center; justify-content: center;
+        font-size: clamp(14px, 2.6vh, 17px); font-weight: 500; opacity: 0.62;
+        pointer-events: none;
+        animation: run-end-breathe 2.4s ease-in-out 0.8s infinite;
+      }
+      @keyframes run-end-breathe { 50% { opacity: 0.32; } }
 
       /* The Loco Mode pill and the ⚙️ tweak toggle are gameplay controls; once the run is over
          they are noise behind the retry pill. */
