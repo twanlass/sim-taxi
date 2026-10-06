@@ -145,6 +145,10 @@ export const DRIVE_THRU_TAIL = 2;
  * the default slider; above about 0.91 effects that single hit clips, the rest peaks at -4 to -7.
  */
 const MUSIC_DUCK = 0.25;
+// How long the radio takes to fade out once the game-over screen appears. Long enough to read as
+// the song ending rather than being cut, short enough that it is gone before the stats finish
+// counting up.
+const MUSIC_FADE_OUT = 1.5;
 const AAC_PRIMING = 2112 / 48000;
 
 /**
@@ -301,6 +305,7 @@ export function createSfx({ rng } = {}) {
     music: 1,
     // The radio pulled down under the drive-through speaker — see `duckMusic`.
     ducked: false,
+    musicOut: false,
     ready: false,
     loaded: 0,
     total: Object.keys(FILES).length,
@@ -333,7 +338,7 @@ export function createSfx({ rng } = {}) {
     return {
       state, play: noop, update: noop, hold: noop, setMuted: noop, toggleMuted: () => true,
       setVolumes: noop,
-      locoOn: noop, locoOff: noop, release: noop, duckMusic: noop,
+      locoOn: noop, locoOff: noop, release: noop, duckMusic: noop, fadeOutMusic: noop,
       tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
       audition: () => null, stopAuditions: noop, files: FILES, radioFiles: RADIO_FILES,
     };
@@ -376,7 +381,8 @@ export function createSfx({ rng } = {}) {
   let musicBus = null;
   /** What the master gain should read: the mix's master, under the player's slider and the mute. */
   const masterLevel = () => (state.muted ? 0 : mix.master * state.effects ** 2);
-  const musicLevel = () => (state.muted ? 0 : state.music ** 2 * (state.ducked ? MUSIC_DUCK : 1));
+  const musicLevel = () => (state.muted || state.musicOut ? 0
+    : state.music ** 2 * (state.ducked ? MUSIC_DUCK : 1));
   const buffers = {};    // by file name
   const lastAt = {};
   const lastTake = {};   // by sound name: the file it played last
@@ -700,6 +706,21 @@ export function createSfx({ rng } = {}) {
     musicBus.gain.setTargetAtTime(musicLevel(), ctx.currentTime, on ? 0.12 : 0.5);
   }
 
+  /**
+   * Fade the radio out for good — the game-over screen. Latched in `musicLevel`, so a slider or a
+   * duck released afterwards cannot bring it back; nothing has to undo it, because Retry and Quit
+   * both reload the page.
+   */
+  function fadeOutMusic(seconds = MUSIC_FADE_OUT) {
+    if (state.musicOut) return;
+    state.musicOut = true;
+    if (!ctx) return;
+    const g = musicBus.gain, t = ctx.currentTime;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(0, t + seconds);
+  }
+
   function tune(partial) {
     tuneMix(partial);
     if (master) master.gain.setTargetAtTime(masterLevel(), ctx.currentTime, 0.02);
@@ -749,6 +770,7 @@ export function createSfx({ rng } = {}) {
     /** Fade out a voice `play()` returned — the drive-through speaker as the taxi leaves the lot. */
     release: (voice, tau = 0.3) => stopVoice(voice, tau),
     duckMusic,
+    fadeOutMusic,
     setMuted,
     setVolumes,
     toggleMuted: () => { setMuted(!state.muted); return state.muted; },

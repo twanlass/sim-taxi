@@ -2985,6 +2985,7 @@ function updateHud(dt) {
       onRetry: () => { skipTitleNextLoad(); location.reload(); },
     });
     document.body.classList.add('game-over');
+    sfx?.fadeOutMusic();
   }
 }
 
