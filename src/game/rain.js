@@ -819,8 +819,8 @@ const WET_REFLECT = /* glsl */ `
 }
 `;
 
-// Drops on the glass. Two layers: small beads that fade in, sit and dry off, and fewer bigger ones
-// that creep down the screen. Each is a tiny lens that shows the frame behind it upside down and
+// Drops on the glass. Small beads that fade in, sit and dry off, a few big ones that do the same,
+// and two sizes of drop that run down the screen leaving a wet track behind them. Each is a tiny lens that shows the frame behind it upside down and
 // a bit magnified, with a rim and a catch-light. Display space in, display space out — the copied
 // frame is already encoded, and a bare ShaderMaterial writes what it is given.
 const LENS_FRAGMENT = /* glsl */ `
@@ -853,30 +853,61 @@ vec4 beads(vec2 uv, float scale, float density, float t) {
   return vec4(d / r, dist, smoothstep(1.0, 0.82, dist) * a);
 }
 
-vec4 sliders(vec2 uv, float t) {
-  vec2 p = uv * vec2(uAspect, 1.0) * vec2(5.0, 1.6);
+// A drop running down the glass, and the wet track it leaves above itself. Columns are measured in
+// screen heights (cols per height), so a drop is round on any aspect. Each live column carries one
+// drop that enters above the top edge, runs down with a stick-and-slip wobble along a wiggly path,
+// and leaves a tapering streak plus a few stranded beads behind it. Returns the same
+// (offset / radius, normalised radius, coverage) as beads().
+vec4 sliders(vec2 uv, float t, float cols, float live, float rMin, float rMax, float speed, float seed) {
+  vec2 p = vec2(uv.x * uAspect * cols, uv.y);
   float col = floor(p.x);
-  vec3 n = lensHash(col * 71.3 + 4.1);
-  if (n.x > 0.3) return vec4(0.0);
-  // Stick, then slip: a drop hangs, lets go, catches again.
-  float cyc = t * (0.05 + 0.05 * n.y) + n.z;
-  float fall = fract(cyc);
-  float y = 1.0 - (fall + 0.06 * sin(fall * 40.0 * n.y));
-  float x = col + 0.5 + 0.18 * sin(p.y * 3.0 + n.y * 6.28);
-  vec2 d = vec2(p.x - x, (p.y - y * 1.6) * 0.85) / vec2(1.0, 0.25);
-  d *= 3.2;
-  float r = 0.55 + 0.25 * n.y;
-  float dist = length(d) / r;
-  return vec4(d / r, dist, smoothstep(1.0, 0.8, dist));
+  vec3 n = lensHash(col * 71.3 + seed);
+  if (n.x > live) return vec4(0.0);
+  // One lap is 1.6 screen heights: the drop runs from 0.1 above the top to 0.5 below the bottom,
+  // so its trail clears the screen before the column comes round again.
+  float fall = fract(t * speed * (0.6 + 0.8 * n.y) / 1.6 + n.z);
+  float slip = fall + 0.02 * sin(fall * 6.2832 * (3.0 + 5.0 * n.y));   // stick, then slip
+  float headY = 1.1 - slip * 1.6;
+  float x = col + 0.5 + (n.y - 0.5) * 0.3 + 0.08 * sin(p.y * 9.0 + n.z * 6.2832);
+  float dx = (p.x - x) / cols;          // screen heights
+  float dy = p.y - headY;               // + is above the head, where the trail is
+  float r = mix(rMin, rMax, fract(n.y * 7.31));
+
+  // The head: a little taller than wide, the way a running drop pulls out.
+  vec2 hd = vec2(dx, dy * 0.8) / r;
+  float hdist = length(hd);
+  vec4 head = vec4(hd, hdist, smoothstep(1.0, 0.8, hdist));
+
+  // The track: a thin wet line narrowing to nothing, with beads stranded along it.
+  float trail = 0.22 + 0.2 * n.z;
+  float u = dy / trail;
+  vec4 track = vec4(0.0);
+  if (u > 0.0 && u < 1.0) {
+    float w = r * 0.42 * (1.0 - u);
+    float tdist = abs(dx) / max(w, 1e-4);
+    track = vec4(dx / max(w, 1e-4), 0.0, tdist, smoothstep(1.0, 0.5, tdist) * (1.0 - u) * 0.7);
+    float k = floor(dy / (r * 2.4));
+    vec3 m = lensHash(k * 13.7 + col * 5.1 + seed);
+    if (m.x < 0.45) {
+      float br = r * mix(0.25, 0.45, m.y) * (1.0 - 0.5 * u);
+      vec2 bd = vec2(dx - (m.z - 0.5) * r * 0.3, dy - (k + 0.5) * r * 2.4) / br;
+      float bdist = length(bd);
+      float bc = smoothstep(1.0, 0.8, bdist) * (1.0 - u * u);
+      if (bc > track.w) track = vec4(bd, bdist, bc);
+    }
+  }
+  return head.w >= track.w ? head : track;
 }
 
 void main() {
-  vec4 a = beads(vUv, 11.0, 0.12, uTime);
-  vec4 b = beads(vUv + 0.37, 6.0, 0.04, uTime * 0.7 + 3.0);
-  vec4 s = sliders(vUv, uTime);
+  vec4 a = beads(vUv, 11.0, 0.08, uTime);
+  vec4 b = beads(vUv + 0.37, 6.0, 0.02, uTime * 0.7 + 3.0);
+  vec4 s = sliders(vUv, uTime, 14.0, 0.5, 0.015, 0.024, 0.5, 4.1);
+  vec4 s2 = sliders(vUv, uTime, 26.0, 0.35, 0.008, 0.012, 0.3, 19.7);
   vec4 drop = a;
   if (b.w > drop.w) drop = b;
   if (s.w > drop.w) drop = s;
+  if (s2.w > drop.w) drop = s2;
   float cover = drop.w * uAmount;
   if (cover < 0.01) discard;
 
