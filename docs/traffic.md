@@ -1161,6 +1161,24 @@ button becomes a decision at the one moment it previously made none. It is the o
 boost-only rule stays armed through the cooldown tail because those are *hazards* and hazards
 should outlive the release, but this is an input, and letting go has to steer the car back.
 
+**In the game it now wants a combo** (`game/overtake.js`): holding the button behind a car
+**rams it**, and a quick blip off the pill and back on (`OVERTAKE_BLIP_MS`, 250ms) while behind it
+(`OVERTAKE_ARM_RANGE`, 30 units) is what pulls out. So the choice is the combo or the brake (Tyler,
+2026-10-06; it tailgated at first, which let you sit behind a car for free). From there it is the
+rule above: the pass runs while the button stays down and letting go tucks in. A pass that ends
+spends the combo, so the next car wants another blip. A brake inside the blip is the drift or the
+bootleg and does not arm. Trucks are still tailgated rather than rammed (`rams` in traffic.js). The
+sim reads it as `taxi.passArmed` — `undefined` keeps the old holding-is-enough rule, which the lab
+and the probe still drive — and `canPass` is false until it is thrown. While armed and waiting to
+pull out, or behind a truck, the taxi tailgates `COMBO_TAILGATE` (1.5) further back than
+`BOOST_GAP`, because 0.29 of daylight did not survive a tailgate longer than a fraction of a second.
+
+Measured over 16 cities × 40s with the button held: from a car coming within 30 units to the ram
+is a median of 0.58s (p10 0.23s, p90 1.62s). The short end is cars that turn in close from a cross
+street, which no range fixes. A player feathering the pill at random — a 60-220ms lift every 1-4s
+— armed 38 passes in that time against 55 for one throwing the combo on purpose, so feathering
+behind a car *is* the gesture.
+
 **This was built once before and abandoned, and why matters.** The old overtake pulled out to the
 road *centreline*, which is the single worst place on the road:
 
@@ -1768,9 +1786,10 @@ the point halfway between the wreck and the landing, so both stay in a portrait 
 ground track first and, if it meets a block, unbridged river or the edge of the map, scales every
 horizontal speed down so the figure stops `CLEAR` short of it — the same tumble, shorter and
 steeper. Like the shells it is a closed form of its age, and the replay scrubs it through `scrub`
-rather than off the tape: the tumble turns a third of a revolution between 30Hz samples. When it
-fires, the breath after the replay is `EJECT_TAIL` rather than `REPLAY_TAIL`, long enough to watch
-the landing.
+rather than off the tape: the tumble turns a third of a revolution between 30Hz samples. The replay
+jump cuts straight to the card, so a flight still going when the last shot ends lands unseen; there
+used to be an `EJECT_TAIL` that handed back to the live wreck for 1.1s to watch it, dropped with the
+rest of the real-time tail.
 
 **A wrecked car's lamps go out.** A crashed car never reaches the render pass again, so whatever
 brake level it last wrote would sit there for the rest of the run — and the frame this fires on is
@@ -1798,7 +1817,8 @@ hit and plays at 0.8× into it and 0.5× through the blast, with a white flash o
 crash sound under each one. The last shot eases further, to 0.25× over a longer ramp (`slow` and
 `ramp` in `SHOTS`), so the final hit plays in real slow motion, then holds its final frame for 0.4s
 of wall clock (`hold`), still orbiting, so the last word lands before the card — about 4.7s for all
-three. There is no letterbox or REPLAY tag: the
+three. The card then comes up on that frame: a jump cut, with no hand back to the live wreck in
+between. There is no letterbox or REPLAY tag: the
 first version had both, played the whole approach in slow motion over two longer angles, and ran
 ~7s from crash to card. Any tap or key skips straight to the card. A bust and a timeout keep the
 old hold, as does shot mode.

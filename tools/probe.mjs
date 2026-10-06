@@ -35,6 +35,7 @@ import {
 } from '../src/city/burgerjoint.js';
 import { createDriveThru } from '../src/game/drivethru.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
+import { createOvertakeCombo, OVERTAKE_BLIP_MS } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
 import { spinTaxi, driftTaxi, kickDrift, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
@@ -4524,6 +4525,55 @@ check('no two cars occupy the same space', worst > 1.6,
       r.hits === 0 && r.peak > 0.95 && r.detoured,
       `${r.hits} bumps, pass peaked at ${r.peak.toFixed(2)}, detoured=${r.detoured}`);
   }
+
+  // 1d. The overtake combo (game/overtake.js). Holding Loco behind a car on its own rams it — no
+  // pass, and no following either (`canPass` is false until the combo is thrown) — and a blip off
+  // the pill and back on is what pulls out. The blip is driven through the combo itself, against
+  // the sim's own `boost`/`boostEasing` as main.js sets them, so the gap it reads is the real one.
+  // A blip with the brake in it is the drift, and must not arm.
+  const comboStage = (gesture) => {
+    const cTraffic = createTraffic(makeRng(seed + 109), new THREE.Scene(), 2);
+    const [cTaxi, cLead] = cTraffic.cars;
+    place(cTaxi, dIn, 36);
+    place(cLead, dIn, 24);
+    cTaxi.route = [dIn];
+    cLead.route = [dIn];
+    cTaxi.hp = TAXI_HP;
+    const combo = createOvertakeCombo({ taxi: cTaxi });
+    const cCollisions = createCollisions(cTraffic.cars, cTaxi);
+    let hits = 0;
+    let peak = 0;
+    let before = 0;
+    cCollisions.onBump(() => { hits += 1; });
+    const blipAt = 15;
+    const blipFrames = Math.floor((OVERTAKE_BLIP_MS / 1000) * 60 * 0.6);
+    // Two seconds: enough to pull out and get by, and short of the map's edge, where the road has
+    // no straight on and a taxi with no way round rams by design (`rams` in traffic.js).
+    for (let f = 0; f < 60 * 2; f++) {
+      const off = gesture !== 'hold' && f >= blipAt && f < blipAt + blipFrames;
+      cTaxi.boost = true;
+      cTaxi.boostEasing = off;
+      combo.update(1 / 60, { held: !off, brakeHeld: gesture === 'brake' && off });
+      cTraffic.update(1 / 60);
+      cCollisions.update(1 / 60);
+      peak = Math.max(peak, cTaxi.pass);
+      if (f < blipAt) before = Math.max(before, cTaxi.pass);
+    }
+    return { hits, peak, before, arms: combo.state.arms };
+  };
+  const held = comboStage('hold');
+  check('holding Loco behind a car rams it without the overtake combo',
+    held.hits > 0 && held.peak === 0,
+    `${held.hits} bumps, pass peaked at ${held.peak.toFixed(2)}`);
+  const blipped = comboStage('blip');
+  check('a blip off Loco and back on behind a car overtakes it',
+    blipped.arms === 1 && blipped.hits === 0 && blipped.before === 0 && blipped.peak > 0.95,
+    `${blipped.arms} arms, ${blipped.hits} bumps, pass ${blipped.before.toFixed(2)} before the blip`
+    + ` and peaked at ${blipped.peak.toFixed(2)}`);
+  const braked = comboStage('brake');
+  check('a blip with the brake in it (the drift) does not arm the overtake',
+    braked.arms === 0 && braked.peak === 0,
+    `${braked.arms} arms, pass peaked at ${braked.peak.toFixed(2)}`);
 
   // 2. A boosting taxi turning left used to stop dead under a green: the oncoming lane shares its
   // axis, so it kept its green, and the left-turn yield then refused to let the taxi go — waiting

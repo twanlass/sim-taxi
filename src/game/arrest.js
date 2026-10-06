@@ -924,5 +924,11 @@ export function createArrest({ traffic, taxi, inShot = null }) {
     figure: () => (figure ? { x: figure.x, z: figure.z } : null),
     /** The junction it is at, or null. */
     junction: () => (J ? { ...J } : null),
+    /**
+     * The car the robber gave themselves up to, while the scene still has it — the police
+     * helicopter (game/policeheli.js) follows it away. Null before the board and once it is back
+     * in traffic.
+     */
+    boarder: () => (boarder && crew.includes(boarder) && boarder.mode !== 'gone' ? boarder.car : null),
   };
 }

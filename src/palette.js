@@ -456,6 +456,12 @@ export const PALETTE = {
   // `lightRed`: it is drawn unlit at four pixels across and has to survive being that small, and a
   // signal red at this size reads as a brake light on a car parked on a roof.
   heliBeacon: '#FF2E2E',
+  // The getaway's police helicopter (game/policeheli.js): the cruisers' light blue a stop deeper,
+  // since it is seen over pale roofs and pavement rather than beside other cars, with the cars'
+  // white cab carried over as the upper band and a navy under it.
+  heliPoliceBody: '#3F8ED0',
+  heliPoliceBandHi: '#F2F4F7',
+  heliPoliceBandLo: '#1E3A66',
 
   // The park flock — see geometry/bird.js. These bases are kept near-neutral on purpose: a bird
   // is a couple of pixels of moving colour, which is exactly the description of a fare marker,

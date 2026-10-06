@@ -334,7 +334,7 @@
         #cargo-chip, #cargo-chip.is-on { transform: none; transition: opacity 0.16s ease; }
       }
 
-      /* Pause — the black square in the top-right corner, and the screen behind it. See
+      /* Pause — the bare glyph in the top-right corner, and the screen behind it. See
          src/game/pause.js.
 
          Top right since Tyler's HUD shuffle (2026-10-05), on the cash total's row, vertically centred
@@ -352,7 +352,7 @@
         position: fixed; z-index: 24;
         right: calc(var(--hud-side) + var(--safe-right));
         top: calc(var(--hud-top) + (var(--hud-row) - var(--pause-w)) / 2);
-        width: var(--pause-w); height: var(--pause-w); padding: 0; border: 0; background: #000;
+        width: var(--pause-w); height: var(--pause-w); padding: 0; border: 0; background: none;
         display: grid; place-items: center; cursor: pointer;
         /* The tap wants to land now, not after the browser has waited out a double-tap — and there
            is nothing here to select or long-press. */
@@ -361,6 +361,10 @@
         transition: transform 0.1s ease;
       }
       #pause:active { transform: scale(0.92); }
+      /* No plate behind it (Tyler, 2026-10-06): a bare mark like the cash total beside it, held off
+         pale asphalt by the same lift the digits wear — #hud's `text-shadow` in its filter form. The
+         button keeps its full square, so the tap target is unchanged. */
+      #pause .glyph-pause, #pause .glyph-play { filter: drop-shadow(var(--hud-shadow)); }
       /* 18×23 is the file's 28×36. */
       #pause .glyph-pause { display: block; width: 18px; height: 23px; }
       #pause .glyph-play { width: 20px; height: 22px; fill: #fff; }

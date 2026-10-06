@@ -62,13 +62,31 @@ function box(w, h, d, x, y, z, name) {
   return bakeColor(geometry, color(name));
 }
 
-function airframe() {
+/**
+ * The paint, by livery. `civil` is the rooftop visitor's; `police` is the getaway's chopper
+ * (game/policeheli.js), in the cruisers' own light blue with a white pair of bands — the same
+ * two-tone that says police on the cars, so the machine overhead belongs to them at a glance.
+ */
+const LIVERIES = {
+  civil: { body: 'heliBody', bandHi: 'heliStripeOrange', bandLo: 'heliStripeGold' },
+  police: { body: 'heliPoliceBody', bandHi: 'heliPoliceBandHi', bandLo: 'heliPoliceBandLo' },
+};
+
+/**
+ * Where the police machine's searchlight sits, in model space: under the nose, ahead of the front
+ * skid struts, low enough that the beam leaves from below the body rather than through it. The
+ * beam in game/policeheli.js starts here.
+ */
+export const SEARCHLIGHT = { x: 1.75, y: -0.78, z: 0 };
+
+function airframe(livery = 'civil') {
+  const paint = LIVERIES[livery] ?? LIVERIES.civil;
   const parts = [
     // Cabin, and the nose stepping down and in front of it. Two boxes is the whole fuselage: a
     // light helicopter is a glasshouse with an engine behind it, and the glass below does the
     // rest of the work.
-    box(2.6, 1.3, 1.4, 0.5, 0, 0, 'heliBody'),
-    box(0.95, 0.9, 1.15, 2.15, -0.12, 0, 'heliBody'),
+    box(2.6, 1.3, 1.4, 0.5, 0, 0, paint.body),
+    box(0.95, 0.9, 1.15, 2.15, -0.12, 0, paint.body),
 
     // Glazing, proud of the body it sits in — the same trick the taxi's chequer and the plane's
     // window band use. The windscreen is the front of the nose rather than a panel on top of it:
@@ -82,21 +100,21 @@ function airframe() {
     // than the plane's one, occupying the same 0.17 the single band did: on a near-white body the
     // stripe is the only saturated thing on the machine, and a pair of them separated by their own
     // edge is what reads as *paint* at 40 pixels instead of as a stray line.
-    box(2.5, 0.09, 1.44, 0.45, -0.30, 0, 'heliStripeOrange'),
-    box(2.5, 0.08, 1.44, 0.45, -0.385, 0, 'heliStripeGold'),
+    box(2.5, 0.09, 1.44, 0.45, -0.30, 0, paint.bandHi),
+    box(2.5, 0.08, 1.44, 0.45, -0.385, 0, paint.bandLo),
 
     // Engine deck behind the mast, and the mast itself. The hump is most of what separates a
     // helicopter from a car with a fan on it at this size.
-    box(1.5, 0.5, 1.1, -0.3, 0.83, 0, 'heliBody'),
+    box(1.5, 0.5, 1.1, -0.3, 0.83, 0, paint.body),
 
     // Tail boom, fin and stabiliser.
-    box(2.9, 0.4, 0.4, -2.45, 0.3, 0, 'heliBody'),
-    box(0.62, 1.15, 0.15, -3.72, 0.78, 0, 'heliBody'),
-    box(0.45, 0.1, 1.5, -3.25, 0.4, 0, 'heliBody'),
+    box(2.9, 0.4, 0.4, -2.45, 0.3, 0, paint.body),
+    box(0.62, 1.15, 0.15, -3.72, 0.78, 0, paint.body),
+    box(0.45, 0.1, 1.5, -3.25, 0.4, 0, paint.body),
     // The fin's tip cap, carrying both bands in the same order, so the tail is painted like the
     // flank. Same 1.20–1.36 the single cap spanned.
-    box(0.62, 0.09, 0.16, -3.72, 1.315, 0, 'heliStripeOrange'),
-    box(0.62, 0.07, 0.16, -3.72, 1.235, 0, 'heliStripeGold'),
+    box(0.62, 0.09, 0.16, -3.72, 1.315, 0, paint.bandHi),
+    box(0.62, 0.07, 0.16, -3.72, 1.235, 0, paint.bandLo),
   ];
 
   const mast = new THREE.CylinderGeometry(0.11, 0.13, 0.5, 6);
@@ -120,6 +138,13 @@ function airframe() {
     toe.rotateZ(0.45);
     toe.translate(1.82, SKID_Y + 0.18, z);
     parts.push(bakeColor(toe, color('heliRotor')));
+  }
+
+  // The searchlight: a dark housing slung under the nose. The lens is a separate unlit mesh (see
+  // `createHelicopterMesh`), because a lamp lit by the sun is not a lamp.
+  if (livery === 'police') {
+    parts.push(box(0.42, 0.3, 0.42, SEARCHLIGHT.x, SEARCHLIGHT.y + 0.12, SEARCHLIGHT.z, 'heliRotor'));
+    parts.push(box(0.12, 0.2, 0.12, SEARCHLIGHT.x, SEARCHLIGHT.y + 0.36, SEARCHLIGHT.z, 'heliRotor'));
   }
 
   const merged = mergeGeometries(parts, false);
@@ -171,14 +196,14 @@ function rotor(radius, chord, thickness, hub, discAlpha, discSegments) {
  * into the prepass either — it is transparent, for the fade at both ends of a visit. With AO off
  * the two materials are the same material anyway.
  */
-export function createHelicopterMesh() {
+export function createHelicopterMesh({ livery = 'civil' } = {}) {
   const group = new THREE.Group();
-  group.name = 'helicopter';
+  group.name = livery === 'police' ? 'policeHelicopter' : 'helicopter';
 
   // Every part that writes depth stamps the ghost mask — see stampGhostMask. The rotor discs and
   // the halo write none, so the ghosts never saw them.
   const body = new THREE.Mesh(
-    airframe(),
+    airframe(livery),
     stampGhostMask(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true })),
   );
   group.add(body);
@@ -227,6 +252,19 @@ export function createHelicopterMesh() {
   beacon.visible = false;                 // it starts dark, and blinks on
   group.add(beacon);
 
+  // The searchlight's lens, on the police machine only: unlit, so it reads as the source of the
+  // beam rather than as a grey box. Scaled rather than hidden when the light is off — see
+  // `setSearchlight`.
+  let lens = null;
+  if (livery === 'police') {
+    lens = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.17, 0.17, 0.06, 10),
+      stampGhostMask(unlitMaterial({ color: color('headlight'), transparent: true })),
+    );
+    lens.position.set(SEARCHLIGHT.x, SEARCHLIGHT.y - 0.04, SEARCHLIGHT.z);
+    group.add(lens);
+  }
+
   const skin = [body.material, main.blade.material, tail.blade.material];
   let fade = 1;
   let blur = 1;
@@ -256,9 +294,12 @@ export function createHelicopterMesh() {
     /** The beacon, on or off. Blinked from the flight so a frozen shot is reproducible. */
     setBeacon: (next) => { lit = next; paintDiscs(); },
     /** One opacity for the whole machine — the fade in and out at the ends of a visit. */
+    /** The searchlight's lens, 0 (dark) to 1 — police livery only. */
+    setSearchlight: (level) => { if (lens) lens.scale.setScalar(Math.max(1e-3, level)); },
     setFade: (next) => {
       fade = next;
       for (const material of skin) material.opacity = fade;
+      if (lens) lens.material.opacity = fade;
       lamp.material.opacity = fade;
       halo.material.opacity = HALO_ALPHA * fade;
       paintDiscs();

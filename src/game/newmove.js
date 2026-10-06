@@ -61,6 +61,13 @@ export const AFTER_DELIVERED = 2;
  * for (game/uturnclip.js, game/driftclip.js).
  */
 export const MOVES = {
+  // First, and on the first drop-off it can: holding Loco Mode behind a car rams it unless the combo
+  // is thrown (game/overtake.js), so a player who has not been shown it is being punished for the
+  // button doing what it always did.
+  overtake: {
+    seenKey: 'simTaxi.seen.overtake', after: 1, line: 'Overtake',
+    keys: [['boost', 'boost'], ['blip', 'boost']],
+  },
   uturn: {
     seenKey: SEEN_KEY, after: AFTER_DELIVERED, line: 'U-Turn',
     keys: [['boost', 'boost'], ['brake1', 'brake'], ['brake2', 'brake']],
@@ -75,8 +82,8 @@ export const MOVES = {
  * The same card for the depot (game/repairclip.js), which is not a move and is not taught on a
  * drop-off: it goes up once ever, a beat after the taxi first starts smoking (`SMOKE_FRACTION`),
  * which is when the "Head to the shop for repairs." bubble it replaced used to (Tyler, 2026-10-06).
- * No pedal row — the instruction is a tap, and the clip shows a finger making it on the door — so the
- * line carries it in words, and the eyebrow is the depot's own name rather than "New Move Unlocked",
+ * No pedal row — the instruction is a tap on the depot, which no button shows — so the line carries
+ * it in words, and the eyebrow is the depot's own name rather than "New Move Unlocked",
  * which a repair is not. Kept out of MOVES because main.js walks those in order on drop-offs.
  */
 export const REPAIR = {

@@ -65,6 +65,7 @@ import { createTape, createCrashReplay } from './game/replay.js';
 import { CARRY_DRAG, carrySpeed, carryTravel } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
 import { createChopper } from './game/chopper.js';
+import { createPoliceHeli } from './game/policeheli.js';
 import { createBirds, chooseRoosts } from './game/birds.js';
 import { createDucks } from './game/ducks.js';
 import { createHoopers } from './game/hoopers.js';
@@ -124,16 +125,18 @@ import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
+import { createOvertakeCombo } from './game/overtake.js';
 import { createNewMove, createSeenFlag, MOVES, REPAIR, SHOW_DELAY } from './game/newmove.js';
 import { createUturnClip, pickStreet, clipKeys as uturnKeys } from './game/uturnclip.js';
 import { createDriftClip, pickCorner, clipKeys as driftKeys } from './game/driftclip.js';
+import { createOvertakeClip, pickOvertakeStreet, clipKeys as overtakeKeys } from './game/overtakeclip.js';
 import { createRepairClip, clipKeys as repairKeys } from './game/repairclip.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
 import { createViewport } from './util/viewport.js';
 import { isNative } from './util/platform.js';
-import { tap as haptic } from './util/haptics.js';
+import { tap as haptic, setHapticPrefs } from './util/haptics.js';
 import { createSfx } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
@@ -886,6 +889,8 @@ const sfx = shot ? null : createSfx({ rng: makeRng(runSeed + 811) });
 const settings = createSettings();
 sfx?.setVolumes(settings.get());
 settings.onChange((v) => sfx?.setVolumes(v));
+setHapticPrefs(settings.get());
+settings.onChange(setHapticPrefs);
 
 // The one mute, as the Settings pages on the title and pause screens see it. M flips it from a
 // keyboard; the choice is remembered (localStorage, soft — see game/sfx.js). The pages re-read it
@@ -945,11 +950,13 @@ const bootleg = createBootleg({
   // road on the frame it starts. `layRubber` carries the streak on from there.
   onSpin: () => {
     sfx?.play('skid');
-    haptic('loco');
+    haptic('uturn');
     controller.kickShake(0.55);
     stampAllRubber(traffic.taxi);
   },
 });
+// Loco behind a car, a blip off the pill and back on: the taxi goes round. See game/overtake.js.
+const overtake = createOvertakeCombo({ taxi: traffic.taxi });
 // The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
 // contact. The ghost outlines hung off the taxi are filtered out inside `markOccluder`.
@@ -1266,6 +1273,53 @@ const chopper = createChopper(scene, makeRng(runSeed + 233), city.pad, {
   },
 });
 
+// The getaway's police helicopter — see game/policeheli.js. In once the taxi has made its first
+// checkpoint, its searchlight on the cab for the rest of the run to the drop-off; then over the
+// robber on the corner through the arrest, after the car that takes them away for a few seconds,
+// and home. Cinematic only: nothing in the robbery or the patrol reads it. Null with no robbery.
+const HELI_FROM_CHECKPOINT = 1;
+const HELI_TAIL_SECONDS = 6;
+const policeHeli = robbery
+  ? createPoliceHeli(scene, makeRng(runSeed + 457), { groundY: (x, z) => deckHeightAt(x, z).y })
+  : null;
+// The car the robber was put in, once the arrest has handed it back to traffic: `{ car, left }`.
+let heliTail = null;
+
+/** What the helicopter is watching this frame, or null to send it home. See `update` there. */
+function heliTarget(dt) {
+  if (!robbery || fares.state.gameOver) return null;
+  if (robbery.state.active) {
+    if (!robbery.state.alarmed) return null;
+    const f = fares.state.fares.find((r) => r.robber && r.stage === 'riding');
+    if (!f || f.checkpointsTotal - f.checkpoints.length < Math.min(HELI_FROM_CHECKPOINT, f.checkpointsTotal)) {
+      return null;
+    }
+    const t = traffic.taxi;
+    return { x: t.x, z: t.z, yaw: t.yaw, moving: t.v > 1 };
+  }
+  const { arrest } = robbery;
+  if (arrest.active()) {
+    const figure = arrest.figure();
+    if (figure) return figure;
+    const car = arrest.boarder();
+    if (car) heliTail = { car, left: HELI_TAIL_SECONDS };
+    else if (!heliTail) {
+      // The robber is still climbing out on the scene's first frames: hold over the corner rather
+      // than turning for home and straight back.
+      const J = arrest.state.phase === 'converge' ? arrest.junction() : null;
+      return J ? { x: lineX(J.i), z: lineZ(J.j) } : null;
+    }
+  }
+  if (!heliTail) return null;
+  const { car } = heliTail;
+  heliTail.left -= dt;
+  if (heliTail.left <= 0 || car.crashed || !traffic.policeCars.includes(car)) {
+    heliTail = null;
+    return null;
+  }
+  return { x: car.x, z: car.z, yaw: car.yaw, moving: car.v > 1 };
+}
+
 // Flocks in the parks, walking about until something puts them up — see game/birds.js. Scenery on
 // the same terms as the aeroplane, with one thread back to the game: the taxi coming past is what
 // startles them. That runs one way only, so nothing about a run changes if it never happens.
@@ -1541,15 +1595,12 @@ let slowMoMin = SLOW_MO_MIN;
 // Not in shot mode — a still has no replay to show — and not for a bust or a timeout: nothing
 // happened fast enough in either to be worth seeing twice.
 const REPLAY_LEAD = 1200;
-// The breath between the last frame of the replay and the card sliding in — long enough that the
-// card arrives on the live wreck rather than on the cut, and that a tap which skipped the replay has
-// let go before the card is there to take it as a tap on the tally.
+// The breath between a tap that skips the replay and the card arriving — long enough that the tap
+// has let go before the card is there to take it as a tap on the tally. A replay that plays out
+// has no tail: its last slow-mo frame jump cuts straight to the card. It used to hand back to the
+// live wreck for 350ms first (1100ms when the driver was ejected, to watch them land), and a beat
+// of real-time wreck after three slow-mo cuts read as an anticlimax rather than an ending.
 const REPLAY_TAIL = 350;
-// The same breath when the driver went through the windscreen, held long enough to see them land.
-// The replay hands back ~0.49s of sim past the impact (see REPLAY_LEAD) with the slow-mo already
-// run out, and at the 21 u/s of a boost-cruise T-bone the flight is ~1.05s in the air plus 0.3 to
-// settle flat — 0.86s still to go. Under the card they would land unseen.
-const EJECT_TAIL = 1100;
 let replayAt = null;
 // The sim clock the tape is stamped in: the sum of every dilated `dt` the world has been stepped by.
 let simClock = 0;
@@ -1624,8 +1675,11 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck })
   // Ramming the patrol car on the pill is a bump like any other, not a bust — game/patrol.js
   // `rammed`. The collision pass runs before the patrol's, so this lands the same frame.
   if (taxiStruck && other.police) patrol.rammed(other);
-  // Every bump costs HP, and any damage at all costs the ride its Perfect Run (game/runs.js).
+  // Every bump costs HP, and any damage at all costs the ride its Perfect Run (game/runs.js). When
+  // the HUD was showing one on course, the hand is told it has gone as the tag falls.
+  const perfectWasOn = runs.live()[0]?.earned && !runs.live()[0].broken;
   runs.damage();
+  if (perfectWasOn) haptic('perfect-lost');
   controller.kickShake(BUMP_SHAKE + closing * BUMP_SHAKE_PER_UNIT);
   // The designer's bump — light hits against other cars, a recording of its own since Block 1 —
   // scaled by the same closing speed the shake is. 0.3 at a nudge, full at a T-bone at the Loco top.
@@ -2853,6 +2907,9 @@ function popRunSequence(fare) {
       return;
     }
     const at = payoutScreenPos();
+    // On the label's pop, not the cash's landing: the three beats of the pattern climb into the
+    // scale-up that peaks at 20% of RUN_LABEL_MS (ComboHaptics.swift).
+    if (step.key === 'perfect') haptic('perfect');
     const el = document.createElement('div');
     el.className = `run-pop run-${step.key}`;
     el.textContent = step.label;
@@ -2979,6 +3036,7 @@ function updateHud(dt) {
       onRetry: () => { skipTitleNextLoad(); location.reload(); },
     });
     document.body.classList.add('game-over');
+    sfx?.fadeOutMusic();
   }
 }
 
@@ -3209,6 +3267,8 @@ const DRIFT_FUEL = 1 / 6;
 let driftHoldOff = false;
 let driftTapAt = -Infinity;
 let driftsPaid = 0;
+// The same tally-and-catch-up for the taxi's overtakes (`car.overtakes` in sim/traffic.js).
+let overtakesFelt = 0;
 
 /**
  * The press, from the button, the B key, or a thumb sliding onto the brake from the pill beside it.
@@ -3255,7 +3315,7 @@ function holdBrake() {
     boost.release();
     brakeButton?.classList.add('is-on');
     sfx?.play('skid');
-    haptic('loco');
+    haptic('drift');
     controller.kickShake(0.3);
     stampAllRubber(traffic.taxi);
     return true;
@@ -3987,7 +4047,7 @@ const pause = shot ? null : createPause({
     // release too, and resuming onto a pedal nobody is holding is the same bug wearing red.
     // `dropPedalGesture` covers a thumb that was on the row when the veil went up; the two explicit
     // releases beside it are for the keyboard's holds, which it knows nothing about.
-    if (paused) { boost.release(); releaseBrake(); dropPedalGesture(); bootleg.reset(); }
+    if (paused) { boost.release(); releaseBrake(); dropPedalGesture(); bootleg.reset(); overtake.reset(); }
   },
 });
 
@@ -4010,6 +4070,11 @@ const clipStage = (cardCanvas) => ({
   scene, camera, renderFrame, canvas: renderer.domElement, freeze: freezeFrame, cardCanvas,
 });
 const moves = {
+  overtake: {
+    ...MOVES.overtake, seen: createSeenFlag({ key: MOVES.overtake.seenKey }), clipKeys: overtakeKeys,
+    makeClip: (cardCanvas) => freezeFrame
+      && createOvertakeClip({ ...clipStage(cardCanvas), street: pickOvertakeStreet(clipSite()) }),
+  },
   uturn: {
     ...MOVES.uturn, seen: createSeenFlag({ key: MOVES.uturn.seenKey }), clipKeys: uturnKeys,
     makeClip: (cardCanvas) => freezeFrame
@@ -4073,7 +4138,7 @@ function openNewMove(move = newMoveDue ?? moves.uturn) {
   if (!newMove?.open(move)) return false;
   move.seen.set();
   // Same releases as the pause, for the same reason: the card takes the release of anything held.
-  boost.release(); releaseBrake(); dropPedalGesture(); bootleg.reset();
+  boost.release(); releaseBrake(); dropPedalGesture(); bootleg.reset(); overtake.reset();
   return true;
 }
 
@@ -4144,7 +4209,11 @@ function frame() {
   }
   if (replay?.active()) {
     replay.update(wallDt);
-    if (!replay.active()) crashBannerAt = nowMs + (ejection.active() ? EJECT_TAIL : REPLAY_TAIL);
+    // The last cut goes straight to the card, on this frame — see REPLAY_TAIL.
+    if (!replay.active()) {
+      crashBannerAt = nowMs;
+      updateHud(0);
+    }
     renderFrame();
     return;
   }
@@ -4188,6 +4257,7 @@ function frame() {
     // And through the drift, which does the same from its own tap (see `driftHoldOff`).
     const bootlegBrake = bootleg.update(dt, { brakeHeld: brakeHeld && !fares.state.gameOver });
     if (!brakeHeld) driftHoldOff = false;
+    overtake.update(dt, { held: boost.isActive() && !traffic.taxi.staged, brakeHeld });
     const drifting = traffic.taxi.drift && traffic.taxi.drift.phase !== 'carry';
     traffic.taxi.braking = bootlegBrake && !driftHoldOff && !drifting;
   }
@@ -4217,7 +4287,9 @@ function frame() {
   wreckage.update(dt);
   ejection.update(dt);
   flyover.update(dt);
-  chopper.update(dt);
+  // Night, for the searchlight: off the sun's own power, which the day/night keys run 0 to 3.85.
+  policeHeli?.update(dt, heliTarget(dt), { dark: 1 - THREE.MathUtils.smoothstep(sun.intensity, 0.3, 2.6) });
+  chopper.update(dt, { hold: Boolean(policeHeli?.busy()) });
   clouds.update(dt);
   rain.update(dt, camera);
   applyWeather(dt);
@@ -4280,16 +4352,27 @@ function frame() {
     traffic.taxi.z = ramShove.z + ramShove.vz * k;
   }
   traffic.update(dt);
+  if (traffic.taxi.overtakes > overtakesFelt) {
+    overtakesFelt = traffic.taxi.overtakes;
+    if (!fares.state.gameOver) haptic('overtake');
+  }
   if (traffic.taxi.drifts > driftsPaid) {
     driftsPaid = traffic.taxi.drifts;
     // The exit kick (DRIFT_EXIT in sim/traffic.js) has to read at a glance — playtesting said it
     // didn't, with only a buzz and a shake. So it says so: a bark of fire out of the pipe on top of
-    // the double-barrelled plume (`locoFlame` below), the Loco whoosh, and the fuel pouring into the
-    // gauge. (A "DRIFT BOOST!" word off the roof was tried and cut.)
+    // the double-barrelled plume (`locoFlame` below), the Loco whoosh, and the fuel flying off the
+    // car into the gauge on the same sparks a drop-off pays with — it once went straight into
+    // `topUp`, so the meter grew with nothing to say why. (A "DRIFT BOOST!" word off the roof was
+    // tried and cut.) No HANDOFF: there is no payout coin here to wait behind.
     if (!fares.state.gameOver) {
-      boost.topUp(DRIFT_FUEL);
+      flyEnergyToBoost({
+        from: taxiScreenPos,
+        to: fuelScreenPos,
+        delay: 0,
+        onArrive: () => boost.topUp(DRIFT_FUEL),
+      });
       const car = traffic.taxi;
-      haptic('loco');
+      haptic('drift-kick');
       controller.kickShake(0.5);
       sfx?.locoOn();
       flames.burst(
@@ -4318,6 +4401,7 @@ function frame() {
     holding: boost.isEngaged() && !boost.isCoolingDown(),
     over: fares.state.gameOver,
     siren: sirenLevel(),
+    rotor: policeHeli ? policeHeli.loudness(traffic.taxi.x, traffic.taxi.z) : 0,
   });
   // After traffic has settled positions for the frame — that's what the overlap check reads, and
   // what the two wreck shells are copied out of. A detected impact takes both cars out of the
@@ -5442,6 +5526,7 @@ window.__taxi = {
   patrol,
   /** The brake-tap spin (game/bootleg.js) — `spin()` fires one, `state` tallies them. */
   bootleg,
+  overtake,
   /**
    * The "New Move Unlocked" card (game/newmove.js), null in shot mode. `open(name)` shows that
    * move's card ('uturn', the default, or 'drift') now, whatever the gates say; `seen` is the
@@ -5503,6 +5588,8 @@ window.__taxi = {
    * browser test watches the trigger without guessing at wallclock. See game/robbery.js.
    */
   robbery,
+  /** The getaway's police helicopter, or null with no robbery — see game/policeheli.js. */
+  policeHeli,
   /** The banknotes a boosting getaway throws — `live()` is how many are in the air. */
   cashTrail,
   /**

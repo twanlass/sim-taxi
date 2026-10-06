@@ -1188,7 +1188,20 @@ const closingFloor = (car, leader) => Math.max(0, (leader.v ?? 0) * Math.cos(lea
  */
 const boostGap = (car, leader) => (car.passOffset > 0
   ? Math.min(BOOST_GAP + truckExtra(leader), envelopeGap(car.passOffset, leader))
-  : BOOST_GAP + truckExtra(leader));
+  : BOOST_GAP + truckExtra(leader) + (car.passArmed !== undefined && !car.passing ? COMBO_TAILGATE : 0));
+/**
+ * Extra daylight behind a car the taxi is not passing, wherever the overtake combo
+ * (game/overtake.js) decides passes — held until the pull-out actually starts, not just until the
+ * combo arms, because an arm thrown mid-junction waits for the next lane (passes are only decided
+ * on one) and closing to BOOST_GAP in the meantime bumped the car it was about to go round.
+ * BOOST_GAP's 0.29 was sized for a tailgate that lasted a
+ * fraction of a second before the taxi pulled out; held behind a car indefinitely at 17-23 u/s it is
+ * too thin to survive the leader's own small hiccups, and one is built in: a car landing off a
+ * junction drops the frame's overshoot (`car.s = 0` below), a 0.24-unit step backwards at 17 u/s,
+ * which bumped the taxi on the probe's staging every time. 1.5 is still visibly on its bumper —
+ * and well inside PASS_TRIGGER, so the pass starts the frame the combo arms.
+ */
+const COMBO_TAILGATE = 1.5;
 /**
  * How far clear of the car it just passed the taxi must be before it may cut back in.
  *
@@ -2499,6 +2512,8 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       driftAmtV: 0,
       driftSign: 0,
       drifts: 0,
+      // A tally of the taxi's pull-outs round a car, read by main.js for the overtake's haptic.
+      overtakes: 0,
       // 0..1 brightness for the brake and turn-signal light pods. brakeLevel is eased (see
       // BRAKE_LIGHT_RISE/FALL) — off frame one along with prevV/v agreeing there is no accel yet.
       // The turn-signal levels are not eased; they jump straight to their blink target.
@@ -2536,6 +2551,9 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       pass: 0,
       passing: false,
       passTarget: null,   // the car currently being overtaken, latched for the whole manoeuvre
+      // May a pass start? Set by the overtake combo (game/overtake.js); undefined means yes.
+      passArmed: undefined,
+      passGap: Infinity,  // the leader's gap as the pass block last saw it, for the combo
       // What `pass` is turned into: the smoothstepped offset the body is drawn at, the slope of
       // that offset (which *is* the tangent of the steering angle, since it is per unit of road),
       // and the roll that comes off its curvature. Derived every frame from `pass`; kept on the car
@@ -4452,6 +4470,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       if (car.turnT >= 0.95 || car.braking || car.roadblock > 0) heldAt.add(`${car.i},${car.j}`);
     }
 
+    const straightThrough = (car) => car.turn?.hand === 'straight';
     for (const car of cars) {
       // A crashed car is not in traffic at all. A *boosting* taxi used to be skipped here too, on
       // the grounds that it had left its lane; now that it only weaves within it, it belongs in
@@ -4495,13 +4514,28 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // left turn's arc is 15). Keeping it and moving only where it *starts* is deliberate: the
         // defect is the discontinuity at `turnT === 0`, and this makes the handover exact — a car
         // at the line reads at `lane.length - STOP_SETBACK` in both states.
-        laneS = car.lane.length - car.leadIn + car.turnT * (car.leadIn + 5);
+        //
+        // **Except straight on**, where the fiction is not free. A straight crossing is the one turn
+        // `ahead()` walks through, charging it the box's real `turn.length`, so a car reading 5
+        // units across it here and 8 from the far side jumped 4.36 units at the 0.6 handover — in
+        // whichever direction flatters nobody: the follower saw 4.36 units of road appear, then
+        // vanish. Ambient traffic never spends it. A boosting taxi tailgating a car across a
+        // junction at 23 u/s against 17 does: it closed on a gap that was not there and rear-ended
+        // the car on the far side, every time on the probe's staging. It only became reachable once
+        // the overtake wanted a combo (game/overtake.js) and holding Loco behind a car went back
+        // to tailgating it. So straight on reads the real distance travelled, on both lists, and
+        // the two meet exactly: `turnLen - leadIn` *is* that crossing's `turn.length`.
+        laneS = straightThrough(car)
+          ? car.lane.length - car.leadIn + Math.min(car.turnT, 1) * car.turnLen
+          : car.lane.length - car.leadIn + car.turnT * (car.leadIn + 5);
       } else {
         // Second half: hand the car over to the lane it is about to land in, still short of that
         // lane's start. Without this it is invisible to that lane's traffic for the rest of the
         // turn, and then materialises on top of whatever drove into the gap.
         lane = net.laneById.get(car.turn.outLane);
-        laneS = -(1 - car.turnT) * 5;
+        laneS = straightThrough(car)
+          ? (Math.min(car.turnT, 1) - 1) * car.turnLen
+          : -(1 - car.turnT) * 5;
       }
 
       if (!lanes.has(lane.id)) lanes.set(lane.id, []);
@@ -4857,6 +4891,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
     if (taxiActive) {
       const gap = leaderDist.get(taxi);
+      // Published for the overtake combo, which arms only behind a car.
+      taxi.passGap = gap ?? Infinity;
       const locoHeld = taxi.boost && !taxi.boostEasing;
       // Sized against the road under the taxi, not against a constant — see `PASS_LATERAL`. The
       // fade scales with the swing so the peak crab angle is the same 31° on a 6.67-unit lane
@@ -4938,18 +4974,29 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
       // Whether there is a way round the car in front right now — the same conditions the pull-out
       // below asks, minus `near`. Read by `rams()`: where this is false, a taxi with hit points
-      // stops following the leader and drives into it. Only the road itself can say no now.
-      taxi.canPass = locoHeld && gap !== undefined && room;
+      // stops following the leader and drives into it. Only the road itself can say no now —
+      // and, where main.js runs the overtake combo (game/overtake.js), the player: a taxi held
+      // behind a car without throwing it rams the car, so the choice is the combo or the brake
+      // (Tyler, 2026-10-06; it tailgated first and that let you sit there for free). A truck is
+      // still tailgated rather than rammed (`rams`), for the reason given there.
+      taxi.canPass = locoHeld && gap !== undefined && room
+        && (taxi.passArmed !== false || taxi.passing);
 
       if (taxi.state === 'drive') {
         const was = taxi.passing;
+        // Pulling out wants the overtake combo (game/overtake.js) where main.js runs one — a blip
+        // off the pill and back on behind the car. `passArmed` undefined is the old rule, holding
+        // is enough, which the passing lab and the probe still drive. Staying out does not ask.
         taxi.passing = locoHeld
           && ((taxi.passing && alongside())
-            || (room && near));
+            || (room && near && taxi.passArmed !== false));
         // Latched on the frame the taxi pulls out and held for the whole manoeuvre, rather than
         // re-read per frame: half way through a pass the taxi is *ahead* of this car in lane
         // coordinates, so `leaderOf` has already moved on to whatever is in front of them both.
-        if (taxi.passing && !was) taxi.passTarget = leader ?? null;
+        if (taxi.passing && !was) {
+          taxi.passTarget = leader ?? null;
+          taxi.overtakes += 1;
+        }
         if (!taxi.passing) taxi.passTarget = null;
       }
 
