@@ -1161,6 +1161,19 @@ button becomes a decision at the one moment it previously made none. It is the o
 boost-only rule stays armed through the cooldown tail because those are *hazards* and hazards
 should outlive the release, but this is an input, and letting go has to steer the car back.
 
+**In the game it now wants a combo** (`game/overtake.js`): holding the button behind a car only
+tailgates it, and a quick blip off the pill and back on (`OVERTAKE_BLIP_MS`, 250ms) while behind
+it is what pulls out. From there it is the rule above: the pass runs while the button stays down
+and letting go tucks in. A pass that ends spends the combo, so the next car wants another blip. A
+brake inside the blip is the drift or the bootleg and does not arm. The sim reads it as
+`taxi.passArmed` — `undefined` keeps the old holding-is-enough rule, which the lab and the probe
+still drive. While the combo decides, the taxi tailgates `COMBO_TAILGATE` (1.5) further back than
+`BOOST_GAP`, because a tailgate that used to last a fraction of a second now lasts as long as the
+player likes and 0.29 of daylight did not survive it. Measured over 16 cities × 40s with the button
+held: tailgating went from 4% of frames to 29%, with no passes and no more bumps (14 against 30).
+A player feathering the pill at random — a 60-220ms lift every 1-4s — armed 38 passes in that time
+against 55 for one throwing the combo on purpose, so feathering behind a car *is* the gesture.
+
 **This was built once before and abandoned, and why matters.** The old overtake pulled out to the
 road *centreline*, which is the single worst place on the road:
 

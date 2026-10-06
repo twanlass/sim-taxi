@@ -3095,8 +3095,10 @@ corners, lays **skid marks** off the line and through turns, and kicks up **dust
 [rendering.md](rendering.md#effects) for how those two are drawn.
 
 **And it overtakes.** A slower car in front on a straight road is no longer something to sit
-behind: **keep holding the button and the taxi pulls a full lane into the oncoming side, goes
-past, and comes back.** Letting go is the abort — it tucks in behind instead. So the button stops
+behind: **blip the button (off and straight back on) while you're behind it, and the taxi pulls a
+full lane into the oncoming side, goes past, and comes back** for as long as you keep holding.
+Holding alone just tailgates (`game/overtake.js`). Letting go is the abort — it tucks in behind
+instead. So the button stops
 being a throttle at exactly the moment it gets interesting and becomes a question: is that lane
 clear enough, and is that car about to turn across you? Nothing protects you either way. Collision
 detection is armed for the whole of Loco Mode, so an oncoming car is the run. It buys real speed —
