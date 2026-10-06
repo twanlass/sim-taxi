@@ -3665,7 +3665,7 @@ Escape and P toggle it from a keyboard.
 
 `src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends three ways — a fare's
 clock hitting zero, a collision, a police bust — and all three land on the same screen: a title, the
-reason, the run's four stats, the [high-score table](#high-scores), and **Play again**. The title is
+reason, the run's two stats (**Cash**, then **Time**), the [high-score table](#high-scores), and **Play again**. The title is
 set by the caller, so a timeout reads **Too Slow!**, a collision reads **Wrecked!**, and a police
 bust reads **Busted!**.
 
@@ -3681,15 +3681,16 @@ floated a blurred card on top of it, and the card's edges turned out to be the l
 screen. Blacking the whole viewport out puts the run's numbers on nothing at all, which is what
 makes them the ending rather than an overlay on one.
 
-"Shift" replaced a row called "Streak" that printed `s.delivered` — the same number as "Fares"
-directly above it, formatted with an `x`. Two rows counting out one number is a stat sheet padding
-itself; how deep into the ramp a run got is a genuinely different fact about it. It rolls up through the shift names the run passed through, which is
-what the counter does with every other stat.
+There used to be four rows — Time, Fares, Shift, Cash — and Fares and Shift were cut. Each
+rider's clock is budgeted off the work the fare takes ([difficulty.md](difficulty.md)), so how many
+fares a run carried and how far up the ramp it got both mostly restate how long it lasted, and four
+rows of near-synonyms buried Cash, the one number the table ranks by. Cash comes first for that
+reason.
 
 The stats are **one row each, label and value side by side**, and both are set in the *same* size,
 weight and colour. A small grey caption over a big yellow number made the label read as chrome and
 the number as the content, when the pairing is the content; matched type makes each row one phrase
-— "Fares  9" — and the rows read as a list being counted out, which is what the stagger is
+— "Cash  $412" — and the rows read as a list being counted out, which is what the stagger is
 doing.
 
 It reads as a **ledger**: label pinned to the left edge, value to the right, on a `1fr auto` grid
@@ -3717,8 +3718,8 @@ inside that cap, so a two-line reason comes out as two even lines rather than a 
 a short orphan word on the second.
 
 Type and rhythm scale with the viewport, off whichever axis is tighter: height for the list as a
-whole (a landscape phone runs it past the fold) and width for the rows (the longest, `"Shift  Early
-Shift"`, is the one `nowrap` risks pushing off a 320px screen rather than wrapping it). If it still
+whole (a landscape phone runs it past the fold) and width for the rows (`nowrap` would rather push a
+long row off a 320px screen than wrap it). If it still
 doesn't fit, the overlay scrolls — centred by `margin: auto` on the content rather than
 `justify-content`, which clips its own overflow at the top, where the title is.
 
@@ -3732,7 +3733,7 @@ appearing only once the table has landed, so the player isn't invited to leave m
 
 **The stats, the prompt and the table are one slot taking turns**, not a list that grows. `#run-end
 .run-end-body` holds whichever screen is current and cross-fades to the next. Stacking them was the
-first shape and it does not fit: a title, a reason, four stat rows, a prompt and five table rows is
+first shape and it does not fit: a title, a reason, the stat rows, a prompt and five table rows is
 well past what a landscape phone shows at once, and this card's whole layout exists to keep **Play
 again** above the fold. Swapping also makes each beat a screen of its own, which is the point of the
 sequence — read your run, sign it, see where it placed. The slot is pinned to a `min-height` taken

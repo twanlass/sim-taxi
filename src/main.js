@@ -3010,22 +3010,13 @@ function updateHud(dt) {
     showRunEnd(hud.banner, {
       title: s.failTitle,
       reason: s.failReason,
-      // Four numbers, in the order the run produced them: how long it lasted, what you carried,
-      // how deep into the ramp that took you, and what it paid.
-      //
-      // "Shift" replaces what used to be "Streak", which printed `s.delivered` — the same number
-      // as Fares directly above it, formatted with an `x`. Two rows counting out one number is a
-      // stat sheet padding itself. How far up the difficulty curve the run got is a genuinely
-      // different fact about it.
+      // Two numbers: what the run paid, which is what it is ranked on, and how long it lasted.
+      // Fares and Shift were cut (Tyler, 2026-10-06): with every rider's clock budgeted off the
+      // work it takes, both mostly restate Time, and four rows of near-synonyms buried the one
+      // number the table sorts by.
       stats: [
-        { label: 'Time', value: s.elapsed, format: formatRunTime },
-        { label: 'Fares', value: s.delivered, format: (n) => `${n}` },
-        // Rolls up through the shift names the run actually passed through, which is what the
-        // counter does with every other stat. Clamped at the bottom because `countUp` paints
-        // `format(0)` as the row's opening frame before it starts counting.
-        { label: 'Shift', value: difficulty.shiftFor(s.delivered).index + 1,
-          format: (n) => difficulty.SHIFTS[Math.max(0, n - 1)].name },
         { label: 'Cash', value: s.money, format: (n) => `$${n}` },
+        { label: 'Time', value: s.elapsed, format: formatRunTime },
       ],
       // Recorded here rather than the moment the run ended, so the write happens on the frame the
       // screen is actually built — every ending holds this block for a beat, and a score saved

@@ -1,6 +1,6 @@
 /**
  * The run-end overlay — a title, a reason, and then a sequence of screens on a full-screen
- * blackout: the run's four stats counted out, an initials prompt if the run made the high-score
+ * blackout: the run's stats counted out, an initials prompt if the run made the high-score
  * table, the table itself, and finally the play-again button.
  *
  * The old version wrote one line of `innerHTML` and the whole screen appeared in a single frame,
@@ -21,7 +21,7 @@
  *
  * The stats, the initials prompt and the high-score table are the same slot in the card, swapped
  * one for the next — not a list that grows. Stacking them was the first shape and it does not fit:
- * a title, a reason, four stat rows, a prompt and five table rows is well past what a landscape
+ * a title, a reason, the stat rows, a prompt and five table rows is well past what a landscape
  * phone shows at once, and this card's whole layout (see the `max-width` and the `vh` clamps in
  * `index.html`) exists to keep "Play again" above the fold. Swapping also makes each beat a screen
  * of its own, which is what the sequence is for: read your run, sign it, see where it placed.
@@ -134,7 +134,7 @@ function scaleDownIn(node, delay) {
  *
  * Very small values still take the full COUNT_MS — a "3" that counts 0-1-2-3 over a third of a
  * second reads as deliberate, whereas scaling the duration to the value made Fares flick past while
- * Cash laboured through three digits, and the four stats stopped feeling like one list.
+ * Cash laboured through three digits, and the stats stopped feeling like one list.
  *
  * Returns a function that lands the number where it stands: the skip below calls it on every row
  * at once, and a roll that hasn't started yet drops straight to its final value.
