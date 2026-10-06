@@ -66,6 +66,7 @@ import { createTape, createCrashReplay } from './game/replay.js';
 import { CARRY_DRAG, carrySpeed, carryTravel } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
 import { createChopper } from './game/chopper.js';
+import { createPoliceHeli } from './game/policeheli.js';
 import { createBirds, chooseRoosts } from './game/birds.js';
 import { createDucks } from './game/ducks.js';
 import { createHoopers } from './game/hoopers.js';
@@ -1277,6 +1278,53 @@ const chopper = createChopper(scene, makeRng(runSeed + 233), city.pad, {
     }
   },
 });
+
+// The getaway's police helicopter — see game/policeheli.js. In once the taxi has made its first
+// checkpoint, its searchlight on the cab for the rest of the run to the drop-off; then over the
+// robber on the corner through the arrest, after the car that takes them away for a few seconds,
+// and home. Cinematic only: nothing in the robbery or the patrol reads it. Null with no robbery.
+const HELI_FROM_CHECKPOINT = 1;
+const HELI_TAIL_SECONDS = 6;
+const policeHeli = robbery
+  ? createPoliceHeli(scene, makeRng(runSeed + 457), { groundY: (x, z) => deckHeightAt(x, z).y })
+  : null;
+// The car the robber was put in, once the arrest has handed it back to traffic: `{ car, left }`.
+let heliTail = null;
+
+/** What the helicopter is watching this frame, or null to send it home. See `update` there. */
+function heliTarget(dt) {
+  if (!robbery || fares.state.gameOver) return null;
+  if (robbery.state.active) {
+    if (!robbery.state.alarmed) return null;
+    const f = fares.state.fares.find((r) => r.robber && r.stage === 'riding');
+    if (!f || f.checkpointsTotal - f.checkpoints.length < Math.min(HELI_FROM_CHECKPOINT, f.checkpointsTotal)) {
+      return null;
+    }
+    const t = traffic.taxi;
+    return { x: t.x, z: t.z, yaw: t.yaw, moving: t.v > 1 };
+  }
+  const { arrest } = robbery;
+  if (arrest.active()) {
+    const figure = arrest.figure();
+    if (figure) return figure;
+    const car = arrest.boarder();
+    if (car) heliTail = { car, left: HELI_TAIL_SECONDS };
+    else if (!heliTail) {
+      // The robber is still climbing out on the scene's first frames: hold over the corner rather
+      // than turning for home and straight back.
+      const J = arrest.state.phase === 'converge' ? arrest.junction() : null;
+      return J ? { x: lineX(J.i), z: lineZ(J.j) } : null;
+    }
+  }
+  if (!heliTail) return null;
+  const { car } = heliTail;
+  heliTail.left -= dt;
+  if (heliTail.left <= 0 || car.crashed || !traffic.policeCars.includes(car)) {
+    heliTail = null;
+    return null;
+  }
+  return { x: car.x, z: car.z, yaw: car.yaw, moving: car.v > 1 };
+}
 
 // Flocks in the parks, walking about until something puts them up — see game/birds.js. Scenery on
 // the same terms as the aeroplane, with one thread back to the game: the taxi coming past is what
@@ -4227,7 +4275,9 @@ function frame() {
   wreckage.update(dt);
   ejection.update(dt);
   flyover.update(dt);
-  chopper.update(dt);
+  // Night, for the searchlight: off the sun's own power, which the day/night keys run 0 to 3.85.
+  policeHeli?.update(dt, heliTarget(dt), { dark: 1 - THREE.MathUtils.smoothstep(sun.intensity, 0.3, 2.6) });
+  chopper.update(dt, { hold: Boolean(policeHeli?.busy()) });
   clouds.update(dt);
   rain.update(dt, camera);
   applyWeather(dt);
@@ -4339,6 +4389,7 @@ function frame() {
     holding: boost.isEngaged() && !boost.isCoolingDown(),
     over: fares.state.gameOver,
     siren: sirenLevel(),
+    rotor: policeHeli ? policeHeli.loudness(traffic.taxi.x, traffic.taxi.z) : 0,
   });
   // After traffic has settled positions for the frame — that's what the overlap check reads, and
   // what the two wreck shells are copied out of. A detected impact takes both cars out of the
@@ -5528,6 +5579,8 @@ window.__taxi = {
    * browser test watches the trigger without guessing at wallclock. See game/robbery.js.
    */
   robbery,
+  /** The getaway's police helicopter, or null with no robbery — see game/policeheli.js. */
+  policeHeli,
   /** The banknotes a boosting getaway throws — `live()` is how many are in the air. */
   cashTrail,
   /**

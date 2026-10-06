@@ -2468,6 +2468,25 @@ the robber gets out.
 (game/patrol.js) is why: a third of a tank is five seconds of boost, which loses the cop 8 times in
 16; none is caught 15 in 16; a full tank gets away 14 in 16.
 
+### The police helicopter
+
+`game/policeheli.js`, the `police` livery in `geometry/helicopter.js`, `heliTarget` in `main.js`.
+Once the taxi makes its **first checkpoint** a police helicopter flies in from the far side of the
+city and holds station behind the cab and a little toward the camera, with its searchlight on it,
+until the drop-off. There it moves over the robber on the corner for the standoff, follows the car
+the robber is put in for a few seconds as it pulls away, and leaves the island.
+
+It is **cinematic only**. Nothing in the robbery, the arrest or the patrol reads it, and it cannot
+catch, find or block the taxi. The rooftop chopper (`game/chopper.js`) holds off starting a visit
+while it is up, because both fly at `CRUISE_ALT`, the one height that clears every tower.
+
+The light is faked rather than a `SpotLight`, which would add a light to every lit program and
+shine through towers with no shadow map behind it: an additive cone from the lamp under the nose, an
+additive pool where it lands, and a normally blended dark ring round the pool. The ring carries the
+daytime read; an additive pool on a sunlit street is too faint to see on its own. The strengths ease
+between day and night off the sun's power. The rotor sound is synthesised in `game/sfx.js`
+(`makeRotor`) because the designer's set has no recording of one.
+
 ## The package courier
 
 `src/game/parcels.js`. A brown parcel sits on a kerb corner on a cyan rounded-square pad. Drive

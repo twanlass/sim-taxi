@@ -24,7 +24,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/speech.js', '../src/game/depotcall.js',
   '../src/game/coplights.js', '../src/game/cashtrail.js',
   '../src/game/wipe.js',
-  '../src/game/chopper.js',
+  '../src/game/chopper.js', '../src/game/policeheli.js',
   '../src/game/flames.js', '../src/game/locoflame.js', '../src/game/sparks.js',
   '../src/game/repairfx.js',
   '../src/game/daylight.js', '../src/game/riderfinder.js',
