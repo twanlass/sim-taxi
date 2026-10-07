@@ -887,9 +887,11 @@ export const PALETTE = {
   trashJunk: '#6E7378',
   trashBarrel: '#3B5F8C',
   trashWhite: '#C9CCC8',
-  // The wheelhouse is steel in the cars' metal finish, which darkens its base and adds the sky — so
-  // it is picked pale, near `bumperChrome`'s neighbourhood rather than the grey it ends up reading as.
-  trashHouse: '#C4C9CE',
+  // The wheelhouse is painted working-boat red (Tyler's call, 2026-10-07), the one exception to the
+  // no-warm-on-the-water rule above. It wears the cars' metal finish, which darkens its base and adds
+  // the sky, so it is picked off `carBody[0]` (the red car, same finish) a step deeper and duller:
+  // it has to read as paint on a scow rather than as one more red car or the burger joint's band.
+  trashHouse: '#B4473B',
   trashStack: '#2F3236',
   // The gulls (game/gulls.js): white bodies, grey backs, and nothing else — a yellow bill would be
   // a warm speck at full saturation and would not survive the 3 pixels it occupies anyway.
