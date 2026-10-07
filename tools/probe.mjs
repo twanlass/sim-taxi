@@ -19,8 +19,9 @@ import {
 } from '../src/city/buildings.js';
 import {
   createProps, parkPlots, planParkFurniture, planMedianBeds, MEDIAN_BED_ROOM,
-  BENCH_LEN, STATUE_PLAZA, treeParts, MEDIAN_TREE_H, MEDIAN_TREE_TRUNK,
+  BENCH_LEN, STATUE_PLAZA, treeParts, MEDIAN_TREE_H, MEDIAN_TREE_TRUNK, setAutumn, autumnBase,
 } from '../src/city/props.js';
+import { createLeaves } from '../src/game/leaves.js';
 import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
 import { createGrass, planGrass, grassGeometry } from '../src/city/grass.js';
 import { createCanopyFuzz } from '../src/city/canopyfuzz.js';
@@ -905,6 +906,64 @@ const onGrass = (city, i, j) => {
   check('every tuft stands wholly on a lawn', tufts > 0 && offLawn === 0, `${offLawn} of ${tufts} over the walk`);
   check('and none in the pond, on the statue\'s plaza or under a bench', inWater + onPlaza + inBench === 0,
     `${inWater} in water, ${onPlaza} on the plaza, ${inBench} under a bench`);
+}
+
+// --- Autumn, and the leaves a squall strips --------------------------------------
+//
+// The season is a hash of each trunk's position, so it must move no geometry: the same tree in
+// summer and in autumn is the same vertices in a different colour. Then a squall's cell parked over
+// a park: leaves have to come off, come *down*, travel with the wind, and land flat at the rest
+// height — and the card has to face up off its own winding (CLAUDE.md on hand-written triangles).
+{
+  setAutumn(false);
+  const summer = treeParts(3, 4, makeRng(91));
+  setAutumn(true);
+  const autumn = treeParts(3, 4, makeRng(91));
+  const sameShape = summer.every((g, i) => g.attributes.position.array.every((v, k) =>
+    v === autumn[i].attributes.position.array[k]));
+  const turned = new Set();
+  for (let n = 0; n < 200; n++) turned.add(autumnBase(n * 1.37 - 40, n * 2.11 - 60));
+  check('autumn recolours the trees without moving them, in all four colours', sameShape && turned.size === 4,
+    `${turned.size} colours`);
+
+  const plots = parkPlots(layout).map((p) => p.bounds);
+  const parkCrowns = propsBuild.crowns.filter((c) =>
+    plots.some(({ x0, z0, x1, z1 }) => c.tx >= x0 && c.tx <= x1 && c.tz >= z0 && c.tz <= z1));
+  const target = parkCrowns[0];
+  const cell = { x: target.x, z: target.z, r: 30, on: true, dirX: 1, dirZ: 0 };
+  // A mask that is half-in everywhere, which is where the shedding peaks.
+  const fake = { cell, rainAt: () => 0.5 };
+  const leaves = createLeaves(new THREE.Group(), makeRng(5), parkCrowns, plots, fake);
+  const geo = leaves.mesh.geometry;
+  const pos = geo.attributes.position;
+  let up = true;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i += 3) {
+    a.fromBufferAttribute(pos, i);
+    b.fromBufferAttribute(pos, i + 1).sub(a);
+    c.fromBufferAttribute(pos, i + 2).sub(a);
+    if (b.cross(c).y <= 0) up = false;
+  }
+  check('a leaf card faces up off its own winding', up);
+
+  for (let f = 0; f < 120; f++) leaves.update(1 / 60);
+  const early = leaves.positions();
+  const startY = Math.max(...early.map((p) => p.y));
+  const meanX0 = early.reduce((t, p) => t + p.x, 0) / early.length;
+  cell.on = false;   // the cell moves on, and the leaves already off have to finish coming down
+  for (let f = 0; f < 60 * 8; f++) leaves.update(1 / 60);
+  const { falling, lying, shed } = leaves.stats();
+  const landed = leaves.positions();
+  const meanX1 = landed.reduce((t, p) => t + p.x, 0) / landed.length;
+  const flat = landed.every((p) => p.lying && (Math.abs(p.y - (KERB_H + 0.09)) < 1e-6 || Math.abs(p.y - 0.04) < 1e-6));
+  const onLawn = landed.filter((p) => plots.some(({ x0, z0, x1, z1 }) => p.x >= x0 && p.x <= x1 && p.z >= z0 && p.z <= z1)).length;
+  check('a squall over a park sheds leaves that fall, drift downwind and land on the ground',
+    shed > 20 && falling === 0 && lying > 0 && flat && startY > 2 && onLawn / landed.length > 0.6 && meanX1 > meanX0 + 2,
+    `${shed} shed, ${lying} lying, ${onLawn} on the lawn, from up to y ${startY.toFixed(2)}, mean x ${meanX0.toFixed(1)} -> ${meanX1.toFixed(1)}`);
+  for (let f = 0; f < 60 * 12; f++) leaves.update(1 / 60);
+  check('fallen leaves clear away after lying a while', leaves.stats().lying === 0, `${leaves.stats().lying} left`);
 }
 
 // --- Leaf fuzz on the crowns ---------------------------------------------------

@@ -750,6 +750,12 @@ export const PALETTE = {
 
   trunk: '#6B4E35',
   foliage: '#4F8F4A',
+  // Autumn (`autumnBase` in city/props.js): the colours a broadleaf turns. Spread across value as
+  // well as hue so a park reads as several trees rather than one tree in four tints — the gold
+  // sits above the lawn's luma, the red well under it, the orange between.
+  foliageGold: '#D4A12A',
+  foliageOrange: '#CC6A27',
+  foliageRed: '#A9382C',
 
   // The duck pond — see city/pond.js. The only water in the game, so these three have nothing to
   // agree with and two things to stay clear of.

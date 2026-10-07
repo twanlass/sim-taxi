@@ -1432,6 +1432,20 @@ Everything that was a level in the storm becomes a position here:
 - **Mirror pass.** It runs while any of the map is wet (`maxWet`) and is skipped when the whole
   island has dried.
 
+### Autumn, and the leaves a squall strips — `autumnBase` in `city/props.js`, `game/leaves.js`
+
+The city is in autumn: about two thirds of the broadleaves have turned gold, orange or red, the
+rest stay green. Which colour is a hash of each trunk's position, so it moves no tree and spends
+no draw; `?fall=off` puts the summer back. Parks, medians and courtyards all grow the same tree, so
+the season is set once on the module (`setAutumn`) before the city is built.
+
+When the squall's cell reaches a park, its crown lobes shed leaves: most at the cell's **edge**
+(the gust front strips the trees), a trickle under the core, a quarter as many off a tree that is
+still green. A leaf drifts downwind along the cell's heading, swings side to side as it drops,
+lies on the lawn for 5–8s and shrinks away. Park trees only. One `InstancedMesh` pool of 448
+lit, double-sided cards behind `skipWhenEmpty`, so a sunny frame draws nothing; no shadow casting.
+Leaves are drawn larger than life (0.75 units, ~6px at play zoom) because a 4px leaf read as rain.
+
 ### The city's lights — `game/citylights.js`, plus `setRunningLights` in `sim/traffic.js`
 
 A wet street is mostly a mirror for *lamps*, and a daytime city has almost none. The first rain

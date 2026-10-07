@@ -19,7 +19,8 @@ import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
 import { createBridge } from './geometry/bridge.js';
 import { createBuildings } from './city/buildings.js';
-import { createProps } from './city/props.js';
+import { createProps, parkPlots, setAutumn } from './city/props.js';
+import { createLeaves } from './game/leaves.js';
 import { createGrass } from './city/grass.js';
 import { createCanopyFuzz } from './city/canopyfuzz.js';
 import { createGarage } from './city/garage.js';
@@ -115,7 +116,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -532,6 +533,10 @@ if (river) {
 // Held onto for its `pad`: exactly one roof in the city carries a landing circle, and the
 // helicopter below has to be told which one — see `choosePad` in city/buildings.js.
 const stopPanes = rain.enabled ? collectPanes() : null;
+// The season, before anything plants a tree: the parks, the medians and the courtyards all grow the
+// same broadleaf, and autumn is one fact about the whole city (`autumnBase` in city/props.js).
+const fall = getFall();
+setAutumn(fall);
 const city = createBuildings(makeRng(seed + 22), layout);
 scene.add(markOccluder(city.mesh));
 
@@ -1373,6 +1378,13 @@ for (const offset of [199, 211]) {
 // paddle about, sit, dabble, and never leave. Run seed like the flocks — which park has the water
 // in it is the map, and what the birds on it are doing is the situation. See game/ducks.js.
 const ducks = createDucks(scene, makeRng(runSeed + 299), props.pond);
+// Leaves the squall strips off the park trees (game/leaves.js). Park crowns only — a median tree
+// shedding onto a carriageway is litter rather than autumn, and a courtyard's falls where no one
+// sees it. Run seed: which leaf comes off when is the situation, not the map.
+const leafPlots = parkPlots(layout).map((p) => p.bounds);
+const leaves = fall && squall ? createLeaves(scene, makeRng(runSeed + 337), props.crowns.filter((c) =>
+  leafPlots.some(({ x0, z0, x1, z1 }) => c.tx >= x0 && c.tx <= x1 && c.tz >= z0 && c.tz <= z1)), leafPlots, squall)
+  : null;
 
 // The one span that lifts, and the only thing in this game that changes the road network mid-run.
 // See game/drawbridge.js. `null` on a city with no river, which the chain below handles rather than
@@ -4349,6 +4361,7 @@ function frame() {
   // scenery block in one place.
   for (const flock of flocks) flock.update(dt, traffic.taxi);
   ducks.update(dt);
+  leaves?.update(dt);
   hoopers.update(dt);
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
@@ -5566,6 +5579,8 @@ window.__taxi = {
   storm,
   /** The squall — its `cell`, `state`, `pin(v)`, `seek(t)`, `wetAt`, `rainAt`. Null unless `?squall`. */
   squall,
+  /** The squall's falling leaves — `stats()`, `positions()`. Null with `?fall=off` or no squall. */
+  leaves,
   /**
    * The two bloom routes — `{ state, set }` each, the same handles the ⚙️ panel drives, plus
    * `target()` on the emissive one so a browser test can look at what the lamps actually wrote.
