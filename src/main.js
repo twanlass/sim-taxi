@@ -812,6 +812,12 @@ let radioIn = 0;
 // The robber boarded and is still running for the cab — the robber's line opens the frame they are
 // in. Null when nothing is waiting on it.
 let robberBoarding = null;
+// The robber's door is shut when the world comes back, not on the boarding clock. The line opens on
+// the frame the figure is in — BOARD_SECONDS, the very moment `boardSound` schedules the close — and
+// its freeze suspends the audio context a frame later, so the close got a few milliseconds out
+// before the hold cut it: a lone blip under the bubble, and the rest of the slam after it. Set when
+// the robber boards, cleared by the slam on the first unheld frame.
+let robberDoorOpen = false;
 // The robber's line: the world stops while it is up — see game/robberline.js and the early return
 // in `frame()`. Its dismissal is what calls the police.
 const robberLine = city.bank && !shot
@@ -872,7 +878,8 @@ const robbery = city.bank && !shot
       // Not the depot, though: a repair is refused with anyone aboard, so the drop-off just
       // dispatched stands and `depotRun.update` sees its target gone and stands down.
       haptic('pick');
-      boardSound();
+      sfx?.play('doorOpen');
+      robberDoorOpen = true;
       // Not the radio, and not the robber's line yet: the figure is still running down the bank's
       // steps for the cab (BOARD_SECONDS in game/fares.js), and the line is about them being *in*
       // it. The frame loop opens it once they are.
@@ -4404,6 +4411,12 @@ function frame() {
     robberLine.update(dt);
     renderFrame();
     return;
+  }
+  // Slam it as the getaway starts — see `robberDoorOpen`. Waits out any other hold too (`play`
+  // refuses while held), and a robbery over before then has no door left to shut.
+  if (robberDoorOpen && !robberBoarding && !sfx?.state.held) {
+    robberDoorOpen = false;
+    if (robbery?.state.active && !fares.state.gameOver) sfx?.play('doorClose');
   }
   // The New Move card: the same freeze. Only the bubble ticks, to stay pinned to the pedal; the
   // pedal row's loop is CSS.
