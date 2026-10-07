@@ -198,8 +198,19 @@ export function createTape(scene, { roots = [], exclude = () => false } = {}) {
     const blend = A !== B && alpha > 0 && alpha < 1;
     for (let i = 0; i < n; i++) {
       const o = i * 16;
-      let lerp = blend && i < A.count && i < B.count
-        && !isZeroScale(ma, o) && !isZeroScale(mb, o);
+      const both = blend && i < A.count && i < B.count;
+      const zeroA = both && isZeroScale(ma, o);
+      const zeroB = both && isZeroScale(mb, o);
+      let lerp = both && !zeroA && !zeroB;
+      // An instance that appears or is retired between two samples holds the *earlier* one until
+      // the later lands, rather than going to whichever is nearer. Whatever made the change
+      // happened at or before the sample that shows it, and on the one change the replay is
+      // about — a struck car collapsed to ZERO_MATRIX by `wreckShell` — that sample is forced on
+      // the impact frame, so it sits at exactly `t0`, the age `wreckage.seek` brings the shell in
+      // at. Nearest-sample retired the instance half a sample early, up to 1/60 of a sim second
+      // with neither the instance nor the shell drawn, and under the replay's 0.5 and 0.25
+      // slow-mo that was a 33-67ms blink of the struck car just before every cut's blast.
+      const step = zeroA !== zeroB;
       if (lerp) {
         const dx = mb[o + 12] - ma[o + 12];
         const dy = mb[o + 13] - ma[o + 13];
@@ -209,21 +220,22 @@ export function createTape(scene, { roots = [], exclude = () => false } = {}) {
       if (lerp) {
         for (let e = 0; e < 16; e++) out[o + e] = ma[o + e] + (mb[o + e] - ma[o + e]) * alpha;
       } else {
-        const src = near.matrix;
+        const src = (step ? A : near).matrix;
         for (let e = 0; e < 16; e++) out[o + e] = src[o + e];
       }
-      if (near.color && mesh.instanceColor) {
+      const held = step ? A : near;
+      if (held.color && mesh.instanceColor) {
         const c = mesh.instanceColor.array;
         const ca = A.color;
         const cb = B.color;
-        for (let e = i * 3; e < i * 3 + 3; e++) c[e] = lerp ? ca[e] + (cb[e] - ca[e]) * alpha : near.color[e];
+        for (let e = i * 3; e < i * 3 + 3; e++) c[e] = lerp ? ca[e] + (cb[e] - ca[e]) * alpha : held.color[e];
       }
       for (let k = 0; k < extras.length; k++) {
         const size_ = extras[k].itemSize;
         const dst = extras[k].array;
         const xa = A.extras[k];
         const xb = B.extras[k];
-        const xn = near.extras[k];
+        const xn = held.extras[k];
         for (let e = i * size_; e < (i + 1) * size_; e++) dst[e] = lerp ? xa[e] + (xb[e] - xa[e]) * alpha : xn[e];
       }
     }

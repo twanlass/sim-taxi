@@ -264,6 +264,20 @@ try {
     if (Math.abs(root.position.x - 1) > 1e-6) fail.push(`node drew ${root.position.x} for 1`);
     tape.restore();
     if (xOf(0) !== 7 || xOf(1) !== 9 || root.position.x !== 9) fail.push('restore did not put the live frame back');
+    // A struck car is retired to a zero matrix on the impact frame, whose sample is forced at t0,
+    // and its shell only exists from t0 on. Nearest-sample hid the instance for the back half of
+    // the gap before it, so the car blinked out just before every replay cut's blast.
+    {
+      const retire = createTape(scene, { roots: [] });
+      at(0, 3);
+      retire.record(0);
+      mesh.setMatrixAt(0, new THREE.Matrix4().makeScale(0, 0, 0));
+      retire.record(1 / 30, true);
+      retire.apply(0.9 / 30);
+      if (xOf(0) !== 3) fail.push('a retired instance vanished before the sample that retires it');
+      retire.apply(1 / 30);
+      if (!(mesh.instanceMatrix.array[0] === 0)) fail.push('a retired instance survived its own sample');
+    }
     const wreckage = createWreckage();
     const shell = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
     wreckage.take(shell, { hideBefore: true });
