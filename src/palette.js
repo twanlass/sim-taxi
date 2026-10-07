@@ -376,6 +376,12 @@ export const PALETTE = {
   // whole vehicle as one hull in one colour (carBodyGhost at the cab's index), because the outline
   // says "there is a vehicle there", not "these are its panels".
   truckBox: '#DDD4BE',
+  // A rammed box truck's rear doors (game/boxspill.js): the leaves are the box's own colour, the
+  // latch bar down each free edge is dark steel, and the hold the doors open on is a deep shadow —
+  // nothing inside is lit, and a hold the colour of the box reads as the doors having opened on a
+  // wall.
+  truckDoorBar: '#4A5058',
+  truckHold: '#2B2723',
   // The flatbed that sheds its load (game/flatbed.js). Timber crates rather than cardboard on
   // purpose: the courier's parcels are cardboard browns (parcelBox below), and a box lying in the
   // road that looked like one would read as a package to collect. Slatted pine with darker

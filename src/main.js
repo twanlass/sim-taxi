@@ -75,6 +75,7 @@ import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
 import { createFire } from './game/fire.js';
 import { createFlatbed } from './game/flatbed.js';
+import { createBoxSpill } from './game/boxspill.js';
 import { showRunEnd } from './game/runend.js';
 import { recordRun, lastName, clearScores, loadScores } from './game/highscores.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from './game/locostash.js';
@@ -1501,6 +1502,16 @@ flatbed.onSmash(({ x, z, yaw, byTaxi }) => {
 // A crate hitting the road kicks up a little of what it lands on.
 flatbed.onLand(({ x, z }) => { dust.burst(x, z, 0, 5, 0.3); });
 
+// Ram a box truck and its back doors burst open and some of its load pours out — more of it the
+// harder the hit (game/boxspill.js). Fired from the bump and the wreck below. Scenery: no HP, no
+// blocking; a car that drives into a box knocks it on down the road.
+const boxSpill = createBoxSpill(makeRng(runSeed + 529), scene, traffic);
+boxSpill.onLand(({ x, z, v }) => { if (v > 1.5) dust.burst(x, z, 0, 4, 0.3); });
+boxSpill.onPunt(({ x, z, yaw, byTaxi }) => {
+  dust.burst(x, z, yaw, byTaxi ? 6 : 3, 0.35);
+  if (byTaxi) sfx?.play('bump', { gain: 0.18 });
+});
+
 // A building on fire, and the engine that comes and puts it out — see game/fire.js. The engine is a
 // car in traffic (`enterGuest`): it drives to the fire, stops in its lane with the cars behind it
 // queueing, and puts its ladder up. Run seed like the roadworks; held off while the taxi is in a cut
@@ -1698,9 +1709,13 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck })
   dust.burst(x, z, yaw, 8, 0.5, { tint: PALETTE.wreckSmoke, linger: 0.7 });
   taxiDamage.hit(x, z, { rearEnd });
   carDamage.hit(other, x, z, { closing });
+  // Only when the taxi did the hitting: a truck that runs into the taxi has nothing to throw out.
+  if (taxiStruck) boxSpill.hit(other, closing, nx, nz);
 });
 
 collisions.onImpact(({ x, z, speed, closing, other }) => {
+  // A wrecked box truck throws out whatever was still aboard.
+  boxSpill.wreck(other, closing);
   // One detonation per car — a shockwave ring on the tarmac, a fireball and a scatter of shards,
   // all of it inside game/blast.js. It used to be four effects stacked at each point plus a third
   // wave on a setTimeout, tuned as a simulation; the beat reads better as one graphic bang per
@@ -4484,6 +4499,7 @@ function frame() {
   // After the traffic step for the same reason: it rides the truck's instance matrix, which has to
   // be this frame's, and it tests crates against the cars where they now are.
   flatbed.update(dt, traffic.taxi, traffic.cars);
+  boxSpill.update(dt, traffic.cars);
   // After the traffic step too: the engine's pose is written by it, and the ladder and the jet are
   // aimed off that pose.
   fire.update(dt);
@@ -5648,6 +5664,8 @@ window.__taxi = {
   roadwork,
   /** The truck that sheds crates. `flatbed.stage()` starts it now; `state`, `crates`, `loose()`. */
   flatbed,
+  /** Box trucks spilling their load. `boxSpill.hit(truck, closing)` rams one; `boxes`, `doors`. */
+  boxSpill,
   /** The building fire and its engine. `fire.ignite()` starts one now; `state`, `engine`. */
   fire,
   pause,
