@@ -202,7 +202,7 @@ import {
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
-import { createRunTracker, RUNS, PERFECT_SHARE, TAG_AFTER } from '../src/game/runs.js';
+import { createRunTracker, RUNS, PERFECT_SHARE, TAG_AFTER, stuntValue } from '../src/game/runs.js';
 import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
@@ -18635,6 +18635,27 @@ let chopperOrder; // likewise
   ride(r, b, 5, () => ({ boosting: true }));
   check('each job is judged on its own', keys(r.judge(b)) === 'perfect'
     && r.judge(a).mult === 1, `${keys(r.judge(b))}, previous ×${r.judge(a).mult}`);
+
+  // The stunt bonus (`?stunts=on`): off by default, banked only on a job in hand, paid flat after
+  // the multipliers, and lost with the job.
+  r = createRunTracker();
+  ride(r, a, 1, () => ({}));
+  check('stunts pay nothing unless switched on', r.stunt('launch') === null && r.judge(a).bonus === 0);
+
+  r = createRunTracker({ stunts: true });
+  const before = r.stunt('drift', 2);
+  ride(r, a, 5, () => ({ boosting: true }));
+  const drift3 = r.stunt('drift', 3);
+  r.stunt('launch');
+  r.stunt('overtake');
+  const want = stuntValue('drift', 3).pays + stuntValue('launch').pays + stuntValue('overtake').pays;
+  const v = r.judge(a);
+  check('stunts bank on the job, after the Perfect Run and flat',
+    before === null && drift3.pays === stuntValue('drift', 3).pays && keys(v) === 'perfect,stunts'
+      && v.mult === RUNS.perfect.mult && v.bonus === want && r.live().some((t) => t.key === 'stunts' && t.pot === want),
+    `${keys(v)} ×${v.mult} +$${v.bonus} (want $${want})`);
+  ride(r, b, 1, () => ({}));
+  check('the stunt pot goes with the job', r.judge(b).bonus === 0 && r.judge(a).bonus === 0);
 }
 
 // --- Wheel wells (geometry/wheels.js) ------------------------------------------------------------
