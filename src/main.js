@@ -14,7 +14,7 @@ import {
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
 import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river.js';
-import { tickRiverWater, syncRiverWater, bindRiverDrawbridge } from './city/riverwater.js';
+import { tickRiverWater, syncRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/riverwater.js';
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
 import { createBridge } from './geometry/bridge.js';
@@ -119,7 +119,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall, getWater } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -509,6 +509,7 @@ scene.add(markOccluder(rain.wetGround(createGround(makeRng(seed + 11), layout)))
 // walls and parapets do both; the water is two units down at the bottom of a hole with nothing
 // under it to crease, and putting a translucent surface in a depth prepass writes its depth over
 // whatever it is meant to be seen through.
+setWaterStyle(getWater());
 const river = createRiver(makeRng(seed + 44), layout);
 if (river) {
   scene.add(river.group);

@@ -17691,7 +17691,7 @@ let chopperOrder; // likewise
     check('the river surface patch lands in all of three\'s Lambert chunks', landed.every(Boolean),
       landed.map((ok) => (ok ? 'y' : 'n')).join(''));
     check('and the water does not share a program with an unpatched prop',
-      wm.customProgramCacheKey().endsWith('-river'), wm.customProgramCacheKey());
+      /-river-(smooth|classic)$/.test(wm.customProgramCacheKey()), wm.customProgramCacheKey());
   }
 
   // --- The paint does not sink into the hump.
