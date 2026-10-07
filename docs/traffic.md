@@ -1195,6 +1195,25 @@ street, which no range fixes. A player feathering the pill at random — a 60-22
 — armed 38 passes in that time against 55 for one throwing the combo on purpose, so feathering
 behind a car *is* the gesture.
 
+**Still hard: timing, not the gesture** (Tyler, 2026-10-07). `tools/overtakebot.mjs` throws the
+combo at every car the taxi catches in ambient traffic, over a grid of reaction time (car within
+`OVERTAKE_ARM_RANGE` to thumb up) against lift length (thumb up to thumb down), 16 cities × 60s:
+
+| reaction | lift 0.12s | lift 0.3s |
+|---|---|---|
+| 0.15s | 97% passed | 87% |
+| 0.35s | 56% | 64% |
+| 0.6s | 41% | 32% |
+| 0.9s | 21% | 18% |
+
+Down a column the pass rate collapses; across a row it barely moves. At 0.6s — a fair human "see
+it, decide, lift" — 50 of 52 rams land **before the thumb is back on the pill**. So there is a
+grace window (`OVERTAKE_GRACE`, 1.2s; `?grace=` tries another, `?grace=0` is the old rule): a car the
+taxi has just caught (`taxi.passLeader`, keyed on the car) is tailgated for that long before it can
+be rammed, and holding past it still rams. At 0.6s reaction that takes the pass rate to 68-75%, and
+a taxi that never throws the combo still rams 80 cars in the same runs. Tyler tried it behind a
+flag and kept it (2026-10-07).
+
 **This was built once before and abandoned, and why matters.** The old overtake pulled out to the
 road *centreline*, which is the single worst place on the road:
 

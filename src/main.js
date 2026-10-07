@@ -125,7 +125,7 @@ import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders, sightlineClear } from './game/sightline.js';
 import { createBootleg, COMBO_GAP_MS as BOOTLEG_GAP_MS } from './game/bootleg.js';
-import { createOvertakeCombo } from './game/overtake.js';
+import { createOvertakeCombo, OVERTAKE_GRACE } from './game/overtake.js';
 import { createNewMove, createSeenFlag, MOVES, REPAIR, SHOW_DELAY } from './game/newmove.js';
 import { createUturnClip, pickStreet, clipKeys as uturnKeys } from './game/uturnclip.js';
 import { createDriftClip, pickCorner, clipKeys as driftKeys } from './game/driftclip.js';
@@ -957,7 +957,17 @@ const bootleg = createBootleg({
   },
 });
 // Loco behind a car, a blip off the pill and back on: the taxi goes round. See game/overtake.js.
-const overtake = createOvertakeCombo({ taxi: traffic.taxi });
+function overtakeGrace(params) {
+  const asked = params.get('grace');
+  return asked !== null && Number.isFinite(Number(asked)) ? Math.max(0, Number(asked)) : OVERTAKE_GRACE;
+}
+// A car the taxi has just caught is tailgated for OVERTAKE_GRACE before it can be rammed, so there
+// is time to throw the combo (Tyler, 2026-10-07: "feels better"). `?grace=1.6` tries another
+// length and `?grace=0` is the old rule, rammed the moment you catch it.
+const overtake = createOvertakeCombo({
+  taxi: traffic.taxi,
+  grace: overtakeGrace(new URLSearchParams(window.location.search)),
+});
 // The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
 // contact. The ghost outlines hung off the taxi are filtered out inside `markOccluder`.
