@@ -1195,6 +1195,25 @@ street, which no range fixes. A player feathering the pill at random — a 60-22
 — armed 38 passes in that time against 55 for one throwing the combo on purpose, so feathering
 behind a car *is* the gesture.
 
+**Still hard: timing, not the gesture** (Tyler, 2026-10-07). `tools/overtakebot.mjs` throws the
+combo at every car the taxi catches in ambient traffic, over a grid of reaction time (car within
+`OVERTAKE_ARM_RANGE` to thumb up) against lift length (thumb up to thumb down), 16 cities × 60s:
+
+| reaction | lift 0.12s | lift 0.3s |
+|---|---|---|
+| 0.15s | 97% passed | 87% |
+| 0.35s | 56% | 64% |
+| 0.6s | 41% | 32% |
+| 0.9s | 21% | 18% |
+
+Down a column the pass rate collapses; across a row it barely moves. At 0.6s — a fair human "see
+it, decide, lift" — 50 of 52 rams land **before the thumb is back on the pill**. So there is a
+grace window (`OVERTAKE_GRACE`, 1.2s; `?grace=` tries another, `?grace=0` is the old rule): a car the
+taxi has just caught (`taxi.passLeader`, keyed on the car) is tailgated for that long before it can
+be rammed, and holding past it still rams. At 0.6s reaction that takes the pass rate to 68-75%, and
+a taxi that never throws the combo still rams 80 cars in the same runs. Tyler tried it behind a
+flag and kept it (2026-10-07).
+
 **This was built once before and abandoned, and why matters.** The old overtake pulled out to the
 road *centreline*, which is the single worst place on the road:
 
@@ -1590,7 +1609,7 @@ Measured over 24 cities, 90s each, button held, routed, against the same runs be
 | 30% trucks, likewise | 16 | 1 | 20.72 u/s |
 
 Overtakes of trucks went 23 → 33 at 30%, and 45 once the route stopped refusing them. The ground
-speed is what following a truck costs against shoving one at `TRUCK_PUSH_V`; at the game's own
+speed is what following a truck costs against shoving one at `PUSH_V`; at the game's own
 density it is noise.
 
 Behind a car there is now nearly always a pass (see [when it is allowed](#when-it-is-allowed)): the
@@ -1610,9 +1629,17 @@ ram is left for a junction ahead with no straight through it, and one-way roads.
   recoil, spin, lost speed — is multiplied by it. The same T-bone at boost cruise knocks a car at
   8.0 u/s (the cap) and a truck at 3.4, and bounces the taxi back at 5.2 u/s rather than 2.1 with
   3.4 u/s kept rather than 8.6. A rear-ended truck is launched at 0.36 of the taxi's speed while the
-  taxi keeps 0.18, so the taxi is still the slower of the two and they separate. And a boosting taxi
-  still leaning on a truck is held to `TRUCK_PUSH_V` (1.5 u/s) over the truck's own speed, so it
-  shoves a truck at a crawl rather than bulldozing it down the road the way it can a car.
+  taxi keeps 0.18, so the taxi is still the slower of the two and they separate.
+- **Leaning on something costs the taxi its speed** (`lean` in `sim/collisions.js`). Contact is
+  resolved by moving only the other body, so on its own it is frictionless: the taxi drove on at
+  whatever its own model wanted and the car rode along on its bumper as a render offset. Head-on in
+  an overtake, that was 8–14 units at full boost shoving an oncoming car backwards with nothing
+  charged after the first hit — reported as "pushing cars along like it's on ice". So every frame
+  the taxi is still in contact, boosting or not, car or truck, its speed along the contact normal is
+  held to the other body's speed along it plus `PUSH_V` (1.5 u/s). Along the normal, not the other's
+  own `v`: an oncoming truck's speed all points at the taxi. A scrape down the side (heading under
+  `LEAN_MIN` = 0.3 along the normal) keeps its speed. `tools/lab.mjs` stages the head-on: 14.3 units
+  driven in contact at worst before, 4.7 after.
 - `main.js` pops a comic starburst on the contact point (`game/impact.js`) — the middle of the
   overlap between the deepest pair of circles, not the midpoint of the two cars' centres, sprays sparks out
   sideways along the seam, and shakes the camera a fraction of the wreck's amount.

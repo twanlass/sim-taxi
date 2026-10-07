@@ -294,9 +294,11 @@ export const PALETTE = {
   // toward `cashPale` made the shower read as glowing — a card square to the sun is already the
   // brightest surface on the road — so it runs down from `cashNote` to here instead.
   cashShade: '#3C9A5E',
-  // The paper band round a wrapped bundle of notes. A warm cream rather than `cashBack`'s cooler
-  // off-white, so the band reads as a separate strip of paper and not as the brick's own pale edge.
-  cashBand: '#F4DDA0',
+  // The paper band round a wrapped bundle of notes: white, like a real currency strap. It was a warm
+  // cream (#F4DDA0) to keep it apart from `cashBack`, but lit on a green brick at play zoom the cream
+  // read as a yellow stripe, or as nothing, and Tyler asked for a white money band. The brick never
+  // shows its back, so there is no pale edge for a white band to be confused with.
+  cashBand: '#F7F7F2',
 
   // --- The bank ---------------------------------------------------------------
   // The city's one bank (city/bank.js), and the third building the tower generator does not draw.
@@ -893,9 +895,11 @@ export const PALETTE = {
   trashJunk: '#6E7378',
   trashBarrel: '#3B5F8C',
   trashWhite: '#C9CCC8',
-  // The wheelhouse is steel in the cars' metal finish, which darkens its base and adds the sky — so
-  // it is picked pale, near `bumperChrome`'s neighbourhood rather than the grey it ends up reading as.
-  trashHouse: '#C4C9CE',
+  // The wheelhouse is painted working-boat red (Tyler's call, 2026-10-07), the one exception to the
+  // no-warm-on-the-water rule above. It wears the cars' metal finish, which darkens its base and adds
+  // the sky, so it is picked off `carBody[0]` (the red car, same finish) a step deeper and duller:
+  // it has to read as paint on a scow rather than as one more red car or the burger joint's band.
+  trashHouse: '#B4473B',
   trashStack: '#2F3236',
   // The gulls (game/gulls.js): white bodies, grey backs, and nothing else — a yellow bill would be
   // a warm speck at full saturation and would not survive the 3 pixels it occupies anyway.
