@@ -294,9 +294,11 @@ export const PALETTE = {
   // toward `cashPale` made the shower read as glowing — a card square to the sun is already the
   // brightest surface on the road — so it runs down from `cashNote` to here instead.
   cashShade: '#3C9A5E',
-  // The paper band round a wrapped bundle of notes. A warm cream rather than `cashBack`'s cooler
-  // off-white, so the band reads as a separate strip of paper and not as the brick's own pale edge.
-  cashBand: '#F4DDA0',
+  // The paper band round a wrapped bundle of notes: white, like a real currency strap. It was a warm
+  // cream (#F4DDA0) to keep it apart from `cashBack`, but lit on a green brick at play zoom the cream
+  // read as a yellow stripe, or as nothing, and Tyler asked for a white money band. The brick never
+  // shows its back, so there is no pale edge for a white band to be confused with.
+  cashBand: '#F7F7F2',
 
   // --- The bank ---------------------------------------------------------------
   // The city's one bank (city/bank.js), and the third building the tower generator does not draw.
@@ -376,6 +378,12 @@ export const PALETTE = {
   // whole vehicle as one hull in one colour (carBodyGhost at the cab's index), because the outline
   // says "there is a vehicle there", not "these are its panels".
   truckBox: '#DDD4BE',
+  // A rammed box truck's rear doors (game/boxspill.js): the leaves are the box's own colour, the
+  // latch bar down each free edge is dark steel, and the hold the doors open on is a deep shadow —
+  // nothing inside is lit, and a hold the colour of the box reads as the doors having opened on a
+  // wall.
+  truckDoorBar: '#4A5058',
+  truckHold: '#2B2723',
   // The flatbed that sheds its load (game/flatbed.js). Timber crates rather than cardboard on
   // purpose: the courier's parcels are cardboard browns (parcelBox below), and a box lying in the
   // road that looked like one would read as a package to collect. Slatted pine with darker

@@ -402,6 +402,43 @@ for (const parked of [true, false]) {
   }
 }
 
+// Head-on in an overtake. Contact resolution moves only the other body, so before `lean`
+// (sim/collisions.js) the taxi paid for the first hit and then drove on at boost with the oncoming
+// car stuck to its bumper, shoving it backwards down the road — 8–14 units of it across 26 of 40
+// stagings like this one, and the report was "pushing cars along like it's on ice". Measured as the
+// road the taxi covers while still overlapping the car: 14.3 at worst before, 4.7 after. A truck
+// was already held to a crawl here (4.0) and stays there (4.3) now that it is held the same way.
+for (const truck of [false, true]) {
+  const what = truck ? 'truck' : 'car';
+  setCityNetwork(labNetwork(LAB_BLOCKS));
+  let worst = 0;
+  let hits = 0;
+  for (let k = 0; k < 26; k += 5) {
+    const traffic = createTraffic(makeRng(100 + k), new THREE.Scene(), 3, 3, 0);
+    const [taxi, lead, oncoming] = traffic.cars;
+    oncoming.isTruck = truck;
+    const x0 = labNodeX(0) + 10;
+    placeAtX(taxi, DIR.PX, x0);
+    placeAtX(lead, DIR.PX, x0 + 12);
+    placeAtX(oncoming, DIR.NX, x0 + 40 + k * 1.5);
+    for (const c of traffic.cars) { c.v = SPEED; c.route = []; }
+    taxi.hp = TAXI_HP;
+    const collisions = createCollisions(traffic.cars, taxi);
+    collisions.onBump(() => { hits += 1; });
+    let road = 0;
+    for (let n = 0; n < 360 && !taxi.crashed; n++) {
+      taxi.boost = true;
+      traffic.update(STEP);
+      const touching = penetration(taxi, oncoming);
+      collisions.update(STEP);
+      road = touching ? road + taxi.v * STEP : 0;
+      worst = Math.max(worst, road);
+    }
+  }
+  check(`a boosting taxi stuck on an oncoming ${what} pushes it at a crawl, not at boost`,
+    hits > 0 && worst < 7, `${hits} hits, worst ${worst.toFixed(1)} units driven in contact`);
+}
+
 const failed = results.filter((r) => !r.pass).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed ? 1 : 0);

@@ -1195,6 +1195,29 @@ street, which no range fixes. A player feathering the pill at random — a 60-22
 — armed 38 passes in that time against 55 for one throwing the combo on purpose, so feathering
 behind a car *is* the gesture.
 
+**Still hard: timing, not the gesture** (Tyler, 2026-10-07). `tools/overtakebot.mjs` throws the
+combo at every car the taxi catches in ambient traffic, over a grid of reaction time (car within
+`OVERTAKE_ARM_RANGE` to thumb up) against lift length (thumb up to thumb down), 16 cities × 60s:
+
+| reaction | lift 0.12s | lift 0.3s |
+|---|---|---|
+| 0.15s | 97% passed | 87% |
+| 0.35s | 56% | 64% |
+| 0.6s | 41% | 32% |
+| 0.9s | 21% | 18% |
+
+Down a column the pass rate collapses; across a row it barely moves. At 0.6s — a fair human "see
+it, decide, lift" — 50 of 52 rams land **before the thumb is back on the pill**. So there is a
+grace window (`OVERTAKE_GRACE`, 1.2s; `?grace=` tries another, `?grace=0` is the old rule): a car the
+taxi has just caught (`taxi.passLeader`, keyed on the car) is tailgated for that long before it can
+be rammed, and holding past it still rams. At 0.6s reaction that takes the pass rate to 68-75%, and
+a taxi that never throws the combo still rams 80 cars in the same runs. Tyler tried it behind a
+flag and kept it (2026-10-07).
+
+The same day `OVERTAKE_PRE_HOLD` went from 0.2s to 0, so a quick tap, then tap-and-hold behind a
+car throws the combo too. The 0.2 was there to stop stabs at the pill arming it, but a double tap
+with a car in range is deliberate.
+
 **This was built once before and abandoned, and why matters.** The old overtake pulled out to the
 road *centreline*, which is the single worst place on the road:
 
@@ -1590,7 +1613,7 @@ Measured over 24 cities, 90s each, button held, routed, against the same runs be
 | 30% trucks, likewise | 16 | 1 | 20.72 u/s |
 
 Overtakes of trucks went 23 → 33 at 30%, and 45 once the route stopped refusing them. The ground
-speed is what following a truck costs against shoving one at `TRUCK_PUSH_V`; at the game's own
+speed is what following a truck costs against shoving one at `PUSH_V`; at the game's own
 density it is noise.
 
 Behind a car there is now nearly always a pass (see [when it is allowed](#when-it-is-allowed)): the
@@ -1610,9 +1633,17 @@ ram is left for a junction ahead with no straight through it, and one-way roads.
   recoil, spin, lost speed — is multiplied by it. The same T-bone at boost cruise knocks a car at
   8.0 u/s (the cap) and a truck at 3.4, and bounces the taxi back at 5.2 u/s rather than 2.1 with
   3.4 u/s kept rather than 8.6. A rear-ended truck is launched at 0.36 of the taxi's speed while the
-  taxi keeps 0.18, so the taxi is still the slower of the two and they separate. And a boosting taxi
-  still leaning on a truck is held to `TRUCK_PUSH_V` (1.5 u/s) over the truck's own speed, so it
-  shoves a truck at a crawl rather than bulldozing it down the road the way it can a car.
+  taxi keeps 0.18, so the taxi is still the slower of the two and they separate.
+- **Leaning on something costs the taxi its speed** (`lean` in `sim/collisions.js`). Contact is
+  resolved by moving only the other body, so on its own it is frictionless: the taxi drove on at
+  whatever its own model wanted and the car rode along on its bumper as a render offset. Head-on in
+  an overtake, that was 8–14 units at full boost shoving an oncoming car backwards with nothing
+  charged after the first hit — reported as "pushing cars along like it's on ice". So every frame
+  the taxi is still in contact, boosting or not, car or truck, its speed along the contact normal is
+  held to the other body's speed along it plus `PUSH_V` (1.5 u/s). Along the normal, not the other's
+  own `v`: an oncoming truck's speed all points at the taxi. A scrape down the side (heading under
+  `LEAN_MIN` = 0.3 along the normal) keeps its speed. `tools/lab.mjs` stages the head-on: 14.3 units
+  driven in contact at worst before, 4.7 after.
 - `main.js` pops a comic starburst on the contact point (`game/impact.js`) — the middle of the
   overlap between the deepest pair of circles, not the midpoint of the two cars' centres, sprays sparks out
   sideways along the seam, and shakes the camera a fraction of the wreck's amount.
@@ -1827,8 +1858,8 @@ replaced, an opacity.
 
 `game/replay.js`. A wreck no longer goes straight from the live beat to the retry card. After
 `REPLAY_LEAD` (1.2s) of the slow-mo pull-in, the frame cuts to the moment of impact three more
-times, about a second each: from ~35° off the fixed diagonal, from ~35° the other way, then square
-on and tightest. Cut, crash, cut, crash, cut, crash, card. Each shot opens 0.3s of sim before the
+times, about a second each, from three angles picked from all the way round it (below), the last
+the tightest. Cut, crash, cut, crash, cut, crash, card. Each shot opens 0.3s of sim before the
 hit and plays at 0.8× into it and 0.5× through the blast, with a white flash on each cut and the
 crash sound under each one. The last shot eases further, to 0.25× over a longer ramp (`slow` and
 `ramp` in `SHOTS`), so the final hit plays in real slow motion, then holds its final frame for 0.4s
@@ -1860,11 +1891,19 @@ hidden before the impact (`hideBefore`), because until then that car was an inst
 (0.45s of sim) past the hit, and the only frames after the hit are the ones the live beat recorded.
 Under the slow-mo ramp 1.2s of wall clock is ~0.49s of sim, which is the floor on `REPLAY_LEAD`.
 
-**Each swung angle is picked so it can see the crash.** A ~35° swing has never been looked down before,
-and a tower between the camera and the wreck is the one way this fails outright. `pickYaw` marches
-the swung view direction through the same height field the fare board's corner test uses
-(`game/sightline.js`) from the impact and two points back along the approach, and takes the first
-candidate in `YAW_CHOICES` that sees the most of them. Swings stay within 50° on purpose; see
+**The angles are picked, not fixed: far apart, and each with a view of the wreck.** `pickYaws` scores
+every 15° round the crash, skipping any within 30° of looking straight down a street
+(`MIN_OFF_GRID`: square to the grid the city flattens into a plan, each building showing one face).
+A direction scores for what it can see: the impact and two points back along the approach, each a
+car-sized patch of five samples, marched along the swung view through the same height field the
+fare board's corner test uses (`game/sightline.js`) — buildings, the depot, and the park trees,
+whose crowns otherwise hid half a taxi off a perfect score. It loses up to `SKY_COST` for open sky
+in frame (`skyInFrame`): a crash on the coast shot with the sea above or below it shows bare sky
+where the island stops. Then every ordering of three directions at least `MIN_SEPARATION` (60°)
+apart is tried and the best total wins, the last cut counted 1.5×. A little `JITTER` breaks
+near-ties, so two crashes on one corner don't always cut the same way. The whole circle is fair
+game because the city holds up from every side: buildings have backs and roofs have their plant —
+a build that shot every cut from behind the city showed it. See
 [rendering.md](rendering.md#camera) for what the yaw does to everything built for one view.
 
 ## Roadworks: a street closed at both ends
@@ -2229,6 +2268,38 @@ crate still loaded, that every landing is behind the truck's tail (nearest measu
 tail at −2.8), and that the jolt returns to exactly zero.
 
 `?flatbed=soon` starts the shedding three seconds in and lifts the range gate, for looking at it.
+
+## A rammed box truck spills its load
+
+`src/game/boxspill.js` and `src/geometry/truckdoors.js`. When the taxi hits a box truck
+(`collisions.onBump` with `taxiStruck`), its rear doors burst open and crates pour out of the back,
+a few hundredths of a second apart so it reads as a pour rather than a pop. How many is
+`boxesFor(closing)`, off the same closing speed the damage is priced with: one at a nudge, three for
+a rear-end at Loco cruise, six at `EJECT_CLOSING`'s 18, eight (the cap) in the overdrive band. Each
+truck carries `TRUCK_LOAD` = 10, so a second hit takes what the first left, and the hit that wrecks
+it (`collisions.onImpact`) throws out the rest. Only when the taxi did the hitting: a truck that
+runs into the taxi has nothing to throw out of its back doors.
+
+**Scenery, not an obstacle.** The crates are not in `sim/collisions.js`: they cost no HP and hold up
+no traffic. Anything that drives into one (the taxi included) *punts* it on down the road off its
+bumper, because a car ghosting through a crate it just knocked loose is the one thing a prop in
+the road must never do. They lie in the road for six seconds and then sink through it; on a
+bridge, a second and a half, because the drawbridge can lift out from under one. Over the river
+nothing is thrown sideways, since a bridge is a lane wide between its railings.
+
+The crate is the flatbed's (`geometry/crate.js`), for the flatbed's reason: a kraft box in the road
+reads as a courier parcel to collect.
+
+The doors are **drawn over** the truck rather than cut into it: two leaves and a dark hold plate,
+instanced, riding the truck's own instance matrix the way the flatbed's deck does, so nothing in
+`sim/traffic.js`'s truck builders knows they exist. Each leaf is a damped spring towards hanging
+open, kicked by every hit. A leaf is hinged on its **outside** face: hinged on the inside one, its
+thickness swung into the side of the box past a half turn, which the probe caught. Six trucks can
+have their doors open at once; a seventh takes the slot opened longest ago.
+
+Physics here is integrated per frame rather than closed form like the flatbed's crates, because a
+crate can come off on an arched bridge and fall to a curve (`deckHeightAt`), and can be punted again
+after it lands.
 
 ## The building fire
 

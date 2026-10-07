@@ -93,10 +93,13 @@ const TAXI_SPIN = 0.9;
 // taxi slower than the thing it hit, which is what separates the two, so it cannot be hit again
 // the moment the contact lapses. Recoil and spin come out under KNOCK_MAX_V / KNOCK_MAX_SPIN.
 const TRUCK_MASS = 2.5;
-// While a boosting taxi stays leaning on a truck it has already paid for, it is held to this much
-// over the truck's own speed rather than bulldozing it down the road at boost pace. A car can
-// still be bulldozed; a truck is pushed at a crawl.
-const TRUCK_PUSH_V = 1.5;          // u/s
+// While the taxi stays leaning on something — a truck or a car, boosting or not — it is held to this
+// much over the other body's own speed along the contact rather than bulldozing it down the road.
+// Anything is pushed at a crawl (`lean`, below).
+const PUSH_V = 1.5;                // u/s
+// Below this much of the taxi's heading along the contact normal it is a scrape down the side, not
+// a push, and the taxi keeps its speed: dividing by a sliver of a cosine would stop it dead.
+const LEAN_MIN = 0.3;
 
 // A truck is 5.6 long against a car's 3.4, and the two circles used to sit at the car's offsets
 // on it too — which left 0.7 of cab and 0.7 of cargo box at either end that nothing tested, and
@@ -225,7 +228,10 @@ export function createCollisions(cars, taxi) {
       // either, so a press of the button while already touching is a fresh hit rather than a
       // continuation of one the taxi never paid for. A staged car belongs to its cut scene.
       if (!armed) {
-        if (!other.staged) shoveCar(other, pen.nx * pen.depth, pen.nz * pen.depth);
+        if (!other.staged) {
+          shoveCar(other, pen.nx * pen.depth, pen.nz * pen.depth);
+          lean(other, pen);
+        }
         continue;
       }
 
@@ -237,7 +243,7 @@ export function createCollisions(cars, taxi) {
       // Every frame of contact does this, which is what stops the taxi ever passing through a car.
       if (!fresh && taxi.hp != null) {
         shoveCar(other, pen.nx * pen.depth, pen.nz * pen.depth);
-        if (other.isTruck) taxi.v = Math.min(taxi.v, Math.max(0, other.v) + TRUCK_PUSH_V);
+        lean(other, pen);
         continue;
       }
 
@@ -280,6 +286,22 @@ export function createCollisions(cars, taxi) {
       emit({ x: px, z: pz, speed, closing, taxi, other });
       return;   // one impact per frame is plenty — the taxi is done anyway.
     }
+  }
+
+  // Contact resolution moves only the other body, so on its own it is frictionless: the taxi drove
+  // on at whatever its own model asked for and the car went along on its nose as a render offset,
+  // for as long as the taxi kept driving. Head-on in an overtake that was 8–14 units at full boost
+  // with an oncoming car stuck to the bumper and nothing charged after the first hit (measured on
+  // the passing lab's road, 26 of 40 stagings), and a car the taxi does not count as its leader —
+  // knocked into its lane, crossing a junction — is shoved the same way off boost. So the taxi
+  // pays for the push: whatever it brings along the contact normal is held to what the other body
+  // is doing along it, plus PUSH_V. Along the normal, not the other's own speed — an oncoming truck
+  // has plenty of `v` and all of it is pointing at the taxi.
+  function lean(other, pen) {
+    const along = Math.cos(other.yaw) * pen.nx - Math.sin(other.yaw) * pen.nz;
+    const into = Math.cos(taxi.yaw) * pen.nx - Math.sin(taxi.yaw) * pen.nz;
+    if (into < LEAN_MIN) return;
+    taxi.v = Math.min(taxi.v, (Math.max(0, along * other.v) + PUSH_V) / into);
   }
 
   function bump(other, closing, damage, px, pz, pen) {

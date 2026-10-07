@@ -68,6 +68,7 @@ src/
     flyover.js          the ambient plane that crosses the city every so often — scenery, nothing more
     chopper.js          the helicopter that lands on the city's rooftop helipad, idles and leaves
     flatbed.js          one truck carries crates, hits fake bumps, drops them; anything can smash them
+    boxspill.js         a rammed box truck's doors burst open and crates pour out, more for a harder hit
     birds.js            the flocks: walk the grass or a rooftop roost, startled up by the taxi, come back; two per city
     ducks.js            the birds on the pond: paddle, sit, dabble, never leave
     clouds.js           the weather ringing the island — placed on the screen, never over the city

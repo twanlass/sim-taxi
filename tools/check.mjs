@@ -39,6 +39,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/diag.js', '../src/game/recovery.js', '../src/game/pause.js', '../src/game/menupage.js', '../src/game/inspect.js',
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',
   '../src/geometry/crate.js', '../src/game/flatbed.js',
+  '../src/geometry/truckdoors.js', '../src/game/boxspill.js',
   '../src/geometry/firetruck.js', '../src/game/fire.js',
   '../src/city/river.js', '../src/geometry/bridge.js',
   '../src/geometry/boat.js', '../src/game/drawbridge.js', '../src/game/boats.js', '../src/game/wake.js', '../src/game/gulls.js',
@@ -286,6 +287,45 @@ try {
     wreckage.seek();
     if (!shell.visible) fail.push('seek() did not hand the shell back');
     if (fail.length) throw new Error(`replay tape: ${fail.join('; ')}`);
+  }
+
+  // The replay's angles (pickYaws in game/replay.js): three of them, never two within 60° of each
+  // other, none looking square down a street, and a crash on the coast not framed against more open
+  // sky, over its three cuts, than play's own view of it shows — give or take two of skyInFrame's
+  // twelve samples. On average, because a corner of the island has sea on two sides and three cuts
+  // 60° apart cannot all keep it out of frame. With no city occluders installed every direction sees
+  // the wreck, so the sky is the only thing left to choose on — which is exactly what isolates it.
+  // Seeded, so the jitter cannot pass this by luck.
+  {
+    const THREE = await import('three');
+    const { pickYaws, skyInFrame } = await import('../src/game/replay.js');
+    const { clearCityOccluders } = await import('../src/game/sightline.js');
+    const { HALF_SPAN_X, HALF_SPAN_Z } = await import('../src/city/grid.js');
+    const { makeRng } = await import('../src/util/rng.js');
+    clearCityOccluders();
+    const rng = makeRng(5);
+    const fail = [];
+    for (const [x, z] of [[HALF_SPAN_X - 2, 0], [HALF_SPAN_X - 2, HALF_SPAN_Z - 2], [0, -HALF_SPAN_Z + 2], [0, 0]]) {
+      const points = [{ x, y: 0.8, z, weight: 3 }, { x: x - 6, y: 0.8, z, weight: 1 }, { x: x - 12, y: 0.8, z, weight: 1 }];
+      const play = skyInFrame(x, z, 0);
+      for (let trial = 0; trial < 6; trial++) {
+        const yaws = pickYaws(points, () => rng.next());
+        if (yaws.length !== 3) { fail.push(`${yaws.length} yaws`); break; }
+        let sky = 0;
+        for (let i = 0; i < 3; i++) {
+          for (let k = i + 1; k < 3; k++) {
+            const d = Math.abs(THREE.MathUtils.radToDeg(yaws[i] - yaws[k])) % 360;
+            if (Math.min(d, 360 - d) < 60 - 1e-6) fail.push(`cuts ${i} and ${k} ${Math.min(d, 360 - d).toFixed(0)}° apart`);
+          }
+          sky += skyInFrame(x, z, yaws[i]) / 3;
+          // And never square to the streets, which flattens the city into a plan (MIN_OFF_GRID).
+          const deg = ((THREE.MathUtils.radToDeg(yaws[i]) % 360) + 360) % 360;
+          if (Math.abs(((deg + 45) % 90) - 45) > 15 + 1e-6) fail.push(`cut ${i} at ${deg.toFixed(0)}° looks down a street`);
+        }
+        if (sky > play + 2 / 12 + 1e-6) fail.push(`cuts at (${x}, ${z}) are ${(sky * 100).toFixed(0)}% sky against play's ${(play * 100).toFixed(0)}%`);
+      }
+    }
+    if (fail.length) throw new Error(`replay angles: ${[...new Set(fail)].join('; ')}`);
   }
 
   // The driver thrown through the windscreen (game/ejection.js). A closed form like the wreck, so
