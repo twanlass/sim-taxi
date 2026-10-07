@@ -43,6 +43,9 @@ import { spinTaxi, driftTaxi, kickDrift, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, D
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createFlatbed, CRATES, LOAD_YAW } from '../src/game/flatbed.js';
+import { createBoxSpill, boxesFor, TRUCK_LOAD, spills } from '../src/game/boxspill.js';
+import { BOX_REAR as SPILL_BOX_REAR } from '../src/geometry/truckdoors.js';
+import { deckHeightAt as spillDeckHeight } from '../src/city/river.js';
 import { createFire } from '../src/game/fire.js';
 import { clearCityOccluders } from '../src/game/sightline.js';
 import { TRUCK_LEN, TRUCK_BOX_LEN } from '../src/sim/traffic.js';
@@ -18139,6 +18142,88 @@ let chopperOrder; // likewise
     crate.phase === 'smashed' && hits.length === 1 && hits[0].byTaxi && flying > 0 && chipsDown
     && taxi.hp === hpBefore,
     `${crate.phase}, ${hits.length} smash events, ${flying} chips`);
+}
+
+// --- A rammed box truck spilling its load -------------------------------------------
+// What can go wrong with nothing thrown: the count not following the hit, a box coming to rest
+// in the air or under the road (it falls to a curve on the arched bridges), a door leaf swinging
+// through the box it is hung on, a truck that never runs out, and a box the taxi drives through.
+{
+  setClosedLanes([]);
+  const sScene = new THREE.Scene();
+  const sTraffic = createTraffic(makeRng(seed + 526), sScene, 24, 24, 0.5);
+  for (let step = 0; step < 120; step++) sTraffic.update(1 / 60);
+  const spill = createBoxSpill(makeRng(seed + 529), sScene, sTraffic);
+  const truck = sTraffic.trucks.find(spills);
+
+  const counts = [5, 10.5, 18, 21, 40].map(boxesFor);
+  check('a harder hit spills more boxes: one for a nudge, the box emptied at the top',
+    counts[0] === 1 && counts.every((c, n) => n === 0 || c >= counts[n - 1]) && counts[2] >= 5
+    && counts.at(-1) >= 8,
+    `closing 5/10.5/18/21/40 -> ${counts.join('/')}`);
+
+  let landed = 0;
+  spill.onLand(() => { landed += 1; });
+  const first = truck ? spill.hit(truck, 10.5) : 0;
+  for (let step = 0; step < 60 * 3; step++) { sTraffic.update(1 / 60); spill.update(1 / 60, []); }
+  const out = spill.boxes.filter((b) => b.phase !== 'free' && b.phase !== 'wait');
+  const badRest = out.filter((b) => b.phase !== 'rest'
+    || Math.abs(b.y - (spillDeckHeight(b.x, b.z).y + CRATE_REST_Y)) > 1e-9).length;
+  const slot = spill.doors.find((d) => d.car === truck);
+  check('a ram opens the truck\'s doors and lets out its share, which lands and rests on the road',
+    !!truck && first === boxesFor(10.5) && out.length === first && landed >= first && badRest === 0
+    && !!slot && slot.leaves.every((l) => l.a > 1),
+    truck ? `${first} out, ${out.length} drawn, ${landed} landings, ${badRest} not resting on the road,`
+      + ` leaves at ${slot?.leaves.map((l) => l.a.toFixed(2)).join('/')}` : 'no truck in the city');
+
+  // The leaves, swung through their whole travel, against the box they hang on. Corners of each
+  // leaf's bounding box carried into the truck's frame; none may be inside the cargo box.
+  const leafBox = new THREE.Box3().setFromBufferAttribute(spill.group.children[1].geometry.attributes.position);
+  const corners = [];
+  for (const x of [leafBox.min.x, leafBox.max.x]) for (const y of [leafBox.min.y, leafBox.max.y])
+    for (const z of [leafBox.min.z, leafBox.max.z]) corners.push(new THREE.Vector3(x, y, z));
+  let inside = 0;
+  const truckM = new THREE.Matrix4();
+  const inv = new THREE.Matrix4();
+  const leafM = new THREE.Matrix4();
+  for (let a = 0; a <= 4.2 + 1e-9; a += 0.05) {
+    for (const leaf of slot?.leaves ?? []) { leaf.a = a; leaf.w = 0; }
+    spill.update(0, []);
+    sTraffic.truckMesh.getMatrixAt(truck.instanceIndex, truckM);
+    inv.copy(truckM).invert();
+    const n = spill.doors.indexOf(slot);
+    for (const s of [0, 1]) {
+      spill.group.children[1].getMatrixAt(n * 2 + s, leafM);
+      for (const c of corners) {
+        const p = c.clone().applyMatrix4(leafM).applyMatrix4(inv);
+        if (p.x > SPILL_BOX_REAR + 1e-6 && p.x < SPILL_BOX_REAR + TRUCK_BOX_LEN && Math.abs(p.z) < TRUCK_W / 2 - 1e-6) inside += 1;
+      }
+    }
+  }
+  check('the door leaves never swing into the box they hang on', !!slot && inside === 0,
+    `${inside} leaf corners inside the cargo box`);
+
+  // Hit again until it is empty: the load runs out, and a wreck takes whatever was left.
+  const second = spill.hit(truck, 18);
+  const left = spill.aboard(truck);
+  const wrecked = spill.wreck(truck, 40);
+  check('a truck carries a fixed load: the second hit takes what the first left, a wreck the rest',
+    first + second + wrecked === TRUCK_LOAD && left === TRUCK_LOAD - first - second && spill.aboard(truck) === 0
+    && spill.hit(truck, 40) === 0,
+    `${first} + ${second} + ${wrecked} of ${TRUCK_LOAD}`);
+
+  // Driving into one. Nothing here touches sim/collisions.js, so the taxi pays nothing; what is
+  // checked is that the box goes up off the bumper rather than being driven through.
+  const box = out.find((b) => b.phase === 'rest');
+  const punts = [];
+  spill.onPunt((e) => punts.push(e));
+  const rammer = { x: box.x - 1.5, z: box.z, yaw: 0, v: 9, isTaxi: true };
+  spill.update(1 / 60, [rammer]);
+  const flew = box.phase === 'air' && box.vx > 9;
+  for (let step = 0; step < 60 * 3; step++) spill.update(1 / 60, []);
+  check('a car driving into a spilt box knocks it on ahead of it, and it comes down on the road',
+    flew && punts.length >= 1 && punts.every((e) => e.byTaxi) && ['rest', 'sink', 'free'].includes(box.phase),
+    `${punts.length} punts, ended ${box.phase}`);
 }
 
 // --- The building fire --------------------------------------------------------------------

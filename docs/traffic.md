@@ -2257,6 +2257,38 @@ tail at −2.8), and that the jolt returns to exactly zero.
 
 `?flatbed=soon` starts the shedding three seconds in and lifts the range gate, for looking at it.
 
+## A rammed box truck spills its load
+
+`src/game/boxspill.js` and `src/geometry/truckdoors.js`. When the taxi hits a box truck
+(`collisions.onBump` with `taxiStruck`), its rear doors burst open and crates pour out of the back,
+a few hundredths of a second apart so it reads as a pour rather than a pop. How many is
+`boxesFor(closing)`, off the same closing speed the damage is priced with: one at a nudge, three for
+a rear-end at Loco cruise, six at `EJECT_CLOSING`'s 18, eight (the cap) in the overdrive band. Each
+truck carries `TRUCK_LOAD` = 10, so a second hit takes what the first left, and the hit that wrecks
+it (`collisions.onImpact`) throws out the rest. Only when the taxi did the hitting: a truck that
+runs into the taxi has nothing to throw out of its back doors.
+
+**Scenery, not an obstacle.** The crates are not in `sim/collisions.js`: they cost no HP and hold up
+no traffic. Anything that drives into one (the taxi included) *punts* it on down the road off its
+bumper, because a car ghosting through a crate it just knocked loose is the one thing a prop in
+the road must never do. They lie in the road for six seconds and then sink through it; on a
+bridge, a second and a half, because the drawbridge can lift out from under one. Over the river
+nothing is thrown sideways, since a bridge is a lane wide between its railings.
+
+The crate is the flatbed's (`geometry/crate.js`), for the flatbed's reason: a kraft box in the road
+reads as a courier parcel to collect.
+
+The doors are **drawn over** the truck rather than cut into it: two leaves and a dark hold plate,
+instanced, riding the truck's own instance matrix the way the flatbed's deck does, so nothing in
+`sim/traffic.js`'s truck builders knows they exist. Each leaf is a damped spring towards hanging
+open, kicked by every hit. A leaf is hinged on its **outside** face: hinged on the inside one, its
+thickness swung into the side of the box past a half turn, which the probe caught. Six trucks can
+have their doors open at once; a seventh takes the slot opened longest ago.
+
+Physics here is integrated per frame rather than closed form like the flatbed's crates, because a
+crate can come off on an arched bridge and fall to a curve (`deckHeightAt`), and can be punted again
+after it lands.
+
 ## The building fire
 
 `src/game/fire.js` for the event, `src/geometry/firetruck.js` for the engine. A minute or two into a

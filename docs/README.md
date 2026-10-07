@@ -107,6 +107,11 @@ One of the city's trucks is a **flatbed stacked with crates**. Some while into a
 hitting bumps and the load comes off the back into the road; drive through one and it smashes, for
 nothing but the fun of it — no hit points. See [traffic.md](traffic.md#the-flatbed-that-sheds-its-load).
 
+Ram a **box truck** and its back doors burst open and part of its load pours out — one crate for a
+nudge, the whole box for a flat-out hit. Scenery again: the crates cost nothing and block nothing,
+and anything that drives into one knocks it on down the road. See
+[traffic.md](traffic.md#a-rammed-box-truck-spills-its-load).
+
 Now and then a **building catches fire**: flames out of the top floors and a column of smoke. A fire
 engine comes in with its bar going, stops in the street in front of it — and the traffic behind it
 queues — swings its ladder up and hoses the fire out, then drives off. See
