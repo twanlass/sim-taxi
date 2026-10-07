@@ -4,6 +4,7 @@ import { createScene, sinkShadowCaster, setHazeTop, HAZE_TOP } from './game/scen
 import { createRain, GRIP } from './game/rain.js';
 import { createStorm } from './game/storm.js';
 import { createRunTracker } from './game/runs.js';
+import { createComboMeter, comboScope, formatMult, COMBO_MAX } from './game/combometer.js';
 import { createSquall } from './game/squall.js';
 import {
   collectPanes, litWindows, streetLamps, createTaxiHeadlights, setCityLights,
@@ -657,9 +658,13 @@ if (new URLSearchParams(window.location.search).get('lights') === 'on') {
 // How each job is being driven — on course for a Perfect Run or not — fed in the frame loop and
 // judged by the fare loop at the drop-off (game/runs.js).
 const runs = createRunTracker();
+// `?combo=meter` (per ride) or `?combo=run` (whole run) swaps the Perfect Run for the combo meter
+// (game/combometer.js) — a prototype, off unless asked for.
+const COMBO_SCOPE = comboScope(new URLSearchParams(window.location.search));
+const combo = COMBO_SCOPE ? createComboMeter({ scope: COMBO_SCOPE }) : null;
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   reserved: () => parcels?.occupiedSpots() ?? [],
-  judgeRun: (fare) => runs.judge(fare),
+  judgeRun: (fare) => (combo ? combo.judge() : runs.judge(fare)),
 });
 // The package courier — see game/parcels.js. Its own stream off the run seed, so adding this layer
 // does not reshuffle where every rider spawns. `?parcels=0` turns it off.
@@ -961,6 +966,7 @@ const bootleg = createBootleg({
     haptic('uturn');
     controller.kickShake(0.55);
     stampAllRubber(traffic.taxi);
+    if (!fares.state.gameOver) landCombo('uturn');
   },
 });
 // Loco behind a car, a blip off the pill and back on: the taxi goes round. See game/overtake.js.
@@ -1470,6 +1476,7 @@ traffic.onTaxiLand(({ x, z, yaw, v, deck, big }) => {
   // the range, a body thud under the tyres' land, and the dust thrown out in a ring the way the
   // helipad's downdraft is, which is what reads as weight arriving rather than exhaust.
   if (big) {
+    if (!fares.state.gameOver) landCombo('launch');
     controller.kickShake(1.6);
     sfx?.play('land', { gain: 1 });
     sfx?.play('crash', { gain: 0.35, rate: 0.7 });
@@ -1733,9 +1740,14 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck })
   if (taxiStruck && other.police) patrol.rammed(other);
   // Every bump costs HP, and any damage at all costs the ride its Perfect Run (game/runs.js). When
   // the HUD was showing one on course, the hand is told it has gone as the tag falls.
-  const perfectWasOn = runs.live()[0]?.earned && !runs.live()[0].broken;
+  // Under the combo meter the same hit empties the meter instead (game/combometer.js).
+  const perfectWasOn = !combo && runs.live()[0]?.earned && !runs.live()[0].broken;
   runs.damage();
   if (perfectWasOn) haptic('perfect-lost');
+  if (combo?.damage()) {
+    comboTag.lost = true;
+    haptic('perfect-lost');
+  }
   controller.kickShake(BUMP_SHAKE + closing * BUMP_SHAKE_PER_UNIT);
   // The designer's bump — light hits against other cars, a recording of its own since Block 1 —
   // scaled by the same closing speed the shake is. 0.3 at a nudge, full at a T-bone at the Loco top.
@@ -2671,6 +2683,7 @@ const RUN_TAG_TEXT = {
 function updateRunTags() {
   const box = hud.runs;
   if (!box) return;
+  if (combo) { updateComboTag(box); return; }
   const live = runs.live();
   const seen = new Set();
   for (const r of live) {
@@ -2699,6 +2712,49 @@ function updateRunTags() {
     tag.el.classList.add('is-done');
     tag.el.onanimationend = (e) => { if (e.animationName === 'run-tag-out') tag.el.remove(); };
   }
+}
+
+// The combo meter's tag (`?combo=`, game/combometer.js), in the run tag's place: the multiplier and
+// a bar filling towards COMBO_MAX. It appears with the first combo and swells on each one after.
+// A hit empties it with the Perfect Run's red fall, so the loss is seen where it happened; a
+// per-ride meter cashed at the drop-off just fades, since the payout sequence says what it paid.
+const comboTag = { el: null, shown: 1, lost: false };
+function updateComboTag(box) {
+  const mult = combo.state.mult;
+  if (mult === comboTag.shown) return;
+  const prev = comboTag.el;
+  if (mult === 1) {
+    if (prev) {
+      prev.classList.add(comboTag.lost ? 'is-lost' : 'is-done');
+      prev.onanimationend = (e) => {
+        if (e.animationName === 'run-tag-lost' || e.animationName === 'run-tag-out') prev.remove();
+      };
+    }
+    comboTag.el = null;
+  } else {
+    let el = prev;
+    if (!el) {
+      el = comboTag.el = document.createElement('div');
+      el.className = 'run-tag run-combo is-earned';
+      el.innerHTML = '<span class="combo-mult"></span><span class="combo-bar"><span></span></span>';
+      box.append(el);
+    } else {
+      el.classList.remove('is-bumped');
+      void el.offsetWidth;
+      el.classList.add('is-bumped');
+    }
+    el.querySelector('.combo-mult').textContent = `COMBO ${formatMult(mult)}`;
+    el.style.setProperty('--combo-fill', String((mult - 1) / (COMBO_MAX - 1)));
+  }
+  comboTag.shown = mult;
+  comboTag.lost = false;
+}
+
+/** A combo landed: step the meter (`?combo=`) and say what it added off the roof. */
+function landCombo(key, tier) {
+  if (!combo) return;
+  const landed = combo.land(key, tier);
+  if (landed?.added > 0) popLabel(`${landed.label} ${formatMult(landed.mult)}`, 'run-combo');
 }
 
 // Light one ring per rider let go on the kerb (see MAX_STRIKES). The newest pops, so the HUD answers
@@ -2931,10 +2987,10 @@ function popEarning(amount, { cls = '', prefix = '', rollTo = null, onLanded = n
  * A word rising off the taxi and fading where it is — the getaway's "Checkpoint 1/2". The first
  * half of `popEarning`'s flight with no counter to land on, since nothing is being paid.
  */
-function popLabel(text) {
+function popLabel(text, cls = '') {
   const start = taxiScreenPos();
   const el = document.createElement('div');
-  el.className = 'earning is-label';
+  el.className = `earning is-label ${cls}`;
   el.textContent = text;
   el.style.left = `${start.x}px`;
   el.style.top = `${start.y}px`;
@@ -2989,7 +3045,7 @@ function popRunSequence(fare) {
     const at = payoutScreenPos();
     // On the label's pop, not the cash's landing: the three beats of the pattern climb into the
     // scale-up that peaks at 20% of RUN_LABEL_MS (ComboHaptics.swift).
-    if (step.key === 'perfect') haptic('perfect');
+    if (step.key === 'perfect' || step.key === 'combo') haptic('perfect');
     const el = document.createElement('div');
     el.className = `run-pop run-${step.key}`;
     el.textContent = step.label;
@@ -4441,7 +4497,10 @@ function frame() {
   traffic.update(dt);
   if (traffic.taxi.overtakes > overtakesFelt) {
     overtakesFelt = traffic.taxi.overtakes;
-    if (!fares.state.gameOver) haptic('overtake');
+    if (!fares.state.gameOver) {
+      haptic('overtake');
+      landCombo('overtake');
+    }
   }
   if (traffic.taxi.drifts > driftsPaid) {
     driftsPaid = traffic.taxi.drifts;
@@ -4462,6 +4521,7 @@ function frame() {
         onArrive: () => boost.topUp(fuel),
       });
       haptic('drift-kick');
+      landCombo('drift', car.driftTier);
       // Harder up a chain, as the plume is (`locoFlame` below): the tier has to be felt, since
       // nothing writes it on screen.
       controller.kickShake(0.5 * DRIFT_CHAIN.flame[tier]);

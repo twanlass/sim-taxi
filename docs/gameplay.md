@@ -1783,6 +1783,20 @@ only ever asked "don't crash" across the whole run; and three stacking run bonus
 boost, ×2), Perfect (no damage, ×1.5), Stealth (boost past the patrol unspotted, ×1.5) — which was
 more to read than to play. The Perfect Run is the first two of those folded into one rule.
 
+### The combo meter (prototype)
+
+`?combo=meter` or `?combo=run` swaps the Perfect Run for a multiplier the player builds with combos
+(`game/combometer.js`, Tyler's idea after the Duolingo combo streak). Each combo steps it up from
+×1: an overtake or a bootleg U-turn +0.5, a drift kick +0.5 per chain tier (so a full chain of three
+is +3), the bridge launch +2, capped at ×5. It shows as `COMBO ×N` with a filling bar in the run tag's
+place, and the drop-off pays the fare at it, through the same payout sequence (`COMBO ×2.5`).
+
+Any hit that costs HP empties it back to ×1 with the Perfect Run's red fall. A reset rather than a
+tier down: the drop is where the tension is. The two scopes differ only at the drop-off: `meter`
+cashes the meter and starts again at ×1 each ride; `run` pays at it and keeps it, so only a crash
+ends a streak. That second one is close to the clean-driving streak above that was dropped, with the
+difference that it is built by moves rather than by drop-offs.
+
 ### Priced by the trip
 
 Each fare is priced by **trip distance**, not a flat rate: `FARE_BASE + FARE_PER_BLOCK × blocks`,

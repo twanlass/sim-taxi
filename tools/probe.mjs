@@ -203,6 +203,7 @@ import {
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
 import { createRunTracker, RUNS, PERFECT_SHARE, TAG_AFTER } from '../src/game/runs.js';
+import { createComboMeter, comboScope, COMBO_MAX } from '../src/game/combometer.js';
 import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
@@ -18635,6 +18636,41 @@ let chopperOrder; // likewise
   ride(r, b, 5, () => ({ boosting: true }));
   check('each job is judged on its own', keys(r.judge(b)) === 'perfect'
     && r.judge(a).mult === 1, `${keys(r.judge(b))}, previous ×${r.judge(a).mult}`);
+}
+
+// --- The combo meter (prototype) ------------------------------------------------------------
+//
+// game/combometer.js on its own: what steps it, what empties it, and what each scope keeps.
+{
+  check('?combo= takes meter or run and nothing else',
+    comboScope(new URLSearchParams('combo=meter')) === 'meter'
+    && comboScope(new URLSearchParams('combo=run')) === 'run'
+    && comboScope(new URLSearchParams('combo=on')) === null
+    && comboScope(new URLSearchParams('')) === null);
+
+  let m = createComboMeter({ scope: 'meter' });
+  const plain = m.judge();
+  m.land('overtake');
+  m.land('drift', 2);
+  const v = m.judge();
+  check('combos step the meter and the drop-off pays at it, then a per-ride meter starts again',
+    plain.mult === 1 && plain.runs.length === 0 && v.mult === 2.5 && v.runs[0]?.key === 'combo'
+    && m.state.mult === 1, `plain ×${plain.mult}, landed ×${v.mult}, after ×${m.state.mult}`);
+
+  m = createComboMeter({ scope: 'run' });
+  m.land('launch');
+  const first = m.judge().mult;
+  const kept = m.state.mult;
+  m.land('uturn');
+  const lost = m.damage();
+  check('a whole-run meter survives the drop-off and a hit empties it', first === 3 && kept === 3
+    && lost && m.state.mult === 1 && m.judge().mult === 1 && !m.damage(),
+    `first ×${first}, kept ×${kept}, after hit ×${m.state.mult}`);
+
+  m = createComboMeter();
+  for (let k = 0; k < 10; k += 1) m.land('launch');
+  check(`the meter stops at ×${COMBO_MAX}`, m.state.mult === COMBO_MAX && m.land('drift', 3).added === 0,
+    `×${m.state.mult}`);
 }
 
 // --- Wheel wells (geometry/wheels.js) ------------------------------------------------------------
