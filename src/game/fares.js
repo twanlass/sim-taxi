@@ -1869,10 +1869,11 @@ export function createFareSystem(rng, scene, { reserved = () => [], judgeRun = (
         // The run bonuses, last, so they multiply everything the drop-off pays — robbery bonus
         // included — and `fare.value` stays the one number the pop, the counter and the card read.
         // `fare.runs` rides the 'delivered' event out to the pop that labels them.
+        // The stunt pot (`bonus`, `?stunts=on`) is added flat after the product, so ×2 never doubles it.
         const verdict = judgeRun(fare);
         fare.runs = verdict.runs;
         fare.basePay = fare.value;
-        fare.value = Math.round(fare.value * verdict.mult);
+        fare.value = Math.round(fare.value * verdict.mult) + (verdict.bonus ?? 0);
         state.money += fare.value;
         state.delivered += 1;
         // Pull the fare out of the puzzle immediately — the board is free to refill — while

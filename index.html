@@ -251,6 +251,7 @@
       }
       #hud .run-tag.is-earned { background: rgba(0, 0, 0, 0.4); }
       #hud .run-perfect.is-earned { color: #6BE08A; }
+      #hud .run-stunts.is-earned { color: #FFC94A; }
       @keyframes run-tag-in {
         0%   { transform: scale(0.6); opacity: 0; }
         60%  { transform: scale(1.12); opacity: 1; }
@@ -471,6 +472,8 @@
         transform: translate(-50%, -50%);
       }
       .run-pop.run-perfect, .earning.run-perfect { color: #6BE08A; }
+      /* The stunt bonus (`?stunts=on`): gold, off the roof as each lands and again in the payout. */
+      .run-pop.run-stunts, .earning.run-stunts { color: #FFC94A; }
 
       /* The boost half of a drop-off's payout — see src/game/energybits.js. Small, bright and
          round, so it reads as *energy* against the flying "$20"'s green text: the two currencies

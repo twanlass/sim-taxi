@@ -656,7 +656,8 @@ if (new URLSearchParams(window.location.search).get('lights') === 'on') {
 // same forward reference `pathDrag`'s `canGrab` makes to `pause`.
 // How each job is being driven — on course for a Perfect Run or not — fed in the frame loop and
 // judged by the fare loop at the drop-off (game/runs.js).
-const runs = createRunTracker();
+// `?stunts=on` adds the stunt bonus (STUNTS in game/runs.js) — a prototype, off unless asked for.
+const runs = createRunTracker({ stunts: new URLSearchParams(window.location.search).get('stunts') === 'on' });
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   reserved: () => parcels?.occupiedSpots() ?? [],
   judgeRun: (fare) => runs.judge(fare),
@@ -961,6 +962,7 @@ const bootleg = createBootleg({
     haptic('uturn');
     controller.kickShake(0.55);
     stampAllRubber(traffic.taxi);
+    if (!fares.state.gameOver) landStunt('uturn');
   },
 });
 // Loco behind a car, a blip off the pill and back on: the taxi goes round. See game/overtake.js.
@@ -1470,6 +1472,7 @@ traffic.onTaxiLand(({ x, z, yaw, v, deck, big }) => {
   // the range, a body thud under the tyres' land, and the dust thrown out in a ring the way the
   // helipad's downdraft is, which is what reads as weight arriving rather than exhaust.
   if (big) {
+    if (!fares.state.gameOver) landStunt('launch');
     controller.kickShake(1.6);
     sfx?.play('land', { gain: 1 });
     sfx?.play('crash', { gain: 0.35, rate: 0.7 });
@@ -2667,6 +2670,7 @@ const hud = {
 const runTags = new Map();
 const RUN_TAG_TEXT = {
   perfect: () => 'PERFECT RUN',
+  stunts: (r) => `STUNTS $${r.pot}`,
 };
 function updateRunTags() {
   const box = hud.runs;
@@ -2928,13 +2932,23 @@ function popEarning(amount, { cls = '', prefix = '', rollTo = null, onLanded = n
 }
 
 /**
+ * A stunt landed (`?stunts=on`, STUNTS in game/runs.js): bank it on the job and say so off the roof.
+ * The cash is not paid here — it rides the job to the drop-off, where the payout sequence pays it
+ * as one "Stunts" step after any Perfect Run — so the word carries a `+$` without flying anywhere.
+ */
+function landStunt(key, tier) {
+  const banked = runs.stunt(key, tier);
+  if (banked) popLabel(`${banked.label} +$${banked.pays}`, 'run-stunts');
+}
+
+/**
  * A word rising off the taxi and fading where it is — the getaway's "Checkpoint 1/2". The first
  * half of `popEarning`'s flight with no counter to land on, since nothing is being paid.
  */
-function popLabel(text) {
+function popLabel(text, cls = '') {
   const start = taxiScreenPos();
   const el = document.createElement('div');
-  el.className = 'earning is-label';
+  el.className = `earning is-label ${cls}`;
   el.textContent = text;
   el.style.left = `${start.x}px`;
   el.style.top = `${start.y}px`;
@@ -2965,9 +2979,15 @@ function popRunSequence(fare) {
   const total = fare.value;
   const steps = [{ pays: fare.basePay }];
   let running = fare.basePay;
+  // A flat run (the stunt pot) pays its own amount; the multipliers before it share what is left,
+  // the last of them taking up the rounding.
+  const multiplied = total - fare.runs.reduce((sum, run) => sum + (run.pays ?? 0), 0);
+  const lastMult = fare.runs.findLastIndex((run) => run.mult !== undefined);
   fare.runs.forEach((run, k) => {
-    const next = k === fare.runs.length - 1 ? total : Math.round(running * run.mult);
-    steps.push({ label: `${run.label} ×${run.mult}`, key: run.key });
+    const flat = run.pays !== undefined;
+    const next = flat ? running + run.pays
+      : k === lastMult ? multiplied : Math.round(running * run.mult);
+    steps.push({ label: flat ? run.label : `${run.label} ×${run.mult}`, key: run.key });
     steps.push({ pays: next - running, key: run.key, extra: true });
     running = next;
   });
@@ -4441,7 +4461,10 @@ function frame() {
   traffic.update(dt);
   if (traffic.taxi.overtakes > overtakesFelt) {
     overtakesFelt = traffic.taxi.overtakes;
-    if (!fares.state.gameOver) haptic('overtake');
+    if (!fares.state.gameOver) {
+      haptic('overtake');
+      landStunt('overtake');
+    }
   }
   if (traffic.taxi.drifts > driftsPaid) {
     driftsPaid = traffic.taxi.drifts;
@@ -4462,6 +4485,7 @@ function frame() {
         onArrive: () => boost.topUp(fuel),
       });
       haptic('drift-kick');
+      landStunt('drift', car.driftTier);
       // Harder up a chain, as the plume is (`locoFlame` below): the tier has to be felt, since
       // nothing writes it on screen.
       controller.kickShake(0.5 * DRIFT_CHAIN.flame[tier]);

@@ -1783,6 +1783,22 @@ only ever asked "don't crash" across the whole run; and three stacking run bonus
 boost, ×2), Perfect (no damage, ×1.5), Stealth (boost past the patrol unspotted, ×1.5) — which was
 more to read than to play. The Perfect Run is the first two of those folded into one rule.
 
+### The stunt bonus (prototype, `?stunts=on`)
+
+Off unless the URL asks for it. Each combo landed during a job banks flat cash on that job
+(`STUNTS` in `game/runs.js`): overtake $2, U-turn $3, drift kick $3 / $5 / $7 up the chain, and the
+drift launch over an arch ("Big Air") $12. Each one says so off the taxi's roof in gold, and a
+`STUNTS $n` tag sits under the cash beside the Perfect Run's. The pot is paid at the drop-off as one
+step after the Perfect Run's ×2, which does not multiply it, and it is **lost with the job**: a
+rider who walks or a re-target takes it with them.
+
+Why it is shaped like that. Cash is the score and the clocks are what a run is survived on, so
+stunt cash paid on the spot would only inflate the score; banking it on the ride makes each stunt a
+bet on finishing. Flat rather than a multiplier so the same move is worth the same on a short hop as
+on a long haul, and kept off the ×2 so Perfect ("leaned on Loco, touched nothing") and stunts ("did
+something with it") stay two rewards rather than one compounding one. What it does touch is
+survival at the margin: more cash buys repairs ($25) sooner.
+
 ### Priced by the trip
 
 Each fare is priced by **trip distance**, not a flat rate: `FARE_BASE + FARE_PER_BLOCK × blocks`,
@@ -1802,7 +1818,7 @@ costs the *queue*: every other rider's clock drains while you drive it. Paying m
 game being fair about that afterwards, exactly as before; only the mechanism it is fair about has
 changed.
 
-A [Perfect Run](#the-perfect-run) is the one thing applied later, at the drop-off; the table below
+A [Perfect Run](#the-perfect-run) (and the [stunt pot](#the-stunt-bonus-prototype-stuntson), when on) is applied later, at the drop-off; the table below
 is the 1× column.
 
 | Blocks | Price |
