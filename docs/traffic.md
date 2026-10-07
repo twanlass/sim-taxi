@@ -1827,8 +1827,10 @@ replaced, an opacity.
 
 `game/replay.js`. A wreck no longer goes straight from the live beat to the retry card. After
 `REPLAY_LEAD` (1.2s) of the slow-mo pull-in, the frame cuts to the moment of impact three more
-times, about a second each: from ~35° off the fixed diagonal, from ~35° the other way, then square
-on and tightest. Cut, crash, cut, crash, cut, crash, card. Each shot opens 0.3s of sim before the
+times, about a second each, all from the **far side** of the crash (`REVERSE`: the camera swung
+180° from where play looks, so the wreck is seen from behind the city; `?crashcam=classic` puts it
+back on the play side): ~35° off that reversed diagonal, ~35° the other way, then square on and
+tightest. Cut, crash, cut, crash, cut, crash, card. Each shot opens 0.3s of sim before the
 hit and plays at 0.8× into it and 0.5× through the blast, with a white flash on each cut and the
 crash sound under each one. The last shot eases further, to 0.25× over a longer ramp (`slow` and
 `ramp` in `SHOTS`), so the final hit plays in real slow motion, then holds its final frame for 0.4s
@@ -1864,7 +1866,8 @@ Under the slow-mo ramp 1.2s of wall clock is ~0.49s of sim, which is the floor o
 and a tower between the camera and the wreck is the one way this fails outright. `pickYaw` marches
 the swung view direction through the same height field the fare board's corner test uses
 (`game/sightline.js`) from the impact and two points back along the approach, and takes the first
-candidate in `YAW_CHOICES` that sees the most of them. Swings stay within 50° on purpose; see
+candidate in `YAW_CHOICES` that sees the most of them. Swings stay within 50° of the reversed view
+on purpose; see
 [rendering.md](rendering.md#camera) for what the yaw does to everything built for one view.
 
 ## Roadworks: a street closed at both ends

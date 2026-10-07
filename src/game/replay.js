@@ -344,6 +344,12 @@ const RAMP = 0.12;
 // city has only ever been looked at from one direction, and the further round the camera goes the
 // more of what was built for that one view turns up in frame (see the note on `yaw` in camera.js).
 const YAW_CHOICES = [35, 28, 42, 22, 50];
+// The reverse shot: every cut is taken from the far side of the crash, the camera swung half way
+// round from where play has always looked, and the swings above are taken about *that*. The point
+// is the one view of the wreck the player has never had — the city seen from behind. `?crashcam=
+// classic` puts it back on the play side, for comparing the two on one build.
+const REVERSE = typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('crashcam') === 'classic' ? 0 : Math.PI;
 // And a slow orbit on top during the shot, away from the diagonal, so a shot is never a still.
 const ORBIT_DEG = 7;
 // The shake the replay kicks as it crosses the impact — under the live beat's 2.4 because the
@@ -401,11 +407,11 @@ function scoreYaw(points, yaw) {
 }
 
 function pickYaw(points, side) {
-  if (!side) return 0;
+  if (!side) return REVERSE;
   let best = null;
   let bestScore = -1;
   for (const deg of YAW_CHOICES) {
-    const yaw = side * THREE.MathUtils.degToRad(deg);
+    const yaw = REVERSE + side * THREE.MathUtils.degToRad(deg);
     const score = scoreYaw(points, yaw);
     if (score > bestScore) { best = yaw; bestScore = score; }
   }
@@ -521,7 +527,9 @@ export function createCrashReplay({
     const ratio = aspect();
     const zoom = (run.shot.zoomFrom + (run.shot.zoomTo - run.shot.zoomFrom) * easeInOut(k))
       * Math.max(1, MIN_HALF_WIDTH / ratio);
-    const yaw = run.yaw + Math.sign(run.yaw) * THREE.MathUtils.degToRad(ORBIT_DEG) * orbitK;
+    // Orbits on away from the axis it swung off, so by the shot's side rather than the sign of
+    // its yaw: under REVERSE every yaw is near π and the sign no longer says which way it went.
+    const yaw = run.yaw + (run.shot.side ?? 0) * THREE.MathUtils.degToRad(ORBIT_DEG) * orbitK;
     controller.cutTo(tx, tz, zoom, yaw, ratio);
     if (wallDt > 0) controller.updateShake(wallDt, aspect());
   }
