@@ -20,7 +20,7 @@ import { color } from '../palette.js';
 // outline by roughly a pixel. Twice the radius is twice the lever arm the eye has to read the
 // angle off.
 export const WHEEL_R = 0.64;
-const WHEEL_W = 0.52;              // tread, kept in proportion — a wide disc on a narrow tread
+export const WHEEL_W = 0.52;              // tread, kept in proportion — a wide disc on a narrow tread
                                    // reads as a bicycle wheel from this camera
 const WHEEL_PROUD = 0.11;          // how far the tread stands out past the flank, as it always did
 const WHEEL_SEGMENTS = 16;         // doubled from 8 — at WHEEL_R's size the 8-gon's facets read as
@@ -121,4 +121,133 @@ export function wheelGeometries(len, width) {
       wheel.translate(a.x, a.y, a.z);
       return wheel;
     });
+}
+
+// --- Wheel wells -----------------------------------------------------------------------------
+//
+// The body used to be one box, and the wheels stood WHEEL_PROUD out of its flank with the inner
+// 0.41 of every tread buried in it. Straight ahead that read as a wheel; steered, the flank cut the
+// front pair on a slant — the trailing half of a tyre at full lock (STEER_MAX, 0.6 rad) swung into
+// the panel and vanished, the leading half swung out, and the flank's edge drew a diagonal across
+// the rubber. So the body has arches now: an opening in each flank around each axle, and a dark
+// liner across the middle of the car that is the well's inner wall.
+//
+// Sized off the swept tyre rather than the still one. A wheel turned by θ reaches
+// `WHEEL_R cos θ + WHEEL_W/2 sin θ` fore and aft of its hub — 0.675 at full lock against 0.64
+// straight — and its top stays at WHEEL_R whatever the lock, since the steer is a yaw. ARCH_GAP
+// clears both: 0.025 fore and aft at full lock, 0.06 over the top. The arch top then sits at 1.34
+// against a body top of 1.50, which leaves the panel over the wheel 0.16 deep.
+//
+// The wheels are big for the camera (see WHEEL_R), so on a car the arch runs off the end of the body:
+// a front hub at 0.3 · CAR_LEN with this radius reaches 0.02 past the nose. The end face is simply cut
+// where it is crossed — the corners of the car are open below 0.81, the way a car with its wheels at
+// the corners looks — rather than the arch being squeezed to fit, which would put the panel back into
+// the swept tyre.
+export const ARCH_GAP = 0.06;
+export const ARCH_R = WHEEL_R + ARCH_GAP;
+const ARCH_STEPS = 16;               // facets across a half-circle — 11° each, round at this size
+// How far inboard of a tread's inner face the well's back wall stands. At full lock the trailing
+// corner of a tyre reaches further in than this (to 0.12 off the centreline on a car); that part is
+// behind the tyre, seen from outside, and the wall hides the rest.
+const WELL_BACK = 0.12;
+
+/** Each axle's hub, fore-aft, for a body `len` long. */
+function archCentres(len) {
+  return [...new Set(wheelAnchors(len, 1).map((a) => a.x))].sort((a, b) => a - b);
+}
+
+/**
+ * Height of the arch over car-local `x`, or -Infinity where there is no arch — the underside the
+ * body has there. `gap` widens the arch, for trim that wants to stand off the lip.
+ */
+export function archCeiling(len, x, gap = 0) {
+  const r = ARCH_R + gap;
+  let top = -Infinity;
+  for (const ax of archCentres(len)) {
+    const dx = x - ax;
+    if (Math.abs(dx) < r) top = Math.max(top, WHEEL_R + Math.sqrt(r * r - dx * dx));
+  }
+  return top;
+}
+
+// The x positions an outline is sampled at: the ends, the facets of each arch, and the exact points
+// where an arch crosses the band's top and bottom, so a run of panel starts and stops on the curve
+// rather than a facet short of it.
+function archSamples(len, x0, x1, y0, y1, gap) {
+  const r = ARCH_R + gap;
+  const xs = [x0, x1];
+  for (const ax of archCentres(len)) {
+    for (let k = 0; k <= ARCH_STEPS; k++) xs.push(ax + r * Math.cos((Math.PI * k) / ARCH_STEPS));
+    for (const y of [y0, y1]) {
+      const h = y - WHEEL_R;
+      if (Math.abs(h) < r) {
+        const dx = Math.sqrt(r * r - h * h);
+        xs.push(ax - dx, ax + dx);
+      }
+    }
+  }
+  const sorted = xs.filter((x) => x >= x0 && x <= x1).sort((a, b) => a - b);
+  return sorted.filter((x, i) => i === 0 || x - sorted[i - 1] > 1e-6);
+}
+
+/**
+ * The band `x0..x1` × `y0..y1` of a flank, in car-local x/y, split into the outlines that remain
+ * once the arches are cut out of it (`below: false`) — or the outlines of what was cut
+ * (`below: true`). Each outline is a list of Vector2, one per run between arches. The two answers
+ * share their sample points exactly, so a panel and the liner under it meet on one curve.
+ */
+export function archOutlines(len, x0, x1, y0, y1, { gap = 0, below = false } = {}) {
+  const xs = archSamples(len, x0, x1, y0, y1, gap);
+  const lip = (x) => Math.min(y1, Math.max(y0, archCeiling(len, x, gap)));
+  const runs = [];
+  let run = null;
+  for (let i = 0; i < xs.length - 1; i++) {
+    const mid = lip((xs[i] + xs[i + 1]) / 2);
+    const open = below ? mid > y0 + 1e-6 : mid < y1 - 1e-6;
+    if (open && !run) runs.push(run = [i]);
+    if (open) run[1] = i + 1;
+    else run = null;
+  }
+  return runs.map(([a, b]) => {
+    const edge = xs.slice(a, b + 1).map((x) => new THREE.Vector2(x, lip(x)));
+    // Panel: along the arch-cut underside left to right, then back across the flat top. Liner: along
+    // the flat sill left to right, then back over the arch.
+    const flat = below ? y0 : y1;
+    const outline = below
+      ? [new THREE.Vector2(edge[0].x, flat), new THREE.Vector2(edge.at(-1).x, flat), ...edge.reverse()]
+      : [...edge, new THREE.Vector2(edge.at(-1).x, flat), new THREE.Vector2(edge[0].x, flat)];
+    return outline.filter((p, i) => p.distanceTo(outline[(i + 1) % outline.length]) > 1e-6);
+  });
+}
+
+/** Outlines from `archOutlines`, each extruded across car-local `z0..z1`, merged. Non-indexed. */
+export function extrudeOutlines(outlines, z0, z1) {
+  const parts = outlines.map((outline) => {
+    const solid = new THREE.ExtrudeGeometry(new THREE.Shape(outline), { depth: z1 - z0, bevelEnabled: false });
+    solid.translate(0, 0, z0);
+    solid.deleteAttribute('uv');
+    solid.clearGroups();
+    return solid;
+  });
+  const merged = mergeGeometries(parts, false);
+  parts.forEach((p) => p.dispose());
+  return merged;
+}
+
+/**
+ * A vehicle's lower body — the slab every car, truck chassis and the taxi rides on — `len` × `width`,
+ * centred at `centreY` and `height` tall, with a wheel arch cut over each axle and the well's liner
+ * behind it. Baked: the panel in `paint` on the paint finish, the liner `wheelWell` on the tyre's
+ * matte one, which is dark enough that the fleet's instance tint leaves it dark.
+ */
+export function archedBodyGeometries(len, width, centreY, height, paint) {
+  const y0 = centreY - height / 2;
+  const y1 = centreY + height / 2;
+  const panel = extrudeOutlines(archOutlines(len, -len / 2, len / 2, y0, y1), -width / 2, width / 2);
+  const back = Math.abs(wheelAnchors(len, width)[0].z) - WHEEL_W / 2 - WELL_BACK;
+  const liner = extrudeOutlines(archOutlines(len, -len / 2, len / 2, y0, y1, { below: true }), -back, back);
+  return [
+    setFinish(bakeColor(panel, paint), FINISH.PAINT),
+    setFinish(bakeColor(liner, color('wheelWell')), FINISH.TYRE),
+  ];
 }

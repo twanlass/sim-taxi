@@ -46,6 +46,7 @@ import { createFlatbed, CRATES, LOAD_YAW } from '../src/game/flatbed.js';
 import { createFire } from '../src/game/fire.js';
 import { clearCityOccluders } from '../src/game/sightline.js';
 import { TRUCK_LEN, TRUCK_BOX_LEN } from '../src/sim/traffic.js';
+import { archedBodyGeometries, archOutlines, archCeiling, WHEEL_W, ARCH_R } from '../src/geometry/wheels.js';
 import { CRATE, CRATE_REST_Y, CRATE_CHIP_REST_Y, DECK_TOP, DECK_REAR } from '../src/geometry/crate.js';
 import { createDust } from '../src/game/dust.js';
 import { createSkidMarks } from '../src/game/skidmarks.js';
@@ -18384,6 +18385,75 @@ let chopperOrder; // likewise
   ride(r, b, 5, () => ({ boosting: true }));
   check('each job is judged on its own', keys(r.judge(b)) === 'perfect'
     && r.judge(a).mult === 1, `${keys(r.judge(b))}, previous ×${r.judge(a).mult}`);
+}
+
+// --- Wheel wells (geometry/wheels.js) ------------------------------------------------------------
+//
+// Two claims, each asked of the geometry rather than of a render. The arched body is built by
+// ExtrudeGeometry from outlines this project writes, so its winding is asserted (CLAUDE.md, the
+// roadworks ramp): a closed solid wound outward has a signed volume equal to its outline's area
+// times its depth, and any reversed triangle moves that number. And the arch is sized to the
+// *swept* tyre, so a front wheel at STEER_MAX is sampled all over its tread and sidewalls and
+// no sample may land inside the painted panel — the thing that used to cut it on the slant.
+{
+  const signedVolume = (geo) => {
+    const p = geo.attributes.position;
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+    let v = 0;
+    for (let i = 0; i < p.count; i += 3) {
+      a.fromBufferAttribute(p, i); b.fromBufferAttribute(p, i + 1); c.fromBufferAttribute(p, i + 2);
+      v += a.dot(b.cross(c)) / 6;
+    }
+    return v;
+  };
+  const shoelace = (outline) => Math.abs(outline.reduce((sum, p, i) => {
+    const q = outline[(i + 1) % outline.length];
+    return sum + p.x * q.y - q.x * p.y;
+  }, 0)) / 2;
+  const Y0 = 0.38 + (WHEEL_R - 0.32);
+  const Y1 = Y0 + 0.8;
+  let worstVolume = 0;
+  let intrusions = 0;
+  let samples = 0;
+  let clearance = Infinity;
+  for (const [len, width] of [[CAR_LEN, CAR_W], [TRUCK_LEN, TRUCK_W]]) {
+    const [panel, liner] = archedBodyGeometries(len, width, (Y0 + Y1) / 2, 0.8, new THREE.Color(1, 1, 1));
+    const back = Math.abs(wheelAnchors(len, width)[0].z) - WHEEL_W / 2 - 0.12;
+    const panelArea = archOutlines(len, -len / 2, len / 2, Y0, Y1).reduce((s, o) => s + shoelace(o), 0);
+    const linerArea = archOutlines(len, -len / 2, len / 2, Y0, Y1, { below: true })
+      .reduce((s, o) => s + shoelace(o), 0);
+    worstVolume = Math.max(worstVolume,
+      Math.abs(signedVolume(panel) - panelArea * width) / (panelArea * width),
+      Math.abs(signedVolume(liner) - linerArea * 2 * back) / (linerArea * 2 * back));
+    // Faceted at ARCH_STEPS = 16, a chord sags at most R(1 - cos(π/32)) inside the true circle.
+    const sag = ARCH_R * (1 - Math.cos(Math.PI / 32));
+    const at = new THREE.Vector3();
+    for (const anchor of wheelAnchors(len, width).filter((a) => a.front)) {
+      for (const steer of [-STEER_MAX, STEER_MAX]) {
+        const turn = new THREE.Matrix4().makeRotationY(steer);
+        for (let k = 0; k < 48; k++) {
+          const t = (2 * Math.PI * k) / 48;
+          for (let r = 0.25; r <= 1.001; r += 0.25) {
+            for (let s = -1; s <= 1.001; s += 0.25) {
+              // Hub-centred, axle along z, then steered and placed: the way taxi.js hangs it.
+              at.set(WHEEL_R * r * Math.cos(t), WHEEL_R * r * Math.sin(t), (s * WHEEL_W) / 2)
+                .applyMatrix4(turn).add(anchor);
+              samples += 1;
+              const inFlank = Math.abs(at.z) <= width / 2 && Math.abs(at.z) >= back
+                && Math.abs(at.x) <= len / 2 && at.y >= Y0 && at.y <= Y1;
+              const lip = archCeiling(len, at.x) - sag;
+              if (inFlank) clearance = Math.min(clearance, lip - at.y);
+              if (inFlank && at.y > lip) intrusions += 1;
+            }
+          }
+        }
+      }
+    }
+  }
+  check('the arched body is wound outward (car and truck, panel and liner)', worstVolume < 1e-4,
+    `worst signed-volume error ${(worstVolume * 100).toFixed(4)}%`);
+  check('a front wheel at full lock clears its arch', intrusions === 0,
+    `${intrusions}/${samples} tyre samples inside the panel at ±STEER_MAX, least clearance ${clearance.toFixed(3)}`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

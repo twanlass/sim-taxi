@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial, setFinish, FINISH, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
-import { SILL_Y, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries } from './wheels.js';
+import {
+  SILL_Y, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries, archedBodyGeometries, archOutlines,
+  extrudeOutlines,
+} from './wheels.js';
 import { sirenPodGeometry, sirenRedMaterial } from './lights.js';
 
 // The fire engine: a red cab-forward truck with a white band down each flank, aluminium locker
@@ -56,7 +59,7 @@ function box(w, h, d, x, y, z, paint, finish = FINISH.PAINT) {
 function bodyGeometry() {
   const W = ENGINE_W;
   const parts = [
-    box(ENGINE_LEN, 0.8, W, 0, BASE_Y, 0, 'fireTruckBody'),
+    ...archedBodyGeometries(ENGINE_LEN, W, BASE_Y, 0.8, color('fireTruckBody')),
     box(CAB_LEN, CAB_H, W * 0.96, CAB_X, CAB_Y, 0, 'fireTruckBody'),
     // Glass: the windscreen proud of the cab's nose, and a side window standing out of both flanks.
     box(0.08, 0.55, W * 0.82, CAB_X + CAB_LEN / 2 + 0.02, CAB_Y + 0.22, 0, 'carGlass', FINISH.GLASS),
@@ -64,8 +67,15 @@ function bodyGeometry() {
     // The locker body, a shade deeper than the cab so the two masses read apart from above.
     box(LOCKER_X1 - LOCKER_X0, LOCKER_H, W * 0.96, (LOCKER_X0 + LOCKER_X1) / 2,
       CHASSIS_TOP + LOCKER_H / 2, 0, 'fireTruckLocker'),
-    // The white band, sleeved round the chassis: its top, bottom and ends are all buried in it.
-    box(ENGINE_LEN - 0.1, 0.18, W + 0.04, 0, BASE_Y + 0.12, 0, 'fireTruckTrim'),
+    // The white band down each flank, broken by the arches. Two strips rather than the sleeve it
+    // was, which would have bridged the wheel wells; each is buried in the flank but for its
+    // outer 0.02, its ends sit 0.05 inside the chassis's, and it
+    // stops 0.03 short of each arch so its foot never lies on the lip's own faces.
+    ...[-1, 1].map((side) => setFinish(bakeColor(extrudeOutlines(
+      archOutlines(ENGINE_LEN, -(ENGINE_LEN - 0.1) / 2, (ENGINE_LEN - 0.1) / 2, BASE_Y + 0.03, BASE_Y + 0.21,
+        { gap: 0.03 }),
+      side > 0 ? W / 2 - 0.1 : -W / 2 - 0.02, side > 0 ? W / 2 + 0.02 : -W / 2 + 0.1,
+    ), color('fireTruckTrim')), FINISH.PAINT)),
     // Front bumper, proud of the nose.
     box(0.14, 0.26, W * 0.92, ENGINE_LEN / 2 + 0.05, BASE_Y - 0.2, 0, 'fireTruckLadder', FINISH.METAL),
     // The bar's housing, on the front of the cab roof.

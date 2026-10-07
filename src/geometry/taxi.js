@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial, setFinish, FINISH } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
-import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT, SILL_Y } from './wheels.js';
+import {
+  wheelGeometries, wheelGeometry, wheelAnchors, archedBodyGeometries, archOutlines, extrudeOutlines,
+  WHEEL_R, ARCH_R, CHASSIS_LIFT, SILL_Y,
+} from './wheels.js';
 import {
   lightPodGeometry, brakeLightAnchors, turnSignalAnchors, turnSignalShapes, brakeLightMaterial,
   turnSignalMaterial,
@@ -24,6 +27,12 @@ import {
 
 const CAR_LEN = 3.4;
 const CAR_W = 1.7;
+
+// The chequer stripe's band, on the shoulder: from just over the wheel arches' tops (ARCH_LIP clear
+// of the lip, so the paint never lies on the curve) to 0.02 over the roofline. See the stripe itself.
+const ARCH_LIP = 0.035;
+const STRIPE_LOW = WHEEL_R + ARCH_R + ARCH_LIP;
+const STRIPE_TOP = 1.18 + CHASSIS_LIFT + 0.02;
 export const TAXI_SCALE = 1.18;
 
 // World-space distance from the taxi origin back to the bumper — used by the tailpipe flame burst
@@ -75,9 +84,8 @@ export function createTaxiMesh() {
   const parts = [];
 
   // Proportions match the ambient cars so the taxi reads as the same class of vehicle.
-  const body = new THREE.BoxGeometry(CAR_LEN, 0.8, CAR_W);
-  body.translate(0, 0.78 + CHASSIS_LIFT, 0);
-  parts.push(setFinish(bakeColor(body, color('taxiBody')), FINISH.PAINT));
+  // Arched over each axle so the steered pair has a well to turn in (see archedBodyGeometries).
+  parts.push(...archedBodyGeometries(CAR_LEN, CAR_W, 0.78 + CHASSIS_LIFT, 0.8, color('taxiBody')));
 
   const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, 0.6, CAR_W * 0.86);
   cabin.translate(-0.2, 1.45 + CHASSIS_LIFT, 0);
@@ -89,9 +97,16 @@ export function createTaxiMesh() {
   // way the roof sign says it from above.
   //
   // Six cells rather than a real two-row chequerboard, and that is a zoom decision, not a stylistic
-  // one. The band is 0.22 tall, which through TAXI_SCALE is ~2px at play zoom (1 unit ≈ 7.7px), so
-  // splitting it into two rows would ask for a 1px row and get mush. One row of alternating cells
+  // one. The band is ~0.15 tall, which through TAXI_SCALE is under 2px at play zoom (1 unit ≈ 7.7px),
+  // so splitting it into two rows would ask for a 1px row and get mush. One row of alternating cells
   // reads as chequer at this size; a chequerboard reads as a grey smear.
+  //
+  // It rides the shoulder, between the wheel arches' tops and the roofline, and that is the arches'
+  // doing. It sat at the waist (0.22 tall, centred 0.82 up) while the flank was a plain box; the arches
+  // reach to 1.34 over wheels this big, and cut at the waist the band kept about two of its six cells,
+  // in the middle of the car. Up here it runs the full length uncut. It wraps 0.02 over the roofline
+  // rather than stopping under it, which both keeps its top face off the body's top plane and gives
+  // it a sliver of top face the camera looks down on, buying back some of the height it lost.
   //
   // The app icon is rendered from this mesh (tools/icon/), so it wears the same six. At CAR_LEN * 0.82 that puts a cell at ~0.55 world
   // units ≈ 4px — the finest pitch that survives. Twelve cells (square ones, matching the band's
@@ -101,10 +116,10 @@ export function createTaxiMesh() {
   const cellLen = stripeLen / STRIPE_CELLS;
   for (const side of [-1, 1]) {
     for (let i = 0; i < STRIPE_CELLS; i++) {
-      const cell = new THREE.BoxGeometry(cellLen, 0.22, 0.06);
+      const cell = new THREE.BoxGeometry(cellLen, STRIPE_TOP - STRIPE_LOW, 0.06);
       cell.translate(
         -stripeLen / 2 + (i + 0.5) * cellLen,
-        0.82 + CHASSIS_LIFT,
+        (STRIPE_LOW + STRIPE_TOP) / 2,
         side * (CAR_W / 2 + 0.02),
       );
       // Both colours painted, rather than letting the light cells fall through to the body: the
@@ -393,8 +408,11 @@ function buildDoors(group) {
   for (const side of [-1, 1]) {
     // Runs from the hinge along −x. Symmetric in z, so the left door is the same geometry turned
     // the other way about the hinge — no mirror, so no winding to flip.
-    const skin = new THREE.BoxGeometry(DOOR_LEN, DOOR_BELT - DOOR_LOW, DOOR_T);
-    skin.translate(-DOOR_LEN / 2, (DOOR_LOW + DOOR_BELT) / 2, 0);
+    // The skin's foot follows the rear wheel arch, which reaches under the back half of the door.
+    // Cut in car-local x and slid back onto the hinge.
+    const skin = extrudeOutlines(
+      archOutlines(CAR_LEN, DOOR_HINGE_X - DOOR_LEN, DOOR_HINGE_X, DOOR_LOW, DOOR_BELT), -DOOR_T / 2, DOOR_T / 2);
+    skin.translate(-DOOR_HINGE_X, 0, 0);
     const glass = new THREE.BoxGeometry(DOOR_LEN - 0.12, DOOR_TOP - DOOR_BELT, DOOR_T);
     glass.translate(-0.06 - (DOOR_LEN - 0.12) / 2, (DOOR_BELT + DOOR_TOP) / 2, 0);
     const parts = [bakeColor(skin, color('taxiBody')), bakeColor(glass, color('carGlass'))];
@@ -410,8 +428,10 @@ function buildDoors(group) {
     hinge.add(panel);
 
     // The opening the door leaves in the flank, over the stripe.
-    const gapGeo = new THREE.BoxGeometry(DOOR_LEN - 0.04, DOOR_BELT - DOOR_LOW - 0.06, 0.02);
-    gapGeo.translate(DOOR_HINGE_X - DOOR_LEN / 2, (DOOR_LOW + DOOR_BELT) / 2, side * (CAR_W / 2 + 0.065));
+    // Arched like the skin, standing off the lip so it never lies on the well's edge.
+    const gapZ = side * (CAR_W / 2 + 0.065);
+    const gapGeo = extrudeOutlines(archOutlines(CAR_LEN, DOOR_HINGE_X - DOOR_LEN + 0.02, DOOR_HINGE_X - 0.02,
+      DOOR_LOW + 0.03, DOOR_BELT - 0.03, { gap: 0.03 }), gapZ - 0.01, gapZ + 0.01);
     const gap = new THREE.Mesh(bakeColor(gapGeo, color('taxiTrim')), propMaterial());
     gap.userData.pickable = 'taxi';
 

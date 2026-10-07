@@ -358,6 +358,10 @@ export const PALETTE = {
   //     saturation where it is, is what reserves it. tools/probe.mjs asserts the clearance.
   carBodyGhost: ['#DA887D', '#71CDD2', '#85A7D4', '#D0CABE', '#80C5A1', '#AC96C7', '#D0C7B4', '#8D9BAD'],
   carGlass: '#2E3640',
+  // The inside of a wheel arch (geometry/wheels.js): the well's back wall, seen past the tyre. Darker
+  // than the tyre (linear 0.08, `TYRE` in geometry/wheels.js) so the tread still has an edge against it, and
+  // dark enough that the fleet's instance tint leaves it dark on every paint.
+  wheelWell: '#1E2024',
   // Hubcaps (geometry/wheels.js), on the metal finish. Light enough to read as steel inside the
   // tyre's near-black. The fleet's paint tint is kept off metal (util/geo.js), so it stays steel.
   hubcap: '#C4C8CC',

@@ -4,7 +4,7 @@ import { bakeColor, propMaterial, setFinish, FINISH, BODY_EULER_ORDER } from '..
 import { PALETTE, color } from '../palette.js';
 import { KERB_H, roundedRectShape } from '../city/ground.js';
 import {
-  WHEEL_R, CHASSIS_LIFT, SILL_Y, wheelAnchors, wheelGeometry, wheelGeometries,
+  WHEEL_R, CHASSIS_LIFT, SILL_Y, wheelAnchors, wheelGeometry, wheelGeometries, archedBodyGeometries,
 } from '../geometry/wheels.js';
 import {
   lightPodGeometry, brakeLightAnchors, turnSignalAnchors, turnSignalShapes, LIGHT_PODS,
@@ -2189,10 +2189,9 @@ export function carGeometry({ bumpers = true } = {}) {
   // into the body could not be taken away from the end it left.
   const parts = [];
 
-  // Body sits clear of the wheels so they actually show below the sill.
-  const body = new THREE.BoxGeometry(CAR_LEN, 0.8, CAR_W);
-  body.translate(0, 0.78 + CHASSIS_LIFT, 0);
-  parts.push(setFinish(bakeColor(body, new THREE.Color(1, 1, 1)), FINISH.PAINT));
+  // Body sits clear of the wheels so they actually show below the sill, and is arched over each
+  // axle so the front pair has a well to steer in (geometry/wheels.js).
+  parts.push(...archedBodyGeometries(CAR_LEN, CAR_W, 0.78 + CHASSIS_LIFT, 0.8, new THREE.Color(1, 1, 1)));
 
   const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, CABIN_H, CAR_W * 0.86);
   cabin.translate(CABIN_X, CABIN_Y, 0);
@@ -2258,9 +2257,7 @@ function truckCabGeometry({ bumpers = true } = {}) {
   const white = new THREE.Color(1, 1, 1);
   const cabDark = color('carGlass');
 
-  const chassis = new THREE.BoxGeometry(TRUCK_LEN, 0.8, TRUCK_W);
-  chassis.translate(0, TRUCK_BASE_Y, 0);
-  parts.push(setFinish(bakeColor(chassis, white), FINISH.PAINT));
+  parts.push(...archedBodyGeometries(TRUCK_LEN, TRUCK_W, TRUCK_BASE_Y, 0.8, white));
 
   const cab = new THREE.BoxGeometry(TRUCK_CAB_LEN, 1.1, TRUCK_W * 0.84);
   cab.translate(TRUCK_CAB_X, TRUCK_CAB_Y, 0);
