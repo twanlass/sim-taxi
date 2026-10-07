@@ -5,6 +5,7 @@ import {
 import { cityNetwork } from '../city/roadnet.js';
 import { URGENCY_SEGMENTS, urgencyLevel } from './urgency.js';
 import { createArrest } from './arrest.js';
+import { createBlockade } from './blockade.js';
 import { findRoute, findRouteOnto, planOrigin, junctionAhead, turnsRound } from './route.js';
 import {
   CAR_LEN, CIRCLE_OFFSET, CIRCLE_R, POLICE_FLEET, POLICE_REINFORCEMENTS, SPAWN_CLEARANCE, plannedTurn, stopDistance,
@@ -331,6 +332,16 @@ const ARREST_REACH = 80;
  * off screen, the way the event brought its police in to start with.
  */
 const ARREST_CREW = 3;
+
+/**
+ * `?chase=stream`'s catch-up, in units from the taxi: the patrol's numbers (game/patrol.js), so a
+ * robbery cop on the taxi's tail drives the way a patrol on it does. Inside FROM it chases at the
+ * ordinary chase ceiling; by FULL it is flat out.
+ */
+const STREAM_PURSUIT_FROM = 14;
+const STREAM_PURSUIT_FULL = 34;
+/** How much of the taxi's route a stream re-aim is keyed on, in steps — see `followRoute`. */
+const FOLLOW_PLAN = 4;
 const ARREST_MIN = 2;
 
 /** Two car bodies — `{ x, z, yaw }`, the circles sim/collisions.js tests — at least `margin` apart. */
@@ -393,7 +404,7 @@ function nearestJunction(x, z) {
  */
 export function createRobbery({
   site, taxi, fares, traffic, onBoard = () => {}, holdAlarm = false, busy = () => false,
-  handOff = () => null, inShot = null,
+  handOff = () => null, inShot = null, stream = false, onCornered = () => {},
 }) {
   // The junction the bank's door belongs to, worked out once: the city does not move, and this is a
   // thirty-six-cell scan.
@@ -424,17 +435,25 @@ export function createRobbery({
   // of each, because only one roadblock stands at a time.
   let partner = null;
   let partnerLead = null;
+  // Whether this event's blockade has been asked for, so a refused one is not asked again every frame.
+  let blockadeArmed = false;
 
   /**
    * This event's cops: the fleet, less the patrol cruiser if it happens to be on the road
    * (game/patrol.js). The two share `policeCars` because they share the instance buffer's police
    * block, and everything below that walks the fleet means the robbery's own cars.
    */
-  const fleet = () => traffic.policeCars.filter((cop) => !cop.patrol);
+  // The blockade's cars are its own (game/blockade.js): staged, not chasing, and taken off by it.
+  const fleet = () => traffic.policeCars.filter((cop) => !cop.patrol && !cop.blockade);
   const clearFleet = () => {
     arrest.abandon();
-    for (const cop of fleet()) traffic.retirePolice(cop);
+    blockade?.clear();
+    for (const cop of traffic.policeCars.filter((c) => !c.patrol)) traffic.retirePolice(cop);
   };
+
+  // `?chase=stream` — see STREAM_* below. The last checkpoint shut by a wall of police, which the
+  // taxi has to spin round in front of.
+  const blockade = stream ? createBlockade({ traffic, taxi, inShot, onCornered }) : null;
 
   // The drop-off's scene: the robber on the corner, the cops fanned out round them. See game/arrest.js.
   const arrest = createArrest({ traffic, taxi, inShot });
@@ -500,6 +519,14 @@ export function createRobbery({
    * seeds the road rather than barricading one point of it.
    */
   const CUT_OFF_AHEAD = [0, 0, 3, 5];
+  /**
+   * `?chase=stream`: every cop is a stern cop. Reported from play that the chase read as cops
+   * "coming from a bunch of random directions" rather than a pursuit — which is the cut-off half
+   * doing exactly what it was built for, turning up at junctions ahead and to the side. The stream
+   * trades it for the mirror: everyone behind, on the taxi's road, with the patrol's catch-up
+   * (STREAM_PURSUIT_*) so a cop that has dropped back floors it rather than receding.
+   */
+  const aims = stream ? [0] : CUT_OFF_AHEAD;
 
   /**
    * Where a cop should be heading: a junction on the taxi's route, `steps` ahead of it.
@@ -619,16 +646,18 @@ export function createRobbery({
     const at = {
       i: taxi.i,
       j: taxi.j,
-      plan: (taxi.route ?? []).slice(0, Math.max(...CUT_OFF_AHEAD)).join(','),
+      plan: (taxi.route ?? []).slice(0, stream ? FOLLOW_PLAN : Math.max(...aims)).join(','),
     };
     const moved = !aimedAt || aimedAt.i !== at.i || aimedAt.j !== at.j || aimedAt.plan !== at.plan;
     let nth = 0;
     for (const car of fleet()) {
       if (car.crashed) continue;
       car.chase = 1;
-      const steps = CUT_OFF_AHEAD[nth % CUT_OFF_AHEAD.length];
+      const steps = aims[nth % aims.length];
       nth += 1;
-      car.uturnWanted = wantsToTurnRound(car, steps);
+      // A cop the taxi led up to the blockade turns round after it: the seal holds it at the line
+      // for good otherwise, and the lane it fills is the one the taxi has to leave by.
+      car.uturnWanted = wantsToTurnRound(car, steps) || Boolean(blockade?.holds(car));
       if (!moved && car.route?.length) continue;
       // Not while it is out overtaking the taxi. The pass was only offered because this route
       // carried straight on (sim/traffic.js), and a re-aim mid-manoeuvre handed it a turn with the
@@ -645,14 +674,56 @@ export function createRobbery({
       // parked on it anyway. Null is an unroutable pair, which `main.js` rerolls the city to
       // prevent; that one is left rolling the dice until the next re-aim, because there is
       // genuinely nowhere to send it.
-      let route = findRoute(planOrigin(car), cutOffFor(steps));
-      if (route && route.length === 0) {
-        route = findRoute(planOrigin(car), cutOffFor(steps + CUT_OFF_AHEAD.length));
+      let route = stream ? followRoute(car) : findRoute(planOrigin(car), cutOffFor(steps));
+      // A stale route is worse than none under the stream: it may still run into the blockade.
+      if (stream && !route?.length) car.route = [];
+      if (!stream && route && route.length === 0) {
+        route = findRoute(planOrigin(car), cutOffFor(steps + aims.length));
       }
       if (route?.length) car.route = route;
       car.routeConsumed = false;
     }
     aimedAt = at;
+  }
+
+  /**
+   * `route` from `from`, cut short of the blockade's junction (game/blockade.js) while it is up or
+   * about to be. A cop that followed the taxi's route all the way there would queue at the seal for
+   * the rest of the getaway, and a lane full of them is a lane the taxi cannot get into either: the
+   * line refuses a car whose exit has no room, and that stopped three getaways in sixteen one
+   * junction short of the cars.
+   */
+  function short(from, route) {
+    const at = blockade && blockade.state.phase !== 'idle' ? blockade.state.at : null;
+    if (!at) return route;
+    let { i, j } = from;
+    for (let k = 0; k < route.length; k++) {
+      if (isXAxis(route[k])) i += dirSign(route[k]); else j += dirSign(route[k]);
+      if (i === at.i && j === at.j) return route.slice(0, k);
+    }
+    return route;
+  }
+
+  /**
+   * `?chase=stream`'s route: **down the taxi's own road, then wherever the taxi is going.**
+   *
+   * A stern cop under the ordinary chase is sent to the junction the taxi's lane runs into — which
+   * is the junction *ahead* of it, so the "stern" half came at the taxi down side streets and across
+   * its bows as often as from behind. Measured on 16 staged getaways off the pill, a cop was within
+   * 30 units ahead of the taxi 79% of the time against 72% on its tail. A tail is a different route:
+   * onto the lane the taxi is on (`findRouteOnto`), and from there the taxi's own route, so the cop
+   * takes every turn the taxi takes. A cop already on that lane just takes the taxi's route.
+   */
+  function followRoute(car) {
+    const lead = planOrigin(taxi);
+    const own = planOrigin(car);
+    const after = short(lead, taxi.route ?? []);
+    if (own.i === lead.i && own.j === lead.j && own.d === lead.d) return [...after];
+    const onto = findRouteOnto(own, lead, lead.d);
+    if (onto) return [...onto, ...after];
+    // No way onto the taxi's lane: it has just spun round in front of the blockade, and that lane
+    // starts on the far side of the cars. Head for the junction it is driving at instead.
+    return findRoute(own, junctionAhead(taxi, 1));
   }
 
   /**
@@ -1027,6 +1098,8 @@ export function createRobbery({
     state.alarmed = false;
     state.count += 1;
     robber = fare;
+    blockadeArmed = false;
+    trail.length = 0;
     state.sinceEntry = 0;
     state.standingDown = 0;
     // `onBoard` before the police either way, and the order matters. It is what dispatches the taxi
@@ -1055,7 +1128,9 @@ export function createRobbery({
     // up after the robber's line. They come in off screen near the bank —
     // `enterPolice` in sim/traffic.js owns where, and why "near the bank" and "off screen" have to
     // be traded off against each other.
-    traffic.enterPolice(POLICE_CARS, site.door);
+    // The stream brings them in behind the taxi, which at this moment is outside the bank anyway.
+    if (stream) traffic.enterPolice(POLICE_CARS, taxi, { behind: true, tail: trailIds() });
+    else traffic.enterPolice(POLICE_CARS, site.door);
     // Pointed down the getaway on the frame they arrive rather than on the next tick, so the road
     // is already filling up on the first frame the player can drive it.
     steerChase();
@@ -1087,6 +1162,7 @@ export function createRobbery({
     };
     const drop = robber?.figure ? { at: robber.target, figure: robber.figure } : null;
     robber = null;
+    blockade?.release();
     for (const cop of fleet()) {
       // Out of any roadblock, whatever happens to the car next. The overtake lets itself go once
       // `chase` is 0; a junction hold is this module's and is let go here, or the stand-down
@@ -1099,6 +1175,7 @@ export function createRobbery({
       cop.joinBlock = null;
       cop.partnerStop = null;
       cop.uturnWanted = false;
+      cop.pursuit = 0;
     }
     // **Delivered: one after the taxi, the rest after the robber.** The nearest cop becomes the
     // patrol's chase (`handOff`), and the ones near enough to the drop-off go and surround the
@@ -1206,10 +1283,41 @@ export function createRobbery({
     // trail away. A replacement dropped on a ring around the player is as likely to turn up beside
     // them or in front; dropped behind, it comes into frame in the mirror on the straight they are
     // already driving, and the road behind a getaway keeps refilling.
-    traffic.enterPolice(1, taxi, { behind: true });
+    traffic.enterPolice(1, taxi, { behind: true, tail: trailIds() });
     // A fresh cop has no route, and the aim is keyed on the taxi not having moved — so without
     // this it would wait for the taxi to cross a junction before it was ever pointed anywhere.
     aimedAt = null;
+  }
+
+  /**
+   * The lanes the taxi has driven lately, newest last — where `?chase=stream` brings a cop in
+   * (`tail` on `enterPolice`). Ten lanes is about two hundred units of road, which always reaches
+   * past the off-screen clearance however twisty the run has been.
+   */
+  const trail = [];
+  const TRAIL_LANES = 10;
+  function noteTrail() {
+    const id = taxi.lane?.id;
+    if (id == null || trail[trail.length - 1] === id) return;
+    trail.push(id);
+    if (trail.length > TRAIL_LANES) trail.shift();
+  }
+  const trailIds = () => (stream ? new Set(trail) : null);
+
+  /**
+   * The stream's catch-up: a cop that has dropped back lifts its ceiling, the patrol's own rule
+   * (`PURSUIT_FROM`/`PURSUIT_FULL` in game/patrol.js), to 25 against a boosting taxi's 22.1. It
+   * does not keep the stream on a taxi held on the pill — measured over 30 getaways that way a cop
+   * was on its tail 16% of the time, and a lift of 2 or 3 moved that by a point or two, because the
+   * gap is lost queueing and cornering rather than on the straights. Off the pill it is 83%.
+   */
+  function streamPursuit() {
+    noteTrail();
+    for (const cop of fleet()) {
+      const gap = Math.hypot(cop.x - taxi.x, cop.z - taxi.z);
+      cop.pursuit = cop.crashed ? 0
+        : Math.max(0, Math.min(1, (gap - STREAM_PURSUIT_FROM) / (STREAM_PURSUIT_FULL - STREAM_PURSUIT_FROM)));
+    }
   }
 
   /**
@@ -1244,16 +1352,25 @@ export function createRobbery({
       // the taxi is winning, and exactly when a checkpoint's reinforcement is meant to arrive.
       state.sinceEntry += dt;
       if (fleet().length < wanted() && state.sinceEntry >= REENTRY_GAP) {
-        if (traffic.enterPolice(1, taxi, { behind: true })) {
+        if (traffic.enterPolice(1, taxi, { behind: true, tail: trailIds() })) {
           state.sinceEntry = 0;
           aimedAt = null;
         }
       }
       recyclePolice();
       steerChase();
+      if (stream) streamPursuit();
       holdRoadblocks(dt);
+      // The last checkpoint is shut (game/blockade.js), from the start: the cars go in whenever
+      // its box is out of shot and off the route being driven, which is usually an earlier leg.
+      if (blockade && !blockadeArmed && robber?.checkpoints?.length) {
+        blockadeArmed = true;
+        blockade.arm(robber, robber.checkpoints[robber.checkpoints.length - 1]);
+      }
+      blockade?.update(dt);
       return;
     }
+    blockade?.update(dt);
 
     // The arrest, and whatever is left over from the event that just ended driving itself off the
     // map. The stand-down's clock is held while the arrest has cars, so the ones it hands back
@@ -1286,6 +1403,8 @@ export function createRobbery({
     },
     /** The scene at the drop-off — see game/arrest.js. */
     arrest,
+    /** The last checkpoint shut, under `?chase=stream` — see game/blockade.js. Null otherwise. */
+    blockade,
     /**
      * Called off a run ending, so an event cannot outlive the run it happened during — the same
      * contract `burgerRun.abandon` keeps. The fare loop has already cleared the board by then

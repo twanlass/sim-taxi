@@ -2467,6 +2467,45 @@ the robber gets out.
 (game/patrol.js) is why: a third of a tank is five seconds of boost, which loses the cop 8 times in
 16; none is caught 15 in 16; a full tank gets away 14 in 16.
 
+### The stream and the roadblock (prototype, `?chase=stream`)
+
+`stream` in `game/robbery.js`, `game/blockade.js`. The default chase above reads as cops arriving
+from everywhere, and it is right about why: the "stern" pair were sent to the junction *ahead* of
+the taxi, so they converged from the side streets, and `enterPolice`'s `behind` was never applied at
+all — its rings reach 20 to 50 and every one is inside the 50-unit `SPAWN_CLEARANCE`, so a recycled
+cop came in wherever there was room. Behind the flag the chase is a column instead:
+
+- **Every cop follows.** None is sent ahead; each drives the taxi's own route (`followRoute`), so
+  where the taxi turned it turns. A cop on the taxi's lane copies the route outright; one elsewhere
+  plans onto the lane the taxi is on first.
+- **They come in on the taxi's trail.** The last ten lanes it drove (`trailIds`) are handed to
+  `enterPolice` as `tail`, which spawns just outside the clearance on those lanes first and behind
+  the taxi second. Spawns ahead of the taxi went from 298 of 579 to 58 of 555.
+- **They close the gap.** `cop.pursuit` lifts the cruise ceiling the way the patrol's does, from a
+  14-unit gap to full at 34.
+
+Measured over 30 getaways driven at cruise, a cop is on the taxi's tail (same lane, 40 units back)
+for 83% of the run against 72% in the classic chase, and one is ahead of it 44% against 79%. Driven
+flat out on the pill the stream loses: 16% tail and a median nearest cop of 28 units, and lifting
+`PURSUIT_LIFT` to 3 changes little. The column is felt off the pill and at corners, which is
+the design question this prototype exists to answer.
+
+**The last checkpoint is a roadblock, and the way through it is the U-turn.** At the alarm the last
+checkpoint is armed: its lanes in close to new traffic, and the first frame its box is out of shot,
+empty and not on the leg the taxi is driving, three cop cars are staged across it (`stageCar`) and
+the junction is sealed `hard` (a boosting taxi is held too; three parked cars at Loco speed is the
+wreck, and an imposed event does not get to end the run that way). Reaching the cars counts as the
+checkpoint (`arriveRadius`, 16 against the usual 9.6). The robber shouts "Roadblock! Brake twice,
+spin us round!" (`BLOCKADE_SHOUT`) and two brake taps spin the taxi with no Loco and no speed
+(`cornered` in game/bootleg.js) — back down its own lane into the cops following it, which is the
+point. Every route is told it can reach the junction but not pass through it
+(`setClosedJunctions`), so the re-plan after the spin goes round.
+
+It is skipped where the spin cannot work: an arm the taxi cannot turn round on (arterial median,
+bridge) is shut to routes, and a junction with no spinnable arm, or one where some approach has no
+exit but into it, gets no blockade. Measured: 25 of 30 getaways stand one, every one spun, none
+overlapping a car, 29 of 30 delivered at cruise (the miss ran out of clock) and 30 of 30 boosting.
+
 ### The police helicopter
 
 `game/policeheli.js`, the `police` livery in `geometry/helicopter.js`, `heliTarget` in `main.js`.
