@@ -278,6 +278,18 @@ almost nothing over that and cost a full pass on a phone.
 | **Reflection** | The mirrored ray is followed to the far wall (with its railing), each bridge's fascia or soffit, or the sky (the haze colour, so it follows `daylight.js`). Weighted by Fresnel with a floor (`REFLECT_FLOOR`), because water's real 4% at this angle is invisible at play zoom. |
 | **Glints** | Blinn-Phong off the facets in the light loop (`RE_Direct_Water`). Mostly dark by day: at the parked 16:24 sun the light is *behind* the camera, so a facet would have to tilt ~58° to glint, which is physically right. The police cruiser's lamps do glint. |
 
+**The smooth look is the default; the table above is `?water=classic`.** At play zoom the facets
+read as pixels rather than as low-poly: one normal per ten-pixel triangle means the mirrored ray
+crosses the top of the far wall a whole triangle at a time, and the reflection band's edge came out
+as a staircase. There is no reflection texture behind it to sample better — the step was in the
+normal. The default (`setWaterStyle`, `WATER_SMOOTH` in the shader) changes three things:
+
+| | How |
+|---|---|
+| **Normal** | The analytic gradient of the same travelling waves plus a finer octave, per pixel (`waterSmooth`). `SMOOTH_AMP` is 0.06 — a quarter of the facets' height — because a continuous surface at the facets' slope folds the wall's top edge and the railing into closed rings (marbling); this low, the reflection stays as wavy bands parallel to the wall. The wall/sky blend is ±0.3 rather than ±0.06 and the railing lines are `fwidth`-antialiased for the same reason. |
+| **Depth** | The bed shelves on a sine, `BED_EDGE` 0.45 at each wall to `BED_MID` 3.4 down the middle, so the margins show the lit bed and the centre loses itself; the strip's vertex colours turn round to match (open at the walls, `riverDeep` down the middle, five rows). |
+| **Lip** | Fresnel pushed to `RIM_REFLECT` within `RIM_W` (0.55, ~4px) of each wall, plus a fainter sky sheen over 1.6 units, so the water lightens into the concrete. |
+
 Two things are deliberate:
 
 - **The mouth is untouched.** Every term is scaled by how deep the water is, *cubed*, so it has gone
