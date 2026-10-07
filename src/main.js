@@ -1479,11 +1479,11 @@ traffic.onTaxiLand(({ x, z, yaw, v, deck, big }) => {
     sfx?.play('land', { gain: 1 });
     sfx?.play('crash', { gain: 0.35, rate: 0.7 });
     dust.burst(x, z, yaw, 30, 1.2, { y: DUST_ROAD_Y + deck, ring: 2.2, linger: 1.3 });
-    // The wreck's shockwave ring, smaller and in the colour the kick was burning (violet, then up
-    // the chain) rather than the wreck's yellow, and with none of the fire — so the slam reads as
-    // drama and never, at a glance, as the run ending. See `shock` in game/blast.js.
-    const tier = Math.min(DRIFT_LAND_RING.length - 1, Math.max(0, traffic.taxi.driftTier - 1));
-    blast.shock(x, z, { y: deck, tint: DRIFT_LAND_RING[tier], yaw, speed: v });
+    // The wreck's shockwave ring, smaller and in the dust's colour rather than the wreck's yellow,
+    // with none of the fire — so the slam reads as weight and never, at a glance, as the run
+    // ending. Tyler's call over the drift flame's colour, which was the first cut. See `shock` in
+    // game/blast.js.
+    blast.shock(x, z, { y: deck, tint: PALETTE.landRing, yaw, speed: v });
   } else {
     controller.kickShake(0.7 + hit * 0.3);
     sfx?.play('land', { gain: 0.7 + hit * 0.3 });
@@ -1648,9 +1648,6 @@ let slowMoMin = SLOW_MO_MIN;
 // wreck's, so it cannot outlive the flight, and full speed at both ends: the takeoff keeps its
 // punch and the slam comes down at real time, which is the half that has to hit hard.
 const LAUNCH_SLOW_MO_MIN = 0.4;
-// The landing's shockwave, per drift-chain tier. The flame's *mid* stop rather than its outer: the
-// outer violet is dark enough to sink into the asphalt at night, the mid one carries on any road.
-const DRIFT_LAND_RING = [PALETTE.locoFlameDriftMid, PALETTE.locoFlameChain2Mid, PALETTE.locoFlameChain3Mid];
 const launchTimeScale = (u) => 1 - (1 - LAUNCH_SLOW_MO_MIN) * Math.sin(Math.PI * u) ** 2;
 
 // The wreck's replay (game/replay.js): after the live beat, three quick cuts on the moment of
