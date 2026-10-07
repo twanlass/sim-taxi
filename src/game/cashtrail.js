@@ -272,14 +272,16 @@ const BUNDLE_LIFE = 7;
 const BUNDLE_SHRINK = 0.3;
 
 /**
- * A bundle, in world units: the note's footprint, a stack deep, with a band a quarter of its length
- * round the middle. Slightly bigger than a note so a brick among the loose notes reads as more of
- * the same thing rather than as something else.
+ * A bundle, in world units: the note's footprint, a stack deep, with a band about a third of its
+ * length round the middle. It was a quarter (0.24), which is under two pixels at play zoom and
+ * vanished; 0.32 is ~2.5px and still leaves a green end either side of it. Slightly bigger than a
+ * note so a brick among the loose notes reads as more of the same thing rather than as something
+ * else.
  */
 export const BRICK_L = 0.92;
 export const BRICK_W = 0.5;
 export const BRICK_H = 0.26;
-const BAND_L = 0.24;
+const BAND_L = 0.32;
 /**
  * How far the band stands proud of the brick. Two coplanar faces shimmer (CLAUDE.md); a band that
  * encloses the brick by this much on the four faces it wraps never shares a plane with it, and its

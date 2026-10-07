@@ -2072,8 +2072,8 @@ It is a **flutter** pool, and every difference from the three above follows from
   (`y − TAXI_TAILPIPE_HEIGHT + ROAD_Y`), and the probe checks every settled note and bundle is on it.
 
 **And a few wrapped bundles go with it.** Three with each press and one at the start of about a
-third of the gusts: a brick of notes the note's footprint and 0.26 deep, with a cream `cashBand`
-round its middle standing 0.015 proud so it never shares a plane with the brick. They are the other
+third of the gusts: a brick of notes the note's footprint and 0.26 deep, with a white `cashBand`
+0.32 wide round its middle standing 0.015 proud so it never shares a plane with the brick. They are the other
 weight — gravity 24 against the notes' 7, one bounce at 0.32, then they slide to a stop and flop onto
 their broad face — and they are there because a single note at 7px can only ever be a green fleck,
 where a banded brick reads as money at any zoom. `propMaterial` rather than unlit, like the
