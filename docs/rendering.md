@@ -87,6 +87,22 @@ Four details worth keeping:
   patches on a dark one, and takes the scale cue with it. So the punched path carries a ceiling
   (0.52 on brick, 1.0 on the pale envelopes) and the curtain-wall path does not.
 
+### Wheel wells — `archedBodyGeometries` in `geometry/wheels.js`
+
+Every road vehicle's lower body — the fleet's cars, truck chassis, the cop cars and cruiser (through
+`carGeometry`), the fire engine and the taxi — is one shared slab with an arch cut over each axle and
+a dark liner (`wheelWell`, on the tyre's matte finish) filling the middle of the car as the well's back
+wall. It replaced a plain box that the front wheels' inner 0.41 sat buried in, so at any steering
+angle the flank cut the tyre on a slant.
+
+The arch is sized to the **swept** tyre, not the still one: `ARCH_R = WHEEL_R + ARCH_GAP` clears a
+wheel at `STEER_MAX` fore and aft and over the top, and `tools/probe.mjs` samples a tyre at full lock
+on a car and a truck and asserts nothing lands in the panel. Because the wheels are oversized for the
+camera, a car's arches run off both ends of the body — the corners are open below 0.81 — and they rise
+to 1.34 against a 1.50 roofline. That last number is why the taxi's chequer stripe rides the shoulder
+now: cut at the waist where it used to sit, it kept about two of its six cells. Anything else laid on
+a flank (the taxi's rear door, the fire engine's band) is cut with the same `archOutlines`.
+
 ### Car finishes — `propMaterial({ gloss })` in `util/geo.js`
 
 Every vehicle body and every wheel — the fleet, truck cabs and boxes, the cop cars, the cruiser and
