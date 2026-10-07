@@ -1214,6 +1214,10 @@ be rammed, and holding past it still rams. At 0.6s reaction that takes the pass 
 a taxi that never throws the combo still rams 80 cars in the same runs. Tyler tried it behind a
 flag and kept it (2026-10-07).
 
+The same day `OVERTAKE_PRE_HOLD` went from 0.2s to 0, so a quick tap, then tap-and-hold behind a
+car throws the combo too. The 0.2 was there to stop stabs at the pill arming it, but a double tap
+with a car in range is deliberate.
+
 **This was built once before and abandoned, and why matters.** The old overtake pulled out to the
 road *centreline*, which is the single worst place on the road:
 
