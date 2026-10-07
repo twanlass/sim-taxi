@@ -1838,6 +1838,14 @@ jump cuts straight to the card, so a flight still going when the last shot ends 
 used to be an `EJECT_TAIL` that handed back to the live wreck for 1.1s to watch it, dropped with the
 rest of the real-time tail.
 
+**The windscreen goes with them.** `game/windshield.js`. On the same frame, 44 flat shards of glass
+spray out of the front of the cabin in a cone along the heading (a quarter of them just drop onto the
+road in front), tumble and flash white in the air, skid to a stop and stay on the road glinting
+slowly for the rest of the beat. One unlit `InstancedMesh`, no shadow, drawn at renderOrder 7 so the
+spray reads *over* the fireball it flies out of. Same closed form as the driver and scrubbed by the
+replay the same way; every horizontal speed is multiplied by the driver's `throwScale()`, so a throw
+cut short by a building cuts its glass short too.
+
 **A wrecked car's lamps go out.** A crashed car never reaches the render pass again, so whatever
 brake level it last wrote would sit there for the rest of the run — and the frame this fires on is
 exactly the one anything is hardest on the brakes. The ambient car's pods are collapsed to zero in

@@ -30,7 +30,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/daylight.js', '../src/game/riderfinder.js',
   '../src/game/taxifinder.js',
   '../src/game/farepointers.js', '../src/game/sirenglow.js', '../src/game/robberyglow.js',
-  '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/ejection.js', '../src/game/replay.js', '../src/game/runend.js',
+  '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/ejection.js', '../src/game/windshield.js', '../src/game/replay.js', '../src/game/runend.js',
   '../src/game/impact.js', '../src/game/taxidamage.js', '../src/game/taxidoor.js',
   '../src/util/viewport.js',
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
@@ -383,6 +383,57 @@ try {
     ej.seek();
     if (!ej.group.visible || ej.group.position.distanceTo(end) > 1e-6) fail.push('seek() did not hand it back');
     if (fail.length) throw new Error(`ejection: ${fail.join('; ')}`);
+  }
+
+  // The windscreen glass that goes with the driver (game/windshield.js). The same closed-form
+  // promises as the driver — stepped and scrubbed agree, nothing under the road, nothing before
+  // the impact — plus that it comes to rest, and that a throw cut short by a wall cuts the glass
+  // short with it.
+  {
+    const THREE = await import('three');
+    const { createWindshield } = await import('../src/game/windshield.js');
+    const { makeRng } = await import('../src/util/rng.js');
+    const fail = [];
+    const m = new THREE.Matrix4();
+    const p = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    const sc = new THREE.Vector3();
+    const shards = (w) => Array.from({ length: w.mesh.count }, (_, k) => {
+      w.mesh.getMatrixAt(k, m);
+      m.decompose(p, q, sc);
+      return { p: p.clone(), s: sc.x };
+    });
+    const spray = (scale) => {
+      const w = createWindshield(new THREE.Scene(), { rng: makeRng(7), roadY: 0 });
+      w.fire({ x: 0, z: 0, yaw: 0, scale });
+      return w;
+    };
+    const w = spray(1);
+    let low = Infinity;
+    for (let n = 0; n < 150; n++) {
+      w.update(1 / 60);
+      for (const sh of shards(w)) low = Math.min(low, sh.p.y);
+    }
+    if (low < 0.04) fail.push(`a shard dipped to y ${low.toFixed(3)}`);
+    if (!(w.airTime() < 1)) fail.push(`last shard down after ${w.airTime().toFixed(2)}s`);
+    const end = shards(w);
+    const far = Math.max(...end.map((sh) => sh.p.x));
+    if (!(far > 6 && far < 18)) fail.push(`spray reaches ${far.toFixed(1)} down an open street`);
+    if (!end.every((sh) => sh.p.x > -0.5)) fail.push('glass went backwards out of the windscreen');
+    for (let n = 0; n < 60; n++) w.update(1 / 60);
+    if (shards(w).some((sh, k) => sh.p.distanceTo(end[k].p) > 0.02)) fail.push('glass still sliding after 2.5s');
+    const short = spray(0.3);
+    for (let n = 0; n < 150; n++) short.update(1 / 60);
+    const shortFar = Math.max(...shards(short).map((sh) => sh.p.x));
+    if (!(shortFar < far * 0.5)) fail.push(`a 0.3 throw still sprays ${shortFar.toFixed(1)} against ${far.toFixed(1)}`);
+    w.seek(0.3);
+    const scrubbed = shards(w);
+    const stepped = spray(1);
+    for (let n = 0; n < 18; n++) stepped.update(1 / 60);
+    if (shards(stepped).some((sh, k) => sh.p.distanceTo(scrubbed[k].p) > 1e-4)) fail.push('seek(0.3) disagrees with stepping to 0.3');
+    w.seek(-0.1);
+    if (shards(w).some((sh) => sh.s !== 0)) fail.push('drew before the impact');
+    if (fail.length) throw new Error(`windshield: ${fail.join('; ')}`);
   }
 
   // Drive a whole day past the lights. Every keyframe gets applied, so a bad colour or a uniform

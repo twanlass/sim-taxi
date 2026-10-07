@@ -65,6 +65,7 @@ import {
 } from './game/locoflame.js';
 import { createWreckage } from './game/wreckage.js';
 import { createEjection, EJECT_CLOSING } from './game/ejection.js';
+import { createWindshield } from './game/windshield.js';
 import { createTape, createCrashReplay } from './game/replay.js';
 import { CARRY_DRAG, carrySpeed, carryTravel } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
@@ -1242,6 +1243,9 @@ const ejection = createEjection(scene, {
     sfx?.play('land', { gain: 0.25 + hard * 0.45 });
   },
 });
+// And the windscreen they went through: a spray of glass along the throw, left glinting on the
+// road. See game/windshield.js.
+const windshield = createWindshield(scene, { rng: makeRng(runSeed + 919), roadY: ROAD_Y });
 
 // The crash replay's recording and its director — see game/replay.js, and REPLAY_LEAD for how the
 // two endings fit together. The boats' wake is left off the tape because the boats are: the world
@@ -1258,7 +1262,7 @@ const replay = tape && createCrashReplay({
   // and at full gain each cut reads as another collision.
   onImpact: () => sfx?.play('crash', { gain: 0.75 }),
   hide: [clouds.group],
-  scrub: [ejection],
+  scrub: [ejection, windshield],
 });
 // A tap anywhere skips to the card, and so does any key — a replay is a reward for looking, and a
 // player who wants the retry button should not have to sit through it to get there.
@@ -1836,6 +1840,7 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
   // a T-bone or a head-on does it and rear-ending traffic going the same way does not.
   if (closing >= EJECT_CLOSING) {
     ejection.fire({ x: traffic.taxi.x, z: traffic.taxi.z, yaw, closing, side: struckSide });
+    windshield.fire({ x: traffic.taxi.x, z: traffic.taxi.z, yaw, scale: ejection.throwScale() });
   }
   wreckage.take(traffic.wreckShell(other), {
     // A copy made on this frame: before it, the car was an instance the replay draws instead.
@@ -4515,6 +4520,7 @@ function frame() {
   repairFx?.update(dt);
   wreckage.update(dt);
   ejection.update(dt);
+  windshield.update(dt);
   flyover.update(dt);
   // Night, for the searchlight: off the sun's own power, which the day/night keys run 0 to 3.85.
   policeHeli?.update(dt, heliTarget(dt), { dark: 1 - THREE.MathUtils.smoothstep(sun.intensity, 0.3, 2.6) });
@@ -5302,6 +5308,7 @@ if (shot) {
       blast.update(1 / 60);
       wreckage.update(1 / 60);
       ejection.update(1 / 60);
+      windshield.update(1 / 60);
       // The smoke collar is part of the wreck now, and it lives in the dust pool rather than in
       // blast.js — left out of this loop, `?shot=12` would freeze a crash with its smoke still
       // stacked on the impact point at zero age.
