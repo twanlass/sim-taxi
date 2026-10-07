@@ -1,8 +1,8 @@
 // The crash replay: the moment of impact shown three more times, in quick cuts from three angles.
 //
 // A wreck ends the run with a live beat — the slow-mo pull-in main.js has always done — and then,
-// instead of going straight to the retry card, this cuts to the hit from one side of the fixed
-// diagonal, cuts to it from the other side, cuts to it again tight on the diagonal, and hands back:
+// instead of going straight to the retry card, this cuts to the hit from three angles picked from
+// all the way round it — far apart, and each with a clear view of the wreck — then the card:
 // cut, crash, cut, crash, cut, crash. Each shot is about a second, opening a beat before the hit.
 //
 // Two halves, both here:
@@ -26,6 +26,7 @@ import * as THREE from 'three';
 import { VIEW_DIR } from './camera.js';
 import { heightAt } from './sightline.js';
 import { SKYLINE_CEILING } from '../city/buildings.js';
+import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
 
 // Sampled in sim time, so the live beat's slow-mo writes no more samples than full speed does.
 // 30 rather than 60 because the playback interpolates anyway (see `apply`): a sample is ~150KB
@@ -311,8 +312,8 @@ export function createTape(scene, { roots = [], exclude = () => false } = {}) {
 
 // The three cuts. Each opens `pre` sim seconds before the impact — just enough to see the two cars
 // meet, not the approach — runs `post` past it, and pushes in from `zoomFrom` to `zoomTo` (frustum
-// half-heights; the live beat holds at 26). `side` is which way off the diagonal it swings: one
-// side, the other, then square on and tightest for the last word. The rhythm is the point — a first
+// half-heights; the live beat holds at 26). Where each is shot *from* is `pickYaws`; `side` is only
+// which way the camera drifts round during it, and the last, tightest one holds still. The rhythm is the point — a first
 // cut that opened a second early and played the whole approach read as a replay *package*, and the
 // three-beat stutter reads as the crash being too big to show once. `hold` is wall seconds the shot
 // stays on its last frame before handing back, the camera still drifting round on its orbit: the
@@ -339,17 +340,44 @@ const FAST = 0.8;
 const SLOW = 0.5;
 const RAMP = 0.12;
 
-// How far each shot swings off the fixed diagonal, in degrees — tried in this order on each side
-// and the first one that can see the crash wins (see `scoreYaw`). Kept within 50° on purpose: the
-// city has only ever been looked at from one direction, and the further round the camera goes the
-// more of what was built for that one view turns up in frame (see the note on `yaw` in camera.js).
-const YAW_CHOICES = [35, 28, 42, 22, 50];
-// The reverse shot: every cut is taken from the far side of the crash, the camera swung half way
-// round from where play has always looked, and the swings above are taken about *that*. The point
-// is the one view of the wreck the player has never had — the city seen from behind. `?crashcam=
-// classic` puts it back on the play side, for comparing the two on one build.
-const REVERSE = typeof location !== 'undefined'
-  && new URLSearchParams(location.search).get('crashcam') === 'classic' ? 0 : Math.PI;
+// Where the cuts can be taken from: every YAW_STEP degrees all the way round the crash, as a swing
+// off the play camera's fixed diagonal. The first version kept within 50° of play on the grounds
+// that the city had only ever been looked at from one side; a reversed build showed it holds up
+// from any side — buildings have backs, roofs have their plant — so the choice is made on what each
+// direction can *see*, not on how far it is from home.
+const YAW_STEP = 15;
+// How square to the street grid a cut may look, in degrees off looking straight down a road. Play
+// looks at 45° — down the diagonal, which is where the low-poly city reads as 3/4 — and a view
+// aligned with the streets flattens it into a plan: each building shows one face and the road
+// grid squares up with the frame. The first all-round pass picked 135° often (it is the only
+// direction a crash on the east coast has land both above and below it) and every one of those
+// read as overhead.
+const MIN_OFF_GRID = 30;
+// No two cuts closer than this, in degrees. The cut is the effect: two shots 20° apart read as the
+// camera twitching rather than as another angle on the same crash. 75 was tried first, and on the
+// coast it cannot be had: a crash two units in from the east edge has land in frame both ways only
+// round 135°, and three cuts 75° apart forced one to half sky (0.50 against play's own 0.33).
+const MIN_SEPARATION = 60;
+// Where the frame is sampled for open sky, in ground units off the crash: up- and down-screen (a 17
+// half-height at this pitch reaches ~31 units of ground either way) and across it (a portrait
+// phone's narrowest frame is MIN_HALF_WIDTH of the zoom). A crash on the coast framed with the sea
+// above *or* below it shows bare sky where the island stops, which reads as the world running out;
+// the first pass only looked up-screen and put a strip of sky along the bottom of a coast shot.
+const FRAME_ALONG = [-28, -14, 14, 28];
+const FRAME_ACROSS = [-10, 0, 10];
+// Past the outer road's centreline, where the island has ended in every direction.
+const COAST = 8;
+// What a backdrop of sky costs, against the 5 a fully seen crash scores: an angle that sees the
+// whole wreck over the edge of the world still beats one with a tower in the way.
+const SKY_COST = 2;
+// The last cut is the tightest and the slowest, so its view counts for more when trading angles off.
+const LAST_WEIGHT = 1.5;
+// Up to this much random on each direction's score, so two crashes on the same corner do not always
+// cut the same way. Under the gap between seeing the impact and not (3), so it only breaks near-ties.
+const JITTER = 0.4;
+// The patch each scored point stands for, in world units off it — about a car's half-length.
+const BODY = 1.6;
+const BODY_SAMPLES = [[0, 0], [BODY, 0], [-BODY, 0], [0, BODY], [0, -BODY]];
 // And a slow orbit on top during the shot, away from the diagonal, so a shot is never a still.
 const ORBIT_DEG = 7;
 // The shake the replay kicks as it crosses the impact — under the live beat's 2.4 because the
@@ -396,26 +424,79 @@ function clearAlong(x, y, z, yaw) {
 }
 
 /**
- * Score a swing by how much of the crash it can see: the impact point and two points back along
- * the taxi's approach, at bonnet height. A tower between the camera and the wreck is the one way
- * this feature can fail outright, and the city is full of them.
+ * Score a swing by how much of the crash it can see — the impact point and two points back along
+ * the taxi's approach, at bonnet height; a tower between the camera and the wreck is the one way
+ * this feature can fail outright, and the city is full of them — less what it costs to frame the
+ * wreck against open sky. Trees are not in the height field and can still get in the way.
  */
 function scoreYaw(points, yaw) {
   let score = 0;
-  for (const p of points) if (clearAlong(p.x, p.y, p.z, yaw)) score += p.weight;
-  return score;
+  for (const p of points) {
+    // Each point as a car-sized patch rather than a pin: the centre and four spots BODY out from it.
+    // A pin at bonnet height threads past a park's crowns that stand right beside the wreck and
+    // cover most of the car — the first render of this had a taxi half behind trees off a
+    // perfect score.
+    let seen = 0;
+    for (const [ox, oz] of BODY_SAMPLES) if (clearAlong(p.x + ox, p.y, p.z + oz, yaw)) seen++;
+    score += p.weight * (seen / BODY_SAMPLES.length);
+  }
+  return score - SKY_COST * skyInFrame(points[0].x, points[0].z, yaw);
 }
 
-function pickYaw(points, side) {
-  if (!side) return REVERSE;
-  let best = null;
-  let bestScore = -1;
-  for (const deg of YAW_CHOICES) {
-    const yaw = REVERSE + side * THREE.MathUtils.degToRad(deg);
-    const score = scoreYaw(points, yaw);
-    if (score > bestScore) { best = yaw; bestScore = score; }
+/** The fraction of the frame round (x, z), swung by `yaw`, that is past the coast. Exported for the check. */
+export function skyInFrame(x, z, yaw) {
+  viewDir.copy(VIEW_DIR).applyAxisAngle(Y_AXIS, yaw);
+  const len = Math.hypot(viewDir.x, viewDir.z);
+  // Up-screen on the ground is *away* from the camera, so against the view direction.
+  const ux = -viewDir.x / len;
+  const uz = -viewDir.z / len;
+  let sky = 0;
+  for (const a of FRAME_ALONG) {
+    for (const c of FRAME_ACROSS) {
+      const px = x + ux * a - uz * c;
+      const pz = z + uz * a + ux * c;
+      if (Math.abs(px) > HALF_SPAN_X + COAST || Math.abs(pz) > HALF_SPAN_Z + COAST) sky++;
+    }
   }
-  return best;
+  return sky / (FRAME_ALONG.length * FRAME_ACROSS.length);
+}
+
+function angleApart(a, b) {
+  const d = Math.abs(a - b) % 360;
+  return Math.min(d, 360 - d);
+}
+
+/**
+ * The three cuts' swings, in shot order. Every direction round the crash is scored, then every
+ * ordering of three that keeps MIN_SEPARATION between each pair is tried, and the best total view
+ * wins — the last cut's counted LAST_WEIGHT times over. Exported for the headless check.
+ */
+export function pickYaws(points, random = Math.random) {
+  const degs = [];
+  const scores = [];
+  for (let deg = 0; deg < 360; deg += YAW_STEP) {
+    // Play's diagonal is 45° off the grid, so a swing of `deg` is `offDiagonal` from the nearest
+    // diagonal and 45 less than that from the nearest street.
+    const offDiagonal = Math.abs(((deg + 45) % 90) - 45);
+    if (45 - offDiagonal < MIN_OFF_GRID) continue;
+    degs.push(deg);
+    scores.push(scoreYaw(points, THREE.MathUtils.degToRad(deg)) + random() * JITTER);
+  }
+  const n = degs.length;
+  let best = null;
+  let bestValue = -Infinity;
+  for (let a = 0; a < n; a++) {
+    for (let b = 0; b < n; b++) {
+      if (angleApart(degs[a], degs[b]) < MIN_SEPARATION) continue;
+      for (let c = 0; c < n; c++) {
+        if (angleApart(degs[a], degs[c]) < MIN_SEPARATION) continue;
+        if (angleApart(degs[b], degs[c]) < MIN_SEPARATION) continue;
+        const value = scores[a] + scores[b] + LAST_WEIGHT * scores[c];
+        if (value > bestValue) { bestValue = value; best = [a, b, c]; }
+      }
+    }
+  }
+  return best.map((k) => THREE.MathUtils.degToRad(degs[k]));
 }
 
 /**
@@ -495,7 +576,7 @@ export function createCrashReplay({
       live: { x: target.x, z: target.z, zoom },
       tapeStart: span.start,
       recorded: span.end - crash.t0,
-      yaws: SHOTS.map((s) => pickYaw(points, s.side)),
+      yaws: pickYaws(points),
     };
     run.shown = hide.map((o) => o.visible);
     for (const o of hide) o.visible = false;
@@ -527,8 +608,8 @@ export function createCrashReplay({
     const ratio = aspect();
     const zoom = (run.shot.zoomFrom + (run.shot.zoomTo - run.shot.zoomFrom) * easeInOut(k))
       * Math.max(1, MIN_HALF_WIDTH / ratio);
-    // Orbits on away from the axis it swung off, so by the shot's side rather than the sign of
-    // its yaw: under REVERSE every yaw is near π and the sign no longer says which way it went.
+    // Each shot drifts round its own way (`side`), alternating so consecutive cuts never orbit in
+    // step; the yaws themselves come from all the way round, so their sign says nothing about it.
     const yaw = run.yaw + (run.shot.side ?? 0) * THREE.MathUtils.degToRad(ORBIT_DEG) * orbitK;
     controller.cutTo(tx, tz, zoom, yaw, ratio);
     if (wallDt > 0) controller.updateShake(wallDt, aspect());

@@ -1835,10 +1835,8 @@ replaced, an opacity.
 
 `game/replay.js`. A wreck no longer goes straight from the live beat to the retry card. After
 `REPLAY_LEAD` (1.2s) of the slow-mo pull-in, the frame cuts to the moment of impact three more
-times, about a second each, all from the **far side** of the crash (`REVERSE`: the camera swung
-180° from where play looks, so the wreck is seen from behind the city; `?crashcam=classic` puts it
-back on the play side): ~35° off that reversed diagonal, ~35° the other way, then square on and
-tightest. Cut, crash, cut, crash, cut, crash, card. Each shot opens 0.3s of sim before the
+times, about a second each, from three angles picked from all the way round it (below), the last
+the tightest. Cut, crash, cut, crash, cut, crash, card. Each shot opens 0.3s of sim before the
 hit and plays at 0.8× into it and 0.5× through the blast, with a white flash on each cut and the
 crash sound under each one. The last shot eases further, to 0.25× over a longer ramp (`slow` and
 `ramp` in `SHOTS`), so the final hit plays in real slow motion, then holds its final frame for 0.4s
@@ -1870,12 +1868,19 @@ hidden before the impact (`hideBefore`), because until then that car was an inst
 (0.45s of sim) past the hit, and the only frames after the hit are the ones the live beat recorded.
 Under the slow-mo ramp 1.2s of wall clock is ~0.49s of sim, which is the floor on `REPLAY_LEAD`.
 
-**Each swung angle is picked so it can see the crash.** A ~35° swing has never been looked down before,
-and a tower between the camera and the wreck is the one way this fails outright. `pickYaw` marches
-the swung view direction through the same height field the fare board's corner test uses
-(`game/sightline.js`) from the impact and two points back along the approach, and takes the first
-candidate in `YAW_CHOICES` that sees the most of them. Swings stay within 50° of the reversed view
-on purpose; see
+**The angles are picked, not fixed: far apart, and each with a view of the wreck.** `pickYaws` scores
+every 15° round the crash, skipping any within 30° of looking straight down a street
+(`MIN_OFF_GRID`: square to the grid the city flattens into a plan, each building showing one face).
+A direction scores for what it can see: the impact and two points back along the approach, each a
+car-sized patch of five samples, marched along the swung view through the same height field the
+fare board's corner test uses (`game/sightline.js`) — buildings, the depot, and the park trees,
+whose crowns otherwise hid half a taxi off a perfect score. It loses up to `SKY_COST` for open sky
+in frame (`skyInFrame`): a crash on the coast shot with the sea above or below it shows bare sky
+where the island stops. Then every ordering of three directions at least `MIN_SEPARATION` (60°)
+apart is tried and the best total wins, the last cut counted 1.5×. A little `JITTER` breaks
+near-ties, so two crashes on one corner don't always cut the same way. The whole circle is fair
+game because the city holds up from every side: buildings have backs and roofs have their plant —
+a build that shot every cut from behind the city showed it. See
 [rendering.md](rendering.md#camera) for what the yaw does to everything built for one view.
 
 ## Roadworks: a street closed at both ends
