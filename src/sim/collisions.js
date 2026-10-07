@@ -1,5 +1,6 @@
 import {
   CAR_LEN, TRUCK_LEN, CIRCLE_R, circleOffsetOf, knockCar, shoveCar,
+  onDriftLaunch, hopProgress, DRIFT_LAUNCH_HEIGHT, DRIFT_LAUNCH_CLEAR,
 } from './traffic.js';
 
 // Collision detection between the taxi and ambient cars. Deliberately narrow: only the taxi is
@@ -208,6 +209,11 @@ export function createCollisions(cars, taxi) {
     // close the armed one: tools/probe.mjs stages the taxi *with* boost on to place a hit by hand,
     // and so does shot mode's wreck.
     if (!armed && taxi.staged) return;
+    // Up on the drift launch the taxi is flying over the far bank's junction, and what crosses it
+    // underneath is under it rather than in its way. Only the climb and the drop are low enough to
+    // hit anything — see DRIFT_LAUNCH_CLEAR.
+    if (onDriftLaunch(taxi)
+      && DRIFT_LAUNCH_HEIGHT * Math.sin(Math.PI * hopProgress(taxi)) > DRIFT_LAUNCH_CLEAR) return;
 
     for (const other of cars) {
       if (other === taxi) continue;

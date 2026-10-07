@@ -29,6 +29,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, DRIFT_CHAIN,
+  onDriftLaunch, hopProgress,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
@@ -1457,13 +1458,24 @@ roadwork.onSmash(({ x, z }) => {
 // At 0 it is exactly what the barricade landing has always been (14 puffs at 0.7, a 0.7 shake);
 // at 1 it is half again as much and still under the barricade *smash*'s 1.1, which is the beat it
 // must not upstage on the one ramp where the two happen a second apart.
-traffic.onTaxiLand(({ x, z, yaw, v, deck }) => {
+traffic.onTaxiLand(({ x, z, yaw, v, deck, big }) => {
   // `boostCruise()` rather than a constant: the Loco top is a tunable (the ⚙️ panel moves it), and
   // a landing measured against a number that has stopped being the top speed reads wrong at both
   // ends of the slider.
   const hit = Math.max(0, Math.min(1, (v - SPEED) / Math.max(1e-6, boostCruise() - SPEED)));
-  controller.kickShake(0.7 + hit * 0.3);
-  sfx?.play('land', { gain: 0.7 + hit * 0.3 });
+  // The drift launch comes down from ten units, and is allowed to be the loudest landing in the
+  // game: there is no barricade smash a second before it to upstage. Shake at the wreck's end of
+  // the range, a body thud under the tyres' land, and the dust thrown out in a ring the way the
+  // helipad's downdraft is, which is what reads as weight arriving rather than exhaust.
+  if (big) {
+    controller.kickShake(1.6);
+    sfx?.play('land', { gain: 1 });
+    sfx?.play('crash', { gain: 0.35, rate: 0.7 });
+    dust.burst(x, z, yaw, 30, 1.2, { y: DUST_ROAD_Y + deck, ring: 2.2, linger: 1.3 });
+  } else {
+    controller.kickShake(0.7 + hit * 0.3);
+    sfx?.play('land', { gain: 0.7 + hit * 0.3 });
+  }
   // The same burst the smash throws, turned down rather than a smaller hand-tuned one, and lifted
   // onto the deck: a landing on the hump of a bridge that puffed at road level would leave its dust
   // hanging in the channel two units under the car.
@@ -1477,7 +1489,7 @@ traffic.onTaxiLand(({ x, z, yaw, v, deck }) => {
   const fz = -Math.sin(yaw);
   const rx = Math.sin(yaw);
   const rz = Math.cos(yaw);
-  const perWheel = 4 + Math.round(hit * 2);
+  const perWheel = big ? 12 : 4 + Math.round(hit * 2);
   for (const [along, track] of [[TAXI_FRONT_AXLE_FWD, TAXI_FRONT_TRACK],
     [-TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK]]) {
     for (const side of [-1, 1]) {
@@ -1617,6 +1629,14 @@ let endZoom = WRECK_ZOOM;
 let crashBannerAt = null;
 let slowMoUntil = 0;
 let slowMoMin = SLOW_MO_MIN;
+
+// The drift launch's hang (sim/traffic.js, DRIFT_LAUNCH_LEN). Twenty units at a 31 u/s kick is
+// 0.65s of flight, which is over before it reads as one; slowed toward the apex it is ~1.1s on the
+// clock. Keyed to how far through the arc the taxi is rather than to a wall-clock ramp like the
+// wreck's, so it cannot outlive the flight, and full speed at both ends: the takeoff keeps its
+// punch and the slam comes down at real time, which is the half that has to hit hard.
+const LAUNCH_SLOW_MO_MIN = 0.4;
+const launchTimeScale = (u) => 1 - (1 - LAUNCH_SLOW_MO_MIN) * Math.sin(Math.PI * u) ** 2;
 
 // The wreck's replay (game/replay.js): after the live beat, three quick cuts on the moment of
 // impact from a recording, then the retry card. The live beat is shortened to make room for it —
@@ -4283,6 +4303,8 @@ function frame() {
   if (nowMs < slowMoUntil) {
     const t = 1 - (slowMoUntil - nowMs) / SLOW_MO_DURATION;
     dt *= slowMoMin + (1 - slowMoMin) * t;
+  } else if (onDriftLaunch(traffic.taxi)) {
+    dt *= launchTimeScale(hopProgress(traffic.taxi));
   }
   simClock += dt;
 
