@@ -2717,11 +2717,14 @@ function updateRunTags() {
 // The combo meter (`?combo=`, game/combometer.js), top centre under the cash row: a purple bar filling
 // towards COMBO_MAX with the multiplier at its right end — no word, and purple so it is not read as
 // the Loco tank (Tyler, 2026-10-07). Nothing shows until the first combo lands, so a run opens on
-// a clean HUD; from then on it stays up for the rest of the run, at ×1 and empty between streaks.
+// a clean HUD; from then on it shows whenever a job is in hand, at 1x and empty between streaks.
 // It swells on each step up; a hit that empties it flinches red and shakes, and a per-ride meter
 // cashed at the drop-off just drains, since the payout sequence says what it paid.
 const comboTag = { el: null, shown: 1, lost: false };
 function updateComboTag(box) {
+  // Only on a job — heading to a rider or carrying one (Tyler, 2026-10-07). Combos only build then
+  // (`landCombo`), so between fares the meter fades out and keeps whatever it holds.
+  comboTag.el?.classList.toggle('is-off-job', !fares.job() || fares.state.gameOver);
   const mult = combo.state.mult;
   if (mult === comboTag.shown) return;
   let el = comboTag.el;

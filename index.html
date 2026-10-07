@@ -286,6 +286,10 @@
         width: calc(100% * var(--combo-fill, 0)); transition: width 0.25s cubic-bezier(0.22, 1, 0.36, 1);
       }
       #hud .run-combo.is-empty .combo-bar > span { box-shadow: none; }
+      /* Off a job the meter fades out where it stands; a fade rather than display: none so the swap
+         between fares is not a blink. */
+      #hud .run-combo { transition: opacity 0.3s ease; }
+      #hud .run-combo.is-off-job { opacity: 0; }
       #hud .run-combo.is-bumped { animation: combo-bump 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
       @keyframes combo-bump {
         0%   { transform: scale(1); }
