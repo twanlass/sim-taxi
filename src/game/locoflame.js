@@ -281,9 +281,12 @@ export function createLocoFlame(scene) {
 
     const heat = clamp01(state.heat);
     group.visible = true;
+    // Up with the body: over an arch, off a ramp, ten units up on the drift launch. A nose-up
+    // pitch drops the tail, by the sine of it over the tailpipe's reach back from the origin.
     group.position.set(
       car.x - Math.cos(car.yaw) * TAXI_TAILPIPE_BACK,
-      TAXI_TAILPIPE_HEIGHT,
+      TAXI_TAILPIPE_HEIGHT + (car.shownLift ?? 0)
+        - Math.sin(car.shownPitch ?? 0) * TAXI_TAILPIPE_BACK,
       car.z + Math.sin(car.yaw) * TAXI_TAILPIPE_BACK,
     );
     // Local +X is the plume's own length, and it has to lie along the car's backward direction:

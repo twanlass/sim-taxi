@@ -454,10 +454,56 @@ export function landingRoll(t) {
   return bounceEnvelope(u) * Math.sin(Math.PI * 2 * BOUNCE_ROLL_CYCLES * u) * BOUNCE_ROLL;
 }
 
-/** Launch `car` off a ramp. Idempotent while already airborne — a second barricade doesn't stack. */
-export function launchHop(car) {
+// --- The drift launch ---------------------------------------------------------
+//
+// The arch jump's big brother: a drift kick still being carried when the taxi reaches the hump
+// leaves it on a launch rather than a hop. Same `hopFrom` arc, same distance pacing, same landing
+// event — only the numbers move, so everything that asks "is the taxi airborne" still asks one
+// field. `car.hopBig` says which arc it is.
+//
+// **The length is a junction, not a feel.** Launched where the ordinary hop is (half a hop short of
+// the crest, 3.25 into a 12-unit deck lane), 20 units of flight clears the rest of the deck and the
+// whole box on the far bank — 8 wide, 10.67 where the bank road is an arterial — and comes down
+// 3.25 or 0.6 into the next street, five units clear of its hold line either way. That is what the
+// screenshot asked for: up off the hump, over the far bank, slammed onto the pavement past it. It
+// does mean the taxi crosses a junction in the air, so the launch only fires when the exit there is
+// **straight on** — a route turning at the far bank would bend the arc sideways in mid-air.
+//
+// **The height is a camera number,** like ARCH_RISE: `6.45h` px at play zoom, so 10 is ~65px, the
+// best part of two blocks of tower and four times the ordinary hop's apex.
+//
+// At a 31 u/s kick, 20 units of flight is 0.65s of sim — the slow-mo in main.js (`launchTimeScale`)
+// is what stretches that into a hang. Nothing under the taxi can touch it while it is up there
+// (sim/collisions.js skips it above DRIFT_LAUNCH_CLEAR), and the brake is deaf: a car with its
+// wheels off the ground has nothing to brake against, and a distance-paced arc on a stopping car is
+// a taxi parked ten units up.
+export const DRIFT_LAUNCH_LEN = 20;
+export const DRIFT_LAUNCH_HEIGHT = 10;
+const DRIFT_LAUNCH_PITCH = 0.5;
+/** Above this much air the taxi is over the traffic rather than in it. A car roof is ~1.5. */
+export const DRIFT_LAUNCH_CLEAR = 1.6;
+// The slam. Scales the landing's squat, rebound and pitch kick: a body coming down from ten units
+// compresses its springs to the stops, and the ordinary landing's 0.34 of squat on that drop reads
+// as a car that weighs nothing.
+const DRIFT_SLAM = 1.8;
+
+/**
+ * Launch `car` off a ramp. Idempotent while already airborne — a second barricade doesn't stack.
+ * `big` is the drift launch (see DRIFT_LAUNCH_LEN) rather than the ordinary hop.
+ */
+export function launchHop(car, big = false) {
   if (car.hopFrom != null) return;
   car.hopFrom = car.travelled;
+  car.hopBig = big;
+}
+
+/** Whether `car` is in the air on the drift launch, rather than an ordinary hop or the road. */
+export const onDriftLaunch = (car) => car.hopFrom != null && car.hopBig === true;
+
+/** How far through its arc the taxi is, 0 to 1, or null on the ground. */
+export function hopProgress(car) {
+  if (car.hopFrom == null) return null;
+  return Math.min(1, (car.travelled - car.hopFrom) / (car.hopBig ? DRIFT_LAUNCH_LEN : HOP_LEN));
 }
 
 // Cops standing across a street on a brake check, rebuilt each frame — `{ axis, line, s, dir }`,
@@ -1541,7 +1587,7 @@ export function spinAngle(t) {
  * `'short'` if there is no room on the lane to land without running into a junction.
  */
 export function spinTaxi(car) {
-  if (car.crashed || car.staged || car.uturn) return 'road';
+  if (car.crashed || car.staged || car.uturn || onDriftLaunch(car)) return 'road';
   if (car.state !== 'drive' || car.pass > 0 || car.passing) return 'road';
   if (!blocksOnCentreline(car)) return 'median';
   const net = cityNetwork();
@@ -1656,7 +1702,7 @@ function turnYawSign(d, dOut) {
  * with no real turn within reach, `'busy'` mid-spin, mid-U-turn, staged, or already drifting.
  */
 export function driftTaxi(car) {
-  if (car.crashed || car.staged || car.uturn || car.drift) return 'busy';
+  if (car.crashed || car.staged || car.uturn || car.drift || onDriftLaunch(car)) return 'busy';
   if (car.v < DRIFT_MIN_V) return 'slow';
   const net = cityNetwork();
   let turn = null;
@@ -4413,10 +4459,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // by anything that has not already imported the river.
   const landListeners = [];
 
-  function emitLand(car) {
+  function emitLand(car, big = false) {
     if (!landListeners.length) return;
     const event = {
-      x: car.x, z: car.z, yaw: car.yaw, v: car.v, deck: deckHeightAt(car.x, car.z).y,
+      x: car.x, z: car.z, yaw: car.yaw, v: car.v, deck: deckHeightAt(car.x, car.z).y, big,
     };
     for (const cb of landListeners) cb(event);
   }
@@ -4433,7 +4479,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // entirely — so it must claim no junction either.
     const taxiActive = !taxi.crashed && !taxi.staged;
     const taxiTurningLeft = taxi.route?.length > 0 && taxi.route[0] === leftOf(taxi.d);
-    setPriorityJunction(taxiActive && taxi.boost
+    // ...and a taxi on the drift launch keeps it however the pill is held: the far bank's junction
+    // goes by underneath it, and a red there would stop a distance-paced arc in mid-air.
+    setPriorityJunction(taxiActive && (taxi.boost || onDriftLaunch(taxi))
       ? {
         i: taxi.i,
         j: taxi.j,
@@ -5435,6 +5483,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // comes from — the pitch spring downstream reads the resulting deceleration off car.v
       // directly, and from the overdrive top it is a longer, deeper one.
       const fullPower = car.boost && !car.boostEasing;
+      // Nothing to brake against in the air — see DRIFT_LAUNCH_LEN. main.js rewrites the pedal
+      // every frame, so this lasts exactly as long as the flight.
+      if (onDriftLaunch(car)) car.braking = false;
       if (car.drift || car.driftTier) stepDrift(car, dt);
 
       if (car.state === 'drive' && car.uturn?.kind === 'spin') {
@@ -6188,7 +6239,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         const ahead = deckHeightAt(car.x, car.z).toCrest * dirSign(car.d);
         if (ahead > 0 && ahead <= HOP_LEN / 2 && car.archHopLane !== car.lane.id) {
           car.archHopLane = car.lane.id;
-          launchHop(car);
+          // A kick still being carried is the drift launch, if the far bank lets the taxi fly
+          // straight over it — see DRIFT_LAUNCH_LEN.
+          const big = car.drift?.phase === 'carry' && intentFor(car)?.hand === 'straight';
+          launchHop(car, big);
         }
       }
 
@@ -6484,19 +6538,22 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       let airY = 0;
       let airPitch = 0;
       if (car.hopFrom != null) {
-        const u = (car.travelled - car.hopFrom) / HOP_LEN;
+        const big = car.hopBig === true;
+        const u = (car.travelled - car.hopFrom) / (big ? DRIFT_LAUNCH_LEN : HOP_LEN);
         if (u >= 1) {
           car.hopFrom = null;
+          car.hopBig = false;
           // Touchdown, and the only frame that can see it. Hand the landing to the bounce, load the
           // suspension, and tell anything outside the sim that it happened — see `onTaxiLand`.
           car.bounceT = 0;
-          car.pitchV -= BOUNCE_PITCH;
-          if (car.isTaxi) emitLand(car);
+          car.bounceGain = big ? DRIFT_SLAM : 1;
+          car.pitchV -= BOUNCE_PITCH * car.bounceGain;
+          if (car.isTaxi) emitLand(car, big);
         } else {
-          airY = HOP_HEIGHT * Math.sin(Math.PI * u);
+          airY = (big ? DRIFT_LAUNCH_HEIGHT : HOP_HEIGHT) * Math.sin(Math.PI * u);
           // Nose up as it leaves the ramp, level at the apex, nose down into the landing. Positive
           // is nose-up here, the same sense as locoWheelie.
-          airPitch = HOP_PITCH * Math.cos(Math.PI * u);
+          airPitch = (big ? DRIFT_LAUNCH_PITCH : HOP_PITCH) * Math.cos(Math.PI * u);
         }
       } else if (car.bounceT != null) {
         // A separate field from `hopFrom` on purpose: everything that asks "is the taxi airborne"
@@ -6505,11 +6562,15 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         car.bounceT += dt;
         if (car.bounceT >= BOUNCE_DUR) car.bounceT = null;
         else {
-          airY = landingBounce(car.bounceT);
+          // The slam's gain goes into the squat and not the rebounds: a drop from ten units should
+          // bottom the springs out, and rebounds scaled with it measured 1.1 units of hop off the
+          // road afterwards, which reads as a rubber ball rather than as weight.
+          const bounce = landingBounce(car.bounceT);
+          airY = bounce < 0 ? bounce * (car.bounceGain ?? 1) : bounce;
           // Summed onto the corner and lane-change leans above rather than replacing them — three
           // things happening to one suspension, and landing out of a boosted turn is exactly when
           // two of them overlap.
-          roll += landingRoll(car.bounceT);
+          roll += landingRoll(car.bounceT) * (car.bounceGain ?? 1);
         }
       }
 
@@ -6537,6 +6598,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // absent) on every other car.
       roll += car.joltRoll || 0;
       const shownPitch = car.pitch + wheelieBoost + airPitch + deckPitch + (car.joltPitch || 0);
+      // How far the body is off the road and how it is pitched, for anything drawn at the car's
+      // tailpipe — the Loco plume used to burn at road height under a taxi ten units up.
+      car.shownLift = airY + deckY;
+      car.shownPitch = shownPitch;
 
       // Roll and pitch both pivot on the car's origin at road level, so tilting drives one edge
       // underground. Lifting by the sagitta of each keeps the low edge on the tarmac and reads as

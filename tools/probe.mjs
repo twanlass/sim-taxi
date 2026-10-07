@@ -38,7 +38,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -17420,6 +17420,102 @@ let chopperOrder; // likewise
       && Math.abs(landing.z - landZ) < 1e-9,
       landing == null ? 'no landing was published'
         : `deck ${landing.deck.toFixed(2)} of a ${ARCH_RISE} rise, at ${landing.v.toFixed(1)} u/s`);
+  }
+
+  // --- The drift launch: a kick still being carried over the hump flies the far bank.
+  //
+  // What has to hold is the chain DRIFT_LAUNCH_LEN is derived from — off the hump, clear over the
+  // far bank's junction, down on the next street *before its hold line* — plus the two promises
+  // that make a long flight safe to have at all: the brake cannot park it in mid-air, and what
+  // drives under it is not a collision. The routed exit is straight on, which the launch requires;
+  // the same crossing with a turn there is the ordinary hop.
+  {
+    const lLine = bridgeLines().find((i) => riverCrossing(i) === 'fixed');
+    const fly = (exitDir) => {
+      const lScene = new THREE.Scene();
+      const lTraffic = createTraffic(makeRng(seed + 96), lScene, 1);
+      const lTaxi = lTraffic.taxi;
+      placeCar(lTaxi, DIR.PZ, lLine, riverRow() + 1, rLen - 0.01);
+      lTaxi.parked = false;
+      lTaxi.route = [exitDir, exitDir === DIR.PZ ? DIR.PZ : exitDir];
+      lTaxi.routeConsumed = false;
+      lTaxi.boost = true;
+      lTaxi.v = 31;
+      // A kick in hand, held long enough to see the whole flight out.
+      lTaxi.drift = { phase: 'carry', lane: lTaxi.lane.id, v: 31, t: 0, carry: 3, kicked: true };
+      lTaxi.driftTier = 1;
+      lTaxi.driftHp = lTaxi.hp ?? 0;
+      let big = false;
+      let peak = 0;
+      let landing = null;
+      let landLane = null;
+      let landS = null;
+      let launchTravelled = null;
+      let air = null;
+      lTraffic.onTaxiLand((event) => { landing = landing ?? event; });
+      for (let f = 0; f < 60 * 3 && !landing; f++) {
+        lTaxi.boost = true;
+        // Standing on the brake the whole way: the flight must not care.
+        lTaxi.braking = big;
+        const before = lTaxi.hopFrom;
+        lTraffic.update(1 / 60);
+        if (before == null && lTaxi.hopFrom != null) {
+          big = onDriftLaunch(lTaxi);
+          launchTravelled = lTaxi.hopFrom;
+        }
+        if (lTaxi.hopFrom != null) peak = Math.max(peak, lTraffic.taxiGroup.position.y - ROAD_Y);
+        if (landing) {
+          landLane = lTaxi.lane;
+          landS = lTaxi.s;
+          air = lTaxi.travelled - launchTravelled;
+        }
+      }
+      lTraffic.dispose?.();
+      return { big, peak, landing, landLane, landS, air };
+    };
+    const straight = fly(DIR.PZ);
+    const turning = fly(DIR.PX);
+    check('a drift kick carried over the hump is the big launch',
+      straight.big && straight.peak > DRIFT_LAUNCH_HEIGHT * 0.9,
+      `big ${straight.big}, ${straight.peak.toFixed(2)} of air against ${DRIFT_LAUNCH_HEIGHT}`);
+    check('and it flies the far bank and slams down on the next street before its hold line',
+      straight.landing && straight.landLane
+      && straight.landing.z > rBanks.z1 + 4
+      && straight.landS < straight.landLane.length - STOP_SETBACK - 1
+      && straight.landing.big === true && straight.landing.deck === 0,
+      straight.landing ? `down at z ${straight.landing.z.toFixed(2)} (far bank ${rBanks.z1.toFixed(2)}), `
+        + `s ${straight.landS?.toFixed(2)} of ${straight.landLane?.length.toFixed(2)}` : 'never landed');
+    check('with the brake held the whole way, the flight is still its full length',
+      straight.air !== null && straight.air >= DRIFT_LAUNCH_LEN && straight.air < DRIFT_LAUNCH_LEN + 1,
+      `${straight.air?.toFixed(2)} of ${DRIFT_LAUNCH_LEN}`);
+    check('a route turning at the far bank gets the ordinary hop instead',
+      !turning.big && turning.landing && turning.landing.big === false,
+      `big ${turning.big}`);
+
+    // Nothing under the taxi at the apex is a hit.
+    const cScene = new THREE.Scene();
+    const cTraffic = createTraffic(makeRng(seed + 97), cScene, 2);
+    const cTaxi = cTraffic.taxi;
+    const other = cTraffic.cars.find((c) => c !== cTaxi);
+    placeCar(cTaxi, DIR.PZ, lLine, riverRow() + 1, rLen - 0.01);
+    cTaxi.boost = true;
+    cTaxi.hp = TAXI_HP;
+    cTaxi.hopFrom = cTaxi.travelled - DRIFT_LAUNCH_LEN / 2;
+    cTaxi.hopBig = true;
+    other.x = cTaxi.x;
+    other.z = cTaxi.z;
+    other.yaw = 0;
+    const cCollisions = createCollisions(cTraffic.cars, cTaxi);
+    let hits = 0;
+    cCollisions.onImpact(() => { hits += 1; });
+    cCollisions.onBump?.(() => { hits += 1; });
+    cCollisions.update(1 / 60);
+    check('and a car underneath it at the apex is not a collision',
+      hits === 0 && cTaxi.hp === TAXI_HP && !cTaxi.crashed, `${hits} hits, hp ${cTaxi.hp}`);
+    cTaxi.hopFrom = null;
+    cCollisions.update(1 / 60);
+    check('...which the same car on the road is', hits > 0 || cTaxi.hp < TAXI_HP,
+      `${hits} hits, hp ${cTaxi.hp}`);
   }
 
   // --- Nothing paints a stop bar on the bridge.

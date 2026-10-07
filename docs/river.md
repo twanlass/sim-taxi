@@ -174,6 +174,23 @@ the road: on an arch the taxi comes down about 0.3 up the far slope, and dust pu
 there hangs in the channel a metre under the car, over open water, with the arch it came off in
 between.
 
+### The drift launch
+
+A drift kick still being carried when the taxi reaches the hump (`car.drift.phase === 'carry'`)
+turns the hop into a launch: the same `hopFrom` arc and the same trigger point, but
+`DRIFT_LAUNCH_LEN` = 20 units long and `DRIFT_LAUNCH_HEIGHT` = 10 high (`car.hopBig`). The length
+is derived: from 3.25 into the deck lane it clears the rest of the deck and the whole junction on
+the far bank (8 wide, 10.67 for an arterial) and comes down 3.25 or 0.6 into the next street, five
+units clear of its hold line. So it only fires when the exit at the far bank is **straight on** —
+a turning route there gets the ordinary hop, since the arc would otherwise bend sideways in mid-air.
+
+While it is up there the taxi keeps the boosting taxi's priority junction whatever the pill says,
+ignores the brake (a distance-paced arc on a stopping car is a taxi parked ten units up), and
+`sim/collisions.js` skips it above `DRIFT_LAUNCH_CLEAR`. main.js slows the sim toward the apex
+(`launchTimeScale`, down to 0.4) so 0.65s of flight hangs for about a second, and the landing is
+the slam: the squat and the pitch kick scaled by `DRIFT_SLAM`, a 1.6 shake, a body thud and a ring of
+dust. `tools/probe.mjs` asserts the chain, the brake, the turning exit and the collision skip.
+
 ## The embankment
 
 Both banks carry a pavement and a railing, built exactly the way a block's platform is: a kerb box
