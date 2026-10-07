@@ -16811,6 +16811,8 @@ let chopperOrder; // likewise
   let braked = 0;
   let kickLow = Infinity;
   let unkickedHigh = 0;
+  let tapGain = -Infinity;
+  let tapSwing = 0;
   let straightRefused = 0;
   let plainSwing = 0;
   for (const lane of net.lanes) {
@@ -16860,9 +16862,14 @@ let chopperOrder; // likewise
       taxi.boost = false;
       for (let k = 0; k < 60; k++) dTraffic.update(1 / 60);
       worstYaw = Math.max(worstYaw, Math.abs(taxi.driftAmt * DRIFT_ANGLE));
-      // The tap alone: a slide, no kick.
+      // The tap alone: only a brake — no kick, no slide, and never any faster than it was going.
       if (setup() && driftTaxi(taxi) === null) {
-        for (let k = 0; k < 120 && !(taxi.state === 'drive' && taxi.lane.id === out.id); k++) dTraffic.update(1 / 60);
+        const v0 = taxi.v;
+        for (let k = 0; k < 120 && !(taxi.state === 'drive' && taxi.lane.id === out.id); k++) {
+          dTraffic.update(1 / 60);
+          tapGain = Math.max(tapGain, taxi.v - v0);
+          tapSwing = Math.max(tapSwing, Math.abs(taxi.driftAmt));
+        }
         unkickedHigh = Math.max(unkickedHigh, taxi.v);
       }
       // No tap at all, the pill held: the old lean, no slide.
@@ -16898,6 +16905,9 @@ let chopperOrder; // likewise
   check('...coming out at the kick, and the tap alone does not get one',
     kickLow >= boostCruise() * DRIFT_EXIT - 0.01 && unkickedHigh < boostCruise() * DRIFT_EXIT - 1,
     `slowest kick ${kickLow.toFixed(1)} against ${(boostCruise() * DRIFT_EXIT).toFixed(1)}; fastest tap-only exit ${unkickedHigh.toFixed(1)}`);
+  check('...and the tap with no Loco after it is just a brake: no slide, no speed gained',
+    tapSwing < 0.01 && tapGain <= 0.01,
+    `largest swing ${tapSwing.toFixed(3)} of DRIFT_ANGLE, most speed gained ${tapGain.toFixed(2)} u/s`);
   check('...swinging its tail out and settling square to the exit lane',
     peakSwing > 0.8 && worstYaw < 0.02,
     `peak swing ${peakSwing.toFixed(2)} of DRIFT_ANGLE, ${worstYaw.toFixed(3)} rad of it left 1s after the exit`);

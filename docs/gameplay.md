@@ -3480,7 +3480,8 @@ of approach (never under 8 units) or the first 35% of the arc, then get back on 
 arc is over. The taxi comes out at 1.4× the boost cruise (`DRIFT_EXIT`, 30.9 u/s; 1.2× read as too timid), put on in one
 frame and held for 0.6s, straight on through the next junction if the route goes that way (dropping
 it at the junction cut every kick to ~0.4s, the time a 31 u/s car takes to cross the ~12-unit exit
-lane) and ended by a real turn or the brake. The tap screeches and lays four-wheel rubber the moment it lands.
+lane) and ended by a real turn or the brake. The slide — screech, four-wheel rubber, swing, the
+cruise held round the corner — starts on that second Loco press, not on the tap.
 
 The kick has to read at a glance, and a buzz and a shake alone did not: the first playtest could
 not tell when it had worked. It now says so with the tailpipe flame splitting into two longer
@@ -3493,7 +3494,7 @@ cut.)
 of the last kick running out and land it, and it comes out a tier harder: 1.4×/0.6s, 1.55×/0.75s,
 1.7×/0.9s (30.9, 34.3, 37.6 u/s), the flame and the jolt 1.3× and 1.6× bigger, and the flame
 cooling from violet to blue to teal (`locoFlameChain*` in palette.js). The window lapsing, a
-tap that only slides, or any HP lost since the last kick puts the next one back at tier 1.
+tap with no kick after it, or any HP lost since the last kick puts the next one back at tier 1.
 
 **A landed kick refunds a sixth of a tank** at tier 1 (`DRIFT_CHAIN.fuel`, the same as a parcel),
 a ninth at tier 2 and a twelfth at tier 3 — a harder kick on the full refund is a boost that never
@@ -3502,11 +3503,14 @@ running low can drift their way to a drop-off. It needs *some* fuel to start —
 Loco press — and a kick costs well under a second of Loco against the 2.5s it pays, so chaining
 corners is net positive. That is deliberate: it is the skill being paid.
 
-- **The tap alone is a slide, not a stop.** At 13 u/s or more (`DRIFT_MIN_V`, so only off the pill)
-  with a real turn within reach, the taxi goes round at the boost cruise, rights included, and
-  comes out without the kick. Elsewhere a tap is a brake as before.
-- **The tap owns the brake until the pedal comes back up,** like the bootleg's. A thumb sliding back
-  onto the pill releases it anyway, which is the pedal slide doing what it always did.
+- **The tap alone is a brake.** At 13 u/s or more (`DRIFT_MIN_V`, so only off the pill) with a
+  real turn within reach it *arms* a drift (`driftTaxi`), and nothing else: the brake sound, the
+  rubber and the deceleration are an ordinary press's, and held, it stops the car. The slide used
+  to start on the tap and hold the boost cruise with the pill off — a tap under the cruise had the
+  taxi accelerating — which read as the brake giving the car a shove (Tyler, 2026-10-07). Only a
+  kicked drift (`driftHolds`) slides, holds its speed and is deaf to the pedal.
+- **A thumb sliding back onto the pill releases the brake,** which is the pedal slide doing what it
+  always did, and is how the kick press takes the car back off the brake.
 - **Two taps are still the bootleg, near a corner or not.** The first tap is the same in both
   moves, so only the second input decides: the pill is the drift kick, a second brake tap inside
   the bootleg's 350ms window drops the drift and spins (buffered past the junction, as any combo
@@ -3515,7 +3519,7 @@ corners is net positive. That is deliberate: it is the skill being paid.
 
 A prototype: every number is a first guess. `tools/probe.mjs` drives every turn off every lane with
 the combo, with the tap alone, with the pill simply held and with the brake held, and checks the
-kick lands, the tap alone earns none, a plain Loco corner does not slide, and the swing settles
+kick lands, the tap alone neither slides nor gains speed, a plain Loco corner does not slide, and the swing settles
 within a second.
 
 ## The pedal slide
