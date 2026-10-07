@@ -1107,6 +1107,8 @@ const followAim = (car) => ({
 });
 
 let cameraTakenOver = false;
+// Was Loco Mode held last frame? A press is the edge, and the edge is what hands the camera back.
+let wasBoosting = false;
 // Assigned further down, once the fare board and the picker it reads exist. Declared here because
 // the handover below is the one thing that has to reach it, and a swipe cannot arrive before the
 // module has finished evaluating.
@@ -4555,9 +4557,15 @@ function frame() {
   // narrow-viewport only (see START_FOLLOW_SMOOTHING): the opening follow, which runs until the
   // player takes the framing over, and Loco Mode, which chases harder and outranks it. Boost
   // ignores `cameraTakenOver` on purpose — a drag during a boost is quietly overridden on the next
-  // frame, because panning is a planning gesture and boost is the opposite of planning. None of
-  // them has a gate on the way *out*: the camera is left wherever it landed rather than snapping
-  // back. Both aim past the taxi rather than at it (`followAim`), so the road it is driving down
+  // frame, because panning is a planning gesture and boost is the opposite of planning. A press
+  // also *hands the camera back*: it clears `cameraTakenOver`, so letting go drops to the momentum
+  // chase below and then the opening follow, and the camera stays on the car until the player
+  // swipes again. It used to stop dead on release, and the release is exactly when a drift's exit
+  // kick fires — the taxi left the frame at 1.4-1.7x the boost cruise with nothing following it.
+  // The momentum chase keeps the boost's 3.2 through the post-release tail and any kick still being
+  // carried, because the opening follow's 1.5 is set for cruising, not for a car at its fastest.
+  // A swipe after the release still takes the framing, at once. None of them has a gate on the way
+  // *out* once the player has it: the camera is left wherever it landed rather than snapping back. Both aim past the taxi rather than at it (`followAim`), so the road it is driving down
   // gets the frame the road behind it used to.
   //
   // End-of-run focus outranks everything (and runs on every viewport, not only narrow ones): the
@@ -4575,6 +4583,11 @@ function frame() {
   // no gap for the follow-cam to snap across.
   // The title screen's drift sits above even the vignette, which is held behind it anyway.
   const boosting = boost.isActive();
+  // On the press, not every frame of the hold: a swipe made *while* holding is still the player
+  // asking for the map, and it should hold once the button comes up.
+  if (boosting && !wasBoosting) cameraTakenOver = false;
+  wasBoosting = boosting;
+  const momentum = boost.isEngaged() || traffic.taxi.drift?.phase === 'carry';
   if (title?.holding()) {
     const p = title.pan(dt);
     if (titleFramed) controller.focusOn(p.x, p.z, p.zoom, dt, aspect(), 0.8);
@@ -4584,6 +4597,9 @@ function frame() {
   } else if (endSpot) {
     controller.focusOn(endSpot.x, endSpot.z, endZoom, dt, aspect());
   } else if (boosting && !fares.state.gameOver && isNarrow()) {
+    controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, BOOST_FOLLOW_SMOOTHING, aspect(),
+      followAim(traffic.taxi));
+  } else if (momentum && !cameraTakenOver && !fares.state.gameOver && isNarrow()) {
     controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, BOOST_FOLLOW_SMOOTHING, aspect(),
       followAim(traffic.taxi));
   } else if (tutorial?.holdsCamera()) {

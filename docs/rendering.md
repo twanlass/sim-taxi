@@ -217,7 +217,11 @@ left wherever it landed rather than snapping back.
   a turn at the edge of frame doesn't whip the city round.
 - **Loco Mode**, at rate **3.2**, which outranks it. Active only while `boost.isActive()`, and it
   ignores the player's takeover: a drag during boost is quietly overridden on the next frame, because
-  panning is a planning gesture and boost is the opposite.
+  panning is a planning gesture and boost is the opposite. The press also clears the takeover, so the
+  camera stays on the car after the button comes up: still at 3.2 through `boost.isEngaged()`'s
+  one-second tail and any drift kick still being carried, then the opening follow, until the player
+  swipes again. Before this the follow stopped dead on release, which is the moment a drift's exit
+  kick fires, and the kicked taxi drove straight out of frame.
 
 Both aim [past the taxi rather than at it](#leading-the-car).
 
