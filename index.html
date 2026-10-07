@@ -281,10 +281,12 @@
          crossed out with a red X as it is spent. Rings rather than numbers because the count that
          matters is how many are *left*, and three shapes say that without being read. The ring stays
          white under the X (Tyler's call over a filled red disc), so a spent strike still reads as one
-         of the three slots. The X is two bars on the ring's own pseudo-elements, a little longer than
-         the ring is wide so its ends poke out past it. A fresh strike pops so it registers on the
-         frame the rider storms off, wherever the player's eyes happen to be. */
-      #strikes { display: flex; gap: 6px; margin-top: 6px; }
+         of the three slots. The X is two bars on the ring's own pseudo-elements, longer than the ring
+         is wide so their ends poke out past it. It is meant to look drawn on rather than set: the
+         whole X leans 5 degrees anticlockwise and one stroke runs longer than the other. A fresh
+         strike pops so it registers on the frame the rider storms off, wherever the player's eyes
+         happen to be. */
+      #strikes { display: flex; gap: 9px; margin-top: 6px; }  /* 9 so two Xs' long strokes clear each other */
       #strikes .strike {
         position: relative;
         width: 12px; height: 12px; border-radius: 50%;
@@ -293,12 +295,12 @@
       }
       #strikes .strike::before, #strikes .strike::after {
         content: ''; position: absolute; left: 50%; top: 50%;
-        width: 16px; height: 2.5px; margin: -1.25px 0 0 -8px; border-radius: 1.25px;
+        width: 20px; height: 3px; margin: -1.5px 0 0 -10px; border-radius: 1.5px;
         background: #FF5A4A;
         opacity: 0; transition: opacity 0.2s ease;
       }
-      #strikes .strike::before { transform: rotate(45deg); }
-      #strikes .strike::after { transform: rotate(-45deg); }
+      #strikes .strike::before { width: 24px; margin-left: -12px; transform: rotate(40deg); }
+      #strikes .strike::after { transform: rotate(-50deg); }
       #strikes .strike.is-used::before, #strikes .strike.is-used::after { opacity: 1; }
       #strikes .strike.is-new { animation: strike-pop 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
       @keyframes strike-pop {
