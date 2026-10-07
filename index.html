@@ -254,11 +254,10 @@
       /* The combo meter (`?combo=`, game/combometer.js): a bar filling towards COMBO_MAX with the
          multiplier at its right end, in the drift kick's violet so it is never read as the Loco
          tank. Swells each time a combo steps it up; flinches red and shakes when a hit empties it. */
-      /* No pill behind it (Tyler, 2026-10-07): bar and number straight on the city, so the empty
-         track carries a shadow of its own to stay readable over pale roofs. Centred on the row
-         *under* the cash rather than on it: at 390px wide the bar's left end sits ~120px in, and a
-         four-digit total already reaches past that. The strikes share the row but stop ~70px in. */
-      #hud .runs.is-combo { top: calc(var(--hud-row) + 2px); height: 22px; }
+      /* No pill behind it, and a solid black track (Tyler, 2026-10-07). On the cash row, placed by
+         `fitComboBar` in main.js: centred while it fits, slid right and then shortened as a growing
+         total crowds it — at 390px wide a four-digit total already reaches past where a centred
+         96px bar would start. */
       #hud .run-combo {
         display: flex; flex-direction: row; align-items: center; gap: 8px;
         padding: 0; background: none;
@@ -266,8 +265,7 @@
       #hud .run-combo.is-earned { color: #C77DFF; background: none; }
       #hud .run-combo .combo-mult { min-width: 2.6em; text-align: left; font-size: 16px; }
       #hud .run-combo .combo-bar {
-        display: block; width: 96px; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.35);
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+        display: block; width: var(--combo-bar-w, 96px); height: 8px; border-radius: 4px; background: #000;
         overflow: hidden;
       }
       #hud .run-combo .combo-bar > span {

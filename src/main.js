@@ -2730,8 +2730,11 @@ function updateComboTag(box) {
     el = comboTag.el = document.createElement('div');
     el.className = 'run-tag run-combo is-earned';
     el.innerHTML = '<span class="combo-bar"><span></span></span><span class="combo-mult"></span>';
-    box.classList.add('is-combo');
     box.append(el);
+    // Refit whenever the total changes width (a new digit, a comma) or the screen does.
+    const money = hud.money?.parentElement;
+    if (money && typeof ResizeObserver !== 'undefined') new ResizeObserver(fitComboBar).observe(money);
+    window.addEventListener('resize', fitComboBar);
   } else {
     const cls = mult > comboTag.shown ? 'is-bumped' : comboTag.lost ? 'is-broken' : null;
     el.classList.remove('is-bumped', 'is-broken');
@@ -2744,6 +2747,32 @@ function updateComboTag(box) {
   el.style.setProperty('--combo-fill', String((mult - 1) / (COMBO_MAX - 1)));
   comboTag.shown = mult;
   comboTag.lost = false;
+  fitComboBar();
+}
+
+// The meter sits on the cash row, in the gap between the end of the total and the pause button:
+// centred on the screen while that fits, pushed right of centre when a long total crowds it, and
+// the bar shortened (COMBO_BAR_MIN..COMBO_BAR_MAX px) only once there is no room left to push into.
+// Layout offsets rather than bounding rects, so the payout bump's scale does not jiggle it.
+const COMBO_BAR_MIN = 28;
+const COMBO_BAR_MAX = 96;
+const COMBO_BAR_CLEAR = 14;   // px kept clear either side of the meter
+function fitComboBar() {
+  const el = comboTag.el;
+  const money = hud.money?.parentElement;
+  const box = hud.runs;
+  const hudEl = box?.offsetParent;
+  if (!el || !money || !hudEl) return;
+  const pause = document.getElementById('pause');
+  const gapL = hudEl.offsetLeft + money.offsetLeft + money.offsetWidth + COMBO_BAR_CLEAR;
+  const gapR = (pause ? pause.offsetLeft : hudEl.offsetLeft + hudEl.offsetWidth) - COMBO_BAR_CLEAR;
+  const label = el.querySelector('.combo-mult').offsetWidth + 8;
+  const bar = Math.round(Math.max(COMBO_BAR_MIN, Math.min(COMBO_BAR_MAX, gapR - gapL - label)));
+  const width = bar + label;
+  const left = Math.max(gapL, Math.min(window.innerWidth / 2 - width / 2, gapR - width));
+  el.style.setProperty('--combo-bar-w', `${bar}px`);
+  box.style.left = `${Math.round(left - hudEl.offsetLeft)}px`;
+  box.style.translate = '0 0';
 }
 
 /**
