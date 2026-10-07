@@ -1789,12 +1789,13 @@ more to read than to play. The Perfect Run is the first two of those folded into
 (`game/combometer.js`, Tyler's idea after the Duolingo combo streak). Each combo steps it up from
 ×1: an overtake or a bootleg U-turn +0.5, a drift kick +0.5 per chain tier (so a full chain of three
 is +3), the bridge launch +2, capped at ×5. Combos only count on a job (heading to a rider or carrying
-one). It shows as `3x` centred on the cash row with the Loco tailpipe flame burning out of its left,
-climbing orange → violet → blue → teal → pink with the multiplier (no bar: there is no full state),
-from the first combo of the run onward whenever a job is in hand (it fades out between fares), and the drop-off pays the fare at it, through the same
-payout sequence (`COMBO ×2.5`).
+one). It shows as `3x` centred on the cash row with the Loco tailpipe flame burning out of its left
+(orange; a build that climbed the drift chain's colours with the multiplier didn't read, per Tyler),
+only above ×1 and only while a job is in hand (no bar: there is no full state). The drop-off cashes
+it in (`popComboPayout` in main.js): the fare's price pops mid-screen, the meter flies down into it,
+the price punches and rolls up to the multiplied total, and that one number flies to the counter.
 
-Any hit that costs HP empties it back to ×1 with the Perfect Run's red fall. A reset rather than a
+Any hit that costs HP empties it back to ×1: the meter shakes side to side and drops out of sight. A reset rather than a
 tier down: the drop is where the tension is. The two scopes differ only at the drop-off: `meter`
 cashes the meter and starts again at ×1 each ride; `run` pays at it and keeps it, so only a crash
 ends a streak. That second one is close to the clean-driving streak above that was dropped, with the

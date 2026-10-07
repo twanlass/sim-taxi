@@ -652,12 +652,6 @@ export const PALETTE = {
   locoFlameChain3Outer: '#00BFA6',
   locoFlameChain3Mid: '#4DE8D0',
   locoFlameChain3Core: '#E0FFF9',
-  // One step past the chain for the combo meter's flame (`?combo=`, main.js), which climbs Loco
-  // orange → violet → blue → teal with the multiplier and needs a fifth for the top of it, ×5.
-  // Hot pink: clear of every flame before it, and of the urgency scale's red.
-  comboFlameMaxOuter: '#FF2E9A',
-  comboFlameMaxMid: '#FF7FC4',
-  comboFlameMaxCore: '#FFE6F4',
 
   // Sparks off the underside of the taxi as it lands a jump — see game/sparks.js. Two stops, one
   // per end of a shower rather than a ramp each spark walks: a spark is on screen for half a second

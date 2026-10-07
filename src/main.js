@@ -2721,22 +2721,18 @@ function updateRunTags() {
 // There is no bar: the meter has no full state worth drawing, since a ×5 run keeps combo'ing.
 //
 // The flame is the Loco plume's own silhouette (`tongueOutline` in game/locoflame.js) drawn as
-// SVG — three nested tongues, four flipbook frames at the plume's 16fps — and it climbs the same
-// colours a drift chain does with the multiplier: Loco orange at 1x, violet at 2x, blue at 3x,
-// teal at 4x, and a hot pink of its own at 5x. It grows a little with each whole step too.
+// SVG — three nested tongues, four flipbook frames at the plume's 16fps — in Loco orange, growing a
+// little and flaring with each whole step. It climbed the drift chain's colours with the multiplier
+// (violet, blue, teal, pink) for one build; Tyler: "the colors right now don't work", orange for now.
 //
-// Nothing shows until the first combo lands, so a run opens on a clean HUD; from then on it shows
-// whenever a job is in hand. A step up rolls the count: the new number slides up from below and
-// pushes the old one out of the top, landing with a bounce, the "x" a beat behind it. A hit that
-// breaks the streak shakes it side to side and drops it out of sight, and it comes back at 1x.
-const COMBO_FLAMES = [
-  ['locoFlameOuter', 'locoFlameMid', 'locoFlameCore'],
-  ['locoFlameDriftOuter', 'locoFlameDriftMid', 'locoFlameDriftCore'],
-  ['locoFlameChain2Outer', 'locoFlameChain2Mid', 'locoFlameChain2Core'],
-  ['locoFlameChain3Outer', 'locoFlameChain3Mid', 'locoFlameChain3Core'],
-  ['comboFlameMaxOuter', 'comboFlameMaxMid', 'comboFlameMaxCore'],
-].map((keys) => keys.map((k) => PALETTE[k]));
-const comboFlameTier = (mult) => Math.max(0, Math.min(COMBO_FLAMES.length - 1, Math.floor(mult) - 1));
+// It only shows above 1x, the baseline (Tyler), and only while a job is in hand. A step up rolls the
+// count: the new number slides up from below and pushes the old one out of the top, landing with a
+// bounce, the "x" a beat behind it. A hit that breaks the streak shakes it side to side and drops it
+// out of sight. A drop-off cashes it in: the meter flies down into the fare's price and multiplies
+// it, and the new total flies to the counter (`popComboPayout`).
+const COMBO_FLAME = [PALETTE.locoFlameOuter, PALETTE.locoFlameMid, PALETTE.locoFlameCore];
+const COMBO_FLAME_STEPS = 4;
+const comboFlameTier = (mult) => Math.max(0, Math.min(COMBO_FLAME_STEPS, Math.floor(mult) - 1));
 
 // The SVG, built once. The tongue's u runs right-to-left here — the pipe is at the number and the
 // tip licks away to the left — and the view box is the outer tongue's reach in world units,
@@ -2758,11 +2754,11 @@ function comboFlameSvg() {
 }
 
 const comboTag = {
-  el: null, roll: null, shown: 1, lost: false, landed: false, lingerUntil: 0, awaySince: 0, breaking: false,
+  el: null, roll: null, shown: 1, lost: false, landed: false, lingerUntil: 0, hiddenSince: 0, breaking: false,
 };
-// How long the meter stays up after a drop-off: through the payout sequence's fare, label and
-// extra (`popRunSequence`, ~0.94 + 0.8 + 0.94s), so it fades as the last of the cash lands.
-const COMBO_LINGER_MS = 2800;
+// How long the meter stays up after a drop-off: until `popComboPayout` lifts it off the HUD, which
+// it does as soon as the fare's price has popped (~0.56s). This is only the backstop.
+const COMBO_LINGER_MS = 1500;
 const COMBO_FADE_MS = 350;   // the CSS opacity fade (0.3s) and a frame's margin
 
 function comboCount(mult) {
@@ -2776,18 +2772,16 @@ function comboCount(mult) {
 function setComboCount(mult, roll) {
   const el = comboTag.el;
   const next = comboCount(mult);
+  // Out of hiding at 1x there is nothing on screen to push out of the way.
+  const fromHidden = el.classList.contains('is-off-job');
   for (const old of comboTag.roll.querySelectorAll('.combo-count:not(.is-leaving)')) {
-    if (!roll) { old.remove(); continue; }
+    if (!roll || fromHidden) { old.remove(); continue; }
     old.classList.add('is-leaving');
     old.addEventListener('animationend', () => old.remove(), { once: true });
   }
   if (roll) next.classList.add('is-entering');
   comboTag.roll.append(next);
   const tier = comboFlameTier(mult);
-  const [outer, mid, core] = COMBO_FLAMES[tier];
-  el.style.setProperty('--flame-outer', outer);
-  el.style.setProperty('--flame-mid', mid);
-  el.style.setProperty('--flame-core', core);
   el.style.setProperty('--flame-size', String(1 + 0.12 * tier));
   if (roll && tier > comboFlameTier(comboTag.shown)) {
     el.classList.remove('is-flaring');
@@ -2798,57 +2792,62 @@ function setComboCount(mult, roll) {
 }
 
 function updateComboTag(box) {
-  // Only on a job — heading to a rider or carrying one (Tyler, 2026-10-07). Combos only build then
-  // (`landCombo`), so between fares the meter fades out and keeps whatever it holds. A drop-off
-  // holds it up for COMBO_LINGER_MS more, frozen at what it paid, so the payout landing in the cash
-  // reads as *this* meter's doing; only once it has faded does a per-ride meter show its reset to 1x
-  // (Tyler: it flashed 1x for a split second on the drop-off).
+  // Only on a job — heading to a rider or carrying one (Tyler, 2026-10-07) — and only above 1x,
+  // the baseline. A drop-off holds it up for the payout (`lingerUntil`) until `popComboPayout` flies
+  // it into the fare; a break holds it up for its own animation. Either way it never shows a 1x.
   const now = performance.now();
-  const lingering = now < comboTag.lingerUntil;
-  const away = !lingering && (!fares.job() || fares.state.gameOver);
-  if (comboTag.el && away !== comboTag.el.classList.contains('is-off-job')) {
-    comboTag.el.classList.toggle('is-off-job', away);
-    comboTag.awaySince = now;
-  }
-  if (comboTag.breaking) return;   // the break plays out before anything else is shown
   const mult = combo.state.mult;
-  if (mult === comboTag.shown) return;
   let el = comboTag.el;
   if (!el) {
     if (mult === 1) return;
     el = comboTag.el = document.createElement('div');
-    el.className = 'run-combo';
+    el.className = 'combo-meter is-off-job';
     el.innerHTML = `${comboFlameSvg()}<span class="combo-roll"></span>`;
+    const [outer, mid, core] = COMBO_FLAME;
+    el.style.setProperty('--flame-outer', outer);
+    el.style.setProperty('--flame-mid', mid);
+    el.style.setProperty('--flame-core', core);
     comboTag.roll = el.querySelector('.combo-roll');
     box.classList.add('is-combo');
     box.append(el);
-    setComboCount(mult, true);
     comboTag.lost = false;
-    return;
+  }
+  if (comboTag.lost && el.classList.contains('is-off-job')) {
+    // Lost out of sight (a bump between fares): nothing to shake, just reset it.
+    comboTag.lost = false;
+    setComboCount(mult, false);
   }
   if (comboTag.lost) {
-    // Shake, then drop out of sight; back at 1x once it has gone.
+    // Shake, then drop out of sight. It stays hidden at 1x until the next combo.
     comboTag.lost = false;
     comboTag.breaking = true;
-    el.classList.remove('is-returning');
     el.classList.add('is-broken');
     el.addEventListener('animationend', function done(e) {
       if (e.animationName !== 'combo-broken') return;
       el.removeEventListener('animationend', done);
-      el.classList.remove('is-broken');
       comboTag.breaking = false;
+      el.classList.add('is-off-job');
+      comboTag.hiddenSince = performance.now();
+      el.classList.remove('is-broken');
       setComboCount(combo.state.mult, false);
-      el.classList.add('is-returning');
     });
     return;
   }
-  // A cash-in's drop is held back while the meter is on screen for the payout or still fading out,
-  // and then set without a roll — the count only ever rolls upward.
-  // A combo just landed always rolls, even onto a number below the one still showing from the last
-  // ride.
+  if (comboTag.breaking) return;
+  const lingering = now < comboTag.lingerUntil;
+  const shown = lingering || (mult > 1 && fares.job() && !fares.state.gameOver);
+  if (shown === el.classList.contains('is-off-job')) {
+    // Roll the number in before the fade starts, so a fresh streak arrives already bouncing.
+    if (shown && mult !== comboTag.shown) { setComboCount(mult, true); comboTag.landed = false; }
+    el.classList.toggle('is-off-job', !shown);
+    el.classList.remove('is-cashed');
+    if (!shown) comboTag.hiddenSince = now;
+  }
+  if (mult === comboTag.shown) return;
+  // A drop hidden from view (a cash-in) is set in place once the fade is done; one in view waits
+  // for the payout to lift it. The count only ever rolls upward.
   if (mult < comboTag.shown && !comboTag.landed) {
-    if (lingering || (away && now - comboTag.awaySince < COMBO_FADE_MS)) return;
-    setComboCount(mult, false);
+    if (!shown && now - comboTag.hiddenSince >= COMBO_FADE_MS) setComboCount(mult, false);
     return;
   }
   comboTag.landed = false;
@@ -2862,7 +2861,6 @@ function updateComboTag(box) {
 function landCombo(key, tier) {
   if (!combo || !fares.job()) return;
   const landed = combo.land(key, tier);
-  comboTag.lingerUntil = 0;   // a new streak on the next ride ends the last one's curtain call
   if (landed?.added > 0) comboTag.landed = true;
   if (landed?.added > 0) popLabel(`${landed.label} ${formatMult(landed.mult)}`, 'run-combo');
 }
@@ -3155,7 +3153,7 @@ function popRunSequence(fare) {
     const at = payoutScreenPos();
     // On the label's pop, not the cash's landing: the three beats of the pattern climb into the
     // scale-up that peaks at 20% of RUN_LABEL_MS (ComboHaptics.swift).
-    if (step.key === 'perfect' || step.key === 'combo') haptic('perfect');
+    if (step.key === 'perfect') haptic('perfect');
     const el = document.createElement('div');
     el.className = `run-pop run-${step.key}`;
     el.textContent = step.label;
@@ -3175,6 +3173,95 @@ function popRunSequence(fare) {
     };
   };
   play(0);
+}
+
+/**
+ * A drop-off paid at the combo meter (`?combo=`). The fare's own price pops mid-screen as usual and
+ * holds; the meter lifts off the HUD and flies down into it, the price punches and rolls up to the
+ * multiplied total, and that total flies into the counter (Tyler, 2026-10-07: "combine with the
+ * cash and multiply it when it hits"). One number travels the whole way, so the payout reads as
+ * price × meter rather than the Perfect Run's price, label, extra.
+ *
+ * The meter that flies is a copy: the real one is hidden the frame it leaves (`is-cashed`), and on
+ * a whole-run meter (`?combo=run`), which a drop-off does not empty, it simply stays where it is.
+ */
+const COMBO_FLY_MS = 420;
+const COMBO_TALLY_MS = 520;
+function popComboPayout(fare) {
+  const base = fare.basePay;
+  const total = fare.value;
+  const mult = fare.runs[0].mult;
+  const start = payoutScreenPos();
+  const el = document.createElement('div');
+  el.className = 'earning';
+  el.textContent = `$${base}`;
+  el.style.left = `${start.x}px`;
+  el.style.top = `${start.y}px`;
+  document.body.append(el);
+  const at = (scale, dy = 0) => `translate(-50%, -50%) translateY(${dy}px) scale(${scale})`;
+  const flyHome = () => {
+    const target = counterScreenPos() ?? { x: start.x, y: start.y - 74 };
+    el.animate([
+      { opacity: 1, transform: at(1) },
+      { opacity: 0, transform: `translate(-50%, -50%) translate(${target.x - start.x}px, ${target.y - start.y}px) scale(0.55)` },
+    ], { duration: 380, easing: 'cubic-bezier(0.42, 0, 0.58, 1)', fill: 'forwards' }).onfinish = () => {
+      el.remove();
+      rollMoneyTo(fares.state.money);
+    };
+  };
+  const tally = () => {
+    haptic('perfect');
+    el.classList.add('run-combo');
+    el.animate([
+      { transform: at(1) },
+      { transform: at(1.45), offset: 0.18 },
+      { transform: at(0.92), offset: 0.45 },
+      { transform: at(1.06), offset: 0.7 },
+      { transform: at(1) },
+    ], { duration: COMBO_TALLY_MS, easing: 'ease-out', fill: 'forwards' });
+    const t0 = performance.now();
+    const roll = (now) => {
+      const t = Math.min(1, (now - t0) / COMBO_TALLY_MS);
+      el.textContent = `$${Math.round(base + (total - base) * (1 - (1 - t) ** 3))}`;
+      if (t < 1) requestAnimationFrame(roll);
+      else setTimeout(flyHome, 380);
+    };
+    requestAnimationFrame(roll);
+  };
+  el.animate([
+    { opacity: 0, transform: at(0.7, 10) },
+    { opacity: 1, transform: at(1.12), offset: 0.35 },
+    { opacity: 1, transform: at(1) },
+  ], { duration: 560, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' }).onfinish = () => {
+    // Lift the meter off the HUD. Measured now rather than at the drop-off: it may have moved.
+    const meter = comboTag.el;
+    const from = meter && !meter.classList.contains('is-off-job') ? meter.getBoundingClientRect() : null;
+    if (!from?.width) { tally(); return; }
+    const fly = meter.cloneNode(true);
+    fly.classList.remove('is-flaring', 'is-cashed');
+    fly.classList.add('combo-fly');
+    for (const old of fly.querySelectorAll('.combo-count')) old.remove();
+    fly.querySelector('.combo-roll').append(comboCount(mult));
+    fly.style.left = `${from.left}px`;
+    fly.style.top = `${from.top}px`;
+    document.body.append(fly);
+    if (combo.scope === 'meter') {
+      comboTag.lingerUntil = 0;
+      meter.classList.add('is-cashed');
+    }
+    // Aim the count — the right-hand part of the meter, past the flame — at the price's centre.
+    const roll = fly.querySelector('.combo-roll').getBoundingClientRect();
+    const dx = start.x - (roll.left + roll.width / 2);
+    const dy = start.y - (roll.top + roll.height / 2);
+    fly.animate([
+      { transform: 'translate(0, 0) scale(1)', opacity: 1 },
+      { transform: `translate(${dx * 0.5}px, ${dy * 0.5 - 24}px) scale(1.25)`, opacity: 1, offset: 0.45 },
+      { transform: `translate(${dx}px, ${dy}px) scale(0.6)`, opacity: 0.2 },
+    ], { duration: COMBO_FLY_MS, easing: 'cubic-bezier(0.5, 0, 0.75, 0.4)', fill: 'forwards' }).onfinish = () => {
+      fly.remove();
+      tally();
+    };
+  };
 }
 
 /**
@@ -4883,7 +4970,8 @@ function frame() {
       sfx?.play('doorOpen');
       sfx?.play('doorClose', { delay: 0.7 });
       if (combo) comboTag.lingerUntil = performance.now() + COMBO_LINGER_MS;
-      if (fare.runs?.length) popRunSequence(fare);
+      if (combo && fare.runs?.length) popComboPayout(fare);
+      else if (fare.runs?.length) popRunSequence(fare);
       else popEarning(fare.value);
       // A third of a tank of boost fuel as the ordinary delivery reward — the only way any fuel
       // enters the meter otherwise. A VIP pays out bigger here too: the tank tops all the way to
@@ -5757,6 +5845,9 @@ window.__taxi = {
   // The run-bonus tracker — see game/runs.js — and the drop-off sequence that pays it out.
   runs,
   popRunSequence,
+  combo,
+  landCombo,
+  popComboPayout,
   // The crash replay and its recording — see game/replay.js.
   replay,
   tape,

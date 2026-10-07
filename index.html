@@ -257,15 +257,19 @@
          bar had nothing to fill to. #hud starts --hud-side + the safe inset in from the left, so
          that much short of 50vw is the screen's centre in its coordinates. */
       #hud .runs.is-combo { left: calc(50vw - var(--hud-side) - var(--safe-left)); }
-      #hud .run-combo {
+      .combo-meter {
         display: flex; flex-direction: row; align-items: center; gap: 1px;
         transition: opacity 0.3s ease;
       }
-      #hud .run-combo.is-off-job { opacity: 0; }
+      .combo-meter.is-off-job { opacity: 0; }
+      /* Lifted off the HUD by a drop-off's cash-in: gone at once, since a copy is flying the number
+         down into the fare (`popComboPayout` in main.js). */
+      .combo-meter.is-cashed { opacity: 0; transition: none; }
+      .combo-meter.combo-fly { position: fixed; z-index: 26; pointer-events: none; margin: 0; transform-origin: center; }
       /* The flame: Loco's own tongue (game/locoflame.js `tongueOutline`) as SVG, its three layers
-         coloured by tier from the multiplier and its four frames cycled at the plume's 16fps. It
+         in Loco orange and its four frames cycled at the plume's 16fps. It
          grows a step with each tier, from its right end so it stays attached to the number. */
-      #hud .run-combo .combo-flame {
+      .combo-meter .combo-flame {
         /* 40×30 against the plume's 3 × 1.8 view box: stretched a third taller than the plume's own
            proportions, which at this size read as a dart rather than a flame (34×20 was tried). */
         display: block; width: 40px; height: 30px; overflow: visible;
@@ -273,39 +277,39 @@
         transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
         filter: drop-shadow(0 0 4px var(--flame-outer, #FF5D18));
       }
-      #hud .run-combo .combo-flame path { transition: fill 0.25s ease; }
-      #hud .run-combo .combo-flame .t0 { fill: var(--flame-outer, #FF5D18); }
-      #hud .run-combo .combo-flame .t1 { fill: var(--flame-mid, #FF9E12); }
-      #hud .run-combo .combo-flame .t2 { fill: var(--flame-core, #FFF6D8); }
-      #hud .run-combo .combo-flame .f { visibility: hidden; animation: combo-flame-frame 0.25s step-end infinite; }
+      .combo-meter .combo-flame path { transition: fill 0.25s ease; }
+      .combo-meter .combo-flame .t0 { fill: var(--flame-outer, #FF5D18); }
+      .combo-meter .combo-flame .t1 { fill: var(--flame-mid, #FF9E12); }
+      .combo-meter .combo-flame .t2 { fill: var(--flame-core, #FFF6D8); }
+      .combo-meter .combo-flame .f { visibility: hidden; animation: combo-flame-frame 0.25s step-end infinite; }
       @keyframes combo-flame-frame { 0% { visibility: visible; } 25%, 100% { visibility: hidden; } }
-      /* A new colour flares: the flame jumps and settles, on top of its size step. */
-      #hud .run-combo.is-flaring .combo-flame { animation: combo-flare 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
+      /* A whole step flares: the flame jumps and settles, on top of its size step. */
+      .combo-meter.is-flaring .combo-flame { animation: combo-flare 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
       @keyframes combo-flare {
         0%   { transform: scale(calc(var(--flame-size, 1) * 1.6)); }
         100% { transform: scale(var(--flame-size, 1)); }
       }
       /* The count rolls: every number sits in the same grid cell, the outgoing one sliding up and
          out of the top as the new one comes up from below, overshooting and settling (Tyler). */
-      #hud .run-combo .combo-roll { display: inline-grid; min-width: 2.2em; }
-      #hud .run-combo .combo-count {
+      .combo-meter .combo-roll { display: inline-grid; min-width: 2.2em; }
+      .combo-meter .combo-count {
         grid-area: 1 / 1; white-space: nowrap;
         font: 700 24px/1 var(--hud-font); letter-spacing: 0; color: #fff;
       }
-      #hud .run-combo .combo-count > span { display: inline-block; }
-      #hud .run-combo .combo-count.is-leaving { animation: combo-count-out 0.28s ease-in forwards; }
+      .combo-meter .combo-count > span { display: inline-block; }
+      .combo-meter .combo-count.is-leaving { animation: combo-count-out 0.28s ease-in forwards; }
       @keyframes combo-count-out { to { transform: translateY(-110%); opacity: 0; } }
-      #hud .run-combo .combo-count.is-entering > span {
+      .combo-meter .combo-count.is-entering > span {
         animation: combo-count-in 0.5s cubic-bezier(0.34, 1.7, 0.64, 1) backwards;
       }
       /* The "x" a beat behind its number, so the pair lands as two bounces rather than one block. */
-      #hud .run-combo .combo-count.is-entering > .combo-x { animation-delay: 0.07s; }
+      .combo-meter .combo-count.is-entering > .combo-x { animation-delay: 0.07s; }
       @keyframes combo-count-in {
         0%   { transform: translateY(110%) scale(0.8); opacity: 0; }
         100% { transform: translateY(0) scale(1); opacity: 1; }
       }
-      /* Broken: side to side, then down and out of sight. It comes back at 1x (`is-returning`). */
-      #hud .run-combo.is-broken { animation: combo-broken 0.75s linear forwards; }
+      /* Broken: side to side, then down and out of sight, to stay hidden until the next combo. */
+      .combo-meter.is-broken { animation: combo-broken 0.75s linear forwards; }
       @keyframes combo-broken {
         0%   { transform: translate(0, 0); opacity: 1; }
         8%   { transform: translate(-8px, 0); }
@@ -316,8 +320,6 @@
                animation-timing-function: cubic-bezier(0.4, 0, 0.8, 0.6); }
         100% { transform: translate(0, 26px); opacity: 0; }
       }
-      #hud .run-combo.is-returning { animation: combo-return 0.3s ease-out; }
-      @keyframes combo-return { from { opacity: 0; transform: scale(0.85); } }
       @keyframes run-tag-in {
         0%   { transform: scale(0.6); opacity: 0; }
         60%  { transform: scale(1.12); opacity: 1; }
