@@ -4598,9 +4598,10 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     blipped.arms === 1 && blipped.hits === 0 && blipped.before === 0 && blipped.peak > 0.95,
     `${blipped.arms} arms, ${blipped.hits} bumps, pass ${blipped.before.toFixed(2)} before the blip`
     + ` and peaked at ${blipped.peak.toFixed(2)}`);
-  // `?overtake=grace`: the same hold tailgates the car for OVERTAKE_GRACE and then rams it anyway.
+  // With the grace main.js gives it: the same hold tailgates the car for OVERTAKE_GRACE and then
+  // rams it anyway.
   const graced = comboStage('hold', OVERTAKE_GRACE);
-  check('under ?overtake=grace, holding Loco behind a car rams it only once the grace runs out',
+  check('with the grace, holding Loco behind a car rams it only once the grace runs out',
     graced.hits > 0 && graced.firstHit >= OVERTAKE_GRACE && graced.peak === 0,
     `first bump at ${graced.firstHit?.toFixed(2)}s against ${OVERTAKE_GRACE}s of grace, held rams at`
     + ` ${held.firstHit?.toFixed(2)}s`);

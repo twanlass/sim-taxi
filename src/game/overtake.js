@@ -47,7 +47,7 @@ export const OVERTAKE_ARM_RANGE = 30;
 export const OVERTAKE_ARM_WINDOW = 3.0;
 
 /**
- * Seconds a car the taxi has just caught is tailgated rather than rammed, under `?overtake=grace`.
+ * Seconds a car the taxi has just caught is tailgated rather than rammed (`?grace=` overrides it).
  * The ram is what makes the combo matter, and it was landing before a human could throw it: a bot
  * reacting 0.6s after a car came within OVERTAKE_ARM_RANGE — see it, decide, lift — passed 25 of
  * 77 and was rammed 52 times, **50 of them before its thumb was back on the pill**. Lift length
@@ -60,7 +60,8 @@ export const OVERTAKE_GRACE = 1.2;
 /**
  * @param taxi   the traffic model's taxi; reads `passGap`, `passLeader` and `passing`, writes
  *               `passArmed`, `passPending` and `passGrace`
- * @param grace  seconds of OVERTAKE_GRACE to give a newly caught car; 0 is the shipped rule
+ * @param grace  seconds of OVERTAKE_GRACE to give a newly caught car; 0 rams on contact (the
+ *               probe and the bot pass it explicitly)
  */
 export function createOvertakeCombo({ taxi, grace = 0 }) {
   const state = {

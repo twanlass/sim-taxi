@@ -958,13 +958,12 @@ const bootleg = createBootleg({
 });
 // Loco behind a car, a blip off the pill and back on: the taxi goes round. See game/overtake.js.
 function overtakeGrace(params) {
-  if (params.get('overtake') !== 'grace') return 0;
-  const asked = Number(params.get('grace'));
-  return asked > 0 ? asked : OVERTAKE_GRACE;
+  const asked = params.get('grace');
+  return asked !== null && Number.isFinite(Number(asked)) ? Math.max(0, Number(asked)) : OVERTAKE_GRACE;
 }
-// `?overtake=grace` is a prototype for Tyler to compare (2026-10-07): a car the taxi has just
-// caught is tailgated for OVERTAKE_GRACE before it can be rammed, so there is time to throw the
-// combo; `&grace=1.6` tries another length. Without the flag the shipped rule stands.
+// A car the taxi has just caught is tailgated for OVERTAKE_GRACE before it can be rammed, so there
+// is time to throw the combo (Tyler, 2026-10-07: "feels better"). `?grace=1.6` tries another
+// length and `?grace=0` is the old rule, rammed the moment you catch it.
 const overtake = createOvertakeCombo({
   taxi: traffic.taxi,
   grace: overtakeGrace(new URLSearchParams(window.location.search)),

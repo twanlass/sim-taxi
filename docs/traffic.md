@@ -1207,11 +1207,12 @@ combo at every car the taxi catches in ambient traffic, over a grid of reaction 
 | 0.9s | 21% | 18% |
 
 Down a column the pass rate collapses; across a row it barely moves. At 0.6s — a fair human "see
-it, decide, lift" — 50 of 52 rams land **before the thumb is back on the pill**. The prototype is a
-grace window behind `?overtake=grace` (`OVERTAKE_GRACE`, 1.2s; `&grace=` tries another): a car the
+it, decide, lift" — 50 of 52 rams land **before the thumb is back on the pill**. So there is a
+grace window (`OVERTAKE_GRACE`, 1.2s; `?grace=` tries another, `?grace=0` is the old rule): a car the
 taxi has just caught (`taxi.passLeader`, keyed on the car) is tailgated for that long before it can
 be rammed, and holding past it still rams. At 0.6s reaction that takes the pass rate to 68-75%, and
-a taxi that never throws the combo still rams 80 cars in the same runs.
+a taxi that never throws the combo still rams 80 cars in the same runs. Tyler tried it behind a
+flag and kept it (2026-10-07).
 
 **This was built once before and abandoned, and why matters.** The old overtake pulled out to the
 road *centreline*, which is the single worst place on the road:

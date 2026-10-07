@@ -5031,7 +5031,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // waiting for a way round: the player asked to pass, and a ram there reads as the game eating
       // the input. Both tailgate instead, for as long as the blip or the arm lasts.
       //
-      // And, under `?overtake=grace`, a car the taxi has only just caught (`passGrace`, game/
+      // And a car the taxi has only just caught (`passGrace`, game/
       // overtake.js): most cars come into range too late to react to before the ram.
       const asking = taxi.passArmed === true || taxi.passPending === true || taxi.passGrace === true;
       taxi.canPass = (locoHeld || taxi.passPending === true) && gap !== undefined
