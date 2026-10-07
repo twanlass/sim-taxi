@@ -83,8 +83,9 @@ const EVENTS = new Set(['pick', 'grab', 'snap', 'brake', 'loco', 'parcel-in', 'p
  * - `drift-kick`   — the drift's exit kick: a thump and a surge that rises in pitch.
  * - `uturn`        — the bootleg spin: chirps that go round, then a sharp catch.
  * - `overtake`     — the taxi pulling out round a car: a light whoosh, no knock.
- * - `perfect`      — PERFECT RUN ×2 paying out: three rising clicks and a shimmer.
- * - `perfect-lost` — a bump that costs a Perfect Run the HUD was showing: two falling thuds.
+ * - `perfect`      — the combo meter multiplying the fare at the drop-off: three rising clicks and a
+ *                    shimmer. Named for the Perfect Run it was made for, which the meter replaced.
+ * - `perfect-lost` — a bump that empties the combo meter the HUD was showing: two falling thuds.
  *
  * They had a Settings switch of their own, "Combo haptics", that played them as the plain knocks
  * they replaced, for comparing the two on the phone. It went once the patterns were judged
