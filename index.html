@@ -258,20 +258,34 @@
          `fitComboBar` in main.js: centred while it fits, slid right and then shortened as a growing
          total crowds it — at 390px wide a four-digit total already reaches past where a centred
          96px bar would start. */
+      /* Tyler's Figma frame "combo-meter" (Taxi file, node 216:9), values as given there: a 50%-black
+         track, the fill a violet gradient (#781DD4 → #9947FD at 80% → #C697F5) rounded on its left
+         end only and square at its leading edge, glowing 0 0 12px 4px; 5px to the multiplier,
+         Space Grotesk Bold 24 in white, written "3x". The outline on the number is from the frame's
+         render rather than its exported style. The bar's *width* is the one thing not taken from
+         the frame (243 there): `fitComboBar` sizes it to the gap between the cash and pause. The
+         glow is a box-shadow on the fill, so the track must not clip it (no overflow: hidden). */
       #hud .run-combo {
-        display: flex; flex-direction: row; align-items: center; gap: 8px;
+        display: flex; flex-direction: row; align-items: center; gap: 5px;
         padding: 0; background: none;
       }
-      #hud .run-combo.is-earned { color: #C77DFF; background: none; }
-      #hud .run-combo .combo-mult { min-width: 2.6em; text-align: left; font-size: 16px; }
+      #hud .run-combo.is-earned { color: #fff; background: none; }
+      #hud .run-combo .combo-mult {
+        min-width: 2em; text-align: left;
+        font: 700 24px/1 var(--hud-font); letter-spacing: 0; color: #fff; text-shadow: none;
+        -webkit-text-stroke: 4px #000; paint-order: stroke fill;
+      }
       #hud .run-combo .combo-bar {
-        display: block; width: var(--combo-bar-w, 96px); height: 8px; border-radius: 4px; background: #000;
-        overflow: hidden;
+        display: block; position: relative; width: var(--combo-bar-w, 120px); height: 15px;
+        border-radius: 100px; background: rgba(0, 0, 0, 0.5);
       }
       #hud .run-combo .combo-bar > span {
-        display: block; height: 100%; background: currentColor;
+        display: block; height: 100%; border-radius: 100px 0 0 100px;
+        background: linear-gradient(90deg, #781DD4 0%, #9947FD 79.8%, #C697F5 100%);
+        box-shadow: 0 0 12px 4px rgba(153, 71, 252, 0.41);
         width: calc(100% * var(--combo-fill, 0)); transition: width 0.25s cubic-bezier(0.22, 1, 0.36, 1);
       }
+      #hud .run-combo.is-empty .combo-bar > span { box-shadow: none; }
       #hud .run-combo.is-bumped { animation: combo-bump 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
       @keyframes combo-bump {
         0%   { transform: scale(1); }
@@ -508,7 +522,7 @@
         transform: translate(-50%, -50%);
       }
       .run-pop.run-perfect, .earning.run-perfect { color: #6BE08A; }
-      .run-pop.run-combo, .earning.run-combo { color: #C77DFF; }
+      .run-pop.run-combo, .earning.run-combo { color: #B27CFF; }
 
       /* The boost half of a drop-off's payout — see src/game/energybits.js. Small, bright and
          round, so it reads as *energy* against the flying "$20"'s green text: the two currencies

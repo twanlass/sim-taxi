@@ -46,8 +46,8 @@ export function comboValue(key, tier = 1) {
   return { label: at(def.label), step: at(def.step) };
 }
 
-/** A multiplier as the HUD writes it: ×1, ×1.5, ×2. */
-export const formatMult = (m) => `×${Number.isInteger(m) ? m : m.toFixed(1)}`;
+/** A multiplier as the HUD writes it: 1x, 1.5x, 2x (Tyler's Figma). */
+export const formatMult = (m) => `${Number.isInteger(m) ? m : m.toFixed(1)}x`;
 
 export function createComboMeter({ scope = 'meter' } = {}) {
   const state = {

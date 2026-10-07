@@ -1789,8 +1789,8 @@ more to read than to play. The Perfect Run is the first two of those folded into
 (`game/combometer.js`, Tyler's idea after the Duolingo combo streak). Each combo steps it up from
 ×1: an overtake or a bootleg U-turn +0.5, a drift kick +0.5 per chain tier (so a full chain of three
 is +3), the bridge launch +2, capped at ×5. Combos only count on a job (heading to a rider or carrying
-one). It shows as a violet bar with `×N` at its right end in the run tag's place, from the first
-combo of the run onward and then for good, and the drop-off pays the fare at it, through the same
+one). It shows as a violet bar with `3x` at its right end (Tyler's Figma frame) on the cash row,
+from the first combo of the run onward and then for good, and the drop-off pays the fare at it, through the same
 payout sequence (`COMBO ×2.5`).
 
 Any hit that costs HP empties it back to ×1 with the Perfect Run's red fall. A reset rather than a

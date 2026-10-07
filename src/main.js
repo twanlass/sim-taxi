@@ -2745,6 +2745,7 @@ function updateComboTag(box) {
   }
   el.querySelector('.combo-mult').textContent = formatMult(mult);
   el.style.setProperty('--combo-fill', String((mult - 1) / (COMBO_MAX - 1)));
+  el.classList.toggle('is-empty', mult === 1);
   comboTag.shown = mult;
   comboTag.lost = false;
   fitComboBar();
@@ -2755,7 +2756,7 @@ function updateComboTag(box) {
 // the bar shortened (COMBO_BAR_MIN..COMBO_BAR_MAX px) only once there is no room left to push into.
 // Layout offsets rather than bounding rects, so the payout bump's scale does not jiggle it.
 const COMBO_BAR_MIN = 28;
-const COMBO_BAR_MAX = 96;
+const COMBO_BAR_MAX = 140;   // the Figma frame's 243 does not fit beside the cash on a phone
 const COMBO_BAR_CLEAR = 14;   // px kept clear either side of the meter
 function fitComboBar() {
   const el = comboTag.el;
