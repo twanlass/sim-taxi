@@ -2714,7 +2714,7 @@ function updateRunTags() {
   }
 }
 
-// The combo meter (`?combo=`, game/combometer.js), in the run tag's place: a purple bar filling
+// The combo meter (`?combo=`, game/combometer.js), top centre under the cash row: a purple bar filling
 // towards COMBO_MAX with the multiplier at its right end — no word, and purple so it is not read as
 // the Loco tank (Tyler, 2026-10-07). Nothing shows until the first combo lands, so a run opens on
 // a clean HUD; from then on it stays up for the rest of the run, at ×1 and empty between streaks.
@@ -2730,6 +2730,7 @@ function updateComboTag(box) {
     el = comboTag.el = document.createElement('div');
     el.className = 'run-tag run-combo is-earned';
     el.innerHTML = '<span class="combo-bar"><span></span></span><span class="combo-mult"></span>';
+    box.classList.add('is-combo');
     box.append(el);
   } else {
     const cls = mult > comboTag.shown ? 'is-bumped' : comboTag.lost ? 'is-broken' : null;
