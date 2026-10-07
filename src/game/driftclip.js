@@ -15,7 +15,7 @@ import { reelPlayer, createMoveClip, onStreet } from './moveclip.js';
 
 // The timeline, in seconds into the loop — what the recording pressed, and what the pedal row shows.
 // Loco goes down at BOOST_ON and the brake tap at TAP takes it back off, as the tap does in the
-// game; the pill goes down again at KICK_ON, mid-slide, and is held out of the corner to the end
+// game; the pill goes down again at KICK_ON, which is where the slide starts, and is held out of the corner to the end
 // of the loop (tools/driftreel.mjs says why).
 export const BOOST_ON = 0.5;
 export const TAP = 1.2;

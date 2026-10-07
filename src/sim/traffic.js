@@ -1644,16 +1644,19 @@ export function spinTaxi(car) {
 
 // --- The drift: Loco, tap the brake, Loco again --------------------------------------------------
 //
-// Holding Loco Mode into a real turn, a tap of the brake (`driftTaxi`) is not a stop: the taxi goes
-// round with its nose swung past the heading on a spring (`car.driftAmt` below) and four wheels of
-// rubber (layRubber in main.js), at the boost cruise, rights included, deaf to the pedal. Plain
-// Loco corners keep the lean alone, so the slide is the combo's own look. Get back on the pill before the
-// arc is over (`kickDrift`) and it comes out of the corner with a kick, DRIFT_EXIT of the cruise
-// held for its `carry`. Skip the second half and it is just the slide. `car.drifts` counts kicks.
+// Holding Loco Mode into a real turn, a tap of the brake (`driftTaxi`) arms a drift — and until the
+// pill goes back down it is only a brake. Get back on the pill before the arc is over (`kickDrift`)
+// and the slide starts there: the nose swung past the heading on a spring (`car.driftAmt` below),
+// four wheels of rubber (layRubber in main.js), the boost cruise held round the corner, rights
+// included, deaf to the pedal, and on the exit a kick, DRIFT_EXIT of the cruise held for its
+// `carry`. Skip the second half and nothing happens that a brake would not do. `car.drifts` counts
+// kicks. The slide used to start on the tap itself, which read as the brake giving the taxi a shove:
+// a tap under the cruise had the car *accelerating* up to it with the pill off (Tyler, 2026-10-07).
+// Plain Loco corners keep the lean alone, so the slide is the combo's own look.
 //
 // Kicks chain (DRIFT_CHAIN): start the next drift within `window` seconds of the last kick running
 // out and land it, and it comes out a tier harder — faster and held longer — up to three. A tap
-// that only slides, any damage, or the window lapsing puts the next kick back at tier 1.
+// with no kick after it, any damage, or the window lapsing puts the next kick back at tier 1.
 // `car.driftTier` is the tier of the last kick, 0 once the chain has broken.
 //
 // It is a prototype and every number below is a first guess, not a measurement.
@@ -1726,6 +1729,12 @@ export function driftTaxi(car) {
   return null;
 }
 
+/** Whether the drift has the car — kicked, so sliding and holding its own speed. Before the kick a
+ * drift is only armed and the taxi drives (and brakes) as if there were none. */
+export function driftHolds(car) {
+  return !!car.drift?.kicked;
+}
+
 /** The combo's second half: back on the pill before the arc is over. Answers whether it counted. */
 export function kickDrift(car) {
   if (!car.drift || car.drift.phase === 'carry') return false;
@@ -1759,8 +1768,7 @@ function stepDrift(car, dt) {
     }
   } else if (d.phase === 'arc') {
     if (car.state !== 'drive') return;
-    // Landed. Without the second half it was only a slide, and the boost (or the coast-down) has
-    // the car back. With it, the kick goes on in one frame — a surge, like BOOST_KICK — and holds.
+    // Landed. Without the second half it was only a brake tap, and the coast-down has the car back. With it, the kick goes on in one frame — a surge, like BOOST_KICK — and holds.
     if (!d.kicked) return drop();
     // A tier up on the last kick if nothing has hurt the car since it — `hp` is only ever armed on
     // the taxi, and a repair raising it is fine.
@@ -5647,10 +5655,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // The ceiling at full boost is the *overdrive* top, not the BOOST_SPEED one — but the
         // acceleration tapers above BOOST_SPEED, so the band past 18.7 is only ever reached by a
         // car that has had 40 units of straight road and a clear `allowed` to spend it on.
-        // A drift holds its own speed: the brake tap releases the pill, so `fullPower` is off
-        // until the player is back on it, and the cruise cap would haul the taxi down to 8.5.
-        const topSpeed = car.drift ? car.drift.v : fullPower ? overdriveTop() : cruiseCap;
-        const accel = fullPower || car.drift
+        // A kicked drift holds its own speed: the brake tap released the pill, and the cruise cap
+        // would haul the taxi down to 8.5 round the corner. An unkicked one holds nothing.
+        const drifting = driftHolds(car);
+        const topSpeed = drifting ? car.drift.v : fullPower ? overdriveTop() : cruiseCap;
+        const accel = fullPower || drifting
           ? boostAccel(car.v)
           : chaseAccelFor(car);
         // The brake pedal outranks every one of them, including the boost ceiling: holding it means
@@ -6040,8 +6049,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           : car.isTruck
             ? (isRight ? TRUCK_RIGHT_TURN_SPEED : TRUCK_CORNER_SPEED)
             : chaseTurn;
-        // A drift goes round at the boost cruise, rights included, pill or no pill.
-        const cornerTarget = car.drift ? car.drift.v : straightOn ? straightTop : boostTurn;
+        // A kicked drift goes round at the boost cruise, rights included.
+        const cornerTarget = driftHolds(car) ? car.drift.v : straightOn ? straightTop : boostTurn;
 
         // Don't close on the car in front while crossing a junction.
         //
@@ -6092,7 +6101,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // climb to is not a ceiling. At plain ACCEL a fleeing car needs 24 units to reach
         // SCATTER_SPEED and a junction is 8, so without this the cruise cap above would raise the
         // roof and the car would still cross at the speed it entered.
-        const accel = fullPower || car.drift ? boostAccel(car.v) : chaseAccelFor(car);
+        const accel = fullPower || driftHolds(car) ? boostAccel(car.v) : chaseAccelFor(car);
         car.v = car.v > target
           ? Math.max(target, car.v - (car.braking ? hardBrake() : brake()) * dt)
           : Math.min(target, car.v + accel * dt);
@@ -6297,11 +6306,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // slide and not a steering input — the front wheels point back along the road instead
       // (`driftSteer`, read where the taxi's wheels are set).
       if (car.isTaxi) {
-        // Only a drift (the brake tap) slides. Every boosted corner did for a while, and it made
-        // the combo hard to tell apart from just holding the pill, so plain Loco corners went back
-        // to the lean alone.
-        const want = car.drift?.phase === 'arc' ? 1
-          : car.drift?.phase === 'approach' ? 0.2 : 0;
+        // Only a kicked drift slides. Every boosted corner did for a while, and it made the combo
+        // hard to tell apart from just holding the pill, so plain Loco corners went back to the
+        // lean alone; and so did the tap alone, which is a brake until the pill comes back.
+        const want = !driftHolds(car) ? 0 : car.drift.phase === 'arc' ? 1
+          : car.drift.phase === 'approach' ? 0.2 : 0;
         car.driftAmtV += ((want - car.driftAmt) * DRIFT_OMEGA * DRIFT_OMEGA - car.driftAmtV * DRIFT_DAMP) * dt;
         car.driftAmt += car.driftAmtV * dt;
         if (!car.drift && Math.abs(car.driftAmt) < 1e-3 && Math.abs(car.driftAmtV) < 1e-2) {

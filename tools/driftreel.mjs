@@ -23,7 +23,7 @@ import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { setCityNetwork, cityNetwork, roadNetFromGrid } from '../src/city/roadnet.js';
 import { createTraffic, placeCar, SPEED, DRIFT_MIN_V } from '../src/sim/traffic.js';
-import { driftTaxi, kickDrift } from '../src/sim/traffic.js';
+import { driftTaxi, kickDrift, driftHolds } from '../src/sim/traffic.js';
 import { createBoost } from '../src/game/boost.js';
 import { createBootleg } from '../src/game/bootleg.js';
 import { DIR } from '../src/city/grid.js';
@@ -66,7 +66,6 @@ function film(back) {
 
   const g = traffic.taxiGroup;
   let brakeHeld = false;
-  let driftHoldOff = false;
   let launchSkidT = 0;
   let lastStamp = 0;
   let driftedAt = null;
@@ -81,20 +80,18 @@ function film(back) {
   const pressLoco = () => {
     // holdLocoMode: the brake comes up, the kick is asked for, the pill goes down.
     brakeHeld = false;
-    kickDrift(taxi);
+    if (!driftHolds(taxi) && kickDrift(taxi)) stamp(2);
     if (boost.press()) { taxi.wheelieT = 0; burst(); stamp(1); launchSkidT = LAUNCH_SKID_TIME; }
   };
   const tapBrake = () => {
-    // holdBrake's drift branch: Loco Mode, at speed, a turn just ahead.
+    // holdBrake's drift branch: Loco Mode, at speed, a turn just ahead. It only arms the drift; the
+    // press is a plain brake until the pill comes back (pressLoco).
     brakeHeld = true;
     if (boost.isEngaged() && driftTaxi(taxi) === null) {
       bootleg.reset();
-      driftHoldOff = true;
-      boost.release();
-      stamp(2);
       driftedAt = frames.length;
-      return;
     }
+    if (taxi.v > 2.5) stamp(2);
     boost.release();
   };
   const crossed = (t, at) => t <= at && t + STEP > at;
@@ -112,9 +109,8 @@ function film(back) {
     taxi.boost = boost.isEngaged();
     taxi.boostEasing = boost.isCoolingDown();
     const bootlegBrake = bootleg.update(STEP, { brakeHeld });
-    if (!brakeHeld) driftHoldOff = false;
-    const drifting = taxi.drift && taxi.drift.phase !== 'carry';
-    taxi.braking = bootlegBrake && !driftHoldOff && !drifting;
+    const drifting = driftHolds(taxi) && taxi.drift.phase !== 'carry';
+    taxi.braking = bootlegBrake && !drifting;
     // Straight on to the corner, round it, then straight on up line 2 — handed over once per lane,
     // as the router would, rather than re-planned every frame.
     if (taxi.lane.id !== routed) {
@@ -133,7 +129,7 @@ function film(back) {
     const cornering = taxi.boost && taxi.state === 'turn' && taxi.dOut !== taxi.d
       && Math.min(taxi.turnT, 1) * taxi.turnLen > taxi.leadIn;
     const launching = taxi.boost && launchSkidT > 0;
-    const skidding = (taxi.braking && taxi.v > BRAKE_SKID_V) || (taxi.drift && taxi.drift.phase !== 'carry');
+    const skidding = (taxi.braking && taxi.v > BRAKE_SKID_V) || (driftHolds(taxi) && taxi.drift.phase !== 'carry');
     if (!cornering && !launching && !skidding) lastStamp = taxi.travelled;
     else if (taxi.travelled - lastStamp >= STAMP_EVERY) { lastStamp = taxi.travelled; stamp(skidding ? 2 : 1); }
 
