@@ -27,10 +27,12 @@
  */
 export const OVERTAKE_BLIP_MS = 400;
 /**
- * How long the pill has to have been down before the blip, in seconds — "holding Loco behind a
- * car" rather than tapping it. Keeps a player stabbing at the pill from a standstill from arming it.
+ * How long the pill has to have been down before the blip, in seconds. It was 0.2, to keep a player
+ * stabbing at the pill from arming it, and that also meant a quick tap, tap-and-hold behind a car
+ * did nothing — the first tap ended too soon to count. Tyler wanted that to throw it (2026-10-07):
+ * a double tap behind a car is deliberate, and the car still has to be within OVERTAKE_ARM_RANGE.
  */
-export const OVERTAKE_PRE_HOLD = 0.2;
+export const OVERTAKE_PRE_HOLD = 0;
 /**
  * Behind a car means a leader within this many units, at the release and at the re-press. Since a
  * taxi held behind a car without the combo rams it (`canPass` in sim/traffic.js), this is the
