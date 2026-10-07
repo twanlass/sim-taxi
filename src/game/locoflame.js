@@ -157,6 +157,27 @@ function tongueGeometry(phase) {
   return geometry;
 }
 
+/**
+ * The same silhouette as a closed 2D outline, for drawing it somewhere that is not the scene — the
+ * combo meter's flame in the HUD (`?combo=`, main.js) is this tongue, drawn as SVG. Points are
+ * (u, y): u runs 0 at the pipe to 1 at the tip, y is in world units off the axis (HALF_W scale).
+ * Shares `halfWidth`, SWAY and RUFFLE with `tongueGeometry`, so the two flames stay one shape.
+ */
+export function tongueOutline(phase, sections = SECTIONS * 2) {
+  const centre = (u) => SWAY * u * Math.sin(u * 2.4 + phase);
+  const edge = (u, side) => centre(u)
+    + side * halfWidth(u) * (1 + RUFFLE * Math.sin(u * 5.5 + phase * 1.7 + side));
+  const pts = [];
+  for (let i = 0; i <= sections; i++) pts.push([i / sections, edge(i / sections, -1)]);
+  for (let i = sections - 1; i >= 0; i--) pts.push([i / sections, edge(i / sections, 1)]);
+  return pts;
+}
+export const FLAME_FRAMES = FRAMES;
+export const FLAME_LEN = LEN;
+export const FLAME_FRAME_TIME = FRAME_TIME;
+/** The three tongues' (length, width) fractions of the outer one, outermost first. */
+export const FLAME_LAYER_SCALES = LAYERS.map((layer) => layer.scale);
+
 // Built once for every flame on the page — a page has one taxi, and the lab has the other. Node-safe
 // for the same reason the outburst bubble's geometry is: arithmetic and buffers, no document.
 const TONGUES = Array.from({ length: FRAMES },
