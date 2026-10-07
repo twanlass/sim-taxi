@@ -251,12 +251,14 @@
       }
       #hud .run-tag.is-earned { background: rgba(0, 0, 0, 0.4); }
       #hud .run-perfect.is-earned { color: #6BE08A; }
-      /* The combo meter (`?combo=`, game/combometer.js): the multiplier over a bar that fills
-         towards COMBO_MAX, in the Loco yellow, swelling each time a combo steps it up. */
-      #hud .run-combo { display: flex; flex-direction: column; align-items: stretch; gap: 3px; }
-      #hud .run-combo.is-earned { color: #FFC83D; }
+      /* The combo meter (`?combo=`, game/combometer.js): a bar filling towards COMBO_MAX with the
+         multiplier at its right end, in the drift kick's violet so it is never read as the Loco
+         tank. Swells each time a combo steps it up; flinches red and shakes when a hit empties it. */
+      #hud .run-combo { display: flex; flex-direction: row; align-items: center; gap: 7px; }
+      #hud .run-combo.is-earned { color: #C77DFF; }
+      #hud .run-combo .combo-mult { min-width: 2.6em; text-align: left; }
       #hud .run-combo .combo-bar {
-        display: block; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.18);
+        display: block; width: 72px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.18);
         overflow: hidden;
       }
       #hud .run-combo .combo-bar > span {
@@ -268,6 +270,15 @@
         0%   { transform: scale(1); }
         40%  { transform: scale(1.22); }
         100% { transform: scale(1); }
+      }
+      #hud .run-combo.is-broken { animation: combo-broken 0.6s linear; }
+      @keyframes combo-broken {
+        0%   { transform: translate(0, 0) scale(1.2); color: #FF5A48; }
+        12%  { transform: translate(-7px, 0) rotate(-4deg) scale(1.15); }
+        24%  { transform: translate(7px, 0) rotate(4deg) scale(1.1); }
+        36%  { transform: translate(-5px, 0) rotate(-2deg) scale(1.05); color: #FF5A48; }
+        48%  { transform: translate(3px, 0) rotate(1deg) scale(1); }
+        100% { transform: translate(0, 0); }
       }
       @keyframes run-tag-in {
         0%   { transform: scale(0.6); opacity: 0; }
@@ -489,7 +500,7 @@
         transform: translate(-50%, -50%);
       }
       .run-pop.run-perfect, .earning.run-perfect { color: #6BE08A; }
-      .run-pop.run-combo, .earning.run-combo { color: #FFC83D; }
+      .run-pop.run-combo, .earning.run-combo { color: #C77DFF; }
 
       /* The boost half of a drop-off's payout — see src/game/energybits.js. Small, bright and
          round, so it reads as *energy* against the flying "$20"'s green text: the two currencies

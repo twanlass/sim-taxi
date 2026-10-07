@@ -2714,45 +2714,43 @@ function updateRunTags() {
   }
 }
 
-// The combo meter's tag (`?combo=`, game/combometer.js), in the run tag's place: the multiplier and
-// a bar filling towards COMBO_MAX. It appears with the first combo and swells on each one after.
-// A hit empties it with the Perfect Run's red fall, so the loss is seen where it happened; a
-// per-ride meter cashed at the drop-off just fades, since the payout sequence says what it paid.
+// The combo meter (`?combo=`, game/combometer.js), in the run tag's place: a purple bar filling
+// towards COMBO_MAX with the multiplier at its right end — no word, and purple so it is not read as
+// the Loco tank (Tyler, 2026-10-07). Nothing shows until the first combo lands, so a run opens on
+// a clean HUD; from then on it stays up for the rest of the run, at ×1 and empty between streaks.
+// It swells on each step up; a hit that empties it flinches red and shakes, and a per-ride meter
+// cashed at the drop-off just drains, since the payout sequence says what it paid.
 const comboTag = { el: null, shown: 1, lost: false };
 function updateComboTag(box) {
   const mult = combo.state.mult;
   if (mult === comboTag.shown) return;
-  const prev = comboTag.el;
-  if (mult === 1) {
-    if (prev) {
-      prev.classList.add(comboTag.lost ? 'is-lost' : 'is-done');
-      prev.onanimationend = (e) => {
-        if (e.animationName === 'run-tag-lost' || e.animationName === 'run-tag-out') prev.remove();
-      };
-    }
-    comboTag.el = null;
+  let el = comboTag.el;
+  if (!el) {
+    if (mult === 1) return;
+    el = comboTag.el = document.createElement('div');
+    el.className = 'run-tag run-combo is-earned';
+    el.innerHTML = '<span class="combo-bar"><span></span></span><span class="combo-mult"></span>';
+    box.append(el);
   } else {
-    let el = prev;
-    if (!el) {
-      el = comboTag.el = document.createElement('div');
-      el.className = 'run-tag run-combo is-earned';
-      el.innerHTML = '<span class="combo-mult"></span><span class="combo-bar"><span></span></span>';
-      box.append(el);
-    } else {
-      el.classList.remove('is-bumped');
+    const cls = mult > comboTag.shown ? 'is-bumped' : comboTag.lost ? 'is-broken' : null;
+    el.classList.remove('is-bumped', 'is-broken');
+    if (cls) {
       void el.offsetWidth;
-      el.classList.add('is-bumped');
+      el.classList.add(cls);
     }
-    el.querySelector('.combo-mult').textContent = `COMBO ${formatMult(mult)}`;
-    el.style.setProperty('--combo-fill', String((mult - 1) / (COMBO_MAX - 1)));
   }
+  el.querySelector('.combo-mult').textContent = formatMult(mult);
+  el.style.setProperty('--combo-fill', String((mult - 1) / (COMBO_MAX - 1)));
   comboTag.shown = mult;
   comboTag.lost = false;
 }
 
-/** A combo landed: step the meter (`?combo=`) and say what it added off the roof. */
+/**
+ * A combo landed: step the meter (`?combo=`) and say what it added off the roof. Only on a job —
+ * on the way to a rider or carrying one — so a stunt done idling between fares builds nothing.
+ */
 function landCombo(key, tier) {
-  if (!combo) return;
+  if (!combo || !fares.job()) return;
   const landed = combo.land(key, tier);
   if (landed?.added > 0) popLabel(`${landed.label} ${formatMult(landed.mult)}`, 'run-combo');
 }
