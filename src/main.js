@@ -3,7 +3,6 @@ import { makeRng } from './util/rng.js';
 import { createScene, sinkShadowCaster, setHazeTop, HAZE_TOP } from './game/scene.js';
 import { createRain, GRIP } from './game/rain.js';
 import { createStorm } from './game/storm.js';
-import { createRunTracker } from './game/runs.js';
 import { createComboMeter, comboScope, formatMult } from './game/combometer.js';
 import { createSquall } from './game/squall.js';
 import {
@@ -657,16 +656,13 @@ if (new URLSearchParams(window.location.search).get('lights') === 'on') {
 // `reserved` is how the fare loop learns about the courier's corners without importing it. `parcels`
 // is declared just below and this closure is only ever *called* from the frame loop, long after — the
 // same forward reference `pathDrag`'s `canGrab` makes to `pause`.
-// How each job is being driven — on course for a Perfect Run or not — fed in the frame loop and
-// judged by the fare loop at the drop-off (game/runs.js).
-const runs = createRunTracker();
-// `?combo=meter` (per ride) or `?combo=run` (whole run) swaps the Perfect Run for the combo meter
-// (game/combometer.js) — a prototype, off unless asked for.
-const COMBO_SCOPE = comboScope(new URLSearchParams(window.location.search));
-const combo = COMBO_SCOPE ? createComboMeter({ scope: COMBO_SCOPE }) : null;
+// The combo meter (game/combometer.js): combos landed on a job build a multiplier, and the fare
+// loop asks it for the verdict at the drop-off. Per ride by default; `?combo=run` keeps it across
+// fares.
+const combo = createComboMeter({ scope: comboScope(new URLSearchParams(window.location.search)) });
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   reserved: () => parcels?.occupiedSpots() ?? [],
-  judgeRun: (fare) => (combo ? combo.judge() : runs.judge(fare)),
+  judgeRun: () => combo.judge(),
 });
 // The package courier — see game/parcels.js. Its own stream off the run seed, so adding this layer
 // does not reshuffle where every rider spawns. `?parcels=0` turns it off.
@@ -1740,13 +1736,9 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck })
   // Ramming the patrol car on the pill is a bump like any other, not a bust — game/patrol.js
   // `rammed`. The collision pass runs before the patrol's, so this lands the same frame.
   if (taxiStruck && other.police) patrol.rammed(other);
-  // Every bump costs HP, and any damage at all costs the ride its Perfect Run (game/runs.js). When
-  // the HUD was showing one on course, the hand is told it has gone as the tag falls.
-  // Under the combo meter the same hit empties the meter instead (game/combometer.js).
-  const perfectWasOn = !combo && runs.live()[0]?.earned && !runs.live()[0].broken;
-  runs.damage();
-  if (perfectWasOn) haptic('perfect-lost');
-  if (combo?.damage()) {
+  // Every bump costs HP, and any HP lost empties the combo meter (game/combometer.js). When it was
+  // showing a streak, the hand is told it has gone as the meter falls.
+  if (combo.damage()) {
     comboTag.lost = true;
     haptic('perfect-lost');
   }
@@ -2672,51 +2664,11 @@ const hud = {
   banner: document.getElementById('run-end'),
 };
 
-// The run tag under the cash, while a job is under way: whether it is on course for a Perfect Run
-// (game/runs.js). It appears once Loco Mode has been used, carries the job's live boost share, and
-// lights up while that is over the line with no damage taken. Damage breaks it for good, and that
-// is shown — a red flinch, a hard shake and a fall out of the HUD — because a bonus that silently
-// stops being on offer cannot change how anyone drives. When the job ends it just fades: the
-// payout sequence says what was earned.
-const runTags = new Map();
-const RUN_TAG_TEXT = {
-  perfect: () => 'PERFECT RUN',
-};
 function updateRunTags() {
-  const box = hud.runs;
-  if (!box) return;
-  if (combo) { updateComboTag(box); return; }
-  const live = runs.live();
-  const seen = new Set();
-  for (const r of live) {
-    seen.add(r.key);
-    let tag = runTags.get(r.key);
-    if (!tag) {
-      tag = { el: document.createElement('div'), lost: false };
-      tag.el.className = `run-tag run-${r.key}`;
-      box.append(tag.el);
-      runTags.set(r.key, tag);
-    }
-    if (tag.lost) continue;
-    tag.el.textContent = RUN_TAG_TEXT[r.key](r);
-    tag.el.classList.toggle('is-earned', r.earned);
-    // The share can climb back over its line; damage cannot be taken back.
-    if (r.broken) {
-      tag.lost = true;
-      tag.el.classList.add('is-lost');
-      tag.el.onanimationend = (e) => { if (e.animationName === 'run-tag-lost') tag.el.remove(); };
-    }
-  }
-  for (const [key, tag] of runTags) {
-    if (seen.has(key)) continue;
-    runTags.delete(key);
-    if (tag.lost) continue;   // already falling out on its own
-    tag.el.classList.add('is-done');
-    tag.el.onanimationend = (e) => { if (e.animationName === 'run-tag-out') tag.el.remove(); };
-  }
+  if (hud.runs) updateComboTag(hud.runs);
 }
 
-// The combo meter (`?combo=`, game/combometer.js): the multiplier, "3x", centred on the screen on
+// The combo meter (game/combometer.js): the multiplier, "3x", centred on the screen on
 // the cash row, with the tailpipe's flame burning sideways out of its left (Tyler, 2026-10-07).
 // There is no bar: the meter has no full state worth drawing, since a ×5 run keeps combo'ing.
 //
@@ -2855,11 +2807,11 @@ function updateComboTag(box) {
 }
 
 /**
- * A combo landed: step the meter (`?combo=`) and say what it added off the roof. Only on a job —
+ * A combo landed: step the meter and say what it added off the roof. Only on a job —
  * on the way to a rider or carrying one — so a stunt done idling between fares builds nothing.
  */
 function landCombo(key, tier) {
-  if (!combo || !fares.job()) return;
+  if (!fares.job()) return;
   const landed = combo.land(key, tier);
   if (landed?.added > 0) comboTag.landed = true;
   if (landed?.added > 0) popLabel(`${landed.label} ${formatMult(landed.mult)}`, 'run-combo');
@@ -3042,8 +2994,8 @@ function rollMoneyTo(target, up = true) {
  * It flew off the taxi at first, which put it wherever the car happened to be — and with a run
  * bonus's three steps in a row, that was a lot of reading done over the busiest part of the map.
  * Then it popped just under the counter, which was tidy and easy to miss. The middle of the screen
- * is where the eye can find it every time, and the run's label pops in the same place
- * (`payoutScreenPos`).
+ * is where the eye can find it every time, and the combo cash-in lands in the same place
+ * (`payoutScreenPos`, `popComboPayout`).
  *
  * Negative is a **charge** — the burger's `BURGER_PRICE` and the depot's `REPAIR_PRICE`. It takes the same
  * flight rather than one of its own, because it is the same claim: this is what moved the counter.
@@ -3051,12 +3003,12 @@ function rollMoneyTo(target, up = true) {
  * direction, which stays up into the counter. A charge flown out of the counter would read as the
  * player being *given* something.
  */
-function popEarning(amount, { cls = '', prefix = '', rollTo = null, onLanded = null } = {}) {
+function popEarning(amount) {
   const counter = counterScreenPos();
   const start = payoutScreenPos();
   const el = document.createElement('div');
-  el.className = `${amount < 0 ? 'earning is-charge' : 'earning'} ${cls}`.trim();
-  el.textContent = amount < 0 ? `−$${-amount}` : `${prefix}$${amount}`;
+  el.className = amount < 0 ? 'earning is-charge' : 'earning';
+  el.textContent = amount < 0 ? `−$${-amount}` : `$${amount}`;
   el.style.left = `${start.x}px`;
   el.style.top = `${start.y}px`;
   document.body.append(el);
@@ -3083,10 +3035,7 @@ function popEarning(amount, { cls = '', prefix = '', rollTo = null, onLanded = n
     ], { duration: 380, easing: 'cubic-bezier(0.42, 0, 0.58, 1)', fill: 'forwards' });
     fly.onfinish = () => {
       el.remove();
-      // A step of a run-bonus payout rolls to its own partial total (`popRunSequence`), never past
-      // the real one: another payout may have moved it while this was in the air.
-      rollMoneyTo(rollTo === null ? fares.state.money : Math.min(rollTo, fares.state.money), amount >= 0);
-      onLanded?.();
+      rollMoneyTo(fares.state.money, amount >= 0);
     };
   };
 }
@@ -3113,70 +3062,7 @@ function popLabel(text, cls = '') {
 }
 
 /**
- * A drop-off that earned run bonuses (game/runs.js) pays out as a sequence, one item at a time: the
- * fare's own price pops mid-screen and flies into the counter exactly as a plain payout does, then
- * for each run its label pops in the same place and fades, and the extra cash that run added flies into the
- * counter after it — `$20` → counter, `PERFECT RUN ×2`, `+$20` → counter. Each amount rolls the counter to its own partial total as it lands, so the score
- * climbs in the steps the screen just spelled out.
- *
- * The extras are the runs' multipliers applied in order to a running total, with the last one
- * taking up any rounding so they always sum to what the fare actually paid. Each step is chained off
- * the previous one's end rather than timed off the start, so a slow frame can never put two of them
- * on screen at once.
- */
-const RUN_LABEL_MS = 800;
-function popRunSequence(fare) {
-  const total = fare.value;
-  const steps = [{ pays: fare.basePay }];
-  let running = fare.basePay;
-  fare.runs.forEach((run, k) => {
-    const next = k === fare.runs.length - 1 ? total : Math.round(running * run.mult);
-    steps.push({ label: `${run.label} ×${run.mult}`, key: run.key });
-    steps.push({ pays: next - running, key: run.key, extra: true });
-    running = next;
-  });
-  // Where the counter stood before this fare, so each amount can roll it to a partial total.
-  let rolled = fares.state.money - total;
-  const play = (k) => {
-    const step = steps[k];
-    if (!step) return;
-    if (step.pays !== undefined) {
-      rolled += step.pays;
-      popEarning(step.pays, {
-        cls: step.key ? `run-${step.key}` : '',
-        prefix: step.extra ? '+' : '',
-        rollTo: rolled,
-        onLanded: () => play(k + 1),
-      });
-      return;
-    }
-    const at = payoutScreenPos();
-    // On the label's pop, not the cash's landing: the three beats of the pattern climb into the
-    // scale-up that peaks at 20% of RUN_LABEL_MS (ComboHaptics.swift).
-    if (step.key === 'perfect') haptic('perfect');
-    const el = document.createElement('div');
-    el.className = `run-pop run-${step.key}`;
-    el.textContent = step.label;
-    el.style.left = `${at.x}px`;
-    el.style.top = `${at.y}px`;
-    document.body.append(el);
-    const t = (dy, scale) => `translate(-50%, -50%) translateY(${dy}px) scale(${scale})`;
-    el.animate([
-      { opacity: 0, transform: t(-14, 0.7) },
-      { opacity: 1, transform: t(-34, 1.12), offset: 0.2 },
-      { opacity: 1, transform: t(-38, 1), offset: 0.32 },
-      { opacity: 1, transform: t(-42, 1), offset: 0.75 },
-      { opacity: 0, transform: t(-54, 0.96) },
-    ], { duration: RUN_LABEL_MS, easing: 'ease-out', fill: 'forwards' }).onfinish = () => {
-      el.remove();
-      play(k + 1);
-    };
-  };
-  play(0);
-}
-
-/**
- * A drop-off paid at the combo meter (`?combo=`). The fare's own price pops mid-screen as usual and
+ * A drop-off paid at the combo meter. The fare's own price pops mid-screen as usual and
  * holds; the meter lifts off the HUD and flies down into it, the price punches and rolls up to the
  * multiplied total, and that total flies into the counter (Tyler, 2026-10-07: "combine with the
  * cash and multiply it when it hits"). One number travels the whole way, so the payout reads as
@@ -4938,11 +4824,6 @@ function frame() {
     }
   }
 
-  // The job's driving — from the tap that sent the taxi at a rider to the drop-off — recorded
-  // before the fare loop runs so a drop-off this frame is judged on all of it (game/runs.js).
-  if (!fareLoopHeld()) {
-    runs.update(dt, { fare: fares.job(), boosting: Boolean(traffic.taxi.boost) });
-  }
   // More than one thing can land in a frame now — delivering the last fare clears the board and
   // spawns the next one in the same tick — so this is a list rather than a single event.
   for (const { type, fare } of
@@ -4973,9 +4854,8 @@ function frame() {
       // Out they get: open, and shut a beat later once they are clear of the car.
       sfx?.play('doorOpen');
       sfx?.play('doorClose', { delay: 0.7 });
-      if (combo) comboTag.lingerUntil = performance.now() + COMBO_LINGER_MS;
-      if (combo && fare.runs?.length) popComboPayout(fare);
-      else if (fare.runs?.length) popRunSequence(fare);
+      comboTag.lingerUntil = performance.now() + COMBO_LINGER_MS;
+      if (fare.runs?.length) popComboPayout(fare);
       else popEarning(fare.value);
       // A third of a tank of boost fuel as the ordinary delivery reward — the only way any fuel
       // enters the meter otherwise. A VIP pays out bigger here too: the tank tops all the way to
@@ -5846,9 +5726,7 @@ if (!shot && wantsDebugPanel) {
 
 window.__taxi = {
   traffic,
-  // The run-bonus tracker — see game/runs.js — and the drop-off sequence that pays it out.
-  runs,
-  popRunSequence,
+  // The combo meter — see game/combometer.js — and the drop-off that cashes it in.
   combo,
   landCombo,
   popComboPayout,

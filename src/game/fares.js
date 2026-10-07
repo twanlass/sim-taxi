@@ -74,8 +74,8 @@ export const FARE_PER_BLOCK = 3;
  * second time as well as the first.
  *
  * Ten against a fare board that pays $8 for the shortest ride and $20 for a median one (`FARE_BASE`
- * and `FARE_PER_BLOCK` above), before any Perfect Run — so a burger is half a plain fare and a
- * quarter of a perfect one, which is the right way round: the tank matters most when the
+ * and `FARE_PER_BLOCK` above), before the combo meter multiplies it — so a burger is half a plain
+ * fare and a fifth of one paid at ×2.5, which is the right way round: the tank matters most when the
  * multiplier is small and the cash matters most then too. Deliberately *not* scaled by that
  * multiplier, because the reward it buys is a flat 2.25 seconds of boost at every point in the run
  * — a price that climbed with the board would make the same purchase steadily worse for no reason
@@ -150,8 +150,8 @@ export const MAX_STRIKES = 3;
 // down with them.
 //
 // The payout is the ordinary distance price times VIP_PAYOUT, stamped at spawn like every other
-// price on the board (see spawnFare), and then times a Perfect Run at the drop-off like every
-// other fare (see "The Perfect Run" below).
+// price on the board (see spawnFare), and then times the combo meter at the drop-off like every
+// other fare (see "The combo meter" below).
 //
 // There used to be a second, VIP-only streak on top — 3×, then 4×, then 5× for VIPs delivered
 // back to back, reset by a miss. It went with the shift multiplier when run bonuses replaced both:
@@ -274,17 +274,18 @@ const CHECKPOINT_MIN_LEG = 3;
 // no chain at all on most cities.
 const CHECKPOINT_EXTRA_EACH = 3;
 
-// --- The Perfect Run -------------------------------------------------------------
+// --- The combo meter -------------------------------------------------------------
 //
-// How the job was driven — a Perfect Run or not — multiplies what the drop-off
-// pays (game/runs.js). Judged at the drop-off through the `judgeRun` hook main.js hands in, rather
+// How the job was driven — the combos landed on it — multiplies what the drop-off
+// pays (game/combometer.js). Judged at the drop-off through the `judgeRun` hook main.js hands in, rather
 // than stamped at spawn like the rest of a price: it is a fact about the driving, and the driving
 // has not happened when the rider appears. Nothing on the board shows a price before the drop-off,
 // so nothing has been promised that this could contradict.
 //
 // It replaced two multipliers: the shift's (1× to 2× over the ramp, stamped at spawn and shown
 // nowhere) and the VIP's (3×, 4×, 5× back to back). Both paid for getting further; this pays for
-// *how*.
+// *how*. The Perfect Run did that first (×2 for a job more than half on Loco with no damage);
+// the combo meter replaced it.
 
 // Cadence and placement of every fare beyond the first.
 //
@@ -1140,7 +1141,7 @@ export function createFareSystem(rng, scene, { reserved = () => [], judgeRun = (
     // wrong reasons.
     //
     // A VIP's flat multiplier is stamped in at the same moment. A run bonus is not: it is read at
-    // the drop-off, because it is about how the trip gets driven (see "The Perfect Run").
+    // the drop-off, because it is about how the trip gets driven (see "The combo meter").
     fare.vipMultiplier = vip ? VIP_PAYOUT : 1;
     fare.value = Math.round(priceFor(spot, fare.dropoff) * fare.vipMultiplier);
 
@@ -2079,7 +2080,7 @@ export function createFareSystem(rng, scene, { reserved = () => [], judgeRun = (
     /**
      * The job in hand: the rider the taxi has been sent at, or the one it is carrying. A pickup
      * clears `directed` for the frame before main.js dispatches the drop-off, so `directed` alone
-     * would lose the job for that frame — this is what a run bonus keys on (game/runs.js).
+     * would lose the job for that frame — this is what a combo needs to count (main.js `landCombo`).
      */
     job: () => state.fares.find((f) => f.directed) ?? carrying(),
     colorOf,

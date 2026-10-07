@@ -202,7 +202,6 @@ import {
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
-import { createRunTracker, RUNS, PERFECT_SHARE, TAG_AFTER } from '../src/game/runs.js';
 import { createComboMeter, comboScope, COMBO_MAX } from '../src/game/combometer.js';
 import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
@@ -3530,10 +3529,11 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
 {
   const tScene = new THREE.Scene();
   const tTraffic = createTraffic(makeRng(seed + 44), tScene, CARS_DEFAULT);
-  // A stub verdict, so the wiring is what is under test: every drop-off here is judged a Perfect Run.
-  // The tracker's own rules are checked on their own further down ("Run bonuses").
+  // A stub verdict, so the wiring is what is under test: every drop-off here is paid at a ×2.5
+  // combo. The meter's own rules are checked on their own further down ("The combo meter").
+  const STUB_MULT = 2.5;
   const fares = createFareSystem(makeRng(seed + 55), tScene, {
-    judgeRun: () => ({ runs: [{ key: 'perfect', ...RUNS.perfect }], mult: RUNS.perfect.mult }),
+    judgeRun: () => ({ runs: [{ key: 'combo', label: 'Combo', mult: STUB_MULT }], mult: STUB_MULT }),
   });
   tTraffic.warmup(5);
 
@@ -3599,8 +3599,8 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       if (type === 'delivered') {
         // The verdict multiplies the price stamped at spawn and rides the event out for the pop.
         deliveries += 1;
-        if (fare.runs?.[0]?.key !== 'perfect' || fare.basePay !== spawnPrice.get(fare)
-          || fare.value !== Math.round(spawnPrice.get(fare) * RUNS.perfect.mult)) wrongCombo += 1;
+        if (fare.runs?.[0]?.key !== 'combo' || fare.basePay !== spawnPrice.get(fare)
+          || fare.value !== Math.round(spawnPrice.get(fare) * STUB_MULT)) wrongCombo += 1;
       }
       if (type === 'pickup') {
         pickups += 1;
@@ -18590,73 +18590,15 @@ let chopperOrder; // likewise
     `${sites} candidate sites over ${cities} cities with a depot, ${onDepot} on it, ${onBurger} on the joint`);
 }
 
-// --- The Perfect Run --------------------------------------------------------------
-//
-// game/runs.js on its own: the rule, and the edges that make it fair.
-{
-  const step = 1 / 60;
-  const ride = (tracker, fare, seconds, facts) => {
-    for (let t = 0; t < seconds; t += step) tracker.update(step, { fare, boosting: false, ...facts(t) });
-  };
-  const keys = (v) => v.runs.map((r) => r.key).join(',');
-
-  let r = createRunTracker();
-  const a = { id: 'a' };
-  ride(r, a, 10, () => ({}));
-  check('a job driven off boost earns no Perfect Run', keys(r.judge(a)) === '' && r.judge(a).mult === 1,
-    keys(r.judge(a)));
-
-  r = createRunTracker();
-  ride(r, a, 10, (t) => ({ boosting: t >= 4 }));
-  check(`more than ${PERFECT_SHARE * 100}% boost and no damage is a Perfect Run`,
-    keys(r.judge(a)) === 'perfect' && r.judge(a).mult === RUNS.perfect.mult,
-    `${keys(r.judge(a))} ×${r.judge(a).mult}`);
-
-  r = createRunTracker();
-  ride(r, a, 10, (t) => ({ boosting: t >= 6 }));
-  check('under the share it is not, and its tag never shows', keys(r.judge(a)) === '' && r.live().length === 0,
-    `${keys(r.judge(a))} ${JSON.stringify(r.live())}`);
-
-  // The tag: nothing for the first TAG_AFTER seconds even on course, then latched — a dip under the
-  // share dims it rather than hiding it.
-  r = createRunTracker();
-  ride(r, a, TAG_AFTER - 0.1, () => ({ boosting: true }));
-  const early = r.live().length;
-  ride(r, a, 0.2, () => ({ boosting: true }));
-  const shown = r.live()[0]?.earned === true;
-  ride(r, a, 10, () => ({}));
-  check(`the tag shows ${TAG_AFTER}s in, on course, and stays once shown`,
-    early === 0 && shown && r.live().length === 1 && r.live()[0].earned === false,
-    `early ${early}, shown ${shown}, after ${JSON.stringify(r.live())}`);
-
-  r = createRunTracker();
-  ride(r, a, 5, () => ({ boosting: true }));
-  r.damage();
-  ride(r, a, 5, () => ({ boosting: true }));
-  check('damage takes it, however much boost', keys(r.judge(a)) === '' && r.live()[0]?.broken,
-    keys(r.judge(a)));
-
-  // A new job is a new job: nothing carries over, and damage between jobs belongs to nobody.
-  r = createRunTracker();
-  ride(r, a, 5, () => ({ boosting: true }));
-  r.damage();
-  ride(r, null, 1, () => ({}));
-  r.damage();
-  const b = { id: 'b' };
-  ride(r, b, 5, () => ({ boosting: true }));
-  check('each job is judged on its own', keys(r.judge(b)) === 'perfect'
-    && r.judge(a).mult === 1, `${keys(r.judge(b))}, previous ×${r.judge(a).mult}`);
-}
-
-// --- The combo meter (prototype) ------------------------------------------------------------
+// --- The combo meter ------------------------------------------------------------
 //
 // game/combometer.js on its own: what steps it, what empties it, and what each scope keeps.
 {
-  check('?combo= takes meter or run and nothing else',
-    comboScope(new URLSearchParams('combo=meter')) === 'meter'
+  check('the meter is per ride unless ?combo=run asks for the whole run',
+    comboScope(new URLSearchParams('')) === 'meter'
+    && comboScope(new URLSearchParams('combo=meter')) === 'meter'
     && comboScope(new URLSearchParams('combo=run')) === 'run'
-    && comboScope(new URLSearchParams('combo=on')) === null
-    && comboScope(new URLSearchParams('')) === null);
+    && comboScope(new URLSearchParams('combo=on')) === 'meter');
 
   let m = createComboMeter({ scope: 'meter' });
   const plain = m.judge();

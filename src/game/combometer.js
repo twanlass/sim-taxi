@@ -1,5 +1,7 @@
-// The combo meter (prototype, `?combo=meter` or `?combo=run`): every combo the taxi lands steps a
-// multiplier up, and the next drop-off is paid at it. Replaces the Perfect Run while it is on.
+// The combo meter: every combo the taxi lands on a job steps a multiplier up, and the next drop-off
+// is paid at it. It replaced the Perfect Run (Tyler, 2026-10-07), which paid ×2 for a job driven
+// more than half on Loco with no damage: one yes-or-no rule, judged at the end, that nothing on the
+// drive could build toward.
 //
 // Tyler's idea (2026-10-07), off the combo streak in a Duolingo lesson: the number climbs as you
 // chain moves, it is always on screen, and one mistake takes it away. So the meter is driven by
@@ -8,9 +10,9 @@
 // boost) drops it straight back to ×1. A reset rather than a tier down because the drop is the
 // tension: a ×3 you can lose is worth driving carefully for, a ×3 that only slips to ×2 is not.
 //
-// Two scopes, so both can be played side by side:
-//   meter — per ride. The meter is cashed at every drop-off and starts again at ×1.
-//   run   — the whole run. A drop-off pays at the meter and leaves it where it is, so the only
+// Two scopes:
+//   meter — per ride, the default. The meter is cashed at every drop-off and starts again at ×1.
+//   run   — the whole run (`?combo=run`). A drop-off pays at the meter and leaves it where it is, so the only
 //           thing that ever empties it is a crash. Closer to the Duolingo feel; the cap matters
 //           more here, since otherwise a long clean run multiplies without limit.
 //
@@ -19,8 +21,8 @@
 // is +3 on its own), and the bridge launch — a drift kick still being carried over an arch heading
 // straight on — is the jackpot at +2. A fare is ~$11–23, so ×5 is the most one ride can be worth.
 //
-// Pure bookkeeping, like game/runs.js: main.js tells it what was landed and what hurt, and the fare
-// loop asks it for the verdict at the drop-off through the same `judgeRun` hook.
+// Pure bookkeeping: main.js tells it what was landed and what hurt, and the fare loop asks it for
+// the verdict at the drop-off through the `judgeRun` hook.
 
 export const COMBO_MAX = 5;
 
@@ -32,10 +34,9 @@ export const COMBO_STEPS = {
   launch: { label: 'Big Air', step: 2 },
 };
 
-/** What `?combo=` asked for: 'meter', 'run', or null for the Perfect Run as shipped. */
+/** The meter's scope: 'run' when `?combo=run` asks for it, 'meter' otherwise. */
 export function comboScope(params) {
-  const asked = params.get('combo');
-  return asked === 'meter' || asked === 'run' ? asked : null;
+  return params.get('combo') === 'run' ? 'run' : 'meter';
 }
 
 /** A combo's label and step; `tier` only matters for the drift. */
@@ -76,8 +77,8 @@ export function createComboMeter({ scope = 'meter' } = {}) {
   }
 
   /**
-   * The verdict on a drop-off, in the shape game/runs.js hands the fare loop: a list of runs for the
-   * payout sequence and the product of their multipliers. Per-ride scope empties the meter here.
+   * The verdict on a drop-off, in the shape the fare loop's `judgeRun` takes: a list of runs for the
+   * payout and the product of their multipliers. Per-ride scope empties the meter here.
    */
   function judge() {
     const mult = state.mult;
