@@ -2720,13 +2720,29 @@ function updateRunTags() {
 // a clean HUD; from then on it shows whenever a job is in hand, at 1x and empty between streaks.
 // It swells on each step up; a hit that empties it flinches red and shakes, and a per-ride meter
 // cashed at the drop-off just drains, since the payout sequence says what it paid.
-const comboTag = { el: null, shown: 1, lost: false };
+const comboTag = { el: null, shown: 1, lost: false, lingerUntil: 0, awaySince: 0 };
+// How long the meter stays up after a drop-off: through the payout sequence's fare, label and
+// extra (`popRunSequence`, ~0.94 + 0.8 + 0.94s), so it fades as the last of the cash lands.
+const COMBO_LINGER_MS = 2800;
+const COMBO_FADE_MS = 350;   // the CSS opacity fade (0.3s) and a frame's margin
 function updateComboTag(box) {
   // Only on a job — heading to a rider or carrying one (Tyler, 2026-10-07). Combos only build then
-  // (`landCombo`), so between fares the meter fades out and keeps whatever it holds.
-  comboTag.el?.classList.toggle('is-off-job', !fares.job() || fares.state.gameOver);
+  // (`landCombo`), so between fares the meter fades out and keeps whatever it holds. A drop-off
+  // holds it up for COMBO_LINGER_MS more, frozen at what it paid, so the payout landing in the cash
+  // reads as *this* meter's doing; only once it has faded does a per-ride meter show its reset to 1x
+  // (Tyler: it flashed 1x for a split second on the drop-off).
+  const now = performance.now();
+  const lingering = now < comboTag.lingerUntil;
+  const away = !lingering && (!fares.job() || fares.state.gameOver);
+  if (comboTag.el && away !== comboTag.el.classList.contains('is-off-job')) {
+    comboTag.el.classList.toggle('is-off-job', away);
+    comboTag.awaySince = now;
+  }
   const mult = combo.state.mult;
   if (mult === comboTag.shown) return;
+  // A cash-in's drop is held back while the meter is on screen for the payout or still fading out.
+  const cashedIn = mult < comboTag.shown && !comboTag.lost;
+  if (cashedIn && (lingering || (away && now - comboTag.awaySince < COMBO_FADE_MS))) return;
   let el = comboTag.el;
   if (!el) {
     if (mult === 1) return;
@@ -2786,6 +2802,7 @@ function fitComboBar() {
 function landCombo(key, tier) {
   if (!combo || !fares.job()) return;
   const landed = combo.land(key, tier);
+  comboTag.lingerUntil = 0;   // a new streak on the next ride ends the last one's curtain call
   if (landed?.added > 0) popLabel(`${landed.label} ${formatMult(landed.mult)}`, 'run-combo');
 }
 
@@ -4804,6 +4821,7 @@ function frame() {
       // Out they get: open, and shut a beat later once they are clear of the car.
       sfx?.play('doorOpen');
       sfx?.play('doorClose', { delay: 0.7 });
+      if (combo) comboTag.lingerUntil = performance.now() + COMBO_LINGER_MS;
       if (fare.runs?.length) popRunSequence(fare);
       else popEarning(fare.value);
       // A third of a tank of boost fuel as the ordinary delivery reward — the only way any fuel

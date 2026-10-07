@@ -127,12 +127,7 @@
         color: #fff; text-shadow: var(--hud-shadow);
         pointer-events: none; user-select: none;
       }
-      /* The black outline the combo meter's "3x" wears (Tyler, 2026-10-07), scaled from its 4px at
-         24px to the total's 34px, in place of the soft lift #hud gives everything else. Painted
-         under the fill (paint-order) so the stroke only grows outward and the digits keep their
-         weight. */
       #hud .money {
-        -webkit-text-stroke: 6px #000; paint-order: stroke fill; text-shadow: none;
         font-size: var(--hud-count-size); line-height: var(--hud-row);
         letter-spacing: 0.05em; font-variant-numeric: tabular-nums;
         display: inline-block; transform-origin: left center;
@@ -266,8 +261,8 @@
       /* Tyler's Figma frame "combo-meter" (Taxi file, node 216:9), values as given there: a 50%-black
          track, the fill a violet gradient (#781DD4 → #9947FD at 80% → #C697F5) rounded on its left
          end only and square at its leading edge, glowing 0 0 12px 4px; 5px to the multiplier,
-         Space Grotesk Bold 24 in white, written "3x". The outline on the number is from the frame's
-         render rather than its exported style. The bar's *width* is the one thing not taken from
+         Space Grotesk Bold 24 in white, written "3x", with the soft lift the cash total wears (a black
+         outline was tried and cut, Tyler 2026-10-07). The bar's *width* is the one thing not taken from
          the frame (243 there): `fitComboBar` sizes it to the gap between the cash and pause. The
          glow is a box-shadow on the fill, so the track must not clip it (no overflow: hidden). */
       #hud .run-combo {
@@ -277,8 +272,7 @@
       #hud .run-combo.is-earned { color: #fff; background: none; }
       #hud .run-combo .combo-mult {
         min-width: 2em; text-align: left;
-        font: 700 24px/1 var(--hud-font); letter-spacing: 0; color: #fff; text-shadow: none;
-        -webkit-text-stroke: 4px #000; paint-order: stroke fill;
+        font: 700 24px/1 var(--hud-font); letter-spacing: 0; color: #fff;
       }
       #hud .run-combo .combo-bar {
         display: block; position: relative; width: var(--combo-bar-w, 120px); height: 15px;
@@ -459,13 +453,7 @@
       /* No plate behind it (Tyler, 2026-10-06): a bare mark like the cash total beside it, held off
          pale asphalt by the same lift the digits wear — #hud's `text-shadow` in its filter form. The
          button keeps its full square, so the tap target is unchanged. */
-      /* ...and since 2026-10-07 the black outline the combo meter's "3x" wears (Tyler), drawn as four
-         hard drop-shadows since an <img> has no stroke to set. Each one also outlines the one
-         before it, so 2px of offset comes out as roughly the 2px the text's stroke shows. */
-      #pause .glyph-pause, #pause .glyph-play {
-        filter: drop-shadow(2px 0 0 #000) drop-shadow(-2px 0 0 #000)
-          drop-shadow(0 2px 0 #000) drop-shadow(0 -2px 0 #000);
-      }
+      #pause .glyph-pause, #pause .glyph-play { filter: drop-shadow(var(--hud-shadow)); }
       /* 18×23 is the file's 28×36. */
       #pause .glyph-pause { display: block; width: 18px; height: 23px; }
       #pause .glyph-play { width: 20px; height: 22px; fill: #fff; }
