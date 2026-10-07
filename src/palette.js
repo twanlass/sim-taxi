@@ -294,9 +294,11 @@ export const PALETTE = {
   // toward `cashPale` made the shower read as glowing — a card square to the sun is already the
   // brightest surface on the road — so it runs down from `cashNote` to here instead.
   cashShade: '#3C9A5E',
-  // The paper band round a wrapped bundle of notes. A warm cream rather than `cashBack`'s cooler
-  // off-white, so the band reads as a separate strip of paper and not as the brick's own pale edge.
-  cashBand: '#F4DDA0',
+  // The paper band round a wrapped bundle of notes: white, like a real currency strap. It was a warm
+  // cream (#F4DDA0) to keep it apart from `cashBack`, but lit on a green brick at play zoom the cream
+  // read as a yellow stripe, or as nothing, and Tyler asked for a white money band. The brick never
+  // shows its back, so there is no pale edge for a white band to be confused with.
+  cashBand: '#F7F7F2',
 
   // --- The bank ---------------------------------------------------------------
   // The city's one bank (city/bank.js), and the third building the tower generator does not draw.
