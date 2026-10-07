@@ -2596,6 +2596,7 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // May a pass start? Set by the overtake combo (game/overtake.js); undefined means yes.
       passArmed: undefined,
       passGap: Infinity,  // the leader's gap as the pass block last saw it, for the combo
+      passLeader: null,   // and who it is
       // What `pass` is turned into: the smoothstepped offset the body is drawn at, the slope of
       // that offset (which *is* the tangent of the steering angle, since it is per unit of road),
       // and the roll that comes off its curvature. Derived every frame from `pass`; kept on the car
@@ -4936,6 +4937,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       const gap = leaderDist.get(taxi);
       // Published for the overtake combo, which arms only behind a car.
       taxi.passGap = gap ?? Infinity;
+      taxi.passLeader = leaderOf.get(taxi) ?? null;
       const locoHeld = taxi.boost && !taxi.boostEasing;
       // Sized against the road under the taxi, not against a constant — see `PASS_LATERAL`. The
       // fade scales with the swing so the peak crab angle is the same 31° on a 6.67-unit lane
@@ -5028,7 +5030,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // throwing the combo* was 1 in 6 of a bot's attempts at a clean 180ms blip. And an armed combo
       // waiting for a way round: the player asked to pass, and a ram there reads as the game eating
       // the input. Both tailgate instead, for as long as the blip or the arm lasts.
-      const asking = taxi.passArmed === true || taxi.passPending === true;
+      //
+      // And, under `?overtake=grace`, a car the taxi has only just caught (`passGrace`, game/
+      // overtake.js): most cars come into range too late to react to before the ram.
+      const asking = taxi.passArmed === true || taxi.passPending === true || taxi.passGrace === true;
       taxi.canPass = (locoHeld || taxi.passPending === true) && gap !== undefined
         && (room || asking)
         && (taxi.passArmed !== false || taxi.passing || asking);

@@ -47,9 +47,22 @@ export const OVERTAKE_ARM_RANGE = 30;
 export const OVERTAKE_ARM_WINDOW = 3.0;
 
 /**
- * @param taxi  the traffic model's taxi; reads `passGap` and `passing`, writes `passArmed`
+ * Seconds a car the taxi has just caught is tailgated rather than rammed, under `?overtake=grace`.
+ * The ram is what makes the combo matter, and it was landing before a human could throw it: a bot
+ * reacting 0.6s after a car came within OVERTAKE_ARM_RANGE — see it, decide, lift — passed 25 of
+ * 77 and was rammed 52 times, **50 of them before its thumb was back on the pill**. Lift length
+ * barely moved it (0.12s against 0.3s); reaction time moved everything (97% at 0.15s). So the
+ * window was the problem, not the gesture (tools/overtakebot.mjs). Hold Loco behind a car past
+ * this and it still rams.
  */
-export function createOvertakeCombo({ taxi }) {
+export const OVERTAKE_GRACE = 1.2;
+
+/**
+ * @param taxi   the traffic model's taxi; reads `passGap`, `passLeader` and `passing`, writes
+ *               `passArmed`, `passPending` and `passGrace`
+ * @param grace  seconds of OVERTAKE_GRACE to give a newly caught car; 0 is the shipped rule
+ */
+export function createOvertakeCombo({ taxi, grace = 0 }) {
   const state = {
     armed: false,
     /** Seconds an armed combo has left to start its pass. */
@@ -62,6 +75,9 @@ export function createOvertakeCombo({ taxi }) {
   /** The release that might be the first half: sim seconds since, or null. */
   let blip = null;
   let wasPassing = false;
+  /** The car the grace was last started for, and what is left of it. */
+  let graceFor = null;
+  let graceLeft = 0;
 
   const behind = () => (taxi.passGap ?? Infinity) < OVERTAKE_ARM_RANGE;
   /** Is a release that could still be the blip in progress? Read by sim/traffic.js `canPass`. */
@@ -74,8 +90,11 @@ export function createOvertakeCombo({ taxi }) {
     heldFor = 0;
     blip = null;
     wasPassing = false;
+    graceFor = null;
+    graceLeft = 0;
     taxi.passArmed = false;
     taxi.passPending = false;
+    taxi.passGrace = false;
   }
 
   /**
@@ -112,6 +131,13 @@ export function createOvertakeCombo({ taxi }) {
 
     taxi.passArmed = state.armed;
     taxi.passPending = !held && pending();
+    // A new car within range starts its own grace; the same car again does not. Keyed on the car
+    // rather than on the gap so a leader that drops out of view for a junction box and comes back
+    // is still the one already being judged.
+    const leader = behind() ? taxi.passLeader : null;
+    if (grace > 0 && leader && leader !== graceFor) { graceFor = leader; graceLeft = grace; }
+    graceLeft = Math.max(0, graceLeft - dt);
+    taxi.passGrace = graceLeft > 0;
   }
 
   return { state, update, reset };

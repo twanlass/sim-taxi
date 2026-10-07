@@ -35,7 +35,7 @@ import {
 } from '../src/city/burgerjoint.js';
 import { createDriveThru } from '../src/game/drivethru.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
-import { createOvertakeCombo, OVERTAKE_BLIP_MS } from '../src/game/overtake.js';
+import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
 import { spinTaxi, driftTaxi, kickDrift, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
@@ -4556,7 +4556,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   // the pill and back on is what pulls out. The blip is driven through the combo itself, against
   // the sim's own `boost`/`boostEasing` as main.js sets them, so the gap it reads is the real one.
   // A blip with the brake in it is the drift, and must not arm.
-  const comboStage = (gesture) => {
+  const comboStage = (gesture, grace = 0) => {
     const cTraffic = createTraffic(makeRng(seed + 109), new THREE.Scene(), 2);
     const [cTaxi, cLead] = cTraffic.cars;
     place(cTaxi, dIn, 36);
@@ -4564,12 +4564,14 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     cTaxi.route = [dIn];
     cLead.route = [dIn];
     cTaxi.hp = TAXI_HP;
-    const combo = createOvertakeCombo({ taxi: cTaxi });
+    const combo = createOvertakeCombo({ taxi: cTaxi, grace });
     const cCollisions = createCollisions(cTraffic.cars, cTaxi);
     let hits = 0;
     let peak = 0;
     let before = 0;
-    cCollisions.onBump(() => { hits += 1; });
+    let firstHit = null;
+    let t = 0;
+    cCollisions.onBump(() => { hits += 1; firstHit ??= t; });
     const blipAt = 15;
     const blipFrames = Math.floor((OVERTAKE_BLIP_MS / 1000) * 60 * 0.6);
     // Two seconds: enough to pull out and get by, and short of the map's edge, where the road has
@@ -4581,10 +4583,11 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
       combo.update(1 / 60, { held: !off, brakeHeld: gesture === 'brake' && off });
       cTraffic.update(1 / 60);
       cCollisions.update(1 / 60);
+      t += 1 / 60;
       peak = Math.max(peak, cTaxi.pass);
       if (f < blipAt) before = Math.max(before, cTaxi.pass);
     }
-    return { hits, peak, before, arms: combo.state.arms };
+    return { hits, peak, before, firstHit, arms: combo.state.arms };
   };
   const held = comboStage('hold');
   check('holding Loco behind a car rams it without the overtake combo',
@@ -4595,6 +4598,12 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     blipped.arms === 1 && blipped.hits === 0 && blipped.before === 0 && blipped.peak > 0.95,
     `${blipped.arms} arms, ${blipped.hits} bumps, pass ${blipped.before.toFixed(2)} before the blip`
     + ` and peaked at ${blipped.peak.toFixed(2)}`);
+  // `?overtake=grace`: the same hold tailgates the car for OVERTAKE_GRACE and then rams it anyway.
+  const graced = comboStage('hold', OVERTAKE_GRACE);
+  check('under ?overtake=grace, holding Loco behind a car rams it only once the grace runs out',
+    graced.hits > 0 && graced.firstHit >= OVERTAKE_GRACE && graced.peak === 0,
+    `first bump at ${graced.firstHit?.toFixed(2)}s against ${OVERTAKE_GRACE}s of grace, held rams at`
+    + ` ${held.firstHit?.toFixed(2)}s`);
   const braked = comboStage('brake');
   check('a blip with the brake in it (the drift) does not arm the overtake',
     braked.arms === 0 && braked.peak === 0,
