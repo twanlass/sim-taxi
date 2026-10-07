@@ -513,6 +513,15 @@ export function getSquall(
 }
 
 /**
+ * Autumn — `?fall=off` puts the trees back in summer green and keeps their leaves on in a squall.
+ * On by default. The colours are a hash of each trunk's position (`autumnBase` in city/props.js),
+ * so the switch moves no tree. The leaves are game/leaves.js.
+ */
+export function getFall() {
+  return !isOff(new URLSearchParams(window.location.search).get('fall') ?? '');
+}
+
+/**
  * Rain Mode, via `?rain` — overcast light, wet reflective streets, falling rain, drops on the lens,
  * softer brakes. Off by default: an exploration, see `game/rain.js`. A flag rather than a setting
  * because the ground's wet shader is compiled into its material before the first frame.

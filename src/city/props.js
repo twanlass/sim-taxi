@@ -64,7 +64,7 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.
   // tree-to-tree while the blobs of one crown stay siblings. Hashed from the trunk position
   // rather than drawn, same reason as the entry stamp (util/geo.js hash01): spending a draw
   // here would reshuffle every tree planted after this one.
-  const canopy = new THREE.Color(PALETTE.foliage);
+  const canopy = new THREE.Color(autumnBase(x, z));
   const hsl = { h: 0, s: 0, l: 0 };
   canopy.getHSL(hsl);
   canopy.setHSL(
@@ -93,6 +93,28 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.
   }
 
   return parts;
+}
+
+// Fall: most broadleaves have turned. Which colour a tree went is a hash of its trunk position, on
+// a hash of its own so it is independent of the tint jitter above, and spends no draw — so the
+// season can be switched off (`?fall=off`) without moving a single tree. A third stay green: a
+// park that has turned completely reads as a different palette rather than as autumn, and the
+// green is also what makes the colour next to it read as a *change*.
+//
+// A switch on the module rather than an argument, because three generators plant this tree (the
+// parks, the medians, the courtyards) and the season is one fact about the whole city. Set it
+// before the city is built.
+let autumn = true;
+export function setAutumn(on) { autumn = Boolean(on); }
+
+/** The base canopy colour a broadleaf standing at (x, z) wears this season. */
+export function autumnBase(x, z) {
+  if (!autumn) return PALETTE.foliage;
+  const h = hash01(x * 0.37 + 19.3, z * 0.53 - 7.1);
+  if (h < 0.32) return PALETTE.foliage;
+  if (h < 0.52) return PALETTE.foliageGold;
+  if (h < 0.8) return PALETTE.foliageOrange;
+  return PALETTE.foliageRed;
 }
 
 // The lobe's ellipsoid normal at every vertex, so the crown lights as one soft mass rather than
