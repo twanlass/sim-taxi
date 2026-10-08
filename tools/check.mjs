@@ -433,6 +433,33 @@ try {
     if (shards(stepped).some((sh, k) => sh.p.distanceTo(scrubbed[k].p) > 1e-4)) fail.push('seek(0.3) disagrees with stepping to 0.3');
     w.seek(-0.1);
     if (shards(w).some((sh) => sh.s !== 0)) fail.push('drew before the impact');
+    if (w.flash.scale.x !== 0) fail.push('flash drew before the impact');
+    w.seek(0.05);
+    if (!(w.flash.scale.x > 0.5)) fail.push(`flash only ${w.flash.scale.x.toFixed(2)} on the impact`);
+    w.seek(0.5);
+    if (w.flash.scale.x !== 0) fail.push('flash still up at 0.5s');
+    // The pane left in the taxi: off until the screen breaks, back off on a reset, and its hole
+    // faces out of the front of the cab (normal from the winding, not from computeVertexNormals).
+    const { createTaxiMesh } = await import('../src/geometry/taxi.js');
+    const taxi = createTaxiMesh();
+    const screen = taxi.damage.screen;
+    if (screen.scale.x !== 0) fail.push('the taxi starts with its screen broken');
+    taxi.damage.breakScreen();
+    if (screen.scale.x !== 1) fail.push('breakScreen() did not show it');
+    {
+      taxi.damage.reset();
+      if (screen.scale.x !== 0) fail.push('reset() left the broken screen up');
+      const pos = screen.geometry.attributes.position;
+      const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+      let facing = 0;
+      for (let t = 0; t < pos.count; t += 3) {
+        a.fromBufferAttribute(pos, t); b.fromBufferAttribute(pos, t + 1); c.fromBufferAttribute(pos, t + 2);
+        const n = b.clone().sub(a).cross(c.clone().sub(a));
+        // The hole's fan: the only triangles lying in an x = const plane that far forward of the box plates.
+        if (Math.abs(n.y) < 1e-9 && Math.abs(n.z) < 1e-9 && a.x > 0.668 && b.x > 0.668) facing += Math.sign(n.x);
+      }
+      if (facing < 9) fail.push(`broken screen's hole has ${facing} triangles facing forward`);
+    }
     if (fail.length) throw new Error(`windshield: ${fail.join('; ')}`);
   }
 

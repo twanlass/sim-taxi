@@ -25,6 +25,7 @@
 // it — so a throw that stops short of a building does not send its glass on through the building.
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { color } from '../palette.js';
 import { unlitMaterial } from '../util/geo.js';
 import { skipWhenEmpty } from '../util/emptypools.js';
@@ -65,6 +66,15 @@ const GLINT_AIR_HI = 30;
 const GLINT_REST_LO = 1.2;
 const GLINT_REST_HI = 3.2;
 
+// The flash: a white starburst where the screen was, on the frame it goes. The spray on its own is
+// lost in the fireball for the first few frames — they start in the same place on the same frame —
+// so the moment needs one thing bigger and brighter than the fire to say *glass*. Spikes rather
+// than a disc so it reads as a burst from whichever side the crash cam is looking.
+const FLASH_LIFE = 0.16;
+const FLASH_SPIKES = 7;
+const FLASH_REACH = 2.6;       // spike length at full size
+const FLASH_CORE = 0.7;
+
 /**
  * @param scene  the pool is added here once, parked at zero scale
  * @param rng    util/rng.js — the spray's own stream, so drawing it reshuffles nothing else
@@ -96,6 +106,38 @@ export function createWindshield(scene, { rng, roadY = 0 } = {}) {
 
   const random = () => (rng ? rng.next() : Math.random());
   const between = (lo, hi) => lo + (hi - lo) * random();
+
+  // Built once at construction from its own fixed directions (golden-angle spiral, not the rng) so
+  // the burst costs nothing at fire time and the rng stream is the spray's alone. Every piece is an
+  // octahedron, non-indexed, so they merge into one mesh with three's winding throughout.
+  const flashParts = [new THREE.OctahedronGeometry(FLASH_CORE, 0)];
+  const up = new THREE.Vector3(0, 1, 0);
+  for (let k = 0; k < FLASH_SPIKES; k++) {
+    const y = 0.75 - (1.4 * k) / (FLASH_SPIKES - 1);
+    const r = Math.sqrt(1 - y * y);
+    const a = k * 2.39996;
+    const dir = new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r);
+    const spike = new THREE.OctahedronGeometry(1, 0);
+    spike.scale(0.26, FLASH_REACH * (k % 2 ? 0.6 : 1) / 2, 0.26);
+    spike.translate(0, FLASH_REACH * (k % 2 ? 0.6 : 1) / 2, 0);
+    spike.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(up, dir));
+    flashParts.push(spike);
+  }
+  const flash = new THREE.Mesh(
+    mergeGeometries(flashParts),
+    // No depth test: it is centred on the windscreen, so with one the cab hid its core and the
+    // smoke collar (lit, opaque, thrown on the same frame) hid most of the spikes — measured in a
+    // wreck still, a burst 1.4 across showed as one white sliver. It is a flash of light for a
+    // tenth of a second; drawing over the cab it came out of is the point.
+    unlitMaterial({ color: color('glassGlint'), transparent: true, depthWrite: false, depthTest: false }),
+  );
+  flash.name = 'windscreen-flash';
+  // Parked at zero scale rather than hidden, so its program links with the first frame rather than
+  // on the crash's (CLAUDE.md, tools/links.mjs).
+  flash.scale.setScalar(0);
+  flash.frustumCulled = false;
+  flash.renderOrder = 7;
+  scene.add(flash);
 
   // Per shard, drawn at fire time.
   const sh = Array.from({ length: COUNT }, () => ({
@@ -144,12 +186,18 @@ export function createWindshield(scene, { rng, roadY = 0 } = {}) {
       s.rateAir = between(GLINT_AIR_LO, GLINT_AIR_HI);
       s.rateRest = between(GLINT_REST_LO, GLINT_REST_HI);
     }
+    flash.position.set(x + fx * START_FWD, roadY + (Y_LO + Y_HI) / 2, z + fz * START_FWD);
     fired = true;
     age = 0;
     pose(0);
   }
 
   function pose(at) {
+    // Out to full size fast and fading as it goes: most of its size in the first third of its life,
+    // so on the impact frame itself it is already a burst rather than a dot.
+    const f = at >= 0 && at < FLASH_LIFE ? at / FLASH_LIFE : 1;
+    flash.scale.setScalar(f < 1 ? 0.45 + 0.75 * (1 - (1 - f) ** 3) : 0);
+    flash.material.opacity = 1 - f * f;
     if (at < 0) {
       for (let k = 0; k < COUNT; k++) mesh.setMatrixAt(k, zero);
       mesh.instanceMatrix.needsUpdate = true;
@@ -202,6 +250,7 @@ export function createWindshield(scene, { rng, roadY = 0 } = {}) {
     fire, update, seek,
     active: () => fired,
     mesh,
+    flash,
     /** For the headless check: the last shard down. */
     airTime: () => (fired ? Math.max(...sh.map((s) => s.air)) : 0),
   };

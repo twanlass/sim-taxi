@@ -1844,7 +1844,12 @@ road in front), tumble and flash white in the air, skid to a stop and stay on th
 slowly for the rest of the beat. One unlit `InstancedMesh`, no shadow, drawn at renderOrder 7 so the
 spray reads *over* the fireball it flies out of. Same closed form as the driver and scrubbed by the
 replay the same way; every horizontal speed is multiplied by the driver's `throwScale()`, so a throw
-cut short by a building cuts its glass short too.
+cut short by a building cuts its glass short too. Two more things sell the moment: a white
+starburst at the screen for 0.16s (drawn without a depth test, since the cab and the smoke collar
+otherwise hide it), and the taxi left with its screen broken — `damage.breakScreen()` in
+geometry/taxi.js lays a milky pane over the cabin's front face and the front of its roof, with a
+dark hole on the driver's side. The roof half is there because a taxi facing away from the camera
+shows no front face at all. `damage.reset()` takes it off for the next run.
 
 **A wrecked car's lamps go out.** A crashed car never reaches the render pass again, so whatever
 brake level it last wrote would sit there for the rest of the run — and the frame this fires on is

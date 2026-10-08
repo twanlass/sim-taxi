@@ -1841,6 +1841,7 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
   if (closing >= EJECT_CLOSING) {
     ejection.fire({ x: traffic.taxi.x, z: traffic.taxi.z, yaw, closing, side: struckSide });
     windshield.fire({ x: traffic.taxi.x, z: traffic.taxi.z, yaw, scale: ejection.throwScale() });
+    traffic.taxiDamage.breakScreen();
   }
   wreckage.take(traffic.wreckShell(other), {
     // A copy made on this frame: before it, the car was an instance the replay draws instead.
