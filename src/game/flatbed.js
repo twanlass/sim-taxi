@@ -6,7 +6,7 @@ import { propMaterial } from '../util/geo.js';
 import { riverBanks } from '../city/grid.js';
 import { markOccluder } from './ssao.js';
 import {
-  crateGeometry, crateChipGeometry, flatbedDeckGeometry,
+  crateGeometry, crateChipGeometry, crateLook, flatbedDeckGeometry,
   CRATE, CRATE_REST_Y, CRATE_CHIP_REST_Y, DECK_TOP, DECK_REAR,
 } from '../geometry/crate.js';
 
@@ -194,22 +194,29 @@ export function createFlatbed(rng, scene, traffic, camera = null, { soon = false
     truck: null,
   };
 
-  const crates = SLOTS.map((slot) => ({
-    slot,
-    phase: 'deck',          // deck | slide | air | skid | rest | sink | smashed
-    yaw: rng.jitter(LOAD_YAW),  // loaded by hand, not by a machine
-    wobble: rng.range(0, Math.PI * 2),
-    age: 0,
-    // slide, in the truck frame
-    lx: slot.x, edge: 0,
-    // flight and skid, in the world
-    x: 0, y: 0, z: 0, x0: 0, y0: 0, z0: 0,
-    vx: 0, vy: 0, vz: 0, tAir: 0,
-    dirX: 0, dirZ: 0, skidV: 0, tSkid: 0, sx: 0, sz: 0,
-    spinAxis: new THREE.Vector3(), spin: 0,
-    q0: new THREE.Quaternion(), quat: new THREE.Quaternion(), qLand: new THREE.Quaternion(),
-    restYaw: 0,
-  }));
+  const crates = SLOTS.map((slot, n) => {
+    // Its wood and which way round it went on, fixed for the run: the instance colour is set once
+    // here, and the same instance carries it off the back, through the air and onto the road.
+    const { tint, turn } = crateLook(rng);
+    crateMesh.setColorAt(n, tint);
+    return {
+      slot,
+      phase: 'deck',          // deck | slide | air | skid | rest | sink | smashed
+      turn,
+      yaw: turn + rng.jitter(LOAD_YAW),  // loaded by hand, not by a machine
+      wobble: rng.range(0, Math.PI * 2),
+      age: 0,
+      // slide, in the truck frame
+      lx: slot.x, edge: 0,
+      // flight and skid, in the world
+      x: 0, y: 0, z: 0, x0: 0, y0: 0, z0: 0,
+      vx: 0, vy: 0, vz: 0, tAir: 0,
+      dirX: 0, dirZ: 0, skidV: 0, tSkid: 0, sx: 0, sz: 0,
+      spinAxis: new THREE.Vector3(), spin: 0,
+      q0: new THREE.Quaternion(), quat: new THREE.Quaternion(), qLand: new THREE.Quaternion(),
+      restYaw: 0,
+    };
+  });
 
   const chips = Array.from({ length: CHIP_POOL }, () => ({
     live: false, age: 0, dur: 1,
@@ -368,7 +375,7 @@ export function createFlatbed(rng, scene, traffic, camera = null, { soon = false
     // Time to meet the road, from the same quadratic the position uses.
     const drop = crate.y0 - CRATE_REST_Y;
     crate.tAir = (crate.vy + Math.sqrt(crate.vy * crate.vy + 2 * GRAVITY * drop)) / GRAVITY;
-    crate.restYaw = truck.yaw + rng.range(-0.7, 0.7);
+    crate.restYaw = truck.yaw + crate.turn + rng.range(-0.7, 0.7);
     crate.phase = 'air';
     crate.age = 0;
   }

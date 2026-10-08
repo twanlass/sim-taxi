@@ -6,7 +6,7 @@ import {
   GRID_I, GRID_J, lineX, lineZ, halfRoadZ, riverBanks, riverRow, segmentKey,
 } from './grid.js';
 import { SLAB_X, KERB_H, PAVE_INSET, EDGE_FADE, FADE_RINGS } from './ground.js';
-import { patchRiverWater } from './riverwater.js';
+import { patchRiverWater, getWaterStyle } from './riverwater.js';
 
 // A river running east-west through the city, and the four crossings that get over it.
 //
@@ -89,7 +89,7 @@ export const RAIL_POST_PITCH = 1.7;
 //
 //     flat span, deck 0.35 thick     soffit -0.35    clearance 1.65
 //     arched span at the crest       soffit +1.55    clearance 3.55
-//     barge, air draught 1.4                         clears both
+//     barge, air draught 1.63                        clears both, by 0.02 under the flat
 //     tug (the sailboat), air 3.4                    clears the arches by 0.15,
 //                                                    1.75 short of the flat one
 //
@@ -110,9 +110,11 @@ export const FLAT_SOFFIT = -DECK_THICK;
 export const ARCH_SOFFIT = ARCH_RISE - DECK_THICK;
 
 /** Air draughts, exported so `tools/probe.mjs` can assert the chain above rather than the outcome. */
-// The barge's is 0.05 under the flat soffit's 1.65: the trash barge's wheelhouse and funnel want
-// every bit of height there is, and the drawbridge is the only span they have to fit under.
-export const BARGE_AIR = 1.6;
+// The barge's is 0.02 under the flat soffit's 1.65: the trash barge's wheelhouse wants every bit of
+// height there is (its roof sits on this exactly), and the drawbridge is the only span it has to
+// fit under. It was 1.6, with the roof a further 0.3 down to let the funnel show over it; at that
+// height the house stood 0.02 proud of the heap and the boat read as a pile of rubbish afloat.
+export const BARGE_AIR = 1.63;
 export const TUG_AIR = 3.4;
 
 // How far a bridge deck reaches beyond the road it carries: its footway, and the edge beam under
@@ -677,11 +679,13 @@ function waterMesh(rng, edges) {
     // blade, and what fixed that is the strip already being the asphalt's colour out here.
     a: 1 - fadeMix(x),
   }));
-  const rows = [
-    { z: edges.z0, deep: true },
-    { z: (edges.z0 + edges.z1) / 2, deep: false },
-    { z: edges.z1, deep: true },
-  ];
+  // Classic shades the strip dark at the walls and open down the middle. The smooth look turns that
+  // round, because its bed shelves (`BED_EDGE`/`BED_MID` in riverwater.js): the centre is the deep
+  // water and the margins are where the bed shows through. Five rows on a sine rather than three on
+  // a triangle, so the darkest line down the middle has no crease in it.
+  const rows = getWaterStyle() === 'classic'
+    ? [0, 0.5, 1].map((u) => ({ z: edges.z0 + u * (edges.z1 - edges.z0), deep: u === 0.5 ? 0 : 1 }))
+    : [0, 0.25, 0.5, 0.75, 1].map((u) => ({ z: edges.z0 + u * (edges.z1 - edges.z0), deep: Math.sin(Math.PI * u) }));
 
   const pos = [];
   const col = [];
@@ -689,7 +693,7 @@ function waterMesh(rng, edges) {
     // Shallow water shows its bed, so the depth gradient washes out into the ground's own colour
     // through the shoal. That is what lets the mouth match the skirt lying over it — the thing
     // three attempts at fading the water could never do while the water stayed river-coloured.
-    const c = (rows[ri].deep ? deep : open).clone().lerp(bed, columns[ci].shoal);
+    const c = open.clone().lerp(deep, rows[ri].deep).lerp(bed, columns[ci].shoal);
     pos.push(columns[ci].x, columns[ci].y, rows[ri].z);
     col.push(c.r, c.g, c.b, columns[ci].a);
   };

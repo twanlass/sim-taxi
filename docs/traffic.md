@@ -2284,6 +2284,13 @@ rails with the hand-loaded yaw included (at `CRATE = 0.9` it did not), that noth
 crate still loaded, that every landing is behind the truck's tail (nearest measured −4.0 against a
 tail at −2.8), and that the jolt returns to exactly zero.
 
+Each crate stands on its base — the battens ring the top and bottom, not the two ends, which read
+as a crate on its side — and gets its own look from `crateLook` (geometry/crate.js): one of four
+wood tints through `instanceColor`, and a random quarter turn that a stencilled mark on one face
+makes visible. Both are drawn once at construction, so a crate keeps its look off the back and
+onto the road. The box-truck spill below draws one per pool slot the same way. The loading yaw
+cannot grow past `LOAD_YAW`: the rails and the gap between the pair leave 0.04 either side.
+
 `?flatbed=soon` starts the shedding three seconds in and lifts the range gate, for looking at it.
 
 ## A rammed box truck spills its load

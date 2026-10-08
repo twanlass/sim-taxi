@@ -4,6 +4,7 @@ import { BODY_EULER_ORDER } from '../util/geo.js';
 import { color } from '../palette.js';
 import { CRUISE_ALT, ROTOR_FLIGHT, heading } from './chopper.js';
 import { VIEW_DIR } from './camera.js';
+import { markEmissive } from './bloom.js';
 
 // The police helicopter: a getaway's eye in the sky. It flies in once the taxi has made its first
 // checkpoint, sits behind and above the cab with its searchlight on it for the rest of the run to
@@ -92,8 +93,18 @@ const SHADE = { day: 0.45, night: 0.12 };
 
 // --- Rotor -----------------------------------------------------------------------------
 const TAIL_RATIO = 4.6;
-const BLINK_PERIOD = 1.4;
-const BLINK_ON = 0.2;
+
+// --- Tail lamps ---------------------------------------------------------------------------
+/**
+ * Red, red, blue, blue: each lamp double-flashes, and the two take turns, once a cycle. A double
+ * flash rather than the rooftop chopper's single blink because a single slow blink is what an
+ * aircraft's anti-collision light does, and this one has to say *police*; it stops well short of
+ * the cruiser's hunting strobe (`sirenOn`, 11 changes a second), which would be a second siren
+ * fighting the cars' for attention at the top of the screen. Times are seconds into the cycle.
+ */
+const TAIL_CYCLE = 1.2;
+const TAIL_FLASHES = { red: [[0, 0.09], [0.17, 0.26]], blue: [[0.6, 0.69], [0.77, 0.86]] };
+const flashing = (list, t) => list.some(([on, off]) => t >= on && t < off);
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -207,6 +218,8 @@ export function createPoliceHeli(scene, rng, { groundY = () => 0 } = {}) {
   };
 
   const heli = createHelicopterMesh({ livery: 'police' });
+  // The tail lamps glow at the cruisers' own 'siren' intensity — they are the same lamps, flown.
+  for (const core of heli.tailCores) markEmissive(core, 'siren');
   heli.group.visible = false;
   heli.group.rotation.order = BODY_EULER_ORDER;
   scene.add(heli.group);
@@ -344,7 +357,8 @@ export function createPoliceHeli(scene, rng, { groundY = () => 0 } = {}) {
     heli.mainHub.rotation.y = state.rotor;
     heli.tailHub.rotation.z = state.rotor * TAIL_RATIO;
     heli.setRotorBlur(1);
-    heli.setBeacon(state.t % BLINK_PERIOD < BLINK_ON);
+    const cycle = state.t % TAIL_CYCLE;
+    heli.setTailLights(flashing(TAIL_FLASHES.red, cycle), flashing(TAIL_FLASHES.blue, cycle));
     heli.setFade(state.fade);
     heli.setSearchlight(state.light);
   }

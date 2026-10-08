@@ -5,6 +5,7 @@ import { createRain, GRIP } from './game/rain.js';
 import { createStorm } from './game/storm.js';
 import { createComboMeter, comboScope, formatMult } from './game/combometer.js';
 import { createSquall } from './game/squall.js';
+import { pedalZones as growPedalZones, pedalAfterMove } from './game/pedalzones.js';
 import {
   collectPanes, litWindows, streetLamps, createTaxiHeadlights, setCityLights,
 } from './game/citylights.js';
@@ -14,7 +15,7 @@ import {
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
 import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river.js';
-import { tickRiverWater, syncRiverWater, bindRiverDrawbridge } from './city/riverwater.js';
+import { tickRiverWater, syncRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/riverwater.js';
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
 import { createBridge } from './geometry/bridge.js';
@@ -120,7 +121,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall, getWater } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -446,18 +447,22 @@ let squallPresence = 0;
  * is on the map: the rain, the wet ground, the cloud shade and the city's lights all follow the
  * cell, through the uniforms `rain.attachSquall` wired up. What is left to do on the CPU is what
  * only one place can have — the grip under the taxi, the taxi's own headlights, and the drops on the
- * lens, which are on when the camera is looking at the rain.
+ * lens, which are on while the taxi is under the rain.
  */
 function applySquall(dt) {
   squall.update(dt);
   const { cell } = squall;
   squallPresence += ((cell.on ? 1 : 0) - squallPresence) * Math.min(1, dt / 4);
-  const c = rain.centre;
+  // The lens follows the taxi, not the frame: it is the taxi's windscreen. Before the taxi exists
+  // (the opening, a still) it falls back to the ground under the middle of the frame.
+  const c = taxiNow?.() ?? rain.centre;
   rain.setWeather({
     dark: SQUALL_GREY * squallPresence,
     rain: cell.on ? 1 : 0,
     wet: squall.state.maxWet,
     lens: squall.rainAt(c.x, c.z),
+    lensWet: LENS_WET,
+    lensDry: LENS_DRY_SQUALL,
   }, dt);
   if (taxiNow) {
     const t = taxiNow();
@@ -473,6 +478,15 @@ function applySquall(dt) {
 
 /** How far the whole sky greys while a squall's cell is on the map — the rest of the city is sunny. */
 const SQUALL_GREY = 0.2;
+
+/**
+ * Seconds for the lens drops to come in as the taxi drives under the squall, and to clear once it
+ * drives out. The storm's 12s dry-off left drops on the glass a whole block into the sunshine (the
+ * cell's soft edge is 14 units, so the rain itself is already eased over ~1.4s at cruising speed);
+ * a short ease in keeps them from popping on at boost speed.
+ */
+const LENS_WET = 0.5;
+const LENS_DRY_SQUALL = 1.5;
 
 // The storm's one city-wide wetness, for the tyres (`groundWetAt`).
 let stormWet = 0;
@@ -510,6 +524,7 @@ scene.add(markOccluder(rain.wetGround(createGround(makeRng(seed + 11), layout)))
 // walls and parapets do both; the water is two units down at the bottom of a hole with nothing
 // under it to crease, and putting a translucent surface in a depth prepass writes its depth over
 // whatever it is meant to be seen through.
+setWaterStyle(getWater());
 const river = createRiver(makeRng(seed + 44), layout);
 if (river) {
   scene.add(river.group);
@@ -813,6 +828,12 @@ let radioIn = 0;
 // The robber boarded and is still running for the cab — the robber's line opens the frame they are
 // in. Null when nothing is waiting on it.
 let robberBoarding = null;
+// The robber's door is shut when the world comes back, not on the boarding clock. The line opens on
+// the frame the figure is in — BOARD_SECONDS, the very moment `boardSound` schedules the close — and
+// its freeze suspends the audio context a frame later, so the close got a few milliseconds out
+// before the hold cut it: a lone blip under the bubble, and the rest of the slam after it. Set when
+// the robber boards, cleared by the slam on the first unheld frame.
+let robberDoorOpen = false;
 // The robber's line: the world stops while it is up — see game/robberline.js and the early return
 // in `frame()`. Its dismissal is what calls the police.
 const robberLine = city.bank && !shot
@@ -873,7 +894,8 @@ const robbery = city.bank && !shot
       // Not the depot, though: a repair is refused with anyone aboard, so the drop-off just
       // dispatched stands and `depotRun.update` sees its target gone and stands down.
       haptic('pick');
-      boardSound();
+      sfx?.play('doorOpen');
+      robberDoorOpen = true;
       // Not the radio, and not the robber's line yet: the figure is still running down the bank's
       // steps for the cab (BOARD_SECONDS in game/fares.js), and the line is about them being *in*
       // it. The frame loop opens it once they are.
@@ -1487,6 +1509,11 @@ traffic.onTaxiLand(({ x, z, yaw, v, deck, big }) => {
     sfx?.play('land', { gain: 1 });
     sfx?.play('crash', { gain: 0.35, rate: 0.7 });
     dust.burst(x, z, yaw, 30, 1.2, { y: DUST_ROAD_Y + deck, ring: 2.2, linger: 1.3 });
+    // The wreck's shockwave ring, smaller and in the dust's colour rather than the wreck's yellow,
+    // with none of the fire — so the slam reads as weight and never, at a glance, as the run
+    // ending. Tyler's call over the drift flame's colour, which was the first cut. See `shock` in
+    // game/blast.js.
+    blast.shock(x, z, { y: deck, tint: PALETTE.landRing, yaw, speed: v });
   } else {
     controller.kickShake(0.7 + hit * 0.3);
     sfx?.play('land', { gain: 0.7 + hit * 0.3 });
@@ -3609,14 +3636,18 @@ window.addEventListener('contextmenu', (e) => {
 // whatever is actually under the finger — which is exactly what makes a hold survive a wandering
 // thumb, and exactly what makes hit-testing the event target useless here.
 
-// How far past a pedal's edge the thumb can wander and still be holding it. Crossing *between* the
-// two needs no slop at all — they are 8px apart, so a finger leaving one is inside the other within
-// a frame — but coming off the row entirely has to let go, and those two thresholds have to differ.
-// Equal ones would put a boundary under a resting thumb that a pixel of jitter could cross twice a
-// frame, and a fresh press of Loco Mode is not a quiet event: it fires a wheelie, a flame burst, a
-// launch skid and a haptic tick. So claiming a pedal means being *inside* it and dropping one means
-// being 28px clear of it, and the gap between those two answers is where a still finger sits.
-const PEDAL_SLOP = 28;
+// Where the thumb counts as on a pedal is game/pedalzones.js: each pedal's zone is its button grown
+// by `--pedal-reach`, the two meeting a `--pedal-deadband` apart in the middle of the gap, and a
+// claimed pedal is only dropped once the thumb is PEDAL_SLOP clear of its zone. Claiming means being
+// *inside* a zone and dropping means being clear of it, and the band between those two answers is
+// where a still finger sits — a fresh press of Loco Mode is not a quiet event (a wheelie, a flame
+// burst, a launch skid and a haptic tick), and brake–Loco–brake inside 350ms is a U-turn.
+// The CSS owns the numbers because it also has to grow the buttons' own hit area for the first
+// press (`#boost::before` in index.html); read back here so the two can't disagree.
+function pedalCssPx(name, fallback) {
+  const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
+  return Number.isFinite(v) ? v : fallback;
+}
 
 // The row, left to right. `hold` reports whether the pedal actually went down; `release` is
 // idempotent, because every path out of a gesture goes through it.
@@ -3640,25 +3671,6 @@ let pedalCapture = null;
 // while a top-up pours in — so re-measuring per move would let a pedal's own animation shift the
 // boundary the finger is being tested against, under a finger that never moved.
 let pedalZones = [];
-
-/** The pedal the point is inside, or null. The two rectangles never overlap. */
-function pedalUnder(x, y) {
-  for (const { pedal, rect } of pedalZones) {
-    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return pedal;
-  }
-  return null;
-}
-
-/** How far the point is from a pedal's rectangle, in CSS px. Zero anywhere inside it. */
-function pedalDistance(pedal, x, y) {
-  const zone = pedalZones.find((z) => z.pedal === pedal);
-  if (!zone) return Infinity;
-  const { rect } = zone;
-  return Math.hypot(
-    Math.max(rect.left - x, 0, x - rect.right),
-    Math.max(rect.top - y, 0, y - rect.bottom),
-  );
-}
 
 /**
  * Claim one pedal and let go of whatever was claimed before. Idempotent; `null` lets go of both.
@@ -3701,7 +3713,11 @@ function pressPedal(event) {
   if (!pedal) return;
   event.preventDefault();
   // Measured before anything goes down, so the rectangles are the pedals at rest — see pedalZones.
-  pedalZones = pedals.map((p) => ({ pedal: p, rect: p.el.getBoundingClientRect() }));
+  pedalZones = growPedalZones(
+    pedals.map((p) => p.el.getBoundingClientRect()),
+    pedalCssPx('--pedal-reach', 20),
+    pedalCssPx('--pedal-deadband', 8),
+  );
   pedalPointer = event.pointerId;
   // Set for the whole gesture and not just while a pedal is claimed: a thumb parked off the end of
   // the row is holding nothing, and is still holding the `:active` this press started.
@@ -3723,14 +3739,11 @@ function pressPedal(event) {
 
 function movePedal(event) {
   if (event.pointerId !== pedalPointer) return;
-  const inside = pedalUnder(event.clientX, event.clientY);
-  // Inside a pedal, that pedal wins outright — that is the handover. Outside both, the claimed one
-  // keeps the finger until it is clear of the row by PEDAL_SLOP, which covers the 8px between them
-  // and gives a thumb that has slid off the end of the row a way to let go without lifting.
-  if (inside) engagePedal(inside);
-  else if (pedalOn && pedalDistance(pedalOn, event.clientX, event.clientY) > PEDAL_SLOP) {
-    engagePedal(null);
-  }
+  // Inside a zone, that pedal wins outright — that is the handover. Outside both, the claimed one
+  // keeps the finger until it is PEDAL_SLOP clear, which covers the deadband between them and gives
+  // a thumb that has slid off the end of the row a way to let go without lifting.
+  const next = pedalAfterMove(pedalZones, pedals.indexOf(pedalOn), event.clientX, event.clientY);
+  engagePedal(pedals[next] ?? null);
 }
 
 function liftPedal(event) {
@@ -4419,6 +4432,12 @@ function frame() {
     robberLine.update(dt);
     renderFrame();
     return;
+  }
+  // Slam it as the getaway starts — see `robberDoorOpen`. Waits out any other hold too (`play`
+  // refuses while held), and a robbery over before then has no door left to shut.
+  if (robberDoorOpen && !robberBoarding && !sfx?.state.held) {
+    robberDoorOpen = false;
+    if (robbery?.state.active && !fares.state.gameOver) sfx?.play('doorClose');
   }
   // The New Move card: the same freeze. Only the bubble ticks, to stay pinned to the pedal; the
   // pedal row's loop is CSS.

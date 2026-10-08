@@ -522,6 +522,14 @@ export function getFall() {
 }
 
 /**
+ * The river's surface — `?water=classic` brings back the faceted first build; anything else is the
+ * smooth one, with the shelving bed and the lip at the walls (city/riverwater.js).
+ */
+export function getWater() {
+  return new URLSearchParams(window.location.search).get('water') === 'classic' ? 'classic' : 'smooth';
+}
+
+/**
  * Rain Mode, via `?rain` — overcast light, wet reflective streets, falling rain, drops on the lens,
  * softer brakes. Off by default: an exploration, see `game/rain.js`. A flag rather than a setting
  * because the ground's wet shader is compiled into its material before the first frame.

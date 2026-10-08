@@ -29,6 +29,16 @@ import { WATER_Y, RAIL_H, RAIL_W, DECK_THICK } from './river.js';
 //   as the wall's height allows, and a bridge throws its soffit and fascia onto the water
 //   up-screen of it — both bent by the facets.
 //
+// **Two looks** (`setWaterStyle`, `?water=classic`). The facets above were the first build, and at
+// play zoom they read as pixels rather than as low-poly: each triangle carries one normal, so where
+// the mirrored ray crosses the top of the far wall a whole ten-pixel triangle flips from concrete to
+// sky, and the reflection band's edge comes out as a staircase. Nothing is being sampled from a
+// texture — there is no reflection target to raise the resolution of — so the step is in the
+// normal. The default now takes the wave field's own gradient per pixel instead, and adds the two
+// things the flat colour never had: a bed that shelves (shallow at the walls, deep down the middle,
+// so the margins open up and the centre goes dark) and a Fresnel lip where the water meets the
+// concrete. The cost is the same shader with the lattice lookup swapped for eight more sines.
+//
 // The mouth is left alone. `waterMesh` (river.js) shoals the strip up to ground level and into
 // asphalt's colour so `riverMouthFade` can close the coast over it, and that was measured to within
 // 1-2 luma. Every term below is scaled by how deep the water is at that point, so in the shoal it
@@ -38,6 +48,29 @@ import { WATER_Y, RAIL_H, RAIL_W, DECK_THICK } from './river.js';
 // two units the walls show above the water, so the middle of the river is mostly its own colour and
 // only the margins open up.
 const BED_DEPTH = 2.6;
+// The smooth look's bed is not flat: it shelves from BED_EDGE at each wall to BED_MID down the
+// middle on a sine, so the refracted ray finds the bed close under the margins (lit, olive, light)
+// and loses itself in the centre (the water's own deep colour). BED_EDGE is not zero because a
+// wall goes straight down; a shelf that met the surface would read as a beach.
+const BED_EDGE = 0.45;
+const BED_MID = 3.4;
+// The lip: how far out from each wall the reflection is pushed up toward a mirror, and how strong
+// at the wall itself. Real water does this where the surface bends up into a meniscus and the
+// grazing angle climbs; 0.55 units is ~4px at play zoom, a line rather than a band.
+const RIM_W = 0.55;
+const RIM_REFLECT = 0.55;
+// A fainter, wider sheen under the lip, so the edge lightens into the wall instead of stopping on it.
+const RIM_GLOW = 0.12;
+const RIM_GLOW_W = 1.6;
+// The smooth surface's slope. The gradient of a sum of sines has no flat facets to average it
+// down, so the same 0.24 tilts further than the lattice did; 0.16 keeps the reflected wall's edge
+// swinging by about the same distance (~1 unit) as the classic facets.
+const SMOOTH_AMP = 0.06;
+// The second, finer octave, as a fraction of SMOOTH_AMP: what keeps a smooth field from reading as
+// four long rollers.
+const SMOOTH_DETAIL = 0.35;
+// Half-width of the blend between the mirrored wall and the sky above it, in world units of height.
+const EDGE_SOFT = 0.3;
 
 // The lattice the ripples are cut on, in world units. One unit is ~7.7px at play zoom, so 1.35 is
 // about ten pixels a facet: big enough to read as low-poly from the default zoom, small enough that
@@ -86,6 +119,11 @@ const UNIFORMS = {
 };
 
 let drawLift = () => 0;
+// 'smooth' (the default) or 'classic' (the faceted first build). Read once, at compile.
+let style = 'smooth';
+/** Before `createRiver`: which surface the river compiles with — see the note at the top. */
+export function setWaterStyle(next) { style = next === 'classic' ? 'classic' : 'smooth'; }
+export function getWaterStyle() { return style; }
 let drawSlot = -1;
 
 const num = (v) => v.toFixed(5);
@@ -93,6 +131,7 @@ const num = (v) => v.toFixed(5);
 // Built on first use rather than at load: river.js imports this module, so its constants are not
 // initialised yet while this one is being evaluated.
 const header = () => /* glsl */ `
+${style === 'smooth' ? '#define WATER_SMOOTH' : ''}
 uniform float uWaterTime;
 uniform vec3 uWaterSky;
 uniform vec3 uWaterWall;
@@ -145,6 +184,22 @@ vec3 waterFacet(vec2 p, float amp) {
   return n.y < 0.0 ? -n : n;
 }
 
+// The smooth look's normal: the analytic gradient of waterWave plus a finer octave, per pixel. The
+// same four waves as the facets, so the surface drifts the same way; only the lattice is gone.
+vec3 waterSmooth(vec2 p, float amp) {
+  float t = uWaterTime;
+  vec2 g = 0.50 * cos(dot(p, vec2(0.78, 0.22)) - t * 1.25) * vec2(0.78, 0.22)
+         + 0.35 * cos(dot(p, vec2(0.52, -0.98)) - t * 1.65) * vec2(0.52, -0.98)
+         + 0.30 * cos(dot(p, vec2(-0.64, 0.92)) + t * 1.05) * vec2(-0.64, 0.92)
+         + 0.20 * cos(dot(p, vec2(1.55, 0.58)) - t * 2.2) * vec2(1.55, 0.58);
+  vec2 d = 0.50 * cos(dot(p, vec2(2.1, 0.9)) - t * 2.6) * vec2(2.1, 0.9)
+         + 0.40 * cos(dot(p, vec2(-1.3, 2.3)) - t * 2.9) * vec2(-1.3, 2.3)
+         + 0.30 * cos(dot(p, vec2(2.7, -1.6)) - t * 3.4) * vec2(2.7, -1.6)
+         + 0.25 * cos(dot(p, vec2(0.6, 3.1)) + t * 2.3) * vec2(0.6, 3.1);
+  g = amp * (g + ${num(SMOOTH_DETAIL)} * d);
+  return normalize(vec3(-g.x, 1.0, -g.y));
+}
+
 // Light dancing on the bed: two warped sine fields folded into ridges.
 float waterCaustic(vec2 p) {
   float t = uWaterTime * 0.7;
@@ -185,10 +240,24 @@ vec3 waterReflect(vec3 p, vec3 r) {
   vec3 wall = waterLit(uWaterWall, vec3(0.0, 0.0, 1.0));
   // The wall's top edge, softened over a few hundredths so a facet tipping across it fades rather
   // than flips a whole triangle from concrete to sky.
-  vec3 col = mix(wall, uWaterSky, smoothstep(${num(KERB_H - 0.06)}, ${num(KERB_H + 0.06)}, y));
+  #ifdef WATER_SMOOTH
+    // Wider: on a continuous surface the wall's top edge traces the wave field's height contours,
+    // and a hard edge drew them as closed rings — marbling rather than water.
+    vec3 col = mix(wall, uWaterSky, smoothstep(${num(KERB_H - EDGE_SOFT)}, ${num(KERB_H + EDGE_SOFT)}, y));
+  #else
+    vec3 col = mix(wall, uWaterSky, smoothstep(${num(KERB_H - 0.06)}, ${num(KERB_H + 0.06)}, y));
+  #endif
   float up = y - ${num(KERB_H)};
-  float rail = step(abs(up - ${num(RAIL_H - RAIL_W / 2)}), ${num(RAIL_W)})
-             + step(abs(up - ${num(RAIL_H * 0.5)}), ${num(RAIL_W * 0.7)});
+  #ifdef WATER_SMOOTH
+    // Edges a pixel wide rather than a step: a smooth normal sweeps these lines continuously, and a
+    // hard step would put back the shimmer the facets were taken out for.
+    float aa = max(fwidth(up), 1e-4);
+    float rail = 1.0 - smoothstep(${num(RAIL_W)} - aa, ${num(RAIL_W)} + aa, abs(up - ${num(RAIL_H - RAIL_W / 2)}))
+               + 1.0 - smoothstep(${num(RAIL_W * 0.7)} - aa, ${num(RAIL_W * 0.7)} + aa, abs(up - ${num(RAIL_H * 0.5)}));
+  #else
+    float rail = step(abs(up - ${num(RAIL_H - RAIL_W / 2)}), ${num(RAIL_W)})
+               + step(abs(up - ${num(RAIL_H * 0.5)}), ${num(RAIL_W * 0.7)});
+  #endif
   col = mix(col, wall, 0.6 * clamp(rail, 0.0, 1.0));
   for (int k = 0; k < 3; k++) {
     vec4 b = uWaterBridges[k];
@@ -241,7 +310,11 @@ const normalPatch = () => /* glsl */ `
   // came out teal against the skirt's grey.
   float waterWet = clamp(vWaterWorld.y / ${num(WATER_Y)}, 0.0, 1.0);
   waterWet *= waterWet * waterWet;
-  waterN = waterFacet(vWaterWorld.xz, ${num(WAVE_AMP)} * waterWet);
+  #ifdef WATER_SMOOTH
+    waterN = waterSmooth(vWaterWorld.xz, ${num(SMOOTH_AMP)} * waterWet);
+  #else
+    waterN = waterFacet(vWaterWorld.xz, ${num(WAVE_AMP)} * waterWet);
+  #endif
   normal = normalize((viewMatrix * vec4(waterN, 0.0)).xyz);
 `;
 
@@ -252,7 +325,14 @@ const compose = () => /* glsl */ `
 
     // Down through the surface to the bed or the far wall's submerged face.
     vec3 rd = refract(-V, waterN, 0.7518797);
-    float depth = ${num(BED_DEPTH)} * waterWet;
+    // Across the channel, 0 at the far wall and 1 at the near one.
+    float across = clamp((vWaterWorld.z - uWaterEdges.x) / (uWaterEdges.y - uWaterEdges.x), 0.0, 1.0);
+    #ifdef WATER_SMOOTH
+      float shelf = sin(PI * across);
+      float depth = mix(${num(BED_EDGE)}, ${num(BED_MID)}, shelf) * waterWet;
+    #else
+      float depth = ${num(BED_DEPTH)} * waterWet;
+    #endif
     float sBed = depth / max(-rd.y, 1e-3);
     float sWall = rd.z < 0.0 ? (vWaterWorld.z - uWaterEdges.x) / -rd.z : 1e6;
     float s = min(sBed, sWall);
@@ -278,7 +358,15 @@ const compose = () => /* glsl */ `
     float fres = ${num(F0)} + ${num(1 - F0)} * pow(1.0 - cosT, 5.0);
     fres = ${num(REFLECT_FLOOR)} + ${num(1 - REFLECT_FLOOR)} * fres;
 
-    vec3 water = mix(body, refl, fres) + waterSpec * ${num(GLINT)};
+    #ifdef WATER_SMOOTH
+      // The lip at each wall, in world units from the nearer one.
+      float edge = min(across, 1.0 - across) * (uWaterEdges.y - uWaterEdges.x);
+      fres = max(fres, ${num(RIM_REFLECT)} * (1.0 - smoothstep(0.0, ${num(RIM_W)}, edge)));
+      vec3 water = mix(body, refl, fres) + waterSpec * ${num(GLINT)};
+      water += uWaterSky * ${num(RIM_GLOW)} * (1.0 - smoothstep(0.0, ${num(RIM_GLOW_W)}, edge));
+    #else
+      vec3 water = mix(body, refl, fres) + waterSpec * ${num(GLINT)};
+    #endif
     outgoingLight = mix(outgoingLight, water, waterWet);
   }
 `;
@@ -306,7 +394,8 @@ export function patchRiverWater(material, { edges, banks, bridges, wall }) {
 
   const inner = material.onBeforeCompile;
   const innerKey = material.customProgramCacheKey();
-  material.customProgramCacheKey = () => `${innerKey}-river`;
+  const styleKey = style;
+  material.customProgramCacheKey = () => `${innerKey}-river-${styleKey}`;
   material.onBeforeCompile = (shader, renderer) => {
     inner(shader, renderer);
     Object.assign(shader.uniforms, UNIFORMS);

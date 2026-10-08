@@ -393,6 +393,13 @@ export const PALETTE = {
   flatbedRail: '#3C434C',
   crate: '#D9B477',
   crateBatten: '#9C7445',
+  crateStencil: '#4E3A26',
+  // Per-crate multipliers on the two above (geometry/crate.js `crateLook`), so the stack is not one
+  // crate over and over. Kept near white: the darkest still reads as pine, not as kraft cardboard.
+  crateTintFresh: '#FFFFFF',
+  crateTintDark: '#CBB8A2',
+  crateTintGrey: '#BCBAB3',
+  crateTintWarm: '#F2C8AA',
 
   // --- Game entities. Deliberately higher-chroma than anything in the city so they read
   // instantly against the muted buildings and grey roads.
@@ -468,12 +475,11 @@ export const PALETTE = {
   // `lightRed`: it is drawn unlit at four pixels across and has to survive being that small, and a
   // signal red at this size reads as a brake light on a car parked on a roof.
   heliBeacon: '#FF2E2E',
-  // The getaway's police helicopter (game/policeheli.js): the cruisers' light blue a stop deeper,
-  // since it is seen over pale roofs and pavement rather than beside other cars, with the cars'
-  // white cab carried over as the upper band and a navy under it.
-  heliPoliceBody: '#3F8ED0',
-  heliPoliceBandHi: '#F2F4F7',
-  heliPoliceBandLo: '#1E3A66',
+  // The getaway's police helicopter (game/policeheli.js) has no colours of its own: it is painted
+  // the cruisers' `policeCab` white with a `policeBody` stripe (LIVERIES in geometry/helicopter.js),
+  // so the machine overhead is plainly the same fleet as the cars under it. Its tail lamps are
+  // `heliBeacon` and `sirenBlue`. (It used to be a solid blue a stop deeper than the cars, with a
+  // white-over-navy band; Tyler asked for it all white with the cars' blue as the stripe.)
 
   // The park flock — see geometry/bird.js. These bases are kept near-neutral on purpose: a bird
   // is a couple of pixels of moving colour, which is exactly the description of a fare marker,
@@ -617,6 +623,11 @@ export const PALETTE = {
   // The shockwave on the tarmac. A pale warm yellow rather than white — white on this asphalt
   // reads as a lighting artefact, and the ring belongs to the fireball above it.
   blastRing: '#FFE9A8',
+  // The big-air landing's ring (`blast.shock`): the colour of the dust the slam throws up beside
+  // it, so it reads as the ground taking the hit rather than as fire. The dust itself is pure white
+  // under Lambert and lands a touch below white once lit; the ring is unlit, so it is set there by
+  // hand.
+  landRing: '#ECEAE4',
 
   // The tailpipe flame Loco Mode burns for as long as it is held — see game/locoflame.js. Three
   // stops read as one nested cutout: the outer tongue, the gold under it, and the near-white at the
@@ -901,11 +912,13 @@ export const PALETTE = {
   trashJunk: '#6E7378',
   trashBarrel: '#3B5F8C',
   trashWhite: '#C9CCC8',
-  // The wheelhouse is painted working-boat red (Tyler's call, 2026-10-07), the one exception to the
-  // no-warm-on-the-water rule above. It wears the cars' metal finish, which darkens its base and adds
-  // the sky, so it is picked off `carBody[0]` (the red car, same finish) a step deeper and duller:
-  // it has to read as paint on a scow rather than as one more red car or the burger joint's band.
-  trashHouse: '#B4473B',
+  // The wheelhouse is hunter green, flat and weathered — "ocean rusty and grimy" (Tyler, 2026-10-08,
+  // replacing the working-boat red of 2026-10-07). Hunter green proper is #355E3B; this is a step
+  // lighter because the hull's flat material lands it at about half value in the river's shade,
+  // and at #355E3B the roof read black. The rust and grime are pieces over it, not a tint on it.
+  trashHouse: '#43754A',
+  // Rust bleeding from the window frames, and the scum line round the foot of the house.
+  trashRust: '#7A4A2C',
   trashStack: '#2F3236',
   // The gulls (game/gulls.js): white bodies, grey backs, and nothing else — a yellow bill would be
   // a warm speck at full saturation and would not survive the 3 pixels it occupies anyway.

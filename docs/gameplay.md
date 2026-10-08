@@ -2486,6 +2486,12 @@ daytime read; an additive pool on a sunlit street is too faint to see on its own
 between day and night off the sun's power. The rotor sound is synthesised in `game/sfx.js`
 (`makeRotor`) because the designer's set has no recording of one.
 
+The machine is painted in the cruisers' own two colours turned round: `policeCab` white all over
+with one broad `policeBody` stripe down the cabin, the boom and the fin cap. In place of the rooftop
+chopper's single red beacon it carries a red lamp and a blue one on the stabiliser tips that
+double-flash in turn (`TAIL_FLASHES`), and both are in the bloom at the cruiser bar's `siren`
+intensity.
+
 ## The package courier
 
 `src/game/parcels.js`. A brown parcel sits on a kerb corner on a cyan rounded-square pad. Drive
@@ -3565,20 +3571,27 @@ pointer.
 **Coordinates, not event targets.** A press captures the pointer to the button it started on, so
 for the rest of the gesture every move is delivered *there* whatever is under the finger — which is
 what makes a hold survive a wandering thumb, and what makes hit-testing the event target useless.
-The gesture hit-tests the point against two rectangles instead. They are measured on the press and
+The gesture hit-tests the point against two zones instead. They are measured on the press and
 then left alone: both pedals change shape while held (the press), and re-measuring per move would let a pedal's own animation move the boundary under a finger that
-never moved.
+never moved. The rectangles are grown into zones first (below).
 
-**Two different thresholds, on purpose.** Claiming a pedal means being *inside* it; dropping one
-means being `PEDAL_SLOP` (28px) *clear* of it. Crossing between the two needs no slop along the
-brake's height — the boxes are 1px apart there, so a finger leaving one is inside the other within a
-frame; above the brake, where the gas stands taller, a thumb sliding right comes off the gas after
-the slop instead — but coming off the row
-entirely has to let go, and equal thresholds would put a boundary under a resting thumb that a
-pixel of jitter could cross twice a frame. A fresh press of Loco Mode is not a quiet event: it
-fires a wheelie, a flame burst, a launch skid and a haptic tick. The gap between the two answers is
-where a still finger sits. Sliding off the end of the row is therefore also how you let go of a
-pedal without lifting.
+**The zones are bigger than the buttons.** Each pedal takes a thumb `--pedal-reach` (20px) past
+its drawn edge, on the first press (a `::before` on each button in `index.html`) and during the
+slide (`game/pedalzones.js`, which reads the same CSS variables). On the two facing sides the reach
+stops `--pedal-deadband` (8px) short of meeting in the middle of the 22px gap. Tyler, drifting
+one-thumbed (2026-10-08), had the thumb slip on the way back from the brake and the car stop: with
+the zones at the buttons' edges, a thumb that came back 5px short of the gas sat in the brake's slop
+and the brake stayed down, which a real touch on the built page reproduces. Now it takes the gas.
+20px is the most the gas can reach upward without taking taps meant for the rider chips and the
+taxi finder, whose bottom edge is `--ctl-h + 20px`.
+
+**Two different thresholds, on purpose.** Claiming a pedal means being *inside* its zone; dropping
+one means being `PEDAL_SLOP` (16px) *clear* of it. Coming off the row entirely has to let go, and
+equal thresholds would put a boundary under a resting thumb that a pixel of jitter could cross twice
+a frame. A fresh press of Loco Mode is not a quiet event: it fires a wheelie, a flame burst, a
+launch skid and a haptic tick, and brake, Loco, brake inside 350ms is a U-turn. The deadband between
+the two zones is where a still finger sits, keeping whichever pedal it already had. Sliding off the
+end of the row is therefore also how you let go of a pedal without lifting.
 
 **One pointer owns the row.** A second thumb landing on the other pedal takes it over, which is the
 game's own last-pedal-wins rather than a special case, and the first thumb's eventual lift then has

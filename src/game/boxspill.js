@@ -6,7 +6,7 @@ import { propMaterial } from '../util/geo.js';
 import { riverBanks } from '../city/grid.js';
 import { deckHeightAt } from '../city/river.js';
 import { markOccluder } from './ssao.js';
-import { crateGeometry, CRATE, CRATE_REST_Y } from '../geometry/crate.js';
+import { crateGeometry, crateLook, CRATE, CRATE_REST_Y } from '../geometry/crate.js';
 import {
   doorLeafGeometry, holdGeometry, BOX_REAR, BOX_MID_Y, HINGE_OUT,
 } from '../geometry/truckdoors.js';
@@ -140,7 +140,16 @@ export function createBoxSpill(rng, scene, traffic) {
 
   markOccluder(group);
 
-  const boxes = Array.from({ length: POOL }, () => ({
+  // Each pool slot gets its own wood and quarter turn once, here, the flatbed's way: a slot keeps
+  // its look for the run, so nothing changes colour mid-air.
+  const looks = Array.from({ length: POOL }, (_, n) => {
+    const look = crateLook(rng);
+    boxMesh.setColorAt(n, look.tint);
+    return look.turn;
+  });
+
+  const boxes = Array.from({ length: POOL }, (_, n) => ({
+    turn: looks[n],
     phase: 'free',          // free | wait | air | skid | rest | sink
     age: 0, wait: 0, life: REST_LIFE, born: 0,
     from: null,             // the truck it came off, which it cannot be punted by
@@ -266,7 +275,7 @@ export function createBoxSpill(rng, scene, traffic) {
     const across = (row % 2 ? 1 : -1) * (CRATE / 2 + 0.03) + rng.jitter(0.05);
     const up = TRUCK_CHASSIS_TOP + CRATE / 2 + (row >= 2 ? CRATE : 0) + 0.02;
     pos.set(BOX_REAR + CRATE * 0.2, up, across);
-    quat.setFromAxisAngle(UP, rng.jitter(0.15));
+    quat.setFromAxisAngle(UP, box.turn + rng.jitter(0.15));
     local.compose(pos, quat, one);
     m.multiplyMatrices(truckMatrix, local);
     m.decompose(pos, quat, scl);
@@ -318,7 +327,7 @@ export function createBoxSpill(rng, scene, traffic) {
     box.dirZ = h > 1e-6 ? box.vz / h : 0;
     box.tSkid = h / SKID_DECEL;
     box.qLand.copy(box.quat);
-    box.restYaw = Math.atan2(-box.dirZ, box.dirX) + rng.jitter(0.6);
+    box.restYaw = Math.atan2(-box.dirZ, box.dirX) + box.turn + rng.jitter(0.6);
     box.life = overRiver(box.z) ? REST_LIFE_RIVER : REST_LIFE;
   }
 

@@ -76,7 +76,7 @@ The chain, measured to the deck's *soffit* since that is what a boat hits:
 |---|---|---|
 | Flat span, deck 0.35 thick | −0.35 | **1.65** |
 | Arched span at the crest, rise 1.9 | +1.55 | **3.55** |
-| Barge, air draught 1.6 | | clears both |
+| Barge, air draught 1.63 | | clears both |
 | Tug (the sailboat), air draught 3.4 | | clears the arches by 0.15, **1.75 short of the flat one** |
 
 Four numbers across three files, so the probe asserts the **chain** rather than its outcome: move
@@ -278,6 +278,18 @@ almost nothing over that and cost a full pass on a phone.
 | **Reflection** | The mirrored ray is followed to the far wall (with its railing), each bridge's fascia or soffit, or the sky (the haze colour, so it follows `daylight.js`). Weighted by Fresnel with a floor (`REFLECT_FLOOR`), because water's real 4% at this angle is invisible at play zoom. |
 | **Glints** | Blinn-Phong off the facets in the light loop (`RE_Direct_Water`). Mostly dark by day: at the parked 16:24 sun the light is *behind* the camera, so a facet would have to tilt ~58° to glint, which is physically right. The police cruiser's lamps do glint. |
 
+**The smooth look is the default; the table above is `?water=classic`.** At play zoom the facets
+read as pixels rather than as low-poly: one normal per ten-pixel triangle means the mirrored ray
+crosses the top of the far wall a whole triangle at a time, and the reflection band's edge came out
+as a staircase. There is no reflection texture behind it to sample better — the step was in the
+normal. The default (`setWaterStyle`, `WATER_SMOOTH` in the shader) changes three things:
+
+| | How |
+|---|---|
+| **Normal** | The analytic gradient of the same travelling waves plus a finer octave, per pixel (`waterSmooth`). `SMOOTH_AMP` is 0.06 — a quarter of the facets' height — because a continuous surface at the facets' slope folds the wall's top edge and the railing into closed rings (marbling); this low, the reflection stays as wavy bands parallel to the wall. The wall/sky blend is ±0.3 rather than ±0.06 and the railing lines are `fwidth`-antialiased for the same reason. |
+| **Depth** | The bed shelves on a sine, `BED_EDGE` 0.45 at each wall to `BED_MID` 3.4 down the middle, so the margins show the lit bed and the centre loses itself; the strip's vertex colours turn round to match (open at the walls, `riverDeep` down the middle, five rows). |
+| **Lip** | Fresnel pushed to `RIM_REFLECT` within `RIM_W` (0.55, ~4px) of each wall, plus a fainter sky sheen over 1.6 units, so the water lightens into the concrete. |
+
 Two things are deliberate:
 
 - **The mouth is untouched.** Every term is scaled by how deep the water is, *cubed*, so it has gone
@@ -429,11 +441,11 @@ lifts is a fact about the map and has to stay learnable, but when it lifts is th
 **What they look like, and how big.** Sized against the cars (3.4 × 1.7) and the water (9.2 across,
 7.87 on the narrow build). The barge is an 11 × 4.2 **trash barge**, half the channel: a rusty scow
 square at the stern and rounded at the bow, with tyre fenders down its sides, a heap of bin bags,
-cardboard, tyres and drums drawn per hull, and a steel wheelhouse with a funnel through its roof at
-the stern. It replaced a 16 × 6 container barge that read as big and as a slab. The wheelhouse is
-its own mesh so it can wear the cars' **metal** finish (`propMaterial({ gloss })`, glass windows
-included). Everything stays under `BARGE_AIR` (1.6, against the flat span's 1.65), and that is
-the only thing bounding how tall the wheelhouse and funnel can be: the heap stops lower, at
+cardboard, tyres and drums drawn per hull, and a steel wheelhouse at the stern with a funnel up its
+back wall. It replaced a 16 × 6 container barge that read as big and as a slab. The wheelhouse is
+hunter green, matte and weathered (rust streaks under the windows, a grime line at its foot), on a
+mesh of its own so its windows can wear the cars' glass (`propMaterial({ gloss })`). Everything stays under `BARGE_AIR` (1.63, against the flat span's 1.65), and that is
+the only thing bounding how tall the wheelhouse can be — its roof sits on it exactly: the heap stops lower, at
 `PERCH_CEIL`, so a gull standing on it still clears the flat span, and the wheelhouse roof is not a
 perch for the same reason. The boat that asks for the lift is a 6 × 2.4 white **sailboat** with its
 sails down and a tall mast; the code still calls it the tug (`kind: 'tug'`, `TUG_AIR`, `TUG_LEN`).

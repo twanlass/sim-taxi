@@ -32,13 +32,21 @@ export const DECK_TOP = TRUCK_CHASSIS_TOP + DECK_T;
 /** The deck's rear edge, in the truck frame. A crate slid past this is off the back. */
 export const DECK_REAR = TRUCK_BOX_X - TRUCK_BOX_LEN / 2;
 
+// The stencilled mark on one side. It is the only thing about a crate that is not the same on all
+// four sides, and it is there for exactly that: the load is turned a random quarter on the deck
+// (`crateLook`), and a cube banded the same all the way round looks identical at every quarter.
+const STENCIL = [0.34, 0.2];
+const STENCIL_PROUD = 0.01;   // less than a batten's, and between them, so it touches neither
+
 /**
- * One crate, origin at its centre so it tumbles about itself.
+ * One crate, origin at its centre so it tumbles about itself, standing on its base.
  *
- * Two battens, one round each end, rather than a single band: at ~7px a crate with one stripe
- * through the middle is a parcel with tape on it again, and two framing the ends is the silhouette
- * of a crate. They are sleeves proud of the body on four faces — a hand-written triangle is the
- * winding trap in CLAUDE.md, and a BoxGeometry cannot be wound wrong.
+ * Two battens, one round the top and one round the bottom, rather than a single band: at ~7px a
+ * crate with one stripe through the middle is a parcel with tape on it again, and two framing it
+ * is the silhouette of a crate. They used to ring the two *ends* (about X), which put two straps
+ * across the lid and read as a crate lying on its side; ringed about Y they frame the faces the
+ * camera sees and leave the lid clear. They are sleeves proud of the body on four faces — a
+ * hand-written triangle is the winding trap in CLAUDE.md, and a BoxGeometry cannot be wound wrong.
  */
 export function crateGeometry() {
   const parts = [];
@@ -47,11 +55,32 @@ export function crateGeometry() {
 
   const sleeve = CRATE + BATTEN_PROUD * 2;
   for (const side of [-1, 1]) {
-    const batten = new THREE.BoxGeometry(BATTEN_W, sleeve, sleeve);
-    batten.translate(side * (CRATE / 2 - BATTEN_W / 2 - 0.04), 0, 0);
+    const batten = new THREE.BoxGeometry(sleeve, BATTEN_W, sleeve);
+    batten.translate(0, side * (CRATE / 2 - BATTEN_W / 2 - 0.04), 0);
     parts.push(bakeColor(batten, color('crateBatten')));
   }
+
+  const [sw, sh] = STENCIL;
+  const stencil = new THREE.BoxGeometry(STENCIL_PROUD * 2, sh, sw);
+  stencil.translate(CRATE / 2, 0, 0);
+  parts.push(bakeColor(stencil, color('crateStencil')));
   return mergeAll(parts);
+}
+
+// What a crate's per-instance tint multiplies its baked colours by. A handful of woods rather than
+// a jitter round one: a lightness jitter small enough to keep it pine is invisible at ~7px, and a
+// large one turns some crates the colour of the courier's kraft parcels. These are fresh pine,
+// a darker board, an older greyed one and a warm reddish one, each nudged a little more.
+const CRATE_TINTS = ['crateTintFresh', 'crateTintDark', 'crateTintGrey', 'crateTintWarm'];
+
+/**
+ * One crate's look: a tint for `setColorAt` and a quarter turn to add to its yaw. Drawn from the
+ * caller's stream once, when the crate is made, so it never changes while the crate is about.
+ */
+export function crateLook(rng, out = new THREE.Color()) {
+  out.copy(color(rng.pick(CRATE_TINTS)));
+  out.multiplyScalar(1 - rng.range(0, 0.08));
+  return { tint: out, turn: rng.int(0, 3) * (Math.PI / 2) };
 }
 
 // A chip off a smashed crate. The same reasoning as the trestle's splinter (geometry/roadworks.js):
