@@ -89,7 +89,7 @@ export const RAIL_POST_PITCH = 1.7;
 //
 //     flat span, deck 0.35 thick     soffit -0.35    clearance 1.65
 //     arched span at the crest       soffit +1.55    clearance 3.55
-//     barge, air draught 1.4                         clears both
+//     barge, air draught 1.63                        clears both, by 0.02 under the flat
 //     tug (the sailboat), air 3.4                    clears the arches by 0.15,
 //                                                    1.75 short of the flat one
 //
@@ -110,9 +110,11 @@ export const FLAT_SOFFIT = -DECK_THICK;
 export const ARCH_SOFFIT = ARCH_RISE - DECK_THICK;
 
 /** Air draughts, exported so `tools/probe.mjs` can assert the chain above rather than the outcome. */
-// The barge's is 0.05 under the flat soffit's 1.65: the trash barge's wheelhouse and funnel want
-// every bit of height there is, and the drawbridge is the only span they have to fit under.
-export const BARGE_AIR = 1.6;
+// The barge's is 0.02 under the flat soffit's 1.65: the trash barge's wheelhouse wants every bit of
+// height there is (its roof sits on this exactly), and the drawbridge is the only span it has to
+// fit under. It was 1.6, with the roof a further 0.3 down to let the funnel show over it; at that
+// height the house stood 0.02 proud of the heap and the boat read as a pile of rubbish afloat.
+export const BARGE_AIR = 1.63;
 export const TUG_AIR = 3.4;
 
 // How far a bridge deck reaches beyond the road it carries: its footway, and the edge beam under

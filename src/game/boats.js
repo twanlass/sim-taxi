@@ -219,7 +219,8 @@ export function createBoats(scene, rng, drawbridge) {
       beam: kind === 'tug' ? TUG_BEAM : BARGE_BEAM,
     };
     mesh.position.set(boat.x, waterHeightAt(boat.x), boat.z);
-    // The wheelhouse is a mesh of its own, in the cars' metal finish (geometry/boat.js says why).
+    // The wheelhouse's windows are a mesh of their own, on the cars' gloss material (geometry/boat.js
+    // says why).
     // Per-boat for the same reason as the hull's: it fades with the boat.
     if (geo.userData.house) {
       const houseGeo = geo.userData.house;

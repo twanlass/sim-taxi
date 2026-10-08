@@ -153,7 +153,7 @@ const HOUSE_W = 1.9;
  *
  * Returns the geometry with `userData.perches` — points on top of the heap and on the bow, in the
  * hull's own frame (bow toward +Z), for the gulls to land on — and `userData.house`, the
- * wheelhouse, which game/boats.js draws as a mesh of its own in the cars' metal finish.
+ * wheelhouse's windows, which game/boats.js draws as a mesh of its own on the cars' gloss material.
  */
 export function createBargeMesh(rng) {
   const hullCol = jitterColor(PALETTE.trashHull, rng, { l: 0.03 });
@@ -277,32 +277,57 @@ export function createBargeMesh(rng) {
     }
   }
 
-  // --- The wheelhouse: its own geometry, because it wears the cars' **metal** finish — a gloss
-  // material is centred on one geometry's bounds, and the hull's flat-shaded paint is not one. It
-  // stands to `BARGE_AIR`, which is as tall as the flat span lets anything on this boat be: a deck
-  // 0.13 lower than it was and a roof no longer kept down for gulls bought it 0.32 of height.
-  const roofTop = BARGE_AIR - 0.3;
+  // --- The wheelhouse. Its roof stands at `BARGE_AIR` exactly, which is as tall as the flat span
+  // lets anything on this boat be. It used to stop 0.3 short so the funnel could show over it, which
+  // left the roof 0.02 above the heap: at play zoom the house vanished into the rubbish and the
+  // barge stopped reading as a barge (Tyler, 2026-10-08). The house is the silhouette; the funnel
+  // gave way.
+  const roofTop = BARGE_AIR;
   const roofY = roofTop - 0.11;
   const houseH = roofY - BARGE_DECK_Y;
+  const winY = roofY - 0.38;
+  // Painted steel gone flat in the salt, hunter green with rust and grime over it. The walls go in
+  // with the hull, on its plain flat-shaded material, so the paint shows no glint and no sky. They
+  // were on the cars' gloss material until 2026-10-08, and its matte finish is no answer to "not
+  // shiny": `FINISH.TYRE` is a tyre, and its diffuse of 0.64 took the green to black.
   const steel = jitterColor(PALETTE.trashHouse, rng, { l: 0.03 });
-  const metal = (g) => setFinish(g, FINISH.METAL);
-  const house = merge([
-    metal(block(HOUSE_W, houseH, HOUSE_D, 0, BARGE_DECK_Y, HOUSE_Z, steel)),
-    // The windows: a band round the top of the house, proud of the walls by a hair so the two
-    // never share a plane, in the cars' glass.
-    setFinish(block(HOUSE_W + 0.03, 0.28, HOUSE_D + 0.03, 0, roofY - 0.38, HOUSE_Z, PALETTE.carGlass),
-      FINISH.GLASS),
-    metal(block(HOUSE_W + 0.16, 0.08, HOUSE_D + 0.16, 0, roofY, HOUSE_Z, steel.clone().offsetHSL(0, 0, -0.12))),
-    metal(block(HOUSE_W + 0.04, 0.03, HOUSE_D + 0.04, 0, roofY + 0.08, HOUSE_Z, steel)),
-  ]);
+  const rust = PALETTE.trashRust;
+  parts.push(
+    block(HOUSE_W, houseH, HOUSE_D, 0, BARGE_DECK_Y, HOUSE_Z, steel),
+    // The roof's lip, rusted through, and the roof in the walls' green: a shade darker drew it black.
+    block(HOUSE_W + 0.16, 0.08, HOUSE_D + 0.16, 0, roofY, HOUSE_Z, rust),
+    block(HOUSE_W + 0.04, 0.03, HOUSE_D + 0.04, 0, roofY + 0.08, HOUSE_Z, steel),
+    // The scum line round the foot, where spray and the deck's slop sit, proud of the walls by 0.01.
+    block(HOUSE_W + 0.02, 0.2, HOUSE_D + 0.02, 0, BARGE_DECK_Y, HOUSE_Z, PALETTE.trashGrime),
+  );
+  // Rust run down from the window frames. Fixed rather than drawn from `rng`, which the gulls are
+  // seeded off afterwards (game/boats.js), so a draw here would reshuffle every flock. Each streak is
+  // [position along the face as a fraction of it, length]; proud of the walls by 0.03, a hair past
+  // the glass, so neither shares a plane with anything.
+  const STREAKS = [[-0.62, 0.42], [-0.18, 0.26], [0.3, 0.5], [0.71, 0.3]];
+  for (const [f, len] of STREAKS) {
+    for (const side of [-1, 1]) {
+      // Down the long faces (x = ±W/2) and the two ends (z = HOUSE_Z ± D/2).
+      parts.push(block(0.04, len, 0.1, side * (HOUSE_W / 2 + 0.01), winY - len,
+        HOUSE_Z + f * HOUSE_D * 0.45, rust));
+      parts.push(block(0.1, len * 0.85, 0.04, f * HOUSE_W * 0.45 * side, winY - len * 0.85,
+        HOUSE_Z + side * (HOUSE_D / 2 + 0.01), rust));
+    }
+  }
+  // The windows: a band round the top of the house, proud of the walls by 0.015, in the cars'
+  // glass. The one part on a geometry of its own, because game/boats.js draws it on the gloss
+  // material, and a gloss material is centred on one geometry's bounds (the hull is not one).
+  const house = setFinish(block(HOUSE_W + 0.03, 0.28, HOUSE_D + 0.03, 0, winY, HOUSE_Z, PALETTE.carGlass),
+    FINISH.GLASS);
 
-  // The smoke stack, up through the roof: dark, with a pale band and a black lip — the funnel
-  // every working boat has. It is the tallest thing aboard and stops at `BARGE_AIR` exactly. It
-  // stood off the back wall at first and the house hid it whenever the boat ran away from the
-  // camera; through the roof it shows both ways, which is what the roof's lower line pays for.
+  // The smoke stack: dark, with a pale band and a black lip — the funnel every working boat has.
+  // It came up through the roof while the roof sat 0.3 lower; with the roof at the ceiling there is
+  // nothing left for it to stand proud by, so it rides the back wall, half buried in it, to the
+  // roofline. The house hides it when the boat runs away from the camera, which is the price of
+  // the taller house and the cheaper of the two.
   const stackTop = BARGE_AIR - 0.02;
-  const stackX = 0.4;
-  const stackZ = HOUSE_Z - 0.2;
+  const stackX = 0.45;
+  const stackZ = HOUSE_Z - HOUSE_D / 2 - 0.08;
   const stackH = stackTop - BARGE_DECK_Y;
   const stack = new THREE.CylinderGeometry(0.2, 0.2, stackH - 0.06, 10);
   stack.translate(stackX, BARGE_DECK_Y + (stackH - 0.06) / 2, stackZ);
