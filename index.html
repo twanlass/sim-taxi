@@ -359,7 +359,7 @@
          bottom row reads as brake · gas · box rather than a box stranded in the corner. */
       #cargo-dock {
         position: fixed; z-index: 20;
-        left: calc(var(--gas-left) + var(--gas-d) + 22px + (var(--brake-d) - 42px) / 2);
+        left: calc(var(--gas-left) + var(--gas-d) + var(--pedal-gap) + (var(--brake-d) - 42px) / 2);
         bottom: calc(var(--ctl-bottom) + (var(--gas-d) - 42px) / 2);
         width: 42px; height: 42px;
         pointer-events: none; user-select: none;
@@ -815,6 +815,11 @@
         --gas-d: 100px;
         --brake-d: 66px;
         --gas-left: calc(50% - var(--gas-d) / 2);
+        /* The gap between the brake and the gas, and how far past their drawn edges each one takes
+           a thumb (see "The reach" by #boost, #brake). */
+        --pedal-gap: 22px;
+        --pedal-reach: 20px;
+        --pedal-deadband: 8px;
         --pause-w: 42px;
       }
 
@@ -840,8 +845,8 @@
          reach inside them (below). The gas is centred on the bottom edge; the brake is two thirds
          of its size, to its left, with the two centres on one line so a thumb sliding between
          them goes straight across. The gap is wide enough to clear the fuel gauge's left end,
-         which stands ~15px off the gas's outline — and it keeps the two hit boxes apart, because
-         `pedalUnder` in main.js hit-tests rectangles and assumes they never overlap.
+         which stands ~15px off the gas's outline — and it is where the two hit zones meet, a deadband
+         apart (see "The reach" below).
 
          Everything that keeps a hold a hold is unchanged from the pills these replace: `none`
          rather than `manipulation`, because pan or pinch starting on a pedal makes the browser
@@ -858,10 +863,24 @@
       }
       #boost { left: var(--gas-left); width: var(--gas-d); height: var(--gas-d); }
       #brake {
-        left: calc(var(--gas-left) - 22px - var(--brake-d));
+        left: calc(var(--gas-left) - var(--pedal-gap) - var(--brake-d));
         bottom: calc(var(--ctl-bottom) + (var(--gas-d) - var(--brake-d)) / 2);
         width: var(--brake-d); height: var(--brake-d);
       }
+      /* The reach. Each pedal takes a thumb `--pedal-reach` past its drawn edge, because a thumb's
+         contact point is not where its pad is and a thumb sliding back from the brake does not come
+         back along the line it went out on (Tyler, 2026-10-08: it slipped off the gas mid-drift and
+         the car stopped). The art stays its size; the hit area grows. On the two facing sides the
+         reach stops `--pedal-deadband` short of meeting, which is the band where a resting thumb
+         keeps whichever pedal it already had. game/pedalzones.js draws the same zones for the slide
+         and reads these same variables, so the first press and the slide agree.
+         20px of reach puts the gas's top edge exactly level with the bottom of the rider chips and
+         the taxi finder (`--ctl-h + 20px`), so it never takes a tap meant for them. */
+      #boost::before, #brake::before {
+        content: ''; position: absolute; inset: calc(-1 * var(--pedal-reach));
+      }
+      #boost::before { left: calc((var(--pedal-deadband) - var(--pedal-gap)) / 2); }
+      #brake::before { right: calc((var(--pedal-deadband) - var(--pedal-gap)) / 2); }
       .pedal-art {
         display: block; width: 100%; height: 100%; overflow: visible;
         pointer-events: none;
