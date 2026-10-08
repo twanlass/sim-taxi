@@ -446,18 +446,22 @@ let squallPresence = 0;
  * is on the map: the rain, the wet ground, the cloud shade and the city's lights all follow the
  * cell, through the uniforms `rain.attachSquall` wired up. What is left to do on the CPU is what
  * only one place can have — the grip under the taxi, the taxi's own headlights, and the drops on the
- * lens, which are on when the camera is looking at the rain.
+ * lens, which are on while the taxi is under the rain.
  */
 function applySquall(dt) {
   squall.update(dt);
   const { cell } = squall;
   squallPresence += ((cell.on ? 1 : 0) - squallPresence) * Math.min(1, dt / 4);
-  const c = rain.centre;
+  // The lens follows the taxi, not the frame: it is the taxi's windscreen. Before the taxi exists
+  // (the opening, a still) it falls back to the ground under the middle of the frame.
+  const c = taxiNow?.() ?? rain.centre;
   rain.setWeather({
     dark: SQUALL_GREY * squallPresence,
     rain: cell.on ? 1 : 0,
     wet: squall.state.maxWet,
     lens: squall.rainAt(c.x, c.z),
+    lensWet: LENS_WET,
+    lensDry: LENS_DRY_SQUALL,
   }, dt);
   if (taxiNow) {
     const t = taxiNow();
@@ -473,6 +477,15 @@ function applySquall(dt) {
 
 /** How far the whole sky greys while a squall's cell is on the map — the rest of the city is sunny. */
 const SQUALL_GREY = 0.2;
+
+/**
+ * Seconds for the lens drops to come in as the taxi drives under the squall, and to clear once it
+ * drives out. The storm's 12s dry-off left drops on the glass a whole block into the sunshine (the
+ * cell's soft edge is 14 units, so the rain itself is already eased over ~1.4s at cruising speed);
+ * a short ease in keeps them from popping on at boost speed.
+ */
+const LENS_WET = 0.5;
+const LENS_DRY_SQUALL = 1.5;
 
 // The storm's one city-wide wetness, for the tyres (`groundWetAt`).
 let stormWet = 0;

@@ -47,6 +47,9 @@ const REFLECT_SCALE = 0.5;
  *  same number it brakes with, so this lengthens every stop rather than making anyone run a red. */
 export const GRIP = 0.6;
 
+/** Seconds for the drops on the glass to dry off once the rain stops, by default. */
+export const LENS_DRY = 12;
+
 
 /** The streaks: how many, and the box they wrap in around the camera target. */
 const DROPS = 14000;
@@ -626,6 +629,7 @@ ${WET_ALBEDO}`, 'ground fragment');
 
   function setWeather({
     dark = weather.dark, rain = weather.rain, wet = weather.wet, lens = rain,
+    lensWet = 0, lensDry = LENS_DRY,
   } = {}, dt = 0) {
     weather.dark = dark;
     weather.rain = rain;
@@ -634,8 +638,11 @@ ${WET_ALBEDO}`, 'ground fragment');
     CLOUD_UNIFORMS.uCloudCover.value = mood.cover * dark;
     streakUniforms.uOpacity.value = STREAK_OPACITY * rain;
     splashUniforms.uDensity.value = rain;
-    // Drops land on the glass with the rain and take a while to dry off once it stops.
-    lensLevel = dt > 0 && lens < lensLevel ? lensLevel + (lens - lensLevel) * Math.min(1, dt / 12) : lens;
+    // Drops land on the glass with the rain and take a while to dry off once it stops. Both ends
+    // are time constants in seconds, and 0 means "at once": the storm wets the glass instantly and
+    // dries it over `LENS_DRY`, the squall eases both ways (`LENS_WET`/`LENS_DRY_SQUALL` in main.js).
+    const tau = lens < lensLevel ? lensDry : lensWet;
+    lensLevel = dt > 0 && tau > 0 ? lensLevel + (lens - lensLevel) * Math.min(1, dt / tau) : lens;
     lensUniforms.uAmount.value = lensLevel;
     // The streaks and splashes are *not* hidden at zero, only faded: a mesh's program compiles on
     // the first frame it is drawn, and that frame would be the one the storm arrives on.
