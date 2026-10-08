@@ -393,6 +393,13 @@ export const PALETTE = {
   flatbedRail: '#3C434C',
   crate: '#D9B477',
   crateBatten: '#9C7445',
+  crateStencil: '#4E3A26',
+  // Per-crate multipliers on the two above (geometry/crate.js `crateLook`), so the stack is not one
+  // crate over and over. Kept near white: the darkest still reads as pine, not as kraft cardboard.
+  crateTintFresh: '#FFFFFF',
+  crateTintDark: '#CBB8A2',
+  crateTintGrey: '#BCBAB3',
+  crateTintWarm: '#F2C8AA',
 
   // --- Game entities. Deliberately higher-chroma than anything in the city so they read
   // instantly against the muted buildings and grey roads.
