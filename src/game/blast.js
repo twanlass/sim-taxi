@@ -119,6 +119,15 @@ const RING_START = 1.2;
 const RING_END = 5.5;
 const RING_Y = 0.06;      // above the road paint at 0.02 and the route band at 0.03
 
+// The big-air landing's ring (`shock`, fired from main.js off `traffic.onTaxiLand` when the drift
+// launch comes down). The wreck's ring and nothing else — no fireball, no shards — because the
+// fire is what says *crash*, and a landing that read as one at a glance would teach the player the
+// stunt had killed them. Smaller and quicker than the wreck's flat-style 7.7: 4.6 still clears the
+// 4-unit taxi by a body length on each side, which is what makes it read as a ring rather than a
+// halo, and it is gone before the slam's dust has finished settling. Tinted by the caller.
+const LAND_RING_END = 4.6;
+const LAND_RING_LIFE = 0.38;
+
 // Three cuts of the fireball, for comparing on a phone (`?wreck=` or the ⚙️ panel's Game section).
 // The complaint they answer is that the classic one *hides the crash*: twelve puffs per car, each
 // up to 4.3 units across, centred on the bodywork and held at full size for most of a second, so
@@ -184,8 +193,9 @@ export function createBlast(scene, rng) {
   // ring belongs to the same faceted city as everything else.
   const ringGeo = new THREE.RingGeometry(0.8, 1, 14);
   ringGeo.rotateX(-Math.PI / 2);
+  // White, with the hue on `instanceColor`: the wreck's ring is `blastRing` and a landing's is
+  // whichever drift colour the kick was burning.
   const ringMat = unlitMaterial({
-    color: color('blastRing'),
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -198,6 +208,11 @@ export function createBlast(scene, rng) {
   // Render orders 4/5/6 — the band the four retired effects occupied, so the crash still sits
   // above the road decals (rubber 2, dust 3) and tops out level with the tailpipe flame.
   const ringMesh = makePool(scene, ringGeo, ringMat, MAX_RINGS, 4);
+  // Seeded now rather than on the first `setColorAt`: that call is what creates `instanceColor`,
+  // and `USE_INSTANCING_COLOR` is part of the program, so leaving it lazy would relink the ring's
+  // shader on the frame of the first wreck or landing — a stall exactly when something happens.
+  const ringColor = color('blastRing');
+  for (let slot = 0; slot < MAX_RINGS; slot++) ringMesh.setColorAt(slot, ringColor);
 
   // --- Shards ---------------------------------------------------------------
   // One tetrahedron, squashed per instance into plates and chunks. Four geometries' worth of
@@ -323,6 +338,8 @@ export function createBlast(scene, rng) {
     cx: new Float32Array(MAX_RINGS),
     cz: new Float32Array(MAX_RINGS),
     end: new Float32Array(MAX_RINGS),
+    life0: new Float32Array(MAX_RINGS),
+    y: new Float32Array(MAX_RINGS),
   };
   const tyre = {
     life: new Float32Array(MAX_TYRES),
@@ -373,13 +390,7 @@ export function createBlast(scene, rng) {
     const fx = Math.cos(-yaw) * carry;
     const fz = Math.sin(-yaw) * carry;
 
-    ring.life[nextRing] = RING_LIFE;
-    ring.ox[nextRing] = x;
-    ring.oz[nextRing] = z;
-    ring.cx[nextRing] = fx * RING_CARRY;
-    ring.cz[nextRing] = fz * RING_CARRY;
-    ring.end[nextRing] = RING_END * style.ring;
-    nextRing = (nextRing + 1) % MAX_RINGS;
+    addRing(x, 0, z, fx, fz, RING_END * style.ring, RING_LIFE, ringColor);
 
     for (let k = 0; k < PUFFS_PER_BLAST; k++) {
       const slot = nextPuff;
@@ -491,6 +502,31 @@ export function createBlast(scene, rng) {
       tyre.lean[slot] = rng.jitter(0.14);
       tyreAlpha[slot] = 1;
     }
+  }
+
+  function addRing(x, y, z, fx, fz, end, life, tint) {
+    ring.life[nextRing] = life;
+    ring.life0[nextRing] = life;
+    ring.ox[nextRing] = x;
+    ring.y[nextRing] = y;
+    ring.oz[nextRing] = z;
+    ring.cx[nextRing] = fx * RING_CARRY;
+    ring.cz[nextRing] = fz * RING_CARRY;
+    ring.end[nextRing] = end;
+    ringMesh.setColorAt(nextRing, tint);
+    ringMesh.instanceColor.needsUpdate = true;
+    nextRing = (nextRing + 1) % MAX_RINGS;
+  }
+
+  /**
+   * The shockwave alone, for a landing rather than a wreck — see LAND_RING_END. `y` is the height
+   * of the surface it came down on (the bridge deck's, if any), `tint` a colour, and `yaw`/`speed`
+   * carry it downfield exactly as `fire` carries the wreck's.
+   */
+  function shock(x, z, { y = 0, tint = ringColor, yaw = 0, speed = 0 } = {}) {
+    const carry = carrySpeed(speed);
+    addRing(x, y, z, Math.cos(-yaw) * carry, Math.sin(-yaw) * carry,
+      LAND_RING_END, LAND_RING_LIFE, tintColor.set(tint));
   }
 
   function updatePuffs(dt) {
@@ -687,8 +723,8 @@ export function createBlast(scene, rng) {
       if (ring.life[slot] <= 0) continue;
       touched = true;
       ring.life[slot] -= dt;
-      const age = RING_LIFE - Math.max(0, ring.life[slot]);
-      const t = Math.min(1, age / RING_LIFE);
+      const age = ring.life0[slot] - Math.max(0, ring.life[slot]);
+      const t = Math.min(1, age / ring.life0[slot]);
 
       // Snaps out and decelerates hard — the ring is the leading edge of the bang, so all of its
       // travel belongs at the front of its life.
@@ -696,7 +732,7 @@ export function createBlast(scene, rng) {
       const drift = carryTravel(age);
       dummy.position.set(
         ring.ox[slot] + ring.cx[slot] * drift,
-        RING_Y,
+        ring.y[slot] + RING_Y,
         ring.oz[slot] + ring.cz[slot] * drift,
       );
       dummy.rotation.set(0, 0, 0);
@@ -740,5 +776,5 @@ export function createBlast(scene, rng) {
     style = WRECK_STYLES[name] ?? WRECK_STYLES[DEFAULT_WRECK_STYLE];
   }
 
-  return { fire, update, active, tyreAt, setStyle, puffMesh, shardMesh, ringMesh, tyreMesh };
+  return { fire, shock, update, active, tyreAt, setStyle, puffMesh, shardMesh, ringMesh, tyreMesh };
 }

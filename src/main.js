@@ -1487,6 +1487,11 @@ traffic.onTaxiLand(({ x, z, yaw, v, deck, big }) => {
     sfx?.play('land', { gain: 1 });
     sfx?.play('crash', { gain: 0.35, rate: 0.7 });
     dust.burst(x, z, yaw, 30, 1.2, { y: DUST_ROAD_Y + deck, ring: 2.2, linger: 1.3 });
+    // The wreck's shockwave ring, smaller and in the dust's colour rather than the wreck's yellow,
+    // with none of the fire — so the slam reads as weight and never, at a glance, as the run
+    // ending. Tyler's call over the drift flame's colour, which was the first cut. See `shock` in
+    // game/blast.js.
+    blast.shock(x, z, { y: deck, tint: PALETTE.landRing, yaw, speed: v });
   } else {
     controller.kickShake(0.7 + hit * 0.3);
     sfx?.play('land', { gain: 0.7 + hit * 0.3 });

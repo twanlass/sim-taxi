@@ -617,6 +617,11 @@ export const PALETTE = {
   // The shockwave on the tarmac. A pale warm yellow rather than white — white on this asphalt
   // reads as a lighting artefact, and the ring belongs to the fireball above it.
   blastRing: '#FFE9A8',
+  // The big-air landing's ring (`blast.shock`): the colour of the dust the slam throws up beside
+  // it, so it reads as the ground taking the hit rather than as fire. The dust itself is pure white
+  // under Lambert and lands a touch below white once lit; the ring is unlit, so it is set there by
+  // hand.
+  landRing: '#ECEAE4',
 
   // The tailpipe flame Loco Mode burns for as long as it is held — see game/locoflame.js. Three
   // stops read as one nested cutout: the outer tongue, the gold under it, and the near-white at the
