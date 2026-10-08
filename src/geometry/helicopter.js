@@ -64,13 +64,35 @@ function box(w, h, d, x, y, z, name) {
 
 /**
  * The paint, by livery. `civil` is the rooftop visitor's; `police` is the getaway's chopper
- * (game/policeheli.js), in the cruisers' own light blue with a white pair of bands — the same
- * two-tone that says police on the cars, so the machine overhead belongs to them at a glance.
+ * (game/policeheli.js), in the cruisers' own two colours turned round: their white cab as the
+ * whole machine and their light-blue body as one broad stripe, so the thing overhead belongs to
+ * the cars underneath it at a glance.
  */
 const LIVERIES = {
   civil: { body: 'heliBody', bandHi: 'heliStripeOrange', bandLo: 'heliStripeGold' },
-  police: { body: 'heliPoliceBody', bandHi: 'heliPoliceBandHi', bandLo: 'heliPoliceBandLo' },
+  police: { body: 'policeCab', stripe: 'policeBody' },
 };
+
+/**
+ * The police stripe, as a height on the flank. The civil cheatline's 0.17 is a pinstripe, and it
+ * only reads because it is two saturated colours against each other; one pastel blue on white has
+ * no second colour to lean on, and at play zoom (≈7.7px a unit) 0.17 is a pixel and a bit. A first
+ * pass at 0.3 still read as a pinstripe in a close-up, because the flank it is on is the shaded
+ * side from this camera for most headings; 0.44 is a third of the cabin's height and reads as a
+ * band. It sits under the side glazing (which starts at −0.04) so the two never share a face.
+ */
+const POLICE_STRIPE_H = 0.44;
+const POLICE_STRIPE_Y = -0.29;
+
+/**
+ * The police machine's tail lamps, one at each tip of the horizontal stabiliser: red on its own
+ * left (−Z — right is +Z, see the note at the top of the file), blue on its right, the way a
+ * cruiser's bar is split. The stabiliser is 1.5 across, so its tips are at ±0.75; the lamps sit
+ * just outboard of them so the boxes never cut into the octahedra.
+ */
+const TAIL_LAMP = { x: -3.25, y: 0.42, z: 0.82 };
+const TAIL_LAMP_R = 0.16;
+const TAIL_HALO_R = 0.42;
 
 /**
  * Where the police machine's searchlight sits, in model space: under the nose, ahead of the front
@@ -95,13 +117,6 @@ function airframe(livery = 'civil') {
     box(0.55, 0.85, 1.2, 1.95, 0.06, 0, 'carGlass'),
     box(1.2, 0.52, 1.46, 0.75, 0.22, 0, 'carGlass'),
 
-    // The cheatline. Same argument as the aeroplane's: a single-value fuselage at play zoom is a
-    // smudge, and one band along the flank is what gives it a top and a bottom. Two bands rather
-    // than the plane's one, occupying the same 0.17 the single band did: on a near-white body the
-    // stripe is the only saturated thing on the machine, and a pair of them separated by their own
-    // edge is what reads as *paint* at 40 pixels instead of as a stray line.
-    box(2.5, 0.09, 1.44, 0.45, -0.30, 0, paint.bandHi),
-    box(2.5, 0.08, 1.44, 0.45, -0.385, 0, paint.bandLo),
 
     // Engine deck behind the mast, and the mast itself. The hump is most of what separates a
     // helicopter from a car with a fan on it at this size.
@@ -111,11 +126,33 @@ function airframe(livery = 'civil') {
     box(2.9, 0.4, 0.4, -2.45, 0.3, 0, paint.body),
     box(0.62, 1.15, 0.15, -3.72, 0.78, 0, paint.body),
     box(0.45, 0.1, 1.5, -3.25, 0.4, 0, paint.body),
-    // The fin's tip cap, carrying both bands in the same order, so the tail is painted like the
-    // flank. Same 1.20–1.36 the single cap spanned.
-    box(0.62, 0.09, 0.16, -3.72, 1.315, 0, paint.bandHi),
-    box(0.62, 0.07, 0.16, -3.72, 1.235, 0, paint.bandLo),
   ];
+
+  if (paint.stripe) {
+    // One broad band down the cabin, carried on along the boom and capping the fin. The boom's
+    // run starts where it leaves the cabin (x −0.8) and stops short of the fin, so it never
+    // shares a face with either; inside the stabiliser it is buried, which is fine — nothing sees
+    // a face inside a box.
+    parts.push(
+      box(2.5, POLICE_STRIPE_H, 1.44, 0.45, POLICE_STRIPE_Y, 0, paint.stripe),
+      box(2.6, 0.2, 0.44, -2.1, 0.3, 0, paint.stripe),
+      box(0.62, 0.16, 0.16, -3.72, 1.28, 0, paint.stripe),
+    );
+  } else {
+    parts.push(
+      // The cheatline. Same argument as the aeroplane's: a single-value fuselage at play zoom is
+      // a smudge, and one band along the flank is what gives it a top and a bottom. Two bands
+      // rather than the plane's one, occupying the same 0.17 the single band did: on a near-white
+      // body the stripe is the only saturated thing on the machine, and a pair of them separated
+      // by their own edge is what reads as *paint* at 40 pixels instead of as a stray line.
+      box(2.5, 0.09, 1.44, 0.45, -0.30, 0, paint.bandHi),
+      box(2.5, 0.08, 1.44, 0.45, -0.385, 0, paint.bandLo),
+      // The fin's tip cap, carrying both bands in the same order, so the tail is painted like the
+      // flank. Same 1.20–1.36 the single cap spanned.
+      box(0.62, 0.09, 0.16, -3.72, 1.315, 0, paint.bandHi),
+      box(0.62, 0.07, 0.16, -3.72, 1.235, 0, paint.bandLo),
+    );
+  }
 
   const mast = new THREE.CylinderGeometry(0.11, 0.13, 0.5, 6);
   mast.translate(0.1, ROTOR_Y - 0.28, 0);
@@ -265,10 +302,38 @@ export function createHelicopterMesh({ livery = 'civil' } = {}) {
     group.add(lens);
   }
 
+  // The police tail lamps — see TAIL_LAMP. The same lamp-and-halo pair the fin beacon is, one
+  // red and one blue, each its own group so the two can blink apart. `cores` is what
+  // game/policeheli.js puts in the bloom: the hard lamp only, because the halo is already the
+  // drawn half of the glow and a translucent shape three times the lamp's size in the emissive
+  // pass is a wash rather than a light (spill is a total — see BLOOM_INTENSITY in game/bloom.js).
+  // Switched by `visible` on the group, which is safe here for the reason it is not on the
+  // cruiser: there is no `PointLight` under it, so nothing about the scene's light count moves.
+  const tailLamps = [];
+  if (livery === 'police') {
+    for (const [side, name] of [[-1, 'heliBeacon'], [1, 'sirenBlue']]) {
+      const core = new THREE.Mesh(
+        new THREE.OctahedronGeometry(TAIL_LAMP_R, 0),
+        stampGhostMask(unlitMaterial({ color: color(name), transparent: true })),
+      );
+      const glow = new THREE.Mesh(
+        new THREE.OctahedronGeometry(TAIL_HALO_R, 0),
+        unlitMaterial({ color: color(name), transparent: true, opacity: HALO_ALPHA, depthWrite: false }),
+      );
+      const holder = new THREE.Group();
+      holder.position.set(TAIL_LAMP.x, TAIL_LAMP.y, side * TAIL_LAMP.z);
+      holder.add(core, glow);
+      holder.visible = false;
+      group.add(holder);
+      tailLamps.push({ holder, core, glow });
+    }
+  }
+
   const skin = [body.material, main.blade.material, tail.blade.material];
   let fade = 1;
   let blur = 1;
   let lit = false;
+  const tailLit = [false, false];
 
   // Both discs are a product of the two states, so neither setter may write them alone — do it
   // that way and whichever of the pair is called second wins, which shows up as a rotor blur that
@@ -277,6 +342,7 @@ export function createHelicopterMesh({ livery = 'civil' } = {}) {
     main.disc.material.opacity = DISC_ALPHA * blur * fade;
     tail.disc.material.opacity = TAIL_DISC_ALPHA * blur * fade;
     beacon.visible = lit && fade > 0.35;
+    tailLamps.forEach((lampPair, i) => { lampPair.holder.visible = tailLit[i] && fade > 0.35; });
   }
 
   return {
@@ -285,6 +351,8 @@ export function createHelicopterMesh({ livery = 'civil' } = {}) {
     mainHub,
     tailHub,
     beacon,
+    /** The police tail lamps' hard cores, red then blue, for the bloom. Empty on the civil machine. */
+    tailCores: tailLamps.map((lampPair) => lampPair.core),
     /**
      * How hard the rotors are turning, 0 (stopped) to 1 (flight rpm). Only the discs read it: a
      * blur is a function of speed, and an idling rotor whose blades you can count still wearing a
@@ -293,6 +361,8 @@ export function createHelicopterMesh({ livery = 'civil' } = {}) {
     setRotorBlur: (next) => { blur = next; paintDiscs(); },
     /** The beacon, on or off. Blinked from the flight so a frozen shot is reproducible. */
     setBeacon: (next) => { lit = next; paintDiscs(); },
+    /** The police tail lamps, red and blue, each on or off. No-op on the civil machine. */
+    setTailLights: (red, blue) => { tailLit[0] = red; tailLit[1] = blue; paintDiscs(); },
     /** One opacity for the whole machine — the fade in and out at the ends of a visit. */
     /** The searchlight's lens, 0 (dark) to 1 — police livery only. */
     setSearchlight: (level) => { if (lens) lens.scale.setScalar(Math.max(1e-3, level)); },
@@ -302,6 +372,10 @@ export function createHelicopterMesh({ livery = 'civil' } = {}) {
       if (lens) lens.material.opacity = fade;
       lamp.material.opacity = fade;
       halo.material.opacity = HALO_ALPHA * fade;
+      for (const { core, glow } of tailLamps) {
+        core.material.opacity = fade;
+        glow.material.opacity = HALO_ALPHA * fade;
+      }
       paintDiscs();
     },
   };
