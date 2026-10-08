@@ -156,6 +156,26 @@ export function createLayout(rng) {
     }
   }
 
+  // **One more pocket park, always.** The two districts now carry the statue, the pond, the
+  // basketball court and the skatepark between them, and the lone pocket park above is a 2–5% roll
+  // that most cities never win — so the city's open lawn had all been built on. This hands one
+  // built block back to the grass: off downtown (a park in the middle of the towers punches a hole
+  // in the skyline rather than adding green), and not touching another park on any side or corner,
+  // so it reads as a separate green rather than as a district's ragged edge.
+  //
+  // **Without a draw.** Every generator downstream reads this stream after here, so a draw would
+  // move the depot and the burger joint on every seed. Which candidate wins is hashed off the
+  // districts' positions instead — already a fact about this city, and different from one city to
+  // the next.
+  const isGreen = (bi, bj) => blocks.some((b) => b.bi === bi && b.bj === bj && b.type === 'park');
+  const spare = blocks.filter((b) => b.type === 'built' && b.centrality < 0.6
+    && ![-1, 0, 1].some((di) => [-1, 0, 1].some((dj) => isGreen(b.bi + di, b.bj + dj))));
+  if (spare.length) {
+    const key = districts.reduce((sum, d, k) => sum + (k + 1) * (d.bounds.cx * 12.9898 + d.bounds.cz * 78.233), 0);
+    const frac = Math.abs(Math.sin(key) * 43758.5453) % 1;
+    spare[Math.min(spare.length - 1, Math.floor(frac * spare.length))].type = 'park';
+  }
+
   // Install the green blocks the same way the closures above were installed. A park is a fact about
   // the ground that anything placing a marker on a kerb has to be able to ask about without holding
   // this array — see `isParkBlock`.

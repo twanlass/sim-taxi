@@ -1064,10 +1064,12 @@ const onGrass = (city, i, j) => {
 // carries its own object's ground anchor for the entrance animation (`stampEntry`), so "what stands
 // here" is a question the props mesh itself can answer. Same read as the statue's clearing above.
 {
-  const furniture = planParkFurniture(makeRng(seed + 33), parkPlots(layout));
+  // One plots array for both plans: `planPond` keeps out of the statue's park by *identity*, so a
+  // second `parkPlots` call hands it a statue whose plot is in no list it can see.
+  const plots = parkPlots(layout);
   const rng = makeRng(seed + 33);
-  planParkFurniture(rng, parkPlots(layout));
-  const pond = planPond(rng, parkPlots(layout), furniture.statue);
+  const furniture = planParkFurniture(rng, plots);
+  const pond = planPond(rng, plots, furniture.statue);
   const entry = props.geometry.attributes.aEntry;
   // The furniture is not planting: a bench half a unit off the water is exactly where the pond's
   // setback puts one, and it carries an anchor like everything else in this mesh. What is being
@@ -1318,6 +1320,19 @@ const onGrass = (city, i, j) => {
   createLayout(makeRng(seed));     // put the probe's city back — `createLayout` installs its network
 
   check('every city with a park gets a skatepark', parks === cities, `${parks} across ${cities} cities`);
+
+  // And the pocket park `createLayout` always hands back: a lone park in every city, touching no
+  // other park on any side or corner.
+  let bare = 0;
+  for (let s = 0; s < 40; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 37));
+    const green = new Set(cityLayout.filter((b) => b.type === 'park').map((b) => `${b.bi},${b.bj}`));
+    const alone = cityLayout.filter((b) => b.type === 'park' && b.districtId === null
+      && [-1, 0, 1].every((di) => [-1, 0, 1].every((dj) => (!di && !dj) || !green.has(`${b.bi + di},${b.bj + dj}`))));
+    if (!alone.length) bare += 1;
+  }
+  createLayout(makeRng(seed));
+  check('every city has at least one pocket park standing on its own', bare === 0, `${bare} of 40 cities without one`);
   check('on the lawn, clear of the statue, the pond and the court, and no bench on it',
     offLawn + clash + benchOn === 0, `${offLawn} off the lawn, ${clash} clashes, ${benchOn} benches on it`);
 
@@ -1397,10 +1412,12 @@ const onGrass = (city, i, j) => {
 // this effect can look broken, and it would look broken for the whole run.
 {
   const duckScene = new THREE.Scene();
-  const furniture = planParkFurniture(makeRng(seed + 33), parkPlots(layout));
+  // One plots array for both plans: `planPond` keeps out of the statue's park by *identity*, so a
+  // second `parkPlots` call hands it a statue whose plot is in no list it can see.
+  const plots = parkPlots(layout);
   const rng = makeRng(seed + 33);
-  planParkFurniture(rng, parkPlots(layout));
-  const pond = planPond(rng, parkPlots(layout), furniture.statue);
+  const furniture = planParkFurniture(rng, plots);
+  const pond = planPond(rng, plots, furniture.statue);
   const flotilla = createDucks(duckScene, makeRng(seed + 299), pond);
 
   let aground = 0;
@@ -1447,10 +1464,12 @@ const onGrass = (city, i, j) => {
 // with the flock pinned to the pond's own park so the test is actually asked.
 {
   const walkScene = new THREE.Scene();
-  const furniture = planParkFurniture(makeRng(seed + 33), parkPlots(layout));
+  // One plots array for both plans: `planPond` keeps out of the statue's park by *identity*, so a
+  // second `parkPlots` call hands it a statue whose plot is in no list it can see.
+  const plots = parkPlots(layout);
   const rng = makeRng(seed + 33);
-  planParkFurniture(rng, parkPlots(layout));
-  const pond = planPond(rng, parkPlots(layout), furniture.statue);
+  const furniture = planParkFurniture(rng, plots);
+  const pond = planPond(rng, plots, furniture.statue);
   const keep = pond ? { x: pond.x, z: pond.z, r: pond.r + 0.7 } : null;
   const flock = createBirds(walkScene, makeRng(seed + 199), layout, { keepOut: keep ? [keep] : [] });
   // The pond's own park, by the bounds `parkAreas` hands out — settled there rather than left to

@@ -643,6 +643,21 @@ caller, and it keeps both ends of a package off the grass
 because a junction has four corners and a marker only ever uses one of them — which one is
 `cornerFor`'s business, in `game/fares.js`.
 
+### One pocket park is guaranteed
+
+Besides the two districts and the 2–5% roll for a lone pocket park on each block, `createLayout`
+always hands **one more built block back to the grass**, because the districts now hold the statue,
+the pond, the court and the skatepark between them and the open lawn had all been built on. It must
+be off downtown (`centrality < 0.6`) and touch no other park on any side or corner, so it reads as a
+separate green. It takes **no draw**: the candidate is hashed off the districts' positions, so the
+depot and the burger joint downstream keep their stream. Over 80 seeds the share of cities with no
+lone pocket park went from 32 to 0.
+
+The probe's pond checks used to plan the statue and the pond off two separate `parkPlots` calls.
+`planPond` keeps out of the statue's park by *identity*, so it never saw the statue's plot and could
+put the probe's pond in it. It passed only because no seed had drawn that until this block moved the
+stream. All three now share one plots array.
+
 ### A park has a frontage
 
 A park is a block on a street, so it presents the same pavement to the street that a built block
