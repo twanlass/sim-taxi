@@ -66,14 +66,21 @@ const GLINT_AIR_HI = 30;
 const GLINT_REST_LO = 1.2;
 const GLINT_REST_HI = 3.2;
 
-// The flash: a white starburst where the screen was, on the frame it goes. The spray on its own is
+// The flash: a starburst of light where the screen was, on the frame it goes. The spray on its own is
 // lost in the fireball for the first few frames — they start in the same place on the same frame —
 // so the moment needs one thing bigger and brighter than the fire to say *glass*. Spikes rather
 // than a disc so it reads as a burst from whichever side the crash cam is looking.
-const FLASH_LIFE = 0.16;
+//
+// A glint, not a sticker. The first cut was solid white at full opacity, 2.6 long and 0.26 thick,
+// and it read as a flat white star cut out and pasted over the cab — "too stark". It is now added
+// light in the glass's own pale blue: over the fire it brightens what is there rather than covering
+// it, it is thinner and shorter, and it peaks at FLASH_PEAK rather than 1.
+const FLASH_LIFE = 0.13;
 const FLASH_SPIKES = 7;
-const FLASH_REACH = 2.6;       // spike length at full size
-const FLASH_CORE = 0.7;
+const FLASH_REACH = 1.9;       // spike length at full size
+const FLASH_CORE = 0.4;
+const FLASH_THICK = 0.13;
+const FLASH_PEAK = 0.6;
 
 /**
  * @param scene  the pool is added here once, parked at zero scale
@@ -118,7 +125,7 @@ export function createWindshield(scene, { rng, roadY = 0 } = {}) {
     const a = k * 2.39996;
     const dir = new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r);
     const spike = new THREE.OctahedronGeometry(1, 0);
-    spike.scale(0.26, FLASH_REACH * (k % 2 ? 0.6 : 1) / 2, 0.26);
+    spike.scale(FLASH_THICK, FLASH_REACH * (k % 2 ? 0.6 : 1) / 2, FLASH_THICK);
     spike.translate(0, FLASH_REACH * (k % 2 ? 0.6 : 1) / 2, 0);
     spike.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(up, dir));
     flashParts.push(spike);
@@ -129,7 +136,13 @@ export function createWindshield(scene, { rng, roadY = 0 } = {}) {
     // smoke collar (lit, opaque, thrown on the same frame) hid most of the spikes — measured in a
     // wreck still, a burst 1.4 across showed as one white sliver. It is a flash of light for a
     // tenth of a second; drawing over the cab it came out of is the point.
-    unlitMaterial({ color: color('glassGlint'), transparent: true, depthWrite: false, depthTest: false }),
+    unlitMaterial({
+      color: color('windscreenGlass'),
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+    }),
   );
   flash.name = 'windscreen-flash';
   // Parked at zero scale rather than hidden, so its program links with the first frame rather than
@@ -197,7 +210,7 @@ export function createWindshield(scene, { rng, roadY = 0 } = {}) {
     // so on the impact frame itself it is already a burst rather than a dot.
     const f = at >= 0 && at < FLASH_LIFE ? at / FLASH_LIFE : 1;
     flash.scale.setScalar(f < 1 ? 0.45 + 0.75 * (1 - (1 - f) ** 3) : 0);
-    flash.material.opacity = 1 - f * f;
+    flash.material.opacity = FLASH_PEAK * (1 - f) ** 2;
     if (at < 0) {
       for (let k = 0; k < COUNT; k++) mesh.setMatrixAt(k, zero);
       mesh.instanceMatrix.needsUpdate = true;
