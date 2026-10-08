@@ -278,10 +278,12 @@ export function createBargeMesh(rng) {
   }
 
   // --- The wheelhouse: its own geometry, because it wears the cars' **metal** finish — a gloss
-  // material is centred on one geometry's bounds, and the hull's flat-shaded paint is not one. It
-  // stands to `BARGE_AIR`, which is as tall as the flat span lets anything on this boat be: a deck
-  // 0.13 lower than it was and a roof no longer kept down for gulls bought it 0.32 of height.
-  const roofTop = BARGE_AIR - 0.3;
+  // material is centred on one geometry's bounds, and the hull's flat-shaded paint is not one. Its
+  // roof stands at `BARGE_AIR` exactly, which is as tall as the flat span lets anything on this
+  // boat be. It used to stop 0.3 short so the funnel could show over it, which left the roof 0.02
+  // above the heap: at play zoom the house vanished into the rubbish and the barge stopped reading
+  // as a barge (Tyler, 2026-10-08). The house is the silhouette; the funnel gave way.
+  const roofTop = BARGE_AIR;
   const roofY = roofTop - 0.11;
   const houseH = roofY - BARGE_DECK_Y;
   const steel = jitterColor(PALETTE.trashHouse, rng, { l: 0.03 });
@@ -296,13 +298,14 @@ export function createBargeMesh(rng) {
     metal(block(HOUSE_W + 0.04, 0.03, HOUSE_D + 0.04, 0, roofY + 0.08, HOUSE_Z, steel)),
   ]);
 
-  // The smoke stack, up through the roof: dark, with a pale band and a black lip — the funnel
-  // every working boat has. It is the tallest thing aboard and stops at `BARGE_AIR` exactly. It
-  // stood off the back wall at first and the house hid it whenever the boat ran away from the
-  // camera; through the roof it shows both ways, which is what the roof's lower line pays for.
+  // The smoke stack: dark, with a pale band and a black lip — the funnel every working boat has.
+  // It came up through the roof while the roof sat 0.3 lower; with the roof at the ceiling there is
+  // nothing left for it to stand proud by, so it rides the back wall, half buried in it, to the
+  // roofline. The house hides it when the boat runs away from the camera, which is the price of
+  // the taller house and the cheaper of the two.
   const stackTop = BARGE_AIR - 0.02;
-  const stackX = 0.4;
-  const stackZ = HOUSE_Z - 0.2;
+  const stackX = 0.45;
+  const stackZ = HOUSE_Z - HOUSE_D / 2 - 0.08;
   const stackH = stackTop - BARGE_DECK_Y;
   const stack = new THREE.CylinderGeometry(0.2, 0.2, stackH - 0.06, 10);
   stack.translate(stackX, BARGE_DECK_Y + (stackH - 0.06) / 2, stackZ);
