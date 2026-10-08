@@ -2171,6 +2171,30 @@ try {
       const lifted = await read();
       check('and lifting closes the gesture', !lifted.sliding && !lifted.braking,
         `sliding ${lifted.sliding}, braking ${lifted.braking}`);
+
+      // The reach (index.html's `#boost::before`, game/pedalzones.js): a press that lands just off
+      // the drawn gas still takes it, and a thumb coming back from the brake that stops short of the
+      // gas — in the gap, a few px off its edge, which used to be the brake's — takes the gas too.
+      const edges = JSON.parse(await evaluate(`(() => {
+        const r = document.getElementById('boost').getBoundingClientRect();
+        return JSON.stringify({ left: r.left, top: r.top, cx: r.x + r.width / 2, cy: r.y + r.height / 2 });
+      })()`));
+      await touch('touchStart', { x: Math.round(edges.cx), y: Math.round(edges.top - 12) });
+      await sleep(200);
+      const offTop = await read();
+      await slideTo({ x: Math.round(edges.cx), y: Math.round(edges.top - 12) }, at.brake);
+      await sleep(200);
+      const shortStart = await read();
+      await slideTo(at.brake, { x: Math.round(edges.left - 5), y: at.boost.y });
+      await sleep(200);
+      const short = await read();
+      await touch('touchEnd', null);
+      await sleep(200);
+      check('a press just above the gas takes it, and a thumb back from the brake short of it too',
+        offTop.boost === 'active' && offTop.held[0]
+        && shortStart.braking && short.boost === 'active' && !short.braking && short.held[0],
+        `above ${offTop.boost}/held ${offTop.held}, on brake ${shortStart.braking},`
+        + ` short ${short.boost}/braking ${short.braking}/held ${short.held}`);
     }
 
     // Press it on a moving car — a taxi sitting at a red would stop trivially and lay no rubber.
