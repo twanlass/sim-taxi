@@ -1037,6 +1037,15 @@ export const PALETTE = {
   // dark cap — the hat is most of what says *driver* rather than *another rider* at this size.
   driverShirt: '#4F7BC0',
   driverCap: '#33333C',
+  // The windscreen going with them (game/windshield.js). Pale and a touch cool so a shard reads as
+  // glass against asphalt (L 0.42) and against the fireball's orange, and a glint that is plain
+  // white — the flash is what says *glass* rather than *grit* at four pixels across.
+  windscreenGlass: '#BFE3EE',
+  glassGlint: '#FFFFFF',
+  // The pane left in the taxi's frame (geometry/taxi.js `breakScreen`): crazed safety glass goes
+  // milky, so the cabin's dark `carGlass` turns pale where the screen was. Greyer than the flying
+  // shards so the two read as one glass, broken, rather than as a second white thing.
+  crazedGlass: '#B9CCD3',
   hardHat: '#F0ECE0',
   // Dug-up spoil: the road base under the asphalt, not garden soil. Browner than the kerb and
   // darker than the sidewalk, so the heap has an edge against both.

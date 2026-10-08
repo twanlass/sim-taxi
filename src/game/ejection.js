@@ -57,7 +57,7 @@ const CENTRE = 1.7;
 
 // Launch. From the windscreen — the front of the cabin, a bit above the roof line — forward at a
 // share of the closing speed, and up.
-const START_FWD = (CAR_LEN / 2) * TAXI_SCALE * 0.45;
+export const START_FWD = (CAR_LEN / 2) * TAXI_SCALE * 0.45;
 const START_Y = 2.1;
 const FWD_PER_CLOSING = 0.7;
 const FWD_MIN = 10;
@@ -143,7 +143,8 @@ export function createEjection(scene, { roadY = 0, onLand = null } = {}) {
     // Every horizontal distance in it is linear in `fwd`, so one rescale moves the whole thing.
     const full = plan(fwd);
     const room = roomAlong(x0, z0, fx, fz, rx, rz, lateral, full.reach);
-    const { arcs, t, s, vh, theta } = room < full.reach ? plan(fwd * room / full.reach) : full;
+    const scale = room < full.reach ? room / full.reach : 1;
+    const { arcs, t, s, vh, theta } = scale < 1 ? plan(fwd * scale) : full;
     // Lands on its front or its back, whichever the tumble is nearer: π/2 is face down for a
     // figure facing +Z, and every half turn past it alternates.
     const rest = HALF_PI + Math.round((theta - HALF_PI) / Math.PI) * Math.PI;
@@ -155,6 +156,7 @@ export function createEjection(scene, { roadY = 0, onLand = null } = {}) {
       arcs,
       air: t,
       slide: { s0: s, vh, theta0: theta, rest },
+      scale,
     };
     age = 0;
     landed = 0;
@@ -292,6 +294,11 @@ export function createEjection(scene, { roadY = 0, onLand = null } = {}) {
       };
     },
     group: root,
+    /**
+     * The share of a full-strength throw the street had room for (1 down an open road) — so the
+     * windscreen's glass (game/windshield.js) is cut short by the same wall the driver was.
+     */
+    throwScale: () => flight?.scale ?? 1,
     /** For the headless check: the whole flight, from launch to the start of the slide. */
     airTime: () => flight?.air ?? 0,
   };

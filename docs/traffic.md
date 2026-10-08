@@ -1838,6 +1838,23 @@ jump cuts straight to the card, so a flight still going when the last shot ends 
 used to be an `EJECT_TAIL` that handed back to the live wreck for 1.1s to watch it, dropped with the
 rest of the real-time tail.
 
+**The windscreen goes with them.** `game/windshield.js`. On the same frame, 44 flat shards of glass
+spray out of the front of the cabin in a cone along the heading (a quarter of them just drop onto the
+road in front), tumble and flash white in the air, skid to a stop and stay on the road glinting
+slowly for the rest of the beat. One unlit `InstancedMesh`, no shadow, drawn at renderOrder 7 so the
+spray reads *over* the fireball it flies out of. Same closed form as the driver and scrubbed by the
+replay the same way; every horizontal speed is multiplied by the driver's `throwScale()`, so a throw
+cut short by a building cuts its glass short too. Two more things sell the moment: a starburst
+of added pale-blue light at the screen for 0.13s (drawn without a depth test, since the cab and the
+smoke collar otherwise hide it; solid white read as a cutout pasted on the cab), and the taxi left with its screen broken — `damage.breakScreen()` in
+geometry/taxi.js lays a milky pane over the cabin's front face and the front of its roof, with a
+dark hole on the driver's side. The roof half is there because a taxi facing away from the camera
+shows no front face at all. `damage.reset()` takes it off for the next run.
+
+**The car the taxi hit loses its glass too,** on every wreck rather than only an ejection: a second
+`createWindshield` (`struckGlass` in main.js, no flash) blows 44 shards out of its centre along the
+taxi's heading at 0.6 of the spray's speed, the way its shell is shoved.
+
 **A wrecked car's lamps go out.** A crashed car never reaches the render pass again, so whatever
 brake level it last wrote would sit there for the rest of the run — and the frame this fires on is
 exactly the one anything is hardest on the brakes. The ambient car's pods are collapsed to zero in

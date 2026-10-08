@@ -10434,7 +10434,7 @@ function rideToPickup() {
     `${rims.length} rims`);
 
   // ...and every part that draws at all is in the mask, rim or not. The damage pieces (boot lid,
-  // bonnet, the openings under them, loose lamps and their wires, the hanging bumper) are masked
+  // bonnet, the openings under them, loose lamps and their wires, the hanging bumper, the broken windscreen) are masked
   // without a rim, and were once not masked at all: a lid swung up inside the shell's hull read as
   // an occluder and wore the shell's yellow rim across it every time it bounced. The two rear doors
   // and the openings they leave are four more, masked the same way for the same reason.
@@ -10446,8 +10446,8 @@ function rideToPickup() {
   });
   // Two more for the chrome bumpers (geometry/bumpers.js), masked without a rim for the reason the
   // damage pieces are: a 0.2 bar inside the shell's hull, too thin to carry one of its own.
-  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 29,
-    `${unmasked.length} unmasked, ${masks.length} masks (10 outlined parts + 13 damage pieces + 4 door pieces + 2 bumpers)`);
+  check('every drawn taxi part is in the ghost stencil mask', unmasked.length === 0 && masks.length === 30,
+    `${unmasked.length} unmasked, ${masks.length} masks (10 outlined parts + 14 damage pieces + 4 door pieces + 2 bumpers)`);
 
   // --- A dimming lamp must dim where it stands ---------------------------------------------------
   //
