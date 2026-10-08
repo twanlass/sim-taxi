@@ -22,6 +22,7 @@ import {
   BENCH_LEN, STATUE_PLAZA, treeParts, MEDIAN_TREE_H, MEDIAN_TREE_TRUNK, setAutumn, autumnBase,
 } from '../src/city/props.js';
 import { createLeaves } from '../src/game/leaves.js';
+import { pedalZones, pedalAfterMove, PEDAL_SLOP } from '../src/game/pedalzones.js';
 import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
 import { createGrass, planGrass, grassGeometry } from '../src/city/grass.js';
 import { createCanopyFuzz } from '../src/city/canopyfuzz.js';
@@ -18692,6 +18693,47 @@ let chopperOrder; // likewise
     `worst signed-volume error ${(worstVolume * 100).toFixed(4)}%`);
   check('a front wheel at full lock clears its arch', intrusions === 0,
     `${intrusions}/${samples} tyre samples inside the panel at ±STEER_MAX, least clearance ${clearance.toFixed(3)}`);
+}
+
+// --- The pedals' reach -------------------------------------------------------
+// The slide between the pedals (main.js) hit-tests zones grown past the drawn buttons, so a thumb
+// coming back from the brake that lands short of the gas, or arcs over it, still takes it. Laid out
+// as index.html lays them on a 390px phone: gas 100px centred, brake 66px on the same centre line,
+// 22px to its left. Reach and deadband are the CSS's numbers (`--pedal-reach`, `--pedal-deadband`).
+{
+  const REACH = 20;
+  const DEADBAND = 8;
+  const gasL = 195 - 50;
+  const gas = { left: gasL, right: gasL + 100, top: 700, bottom: 800 };
+  const brake = { left: gasL - 22 - 66, right: gasL - 22, top: 717, bottom: 783 };
+  // Same order main.js passes them: gas first, brake second.
+  const zones = pedalZones([gas, brake], REACH, DEADBAND);
+  const GAS = 0;
+  const BRAKE = 1;
+  check('pedal zones: the facing edges stop a deadband apart, mid-gap',
+    Math.abs((zones[GAS].left - zones[BRAKE].right) - DEADBAND) < 1e-9
+    && Math.abs((zones[GAS].left + zones[BRAKE].right) / 2 - (gas.left + brake.right) / 2) < 1e-9,
+    `brake zone ends ${zones[BRAKE].right}, gas zone starts ${zones[GAS].left}`);
+  check('pedal zones: every zone holds its whole button',
+    [[gas, zones[GAS]], [brake, zones[BRAKE]]].every(([r, z]) =>
+      z.left <= r.left && z.right >= r.right && z.top <= r.top && z.bottom >= r.bottom));
+  // The bug: back from the brake, short of the gas — in the gap, a few px off the gas's edge.
+  // Before, that was the brake's slop and the brake stayed down.
+  const short = pedalAfterMove(zones, BRAKE, gas.left - 5, 750);
+  // ...and arcing over the gas's top-left, clear of the button but on the way to it.
+  const over = pedalAfterMove(zones, BRAKE, gas.left + 10, gas.top - 15);
+  check('pedal zones: a thumb back from the brake that lands short of the gas, or over it, takes it',
+    short === GAS && over === GAS, `short → ${short}, over the top → ${over}`);
+  // A thumb resting mid-gap keeps what it has, either way: no flip on jitter, so no stray U-turn.
+  const mid = (gas.left + brake.right) / 2;
+  const keeps = [GAS, BRAKE].every((had) =>
+    [-3, -1, 0, 1, 3].every((dx) => pedalAfterMove(zones, had, mid + dx, 750) === had));
+  check('pedal zones: a thumb resting in the deadband keeps the pedal it had', keeps);
+  // A thumb sliding off the row still lets go — the zone's reach plus the slop, and no further.
+  const offTop = pedalAfterMove(zones, GAS, 195, gas.top - REACH - PEDAL_SLOP - 2);
+  const nearTop = pedalAfterMove(zones, GAS, 195, gas.top - REACH - PEDAL_SLOP + 2);
+  check('pedal zones: sliding off the row lets go past reach + slop',
+    offTop === -1 && nearTop === GAS, `off ${offTop}, just inside ${nearTop}`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
