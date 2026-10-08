@@ -582,6 +582,10 @@ for (const mesh of [litPanes, lamps?.pools]) if (mesh) mesh.visible = false;
 const props = createProps(makeRng(seed + 33), layout);
 const propsMesh = props.mesh;
 scene.add(markOccluder(propsMesh));
+// The pond's water, which wears the river's surface and so rides outside the merge — and outside
+// the AO prepass, for the river water's reasons (`pondWaterMesh` in city/pond.js). Null under
+// `?water=classic`, whose flat fan is still in `propsMesh`.
+if (props.pondMesh) scene.add(props.pondMesh);
 // Tufts of long grass on the same lawns, kept out of the furniture `createProps` just placed. Its own
 // stream, so retuning the grass moves no tree. **Not** `markOccluder`: the AO prepass would draw
 // every card as a solid quad. See city/grass.js.
@@ -1199,7 +1203,8 @@ const cityEntry = createCityEntry({
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
     ...(burger?.meshes ?? []), ...(lamps ? [lamps.posts, lamps.heads] : []),
-    ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : [])],
+    ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
+    ...(props.pondMesh ? [props.pondMesh] : [])],
   // The two things in the city the wave's vertex shader cannot reach, because they turn: the
   // depot's wrench and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.

@@ -3024,6 +3024,15 @@ park uses, which is also what removes the seam — both rims come off one point 
 pair of outlines to disagree. Hand-wound geometry means the probe computes the normal *from the
 winding* on every triangle of both pieces, the roadworks-ramp rule.
 
+**The surface is the river's** (`patchPondWater`, `city/riverwater.js`): the same per-pixel
+ripples, glint, caustics and absorption, over a bed that shelves radially off the lobed outline, and
+the river's Fresnel lip running round the whole shore. Two things are the pond's own. The lip is
+narrower (0.3 rather than 0.55), because at the river's width it was a third of the pond's radius.
+And the open-water sky reflection is cut to 45%, because at full strength it lifted the middle of the
+pond from luma 80 to 98, over the lawn round it, and the pond stopped reading as a hole in the green.
+That puts the water in a mesh of its own (`pondWaterMesh`) outside the props merge. `?water=classic`
+leaves the old flat fan in the merge, pixel for pixel.
+
 **Value, not hue, is what makes it read.** The first water was a handsome #5E88B4 and it is luma 130
 against the park's 140 — the same trap the bird bodies document, and worse, because a pond is a
 45-pixel area rather than a moving speck. At 101 it is a hole in the lawn from across the map. The
