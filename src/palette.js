@@ -906,11 +906,13 @@ export const PALETTE = {
   trashJunk: '#6E7378',
   trashBarrel: '#3B5F8C',
   trashWhite: '#C9CCC8',
-  // The wheelhouse is painted working-boat red (Tyler's call, 2026-10-07), the one exception to the
-  // no-warm-on-the-water rule above. It wears the cars' metal finish, which darkens its base and adds
-  // the sky, so it is picked off `carBody[0]` (the red car, same finish) a step deeper and duller:
-  // it has to read as paint on a scow rather than as one more red car or the burger joint's band.
-  trashHouse: '#B4473B',
+  // The wheelhouse is hunter green, flat and weathered — "ocean rusty and grimy" (Tyler, 2026-10-08,
+  // replacing the working-boat red of 2026-10-07). Hunter green proper is #355E3B; this is a step
+  // lighter because the hull's flat material lands it at about half value in the river's shade,
+  // and at #355E3B the roof read black. The rust and grime are pieces over it, not a tint on it.
+  trashHouse: '#43754A',
+  // Rust bleeding from the window frames, and the scum line round the foot of the house.
+  trashRust: '#7A4A2C',
   trashStack: '#2F3236',
   // The gulls (game/gulls.js): white bodies, grey backs, and nothing else — a yellow bill would be
   // a warm speck at full saturation and would not survive the 3 pixels it occupies anyway.

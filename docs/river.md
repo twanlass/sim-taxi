@@ -443,8 +443,8 @@ lifts is a fact about the map and has to stay learnable, but when it lifts is th
 square at the stern and rounded at the bow, with tyre fenders down its sides, a heap of bin bags,
 cardboard, tyres and drums drawn per hull, and a steel wheelhouse at the stern with a funnel up its
 back wall. It replaced a 16 × 6 container barge that read as big and as a slab. The wheelhouse is
-its own mesh so it can wear the cars' **metal** finish (`propMaterial({ gloss })`, glass windows
-included). Everything stays under `BARGE_AIR` (1.63, against the flat span's 1.65), and that is
+hunter green, matte and weathered (rust streaks under the windows, a grime line at its foot), on a
+mesh of its own so its windows can wear the cars' glass (`propMaterial({ gloss })`). Everything stays under `BARGE_AIR` (1.63, against the flat span's 1.65), and that is
 the only thing bounding how tall the wheelhouse can be — its roof sits on it exactly: the heap stops lower, at
 `PERCH_CEIL`, so a gull standing on it still clears the flat span, and the wheelhouse roof is not a
 perch for the same reason. The boat that asks for the lift is a 6 × 2.4 white **sailboat** with its
