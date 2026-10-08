@@ -489,6 +489,21 @@ function buildDoors(group) {
 // most hits — nose or tail, left or right — so the sparks come off where the damage is. It is the
 // chrome bumper off that end (geometry/bumpers.js), the same bar, and the end it left goes bare.
 const BUMPER_LEN = bumperLength(CAR_W);
+// The broken windscreen, off the cabin box in createTaxiMesh (CAR_LEN * 0.5 long, centred −0.2,
+// 0.6 tall about 1.45 + CHASSIS_LIFT, CAR_W * 0.86 wide). Inset from the box's edges so the plate
+// never reaches past the cabin and reads as glass in a frame rather than a lid.
+const CABIN_TOP = 1.75 + CHASSIS_LIFT;
+const SCREEN_X = -0.2 + CAR_LEN * 0.25;
+const SCREEN_LOW = 1.2 + CHASSIS_LIFT;
+const SCREEN_TOP = CABIN_TOP - 0.04;
+const SCREEN_HALF_W = CAR_W * 0.43 - 0.06;
+const SCREEN_ROOF = 0.45;
+// The hole: on the driver's side (traffic drives on the right, so the driver sits on the left,
+// which in this frame — +X forward, +Y up — is −Z), and big enough to read at wreck zoom: ~0.5
+// across is ~8px after TAXI_SCALE at 13.6px a unit.
+const SCREEN_HOLE_R = 0.24;
+const SCREEN_HOLE_Y = (SCREEN_LOW + SCREEN_TOP) / 2 + 0.03;
+const SCREEN_HOLE_Z = -0.28;
 // There was a fifth piece: the struck corner of the shell crushed in, down and darkened, a vertex
 // displacement on the merged body. It read at close zoom and looked wrong — a box with one corner
 // sheared off, which at play zoom reads as a modelling fault rather than as a dent — and came out.
@@ -565,6 +580,41 @@ function buildDamage(group, lightPods, bumpers, chrome) {
   }
   const lampAt = new THREE.Vector3();
 
+  // The windscreen, after the driver has gone through it (game/ejection.js). The cabin is one dark
+  // glass box, so what says *broken* is the pane going pale — crazed safety glass turns milky — with
+  // a ragged dark hole on the driver's side where the figure went out. The pale runs up over the
+  // front of the roof as well: the cabin's front face is vertical, so a taxi facing away from the
+  // camera shows none of it, and the roof is the one surface every crash-cam angle can see.
+  //
+  // Plates laid over the cabin rather than a change to its colour, because the cabin is merged into
+  // the shell. Each stands 0.01 proud of the face under it and the hole 0.01 proud of the plate:
+  // they overlap, so they must not share a plane (CLAUDE.md on coplanar surfaces). The hole is a
+  // CircleGeometry turned to face +X with its rim jittered radially, so its winding is three's and
+  // the jitter cannot reverse a triangle.
+  const screenParts = [];
+  const paneFront = new THREE.BoxGeometry(0.01, SCREEN_TOP - SCREEN_LOW, SCREEN_HALF_W * 2);
+  paneFront.translate(SCREEN_X + 0.01, (SCREEN_LOW + SCREEN_TOP) / 2, 0);
+  screenParts.push(bakeColor(paneFront, color('crazedGlass')));
+  const paneRoof = new THREE.BoxGeometry(SCREEN_ROOF, 0.01, SCREEN_HALF_W * 2);
+  paneRoof.translate(SCREEN_X - SCREEN_ROOF / 2, CABIN_TOP + 0.01, 0);
+  screenParts.push(bakeColor(paneRoof, color('crazedGlass')));
+  const holeRim = new THREE.CircleGeometry(SCREEN_HOLE_R, 9);
+  const rim = holeRim.attributes.position;
+  for (let k = 1; k < rim.count; k++) {
+    // Vertex 0 is the centre; the rim's first and last vertices are the same point, so jitter by
+    // angle rather than by index or the seam tears open (CLAUDE.md: jitter by position).
+    const a = Math.atan2(rim.getY(k), rim.getX(k));
+    const r = 0.7 + 0.45 * Math.abs(Math.sin(a * 2.3 + 0.8));
+    rim.setXY(k, rim.getX(k) * r, rim.getY(k) * r);
+  }
+  holeRim.rotateY(Math.PI / 2);
+  holeRim.translate(SCREEN_X + 0.02, SCREEN_HOLE_Y, SCREEN_HOLE_Z);
+  screenParts.push(bakeColor(holeRim, color('taxiTrim')));
+  const brokenScreen = new THREE.Mesh(mergeGeometries(screenParts.map((g) => (g.index ? g.toNonIndexed() : g))), propMaterial());
+  brokenScreen.userData.pickable = 'taxi';
+  brokenScreen.scale.setScalar(0);
+  group.add(brokenScreen);
+
   // The bumper: the chrome bar hinged at one corner, its free end down on the tarmac. The geometry
   // runs from the hinge along −z; the other side is the same bar turned half round about the hinge,
   // which keeps the winding (a mirror by negative scale would not).
@@ -583,7 +633,7 @@ function buildDamage(group, lightPods, bumpers, chrome) {
   // wheels' rocker-panel streak again (see addGhostOutline(shell)). Mask only, no rim: a thin panel
   // cannot carry a hull (see addGhostMask), and each mask inherits its part's zero scale while the
   // part is put away, so an undamaged car stamps nothing extra.
-  for (const part of [lid, hole, hood, bay, bar]) addGhostMask(part);
+  for (const part of [lid, hole, hood, bay, bar, brokenScreen]) addGhostMask(part);
   for (const lamp of lamps.values()) { addGhostMask(lamp.housing); addGhostMask(lamp.wire); }
 
   const tipLocal = new THREE.Vector3(0, -BUMPER_H / 2, -BUMPER_LEN);
@@ -648,6 +698,13 @@ function buildDamage(group, lightPods, bumpers, chrome) {
       bay.scale.setScalar(0);
       bumperHinge.scale.setScalar(0);
       for (const bumper of bumpers.values()) bumper.visible = true;
+      brokenScreen.scale.setScalar(0);
+    },
+    /** For the headless check. */
+    screen: brokenScreen,
+    /** The windscreen the driver went out through — see `brokenScreen`. */
+    breakScreen() {
+      brokenScreen.scale.setScalar(1);
     },
   };
 }
