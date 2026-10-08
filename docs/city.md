@@ -643,6 +643,21 @@ caller, and it keeps both ends of a package off the grass
 because a junction has four corners and a marker only ever uses one of them — which one is
 `cornerFor`'s business, in `game/fares.js`.
 
+### One pocket park is guaranteed
+
+Besides the two districts and the 2–5% roll for a lone pocket park on each block, `createLayout`
+always hands **one more built block back to the grass**, because the districts now hold the statue,
+the pond, the court and the skatepark between them and the open lawn had all been built on. It must
+be off downtown (`centrality < 0.6`) and touch no other park on any side or corner, so it reads as a
+separate green. It takes **no draw**: the candidate is hashed off the districts' positions, so the
+depot and the burger joint downstream keep their stream. Over 80 seeds the share of cities with no
+lone pocket park went from 32 to 0.
+
+The probe's pond checks used to plan the statue and the pond off two separate `parkPlots` calls.
+`planPond` keeps out of the statue's park by *identity*, so it never saw the statue's plot and could
+put the probe's pond in it. It passed only because no seed had drawn that until this block moved the
+stream. All three now share one plots array.
+
 ### A park has a frontage
 
 A park is a block on a street, so it presents the same pavement to the street that a built block
@@ -777,6 +792,36 @@ release as an aim point (dead centre, or a point on the ring). The poses live in
 can be put in the hands that are holding it rather than in a second copy of the arm's geometry.
 The probe runs five minutes of it: the ball never sinks into or leaves the slab, and every miss is
 fetched. `?shot=court` and `?shot=court-far` frame it.
+
+### A skatepark
+
+**Exactly one a city**, the court's neighbour and on the court's terms: scenery, nothing routes
+round it, nothing on it can be tapped. `planSkatepark` (`city/skatepark.js`) plans after the court
+and keeps clear of the statue's plaza, the pond *and the court*. It takes **no draw** from the props
+stream: the winner is the longest slab in a district, then the one furthest from the court, so the
+only trees it moves are the ones its keep-out turns away. Over 80 seeds every city got one, mostly
+11 or 12 long in half of the statue's district.
+
+- Two quarter pipes across the ends (radius 2.3, cut off at 72° so the lip is 1.57, about shoulder
+  height on a figure), a deck behind each, and one feature per lane down the flat between them: a
+  grind rail on the −v lane and a funbox on the +v.
+- **Its frame is a rotation, not the court's swap.** A ramp is an `ExtrudeGeometry`, and a reflected
+  extrusion is wound inside out, so a Z-axis park is the X-axis one turned a quarter about Y,
+  (x, z) = (−v, u). The probe sums every piece's signed volume to hold the winding to account.
+- Two meshes, the court's split: the concrete (slab, ramps, funbox) merges into the props mesh and
+  *is* a sightline occluder, because a 1.57 quarter pipe does hide things; the coping and the rail
+  are thin metal and get a mesh of their own (`skatepark-frame`).
+- Benches go through the court's `clearBenches`, grass through `onCourt` and birds get a keep-out
+  rectangle; all three only read a slab's centre, axis and size, which the two share.
+
+The riders are `game/skaters.js`, on the run seed (`+349`): two in 75% of runs, one (on the funbox
+lane) otherwise. Each is a pendulum on the lane's surface (`surfaceAt`), pumped: entering the flat,
+its speed is *set* so the peak lands where the next trick wants it, a kickturn below the lip or an
+air above it, and gravity does the rest. Every turn is a 180 about the board's normal, which at the
+lip is exactly what brings an air back down nose first. A grind is a hop drawn over the floor (the
+rail is not a surface); every 5 to 10 passes a rider rolls onto a deck, turns round and drops back
+in. The probe runs five minutes over four runs: nobody sinks into a ramp or leaves the slab, and
+airs, kickturns, grinds and rests all happen. `?shot=skatepark` and `?shot=skatepark-far` frame it.
 
 ### Long grass
 

@@ -241,6 +241,10 @@ export const SHOTS = [
   // The gates close up, with the leaf on its way up behind them: the warning lamps on the arms are
   // a few pixels each at play zoom, and this is the framing that shows whether they read as lamps.
   { name: 'drawbridge-gate', description: 'the gate arms down and their lamps flashing', target: [0, 0], zoom: 9, warmup: 12, drawbridgeAt: 4.0 },
+  // The skatepark (city/skatepark.js, game/skaters.js), on the court's pair of framings. Appended,
+  // for the index-addressing reason stated above the `birds` entry.
+  { name: 'skatepark', description: 'the skatepark, close', target: [0, 0], zoom: 10, warmup: 12, atSkatepark: true },
+  { name: 'skatepark-far', description: 'the skatepark at play zoom', target: [0, 0], zoom: 52, warmup: 12, atSkatepark: true },
 ];
 
 export function getActiveShot() {

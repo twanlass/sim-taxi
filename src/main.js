@@ -76,6 +76,8 @@ import { createBirds, chooseRoosts } from './game/birds.js';
 import { createDucks } from './game/ducks.js';
 import { createHoopers } from './game/hoopers.js';
 import { courtRect } from './city/blacktop.js';
+import { createSkaters } from './game/skaters.js';
+import { skateRect } from './city/skatepark.js';
 import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
@@ -596,6 +598,10 @@ scene.add(canopyFuzz.mesh);
 // game/hoopers.js.
 if (props.courtMesh) scene.add(markOccluder(props.courtMesh));
 const hoopers = createHoopers(scene, makeRng(runSeed + 313), props.court);
+// And the skatepark beside it, on the same two terms: its rail and coping ride outside the props
+// mesh, and who is riding it is the run seed's. See city/skatepark.js and game/skaters.js.
+if (props.skateMesh) scene.add(markOccluder(props.skateMesh));
+const skaters = createSkaters(scene, makeRng(runSeed + 349), props.skatepark);
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
 // subject of the opening vignette below. `null` on a city with nowhere to put one, which is a
@@ -1193,12 +1199,12 @@ const cityEntry = createCityEntry({
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
     ...(burger?.meshes ?? []), ...(lamps ? [lamps.posts, lamps.heads] : []),
-    ...(props.courtMesh ? [props.courtMesh] : [])],
+    ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : [])],
   // The two things in the city the wave's vertex shader cannot reach, because they turn: the
   // depot's wrench and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
-    ...hoopers.entryObjects],
+    ...hoopers.entryObjects, ...skaters.entryObjects],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
     ...(burger ? [burger.entrySite] : [])],
   dust,
@@ -1406,6 +1412,7 @@ for (const offset of [199, 211]) {
       ...(props.pond ? [{ x: props.pond.x, z: props.pond.z, r: props.pond.r + 0.7 }] : []),
       // And the basketball court, with the same bird's length to spare.
       ...(props.court ? [courtRect(props.court, 0.5)] : []),
+      ...(props.skatepark ? [skateRect(props.skatepark, 0.5)] : []),
     ],
     roosts,
   }));
@@ -4566,6 +4573,7 @@ function frame() {
   ducks.update(dt);
   leaves?.update(dt);
   hoopers.update(dt);
+  skaters.update(dt);
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
   burger?.update(dt, SIGN_SPIN);
@@ -5405,6 +5413,11 @@ if (shot) {
     controller.state.target.set(hoopers.court.x, 0, hoopers.court.z);
     controller.update(aspect());
   }
+  // And the skatepark, the same way.
+  if (shot.atSkatepark && skaters.park) {
+    controller.state.target.set(skaters.park.x, 0, skaters.park.z);
+    controller.update(aspect());
+  }
 
   // The burger joint, framed on the drive-through lane rather than on the building — which is one
   // flag for both of its framings, for exactly the reason the pond's is. The close shot asks
@@ -5906,6 +5919,8 @@ window.__taxi = {
   ducks,
   /** The players on the basketball court, and `hoopers.court` the court — absent if the city has none. */
   hoopers,
+  /** The riders on the skatepark, and `skaters.park` the park — absent if the city has none. */
+  skaters,
   roadwork,
   /** The truck that sheds crates. `flatbed.stage()` starts it now; `state`, `crates`, `loose()`. */
   flatbed,

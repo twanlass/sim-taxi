@@ -6,6 +6,7 @@ import { KERB_H, MEDIAN_EDGE, PARK_EDGE, roundedRectShape } from './ground.js';
 import { MEDIAN_W, medianRuns } from './grid.js';
 import { planPond, pondParts } from './pond.js';
 import { clearBenches, courtParts, courtRect, planCourt } from './blacktop.js';
+import { planSkatepark, skateparkParts, skateRect } from './skatepark.js';
 
 /**
  * Where a tree of a given height puts its parts: how much of it is bare trunk, how big the crown
@@ -609,6 +610,12 @@ export function createProps(rng, blocks) {
   // moves. See city/blacktop.js.
   const court = planCourt(rng, plots, statue, pond);
   benches = clearBenches(court, benches, BENCH_LEN);
+  // And the skatepark, round all three — without a draw, so this stream is exactly what it was;
+  // only the trees its keep-out turns away move. Its benches go the court's way. See
+  // city/skatepark.js.
+  const skatepark = planSkatepark(plots, statue, pond, court);
+  // (`clearBenches` reads only a slab's centre, axis and size, which the two share.)
+  benches = clearBenches(skatepark, benches, BENCH_LEN);
 
   const SURFACE_Y = KERB_H + 0.01;
   for (const bench of benches) {
@@ -646,6 +653,19 @@ export function createProps(rng, blocks) {
     courtMesh.castShadow = true;
     courtMesh.receiveShadow = true;
   }
+  // The skatepark on the court's terms: concrete into this mesh, thin metal into one of its own.
+  let skateMesh = null;
+  if (skatepark) {
+    const { solid, frame } = skateparkParts(skatepark, rng);
+    const rand = hash01(skatepark.x, skatepark.z);
+    for (const part of [...solid, ...frame]) stampEntry(part, skatepark.x, skatepark.z, rand);
+    parts.push(...solid);
+    skateMesh = new THREE.Mesh(mergeGeometries(frame, false), propMaterial());
+    frame.forEach((p) => p.dispose());
+    skateMesh.name = 'skatepark-frame';
+    skateMesh.castShadow = true;
+    skateMesh.receiveShadow = true;
+  }
 
   // The plaza's own square, plus a pace: a trunk right on the paving's edge leans its crown over
   // the figure, and the whole point of standing a statue in a clearing is that it is in a clearing.
@@ -682,8 +702,12 @@ export function createProps(rng, blocks) {
   const clearOfCourt = (x, z) => !courtClear
     || x < courtClear.x0 || x > courtClear.x1 || z < courtClear.z0 || z > courtClear.z1;
 
+  const skateClear = skatepark ? skateRect(skatepark, 1.6) : null;
+  const clearOfSkatepark = (x, z) => !skateClear
+    || x < skateClear.x0 || x > skateClear.x1 || z < skateClear.z0 || z > skateClear.z1;
+
   const clearOfFurniture = (x, z) => clearOfStatue(x, z) && clearOfBenches(x, z) && clearOfPond(x, z)
-    && clearOfCourt(x, z);
+    && clearOfCourt(x, z) && clearOfSkatepark(x, z);
 
   // Districts are planted as one area so trees fall across the old road line too — nothing
   // gives away a merged park faster than a treeless stripe down the middle of it.
@@ -739,5 +763,5 @@ export function createProps(rng, blocks) {
   // `pad` in: exactly one park in the city has water in it, and `game/ducks.js` has to be told
   // which one. Null on a city with no park big enough — no pond, no ducks. The benches and the
   // statue ride along for `city/grass.js`, which has to keep its tufts out of them.
-  return { mesh, pond, benches, statue, crowns, court, courtMesh };
+  return { mesh, pond, benches, statue, crowns, court, courtMesh, skatepark, skateMesh };
 }
