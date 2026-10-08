@@ -1246,6 +1246,10 @@ const ejection = createEjection(scene, {
 // And the windscreen they went through: a spray of glass along the throw, left glinting on the
 // road. See game/windshield.js.
 const windshield = createWindshield(scene, { rng: makeRng(runSeed + 919), roadY: ROAD_Y });
+// And the car the taxi hit loses its glass too, on every wreck rather than only an ejection: it is
+// the one that took the blow. Blown out along the taxi's heading, the way its shell slides, with no
+// flash — one burst of light per crash is the taxi's.
+const struckGlass = createWindshield(scene, { rng: makeRng(runSeed + 921), roadY: ROAD_Y, withFlash: false });
 
 // The crash replay's recording and its director — see game/replay.js, and REPLAY_LEAD for how the
 // two endings fit together. The boats' wake is left off the tape because the boats are: the world
@@ -1262,7 +1266,7 @@ const replay = tape && createCrashReplay({
   // and at full gain each cut reads as another collision.
   onImpact: () => sfx?.play('crash', { gain: 0.75 }),
   hide: [clouds.group],
-  scrub: [ejection, windshield],
+  scrub: [ejection, windshield, struckGlass],
 });
 // A tap anywhere skips to the card, and so does any key — a replay is a reward for looking, and a
 // player who wants the retry button should not have to sit through it to get there.
@@ -1843,6 +1847,11 @@ collisions.onImpact(({ x, z, speed, closing, other }) => {
     windshield.fire({ x: traffic.taxi.x, z: traffic.taxi.z, yaw, scale: ejection.throwScale() });
     traffic.taxiDamage.breakScreen();
   }
+  // Its glass, out of the side the taxi came into: from its own centre (so `ahead` 0), a little
+  // lower than the taxi's screen because an ambient car is not scaled up, and carried shorter —
+  // shoved rather than thrown. Shards that reach a pavement stay there; nothing walks this track
+  // the way ejection.js walks the driver's, because a 0.3-unit plate on a kerb reads as glass.
+  struckGlass.fire({ x: other.x, z: other.z, yaw, scale: 0.6, ahead: 0, drop: 0.15 });
   wreckage.take(traffic.wreckShell(other), {
     // A copy made on this frame: before it, the car was an instance the replay draws instead.
     hideBefore: true,
@@ -4522,6 +4531,7 @@ function frame() {
   wreckage.update(dt);
   ejection.update(dt);
   windshield.update(dt);
+  struckGlass.update(dt);
   flyover.update(dt);
   // Night, for the searchlight: off the sun's own power, which the day/night keys run 0 to 3.85.
   policeHeli?.update(dt, heliTarget(dt), { dark: 1 - THREE.MathUtils.smoothstep(sun.intensity, 0.3, 2.6) });
@@ -5310,6 +5320,7 @@ if (shot) {
       wreckage.update(1 / 60);
       ejection.update(1 / 60);
       windshield.update(1 / 60);
+      struckGlass.update(1 / 60);
       // The smoke collar is part of the wreck now, and it lives in the dust pool rather than in
       // blast.js — left out of this loop, `?shot=12` would freeze a crash with its smoke still
       // stacked on the impact point at zero age.

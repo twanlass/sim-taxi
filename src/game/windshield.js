@@ -83,40 +83,11 @@ const FLASH_THICK = 0.13;
 const FLASH_PEAK = 0.6;
 
 /**
- * @param scene  the pool is added here once, parked at zero scale
- * @param rng    util/rng.js — the spray's own stream, so drawing it reshuffles nothing else
- * @param roadY  road surface height
+ * The flash's mesh, parked at zero scale. Built from its own fixed directions (golden-angle
+ * spiral, not the rng) so it costs nothing at fire time and the rng stream is the spray's alone.
+ * Every piece is an octahedron, non-indexed, so they merge with three's winding throughout.
  */
-export function createWindshield(scene, { rng, roadY = 0 } = {}) {
-  // A tetrahedron squashed flat is a triangular plate that has a face from every side, so there
-  // is no winding to get wrong and a shard turning edge-on thins out instead of vanishing.
-  const geo = new THREE.TetrahedronGeometry(1, 0);
-  const mat = unlitMaterial({ transparent: true, opacity: 0.92, depthWrite: false });
-  const mesh = skipWhenEmpty(new THREE.InstancedMesh(geo, mat, COUNT));
-  mesh.name = 'windscreen-glass';
-  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  mesh.frustumCulled = false;
-  // Over the fireball (blast.js draws it at 6, without depth): the spray leaves the cab inside the
-  // flame, and drawn under it — 5, level with blast.js's own shards — the first look had every
-  // shard in the air swallowed by orange and the glass only turning up once it was on the road.
-  mesh.renderOrder = 7;
-  const glass = new THREE.Color(color('windscreenGlass'));
-  const glint = new THREE.Color(color('glassGlint'));
-  const tint = new THREE.Color();
-  const zero = new THREE.Matrix4().makeScale(0, 0, 0);
-  for (let k = 0; k < COUNT; k++) {
-    mesh.setMatrixAt(k, zero);
-    mesh.setColorAt(k, glass);
-  }
-  mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
-  scene.add(mesh);
-
-  const random = () => (rng ? rng.next() : Math.random());
-  const between = (lo, hi) => lo + (hi - lo) * random();
-
-  // Built once at construction from its own fixed directions (golden-angle spiral, not the rng) so
-  // the burst costs nothing at fire time and the rng stream is the spray's alone. Every piece is an
-  // octahedron, non-indexed, so they merge into one mesh with three's winding throughout.
+function makeFlash() {
   const flashParts = [new THREE.OctahedronGeometry(FLASH_CORE, 0)];
   const up = new THREE.Vector3(0, 1, 0);
   for (let k = 0; k < FLASH_SPIKES; k++) {
@@ -150,7 +121,43 @@ export function createWindshield(scene, { rng, roadY = 0 } = {}) {
   flash.scale.setScalar(0);
   flash.frustumCulled = false;
   flash.renderOrder = 7;
-  scene.add(flash);
+  return flash;
+}
+
+/**
+ * @param scene  the pool is added here once, parked at zero scale
+ * @param rng    util/rng.js — the spray's own stream, so drawing it reshuffles nothing else
+ * @param roadY  road surface height
+ */
+export function createWindshield(scene, { rng, roadY = 0, withFlash = true } = {}) {
+  // A tetrahedron squashed flat is a triangular plate that has a face from every side, so there
+  // is no winding to get wrong and a shard turning edge-on thins out instead of vanishing.
+  const geo = new THREE.TetrahedronGeometry(1, 0);
+  const mat = unlitMaterial({ transparent: true, opacity: 0.92, depthWrite: false });
+  const mesh = skipWhenEmpty(new THREE.InstancedMesh(geo, mat, COUNT));
+  mesh.name = 'windscreen-glass';
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  mesh.frustumCulled = false;
+  // Over the fireball (blast.js draws it at 6, without depth): the spray leaves the cab inside the
+  // flame, and drawn under it — 5, level with blast.js's own shards — the first look had every
+  // shard in the air swallowed by orange and the glass only turning up once it was on the road.
+  mesh.renderOrder = 7;
+  const glass = new THREE.Color(color('windscreenGlass'));
+  const glint = new THREE.Color(color('glassGlint'));
+  const tint = new THREE.Color();
+  const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  for (let k = 0; k < COUNT; k++) {
+    mesh.setMatrixAt(k, zero);
+    mesh.setColorAt(k, glass);
+  }
+  mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+  scene.add(mesh);
+
+  const random = () => (rng ? rng.next() : Math.random());
+  const between = (lo, hi) => lo + (hi - lo) * random();
+
+  const flash = withFlash ? makeFlash() : null;
+  if (flash) scene.add(flash);
 
   // Per shard, drawn at fire time.
   const sh = Array.from({ length: COUNT }, () => ({
@@ -163,8 +170,13 @@ export function createWindshield(scene, { rng, roadY = 0 } = {}) {
 
   const dummy = new THREE.Object3D();
 
-  /** Throw the glass. `yaw` is the taxi's sim heading; `scale` is the driver's `throwScale()`. */
-  function fire({ x, z, yaw, scale = 1 }) {
+  /**
+   * Throw the glass. `yaw` is the direction it flies (the taxi's sim heading); `scale` is the
+   * driver's `throwScale()`. `ahead` is how far along the heading from (x, z) the pane is, and
+   * `drop` lowers it — both default to the taxi's windscreen. The car the taxi hit passes its own
+   * centre with `ahead` 0, since its glass is blown out of the side the taxi came into.
+   */
+  function fire({ x, z, yaw, scale = 1, ahead = START_FWD, drop: lower = 0 }) {
     const fx = Math.cos(yaw);
     const fz = -Math.sin(yaw);
     const rx = -fz;
@@ -173,9 +185,9 @@ export function createWindshield(scene, { rng, roadY = 0 } = {}) {
       const drop = random() < DROP_SHARE;
       const across = between(-1, 1);
       // Across the screen's width (~1.6 drawn) and up its height.
-      s.x0 = x + fx * START_FWD + rx * across * 0.8;
-      s.z0 = z + fz * START_FWD + rz * across * 0.8;
-      s.y0 = roadY + between(Y_LO, Y_HI);
+      s.x0 = x + fx * ahead + rx * across * 0.8;
+      s.z0 = z + fz * ahead + rz * across * 0.8;
+      s.y0 = roadY + between(Y_LO, Y_HI) - lower;
       const speed = (drop ? between(DROP_FWD_LO, DROP_FWD_HI) : between(FWD_LO, FWD_HI)) * scale;
       // Off the side of the screen it came from, a little: the spray fans rather than lines up.
       const a = (across * 0.5 + between(-0.5, 0.5)) * CONE;
@@ -199,7 +211,7 @@ export function createWindshield(scene, { rng, roadY = 0 } = {}) {
       s.rateAir = between(GLINT_AIR_LO, GLINT_AIR_HI);
       s.rateRest = between(GLINT_REST_LO, GLINT_REST_HI);
     }
-    flash.position.set(x + fx * START_FWD, roadY + (Y_LO + Y_HI) / 2, z + fz * START_FWD);
+    flash?.position.set(x + fx * ahead, roadY + (Y_LO + Y_HI) / 2 - lower, z + fz * ahead);
     fired = true;
     age = 0;
     pose(0);
@@ -208,9 +220,11 @@ export function createWindshield(scene, { rng, roadY = 0 } = {}) {
   function pose(at) {
     // Out to full size fast and fading as it goes: most of its size in the first third of its life,
     // so on the impact frame itself it is already a burst rather than a dot.
-    const f = at >= 0 && at < FLASH_LIFE ? at / FLASH_LIFE : 1;
-    flash.scale.setScalar(f < 1 ? 0.45 + 0.75 * (1 - (1 - f) ** 3) : 0);
-    flash.material.opacity = FLASH_PEAK * (1 - f) ** 2;
+    if (flash) {
+      const f = at >= 0 && at < FLASH_LIFE ? at / FLASH_LIFE : 1;
+      flash.scale.setScalar(f < 1 ? 0.45 + 0.75 * (1 - (1 - f) ** 3) : 0);
+      flash.material.opacity = FLASH_PEAK * (1 - f) ** 2;
+    }
     if (at < 0) {
       for (let k = 0; k < COUNT; k++) mesh.setMatrixAt(k, zero);
       mesh.instanceMatrix.needsUpdate = true;

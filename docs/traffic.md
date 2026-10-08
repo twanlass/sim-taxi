@@ -1851,6 +1851,10 @@ geometry/taxi.js lays a milky pane over the cabin's front face and the front of 
 dark hole on the driver's side. The roof half is there because a taxi facing away from the camera
 shows no front face at all. `damage.reset()` takes it off for the next run.
 
+**The car the taxi hit loses its glass too,** on every wreck rather than only an ejection: a second
+`createWindshield` (`struckGlass` in main.js, no flash) blows 44 shards out of its centre along the
+taxi's heading at 0.6 of the spray's speed, the way its shell is shoved.
+
 **A wrecked car's lamps go out.** A crashed car never reaches the render pass again, so whatever
 brake level it last wrote would sit there for the rest of the run — and the frame this fires on is
 exactly the one anything is hardest on the brakes. The ambient car's pods are collapsed to zero in
