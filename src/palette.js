@@ -820,6 +820,24 @@ export const PALETTE = {
   hooperShorts: '#33363F',
   basketball: '#D06A2C',
 
+  // The skatepark — see city/skatepark.js. Poured concrete rather than blacktop, so it reads as a
+  // *different* paved thing from the court across the park: pale (luma ~170) where the court is
+  // dark, which holds against the lawn's 140 from the other side. The ramps are a shade lighter
+  // than the floor so their curved faces separate from it under a flat sun, and the funbox and the
+  // rail carry the only colour — a painted yellow, kept muted for the fare-marker reason.
+  skateFloor: '#B4B0A6',
+  skateRamp: '#C6C1B5',
+  skateRampSide: '#9E998F',
+  skateCoping: '#7F868E',
+  skatePaint: '#C9A23E',
+  // The skaters and their boards (game/skaters.js). One light top and one dark, like the hoopers.
+  skaterA: '#5E7A8C',
+  skaterB: '#D8D2C4',
+  skaterPants: '#3A3832',
+  skateDeck: '#A4573C',
+  skateTruck: '#9AA0A6',
+  skateWheel: '#E5DFCF',
+
   // --- The river ------------------------------------------------------------
   //
   // Same 216° family as the pond, and deliberately so: this game has exactly one idea of what

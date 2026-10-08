@@ -754,6 +754,31 @@ export function createPerson({
   }
 
   /**
+   * On a skateboard (game/skaters.js). The figure stands **sideways** to the board — the board runs
+   * along its own X, so its feet go apart along it rather than one in front of the other — knees
+   * soft by `drop` (a crouch, see `crouch`), arms out for balance. `grab` 0..1 folds it into a
+   * frontside grab for an air: deep crouch, the leading hand down at the board's edge, the trailing
+   * arm up and out. Only the figure is posed; the lean and the spin belong to whatever carries it,
+   * because they pivot about the board, not about the feet.
+   */
+  function skate(drop, grab = 0, sway = 0) {
+    const d = drop + grab * 0.45;
+    const sink = crouch(d);
+    // Feet a board-width apart: the thighs open by `SPREAD` as well as swinging forward, and that
+    // takes the hips down by LEG_LEN · (1 − cos) on top of the crouch, which the group pays back.
+    const SPREAD = 0.24;
+    legL.rotation.set(-sink, 0, -SPREAD);
+    legR.rotation.set(-sink, 0, SPREAD);
+    const out = 1.05 - 0.35 * grab;
+    armL.rotation.set(-0.25 + sway * 0.3, 0, -out - sway * 0.25);
+    armR.rotation.set(-0.25 - sway * 0.3 - 0.9 * grab, 0, out - sway * 0.25 - 0.85 * grab);
+    bend(2 * sink, 2 * sink, -0.45, -0.45 + 0.3 * grab);
+    group.rotation.set(0.12 + 0.25 * grab, 0, sway * 0.08);
+    group.position.set(0, -d - LEG_LEN * (1 - Math.cos(SPREAD)), 0);
+    group.scale.setScalar(1);
+  }
+
+  /**
    * Thrown clear of a wreck (game/ejection.js): arms windmilling and legs bicycling while airborne,
    * eased into a sprawled starfish as `limp` goes 0 → 1 once they have come to rest. Only the limbs
    * are written — the tumble itself is a rotation on whatever holds the figure, because it has to
@@ -791,6 +816,6 @@ export function createPerson({
   // the limb above them.
   return {
     group, meshes, wave, board, exit, bail, rest, idle, flee, surrender, highlight, setRobber,
-    dribble, shoot, chase, watch, tumble,
+    dribble, shoot, chase, watch, tumble, skate,
   };
 }

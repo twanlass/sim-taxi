@@ -103,6 +103,10 @@ One park in every city has a **basketball court** in it — a blacktop with a ho
 with one or two people dribbling and shooting around on it. Scenery,
 like the duck pond; see [city.md](city.md#a-basketball-court).
 
+And one has a **skatepark**: a quarter pipe at each end, a rail and a funbox down the middle, and
+one or two riders going back and forth doing kickturns, airs and grinds. Same terms as the court;
+see [city.md](city.md#a-skatepark).
+
 One of the city's trucks is a **flatbed stacked with crates**. Some while into a run it starts
 hitting bumps and the load comes off the back into the road; drive through one and it smashes, for
 nothing but the fun of it — no hit points. See [traffic.md](traffic.md#the-flatbed-that-sheds-its-load).

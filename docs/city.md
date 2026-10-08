@@ -778,6 +778,36 @@ can be put in the hands that are holding it rather than in a second copy of the 
 The probe runs five minutes of it: the ball never sinks into or leaves the slab, and every miss is
 fetched. `?shot=court` and `?shot=court-far` frame it.
 
+### A skatepark
+
+**Exactly one a city**, the court's neighbour and on the court's terms: scenery, nothing routes
+round it, nothing on it can be tapped. `planSkatepark` (`city/skatepark.js`) plans after the court
+and keeps clear of the statue's plaza, the pond *and the court*. It takes **no draw** from the props
+stream: the winner is the longest slab in a district, then the one furthest from the court, so the
+only trees it moves are the ones its keep-out turns away. Over 80 seeds every city got one, mostly
+11 or 12 long in half of the statue's district.
+
+- Two quarter pipes across the ends (radius 2.3, cut off at 72° so the lip is 1.57, about shoulder
+  height on a figure), a deck behind each, and one feature per lane down the flat between them: a
+  grind rail on the −v lane and a funbox on the +v.
+- **Its frame is a rotation, not the court's swap.** A ramp is an `ExtrudeGeometry`, and a reflected
+  extrusion is wound inside out, so a Z-axis park is the X-axis one turned a quarter about Y,
+  (x, z) = (−v, u). The probe sums every piece's signed volume to hold the winding to account.
+- Two meshes, the court's split: the concrete (slab, ramps, funbox) merges into the props mesh and
+  *is* a sightline occluder, because a 1.57 quarter pipe does hide things; the coping and the rail
+  are thin metal and get a mesh of their own (`skatepark-frame`).
+- Benches go through the court's `clearBenches`, grass through `onCourt` and birds get a keep-out
+  rectangle; all three only read a slab's centre, axis and size, which the two share.
+
+The riders are `game/skaters.js`, on the run seed (`+349`): two in 75% of runs, one (on the funbox
+lane) otherwise. Each is a pendulum on the lane's surface (`surfaceAt`), pumped: entering the flat,
+its speed is *set* so the peak lands where the next trick wants it, a kickturn below the lip or an
+air above it, and gravity does the rest. Every turn is a 180 about the board's normal, which at the
+lip is exactly what brings an air back down nose first. A grind is a hop drawn over the floor (the
+rail is not a surface); every 5 to 10 passes a rider rolls onto a deck, turns round and drops back
+in. The probe runs five minutes over four runs: nobody sinks into a ramp or leaves the slab, and
+airs, kickturns, grinds and rests all happen. `?shot=skatepark` and `?shot=skatepark-far` frame it.
+
 ### Long grass
 
 `city/grass.js` scatters tufts over every lawn: one alpha-cut card per tuft, cut from a small atlas

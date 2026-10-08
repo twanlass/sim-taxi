@@ -31,6 +31,10 @@ import {
   planCourt, courtParts, courtRect, clearBenches, COURT_TOP_Y, RIM_Y, RIM_R,
 } from '../src/city/blacktop.js';
 import { createHoopers } from '../src/game/hoopers.js';
+import {
+  planSkatepark, skateparkParts, skateRect, surfaceAt, SKATE_TOP_Y, LIP_H,
+} from '../src/city/skatepark.js';
+import { createSkaters } from '../src/game/skaters.js';
 import { createGarage, garageSite } from '../src/city/garage.js';
 import {
   createBurgerJoint, burgerSite, burgerGeometry, BURGER_R, SIGN_SPIN, VIEW_RISE, ROOF_Y, CAP_Y,
@@ -1263,6 +1267,126 @@ const onGrass = (city, i, j) => {
     `${ballOff} ball-frames and ${playerOff} player-frames off it`);
   check('they shoot, make some, miss some, and fetch every one', shots > 40 && makes > 0 && makes < shots
     && pickups >= shots - 8, `${shots} shots, ${makes} made, ${pickups} fetched, up to ${mates} players`);
+}
+
+// --- The skatepark ------------------------------------------------------------
+//
+// One a city, on the court's rules plus one: clear of the court as well. Then its geometry — every
+// extruded ramp has to be wound outward, which a signed volume says in one number — and then five
+// minutes of riding.
+{
+  let cities = 0;
+  let parks = 0;
+  let offLawn = 0;
+  let clash = 0;
+  let benchOn = 0;
+  for (let s = 0; s < 40; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 37));
+    const plots = parkPlots(cityLayout);
+    if (!plots.length) continue;
+    cities += 1;
+    const rng = makeRng(seed + s * 37 + 33);
+    const plan = planParkFurniture(rng, plots);
+    const pond = planPond(rng, plots, plan.statue);
+    const court = planCourt(rng, plots, plan.statue, pond);
+    const park = planSkatepark(plots, plan.statue, pond, court);
+    if (!park) continue;
+    parks += 1;
+    const r = skateRect(park);
+    const b = park.plot.bounds;
+    if (r.x0 < b.x0 + PARK_EDGE || r.x1 > b.x1 - PARK_EDGE
+      || r.z0 < b.z0 + PARK_EDGE || r.z1 > b.z1 - PARK_EDGE) offLawn += 1;
+    const half = STATUE_PLAZA / 2;
+    if (plan.statue && r.x0 < plan.statue.x + half && r.x1 > plan.statue.x - half
+      && r.z0 < plan.statue.z + half && r.z1 > plan.statue.z - half) clash += 1;
+    if (pond) {
+      const dx = Math.max(r.x0 - pond.x, 0, pond.x - r.x1);
+      const dz = Math.max(r.z0 - pond.z, 0, pond.z - r.z1);
+      if (Math.hypot(dx, dz) < pond.r) clash += 1;
+    }
+    if (court) {
+      const c = courtRect(court);
+      if (r.x0 < c.x1 && r.x1 > c.x0 && r.z0 < c.z1 && r.z1 > c.z0) clash += 1;
+    }
+    for (const bench of clearBenches(park, clearBenches(court, plan.benches, BENCH_LEN), BENCH_LEN)) {
+      const along = Math.abs(Math.cos(bench.yaw)) > 0.5;
+      const hx = along ? BENCH_LEN / 2 : 0.34;
+      const hz = along ? 0.34 : BENCH_LEN / 2;
+      if (bench.x + hx > r.x0 && bench.x - hx < r.x1 && bench.z + hz > r.z0 && bench.z - hz < r.z1) benchOn += 1;
+    }
+  }
+  createLayout(makeRng(seed));     // put the probe's city back — `createLayout` installs its network
+
+  check('every city with a park gets a skatepark', parks === cities, `${parks} across ${cities} cities`);
+  check('on the lawn, clear of the statue, the pond and the court, and no bench on it',
+    offLawn + clash + benchOn === 0, `${offLawn} off the lawn, ${clash} clashes, ${benchOn} benches on it`);
+
+  // Each piece's signed volume, from its own winding: positive is wound outward. A reversed
+  // extrusion comes out negative — and from this camera it reads as z-fighting, not as inside out.
+  const park = propsBuild.skatepark;
+  const { solid, frame } = skateparkParts(park, makeRng(seed + 7));
+  let inside = 0;
+  const a = new THREE.Vector3();
+  const bb = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  for (const geo of [...solid, ...frame]) {
+    const pos = geo.attributes.position;
+    let vol = 0;
+    for (let i = 0; i < pos.count; i += 3) {
+      a.fromBufferAttribute(pos, i);
+      bb.fromBufferAttribute(pos, i + 1);
+      c.fromBufferAttribute(pos, i + 2);
+      vol += a.dot(bb.clone().cross(c)) / 6;
+    }
+    if (vol <= 0) inside += 1;
+  }
+  check('every piece of the skatepark is wound outward', !!park && inside === 0,
+    `${inside} of ${solid.length + frame.length} pieces inside out`);
+  check('and the props hand it back with its metal in a mesh of its own',
+    !!propsBuild.skateMesh && propsBuild.skateMesh.name === 'skatepark-frame', 'skatepark frame');
+
+  // Five minutes of riding, over four runs. A rider never sinks into the surface they are on, never
+  // leaves the slab, and actually rides: airs, kickturns, grinds and rests all happen.
+  const skateScene = new THREE.Scene();
+  const r = skateRect(park, 0.05);
+  let below = 0;
+  let off = 0;
+  let airs = 0;
+  let rests = 0;
+  let grinds = 0;
+  let turns = 0;
+  let highest = 0;
+  for (const run of [349, 350, 351, 352]) {
+    const crew = createSkaters(skateScene, makeRng(seed + run), park);
+    const was = crew.riders.map((rd) => ({ mode: rd.mode, s: Math.sign(rd.s), grind: false }));
+    for (let step = 0; step < 300 * 60; step++) {
+      crew.update(1 / 60);
+      crew.riders.forEach((rd, i) => {
+        const h = rd.holder.position;
+        if (h.x < r.x0 || h.x > r.x1 || h.z < r.z0 || h.z > r.z1) off += 1;
+        if (rd.mode === 'ride') {
+          const surf = surfaceAt(park, rd.lane.feature, rd.u);
+          if (h.y < SKATE_TOP_Y + surf.h - 1e-3) below += 1;
+        }
+        highest = Math.max(highest, h.y - SKATE_TOP_Y);
+        const w = was[i];
+        if (rd.mode === 'air' && w.mode !== 'air') airs += 1;
+        if (rd.mode === 'deck' && w.mode === 'ride') rests += 1;
+        if (rd.grind && !w.grind) grinds += 1;
+        const sign = Math.sign(rd.s);
+        if (rd.mode === 'ride' && w.mode === 'ride' && sign && w.s && sign !== w.s
+          && Math.abs(rd.u) > park.transU) turns += 1;
+        w.mode = rd.mode;
+        w.grind = rd.grind;
+        if (sign) w.s = sign;
+      });
+    }
+  }
+  check('the riders never sink into the ramp or leave the slab', below + off === 0,
+    `${below} frames under the surface, ${off} off the slab`);
+  check('and they ride: airs, kickturns, grinds and rests', airs > 20 && turns > 40 && grinds > 10 && rests > 4
+    && highest > LIP_H + 0.4,
+    `${airs} airs, ${turns} kickturns, ${grinds} grinds, ${rests} rests, highest ${highest.toFixed(2)}`);
 }
 
 // --- The ducks on it ---------------------------------------------------------
