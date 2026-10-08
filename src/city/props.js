@@ -4,7 +4,8 @@ import { bakeColor, hash01, jitterVertices, propMaterial, stampEntry } from '../
 import { PALETTE, jitterColor } from '../palette.js';
 import { KERB_H, MEDIAN_EDGE, PARK_EDGE, roundedRectShape } from './ground.js';
 import { MEDIAN_W, medianRuns } from './grid.js';
-import { planPond, pondParts } from './pond.js';
+import { planPond, pondParts, pondWaterMesh } from './pond.js';
+import { getWaterStyle } from './riverwater.js';
 import { clearBenches, courtParts, courtRect, planCourt } from './blacktop.js';
 import { planSkatepark, skateparkParts, skateRect } from './skatepark.js';
 
@@ -603,6 +604,7 @@ export function createProps(rng, blocks) {
   // `createProps` runs on its own offset and has not moved, which is the separation that matters
   // (see the seeding note in docs/architecture.md).
   const pond = planPond(rng, plots, statue);
+  let pondMesh = null;
   // And the basketball court, last of the three and for the pond's reason: drawn after it, it cannot
   // move the water, and the trees below keep out of it. It is placed *around* the statue and the
   // pond rather than instead of them, so it may share a district with either. The benches it would
@@ -635,7 +637,15 @@ export function createProps(rng, blocks) {
     // they would arrive on separate frames with the shore ring briefly hanging round nothing.
     const built = pondParts(pond, rng);
     for (const part of built) stampEntry(part, pond.x, pond.z, hash01(pond.x, pond.z));
-    parts.push(...built);
+    // The water wears the river's surface, which needs a mesh of its own (`pondWaterMesh`). The
+    // faceted `?water=classic` build keeps the old flat fan here in the merge, as it always was.
+    if (getWaterStyle() === 'classic') {
+      parts.push(...built);
+    } else {
+      const [shore, water] = built;
+      parts.push(shore);
+      pondMesh = pondWaterMesh(water, pond);
+    }
   }
   // The court, on one anchor for the pond's reason: the slab, its lines and its hoops are one object
   // and should arrive on one frame. Only the slab rides in this mesh. The hoops get one of their own,
@@ -763,5 +773,5 @@ export function createProps(rng, blocks) {
   // `pad` in: exactly one park in the city has water in it, and `game/ducks.js` has to be told
   // which one. Null on a city with no park big enough — no pond, no ducks. The benches and the
   // statue ride along for `city/grass.js`, which has to keep its tufts out of them.
-  return { mesh, pond, benches, statue, crowns, court, courtMesh, skatepark, skateMesh };
+  return { mesh, pond, pondMesh, benches, statue, crowns, court, courtMesh, skatepark, skateMesh };
 }

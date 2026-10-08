@@ -303,13 +303,17 @@ void RE_Direct_Water(const in IncidentLight directLight, const in vec3 geometryP
 #define RE_Direct RE_Direct_Water
 `;
 
-const normalPatch = () => /* glsl */ `
-  // How much river there is here: 1 down the channel, 0 once the shoal has reached the ground.
-  // Cubed so the whole effect has gone well before the shoal's colour has finished turning into
-  // the asphalt the mouth skirt lies over: linear, a half-shoaled stretch under the ring bridge
-  // came out teal against the skirt's grey.
+// How much river there is here: 1 down the channel, 0 once the shoal has reached the ground.
+// Cubed so the whole effect has gone well before the shoal's colour has finished turning into
+// the asphalt the mouth skirt lies over: linear, a half-shoaled stretch under the ring bridge
+// came out teal against the skirt's grey.
+const riverWet = () => /* glsl */ `
   float waterWet = clamp(vWaterWorld.y / ${num(WATER_Y)}, 0.0, 1.0);
   waterWet *= waterWet * waterWet;
+`;
+
+const normalPatch = (wet) => /* glsl */ `
+  ${wet}
   #ifdef WATER_SMOOTH
     waterN = waterSmooth(vWaterWorld.xz, ${num(SMOOTH_AMP)} * waterWet);
   #else
@@ -406,8 +410,124 @@ export function patchRiverWater(material, { edges, banks, bridges, wall }) {
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <lights_lambert_pars_fragment>',
         `#include <lights_lambert_pars_fragment>\n${header()}`)
-      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${normalPatch()}`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${normalPatch(riverWet())}`)
       .replace('#include <opaque_fragment>', `${compose()}\n#include <opaque_fragment>`);
+  };
+  return material;
+}
+
+// --- The duck pond ----------------------------------------------------------
+//
+// The same water, in a park (city/pond.js). One surface in this game gets to say what water looks
+// like, and the pond's flat fan sat next to the river as a painted disc next to a moving one. So it
+// takes the river's own normal, glint, caustics, absorption and Fresnel, and changes only what the
+// river's version knows about its *channel*:
+//
+// - **The bed shelves radially**, from POND_BED_EDGE at the shore to POND_BED_MID in the middle,
+//   measured from the actual lobed outline (`pondRadiusAt`, evaluated here from the same lobes) so
+//   the shallow ring follows the kidney shape rather than a circle drawn inside it. Shallower than
+//   the river's: the pond's whole waterline is ~2.5 units across, and at the river's 3.4 the bed
+//   would never be seen at all.
+// - **Nothing stands over it to mirror.** The shore is a flat ring at lawn height and the trees are
+//   held a crown's reach back (`clearOfPond`, city/props.js), so the reflected ray only ever finds
+//   the sky. The river's wall band and bridge decks have no counterpart, which is why the pond
+//   compiles a compose of its own rather than the river's with its planes zeroed.
+// - **The lip runs all the way round**, off the same edge distance as the shelf, at the river's
+//   strength but narrower (POND_RIM_W).
+//
+// The colour it is laid over is still the fan's `pondWater`/`pondShallow`: the value rule in
+// palette.js (a hole in the lawn, well under the grass) is what the absorption mixes toward, so the
+// pond keeps reading as water from across the map.
+//
+// `?water=classic` leaves the pond as it was too: city/props.js keeps the old fan in the merged
+// props mesh and never calls this.
+
+const POND_BED_EDGE = 0.25;
+const POND_BED_MID = 2.6;
+// The lip, narrower than the river's: the river's 0.55 and 1.6 are a line and a sheen against a
+// 9-unit channel, and against a 2.5-unit pond they were a third of its radius — the whole pond
+// came out pale, luma 105 against the 85 of the lawn round it, and stopped reading as a hole in
+// the green (the value rule in palette.js).
+const POND_RIM_W = 0.3;
+// How much of the river's open-water Fresnel the pond keeps. The sky term alone lifted the middle
+// of the pond by ~18 luma (80 to 98, measured on `?shot=30`) — over the lawn round it — because
+// the river is tuned to sit *lighter* than the asphalt it runs through and the pond has to sit
+// darker than grass (palette.js). A pond ringed by trees also mirrors far less open sky than a
+// river does. The lip at the shore keeps its full strength.
+const POND_REFLECT = 0.45;
+const POND_RIM_GLOW = 0.06;
+const POND_RIM_GLOW_W = 0.8;
+// How far in from the waterline the shelf takes to reach full depth. Most of the pond's radius:
+// a municipal pond is a bowl, not a ledge.
+const POND_SHELF_W = 1.6;
+
+const POND_UNIFORMS = {
+  // x, z, nominal radius, shore width — `pond` as planned.
+  uPond: { value: new THREE.Vector4() },
+  // amp, phase for the 2- and 3-cycle lobes, in that order.
+  uPondLobes: { value: new THREE.Vector4() },
+};
+
+const pondCompose = () => /* glsl */ `
+  {
+    vec3 V = normalize(vec3(viewMatrix[0].z, viewMatrix[1].z, viewMatrix[2].z));
+
+    // Distance in from the waterline, off the same outline pond.js draws the shore with.
+    vec2 off = vWaterWorld.xz - uPond.xy;
+    float ang = atan(off.y, off.x);
+    float f = 1.0 - uPondLobes.x * (1.0 + sin(2.0 * ang + uPondLobes.y)) * 0.5
+                  - uPondLobes.z * (1.0 + sin(3.0 * ang + uPondLobes.w)) * 0.5;
+    float edge = max(uPond.z * f - uPond.w - length(off), 0.0);
+    float shelf = smoothstep(0.0, ${num(POND_SHELF_W)}, edge);
+    float depth = mix(${num(POND_BED_EDGE)}, ${num(POND_BED_MID)}, shelf);
+
+    vec3 rd = refract(-V, waterN, 0.7518797);
+    float s = depth / max(-rd.y, 1e-3);
+    vec3 seen = vWaterWorld + rd * s;
+    vec2 cell = floor(seen.xz * 1.3);
+    vec3 under = uWaterBed * (0.75 + 0.5 * waterHash(cell).x);
+    vec3 irr = outgoingLight / max(diffuseColor.rgb, vec3(0.02));
+    under *= irr + waterSun * RECIPROCAL_PI * ${num(CAUSTIC)} * waterCaustic(seen.xz);
+    vec3 T = exp(-vec3(${ABSORB.map(num).join(', ')}) * s);
+    vec3 body = mix(outgoingLight, under, T);
+
+    float cosT = saturate(dot(waterN, V));
+    float fres = ${num(F0)} + ${num(1 - F0)} * pow(1.0 - cosT, 5.0);
+    fres = ${num(POND_REFLECT)} * (${num(REFLECT_FLOOR)} + ${num(1 - REFLECT_FLOOR)} * fres);
+    fres = max(fres, ${num(RIM_REFLECT)} * (1.0 - smoothstep(0.0, ${num(POND_RIM_W)}, edge)));
+    vec3 water = mix(body, uWaterSky, fres) + waterSpec * ${num(GLINT)};
+    water += uWaterSky * ${num(POND_RIM_GLOW)} * (1.0 - smoothstep(0.0, ${num(POND_RIM_GLOW_W)}, edge));
+    outgoingLight = water;
+  }
+`;
+
+/**
+ * Layer the river's surface onto the duck pond's water — see the note above.
+ *
+ * @param material  the water's `propMaterial` — its existing `onBeforeCompile` runs first.
+ * @param pond      the pond as `planPond` returns it.
+ */
+export function patchPondWater(material, pond) {
+  POND_UNIFORMS.uPond.value.set(pond.x, pond.z, pond.r, pond.bank);
+  const [l2, l3] = pond.lobes;
+  POND_UNIFORMS.uPondLobes.value.set(l2.amp, l2.phase, l3.amp, l3.phase);
+
+  const inner = material.onBeforeCompile;
+  const innerKey = material.customProgramCacheKey();
+  material.customProgramCacheKey = () => `${innerKey}-pond`;
+  material.onBeforeCompile = (shader, renderer) => {
+    inner(shader, renderer);
+    Object.assign(shader.uniforms, UNIFORMS, POND_UNIFORMS);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWaterWorld;')
+      .replace('#include <project_vertex>',
+        '#include <project_vertex>\nvWaterWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <lights_lambert_pars_fragment>',
+        `#include <lights_lambert_pars_fragment>\n${header()}\nuniform vec4 uPond;\nuniform vec4 uPondLobes;`)
+      .replace('#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>\n${normalPatch('float waterWet = 1.0;')}`)
+      .replace('#include <opaque_fragment>', `${pondCompose()}\n#include <opaque_fragment>`);
   };
   return material;
 }

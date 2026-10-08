@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { bakeColor, bakeColors } from '../util/geo.js';
+import { bakeColor, bakeColors, propMaterial } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
 import { KERB_H, PARK_EDGE } from './ground.js';
+import { patchPondWater } from './riverwater.js';
 
 // One duck pond, in one park, in one city.
 //
@@ -203,6 +204,25 @@ export function pondParts(pond, rng) {
   parts.push(bakeColors(water, new Float32Array(col)));
 
   return parts;
+}
+
+/**
+ * The water as a mesh of its own, wearing the river's surface (`patchPondWater`, city/riverwater.js).
+ * Out of the merged props mesh because it needs a material nothing else there can share.
+ *
+ * Opaque, as the fan always was — the ducks' legs are hidden by it (rendering.md) — and out of the
+ * AO lookup for the river's reason: a flat sheet at lawn height has nothing to crease, and the
+ * shader's own shelf is what darkens the shallows now. Not an occluder either, for the same pair of
+ * reasons `markOccluder` gives for the river: what receives no AO need cast none, and a surface 7mm
+ * proud of the lawn changes nothing in the depth prepass.
+ *
+ * @param geometry  the water part from `pondParts`, already stamped for the entrance wave.
+ */
+export function pondWaterMesh(geometry, pond) {
+  const mesh = new THREE.Mesh(geometry, patchPondWater(propMaterial({ ao: false }), pond));
+  mesh.receiveShadow = true;
+  mesh.name = 'pond-water';
+  return mesh;
 }
 
 export { POND_R_LOW, POND_R_HIGH };
