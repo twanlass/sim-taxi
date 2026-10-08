@@ -2486,6 +2486,12 @@ daytime read; an additive pool on a sunlit street is too faint to see on its own
 between day and night off the sun's power. The rotor sound is synthesised in `game/sfx.js`
 (`makeRotor`) because the designer's set has no recording of one.
 
+The machine is painted in the cruisers' own two colours turned round: `policeCab` white all over
+with one broad `policeBody` stripe down the cabin, the boom and the fin cap. In place of the rooftop
+chopper's single red beacon it carries a red lamp and a blue one on the stabiliser tips that
+double-flash in turn (`TAIL_FLASHES`), and both are in the bloom at the cruiser bar's `siren`
+intensity.
+
 ## The package courier
 
 `src/game/parcels.js`. A brown parcel sits on a kerb corner on a cyan rounded-square pad. Drive
