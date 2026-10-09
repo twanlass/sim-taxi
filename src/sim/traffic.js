@@ -1522,56 +1522,108 @@ function startUturn(car, sw) {
 // the first frame so traffic coming the other way sees it at once, and the render pass draws the
 // slide and the rotation from the lane it left.
 
-/**
- * How long the spin takes, in seconds. The first cut was 0.42 — one clean half turn — and read as
- * "almost a too perfect rotation". The choreography below has three beats in it, and under ~0.6s
- * the first and last of them are over before the eye finds them; the last ~0.1s on top is the
- * straight run-in (SPIN_KEYS), which at 0.62 without it still read as rotating on the spot.
- */
-export const SPIN_TIME = 0.76;
-/** Fraction of its speed the taxi keeps through the spin, and the floor it comes out at. */
-const SPIN_KEEP = 0.55;
-/** How far it slides on down the road while it spins, as a fraction of the road it would cover. */
-const SPIN_SLIDE = 0.5;
+// Two cuts of the spin's shape, picked with `?uturn=` (`setSpinStyle`). Every number is per style.
+//
+// **classic** — the first one shipped. 0.76s: the first cut was 0.42 — one clean half turn — and
+// read as "almost a too perfect rotation"; its choreography has three beats in it, and under ~0.6s
+// the first and last of them are over before the eye finds them. The ~0.1s straight run-in on top
+// is there because at 0.62 without it the spin still read as rotating on the spot. Its slide is
+// capped at the end of the lane, which at chase speed is usually most of the forward travel there
+// was: it still read as "rotating or pivoting on the spot" (Tyler, 2026-10-09).
+//
+// **whip** — the more dramatic prototype that answered that. Longer (1.15s), and three things the
+// classic cut lacks:
+//   - **Momentum.** The car keeps travelling the way it was going while it turns broadside, and may
+//     slide on *into the junction ahead* (`overrun`) rather than stopping at the lane's end. A slide
+//     from ~25 u/s cannot stop in the 5-odd units of lane a taxi usually has left without reading
+//     as hitting a wall. What it slides into there, the collision pass charges, as it always has.
+//   - **A fishtail.** The angle overshoots the 180 by a lot and swings back under it, twice, as the
+//     taxi powers out — and the swing beyond a smooth half turn is pivoted about a point near the
+//     front axle (`pivot`), so it is the *tail* that whips rather than the whole car.
+//   - **A power-out.** The return leg ends on the exit speed's own slope, so the car leaves the
+//     spin driving rather than easing to a stop and setting off again.
+//
+// `keys` is the angle turned toward the far lane (radians) at each key of `t`. Every key is a
+// turning point of the angle, so each span eases in and out (a smoothstep) and the rate is zero
+// exactly where the motion reverses. `cross` is the span of `t` the car crosses to the far lane
+// over. `reach` is how deep the arc runs down the road as a fraction of the road its speed would
+// cover over the spin, reached at `t` = `peak`, after which it comes back to where it lands.
+// `flick` is how far the opening flick carries the body sideways, away from the far lane (units).
+// `tilt` is the most the body tilts (radians), `tiltRate` the rate (rad/s) that buys ~3/4 of it.
+// `keep` is the fraction of speed kept, `floor` the least it comes out at (× SPEED).
+const SPIN_STYLES = {
+  classic: {
+    time: 0.76,
+    keep: 0.55,
+    floor: 1,
+    slide: 0.5,
+    keys: [
+      [0, 0],
+      [0.14, 0],                    // carrying on straight, so the spin reads as momentum, not a pivot
+      [0.32, -0.28],                // the flick out, away from the far lane
+      [0.74, Math.PI + 0.22],       // the oversteer, past the 180
+      [1, Math.PI],                 // the tail settles back, square in the lane
+    ],
+    cross: [0.3, 0.9],
+    reach: 0.6,
+    peak: 0.7,
+    overrun: -0.5,
+    flick: 1.1,
+    tilt: 0.14,
+    tiltRate: 6,
+    pivot: 0,
+    powerOut: false,
+  },
+  whip: {
+    time: 1.15,
+    keep: 0.6,
+    floor: 1.25,
+    keys: [
+      [0, 0],
+      [0.07, 0],                    // still going straight: the eye has to see the speed first
+      [0.17, -0.34],                // the flick out, loading the car up
+      [0.5, Math.PI + 0.62],        // the tail lets go and swings well past the 180
+      [0.64, Math.PI - 0.34],       // fishtail: it whips back under as the power goes down
+      [0.78, Math.PI + 0.15],       // and back
+      [0.9, Math.PI - 0.04],
+      [1, Math.PI],
+    ],
+    cross: [0.16, 0.66],
+    // Out by half the road its speed would cover, at `peak` — an ease-out of power 1.2 that starts
+    // at the car's own speed, so a slide that holds its speed and scrubs it late. `peak` comes after
+    // the swing past the 180: the taxi is still sliding on down the road *backwards*, which is the
+    // momentum. A first try at 0.37 by 0.52 went no further than the classic cut mid-block.
+    reach: 0.5,
+    peak: 0.6,
+    // Up to this far past the end of the lane, into the junction ahead (units).
+    overrun: HALF_ROAD + 1,
+    flick: 0.5,
+    tilt: 0.24,
+    tiltRate: 6,
+    // From the car's centre to where the fishtail pivots, forward (units): about the front axle.
+    pivot: 1.5,
+    // The smooth half turn the fishtail is measured against, as a span of `t`.
+    smooth: [0.15, 0.5],
+    powerOut: true,
+  },
+};
+let spinStyle = SPIN_STYLES.whip;
 
-// The shape of the spin, as the angle turned toward the far lane (radians) at each key of `t`. A
-// real handbrake turn is not one clean half turn: the driver flicks the nose *away* first to load
-// the car up, it then swings round past the 180 as the tail lets go, and settles back. Every key is
-// a turning point of the angle, so each span eases in and out (a smoothstep) and the rate is zero
-// exactly where the motion reverses. The first cut swung 0.5 past the 180 and whipped 0.16 back
-// under it, with twice this tilt, and read as springy; this is the calmer second pass.
-const SPIN_KEYS = [
-  [0, 0],
-  [0.14, 0],                    // carrying on straight, so the spin reads as momentum, not a pivot
-  [0.32, -0.28],                // the flick out, away from the far lane
-  [0.74, Math.PI + 0.22],       // the oversteer, past the 180
-  [1, Math.PI],                 // the tail settles back, square in the lane
-];
-/** The span of `t` the car crosses to the far lane over — after the run-in, done before it settles. */
-const SPIN_CROSS = [0.3, 0.9];
-/**
- * How deep the arc runs: the furthest down the road it reaches, as a fraction of the road its speed
- * would cover over the spin, at `t` = SPIN_PEAK — after which it slides back to where it lands, as
- * a car that has turned round and is now driving the other way does.
- */
-const SPIN_REACH = 0.6;
-const SPIN_PEAK = 0.7;
-/** How far the flick carries the body sideways, away from the far lane, in units — the arc's width. */
-const SPIN_FLICK_SHIFT = 1.1;
-/** Most the body tilts in a spin, in radians, and the rate (rad/s) that buys about three quarters of it. */
-const SPIN_TILT = 0.14;
-const SPIN_TILT_RATE = 6;
+/** `?uturn=classic` puts the first bootleg back; anything else is the whip (see SPIN_STYLES). */
+export function setSpinStyle(name) {
+  spinStyle = SPIN_STYLES[name] ?? SPIN_STYLES.whip;
+}
 
 /**
  * The spin's angle toward the far lane at `t` (0..1), and its rate in radians per unit `t`. The
  * render pass draws the yaw off the first and the body's tilt off the second.
  */
-export function spinAngle(t) {
+export function spinAngle(t, keys = spinStyle.keys) {
   const u = Math.max(0, Math.min(1, t));
-  for (let k = 1; k < SPIN_KEYS.length; k++) {
-    const [t1, a1] = SPIN_KEYS[k];
-    if (u > t1 && k < SPIN_KEYS.length - 1) continue;
-    const [t0, a0] = SPIN_KEYS[k - 1];
+  for (let k = 1; k < keys.length; k++) {
+    const [t1, a1] = keys[k];
+    if (u > t1 && k < keys.length - 1) continue;
+    const [t0, a0] = keys[k - 1];
     const f = (u - t0) / (t1 - t0);
     return {
       a: a0 + (a1 - a0) * f * f * (3 - 2 * f),
@@ -1610,7 +1662,18 @@ export function spinTaxi(car) {
   const c = car.s + ((p.x - o.x) * t.x + (p.z - o.z) * t.z);
   // Land past the slide, but never inside the far lane's own stop line (that junction is the one
   // behind the taxi, and landing there runs its light — see CLAUDE.md) or in the junction ahead.
-  const slide = Math.min(car.v * SPIN_TIME * SPIN_SLIDE, 7);
+  const st = spinStyle;
+  const v0 = car.v;
+  const v1 = Math.max(SPEED * st.floor, v0 * st.keep);
+  // How far on down the road the arc reaches before it comes back to land: as far as the speed
+  // carries it, but not past `overrun` beyond the end of the lane it is leaving.
+  const room = lane.length - car.s + st.overrun;
+  const want = Math.max(0, Math.min(v0 * st.time * st.reach, room));
+  // The whip lands about where powering back out from `want` to v1 would put it; the classic cut
+  // slides a fixed share of its speed's road.
+  const slide = st.powerOut
+    ? Math.max(0, want - (v1 * st.time * (1 - st.peak)) / 2)
+    : Math.min(car.v * st.time * st.slide, 7);
   const hi = back.length - STOP_SETBACK - 1;
   const lo = CAR_LEN / 2 + 1;
   if (hi < lo) return 'short';
@@ -1619,14 +1682,10 @@ export function spinTaxi(car) {
   // Nose swings toward the far lane, as a handbrake turn does.
   const n = { x: q.x - p.x, z: q.z - p.z };
   const dir = n.x * -h.z + n.z * h.x > 0 ? 1 : -1;
-  const v0 = car.v;
-  // How far on down the road the arc reaches before it comes back to land: as far as the speed
-  // carries it, but not past the end of the lane it is leaving, into the junction ahead.
   const down = (q.x - p.x) * h.x + (q.z - p.z) * h.z;
-  const reach = Math.max(down, Math.min(v0 * SPIN_TIME * SPIN_REACH, lane.length - car.s - 0.5));
-  car.uturn = {
-    kind: 'spin', p, q, h, dir, t: 0, yaw0: yawOf(h), v0, v1: Math.max(SPEED, v0 * SPIN_KEEP), reach,
-  };
+  const reach = Math.max(down, want);
+  // The style rides on the spin, so switching it mid-spin cannot change the shape under it.
+  car.uturn = { kind: 'spin', p, q, h, dir, t: 0, yaw0: yawOf(h), v0, v1, reach, st };
   car.uturnWanted = false;
   car.lane = back;
   car.s = s;
@@ -5513,7 +5572,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
       if (car.state === 'drive' && car.uturn?.kind === 'spin') {
         // --- Mid-spin (`spinTaxi`): on a clock rather than an arc speed, and deaf to the brake.
-        car.uturn.t += dt / SPIN_TIME;
+        car.uturn.t += dt / car.uturn.st.time;
         car.v = car.uturn.v0 + (car.uturn.v1 - car.uturn.v0) * Math.min(1, car.uturn.t);
         car.travelled += car.v * dt;
         car.speedFactor = car.v / SPEED;
@@ -6168,36 +6227,52 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // Nothing here — the position derivation is the whole of what is skipped.
       } else if (car.uturn?.kind === 'spin') {
         // The bootleg: slide from where it was to where it lands, decelerating, while the body
-        // flicks out, swings round past the 180 and whips back to square (SPIN_KEYS).
-        const { p, q, h, dir, yaw0, v0, reach } = car.uturn;
+        // flicks out, swings round past the 180 and whips back to square (SPIN_STYLES keys).
+        const { p, q, h, dir, yaw0, v0, v1, reach, st } = car.uturn;
+        const T = st.time;
         const t = Math.min(1, car.uturn.t);
         // Down the road and across it on two clocks. Down the road starts at the speed the car was
         // doing — an ease-out whose opening slope is v0 — so there is no hitch on the frame the
         // spin begins; it was one shared ease, and the car started across and round at once, which
-        // read as a pivot on the spot. Across waits for the run-in and the flick (SPIN_CROSS).
+        // read as a pivot on the spot. Across waits for the run-in and the flick (`cross`).
         const dx = q.x - p.x, dz = q.z - p.z;
         const down = dx * h.x + dz * h.z;
-        // Out to `reach` by SPIN_PEAK, then back to where it lands.
-        const k = reach > 0.1 ? Math.max(1.2, Math.min(4, (v0 * SPIN_TIME * SPIN_PEAK) / reach)) : 2;
+        // Out to `reach` by `peak`, then back to where it lands.
+        const k = reach > 0.1 ? Math.max(1.2, Math.min(5, (v0 * T * st.peak) / reach)) : 2;
         let along;
-        if (t < SPIN_PEAK) {
-          along = reach * (1 - (1 - t / SPIN_PEAK) ** k);
+        if (t < st.peak) {
+          along = reach * (1 - (1 - t / st.peak) ** k);
         } else {
-          const b = (t - SPIN_PEAK) / (1 - SPIN_PEAK);
-          along = reach + (down - reach) * b * b * (3 - 2 * b);
+          const b = (t - st.peak) / (1 - st.peak);
+          // The whip leaves on the exit speed's own slope (a cubic Hermite), clamped so the curve
+          // cannot overshoot the landing point and come back; the classic cut eases to a stop there.
+          const back = reach - down;
+          const m = st.powerOut ? Math.min(v1 * T * (1 - st.peak), 3 * back) : 0;
+          along = reach - back * b * b * (3 - 2 * b) - m * (b * b * b - b * b);
         }
-        const c = Math.max(0, Math.min(1, (t - SPIN_CROSS[0]) / (SPIN_CROSS[1] - SPIN_CROSS[0])));
+        const c = Math.max(0, Math.min(1, (t - st.cross[0]) / (st.cross[1] - st.cross[0])));
         const across = c * c * (3 - 2 * c);
         // The flick carries the body a little toward the near kerb before the slide takes it
         // across. `dir * (-h.z, h.x)` points at the far lane (see `spinTaxi`), so this is minus that,
         // on a hump that is over by the time the car is broadside.
-        const f = Math.max(0, Math.min(1, (t - 0.14) / 0.5));
-        const out = SPIN_FLICK_SHIFT * Math.sin(Math.PI * f) ** 2;
+        const f0 = st.keys[1][0];
+        const f = Math.max(0, Math.min(1, (t - f0) / 0.5));
+        const out = st.flick * Math.sin(Math.PI * f) ** 2;
         car.x = p.x + h.x * along + (dx - h.x * down) * across + dir * h.z * out;
         car.z = p.z + h.z * along + (dz - h.z * down) * across - dir * h.x * out;
         // `dir` is +1 when the far lane is on the side a *negative* yaw turns toward (yawOf is
         // atan2(-z, x), so +yaw swings +X toward -Z): subtract it to put the nose into the far lane.
-        car.yaw = yaw0 - dir * spinAngle(t).a;
+        car.yaw = yaw0 - dir * spinAngle(t, st.keys).a;
+        if (st.pivot > 0) {
+          // The fishtail: whatever the angle does beyond a smooth half turn — the flick, the
+          // overshoot, the whips — turns the body about a point `pivot` ahead of its centre rather
+          // than about the centre, so the tail swings and the nose holds its line. Zero at both
+          // ends, where the two angles agree.
+          const g = Math.max(0, Math.min(1, (t - st.smooth[0]) / (st.smooth[1] - st.smooth[0])));
+          const yawSmooth = yaw0 - dir * Math.PI * g * g * (3 - 2 * g);
+          car.x += st.pivot * (Math.cos(yawSmooth) - Math.cos(car.yaw));
+          car.z -= st.pivot * (Math.sin(yawSmooth) - Math.sin(car.yaw));
+        }
       } else if (car.uturn) {
         // The swing: a semicircle from where it left its old lane to where it lands on the new
         // one, bulging forward by the radius. `h` is the old heading, `n` across to the far lane.
@@ -6420,8 +6495,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // Off the rate the body is turning at, leaning outward like any corner — so it tips one way
         // on the flick, hard the other through the swing, and back again on the whip. Squashed
         // through a tanh so the two small beats still read beside the big one.
-        const rate = spinAngle(car.uturn.t).rate / SPIN_TIME;
-        roll = -car.uturn.dir * SPIN_TILT * Math.tanh(rate / SPIN_TILT_RATE);
+        const { st } = car.uturn;
+        const rate = spinAngle(car.uturn.t, st.keys).rate / st.time;
+        roll = -car.uturn.dir * st.tilt * Math.tanh(rate / st.tiltRate);
       } else if (car.uturn) {
         const lean = 0.3 * Math.min(2.2, Math.max(0.7, car.v / SPEED));
         roll = -car.uturn.dir * lean * Math.sin(Math.PI * Math.min(1, car.uturn.t));

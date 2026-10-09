@@ -16925,7 +16925,8 @@ let chopperOrder; // likewise
     const refused = spinTaxi(taxi);
     if (refused) { why[refused] = (why[refused] ?? 0) + 1; continue; }
     spun += 1;
-    for (let k = 0; k < 60 && taxi.uturn; k++) bTraffic.update(1 / 60);
+    // 1.5s: the whip takes 1.15 (SPIN_STYLES in sim/traffic.js).
+    for (let k = 0; k < 90 && taxi.uturn; k++) bTraffic.update(1 / 60);
     const tangent = taxi.lane.path.tangentAt(taxi.s);
     const want = Math.atan2(-tangent.z, tangent.x);
     worstYaw = Math.max(worstYaw, Math.abs(Math.atan2(Math.sin(taxi.yaw - want), Math.cos(taxi.yaw - want))));

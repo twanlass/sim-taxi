@@ -609,6 +609,15 @@ export function getWreckStyle(fallback = 'flat') {
 }
 
 /**
+ * The bootleg's cut, via `?uturn=classic` — the first U-turn, which turned round on the spot. The
+ * fallback is the whip: momentum down the road and a fishtail out of it. See SPIN_STYLES in
+ * sim/traffic.js.
+ */
+export function getUturnStyle(fallback = 'whip') {
+  return new URLSearchParams(window.location.search).get('uturn') ?? fallback;
+}
+
+/**
  * Multisampling, via `?msaa=off`.
  *
  * Not the same request as the stencil buffer, even though the two ride in the same back buffer:

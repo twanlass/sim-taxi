@@ -3435,10 +3435,19 @@ means and the brake still wins, because it replaces the target the boost ceiling
 ### The bootleg: boost, then brake twice
 
 `game/bootleg.js`, `spinTaxi` in `sim/traffic.js`, wired in `holdBrake` in main.js. In Loco Mode, tap
-the brake twice within 350ms and the taxi spins 180° onto the far lane in 0.42s. It slides on down
-the road as it turns and keeps 55% of its speed, never less than cruise. The body whips round with
-a small overshoot, and the spin comes with a screech, a jolt of shake, a haptic buzz and four-wheel
-rubber.
+the brake twice within 350ms and the taxi spins 180° onto the far lane. The spin comes with a
+screech, a jolt of shake, a haptic buzz and four-wheel rubber. There are two cuts of its shape
+(`SPIN_STYLES` in `sim/traffic.js`):
+
+- **The whip** (default). 1.15s. The taxi keeps travelling the way it was going while it turns
+  broadside, and can slide up to 5 units on into the junction ahead rather than stopping at the end
+  of the lane: from ~25 u/s there is no room to stop in the lane without it reading as hitting a
+  wall. The tail swings 35° past the 180, fishtails back under it twice as the power goes down, and
+  that extra swing turns the body about a point near the front axle, so the rear is what whips.
+  It powers out at 60% of its speed, never less than 1.25× cruise, on the exit speed's own slope.
+- **Classic** (`?uturn=classic`). 0.76s. It slides a short way down the road, capped at the lane's
+  end, with a small overshoot, and keeps 55% of its speed, never less than cruise. It read as
+  "rotating or pivoting on the spot" (Tyler, 2026-10-09), which is what the whip answers.
 
 It exists because a chase gave the player nothing to do but hold the pill. In a getaway the cut-off
 cops are in the junctions *ahead* (see [the chase](#the-chase)), and a 180 puts every one of them
