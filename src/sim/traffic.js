@@ -1688,6 +1688,14 @@ const DRIFT_TIERS = DRIFT_CHAIN.exit.length;
 export const DRIFT_EXIT = DRIFT_CHAIN.exit[0];
 /** A drift that has not landed in this long has gone wrong somewhere; let it go. */
 const DRIFT_MAX = 2.5;
+/**
+ * How long after the tap the pill may come back and still kick, in seconds. Without it the tap
+ * stayed armed until the taxi landed out of the corner, and a tap coasts the car into that corner
+ * slowly: measured over every turning lane, a Loco press a median 1.5s after the tap (2.2s at the
+ * worst corner) still threw the slide, which read as the drift going off on its own. The tip card
+ * teaches the kick 0.4s after the tap (game/driftclip.js), so this leaves a beat of slack over it.
+ */
+export const DRIFT_KICK_WINDOW = 0.6;
 /** How far the nose swings past the heading at the height of the slide, in radians (~31°). */
 export const DRIFT_ANGLE = 0.55;
 const DRIFT_OMEGA = 11;         // the swing's spring: ~0.55s period, so the exit rocks once
@@ -1759,6 +1767,8 @@ function stepDrift(car, dt) {
     car.drift = null;
   };
   if (car.crashed || car.staged || car.uturn || d.t > DRIFT_MAX) return drop();
+  // Unanswered, the tap was only a brake: let it go rather than wait for any later press.
+  if (!d.kicked && d.t > DRIFT_KICK_WINDOW) return drop();
   if (d.phase === 'approach') {
     if (car.state === 'turn') {
       if (car.turn.hand === 'straight') return drop();
