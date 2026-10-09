@@ -141,6 +141,21 @@ export const MAX_FARES = 4;
  */
 export const MAX_STRIKES = 3;
 
+/**
+ * The driver's star rating, which is how the strikes above are shown by default (Tyler,
+ * 2026-10-09): the run opens at RATING_START and every strike takes a whole star off it, so the
+ * run ends when the rating reaches RATING_START - MAX_STRIKES. It is the same three lives as the
+ * rings, reskinned — the rule is still counted in `state.strikes` and nothing about which riders
+ * cost one changed. What the theme buys is the reading: "your rating is too low" is an ending a
+ * player already understands from every rideshare app, where "three strikes" had to be learned.
+ * `?rating=off` puts the rings back (main.js).
+ *
+ * Packages and the burger run have no clock, so they cannot be failed and cannot cost a star.
+ */
+export const RATING_START = 5;
+export const RATING_FLOOR = RATING_START - MAX_STRIKES;
+export function ratingFor(strikes) { return RATING_START - strikes; }
+
 // --- VIP pickups ---------------------------------------------------------------
 //
 // A rare, cash-rich rider layered on top of the ordinary board: a fixed-purple diamond (see
@@ -655,7 +670,9 @@ export const waitingTargets = (slot) => [slot.passenger.group, slot.marker.group
  *                  keep working with nothing on top of it, which a hard import would quietly end.
  *                  Read per call, since the set moves every time a package is collected.
  */
-export function createFareSystem(rng, scene, { reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }) } = {}) {
+export function createFareSystem(rng, scene, {
+  reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true,
+} = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
     // waiting on the kerb at once — the whole prioritisation puzzle.
@@ -1792,7 +1809,13 @@ export function createFareSystem(rng, scene, { reserved = () => [], judgeRun = (
         }
         state.strikes += 1;
         state.gameOver = true;
-        state.failReason = 'Three riders gave up on you.';
+        if (rating) {
+          // What a rideshare app does to a driver whose rating falls too far.
+          state.failTitle = 'Deactivated!';
+          state.failReason = `Your rating fell to ${ratingFor(state.strikes).toFixed(1)} stars.`;
+        } else {
+          state.failReason = 'Three riders gave up on you.';
+        }
         // The point the camera pulls into for the closing beat: **wherever this rider gets out**,
         // because the closing beat is now them getting out (`beginBail` below).
         //

@@ -37,7 +37,7 @@ import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice } from './sim/police.js';
 import {
   createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
-  BOARD_SECONDS, MAX_STRIKES,
+  BOARD_SECONDS, MAX_STRIKES, RATING_FLOOR, ratingFor,
 } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
 import { createDriveThru } from './game/drivethru.js';
@@ -690,7 +690,11 @@ if (new URLSearchParams(window.location.search).get('lights') === 'on') {
 // loop asks it for the verdict at the drop-off. Per ride by default; `?combo=run` keeps it across
 // fares.
 const combo = createComboMeter({ scope: comboScope(new URLSearchParams(window.location.search)) });
+// The strikes read as a driver's star rating by default; `?rating=off` puts the three rings back.
+// See RATING_START in game/fares.js.
+const ratingOn = new URLSearchParams(window.location.search).get('rating') !== 'off';
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
+  rating: ratingOn,
   reserved: () => parcels?.occupiedSpots() ?? [],
   judgeRun: () => combo.judge(),
 });
@@ -2719,6 +2723,7 @@ const hud = {
   money: document.getElementById('money'),
   runs: document.getElementById('runs'),
   strikes: document.getElementById('strikes'),
+  rating: document.getElementById('rating'),
   banner: document.getElementById('run-end'),
 };
 
@@ -2878,6 +2883,7 @@ function landCombo(key, tier) {
 // Light one ring per rider let go on the kerb (see MAX_STRIKES). The newest pops, so the HUD answers
 // the rider storming off on the same frame.
 function showStrikes(count) {
+  if (ratingOn) { showRating(count); return; }
   if (!hud.strikes) return;
   const marks = hud.strikes.querySelectorAll('.strike');
   marks.forEach((mark, k) => {
@@ -2893,6 +2899,24 @@ function showStrikes(count) {
   hud.strikes.setAttribute('aria-label', count === 0 ? 'No riders lost'
     : `${count} ${count === 1 ? 'rider' : 'riders'} lost, ${left} to go`);
 }
+
+// The same count as a star rating (see RATING_START): a star off per strike, the new number
+// dropping in, and red once one more miss would end the run.
+function showRating(count) {
+  if (!hud.rating) return;
+  const rating = ratingFor(count);
+  const text = rating.toFixed(1);
+  const num = hud.rating.querySelector('.rating-num');
+  if (num.textContent === text) return;
+  num.textContent = text;
+  hud.rating.classList.toggle('is-last', rating - 1 <= RATING_FLOOR);
+  hud.rating.classList.remove('is-drop');
+  void hud.rating.offsetWidth;
+  hud.rating.classList.add('is-drop');
+  hud.rating.setAttribute('aria-label', `Rating ${text} stars`);
+}
+if (hud.strikes) hud.strikes.hidden = ratingOn;
+if (hud.rating) hud.rating.hidden = !ratingOn;
 
 // The counter lags the payout on purpose: the flying "$X" rises off the taxi, travels to the HUD,
 // and only when it lands does the total tick up — so the payout has a visible path from the world
