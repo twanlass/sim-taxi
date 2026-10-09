@@ -116,7 +116,7 @@ again doesn't repeat the recording exactly:
 | Sound | Fires on |
 |---|---|
 | `locoLaunch` + `locoActivate` | `kickLocoMode`, the frame the pill engages. The activate (05) is 12 s long (level for about 5.5 s, then a tail) and is cut short on release; the launch (07) is the 2.25 s kick on top of it |
-| `brake` | The brake pedal from cruise. Also plays at half volume when the taxi's own brake lamp comes on above 2.5 u/s (a red, a queue), so the car isn't silent when it slows by itself |
+| `brake` | The brake pedal from cruise. Nothing else: a tyre sound means rubber on the road, so the taxi slowing on its own (a red, a queue, the coast down after letting go of Loco) is silent. It used to play off the brake lamp, which lit on the post-Loco coast and screeched on every release |
 | `locoBrake` | The brake pedal above 1.1 × cruise |
 | `accel` | Pulling away after at least 0.35 s stood still, but not during Loco (the launch covers that) |
 | `skid` | The first frame of a boosted corner or an overtake lane swap. Once per slide, not once per rubber stamp |
@@ -201,7 +201,7 @@ Every number a sound designer would want to move is in **`assets/audio/mix.json`
 | `master` | The whole game's level, under the mute |
 | `sounds.<name>.gain` / `.rate` | Per sound, covering all its takes: linear gain, and playback rate (pitch and tempo together). `file` is the designer's name, for reading only |
 | `minGap.<name>` | Per one-shot: seconds before it may fire again. 0 is no limit |
-| `engine.*` | The beds: idle and Loco pitch at each end of their speed range, how far the idle ducks under Loco, when and how fast the Loco loop comes in, pitch glide and release time constants, the self-brake level, and how long the taxi must stand before pulling away plays `accel`. Each is described at `SHIPPED_MIX` in `sfx.js` |
+| `engine.*` | The beds: idle and Loco pitch at each end of their speed range, how far the idle ducks under Loco, when and how fast the Loco loop comes in, pitch glide and release time constants, and how long the taxi must stand before pulling away plays `accel`. Each is described at `SHIPPED_MIX` in `sfx.js` |
 
 Open the game with **`?audio`** (or `?debug`, the same panel) and the ⚙️ panel's **Audio**,
 **Engine sound**, **Sounds** and **Audio export** sections have every one of those as a live slider,

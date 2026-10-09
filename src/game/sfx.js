@@ -213,8 +213,6 @@ export const RADIO = {
  *   - `pitchGlide`/`release`: time constants for `setTargetAtTime`, in seconds (~95% of the way
  *     in 3x). The glide is short enough to track a speed change and long enough that a frame's
  *     jitter in `v` is not a zipper in the pitch.
- *   - `selfBrakeGain`: the brake sound when the taxi slows *by itself* (a red, a queue), against
- *     the pedal's 1.
  *   - `pullAwayHold`: how long the taxi has to stand still before pulling away plays `accel`. The
  *     hold is what keeps a car creeping in a queue from revving on every inch.
  *
@@ -416,7 +414,6 @@ export function createSfx({ rng } = {}) {
   let signalHand = null;
   let stoppedFor = 0;
   let wasAir = false;
-  let wasBraking = false;
 
   function makeLoop(key, gain = 0) {
     const src = ctx.createBufferSource();
@@ -677,12 +674,12 @@ export function createSfx({ rng } = {}) {
       if (v > GO_V) stoppedFor = 0;
     }
 
-    // The taxi slowing on its own — for a red, a queue, a turn. Off the brake *lamp* (eased in
-    // sim/traffic.js off the car's real deceleration), on its rising edge, and softer than the
-    // pedal's, which is the player's own stop and has already played at the press.
-    const braking = taxi.brakeLevel > 0.6 && v > 2.5;
-    if (braking && !wasBraking && alive && !taxi.braking) play('brake', { gain: e.selfBrakeGain });
-    wasBraking = braking;
+    // No brake sound when the taxi slows on its own. There used to be one, off the brake *lamp*'s
+    // rising edge, and the lamp lights on any deceleration — so letting go of Loco Mode, which
+    // only bleeds the overdrive back down to cruise, screeched every time (Tyler, October 2026).
+    // The rule now is that a tyre sound means rubber on the road: the pedal, the drift, the
+    // bootleg and the cornering slide all lay marks (`layRubber` in main.js), and a red or a coast
+    // lays none.
 
     // Off a ramp. The landing has its own event (`traffic.onTaxiLand`); the takeoff is only
     // visible as `hopFrom` turning non-null, so it is read off the edge here.
