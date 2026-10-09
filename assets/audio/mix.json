@@ -48,7 +48,6 @@
     "locoLoopFade": 2,
     "pitchGlide": 0.08,
     "release": 0.12,
-    "selfBrakeGain": 0.5,
     "pullAwayHold": 0.35
   }
 }

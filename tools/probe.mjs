@@ -9970,7 +9970,7 @@ function rideToPickup() {
 // hand `setTargetAtTime` an `undefined` and the engine would go silent without a word logged.
 {
   const ENGINE_KEYS = ['idleRateLo', 'idleRateHi', 'locoRateLo', 'locoRateHi', 'idleUnderLoco',
-    'locoLoopAt', 'locoLoopFade', 'pitchGlide', 'release', 'selfBrakeGain', 'pullAwayHold'];
+    'locoLoopAt', 'locoLoopFade', 'pitchGlide', 'release', 'pullAwayHold'];
   const missing = ENGINE_KEYS.filter((k) => !Number.isFinite(MIX_FILE.engine?.[k]));
   check('mix.json names every engine knob sfx.js reads', missing.length === 0, missing.join(', '));
   const fileKeys = Object.keys(MIX_FILE.sounds ?? {});

@@ -63,7 +63,6 @@ const ENGINE = [
   ['locoLoopFade', 'Loco loop fade', 0, 8, 0.1, (v) => `${v.toFixed(1)}s`],
   ['pitchGlide', 'Pitch glide', 0.005, 0.5, 0.005, (v) => `${(v * 1000).toFixed(0)} ms τ`],
   ['release', 'Release', 0.005, 1, 0.005, (v) => `${(v * 1000).toFixed(0)} ms τ`],
-  ['selfBrakeGain', 'Self-brake level', 0, 1.5, 0.01, (v) => `${dbText(v)} of pedal`],
   ['pullAwayHold', 'Pull-away after', 0, 3, 0.05, (v) => `${v.toFixed(2)}s stopped`],
 ];
 
