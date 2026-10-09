@@ -1766,6 +1766,9 @@ const impact = createImpact(scene, camera);
 const taxiDamage = createTaxiDamage({
   damage: traffic.taxiDamage, group: traffic.taxiGroup, taxi: traffic.taxi, maxHp: TAXI_HP,
   sparks, dust, roadY: ROAD_Y,
+  // The ladder before the first hit was made to show (flash, grime and steam): see the top of
+  // game/taxidamage.js.
+  classic: new URLSearchParams(window.location.search).get('damage') === 'classic',
 });
 // ...and what the cars it hits wear: the same lids, lamps and bumper, on a pool of rigs. See
 // game/cardamage.js.
@@ -5979,11 +5982,19 @@ window.__taxi = {
    */
   scores: { load: loadScores, record: recordRun, clear: clearScores, isRanked: isRankedRun },
   /**
-   * Play the hit cue (`?hitcue=`, game/hitcue.js) as if a bump had just cost `damage` HP, without
-   * touching the taxi's real HP. For judging the look on a phone, and for the frames in its PR.
+   * Hurt the taxi as a bump would — `damage` HP off, the hit landing on its front right corner — with
+   * none of the bump's shove. Everything the car wears for it (game/taxidamage.js) and the hit cue
+   * (`?hitcue=`, game/hitcue.js) play as they would for real. For judging the look on a phone, and
+   * for the frames in a PR. Never empties the car: the wreck is collisions.js's to call.
    */
-  hitCue: (damage = 24, hp = Math.max(0, traffic.taxi.hp - damage)) =>
-    hitCue?.hit({ damage, hp, taxi: traffic.taxi }),
+  hurt: (damage = 24) => {
+    const taxi = traffic.taxi;
+    damage = Math.min(damage, taxi.hp - 1);
+    taxi.hp -= damage;
+    taxiDamage.hit(taxi.x + Math.cos(taxi.yaw) * 1.5 + Math.sin(taxi.yaw) * 0.7,
+      taxi.z - Math.sin(taxi.yaw) * 1.5 + Math.cos(taxi.yaw) * 0.7);
+    hitCue?.hit({ damage, hp: taxi.hp, taxi });
+  },
   /**
    * Fire one haptic by name — `'pick'` or `'loco'`, see `src/util/haptics.js`.
    *

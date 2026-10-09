@@ -710,6 +710,14 @@ export const PALETTE = {
   // grey that still clears the asphalt by a clear step in lightness, and "worse" reads as denser and
   // faster rather than as blacker.
   damageSmokeLight: '#F4F1ED',
+  // The taxi's paint as it takes damage (game/taxidamage.js): a multiply on the body, eased in off
+  // the first hit, so a yellow car goes mustard and then brown-yellow as its HP runs down. Warm
+  // rather than grey because a grey multiply on #F5C130 reads as the car being in shadow.
+  taxiGrime: '#7A6450',
+  // The flash on the body when a hit lands — an emissive, added on top of the paint for a fifth of a
+  // second. Red because it is the one moment the car may say "hurt" in a hue: the white lift
+  // (`setHighlight`, geometry/taxi.js) already means "accepted".
+  taxiHitFlash: '#FF3A26',
   damageSmokeDark: '#A8A19B',
 
   // What a wreck's paint is pulled toward as it scorches — see SCORCH_MIX in game/wreckage.js. Only
