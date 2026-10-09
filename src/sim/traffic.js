@@ -6509,9 +6509,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // itself through `stageSignal`. That is how the taxi indicates right on its way out of the
       // garage in the opening vignette. A parked car names nothing: it is going nowhere, and the
       // dice `intentFor` would roll for it are for a line it is not driving to.
+      //
+      // The taxi asking to overtake (`passSignal`, the signal button in game/overtake.js) indicates
+      // left — the pass goes out into the oncoming lane — ahead of anything its route says.
       let hand;
       if (car.staged) {
         hand = car.stageSignal;
+      } else if (car.passSignal) {
+        hand = 'left';
       } else if (car.state === 'turn') {
         hand = car.turn && car.turn.hand !== 'straight' ? car.turn.hand : null;
       } else if (!car.parked && car.lane.length - STOP_SETBACK - car.s <= SIGNAL_LEAD) {

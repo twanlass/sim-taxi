@@ -1016,9 +1016,16 @@ function overtakeGrace(params) {
 // A car the taxi has just caught is tailgated for OVERTAKE_GRACE before it can be rammed, so there
 // is time to throw the combo (Tyler, 2026-10-07: "feels better"). `?grace=1.6` tries another
 // length and `?grace=0` is the old rule, rammed the moment you catch it.
+// `?overtake=double` and `?overtake=signal` are input prototypes for Tyler to compare (2026-10-09):
+// a double tap of Loco, and a button of its own over Loco. Without the flag it is the blip.
+const overtakeInput = (() => {
+  const asked = new URLSearchParams(window.location.search).get('overtake');
+  return asked === 'double' || asked === 'signal' ? asked : 'blip';
+})();
 const overtake = createOvertakeCombo({
   taxi: traffic.taxi,
   grace: overtakeGrace(new URLSearchParams(window.location.search)),
+  input: overtakeInput,
 });
 // The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
@@ -3344,6 +3351,9 @@ viewport.onChange((w, h) => {
 // --- Crazy taxi button ------------------------------------------------------
 
 const boostButton = document.getElementById('boost');
+// The overtake button (`?overtake=signal`) — see movePedal.
+const signalButton = overtakeInput === 'signal' ? document.getElementById('signal') : null;
+if (signalButton) signalButton.hidden = false;
 // The same fuel, read out on a gauge arc over the gas button (see #boost-meter in index.html). It
 // takes the pedal's classes and variables verbatim, so the two can never disagree about the tank.
 const boostMeterEl = document.getElementById('boost-meter');
@@ -3412,6 +3422,8 @@ function updateBoostButton(dt) {
   const taxi = traffic.taxi;
   const live = !taxi.crashed && !fares.state.gameOver && boost.isEngaged();
   boostButton.classList.toggle('is-pass-armed', live && (overtake.state.armed || taxi.passing));
+  signalButton?.classList.toggle('is-on',
+    !taxi.crashed && !fares.state.gameOver && (overtake.state.armed || Boolean(taxi.passing)));
   // Dead until there is something worth pressing for: a drop-off pouring fuel back in, or the
   // trickle finishing its climb to a quarter tank (game/boost.js). A pressable-looking pill over a
   // tank with a sixtieth of a second in it would be a lie, so 'empty' covers the whole recharge and
@@ -3759,6 +3771,15 @@ function pressPedal(event) {
     pedalCssPx('--pedal-deadband', 8),
   );
   pedalPointer = event.pointerId;
+  onSignal = false;
+  if (signalButton) {
+    const r = signalButton.getBoundingClientRect();
+    // Its bottom stops where Loco's own reach starts, so the two never share a pixel.
+    signalZone = {
+      left: r.left - SIGNAL_REACH, right: r.right + SIGNAL_REACH, top: r.top - SIGNAL_REACH,
+      bottom: Math.min(r.bottom + SIGNAL_REACH, boostButton.getBoundingClientRect().top - pedalCssPx('--pedal-reach', 20)),
+    };
+  }
   // Set for the whole gesture and not just while a pedal is claimed: a thumb parked off the end of
   // the row is holding nothing, and is still holding the `:active` this press started.
   document.body.classList.add('pedal-slide');
@@ -3777,8 +3798,27 @@ function pressPedal(event) {
   }
 }
 
+// The overtake button sits over Loco (`?overtake=signal`), and a thumb holding Loco flicks up onto
+// it and back. It is not a pedal: reaching it must not let go of the gas, so a finger inside its
+// zone keeps whatever pedal it had and throws the overtake once per visit.
+let signalZone = null;
+let onSignal = false;
+const SIGNAL_REACH = 14;
+
+function throwSignal() {
+  if (fares.state.gameOver || pause?.state.paused) return;
+  overtake.signal();
+}
+
 function movePedal(event) {
   if (event.pointerId !== pedalPointer) return;
+  if (signalZone) {
+    const inside = event.clientX >= signalZone.left && event.clientX <= signalZone.right
+      && event.clientY >= signalZone.top && event.clientY <= signalZone.bottom;
+    if (inside && !onSignal) throwSignal();
+    onSignal = inside;
+    if (inside) return;
+  }
   // Inside a zone, that pedal wins outright — that is the handover. Outside both, the claimed one
   // keeps the finger until it is PEDAL_SLOP clear, which covers the deadband between them and gives
   // a thumb that has slid off the end of the row a way to let go without lifting.
@@ -3803,6 +3843,19 @@ for (const { el } of pedals) el.addEventListener('pointerdown', pressPedal);
 // open. Same shape as the route band's listener, and for the same reason: a listener on an ancestor
 // is the only ordering that holds regardless of who registered first.
 window.addEventListener('pointermove', movePedal);
+// A tap straight on the overtake button — a second finger, or a thumb that came off Loco for it.
+signalButton?.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+  throwSignal();
+});
+signalButton?.addEventListener('touchstart', (event) => { if (event.cancelable) event.preventDefault(); },
+  { passive: false });
+window.addEventListener('keydown', (event) => {
+  if (!signalButton || event.code !== 'KeyO' || event.repeat) return;
+  if (event.metaKey || event.ctrlKey || event.altKey || keyIsSpokenFor(event.target, signalButton)) return;
+  event.preventDefault();
+  throwSignal();
+});
 window.addEventListener('pointerup', liftPedal);
 window.addEventListener('pointercancel', liftPedal);
 

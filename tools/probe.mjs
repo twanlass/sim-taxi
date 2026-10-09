@@ -4763,7 +4763,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   // the pill and back on is what pulls out. The blip is driven through the combo itself, against
   // the sim's own `boost`/`boostEasing` as main.js sets them, so the gap it reads is the real one.
   // A blip with the brake in it is the drift, and must not arm.
-  const comboStage = (gesture, grace = 0) => {
+  const comboStage = (gesture, grace = 0, input = 'blip') => {
     const cTraffic = createTraffic(makeRng(seed + 109), new THREE.Scene(), 2);
     const [cTaxi, cLead] = cTraffic.cars;
     place(cTaxi, dIn, 36);
@@ -4771,7 +4771,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     cTaxi.route = [dIn];
     cLead.route = [dIn];
     cTaxi.hp = TAXI_HP;
-    const combo = createOvertakeCombo({ taxi: cTaxi, grace });
+    const combo = createOvertakeCombo({ taxi: cTaxi, grace, input });
     const cCollisions = createCollisions(cTraffic.cars, cTaxi);
     let hits = 0;
     let peak = 0;
@@ -4784,7 +4784,8 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     // Two seconds: enough to pull out and get by, and short of the map's edge, where the road has
     // no straight on and a taxi with no way round rams by design (`rams` in traffic.js).
     for (let f = 0; f < 60 * 2; f++) {
-      const off = gesture !== 'hold' && f >= blipAt && f < blipAt + blipFrames;
+      const off = gesture !== 'hold' && gesture !== 'signal' && f >= blipAt && f < blipAt + blipFrames;
+      if (gesture === 'signal' && f === blipAt) combo.signal();
       cTaxi.boost = true;
       cTaxi.boostEasing = off;
       combo.update(1 / 60, { held: !off, brakeHeld: gesture === 'brake' && off });
@@ -4812,6 +4813,16 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     graced.hits > 0 && graced.firstHit >= OVERTAKE_GRACE && graced.peak === 0,
     `first bump at ${graced.firstHit?.toFixed(2)}s against ${OVERTAKE_GRACE}s of grace, held rams at`
     + ` ${held.firstHit?.toFixed(2)}s`);
+  // `?overtake=signal`: the button arms it with Loco never leaving the thumb, and a blip there is
+  // only a blip — the button is the input, so lifting off the pill must not arm anything.
+  const byButton = comboStage('signal', 0, 'signal');
+  check('under ?overtake=signal, the overtake button behind a car overtakes it',
+    byButton.arms === 1 && byButton.hits === 0 && byButton.before === 0 && byButton.peak > 0.95,
+    `${byButton.arms} arms, ${byButton.hits} bumps, pass peaked at ${byButton.peak.toFixed(2)}`);
+  const signalBlip = comboStage('blip', 0, 'signal');
+  check('under ?overtake=signal, a blip off Loco does not arm the overtake',
+    signalBlip.arms === 0 && signalBlip.peak === 0,
+    `${signalBlip.arms} arms, pass peaked at ${signalBlip.peak.toFixed(2)}`);
   const braked = comboStage('brake');
   check('a blip with the brake in it (the drift) does not arm the overtake',
     braked.arms === 0 && braked.peak === 0,

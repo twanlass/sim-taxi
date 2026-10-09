@@ -28,13 +28,14 @@ const CARS = 12;
 const STEP = 1 / 60;
 
 /** One bot over one city. `react` and `lift` in seconds; `react: null` never throws the combo. */
-function run(seed, { react, lift, grace }) {
+function run(seed, { react, offs, grace, input = 'blip' }) {
+  const lift = offs?.length ? offs[offs.length - 1][1] : 0;
   cityFor(seed);
   const traffic = createTraffic(makeRng(seed + 44), new THREE.Scene(), CARS);
   traffic.warmup(5);
   const taxi = traffic.taxi;
   taxi.hp = TAXI_HP;
-  const combo = createOvertakeCombo({ taxi, grace });
+  const combo = createOvertakeCombo({ taxi, grace, input });
   const collisions = createCollisions(traffic.cars, taxi);
   const tally = { passed: 0, rammed: 0, gone: 0, lapsed: 0, rammedBeforeLift: 0 };
   let enc = null;     // { t, lifted, pressed, overtakes }
@@ -51,8 +52,10 @@ function run(seed, { react, lift, grace }) {
     }
     if (enc) {
       enc.t += STEP;
-      if (react !== null && enc.t >= react && enc.t < react + lift) held = false;
-      else held = true;
+      const u = enc.t - (react ?? Infinity);
+      // The signal button: one press at the reaction, the thumb never leaving Loco (the flick).
+      if (input === 'signal' && u >= 0 && !enc.signalled) { enc.signalled = true; combo.signal(); }
+      held = !offs?.some(([a, b]) => u >= a && u < b);
     }
     sinceRelease = held ? (sinceRelease === Infinity ? Infinity : sinceRelease) : 0;
     if (!held) sinceRelease = 0; else if (sinceRelease !== Infinity) sinceRelease += STEP;
@@ -85,18 +88,31 @@ const sum = (rows) => rows.reduce((a, r) => {
   return a;
 }, {});
 
-const GRACES = (process.argv.find((a) => a.startsWith('--grace=')) ?? '--grace=0').slice(8)
-  .split(',').map(Number);
+// Gestures, as the stretches the pill is *up* for, in seconds from the reaction. A blip is one
+// lift; Tyler's double tap from a held pill (2026-10-09) is let go, tap, let go, hold.
+const GESTURES = {
+  'blip 0.15': [[0, 0.15]],
+  'blip 0.3': [[0, 0.3]],
+  'double, brisk': [[0, 0.15], [0.25, 0.4]],
+  'double, relaxed': [[0, 0.45], [0.6, 0.85]],
+};
+const GRACE = Number((process.argv.find((a) => a.startsWith('--grace=')) ?? '--grace=1.2').slice(8));
+const RULES = [
+  ['blip', Object.entries(GESTURES)],
+  ['double', Object.entries(GESTURES).filter(([name]) => name.startsWith('double'))],
+  ['signal', [['flick', []]]],
+];
 const grid = [];
-for (const grace of GRACES) {
-  for (const react of [null, 0.35, 0.6, 0.9]) {
-    for (const lift of react === null ? [0] : [0.12, 0.3]) {
-      const t = sum(Array.from({ length: CITIES }, (_, k) => run(9100 + k * 37, { react, lift, grace })));
+for (const [input, gestures] of RULES) {
+  for (const react of [0.35, 0.6, 0.9]) {
+    for (const [name, offs] of gestures) {
+      const t = sum(Array.from({ length: CITIES },
+        (_, k) => run(9100 + k * 37, { react, offs, grace: GRACE, input })));
       const decided = t.passed + t.rammed + t.lapsed;
       grid.push({
-        grace, react: react ?? 'never', lift,
+        rule: input, react, gesture: name,
         passed: `${t.passed}/${decided} (${Math.round((100 * t.passed) / decided)}%)`,
-        rammed: t.rammed, 'rammed before the re-press': t.rammedBeforeLift, lapsed: t.lapsed, gone: t.gone,
+        rammed: t.rammed, lapsed: t.lapsed,
       });
     }
   }
