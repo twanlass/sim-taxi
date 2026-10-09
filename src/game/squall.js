@@ -224,6 +224,8 @@ export function createSquall({ pin = null, rng = Math.random } = {}) {
     wetAt,
     /** How hard it is raining at a point, 0..1. */
     rainAt: (x, z) => cellMask(cell, x, z, state.t),
+    /** `rainAt` for a cell grown by `reach` units — the same ragged edge, just further out. */
+    rainNear: (x, z, reach) => cellMask({ ...cell, r: cell.r + reach }, x, z, state.t),
     rainSoon,
     /** Pin the cell part-way along a crossing (0..1), or null to let the clock run. */
     pin: (v) => { state.pinned = v; settle(); },

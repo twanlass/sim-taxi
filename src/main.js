@@ -462,7 +462,7 @@ function applySquall(dt) {
     dark: SQUALL_GREY * squallPresence,
     rain: cell.on ? 1 : 0,
     wet: squall.state.maxWet,
-    lens: squall.rainAt(c.x, c.z),
+    lens: squall.rainNear(c.x, c.z, LENS_REACH),
     lensWet: LENS_WET,
     lensDry: LENS_DRY_SQUALL,
   }, dt);
@@ -483,12 +483,16 @@ const SQUALL_GREY = 0.2;
 
 /**
  * Seconds for the lens drops to come in as the taxi drives under the squall, and to clear once it
- * drives out. The storm's 12s dry-off left drops on the glass a whole block into the sunshine (the
- * cell's soft edge is 14 units, so the rain itself is already eased over ~1.4s at cruising speed);
- * a short ease in keeps them from popping on at boost speed.
+ * drives out, and how far outside the rain's own edge they start. The storm's 12s dry-off left drops
+ * on the glass a block into the sunshine; 1.5s and the rain's own footprint (#445) went too far the
+ * other way — a cell crosses about once every 100s and covers part of the city, so the drops read
+ * as gone. 5s lets them trail the taxi out of the rain, and `LENS_REACH` (a cell 30 ± 5 across its
+ * core) widens the patch of city that catches them by about a block. A short ease in keeps them
+ * from popping on at boost speed.
  */
 const LENS_WET = 0.5;
-const LENS_DRY_SQUALL = 1.5;
+const LENS_DRY_SQUALL = 5;
+const LENS_REACH = 15;
 
 // The storm's one city-wide wetness, for the tyres (`groundWetAt`).
 let stormWet = 0;
