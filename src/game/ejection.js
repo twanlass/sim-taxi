@@ -4,7 +4,9 @@
 // impact frame: up and over whatever it hit, windmilling, a bounce or two down the road, and a
 // short slide to a sprawl. It is the comic half of the crash. Nothing about the taxi's interior is
 // modelled (there is no driver to be seen through the glass at play zoom), so the figure only
-// exists from the moment it leaves.
+// exists from the moment it leaves — and fades in over its first FADE_IN of flight, because a
+// figure appearing whole on the impact frame read as a pop rather than as someone coming out of the
+// glass.
 //
 // Same rules as game/wreckage.js, and for the same reasons: it is a **closed form** of its own
 // age. `fire()` precomputes the whole flight as a short table of ballistic arcs plus one drag
@@ -38,7 +40,7 @@ import {
   GRID_I, GRID_J, HALF_SPAN_X, HALF_SPAN_Z, HALF_ARTERIAL, PITCH, DIR, blockBounds, lineX,
   riverBanks, riverRow, isSegmentClosed,
 } from '../city/grid.js';
-import { markOccluder } from './ssao.js';
+import { markOccluder, AO_LAYER } from './ssao.js';
 
 // u/s of closing speed at the wreck. The bands sim/collisions.js prices bumps in: rear-ending a
 // car at boost cruise closes at ~10.5, T-boning cross traffic at ~21, a head-on at ~27, anything in
@@ -95,6 +97,10 @@ const SLIDE_DRAG = 5;
 const CLEAR = 1.8;
 const TRACK_STEP = 0.2;
 const SETTLE = 0.3;
+// The figure fades in over its first this-many seconds rather than popping into being on the impact
+// frame. Short enough to be over before the first bounce (the shortest arc is ~0.6s) and to sit
+// inside the windscreen's own burst (game/windshield.js), so it reads as coming out of the glass.
+export const FADE_IN = 0.25;
 const HALF_PI = Math.PI / 2;
 
 /**
@@ -118,6 +124,23 @@ export function createEjection(scene, { roadY = 0, onLand = null } = {}) {
   root.visible = false;
   scene.add(root);
   markOccluder(root);
+
+  // The fade rides on age like everything else here, so the replay scrubs it for free. While it is
+  // see-through it is also out of the AO prepass, which would otherwise stamp the contact shading
+  // of a figure that is not yet there (`markOccluder` decides once, at construction, and a
+  // transparent material would never have been marked).
+  let shown = 1;
+  function fade(a) {
+    if (a === shown) return;
+    person.setOpacity(a);
+    if ((a >= 1) !== (shown >= 1)) {
+      for (const mesh of person.meshes) {
+        if (a >= 1) mesh.layers.enable(AO_LAYER);
+        else mesh.layers.disable(AO_LAYER);
+      }
+    }
+    shown = a;
+  }
 
   // The flight. Null until `fire()`.
   let flight = null;
@@ -252,6 +275,7 @@ export function createEjection(scene, { roadY = 0, onLand = null } = {}) {
     root.rotation.set(0, f.face + f.twist * Math.min(at, f.air), 0);
     pivot.rotation.set(theta, 0, 0);
     person.tumble(at, limp);
+    fade(Math.min(1, Math.max(0, at / FADE_IN)));
   }
 
   function update(dt) {
