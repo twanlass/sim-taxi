@@ -815,7 +815,7 @@ export function createPerson({
   // crew's fade does. `group.children` is not that list any more: the shins and forearms hang off
   // the limb above them.
   return {
-    group, meshes, wave, board, exit, bail, rest, idle, flee, surrender, highlight, setRobber,
+    group, meshes, wave, board, exit, bail, rest, idle, flee, surrender, highlight, setRobber, setOpacity,
     dribble, shoot, chase, watch, tumble, skate,
   };
 }

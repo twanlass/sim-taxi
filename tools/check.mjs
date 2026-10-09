@@ -335,7 +335,7 @@ try {
   // junction must every one come to rest on the road.
   {
     const THREE = await import('three');
-    const { createEjection } = await import('../src/game/ejection.js');
+    const { createEjection, FADE_IN } = await import('../src/game/ejection.js');
     const { GRID_I, GRID_J, blockBounds, lineX, lineZ } = await import('../src/city/grid.js');
     const scene = new THREE.Scene();
     const lands = [];
@@ -378,6 +378,15 @@ try {
     replayed.fire({ x: lineX(2), z: lineZ(3), yaw: 0, closing: 21, side: 1 });
     for (let n = 0; n < 24; n++) replayed.update(1 / 60);
     if (scrubbed.distanceTo(replayed.group.position) > 1e-6) fail.push('seek(0.4) disagrees with stepping to 0.4');
+    // Fades in rather than popping: see-through at the impact, solid (and back in the AO prepass)
+    // once the fade is done, and the replay's scrub lands the same opacity as stepping did.
+    const torsoMat = () => ej.group.getObjectByProperty('isMesh', true).material;
+    ej.seek(0);
+    if (!(torsoMat().opacity < 0.05 && torsoMat().transparent)) fail.push(`opacity ${torsoMat().opacity} at the impact, not faded`);
+    ej.seek(FADE_IN / 2);
+    if (Math.abs(torsoMat().opacity - 0.5) > 1e-6) fail.push(`opacity ${torsoMat().opacity} halfway through the fade`);
+    ej.seek(FADE_IN);
+    if (torsoMat().opacity !== 1 || torsoMat().transparent) fail.push('still see-through after the fade');
     ej.seek(-0.1);
     if (ej.group.visible) fail.push('drew before the impact');
     ej.seek();
