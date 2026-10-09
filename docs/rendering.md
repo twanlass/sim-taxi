@@ -1432,8 +1432,9 @@ Everything that was a level in the storm becomes a position here:
   `setRunningLightsAt(fn)` in sim/traffic.js, per car from its own position.
 - **What stays global:** a faint grade (`SQUALL_GREY` 0.2) while a cell is on the map, the grip
   (read under the *taxi*, so every car brakes as the player's patch of road does), and the lens
-  drops (on while the *taxi* is under the rain — it is the taxi's windscreen — easing in over 0.5s
-  and clearing over 1.5s once it drives out, `LENS_WET`/`LENS_DRY_SQUALL` in main.js; the frame
+  drops (on while the *taxi* is under the rain — it is the taxi's windscreen — or within `LENS_REACH`
+  (15 units) of its edge, easing in over 0.5s and clearing over 5s once it drives out,
+  `LENS_WET`/`LENS_DRY_SQUALL` in main.js; the frame
   centre stands in only before the taxi exists).
 - **Mirror pass.** It runs while any of the map is wet (`maxWet`) and is skipped when the whole
   island has dried.
