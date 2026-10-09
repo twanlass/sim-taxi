@@ -126,7 +126,7 @@ import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getA
   getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall, getWater } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
-import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
+import { createRadio, BLOCKADE_SHOUT, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
 import { createPatrol } from './game/patrol.js';
 import { createCopShout } from './game/copshout.js';
 import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
@@ -878,6 +878,10 @@ const robbery = city.bank && !shot
     busy: () => patrol.busy(),
     // Never take a cop off the map where the player can see it — see `inShot` in game/robbery.js.
     inShot,
+    // `?chase=stream`: every cop on the taxi's tail, and the last checkpoint shut by a blockade the
+    // taxi has to spin round in front of (game/blockade.js). A prototype; off by default.
+    stream: new URLSearchParams(window.location.search).get('chase') === 'stream',
+    onCornered: () => { if (!fares.state.gameOver) radio?.show(BLOCKADE_SHOUT, traffic.taxi); },
     // Delivered: the nearest cop comes after the taxi as an ordinary patrol chase — caught on a
     // touch, lost two and a half blocks out — while the rest fan out round the robber on the corner
     // (game/arrest.js). The robber is delivered, so the chase can end the run: that is the trade
@@ -994,6 +998,8 @@ const patrol = createPatrol({
 const bootleg = createBootleg({
   taxi: traffic.taxi,
   destination: () => traffic.taxi.pendingTarget ?? null,
+  // Driving into the getaway's blockade, two brake taps spin the taxi on their own — see game/blockade.js.
+  cornered: () => robbery?.blockade?.cornered() ?? false,
   // It has to land like a hit: the screech, a jolt of shake, a buzz, and all four wheels marking the
   // road on the frame it starts. `layRubber` carries the streak on from there.
   onSpin: () => {

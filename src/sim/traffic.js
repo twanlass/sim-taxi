@@ -1582,18 +1582,16 @@ export function spinAngle(t) {
 }
 
 /**
- * Spin the taxi round to the far lane, or say why not: `'median'` on an arterial (the centreline is
- * a planted median), `'bridge'` over the river, `'road'` mid-junction, on a bend or with no lane back,
- * `'short'` if there is no room on the lane to land without running into a junction.
+ * Why a spin could not happen anywhere on `lane` (heading `d` into junction (i, j)), or null if
+ * it could: the half of `spinTaxi`'s refusals that are about the road rather than the car. The
+ * getaway's blockade (game/blockade.js) asks it of the street it is about to close, because the
+ * spin is the way out of it.
  */
-export function spinTaxi(car) {
-  if (car.crashed || car.staged || car.uturn || onDriftLaunch(car)) return 'road';
-  if (car.state !== 'drive' || car.pass > 0 || car.passing) return 'road';
-  if (!blocksOnCentreline(car)) return 'median';
+export function laneSpinRefusal(lane, d, i, j) {
+  if (laneOffsetFor(d, i, j) > LANE + 1e-9) return 'median';
   const net = cityNetwork();
-  const lane = car.lane;
   const from = net.nodeById.get(lane.from);
-  const back = net.laneByGrid(opposite(car.d), from.gi, from.gj);
+  const back = net.laneByGrid(opposite(d), from.gi, from.gj);
   if (!back || back.degenerate || back.from !== lane.to || closedLanes.has(back.id)) return 'road';
   const h = lane.path.tangentAt(0);
   const end = lane.path.tangentAt(lane.length);
@@ -1604,6 +1602,24 @@ export function spinTaxi(car) {
     const z1 = lane.path.at(lane.length).z;
     if (Math.max(z0, z1) > banks.z0 && Math.min(z0, z1) < banks.z1) return 'bridge';
   }
+  if (back.length - STOP_SETBACK - 1 < CAR_LEN / 2 + 1) return 'short';
+  return null;
+}
+
+/**
+ * Spin the taxi round to the far lane, or say why not: `'median'` on an arterial (the centreline is
+ * a planted median), `'bridge'` over the river, `'road'` mid-junction, on a bend or with no lane back,
+ * `'short'` if there is no room on the lane to land without running into a junction.
+ */
+export function spinTaxi(car) {
+  if (car.crashed || car.staged || car.uturn || onDriftLaunch(car)) return 'road';
+  if (car.state !== 'drive' || car.pass > 0 || car.passing) return 'road';
+  const refused = laneSpinRefusal(car.lane, car.d, car.i, car.j);
+  if (refused) return refused;
+  const lane = car.lane;
+  const from = cityNetwork().nodeById.get(lane.from);
+  const back = cityNetwork().laneByGrid(opposite(car.d), from.gi, from.gj);
+  const h = lane.path.tangentAt(0);
   const p = lane.path.at(car.s);
   const o = back.path.at(0);
   const t = back.path.tangentAt(0);
@@ -1613,7 +1629,6 @@ export function spinTaxi(car) {
   const slide = Math.min(car.v * SPIN_TIME * SPIN_SLIDE, 7);
   const hi = back.length - STOP_SETBACK - 1;
   const lo = CAR_LEN / 2 + 1;
-  if (hi < lo) return 'short';
   const s = Math.max(lo, Math.min(hi, c - car.s - slide));
   const q = back.path.at(s);
   // Nose swings toward the far lane, as a handbrake turn does.
@@ -3613,6 +3628,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
   // Junctions closed to traffic by the game layer, as `"i,j"` keys — see `sealedFor` in `update`.
   const sealed = new Set();
+  // ...and the ones closed even to a boosting taxi: the getaway's blockade (game/blockade.js),
+  // whose staged cars a barging taxi would meet at Loco speed. A subset of `sealed`.
+  const hardSealed = new Set();
 
   /**
    * Where a cop car may come onto the map.
@@ -3644,7 +3662,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
    * legal spot, which on a saturated or heavily closed network is a real outcome — the caller
    * re-asks on a later frame rather than looping here.
    */
-  function enterPolice(n, near = taxi, { behind = false } = {}) {
+  function enterPolice(n, near = taxi, { behind = false, tail = null } = {}) {
     let added = 0;
     // Where "behind" is, if the caller asked for it: the reverse of the taxi's own heading. A cop
     // brought in behind the player comes into frame in the mirror on the straight they are already
@@ -3662,12 +3680,21 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // best lane available and give up one requirement at a time until something is found.
       // Twelve passes reaches right across the map, so this cannot fail for want of asking.
       for (let ring = 0; ring < 12 && cars.length === before; ring++) {
-        const reach = PITCH + ring * PITCH * 0.5;
+        // `tail` (game/robbery.js's `?chase=stream`) starts its rings at the clearance, because
+        // the ones inside it can never be met: a lane `PITCH` from the taxi is in frame by
+        // definition. That is also why `behind` alone does less than it says — its four passes
+        // reach 20 to 50, all inside the clearance, so it is never actually asked.
+        const reach = tail ? SPAWN_CLEARANCE + ring * PITCH * 0.5 : PITCH + ring * PITCH * 0.5;
         spawnCars(rng, 1, cars, ({ lane, s }) => {
           if (closedLanes.has(lane.id)) return false;
           const at = lane.path.at(s);
           // Hard: never in frame.
           if (Math.hypot(at.x - taxi.x, at.z - taxi.z) < SPAWN_CLEARANCE) return false;
+          // On the road the taxi has just driven, for the first passes — `tail` is those lanes'
+          // ids — so the cop comes up the same streets in the mirror rather than from somewhere
+          // back there. Then anywhere behind, then anywhere.
+          if (tail && ring < 4 && !tail.has(lane.id)) return false;
+          if (tail && ring < 8 && (at.x - taxi.x) * fx + (at.z - taxi.z) * fz > 0) return false;
           // Behind the player, while that is still being asked for. Dropped after four passes:
           // a re-entry that cannot be placed behind is better placed *somewhere* than not at all,
           // and on a taxi that has just turned a corner the road behind it may be the river.
@@ -4835,8 +4862,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
      */
     const sealedFor = (car) => {
       const key = `${car.i},${car.j}`;
-      return (sealed.has(key) && !bargesThrough(car)) || car.holdAt === key;
+      return (sealed.has(key) && (!bargesThrough(car) || hardSealed.has(key))) || car.holdAt === key;
     };
+    // A hard seal refuses a boosting taxi too, so it is asked ahead of the barge's early outs.
+    const hardSealedFor = (car) => hardSealed.has(`${car.i},${car.j}`);
 
     /**
      * Swap a straight-on crossing for the turn `car.lateTurn` asks for, if it still can be.
@@ -4901,6 +4930,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
      * braking for a turn they were never going to take.
      */
     const entryRefused = (car) => {
+      if (hardSealedFor(car)) return true;
       if (bargesThrough(car)) return false;
       // A car stranded mid-turn: cross traffic released into the junction drives through it.
       if (heldAt.has(`${car.i},${car.j}`) && !joinsBlock(car)) return true;
@@ -6740,8 +6770,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
      * stranded in it, for everyone but a boosting taxi — see `sealedFor`. Cars
      * already inside finish their crossing; the caller waits for the box to empty.
      */
-    sealJunction: (i, j, on = true) => {
-      if (on) sealed.add(`${i},${j}`); else sealed.delete(`${i},${j}`);
+    sealJunction: (i, j, on = true, { hard = false } = {}) => {
+      const key = `${i},${j}`;
+      if (on) sealed.add(key); else sealed.delete(key);
+      if (on && hard) hardSealed.add(key); else hardSealed.delete(key);
     },
     /** Is junction (i, j) closed? For the probe. */
     isSealed: (i, j) => sealed.has(`${i},${j}`),

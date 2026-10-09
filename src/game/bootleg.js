@@ -38,8 +38,14 @@ const SPIN_BUFFER = 0.7;
  * @param taxi         the traffic model's taxi
  * @param destination  () => {i, j} | null — what the trip re-plans to after a spin
  * @param onSpin       () => void — the spin started: main.js puts the noise, the shake, the haptic on it
+ * @param cornered     () => boolean — the taxi is driving into the getaway's blockade
+ *                     (game/blockade.js). There the spin is the way out, so two brake taps are
+ *                     enough on their own: no Loco Mode, and no speed — the taxi may already be
+ *                     standing at the cars.
  */
-export function createBootleg({ taxi, destination = () => null, onSpin = () => {} }) {
+export function createBootleg({
+  taxi, destination = () => null, onSpin = () => {}, cornered = () => false,
+}) {
   const state = {
     /** Tallies, for the tools. */
     spins: 0,
@@ -63,7 +69,7 @@ export function createBootleg({ taxi, destination = () => null, onSpin = () => {
    * the second tap was a brake press, and it brakes.
    */
   function spin({ buffer = true } = {}) {
-    if (taxi.v < SPIN_MIN_V) return refuse('slow');
+    if (taxi.v < SPIN_MIN_V && !cornered()) return refuse('slow');
     const why = spinTaxi(taxi);
     if (why === 'road' && buffer && (taxi.state === 'turn' || taxi.pass > 0 || taxi.passing)) {
       state.pending = SPIN_BUFFER;
@@ -88,7 +94,7 @@ export function createBootleg({ taxi, destination = () => null, onSpin = () => {
       const now = performance.now();
       const prev = state.lastTap;
       state.lastTap = { at: now, engaged };
-      if (prev && prev.engaged && now - prev.at <= COMBO_GAP_MS) {
+      if (prev && (prev.engaged || cornered()) && now - prev.at <= COMBO_GAP_MS) {
         state.lastTap = null;
         return spin();
       }

@@ -42,6 +42,13 @@ export const ROBBERY_CALL = { title: 'Police dispatch', line: '10-65 in progress
 export const LOST_CALL = { title: 'Police', line: 'Lost the suspect. Resuming patrol.' };
 
 /**
+ * ...and the robber, from the back seat, as the getaway's blockade comes into view
+ * (game/blockade.js). Not the police, but the same bubble, pinned on the taxi: it is the one word
+ * the game gets to say that the way out is the spin, and how to do it there.
+ */
+export const BLOCKADE_SHOUT = { title: 'Bank robber', line: 'Roadblock! Brake twice, spin us round!' };
+
+/**
  * How long it stays up, in seconds of game time. Long enough to read the line twice at a glance,
  * short enough that it is gone before the first cop car is on screen to take over saying it. Game
  * time rather than wall time, so a pause holds it rather than eating it.
@@ -68,7 +75,7 @@ export function createRadio({ project, viewport = null }) {
   let car = null;
   const last = { x: 0, z: 0 };
   const at = () => {
-    if (car?.police) { last.x = car.x; last.z = car.z; }
+    if (car?.police || car?.isTaxi) { last.x = car.x; last.z = car.z; }
     return project(last.x, TIP_Y, last.z);
   };
 
@@ -83,8 +90,8 @@ export function createRadio({ project, viewport = null }) {
     /**
      * The police talk.
      *
-     * @param call  ROBBERY_CALL or LOST_CALL
-     * @param cop   the police car to pin it on; nothing is shown without one
+     * @param call  ROBBERY_CALL, LOST_CALL or BLOCKADE_SHOUT
+     * @param cop   the car to pin it on — a police car, or the taxi; nothing is shown without one
      */
     show(call, cop) {
       if (!cop) return;

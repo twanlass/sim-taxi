@@ -1842,7 +1842,9 @@ export function createFareSystem(rng, scene, { reserved = () => [], judgeRun = (
 
       // Proximity resolves the arrival, but only for a taxi the player actually sent here. No
       // extra confirmation tap is needed on arrival — the tap that set the route is the intent.
-      if (!fare.directed || distanceToTarget(fare, taxiCar) >= ARRIVE_RADIUS) continue;
+      // `arriveRadius` widens it for one target: the getaway's blockade (game/blockade.js) parks
+      // police across the last checkpoint's box, so getting as far as the cars counts.
+      if (!fare.directed || distanceToTarget(fare, taxiCar) >= (fare.arriveRadius ?? ARRIVE_RADIUS)) continue;
 
       if (fare.stage === 'waiting') {
         beginRide(fare);
@@ -1852,6 +1854,7 @@ export function createFareSystem(rng, scene, { reserved = () => [], judgeRun = (
         // fare carries on, clock and all. main.js refills the tank and re-dispatches the route.
         fare.checkpoints.shift();
         fare.target = fare.checkpoints[0] ?? fare.dropoff;
+        fare.arriveRadius = null;
         place(fare.slot.destination, fare.target.i, fare.target.j);
         // The white waypoint ring while there are checkpoints left, the ordinary one for the drop-off.
         fare.slot.destination.ring.setWaypoint(fare.checkpoints.length > 0);

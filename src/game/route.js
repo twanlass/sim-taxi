@@ -64,10 +64,17 @@ export function setRoadworkLanes(ids) {
  * the bridge is the short way across, "has to" is exactly the case that comes up. Skipping means no
  * route can ever thread a raised leaf, which is what lets `main.js` re-plan on the lift and trust
  * the answer.
+ *
+ * Keyed by source, the way sim/traffic.js keys its closures: the getaway's blockade
+ * (game/blockade.js) shuts the way into its junction the same way, and a leaf coming down must not
+ * reopen it.
  */
+const blockedBySource = new Map();
 let blockedLanes = new Set();
-export function setBlockedLanes(ids) {
-  blockedLanes = new Set(ids);
+export function setBlockedLanes(ids, source = 'drawbridge') {
+  blockedBySource.set(source, new Set(ids));
+  blockedLanes = new Set();
+  for (const set of blockedBySource.values()) for (const id of set) blockedLanes.add(id);
 }
 
 /**
@@ -83,6 +90,17 @@ let hazardLanes = new Set();
 const HAZARD_COST = 2;
 export function setHazardLanes(ids) {
   hazardLanes = new Set(ids);
+}
+
+/**
+ * Junctions a route may drive **to** but not **through**, as node ids, published by
+ * game/blockade.js while police are parked across one. A lane into one is skipped unless it is the
+ * lane the search was asked to arrive by — the getaway's last checkpoint is still somewhere to
+ * drive, and getting to the cars is what touches it; going on past them is not.
+ */
+let closedJunctions = new Set();
+export function setClosedJunctions(ids) {
+  closedJunctions = new Set(ids);
 }
 
 /** Whether a route may use this lane at all. */
@@ -188,6 +206,7 @@ function search(net, from, reached, cost) {
 
     for (const next of cur === START ? startExits(net, origin, from.d) : cur.onward) {
       if (!laneOpen(next)) continue;      // a raised bridge is not a road — see setBlockedLanes
+      if (closedJunctions.has(next.to) && !reached(next)) continue;
       const nd = curDist + cost(next);
       if (nd < (dist.get(next) ?? Infinity)) {
         dist.set(next, nd);
