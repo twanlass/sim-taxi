@@ -44,7 +44,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -16960,6 +16960,7 @@ let chopperOrder; // likewise
   let tapSwing = 0;
   let straightRefused = 0;
   let plainSwing = 0;
+  let lateKicked = 0;
   for (const lane of net.lanes) {
     if (lane.degenerate || isLaneClosed(lane.id) || lane.length < 10) continue;
     const to = net.nodeById.get(lane.to);
@@ -17027,6 +17028,17 @@ let chopperOrder; // likewise
         }
         plainSwing = Math.max(plainSwing, swing);
       }
+      // The pill a long beat after the tap: Tyler found any later press still threw the slide, because
+      // the tap stayed armed until the taxi landed — a median 1.5s on. Past DRIFT_KICK_WINDOW it is gone.
+      if (setup() && driftTaxi(taxi) === null) {
+        const before = taxi.drifts;
+        const late = Math.ceil((DRIFT_KICK_WINDOW + 0.1) * 60);
+        for (let k = 0; k < 240 && taxi.drifts === before; k++) {
+          if (k === late && kickDrift(taxi)) lateKicked += 1;
+          dTraffic.update(1 / 60);
+        }
+        if (taxi.drifts > before) lateKicked += 1;
+      }
       // The control: same corner, pedal held.
       if (setup()) {
         taxi.braking = true;
@@ -17058,6 +17070,8 @@ let chopperOrder; // likewise
     `peak swing ${peakSwing.toFixed(2)} of DRIFT_ANGLE, ${worstYaw.toFixed(3)} rad of it left 1s after the exit`);
   check('a Loco corner without the tap keeps the plain lean: the slide is the combo\'s alone',
     plainSwing < 0.01, `largest swing ${plainSwing.toFixed(3)} of DRIFT_ANGLE with the pill simply held`);
+  check('...and the pill coming back past DRIFT_KICK_WINDOW is a boost, not a kick', lateKicked === 0,
+    `${lateKicked} late presses still kicked, ${DRIFT_KICK_WINDOW}s after the tap`);
   check('...and a tap with the road going straight on is just a brake', straightRefused > 20,
     `${straightRefused} straight-on approaches refused`);
 
