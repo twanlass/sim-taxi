@@ -77,7 +77,7 @@ import {
   stepLevel, frameWash, RISE as ROB_RISE, FALL as ROB_FALL,
 } from '../src/game/robberyglow.js';
 import {
-  createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES, MAX_STRIKES,
+  createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES, MAX_STRIKES, RATING_START, RATING_FLOOR, ratingFor,
   ROBBER_CHECKPOINTS,
   ARRIVE_RADIUS, onSameBlock, onWaterBlock, CURSE_LIFT, BURGER_PRICE, waitingTargets, stampFareMarker, BOARD_SECONDS,
 } from '../src/game/fares.js';
@@ -6267,6 +6267,12 @@ function rideToPickup() {
   kFares.update(1 / 60, kTraffic.taxi);
   check('the last strike ends the run', kFares.state.gameOver
     && kFares.state.strikes === MAX_STRIKES, `strikes ${kFares.state.strikes}`);
+  // The rating is the strikes reskinned: a whole star a miss, from 5 down to the floor that ends
+  // it, and the ending says so in rating words.
+  check('the run ends as the rating reaches its floor',
+    RATING_START === 5 && ratingFor(kFares.state.strikes) === RATING_FLOOR && RATING_FLOOR === 2
+      && kFares.state.failTitle === 'Deactivated!' && /2\.0 stars/.test(kFares.state.failReason),
+    `${kFares.state.failTitle} ${kFares.state.failReason}`);
 
   const spot = kFares.state.failSpot;
   check('a rider who gives up waiting puts the shot on their own kerb corner',
