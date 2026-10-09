@@ -49,7 +49,8 @@ import {
 import { createBoostMeter } from './game/boostmeter.js';
 import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
-import { createTaxiDamage, SMOKE_FRACTION } from './game/taxidamage.js';
+import { createTaxiDamage, SMOKE_FRACTION, BOOT_FRACTION } from './game/taxidamage.js';
+import { createHitCue, hitCueMode } from './game/hitcue.js';
 import { createCarDamage } from './game/cardamage.js';
 import { createTaxiDoor } from './game/taxidoor.js';
 import { flyEnergyToBoost } from './game/energybits.js';
@@ -795,6 +796,7 @@ const depotRun = garage && !shot
         onRepair: () => {
           traffic.taxi.hp = TAXI_HP;
           taxiDamage.reset();
+          hitCue?.clear();
         },
         // The car is back on the lane, 5.5 units short of a junction: put a job under it before it
         // gets there. A route the player planned while it was inside stands — `stageCar` never saw
@@ -1782,7 +1784,14 @@ const taxiDoor = createTaxiDoor({ setDoor: traffic.setTaxiDoor });
 // without the bar.
 const BUMP_SHAKE = 0.35;
 const BUMP_SHAKE_PER_UNIT = 0.03;
-collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck }) => {
+// What the hit cost, up for a second and a half and then gone (game/hitcue.js). Off unless
+// `?hitcue=chip|edge|both`.
+const hitCue = shot ? null : createHitCue({
+  mode: hitCueMode(new URLSearchParams(window.location.search)),
+  project: projectToScreen, maxHp: TAXI_HP, lowAt: SMOKE_FRACTION, midAt: BOOT_FRACTION,
+});
+collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck, damage, hp, taxi }) => {
+  hitCue?.hit({ damage, hp, taxi });
   const yaw = traffic.taxi.yaw;
   // Ramming the patrol car on the pill is a bump like any other, not a bust — game/patrol.js
   // `rammed`. The collision pass runs before the patrol's, so this lands the same frame.
@@ -4850,6 +4859,7 @@ function frame() {
   if (!fareLoopHeld()) robbery?.update(dt);
   radio?.update(dt, { over: fares.state.gameOver });
   copShout?.update(dt, { over: fares.state.gameOver });
+  hitCue?.update(dt, traffic.taxi);
   // The depot's card: SHOW_DELAY after the car starts smoking, so the hit that did it has landed
   // first. A beat that is not calm — a getaway, a chase, the taxi already on its way in for repairs —
   // defers it rather than spending it: it is tried again every half second for as long as the car
@@ -5968,6 +5978,12 @@ window.__taxi = {
    * a silent answer spread over four URL flags.
    */
   scores: { load: loadScores, record: recordRun, clear: clearScores, isRanked: isRankedRun },
+  /**
+   * Play the hit cue (`?hitcue=`, game/hitcue.js) as if a bump had just cost `damage` HP, without
+   * touching the taxi's real HP. For judging the look on a phone, and for the frames in its PR.
+   */
+  hitCue: (damage = 24, hp = Math.max(0, traffic.taxi.hp - damage)) =>
+    hitCue?.hit({ damage, hp, taxi: traffic.taxi }),
   /**
    * Fire one haptic by name — `'pick'` or `'loco'`, see `src/util/haptics.js`.
    *

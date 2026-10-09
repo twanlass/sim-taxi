@@ -32,7 +32,7 @@ const MID = 0.67;
 // Exported as SMOKE_FRACTION: the depot's tip card (REPAIR in game/newmove.js) goes up a beat after
 // the car starts smoking, so the card and the car say it together.
 const LOW = 0.34;
-export { LOW as SMOKE_FRACTION };
+export { LOW as SMOKE_FRACTION, MID as BOOT_FRACTION };
 // The last warning. The billows above come and go in puffs; this is a stream — small, dark, one
 // every PLUME_EVERY whatever the car is doing, standing or driving — so a car that is nearly done
 // is never seen without it. The pool is 200 puffs of a second each; 25 a second is an eighth of it.
