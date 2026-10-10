@@ -77,6 +77,7 @@ import { createDucks } from './game/ducks.js';
 import { createHoopers } from './game/hoopers.js';
 import { courtRect } from './city/blacktop.js';
 import { createSkaters } from './game/skaters.js';
+import { createClassicSkaters } from './game/skatersclassic.js';
 import { skateRect } from './city/skatepark.js';
 import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
@@ -607,9 +608,11 @@ scene.add(canopyFuzz.mesh);
 if (props.courtMesh) scene.add(markOccluder(props.courtMesh));
 const hoopers = createHoopers(scene, makeRng(runSeed + 313), props.court);
 // And the skatepark beside it, on the same two terms: its rail and coping ride outside the props
-// mesh, and who is riding it is the run seed's. See city/skatepark.js and game/skaters.js.
+// mesh, and who is riding it is the run seed's. See city/skatepark.js and game/skaters.js;
+// `?skater=classic` brings back the first cut's pair of riders (game/skatersclassic.js).
 if (props.skateMesh) scene.add(markOccluder(props.skateMesh));
-const skaters = createSkaters(scene, makeRng(runSeed + 349), props.skatepark);
+const skaters = (new URLSearchParams(window.location.search).get('skater') === 'classic'
+  ? createClassicSkaters : createSkaters)(scene, makeRng(runSeed + 349), props.skatepark);
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
 // subject of the opening vignette below. `null` on a city with nowhere to put one, which is a

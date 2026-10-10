@@ -779,6 +779,39 @@ export function createPerson({
   }
 
   /**
+   * On a skateboard, with every dial game/skaters.js drives from its springs: the same sideways
+   * stance as `skate`, but each part of it free to move on its own, because a pose that only ever
+   * crouches is what read as a figure bolted to the board.
+   *
+   * `lean` tips the body toward its +X foot (the board's nose) about the feet, and the front knee
+   * folds by what that takes off the front leg — `FOOT_X · sin(lean)` — and the back knee opens by
+   * the same, so the feet stay on the deck instead of one sinking into it and one lifting off.
+   * `bow` is the chest folding forward, `twist` the shoulders opening toward where they are going,
+   * `swing` the arms trailing fore and aft, `spread` how far out to the sides they are held,
+   * `grab` `skate`'s frontside grab and `tuck` the knees drawn up for a flip.
+   */
+  function ride({
+    drop = 0.14, lean = 0, bow = 0.12, twist = 0, swing = 0, spread = 1.0, grab = 0, tuck = 0,
+  } = {}) {
+    const SPREAD = 0.24;
+    const FOOT_X = 0.26 + LEG_LEN * Math.sin(SPREAD);
+    const d = drop + grab * 0.45 + tuck * 0.35;
+    const k = FOOT_X * Math.sin(lean);
+    const sinkL = crouch(Math.max(0.01, d - k));
+    const sinkR = crouch(d + k);
+    legL.rotation.set(-sinkL, 0, -SPREAD);
+    legR.rotation.set(-sinkR, 0, SPREAD);
+    // Arms counter the lean: the back one comes up as the body tips toward the nose.
+    const out = spread * (1 - 0.33 * grab);
+    armL.rotation.set(-0.25 + swing * 0.5, 0, -out - lean * 0.9);
+    armR.rotation.set(-0.25 - swing * 0.5 - 0.9 * grab, 0, out - lean * 0.9 - 0.85 * grab);
+    bend(2 * sinkL, 2 * sinkR, -0.45 - 0.25 * tuck, -0.45 + 0.3 * grab);
+    group.rotation.set(bow + 0.25 * grab + 0.15 * tuck, twist, -lean);
+    group.position.set(0, -d - LEG_LEN * (1 - Math.cos(SPREAD)), 0);
+    group.scale.setScalar(1);
+  }
+
+  /**
    * Thrown clear of a wreck (game/ejection.js): arms windmilling and legs bicycling while airborne,
    * eased into a sprawled starfish as `limp` goes 0 → 1 once they have come to rest. Only the limbs
    * are written — the tumble itself is a rotation on whatever holds the figure, because it has to
@@ -816,6 +849,6 @@ export function createPerson({
   // the limb above them.
   return {
     group, meshes, wave, board, exit, bail, rest, idle, flee, surrender, highlight, setRobber, setOpacity,
-    dribble, shoot, chase, watch, tumble, skate,
+    dribble, shoot, chase, watch, tumble, skate, ride,
   };
 }

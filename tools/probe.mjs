@@ -35,6 +35,7 @@ import {
   planSkatepark, skateparkParts, skateRect, surfaceAt, SKATE_TOP_Y, LIP_H,
 } from '../src/city/skatepark.js';
 import { createSkaters } from '../src/game/skaters.js';
+import { createClassicSkaters } from '../src/game/skatersclassic.js';
 import { createGarage, garageSite } from '../src/city/garage.js';
 import {
   createBurgerJoint, burgerSite, burgerGeometry, BURGER_R, SIGN_SPIN, VIEW_RISE, ROOF_Y, CAP_Y,
@@ -1360,8 +1361,9 @@ const onGrass = (city, i, j) => {
   check('and the props hand it back with its metal in a mesh of its own',
     !!propsBuild.skateMesh && propsBuild.skateMesh.name === 'skatepark-frame', 'skatepark frame');
 
-  // Five minutes of riding, over four runs. A rider never sinks into the surface they are on, never
-  // leaves the slab, and actually rides: airs, kickturns, grinds and rests all happen.
+  // `?skater=classic`: five minutes of riding, over four runs. A rider never sinks into the surface
+  // they are on, never leaves the slab, and actually rides: airs, kickturns, grinds and rests all
+  // happen.
   const skateScene = new THREE.Scene();
   const r = skateRect(park, 0.05);
   let below = 0;
@@ -1372,7 +1374,7 @@ const onGrass = (city, i, j) => {
   let turns = 0;
   let highest = 0;
   for (const run of [349, 350, 351, 352]) {
-    const crew = createSkaters(skateScene, makeRng(seed + run), park);
+    const crew = createClassicSkaters(skateScene, makeRng(seed + run), park);
     const was = crew.riders.map((rd) => ({ mode: rd.mode, s: Math.sign(rd.s), grind: false }));
     for (let step = 0; step < 300 * 60; step++) {
       crew.update(1 / 60);
@@ -1397,11 +1399,78 @@ const onGrass = (city, i, j) => {
       });
     }
   }
-  check('the riders never sink into the ramp or leave the slab', below + off === 0,
+  check('classic: the riders never sink into the ramp or leave the slab', below + off === 0,
     `${below} frames under the surface, ${off} off the slab`);
-  check('and they ride: airs, kickturns, grinds and rests', airs > 20 && turns > 40 && grinds > 10 && rests > 4
+  check('classic: and they ride: airs, kickturns, grinds and rests', airs > 20 && turns > 40 && grinds > 10 && rests > 4
     && highest > LIP_H + 0.4,
     `${airs} airs, ${turns} kickturns, ${grinds} grinds, ${rests} rests, highest ${highest.toFixed(2)}`);
+
+  // The default rider (game/skaters.js): one of them, five minutes over four runs. Its board is a
+  // rigid stick on two trucks, so the claim is about the *wheels*: neither truck's contact ever goes
+  // under the concrete while the board is on it — which is what the eased pitch could break if
+  // `restHeight` were not lifting the board to match. And it uses the whole park: both lanes, and
+  // most of its repertoire.
+  {
+    const P = new THREE.Vector3();
+    let wheelsUnder = 0;
+    let deepest = 0;
+    let offSlab = 0;
+    let crews = 0;
+    let maxRiders = 0;
+    let highestAir = 0;
+    const seen = new Map();
+    const lanesUsed = new Set();
+    const bump = (k) => seen.set(k, (seen.get(k) ?? 0) + 1);
+    let pitchJump = 0;
+    for (const run of [349, 350, 351, 352]) {
+      const crew = createSkaters(skateScene, makeRng(seed + run), park);
+      crews += 1;
+      maxRiders = Math.max(maxRiders, crew.riders.length);
+      const rd = crew.riders[0];
+      let wasMode = rd.mode;
+      let wasEnd = null;
+      let wasMid = null;
+      let lastPitch = rd.pitch.x;
+      for (let step = 0; step < 300 * 60; step++) {
+        crew.update(1 / 60);
+        crew.group.updateMatrixWorld(true);
+        const hp = rd.holder.position;
+        if (hp.x < r.x0 || hp.x > r.x1 || hp.z < r.z0 || hp.z > r.z1) offSlab += 1;
+        if (rd.mode === 'ride' || rd.mode === 'stall') {
+          for (const x of [-0.55, 0.55]) {
+            rd.board.localToWorld(P.set(x, 0, 0));
+            const u = (P.x - park.x) * crew.U.x + (P.z - park.z) * crew.U.z;
+            const under = SKATE_TOP_Y + surfaceAt(park, rd.lane.feature, u).h - P.y;
+            if (under > 1e-3) wheelsUnder += 1;
+            deepest = Math.max(deepest, under);
+          }
+          // The board never flips its pitch from one frame to the next — the snap over the funbox.
+          pitchJump = Math.max(pitchJump, Math.abs(rd.pitch.x - lastPitch));
+        }
+        lastPitch = rd.pitch.x;
+        if (rd.mode === 'air') highestAir = Math.max(highestAir, hp.y - SKATE_TOP_Y);
+        lanesUsed.add(rd.lane.feature);
+        if (rd.mode === 'air' && wasMode !== 'air') bump(rd.air.kind);
+        if (rd.mode === 'stall' && wasMode !== 'stall') bump(rd.stall.kind);
+        if (rd.mode === 'grind' && wasMode !== 'grind') bump(rd.mid);
+        if (rd.mode === 'hop' && wasMode === 'ride' && rd.hop.then === 'ride') bump(rd.hop.trick);
+        if (rd.spin && wasEnd === 'kick' && rd.end === null) bump('kick');
+        if (rd.mid === 'manual' && wasMid !== 'manual') bump('manual');
+        wasMode = rd.mode;
+        wasEnd = rd.end;
+        wasMid = rd.mid;
+      }
+    }
+    const tricks = [...seen.keys()].sort();
+    check('one rider, and the board never puts a wheel through the concrete or leaves the slab',
+      maxRiders === 1 && wheelsUnder + offSlab === 0,
+      `${maxRiders} riders, ${wheelsUnder} wheel-frames under (deepest ${deepest.toFixed(3)}), ${offSlab} off the slab`);
+    check('the board tips over an edge rather than snapping: under 0.12 rad of pitch a frame',
+      pitchJump < 0.12, `largest step ${pitchJump.toFixed(3)} rad`);
+    check('and the rider uses both lanes and at least ten different tricks',
+      lanesUsed.size === 2 && tricks.length >= 10 && highestAir > LIP_H + 0.4,
+      `${tricks.map((k) => `${k} ${seen.get(k)}`).join(', ')}; highest air ${highestAir.toFixed(2)}`);
+  }
 }
 
 // --- The ducks on it ---------------------------------------------------------
