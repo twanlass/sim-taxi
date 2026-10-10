@@ -638,6 +638,12 @@ function buildDamage(group, lightPods, bumpers, chrome) {
 
   const tipLocal = new THREE.Vector3(0, -BUMPER_H / 2, -BUMPER_LEN);
 
+  // The body's paint — the shell's own material (bumpers share it) and the two lids — for wear.
+  const paint = [chrome, lid.material, hood.material];
+  const CLEAN = new THREE.Color(1, 1, 1);
+  const GRIME = color('taxiGrime');
+  const FLASH = color('taxiHitFlash');
+
   return {
     /**
      * Hang the lamp at corner (sx, sz) — sx +1 the nose, sz +1 the right — out of its socket at
@@ -689,8 +695,21 @@ function buildDamage(group, lightPods, bumpers, chrome) {
     bumperTip(target) {
       return bar.localToWorld(target.copy(tipLocal));
     },
+    /**
+     * The body's wear, 0 clean to 1 wrecked: a multiply toward `taxiGrime` on the shell and both
+     * lids, so a lid swung open is the same dirty yellow as the car it came off.
+     */
+    setGrime(t) {
+      for (const m of paint) m.color.copy(CLEAN).lerp(GRIME, t);
+    },
+    /** The hit flash, 0..1 — an emissive `taxiHitFlash` on the same three. */
+    setFlash(amount) {
+      for (const m of paint) m.emissive.copy(FLASH).multiplyScalar(amount);
+    },
     /** Put everything back — a new run, or a repair. */
     reset() {
+      this.setGrime(0);
+      this.setFlash(0);
       for (const [key] of lamps) this.setLamp(...key.split(',').map(Number), null);
       bootHinge.scale.setScalar(0);
       hole.scale.setScalar(0);

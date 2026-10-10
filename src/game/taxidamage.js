@@ -32,7 +32,7 @@ const MID = 0.67;
 // Exported as SMOKE_FRACTION: the depot's tip card (REPAIR in game/newmove.js) goes up a beat after
 // the car starts smoking, so the card and the car say it together.
 const LOW = 0.34;
-export { LOW as SMOKE_FRACTION };
+export { LOW as SMOKE_FRACTION, MID as BOOT_FRACTION };
 // The last warning. The billows above come and go in puffs; this is a stream — small, dark, one
 // every PLUME_EVERY whatever the car is doing, standing or driving — so a car that is nearly done
 // is never seen without it. The pool is 200 puffs of a second each; 25 a second is an eighth of it.
@@ -48,6 +48,28 @@ const SMOKE_AHEAD = 1.1;
 // How much of the dust pool's backward throw the smoke keeps: a column off a parked car, a trail off
 // a moving one. See `drift` on `add` in game/dust.js.
 const smokeDrift = (moving) => 0.15 + 0.85 * moving;
+
+// **The louder ladder** (the default; `?damage=classic` for the one above on its own). The tiers
+// above all wait for a threshold, so the commonest first hit — a 24-HP tailgate from full — showed
+// a lamp a few pixels across swinging on its wire and nothing else, and a player could take two
+// hits without knowing the car had been touched. So three things start at the *first* hit and
+// grow with every one after it:
+//
+//   flash   the body flashes red twice as the hit lands — the moment itself
+//   grime   the paint dulls, 40% of the way at the first hit and the rest of the way down to
+//           empty, so a glance at the car's colour says roughly how hurt it is
+//   steam   thin white wisps off the bonnet from the first hit, faster as the HP drops, which hands
+//           over to the grey smoke at red rather than the smoke appearing out of nothing
+//
+// And the rattle starts at amber instead of red, so a car with its boot up also *drives* broken.
+const FLASH_TIME = 0.3;           // s, both pulses
+const FLASH_PEAK = 0.55;          // emissive at the top of a pulse
+const GRIME_FIRST = 0.4;          // grime after any hit at all...
+const GRIME_EASE = 4;             // 1/s — it soaks in over a quarter second rather than snapping
+const STEAM_SLOW = 0.26;          // s between wisps just after the first hit
+const STEAM_FAST = 0.14;          // ... and at the red line, where the smoke takes over
+const STEAM_SIZE = 0.8;
+const STEAM_BURST = 5;            // wisps thrown off the bonnet by each hit
 
 // A loose lamp is a pendulum on its wire, swinging fore and aft. Stiffer than a real one on a wire
 // this short would be, so it reads as swinging rather than jittering at play zoom — about a swing
@@ -134,7 +156,9 @@ export function stepLamp(lamp, dt, moving, accel, rng = Math.random) {
 export const looseLamp = (end, side, rng = Math.random) =>
   ({ end, side, angle: 0, v: end * LAMP_HIT_KICK, roadIn: rng() * 0.3 });
 
-export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roadY, rng = Math.random }) {
+export function createTaxiDamage({
+  damage, group, taxi, maxHp, sparks, dust, roadY, rng = Math.random, classic = false,
+}) {
   const smokeLight = color('damageSmokeLight');
   const smokeDark = color('damageSmokeDark');
   const smokeTint = new THREE.Color();
@@ -157,6 +181,9 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
   const boot = { angle: BOOT_REST, v: 0, roadIn: 0, rest: BOOT_REST };
   const hood = { angle: 0, v: 0, roadIn: 0.1, rest: HOOD_REST, open: false };
   let lastV = 0;
+  let flashT = Infinity;
+  let grime = 0;
+  let steamIn = 0;
 
   const fraction = () => (taxi.hp ?? maxHp) / maxHp;
   const tier = () => {
@@ -185,6 +212,16 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
     }
     side = worst.side;
     hits += 1;
+    if (!classic) {
+      flashT = 0;
+      // A burst of steam off the bonnet, so even the first hit leaves the car visibly hurt.
+      const ax = taxi.x + Math.cos(taxi.yaw) * SMOKE_AHEAD;
+      const az = taxi.z - Math.sin(taxi.yaw) * SMOKE_AHEAD;
+      for (let n = 0; n < STEAM_BURST; n++) {
+        dust.add(ax, az, taxi.yaw + (rng() - 0.5) * 2, STEAM_SIZE + 0.3 * rng(), 0.5, smokeLight,
+          roadY + SMOKE_Y, 0.4);
+      }
+    }
     // Down hard, so the slam and the bounce off it are the first thing the lid does.
     boot.v -= BOOT_HIT_KICK;
     if (hood.open) {
@@ -218,6 +255,28 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
 
     const accel = dt > 1e-6 ? (v - lastV) / dt : 0;
     lastV = v;
+
+    if (!classic) {
+      // Two red pulses, sin² over two half-cycles of FLASH_TIME.
+      if (flashT < FLASH_TIME) {
+        flashT += dt;
+        const s = Math.sin(Math.PI * 2 * Math.min(1, flashT / FLASH_TIME));
+        damage.setFlash?.(flashT < FLASH_TIME ? FLASH_PEAK * s * s : 0);
+      }
+      const want = hits ? GRIME_FIRST + (1 - GRIME_FIRST) * (1 - fraction()) : 0;
+      grime += (want - grime) * Math.min(1, dt * GRIME_EASE);
+      damage.setGrime?.(grime);
+      // Steam from the first hit down to the red line, where the smoke below takes over.
+      if (t === 1 || t === 2) {
+        const worse = Math.min(1, Math.max(0, (1 - fraction()) / (1 - LOW)));
+        steamIn -= dt;
+        if (steamIn <= 0) {
+          steamIn = STEAM_SLOW + (STEAM_FAST - STEAM_SLOW) * worse;
+          dust.add(taxi.x + Math.cos(taxi.yaw) * SMOKE_AHEAD, taxi.z - Math.sin(taxi.yaw) * SMOKE_AHEAD,
+            taxi.yaw, STEAM_SIZE + 0.3 * worse, 0.2, smokeLight, roadY + SMOKE_Y, smokeDrift(moving));
+        }
+      }
+    }
     for (const lamp of lamps.values()) {
       stepLamp(lamp, dt, moving, accel, rng);
       damage.setLamp(lamp.end, lamp.side, lamp.angle);
@@ -275,11 +334,16 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
         }
       }
 
-      // Low on the damaged side, and rattling. Roll + tips the top toward the car's right (see the
-      // lean notes in sim/traffic.js), so the list toward `side` is +side.
+      // Low on the damaged side. Roll + tips the top toward the car's right (see the lean notes
+      // in sim/traffic.js), so the list toward `side` is +side.
+      group.rotation.x += side * LEAN;
+      group.position.y += -LEAN_SINK;
+    }
+    // And rattling — from red on the classic ladder, from amber on the louder one.
+    if (t >= 3 || (!classic && t >= 2)) {
       const shake = RATTLE * moving * (Math.sin(phase * 7.3) * 0.6 + Math.sin(phase * 11.1) * 0.4);
-      group.rotation.x += side * LEAN + shake;
-      group.position.y += -LEAN_SINK + RATTLE_BOB * moving * Math.sin(phase * 9.7);
+      group.rotation.x += shake;
+      group.position.y += RATTLE_BOB * moving * Math.sin(phase * 9.7);
     }
   }
 
@@ -294,6 +358,9 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
     corners.clear();
     worst = { end: -1, side: 1 };
     side = 1;
+    flashT = Infinity;
+    grime = 0;
+    steamIn = 0;
     damage.reset();
   }
 
@@ -302,5 +369,6 @@ export function createTaxiDamage({ damage, group, taxi, maxHp, sparks, dust, roa
     bootAngle: () => boot.angle,
     hoodAngle: () => (hood.open ? hood.angle : null),
     lampAngle: (end, s) => lamps.get(`${end},${s}`)?.angle ?? null,
+    grime: () => grime,
   };
 }
