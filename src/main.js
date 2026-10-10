@@ -142,7 +142,8 @@ import { createOvertakeClip, pickOvertakeStreet, clipKeys as overtakeKeys } from
 import { createRepairClip, clipKeys as repairKeys } from './game/repairclip.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
-import { createDiagnostics } from './game/diag.js';
+import { createDiagnostics, describeGpu } from './game/diag.js';
+import { createBench } from './game/bench.js';
 import { createViewport } from './util/viewport.js';
 import { isNative } from './util/platform.js';
 import { tap as haptic, setHapticPrefs } from './util/haptics.js';
@@ -4438,9 +4439,20 @@ function openNewMove(move = newMoveDue ?? moves.uturn) {
 }
 
 const clock = new THREE.Clock();
+// `?bench` — the on-device benchmark, built at the bottom of this file once everything it drives
+// exists. See game/bench.js.
+let bench = null;
 
-function frame() {
+// The rAF callback is a wrapper so the bench can time the whole of `tick`, early returns and all.
+// Still named `frame`: tools/perf.mjs closes its per-frame counters on the callback's name.
+function frame(t) {
   requestAnimationFrame(frame);
+  bench?.begin(t);
+  tick();
+  bench?.end();
+}
+
+function tick() {
   // Read on every frame, paused or not: `getDelta` measures from its own last call, so skipping it
   // while paused would hand the first frame after a resume the whole length of the pause. The clamp
   // caps that at 0.05s — not a teleport, but still a frame of city the player never saw, and the
@@ -5771,7 +5783,21 @@ if (shot) {
   // `tools/links.mjs`, it moves six program links out of the run and into the boot, where they are
   // behind the wipe and the vignette and nobody is being made to wait for them mid-corner.
   renderer.compile(scene, camera);
-  frame();
+  bench = createBench({
+    renderer,
+    ready: () => Boolean(traffic.taxi) && !traffic.taxi.staged,
+    // The taxi on a job the whole time, so each row measures the frame a player sees rather than an
+    // idle city: the rider aboard to their drop-off, otherwise the most urgent rider on the kerb.
+    drive: () => {
+      if (fares.state.gameOver || traffic.taxi.pendingTarget) return;
+      const riding = fares.carrying();
+      if (riding) dispatchToDropoff(riding);
+      else dispatchToRider(fares.state.fares.find((f) => f.stage === 'waiting'));
+    },
+    ended: () => fares.state.gameOver,
+    gpu: describeGpu(renderer.getContext()).renderer,
+  });
+  frame(performance.now());
 }
 
 if (!shot && wantsDebugPanel) {

@@ -375,6 +375,27 @@ out of one URL — it is a build-time switch, so it cannot be toggled after load
 The AO pass is safe to shoot through: its taps are fixed rather than jittered, so it adds nothing
 non-deterministic to a frozen frame. It does change every reference shot once, being new.
 
+## What a frame costs on a phone — `?bench`
+
+`tools/perf.mjs` counts draws exactly but runs on SwiftShader, so its times mean nothing. `?bench`
+is the other half: open it on the phone, tap Start, and it reloads the game once per setting
+(baseline, `dpr` 1.5 and 1, `msaa=off`, `shadows` 1024 and off, `ao=off`, `bloom=off`, a squall
+pinned overhead, `?safe`, baseline again), each time on the same pinned city with the taxi driving
+itself, and ends on a table with a Copy button. About five minutes in all
+(`src/game/bench.js`).
+
+Reading it:
+
+- **`fps` is capped by the display**, so on a phone that already holds 60 every row says 60. The
+  `cpu` column (time inside the frame callback: the game's JS plus three's draw submission, not the
+  GPU) and `jank` (% of frames over 1.5 vsyncs) still move, and `vs base` switches to `cpu` when
+  both rows are capped.
+- **The two baselines bracket thermal drift.** A row that beats the first baseline by less than the
+  second one moved has not shown anything.
+- One reload per row, because MSAA and AO cannot change on a live renderer. The state rides in the
+  URL, not storage. Run in a headless SwiftShader Chromium, it completes all eleven rows in about
+  four minutes (the numbers are meaningless there; the plumbing is what that run checks).
+
 ## When a device renders nothing
 
 A phone came up **black**: no city, no sky, no markers — and the page underneath it working
