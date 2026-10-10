@@ -1595,12 +1595,21 @@ export function spinAngle(t) {
 // past the line, most when broadside, gone by the exit. The rotation is the motion's, so it cannot
 // be faster than the car is getting round, and there is nothing in it to wobble.
 //
+// A third pass took its timing from the drift (Tyler, 2026-10-10: the second "stilted and really
+// slow", the taxi losing "almost all its momentum" to the two brake taps — "the move that is feeling
+// really good is the drift boost"). The drift holds the boost cruise through the corner, deaf to the
+// pedal, and pays out a kick on the exit. So this one does the same three things: it goes in at the
+// speed the taxi had *before* the first tap (`spinTaxi`'s `entry`), holds that speed round the
+// hairpin rather than scrubbing it in the bulb, and lands into the drift's own exit kick and carry
+// (`car.spinKicks` tells main.js to bark the flame). Shorter too: the reach was halved, so at the
+// Loco top the whole turn is ~0.7s against the second pass's 1.5.
+//
 // Every number here is a first guess at a feel, not a measurement.
 
-/** How far down the road the bulb reaches, per u/s of entry speed: ~16 units from 25 u/s. */
-const HB_REACH = 0.65;
+/** How far down the road the bulb reaches, per u/s of entry speed: ~8 units from 23 u/s. */
+const HB_REACH = 0.35;
 /** ...but never less than this, so a slow one still sweeps rather than pivots. */
-const HB_REACH_MIN = 6.5;
+const HB_REACH_MIN = 5;
 /**
  * How far past the end of the lane it may reach, into the junction ahead. A taxi at chase speed
  * usually has 5-odd units of lane left, and no slide from 25 u/s stops in that without reading as
@@ -1622,15 +1631,16 @@ const HB_SLIP_IN = [0.05, 0.35];
 const HB_SLIP_OUT = [0.6, 0.95];
 /** How hard the entry run bends toward the bulb: the start's tangent as a share of the reach. */
 const HB_ENTRY = 0.6;
-/** Exit speed: this fraction of the entry speed, and never under this multiple of cruise. */
-const HB_KEEP = 0.6;
+/** Exit speed: this fraction of the entry speed, and never under this multiple of cruise. The kick
+ * (DRIFT_EXIT) goes on top on the frame it lands. */
+const HB_KEEP = 1;
 const HB_FLOOR = 1.25;
 /**
  * Seconds the turn takes, as a multiple of the time the path would take at the mean of the entry
- * and exit speeds — over 1, so it scrubs speed through the bulb — and the range it is held to.
+ * and exit speeds — 1 holds the speed all the way round — and the range it is held to.
  */
-const HB_SLOW = 1.35;
-const HB_TIME = [0.9, 1.6];
+const HB_SLOW = 1;
+const HB_TIME = [0.5, 1];
 /** Body tilt: the most, and the yaw rate (rad/s) that buys about three quarters of it. */
 const HB_TILT = 0.2;
 const HB_TILT_RATE = 5;
@@ -1745,7 +1755,7 @@ function handbrakeAt(sp, t) {
  * a planted median), `'bridge'` over the river, `'road'` mid-junction, on a bend or with no lane back,
  * `'short'` if there is no room on the lane to land without running into a junction.
  */
-export function spinTaxi(car) {
+export function spinTaxi(car, entry = car.v) {
   if (car.crashed || car.staged || car.uturn || onDriftLaunch(car)) return 'road';
   if (car.state !== 'drive' || car.pass > 0 || car.passing) return 'road';
   if (!blocksOnCentreline(car)) return 'median';
@@ -1770,7 +1780,8 @@ export function spinTaxi(car) {
   // Land past the slide, but never inside the far lane's own stop line (that junction is the one
   // behind the taxi, and landing there runs its light — see CLAUDE.md) or in the junction ahead.
   const handbrake = spinStyle === 'handbrake';
-  const v0 = car.v;
+  // The handbrake goes in at the speed from before the combo's two brake taps.
+  const v0 = handbrake ? Math.max(car.v, entry) : car.v;
   const v1 = handbrake ? Math.max(SPEED * HB_FLOOR, v0 * HB_KEEP) : Math.max(SPEED, v0 * SPIN_KEEP);
   // The handbrake's bulb: as far as the speed carries it, up to HB_OVERRUN into the junction ahead.
   const bulb = Math.min(Math.max(HB_REACH_MIN, v0 * HB_REACH), lane.length - car.s + HB_OVERRUN);
@@ -5697,7 +5708,18 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         car.speedFactor = car.v / SPEED;
         stats.distance += car.v * dt;
         stats.moving += 1;
-        if (car.uturn.t >= 1) { car.v = car.uturn.v1; car.uturn = null; }
+        if (car.uturn.t >= 1) {
+          const kick = !!car.uturn.sp;
+          car.v = car.uturn.v1;
+          car.uturn = null;
+          if (kick) {
+            // Out on the drift's own tier-1 kick and carry — see the handbrake notes above HB_REACH.
+            const v = boostCruise() * DRIFT_EXIT;
+            car.drift = { phase: 'carry', lane: car.lane.id, v, t: 0, carry: DRIFT_CHAIN.carry[0], kicked: true };
+            car.v = Math.max(car.v, v);
+            car.spinKicks = (car.spinKicks ?? 0) + 1;
+          }
+        }
         continue;
       }
 

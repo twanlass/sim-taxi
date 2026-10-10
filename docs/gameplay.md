@@ -3439,15 +3439,17 @@ the brake twice within 350ms and the taxi turns 180° onto the far lane, with a 
 shake, a haptic buzz and four-wheel rubber. There are two cuts of it:
 
 - **The handbrake turn** (default; `handbrakePath` in `sim/traffic.js`). Path-first: the car's centre
-  drives a hairpin, a run on down the road as far as its speed carries it (0.65 units per u/s, up to
+  drives a hairpin, a run on down the road as far as its speed carries it (0.35 units per u/s, up to
   5 units into the junction ahead), a round bulb across, and back out along the far lane. The body
   points along the path plus a slip that builds as the handbrake goes on (up to ~49°) and lets go
-  by the exit, never turning back. Speed falls through the bulb and builds to 60% of the entry
-  speed (never under 1.25× cruise), matched at both ends. 0.9-1.6s depending on speed.
+  by the exit, never turning back. Timed off the drift: it goes in at the speed from *before* the
+  combo's first brake tap, holds it all the way round (0.5-1s), and lands into the drift's tier-1
+  exit kick and carry, flame bark and all, but no fuel refund.
 - **Classic** (`?uturn=classic`). The first one: an angle choreographed over 0.76s with the
   position slid underneath, keeping 55% of its speed. It read as "pivoting on the spot", and a
   second, angle-first pass with momentum and a fishtail read as "messy" (Tyler, 2026-10-09), which
-  is why the default turned path-first.
+  is why the default turned path-first; a slower path-first pass that scrubbed speed in the bulb
+  read as "stilted" (2026-10-10), which is why it now holds speed and kicks like the drift.
 
 It exists because a chase gave the player nothing to do but hold the pill. In a getaway the cut-off
 cops are in the junctions *ahead* (see [the chase](#the-chase)), and a 180 puts every one of them

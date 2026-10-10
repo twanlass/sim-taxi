@@ -137,7 +137,7 @@ try {
   {
     const { reelAt, clipKeys, pickStreet, CLIP_LOOP, TAP_2 } = await import('../src/game/uturnclip.js');
     const start = reelAt(0.2);
-    // Two seconds on: the handbrake turn takes up to 1.6 (HB_TIME in sim/traffic.js).
+    // Two seconds on, with room: the handbrake turn takes up to 1 (HB_TIME in sim/traffic.js).
     const end = reelAt(TAP_2 + 2);
     if (!(start.lateral > 0 && end.lateral < 0)) throw new Error('uturnclip: the spin does not change lanes');
     if (Math.abs(end.yaw - start.yaw - Math.PI) > 0.05) throw new Error('uturnclip: not a half turn');

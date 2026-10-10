@@ -16925,7 +16925,7 @@ let chopperOrder; // likewise
     const refused = spinTaxi(taxi);
     if (refused) { why[refused] = (why[refused] ?? 0) + 1; continue; }
     spun += 1;
-    // 2s: the handbrake turn takes up to 1.6 (HB_TIME in sim/traffic.js).
+    // 2s, with room: the handbrake turn takes up to 1 (HB_TIME in sim/traffic.js).
     for (let k = 0; k < 120 && taxi.uturn; k++) bTraffic.update(1 / 60);
     const tangent = taxi.lane.path.tangentAt(taxi.s);
     const want = Math.atan2(-tangent.z, tangent.x);

@@ -3570,6 +3570,8 @@ const BRAKE_SKID_V = 2.5;
 // drop-off rather than crawl there.
 let driftTapAt = -Infinity;
 let driftsPaid = 0;
+// And the handbrake U-turn's exit kick (`car.spinKicks`), which borrows the drift's.
+let spinKicksFelt = 0;
 // The same tally-and-catch-up for the taxi's overtakes (`car.overtakes` in sim/traffic.js).
 let overtakesFelt = 0;
 
@@ -4665,6 +4667,23 @@ function frame() {
     if (!fares.state.gameOver) {
       haptic('overtake');
       landCombo('overtake');
+    }
+  }
+  if ((traffic.taxi.spinKicks ?? 0) > spinKicksFelt) {
+    // The handbrake U-turn lands on the drift's exit kick (sim/traffic.js), and says so the same
+    // way, minus the fuel: the U-turn has already paid its combo on the frame it started.
+    spinKicksFelt = traffic.taxi.spinKicks;
+    if (!fares.state.gameOver) {
+      const car = traffic.taxi;
+      haptic('drift-kick');
+      controller.kickShake(0.5);
+      sfx?.locoOn();
+      flames.burst(
+        car.x - Math.cos(car.yaw) * TAXI_TAILPIPE_BACK,
+        TAXI_TAILPIPE_HEIGHT,
+        car.z + Math.sin(car.yaw) * TAXI_TAILPIPE_BACK,
+        car.yaw,
+      );
     }
   }
   if (traffic.taxi.drifts > driftsPaid) {
