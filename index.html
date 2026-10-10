@@ -1194,6 +1194,47 @@
       #robbery-glow[hidden] { display: none; }
       body.shot-mode #robbery-glow, body.game-over #robbery-glow { display: none; }
 
+      /* --- the hit cue ------------------------------------------------------
+         What a bump cost, up for a second and a half and gone (src/game/hitcue.js, `?hitcue=`).
+         #hit-chip is a short bar pinned over the taxi's roof: white for what is left, PALETTE.lightRed
+         #E24B3C for the chunk the hit took, draining away; the white goes red too once the car is
+         smoking. Ticks at the boot and smoke lines, so the bar and the car agree. #hit-edge is the
+         shooter's red edge: plain alpha rather than the siren wash's screen blend, so it darkens
+         toward red rather than lighting the frame up in the siren's colour. */
+      #hit-chip, #hit-edge {
+        position: fixed; inset: 0; width: 100vw; height: 100vh;
+        pointer-events: none; user-select: none; -webkit-user-select: none;
+      }
+      #hit-chip { z-index: 9; }
+      #hit-edge {
+        z-index: 8;
+        background: radial-gradient(ellipse 75% 70% at 50% 50%,
+          rgba(226, 75, 60, 0) 55%,
+          rgba(226, 75, 60, calc(var(--hit-a, 0) * 0.55)) 80%,
+          rgba(180, 30, 25, var(--hit-a, 0)) 100%);
+      }
+      #hit-chip[hidden], #hit-edge[hidden] { display: none; }
+      body.shot-mode #hit-chip, body.game-over #hit-chip,
+      body.shot-mode #hit-edge, body.game-over #hit-edge { display: none; }
+      .hit-chip {
+        position: absolute; left: 0; top: 0; will-change: transform, opacity;
+        width: 48px; height: 8px; border-radius: 5px; overflow: hidden;
+        background: rgba(18, 20, 28, 0.78);
+        box-shadow: 0 0 0 2px rgba(18, 20, 28, 0.78);
+        transform-origin: 50% 100%;
+      }
+      .hit-chip-lost, .hit-chip-fill {
+        position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px;
+      }
+      .hit-chip-lost { background: #E24B3C; }
+      .hit-chip-fill { background: #FFFFFF; }
+      #hit-chip.is-low .hit-chip-fill { background: #E24B3C; }
+      #hit-chip.is-low .hit-chip-lost { background: #FFFFFF; }
+      .hit-chip-tick {
+        position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px;
+        background: rgba(18, 20, 28, 0.78);
+      }
+
       /* --- speech bubbles -------------------------------------------------
          Every line anybody says on screen: the tutorial's tips (#coach), the robber
          (#robber-talk), dispatch (#radio) and the cop's shout (#cop-shout). One bubble, built and
@@ -2132,6 +2173,8 @@
          needs no layout of its own. See src/game/farepointers.js. -->
     <div id="fare-pointers" aria-hidden="true"></div>
     <div id="siren-glow" aria-hidden="true" hidden></div>
+    <div id="hit-edge" aria-hidden="true" hidden></div>
+    <div id="hit-chip" aria-hidden="true" hidden></div>
     <div id="robbery-glow" aria-hidden="true" hidden></div>
     <div id="spotlight" aria-hidden="true"></div>
     <!-- The speech layers. Empty: game/speech.js builds the same card into each. -->

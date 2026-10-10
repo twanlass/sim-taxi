@@ -6963,7 +6963,21 @@ function rideToPickup() {
   // sign of where they sit.
   const pods = group.children.filter((c) => c.isMesh && c.material.emissiveIntensity > 1);
   const homes = new Map(pods.map((pod) => [pod, pod.position.clone()]));
-  for (let n = 0; n < 30; n++) { dTraffic.update(1 / 60); dTaxi.v = 10; dDamage.update(1 / 60); }
+  // The body's own paint, for the flash and the grime the first hit puts on it.
+  const body = group.children.find((c) => c.isMesh && c.userData.pickable === 'taxi' && c.material.emissive);
+  let flashPeak = 0;
+  for (let n = 0; n < 30; n++) {
+    dTraffic.update(1 / 60); dTaxi.v = 10; dDamage.update(1 / 60);
+    flashPeak = Math.max(flashPeak, body.material.emissive.r);
+  }
+  // The first hit has to show on its own (game/taxidamage.js, the louder ladder): a red flash that
+  // has gone again, paint already dulled, and steam off the bonnet — at 80 HP, nowhere near a tier.
+  check('the first hit flashes the body red, and the flash goes',
+    flashPeak > 0.3 && body.material.emissive.r === 0 && body.material.emissive.g < flashPeak * 0.5,
+    `peak ${flashPeak.toFixed(2)}, now ${body.material.emissive.r.toFixed(2)}`);
+  check('and leaves the paint dulled and the bonnet steaming',
+    dDamage.grime() > 0.25 && body.material.color.b < 0.85 && smokes.length >= 5,
+    `grime ${dDamage.grime().toFixed(2)}, ${smokes.length} wisps`);
   const frontRight = pods.filter((pod) => homes.get(pod).x > 0 && homes.get(pod).z > 0);
   const others = pods.filter((pod) => !frontRight.includes(pod));
   const hung = frontRight.every((pod) => pod.position.y < homes.get(pod).y - 0.2);
@@ -7016,9 +7030,11 @@ function rideToPickup() {
   };
   drive(120, 10);
   const swing = Math.max(...boots) - Math.min(...boots);
-  check('at amber the bumper hangs off and drags sparks',
-    dDamage.tier() === 2 && bursts.length > 5 && smokes.length === 0,
-    `${bursts.length} spark bursts, ${smokes.length} puffs`);
+  // Steam, not smoke: everything off the bonnet so far is the light tint.
+  const steamOnly = smokes.every((s) => s[5].getHexString() === 'f4f1ed');
+  check('at amber the bumper hangs off and drags sparks, and the bonnet only steams',
+    dDamage.tier() === 2 && bursts.length > 5 && steamOnly,
+    `${bursts.length} spark bursts, ${smokes.length} puffs, all steam ${steamOnly}`);
   check('and the boot lid flaps with the road rather than sitting open',
     swing > 0.6, `lid swung through ${swing.toFixed(2)} rad in two seconds at speed`);
   const slamsBefore = slams;
@@ -7091,6 +7107,7 @@ function rideToPickup() {
   dTaxi.hp = TAXI_HP;
   dDamage.update(1 / 60);
   check('reset puts every part back', dDamage.tier() === 0 && dDamage.bootAngle() === 0.6
+    && dDamage.grime() === 0 && body.material.color.getHex() === 0xffffff
     && dDamage.hoodAngle() === null && dDamage.lampAngle(1, 1) === null
     && pods.every((pod) => pod.position.distanceTo(homes.get(pod)) === 0));
 }

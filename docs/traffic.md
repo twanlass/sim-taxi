@@ -1676,6 +1676,16 @@ play zoom on its own. Each adds a distinct ingredient rather than turning the la
    standing or driving — so a car one hit from the end is never seen without it. The billows above
    come and go; this is the one thing that is always there.
 
+**On top of the tiers, from the first hit** (the default since PR #456; `?damage=classic` for the
+ladder above on its own). The tiers all wait for a threshold, so the commonest first hit — a 24-HP
+tailgate from full — showed a lamp a few pixels across and nothing else. So three things start at
+the first hit and grow with every one after it: the body **flashes red** twice as the hit lands
+(`taxiHitFlash`, an emissive, 0.3s); the **paint dulls** toward `taxiGrime`, 40% of the way at the
+first hit and the rest of the way down to empty, eased in over a quarter second; and **white steam**
+comes off the bonnet from the first hit, faster down to the red line, where the smoke in tier 3 takes
+over — so the smoke grows out of something rather than arriving. The rattle starts at tier 2 rather
+than 3, so a car with its boot up also drives broken.
+
 And one piece off the tiers: **rear-ending a car pops the bonnet**, however much HP is left. It is the
 boot's mirror image, hinged at the foot of the windscreen, and it flaps on the same spring for the
 rest of the run — first kick *up*, the catch letting go, where every later hit slams it. It belongs to
