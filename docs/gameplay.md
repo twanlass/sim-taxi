@@ -27,7 +27,8 @@ words stand on. Settings holds four things, all remembered across visits:
 **"Play again" skips it.** The retry is a reload, and a player who just pressed Play does not want
 the menu again, so `onRetry` sets a one-shot `sessionStorage` flag the next boot consumes.
 **`?title=off`** skips it too, the same escape hatch `?vignette=off` is; `tools/smoke.mjs` runs every
-page but its own title check that way. Shot mode never builds it.
+page but its own title check that way. **`?dev`** skips both, and turns on debug mode (the ⚙️
+panel) with them: the one flag for playtesting. Shot mode never builds it.
 
 ## The opening vignette
 

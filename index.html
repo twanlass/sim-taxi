@@ -1772,8 +1772,10 @@
         --dbg-mute: #8b8b93;
         --dbg-accent: #7aa2ff;
       }
+      /* Bottom right, in the control row's own corner inset: the top-right corner is the pause
+         button's, and the two sat on top of each other. The panel opens upward from it. */
       #dbg-toggle {
-        position: fixed; top: calc(16px + var(--safe-top)); right: calc(16px + var(--safe-right)); z-index: 20;
+        position: fixed; bottom: var(--ctl-bottom); right: var(--ctl-right); z-index: 20;
         width: 38px; height: 38px; border: 1px solid var(--dbg-line); border-radius: 10px; cursor: pointer;
         font-size: 17px; line-height: 1; background: var(--dbg-bg); color: var(--dbg-text);
         -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
@@ -1781,23 +1783,37 @@
       #dbg-toggle:hover { background: #1f1f23; }
 
       #dbg-panel {
-        position: fixed; top: calc(62px + var(--safe-top)); right: calc(16px + var(--safe-right));
+        position: fixed; bottom: calc(var(--ctl-bottom) + 46px); right: var(--ctl-right);
         z-index: 20; width: 280px; box-sizing: border-box;
         padding: 0 0 6px; border: 1px solid var(--dbg-line); border-radius: 12px;
         background: var(--dbg-bg); color: var(--dbg-text);
         -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
         box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
         font: 400 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
-        max-height: calc(100vh - 90px - var(--safe-top) - var(--safe-bottom)); overflow: auto;
+        /* Stops short of the top row, where the pause button is: 46 to clear the ⚙️ below it, 64
+           for the pause square (38 tall at --hud-top) and a gap. A fixed height rather than a
+           max: a short tab would otherwise shrink the panel and move the tab bar under the cursor. */
+        height: calc(100vh - var(--ctl-bottom) - 46px - var(--hud-top) - 64px); overflow: auto;
         overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
       }
       #dbg-panel[hidden] { display: none; }
 
       /* Search, pinned to the top of the scroll so it is there from any depth. */
+      /* Solid, not faded: with the tabs in it, a section heading sliding under a see-through
+         bottom edge read as overlapping the tab bar. */
       .dbg-head {
-        position: sticky; top: 0; z-index: 1; padding: 10px 10px 8px;
-        background: linear-gradient(var(--dbg-bg) 80%, transparent);
+        position: sticky; top: 0; z-index: 1; padding: 10px 10px 0;
+        background: var(--dbg-bg); border-bottom: 1px solid var(--dbg-line);
       }
+      /* The tabs under the search: Audio, Visuals, Game (TABS in src/game/debugpanel.js). */
+      .dbg-tabs { display: flex; gap: 2px; margin-top: 8px; }
+      .dbg-tab {
+        flex: 1; padding: 7px 0 8px; border: 0; border-bottom: 2px solid transparent;
+        background: none; color: var(--dbg-mute); cursor: pointer; font: inherit; font-weight: 500;
+      }
+      .dbg-tab:hover { color: var(--dbg-text); }
+      .dbg-tab.is-active { color: var(--dbg-text); border-bottom-color: var(--dbg-accent); }
+      .dbg-head + .dbg-sec { border-top: 0; }
       .dbg-search {
         width: 100%; box-sizing: border-box; height: 30px; padding: 0 10px 0 28px;
         border: 1px solid var(--dbg-line); border-radius: 8px; outline: none;
@@ -1897,6 +1913,52 @@
         border: 1px solid var(--dbg-line); border-left: 2px solid var(--dbg-line);
       }
       .aud-sound.is-edited { border-left-color: var(--dbg-accent); }
+      /* Debug mode's 🔊 pins over the placed sounds (src/game/soundpins.js). Under the HUD's
+         controls and the tweak panel; a tap on a chip opens the panel on that sound. */
+      #sound-pins { position: fixed; inset: 0; z-index: 12; pointer-events: none; }
+      .sound-pin {
+        position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 3px;
+        padding: 3px 5px 3px 4px; border-radius: 999px; pointer-events: auto; white-space: nowrap;
+        background: rgba(17, 17, 19, 0.82); border: 1px solid rgba(255, 255, 255, 0.14);
+        font: 500 11px/1 system-ui, -apple-system, "Segoe UI", sans-serif; color: #ececee;
+        -webkit-user-select: none; user-select: none;
+      }
+      .sound-pin[hidden], .sound-ear[hidden], .sound-handle[hidden] { display: none; }
+      .sound-handle {
+        position: absolute; left: 0; top: 0; width: 16px; height: 16px; border-radius: 50%;
+        box-sizing: border-box; border: 2px solid #fff; pointer-events: auto; cursor: ew-resize;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); touch-action: none;
+      }
+      /* The debug tools' fast tooltip (src/game/quicktips.js), over everything. */
+      #quick-tip {
+        position: fixed; left: 0; top: 0; z-index: 40; max-width: 260px; pointer-events: none;
+        padding: 5px 8px; border-radius: 6px; background: #f2f2f4; color: #141416;
+        font: 400 11px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #quick-tip[hidden] { display: none; }
+      .sound-handle-near { background: #FFB347; }
+      .sound-handle-far { background: #5EC8FF; }
+      .sound-ear {
+        position: absolute; left: 0; top: 0; font-size: 22px; line-height: 1; pointer-events: none;
+        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+      }
+      .sound-pin-icon { font-size: 12px; pointer-events: none; }
+      .sound-pin-chip {
+        border: 0; border-radius: 999px; padding: 3px 6px; cursor: pointer; font: inherit;
+        background: rgba(255, 255, 255, 0.08); color: inherit;
+      }
+      .sound-pin-chip:hover { background: rgba(255, 255, 255, 0.18); }
+      .sound-pin-chip.is-focused { background: #7aa2ff; color: #101014; }
+      .aud-replace-row { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; }
+      .aud-replace-row .aud-replace { padding: 3px 8px; font-size: 11px; }
+      .aud-local-pick { flex: 1; min-width: 0; font-size: 11px; }
+      .aud-local-pick[hidden] { display: none; }
+      .aud-replace-row:has(> .aud-local-pick[hidden]:only-child) { display: none; }
+      .aud-replaced { font-size: 10px; color: #f5c56b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .aud-sound.is-replaced { border-left-color: #f5c56b; }
+      /* The sound whose falloff rings are on the ground (src/game/soundrings.js). */
+      .aud-sound.is-focused { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.35); }
       .aud-name { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; }
       .aud-name strong { font-weight: 600; }
       .aud-name span { font-size: 10px; opacity: 0.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -209,7 +209,7 @@ import {
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
 import { createComboMeter, comboScope, COMBO_MAX } from '../src/game/combometer.js';
-import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL } from '../src/game/sfx.js';
+import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, radioBetween, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
 const seed = Number(process.argv[2] ?? 71624);
@@ -10082,7 +10082,12 @@ function rideToPickup() {
   const taken = new Set(Object.values(SOUNDS).flat());
   const unwired = [...taken].filter((f) => !(f in files) || !onDisk.includes(f));
   check('every take a sound names is a shipped .m4a', unwired.length === 0, unwired.join(', '));
-  const tracks = [RADIO.intro, ...RADIO.songs];
+  const tracks = RADIO.all;
+  // The station's running order: a break after every second song, the ID after every third, and
+  // the ID after the break where both fall due — never splitting it.
+  const order = Array.from({ length: 12 }, (_, i) => radioBetween(i + 1).join('+') || '-').join(' ');
+  check('the radio breaks for ads every 2 songs and the station ID every 3',
+    order === '- ad id ad - ad+id - ad id ad - ad+id', order);
   const offAir = tracks.filter((f) => !(f in createSfx().radioFiles) || !onDisk.includes(f)
     || !(RADIO.seconds[f] > 0) || !(RADIO.gain[f] > 0));
   check('every radio track is a shipped .m4a with a length and a level', offAir.length === 0,

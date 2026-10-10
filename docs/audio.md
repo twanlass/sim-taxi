@@ -131,19 +131,83 @@ again doesn't repeat the recording exactly:
 `minGap` keeps a sound from repeating too quickly: a second skid within 0.45 s is the same skid.
 The per-sound levels live in `mix.json` (below). Block 1 arrives balanced against itself, so every
 sound ships at 0 dB, as the designer recommended. The exceptions are ours: `copSkid` sits at
-−3.7 dB and pitched down a touch, because it is another car somewhere else on screen; and the two
-later additions (October 2026, not the designer's: `16_POLICE_siren_loop`, `17_BURGER_drive_through`,
-the second converted from an MP3 to a 48 kHz WAV master) arrived far hotter than Block 1, so they
-are levelled down to it. Measured as RMS off the masters (ffmpeg was not to hand; RMS reads the
-idle at −34.3, matching its −34 LUFS), the siren is a solid −10.1 dB and ships at gain 0.18
-(−14.9 dB, about a skid at full level), and the speaker is −22.5 dB and ships at 0.6 (−4.4 dB).
+−3.7 dB and pitched down a touch, because it is another car somewhere else on screen; and the
+drive-through speaker (October 2026, not the designer's, converted from an MP3 to a 48 kHz WAV
+master) arrived hotter than Block 1, so it is levelled to it. Measured as RMS off the master
+(ffmpeg was not to hand; RMS reads the idle at −34.3, matching its −34 LUFS), it is −22.5 dB. The
+siren was once our own stand-in too (`16_POLICE_siren_loop`, −10.1 dB, shipped at 0.18); Block 2's
+`25_NPC_siren_loop` replaced it and ships at 0 dB.
+
+## Block 2: the city (demo)
+
+Block 2 (Nicolás, October 2026, 25 files, 84 MB of masters, 4.2 MB shipped) is the city around the
+taxi rather than the taxi, and it arrived as a **demo**: wire it in, find out what works, report
+back before the final mix. So two things are shaped for auditioning rather than shipping. His sheet
+numbers restart at 16, so his 17 and 18 (gate, bridge) share numbers with our
+`17_BURGER_drive_through` and `18_HORN_honk`; the names differ, which is all `FILES` reads.
+
+- **PICK sounds** (`PICKED` in sfx.js): where he sent alternatives (mono/stereo, short/long, three
+  bird intensities), the files are not random takes. `mix.sounds.<key>.pick` names the one that
+  plays, and the ⚙️ panel's **Plays** menu switches it live (a bed swaps file the next frame). Once
+  a choice is made, drop the losers from the delivery and the key from `PICKED`.
+- **PLACED sounds** (`PLACED`): heard from a point. `mix.place.<key>` is `{ near, far }` in world
+  units (a block is 20): full level inside `near`, squared falloff, silent past `far`. Each is
+  panned by where the point sits across the screen (`StereoPannerNode`, never wider than
+  `PAN_WIDTH`). **The listener is the middle of the screen** (`controller.state.target`, `placeAt`
+  in main.js), not the taxi, so panning over to the court brings it up; in play the camera follows
+  the taxi, so the two barely differ. The siren and the cop squeal still measure from the taxi.
+  The panel's **Full within** / **Silent past** sliders move the falloff, and while the ⚙️ panel is
+  open the sound last touched in it (highlighted) draws its zones on the ground at each of its
+  sources (game/soundrings.js): an orange disc where it is at full level, a blue band where it runs
+  out, and a white dot and 👂 at the listener. Drag the orange or blue handle on the ring's edge
+  to resize it directly. In debug mode the map drags on a desktop too, so the listener can be put
+  anywhere, and each placed sound (plus the drive-through) has a 🔊 pin whose chip opens the panel
+  on it; a press anywhere else lets the selection go.
+- **Stereo** is a switch on every sound: live on the four delivered both ways (court,
+  construction, rain, seagulls), on and greyed where there is only a stereo cut. The PICKs that
+  choose something else (bird intensity, chirp length) keep a **Plays** menu.
+- **Replace…** on any sound plays local files in its place for the session (nothing is saved).
+  Several files are a variant set: a one-shot draws one per trigger, never the same twice running;
+  a loop plays one, chosen from a menu.
+
+| Sound | File(s) | Plays | Hook |
+|---|---|---|---|
+| `spawn` | 16 | Once, the city building itself (the entrance wave) | first frame `cityEntry.running()` with the audio up |
+| `gate` | 17 | The depot's roller door at the start of a run | `opening.phase()` going `settle` → `door` |
+| `bridge` | 18 | The whole drawbridge cycle, from the barriers starting down | `drawbridge.state.phase` → `closing`; steered for 26 s |
+| `city` | 19 | Bed, everywhere, always | — |
+| `construction` | 20 MONO / ST | Bed at the roadworks' closed block while it stands, faded with it | `roadwork.state` |
+| `birdsUp` / `birdsDown` | 21 C·B·A / A·B·C | A pigeon flock scattering / the last of it landing | `flock.state.flights` / `.landings` |
+| `plane` | 22 | The light aircraft, started 1.4 s into its run to centre on the pass, steered | `flyover.state.flights` |
+| `heli` | 23 | The rooftop chopper's visit, steered, faded when it is gone | `chopper.state.visits` |
+| `angry` | 24 A–E | A rider storming off (the swearing bubble) | fare `missed` / `vip-missed` / `robber-missed` |
+| `siren` | 25 | The existing siren bed, now on Block 2's recording (our old stand-in, 16, is gone) | — |
+| `seagulls` | 29 MONO / ST | Bed at the nearest barge carrying gulls | `boats.boats` |
+| `rain` | 30 ST / MONO | Bed, the rain at the taxi (`squall.rainNear`, or the storm's `rain`) | — |
+| `court` | 31 MONO / ST | Bed at the basketball court, where the city has one | `props.court` |
+| `chirp` | 32 short / long | A patrol spotting the taxi and lighting up | `patrol` `onSpotted` |
+
+Every Block 2 level starts at 0 dB, the designer's rule for Block 1: measured as RMS off the
+masters they already sit level with it (the 25 siren -28.5 dB against the crash's -26.3, the beds
+-37 to -52). The police helicopter keeps its synthesised rotor; 23 is the rooftop chopper.
 
 ## The radio
 
-The music is a car radio: `MUSIC_radio_intro` (15 s) always plays first, then a hard cut to one of
-three 30 s songs (`MUSIC_country`, `MUSIC_jazz`, `MUSIC_rock`) at random, and at the end of each a
-fresh pick, never the song that just played. It starts on the first tap with everything else, so
-it opens on the title screen, and since a Retry is a reload every run opens on the intro.
+The music is a car radio, the station KPRS. `MUSIC_radio_intro` (6.3 s; it replaced a 15 s one in
+October 2026) always plays first, then a hard cut to one of four 30 s songs (`MUSIC_country`,
+`MUSIC_jazz`, `MUSIC_rock`, `MUSIC_funk`) at random, and at the end of each a fresh pick, never the
+song that just played. Between songs the station talks:
+
+- **An ad break every 2 songs** (`RADIO.adEvery`): `RADIO_break_in` (the tee-up), one of three ads
+  (`RADIO_ad_earls`, `RADIO_ad_le_barge`, `RADIO_ad_loco_juice`) at random and never the last one,
+  then `RADIO_break_out` back into the music. A break with no ad decoded is skipped whole.
+- **The station ID every 3 songs** (`RADIO.idEvery`, `RADIO_station_id`). Every sixth song both fall
+  due, and the ID follows the break rather than splitting it.
+
+So the hour runs: intro, song, song, *break*, song, *ID*, song, *break*, song, song, *break*, *ID*, …
+It starts on the first tap with everything else, so it opens on the title screen, and since a Retry
+is a reload every run opens on the intro. `__taxi.sfx.state.radio` lists the last few items
+scheduled.
 
 It lives in `sfx.js` beside the effects (`RADIO`, `RADIO_FILES`, `startRadio`) but outside
 `FILES`/`SOUNDS`/the mix: it plays into the **music bus**, so the Music slider and the mute steer
@@ -156,10 +220,16 @@ When the game-over screen appears the music bus fades to silence over 1.5 s (`fa
 `MUSIC_FADE_OUT`); effects carry on. It is latched, so moving the Music slider on that screen does
 not bring it back. Retry and Quit both reload the page, so the next run opens on the intro as usual.
 
-Levels (`RADIO.gain`) bring every track to −24 LUFS at full slider, measured off the masters with
-ffmpeg's `ebur128`: they arrived at −17.3 (intro), −13.5 (country), −12.3 (jazz) and −10.8 (rock),
-against −34 for the engine idle and −22 for a crash. The four `.m4a` are 1.7 MB together, the
-biggest download in the game; they decode to about 40 MB of PCM, held for the session.
+Levels (`RADIO.gain`) bring every track to −24 LUFS at full slider. The first four were measured
+off the masters with ffmpeg's `ebur128`: they arrived at −13.5 (country), −12.3 (jazz) and −10.8
+(rock), and a since-replaced intro at −17.3, against −34 for the engine idle and −22 for a crash.
+The October additions were levelled by **RMS** instead, ffmpeg not being to hand: the older tracks'
+RMS plus their gain lands at −26.7 dB RMS on average, and each new one is brought to that. Re-measure
+them with ebur128 when it is available. The radio's `.m4a` files are about 2.6 MB together, the
+biggest download in the game; they decode to roughly 60 MB of PCM, held for the session.
+
+The ads and the stings arrived as MP3s and 44.1 kHz WAVs from Tyler; they were converted to 48 kHz
+16-bit stereo WAV masters (afconvert) so they encode like everything else.
 
 They are encoded by `tools/audio.mjs` like every other sound. afconvert on macOS 26.6 does not
 reproduce the Block 1 files byte for byte (17 of 41 differ, mostly at the same size), so commit
@@ -201,10 +271,13 @@ Every number a sound designer would want to move is in **`assets/audio/mix.json`
 | `master` | The whole game's level, under the mute |
 | `sounds.<name>.gain` / `.rate` | Per sound, covering all its takes: linear gain, and playback rate (pitch and tempo together). `file` is the designer's name, for reading only |
 | `minGap.<name>` | Per one-shot: seconds before it may fire again. 0 is no limit |
+| `music.master` / `music.tracks.<track>.gain` | The radio's level as a whole, and a trim per track on top of its measured `RADIO.gain` (so 1 is the shipped -24 LUFS). The **Music** section edits them, with ▶ to preview a track and Replace… to try a local file in its place |
 | `engine.*` | The beds: idle and Loco pitch at each end of their speed range, how far the idle ducks under Loco, when and how fast the Loco loop comes in, pitch glide and release time constants, and how long the taxi must stand before pulling away plays `accel`. Each is described at `SHIPPED_MIX` in `sfx.js` |
 
-Open the game with **`?audio`** (or `?debug`, the same panel) and the ⚙️ panel's **Audio**,
-**Engine sound**, **Sounds** and **Audio export** sections have every one of those as a live slider,
+Open the game with **`?audio`** (or `?debug`, the same panel; or `?dev`, which also skips the title
+and the opening straight into a run; the ⚙️ button is bottom right) and
+the ⚙️ panel's **Audio** (SFX and Music levels), **Engine sound**, **Sounds**, **Music** and
+**Audio export** sections have every one of those as a live slider,
 levels in dB and pitch in semitones. It used to be a separate 🔊 panel so the designer was not
 scrolling past the sun; collapsed sections and the panel's search do that job now (type a sound's
 name to jump to it).
@@ -232,7 +305,7 @@ and 1.25, a flatbed crate is `crash` at 0.3 and 1.6, and `land` scales with the 
 ## Checking it
 
 `window.__taxi.sfx.state` reports `{ ready, loaded, total, muted, held }`. `loaded` should equal
-`total` (43) after the first tap. `window.__taxi.sfx.play('crash')` fires any one-shot by name, and
+`total` (68) after the first tap. `window.__taxi.sfx.play('crash')` fires any one-shot by name, and
 `tuning()`, `tune(partial)` and `reset()` reach the same mix the Audio sections edit. The
 module is in check.mjs's `BOOT` list, which proves it imports cleanly in node, where it builds a
 no-op.

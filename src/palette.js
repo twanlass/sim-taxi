@@ -1114,6 +1114,12 @@ export const PALETTE = {
   rainReflectShower: '#6A7684',
   // A shaft of sun standing in the rain over a gap in the cloud: warm, and drawn additive.
   sunShaft: '#FFE0A6',
+
+  // The ⚙️ panel's sound rings (game/soundrings.js): debug only, never seen in play. Warm for the
+  // full-level circle, cool for where a sound runs out, white for the listener.
+  soundNear: '#FFB347',
+  soundFar: '#5EC8FF',
+  soundEar: '#FFFFFF',
 };
 
 export function color(value) {
