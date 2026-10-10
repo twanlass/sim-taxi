@@ -1581,12 +1581,220 @@ export function spinAngle(t) {
   return { a: Math.PI, rate: 0 };
 }
 
+// --- The handbrake cut (the default; `?uturn=classic` is the spin above) -------------------------
+//
+// The spin above is choreographed as an *angle* over time, with the car's position slid along
+// underneath it, and however the keys were tuned it read as "rotating or pivoting on the spot"
+// (Tyler, 2026-10-09). A second pass that kept it angle-first and added momentum and a fishtail
+// read as "messy": the extra swings were the angle doing something the path was not.
+//
+// So this one is path-first, the way a handbrake U-turn actually happens. The car's centre drives
+// a hairpin — a long run on down the road, a round bulb across it, and back out along the far lane
+// (`handbrakePath`) — at a speed that falls from the speed it came in at and builds back up to the
+// one it leaves at, and the body points where it is *going* plus a slip angle: the tail hung out
+// past the line, most when broadside, gone by the exit. The rotation is the motion's, so it cannot
+// be faster than the car is getting round, and there is nothing in it to wobble.
+//
+// A third pass took its timing from the drift (Tyler, 2026-10-10: the second "stilted and really
+// slow", the taxi losing "almost all its momentum" to the two brake taps — "the move that is feeling
+// really good is the drift boost"). The drift holds the boost cruise through the corner, deaf to the
+// pedal, and pays out a kick on the exit. So this one does the same three things: it goes in at the
+// speed the taxi had *before* the first tap (`spinTaxi`'s `entry`), holds that speed round the
+// hairpin rather than scrubbing it in the bulb, and lands into the drift's own exit kick and carry
+// (`car.spinKicks` tells main.js to bark the flame). Shorter too: the reach was halved, so at the
+// Loco top the whole turn is ~0.7s against the second pass's 1.5.
+//
+// A fourth pass made the kick the player's (Tyler, 2026-10-10: "maybe it just needs a kick / loco
+// out to feel like a complete move"). The drift's kick is earned — it only fires because the pill
+// went back down at the right time — and a kick handed out on every landing was one more beat of
+// animation with nobody at the wheel. So the turn now lands on HB_KEEP of its speed and nothing
+// more, and **Loco pressed during the back half of the turn, or just after it lands**
+// (`kickSpin`, HB_KICK_FROM / HB_KICK_LATE), is what powers out of it on the drift's kick.
+// No slow-mo: the move is a quick reversal to get away, not a cinematic one.
+//
+// Every number here is a first guess at a feel, not a measurement.
+
+/** How far down the road the bulb reaches, per u/s of entry speed: ~8 units from 23 u/s. */
+const HB_REACH = 0.35;
+/** ...but never less than this, so a slow one still sweeps rather than pivots. */
+const HB_REACH_MIN = 5;
+/**
+ * How far past the end of the lane it may reach, into the junction ahead. A taxi at chase speed
+ * usually has 5-odd units of lane left, and no slide from 25 u/s stops in that without reading as
+ * hitting a wall. What it slides into there, the collision pass charges, as it always has.
+ */
+const HB_OVERRUN = HALF_ROAD + 1;
+/** The bulb's roundness: the speed across at its apex, as a multiple of the road it crosses. */
+const HB_BULB = 1.7;
+/** Straight-ish road between landing on the far lane and the bulb, in seconds of exit speed. */
+const HB_EXIT = 0.3;
+/**
+ * The tail's slip past the direction of travel, in radians (~49°), and when it builds and lets go,
+ * as spans of `t`. It is on a clock rather than tied to the path's heading because the handbrake is
+ * pulled *before* the car turns: tied to the heading, the slip and the turn arrived together at the
+ * apex and swung the body 90° in a tenth of a second, which is the pivot again.
+ */
+const HB_SLIP = 0.85;
+const HB_SLIP_IN = [0.05, 0.35];
+const HB_SLIP_OUT = [0.6, 0.95];
+/** How hard the entry run bends toward the bulb: the start's tangent as a share of the reach. */
+const HB_ENTRY = 0.6;
+/** Exit speed: this fraction of the entry speed, and never under this multiple of cruise. The kick
+ * (DRIFT_EXIT), when Loco earns it, goes on top on the frame it lands. */
+const HB_KEEP = 0.75;
+/**
+ * When Loco powers out: from this far round the turn (`t`), and up to this long after it lands, in
+ * seconds. Earlier than half way the car is still going the wrong way and a kick there would be a
+ * kick into the slide; a press that early is simply the pill.
+ */
+const HB_KICK_FROM = 0.45;
+const HB_KICK_LATE = 0.3;
+const HB_FLOOR = 1.25;
+/**
+ * Seconds the turn takes, as a multiple of the time the path would take at the mean of the entry
+ * and exit speeds — 1 holds the speed all the way round — and the range it is held to.
+ */
+const HB_SLOW = 1;
+const HB_TIME = [0.5, 1];
+/** Body tilt: the most, and the yaw rate (rad/s) that buys about three quarters of it. */
+const HB_TILT = 0.2;
+const HB_TILT_RATE = 5;
+
+let spinStyle = 'handbrake';
+
+/** `?uturn=classic` puts the first bootleg back; anything else is the handbrake turn. */
+export function setSpinStyle(name) {
+  spinStyle = name === 'classic' ? 'classic' : 'handbrake';
+}
+
+/**
+ * The hairpin, in the car's own frame — `x` down the road it was on, `y` across toward the far lane
+ * — from (0, 0) heading +x to (`down`, `w`) heading −x, as two cubic Hermite spans meeting at the
+ * apex (`reach`, w/2), which they cross heading straight across. Sampled into an arc-length table
+ * of [x, y, distance, heading], heading as the angle turned toward the far lane (0 to π, unwrapped).
+ *
+ * The bulb's tangent is what makes it round: at HB_BULB × w the first span swings a little toward
+ * the near kerb before it turns in (well under a unit — the taxi's half width fits between its own
+ * lane's centre and the kerb), which is the wide entry a driver takes to make the turn.
+ */
+function handbrakePath(reach, w, down) {
+  const k2 = HB_BULB * w;
+  const spans = [
+    // [x0, y0, tx0, ty0, x1, y1, tx1, ty1]
+    [0, 0, Math.max(reach * HB_ENTRY, 1), 0, reach, w / 2, 0, k2],
+    [reach, w / 2, 0, k2, down, w, -Math.max(reach - down, 1), 0],
+  ];
+  const N = 40;
+  const rows = [];
+  let len = 0;
+  let heading = 0;
+  let px = 0, pz = 0;
+  for (const [x0, y0, a0, b0, x1, y1, a1, b1] of spans) {
+    for (let i = rows.length ? 1 : 0; i <= N; i++) {
+      const u = i / N;
+      const h00 = 2 * u ** 3 - 3 * u * u + 1, h10 = u ** 3 - 2 * u * u + u;
+      const h01 = -2 * u ** 3 + 3 * u * u, h11 = u ** 3 - u * u;
+      const x = h00 * x0 + h10 * a0 + h01 * x1 + h11 * a1;
+      const y = h00 * y0 + h10 * b0 + h01 * y1 + h11 * b1;
+      const d00 = 6 * u * u - 6 * u, d10 = 3 * u * u - 4 * u + 1, d11 = 3 * u * u - 2 * u;
+      const dx = d00 * x0 + d10 * a0 - d00 * x1 + d11 * a1;
+      const dy = d00 * y0 + d10 * b0 - d00 * y1 + d11 * b1;
+      if (rows.length) len += Math.hypot(x - px, y - pz);
+      // Unwrapped against the last row, so it runs 0..π without a jump.
+      const raw = Math.atan2(dy, dx);
+      heading = rows.length ? heading + Math.atan2(Math.sin(raw - heading), Math.cos(raw - heading)) : 0;
+      rows.push([x, y, len, heading]);
+      px = x; pz = y;
+    }
+  }
+  return rows;
+}
+
+/** Where on the hairpin the car is at `t` (0..1): its distance along it, and its speed in u/s. */
+function handbrakeAlong(sp, t) {
+  const u = Math.max(0, Math.min(1, t));
+  const { len, m0, m1, time } = sp;
+  const along = len * (-2 * u ** 3 + 3 * u * u) + m0 * (u ** 3 - 2 * u * u + u) + m1 * (u ** 3 - u * u);
+  const rate = len * (6 * u - 6 * u * u) + m0 * (3 * u * u - 4 * u + 1) + m1 * (3 * u * u - 2 * u);
+  return { along, v: rate / time };
+}
+
+/** Out of a handbrake turn on the drift's own tier-1 kick and carry. */
+function powerOut(car) {
+  const v = boostCruise() * DRIFT_EXIT;
+  car.drift = { phase: 'carry', lane: car.lane.id, v, t: 0, carry: DRIFT_CHAIN.carry[0], kicked: true };
+  car.v = Math.max(car.v, v);
+  car.spinLate = 0;
+  car.spinKicks = (car.spinKicks ?? 0) + 1;
+}
+
+/**
+ * Loco pressed: power out of a handbrake turn, if it is in the window (HB_KICK_FROM, HB_KICK_LATE).
+ * Mid-turn it is booked for the landing; just after, it goes on at once. Answers whether it counted.
+ */
+export function kickSpin(car) {
+  if (car.uturn?.sp) {
+    if (car.uturn.t < HB_KICK_FROM || car.uturn.kicked) return false;
+    car.uturn.kicked = true;
+    return true;
+  }
+  if (!(car.spinLate > 0) || car.crashed || car.drift) return false;
+  powerOut(car);
+  return true;
+}
+
+/** The hairpin's point and heading (angle turned toward the far lane) at `t`. */
+function handbrakePoint(sp, t) {
+  const { along, v } = handbrakeAlong(sp, t);
+  const rows = sp.path;
+  let k = 1;
+  while (k < rows.length - 1 && rows[k][2] < along) k++;
+  const [x0, y0, l0, h0] = rows[k - 1];
+  const [x1, y1, l1, h1] = rows[k];
+  const f = Math.max(0, Math.min(1, (along - l0) / Math.max(1e-6, l1 - l0)));
+  return { x: x0 + (x1 - x0) * f, y: y0 + (y1 - y0) * f, heading: h0 + (h1 - h0) * f, v };
+}
+
+const HB_YAW_STEPS = 96;
+const smooth01 = (t, [a, b]) => {
+  const f = Math.max(0, Math.min(1, (t - a) / (b - a)));
+  return f * f * (3 - 2 * f);
+};
+
+/**
+ * The body's angle toward the far lane across the turn, as a table over `t`: the heading plus the
+ * slip, held to never turn back and never past the 180. Where the slip lets go faster than the
+ * path is still turning, that holds the body square to the far lane while the car is still sliding
+ * sideways into it — the catch, which is what a driver's counter-steer looks like from above.
+ */
+function handbrakeYaw(sp) {
+  const out = [];
+  let most = 0;
+  for (let i = 0; i <= HB_YAW_STEPS; i++) {
+    const t = i / HB_YAW_STEPS;
+    const slip = HB_SLIP * smooth01(t, HB_SLIP_IN) * (1 - smooth01(t, HB_SLIP_OUT));
+    most = Math.min(Math.PI, Math.max(most, handbrakePoint(sp, t).heading + slip));
+    out.push(most);
+  }
+  out[HB_YAW_STEPS] = Math.PI;
+  return out;
+}
+
+/** The hairpin's point and the body's angle toward the far lane at `t`. */
+function handbrakeAt(sp, t) {
+  const at = handbrakePoint(sp, t);
+  const f = Math.max(0, Math.min(1, t)) * HB_YAW_STEPS;
+  const i = Math.min(HB_YAW_STEPS - 1, Math.floor(f));
+  at.a = sp.yaw[i] + (sp.yaw[i + 1] - sp.yaw[i]) * (f - i);
+  return at;
+}
+
 /**
  * Spin the taxi round to the far lane, or say why not: `'median'` on an arterial (the centreline is
  * a planted median), `'bridge'` over the river, `'road'` mid-junction, on a bend or with no lane back,
  * `'short'` if there is no room on the lane to land without running into a junction.
  */
-export function spinTaxi(car) {
+export function spinTaxi(car, entry = car.v) {
   if (car.crashed || car.staged || car.uturn || onDriftLaunch(car)) return 'road';
   if (car.state !== 'drive' || car.pass > 0 || car.passing) return 'road';
   if (!blocksOnCentreline(car)) return 'median';
@@ -1610,7 +1818,15 @@ export function spinTaxi(car) {
   const c = car.s + ((p.x - o.x) * t.x + (p.z - o.z) * t.z);
   // Land past the slide, but never inside the far lane's own stop line (that junction is the one
   // behind the taxi, and landing there runs its light — see CLAUDE.md) or in the junction ahead.
-  const slide = Math.min(car.v * SPIN_TIME * SPIN_SLIDE, 7);
+  const handbrake = spinStyle === 'handbrake';
+  // The handbrake goes in at the speed from before the combo's two brake taps.
+  const v0 = handbrake ? Math.max(car.v, entry) : car.v;
+  const v1 = handbrake ? Math.max(SPEED * HB_FLOOR, v0 * HB_KEEP) : Math.max(SPEED, v0 * SPIN_KEEP);
+  // The handbrake's bulb: as far as the speed carries it, up to HB_OVERRUN into the junction ahead.
+  const bulb = Math.min(Math.max(HB_REACH_MIN, v0 * HB_REACH), lane.length - car.s + HB_OVERRUN);
+  const slide = handbrake
+    ? Math.max(0, bulb - Math.max(3, v1 * HB_EXIT))
+    : Math.min(car.v * SPIN_TIME * SPIN_SLIDE, 7);
   const hi = back.length - STOP_SETBACK - 1;
   const lo = CAR_LEN / 2 + 1;
   if (hi < lo) return 'short';
@@ -1619,14 +1835,24 @@ export function spinTaxi(car) {
   // Nose swings toward the far lane, as a handbrake turn does.
   const n = { x: q.x - p.x, z: q.z - p.z };
   const dir = n.x * -h.z + n.z * h.x > 0 ? 1 : -1;
-  const v0 = car.v;
   // How far on down the road the arc reaches before it comes back to land: as far as the speed
   // carries it, but not past the end of the lane it is leaving, into the junction ahead.
   const down = (q.x - p.x) * h.x + (q.z - p.z) * h.z;
   const reach = Math.max(down, Math.min(v0 * SPIN_TIME * SPIN_REACH, lane.length - car.s - 0.5));
-  car.uturn = {
-    kind: 'spin', p, q, h, dir, t: 0, yaw0: yawOf(h), v0, v1: Math.max(SPEED, v0 * SPIN_KEEP), reach,
-  };
+  car.uturn = { kind: 'spin', p, q, h, dir, t: 0, yaw0: yawOf(h), v0, v1, reach, time: SPIN_TIME };
+  if (handbrake) {
+    const w = Math.abs((q.x - p.x) * -h.z + (q.z - p.z) * h.x);
+    const path = handbrakePath(Math.max(bulb, down + 2), w, down);
+    const len = path[path.length - 1][2];
+    // Long enough to scrub speed through the bulb, and with the entry and exit speeds as the two
+    // end slopes — scaled back if they would make the distance run backwards (a Hermite with end
+    // slopes over 3× its span overshoots).
+    const time = Math.max(HB_TIME[0], Math.min(HB_TIME[1], (HB_SLOW * 2 * len) / (v0 + v1)));
+    const ends = Math.min(1, (2.8 * len) / ((v0 + v1) * time));
+    const sp = { path, len, time, m0: v0 * time * ends, m1: v1 * time * ends };
+    sp.yaw = handbrakeYaw(sp);
+    Object.assign(car.uturn, { time, sp });
+  }
   car.uturnWanted = false;
   car.lane = back;
   car.s = s;
@@ -5510,16 +5736,25 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // every frame, so this lasts exactly as long as the flight.
       if (onDriftLaunch(car)) car.braking = false;
       if (car.drift || car.driftTier) stepDrift(car, dt);
+      if (car.spinLate > 0) car.spinLate -= dt;
 
       if (car.state === 'drive' && car.uturn?.kind === 'spin') {
         // --- Mid-spin (`spinTaxi`): on a clock rather than an arc speed, and deaf to the brake.
-        car.uturn.t += dt / SPIN_TIME;
-        car.v = car.uturn.v0 + (car.uturn.v1 - car.uturn.v0) * Math.min(1, car.uturn.t);
+        car.uturn.t += dt / car.uturn.time;
+        car.v = car.uturn.sp
+          ? handbrakeAlong(car.uturn.sp, car.uturn.t).v
+          : car.uturn.v0 + (car.uturn.v1 - car.uturn.v0) * Math.min(1, car.uturn.t);
         car.travelled += car.v * dt;
         car.speedFactor = car.v / SPEED;
         stats.distance += car.v * dt;
         stats.moving += 1;
-        if (car.uturn.t >= 1) { car.v = car.uturn.v1; car.uturn = null; }
+        if (car.uturn.t >= 1) {
+          const { sp, kicked } = car.uturn;
+          car.v = car.uturn.v1;
+          car.uturn = null;
+          if (kicked) powerOut(car);
+          else if (sp) car.spinLate = HB_KICK_LATE;
+        }
         continue;
       }
 
@@ -6166,6 +6401,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // `x/z/yaw` come from changes: from whoever is staging it rather than from a lane.
       if (car.staged) {
         // Nothing here — the position derivation is the whole of what is skipped.
+      } else if (car.uturn?.sp) {
+        // The handbrake turn: round the hairpin, the body on its heading plus the slip.
+        const { p, h, dir, yaw0, sp } = car.uturn;
+        const at = handbrakeAt(sp, Math.min(1, car.uturn.t));
+        // `dir * (-h.z, h.x)` points at the far lane (see `spinTaxi`).
+        car.x = p.x + h.x * at.x - dir * h.z * at.y;
+        car.z = p.z + h.z * at.x + dir * h.x * at.y;
+        car.yaw = yaw0 - dir * at.a;
       } else if (car.uturn?.kind === 'spin') {
         // The bootleg: slide from where it was to where it lands, decelerating, while the body
         // flicks out, swings round past the 180 and whips back to square (SPIN_KEYS).
@@ -6416,6 +6659,13 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           const lean = 0.3 * Math.min(2.2, Math.max(0.7, car.v / SPEED));
           roll = -turnDir * lean * Math.sin(Math.PI * Math.min(1, along01));
         }
+      } else if (car.uturn?.sp) {
+        // Leaning outward off the rate the body turns at, as any corner — measured across a frame.
+        const { sp, time, dir } = car.uturn;
+        const e = 1 / 120;
+        const t = Math.min(1 - e, Math.max(e, car.uturn.t));
+        const rate = (handbrakeAt(sp, t + e).a - handbrakeAt(sp, t - e).a) / (2 * e * time);
+        roll = -dir * HB_TILT * Math.tanh(rate / HB_TILT_RATE);
       } else if (car.uturn?.kind === 'spin') {
         // Off the rate the body is turning at, leaning outward like any corner — so it tips one way
         // on the flick, hard the other through the swing, and back again on the whip. Squashed
