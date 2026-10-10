@@ -209,7 +209,7 @@ import {
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
 import { createComboMeter, comboScope, COMBO_MAX } from '../src/game/combometer.js';
-import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL } from '../src/game/sfx.js';
+import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, radioBetween, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
 const seed = Number(process.argv[2] ?? 71624);
@@ -1461,6 +1461,27 @@ const onGrass = (city, i, j) => {
         wasMid = rd.mid;
       }
     }
+    // And it rides bent, at the knees and the waist. #461's rider (`?skater=stiff`) averaged 1.19 rad
+    // of knee — most of it in tricks, ~0.9 cruising — with its back held dead upright, which on a
+    // 24px figure read as a T-pose on a board. Measured here: 1.54 and 0.33 against 1.19 and 0.
+    const posture = (stiff) => {
+      const crew = createSkaters(skateScene, makeRng(seed + 349), park, { stiff });
+      const p = crew.riders[0].person;
+      let knee = 0;
+      let waist = 0;
+      const n = 60 * 60;
+      for (let i = 0; i < n; i++) {
+        crew.update(1 / 60);
+        knee += p.meshes[5].rotation.x / n;
+        waist += p.meshes[0].parent.rotation.x / n;
+      }
+      return { knee, waist };
+    };
+    const loose = posture(false);
+    const stiffP = posture(true);
+    check('the skater rides with bent knees and a bent waist, unlike ?skater=stiff',
+      loose.knee > 1.2 && loose.waist > 0.25 && stiffP.waist < 0.1 && loose.knee > stiffP.knee + 0.3,
+      `knee ${loose.knee.toFixed(2)} / waist ${loose.waist.toFixed(2)} against stiff ${stiffP.knee.toFixed(2)} / ${stiffP.waist.toFixed(2)}`);
     const tricks = [...seen.keys()].sort();
     check('one rider, and the board never puts a wheel through the concrete or leaves the slab',
       maxRiders === 1 && wheelsUnder + offSlab === 0,
@@ -4336,7 +4357,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     fares.update(1 / 60, kTraffic.taxi);
     // Whichever mesh the rider's own colour lives on — the merged torso is first, and it is the
     // one a flash has to reach. Read off the material the way a player reads it off the screen.
-    const skin = fare.slot.passenger.standing.group.children[0].material;
+    const skin = fare.slot.passenger.standing.meshes[0].material; // the torso
     check('a fresh rider is not already popping',
       !crystal.isPopping() && Math.abs(figure.scale.x - 1) < 1e-9
       && Math.abs(crystal.mesh.scale.x - 1) < 1e-9,
@@ -8952,7 +8973,7 @@ function rideToPickup() {
     rPolice.update(1 / 60);
   }
   const cop = rPatrol.state.cop;
-  const rCollisions = createCollisions(rTraffic.cars, taxi);
+  let rCollisions = createCollisions(rTraffic.cars, taxi);
   const struck = [];
   rCollisions.onBump((e) => {
     struck.push(e.taxiStruck);
@@ -9002,6 +9023,27 @@ function rideToPickup() {
     stageRam(0, 19, true);
     check('a cop driving into the taxi is not read as the taxi\'s ram', struck[0] === false,
       `taxiStruck ${struck[0]}`);
+  }
+  // The game's rule since: ramming a cop is the wreck, at full HP (`lethalPolice`). Same ram, a
+  // fresh detector with the rule on, the taxi topped up. `?cop=classic` is everything above.
+  if (cop && !cop.crashed) {
+    cop.x += 50;
+    for (let f = 0; f < 30; f++) rCollisions.update(1 / 60);
+    const lethal = createCollisions(rTraffic.cars, taxi, { lethalPolice: true });
+    let wrecked = null;
+    let bumped = false;
+    lethal.onImpact((e) => { wrecked = e; });
+    lethal.onBump(() => { bumped = true; });
+    taxi.hp = TAXI_HP;
+    caught = false;
+    rCollisions = lethal;
+    stageRam(19, 0, false);
+    rPatrol.update(1 / 60, { boosting: true });
+    check('ramming a cop at full HP is the wreck, not a bump',
+      wrecked?.other === cop && !bumped && taxi.crashed && cop.crashed && taxi.hp === 0 && !caught,
+      `wreck ${Boolean(wrecked)}, bumped ${bumped}, taxi crashed ${taxi.crashed}, hp ${taxi.hp}, caught ${caught}`);
+    check('...and the patrol stands down rather than arresting a wreck',
+      rPatrol.state.cop === null && !caught, `phase ${rPatrol.state.phase}`);
   }
 }
 
@@ -10082,7 +10124,12 @@ function rideToPickup() {
   const taken = new Set(Object.values(SOUNDS).flat());
   const unwired = [...taken].filter((f) => !(f in files) || !onDisk.includes(f));
   check('every take a sound names is a shipped .m4a', unwired.length === 0, unwired.join(', '));
-  const tracks = [RADIO.intro, ...RADIO.songs];
+  const tracks = RADIO.all;
+  // The station's running order: a break after every second song, the ID after every third, and
+  // the ID after the break where both fall due — never splitting it.
+  const order = Array.from({ length: 12 }, (_, i) => radioBetween(i + 1).join('+') || '-').join(' ');
+  check('the radio breaks for ads every 2 songs and the station ID every 3',
+    order === '- ad id ad - ad+id - ad id ad - ad+id', order);
   const offAir = tracks.filter((f) => !(f in createSfx().radioFiles) || !onDisk.includes(f)
     || !(RADIO.seconds[f] > 0) || !(RADIO.gain[f] > 0));
   check('every radio track is a shipped .m4a with a length and a level', offAir.length === 0,
@@ -17011,7 +17058,8 @@ let chopperOrder; // likewise
     const refused = spinTaxi(taxi);
     if (refused) { why[refused] = (why[refused] ?? 0) + 1; continue; }
     spun += 1;
-    for (let k = 0; k < 60 && taxi.uturn; k++) bTraffic.update(1 / 60);
+    // 2s, with room: the handbrake turn takes up to 1 (HB_TIME in sim/traffic.js).
+    for (let k = 0; k < 120 && taxi.uturn; k++) bTraffic.update(1 / 60);
     const tangent = taxi.lane.path.tangentAt(taxi.s);
     const want = Math.atan2(-tangent.z, tangent.x);
     worstYaw = Math.max(worstYaw, Math.abs(Math.atan2(Math.sin(taxi.yaw - want), Math.cos(taxi.yaw - want))));

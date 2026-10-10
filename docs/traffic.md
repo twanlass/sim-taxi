@@ -1569,6 +1569,13 @@ Rear-ending a car at boost cruise closes at ~10.5 u/s and costs 24; T-boning cro
 cruise closes at ~21 and costs 37; anything in the overdrive band costs 49–55. So a sloppy tailgate
 is forgiven about four times and a red run flat out about twice.
 
+**Except a police car, which is always the wreck.** A charged hit on anything with `police` set
+empties the taxi's HP on the spot (`lethalPolice` in `createCollisions`), so it plays out as
+[the wreck](#the-wreck) — fireball, crash cam, ejection over `EJECT_CLOSING` — from full health.
+Only the charged path: a cop touching a taxi that is off the pill is still the patrol's arrest
+(`game/patrol.js`). `?cop=classic` prices a cop like any other car, where ramming the patrol is a
+bump that buys `RAMMED_GRACE`.
+
 **The taxi rams — when it cannot pass.** A boosting taxi with `hp` that has no way round the car in
 front stops following it: no `BOOST_GAP`, no moving-leader cap, in lanes or junctions (`rams()` in
 `traffic.js`). Held to those rules it lifted off in the last few units before every rear-end, which

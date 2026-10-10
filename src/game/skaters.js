@@ -88,6 +88,22 @@ const DECK_IN = 0.42;
 /** The share of passes that carve across to the other lane. */
 const SWITCH_LANE = 0.55;
 
+/**
+ * The body's set points. `LOOSE` is the default; `STIFF` is the pose #461 shipped with, kept behind
+ * `?skater=stiff` for comparison. It read as a frozen T-pose, and the numbers say why: knees at a
+ * 0.1 crouch are 0.4 rad off straight, the back never left vertical, and arms held out at a radian
+ * either side are most of a T. A riding stance is the opposite on all three — knees well bent all
+ * the time, the chest folded over them, the arms low and loose until something needs balancing.
+ */
+const LOOSE = {
+  crouch: 0.3, load: 0.25, unload: 0.16, deep: 0.42, pop: 0.06,
+  spread: 0.5, wide: 1.0, bow: 0.04, hinge: 0.38, elbow: 0.6,
+};
+const STIFF = {
+  crouch: 0.1, load: 0.24, unload: 0, deep: 0.3, pop: 0.04,
+  spread: 0.95, wide: 1.35, bow: 0.1, hinge: 0, elbow: 0.45,
+};
+
 const TAU = Math.PI * 2;
 const ease = (t) => t * t * (3 - 2 * t);
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -117,7 +133,8 @@ function weighted(rng, table, avoid = null) {
 /**
  * @param park  the plan from city/skatepark.js, or null — a quiet no-op, as the hoopers are.
  */
-export function createSkaters(scene, rng, park) {
+export function createSkaters(scene, rng, park, { stiff = false } = {}) {
+  const T = stiff ? STIFF : LOOSE;
   const group = new THREE.Group();
   group.name = 'skaters';
   if (!park) return { group, riders: [], entryObjects: [], update: () => {} };
@@ -577,10 +594,10 @@ export function createSkaters(scene, rng, park) {
     if (r.s) r.dir = dir;
     let pitchTo = r.pitch.x;
     let pitchW = 30;
-    let crouchTo = 0.12;
+    let crouchTo = T.crouch;
     let leanTo = 0;
     let twistTo = 0.3 * dir;
-    let spreadTo = 1.0;
+    let spreadTo = T.spread;
     let tiltTo = 0;
     let tiltLead = dir;
     let grab = 0;
@@ -606,16 +623,18 @@ export function createSkaters(scene, rng, park) {
       const onTrans = Math.abs(r.u) > park.transU && Math.abs(r.u) < park.lipU;
       // The load: gravity's share into the board, plus what the curve adds.
       const load = Math.cos(a) + (onTrans ? (r.s * r.s) / (TRANS_R * G) : 0);
-      crouchTo = 0.1 + 0.24 * clamp(load - 1, 0, 1.3);
+      // Down into the bottom of a transition, and standing tall again as the load comes off near
+      // the top: the pump, which is the motion that most says a person is riding this.
+      crouchTo = T.crouch + T.load * clamp(load - 1, 0, 1.3) - T.unload * clamp(1 - load, 0, 1);
       // Inertia: slowing toward the nose pitches the body over it, and the arms come up against it.
       const aFwd = -G * Math.sin(a) * Math.cos(r.psi);
       leanTo = clamp(-0.5 * aFwd / G, -0.3, 0.3);
-      spreadTo = 0.95 + 0.25 * clamp(load - 1, 0, 1);
+      spreadTo = T.spread + 0.25 * clamp(load - 1, 0, 1);
       if (r.mode === 'ride' && r.lane.feature === 'box' && r.mid === 'manual'
         && Math.abs(r.u) < BOX_TOP_HALF + 0.25) {
         tiltTo = 0.28;
         leanTo = -0.2 * dir;
-        spreadTo = 1.3;
+        spreadTo = T.wide;
       }
       // Loading up for a pop, a stride before it.
       if (r.mode === 'ride' && !r.midDone && Math.abs(r.s) > 0.1 && r.mid !== 'manual') {
@@ -634,10 +653,10 @@ export function createSkaters(scene, rng, park) {
           leanTo = 0.05 * Math.sin(r.t * 1.3);
         } else if (st.kind === 'rock' && holding) {
           leanTo = 0.22 * st.side * Math.sign(Math.cos(r.psi));
-          crouchTo = 0.3;
+          crouchTo = T.deep;
         } else if (st.t >= st.up + st.hold) {
           // Committing to the drop: weight over the front foot.
-          crouchTo = 0.25;
+          crouchTo = T.deep;
           leanTo = -0.25 * st.side * Math.sign(Math.cos(r.psi));
         }
       }
@@ -651,7 +670,7 @@ export function createSkaters(scene, rng, park) {
       grab = air.kind === 'air' ? Math.pow(up, 0.6) : 0;
       tuck = air.kind === 'flip' ? hump(k / 0.7) : air.kind === 'air360' ? 0.35 * up : 0;
       crouchTo = 0.06;
-      spreadTo = air.kind === 'air360' ? 0.6 : 1.35;
+      spreadTo = air.kind === 'air360' ? 0.6 : T.wide;
       leanTo = 0;
     } else if (r.mode === 'hop') {
       const hop = r.hop;
@@ -661,13 +680,13 @@ export function createSkaters(scene, rng, park) {
       pitchW = 24;
       tiltTo = k < 0.3 ? 0.5 : 0;
       tiltLead = Math.sign(hop.u1 - hop.u0) * Math.sign(Math.cos(r.psi)) || 1;
-      crouchTo = 0.04;
+      crouchTo = T.pop;
       tuck = hop.trick === 'kickflip' || hop.trick === 'shuv' ? hump(k) : 0.35 * hump(k);
-      spreadTo = 1.3;
+      spreadTo = T.wide;
     } else if (r.mode === 'grind') {
       pitchTo = 0;
-      crouchTo = 0.3;
-      spreadTo = 1.35;
+      crouchTo = T.deep;
+      spreadTo = T.wide;
       leanTo = 0.1 * Math.sin(r.t * 9) + 0.06 * Math.sin(r.t * 14.3);
     }
 
@@ -758,15 +777,21 @@ export function createSkaters(scene, rng, park) {
     tiltPivot.rotation.z = r.tilt.x * r.tiltLead;
     boardPivot.rotation.set(r.flip, r.shuv, 0);
 
+    const sink = clamp(r.crouch.x, 0, 0.75);
     person.ride({
-      drop: clamp(r.crouch.x, 0, 0.75),
+      drop: sink,
       lean: clamp(r.lean.x, -0.4, 0.4),
-      bow: 0.1 + 0.12 * clamp(r.crouch.x, 0, 0.6),
+      bow: T.bow + 0.12 * clamp(sink, 0, 0.6),
+      // Folding at the waist with the knees: a squat with a bolt-upright back is the T-pose.
+      // Capped: past ~0.45 rad on top of a deep crouch the head goes down to the board.
+      hinge: T.hinge * clamp(sink / 0.3, 0, 1.2),
+      elbow: T.elbow + 0.4 * T.hinge * clamp(sink, 0, 0.6),
       twist: clamp(r.twist.x, -0.7, 0.7),
       swing: clamp(r.swing.x, -0.6, 0.6),
       spread: clamp(r.spread.x, 0.2, 1.5),
       grab: r.grab,
       tuck: r.tuck,
+      waist: !stiff,
     });
   }
 

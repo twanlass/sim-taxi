@@ -188,7 +188,15 @@ export function contact(a, b) {
 // every frame of the shove — and a separation shorter than this is the same contact flickering.
 const REHIT = 0.35;          // s
 
-export function createCollisions(cars, taxi) {
+/**
+ * @param lethalPolice  a charged hit on a police car empties the taxi's HP on the spot, so it is
+ *   the wreck rather than a bump. Tyler's call: ramming a cop is a crash like any other, just a
+ *   fatal one. Off by default so the tools that measure first contact (tools/lab.mjs) and the
+ *   probe's bump checks keep their currency; main.js turns it on unless `?cop=classic`. Only the
+ *   *charged* path — a contact off the pill is still a shove, and a cop catching a taxi that is
+ *   not boosting is still the arrest (game/patrol.js).
+ */
+export function createCollisions(cars, taxi, { lethalPolice = false } = {}) {
   const listeners = [];
   const bumpListeners = [];
   const onImpact = (cb) => { listeners.push(cb); };
@@ -264,7 +272,7 @@ export function createCollisions(cars, taxi) {
       const closing = Math.hypot(rvx, rvz);
 
       if (taxi.hp != null) {
-        const damage = bumpDamage(closing);
+        const damage = lethalPolice && other.police ? taxi.hp : bumpDamage(closing);
         taxi.hp = Math.max(0, taxi.hp - damage);
         if (taxi.hp > 0) {
           bump(other, closing, damage, pen.cx, pen.cz, pen);

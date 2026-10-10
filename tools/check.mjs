@@ -13,7 +13,8 @@ import { spawnSync } from 'node:child_process';
 // browser, and a scope slip in scene.js shipped undetected because nothing headless imported it.
 const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geometry/taxi.js',
   '../src/game/faremarker.js', '../src/geometry/person.js', '../src/game/routeline.js',
-  '../src/game/pathdrag.js', '../src/game/sfx.js', '../src/game/audiopanel.js',
+  '../src/game/pathdrag.js', '../src/game/sfx.js', '../src/game/audiopanel.js', '../src/game/soundrings.js',
+  '../src/game/soundpins.js', '../src/game/quicktips.js', '../src/game/quicktips.js',
   '../src/game/dust.js', '../src/game/spray.js', '../src/game/blast.js', '../src/game/flyover.js', '../src/game/birds.js', '../src/game/ducks.js',
   '../src/city/blacktop.js', '../src/game/hoopers.js', '../src/city/skatepark.js', '../src/game/skaters.js', '../src/game/skatersclassic.js',
   '../src/game/clouds.js', '../src/geometry/cloud.js', '../src/game/rain.js', '../src/game/citylights.js', '../src/game/storm.js', '../src/game/squall.js',
@@ -167,7 +168,8 @@ try {
   {
     const { reelAt, clipKeys, pickStreet, CLIP_LOOP, TAP_2 } = await import('../src/game/uturnclip.js');
     const start = reelAt(0.2);
-    const end = reelAt(TAP_2 + 1);
+    // Two seconds on, with room: the handbrake turn takes up to 1 (HB_TIME in sim/traffic.js).
+    const end = reelAt(TAP_2 + 2);
     if (!(start.lateral > 0 && end.lateral < 0)) throw new Error('uturnclip: the spin does not change lanes');
     if (Math.abs(end.yaw - start.yaw - Math.PI) > 0.05) throw new Error('uturnclip: not a half turn');
     if (!(reelAt(1).along > start.along && reelAt(CLIP_LOOP).along < end.along)) throw new Error('uturnclip: car does not drive out then back');

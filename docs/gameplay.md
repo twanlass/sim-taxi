@@ -27,7 +27,8 @@ words stand on. Settings holds four things, all remembered across visits:
 **"Play again" skips it.** The retry is a reload, and a player who just pressed Play does not want
 the menu again, so `onRetry` sets a one-shot `sessionStorage` flag the next boot consumes.
 **`?title=off`** skips it too, the same escape hatch `?vignette=off` is; `tools/smoke.mjs` runs every
-page but its own title check that way. Shot mode never builds it.
+page but its own title check that way. **`?dev`** skips both, and turns on debug mode (the ⚙️
+panel) with them: the one flag for playtesting. Shot mode never builds it.
 
 ## The opening vignette
 
@@ -3435,10 +3436,23 @@ means and the brake still wins, because it replaces the target the boost ceiling
 ### The bootleg: boost, then brake twice
 
 `game/bootleg.js`, `spinTaxi` in `sim/traffic.js`, wired in `holdBrake` in main.js. In Loco Mode, tap
-the brake twice within 350ms and the taxi spins 180° onto the far lane in 0.42s. It slides on down
-the road as it turns and keeps 55% of its speed, never less than cruise. The body whips round with
-a small overshoot, and the spin comes with a screech, a jolt of shake, a haptic buzz and four-wheel
-rubber.
+the brake twice within 350ms and the taxi turns 180° onto the far lane, with a screech, a jolt of
+shake, a haptic buzz and four-wheel rubber. There are two cuts of it:
+
+- **The handbrake turn** (default; `handbrakePath` in `sim/traffic.js`). Path-first: the car's centre
+  drives a hairpin, a run on down the road as far as its speed carries it (0.35 units per u/s, up to
+  5 units into the junction ahead), a round bulb across, and back out along the far lane. The body
+  points along the path plus a slip that builds as the handbrake goes on (up to ~49°) and lets go
+  by the exit, never turning back. Timed off the drift: it goes in at the speed from *before* the
+  combo's first brake tap and holds it all the way round (0.5-1s), throwing tyre smoke, and lands
+  on the drift's tier-1 exit kick and carry, flame bark and all, but no fuel refund. The kick is
+  automatic: a version that made Loco earn it was tried and Tyler preferred it on every landing.
+  No slow-mo, by Tyler's call: the move is a quick reversal, not a cinematic one.
+- **Classic** (`?uturn=classic`). The first one: an angle choreographed over 0.76s with the
+  position slid underneath, keeping 55% of its speed. It read as "pivoting on the spot", and a
+  second, angle-first pass with momentum and a fishtail read as "messy" (Tyler, 2026-10-09), which
+  is why the default turned path-first; a slower path-first pass that scrubbed speed in the bulb
+  read as "stilted" (2026-10-10), which is why it now holds speed and kicks like the drift.
 
 It exists because a chase gave the player nothing to do but hold the pill. In a getaway the cut-off
 cops are in the junctions *ahead* (see [the chase](#the-chase)), and a 180 puts every one of them

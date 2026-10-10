@@ -30,7 +30,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
-  onDriftLaunch, hopProgress,
+  onDriftLaunch, hopProgress, setSpinStyle,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
@@ -71,6 +71,8 @@ import { createWindshield } from './game/windshield.js';
 import { createTape, createCrashReplay } from './game/replay.js';
 import { CARRY_DRAG, carrySpeed, carryTravel } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
+import { createSoundRings } from './game/soundrings.js';
+import { createSoundPins } from './game/soundpins.js';
 import { createChopper } from './game/chopper.js';
 import { createPoliceHeli } from './game/policeheli.js';
 import { createBirds, chooseRoosts } from './game/birds.js';
@@ -125,7 +127,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall, getWater } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall, getWater, getUturnStyle } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -639,8 +641,10 @@ const hoopers = createHoopers(scene, makeRng(runSeed + 313), props.court);
 // mesh, and who is riding it is the run seed's. See city/skatepark.js and game/skaters.js;
 // `?skater=classic` brings back the first cut's pair of riders (game/skatersclassic.js).
 if (props.skateMesh) scene.add(markOccluder(props.skateMesh));
-const skaters = (new URLSearchParams(window.location.search).get('skater') === 'classic'
-  ? createClassicSkaters : createSkaters)(scene, makeRng(runSeed + 349), props.skatepark);
+// `?skater=stiff` is the default rider in #461's pose, before it learned to bend.
+const skaterFlag = new URLSearchParams(window.location.search).get('skater');
+const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters)(
+  scene, makeRng(runSeed + 349), props.skatepark, { stiff: skaterFlag === 'stiff' });
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
 // subject of the opening vignette below. `null` on a city with nowhere to put one, which is a
@@ -967,6 +971,9 @@ function boardSound() {
 // The sound — see game/sfx.js. Silent in shot mode, which renders stills and has nobody listening.
 // Its own stream, which draws the take each one-shot plays (the designer's A/B/C variants).
 const sfx = shot ? null : createSfx({ rng: makeRng(runSeed + 811) });
+// The ⚙️ panel's handle once it exists (`createDebugPanel` at the bottom of the file), so the frame
+// can ask whether it is open — the sound rings below show only then.
+let debugPanel = null;
 // The title screen's Settings, remembered across visits (game/settings.js). The two volumes are
 // applied to the engine here and on every change; the tips on Play, and again if the pause screen's
 // copy switches them off mid-run (`dropTutorial`).
@@ -1019,6 +1026,7 @@ const patrol = createPatrol({
   onSpotted: (cop) => {
     copShout?.show(cop);
     haptic('pick');
+    sfx?.play('chirp', { at: placeAt(cop.x, cop.z) });
   },
   onCaught: (cop, ram) => bustByPolice(ram),
   // Said by the cruiser that lost you, from over its own roof.
@@ -1026,6 +1034,7 @@ const patrol = createPatrol({
   onHid: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
 });
 // Boost, then two quick taps of the brake: the taxi spins round onto the far lane. See game/bootleg.js.
+setSpinStyle(getUturnStyle());
 const bootleg = createBootleg({
   taxi: traffic.taxi,
   destination: () => traffic.taxi.pendingTarget ?? null,
@@ -1201,9 +1210,12 @@ let tutorialTalking = false;
 // beside the panel because two things well before it read it: a tuning session runs with no
 // tutorial and with the fare clocks held, so the game can be left open behind the panel without
 // having to be played to stay alive.
+// `?dev` is the working shortcut: debug mode, straight past the title screen and the opening
+// vignette, into a run — the three flags a playtest of anything in the ⚙️ panel wants together.
+const devMode = new URLSearchParams(window.location.search).has('dev');
 const debugMode = (() => {
   const params = new URLSearchParams(window.location.search);
-  return !shot && (params.has('debug') || params.has('settings') || params.has('audio'));
+  return !shot && (devMode || params.has('debug') || params.has('settings') || params.has('audio'));
 })();
 
 /**
@@ -1223,9 +1235,14 @@ const releaseCameraToPlayer = () => {
 };
 
 // Screenshots frame themselves, and a shot run has no user to drag anything.
+//
+// On a desktop the whole city fits and nothing pans (NARROW_VIEWPORT) — except in debug mode, where
+// the map drags on any screen: the placed sounds are heard from the middle of the screen (`placeAt`),
+// and auditioning the court's falloff means being able to put the court there.
 const pan = shot
   ? null
-  : attachDragPan(controller, renderer.domElement, aspect, isNarrow, releaseCameraToPlayer);
+  : attachDragPan(controller, renderer.domElement, aspect, () => isNarrow() || debugMode,
+    releaseCameraToPlayer);
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
 const spray = createSpray(scene, makeRng(seed + 78));
@@ -1787,7 +1804,11 @@ const TAXI_KEEP = 0.8;          // and the taxi this much less, for having hit s
 const SHELL_SPIN = 0.6;
 const STRUCK_SPIN = 1.9;
 
-const collisions = createCollisions(traffic.cars, traffic.taxi);
+// Ramming a police car is the wreck, whatever the taxi's HP (`lethalPolice` in sim/collisions.js).
+// `?cop=classic` keeps the old rule: a cop is priced like any other car.
+const collisions = createCollisions(traffic.cars, traffic.taxi, {
+  lethalPolice: new URLSearchParams(window.location.search).get('cop') !== 'classic',
+});
 
 // Hit points. Arming `hp` is what turns every contact but the last into a bump rather than the
 // wreck — see TAXI_HP in sim/collisions.js. A retry reloads the page, so this is also the refill.
@@ -2656,7 +2677,7 @@ const wantsTutorial = !debugMode
   && new URLSearchParams(window.location.search).get('tutorial') !== 'off';
 // The same escape hatch for the beat before it — see the opening vignette at the bottom of this
 // file, and `?vignette=off` there for why it is a *settle* rather than a skip.
-const wantsVignette = new URLSearchParams(window.location.search).get('vignette') !== 'off';
+const wantsVignette = !devMode && new URLSearchParams(window.location.search).get('vignette') !== 'off';
 // The cut to black the player's own skip happens behind — a tap during the vignette, wired at the
 // bottom of this file where the vignette itself is built. Declared here because the tutorial's
 // `isBlocked` below has to see it: the skip hands the run over on a frame nobody can see, and a
@@ -3613,6 +3634,8 @@ const BRAKE_SKID_V = 2.5;
 // drop-off rather than crawl there.
 let driftTapAt = -Infinity;
 let driftsPaid = 0;
+// And the handbrake U-turn's exit kick (`car.spinKicks`), which borrows the drift's.
+let spinKicksFelt = 0;
 // The same tally-and-catch-up for the taxi's overtakes (`car.overtakes` in sim/traffic.js).
 let overtakesFelt = 0;
 
@@ -4141,7 +4164,9 @@ function kickDust() {
   // one does. It stops on its own the moment the car does — this is paced by distance travelled.
   // A wet road throws water, not dust — `wetTyres` has the tyres while the ground under them is wet.
   const wetOut = (WET_TYRES.spray || WET_TYRES.tracks) && roadWet > WET_DUST_OFF;
-  if ((!car.boost && !car.braking) || car.v < 2 || wetOut) { lastDustAt = car.travelled; return; }
+  // And the handbrake U-turn, which is a slide from start to finish with neither pedal down.
+  const sliding = car.uturn?.sp;
+  if ((!car.boost && !car.braking && !sliding) || car.v < 2 || wetOut) { lastDustAt = car.travelled; return; }
   if (car.travelled - lastDustAt < 0.47) return;
   lastDustAt = car.travelled;
   const fx = Math.cos(car.yaw);
@@ -4197,8 +4222,8 @@ function copSquealAt(x, z) {
 // arrest crew), full inside SIREN_NEAR and easing down to SIREN_FLOOR by SIREN_FAR. A floor rather
 // than the squeal's silence past the edge of the frame, because a siren is the one sound that
 // should carry: a chase on the far side of the map is still after *you*, and the off-screen wash
-// (game/sirenglow.js) is already saying so with its light. The master is a hot, solid loop
-// (-10 dB RMS against the crash's -26), which is why its level in mix.json is as low as it is.
+// (game/sirenglow.js) is already saying so with its light. The master is Block 2's
+// `25_NPC_siren_loop`, -28.5 dB RMS against the crash's -26.3, so it ships at 0 dB.
 const SIREN_NEAR = 18;
 const SIREN_FAR = 70;
 const SIREN_FLOOR = 0.35;
@@ -4211,6 +4236,209 @@ function sirenLevel() {
   if (d === Infinity) return 0;
   const k = Math.min(1, Math.max(0, (SIREN_FAR - d) / (SIREN_FAR - SIREN_NEAR)));
   return SIREN_FLOOR + (1 - SIREN_FLOOR) * k;
+}
+
+// --- Block 2: the city's sounds ------------------------------------------------------------------
+//
+// Everything below is heard from somewhere. `placeAt` is the one place that says how far a point is
+// from the listener and where it sits across the screen; the falloff itself is in mix.json's `place`
+// (sfx.js `falloff`), so the ⚙️ panel can move it. See docs/audio.md.
+//
+// **The listener is the middle of the screen, not the taxi** (Tyler, October 2026): the player pans
+// away to look at things, and panning over to the court should bring the court up. The camera
+// follows the taxi while nobody is panning, so in play the two are nearly the same point. The siren
+// and the cop squeal still measure from the taxi — they are about the taxi being chased.
+const placeProbe = new THREE.Vector3();
+function placeAt(x, z, y = 0) {
+  const ear = controller.state.target;
+  const d = Math.hypot(x - ear.x, z - ear.z);
+  placeProbe.set(x, y, z).project(camera);
+  return { d, pan: placeProbe.x };
+}
+
+// The street works: one zone a run, heard from the middle of its closed block while it stands.
+function roadworkSpot() {
+  const edge = roadwork.state.edge;
+  const phase = roadwork.state.phase;
+  if (!edge || phase === 'waiting' || phase === 'gone') return null;
+  const net = cityNetwork();
+  const a = net.nodeById.get(edge.a);
+  const b = net.nodeById.get(edge.b);
+  if (!a || !b) return null;
+  return { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, level: roadwork.state.alpha ?? 1 };
+}
+
+// The barges' gulls: the barge carrying them nearest the listener, while it is on the river. A boat
+// keeps its place as `x`/`z` (its `mesh` is the drawn hull); boats.js drops it from the list once
+// it has sailed off, so anything in the list is on the water.
+function nearestGulls() {
+  const ear = controller.state.target;
+  let best = null;
+  for (const b of boats?.boats ?? []) {
+    if (!b.gulls) continue;
+    const d = Math.hypot(b.x - ear.x, b.z - ear.z);
+    if (!best || d < best.d) best = { d, x: b.x, z: b.z };
+  }
+  return best;
+}
+
+/** The ambient beds' levels for this frame — handed to `sfx.update` as `ambient`. */
+function ambientLevels() {
+  const t = traffic.taxi;
+  const out = { city: { level: 1 } };
+  const works = roadworkSpot();
+  if (works) out.construction = { ...placeAt(works.x, works.z), level: works.level };
+  if (props.court) out.court = placeAt(props.court.x, props.court.z);
+  const gulls = nearestGulls();
+  if (gulls) out.seagulls = placeAt(gulls.x, gulls.z, 4);
+  // Rain is where the taxi is: the squall's cell grown by the lens's reach, so it is heard a little
+  // before the drops land; the storm is the whole city at once. Not placed — it is all around.
+  const rainLevel = squall ? squall.rainNear(t.x, t.z, LENS_REACH) : storm ? storm.state.rain : 0;
+  out.rain = { level: rainLevel };
+  return out;
+}
+
+// The one-shots: read off each system's own counters and phases, so none of them needs a callback
+// it did not already have. Every one is a no-op until the first tap has started the audio.
+const birdCounts = flocks.map((f) => ({ up: f.state.flights, down: f.state.landings }));
+let lastBridgePhase = drawbridge?.state.phase ?? null;
+let bridgeVoice = null;
+let bridgeSince = 0;
+let lastFlights = flyover.state.flights;
+let planeVoice = null;
+let lastVisits = chopper.state.visits;
+let heliVoice = null;
+let lastOpeningPhase = null;
+let spawnHeard = false;
+// The aeroplane's run is ~10s of which the middle ~6 are on screen; the master is 7.25s, so it
+// starts this far in, which centres it on the pass. It is steered by distance besides.
+const PLANE_LEAD = 1.4;
+// The drawbridge master is the whole cycle in one (26s) — see docs/audio.md for why that only
+// lines up when nothing holds the span. It is steered for as long as it can be sounding.
+const BRIDGE_SECONDS = 26;
+
+function cityOneShots(dt) {
+  if (!sfx?.state.ready) return;
+  // The city building itself, once, on the first frame there is both an entrance and a context.
+  if (!spawnHeard && cityEntry.running()) { sfx.play('spawn'); spawnHeard = true; }
+  if (!cityEntry.running()) spawnHeard = true;
+
+  // The depot's door going up at the start of a run. Only out of 'settle' — the repair visit's
+  // second 'door' is the same door already running.
+  const phase = opening?.phase?.() ?? null;
+  if (phase === 'door' && lastOpeningPhase === 'settle' && garage) {
+    sfx.play('gate', { at: placeAt(garage.entrySite.x, garage.entrySite.z) });
+  }
+  lastOpeningPhase = phase;
+
+  // Pigeons: the frame a flock scatters (`takeOff`), and the frame the last of it is down.
+  flocks.forEach((flock, n) => {
+    const c = birdCounts[n];
+    if (flock.state.flights !== c.up) {
+      const p = flock.state.launch;
+      sfx.play('birdsUp', { at: placeAt(p.x, p.z) });
+    }
+    if (flock.state.landings !== c.down) {
+      const p = flock.centre();
+      sfx.play('birdsDown', { at: placeAt(p.x, p.z) });
+    }
+    c.up = flock.state.flights;
+    c.down = flock.state.landings;
+  });
+
+  // The drawbridge: the whole cycle in one file, from the barriers starting down.
+  if (drawbridge) {
+    const span = drawbridge.span;
+    const at = placeAt(span.cx, (span.z0 + span.z1) / 2);
+    const bp = drawbridge.state.phase;
+    if (bp === 'closing' && lastBridgePhase !== 'closing') {
+      bridgeVoice = sfx.play('bridge', { at, steered: true });
+      bridgeSince = 0;
+    }
+    lastBridgePhase = bp;
+    if (bridgeVoice) {
+      bridgeSince += dt;
+      sfx.steer(bridgeVoice, 'bridge', at);
+      if (bridgeSince > BRIDGE_SECONDS) bridgeVoice = null;
+    }
+  }
+
+  // The aeroplane, from its launch, steered as it crosses.
+  if (flyover.state.flights !== lastFlights) {
+    lastFlights = flyover.state.flights;
+    const p = flyover.group.position;
+    planeVoice = sfx.play('plane', { delay: PLANE_LEAD, at: placeAt(p.x, p.z, p.y), steered: true });
+  }
+  if (planeVoice) {
+    const p = flyover.group.position;
+    sfx.steer(planeVoice, 'plane', placeAt(p.x, p.z, p.y));
+    if (!flyover.state.active) planeVoice = null;
+  }
+
+  // The rooftop helicopter, from the start of a visit to the moment it is gone.
+  if (chopper.state.visits !== lastVisits) {
+    lastVisits = chopper.state.visits;
+    heliVoice = sfx.play('heli', {
+      at: placeAt(chopper.state.x, chopper.state.z, chopper.state.y), steered: true,
+    });
+  }
+  if (heliVoice) {
+    sfx.steer(heliVoice, 'heli', placeAt(chopper.state.x, chopper.state.z, chopper.state.y));
+    if (chopper.state.mode === 'away') { sfx.release(heliVoice, 0.6); heliVoice = null; }
+  }
+}
+
+// The falloff circles for the ⚙️ panel (game/soundrings.js): every placed source the frame can
+// name, so the panel's "Full within"/"Silent past" sliders have something to move.
+const soundRings = sfx && debugMode ? createSoundRings(scene) : null;
+// ...and a 🔊 pin over each, whose chips open the ⚙️ panel on that sound (game/soundpins.js).
+const soundPins = sfx && debugMode ? createSoundPins({
+  project: projectToScreen,
+  viewport,
+  onPick: (key) => debugPanel?.showSound(key),
+  groundAt: groundUnder,
+  onResize: (key, part, radius, done) => debugPanel?.setPlace(key, part, radius, done),
+}) : null;
+// Viewport pixels to the ground under them — the ring handles' drag.
+const groundRay = new THREE.Raycaster();
+const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const groundHit = new THREE.Vector3();
+function groundUnder(clientX, clientY) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  groundRay.setFromCamera(new THREE.Vector2(
+    ((clientX - rect.left) / rect.width) * 2 - 1,
+    -((clientY - rect.top) / rect.height) * 2 + 1,
+  ), camera);
+  return groundRay.ray.intersectPlane(groundPlane, groundHit) ? { x: groundHit.x, z: groundHit.z } : null;
+}
+const screenRight = new THREE.Vector3();
+function soundSources() {
+  const out = [];
+  const works = roadworkSpot();
+  if (works) out.push({ key: 'construction', x: works.x, z: works.z });
+  if (props.court) out.push({ key: 'court', x: props.court.x, z: props.court.z });
+  const gulls = nearestGulls();
+  if (gulls) out.push({ key: 'seagulls', x: gulls.x, z: gulls.z });
+  if (garage) out.push({ key: 'gate', x: garage.entrySite.x, z: garage.entrySite.z });
+  // Not placed — the speaker plays at full level while the taxi is in the lot — but it has a spot on
+  // the map, so it gets a pin to find its controls by. No `place` entry, so no rings.
+  if (burger) out.push({ key: 'driveThru', x: burger.entrySite.x, z: burger.entrySite.z });
+  if (drawbridge) {
+    const span = drawbridge.span;
+    out.push({ key: 'bridge', x: span.cx, z: (span.z0 + span.z1) / 2 });
+  }
+  for (const flock of flocks) {
+    const c = flock.centre();
+    out.push({ key: 'birdsUp', x: c.x, z: c.z }, { key: 'birdsDown', x: c.x, z: c.z });
+  }
+  if (chopper.state.mode !== 'away') {
+    out.push({ key: 'heli', x: chopper.state.x, z: chopper.state.z, y: chopper.state.y });
+  }
+  if (flyover.state.active) {
+    const p = flyover.group.position;
+    out.push({ key: 'plane', x: p.x, z: p.z, y: p.y });
+  }
+  return out;
 }
 
 // The drive-through's speaker, once per visit — the player's, never an ambient car's: on the frame
@@ -4290,7 +4518,7 @@ function consumeTitleSkip() {
     return skip;
   } catch { return false; }
 }
-const wantsTitle = !shot && !consumeTitleSkip()
+const wantsTitle = !shot && !devMode && !consumeTitleSkip()
   && new URLSearchParams(window.location.search).get('title') !== 'off';
 const title = wantsTitle ? createTitleScreen(document.getElementById('title-screen'), {
   sound: soundSwitch,
@@ -4730,6 +4958,23 @@ function tick() {
       landCombo('overtake');
     }
   }
+  if ((traffic.taxi.spinKicks ?? 0) > spinKicksFelt) {
+    // The handbrake U-turn lands on the drift's exit kick (sim/traffic.js), and says so the same
+    // way, minus the fuel: the U-turn has already paid its combo on the frame it started.
+    spinKicksFelt = traffic.taxi.spinKicks;
+    if (!fares.state.gameOver) {
+      const car = traffic.taxi;
+      haptic('drift-kick');
+      controller.kickShake(0.5);
+      sfx?.locoOn();
+      flames.burst(
+        car.x - Math.cos(car.yaw) * TAXI_TAILPIPE_BACK,
+        TAXI_TAILPIPE_HEIGHT,
+        car.z + Math.sin(car.yaw) * TAXI_TAILPIPE_BACK,
+        car.yaw,
+      );
+    }
+  }
   if (traffic.taxi.drifts > driftsPaid) {
     driftsPaid = traffic.taxi.drifts;
     // The exit kick (DRIFT_EXIT in sim/traffic.js) has to read at a glance — playtesting said it
@@ -4781,7 +5026,25 @@ function tick() {
     over: fares.state.gameOver,
     siren: sirenLevel(),
     rotor: policeHeli ? policeHeli.loudness(traffic.taxi.x, traffic.taxi.z) : 0,
+    ambient: sfx ? ambientLevels() : undefined,
   });
+  cityOneShots(dt);
+  // Only the sound being edited in the panel — see `focused` in game/audiopanel.js.
+  if (soundRings) {
+    const open = Boolean(debugPanel && !debugPanel.panel.hidden);
+    const key = open ? debugPanel.audioFocus() : null;
+    const sources = soundSources();
+    soundRings.update(open, controller.state.target,
+      key ? sources.filter((s) => s.key === key) : [], sfx.tuning().place);
+    // The handles go on the selected sound's first source — the one ring set a drag can mean.
+    const first = key ? sources.find((s) => s.key === key) : null;
+    const place = first ? sfx.tuning().place[key] : null;
+    screenRight.setFromMatrixColumn(camera.matrixWorld, 0).setY(0).normalize();
+    soundPins.update(Boolean(debugPanel) && !fares.state.gameOver, sources, key,
+      open ? controller.state.target : null,
+      open && place ? { key, x: first.x, z: first.z, near: place.near, far: place.far,
+        right: { x: screenRight.x, z: screenRight.z } } : null);
+  }
   // After traffic has settled positions for the frame — that's what the overlap check reads, and
   // what the two wreck shells are copied out of. A detected impact takes both cars out of the
   // sim from this frame on; the loops in traffic.js already skip a crashed car, so no further
@@ -4876,6 +5139,9 @@ function tick() {
   if (boosting && !wasBoosting) cameraTakenOver = false;
   wasBoosting = boosting;
   const momentum = boost.isEngaged() || traffic.taxi.drift?.phase === 'carry';
+  // Debug mode follows Loco Mode on a desktop too: the placed sounds are heard from the middle of
+  // the screen, so playtesting them while driving means the camera has to come along.
+  const locoFollows = isNarrow() || debugMode;
   if (title?.holding()) {
     const p = title.pan(dt);
     if (titleFramed) controller.focusOn(p.x, p.z, p.zoom, dt, aspect(), 0.8);
@@ -4884,10 +5150,10 @@ function tick() {
     opening.frameCamera(dt);
   } else if (endSpot) {
     controller.focusOn(endSpot.x, endSpot.z, endZoom, dt, aspect());
-  } else if (boosting && !fares.state.gameOver && isNarrow()) {
+  } else if (boosting && !fares.state.gameOver && locoFollows) {
     controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, BOOST_FOLLOW_SMOOTHING, aspect(),
       followAim(traffic.taxi));
-  } else if (momentum && !cameraTakenOver && !fares.state.gameOver && isNarrow()) {
+  } else if (momentum && !cameraTakenOver && !fares.state.gameOver && locoFollows) {
     controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, BOOST_FOLLOW_SMOOTHING, aspect(),
       followAim(traffic.taxi));
   } else if (tutorial?.holdsCamera()) {
@@ -5055,6 +5321,11 @@ function tick() {
       // sign goes back to vacant rather than holding "occupied" over a cab nobody is in.
       traffic.setTaxiOccupied(false);
     } else if (type === 'vip-missed' || type === 'robber-missed' || type === 'missed') {
+      // The rider swearing as they storm off (geometry/cursebubble.js) — out of the cab if they
+      // were aboard, off their kerb if not.
+      const riding = fare.stage === 'riding';
+      sfx?.play('angry', { at: riding ? placeAt(traffic.taxi.x, traffic.taxi.z)
+        : placeAt(lineX(fare.pickup.i), lineZ(fare.pickup.j)) });
       // An ordinary rider let go on the kerb is a strike as well as a freed taxi — see MAX_STRIKES.
       if (type === 'missed') showStrikes(fares.state.strikes);
       // The one fare whose clock running out isn't a run-ending event — see fares.js. The rider is
@@ -5856,7 +6127,7 @@ if (shot) {
 }
 
 if (!shot && wantsDebugPanel) {
-  createDebugPanel({
+  debugPanel = createDebugPanel({
     sun,
     hemi,
     sky,
@@ -6109,6 +6380,12 @@ window.__taxi = {
   sfx: sfx ? {
     state: sfx.state, play: (name) => sfx.play(name),
     tuning: sfx.tuning, tune: sfx.tune, reset: sfx.reset,
+    // The ⚙️ panel's Replace… — which local file, if any, stands in for a sound this session.
+    replaced: sfx.replaced,
+    // The long city sounds that are steered while they play, and their gain right now — for
+    // checking a flight or a lift is actually being heard.
+    steered: () => Object.fromEntries([['bridge', bridgeVoice], ['plane', planeVoice], ['heli', heliVoice]]
+      .map(([k, v]) => [k, v ? Number(v.gain.gain.value.toFixed(4)) : null])),
   } : null,
   /**
    * Draw one frame on demand.

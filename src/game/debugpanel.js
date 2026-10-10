@@ -11,6 +11,7 @@ import {
 import { MIN_ELEVATION } from './daylight.js';
 import { BLOOM_INTENSITY, BLOOM_KINDS } from './bloom.js';
 import { buildAudioSections } from './audiopanel.js';
+import { attachQuickTips } from './quicktips.js';
 
 // Screen pixels to a world unit at play zoom, for the readouts that need one. Derived rather than
 // written down as the 7.7 that appears as prose all over this project: the frustum is sized by
@@ -132,6 +133,7 @@ export function createDebugPanel({
   panel.hidden = true;
 
   document.body.append(toggle, panel);
+  attachQuickTips(panel);
 
   const heading = (text) => {
     const h = document.createElement('h4');
@@ -1154,8 +1156,9 @@ export function createDebugPanel({
   // The sound designer's sections — game/audiopanel.js. Its status line polls only while the
   // panel is open, so it hears about the toggle; registered after the one above, so `panel.hidden`
   // is already the new state.
+  let audio = null;
   if (sfx) {
-    const audio = buildAudioSections(panel, sfx);
+    audio = buildAudioSections(panel, sfx);
     toggle.addEventListener('click', () => (panel.hidden ? audio.close() : audio.open()));
   }
 
@@ -1256,9 +1259,25 @@ export function createDebugPanel({
   fareTime.dispatchEvent(new Event('input'));
   refresh();
 
-  organise(panel);
+  const sections = organise(panel);
 
-  return { panel, toggle, snapshot };
+  /**
+   * Open the panel on one sound's controls — the 🔊 pins on the map (game/soundpins.js). Opens the
+   * panel if it is shut, unfolds Sounds, selects the sound (which puts its rings on the ground) and
+   * scrolls it into view.
+   */
+  function showSound(key) {
+    if (!audio) return;
+    if (panel.hidden) toggle.click();
+    sections.openSection('Sounds');
+    audio.reveal(key);
+  }
+
+  return {
+    panel, toggle, snapshot, showSound,
+    audioFocus: () => audio?.focused() ?? null,
+    setPlace: (key, part, value, done) => audio?.setPlace(key, part, value, done),
+  };
 }
 
 // --- Sections and search -----------------------------------------------------
@@ -1274,6 +1293,26 @@ export function createDebugPanel({
 // search puts back exactly what was open before it.
 
 const OPEN_KEY = 'dbg-open';
+const TAB_KEY = 'dbg-tab';
+
+/**
+ * The tabs under the search box, and which sections each one shows — by heading. A section not
+ * named here lands on Game, the catch-all, so a new heading is never lost off every tab. A search
+ * looks across all three: it is how you find a control without knowing where it lives.
+ */
+const TABS = [
+  ['Audio', ['Audio', 'Engine sound', 'Sounds', 'Music', 'Audio export']],
+  ['Visuals', ['Light', 'Crayon', 'Cartoon', 'Car finish', 'Bloom', 'HDR', 'Haze', 'Clouds', 'City entrance']],
+  ['Game', ['Game', 'Loco Mode', 'Loco weave', 'Restart to apply', 'Scores', 'Export']],
+];
+const tabOf = (title) => TABS.find(([, titles]) => titles.includes(title))?.[0] ?? 'Game';
+
+function loadTab() {
+  try { return sessionStorage.getItem(TAB_KEY) || TABS[0][0]; } catch { return TABS[0][0]; }
+}
+function saveTab(tab) {
+  try { sessionStorage.setItem(TAB_KEY, tab); } catch { /* private mode */ }
+}
 
 function loadOpen() {
   try { return new Set(JSON.parse(sessionStorage.getItem(OPEN_KEY)) || []); } catch { return new Set(); }
@@ -1307,6 +1346,28 @@ function organise(panel) {
   header.className = 'dbg-head';
   header.append(search);
 
+  let tab = loadTab();
+  const tabBar = document.createElement('div');
+  tabBar.className = 'dbg-tabs';
+  tabBar.setAttribute('role', 'tablist');
+  const tabButtons = TABS.map(([name]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'dbg-tab';
+    b.textContent = name;
+    b.setAttribute('role', 'tab');
+    b.addEventListener('click', () => {
+      tab = name;
+      saveTab(tab);
+      // A tab is a place to look, so picking one ends a search that was looking everywhere.
+      if (search.value) search.value = '';
+      filter();
+    });
+    tabBar.append(b);
+    return b;
+  });
+  header.append(tabBar);
+
   const sections = [];
   let current = null;
   for (const el of [...panel.children]) {
@@ -1325,7 +1386,7 @@ function organise(panel) {
       body.className = 'dbg-sec-body';
       section.append(head, body);
       el.replaceWith(section);
-      const entry = { title, key: title.toLowerCase(), section, head, count, body, items: [] };
+      const entry = { title, key: title.toLowerCase(), section, head, count, body, items: [], tab: tabOf(title) };
       head.addEventListener('click', () => {
         // During a search the open/closed look is the search's, not the user's — a click then
         // still toggles, but only this view of it.
@@ -1367,10 +1428,16 @@ function organise(panel) {
   function filter() {
     query = search.value.trim().toLowerCase();
     const words = query.split(/\s+/).filter(Boolean);
+    // While searching, every tab's sections are in play and no tab reads as the one selected.
+    for (const b of tabButtons) {
+      const on = !words.length && b.textContent === tab;
+      b.classList.toggle('is-active', on);
+      b.setAttribute('aria-selected', String(on));
+    }
     let any = false;
     for (const s of sections) {
       if (!words.length) {
-        s.section.hidden = false;
+        s.section.hidden = s.tab !== tab;
         for (const i of s.items) i.el.classList.remove('dbg-miss');
         setOpen(s, open.has(s.title));
         s.count.textContent = rowCount(s);
@@ -1395,6 +1462,8 @@ function organise(panel) {
   }
 
   search.addEventListener('input', filter);
+  // Lay the panel out for the remembered tab before it is first opened.
+  filter();
   // Typing in the box must not drive the game: `I`, `N`, `+`, `-` and the arrow keys all have
   // window-level handlers. Same guard as the audio panel's.
   search.addEventListener('keydown', (event) => {
@@ -1405,4 +1474,19 @@ function organise(panel) {
     }
   });
   search.addEventListener('keyup', (event) => event.stopPropagation());
+
+  return {
+    /** Unfold a section by its heading, clearing any search that might be hiding it. */
+    openSection(title) {
+      const s = sections.find((x) => x.title === title);
+      if (!s) return;
+      tab = s.tab;
+      saveTab(tab);
+      search.value = '';
+      filter();
+      setOpen(s, true);
+      open.add(title);
+      saveOpen(open);
+    },
+  };
 }

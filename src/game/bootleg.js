@@ -48,6 +48,8 @@ export function createBootleg({ taxi, destination = () => null, onSpin = () => {
     why: null,
     /** The last brake tap: when, and whether Loco Mode was engaged at it. */
     lastTap: null,
+    /** The taxi's speed at the first tap of the combo — what the handbrake turn goes in at. */
+    entry: 0,
     /** Seconds a buffered spin has left — see SPIN_BUFFER. */
     pending: 0,
     /** A spin owns the brake until it comes back up — see `update`. */
@@ -64,7 +66,8 @@ export function createBootleg({ taxi, destination = () => null, onSpin = () => {
    */
   function spin({ buffer = true } = {}) {
     if (taxi.v < SPIN_MIN_V) return refuse('slow');
-    const why = spinTaxi(taxi);
+    // The speed from before the first tap, which the brake has been eating since.
+    const why = spinTaxi(taxi, Math.max(taxi.v, state.entry));
     if (why === 'road' && buffer && (taxi.state === 'turn' || taxi.pass > 0 || taxi.passing)) {
       state.pending = SPIN_BUFFER;
       return false;
@@ -87,9 +90,10 @@ export function createBootleg({ taxi, destination = () => null, onSpin = () => {
     brakeTap({ engaged }) {
       const now = performance.now();
       const prev = state.lastTap;
-      state.lastTap = { at: now, engaged };
+      state.lastTap = { at: now, engaged, v: taxi.v };
       if (prev && prev.engaged && now - prev.at <= COMBO_GAP_MS) {
         state.lastTap = null;
+        state.entry = prev.v ?? 0;
         return spin();
       }
       return false;
@@ -127,6 +131,7 @@ export function createBootleg({ taxi, destination = () => null, onSpin = () => {
     /** Drop anything half-done — a pause, a run ending. */
     reset() {
       state.lastTap = null;
+      state.entry = 0;
       state.pending = 0;
       state.holdOff = false;
     },

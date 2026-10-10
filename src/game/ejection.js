@@ -41,6 +41,7 @@ import {
   riverBanks, riverRow, isSegmentClosed,
 } from '../city/grid.js';
 import { markOccluder, AO_LAYER } from './ssao.js';
+import { stampGhostMask } from '../geometry/ghostoutline.js';
 
 // u/s of closing speed at the wreck. The bands sim/collisions.js prices bumps in: rear-ending a
 // car at boost cruise closes at ~10.5, T-boning cross traffic at ~21, a head-on at ~27, anything in
@@ -124,6 +125,14 @@ export function createEjection(scene, { roadY = 0, onLand = null } = {}) {
   root.visible = false;
   scene.add(root);
   markOccluder(root);
+  // Thrown up and over the bonnet, the figure is in front of the taxi for most of its first arc and
+  // lands a few units off its nose — and a ghost rim's rule is "draw where something in the depth
+  // buffer sits in front of me", which a person standing between the camera and the car satisfies
+  // as well as a tower does. Unstamped, the taxi's yellow rim (and any traced traffic's) drew the
+  // cabbie's silhouette wherever they overlapped the car. The same stamp the flyers take
+  // (geometry/ghostoutline.js): the figure's own visible pixels join the mask, so the rim leaves a
+  // gap under it instead. Stencil state, not shader source, so it links nothing.
+  for (const mesh of person.meshes) stampGhostMask(mesh.material);
 
   // The fade rides on age like everything else here, so the replay scrubs it for free. While it is
   // see-through it is also out of the AO prepass, which would otherwise stamp the contact shading
