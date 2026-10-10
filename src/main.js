@@ -30,6 +30,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
+  kickSpin,
   onDriftLaunch, hopProgress, setSpinStyle,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
@@ -3460,6 +3461,9 @@ function holdLocoMode() {
     controller.kickShake(0.3);
     stampAllRubber(traffic.taxi);
   }
+  // The handbrake U-turn's power-out: Loco through the back half of the turn, or just after it
+  // lands (`kickSpin`). The bark itself goes on as the kick does (see `spinKicksFelt`).
+  if (kickSpin(traffic.taxi)) haptic('drift');
   if (boost.press()) {
     kickLocoMode();
   }
@@ -4100,7 +4104,9 @@ function kickDust() {
   // one does. It stops on its own the moment the car does — this is paced by distance travelled.
   // A wet road throws water, not dust — `wetTyres` has the tyres while the ground under them is wet.
   const wetOut = (WET_TYRES.spray || WET_TYRES.tracks) && roadWet > WET_DUST_OFF;
-  if ((!car.boost && !car.braking) || car.v < 2 || wetOut) { lastDustAt = car.travelled; return; }
+  // And the handbrake U-turn, which is a slide from start to finish with neither pedal down.
+  const sliding = car.uturn?.sp;
+  if ((!car.boost && !car.braking && !sliding) || car.v < 2 || wetOut) { lastDustAt = car.travelled; return; }
   if (car.travelled - lastDustAt < 0.47) return;
   lastDustAt = car.travelled;
   const fx = Math.cos(car.yaw);
@@ -4670,8 +4676,8 @@ function frame() {
     }
   }
   if ((traffic.taxi.spinKicks ?? 0) > spinKicksFelt) {
-    // The handbrake U-turn lands on the drift's exit kick (sim/traffic.js), and says so the same
-    // way, minus the fuel: the U-turn has already paid its combo on the frame it started.
+    // The handbrake U-turn powered out on Loco gets the drift's exit kick (sim/traffic.js), and says
+    // so the same way, minus the fuel: the U-turn has already paid its combo on the frame it started.
     spinKicksFelt = traffic.taxi.spinKicks;
     if (!fares.state.gameOver) {
       const car = traffic.taxi;

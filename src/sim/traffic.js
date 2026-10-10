@@ -1604,6 +1604,14 @@ export function spinAngle(t) {
 // (`car.spinKicks` tells main.js to bark the flame). Shorter too: the reach was halved, so at the
 // Loco top the whole turn is ~0.7s against the second pass's 1.5.
 //
+// A fourth pass made the kick the player's (Tyler, 2026-10-10: "maybe it just needs a kick / loco
+// out to feel like a complete move"). The drift's kick is earned — it only fires because the pill
+// went back down at the right time — and a kick handed out on every landing was one more beat of
+// animation with nobody at the wheel. So the turn now lands on HB_KEEP of its speed and nothing
+// more, and **Loco pressed during the back half of the turn, or just after it lands**
+// (`kickSpin`, HB_KICK_FROM / HB_KICK_LATE), is what powers out of it on the drift's kick.
+// No slow-mo: the move is a quick reversal to get away, not a cinematic one.
+//
 // Every number here is a first guess at a feel, not a measurement.
 
 /** How far down the road the bulb reaches, per u/s of entry speed: ~8 units from 23 u/s. */
@@ -1632,8 +1640,15 @@ const HB_SLIP_OUT = [0.6, 0.95];
 /** How hard the entry run bends toward the bulb: the start's tangent as a share of the reach. */
 const HB_ENTRY = 0.6;
 /** Exit speed: this fraction of the entry speed, and never under this multiple of cruise. The kick
- * (DRIFT_EXIT) goes on top on the frame it lands. */
-const HB_KEEP = 1;
+ * (DRIFT_EXIT), when Loco earns it, goes on top on the frame it lands. */
+const HB_KEEP = 0.75;
+/**
+ * When Loco powers out: from this far round the turn (`t`), and up to this long after it lands, in
+ * seconds. Earlier than half way the car is still going the wrong way and a kick there would be a
+ * kick into the slide; a press that early is simply the pill.
+ */
+const HB_KICK_FROM = 0.45;
+const HB_KICK_LATE = 0.3;
 const HB_FLOOR = 1.25;
 /**
  * Seconds the turn takes, as a multiple of the time the path would take at the mean of the entry
@@ -1702,6 +1717,30 @@ function handbrakeAlong(sp, t) {
   const along = len * (-2 * u ** 3 + 3 * u * u) + m0 * (u ** 3 - 2 * u * u + u) + m1 * (u ** 3 - u * u);
   const rate = len * (6 * u - 6 * u * u) + m0 * (3 * u * u - 4 * u + 1) + m1 * (3 * u * u - 2 * u);
   return { along, v: rate / time };
+}
+
+/** Out of a handbrake turn on the drift's own tier-1 kick and carry. */
+function powerOut(car) {
+  const v = boostCruise() * DRIFT_EXIT;
+  car.drift = { phase: 'carry', lane: car.lane.id, v, t: 0, carry: DRIFT_CHAIN.carry[0], kicked: true };
+  car.v = Math.max(car.v, v);
+  car.spinLate = 0;
+  car.spinKicks = (car.spinKicks ?? 0) + 1;
+}
+
+/**
+ * Loco pressed: power out of a handbrake turn, if it is in the window (HB_KICK_FROM, HB_KICK_LATE).
+ * Mid-turn it is booked for the landing; just after, it goes on at once. Answers whether it counted.
+ */
+export function kickSpin(car) {
+  if (car.uturn?.sp) {
+    if (car.uturn.t < HB_KICK_FROM || car.uturn.kicked) return false;
+    car.uturn.kicked = true;
+    return true;
+  }
+  if (!(car.spinLate > 0) || car.crashed || car.drift) return false;
+  powerOut(car);
+  return true;
 }
 
 /** The hairpin's point and heading (angle turned toward the far lane) at `t`. */
@@ -5697,6 +5736,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // every frame, so this lasts exactly as long as the flight.
       if (onDriftLaunch(car)) car.braking = false;
       if (car.drift || car.driftTier) stepDrift(car, dt);
+      if (car.spinLate > 0) car.spinLate -= dt;
 
       if (car.state === 'drive' && car.uturn?.kind === 'spin') {
         // --- Mid-spin (`spinTaxi`): on a clock rather than an arc speed, and deaf to the brake.
@@ -5709,16 +5749,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         stats.distance += car.v * dt;
         stats.moving += 1;
         if (car.uturn.t >= 1) {
-          const kick = !!car.uturn.sp;
+          const { sp, kicked } = car.uturn;
           car.v = car.uturn.v1;
           car.uturn = null;
-          if (kick) {
-            // Out on the drift's own tier-1 kick and carry — see the handbrake notes above HB_REACH.
-            const v = boostCruise() * DRIFT_EXIT;
-            car.drift = { phase: 'carry', lane: car.lane.id, v, t: 0, carry: DRIFT_CHAIN.carry[0], kicked: true };
-            car.v = Math.max(car.v, v);
-            car.spinKicks = (car.spinKicks ?? 0) + 1;
-          }
+          if (kicked) powerOut(car);
+          else if (sp) car.spinLate = HB_KICK_LATE;
         }
         continue;
       }

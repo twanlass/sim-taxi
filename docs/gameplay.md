@@ -3443,8 +3443,11 @@ shake, a haptic buzz and four-wheel rubber. There are two cuts of it:
   5 units into the junction ahead), a round bulb across, and back out along the far lane. The body
   points along the path plus a slip that builds as the handbrake goes on (up to ~49°) and lets go
   by the exit, never turning back. Timed off the drift: it goes in at the speed from *before* the
-  combo's first brake tap, holds it all the way round (0.5-1s), and lands into the drift's tier-1
-  exit kick and carry, flame bark and all, but no fuel refund.
+  combo's first brake tap and holds it all the way round (0.5-1s), throwing tyre smoke. It lands
+  on 75% of that. **Loco powers out**: pressed from half way round the turn up to 0.3s after it
+  lands (`kickSpin`), it earns the drift's tier-1 exit kick and carry, flame bark and all, but no
+  fuel refund. No slow-mo, by Tyler's call: the move is a quick reversal, not a cinematic one.
+  The New Move card's clip does not show the power-out yet.
 - **Classic** (`?uturn=classic`). The first one: an angle choreographed over 0.76s with the
   position slid underneath, keeping 55% of its speed. It read as "pivoting on the spot", and a
   second, angle-first pass with momentum and a fishtail read as "messy" (Tyler, 2026-10-09), which
