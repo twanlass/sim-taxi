@@ -18908,6 +18908,22 @@ let chopperOrder; // likewise
   const nearTop = pedalAfterMove(zones, GAS, 195, gas.top - REACH - PEDAL_SLOP + 2);
   check('pedal zones: sliding off the row lets go past reach + slop',
     offTop === -1 && nearTop === GAS, `off ${offTop}, just inside ${nearTop}`);
+
+  // The stacked layout (`?pedals=left`): the brake hangs under Loco, centred, the same gap down.
+  const sGas = { left: 20, right: 120, top: 600, bottom: 700 };
+  const sBrake = { left: 37, right: 103, top: 722, bottom: 788 };
+  const sZones = pedalZones([sGas, sBrake], REACH, DEADBAND);
+  check('pedal zones, stacked: the brake under Loco meets it a deadband apart, mid-gap',
+    Math.abs((sZones[BRAKE].top - sZones[GAS].bottom) - DEADBAND) < 1e-9
+    && Math.abs((sZones[BRAKE].top + sZones[GAS].bottom) / 2 - 711) < 1e-9
+    && sZones[GAS].left === sGas.left - REACH && sZones[BRAKE].right === sBrake.right + REACH,
+    `gas zone ends ${sZones[GAS].bottom}, brake zone starts ${sZones[BRAKE].top}`);
+  const down = pedalAfterMove(sZones, GAS, 70, 735);
+  const back = pedalAfterMove(sZones, BRAKE, 70, 695);
+  const rests = [GAS, BRAKE].every((had) =>
+    [-3, 0, 3].every((dy) => pedalAfterMove(sZones, had, 70, 711 + dy) === had));
+  check('pedal zones, stacked: down onto the brake and back up hand over, the deadband holds',
+    down === BRAKE && back === GAS && rests, `down → ${down}, back → ${back}`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

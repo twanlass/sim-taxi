@@ -156,7 +156,7 @@
          across the whole arc in user space, not along the fuel, so a colour means a level —
          orange is always the top of the tank. */
       #boost-meter {
-        position: fixed; bottom: var(--ctl-bottom); left: var(--gas-left); z-index: 19;
+        position: fixed; bottom: var(--gas-bottom); left: var(--gas-left); z-index: 19;
         width: var(--gas-d); height: var(--gas-d);
         pointer-events: none; user-select: none;
       }
@@ -855,6 +855,8 @@
         --gas-d: 100px;
         --brake-d: 66px;
         --gas-left: calc(50% - var(--gas-d) / 2);
+        --gas-bottom: var(--ctl-bottom);
+        --signal-d: 56px;
         /* The gap between the brake and the gas, and how far past their drawn edges each one takes
            a thumb (see "The reach" by #boost, #brake). */
         --pedal-gap: 22px;
@@ -901,7 +903,7 @@
         user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
         touch-action: none;
       }
-      #boost { left: var(--gas-left); width: var(--gas-d); height: var(--gas-d); }
+      #boost { left: var(--gas-left); bottom: var(--gas-bottom); width: var(--gas-d); height: var(--gas-d); }
       #brake {
         left: calc(var(--gas-left) - var(--pedal-gap) - var(--brake-d));
         bottom: calc(var(--ctl-bottom) + (var(--gas-d) - var(--brake-d)) / 2);
@@ -973,9 +975,9 @@
          pass is asked for or under way. */
       #signal {
         position: fixed; z-index: 20;
-        left: calc(var(--gas-left) + (var(--gas-d) - 56px) / 2);
+        left: calc(var(--gas-left) + (var(--gas-d) - var(--signal-d)) / 2);
         bottom: calc(var(--ctl-bottom) + var(--ctl-h) + 18px);
-        width: 56px; height: 56px; padding: 0; border: 0; border-radius: 50%;
+        width: var(--signal-d); height: var(--signal-d); padding: 0; border: 0; border-radius: 50%;
         display: grid; place-items: center; cursor: pointer;
         background: rgba(24, 44, 58, 0.72); color: #ffe4b9;
         user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
@@ -992,6 +994,53 @@
       #signal:active { transform: scale(0.92); }
       body.shot-mode #signal, body.replaying #signal, body.hud-away #signal,
       body.game-over #signal { display: none; }
+
+      /* The stacked layout (`?pedals=left` or `?pedals=right`, Tyler's mock of 2026-10-10): Loco in
+         a bottom corner and raised, the brake hanging under it, the overtake button beside it on the
+         open side. Everything flicks off Loco along one axis — down to brake, sideways to overtake —
+         where the row put the brake beside Loco and the overtake above it. `--ctl-h` becomes the
+         stack's height, so the rider chips and the taxi finder (which measure off it) clear Loco.
+         The zones follow on their own: game/pedalzones.js clips stacked neighbours down the gap the
+         way it clips the row's across it. */
+      body.pedals-left, body.pedals-right {
+        --ctl-h: calc(var(--brake-d) + var(--pedal-gap) + var(--gas-d));
+        --gas-bottom: calc(var(--ctl-bottom) + var(--brake-d) + var(--pedal-gap));
+        --signal-d: 72px;
+      }
+      /* 16px further in than the inset, for the fuel gauge's arc, which stands ~15px off the
+         button's outline and otherwise runs off the edge of the screen. */
+      body.pedals-left { --gas-left: calc(var(--ctl-left) + 16px); }
+      body.pedals-right { --gas-left: calc(100% - var(--ctl-right) - 16px - var(--gas-d)); }
+      body:is(.pedals-left, .pedals-right) #brake {
+        left: calc(var(--gas-left) + (var(--gas-d) - var(--brake-d)) / 2);
+        bottom: var(--ctl-bottom);
+      }
+      body:is(.pedals-left, .pedals-right) #boost::before {
+        left: calc(-1 * var(--pedal-reach));
+        bottom: calc((var(--pedal-deadband) - var(--pedal-gap)) / 2);
+      }
+      body:is(.pedals-left, .pedals-right) #brake::before {
+        right: calc(-1 * var(--pedal-reach));
+        top: calc((var(--pedal-deadband) - var(--pedal-gap)) / 2);
+      }
+      body:is(.pedals-left, .pedals-right) #signal .signal-art { width: 40px; height: 40px; }
+      body:is(.pedals-left, .pedals-right) #signal {
+        bottom: calc(var(--gas-bottom) + (var(--gas-d) - var(--signal-d)) / 2);
+      }
+      body.pedals-left #signal { left: calc(var(--gas-left) + var(--gas-d) + var(--pedal-gap)); }
+      body.pedals-right #signal {
+        left: calc(var(--gas-left) - var(--pedal-gap) - var(--signal-d));
+      }
+      /* The courier box goes beside the brake, under the overtake button. */
+      body:is(.pedals-left, .pedals-right) #cargo-dock {
+        bottom: calc(var(--ctl-bottom) + (var(--brake-d) - 42px) / 2);
+      }
+      body.pedals-left #cargo-dock {
+        left: calc(var(--gas-left) + (var(--gas-d) + var(--brake-d)) / 2 + var(--pedal-gap));
+      }
+      body.pedals-right #cargo-dock {
+        left: calc(var(--gas-left) + (var(--gas-d) - var(--brake-d)) / 2 - var(--pedal-gap) - 42px);
+      }
 
 
       /* Rider finder — one chip per waiting fare, in a row above the Loco Mode pill, left-aligned

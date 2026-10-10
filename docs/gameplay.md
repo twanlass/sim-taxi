@@ -3556,6 +3556,16 @@ probe now checks the clearance and the matching end heights. The gauge rides in 
 the pedal can cover part of the arc, and the last of the tank drains into the lower-left end, which
 is the part a thumb coming in from that corner is most likely to be over.
 
+**The stacked layout** (`?pedals=left`, mirrored by `?pedals=right`; Tyler's mock, 2026-10-10) is a
+prototype for three controls rather than two. Loco moves to a bottom corner and up, the brake hangs
+centred under it, and the overtake button (`?overtake=signal`, [traffic.md](traffic.md)) sits beside
+Loco on the open side at Loco's height, so every move off the gas is a short flick along one axis:
+down to brake, sideways to overtake. It is all CSS (`body.pedals-left` in `index.html`); `--ctl-h`
+becomes the stack's height so the rider chips and the taxi finder clear it, and the gas sits 16px
+further in than the inset so its fuel arc stays on screen. `pedalZones` clips a stacked pair down
+the gap the way it clips the row across it, and the overtake button's zone stops at Loco's on
+whichever side it faces.
+
 The row is **one control surface, not two buttons**. A thumb that goes down on Loco Mode and
 slides right onto the brake hands the car over as it crosses, with no lift in between, and sliding
 back hands it straight back. On a phone that is the difference between "press the gas, let go, find

@@ -3354,6 +3354,13 @@ const boostButton = document.getElementById('boost');
 // The overtake button (`?overtake=signal`) — see movePedal.
 const signalButton = overtakeInput === 'signal' ? document.getElementById('signal') : null;
 if (signalButton) signalButton.hidden = false;
+// The stacked control layout (Tyler's mock, 2026-10-10): `?pedals=left` puts Loco in the bottom-left
+// corner with the brake under it and the overtake button to its right; `?pedals=right` is the
+// mirror. All CSS (`body.pedals-left` in index.html) — the slide reads whatever rectangles it finds.
+{
+  const side = new URLSearchParams(window.location.search).get('pedals');
+  if (side === 'left' || side === 'right') document.body.classList.add(`pedals-${side}`);
+}
 // The same fuel, read out on a gauge arc over the gas button (see #boost-meter in index.html). It
 // takes the pedal's classes and variables verbatim, so the two can never disagree about the tank.
 const boostMeterEl = document.getElementById('boost-meter');
@@ -3774,11 +3781,19 @@ function pressPedal(event) {
   onSignal = false;
   if (signalButton) {
     const r = signalButton.getBoundingClientRect();
-    // Its bottom stops where Loco's own reach starts, so the two never share a pixel.
     signalZone = {
-      left: r.left - SIGNAL_REACH, right: r.right + SIGNAL_REACH, top: r.top - SIGNAL_REACH,
-      bottom: Math.min(r.bottom + SIGNAL_REACH, boostButton.getBoundingClientRect().top - pedalCssPx('--pedal-reach', 20)),
+      left: r.left - SIGNAL_REACH, right: r.right + SIGNAL_REACH,
+      top: r.top - SIGNAL_REACH, bottom: r.bottom + SIGNAL_REACH,
     };
+    // Its facing edge stops where Loco's own zone starts, so the two never share a pixel — over
+    // Loco in the row, beside it in the stacked layouts.
+    const gas = pedalZones[pedals.findIndex((p) => p.el === boostButton)];
+    const g = boostButton.getBoundingClientRect();
+    if (gas) {
+      if (r.bottom <= g.top) signalZone.bottom = Math.min(signalZone.bottom, gas.top);
+      else if (r.left >= g.right) signalZone.left = Math.max(signalZone.left, gas.right);
+      else if (r.right <= g.left) signalZone.right = Math.min(signalZone.right, gas.left);
+    }
   }
   // Set for the whole gesture and not just while a pedal is claimed: a thumb parked off the end of
   // the row is holding nothing, and is still holding the `:active` this press started.
