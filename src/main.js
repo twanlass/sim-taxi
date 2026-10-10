@@ -612,8 +612,10 @@ const hoopers = createHoopers(scene, makeRng(runSeed + 313), props.court);
 // mesh, and who is riding it is the run seed's. See city/skatepark.js and game/skaters.js;
 // `?skater=classic` brings back the first cut's pair of riders (game/skatersclassic.js).
 if (props.skateMesh) scene.add(markOccluder(props.skateMesh));
-const skaters = (new URLSearchParams(window.location.search).get('skater') === 'classic'
-  ? createClassicSkaters : createSkaters)(scene, makeRng(runSeed + 349), props.skatepark);
+// `?skater=stiff` is the default rider in #461's pose, before it learned to bend.
+const skaterFlag = new URLSearchParams(window.location.search).get('skater');
+const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters)(
+  scene, makeRng(runSeed + 349), props.skatepark, { stiff: skaterFlag === 'stiff' });
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
 // subject of the opening vignette below. `null` on a city with nowhere to put one, which is a

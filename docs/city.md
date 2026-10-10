@@ -834,6 +834,11 @@ travelling toward the tail, and a rock or a 360 is what toggles it.
   knees, deceleration pitches the body over the nose and the arms come up against it, a landing
   compresses. Underdamped on purpose — the overshoot is most of what reads as alive.
   `person.ride()` takes the dials; a lean folds the front knee so the feet stay on the deck.
+- **It rides bent.** The figure has a waist now (`chest` in `geometry/person.js`, identity for every
+  pose but `ride`), and the stance is a real one: knees well bent all the time, the chest folded
+  over them, arms low and loose until a grind or an air needs them out. #461's set points (a 0.1
+  crouch, an upright back, arms a radian out) read as a frozen T-pose and are kept behind
+  `?skater=stiff`.
 
 The probe runs five minutes over four runs: one rider, no wheel ever under the concrete, the board
 never more than 0.12 rad of pitch in a frame, both lanes and at least ten tricks. `?skater=classic`
