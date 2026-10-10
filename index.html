@@ -343,6 +343,46 @@
         #strikes .strike.is-new { animation: none; }
       }
 
+      /* The driver's rating — the default face of the strikes above (RATING_START in fares.js):
+         one filled gold star and the number beside it, 5.0 down to the floor that ends the run. A
+         number rather than five stars because a row of stars reads as decoration and a number reads
+         as a score that can move. One decimal because that is how every rideshare app prints a
+         rating, so "4.0" looks like a rating where "4" looks like a count. The last star before the
+         floor turns the number red, which is the warning the third empty ring used to give. A star
+         lost dips the star (flashing red) and drops the new number in from above. Both rows sit in
+         the markup; main.js hides whichever is not in use, and `[hidden]` has to be restated
+         because both rows set a `display`. */
+      #strikes[hidden], #rating[hidden] { display: none; }
+      #rating {
+        display: flex; align-items: center; gap: 5px; margin-top: 4px;
+        font-size: 18px; line-height: 20px; letter-spacing: 0.04em;
+        font-variant-numeric: tabular-nums;
+      }
+      #rating .rating-star {
+        width: 19px; height: 19px; flex: none; overflow: visible;
+        fill: #FFC93C; stroke: #FFC93C; stroke-width: 2; stroke-linejoin: round;
+        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+        transform-origin: 50% 55%;
+      }
+      #rating .rating-num { display: inline-block; transition: color 0.3s ease; }
+      #rating.is-last .rating-num { color: #FF5A4A; }
+      #rating.is-drop .rating-star { animation: rating-star-drop 0.6s cubic-bezier(0.22, 1, 0.36, 1); }
+      #rating.is-drop .rating-num { animation: rating-num-drop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+      @keyframes rating-star-drop {
+        0%   { transform: scale(1) rotate(0); fill: #FFC93C; stroke: #FFC93C; }
+        20%  { transform: scale(1.5) rotate(-14deg); fill: #FF5A4A; stroke: #FF5A4A; }
+        40%  { transform: scale(0.75) rotate(10deg); fill: #FF5A4A; stroke: #FF5A4A; }
+        65%  { transform: scale(1.08) rotate(-4deg); }
+        100% { transform: scale(1) rotate(0); fill: #FFC93C; stroke: #FFC93C; }
+      }
+      @keyframes rating-num-drop {
+        0%   { transform: translateY(-14px); opacity: 0; }
+        100% { transform: translateY(0); opacity: 1; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #rating.is-drop .rating-star, #rating.is-drop .rating-num { animation: none; }
+      }
+
       /* Cargo chip — the courier box, pictured right of the gas pedal while a package is aboard.
          See src/game/cargochip.js for what is inside it. It sat under the cash total until Tyler's
          HUD shuffle (2026-10-05) gave the top-left to the cash and the top-right to the pause, and
@@ -1924,8 +1964,14 @@
       <div class="money">$<span id="money">0</span></div>
       <!-- Riders let go on the kerb, out of MAX_STRIKES (game/fares.js). Three marks, lit one at a
            time by main.js as `missed` events land; the third never lights, because it ends the run. -->
-      <div id="strikes" role="img" aria-label="No riders lost">
+      <div id="strikes" role="img" aria-label="No riders lost" hidden>
         <span class="strike"></span><span class="strike"></span><span class="strike"></span>
+      </div>
+      <!-- The same count read as a driver rating (RATING_START in game/fares.js), the default;
+           `?rating=off` shows the rings above instead. Updated by `showStrikes` in main.js. -->
+      <div id="rating" role="img" aria-label="Rating 5.0 stars">
+        <svg class="rating-star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 5.9 6.5.95-4.7 4.6 1.1 6.5L12 17.5l-5.8 3.05 1.1-6.5-4.7-4.6 6.5-.95z"/></svg>
+        <span class="rating-num">5.0</span>
       </div>
       <!-- What the ride aboard is on course for — Loco, Perfect, Stealth. Filled by `updateRunTags`
            in main.js; empty between rides. -->

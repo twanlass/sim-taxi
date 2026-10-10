@@ -814,14 +814,31 @@ only trees it moves are the ones its keep-out turns away. Over 80 seeds every ci
 - Benches go through the court's `clearBenches`, grass through `onCourt` and birds get a keep-out
   rectangle; all three only read a slab's centre, axis and size, which the two share.
 
-The riders are `game/skaters.js`, on the run seed (`+349`): two in 75% of runs, one (on the funbox
-lane) otherwise. Each is a pendulum on the lane's surface (`surfaceAt`), pumped: entering the flat,
-its speed is *set* so the peak lands where the next trick wants it, a kickturn below the lip or an
-air above it, and gravity does the rest. Every turn is a 180 about the board's normal, which at the
-lip is exactly what brings an air back down nose first. A grind is a hop drawn over the floor (the
-rail is not a surface); every 5 to 10 passes a rider rolls onto a deck, turns round and drops back
-in. The probe runs five minutes over four runs: nobody sinks into a ramp or leaves the slab, and
-airs, kickturns, grinds and rests all happen. `?shot=skatepark` and `?shot=skatepark-far` frame it.
+The rider is `game/skaters.js`, on the run seed (`+349`): **one**, using the whole park. Still a
+pendulum on the lane's surface (`surfaceAt`), pumped on entering the flat so the far end peaks
+where its trick wants it, but now with its energy kept (`E`) so a hop or a grind can take it off the
+surface and hand it back at the budgeted speed. Between passes it carves across the transition to
+the other lane about half the time, spread over the path it covers up there so it is finished by
+the flat. The ends draw from kickturns, airs (grabbed, kickflipped, a full 360), a rock to fakie, a
+180 on the deck and a rest; the middle from ollies, kickflips and shove-its over the funbox, a
+manual across its top, and 50-50s and boardslides down the rail. Stance is not stored: fakie is
+travelling toward the tail, and a rock or a 360 is what toggles it.
+
+- **The board is a rigid stick on two trucks.** Its pitch is the slope of the surface's upper hull
+  under the wheelbase, and its height the lowest it can sit at that pitch without a wheel in the
+  concrete (`restSlope` / `restHeight`). The first cut oriented the board off the slope under its
+  middle, which on the funbox's piecewise-flat kickers flipped it 24° in one frame — the "snap".
+  Now only the *jumps* in the hull's slope are eased (`TIP_STEP`, `TIP_W`), so the board tips over
+  an edge in about a sixth of a second while still following a transition exactly.
+- **The body is springs**, driven by what the rider feels: the load into a transition sinks the
+  knees, deceleration pitches the body over the nose and the arms come up against it, a landing
+  compresses. Underdamped on purpose — the overshoot is most of what reads as alive.
+  `person.ride()` takes the dials; a lean folds the front knee so the feet stay on the deck.
+
+The probe runs five minutes over four runs: one rider, no wheel ever under the concrete, the board
+never more than 0.12 rad of pitch in a frame, both lanes and at least ten tricks. `?skater=classic`
+is the first cut (`game/skatersclassic.js`): two riders in 75% of runs, each in its own lane, airs
+and kickturns only, and it keeps its own probe check. `?shot=skatepark` and `?shot=skatepark-far` frame it.
 
 ### Long grass
 

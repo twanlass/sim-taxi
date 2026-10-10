@@ -71,6 +71,12 @@ read as a bug, because nothing on screen says the rider in the cab is worth all 
 cost of one rule is that grabbing a rider you cannot make is now cheaper (a strike, not the run).
 A VIP or a robber running out costs no strike: a VIP costs the streak, a robber the bonus.
 
+**The HUD shows strikes as a driver rating** (Tyler, 2026-10-09): one gold star and a number under
+the cash, starting at 5.0 and losing a whole star per strike (`RATING_START`, `ratingFor` in
+fares.js). The run ends at 2.0 (`RATING_FLOOR`) with "Deactivated!", which is the same three misses
+as before; the number goes red at 3.0. Packages and the burger run have no clock, so they cannot
+cost a star. `?rating=off` brings back the three rings and "Three riders gave up on you."
+
 ## What the sweep found
 
 `node tools/difficulty-sweep.mjs [cities] [preset]`, presets `pace`, `pressure`, `opening`, `ramp`,
