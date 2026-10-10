@@ -30,7 +30,6 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
-  kickSpin,
   onDriftLaunch, hopProgress, setSpinStyle,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
@@ -3461,9 +3460,6 @@ function holdLocoMode() {
     controller.kickShake(0.3);
     stampAllRubber(traffic.taxi);
   }
-  // The handbrake U-turn's power-out: Loco through the back half of the turn, or just after it
-  // lands (`kickSpin`). The bark itself goes on as the kick does (see `spinKicksFelt`).
-  if (kickSpin(traffic.taxi)) haptic('drift');
   if (boost.press()) {
     kickLocoMode();
   }
@@ -4676,8 +4672,8 @@ function frame() {
     }
   }
   if ((traffic.taxi.spinKicks ?? 0) > spinKicksFelt) {
-    // The handbrake U-turn powered out on Loco gets the drift's exit kick (sim/traffic.js), and says
-    // so the same way, minus the fuel: the U-turn has already paid its combo on the frame it started.
+    // The handbrake U-turn lands on the drift's exit kick (sim/traffic.js), and says so the same
+    // way, minus the fuel: the U-turn has already paid its combo on the frame it started.
     spinKicksFelt = traffic.taxi.spinKicks;
     if (!fares.state.gameOver) {
       const car = traffic.taxi;
