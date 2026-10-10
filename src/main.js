@@ -1777,7 +1777,11 @@ const TAXI_KEEP = 0.8;          // and the taxi this much less, for having hit s
 const SHELL_SPIN = 0.6;
 const STRUCK_SPIN = 1.9;
 
-const collisions = createCollisions(traffic.cars, traffic.taxi);
+// Ramming a police car is the wreck, whatever the taxi's HP (`lethalPolice` in sim/collisions.js).
+// `?cop=classic` keeps the old rule: a cop is priced like any other car.
+const collisions = createCollisions(traffic.cars, traffic.taxi, {
+  lethalPolice: new URLSearchParams(window.location.search).get('cop') !== 'classic',
+});
 
 // Hit points. Arming `hp` is what turns every contact but the last into a bump rather than the
 // wreck — see TAXI_HP in sim/collisions.js. A retry reloads the page, so this is also the refill.

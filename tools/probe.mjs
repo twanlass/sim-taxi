@@ -8973,7 +8973,7 @@ function rideToPickup() {
     rPolice.update(1 / 60);
   }
   const cop = rPatrol.state.cop;
-  const rCollisions = createCollisions(rTraffic.cars, taxi);
+  let rCollisions = createCollisions(rTraffic.cars, taxi);
   const struck = [];
   rCollisions.onBump((e) => {
     struck.push(e.taxiStruck);
@@ -9023,6 +9023,27 @@ function rideToPickup() {
     stageRam(0, 19, true);
     check('a cop driving into the taxi is not read as the taxi\'s ram', struck[0] === false,
       `taxiStruck ${struck[0]}`);
+  }
+  // The game's rule since: ramming a cop is the wreck, at full HP (`lethalPolice`). Same ram, a
+  // fresh detector with the rule on, the taxi topped up. `?cop=classic` is everything above.
+  if (cop && !cop.crashed) {
+    cop.x += 50;
+    for (let f = 0; f < 30; f++) rCollisions.update(1 / 60);
+    const lethal = createCollisions(rTraffic.cars, taxi, { lethalPolice: true });
+    let wrecked = null;
+    let bumped = false;
+    lethal.onImpact((e) => { wrecked = e; });
+    lethal.onBump(() => { bumped = true; });
+    taxi.hp = TAXI_HP;
+    caught = false;
+    rCollisions = lethal;
+    stageRam(19, 0, false);
+    rPatrol.update(1 / 60, { boosting: true });
+    check('ramming a cop at full HP is the wreck, not a bump',
+      wrecked?.other === cop && !bumped && taxi.crashed && cop.crashed && taxi.hp === 0 && !caught,
+      `wreck ${Boolean(wrecked)}, bumped ${bumped}, taxi crashed ${taxi.crashed}, hp ${taxi.hp}, caught ${caught}`);
+    check('...and the patrol stands down rather than arresting a wreck',
+      rPatrol.state.cop === null && !caught, `phase ${rPatrol.state.phase}`);
   }
 }
 
