@@ -104,7 +104,8 @@ with one or two people dribbling and shooting around on it. Scenery,
 like the duck pond; see [city.md](city.md#a-basketball-court).
 
 And one has a **skatepark**: a quarter pipe at each end, a rail and a funbox down the middle, and
-one or two riders going back and forth doing kickturns, airs and grinds. Same terms as the court;
+one rider carving between them through airs, flips, grinds and stalls (`?skater=classic` for the
+old pair). Same terms as the court;
 see [city.md](city.md#a-skatepark).
 
 One of the city's trucks is a **flatbed stacked with crates**. Some while into a run it starts

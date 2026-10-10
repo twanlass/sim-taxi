@@ -60,7 +60,7 @@ const COPING_R = 0.08;
 // One per lane, so the two riders never share one: the rail on the −v lane, the funbox on the +v.
 // The rail is round bar on two posts; the funbox a low flat-topped box with a kicker at each end.
 export const RAIL_H = 0.6;
-const RAIL_R = 0.06;
+export const RAIL_R = 0.06;
 export const RAIL_HALF = 1.2;
 export const BOX_H = 0.42;
 export const BOX_TOP_HALF = 0.7;
