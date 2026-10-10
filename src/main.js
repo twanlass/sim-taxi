@@ -144,6 +144,8 @@ import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics, describeGpu } from './game/diag.js';
 import { createBench } from './game/bench.js';
+import { createSoak } from './game/soak.js';
+import { createGovernor } from './game/governor.js';
 import { createViewport } from './util/viewport.js';
 import { isNative } from './util/platform.js';
 import { tap as haptic, setHapticPrefs } from './util/haptics.js';
@@ -341,6 +343,14 @@ rain.hideInMirror(crayon.overlay, bloom.overlay, scene.getObjectByName('sky'));
 // split between them is where it is. Attached after the sun exists, since step one shrinks its
 // shadow map.
 attachContextRecovery({ renderer, sun, budget, onNotice: (text) => diag.note(text) });
+// Steps the pixel ratio down when a warm phone starts dropping frames, and back up once it can
+// keep up again. `?governor=off` holds it where the budget put it. See game/governor.js.
+const governor = createGovernor({
+  renderer,
+  budget,
+  enabled: !shot && new URLSearchParams(window.location.search).get('governor') !== 'off',
+  onChange: (text) => diag.note(text),
+});
 
 /**
  * The one place the frame is drawn. Three callers reach it — the live loop, shot mode's single
@@ -3333,12 +3343,15 @@ function updateHud(dt) {
   }
 }
 
+// Has the paused still been drawn? See the pause branch of `tick`.
+let stillDrawn = false;
 // Through the viewport's own change feed rather than `window.resize`: an iOS cold-start settle —
 // the screen's true height arriving a few hundred ms after launch — changes the measurement
 // without ever firing a resize event, and the canvas has to follow it or the game keeps the
 // dead strip the settle just revealed.
 viewport.onChange((w, h) => {
   renderer.setSize(w, h);
+  stillDrawn = false;
   controller.resize(aspect());
 });
 
@@ -4450,6 +4463,9 @@ function frame(t) {
   bench?.begin(t);
   tick();
   bench?.end();
+  // Only frames of live play count toward the governor: a paused or finished run is cheap and
+  // would read as headroom.
+  governor.frame(t, !pause?.state.paused && !fares.state.gameOver && !document.hidden);
 }
 
 function tick() {
@@ -4465,10 +4481,16 @@ function tick() {
   // The sound stops with the world — both of the early returns below — and starts with it again.
   sfx?.hold(Boolean(pause?.state.paused || robberLine?.isOpen() || newMove?.isOpen()
     || inspect?.state.on));
+  // Drawn once, not every frame. Nothing in the world moves while paused, and a canvas that is not
+  // drawn keeps showing its last frame — so drawing the same still sixty times a second was pure
+  // heat and battery, for as long as the player left the game paused. `stillDrawn` is cleared on a
+  // resize, which is the one thing that empties the buffer under a pause (see the note above).
   if (pause?.state.paused) {
-    renderFrame();
+    if (!stillDrawn) renderFrame();
+    stillDrawn = true;
     return;
   }
+  stillDrawn = false;
   // `?debug`'s inspect mode: the same freeze as the pause with nothing drawn over the city, and the
   // camera handed to game/inspect.js — which moves it from input events, so all this has to do is
   // draw.
@@ -5783,7 +5805,7 @@ if (shot) {
   // `tools/links.mjs`, it moves six program links out of the run and into the boot, where they are
   // behind the wipe and the vignette and nobody is being made to wait for them mid-corner.
   renderer.compile(scene, camera);
-  bench = createBench({
+  const benchHooks = {
     renderer,
     ready: () => Boolean(traffic.taxi) && !traffic.taxi.staged,
     // The taxi on a job the whole time, so each row measures the frame a player sees rather than an
@@ -5796,7 +5818,9 @@ if (shot) {
     },
     ended: () => fares.state.gameOver,
     gpu: describeGpu(renderer.getContext()).renderer,
-  });
+  };
+  // `?bench` or `?soak` — at most one; see game/bench.js and game/soak.js.
+  bench = createBench(benchHooks) ?? createSoak(benchHooks);
   frame(performance.now());
 }
 
