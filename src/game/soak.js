@@ -46,6 +46,8 @@ export function soakSearch(search, elapsed, rows) {
   const own = new URLSearchParams(search);
   const params = new URLSearchParams({ ...BENCH_BASE });
   params.delete('governor');
+  // And the Resolution setting stands unless the URL names a `dpr`: what is on the phone is what is measured.
+  params.delete('dpr');
   for (const [k, v] of own) params.set(k, v);
   params.set('st', String(Math.round(elapsed)));
   params.set('sr', JSON.stringify(rows));

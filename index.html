@@ -1660,6 +1660,17 @@
       :is(#title-screen, #pause-veil) .title-toggle[aria-checked="true"] .title-switch { background: #F5C130; }
       :is(#title-screen, #pause-veil) .title-toggle[aria-checked="true"] .title-switch-dot { translate: 20px 0; }
 
+      /* A segmented control (Resolution): the picked segment is filled in the switch's yellow. */
+      :is(#title-screen, #pause-veil) .title-segments {
+        flex: none; display: flex; padding: 3px; gap: 2px; border-radius: 999px;
+        background: rgba(255, 255, 255, 0.18);
+      }
+      :is(#title-screen, #pause-veil) .title-segment {
+        min-width: 50px; padding: 6px 10px; border-radius: 999px; text-align: center;
+        font-size: 16px; font-weight: 600; transition: background 0.18s ease, color 0.18s ease;
+      }
+      :is(#title-screen, #pause-veil) .title-segment[aria-checked="true"] { background: #F5C130; color: #1a1a1a; text-shadow: none; }
+
       /* The range input, drawn by hand in both engines' spellings. `--fill` is set from script —
          neither engine has a standard part for the run left of the thumb. `touch-action: none` so
          a horizontal drag on a phone moves the thumb instead of being read as a page gesture. */

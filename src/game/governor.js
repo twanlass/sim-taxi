@@ -84,6 +84,18 @@ export function createGovernor({ renderer, budget, enabled = true, onChange = ()
     /** The ratio it is holding now, for `?bench` and the diagnostics panel. */
     ratio: () => ratioAt(level),
     /**
+     * Back to the top step, and judge afresh. For when the player picks a Resolution in Settings:
+     * they are choosing a look, and should see that look rather than whatever step a warm phone
+     * had been pushed down to under the old one.
+     */
+    reset() {
+      level = 0;
+      cleanFor = 0;
+      frames = 0;
+      late = 0;
+      windowStart = 0;
+    },
+    /**
      * Once per drawn frame, with a wall-clock time in ms. `active` false (paused, a card up, a
      * run over) drops the frame from the count: those frames are cheap and would read as headroom.
      */

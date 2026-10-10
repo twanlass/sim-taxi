@@ -209,6 +209,11 @@ difficulty.pinDifficulty(getDifficultyPin() ?? shot?.difficulty ?? null);
 // panel and turned down from the address bar. `?safe` sets all four at their cheapest at once and
 // each individual flag still overrides it — see the long note in `util/shot.js` for why a device
 // that renders nothing can only be bisected this way.
+// The player's settings, read this early because one of them is part of the renderer budget below:
+// the Resolution choice is the pixel-ratio cap. Shot mode ignores it, so a stored 1.5 on the machine
+// taking screenshots cannot soften every reference image.
+const settings = createSettings();
+const resolutionPinned = new URLSearchParams(window.location.search).has('dpr');
 const budget = {
   safe: getSafeMode(),
   // 'url' | 'android' | null — see `safeModeSource`. The panel reports it, because a budget the
@@ -216,7 +221,7 @@ const budget = {
   safeSource: safeModeSource(),
   msaa: getMsaa(),
   shadowMapSize: getShadowMapSize(),
-  pixelRatioCap: getPixelRatioCap(),
+  pixelRatioCap: getPixelRatioCap(getSafeMode() ? 1 : shot ? 2 : settings.get().resolution),
   ao: getAmbientOcclusion(),
   crayon: getCrayon(),
   cartoon: getCartoon(),
@@ -352,6 +357,17 @@ const governor = createGovernor({
   budget,
   enabled: !shot && new URLSearchParams(window.location.search).get('governor') !== 'off',
   onChange: (text) => diag.note(text),
+});
+// The Resolution setting, live: the cap moves and the governor re-derives its ratio from it. Not
+// while `?dpr=` pins it, nor under `?safe`, whose whole point is the cheapest budget.
+settings.onChange((v) => {
+  if (shot || resolutionPinned || budget.safe || v.resolution === budget.pixelRatioCap) return;
+  budget.pixelRatioCap = v.resolution;
+  governor.reset();
+  renderer.setPixelRatio(governor.ratio());
+  // A ratio change resizes the canvas, which empties it — and this is usually changed from the pause
+  // screen, where the city is drawn once and then left. Redraw it under the veil.
+  stillDrawn = false;
 });
 
 /**
@@ -954,7 +970,6 @@ const sfx = shot ? null : createSfx({ rng: makeRng(runSeed + 811) });
 // The title screen's Settings, remembered across visits (game/settings.js). The two volumes are
 // applied to the engine here and on every change; the tips on Play, and again if the pause screen's
 // copy switches them off mid-run (`dropTutorial`).
-const settings = createSettings();
 sfx?.setVolumes(settings.get());
 settings.onChange((v) => sfx?.setVolumes(v));
 setHapticPrefs(settings.get());
