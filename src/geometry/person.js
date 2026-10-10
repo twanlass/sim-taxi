@@ -240,7 +240,15 @@ export function createPerson({
   const torso = new THREE.Mesh(merged, propMaterial());
   torso.castShadow = true;
   if (pickable) torso.userData.pickable = pickable;
-  group.add(torso);
+  // Everything above the hips hangs off `chest`, pivoted at hip height, so a pose can fold the body
+  // at the waist instead of tipping the whole figure about its feet. Identity for every pose but
+  // `ride` — the skater was the one figure that read as stiff for want of it, a crouch with the
+  // back held bolt upright — and `rest()` puts it back, so nothing else ever sees it move.
+  const chest = new THREE.Group();
+  chest.position.y = HIP_Y;
+  group.add(chest);
+  torso.position.y = -HIP_Y;
+  chest.add(torso);
 
   // Each limb hangs *below* its own origin, so the mesh pivots at the top (hip or shoulder) when
   // rotated. Same trick the old right arm used for its hail-a-cab swing; the other three now share
@@ -262,8 +270,8 @@ export function createPerson({
 
   const legL = limb(0.34, THIGH_LEN, 0.34, legs, -0.26, HIP_Y, group);
   const legR = limb(0.34, THIGH_LEN, 0.34, legs, 0.26, HIP_Y, group);
-  const armL = limb(0.26, UPPER_ARM_LEN, 0.26, body, -0.72, SHOULDER_Y, group);
-  const armR = limb(0.26, UPPER_ARM_LEN, 0.26, body, 0.72, SHOULDER_Y, group);
+  const armL = limb(0.26, UPPER_ARM_LEN, 0.26, body, -0.72, SHOULDER_Y - HIP_Y, chest);
+  const armR = limb(0.26, UPPER_ARM_LEN, 0.26, body, 0.72, SHOULDER_Y - HIP_Y, chest);
   const shinL = limb(0.31, SHIN_LEN, 0.31, legs, 0, -THIGH_LEN, legL, JOINT_LAP);
   const shinR = limb(0.31, SHIN_LEN, 0.31, legs, 0, -THIGH_LEN, legR, JOINT_LAP);
   const foreL = limb(0.235, FOREARM_LEN, 0.235, body, 0, -UPPER_ARM_LEN, armL, JOINT_LAP);
@@ -294,7 +302,7 @@ export function createPerson({
   // robbery fires. `visible = false` costs nothing — three skips a hidden mesh before it reaches
   // the render list.
   //
-  // The mask and the cap hang off `group` rather than off the torso mesh, since neither the head
+  // The mask and the cap hang off `chest` (see above) rather than off the torso mesh, since neither the head
   // nor the hair articulates and `group` is what the animations yaw and lean. The sack hangs off
   // the left forearm, whose origin is its own elbow — so `-FOREARM_LEN` is the hand.
   const kit = (w, h, d, x, y, z, col, parent) => {
@@ -308,13 +316,13 @@ export function createPerson({
     parent.add(mesh);
     return mesh;
   };
-  const mask = kit(MASK_W, MASK_H, MASK_W, 0, MASK_Y, 0, MASK, group);
-  const cap = kit(0.72, 0.26, 0.72, 0, HAIR_Y + 0.05, 0, CAP, group);
+  const mask = kit(MASK_W, MASK_H, MASK_W, 0, MASK_Y - HIP_Y, 0, MASK, chest);
+  const cap = kit(0.72, 0.26, 0.72, 0, HAIR_Y + 0.05 - HIP_Y, 0, CAP, chest);
   // Over the torso, which is 1.0 x 1.3 x 0.6 at y 1.8. Proud on all three axes so no face of it is
   // ever coplanar with the one underneath — two surfaces on one plane is the tie this project has
   // been bitten by before, and a jacket that z-fought with the shirt it covers would flicker on
   // exactly the figure the player is being asked to look at.
-  const jacket = kit(1.07, 1.37, 0.67, 0, 1.8, 0, JACKET, group);
+  const jacket = kit(1.07, 1.37, 0.67, 0, 1.8 - HIP_Y, 0, JACKET, chest);
   // A swag sack: a fat cube at the end of the arm with a pinched neck above it, so the silhouette
   // is a bag being carried rather than a brick being held. Pale, because it is the one part of the
   // kit that is *not* dark — against a black mask, a black cap and a black jacket, a dark bag is
@@ -399,6 +407,7 @@ export function createPerson({
     armL.rotation.set(0, 0, 0);
     armR.rotation.set(0, 0, 0);
     bend(0, 0, 0, 0);
+    chest.rotation.set(0, 0, 0);
     group.position.set(0, 0, 0);
     group.rotation.set(0, 0, 0);
     group.scale.setScalar(1);
@@ -788,10 +797,13 @@ export function createPerson({
    * the same, so the feet stay on the deck instead of one sinking into it and one lifting off.
    * `bow` is the chest folding forward, `twist` the shoulders opening toward where they are going,
    * `swing` the arms trailing fore and aft, `spread` how far out to the sides they are held,
-   * `grab` `skate`'s frontside grab and `tuck` the knees drawn up for a flip.
+   * `grab` `skate`'s frontside grab and `tuck` the knees drawn up for a flip. `hinge` folds the
+   * body at the waist (`chest`) and `elbow` crooks both arms; `waist: false` keeps the chest
+   * rigid and tips the whole figure instead, which is the #461 pose `?skater=stiff` keeps.
    */
   function ride({
-    drop = 0.14, lean = 0, bow = 0.12, twist = 0, swing = 0, spread = 1.0, grab = 0, tuck = 0,
+    drop = 0.14, lean = 0, bow = 0.12, hinge = 0, elbow = 0.45, twist = 0, swing = 0, spread = 1.0,
+    grab = 0, tuck = 0, waist = true,
   } = {}) {
     const SPREAD = 0.24;
     const FOOT_X = 0.26 + LEG_LEN * Math.sin(SPREAD);
@@ -801,12 +813,17 @@ export function createPerson({
     const sinkR = crouch(d + k);
     legL.rotation.set(-sinkL, 0, -SPREAD);
     legR.rotation.set(-sinkR, 0, SPREAD);
-    // Arms counter the lean: the back one comes up as the body tips toward the nose.
+    // The fold at the waist, and most of the twist with it: the shoulders open toward where they
+    // are going while the hips stay square over the board, so the feet stay on it.
+    const fold = waist ? hinge + 0.3 * grab + 0.2 * tuck : 0;
+    chest.rotation.set(fold, waist ? 0.7 * twist : 0, 0);
+    // Arms counter the lean — the back one comes up as the body tips toward the nose — and are
+    // brought forward by the fold so they hang rather than trailing behind a bent back.
     const out = spread * (1 - 0.33 * grab);
-    armL.rotation.set(-0.25 + swing * 0.5, 0, -out - lean * 0.9);
-    armR.rotation.set(-0.25 - swing * 0.5 - 0.9 * grab, 0, out - lean * 0.9 - 0.85 * grab);
-    bend(2 * sinkL, 2 * sinkR, -0.45 - 0.25 * tuck, -0.45 + 0.3 * grab);
-    group.rotation.set(bow + 0.25 * grab + 0.15 * tuck, twist, -lean);
+    armL.rotation.set(-0.25 - 0.8 * fold + swing * 0.5, 0, -out - lean * 0.9);
+    armR.rotation.set(-0.25 - 0.8 * fold - swing * 0.5 - 0.9 * grab, 0, out - lean * 0.9 - 0.85 * grab);
+    bend(2 * sinkL, 2 * sinkR, -elbow - 0.25 * tuck, -elbow + 0.3 * grab);
+    group.rotation.set(waist ? bow : bow + 0.25 * grab + 0.15 * tuck, waist ? 0.3 * twist : twist, -lean);
     group.position.set(0, -d - LEG_LEN * (1 - Math.cos(SPREAD)), 0);
     group.scale.setScalar(1);
   }

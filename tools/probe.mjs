@@ -1461,6 +1461,27 @@ const onGrass = (city, i, j) => {
         wasMid = rd.mid;
       }
     }
+    // And it rides bent, at the knees and the waist. #461's rider (`?skater=stiff`) averaged 1.19 rad
+    // of knee — most of it in tricks, ~0.9 cruising — with its back held dead upright, which on a
+    // 24px figure read as a T-pose on a board. Measured here: 1.54 and 0.33 against 1.19 and 0.
+    const posture = (stiff) => {
+      const crew = createSkaters(skateScene, makeRng(seed + 349), park, { stiff });
+      const p = crew.riders[0].person;
+      let knee = 0;
+      let waist = 0;
+      const n = 60 * 60;
+      for (let i = 0; i < n; i++) {
+        crew.update(1 / 60);
+        knee += p.meshes[5].rotation.x / n;
+        waist += p.meshes[0].parent.rotation.x / n;
+      }
+      return { knee, waist };
+    };
+    const loose = posture(false);
+    const stiffP = posture(true);
+    check('the skater rides with bent knees and a bent waist, unlike ?skater=stiff',
+      loose.knee > 1.2 && loose.waist > 0.25 && stiffP.waist < 0.1 && loose.knee > stiffP.knee + 0.3,
+      `knee ${loose.knee.toFixed(2)} / waist ${loose.waist.toFixed(2)} against stiff ${stiffP.knee.toFixed(2)} / ${stiffP.waist.toFixed(2)}`);
     const tricks = [...seen.keys()].sort();
     check('one rider, and the board never puts a wheel through the concrete or leaves the slab',
       maxRiders === 1 && wheelsUnder + offSlab === 0,
@@ -4336,7 +4357,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     fares.update(1 / 60, kTraffic.taxi);
     // Whichever mesh the rider's own colour lives on — the merged torso is first, and it is the
     // one a flash has to reach. Read off the material the way a player reads it off the screen.
-    const skin = fare.slot.passenger.standing.group.children[0].material;
+    const skin = fare.slot.passenger.standing.meshes[0].material; // the torso
     check('a fresh rider is not already popping',
       !crystal.isPopping() && Math.abs(figure.scale.x - 1) < 1e-9
       && Math.abs(crystal.mesh.scale.x - 1) < 1e-9,
