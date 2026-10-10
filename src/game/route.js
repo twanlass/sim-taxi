@@ -124,6 +124,23 @@ export function laneCost(lane) {
   return EDGE_COST.side;
 }
 
+/**
+ * `laneCost` for every routed car that is **not** the taxi — the patrol, the robbery's cops, the
+ * arrest car, the fire engine. A roadworks lane is a wall to them, not a shortcut.
+ *
+ * The discount above is a lure aimed at the player and nobody else, and handing it to the police
+ * through the shared default was how the patrol cruiser came to drive straight through the site:
+ * at 0.45 a block the closed street was the *cheapest* road in the city to every router in it, so a
+ * cop with a target past the zone took it on purpose. Ambient traffic never had the problem because
+ * it does not route — it rolls dice that weigh a closed lane at zero (sim/traffic.js).
+ *
+ * Infinity rather than a big number, for the reason `setBlockedLanes` gives: Dijkstra will pay any
+ * finite price if it has to. The closed street is one segment, so both of its junctions are still
+ * reachable down their other arms and nothing becomes unroutable. A route planned before the zone
+ * stood up is caught at the line instead, where traffic.js refuses it.
+ */
+export const serviceLaneCost = (lane) => (roadworkLanes.has(lane.id) ? Infinity : laneCost(lane));
+
 /** The search's one non-lane state: "arrived at the origin junction, about to choose". */
 const START = Symbol('start');
 

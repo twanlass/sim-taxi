@@ -5,7 +5,9 @@ import {
 import { cityNetwork } from '../city/roadnet.js';
 import { URGENCY_SEGMENTS, urgencyLevel } from './urgency.js';
 import { createArrest } from './arrest.js';
-import { findRoute, findRouteOnto, planOrigin, junctionAhead, turnsRound } from './route.js';
+import {
+  findRoute, findRouteOnto, planOrigin, junctionAhead, turnsRound, serviceLaneCost,
+} from './route.js';
 import {
   CAR_LEN, CIRCLE_OFFSET, CIRCLE_R, POLICE_FLEET, POLICE_REINFORCEMENTS, SPAWN_CLEARANCE, plannedTurn, stopDistance,
   turnPointAt,
@@ -645,9 +647,9 @@ export function createRobbery({
       // parked on it anyway. Null is an unroutable pair, which `main.js` rerolls the city to
       // prevent; that one is left rolling the dice until the next re-aim, because there is
       // genuinely nowhere to send it.
-      let route = findRoute(planOrigin(car), cutOffFor(steps));
+      let route = findRoute(planOrigin(car), cutOffFor(steps), serviceLaneCost);
       if (route && route.length === 0) {
-        route = findRoute(planOrigin(car), cutOffFor(steps + CUT_OFF_AHEAD.length));
+        route = findRoute(planOrigin(car), cutOffFor(steps + CUT_OFF_AHEAD.length), serviceLaneCost);
       }
       if (route?.length) car.route = route;
       car.routeConsumed = false;
@@ -866,7 +868,7 @@ export function createRobbery({
         // `findRouteOnto` answers a lap for a car already on that lane (see CLAUDE.md) — and the
         // nearest free cop is often exactly that, already on its way in.
         const toJ = from.i === J.i && from.j === J.j && from.d === last
-          ? [] : findRouteOnto(from, J, last);
+          ? [] : findRouteOnto(from, J, last, serviceLaneCost);
         if (toJ && (!best || toJ.length < best.toJ.length)) best = { toJ, last };
       }
       if (!best) continue;
@@ -877,7 +879,7 @@ export function createRobbery({
           j: J.j + (isXAxis(e) ? 0 : dirSign(e)),
         };
         if (nb.i < 0 || nb.i > GRID_I || nb.j < 0 || nb.j > GRID_J) continue;
-        const onward = findRoute({ i: J.i, j: J.j, d: last }, nb);
+        const onward = findRoute({ i: J.i, j: J.j, d: last }, nb, serviceLaneCost);
         if (onward?.[0] !== e) continue;
         c.route = [...toJ, ...onward];
         c.routeConsumed = false;
@@ -1134,7 +1136,7 @@ export function createRobbery({
       // deletes it in full view. Measured: with the route cleared instead of replaced, the nearest
       // departure was **5 units** from the taxi, which is the exact failure standing them down was
       // supposed to fix. Given somewhere to be, they drive there.
-      const route = findRoute(planOrigin(cop), out);
+      const route = findRoute(planOrigin(cop), out, serviceLaneCost);
       cop.route = route ?? [];
       cop.routeConsumed = false;
     }
@@ -1170,7 +1172,7 @@ export function createRobbery({
           i: cop.i > GRID_I / 2 ? 0 : GRID_I,
           j: cop.j > GRID_J / 2 ? 0 : GRID_J,
         };
-        const route = findRoute(planOrigin(cop), out);
+        const route = findRoute(planOrigin(cop), out, serviceLaneCost);
         if (route?.length) { cop.route = route; cop.routeConsumed = false; }
       }
     }

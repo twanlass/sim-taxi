@@ -63,7 +63,9 @@ import { createSkidMarks } from '../src/game/skidmarks.js';
 import { createSparks } from '../src/game/sparks.js';
 import { createRepairFx } from '../src/game/repairfx.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
-import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, setHazardLanes, laneCost } from '../src/game/route.js';
+import {
+  findRoute as planRoute, setRoadworkLanes, setBlockedLanes, setHazardLanes, laneCost, serviceLaneCost,
+} from '../src/game/route.js';
 import { createCollisions, TAXI_HP, bumpDamage, penetration } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
 import { createCarDamage } from '../src/game/cardamage.js';
@@ -13762,6 +13764,72 @@ let chopperOrder; // likewise
       && blockDistance(fallback.pickup, fallback.dropoff) > 0,
       fallback ? `dropoff ${fallback.dropoff.i},${fallback.dropoff.j}` : 'no fare spawned');
 
+    setRoadworkLanes([]);
+  }
+
+  // --- ...and keeping everybody else out of it -------------------------------
+  // The discount above is for the taxi alone. It used to be the shared default, so every other
+  // routed car — the patrol cruiser, the robbery's cops, the arrest car, the fire engine — found
+  // the closed street the cheapest road in the city and drove through the trestles on purpose.
+  // Two halves, because either alone leaks: the routers plan round a zone, and a route planned
+  // *before* the zone stood up is refused at the line.
+  {
+    setClosedLanes(roadwork.closedLaneIds);
+    setRoadworkLanes(roadwork.closedLaneIds);
+    const junctions = [...net.nodeById.values()].map((n) => ({ i: n.gi, j: n.gj }));
+    // Walks a route as lanes, from the lane arriving at its origin.
+    const walk = (start, route) => {
+      const lanes = [];
+      let lane = start;
+      for (const d of route) {
+        lane = lane?.onward.find((l) => net.dirOfLane(l) === d);
+        if (!lane) return null;
+        lanes.push(lane);
+      }
+      return lanes;
+    };
+    let planned = 0;
+    let through = 0;
+    let lured = 0;
+    for (const lane of net.laneById.values()) {
+      if (lane.degenerate || closedIds.has(lane.id)) continue;
+      const [i, j] = lane.to.split(',').map(Number);
+      const from = { i, j, d: net.dirOfLane(lane) };
+      for (const t of junctions) {
+        const route = planRoute(from, t, serviceLaneCost);
+        if (route === null) continue;
+        planned += 1;
+        if (walk(lane, route)?.some((l) => closedIds.has(l.id))) through += 1;
+        if (walk(lane, planRoute(from, t) ?? [])?.some((l) => closedIds.has(l.id))) lured += 1;
+      }
+    }
+    check('police and the fire engine plan round a construction zone',
+      through === 0 && planned > 0, `${through} of ${planned} routes enter it (the taxi's: ${lured})`);
+
+    // A cop holding a route straight into the closed street, as one planned a minute before the
+    // zone went up would be.
+    const closedLane = closed[0];
+    const approach = net.nodeById.get(closedLane.from).inbound
+      .find((l) => !l.degenerate && !closedIds.has(l.id) && l.onward.includes(closedLane));
+    const cop = rwCars.find((c) => c !== rwTaxi && !c.isTruck);
+    const [ai, aj] = approach.to.split(',').map(Number);
+    placeCar(cop, net.dirOfLane(approach), ai, aj, Math.min(approach.length - 1, 10));
+    cop.route = [net.dirOfLane(closedLane), net.dirOfLane(closedLane)];
+    cop.routeConsumed = false;
+    const refusedBefore = rwTraffic.stats.routeRefused;
+    let inside = 0;
+    let crossed = false;
+    for (let step = 0; step < 60 * 12 && !crossed; step++) {
+      rwTraffic.update(1 / 60);
+      if (cop.lane && closedIds.has(cop.lane.id)) inside += 1;
+      if (cop.lane && cop.lane !== approach && cop.state === 'drive') crossed = true;
+    }
+    check('...and a cop whose route predates the zone turns off at the line', crossed && inside === 0
+      && rwTraffic.stats.routeRefused > refusedBefore,
+      `${inside} frames inside, ${rwTraffic.stats.routeRefused - refusedBefore} refused, `
+      + `${crossed ? 'left the junction' : 'never left'}`);
+
+    setClosedLanes([]);
     setRoadworkLanes([]);
   }
 
