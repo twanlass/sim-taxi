@@ -243,6 +243,12 @@ export function createBargeMesh(rng) {
   ];
   // Dense enough that the mound under them only shows in the gaps: a heap, not a deck with litter.
   const pieces = 85;
+  // Pieces that hit the ceiling each stop a step lower than the last. Clamped flat to `ceil` they
+  // all shared one plane — 18 to 25 of the 85 per barge, measured over five seeds — and their
+  // overlapping tops z-fought across the crown of the heap. A counter rather than an rng draw, so
+  // nothing after this loop reshuffles.
+  const CAP_STEP = 0.008;
+  let capped = 0;
   for (let k = 0; k < pieces; k++) {
     const x = rng.range(-ax, ax) * 0.9;
     const z = zc + rng.range(-az, az) * 0.92;
@@ -268,7 +274,7 @@ export function createBargeMesh(rng) {
     geo.rotateY(rng.range(0, Math.PI));
     // Bedded into the mound by a third of itself, and never poking through the ceiling.
     const base = BARGE_DECK_Y + heightAt(x, z) * 0.85 - h * 0.35;
-    const y = Math.min(base, ceil - h);
+    const y = base > ceil - h ? ceil - h - CAP_STEP * capped++ : base;
     geo.translate(x, Math.max(BARGE_DECK_Y, y) + h / 2, z);
     parts.push(bakeColor(geo, col));
     // The tallest pieces near the middle make the perches.
