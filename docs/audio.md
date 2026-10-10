@@ -187,6 +187,15 @@ numbers restart at 16, so his 17 and 18 (gate, bridge) share numbers with our
 | `court` | 31 MONO / ST | Bed at the basketball court, where the city has one | `props.court` |
 | `chirp` | 32 short / long | A patrol spotting the taxi and lighting up | `patrol` `onSpotted` |
 
+The hooks follow the designer's sheet (*sim-taxi audio script, Block 2*), which names each trigger:
+spawn is "buildings appear when the map is generated", the gate "opens and closes as the taxi leaves
+the garage", angry is a passenger who "shouts at the taxi". Two are the nearest event the game has
+rather than the one he describes: the chirp is for police who "flick the siren on for a moment",
+which no cop does yet, so it plays as a patrol lights up to give chase; and the birds are written as
+a flock "taking off and passing", so take-off is their main use and landing is ours. The sheet also
+lists three music tracks (`26_MUS_rolling`, `27_MUS_upbeat`, `28_MUS_rock`) that were not in the
+demo delivery.
+
 Every Block 2 level starts at 0 dB, the designer's rule for Block 1: measured as RMS off the
 masters they already sit level with it (the 25 siren -28.5 dB against the crash's -26.3, the beds
 -37 to -52). The police helicopter keeps its synthesised rotor; 23 is the rooftop chopper.
