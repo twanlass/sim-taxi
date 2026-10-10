@@ -4424,7 +4424,7 @@ that it returns after a reload, under an emulated iPhone.
 
 ## Debug panel
 
-`src/game/debugpanel.js`, behind the ⚙️ button top right — only built when the URL carries
+`src/game/debugpanel.js`, behind the ⚙️ button bottom right — only built when the URL carries
 `?debug`, `?settings` or `?audio`. It used to be always on, but at small widths the button sat right where
 the streak counter now lives, and it's a tool almost no player needs to see. Split by cost:
 
