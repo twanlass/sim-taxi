@@ -36,7 +36,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
   '../src/game/ssao.js', '../src/game/crayon.js', '../src/game/cartoon.js',
   '../src/game/bloom.js', '../src/game/hdr.js',
-  '../src/game/diag.js', '../src/game/recovery.js', '../src/game/pause.js', '../src/game/menupage.js', '../src/game/inspect.js',
+  '../src/game/diag.js', '../src/game/bench.js', '../src/game/soak.js', '../src/game/governor.js', '../src/game/recovery.js', '../src/game/pause.js', '../src/game/menupage.js', '../src/game/inspect.js',
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',
   '../src/geometry/crate.js', '../src/game/flatbed.js',
   '../src/geometry/truckdoors.js', '../src/game/boxspill.js',
@@ -103,6 +103,36 @@ try {
   sunk.customDepthMaterial.onBeforeCompile(stub);
   if (!stub.vertexShader.includes(`mvPosition.z -= ${SHADOW_SINK.toFixed(4)}`)) {
     throw new Error('sinkShadowCaster: the depth patch did not land in the shader');
+  }
+
+  // The resolution governor (game/governor.js), fed synthetic frame times: a clean 60 holds, a
+  // throttled phone steps down within a few windows and stops at a ratio of 1, a stall is not load,
+  // and half a minute clean climbs one step back.
+  {
+    const { createGovernor } = await import('../src/game/governor.js');
+    const hadDpr = globalThis.devicePixelRatio;
+    globalThis.devicePixelRatio = 3;
+    let ratio = 2;
+    const renderer = { getPixelRatio: () => ratio, setPixelRatio: (r) => { ratio = r; } };
+    const gov = createGovernor({ renderer, budget: { pixelRatioCap: 2 } });
+    let t = 0;
+    const run = (seconds, lateEvery = 0, stepMs = 1000 / 60) => {
+      for (let i = 0, n = Math.round((seconds * 1000) / stepMs); i < n; i++) {
+        t += lateEvery && i % lateEvery === 0 ? 34 : stepMs;
+        gov.frame(t);
+      }
+    };
+    run(20);
+    if (ratio !== 2) throw new Error(`governor: stepped down on clean frames (dpr ${ratio})`);
+    run(9, 0, 3000);
+    if (ratio !== 2) throw new Error('governor: counted the page being away as load');
+    run(6, 4);
+    if (!(ratio < 2)) throw new Error('governor: did not step down at 25% late');
+    run(40, 4);
+    if (ratio !== 1) throw new Error(`governor: did not bottom out at dpr 1 (${ratio})`);
+    run(32);
+    if (ratio !== 1.25) throw new Error(`governor: did not climb one step after 30s clean (${ratio})`);
+    globalThis.devicePixelRatio = hadDpr;
   }
 
   // ...and the overtake's (game/overtakeclip.js): the taxi starts behind the car in its own lane, is

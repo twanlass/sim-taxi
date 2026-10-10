@@ -144,7 +144,10 @@ import { createOvertakeClip, pickOvertakeStreet, clipKeys as overtakeKeys } from
 import { createRepairClip, clipKeys as repairKeys } from './game/repairclip.js';
 import { SKYLINE_CEILING } from './city/buildings.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
-import { createDiagnostics } from './game/diag.js';
+import { createDiagnostics, describeGpu } from './game/diag.js';
+import { createBench } from './game/bench.js';
+import { createSoak } from './game/soak.js';
+import { createGovernor } from './game/governor.js';
 import { createViewport } from './util/viewport.js';
 import { isNative } from './util/platform.js';
 import { tap as haptic, setHapticPrefs } from './util/haptics.js';
@@ -342,6 +345,14 @@ rain.hideInMirror(crayon.overlay, bloom.overlay, scene.getObjectByName('sky'));
 // split between them is where it is. Attached after the sun exists, since step one shrinks its
 // shadow map.
 attachContextRecovery({ renderer, sun, budget, onNotice: (text) => diag.note(text) });
+// Steps the pixel ratio down when a warm phone starts dropping frames, and back up once it can
+// keep up again. `?governor=off` holds it where the budget put it. See game/governor.js.
+const governor = createGovernor({
+  renderer,
+  budget,
+  enabled: !shot && new URLSearchParams(window.location.search).get('governor') !== 'off',
+  onChange: (text) => diag.note(text),
+});
 
 /**
  * The one place the frame is drawn. Three callers reach it — the live loop, shot mode's single
@@ -3347,12 +3358,15 @@ function updateHud(dt) {
   }
 }
 
+// Has the paused still been drawn? See the pause branch of `tick`.
+let stillDrawn = false;
 // Through the viewport's own change feed rather than `window.resize`: an iOS cold-start settle —
 // the screen's true height arriving a few hundred ms after launch — changes the measurement
 // without ever firing a resize event, and the canvas has to follow it or the game keeps the
 // dead strip the settle just revealed.
 viewport.onChange((w, h) => {
   renderer.setSize(w, h);
+  stillDrawn = false;
   controller.resize(aspect());
 });
 
@@ -4453,9 +4467,23 @@ function openNewMove(move = newMoveDue ?? moves.uturn) {
 }
 
 const clock = new THREE.Clock();
+// `?bench` — the on-device benchmark, built at the bottom of this file once everything it drives
+// exists. See game/bench.js.
+let bench = null;
 
-function frame() {
+// The rAF callback is a wrapper so the bench can time the whole of `tick`, early returns and all.
+// Still named `frame`: tools/perf.mjs closes its per-frame counters on the callback's name.
+function frame(t) {
   requestAnimationFrame(frame);
+  bench?.begin(t);
+  tick();
+  bench?.end();
+  // Only frames of live play count toward the governor: a paused or finished run is cheap and
+  // would read as headroom.
+  governor.frame(t, !pause?.state.paused && !fares.state.gameOver && !document.hidden);
+}
+
+function tick() {
   // Read on every frame, paused or not: `getDelta` measures from its own last call, so skipping it
   // while paused would hand the first frame after a resume the whole length of the pause. The clamp
   // caps that at 0.05s — not a teleport, but still a frame of city the player never saw, and the
@@ -4468,10 +4496,16 @@ function frame() {
   // The sound stops with the world — both of the early returns below — and starts with it again.
   sfx?.hold(Boolean(pause?.state.paused || robberLine?.isOpen() || newMove?.isOpen()
     || inspect?.state.on));
+  // Drawn once, not every frame. Nothing in the world moves while paused, and a canvas that is not
+  // drawn keeps showing its last frame — so drawing the same still sixty times a second was pure
+  // heat and battery, for as long as the player left the game paused. `stillDrawn` is cleared on a
+  // resize, which is the one thing that empties the buffer under a pause (see the note above).
   if (pause?.state.paused) {
-    renderFrame();
+    if (!stillDrawn) renderFrame();
+    stillDrawn = true;
     return;
   }
+  stillDrawn = false;
   // `?debug`'s inspect mode: the same freeze as the pause with nothing drawn over the city, and the
   // camera handed to game/inspect.js — which moves it from input events, so all this has to do is
   // draw.
@@ -5787,7 +5821,23 @@ if (shot) {
   // `tools/links.mjs`, it moves six program links out of the run and into the boot, where they are
   // behind the wipe and the vignette and nobody is being made to wait for them mid-corner.
   renderer.compile(scene, camera);
-  frame();
+  const benchHooks = {
+    renderer,
+    ready: () => Boolean(traffic.taxi) && !traffic.taxi.staged,
+    // The taxi on a job the whole time, so each row measures the frame a player sees rather than an
+    // idle city: the rider aboard to their drop-off, otherwise the most urgent rider on the kerb.
+    drive: () => {
+      if (fares.state.gameOver || traffic.taxi.pendingTarget) return;
+      const riding = fares.carrying();
+      if (riding) dispatchToDropoff(riding);
+      else dispatchToRider(fares.state.fares.find((f) => f.stage === 'waiting'));
+    },
+    ended: () => fares.state.gameOver,
+    gpu: describeGpu(renderer.getContext()).renderer,
+  };
+  // `?bench` or `?soak` — at most one; see game/bench.js and game/soak.js.
+  bench = createBench(benchHooks) ?? createSoak(benchHooks);
+  frame(performance.now());
 }
 
 if (!shot && wantsDebugPanel) {

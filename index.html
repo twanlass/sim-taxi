@@ -1928,6 +1928,28 @@
       #diag[hidden] { display: none; }
       body.shot-mode #diag { display: none; }
 
+      /* The on-device benchmark — `?bench`, see src/game/bench.js. A status bar across the top
+         while it runs (above the pause button: nothing under it should be pressed mid-bench, and a
+         tap on it is swallowed so it can keep a phone awake), and the results table in the same
+         box once it is done. Same monospace as the readout above, for the same reason: it gets
+         photographed or copied off a phone. */
+      #bench {
+        position: fixed; z-index: 40;
+        left: calc(8px + var(--safe-left)); right: calc(8px + var(--safe-right));
+        top: calc(8px + var(--safe-top));
+        padding: 10px 12px; border-radius: 10px;
+        background: rgba(6, 14, 22, 0.9); color: #b8f0c8;
+        font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre-wrap; touch-action: none;
+      }
+      #bench p { margin: 6px 0 10px; }
+      #bench.is-done { bottom: calc(8px + var(--safe-bottom)); overflow: auto; }
+      #bench pre { margin: 0 0 10px; font: inherit; font-size: 10px; white-space: pre; overflow-x: auto; }
+      #bench button {
+        margin: 0 8px 0 0; padding: 8px 14px; border: 0; border-radius: 8px;
+        background: #b8f0c8; color: #06101a; font: 600 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
       #error {
         position: fixed; inset: 0; width: 100vw; height: 100vh; background: #2b1b1b; color: #ffb4a8;
         padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right))
