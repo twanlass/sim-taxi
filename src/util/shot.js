@@ -609,6 +609,15 @@ export function getWreckStyle(fallback = 'flat') {
 }
 
 /**
+ * The bootleg's cut, via `?uturn=classic` — the first U-turn, which turned round on the spot. The
+ * fallback is the handbrake turn: a drift round a long hairpin. See `handbrakePath` in
+ * sim/traffic.js.
+ */
+export function getUturnStyle(fallback = 'handbrake') {
+  return new URLSearchParams(window.location.search).get('uturn') ?? fallback;
+}
+
+/**
  * Multisampling, via `?msaa=off`.
  *
  * Not the same request as the stencil buffer, even though the two ride in the same back buffer:

@@ -30,7 +30,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
-  onDriftLaunch, hopProgress,
+  onDriftLaunch, hopProgress, setSpinStyle,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
@@ -127,7 +127,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall, getWater } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall, getWater, getUturnStyle } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -1008,6 +1008,7 @@ const patrol = createPatrol({
   onHid: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
 });
 // Boost, then two quick taps of the brake: the taxi spins round onto the far lane. See game/bootleg.js.
+setSpinStyle(getUturnStyle());
 const bootleg = createBootleg({
   taxi: traffic.taxi,
   destination: () => traffic.taxi.pendingTarget ?? null,
@@ -3604,6 +3605,8 @@ const BRAKE_SKID_V = 2.5;
 // drop-off rather than crawl there.
 let driftTapAt = -Infinity;
 let driftsPaid = 0;
+// And the handbrake U-turn's exit kick (`car.spinKicks`), which borrows the drift's.
+let spinKicksFelt = 0;
 // The same tally-and-catch-up for the taxi's overtakes (`car.overtakes` in sim/traffic.js).
 let overtakesFelt = 0;
 
@@ -4132,7 +4135,9 @@ function kickDust() {
   // one does. It stops on its own the moment the car does — this is paced by distance travelled.
   // A wet road throws water, not dust — `wetTyres` has the tyres while the ground under them is wet.
   const wetOut = (WET_TYRES.spray || WET_TYRES.tracks) && roadWet > WET_DUST_OFF;
-  if ((!car.boost && !car.braking) || car.v < 2 || wetOut) { lastDustAt = car.travelled; return; }
+  // And the handbrake U-turn, which is a slide from start to finish with neither pedal down.
+  const sliding = car.uturn?.sp;
+  if ((!car.boost && !car.braking && !sliding) || car.v < 2 || wetOut) { lastDustAt = car.travelled; return; }
   if (car.travelled - lastDustAt < 0.47) return;
   lastDustAt = car.travelled;
   const fx = Math.cos(car.yaw);
@@ -4902,6 +4907,23 @@ function frame() {
     if (!fares.state.gameOver) {
       haptic('overtake');
       landCombo('overtake');
+    }
+  }
+  if ((traffic.taxi.spinKicks ?? 0) > spinKicksFelt) {
+    // The handbrake U-turn lands on the drift's exit kick (sim/traffic.js), and says so the same
+    // way, minus the fuel: the U-turn has already paid its combo on the frame it started.
+    spinKicksFelt = traffic.taxi.spinKicks;
+    if (!fares.state.gameOver) {
+      const car = traffic.taxi;
+      haptic('drift-kick');
+      controller.kickShake(0.5);
+      sfx?.locoOn();
+      flames.burst(
+        car.x - Math.cos(car.yaw) * TAXI_TAILPIPE_BACK,
+        TAXI_TAILPIPE_HEIGHT,
+        car.z + Math.sin(car.yaw) * TAXI_TAILPIPE_BACK,
+        car.yaw,
+      );
     }
   }
   if (traffic.taxi.drifts > driftsPaid) {
