@@ -245,6 +245,10 @@ export const SHOTS = [
   // for the index-addressing reason stated above the `birds` entry.
   { name: 'skatepark', description: 'the skatepark, close', target: [0, 0], zoom: 10, warmup: 12, atSkatepark: true },
   { name: 'skatepark-far', description: 'the skatepark at play zoom', target: [0, 0], zoom: 52, warmup: 12, atSkatepark: true },
+  // The band carrying on past a waiting rider's kerb (`ONWARD_LEN` in game/routeline.js), framed
+  // on the kerb: the question is whether the dim stub reads as "and then this way" without
+  // reading as part of the trip. Appended, for the index-addressing reason stated above `birds`.
+  { name: 'lookahead', description: 'the route band looking ahead past the pickup', target: [0, 0], zoom: 26, warmup: 12, select: true, route: true, atPassenger: true },
 ];
 
 export function getActiveShot() {

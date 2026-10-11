@@ -5100,6 +5100,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       );
       car.turnT = travelled / car.turnLen;
       car.route = late.slice(1);
+      // The look-ahead past a pickup is tagged on the array as a count from its end (`carryOn` in
+      // game/route.js), and `slice` makes a new array without it.
+      if (late.onward) car.route.onward = late.onward;
       car.routeConsumed = false;
     };
 
