@@ -10,6 +10,8 @@
 import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
+import { pointInPolygon } from '../src/city/curves.js';
+import { isParkwayMid } from '../src/city/grid.js';
 import { createLayout } from '../src/city/layout.js';
 import {
   createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
@@ -386,7 +388,11 @@ const onGrass = (city, i, j) => {
     n.crossVectors(b.clone().sub(a), c.clone().sub(a));
     // Earcut leaves a handful of zero-area triangles at the corners of a holed shape. They draw
     // nothing and have no normal to have got wrong; what must not appear is one facing the dirt.
-    if (n.lengthSq() < 1e-12) continue;
+    // Measured as a *height* rather than an area: the central park's kerbs are a curve sampled
+    // every 0.7 units, and three nearly collinear samples make a sliver 1.3 long and 1e-6 high
+    // whose float noise can point either way — it covers no pixel at any zoom.
+    const longest = Math.max(a.distanceTo(b), b.distanceTo(c), c.distanceTo(a));
+    if (n.length() < 1e-4 * longest) continue;
     surfaceTris += 1;
     if (n.normalize().y < 0.999) facingDown += 1;
   }
@@ -897,9 +903,13 @@ const onGrass = (city, i, j) => {
     for (const [k, t] of planned.entries()) {
       tufts += 1;
       const ends = [[cards.getX(k * 6), cards.getZ(k * 6)], [cards.getX(k * 6 + 1), cards.getZ(k * 6 + 1)]];
-      const inside = plots.some(({ bounds }) => ends.every(([x, z]) =>
+      // The central park's lawns are curved, so its tufts are tested against the lawn polygons
+      // themselves (`lawnsAt(PARK_EDGE)`), not against the rectangles its trees plan in.
+      const lawns = cityLayout.centralPark?.lawnsAt(PARK_EDGE) ?? [];
+      const inside = plots.some(({ bounds, central }) => !central && ends.every(([x, z]) =>
         x > bounds.x0 + PARK_EDGE && x < bounds.x1 - PARK_EDGE
-        && z > bounds.z0 + PARK_EDGE && z < bounds.z1 - PARK_EDGE));
+        && z > bounds.z0 + PARK_EDGE && z < bounds.z1 - PARK_EDGE))
+        || lawns.some((lawn) => ends.every(([x, z]) => pointInPolygon(x, z, lawn)));
       if (!inside) offLawn += 1;
       if (pond && Math.hypot(t.x - pond.x, t.z - pond.z) < pond.r) inWater += 1;
       if (statue && Math.abs(t.x - statue.x) < STATUE_PLAZA / 2
@@ -2237,6 +2247,12 @@ check('no two cars occupy the same space', worst > 1.6,
         sinceJunction.set(car, 0);
         // Straight on through a junction is still 'turn'; only a real corner should show lock.
         if (car.dOut !== car.d) cornerLock = Math.max(cornerLock, lock);
+        continue;
+      }
+      // The central park's road is a lane that bends the whole way, so a car on it is steering
+      // and has no straight to straighten up on until it is off it.
+      if (car.lane?.edge?.curve?.kind && car.lane.edge.curve.kind !== 'line') {
+        sinceJunction.set(car, 0);
         continue;
       }
 
@@ -5649,6 +5665,10 @@ let longest = 0;
 for (const from of ints) {
   for (const to of ints) {
     for (let d = 0; d < 4; d++) {
+      // The central park's middle junction is reached only along its own road, and one-way that
+      // road arrives from one side alone: a car there facing the other way is not a state any car
+      // can be in.
+      if (isParkwayMid(from.i, from.j) && !cityNetwork().laneByGrid(d, from.i, from.j)) continue;
       const route = findRoute({ i: from.i, j: from.j, d }, to);
       if (route === null) unroutable += 1;
       else longest = Math.max(longest, route.length);
@@ -5797,9 +5817,10 @@ check('every intersection is routable from every approach', unroutable === 0,
   const kerbOnly = routePath(lTaxi, route, { onward: false });
   const past = lengthOf(band) - band.stopAlong;
   // The bare route ends dead centre of the junction, straight in; the stop on a turn is the arc's
-  // midpoint, which cuts the corner — 2.4 units shorter on the seed this was written against.
+  // midpoint, which cuts the corner — 2.4 units shorter on the seed this was written against, and
+  // 3.7 against the pickup the same seed lands on in the 6 × 7 city.
   check('the band stops a short stub past the kerb',
-    Math.abs(band.stopAlong - bare) < 3 && Math.abs(past - ONWARD_LEN) < 0.01
+    Math.abs(band.stopAlong - bare) < 4.5 && Math.abs(past - ONWARD_LEN) < 0.01
       && Math.abs(lengthOf(kerbOnly) - band.stopAlong) < 0.01,
     `kerb at ${band.stopAlong.toFixed(2)} (bare route ${bare.toFixed(2)}), ${past.toFixed(2)} past it`);
   const end = band.at(-1);
@@ -6996,8 +7017,12 @@ function rideToPickup() {
   hCollisions.onImpact(() => { wrecks += 1; });
   hTaxi.hp = TAXI_HP;
   hTraffic.warmup(3);
+  // Any car on a lane and moving will do. Three seconds found one in the 5 × 6 city; in the 6 × 7
+  // the same seed has all six mid-junction at that instant, so run on until one is clear.
+  const moving = (c) => !c.isTaxi && c.state === 'drive' && c.v > 1;
+  for (let f = 0; f < 60 * 20 && !hTraffic.cars.some(moving); f++) hTraffic.update(1 / 60);
 
-  const target = hTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive' && c.v > 1);
+  const target = hTraffic.cars.find(moving);
   hTaxi.staged = true;
   // Square into its door: the taxi's nose on the car's centre, coming in at right angles.
   hTaxi.yaw = target.yaw + Math.PI / 2;
@@ -7052,7 +7077,10 @@ function rideToPickup() {
 
   // Out of HP, the next contact is the wreck through the old path.
   hTaxi.hp = 1;
-  const next = hTraffic.cars.find((c) => !c.isTaxi && !c.knock && !c.crashed);
+  // A different car from the first: the collision clock only runs when `hCollisions.update` does,
+  // so to it the first car was touched 21 frames ago and is still inside REHIT. The 5 × 6 city's
+  // draw happened to put another car first in the array; the 6 × 7's puts the recovered one there.
+  const next = hTraffic.cars.find((c) => !c.isTaxi && !c.knock && !c.crashed && c !== target);
   hTaxi.staged = true;
   hTaxi.x = next.x;
   hTaxi.z = next.z;
@@ -7076,7 +7104,9 @@ function rideToPickup() {
     tCollisions.onBump((e) => { event ??= e; });
     tTaxi.hp = TAXI_HP;
     tTraffic.warmup(3);
-    const target = tTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive' && c.v > 1);
+    const moving = (c) => !c.isTaxi && c.state === 'drive' && c.v > 1;
+    for (let f = 0; f < 60 * 20 && !tTraffic.cars.some(moving); f++) tTraffic.update(1 / 60);
+    const target = tTraffic.cars.find(moving);
     target.isTruck = asTruck;
     tTaxi.staged = true;
     tTaxi.yaw = target.yaw + Math.PI / 2;
@@ -7370,9 +7400,12 @@ function rideToPickup() {
   // A second hit, on the nose: the bonnet joins it and the bumper comes off the worst end — a tie,
   // which goes to the corner hit last.
   hitCar(victim, 1.6, 0.6, 8);
-  run(30);
+  // The bonnet flaps, so its angle at any one frame can be the bottom of a swing: 0.016 on frame
+  // 30 in the 6 × 7 city's draw. Its widest over the half second is what says it popped.
+  let hoodOpen = 0;
+  for (let n = 0; n < 30; n++) { run(1); hoodOpen = Math.max(hoodOpen, rig.hood?.angle ?? 0); }
   check('a second hit pops the bonnet and hangs the bumper off the struck end',
-    rig.hood && rig.hood.angle > 0.1 && victim.wear.bumper?.end === 1);
+    rig.hood && hoodOpen > 0.1 && victim.wear.bumper?.end === 1, `bonnet ${hoodOpen.toFixed(2)} at widest`);
   lids.getMatrixAt(rig.slot * 2, cm);
   check('the bonnet keeps its winding', cm.determinant() > 0);
   // The hanging bar's free end is on the road, and the end it left is bare: the tail bar is still
@@ -15477,6 +15510,7 @@ let chopperOrder; // likewise
     let longest = 0;
     for (const start of allIntersections()) {
       for (const d of [DIR.PX, DIR.PZ, DIR.NX, DIR.NZ]) {
+        if (isParkwayMid(start.i, start.j) && !cityNetwork().laneByGrid(d, start.i, start.j)) continue;
         const from = { i: start.i, j: start.j, d };
         const route = findRouteOnto(from, { i: mouthI, j: mouthJ }, mouthD);
         asked += 1;
@@ -18404,6 +18438,7 @@ let chopperOrder; // likewise
     let stranded = 0;
     for (const from of ints) {
       for (let d = 0; d < 4; d++) {
+        if (isParkwayMid(from.i, from.j) && !cityNetwork().laneByGrid(d, from.i, from.j)) continue;
         for (const to of ints) if (findRoute({ i: from.i, j: from.j, d }, to) === null) stranded += 1;
       }
     }
@@ -18463,13 +18498,17 @@ let chopperOrder; // likewise
       const cNet = cityNetwork();
       const cop = cTraffic.cars.find((car) => car !== cTraffic.taxi);
       const shut = new Set(bridge.laneIds);
-      const approach = cNet.laneByGrid(1, bridge.span.line, bridge.span.row);
-      const onto = cNet.laneByGrid(1, bridge.span.line, bridge.span.row + 1);
+      // From the south bank where there is a road up to the bridge, else from the north: in the
+      // 6 × 7 city the central park can sit on the bridge's line and close the south approach.
+      const { line, row } = bridge.span;
+      const [d, at] = cNet.laneByGrid(1, line, row) ? [1, row] : [3, row + 1];
+      const approach = cNet.laneByGrid(d, line, at);
+      const onto = cNet.laneByGrid(d, line, d === 1 ? at + 1 : at - 1);
       let crossed = 0;
       let leftApproach = false;
       if (cop && approach && onto && shut.has(onto.id)) {
-        placeCar(cop, 1, bridge.span.line, bridge.span.row, 8);
-        cop.route = [1, 1, 1];
+        placeCar(cop, d, line, at, 8);
+        cop.route = [d, d];
         cop.routeConsumed = false;
         setClosedLanes(bridge.laneIds, 'drawbridge');
         for (let f = 0; f < 60 * 30; f++) {

@@ -12,13 +12,13 @@
 // because every other name in this file already means "runs along X": `arterialX` is a set of `j`
 // values and `halfRoadX(j)` is a road's extent in z. A `GRID_X` would have read as the opposite of
 // what it is. `i` runs `0..GRID_I` and `j` runs `0..GRID_J`; blocks are `bi < GRID_I`, `bj < GRID_J`.
-// `?city=big` is the size experiment: 6 × 7 blocks, 36 of them land against today's 25, with a
-// 2 × 2 central park and a curving road through it (`city/centralpark.js`). Read at module load
-// because every count below is a constant the rest of the city is built from; headless tools have
-// no `location` and get the shipped size unless run with `CITY=big` in the environment.
+// The city is 6 × 7 blocks, 36 of them land, with a 2 × 2 central park and a curving road through
+// it (`city/centralpark.js`). `?city=classic` keeps the old 5 × 6 (25 land blocks) with straight
+// roads only. Read at module load because every count below is a constant the rest of the city is
+// built from; headless tools have no `location` and take `CITY=classic` from the environment.
 export const BIG_CITY = typeof location !== 'undefined'
-  ? new URLSearchParams(location.search).get('city') === 'big'
-  : globalThis.process?.env?.CITY === 'big';
+  ? new URLSearchParams(location.search).get('city') !== 'classic'
+  : globalThis.process?.env?.CITY !== 'classic';
 export const GRID_I = BIG_CITY ? 6 : 5;  // block columns
 // Six rows against five columns, because **one of the rows is the river** (`city/river.js`). The
 // city is a block row taller than it is wide so that the water costs it neither a street nor a
