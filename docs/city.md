@@ -228,6 +228,32 @@ round to 331°. Nearest approach to anything the player acts on is **27°**, and
 the same way it asserts the roadworks orange. That the range comes out cool and slightly wild is a
 consequence of the constraint rather than a choice, and it happens to suit municipal bedding.
 
+### The elevated train (`?ltrain=on`, a prototype)
+
+`game/ltrain.js` stands a Chicago-style L over the east-west arterial: a steel deck on a column
+at each nose of every planted island, one track, and one four-car train that crosses the island,
+waits off the end, and comes back the other way. Behind a flag while it is a prototype; shots
+`ltrain` and `ltrain-far` turn it on themselves.
+
+- **The median is why it is on the arterial.** It is the one strip running the width of the city
+  that no car drives on, so the columns need no clearance rule of their own: `planLTrain` reads
+  `medianRuns()` and stands a bent `COLUMN_NOSE` in from each end. A park built over the arterial
+  leaves a gap with no island, and the deck spans it on the bents either side.
+- **One track over the median**, deck 1.35 off the centreline, on a T cap with knee braces. A
+  double-track deck spanning both carriageways read well but covered three times the road. It is
+  open steel (girders, stringers, floor beams and ties, no slab). The probe still holds the cap's
+  underside (5.35) above the box trucks and the street lamps, so it can be widened again safely.
+- **It is high (deck top 6.4) on purpose.** The first cut was low (3.3) and over the median only,
+  because anything `h` tall hides about `1.09h` of ground behind it on each axis. At play zoom it
+  read as a railway cut through the city at street level. What hides more now is paid for by the
+  fade: the taxi and every visible fare pin are projected up their sightline to the deck and the
+  deck dithers out there (`FADE_*`). Off the island it dithers out the same way, a little ahead of
+  the ground's own fade, which reads as gone sooner than its alpha says.
+- **Wheel sparks** every few seconds off one truck, through the shared spark pool with its floor
+  set to the road, so they fall through the open deck. Only at speed and only over the island.
+- **Not done:** no stations, no sound (the rumble hook is commented in `ambientLevels`), no lamps at
+  night, and the entrance wave grows the whole line from its middle as one object.
+
 ## Layout: what a block *is*
 
 `layout.js` decides each block's identity before anything is built, so ground, buildings and props

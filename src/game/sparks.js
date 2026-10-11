@@ -146,8 +146,12 @@ export function createSparks(scene, rng) {
    * car bottoming out — the depot's welder (game/repairfx.js) wants a shower that arcs out across
    * the forecourt rather than one that skims the road. Multipliers on the same draws, so the
    * defaults leave every landing exactly as it was.
+   *
+   * `floor` is the surface they bounce on, defaulting to the one they came off. The L's wheels
+   * (game/ltrain.js) pass the road: their sparks leave a railhead six units up and fall through the
+   * open deck rather than skating along it.
    */
-  function burst(x, y, z, yaw, count = 5, speed = 0, { reach = 1, lift = 1 } = {}) {
+  function burst(x, y, z, yaw, count = 5, speed = 0, { reach = 1, lift = 1, floor: under = y } = {}) {
     // `yaw` is a sim heading, so forward is (cos yaw, −sin yaw) and right is (sin yaw, cos yaw).
     const fx = Math.cos(yaw);
     const fz = -Math.sin(yaw);
@@ -174,7 +178,7 @@ export function createSparks(scene, rng) {
       vx[slot] = -fx * back + rx * side + fx * carry;
       vy[slot] = up;
       vz[slot] = -fz * back + rz * side + fz * carry;
-      floor[slot] = y;
+      floor[slot] = under;
 
       // Hue is rolled once and kept. A spark is on screen for half a second and is fading the whole
       // time, so walking a ramp over its life — which is what the fireball does — buys nothing the

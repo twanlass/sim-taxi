@@ -19363,6 +19363,108 @@ let chopperOrder; // likewise
     offTop === -1 && nearTop === GAS, `off ${offTop}, just inside ${nearTop}`);
 }
 
+// --- The elevated train (`?ltrain=on`, game/ltrain.js) -----------------------------------------
+//
+// What the prototype's look rests on, as arithmetic rather than as a screenshot: every column on a
+// planted island (never in a junction box, where the turns cross), the deck stopping short of the
+// lanes so nothing driving under it can touch it, and the train shuttling on both tracks.
+{
+  const { planLTrain, createLTrain, LTRAIN_DIMENSIONS: L } = await import('../src/game/ltrain.js');
+  const { medianRuns, halfRoadZ, laneOffX } = await import('../src/city/grid.js');
+  const { LANE_TO_KERB } = await import('../src/city/grid.js');
+  // citylights.js: POST_H 4.2 on a KERB_H kerb.
+  const KERB_H_LAMP_TOP = 0.35 + 4.2;
+  let planned = 0;
+  let offIsland = 0;
+  let wideSpan = 0;
+  let laneClash = 0;
+  const ringKerb = HALF_SPAN_X + halfRoadZ(GRID_I);
+  for (let s = 0; s < 20; s++) {
+    createLayout(makeRng(seed + s * 53));
+    const plan = planLTrain();
+    if (!plan) continue;
+    planned += 1;
+    const runs = medianRuns().filter((r) => r.axis === 'x' && r.line === plan.line);
+    for (const x of plan.columns) {
+      const onIsland = runs.some((r) => x - L.FOOTING_W / 2 >= r.from && x + L.FOOTING_W / 2 <= r.to);
+      const offshore = Math.abs(x) - L.FOOTING_W / 2 > ringKerb;
+      if (!onIsland && !offshore) offIsland += 1;
+    }
+    for (let n = 1; n < plan.columns.length; n++) {
+      // A park built over the arterial leaves one long span, which is allowed; anything else is not.
+      const gap = plan.columns[n] - plan.columns[n - 1];
+      const closedHere = runs.length < GRID_I;
+      if (gap > 16 && !closedHere) wideSpan += 1;
+    }
+    // The deck stays short of the kerb, where the fares stand.
+    if (L.DECK_HALF_W >= laneOffX(plan.line) + LANE_TO_KERB) laneClash += 1;
+  }
+  createLayout(makeRng(seed));     // put the probe's city back — `createLayout` installs its network
+  check('ltrain: every city with an east-west arterial gets a line', planned === 20, `${planned}/20`);
+  check('ltrain: every column stands on a planted island or out past the ring road',
+    offIsland === 0, `${offIsland} in a junction or a lane`);
+  check('ltrain: no span longer than a junction crossing, except over a park', wideSpan === 0, `${wideSpan}`);
+  check('ltrain: the deck stops short of the kerb',
+    laneClash === 0, `deck half-width ${L.DECK_HALF_W} against lane ${laneOffX(planLTrain().line).toFixed(2)}`);
+  // ...so everything under it has to clear by height: the tallest vehicle (a box truck's box, off
+  // its own geometry) and the street lamps, whose arms reach out over the arterial's lanes.
+  const truckTop = traffic.truckBoxMesh.geometry.boundingBox
+    ?? (traffic.truckBoxMesh.geometry.computeBoundingBox(), traffic.truckBoxMesh.geometry.boundingBox);
+  const tallest = Math.max(truckTop.max.y, KERB_H_LAMP_TOP);
+  check('ltrain: the cap clears the tallest vehicle and the street lamps',
+    L.CAP_UNDERSIDE - tallest >= 0.75, `cap underside ${L.CAP_UNDERSIDE.toFixed(2)} against ${tallest.toFixed(2)}`);
+  check('ltrain: the train fits on the deck', L.TRACK_OFF + L.CAR_W / 2 <= L.DECK_HALF_W,
+    `${(L.TRACK_OFF + L.CAR_W / 2).toFixed(2)} against ${L.DECK_HALF_W}`);
+
+  // Two minutes of timetable: it leaves, crosses, turns round on the other track, and never leaves
+  // the line.
+  const lt = createLTrain(new THREE.Scene(), makeRng(9));
+  const dirsSeen = new Set();
+  let outside = 0;
+  let runs0 = lt.state.runs;
+  for (let n = 0; n < 60 * 120; n++) {
+    lt.update(1 / 60);
+    if (lt.state.phase !== 'run') continue;
+    dirsSeen.add(lt.state.dir);
+    if (lt.state.x < lt.plan.from - 1e-6 || lt.state.x > lt.plan.to + 1e-6) outside += 1;
+  }
+  check('ltrain: the train shuttles both ways and stays on the line',
+    dirsSeen.size === 2 && outside === 0 && lt.state.runs - runs0 >= 3,
+    `${lt.state.runs - runs0} runs, directions ${[...dirsSeen].join('/')}, ${outside} frames off the line`);
+
+  // Wheel sparks: a few showers a crossing, off the rail, only while running over the island.
+  {
+    const bursts = [];
+    const lts = createLTrain(new THREE.Scene(), makeRng(9), {
+      sparks: { burst: (x, y, z, yaw, count, speed, opts) => bursts.push({ x, y, count, opts }) },
+    });
+    let crossings = 0;
+    for (let n = 0; n < 60 * 120; n++) {
+      const was = lts.state.runs;
+      lts.update(1 / 60);
+      crossings += lts.state.runs - was;
+    }
+    const offRail = bursts.filter((b) => Math.abs(b.y - L.RAIL_TOP) > 0.2 || b.opts.floor !== 0).length;
+    const offIsland = bursts.filter((b) => Math.abs(b.x) > HALF_SPAN_X + 20).length;
+    const perCrossing = bursts.length / 3 / Math.max(1, crossings);
+    check('ltrain: the wheels spark a few times a crossing, off the rail, over the island',
+      perCrossing >= 1.5 && perCrossing <= 8 && offRail === 0 && offIsland === 0,
+      `${perCrossing.toFixed(1)} showers a crossing, ${offRail} off the rail, ${offIsland} off the island`);
+  }
+
+  // The dither patch, run rather than trusted: a replace that stops matching hands back the shader
+  // untouched and the deck stops fading with nothing logged.
+  const stub = {
+    vertexShader: THREE.ShaderLib.lambert.vertexShader,
+    fragmentShader: THREE.ShaderLib.lambert.fragmentShader,
+    uniforms: {},
+  };
+  lt.material.onBeforeCompile(stub, null);
+  check('ltrain: the fade lands in the shader', stub.fragmentShader.includes('discard')
+    && stub.vertexShader.includes('vLWorld = ') && 'uLFade' in stub.uniforms
+    && lt.material.customProgramCacheKey().endsWith('-ltrain'));
+}
+
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
 // how many cars happen to be moving at the instant the sim stops.
 const throughput = stats.distance / stats.time / traffic.cars.length;
