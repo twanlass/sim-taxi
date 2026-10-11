@@ -944,6 +944,34 @@ light direction rather than as a pale crust; cards on the far side of a lobe, wh
 camera never sees, are dropped after the draw. Covers the parks', the medians' and the courtyard's
 trees; `seed + 144`. The atlas builder both share is `util/cutout.js`.
 
+## `?city=big`: the 6 × 6 experiment and the central park
+
+`?city=big` (or `CITY=big` for a headless tool) grows the grid to 6 × 7 blocks, 36 of them land, and
+lays a **2 × 2 central park** with a curving road through it (`city/centralpark.js`). Off by default;
+the shipped city is untouched.
+
+The park road is a trick worth knowing before extending it. Every grid road round the park's middle
+junction is **closed**, so the road markings, the junction paint, the depot and drive-through
+filters and `isCityConnected` all see one solid green. The road is then put back **in the network
+only**, as two arcs, W → middle → E, with opposite bulge so they meet tangent. Keeping the middle
+junction as a node is what keeps every lane between grid-adjacent nodes, which the sim's grid view
+(`car.i`, `car.j`, `car.d`, `laneByGrid`) still needs; a single arc spanning the park would hand ~20
+callers a `null`. The middle node has two arms and nothing crossing, so it bakes as uncontrolled,
+and it is kept off the fare board (`isParkwayMid`) because its kerb corner is lawn.
+
+The bulge, 0.25, bends the road 28° into the junctions at each end, inside the 30° at which the
+network still calls it the same street as the road it continues — one signal phase, driven straight
+on. That needed two network fixes the grid never exercised: a road carrying on through at an angle
+is not a crossing road (it was holding both arms 8.5 back), and `planeCrossing` never trimmed a
+curved lane at its far end. The lawns are built by offsetting the centreline further for each layer
+(kerb, walk, grass) rather than by insetting the kerb polygon, whose clipped ends fold.
+
+`&parkway=oneway` (`PARKWAY=oneway` headless) makes the park road one-way in a direction the seed
+picks: one lane down the centreline of a 6-wide road, with chevrons at its entrance, middle and exit and no centre line.
+
+Known gaps: the headless suite under `CITY=big` fails the checks that compare the network with the
+grid (by design, the park road is not on the grid) and the few that assume every lane is straight.
+
 ## Ground, buildings, props
 
 | File | Produces | Notes |

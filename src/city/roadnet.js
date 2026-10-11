@@ -28,6 +28,7 @@ import {
   lineCurve, arcFromBulge, bezierCurve, rayIntersect, bearingOf, wrapAngle,
   insetPolygon, signedArea2, polygonBounds,
 } from './curves.js';
+import { centralParkEdges } from './centralpark.js';
 
 /**
  * Signal timing. These are the numbers the city was tuned around — see docs/traffic.md — moved
@@ -47,8 +48,14 @@ export const SIGNAL_DEFAULTS = {
 /** Two arms are the same street if their bearings are this close to opposite. */
 const OPPOSITE_TOLERANCE = Math.PI / 6;
 
-/** Bearing deltas inside this of 0 are "straight on"; within this of PI, a U-turn. */
-const STRAIGHT_TOLERANCE = Math.PI / 8;
+/**
+ * Bearing deltas inside this of 0 are "straight on"; within this of PI, a U-turn.
+ *
+ * 30°, matching `OPPOSITE_TOLERANCE`: a road that carries on through a junction as the same street
+ * is driven straight on. Was 22.5°, which on the grid (every delta 0 or 90°) is the same answer;
+ * the central park's road (`city/centralpark.js`) bends 28° at its ends and is the first that isn't.
+ */
+const STRAIGHT_TOLERANCE = Math.PI / 6;
 
 /**
  * The order a lane's exits are listed in: straight on, then right, then left.
@@ -166,6 +173,11 @@ function buildArms(nodes, nodeById, edges) {
         if (other === arm) continue;
         const sin = Math.abs(Math.sin(other.bearing - arm.bearing));
         if (sin < COLLINEAR) continue;
+        // Nor a road that carries on through at an angle — the same street, by the rule
+        // `buildStreets` uses. On the grid every such pair is exactly opposite and the line above
+        // already skips it; the central park's road (`city/centralpark.js`) bends 28° into its
+        // junctions, which would otherwise hold both it and the street it continues 8.5 back.
+        if (Math.abs(wrapAngle(other.bearing - arm.bearing)) > Math.PI - OPPOSITE_TOLERANCE) continue;
         reach = Math.max(reach, other.edge.halfWidth / sin);
       }
       // A dead end, or a node where a road merely changes class: nothing crosses, so the junction
@@ -205,12 +217,21 @@ function planeCrossing(curve, origin, normal, radius) {
     if (Math.abs(rate) > EPS) return (radius - depth(0)) / rate;
   }
 
+  // Bisect for the crossing in whichever direction depth runs. At the lane's *from* end depth
+  // starts at the node and grows; at its *to* end the curve is still the whole lane, so depth starts
+  // a road's length out and falls to zero. This once assumed the first case only, which a straight
+  // lane never noticed (closed form above) and which left every curved lane untrimmed at its far
+  // end — running straight on through the junction box to the node centre.
   let lo = 0;
   let hi = curve.length;
-  if (depth(hi) < radius) return hi;
+  const d0 = depth(lo);
+  const d1 = depth(hi);
+  if (d0 < radius && d1 < radius) return d0 <= d1 ? hi : 0;
+  if (d0 >= radius && d1 >= radius) return d0 <= d1 ? 0 : hi;
+  const rising = d0 < radius;
   for (let n = 0; n < 80; n++) {
     const mid = (lo + hi) / 2;
-    if (depth(mid) < radius) lo = mid; else hi = mid;
+    if ((depth(mid) < radius) === rising) lo = mid; else hi = mid;
   }
   return (lo + hi) / 2;
 }
@@ -870,6 +891,9 @@ export function roadNetFromGrid(layout, config = {}) {
       if (j < GRID_J) addEdge(i, j, i, j + 1, 'z', i);   // road running along Z, at line i
     }
   }
+
+  // The central park's road (`?city=big`) is closed in the grid and put back here, curved.
+  if (layout?.centralPark) edges.push(...centralParkEdges(layout.centralPark, gridNodeId));
 
   const net = bakeNetwork({ nodes, edges }, config);
 

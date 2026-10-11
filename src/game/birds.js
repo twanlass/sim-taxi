@@ -281,6 +281,7 @@ export const shadowCeiling = (area) => groundOf(area) + SHADOW_LIFT;
 export function parkAreas(layout) {
   const areas = [];
   for (const district of layout.districts ?? []) areas.push(district.bounds);
+  for (const half of layout.centralPark?.halves ?? []) areas.push(half);
   for (const block of layout) {
     if (block.type !== 'park') continue;
     if (block.districtId !== null && block.districtId !== undefined) continue;

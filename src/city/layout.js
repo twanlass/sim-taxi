@@ -1,7 +1,8 @@
 import {
   GRID_I, GRID_J, blockBounds, HALF_SPAN_X, HALF_SPAN_Z, isRiverBlock, segmentKey,
-  setArterialLines, setClosedSegments, setParkBlocks, setRiverRow,
+  setArterialLines, setClosedSegments, setParkBlocks, setRiverRow, BIG_CITY, setParkwayMid,
 } from './grid.js';
+import { planCentralPark } from './centralpark.js';
 import { planRiver, setRiverCrossings } from './river.js';
 import { roadNetFromGrid, setCityNetwork } from './roadnet.js';
 import { chooseGarageBlock } from './garage.js';
@@ -59,6 +60,14 @@ export function createLayout(rng) {
   const parkCells = new Map();   // "bi,bj" -> district id
   const districts = [];
   const closed = [];
+
+  // `?city=big` lays a 2 × 2 central park with a curving road through it first, then the usual two
+  // districts round it — see city/centralpark.js. Its lawns are too narrow for the skatepark, so
+  // the districts are where that still goes.
+  const centralPark = BIG_CITY ? planCentralPark(rng, { arterialX, arterialZ }) : null;
+  const centralCells = new Set(centralPark ? centralPark.cells.map(([bi, bj]) => `${bi},${bj}`) : []);
+  if (centralPark) closed.push(...centralPark.closed);
+  setParkwayMid(centralPark ? centralPark.C : null);
   const DISTRICT_COUNT = 2;
 
   for (let n = 0; n < DISTRICT_COUNT; n++) {
@@ -69,6 +78,7 @@ export function createLayout(rng) {
       const a = [bi, bj];
       const b = horizontal ? [bi + 1, bj] : [bi, bj + 1];
       if (parkCells.has(`${a[0]},${a[1]}`) || parkCells.has(`${b[0]},${b[1]}`)) continue;
+      if (centralCells.has(`${a[0]},${a[1]}`) || centralCells.has(`${b[0]},${b[1]}`)) continue;
       // Not on the water, and not straddling it. A district lays one platform across both its
       // blocks and the road between them, so a vertical pair spanning the bank would pave over the
       // river; and closing the road between them would close a crossing that may be a bridge.
@@ -132,7 +142,8 @@ export function createLayout(rng) {
       const centrality = Math.max(0, 1 - distance * 1.55);
 
       // A district claim wins; otherwise the occasional lone pocket park out in the suburbs.
-      const districtId = parkCells.get(`${bi},${bj}`);
+      const central = centralCells.has(`${bi},${bj}`);
+      const districtId = central ? 'central' : parkCells.get(`${bi},${bj}`);
       const inDistrict = districtId !== undefined;
       const isPark = inDistrict || rng.chance(0.02 + (1 - centrality) * 0.03);
       // ...and the river row is neither. Typed rather than filtered out of the array, so that every
@@ -150,7 +161,8 @@ export function createLayout(rng) {
         bounds: blockBounds(bi, bj),
         type: water ? 'river' : isPark ? 'park' : 'built',
         districtId: water || !inDistrict ? null : districtId,
-        districtBounds: water || !inDistrict ? null : districts[districtId].bounds,
+        districtBounds: water || !inDistrict ? null
+          : central ? centralPark.bounds : districts[districtId].bounds,
         centrality,
       });
     }
@@ -188,6 +200,7 @@ export function createLayout(rng) {
   // junction's offset from how far along the wave it sits.
   blocks.arterials = { x: arterialX, z: arterialZ, dirX, dirZ };
   blocks.closedSegments = closed;
+  blocks.centralPark = centralPark;
   blocks.river = river;
 
   // The taxi's depot, and the block it takes out of the tower generator's hands. Chosen **last**,

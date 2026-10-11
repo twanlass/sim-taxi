@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
+import { centralParkGround } from './centralpark.js';
 import {
   GRID_I, GRID_J, ROAD_W, SPAN_X, SPAN_Z, lineX, lineZ,
   isUnsignalised, isSegmentClosed, halfRoadX, halfRoadZ, isArterialX, isArterialZ,
@@ -373,6 +374,11 @@ export function createGround(rng, blocks) {
     ));
   }
 
+  // --- The central park (`?city=big`): two lawns shaped round the road that curves between them.
+  if (blocks.centralPark) {
+    parts.push(...centralParkGround(blocks.centralPark, rng, { kerbH: KERB_H, markY: MARK_Y }));
+  }
+
   // --- Block platforms: raised kerb + sidewalk surface, or grass for parks.
   for (const block of blocks) {
     // The river row has no platform at all: no kerb, no pavement, nothing to stand on. What edges
@@ -461,6 +467,10 @@ export function createGround(rng, blocks) {
       // skipped too — an arched deck is not at y = 0 and a flat quad laid at 0.02 would sink into
       // it, so the span paints its own (`geometry/bridge.js`).
       if (axis === 'z' && (isRiverGap(k) || isSegmentClosed(line, k, 1))) continue;
+      // A closed X road was always under a district's platform — until the central park
+      // (`?city=big`), whose curving road opens the asphalt where the old straight one ran and
+      // showed its dashes through. Skipping it everywhere is free: nothing else ever saw them.
+      if (axis === 'x' && isSegmentClosed(k, line, 0)) continue;
       const from = along(k) + (axis === 'z' ? halfRoadX(k) : halfRoadZ(k));
       const to = along(k + 1) - (axis === 'z' ? halfRoadX(k + 1) : halfRoadZ(k + 1));
 

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  GRID_I, GRID_J, halfRoadX, halfRoadZ, isParkBlock, isRiverBlock, lineX, lineZ,
+  GRID_I, GRID_J, halfRoadX, halfRoadZ, isParkBlock, isParkwayMid, isRiverBlock, lineX, lineZ,
 } from '../city/grid.js';
 import { KERB_H } from '../city/ground.js';
 import { createPassengerPin, createDestinationPin } from '../geometry/marker.js';
@@ -903,6 +903,7 @@ export function createFareSystem(rng, scene, {
       && !held.some((a) => (a.i === i && a.j === j) || onSameBlock({ i, j }, a))
       && (!avoidBlockOf || !onSameBlock({ i, j }, avoidBlockOf))
       && !onWaterBlock({ i, j })
+      && !isParkwayMid(i, j)
       && cornerSeen(i, j);
     return free;
   }

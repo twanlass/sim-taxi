@@ -12,11 +12,18 @@
 // because every other name in this file already means "runs along X": `arterialX` is a set of `j`
 // values and `halfRoadX(j)` is a road's extent in z. A `GRID_X` would have read as the opposite of
 // what it is. `i` runs `0..GRID_I` and `j` runs `0..GRID_J`; blocks are `bi < GRID_I`, `bj < GRID_J`.
-export const GRID_I = 5;             // block columns
+// `?city=big` is the size experiment: 6 × 7 blocks, 36 of them land against today's 25, with a
+// 2 × 2 central park and a curving road through it (`city/centralpark.js`). Read at module load
+// because every count below is a constant the rest of the city is built from; headless tools have
+// no `location` and get the shipped size unless run with `CITY=big` in the environment.
+export const BIG_CITY = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('city') === 'big'
+  : globalThis.process?.env?.CITY === 'big';
+export const GRID_I = BIG_CITY ? 6 : 5;  // block columns
 // Six rows against five columns, because **one of the rows is the river** (`city/river.js`). The
 // city is a block row taller than it is wide so that the water costs it neither a street nor a
 // buildable block: 25 of the 30 blocks are still land, which is exactly what a 5×5 city had.
-export const GRID_J = 6;             // block rows, one of them water
+export const GRID_J = BIG_CITY ? 7 : 6;  // block rows, one of them water
 export const PITCH = 20;             // distance between road centrelines
 export const ROAD_W = 8;             // full road width (two lanes)
 export const BLOCK = PITCH - ROAD_W; // buildable footprint between two ordinary streets
@@ -368,6 +375,12 @@ export function setRiverRow(row) {
   riverRowIndex = row ?? null;
 }
 
+// The central park's middle junction (`?city=big` only): a network node the park road runs
+// through, sitting in the middle of a lawn, so nothing should treat it as a kerb corner.
+let parkwayMid = null;
+export function setParkwayMid(at) { parkwayMid = at ?? null; }
+export const isParkwayMid = (i, j) => parkwayMid !== null && parkwayMid.i === i && parkwayMid.j === j;
+
 /** The block row the river runs down, or null. */
 export const riverRow = () => riverRowIndex;
 
@@ -426,7 +439,10 @@ export function legalExits(dIn, i, j) {
  * meshers spend time on it. Never skip: a silent unroutable seed strands fares.
  */
 export function isCityConnected() {
-  const N = (GRID_I + 1) * (GRID_J + 1) * 4;
+  // The central park's middle junction (`?city=big`) has every grid road closed round it — its road
+  // only exists in the network — so it is left out of both ends of the question rather than failing
+  // every city that has one.
+  const N = ((GRID_I + 1) * (GRID_J + 1) - (parkwayMid ? 1 : 0)) * 4;
   const key = (i, j, d) => (i * (GRID_J + 1) + j) * 4 + d;
 
   const preds = new Array(N);
@@ -445,7 +461,8 @@ export function isCityConnected() {
 
   for (let ti = 0; ti <= GRID_I; ti++) {
     for (let tj = 0; tj <= GRID_J; tj++) {
-      const seen = new Uint8Array(N);
+      if (isParkwayMid(ti, tj)) continue;
+      const seen = new Uint8Array((GRID_I + 1) * (GRID_J + 1) * 4);
       const queue = [];
       for (let d = 0; d < 4; d++) {
         const k = key(ti, tj, d);
