@@ -656,10 +656,10 @@ const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters
   scene, makeRng(runSeed + 349), props.skatepark, { stiff: skaterFlag === 'stiff' });
 
 // The elevated train over the east-west arterial's median — see game/ltrain.js. On by default
-// since 2026-10-11 (Tyler); `?ltrain=off` takes it out for comparison. Built here rather than beside the boats because the entrance wave below has to
+// since 2026-10-11 (Tyler); `?ltrain=classic` takes it out for comparison. Built here rather than beside the boats because the entrance wave below has to
 // be handed it. Run seed: where the line runs is the arterial's, so the map's already; which way
 // the first train goes and how long the line stands empty is the situation.
-const ltrain = new URLSearchParams(window.location.search).get('ltrain') !== 'off' || shot?.atLTrain
+const ltrain = new URLSearchParams(window.location.search).get('ltrain') !== 'classic' || shot?.atLTrain
   ? createLTrain(scene, makeRng(runSeed + 421), {
     // Wheel sparks through the shared pool, which is built further down — only ever called from
     // the frame loop, by which time it exists.

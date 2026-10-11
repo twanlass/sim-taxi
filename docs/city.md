@@ -228,11 +228,11 @@ round to 331°. Nearest approach to anything the player acts on is **27°**, and
 the same way it asserts the roadworks orange. That the range comes out cool and slightly wild is a
 consequence of the constraint rather than a choice, and it happens to suit municipal bedding.
 
-### The elevated train (on by default, `?ltrain=off` to compare)
+### The elevated train (on by default, `?ltrain=classic` to compare)
 
 `game/ltrain.js` stands a Chicago-style L over the east-west arterial: a steel deck on a column
 at each nose of every planted island, one track, and one four-car train that crosses the island,
-waits off the end, and comes back the other way. `?ltrain=off` takes it out; shots
+waits off the end, and comes back the other way. `?ltrain=classic` takes it out; shots
 `ltrain` and `ltrain-far` turn it on even then.
 
 - **The median is why it is on the arterial.** It is the one strip running the width of the city

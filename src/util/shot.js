@@ -249,7 +249,7 @@ export const SHOTS = [
   // on the kerb: the question is whether the dim stub reads as "and then this way" without
   // reading as part of the trip. Appended, for the index-addressing reason stated above `birds`.
   { name: 'lookahead', description: 'the route band looking ahead past the pickup', target: [0, 0], zoom: 26, warmup: 12, select: true, route: true, atPassenger: true },
-  // The elevated train (game/ltrain.js) — these two turn it on even under `?ltrain=off`. Close, does
+  // The elevated train (game/ltrain.js) — these two turn it on even under `?ltrain=classic`. Close, does
   // the structure read as an L and the train as a train; at play zoom, how much of the arterial and
   // its kerbs the deck hides. Appended, for the index-addressing reason stated above `birds`.
   { name: 'ltrain', description: 'the elevated train, close', target: [0, 0], zoom: 14, warmup: 12, atLTrain: true },
