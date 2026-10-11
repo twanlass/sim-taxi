@@ -2910,7 +2910,11 @@ enclose the lenses and the two sides strobe alternately, red left and blue right
 off that still says red-and-blue. Everything is nested inside the pods on every shared side so a lit
 pod encloses it rather than fighting it, and the probe asserts it. A wrecked cop's shell had the
 same hole one layer over — it was tinted from `carBody[colorIndex]` — and goes through `bodyColor`
-now, and carries its cab.
+now, and carries its cab — and its bar, dark (the lit pods collapse, the housing and lenses ride
+the roof). Without it the bar vanished on impact. The patrol cruiser's wreck reads its pose off
+`car.skinPose`, because a skinned car's instance is collapsed: read off the instance, the whole
+cruiser decomposed to a NaN scale and vanished. `police.group` is a root of the crash replay's tape
+for the same reason the taxi's group is — it is not an instance, and was missing from every cut.
 
 **The two-tone.** A cop is a light-blue body under a white cab, after the 1980s NYPD cruiser, where
 it used to be a solid blue (#2E5FA8) a few steps off the ordinary blue car — one blue car among

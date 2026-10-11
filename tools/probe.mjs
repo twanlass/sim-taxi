@@ -15823,6 +15823,27 @@ let chopperOrder; // likewise
         });
       })());
 
+    // Wrecking one. The shell is a copy of the instance, and the bar used to be left out of it on
+    // the reasoning that an instance left on the roof would hang over the wreck — which is right,
+    // and which is why the copy has to carry one: reported as the cop's lights popping out the
+    // moment the taxi rammed it. Dark, though: a bar still strobing on a wreck says more police.
+    {
+      const wrecked = copTraffic.policeCars[0];
+      const shell = copTraffic.wreckShell(wrecked);
+      shell.updateMatrixWorld(true);
+      const top = new THREE.Box3().setFromObject(shell).max.y;
+      const bars = shell.children.filter((c) => c.geometry === copTraffic.sirenHousingMesh.geometry);
+      check('a wrecked cop keeps its bar on the roof of its wreck',
+        bars.length === 1 && bars[0].position.equals(copTraffic.sirenHousingMesh.userData.anchor)
+          && top > CABIN_TOP + 0.1,
+        `${bars.length} bars in the shell, top at ${top.toFixed(2)} against a roof at ${CABIN_TOP.toFixed(2)}`);
+      check('...dark, with the instance and both pods collapsed',
+        housingScale(wrecked.instanceIndex) === 0
+          && podScale(redMesh, wrecked.instanceIndex, 0) === 0
+          && podScale(blueMesh, wrecked.instanceIndex, 0) === 0);
+      shell.removeFromParent();
+    }
+
     // Taking them off. The cars leave the map with the event rather than turning back into
     // hatchbacks, and the fleet the city was driving before is exactly as it was.
     copTraffic.clearPolice();
@@ -15836,6 +15857,44 @@ let chopperOrder; // likewise
       copTraffic.ambient.every((car, k) => (k < fleetBefore ? wereAmbient.has(car) : grownIn.has(car))
         && car.instanceIndex === k),
       'every surviving car is an original or grown in, at its own index');
+  }
+
+  // --- Wrecking the patrol cruiser --------------------------------------------------
+  //
+  // A patrol is drawn by the cruiser's own group through `car.skin`, with its instance collapsed —
+  // so a wreck shell read back off that instance decomposed a zero matrix into a NaN scale, and the
+  // car the taxi had just rammed was gone from its own fireball.
+  {
+    const wScene = new THREE.Scene();
+    const wTraffic = createTraffic(makeRng(seed + 44), wScene, CARS_DEFAULT);
+    const wPolice = createPolice(wScene);
+    const wPatrol = createPatrol({
+      rng: makeRng(seed + 66), police: wPolice, traffic: wTraffic, taxi: wTraffic.taxi, onSpotted: () => {},
+    });
+    const tick = () => {
+      wTraffic.update(1 / 60);
+      wPatrol.update(1 / 60, { boosting: false });
+      wPolice.update(1 / 60);
+    };
+    wPatrol.state.cooldown = 0;
+    for (let step = 0; step < 60 * 60 && wPatrol.state.phase !== 'patrol'; step++) tick();
+    for (let step = 0; step < 30; step++) tick();
+    const cop = wPatrol.state.cop;
+    if (cop && typeof cop.skin === 'function') {
+      const shell = wTraffic.wreckShell(cop);
+      shell.updateMatrixWorld(true);
+      const scale = new THREE.Vector3().setFromMatrixScale(shell.matrixWorld);
+      const box = new THREE.Box3().setFromObject(shell);
+      const centre = box.getCenter(new THREE.Vector3());
+      check('a wrecked patrol is a whole car, where the patrol was',
+        Math.abs(scale.x - 1) < 1e-6 && Math.abs(scale.y - 1) < 1e-6 && Math.abs(scale.z - 1) < 1e-6
+          && Math.hypot(centre.x - cop.x, centre.z - cop.z) < 1,
+        `scale ${scale.x.toFixed(2)}, ${Math.hypot(centre.x - cop.x, centre.z - cop.z).toFixed(2)} off the car`);
+      check('...with its bar on the roof', box.max.y > CABIN_TOP + 0.1,
+        `top at ${box.max.y.toFixed(2)}`);
+    } else {
+      check('a patrol turns up to be wrecked', false, `phase ${wPatrol.state.phase}`);
+    }
   }
 
   // --- The wash a cop car throws on the road -----------------------------------
