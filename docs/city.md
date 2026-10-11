@@ -239,14 +239,17 @@ waits off the end, and comes back on the other track. Behind a flag while it is 
   that no car drives on, so the columns need no clearance rule of their own: `planLTrain` reads
   `medianRuns()` and stands a bent `COLUMN_NOSE` in from each end. A park built over the arterial
   leaves a gap with no island, and the deck spans it on the bents either side.
-- **The deck stops at 2.15 off the centreline**, short of every lane's inner flank (2.33 for a
-  truck), so nothing driving under it reaches it whatever its height. The probe asserts it against
-  `laneOffX` and the vehicle widths, not against the number.
-- **It is low (deck top 3.3) because of the camera.** Anything `h` tall hides the ground about
-  `1.09h` behind it on each axis. What it does hide, it dithers out over: the taxi and every
-  visible fare pin are projected up their sightline to the deck and the deck goes see-through
-  there (`FADE_*`). Off the island it dithers out the same way, a little ahead of the ground's own
-  fade, which reads as gone sooner than its alpha says.
+- **The deck spans the street on a hammerhead cap**, out to 4.1 off the centreline: over both
+  carriageways, short of the kerb where the fares stand. It is open steel (girders, stringers,
+  floor beams and ties, no slab), so from above you see the traffic under it through the ties.
+  Everything under it clears by height: the probe holds the cap's underside (5.35) above the box
+  trucks and the street lamps' arms.
+- **It is high (deck top 6.4) on purpose.** The first cut was low (3.3) and over the median only,
+  because anything `h` tall hides about `1.09h` of ground behind it on each axis. At play zoom it
+  read as a railway cut through the city at street level. What hides more now is paid for by the
+  fade: the taxi and every visible fare pin are projected up their sightline to the deck and the
+  deck dithers out there (`FADE_*`). Off the island it dithers out the same way, a little ahead of
+  the ground's own fade, which reads as gone sooner than its alpha says.
 - **Not done:** no stations, no sound (the rumble hook is commented in `ambientLevels`), no lamps at
   night, and the entrance wave grows the whole line from its middle as one object.
 

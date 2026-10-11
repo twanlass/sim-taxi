@@ -19350,7 +19350,9 @@ let chopperOrder; // likewise
 {
   const { planLTrain, createLTrain, LTRAIN_DIMENSIONS: L } = await import('../src/game/ltrain.js');
   const { medianRuns, halfRoadZ, laneOffX } = await import('../src/city/grid.js');
-  const { CAR_W: SIM_CAR_W, TRUCK_W } = await import('../src/sim/traffic.js');
+  const { LANE_TO_KERB } = await import('../src/city/grid.js');
+  // citylights.js: POST_H 4.2 on a KERB_H kerb.
+  const KERB_H_LAMP_TOP = 0.35 + 4.2;
   let planned = 0;
   let offIsland = 0;
   let wideSpan = 0;
@@ -19373,15 +19375,23 @@ let chopperOrder; // likewise
       const closedHere = runs.length < GRID_I;
       if (gap > 16 && !closedHere) wideSpan += 1;
     }
-    if (L.DECK_HALF_W >= laneOffX(plan.line) - Math.max(SIM_CAR_W, TRUCK_W) / 2) laneClash += 1;
+    // The deck covers the lanes and stops short of the kerb, where the fares stand.
+    if (L.DECK_HALF_W <= laneOffX(plan.line) || L.DECK_HALF_W >= laneOffX(plan.line) + LANE_TO_KERB) laneClash += 1;
   }
   createLayout(makeRng(seed));     // put the probe's city back — `createLayout` installs its network
   check('ltrain: every city with an east-west arterial gets a line', planned === 20, `${planned}/20`);
   check('ltrain: every column stands on a planted island or out past the ring road',
     offIsland === 0, `${offIsland} in a junction or a lane`);
   check('ltrain: no span longer than a junction crossing, except over a park', wideSpan === 0, `${wideSpan}`);
-  check('ltrain: the deck stops short of every lane, so nothing driving under it can reach it',
-    laneClash === 0, `deck half-width ${L.DECK_HALF_W} against lane flank ${(laneOffX(planLTrain().line) - TRUCK_W / 2).toFixed(2)}`);
+  check('ltrain: the deck spans both carriageways and stops short of the kerb',
+    laneClash === 0, `deck half-width ${L.DECK_HALF_W} against lane ${laneOffX(planLTrain().line).toFixed(2)}`);
+  // ...so everything under it has to clear by height: the tallest vehicle (a box truck's box, off
+  // its own geometry) and the street lamps, whose arms reach out over the arterial's lanes.
+  const truckTop = traffic.truckBoxMesh.geometry.boundingBox
+    ?? (traffic.truckBoxMesh.geometry.computeBoundingBox(), traffic.truckBoxMesh.geometry.boundingBox);
+  const tallest = Math.max(truckTop.max.y, KERB_H_LAMP_TOP);
+  check('ltrain: the cap clears the tallest vehicle and the street lamps',
+    L.CAP_UNDERSIDE - tallest >= 0.75, `cap underside ${L.CAP_UNDERSIDE.toFixed(2)} against ${tallest.toFixed(2)}`);
   check('ltrain: the train fits on the deck', L.TRACK_OFF + L.CAR_W / 2 <= L.DECK_HALF_W,
     `${(L.TRACK_OFF + L.CAR_W / 2).toFixed(2)} against ${L.DECK_HALF_W}`);
 

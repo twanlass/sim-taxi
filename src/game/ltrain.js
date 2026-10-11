@@ -13,15 +13,19 @@ import { markOccluder } from './ssao.js';
 // The elevated train (`?ltrain=on`): a Chicago-style L on a steel structure down the east-west
 // arterial, with one train shuttling along it.
 //
-// **Over the arterial's planted median, and nowhere else.** The columns need somewhere to stand
-// that no car drives on, and the median is the only such strip that runs the width of the city.
-// It also keeps the shadow the deck throws — and the ground it hides — on the arterial's own lanes
-// rather than on a side street's kerbs, where the fares wait.
+// **Columns on the arterial's planted median, deck over the whole street.** The columns need
+// somewhere to stand that no car drives on, and the median is the only such strip that runs the
+// width of the city. The deck then cantilevers out over both carriageways on a hammerhead cap, so
+// the traffic drives *under* the line rather than beside it.
 //
-// **Low, because of the camera.** The view climbs 0.92 per unit travelled in both x and z, so
-// anything `h` tall hides the ground up to `1.09h` behind it on each axis — about 1.5h along the
-// view diagonal. A deck at 5 would bury 7.7 units of road and kerb beyond it; at 3.3 it is half
-// that, and still reads unmistakably as *raised* because the traffic drives under it.
+// **High enough to read as high.** The first cut kept the deck low (3.3) and over the median alone,
+// on the camera's arithmetic: the view climbs 0.92 per unit in both x and z, so anything `h` tall
+// hides about `1.09h` of ground behind it on each axis. That was the right number and the wrong
+// answer — at play zoom a low deck beside the lanes projected onto the road as one more strip of
+// paving, and it read as a railway cut through the city at street level (Tyler, 2026-10-11). What
+// says *raised* from this camera is cars visibly going in under it and a tall shadow-casting column
+// with daylight either side, so the deck is at 6.4 and the cost — more ground hidden behind it — is
+// paid by the fade below rather than by keeping it low.
 //
 // **Faded where it covers something that matters.** The taxi already has its ghost outline for
 // when a building hides it, but a fare marker does not, and a deck across a rider's kerb is a fare
@@ -35,10 +39,10 @@ import { markOccluder } from './ssao.js';
 
 // --- The structure ------------------------------------------------------------------------------
 
-/** Top of the deck, where the ties sit. See the camera note above for why it is this low. */
-export const DECK_TOP = 3.3;
+/** Top of the deck, where the ties sit. See the camera note above for why it is this high. */
+export const DECK_TOP = 6.4;
 /** Plate girder depth, so the underside is `DECK_TOP - GIRDER_D`. */
-const GIRDER_D = 0.55;
+const GIRDER_D = 0.6;
 export const DECK_UNDERSIDE = DECK_TOP - GIRDER_D;
 
 /**
@@ -47,21 +51,24 @@ export const DECK_UNDERSIDE = DECK_TOP - GIRDER_D;
  * Right-hand running, like the traffic under it: an eastbound train is on the +z track, the same
  * side `laneOffsetCoord` puts an eastbound car.
  */
-export const TRACK_OFF = 1.05;
+export const TRACK_OFF = 2.2;
 
 /**
  * Half the deck's width, girder face to girder face.
  *
- * **Sized off the lanes under it, not off the train.** A car in its lane has its inner flank at
- * `laneOffX - CAR_W/2` = 2.48 off the centreline and a truck at 2.33, so a deck that stops at 2.15
- * never overhangs a vehicle's roof — the overhang is all shoulder. That matters more than it looks:
- * everything that pokes up out of a car (the cop's light bar, a box truck's 2.8-unit box) then
- * clears the deck by construction rather than by the clearance below.
+ * Out over the lanes (centred 3.33 off the middle), so a car in either carriageway is under the
+ * deck, and short of the kerb (5.33) so the pavement and the fares on it stay open to the sky.
+ * Everything under it clears by height instead: the probe holds the cap's underside above the
+ * tallest vehicle and the street lamps' arms.
  */
-export const DECK_HALF_W = 2.15;
+export const DECK_HALF_W = 4.1;
 
 const GIRDER_W = 0.22;
-const SLAB_T = 0.16;
+const STRINGER_D = 0.32;
+const STRINGER_W = 0.16;
+const FLOOR_PITCH = 3.0;
+const FLOOR_W = 0.18;
+const FLOOR_D = 0.2;
 const STIFFENER_PITCH = 2.2;
 
 const TIE_PITCH = 0.75;
@@ -74,14 +81,18 @@ const RAIL_W = 0.09;
 /** Railhead height — the train's floor stands here. */
 export const RAIL_TOP = DECK_TOP + TIE_H + RAIL_H;
 
-const COLUMN_W = 0.5;
+const COLUMN_W = 0.7;
 /** How far in from the island's nose a column stands. It has to clear the junction's turn arcs,
  *  which the island already does, so this is only enough to keep the footing on the kerb. */
 const COLUMN_NOSE = 0.55;
-const FOOTING_W = 0.85;
+const FOOTING_W = 1.05;
 const FOOTING_H = 0.22;
-const CAP_W = 0.55;
-const CAP_H = 0.35;
+const CAP_W = 0.7;
+const BRACE_DROP = 1.4;
+const BRACE_REACH = 2.2;
+const CAP_H = 0.45;
+/** Underside of the hammerhead cap — the lowest thing over a lane. */
+export const CAP_UNDERSIDE = DECK_TOP - GIRDER_D - CAP_H;
 
 /**
  * Past the coast, the line keeps going and fades with the ground — a viaduct that stopped dead at
@@ -269,11 +280,21 @@ function buildDeck(plan) {
   const steel = PALETTE.ltrainSteel;
   const dark = PALETTE.ltrainSteelDark;
 
-  // Two plate girders and the slab between them.
+  // Two fascia girders, a stringer under each rail and floor beams across — and **no slab**. An
+  // L deck is open steel with ties on it, and from a camera looking down at 33 degrees that is the
+  // difference between a structure the traffic is driving under and a roof over the street: through
+  // the ties you see the cars, the lane paint and the deck's own striped shadow below.
   for (const s of [-1, 1]) {
     parts.push(box(len, GIRDER_D, GIRDER_W, mid, DECK_TOP - GIRDER_D / 2, s * (DECK_HALF_W - GIRDER_W / 2), steel));
   }
-  parts.push(box(len, SLAB_T, DECK_HALF_W * 2 - GIRDER_W * 2, mid, DECK_TOP - SLAB_T / 2, 0, dark));
+  for (const t of [-TRACK_OFF, TRACK_OFF]) {
+    for (const r of [-GAUGE / 2, GAUGE / 2]) {
+      parts.push(box(len, STRINGER_D, STRINGER_W, mid, DECK_TOP - STRINGER_D / 2, t + r, dark));
+    }
+  }
+  for (let x = plan.from + FLOOR_PITCH / 2; x < plan.to; x += FLOOR_PITCH) {
+    parts.push(box(FLOOR_W, FLOOR_D, DECK_HALF_W * 2 - GIRDER_W * 2, x, DECK_TOP - STRINGER_D - FLOOR_D / 2 + 0.02, 0, dark));
+  }
   // Stiffeners standing proud of each girder's outer face: the rhythm that makes a long plate read
   // as riveted steel rather than as a grey bar.
   for (let x = plan.from + STIFFENER_PITCH / 2; x < plan.to; x += STIFFENER_PITCH) {
@@ -303,6 +324,18 @@ function buildColumns(plan) {
     parts.push(box(FOOTING_W, FOOTING_H, FOOTING_W, x, base + FOOTING_H / 2 - 0.05, 0, PALETTE.ltrainFooting));
     parts.push(box(COLUMN_W, shaftH, COLUMN_W, x, base + shaftH / 2, 0, PALETTE.ltrainSteel));
     parts.push(box(CAP_W, CAP_H, DECK_HALF_W * 2 - 0.1, x, capY, 0, PALETTE.ltrainSteelDark));
+    // Knee braces from the shaft out under each arm of the cap: what makes a T read as a bent
+    // carrying weight rather than as a sign post.
+    for (const s of [-1, 1]) {
+      const z0 = s * COLUMN_W / 2;
+      const y0 = capY - CAP_H / 2 - BRACE_DROP;
+      const z1 = s * BRACE_REACH;
+      const y1 = capY - CAP_H / 2;
+      const brace = new THREE.BoxGeometry(0.22, Math.hypot(z1 - z0, y1 - y0), 0.22);
+      brace.rotateX(Math.atan2(z1 - z0, y1 - y0));
+      brace.translate(x, (y0 + y1) / 2, (z0 + z1) / 2);
+      parts.push(bakeColor(brace, PALETTE.ltrainSteel));
+    }
   }
   return mergeGeometries(parts, false);
 }
@@ -500,5 +533,5 @@ export function createLTrain(scene, rng) {
 /** For the probe: everything the clearance claims rest on, as numbers. */
 export const LTRAIN_DIMENSIONS = {
   DECK_TOP, DECK_UNDERSIDE, DECK_HALF_W, TRACK_OFF, RAIL_TOP, TRAIN_LEN, CAR_W, ROOF_TOP,
-  COLUMN_W, FOOTING_W, MEDIAN_W, FADE_LIFT, GRID_I,
+  COLUMN_W, FOOTING_W, MEDIAN_W, FADE_LIFT, GRID_I, CAP_UNDERSIDE,
 };
