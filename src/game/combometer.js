@@ -10,6 +10,14 @@
 // boost) drops it straight back to ×1. A reset rather than a tier down because the drop is the
 // tension: a ×3 you can lose is worth driving carefully for, a ×3 that only slips to ×2 is not.
 //
+// The other thing that empties it is losing the job it was built on (Tyler, 2026-10-11: "a rider
+// jumped out of the taxi but I didn't lose my combo streak"). A meter is a promise about the next
+// drop-off, so when the rider aboard — or the one the taxi was on its way to — runs out of clock and
+// storms off, that drop-off is gone, and before this the streak simply rode over to the next fare as
+// if nothing had happened. Every kind of rider counts (an ordinary one, a VIP, a robber): which kind
+// it was decides the star, not whether you blew the job. A rider timing out on a kerb the taxi was
+// not heading for leaves it alone — that is a different job, and the star it costs is the penalty.
+//
 // Two scopes:
 //   meter — per ride, the default. The meter is cashed at every drop-off and starts again at ×1.
 //   run   — the whole run (`?combo=run`). A drop-off pays at the meter and leaves it where it is, so the only
@@ -77,6 +85,15 @@ export function createComboMeter({ scope = 'meter' } = {}) {
   }
 
   /**
+   * A rider's clock ran out and they walked. Empties the meter when they were the job — aboard, or
+   * the one the taxi was sent to collect — and returns whether there was a streak to lose.
+   */
+  function walkout(fare) {
+    if (fare.stage !== 'riding' && !fare.directed) return false;
+    return damage();
+  }
+
+  /**
    * The verdict on a drop-off, in the shape the fare loop's `judgeRun` takes: a list of runs for the
    * payout and the product of their multipliers. Per-ride scope empties the meter here.
    */
@@ -87,5 +104,5 @@ export function createComboMeter({ scope = 'meter' } = {}) {
     return { runs, mult };
   }
 
-  return { state, scope, land, damage, judge };
+  return { state, scope, land, damage, walkout, judge };
 }
