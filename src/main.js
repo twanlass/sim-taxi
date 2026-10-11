@@ -5399,6 +5399,12 @@ function tick() {
         : placeAt(lineX(fare.pickup.i), lineZ(fare.pickup.j)) });
       // An ordinary rider let go on the kerb is a strike as well as a freed taxi — see MAX_STRIKES.
       if (type === 'missed') showStrikes(fares.state.strikes);
+      // And the job the combo meter was building toward has walked off with them, so the streak
+      // breaks exactly as a hit breaks it — any kind of rider, either scope (game/combometer.js).
+      if (combo.walkout(fare)) {
+        comboTag.lost = true;
+        haptic('perfect-lost');
+      }
       // The one fare whose clock running out isn't a run-ending event — see fares.js. The rider is
       // getting out and running off on their own (fares.js `beginBail`); what is left here is the
       // taxi, which is either holding an empty seat or still driving at a kerb nobody is standing
