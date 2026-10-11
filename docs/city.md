@@ -914,7 +914,7 @@ curved lane at its far end. The lawns are built by offsetting the centreline fur
 (kerb, walk, grass) rather than by insetting the kerb polygon, whose clipped ends fold.
 
 `&parkway=oneway` (`PARKWAY=oneway` headless) makes the park road one-way in a direction the seed
-picks: one lane down the centreline of a 6-wide road, with arrows instead of the centre line.
+picks: one lane down the centreline of a 6-wide road, with chevrons at its entrance, middle and exit and no centre line.
 
 Known gaps: the headless suite under `CITY=big` fails the checks that compare the network with the
 grid (by design, the park road is not on the grid) and the few that assume every lane is straight.

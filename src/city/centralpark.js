@@ -28,8 +28,8 @@ import { arcFromBulge, rightNormal } from './curves.js';
 export const PARKWAY_BULGE = 0.25;
 
 // `&parkway=oneway` makes the park road one-way, in a direction the seed picks: a single lane down
-// the middle of a narrower road, 6 across rather than 8, with arrows painted instead of the centre
-// line. A shortcut through the park in one direction and a detour round it in the other.
+// the middle of a narrower road, 6 across rather than 8, with three chevrons painted on it. A
+// shortcut through the park in one direction and a detour round it in the other.
 export const PARKWAY_ONEWAY = typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('parkway') === 'oneway'
   : globalThis.process?.env?.PARKWAY === 'oneway';
@@ -171,7 +171,7 @@ function flat(shape, y, col) {
 /**
  * The park's ground: per lawn, a kerb extruded off its polygon, the walk round it and the grass in
  * the middle — the same three layers `parkSurface` lays on a rectangle, at the same heights — then,
- * on a one-way road, its arrows. The asphalt under the road is the city slab showing through
+ * on a one-way road, its chevrons. The asphalt under the road is the city slab showing through
  * the gap between the two lawns.
  */
 export function centralParkGround(park, rng, { kerbH, markY }) {
@@ -192,7 +192,7 @@ export function centralParkGround(park, rng, { kerbH, markY }) {
   });
 
   // No centre line: a park drive reads as a drive, not a street (Tyler's call). A one-way road
-  // still gets its arrows, laid along the arcs by arc length so they keep their pitch round the bends.
+  // still gets its three chevrons.
   if (!park.oneway) return parts;
   const markColor = color('laneMark');
   const total = park.arcs.reduce((sum, arc) => sum + arc.length, 0);
@@ -206,31 +206,22 @@ export function centralParkGround(park, rng, { kerbH, markY }) {
 }
 
 /**
- * Direction arrows down a one-way park road: a shaft and a head, every `PITCH` along the S, pointing
- * the way traffic runs. Built flat in the arrow's own frame (+X forward) and turned onto the road's
- * tangent; the head is a `ShapeGeometry`, which winds itself to face up whichever way its points go.
+ * Chevrons down a one-way park road — at the entrance, halfway and the exit, pointing the way
+ * traffic runs. One flat ">" each, built in its own frame (+X forward) and turned onto the road's
+ * tangent; a `ShapeGeometry` winds itself to face up whichever way its points go.
  */
 function onewayArrows(pointAt, total, dir, col, y) {
-  const PITCH = 9;
-  const SHAFT = 1.5;
-  const HEAD = 0.9;
+  const chevron = [
+    [-0.6, 1.5], [0.7, 0], [-0.6, -1.5], [-1.5, -1.5], [-0.2, 0], [-1.5, 1.5],
+  ].map(([x, z]) => new THREE.Vector2(x, z));
   const parts = [];
-  for (let s = 7; s < total - 7; s += PITCH) {
+  for (const s of [7, total / 2, total - 7]) {
     const { p, t } = pointAt(s);
-    const yaw = -Math.atan2(t.z * dir, t.x * dir);
-    const shaft = new THREE.PlaneGeometry(SHAFT, 0.28);
-    shaft.rotateX(-Math.PI / 2);
-    shaft.translate(-HEAD / 2, 0, 0);
-    const head = new THREE.ShapeGeometry(new THREE.Shape([
-      new THREE.Vector2(SHAFT / 2 - HEAD / 2, 0.55), new THREE.Vector2(SHAFT / 2 - HEAD / 2, -0.55),
-      new THREE.Vector2(SHAFT / 2 + HEAD / 2, 0),
-    ]));
-    head.rotateX(-Math.PI / 2);
-    for (const geo of [shaft, head]) {
-      geo.rotateY(yaw);
-      geo.translate(p.x, y, p.z);
-      parts.push(bakeColor(geo, col));
-    }
+    const geo = new THREE.ShapeGeometry(new THREE.Shape(chevron));
+    geo.rotateX(-Math.PI / 2);
+    geo.rotateY(-Math.atan2(t.z * dir, t.x * dir));
+    geo.translate(p.x, y, p.z);
+    parts.push(bakeColor(geo, col));
   }
   return parts;
 }

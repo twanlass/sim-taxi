@@ -3,7 +3,8 @@ import { hash01, propMaterial } from '../util/geo.js';
 import { makeRng } from '../util/rng.js';
 import { cutoutAtlas, VIEW_RIGHT } from '../util/cutout.js';
 import { PALETTE, jitterColor } from '../palette.js';
-import { KERB_H, onLawn } from './ground.js';
+import { KERB_H, PARK_EDGE, onLawn } from './ground.js';
+import { pointInPolygon, polygonBounds } from './curves.js';
 import { parkPlots, BENCH_LEN, STATUE_PLAZA } from './props.js';
 import { BOOMBOX_W, onCourt } from './blacktop.js';
 
@@ -149,8 +150,17 @@ export function planGrass(rng, blocks, {
   benches = [], statue = null, pond = null, court = null, skatepark = null, boombox = null,
 } = {}) {
   const tufts = [];
-  for (const plot of parkPlots(blocks)) {
-    const { x0, z0, x1, z1 } = plot.bounds;
+  // Every lawn as bounds to scatter in and a test for "on the grass". The central park
+  // (`?city=big`) is planted as its two curved lawns whole, not as the rectangles its trees and
+  // furniture plan in — those stop short of the road, and the strip between was bare.
+  const areas = parkPlots(blocks).filter((plot) => !plot.central).map((plot) => ({
+    bounds: plot.bounds, inside: (x, z) => onLawn(plot.bounds, x, z, 0.05),
+  }));
+  for (const poly of blocks.centralPark?.lawnsAt(PARK_EDGE + 0.05) ?? []) {
+    areas.push({ bounds: polygonBounds(poly), inside: (x, z) => pointInPolygon(x, z, poly) });
+  }
+  for (const area of areas) {
+    const { x0, z0, x1, z1 } = area.bounds;
     const attempts = Math.round((x1 - x0) * (z1 - z0) * DENSITY);
     for (let n = 0; n < attempts; n++) {
       // Every draw is taken whether the tuft survives or not, so one rule changing does not move
@@ -174,7 +184,7 @@ export function planGrass(rng, blocks, {
       // diagonal: turned 0.6 off the view, a card runs within 11° of a grid axis.
       const ex = reach * Math.cos(Math.PI / 4 + yaw);
       const ez = reach * Math.sin(Math.PI / 4 + yaw);
-      if (!onLawn(plot.bounds, x + ex, z - ez, 0.05) || !onLawn(plot.bounds, x - ex, z + ez, 0.05)) continue;
+      if (!area.inside(x + ex, z - ez) || !area.inside(x - ex, z + ez)) continue;
       if (statue && Math.abs(x - statue.x) < STATUE_PLAZA / 2 + reach
         && Math.abs(z - statue.z) < STATUE_PLAZA / 2 + reach) continue;
       if (pond && Math.hypot(x - pond.x, z - pond.z) < pond.r + reach * 0.6) continue;
