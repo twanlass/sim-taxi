@@ -54,13 +54,27 @@ const BYSTANDER_ALONG = 1.7;
 const BYSTANDER_OUT = -0.65;
 /** The robber passes this far short of the bystander's centre: an arm's length. */
 const SHOVE_GAP = 0.95;
-/** The fall: how long it takes, how far it slides, and how flat it ends. */
-const FALL = 0.42;
-const FALL_SLIDE = 0.7;
+/**
+ * The fall. Knocked clean off their feet rather than tipped over: `FALL_AIR` of it is airborne,
+ * `FALL_HEIGHT` up at the top of the arc and spun `FALL_SPIN` about the vertical, flailing the
+ * whole way, then a bounce and a skid along the pavement. The first cut was a 0.42s topple with a
+ * 0.06 bounce, which at play zoom read as somebody lying down. `FALL_SLIDE` is the whole distance,
+ * flight and skid together, and `FALL_FLAT` how flat they end up.
+ */
+const FALL = 0.8;
+const FALL_AIR = 0.6;
+const FALL_HEIGHT = 1.2;
+const FALL_SPIN = 1.2;
+const FALL_SLIDE = 2.1;
 const FALL_FLAT = Math.PI / 2 - 0.08;
-/** Lying there for this long once the world is back, then getting up. Game seconds. */
-const DOWN_FOR = 2.6;
-const GET_UP = 0.7;
+/** How near the taxi's centre a landing may be: half the drawn body (2.0) and a figure's length. */
+const TAXI_CLEAR = 3.4;
+/** How limp they are once down: the arms and legs still stir, at a tenth of the flail. */
+const LIE_LIMP = 0.9;
+/** Lying there for this long once the world is back, then up, and a jog back to their spot. */
+const DOWN_FOR = 4.5;
+const GET_UP = 0.8;
+const WALK_BACK = 1.3;
 /** Where the robber stops short of the door and how far in the hop reaches — fares.js's numbers. */
 const DOOR_STANDOFF = 0.7;
 const DOOR_REACH = 0.5;
@@ -93,38 +107,34 @@ const dist = (a, b) => Math.hypot(b.x - a.x, b.z - a.z);
 export function createBankJob({ scene, site, cashTrail, controller, setDoor, play = () => {} }) {
   const f = bankFrontage(site);
 
-  // --- The alarm boxes -------------------------------------------------------
-  const lampOn = new THREE.Color(PALETTE.lightYellow);
-  const lampOff = new THREE.Color(PALETTE.gateLampOff);
-  const alarmGeo = new THREE.BoxGeometry(
-    f.out.x ? ALARM_DEPTH : ALARM_W, ALARM_H, f.out.x ? ALARM_W : ALARM_DEPTH,
+  // --- The alarm light -------------------------------------------------------
+  //
+  // One red lamp over the doorway, the siren bar's own red. It was two amber boxes over the end
+  // columns first, which read as the building's decoration rather than as the thing going off.
+  const lampOn = new THREE.Color(PALETTE.lightRed);
+  const lampOff = new THREE.Color(PALETTE.sirenRedOff);
+  const alarm = new THREE.Mesh(
+    new THREE.BoxGeometry(f.out.x ? ALARM_DEPTH : ALARM_W, ALARM_H, f.out.x ? ALARM_W : ALARM_DEPTH),
+    unlitMaterial({ color: lampOff.clone() }),
   );
-  const alarms = f.alarms.map((p) => {
-    const mesh = new THREE.Mesh(alarmGeo, unlitMaterial({ color: lampOff.clone() }));
-    mesh.position.set(p.x, p.y, p.z);
-    mesh.name = 'bank-alarm';
-    scene.add(mesh);
-    return mesh;
-  });
-  for (const mesh of alarms) {
-    markEmissive(mesh, 'pod');
-    setEmissiveScale(mesh, 0);
-  }
+  alarm.position.set(f.alarm.x, f.alarm.y, f.alarm.z);
+  alarm.name = 'bank-alarm';
+  scene.add(alarm);
+  markEmissive(alarm, 'pod');
+  setEmissiveScale(alarm, 0);
   let alarmClock = 0;
   function flash(dt, on) {
     if (!on) {
       if (alarmClock === 0) return;
       alarmClock = 0;
-      alarms.forEach((mesh) => { mesh.material.color.copy(lampOff); setEmissiveScale(mesh, 0); });
+      alarm.material.color.copy(lampOff);
+      setEmissiveScale(alarm, 0);
       return;
     }
     alarmClock += dt;
-    const phase = Math.floor(alarmClock / ALARM_PERIOD) % 2;
-    alarms.forEach((mesh, i) => {
-      const lit = (i + phase) % 2 === 0;
-      mesh.material.color.copy(lit ? lampOn : lampOff);
-      setEmissiveScale(mesh, lit ? 1 : 0);
-    });
+    const lit = Math.floor(alarmClock / ALARM_PERIOD) % 2 === 0;
+    alarm.material.color.copy(lit ? lampOn : lampOff);
+    setEmissiveScale(alarm, lit ? 1 : 0);
   }
 
   // --- The bystander ---------------------------------------------------------
@@ -147,6 +157,7 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
     phase: 'stand',
     t: 0,
     yaw: facing,
+    slide: FALL_SLIDE,
     clock: 0,
   };
   function standPose(dt) {
@@ -156,32 +167,70 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
     tilt.position.set(0, 0, 0);
     bystander.idle(by.clock, 0.7);
   }
+  // Still facing the street, as they were when it hit them, plus whatever the flight spun them
+  // by: the fall goes the way the shove did, so they go down sideways rather than turning first.
+  const turned = (spin) => facing - by.yaw + FALL_SPIN * spin;
+  /** The fall, `k` 0..1 across `FALL` seconds. */
   function fallPose(k) {
-    // Gravity's curve on the tip, with a little bounce off the pavement at the end.
-    const e = k < 1 ? k * k : 1;
-    const bounce = k > 0.85 ? Math.sin((k - 0.85) / 0.15 * Math.PI) * 0.06 : 0;
     spot.rotation.y = by.yaw;
-    tilt.rotation.x = FALL_FLAT * e - bounce;
-    tilt.position.set(0, 0, FALL_SLIDE * Math.min(1, k * 1.4));
-    bystander.tumble(k * 0.6, Math.min(1, k * 1.3));
-    // Still facing the street, as they were when it hit them: the fall goes the way the shove
-    // did, so they go down sideways rather than turning round first.
-    bystander.group.rotation.y = facing - by.yaw;
+    const air = FALL_AIR / FALL;
+    if (k < air) {
+      // In the air: a parabola up and down, tipping over fast, everything flailing.
+      const u = k / air;
+      tilt.rotation.x = FALL_FLAT * (1 - (1 - u) ** 2);
+      tilt.position.set(0, FALL_HEIGHT * 4 * u * (1 - u), by.slide * 0.75 * u);
+      bystander.tumble(k * FALL, 0);
+      bystander.group.rotation.y = turned(u);
+      return;
+    }
+    // Down: one bounce that rocks them up off the pavement, then the skid running out.
+    const w = (k - air) / (1 - air);
+    const bounce = Math.sin(Math.PI * Math.min(1, w * 1.6)) * (1 - w);
+    tilt.rotation.x = FALL_FLAT - 0.3 * bounce;
+    tilt.position.set(0, 0.35 * bounce, by.slide * (0.75 + 0.25 * (1 - (1 - w) ** 2)));
+    bystander.tumble(k * FALL, LIE_LIMP * w);
+    bystander.group.rotation.y = turned(1);
+  }
+  /**
+   * On the ground, `t` seconds in: a slow rock of the chest and the limbs stirring at a tenth of the
+   * flail — dazed rather than dead, because this is a comedy about a getaway.
+   */
+  function liePose(t) {
+    spot.rotation.y = by.yaw;
+    tilt.rotation.x = FALL_FLAT + 0.035 * Math.sin(t * 1.9);
+    tilt.position.set(0, 0, by.slide);
+    bystander.tumble(t * 0.3, LIE_LIMP);
+    // A roll of the head and shoulders now and then, as if trying to work out what hit them.
+    bystander.group.rotation.y = turned(1) + 0.12 * Math.sin(t * 0.8) ** 3;
   }
   function updateBystander(dt) {
     if (by.phase === 'stand') standPose(dt);
-    else if (by.phase === 'down') {
+    else if (by.phase === 'fall') {
+      // Only if the world came back mid-fall, which a skip can do.
       by.t += dt;
+      fallPose(Math.min(1, by.t / FALL));
+      if (by.t >= FALL) { by.phase = 'down'; by.t = 0; }
+    } else if (by.phase === 'down') {
+      by.t += dt;
+      liePose(by.t);
       if (by.t >= DOWN_FOR) { by.phase = 'up'; by.t = 0; }
     } else if (by.phase === 'up') {
       by.t += dt;
       const k = Math.min(1, by.t / GET_UP);
-      // Back up the way they went down, then turn to face the street again.
+      // Back up the way they went down.
       tilt.rotation.x = FALL_FLAT * (1 - k) * (1 - k);
-      // ...and back onto the spot the slide took them off, as they come up.
-      tilt.position.set(0, 0, FALL_SLIDE * (1 - k));
-      bystander.tumble(0, 1 - k);
-      bystander.group.rotation.y = facing - by.yaw;
+      tilt.position.set(0, 0, by.slide);
+      bystander.tumble(0, LIE_LIMP * (1 - k));
+      bystander.group.rotation.y = turned(1 - k);
+      if (k >= 1) { by.phase = 'back'; by.t = 0; }
+    } else if (by.phase === 'back') {
+      // ...and a jog back to the spot they were standing on, facing it.
+      by.t += dt;
+      const k = Math.min(1, by.t / WALK_BACK);
+      tilt.rotation.x = 0;
+      const bob = bystander.run(by.t * 12);
+      tilt.position.set(0, bob, by.slide * (1 - k));
+      bystander.group.rotation.y = Math.PI;
       if (k >= 1) {
         by.phase = 'stand';
         bystander.rest();
@@ -270,6 +319,12 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
       sack: { x: f.doorway.x, z: f.doorway.z, yaw: 0, v: speed, crashed: false },
     };
     by.yaw = Math.atan2(push.x, push.z);
+    // ...but never into the cab: the landing is pulled short of the taxi's body (half its drawn
+    // length plus a body width) wherever the shove would have put them on top of it.
+    const pl = Math.hypot(push.x, push.z);
+    by.slide = FALL_SLIDE;
+    while (by.slide > 0.4 && Math.hypot(home.x + (push.x / pl) * by.slide - taxi.x,
+      home.z + (push.z / pl) * by.slide - taxi.z) < TAXI_CLEAR) by.slide -= 0.1;
     door = { side, angle: 0, closing: -1 };
     // Framed on the steps, the bystander and the cab together, tight enough that the robber is a
     // figure rather than a speck.
@@ -348,7 +403,13 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
     if (by.phase === 'fall') {
       by.t += dt;
       fallPose(Math.min(1, by.t / FALL));
-      if (by.t >= FALL) { by.phase = 'down'; by.t = 0; }
+      if (by.t >= FALL) {
+        by.phase = 'down';
+        by.t = 0;
+      }
+    } else if (by.phase === 'down') {
+      by.t += dt;
+      liePose(by.t);
     }
 
     // The door, flung open over the last stretch of the run.
@@ -373,11 +434,7 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
       cut.shoved = true;
       by.phase = 'down';
       by.t = 0;
-      fallPose(1);
-    } else if (by.phase === 'fall') {
-      fallPose(1);
-      by.phase = 'down';
-      by.t = 0;
+      liePose(0);
     }
     door.angle = DOOR_ANGLE;
     setDoor(door.side, door.angle);
@@ -444,6 +501,6 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
     /** For the tools. */
     state: () => ({ cut: cut && { t: cut.t, done: cut.done, runFor: cut.runFor }, bystander: by.phase }),
     bystander,
-    alarms,
+    alarm,
   };
 }

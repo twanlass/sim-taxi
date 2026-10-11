@@ -185,17 +185,18 @@ export function bankSite(b, lot, bounds) {
 /**
  * The points the bank job (game/bankjob.js) needs off the building, in world space: where inside
  * the portico the robber bursts out of, which way is out to the street and which way runs along
- * the façade, and where the two alarm boxes hang. Here rather than there for the reason
- * `bankSite` is the one place the door is worked out — the event and the geometry must not be
- * able to disagree about where the building's front is.
+ * the façade, and where the alarm light hangs. Here rather than there for the reason `bankSite` is
+ * the one place the door is worked out — the event and the geometry must not be able to disagree
+ * about where the building's front is.
  *
- * The alarm boxes hang on the face of the entablature over the two outermost columns: the front of
- * the building, at the height of the beam, which is the one place on it that is both facing the
- * camera and clear of the colonnade's shadow. `ALARM_DEPTH` is how far they stand proud of it.
+ * The alarm light is one red lamp on the face of the entablature, centred over the doorway: the
+ * front of the building at the height of the beam, which is the one place over the door that faces
+ * the camera — the wall above the door itself is under the beam's overhang. `ALARM_DEPTH` is how far
+ * it stands proud of the beam.
  */
-export const ALARM_W = 0.62;
+export const ALARM_W = 0.8;
 export const ALARM_H = 0.42;
-export const ALARM_DEPTH = 0.3;
+export const ALARM_DEPTH = 0.36;
 export function bankFrontage(site) {
   const out = site.axis === 'x' ? { x: 1, z: 0 } : { x: 0, z: 1 };
   const along = site.axis === 'x' ? { x: 0, z: 1 } : { x: 1, z: 0 };
@@ -209,7 +210,6 @@ export function bankFrontage(site) {
   // The entablature's front face is `STEP_RUN - 0.15` back from the front plane (`buildBank`).
   const beamV = STEP_RUN - 0.15 - ALARM_DEPTH / 2;
   const beamY = PLINTH_TOP + COL_H + ENTAB_H / 2;
-  const lampU = site.width / 2 - COL_MARGIN;
   // The way out between the columns. An even colonnade has a gap on the centreline; an odd one
   // has a column there, and a robber who ran out through it would be running through stone.
   const columns = site.columns ?? COL_MAX;
@@ -224,7 +224,7 @@ export function bankFrontage(site) {
     // The foot of the steps, in line with that gap.
     steps: at(gapU, -0.5, KERB_H),
     stepRun: STEP_RUN,
-    alarms: [at(-lampU, beamV, beamY), at(lampU, beamV, beamY)],
+    alarm: at(0, beamV, beamY),
   };
 }
 

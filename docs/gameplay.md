@@ -2095,11 +2095,12 @@ is a drive-past, so the player is looking at the taxi or the next rider while a 
 So under the flag the event opens on a cut, and the world stops **one beat earlier** than the line
 would stop it anyway:
 
-1. The two alarm boxes on the bank's entablature (`bankFrontage` in city/bank.js) start flashing
-   amber, and the camera pulls in on the steps and the cab.
+1. One red alarm light on the bank's entablature, over the doorway (`bankFrontage` in
+   city/bank.js), starts flashing, and the camera pulls in on the steps and the cab.
 2. The robber bursts out of the portico, shedding notes out of the sack (the getaway's own cash
-   trail, fed from the robber), shoves over the **bystander** who is always waiting on the
-   pavement outside the bank, and sprints for the cab's door, which swings open as they arrive.
+   trail, fed from the robber), shoves the **bystander** who is always waiting on the
+   pavement outside the bank clean off their feet (airborne, spun, a bounce and a skid, then
+   dazed and stirring on the ground — never landing on the cab), and sprints for the cab's door, which swings open as they arrive.
 3. They hop in, and the robber's line takes over exactly as it does without the flag.
 
 About 2.6s of wall time, and a tap (or Space/Enter) skips straight to step 3. The alarm keeps going
