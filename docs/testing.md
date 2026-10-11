@@ -379,7 +379,7 @@ non-deterministic to a frozen frame. It does change every reference shot once, b
 
 `tools/perf.mjs` counts draws exactly but runs on SwiftShader, so its times mean nothing. `?bench`
 is the other half: open it on the phone, tap Start, and it reloads the game once per setting
-(baseline, `dpr=1`, `msaa=off`, `shadows` 1024 and off, `ao=off`, `bloom=off`, `fps=30`, a
+(baseline, `dpr=3` (a phone's native density), `dpr=1`, `msaa=off`, `shadows` 1024 and off, `ao=off`, `bloom=off`, `fps=30`, a
 squall pinned overhead, everything off at once, baseline again), each time on the same pinned city with the taxi driving
 itself, and ends on a table with a Copy button. About five minutes in all
 (`src/game/bench.js`).

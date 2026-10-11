@@ -39,7 +39,10 @@ const SPIN_BUFFER = 0.7;
  * @param destination  () => {i, j} | null — what the trip re-plans to after a spin
  * @param onSpin       () => void — the spin started: main.js puts the noise, the shake, the haptic on it
  */
-export function createBootleg({ taxi, destination = () => null, onSpin = () => {} }) {
+// `plan` re-plans the trip to `target` from wherever the spin landed; left out, it is a plain
+// `findRoute`. main.js passes its own so a trip to a waiting rider keeps its look-ahead past the
+// kerb (`carryOn`).
+export function createBootleg({ taxi, destination = () => null, plan = null, onSpin = () => {} }) {
   const state = {
     /** Tallies, for the tools. */
     spins: 0,
@@ -119,7 +122,7 @@ export function createBootleg({ taxi, destination = () => null, onSpin = () => {
       const spinning = taxi.uturn?.kind === 'spin';
       if (wasSpinning && !spinning) {
         const target = destination();
-        const route = target ? findRoute(planOrigin(taxi), target) : null;
+        const route = target ? (plan ? plan(target) : findRoute(planOrigin(taxi), target)) : null;
         taxi.route = route ?? [];
         taxi.routeConsumed = false;
       }

@@ -827,6 +827,18 @@ export const PALETTE = {
   hooperB: '#A84A3E',
   hooperShorts: '#33363F',
   basketball: '#D06A2C',
+  // The boom box by the court (game/boombox.js): an eighties silver body with black speakers. A
+  // dark body was tried first and vanished — the box sits in the court's shadow as often as not,
+  // and charcoal in shade on a lawn at play zoom is a speck. The tape window is the one warm accent.
+  // The notes it puts out are unlit orange, two shades of it (Tyler's call, over a first cut in
+  // cream and sky blue), which reads against the lawn, the blacktop and the night alike.
+  boomboxBody: '#BCC0C6',
+  boomboxTrim: '#2C2F36',
+  boomboxCone: '#17191D',
+  boomboxCap: '#8E939B',
+  boomboxTape: '#D9A441',
+  musicNoteA: '#FF8F2E',
+  musicNoteB: '#FFB45E',
 
   // The skatepark — see city/skatepark.js. Poured concrete rather than blacktop, so it reads as a
   // *different* paved thing from the court across the park: pale (luma ~170) where the court is

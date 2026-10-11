@@ -3,9 +3,9 @@ import { hash01, propMaterial } from '../util/geo.js';
 import { makeRng } from '../util/rng.js';
 import { cutoutAtlas, VIEW_RIGHT } from '../util/cutout.js';
 import { PALETTE, jitterColor } from '../palette.js';
-import { KERB_H, PARK_EDGE, GRASS_RADIUS } from './ground.js';
+import { KERB_H, onLawn } from './ground.js';
 import { parkPlots, BENCH_LEN, STATUE_PLAZA } from './props.js';
-import { onCourt } from './blacktop.js';
+import { BOOMBOX_W, onCourt } from './blacktop.js';
 
 // Tufts of long grass on the parks' lawns.
 //
@@ -138,29 +138,15 @@ function clump(x, z) {
   return (a + (b - a) * sx) + ((c + (d - c) * sx) - (a + (b - a) * sx)) * sz;
 }
 
-/** Is `(x, z)` at least `m` inside a plot's lawn, rounded corners included? */
-function onLawn(bounds, x, z, m) {
-  const x0 = bounds.x0 + PARK_EDGE + m;
-  const x1 = bounds.x1 - PARK_EDGE - m;
-  const z0 = bounds.z0 + PARK_EDGE + m;
-  const z1 = bounds.z1 - PARK_EDGE - m;
-  if (x < x0 || x > x1 || z < z0 || z > z1) return false;
-  // The corner arcs, shrunk by the same margin as the straights.
-  const r = Math.max(GRASS_RADIUS - m, 0);
-  const cx = Math.min(Math.max(x, x0 + r), x1 - r);
-  const cz = Math.min(Math.max(z, z0 + r), z1 - r);
-  return Math.hypot(x - cx, z - cz) <= r;
-}
-
 /**
  * Where the tufts go. Split out from the build the way `planPond` is, so `tools/probe.mjs` can
  * sweep the placement rules over seeds.
  *
- * @param furniture  `{ benches, statue, pond, court, skatepark }` as `createProps` returns them — the things the grass
+ * @param furniture  `{ benches, statue, pond, court, skatepark, boombox }` as `createProps` returns them — the things the grass
  *                   has to keep out of.
  */
 export function planGrass(rng, blocks, {
-  benches = [], statue = null, pond = null, court = null, skatepark = null,
+  benches = [], statue = null, pond = null, court = null, skatepark = null, boombox = null,
 } = {}) {
   const tufts = [];
   for (const plot of parkPlots(blocks)) {
@@ -198,6 +184,9 @@ export function planGrass(rng, blocks, {
       // And off the skatepark's concrete, on the same terms (`onCourt` reads only a slab's centre,
       // axis and size, which the two share).
       if (skatepark && onCourt(skatepark, x, z, reach)) continue;
+      // And out from under the boom box beside the court — a radius, since the box is barely
+      // deeper than a tuft is wide.
+      if (boombox && Math.hypot(x - boombox.x, z - boombox.z) < BOOMBOX_W / 2 + reach) continue;
       // In each bench's own frame, the way `createProps` keeps trunks off them: grass through a
       // seat is the one arrangement that reads as a rendering fault rather than as a park.
       const underBench = benches.some((bench) => {

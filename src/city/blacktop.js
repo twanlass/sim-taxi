@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { bakeColor } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
-import { KERB_H, PARK_EDGE } from './ground.js';
+import { KERB_H, PARK_EDGE, onLawn } from './ground.js';
 import { STATUE_PLAZA } from './props.js';
 
 // A basketball court, in one park, in one city.
@@ -193,6 +193,99 @@ export function clearBenches(court, benches, benchLen) {
     return !(bench.x + hx > r.x0 && bench.x - hx < r.x1 && bench.z + hz > r.z0 && bench.z - hz < r.z1);
   });
 }
+
+// --- The boom box ------------------------------------------------------------
+//
+// A portable stereo on the lawn beside the court, playing to the players (game/boombox.js draws it
+// and its notes). Its footprint, in its own frame: `BOOMBOX_W` across its face, `BOOMBOX_D` deep.
+export const BOOMBOX_W = 1.3;
+export const BOOMBOX_D = 0.42;
+/** Lawn left between the slab's edge and the boom box's back — clear of the step, not on it. */
+const BOOMBOX_GAP = 0.2;
+
+/**
+ * Where the boom box stands, or `null` where nothing round the court has room for it.
+ *
+ * **Chosen by the camera, not by a draw**, so the props stream is exactly what it was and no tree
+ * moves for it (the skatepark's terms). The speakers are the whole read — the box faces the court,
+ * so a box on the near side shows the camera its back. The candidates are therefore ranked by how
+ * squarely the face turns toward the view (+x +z, see `VIEW_DIR` in game/camera.js): the far
+ * sideline first, then the far baseline, then the far sideline's apron, the near ones last. A
+ * sideline beats a baseline of the same facing, because the baseline is where the hoop's pole
+ * stands and the box would be sat beside it.
+ *
+ * Each spot has to land wholly on the lawn and clear of the benches, the statue's plaza, the pond
+ * and the skatepark — the trees already keep 1.6 off the slab, further than the box ever stands.
+ *
+ * @param furniture  `{ benches, benchLen, statue, statueHalf, pond, skateRect }` — `skateRect` is
+ *                   the skatepark's footprint (or null), passed in because skatepark.js imports this
+ *                   file.
+ * @returns `{ x, y, z, yaw, u, v, apron, court }` — world position, `y` the surface it stands on, a
+ *          yaw that turns local +Z (the face) toward the court, the same spot in the court's frame,
+ *          whether that is the apron rather than the lawn, and the court.
+ */
+export function planBoombox(court, { benches = [], benchLen = 0, statue = null, statueHalf = 0,
+  pond = null, skateRect = null } = {}) {
+  if (!court) return null;
+  const out = BOOMBOX_GAP + BOOMBOX_D / 2;
+  // Set down on the blacktop's apron instead, its back a hair inside the slab's edge and its face
+  // short of the sideline. The fallback for a court pushed into a corner of its park, with no lawn
+  // on the far sides at all: measured over 40 seeds, 3 courts had a third of a unit of grass on
+  // three sides, and their only lawn spot was the near baseline — the box's back to the camera.
+  const apronOut = -(BOOMBOX_D / 2 + 0.02);
+  const spots = [];
+  for (const s of [-1, 1]) {
+    // Off the halfway line by a little, so the box is not dead centre on the line it faces.
+    for (const u of [court.len * 0.18, -court.len * 0.18]) {
+      spots.push({ u, v: s * (court.wid / 2 + out), fu: 0, fv: -s, side: true });
+      spots.push({ u, v: s * (court.wid / 2 + apronOut), fu: 0, fv: -s, side: true, apron: true });
+    }
+    // Beside the pole, inside the corner: far enough across to clear the pole and the board.
+    for (const v of [court.wid / 2 - 1.2, -(court.wid / 2 - 1.2)]) {
+      spots.push({ u: s * (court.len / 2 + out), v, fu: -s, fv: 0, side: false });
+    }
+  }
+  const o = court.toWorld(0, 0);
+  for (const spot of spots) {
+    const p = court.toWorld(spot.u, spot.v);
+    const f = court.toWorld(spot.fu, spot.fv);
+    spot.x = p.x;
+    spot.z = p.z;
+    spot.fx = f.x - o.x;
+    spot.fz = f.z - o.z;
+    spot.score = spot.fx + spot.fz + (spot.side ? 0.5 : 0) - (spot.apron ? 0.8 : 0);
+  }
+  spots.sort((a, b) => b.score - a.score);
+
+  const { x0, x1, z0, z1 } = court.plot.bounds;
+  for (const spot of spots) {
+    // The footprint, axis-aligned because the box only ever turns by quarter turns.
+    const hx = Math.abs(spot.fx) > 0.5 ? BOOMBOX_D / 2 : BOOMBOX_W / 2;
+    const hz = Math.abs(spot.fx) > 0.5 ? BOOMBOX_W / 2 : BOOMBOX_D / 2;
+    const r = { x0: spot.x - hx, x1: spot.x + hx, z0: spot.z - hz, z1: spot.z + hz };
+    if (r.x0 < x0 || r.x1 > x1 || r.z0 < z0 || r.z1 > z1) continue;
+    const corners = [[r.x0, r.z0], [r.x1, r.z0], [r.x0, r.z1], [r.x1, r.z1]];
+    if (!spot.apron && !corners.every(([x, z]) => onLawn(court.plot.bounds, x, z, 0.1))) continue;
+    if (statue && overlapsBox(grow(r, 0.3), statue, statueHalf)) continue;
+    if (pond && overlapsCircle(grow(r, 0.3), pond.x, pond.z, pond.r)) continue;
+    if (skateRect && overlapsRect(grow(r, 0.3), skateRect)) continue;
+    const onBench = benches.some((bench) => {
+      const along = Math.abs(Math.cos(bench.yaw)) > 0.5;
+      const bx = (along ? benchLen / 2 : 0.34) + 0.2;
+      const bz = (along ? 0.34 : benchLen / 2) + 0.2;
+      return overlapsRect(r, { x0: bench.x - bx, x1: bench.x + bx, z0: bench.z - bz, z1: bench.z + bz });
+    });
+    if (onBench) continue;
+    return {
+      x: spot.x, z: spot.z, y: spot.apron ? COURT_TOP_Y : GRASS_Y, yaw: Math.atan2(spot.fx, spot.fz),
+      u: spot.u, v: spot.v, apron: !!spot.apron, court,
+    };
+  }
+  return null;
+}
+
+const grow = (r, m) => ({ x0: r.x0 - m, x1: r.x1 + m, z0: r.z0 - m, z1: r.z1 + m });
+const overlapsRect = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.z0 < b.z1 && a.z1 > b.z0;
 
 /**
  * The court as geometry, in two lots.

@@ -382,6 +382,36 @@ export function planOrigin(car) {
 }
 
 /**
+ * A route to a waiting rider, carried on through their junction toward where they are going.
+ *
+ * The route used to end *at* the kerb, and that left the one junction that matters most to chance:
+ * the pickup fires with the taxi already inside the box (`state === 'turn'`, see "The taxi no
+ * longer parks at a pickup" in docs/gameplay.md), so the exit it took there was decided at the hold
+ * line, by the same weighted dice ambient traffic rolls, with an empty route. Boosting into a
+ * pickup meant finding out which way the taxi was going as it went — sometimes straight round a
+ * corner into a car — and the drop-off leg was then planned from wherever the dice had sent it.
+ *
+ * Now the exit through the pickup is the first step of the drop-off route, so the band can show
+ * it (routeline.js draws the onward steps dimmer and cuts them short, `ONWARD_LEN`) and the
+ * taxi actually takes it. Re-planning at the pickup (`dispatchToDropoff` in main.js) is unchanged: it plans
+ * from `planOrigin`, the junction past the turn the car has committed to, and that turn is now
+ * this plan's, so the two agree.
+ *
+ * The onward steps are tagged on the array (`route.onward`, a count from its end) rather than kept
+ * beside it: `route.shift()` eats from the front, so a count from the back stays true until the
+ * pickup junction itself is consumed, and anything that empties or replaces the route takes the
+ * tag with it.
+ */
+export function carryOn(route, target, onward, fromD) {
+  if (!onward) return route;
+  const more = findRoute({ i: target.i, j: target.j, d: route.at(-1) ?? fromD }, onward);
+  if (!more?.length) return route;
+  const out = [...route, ...more];
+  out.onward = more.length;
+  return out;
+}
+
+/**
  * The junction `steps` ahead of where `car` next has a choice, along its route — straight on past
  * the end of it. A chasing cop's U-turn is decided against this rather than against the junction
  * the car is about to reach: see `turnsRound`.

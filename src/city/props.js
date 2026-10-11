@@ -6,7 +6,7 @@ import { KERB_H, MEDIAN_EDGE, PARK_EDGE, roundedRectShape } from './ground.js';
 import { MEDIAN_W, medianRuns } from './grid.js';
 import { planPond, pondParts, pondWaterMesh } from './pond.js';
 import { getWaterStyle } from './riverwater.js';
-import { clearBenches, courtParts, courtRect, planCourt } from './blacktop.js';
+import { clearBenches, courtParts, courtRect, planBoombox, planCourt } from './blacktop.js';
 import { planSkatepark, skateparkParts, skateRect } from './skatepark.js';
 
 /**
@@ -620,6 +620,12 @@ export function createProps(rng, blocks) {
   const skatepark = planSkatepark(plots, statue, pond, court);
   // (`clearBenches` reads only a slab's centre, axis and size, which the two share.)
   benches = clearBenches(skatepark, benches, BENCH_LEN);
+  // And the court's boom box, round everything above — again without a draw (see `planBoombox`).
+  // The box itself is drawn by game/boombox.js; this is only where it stands.
+  const boombox = planBoombox(court, {
+    benches, benchLen: BENCH_LEN, statue, statueHalf: STATUE_PLAZA / 2, pond,
+    skateRect: skatepark ? skateRect(skatepark) : null,
+  });
 
   const SURFACE_Y = KERB_H + 0.01;
   for (const bench of benches) {
@@ -775,5 +781,7 @@ export function createProps(rng, blocks) {
   // `pad` in: exactly one park in the city has water in it, and `game/ducks.js` has to be told
   // which one. Null on a city with no park big enough — no pond, no ducks. The benches and the
   // statue ride along for `city/grass.js`, which has to keep its tufts out of them.
-  return { mesh, pond, pondMesh, benches, statue, crowns, court, courtMesh, skatepark, skateMesh };
+  return {
+    mesh, pond, pondMesh, benches, statue, crowns, court, courtMesh, skatepark, skateMesh, boombox,
+  };
 }

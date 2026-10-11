@@ -78,6 +78,7 @@ import { createPoliceHeli } from './game/policeheli.js';
 import { createBirds, chooseRoosts } from './game/birds.js';
 import { createDucks } from './game/ducks.js';
 import { createHoopers } from './game/hoopers.js';
+import { createBoombox } from './game/boombox.js';
 import { courtRect } from './city/blacktop.js';
 import { createSkaters } from './game/skaters.js';
 import { createClassicSkaters } from './game/skatersclassic.js';
@@ -122,7 +123,9 @@ import { createTitleScreen } from './game/titlescreen.js';
 import { createSettings } from './game/settings.js';
 import { createPause } from './game/pause.js';
 import { createInspect } from './game/inspect.js';
-import { findRoute, findRouteVia, findRouteOnto, findRouteAlong, planOrigin, crossingOrigin } from './game/route.js';
+import {
+  findRoute, findRouteVia, findRouteOnto, findRouteAlong, planOrigin, crossingOrigin, carryOn,
+} from './game/route.js';
 import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.js';
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
@@ -134,6 +137,7 @@ import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
 import { createPatrol } from './game/patrol.js';
 import { createCopShout } from './game/copshout.js';
 import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
+import { createBankJob } from './game/bankjob.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders, sightlineClear } from './game/sightline.js';
@@ -638,6 +642,9 @@ scene.add(canopyFuzz.mesh);
 // game/hoopers.js.
 if (props.courtMesh) scene.add(markOccluder(props.courtMesh));
 const hoopers = createHoopers(scene, makeRng(runSeed + 313), props.court);
+// And the boom box on the lawn beside it, playing to them. Where it stands is the map's
+// (`planBoombox`, in the props stream without a draw); which notes it puts out is the run's.
+const boombox = createBoombox(scene, makeRng(runSeed + 317), props.boombox);
 // And the skatepark beside it, on the same two terms: its rail and coping ride outside the props
 // mesh, and who is riding it is the run seed's. See city/skatepark.js and game/skaters.js;
 // `?skater=classic` brings back the first cut's pair of riders (game/skatersclassic.js).
@@ -904,15 +911,23 @@ const robberLine = city.bank && !shot
     onDone: () => {
       robbery?.raiseAlarm();
       radioIn = RADIO_DELAY;
+      // The cut's door slams and its camera comes home as the getaway starts.
+      bankJob?.release();
     },
   })
   : null;
+// The robbery opens on a cut (`?robbery=classic` for the old drive-past) — the alarm, the robber out of the door, a
+// bystander shoved over, the run to the cab — before the robber's line. See game/bankjob.js; the
+// module itself is built further down, once the cash trail it sheds notes into exists.
+const robberyIntro = new URLSearchParams(window.location.search).get('robbery') !== 'classic';
 const robbery = city.bank && !shot
   ? createRobbery({
     site: city.bank,
     taxi: traffic.taxi,
     fares,
     traffic,
+    // The bank job owns the run to the cab, so the fare loop's boarding animation stands down.
+    scripted: robberyIntro,
     // The police wait for the robber's line to be cleared — see `robberLine` above.
     holdAlarm: true,
     // ...and the robbery waits for a patrol chase to be over — see `busy` in game/robbery.js.
@@ -949,8 +964,18 @@ const robbery = city.bank && !shot
       // Not the depot, though: a repair is refused with anyone aboard, so the drop-off just
       // dispatched stands and `depotRun.update` sees its target gone and stands down.
       haptic('pick');
-      sfx?.play('doorOpen');
       robberDoorOpen = true;
+      robberBoarding = fare;
+      // The bank job's cut plays first, with the world stopped, and opens the door itself as the
+      // robber reaches it.
+      if (bankJob) {
+        bankJob.begin(fare, traffic.taxi, (f, at) => {
+          fares.boardScripted(f, at.x, at.z);
+          robberIn();
+        });
+        return;
+      }
+      sfx?.play('doorOpen');
       // Not the radio, and not the robber's line yet: the figure is still running down the bank's
       // steps for the cab (BOARD_SECONDS in game/fares.js), and the line is about them being *in*
       // it. The frame loop opens it once they are.
@@ -958,6 +983,16 @@ const robbery = city.bank && !shot
     },
   })
   : null;
+
+/**
+ * The robber is in the car: stop the world and let them speak. From the frame loop once the
+ * boarding run is over, or from the bank job's cut once its robber has hopped in.
+ */
+function robberIn() {
+  robberBoarding = null;
+  // No bubble to show (its markup missing) is no reason to have no police.
+  if (!robberLine.open()) { robbery.raiseAlarm(); radioIn = RADIO_DELAY; bankJob?.release(); }
+}
 
 /**
  * A rider getting in: the door opens on the frame the taxi reaches them and shuts once they are in,
@@ -1039,6 +1074,11 @@ setSpinStyle(getUturnStyle());
 const bootleg = createBootleg({
   taxi: traffic.taxi,
   destination: () => traffic.taxi.pendingTarget ?? null,
+  plan: (target) => {
+    const origin = planOrigin(traffic.taxi);
+    const route = findRoute(origin, target);
+    return route && carryOn(route, target, onwardFrom(target), origin.d);
+  },
   // It has to land like a hit: the screech, a jolt of shake, a buzz, and all four wheels marking the
   // road on the frame it starts. `layRubber` carries the streak on from there.
   onSpin: () => {
@@ -1266,7 +1306,7 @@ const cityEntry = createCityEntry({
   // depot's wrench and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
-    ...hoopers.entryObjects, ...skaters.entryObjects],
+    ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
     ...(burger ? [burger.entrySite] : [])],
   dust,
@@ -1304,6 +1344,18 @@ const copLights = createCopLights(scene, { enabled: !budget.safe });
 // Banknotes off the back of a boosting getaway — the one part of the robbery that pays the player
 // back while the risk is being taken rather than at the drop-off. See game/cashtrail.js.
 const cashTrail = createCashTrail(scene, makeRng(runSeed + 211));
+// The bank job's cut — see `robberyIntro` above and game/bankjob.js. Null under `?robbery=classic`,
+// and on a city with no robbery.
+const bankJob = robbery && robberyIntro
+  ? createBankJob({
+    scene,
+    site: city.bank,
+    cashTrail,
+    controller,
+    setDoor: traffic.setTaxiDoor,
+    play: (name, x = null, z = null) => sfx?.play(name, x === null ? {} : { at: placeAt(x, z) }),
+  })
+  : null;
 // The other half of the tailpipe: `flames` is the bark on the press, this is the plume that burns
 // for as long as the button is held. No seed — the flicker is a flipbook on a clock, and a flame
 // that came out differently on two runs of the same seed would take the screenshots with it.
@@ -2103,6 +2155,24 @@ let pathDrag = null;
 // on a fare do nothing. Nothing draws on the road to say so any more either — see taxi.js.
 const selected = true;
 
+// `?route=classic`: the route stops dead at a waiting rider's kerb, and the taxi rolls a random
+// exit through their junction like it did before the look-ahead (see `onwardFrom`).
+const routeLookAhead = new URLSearchParams(window.location.search).get('route') !== 'classic';
+
+/**
+ * Where the taxi goes *after* `target`, when that is already decided: the drop-off of the waiting
+ * rider `target` belongs to. Null for anything else — a drop-off, a package, the depot — because
+ * the next trip after those is the player's to pick.
+ *
+ * Matched on identity, the same way the band's sweep and `resumeJob` match targets: a rider's
+ * `target` is their pickup junction object until `beginRide` swaps it for `dropoff`.
+ */
+function onwardFrom(target) {
+  if (!routeLookAhead) return null;
+  const fare = fares.state.fares.find((f) => f.stage === 'waiting' && f.target === target);
+  return fare?.dropoff ?? null;
+}
+
 /**
  * Route the taxi to an intersection. Planning starts from the intersection the taxi is *heading
  * toward* plus its current heading, because that is the first point at which it can make a choice.
@@ -2140,18 +2210,24 @@ function routeTo(target, { via = null, along = null, maxDetour, onto = null } = 
     : onto !== null
       ? findRouteOnto(from, target, onto)
       : findRoute(from, target));
-  const route = plan(planOrigin(car));
+  const origin = planOrigin(car);
+  const route = plan(origin);
   if (!route) return false;
-  car.route = route;
+  // Compared on the bare plans: the onward leg is the same Dijkstra from the same junction either
+  // way, and its length depends on the heading each plan arrives on, which is not what "does the
+  // late turn save a leg" is asking.
+  const crossing = crossingOrigin(car);
+  const late = crossing && plan(crossing);
+  const takeLate = late && late[0] !== car.d && late.length < route.length + 1;
+  const onward = onwardFrom(target);
+  car.route = carryOn(route, target, onward, origin.d);
   car.routeConsumed = false;
   // A taxi that has only just crossed the hold line going straight can still take the corner in
   // front of it (see `crossingOrigin`). Offered only when turning there saves a whole leg: the
   // late plan's first step is the crossing itself, so it is compared against `route` plus one.
   // `route` stays as the fallback — the swap is the sim's to refuse — so the band is right on
   // every frame whichever way that goes.
-  const crossing = crossingOrigin(car);
-  const late = crossing && plan(crossing);
-  car.lateTurn = late && late[0] !== car.d && late.length < route.length + 1 ? late : null;
+  car.lateTurn = takeLate ? carryOn(late, target, onward, crossing.d) : null;
   car.pendingTarget = target;
   // The player has just directed the taxi somewhere, so release the kerb hold even if the route
   // is empty (destination equals the intersection the taxi is already heading toward). Without
@@ -3908,7 +3984,7 @@ window.addEventListener('keydown', (event) => {
   if (parked()) return;
   // The robber's line takes Space as its own answer (game/robberline.js). Registered after this
   // one, so this has to stand down for it rather than the other way round.
-  if (robberLine?.isOpen() || newMove?.isOpen()) return;
+  if (robberLine?.isOpen() || newMove?.isOpen() || bankJob?.running()) return;
   // A paused run takes no input at all. `frame()` returns before `boost.update`, so a press behind
   // the veil would sit in 'active' burning nothing and then resume into a launch the player never
   // asked for — the mirror image of the release `createPause`'s `onChange` does on the way in. The
@@ -3938,7 +4014,8 @@ window.addEventListener('keydown', (event) => {
   if (event.code !== 'KeyB' || event.repeat) return;
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   if (keyIsSpokenFor(event.target, brakeButton)) return;
-  if (parked() || pause?.state.paused || robberLine?.isOpen() || newMove?.isOpen()) return;
+  if (parked() || pause?.state.paused || robberLine?.isOpen() || newMove?.isOpen()
+    || bankJob?.running()) return;
   event.preventDefault();
   brakeKeyHeld = true;
   holdBrake();
@@ -4292,6 +4369,10 @@ function ambientLevels() {
   const works = roadworkSpot();
   if (works) out.construction = { ...placeAt(works.x, works.z), level: works.level };
   if (props.court) out.court = placeAt(props.court.x, props.court.z);
+  // The boom box's music goes here once there is a file for it: a bed keyed like the court's
+  // (FILES, SOUNDS, PLACED, LOOPS, AMBIENT and LOOP_SECONDS in game/sfx.js), placed at its speakers —
+  //   if (boombox.emitter) out.boombox = placeAt(boombox.emitter.x, boombox.emitter.z);
+  // — and a pin for it beside the court's in `soundSources` below.
   const gulls = nearestGulls();
   if (gulls) out.seagulls = placeAt(gulls.x, gulls.z, 4);
   // Rain is where the taxi is: the squall's cell grown by the lens's reach, so it is heard a little
@@ -4732,12 +4813,16 @@ function frame(t) {
   requestAnimationFrame(frame);
   if (frameRateCap() < 60 && t - lastFrameAt < 1000 / frameRateCap() - 4) return;
   lastFrameAt = t;
+  // Only frames of live play count toward the governor: a paused or finished run is cheap and
+  // would read as headroom. It goes *before* the draw, never after: a step resizes the canvas,
+  // which empties it, and a canvas emptied after this callback has drawn is what gets composited —
+  // the page's pale sky (#dcedf7) for a whole frame, two under the 30 fps cap, reported as a white
+  // flash across the screen. Headless under `?squall&fps=30`, 4 of the run's 6 resizes landed
+  // that way before the move and none after.
+  governor.frame(t, !pause?.state.paused && !fares.state.gameOver && !document.hidden);
   bench?.begin(t);
   tick();
   bench?.end();
-  // Only frames of live play count toward the governor: a paused or finished run is cheap and
-  // would read as headroom.
-  governor.frame(t, !pause?.state.paused && !fares.state.gameOver && !document.hidden);
 }
 
 function tick() {
@@ -4776,6 +4861,13 @@ function tick() {
   // passing. See game/robberline.js for why this beat stops the world rather than running over it.
   if (robberLine?.isOpen()) {
     robberLine.update(dt);
+    renderFrame();
+    return;
+  }
+  // The bank job's cut: the same freeze, with the cut itself — robber, bystander, alarm, notes,
+  // camera — running on wall time. It hands over to the robber's line above when the robber is in.
+  if (bankJob?.running()) {
+    bankJob.update(dt, aspect());
     renderFrame();
     return;
   }
@@ -4912,6 +5004,9 @@ function tick() {
   ducks.update(dt);
   leaves?.update(dt);
   hoopers.update(dt);
+  // No track yet: the box keeps its own time. Once it plays music, pass the track's playback time as
+  // the second argument so the bounce and the notes land on the track's beat (game/boombox.js).
+  boombox.update(dt);
   skaters.update(dt);
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
@@ -5184,6 +5279,14 @@ function tick() {
     // caring about. A no-op when nothing is panning, which is every frame on a desktop.
     controller.updateGlide(dt, aspect());
   }
+  // The bank job on game time (game/bankjob.js): the bystander getting back up, the alarm for as long
+  // as the robbery runs, the door the robber left open, and the zoom coming home after its cut —
+  // after the claims above, since it eases only the zoom and leaves the target to whichever won.
+  bankJob?.tick(dt, {
+    alarm: Boolean(robbery?.state.active) && !fares.state.gameOver,
+    aspectRatio: aspect(),
+    narrow: isNarrow(),
+  });
 
   // The frame tightens a few percent while Loco Mode is *held* — the ortho stand-in for a lens
   // pushing in, see LOCO_PUNCH in game/camera.js. It sits outside the priority list above rather
@@ -5342,6 +5445,12 @@ function tick() {
         : placeAt(lineX(fare.pickup.i), lineZ(fare.pickup.j)) });
       // An ordinary rider let go on the kerb is a strike as well as a freed taxi — see MAX_STRIKES.
       if (type === 'missed') showStrikes(fares.state.strikes);
+      // And the job the combo meter was building toward has walked off with them, so the streak
+      // breaks exactly as a hit breaks it — any kind of rider, either scope (game/combometer.js).
+      if (combo.walkout(fare)) {
+        comboTag.lost = true;
+        haptic('perfect-lost');
+      }
       // The one fare whose clock running out isn't a run-ending event — see fares.js. The rider is
       // getting out and running off on their own (fares.js `beginBail`); what is left here is the
       // taxi, which is either holding an empty seat or still driving at a kerb nobody is standing
@@ -5368,15 +5477,11 @@ function tick() {
   // with `ridingFor` as the backstop so a figure that somehow never finishes cannot leave the
   // police waiting forever. A getaway gone before the line opened — a run over mid-boarding — is
   // dropped rather than shouted about over a retry screen.
-  if (robberBoarding) {
+  if (robberBoarding && !robberBoarding.scripted) {
     const f = robberBoarding;
     if (fares.state.gameOver || !robbery?.state.active || !fares.state.fares.includes(f)) {
       robberBoarding = null;
-    } else if (f.boarding === undefined || f.ridingFor > 1.5) {
-      robberBoarding = null;
-      // No bubble to show (its markup missing) is no reason to have no police.
-      if (!robberLine.open()) { robbery.raiseAlarm(); radioIn = RADIO_DELAY; }
-    }
+    } else if (f.boarding === undefined || f.ridingFor > 1.5) robberIn();
   }
 
   // The package courier. Ticked after the fare loop so its spawn placement sees this frame's fare
@@ -6318,6 +6423,8 @@ window.__taxi = {
   ducks,
   /** The players on the basketball court, and `hoopers.court` the court — absent if the city has none. */
   hoopers,
+  /** The boom box beside the court — `boombox.emitter` is where its music will play from. */
+  boombox,
   /** The riders on the skatepark, and `skaters.park` the park — absent if the city has none. */
   skaters,
   roadwork,

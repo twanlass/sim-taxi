@@ -89,8 +89,23 @@ export const PARK_EDGE = PAVE_INSET + PARK_WALK;
 // at the diagonal is whatever the two radii and the corner offset make it. Measured across the
 // candidates — 0.9 → 0.70 units at the corner, 1.4 → 0.91, 1.6 → 0.99 — and 1.4 is the roundest
 // lawn that still reads as a lawn while holding the band within a tenth of its 1.0 on the straights.
-// Exported for `grass.js`, which keeps its tufts inside the same arcs.
+// Exported, with `onLawn` below, for `grass.js` and the court's boom box (`planBoombox`), which keep
+// their tufts and their footprint inside the same arcs.
 export const GRASS_RADIUS = 1.4;
+
+/** Is `(x, z)` at least `m` inside a plot's lawn, rounded corners included? */
+export function onLawn(bounds, x, z, m) {
+  const x0 = bounds.x0 + PARK_EDGE + m;
+  const x1 = bounds.x1 - PARK_EDGE - m;
+  const z0 = bounds.z0 + PARK_EDGE + m;
+  const z1 = bounds.z1 - PARK_EDGE - m;
+  if (x < x0 || x > x1 || z < z0 || z > z1) return false;
+  // The corner arcs, shrunk by the same margin as the straights.
+  const r = Math.max(GRASS_RADIUS - m, 0);
+  const cx = Math.min(Math.max(x, x0 + r), x1 - r);
+  const cz = Math.min(Math.max(z, z0 + r), z1 - r);
+  return Math.hypot(x - cx, z - cz) <= r;
+}
 
 /**
  * A park's ground: the paved walk and the grass inside it, as two flat surfaces at one height.

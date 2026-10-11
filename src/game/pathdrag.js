@@ -322,7 +322,9 @@ export function createPathDrag({
   function currentPath() {
     const car = getCar();
     if (!car) return null;
-    const path = routePath(car, car.route);
+    // Only up to the stop: the dim stretch past a waiting rider is a look-ahead, and a waypoint
+    // dragged out of it would be a junction beyond the destination the drag is re-planning to.
+    const path = routePath(car, car.route, { onward: false });
     return path.length < 2 ? null : path;
   }
 

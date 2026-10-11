@@ -29,7 +29,10 @@ import { createCanopyFuzz } from '../src/city/canopyfuzz.js';
 import { createDucks } from '../src/game/ducks.js';
 import {
   planCourt, courtParts, courtRect, clearBenches, COURT_TOP_Y, RIM_Y, RIM_R,
+  planBoombox, BOOMBOX_W, BOOMBOX_D,
 } from '../src/city/blacktop.js';
+import { createBoombox, BPM as BOOMBOX_BPM } from '../src/game/boombox.js';
+import { onLawn } from '../src/city/ground.js';
 import { createHoopers } from '../src/game/hoopers.js';
 import {
   planSkatepark, skateparkParts, skateRect, surfaceAt, SKATE_TOP_Y, LIP_H,
@@ -192,9 +195,9 @@ import {
   halfRoadX, halfRoadZ, laneOffX, laneOffZ, laneOffsetFor, medianRuns, MEDIAN_W, LANE_TO_KERB,
 } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
-import { routePath, nearestOnPath, HEAD_GAP, ROUTE_OPACITY } from '../src/game/routeline.js';
+import { routePath, nearestOnPath, HEAD_GAP, ROUTE_OPACITY, ONWARD_LEN } from '../src/game/routeline.js';
 import {
-  findRoute, findRouteVia, findRouteOnto, findRouteAlong, MAX_VIA_DETOUR, allIntersections,
+  findRoute, findRouteVia, findRouteOnto, findRouteAlong, MAX_VIA_DETOUR, allIntersections, carryOn,
 } from '../src/game/route.js';
 import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from '../src/game/streettap.js';
 import { GRAB_RADIUS } from '../src/game/pathdrag.js';
@@ -1227,6 +1230,109 @@ const onGrass = (city, i, j) => {
   check('and the props hand back the court they built', !!propsBuild.court && !!propsBuild.courtMesh
     && Math.abs(propsBuild.court.x - court.x) < 1e-9,
     'court and hoops');
+}
+
+// --- The boom box beside it ------------------------------------------------------
+//
+// Swept over seeds in `createProps`' order. Every court gets one, on the lawn rather than the slab
+// or the walk, off every bench, facing the court — and facing the camera more than away from it,
+// since the speakers are the read and the far side is tried first.
+{
+  let courts = 0;
+  let boxes = 0;
+  let offLawn = 0;
+  let onSlab = 0;
+  let onBench = 0;
+  let awayFromCourt = 0;
+  let backToCamera = 0;
+  let apron = 0;
+  for (let s = 0; s < 40; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 37));
+    const plots = parkPlots(cityLayout);
+    if (!plots.length) continue;
+    const rng = makeRng(seed + s * 37 + 33);
+    const plan = planParkFurniture(rng, plots);
+    const pond = planPond(rng, plots, plan.statue);
+    const court = planCourt(rng, plots, plan.statue, pond);
+    if (!court) continue;
+    courts += 1;
+    let benches = clearBenches(court, plan.benches, BENCH_LEN);
+    const park = planSkatepark(plots, plan.statue, pond, court);
+    benches = clearBenches(park, benches, BENCH_LEN);
+    const box = planBoombox(court, {
+      benches, benchLen: BENCH_LEN, statue: plan.statue, statueHalf: STATUE_PLAZA / 2, pond,
+      skateRect: park ? skateRect(park) : null,
+    });
+    if (!box) continue;
+    boxes += 1;
+    const fx = Math.sin(box.yaw);
+    const fz = Math.cos(box.yaw);
+    // The footprint's four corners, turned with the box.
+    const corners = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([a, b]) => ({
+      x: box.x + a * (BOOMBOX_W / 2) * fz + b * (BOOMBOX_D / 2) * fx,
+      z: box.z - a * (BOOMBOX_W / 2) * fx + b * (BOOMBOX_D / 2) * fz,
+    }));
+    // On the lawn, or — the fallback for a court in a corner of its park — on the apron, which is
+    // all on the slab and all outside the lines.
+    const r = courtRect(court);
+    const onIt = (c, rect) => c.x > rect.x0 && c.x < rect.x1 && c.z > rect.z0 && c.z < rect.z1;
+    if (box.apron) {
+      apron += 1;
+      const lines = court.axis === 'x'
+        ? { x0: court.x - court.halfU, x1: court.x + court.halfU, z0: court.z - court.halfV, z1: court.z + court.halfV }
+        : { x0: court.x - court.halfV, x1: court.x + court.halfV, z0: court.z - court.halfU, z1: court.z + court.halfU };
+      if (!corners.every((c) => onIt(c, r))) offLawn += 1;
+      if (corners.some((c) => onIt(c, lines))) onSlab += 1;
+    } else {
+      if (!corners.every((c) => onLawn(court.plot.bounds, c.x, c.z, 0))) offLawn += 1;
+      if (corners.some((c) => onIt(c, r))) onSlab += 1;
+    }
+    for (const bench of benches) {
+      const along = Math.abs(Math.cos(bench.yaw)) > 0.5;
+      const hx = along ? BENCH_LEN / 2 : 0.34;
+      const hz = along ? 0.34 : BENCH_LEN / 2;
+      if (corners.some((c) => Math.abs(c.x - bench.x) < hx && Math.abs(c.z - bench.z) < hz)) onBench += 1;
+    }
+    if (fx * (court.x - box.x) + fz * (court.z - box.z) <= 0) awayFromCourt += 1;
+    if (fx + fz < 0) backToCamera += 1;
+  }
+  createLayout(makeRng(seed));     // put the probe's city back — `createLayout` installs its network
+
+  check('every court gets a boom box beside it', boxes === courts, `${boxes} of ${courts} courts`);
+  check('the boom box stands on the lawn or the apron, off the lines and every bench, facing the court',
+    offLawn + onSlab + onBench + awayFromCourt === 0,
+    `${apron} on the apron; ${offLawn} off its ground, ${onSlab} on the slab or the lines, `
+    + `${onBench} on a bench, ${awayFromCourt} facing away`);
+  check('and shows the camera its speakers', backToCamera === 0, `${backToCamera} of ${boxes} turned away`);
+}
+
+// Its notes: one a beat, every one turned to the camera, and none left in the air for good.
+{
+  const boxScene = new THREE.Scene();
+  const box = createBoombox(boxScene, makeRng(5), propsBuild.boombox);
+  let maxLive = 0;
+  let spawned = 0;
+  // Already running: it settles at construction so a shot has notes in the air.
+  let wasLive = new Set(box.notes.filter((note) => note.mesh.visible));
+  for (let n = 0; n < 600; n++) {
+    box.update(1 / 60);
+    const live = new Set(box.notes.filter((note) => note.mesh.visible));
+    for (const note of live) if (!wasLive.has(note)) spawned += 1;
+    wasLive = live;
+    maxLive = Math.max(maxLive, live.size);
+  }
+  // Ten seconds at BPM: one note a beat, give or take the beat the window cuts.
+  const beats = (10 * BOOMBOX_BPM) / 60;
+  const facing = box.notes.filter((note) => note.mesh.visible).every((note) => {
+    const n = new THREE.Vector3(0, 0, 1).applyQuaternion(note.mesh.quaternion);
+    return n.dot(VIEW_DIR) > 0.9;
+  });
+  check('the boom box puts out a note a beat, all facing the camera',
+    !!propsBuild.boombox && Math.abs(spawned - beats) <= 1.5 && maxLive <= box.notes.length && facing,
+    `${spawned} notes over ${beats.toFixed(1)} beats, ${maxLive} in the air at most`);
+  check('and its music has somewhere to play from', !!box.emitter
+    && Math.hypot(box.emitter.x - propsBuild.boombox.x, box.emitter.z - propsBuild.boombox.z) < 1,
+    box.emitter ? `at (${box.emitter.x.toFixed(1)}, ${box.emitter.z.toFixed(1)})` : 'no emitter');
 }
 
 // --- The players on it ---------------------------------------------------------
@@ -5653,6 +5759,61 @@ check('every intersection is routable from every approach', unroutable === 0,
   // the path drawn when the route was planned.
   check('the route band never re-shapes ahead of the taxi', drift < 0.05 && frames > 300,
     `max drift ${drift.toFixed(4)} units over ${frames} frames`);
+}
+
+// --- Looking ahead past a waiting rider ------------------------------------
+// A route to a rider carries on toward their drop-off (`carryOn`), so the exit the taxi takes
+// through the pickup junction is the drop-off route's first step rather than a dice roll, and the
+// band shows a dim stub of it. Three claims: the onward steps are the drop-off route from the
+// heading the trip arrives on; the band stops ONWARD_LEN past the kerb and so never reaches the
+// drop-off (which stays hidden until boarding); and the taxi actually leaves the junction the way
+// the stub says.
+{
+  const lScene = new THREE.Scene();
+  const lTraffic = createTraffic(makeRng(seed + 97), lScene, 1);   // taxi alone: nothing to block it
+  const lTaxi = lTraffic.taxi;
+  const origin = planOrigin(lTaxi);
+  const step = (v, max) => (v <= max / 2 ? v + 2 : v - 2);
+  const pickup = { i: step(origin.i, GRID_I), j: step(origin.j, GRID_J) };
+  const dropoff = { i: pickup.i > GRID_I / 2 ? 0 : GRID_I, j: pickup.j > GRID_J / 2 ? 0 : GRID_J };
+
+  const toKerb = findRoute(origin, pickup);
+  const onward = findRoute({ i: pickup.i, j: pickup.j, d: toKerb.at(-1) ?? origin.d }, dropoff);
+  const route = carryOn(toKerb, pickup, dropoff, origin.d);
+  check('a route to a rider carries on along the drop-off route',
+    route.onward === onward.length && route.length === toKerb.length + onward.length
+      && route.slice(toKerb.length).join() === onward.join(),
+    `${toKerb.length} steps to the kerb + ${route.onward} onward`);
+
+  lTaxi.route = route;
+  lTaxi.routeConsumed = false;
+  const lengthOf = (path) => {
+    let total = 0;
+    for (let k = 1; k < path.length; k++) total += Math.hypot(path[k].x - path[k - 1].x, path[k].z - path[k - 1].z);
+    return total;
+  };
+  const bare = lengthOf(routePath(lTaxi, toKerb));
+  const band = routePath(lTaxi, route);
+  const kerbOnly = routePath(lTaxi, route, { onward: false });
+  const past = lengthOf(band) - band.stopAlong;
+  // The bare route ends dead centre of the junction, straight in; the stop on a turn is the arc's
+  // midpoint, which cuts the corner — 2.4 units shorter on the seed this was written against.
+  check('the band stops a short stub past the kerb',
+    Math.abs(band.stopAlong - bare) < 3 && Math.abs(past - ONWARD_LEN) < 0.01
+      && Math.abs(lengthOf(kerbOnly) - band.stopAlong) < 0.01,
+    `kerb at ${band.stopAlong.toFixed(2)} (bare route ${bare.toFixed(2)}), ${past.toFixed(2)} past it`);
+  const end = band.at(-1);
+  check('the look-ahead never reaches the drop-off',
+    Math.hypot(end.x - lineX(dropoff.i), end.z - lineZ(dropoff.j)) > PITCH,
+    `ends ${Math.hypot(end.x - lineX(dropoff.i), end.z - lineZ(dropoff.j)).toFixed(1)} units off it`);
+
+  let exitAtKerb = null;
+  for (let f = 0; f < 120 * 60 && exitAtKerb === null; f++) {
+    lTraffic.update(1 / 60);
+    if (lTaxi.state === 'turn' && lTaxi.i === pickup.i && lTaxi.j === pickup.j) exitAtKerb = lTaxi.dOut;
+  }
+  check('the taxi leaves the pickup the way the look-ahead shows', exitAtKerb === onward[0],
+    `took ${exitAtKerb}, drawn ${onward[0]}`);
 }
 
 // --- Dragging the band to re-route -----------------------------------------
@@ -19048,6 +19209,22 @@ let chopperOrder; // likewise
   check('a whole-run meter survives the drop-off and a hit empties it', first === 3 && kept === 3
     && lost && m.state.mult === 1 && m.judge().mult === 1 && !m.damage(),
     `first ×${first}, kept ×${kept}, after hit ×${m.state.mult}`);
+
+  // A rider timing out empties it when they were the job — aboard, or being driven to — in either
+  // scope, and leaves it alone for a kerb rider nobody was heading for.
+  const walked = (scope, fare) => {
+    const w = createComboMeter({ scope });
+    w.land('launch');
+    return { lost: w.walkout(fare), mult: w.state.mult };
+  };
+  const aboard = walked('meter', { stage: 'riding', vip: true });
+  const enRoute = walked('run', { stage: 'waiting', directed: true });
+  const bystander = walked('meter', { stage: 'waiting', directed: false });
+  check('a rider walking out on the job breaks the streak; one on another kerb does not',
+    aboard.lost && aboard.mult === 1 && enRoute.lost && enRoute.mult === 1
+    && !bystander.lost && bystander.mult === 3
+    && !createComboMeter().walkout({ stage: 'riding' }),
+    `aboard ×${aboard.mult}, en route ×${enRoute.mult}, bystander ×${bystander.mult}`);
 
   m = createComboMeter();
   for (let k = 0; k < 10; k += 1) m.land('launch');

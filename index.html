@@ -1382,6 +1382,14 @@
       body.robber-talk #coach, body.robber-talk #spotlight { visibility: hidden; }
       body.robber-talk #robber-talk { pointer-events: auto; cursor: pointer; }
 
+      /* --- the bank job's cut (src/game/bankjob.js; off under `?robbery=classic`) -------------------------
+         The robber running out of the bank with the world stopped. Nothing to show — the cut is in
+         the city — but the same catcher as the robber's line while it plays: the tap that skips it
+         must not also route the taxi. Not `#intro`, which sits on ad-blocker filter lists. */
+      #bankjob-catch { position: fixed; inset: 0; z-index: 22; pointer-events: none; }
+      body.bankjob #bankjob-catch { pointer-events: auto; cursor: pointer; }
+      body.bankjob #coach, body.bankjob #spotlight { visibility: hidden; }
+
       /* --- New Move Unlocked (src/game/newmove.js) ----------------------------
          The card that teaches the bootleg: the tutorial's own speech card (title "New Move
          Unlocked", line "U-Turn"), centred over a dim, no pointer. Under the line, a clip of the
@@ -2276,6 +2284,7 @@
     <div id="coach" role="status" aria-live="polite" hidden></div>
     <div id="robber-spot" aria-hidden="true"></div>
     <div id="robber-talk" role="status" aria-live="polite" hidden></div>
+    <div id="bankjob-catch" aria-hidden="true"></div>
     <canvas id="freeze-frame" aria-hidden="true" hidden></canvas>
     <!-- The bootleg's card — a speech layer like the others; see src/game/newmove.js. -->
     <div id="new-move" role="status" aria-live="polite" hidden></div>
