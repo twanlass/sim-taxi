@@ -1493,8 +1493,15 @@ switches its lights on.
   stop, a crossing's kerb ramp or the drive-through's apron.
 - **The grade is darker than an honest overcast afternoon** (sun at 22%, fill at 90%) so the lamps
   read. A real night key under the rain would be the next thing to try.
-- **Cost.** The mirror is a second full scene render, and the first frame with it compiles a
-  clipped variant of every lit program. It has not been measured on a phone.
+- **Cost.** The mirror is a second full scene render: about 88 more draws and 120k more triangles
+  a frame, at a quarter of the pixels. On an iPhone (`?bench`, 2026-10-11) the squall row cost
+  **+22% busy** against baseline and dropped to 32 fps, with 14.7 ms of CPU a frame against 3.3
+  dry. Most of that CPU was not the draws. It was three re-resolving every lit material's program
+  twice a frame, because the pass used a clipping plane and an ordinary render target, and each of
+  those compiles a different program from the screen's (3.9 ms of `getProgram` in a 15.5 ms
+  headless frame). The pass now clips with an oblique near plane and draws into a target flagged to
+  take the screen's sRGB encode, so it runs the screen's own programs: headless JS under
+  `?squall=0.5` went from 15.5 to 9.0 ms a frame, against 7.7 dry. See `renderReflection`.
 - **No spray** off tyres, no wet sheen on roofs or car bodies, and no ripples on the river.
 - **Unlit markers on the road** (the route band, the target discs) are clipped out of the mirror
   with the road they sit on, so they do not reflect.

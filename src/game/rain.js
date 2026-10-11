@@ -23,8 +23,11 @@ import { WET_EXTENT } from './squall.js';
  *        in screen x (`FLIP_X` on the projection) turns them back, and the ground samples at
  *        `1 - u` to undo it;
  *      - the ground itself sits *on* the mirror plane and would cover everything, so the pass
- *        clips at `CLIP_Y` with a global clipping plane. The road (y 0) and its paint (0.02) go;
- *        the pavement (0.36) stays and reflects as its own kerb.
+ *        clips at `CLIP_Y`. The road (y 0) and its paint (0.02) go; the pavement (0.36) stays and
+ *        reflects as its own kerb.
+ *    It has to cost a second city's worth of draws and nothing more, which takes two things —
+ *    see `renderReflection`: the clip is the projection's near plane rather than a clipping
+ *    plane, and the target is drawn the way the screen is.
  *    The ground blurs it along screen y — the way lights smear on real wet asphalt — and wobbles
  *    it with ripples; a puddle is the same read with the blur taken out.
  * 4. **Rain and splashes**. Instanced streaks and point-sprite crowns, both animated entirely in
@@ -39,6 +42,12 @@ import { WET_EXTENT } from './squall.js';
 
 /** Everything below this is left out of the mirror pass — the road and its paint. */
 const CLIP_Y = 0.03;
+/**
+ * How far above `CLIP_Y` the mirror pass keeps anything: its far plane, now that its near plane
+ * is the clip. Depth runs along this span, so it only has to clear the tallest thing in the city
+ * with room to spare; at 24 bits over 1000 units the depth step is 6e-5.
+ */
+const MIRROR_DEPTH = 1000;
 
 /** The mirror target, as a fraction of the drawing buffer. The blur hides the rest. */
 const REFLECT_SCALE = 0.5;
@@ -134,8 +143,7 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
 
   // --- the mirror -------------------------------------------------------------------------------
 
-  // Half float where the GPU can render to it: the mirror holds *linear* colour (three switches the
-  // sRGB encode off for any render target), and eight linear bits band badly in the darks.
+  // Half float where the GPU can render to it, because eight bits band badly in the darks.
   const halfFloat = renderer.extensions.has('EXT_color_buffer_half_float')
     || renderer.extensions.has('EXT_color_buffer_float');
   const reflectTarget = new THREE.WebGLRenderTarget(2, 2, {
@@ -143,10 +151,27 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
     stencilBuffer: true,
     depthBuffer: true,
   });
+  // Drawn exactly the way the screen is: sRGB-encoded, with the renderer's own tone mapping. For
+  // any other render target three compiles every material without the encode — a *different
+  // program* — and so every lit material went back through `getProgram` twice a frame, into
+  // the mirror and out of it. Measured headless (`tools/perf.mjs`, `?squall=0.5`): 3.9 ms
+  // of the frame's 15.5 ms of JS was that lookup, and on an iPhone the squall row of `?bench`
+  // read 14.7 ms of CPU against 3.3 dry. `isXRRenderTarget` is the one switch three has that
+  // keeps the screen's encode on a target (WebGLRenderer `setProgram`, WebGLPrograms
+  // `getParameters`); nothing else reads it for a WebGL2 target that is not multisampled. The
+  // ground decodes what it samples (`WET_REFLECT`). In the eight-bit fallback the
+  // target is SRGB8_ALPHA8, which the hardware encodes on write and decodes on read, so the
+  // sample still comes back holding the shader's encode and the same decode undoes it.
+  // The reflection's colours move a little with it, because fog and unlit colours now go in the
+  // way the screen takes them: in-page A/B of one frozen frame, 6% of pixels moved by more than
+  // 6/255 and none by more than 46.
+  reflectTarget.texture.colorSpace = THREE.SRGBColorSpace;
+  reflectTarget.isXRRenderTarget = true;
   const mirrorCam = new THREE.OrthographicCamera();
   mirrorCam.matrixAutoUpdate = false;
   mirrorCam.matrixWorldAutoUpdate = false;
-  const clipPlanes = [new THREE.Plane(new THREE.Vector3(0, 1, 0), -CLIP_Y)];
+  const clipPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -CLIP_Y);
+  const viewPlane = new THREE.Plane();
   // Blank AO for the mirror pass: the real AO buffer is a screen-space map of the *main* view,
   // and sampling it at mirrored fragments stamps the city's creases onto its own reflection.
   const noAO = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
@@ -183,15 +208,13 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
   };
 
   // The mirror is a second full render of the city, so it is skipped outright while the streets
-  // are dry — except once, on the first frame, so the clipped variant of every lit program is
-  // compiled up front and not in the middle of the run when the first cloud comes over.
-  let mirrorWarm = false;
-
+  // are dry. It once had to run on the first frame regardless, to compile the clipped variant of
+  // every lit program before the first cloud came over; it draws with the screen's own programs
+  // now (see `reflectTarget`), so there is no variant to compile.
   const viewInv = new THREE.Matrix4();
 
   function renderReflection(scene, camera) {
-    if (weather.wet < 0.002 && mirrorWarm) return;
-    mirrorWarm = true;
+    if (weather.wet < 0.002) return;
     renderer.getDrawingBufferSize(drawingBuffer);
     const w = Math.max(2, Math.round(drawingBuffer.x * REFLECT_SCALE));
     const h = Math.max(2, Math.round(drawingBuffer.y * REFLECT_SCALE));
@@ -202,10 +225,26 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
     mirrorCam.matrixWorld.multiplyMatrices(Y_MIRROR, camera.matrixWorld);
     mirrorCam.matrixWorldInverse.copy(mirrorCam.matrixWorld).invert();
     mirrorCam.projectionMatrix.multiplyMatrices(FLIP_X, camera.projectionMatrix);
+    // The clip, as the near plane. A clipping plane would do it too, and was how it was first
+    // done, but three compiles the clip into every program — so the pass handed every material a
+    // second program, and switching to it and back is the `getProgram` churn above all over again.
+    // An orthographic projection's depth row can be any plane in view space (Lengyel's oblique
+    // near plane, which is simpler without a perspective divide): NDC z = 2·d / MIRROR_DEPTH − 1,
+    // with d the height above the clip. Depth then runs along that height instead of along the
+    // view axis, which keeps the depth test sound — along any one ray the height is affine in the
+    // distance and rises away from a camera that is looking up through the mirror. And the frustum
+    // three culls against is built from this same matrix, so whatever sits wholly under the clip is
+    // culled before it is drawn rather than drawn and clipped.
+    viewPlane.copy(clipPlane).applyMatrix4(mirrorCam.matrixWorldInverse);
+    const e = mirrorCam.projectionMatrix.elements;
+    const k = 2 / MIRROR_DEPTH;
+    e[2] = k * viewPlane.normal.x;
+    e[6] = k * viewPlane.normal.y;
+    e[10] = k * viewPlane.normal.z;
+    e[14] = k * viewPlane.constant - 1;
     mirrorCam.projectionMatrixInverse.copy(mirrorCam.projectionMatrix).invert();
 
     const prevTarget = renderer.getRenderTarget();
-    const prevClip = renderer.clippingPlanes;
     const prevShadow = renderer.shadowMap.autoUpdate;
     const prevAO = AO_UNIFORMS.tAmbientOcclusion.value;
     const prevClear = renderer.getClearColor(new THREE.Color());
@@ -214,7 +253,6 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
 
     // The frame's shadow map is reused, not redrawn: the sun has not moved since the last one.
     renderer.shadowMap.autoUpdate = false;
-    renderer.clippingPlanes = clipPlanes;
     AO_UNIFORMS.tAmbientOcclusion.value = noAO;
     // The cloud field is placed in world space through the camera that is drawing, and this pass
     // is drawing through the mirror.
@@ -235,7 +273,6 @@ export function createRain(renderer, { enabled = false, mood: moodName = 'shower
     groundUniforms.uRainWet.value = wet;
     AO_UNIFORMS.tAmbientOcclusion.value = prevAO;
     CLOUD_UNIFORMS.uCloudViewInv.value.copy(prevViewInv);
-    renderer.clippingPlanes = prevClip;
     renderer.shadowMap.autoUpdate = prevShadow;
     renderer.setClearColor(prevClear, prevAlpha);
     renderer.setRenderTarget(prevTarget);
@@ -810,7 +847,9 @@ const WET_REFLECT = /* glsl */ `
   float wsum = 0.0;
   for (int k = -4; k <= 4; k++) {
     float w = 1.0 - abs(float(k)) / 5.0;
-    refl += texture2D(tRainReflect, ruv + vec2(0.0, float(k) * spread / 4.0)).rgb * w;
+    // Decoded per tap rather than after the blur: the blur is meant to average light, and the
+    // target holds the screen's sRGB encode (see reflectTarget in game/rain.js).
+    refl += sRGBTransferEOTF(texture2D(tRainReflect, ruv + vec2(0.0, float(k) * spread / 4.0))).rgb * w;
     wsum += w;
   }
   refl /= wsum;
