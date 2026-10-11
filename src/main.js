@@ -658,7 +658,13 @@ const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters
 // subject of the opening vignette below. `null` on a city with nowhere to put one, which is a
 // state the whole chain below handles rather than one to guard against here: no depot, no
 // vignette, and the run opens the way it always did. See city/garage.js.
-const garage = layout.garageBlock ? createGarage(layout.garageBlock, makeRng(seed + 99)) : null;
+// `?depot=model` puts the 3D taxi on its roof in place of the cutout, `?depot=classic` the wrench.
+const depotFlag = new URLSearchParams(window.location.search).get('depot');
+const garage = layout.garageBlock
+  ? createGarage(layout.garageBlock, makeRng(seed + 99), {
+    sign: depotFlag === 'classic' || depotFlag === 'model' ? depotFlag : 'cutout',
+  })
+  : null;
 if (garage) {
   scene.add(garage.group);
   garage.meshes.forEach(markOccluder);
@@ -1145,6 +1151,7 @@ for (const mesh of police.emissiveMeshes) markEmissive(mesh, 'siren');
 // nothing to wire.
 if (burger) markEmissive(burger.glow, 'window');
 if (garage) markEmissive(garage.light, 'bay');
+if (garage?.neon) markEmissive(garage.neon, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.
@@ -1303,7 +1310,7 @@ const cityEntry = createCityEntry({
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
     ...(props.pondMesh ? [props.pondMesh] : [])],
   // The two things in the city the wave's vertex shader cannot reach, because they turn: the
-  // depot's wrench and the burger over the drive-through. See the `objects` note in
+  // depot's sign and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
     ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects],
@@ -5011,7 +5018,7 @@ function tick() {
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
   burger?.update(dt, SIGN_SPIN);
-  // And the wrench on the depot's roof, on the same terms — see WRENCH_SPIN in city/garage.js.
+  // And the sign on the depot's roof, on the same terms — see DEPOT_SPIN in city/garage.js.
   garage?.update(dt);
   controller.updateShake(dt, aspect());
   daylight.update(dt);

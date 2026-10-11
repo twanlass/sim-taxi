@@ -251,8 +251,8 @@ of the tower generator's hands (`createBuildings` only walks `'built'` blocks) a
 taxi's own depot: a single-storey shed at the back of the block with a roller door on the street, a
 3-unit asphalt forecourt, and a dropped kerb the taxi comes off in
 [the opening vignette](gameplay.md#the-opening-vignette). It is painted in the cab company's own
-colours and carries a turning wrench on its roof — see [the livery](#the-livery) and
-[the wrench](#the-wrench-and-what-is-derived-from-it) below.
+colours and carries a neon taxi sign on its roof — see [the livery](#the-livery) and
+[the sign](#the-roof-sign-and-what-is-derived-from-it) below.
 
 **A whole block, not a lot.** The depot needs a forecourt to pull out of, and the generated city
 only leaves 0.85 units of pavement between a façade and the kerb — a car pulling out of a door that
@@ -313,12 +313,37 @@ way [the burger joint](#the-burger-joint-and-its-drive-through) names its apron.
 `KERB_RUN` short of the lip, where the dropped kerb starts falling away — a level strip carried out
 over a ramp is buried in it at one end and hanging over it at the other.
 
-### The wrench, and what is derived from it
+### The roof sign, and what is derived from it
 
-On the roof, an **oversized wrench turning on a pole** — the depot is where the taxi comes back for
+On the roof, **a taxi cut out of board, with a pink neon tube round its edge**, swaying on a pole.
+The player's eye is already scanning the map for a yellow taxi, so a taxi is the fastest thing on
+the roof to find; being *flat* is what stops it reading as their car, because a car on the road
+never is, and the neon says "sign" a second time. It is `cutoutGeometry()`: one extruded outline
+(body, a cartoon-tall cabin, the roof light), with the windows, chequer, roof-light face and wheels
+each a solid running through the board so they show on both faces without a hand-wound triangle.
+
+Three things about it are measured rather than chosen:
+
+- **It sways rather than turns** (`CUT_SWAY` either side of the camera's diagonal). A flat board
+  that turned would go edge-on twice a revolution, which is the problem the wrench had.
+- **The board is self-lit** (`BOARD_LIFT`, an emissive share of its own yellow, on its own mesh so
+  the glass and tyres stay dark). Facing the camera, its face is in shade for much of the day, and
+  under the shadow tint the taxi's yellow went lilac.
+- **The neon is unlit and in the bloom** (`depotNeon`, kind `window`), so by day it is a line of
+  full colour against a sunlit roof and at night it glows. Blue, leaning cyan so it is not the
+  police lamps' blue; amber, red and green all mean a fare's clock. The tube is flattened, thin in the board's plane and deep across it, so it
+  stands proud of both faces without drawing a fat band (a round one had to be 0.4 across to clear
+  them). A brighter spot chases round it and now and then it stutters, both written as vertex
+  colour each frame, which the bloom's copy of the material reads as well. The tyres are wider
+  than the tube is deep so the length of it along the sill is buried in them.
+
+`?depot=model` keeps the first cut of this sign: the real taxi's 3D model (`taxiSignGeometry()` in
+geometry/taxi.js), banked on the pole and turning. It read as a car parked on the roof rather than
+as a sign. `?depot=classic` brings back the sign before that, described below:
+an **oversized wrench turning on a pole** — the depot is where the taxi comes back for
 repairs and upgrades, and the building has to say so from play zoom before anybody has learned it.
 It is a sign in the burger joint's sense: one big object, canted 45° off vertical, turning about
-once every sixteen seconds (`WRENCH_SPIN`). It replaced a radio mast and dish, which said
+once every sixteen seconds (`DEPOT_SPIN`, shared by both signs). It replaced a radio mast and dish, which said
 "dispatch" — true, and nothing a player can act on.
 
 It is **one extruded `Shape`**: a combination spanner, open jaw up, hexagon ring down. One outline
@@ -343,9 +368,11 @@ it, left receiving, wore a dark blotch of its own roof's crease that moved with 
 **Almost nothing else up here is a literal** — a habit carried over from the dish, which was
 resized twice, and both times what broke was a hand-tuned number *around* it:
 
-- **The pole's height** is wherever the wrench's measured underside clears the roof plant by
-  `WRENCH_CLEAR`. The pole stops at the wrench's centre, inside the handle.
-- **The pole's standoff from the roof corner** is the radius the wrench actually sweeps — the
+- **The pole's height** is wherever the sign's measured underside clears the roof plant by
+  `WRENCH_CLEAR` (or `TAXI_SIGN_CLEAR` for both taxis). The pole stops at the sign's centre —
+  inside the wrench's handle, or inside the taxi's body.
+- **The pole's standoff from the roof corner** is the radius the sign actually sweeps (the
+  cutout's included, neon and all, as if it turned rather than swayed) — the
   furthest any vertex gets from the pivot *axis*, which is not `boundingBox.max.x`, because the box
   measures a pose the wrench holds for an instant — plus a margin. One number answers both things it
   must not reach: the +Z parapet it could swing out over, and the **curtain plane**, since every

@@ -77,10 +77,11 @@ const FRONT_ANCHOR = wheelAnchors(CAR_LEN, CAR_W).find((anchor) => anchor.front)
 export const TAXI_FRONT_AXLE_FWD = FRONT_ANCHOR.x * TAXI_SCALE;
 export const TAXI_FRONT_TRACK = Math.abs(FRONT_ANCHOR.z) * TAXI_SCALE;
 
-export function createTaxiMesh() {
-  const group = new THREE.Group();
-  group.name = 'taxi';
-
+/**
+ * The parts the taxi's shell merges: body, cabin, chequer stripe and the rear wheels. Shared with
+ * `taxiSignGeometry`, so the sign on the depot's roof is this car and cannot drift from it.
+ */
+function shellParts() {
   const parts = [];
 
   // Proportions match the ambient cars so the taxi reads as the same class of vehicle.
@@ -132,7 +133,39 @@ export function createTaxiMesh() {
 
   // Rear wheels only — the fronts steer, so they hang off the group as their own meshes below.
   parts.push(...wheelGeometries(CAR_LEN, CAR_W));
+  return parts;
+}
 
+// The roof sign's box, in car-local space. One definition for the live car and the depot's sign.
+function roofSignGeometry() {
+  const signGeo = new THREE.BoxGeometry(0.75, 0.34, 0.4);
+  signGeo.translate(-0.1, 1.92 + CHASSIS_LIFT, 0);
+  return signGeo;
+}
+
+/**
+ * The whole taxi as one static geometry, in car-local space at unit scale (+x the nose, origin on
+ * the road): the shell, all four wheels, both bumpers and the roof sign lit. For the sign on the
+ * depot's roof (city/garage.js), which wants the car's silhouette and none of what makes the live
+ * one the player's — no ghost outline, no pick volume, no damage, no lamps.
+ */
+export function taxiSignGeometry() {
+  const parts = shellParts();
+  for (const anchor of wheelAnchors(CAR_LEN, CAR_W).filter((a) => a.front)) {
+    parts.push(wheelGeometry().translate(anchor.x, anchor.y, anchor.z));
+  }
+  parts.push(bumperGeometry(CAR_LEN, CAR_W, 1), bumperGeometry(CAR_LEN, CAR_W, -1));
+  parts.push(setFinish(bakeColor(roofSignGeometry(), color('taxiSign')), FINISH.PAINT));
+  const merged = mergeGeometries(parts, false);
+  parts.forEach((p) => p.dispose());
+  return merged;
+}
+
+export function createTaxiMesh() {
+  const group = new THREE.Group();
+  group.name = 'taxi';
+
+  const parts = shellParts();
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 
@@ -206,10 +239,8 @@ export function createTaxiMesh() {
   // carry the fare's own colour, back when colour paired a rider with their drop-off pin; now
   // that pairing is gone (the drop-off pin is fixed to Loco Mode's yellow, see marker.js), so the
   // sign only has one thing left to say and says it with on/off rather than hue.
-  const signGeo = new THREE.BoxGeometry(0.75, 0.34, 0.4);
-  signGeo.translate(-0.1, 1.92 + CHASSIS_LIFT, 0);
   const sign = new THREE.Mesh(
-    signGeo,
+    roofSignGeometry(),
     // Starts dark — the taxi is empty until a fare boards.
     new THREE.MeshLambertMaterial({ color: new THREE.Color(PALETTE.taxiTrim), flatShading: true }),
   );

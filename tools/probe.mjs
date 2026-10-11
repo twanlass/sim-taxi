@@ -14788,23 +14788,41 @@ let chopperOrder; // likewise
       paintFar < RAMP_FROM + 1e-6,
       `paint to x ${paintFar.toFixed(2)}, ramp from ${RAMP_FROM.toFixed(2)}`);
 
-    // --- The pole, and the wrench turning on it.
+    // --- The pole, and the sign on it — the taxi cutout by default, and the two `?depot=model` and
+    // `?depot=classic` keep. All three, because every placement below is derived from the sign's
+    // own measured bounds, and the three signs are different shapes.
+    const signGarage = (sign) => createGarage(layout.garageBlock, makeRng(seed + 99), { sign });
+    const outerCheck = check;
+    for (const [style, dg] of [['cutout', garage], ['model', signGarage('model')],
+      ['classic', signGarage('classic')]]) {
+    const pos = dg.shell.geometry.attributes.position;
+    const col = dg.shell.geometry.attributes.color;
+    const at = (i) => new THREE.Color(col.getX(i), col.getY(i), col.getZ(i)).getHexString();
+    const check = (name, ...rest) => outerCheck(`[${style}] ${name}`, ...rest);
     //
     // Every number here is derived in `garage.js` from the wrench's own measured bounds rather than
     // hand-tuned, and each of these is the claim that derivation was supposed to guarantee. The
     // dish that stood here before it was resized twice, and both times it was one of these that
     // broke.
-    garage.wrench.geometry.computeBoundingBox();
-    const bb = garage.wrench.geometry.boundingBox;
-    const wrenchLow = KERB_H + bb.min.y;
-    const axis = garage.wrenchPivot.position;
+    dg.sign.geometry.computeBoundingBox();
+    const bb = dg.sign.geometry.boundingBox;
+    // The cutout's neon tube is part of the sign for every one of these: it is the outermost thing.
+    const signGeos = [dg.sign, dg.board, dg.neon].filter(Boolean).map((m) => m.geometry);
+    const wrenchLow = KERB_H + Math.min(...signGeos.map((g) => {
+      g.computeBoundingBox();
+      return g.boundingBox.min.y;
+    }));
+    const axis = dg.signPivot.position;
 
     // The radius it actually sweeps — the furthest any vertex gets from the pivot's axis, not the
     // bounding box's x, because the pose the box measures is one the wrench only holds for an
     // instant.
-    const dp = garage.wrench.geometry.attributes.position;
+    const dp = dg.sign.geometry.attributes.position;
     let orbit = 0;
-    for (let i = 0; i < dp.count; i++) orbit = Math.max(orbit, Math.hypot(dp.getX(i), dp.getZ(i)));
+    for (const g of signGeos) {
+      const gp = g.attributes.position;
+      for (let i = 0; i < gp.count; i++) orbit = Math.max(orbit, Math.hypot(gp.getX(i), gp.getZ(i)));
+    }
 
     // The one thing a sign on this roof could break is the shot the whole depot exists for, and it
     // cannot break it for a reason that is about **x**, not about height: every ray out of the
@@ -14840,8 +14858,8 @@ let chopperOrder; // likewise
       if (at(i) === TRIM && pos.getY(i) > KERB_H + 5.5) poleHead = Math.max(poleHead, pos.getY(i));
     }
     check('...on a pole that ends at its centre',
-      Math.abs(poleHead - garage.hub) < 1e-6,
-      `pole head ${poleHead.toFixed(2)}, wrench centre ${garage.hub.toFixed(2)}`);
+      Math.abs(poleHead - dg.hub) < 1e-6,
+      `pole head ${poleHead.toFixed(2)}, wrench centre ${dg.hub.toFixed(2)}`);
 
     // The roof's own plant, which the old mast walked into once already: the standoff grows with
     // the sweep and can take the pole to a corner a unit box is standing in. And the wrench's low
@@ -14861,6 +14879,7 @@ let chopperOrder; // likewise
       wrenchLow - plantTop > 0.2,
       `${(wrenchLow - plantTop).toFixed(2)} units over the tallest box`);
 
+    if (style === 'classic') {
     // Its two flat faces wound to face outward. It is an extrusion, which three winds itself — but
     // this is the check the boats' wake and the roadworks ramp did not have (CLAUDE.md), and on an
     // object that turns, a reversed face is the one you see half the time. The cant is about z and
@@ -14883,24 +14902,26 @@ let chopperOrder; // likewise
       `${capsWrong} of ${caps} cap triangles reversed`);
 
     // Steel: every vertex on the metal finish, and the material actually carrying the gloss patch.
-    const finish = garage.wrench.geometry.attributes.aFinish;
+    const finish = dg.sign.geometry.attributes.aFinish;
     check('...in the vehicles’ metal finish',
       finish && Array.from(finish.array).every((f) => f === FINISH.METAL)
-      && garage.wrench.material.customProgramCacheKey().includes('gloss'),
-      `program key "${garage.wrench.material.customProgramCacheKey()}"`);
+      && dg.sign.material.customProgramCacheKey().includes('gloss'),
+      `program key "${dg.sign.material.customProgramCacheKey()}"`);
+    }
 
     // Last: the wrench is out of both lists it must not be in. The wave cannot animate it — it
     // turns, and the anchor a vertex scales about is a world coordinate — so it is not a stamped
     // mesh; it is an `entryObject` instead.
     check('...and it is an entrance *object*, not one of the stamped meshes',
-      !garage.meshes.includes(garage.wrench) && garage.entryObject.object === garage.wrenchPivot);
+      !dg.meshes.includes(dg.sign) && dg.entryObject.object === dg.signPivot);
     // And having been kept out of the AO depth prepass, it must not *receive* AO either. Receiving
     // is the default, so a mesh that is not in the prepass reads the occlusion of whatever is
     // behind it on screen — for the dish that stood here, its own roof and the crease under its
     // own mast. The flag is visible from here because `patchProp` folds it into the program key.
     check('...and out of the AO lookup, since it is not in the prepass that feeds it',
-      !garage.wrench.material.customProgramCacheKey().includes('ssao'),
-      `program key "${garage.wrench.material.customProgramCacheKey()}"`);
+      !dg.sign.material.customProgramCacheKey().includes('ssao'),
+      `program key "${dg.sign.material.customProgramCacheKey()}"`);
+    }
   }
 
   // --- Can the camera see the door?
