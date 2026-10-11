@@ -2085,6 +2085,39 @@ Its own element and pool rather than `#coach` and `#spotlight`: the tutorial's L
 mid-showing when a robbery lands, and `body.robber-talk` hides it meanwhile. The tools construct the
 robbery without `holdAlarm`, so the headless suite still sees the police on the frame it fires.
 
+### The bank job (`?robbery=intro`)
+
+`game/bankjob.js`, behind a flag while it is tried out. The robber's line fixed the event arriving
+all at once, but not the thing it was reported for: you never *see* the robber get in. The trigger
+is a drive-past, so the player is looking at the taxi or the next rider while a 20px figure runs
+0.9s from the steps into the cab.
+
+So under the flag the event opens on a cut, and the world stops **one beat earlier** than the line
+would stop it anyway:
+
+1. One red alarm light on the bank's entablature, over the doorway (`bankFrontage` in
+   city/bank.js), starts flashing, and the camera pulls in on the steps and the cab.
+2. The robber bursts out of the portico, shedding notes out of the sack (the getaway's own cash
+   trail, fed from the robber), shoves the **bystander** who is always waiting on the
+   pavement outside the bank clean off their feet (airborne, spun, a bounce and a skid, then
+   dazed and stirring on the ground — never landing on the cab), and sprints for the cab's door, which swings open as they arrive.
+3. They hop in, and the robber's line takes over exactly as it does without the flag.
+
+About 2.6s of wall time, and a tap (or Space/Enter) skips straight to step 3. The alarm keeps going
+for as long as the robbery does; the bystander gets up a few seconds into the getaway; the door
+slams and the camera eases back out when the line is cleared.
+
+**Stopped, not slowed.** Slow-motion would keep the traffic alive, but it runs every clock, the
+crystal's flight and the fare loop at a crawl under a figure animated at full speed — two time bases
+in one frame — and the line right after it is a freeze anyway. The cut and the line read as one held
+beat. The robber's crystal waits for them to be in the car (`boardScripted` in game/fares.js) rather
+than hanging over the steps for the whole run.
+
+**The bystander is scenery, not a fare**: no crystal, no tap target, no board change. A rider
+guaranteed at the bank with a 50/50 of a robbery would make the event opt-in (skip that rider and
+it never happens), which is a different design from the imposed one above and would need the
+fairness gates re-measured.
+
 ### Dispatch breaks in
 
 `game/radio.js`. A beat after the robber's line is cleared, a [bubble](#speech-bubbles) pinned on

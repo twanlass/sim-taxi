@@ -134,6 +134,7 @@ import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
 import { createPatrol } from './game/patrol.js';
 import { createCopShout } from './game/copshout.js';
 import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
+import { createBankJob } from './game/bankjob.js';
 import { createCopLights } from './game/coplights.js';
 import { createCashTrail } from './game/cashtrail.js';
 import { setCityOccluders, sightlineClear } from './game/sightline.js';
@@ -904,15 +905,23 @@ const robberLine = city.bank && !shot
     onDone: () => {
       robbery?.raiseAlarm();
       radioIn = RADIO_DELAY;
+      // The cut's door slams and its camera comes home as the getaway starts.
+      bankJob?.release();
     },
   })
   : null;
+// `?robbery=intro`: the robbery opens on a cut — the alarm, the robber out of the door, a
+// bystander shoved over, the run to the cab — before the robber's line. See game/bankjob.js; the
+// module itself is built further down, once the cash trail it sheds notes into exists.
+const robberyIntro = new URLSearchParams(window.location.search).get('robbery') === 'intro';
 const robbery = city.bank && !shot
   ? createRobbery({
     site: city.bank,
     taxi: traffic.taxi,
     fares,
     traffic,
+    // The bank job owns the run to the cab, so the fare loop's boarding animation stands down.
+    scripted: robberyIntro,
     // The police wait for the robber's line to be cleared — see `robberLine` above.
     holdAlarm: true,
     // ...and the robbery waits for a patrol chase to be over — see `busy` in game/robbery.js.
@@ -949,8 +958,18 @@ const robbery = city.bank && !shot
       // Not the depot, though: a repair is refused with anyone aboard, so the drop-off just
       // dispatched stands and `depotRun.update` sees its target gone and stands down.
       haptic('pick');
-      sfx?.play('doorOpen');
       robberDoorOpen = true;
+      robberBoarding = fare;
+      // The bank job's cut plays first, with the world stopped, and opens the door itself as the
+      // robber reaches it.
+      if (bankJob) {
+        bankJob.begin(fare, traffic.taxi, (f, at) => {
+          fares.boardScripted(f, at.x, at.z);
+          robberIn();
+        });
+        return;
+      }
+      sfx?.play('doorOpen');
       // Not the radio, and not the robber's line yet: the figure is still running down the bank's
       // steps for the cab (BOARD_SECONDS in game/fares.js), and the line is about them being *in*
       // it. The frame loop opens it once they are.
@@ -958,6 +977,16 @@ const robbery = city.bank && !shot
     },
   })
   : null;
+
+/**
+ * The robber is in the car: stop the world and let them speak. From the frame loop once the
+ * boarding run is over, or from the bank job's cut once its robber has hopped in.
+ */
+function robberIn() {
+  robberBoarding = null;
+  // No bubble to show (its markup missing) is no reason to have no police.
+  if (!robberLine.open()) { robbery.raiseAlarm(); radioIn = RADIO_DELAY; bankJob?.release(); }
+}
 
 /**
  * A rider getting in: the door opens on the frame the taxi reaches them and shuts once they are in,
@@ -1304,6 +1333,18 @@ const copLights = createCopLights(scene, { enabled: !budget.safe });
 // Banknotes off the back of a boosting getaway — the one part of the robbery that pays the player
 // back while the risk is being taken rather than at the drop-off. See game/cashtrail.js.
 const cashTrail = createCashTrail(scene, makeRng(runSeed + 211));
+// The bank job's cut — see `robberyIntro` above and game/bankjob.js. Null without the flag, and on
+// a city with no robbery.
+const bankJob = robbery && robberyIntro
+  ? createBankJob({
+    scene,
+    site: city.bank,
+    cashTrail,
+    controller,
+    setDoor: traffic.setTaxiDoor,
+    play: (name, x = null, z = null) => sfx?.play(name, x === null ? {} : { at: placeAt(x, z) }),
+  })
+  : null;
 // The other half of the tailpipe: `flames` is the bark on the press, this is the plume that burns
 // for as long as the button is held. No seed — the flicker is a flipbook on a clock, and a flame
 // that came out differently on two runs of the same seed would take the screenshots with it.
@@ -3908,7 +3949,7 @@ window.addEventListener('keydown', (event) => {
   if (parked()) return;
   // The robber's line takes Space as its own answer (game/robberline.js). Registered after this
   // one, so this has to stand down for it rather than the other way round.
-  if (robberLine?.isOpen() || newMove?.isOpen()) return;
+  if (robberLine?.isOpen() || newMove?.isOpen() || bankJob?.running()) return;
   // A paused run takes no input at all. `frame()` returns before `boost.update`, so a press behind
   // the veil would sit in 'active' burning nothing and then resume into a launch the player never
   // asked for — the mirror image of the release `createPause`'s `onChange` does on the way in. The
@@ -3938,7 +3979,8 @@ window.addEventListener('keydown', (event) => {
   if (event.code !== 'KeyB' || event.repeat) return;
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   if (keyIsSpokenFor(event.target, brakeButton)) return;
-  if (parked() || pause?.state.paused || robberLine?.isOpen() || newMove?.isOpen()) return;
+  if (parked() || pause?.state.paused || robberLine?.isOpen() || newMove?.isOpen()
+    || bankJob?.running()) return;
   event.preventDefault();
   brakeKeyHeld = true;
   holdBrake();
@@ -4779,6 +4821,13 @@ function tick() {
     renderFrame();
     return;
   }
+  // The bank job's cut: the same freeze, with the cut itself — robber, bystander, alarm, notes,
+  // camera — running on wall time. It hands over to the robber's line above when the robber is in.
+  if (bankJob?.running()) {
+    bankJob.update(dt, aspect());
+    renderFrame();
+    return;
+  }
   // Slam it as the getaway starts — see `robberDoorOpen`. Waits out any other hold too (`play`
   // refuses while held), and a robbery over before then has no door left to shut.
   if (robberDoorOpen && !robberBoarding && !sfx?.state.held) {
@@ -5184,6 +5233,14 @@ function tick() {
     // caring about. A no-op when nothing is panning, which is every frame on a desktop.
     controller.updateGlide(dt, aspect());
   }
+  // The bank job on game time (game/bankjob.js): the bystander getting back up, the alarm for as long
+  // as the robbery runs, the door the robber left open, and the zoom coming home after its cut —
+  // after the claims above, since it eases only the zoom and leaves the target to whichever won.
+  bankJob?.tick(dt, {
+    alarm: Boolean(robbery?.state.active) && !fares.state.gameOver,
+    aspectRatio: aspect(),
+    narrow: isNarrow(),
+  });
 
   // The frame tightens a few percent while Loco Mode is *held* — the ortho stand-in for a lens
   // pushing in, see LOCO_PUNCH in game/camera.js. It sits outside the priority list above rather
@@ -5374,15 +5431,11 @@ function tick() {
   // with `ridingFor` as the backstop so a figure that somehow never finishes cannot leave the
   // police waiting forever. A getaway gone before the line opened — a run over mid-boarding — is
   // dropped rather than shouted about over a retry screen.
-  if (robberBoarding) {
+  if (robberBoarding && !robberBoarding.scripted) {
     const f = robberBoarding;
     if (fares.state.gameOver || !robbery?.state.active || !fares.state.fares.includes(f)) {
       robberBoarding = null;
-    } else if (f.boarding === undefined || f.ridingFor > 1.5) {
-      robberBoarding = null;
-      // No bubble to show (its markup missing) is no reason to have no police.
-      if (!robberLine.open()) { robbery.raiseAlarm(); radioIn = RADIO_DELAY; }
-    }
+    } else if (f.boarding === undefined || f.ridingFor > 1.5) robberIn();
   }
 
   // The package courier. Ticked after the fare loop so its spawn placement sees this frame's fare

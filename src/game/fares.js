@@ -1225,7 +1225,7 @@ export function createFareSystem(rng, scene, {
    *                `at`; a robber coming out of the corner of the block rather than out of the
    *                building is the one thing that would give the whole event away as bookkeeping.
    */
-  function spawnRobber(taxiCar, at, from) {
+  function spawnRobber(taxiCar, at, from, { scripted = false } = {}) {
     // One seat. The trigger already refuses while it is full (game/robbery.js) — this is the same
     // rule stated where the seat actually lives, so a future caller cannot get it wrong.
     if (carrying() || state.gameOver) return null;
@@ -1280,6 +1280,9 @@ export function createFareSystem(rng, scene, {
       // with a door in place of a kerb corner.
       boardingFrom: { x: from.x, z: from.z },
       boarding: 0,
+      // `?robbery=intro`: the run to the cab is somebody else's (game/bankjob.js), played while the
+      // world is stopped, and the figure and the crystal are handed back by `boardScripted`.
+      scripted,
       ringLevel: null,
     };
     fare.timeLeft = fare.limit;
@@ -1313,10 +1316,28 @@ export function createFareSystem(rng, scene, {
     place(destination, fare.target.i, fare.target.j);
     destination.ring.setWaypoint(checkpoints.length > 0);
     destination.ring.appear();
-    marker.showAt(URGENCY_SEGMENTS, from.x, from.z, false, false);
-    marker.beginTransfer();
+    // A scripted robber's crystal waits for them to be in the car: it would otherwise hang over
+    // the bank's steps for the whole of a run it is not part of.
+    if (!scripted) {
+      marker.showAt(URGENCY_SEGMENTS, from.x, from.z, false, false);
+      marker.beginTransfer();
+    }
 
     return fare;
+  }
+
+  /**
+   * The scripted robber is in the car (game/bankjob.js): hide the figure, end the boarding, and
+   * launch the crystal from where they went in, so it flies the last metre to the roof the way an
+   * ordinary rider's does from the kerb.
+   */
+  function boardScripted(fare, x, z) {
+    if (!fare?.scripted) return;
+    fare.scripted = false;
+    fare.boarding = undefined;
+    fare.slot.passenger.group.visible = false;
+    fare.slot.marker.showAt(URGENCY_SEGMENTS, x, z, false, false);
+    fare.slot.marker.beginTransfer();
   }
 
   /**
@@ -1718,7 +1739,7 @@ export function createFareSystem(rng, scene, {
         // Latched once, on the first frame: the car is usually turning through the junction while
         // they run, and a side re-read every frame could swap doors mid-stride. The door point
         // itself *is* re-read every frame, for the same reason the taxi's position is.
-        if (fare.boarding !== undefined && passenger.standing?.board) {
+        if (fare.boarding !== undefined && !fare.scripted && passenger.standing?.board) {
           fare.boarding += dt;
           const t = Math.min(1, fare.boarding / BOARD_SECONDS);
           const kerb = fare.boardingFrom;
@@ -2092,6 +2113,8 @@ export function createFareSystem(rng, scene, {
     refuse,
     /** A robber gets into the taxi outside the bank — see `spawnRobber` and game/robbery.js. */
     spawnRobber,
+    /** The bank job's robber is in — see `boardScripted`. */
+    boardScripted,
     /** Is one in the car right now? The trigger's own cooldown reads it, and so does the HUD. */
     robbing: () => state.fares.some((f) => f.robber),
     /**
