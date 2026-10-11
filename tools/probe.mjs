@@ -29,7 +29,10 @@ import { createCanopyFuzz } from '../src/city/canopyfuzz.js';
 import { createDucks } from '../src/game/ducks.js';
 import {
   planCourt, courtParts, courtRect, clearBenches, COURT_TOP_Y, RIM_Y, RIM_R,
+  planBoombox, BOOMBOX_W, BOOMBOX_D,
 } from '../src/city/blacktop.js';
+import { createBoombox, BPM as BOOMBOX_BPM } from '../src/game/boombox.js';
+import { onLawn } from '../src/city/ground.js';
 import { createHoopers } from '../src/game/hoopers.js';
 import {
   planSkatepark, skateparkParts, skateRect, surfaceAt, SKATE_TOP_Y, LIP_H,
@@ -1227,6 +1230,109 @@ const onGrass = (city, i, j) => {
   check('and the props hand back the court they built', !!propsBuild.court && !!propsBuild.courtMesh
     && Math.abs(propsBuild.court.x - court.x) < 1e-9,
     'court and hoops');
+}
+
+// --- The boom box beside it ------------------------------------------------------
+//
+// Swept over seeds in `createProps`' order. Every court gets one, on the lawn rather than the slab
+// or the walk, off every bench, facing the court — and facing the camera more than away from it,
+// since the speakers are the read and the far side is tried first.
+{
+  let courts = 0;
+  let boxes = 0;
+  let offLawn = 0;
+  let onSlab = 0;
+  let onBench = 0;
+  let awayFromCourt = 0;
+  let backToCamera = 0;
+  let apron = 0;
+  for (let s = 0; s < 40; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 37));
+    const plots = parkPlots(cityLayout);
+    if (!plots.length) continue;
+    const rng = makeRng(seed + s * 37 + 33);
+    const plan = planParkFurniture(rng, plots);
+    const pond = planPond(rng, plots, plan.statue);
+    const court = planCourt(rng, plots, plan.statue, pond);
+    if (!court) continue;
+    courts += 1;
+    let benches = clearBenches(court, plan.benches, BENCH_LEN);
+    const park = planSkatepark(plots, plan.statue, pond, court);
+    benches = clearBenches(park, benches, BENCH_LEN);
+    const box = planBoombox(court, {
+      benches, benchLen: BENCH_LEN, statue: plan.statue, statueHalf: STATUE_PLAZA / 2, pond,
+      skateRect: park ? skateRect(park) : null,
+    });
+    if (!box) continue;
+    boxes += 1;
+    const fx = Math.sin(box.yaw);
+    const fz = Math.cos(box.yaw);
+    // The footprint's four corners, turned with the box.
+    const corners = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([a, b]) => ({
+      x: box.x + a * (BOOMBOX_W / 2) * fz + b * (BOOMBOX_D / 2) * fx,
+      z: box.z - a * (BOOMBOX_W / 2) * fx + b * (BOOMBOX_D / 2) * fz,
+    }));
+    // On the lawn, or — the fallback for a court in a corner of its park — on the apron, which is
+    // all on the slab and all outside the lines.
+    const r = courtRect(court);
+    const onIt = (c, rect) => c.x > rect.x0 && c.x < rect.x1 && c.z > rect.z0 && c.z < rect.z1;
+    if (box.apron) {
+      apron += 1;
+      const lines = court.axis === 'x'
+        ? { x0: court.x - court.halfU, x1: court.x + court.halfU, z0: court.z - court.halfV, z1: court.z + court.halfV }
+        : { x0: court.x - court.halfV, x1: court.x + court.halfV, z0: court.z - court.halfU, z1: court.z + court.halfU };
+      if (!corners.every((c) => onIt(c, r))) offLawn += 1;
+      if (corners.some((c) => onIt(c, lines))) onSlab += 1;
+    } else {
+      if (!corners.every((c) => onLawn(court.plot.bounds, c.x, c.z, 0))) offLawn += 1;
+      if (corners.some((c) => onIt(c, r))) onSlab += 1;
+    }
+    for (const bench of benches) {
+      const along = Math.abs(Math.cos(bench.yaw)) > 0.5;
+      const hx = along ? BENCH_LEN / 2 : 0.34;
+      const hz = along ? 0.34 : BENCH_LEN / 2;
+      if (corners.some((c) => Math.abs(c.x - bench.x) < hx && Math.abs(c.z - bench.z) < hz)) onBench += 1;
+    }
+    if (fx * (court.x - box.x) + fz * (court.z - box.z) <= 0) awayFromCourt += 1;
+    if (fx + fz < 0) backToCamera += 1;
+  }
+  createLayout(makeRng(seed));     // put the probe's city back — `createLayout` installs its network
+
+  check('every court gets a boom box beside it', boxes === courts, `${boxes} of ${courts} courts`);
+  check('the boom box stands on the lawn or the apron, off the lines and every bench, facing the court',
+    offLawn + onSlab + onBench + awayFromCourt === 0,
+    `${apron} on the apron; ${offLawn} off its ground, ${onSlab} on the slab or the lines, `
+    + `${onBench} on a bench, ${awayFromCourt} facing away`);
+  check('and shows the camera its speakers', backToCamera === 0, `${backToCamera} of ${boxes} turned away`);
+}
+
+// Its notes: one a beat, every one turned to the camera, and none left in the air for good.
+{
+  const boxScene = new THREE.Scene();
+  const box = createBoombox(boxScene, makeRng(5), propsBuild.boombox);
+  let maxLive = 0;
+  let spawned = 0;
+  // Already running: it settles at construction so a shot has notes in the air.
+  let wasLive = new Set(box.notes.filter((note) => note.mesh.visible));
+  for (let n = 0; n < 600; n++) {
+    box.update(1 / 60);
+    const live = new Set(box.notes.filter((note) => note.mesh.visible));
+    for (const note of live) if (!wasLive.has(note)) spawned += 1;
+    wasLive = live;
+    maxLive = Math.max(maxLive, live.size);
+  }
+  // Ten seconds at BPM: one note a beat, give or take the beat the window cuts.
+  const beats = (10 * BOOMBOX_BPM) / 60;
+  const facing = box.notes.filter((note) => note.mesh.visible).every((note) => {
+    const n = new THREE.Vector3(0, 0, 1).applyQuaternion(note.mesh.quaternion);
+    return n.dot(VIEW_DIR) > 0.9;
+  });
+  check('the boom box puts out a note a beat, all facing the camera',
+    !!propsBuild.boombox && Math.abs(spawned - beats) <= 1.5 && maxLive <= box.notes.length && facing,
+    `${spawned} notes over ${beats.toFixed(1)} beats, ${maxLive} in the air at most`);
+  check('and its music has somewhere to play from', !!box.emitter
+    && Math.hypot(box.emitter.x - propsBuild.boombox.x, box.emitter.z - propsBuild.boombox.z) < 1,
+    box.emitter ? `at (${box.emitter.x.toFixed(1)}, ${box.emitter.z.toFixed(1)})` : 'no emitter');
 }
 
 // --- The players on it ---------------------------------------------------------
