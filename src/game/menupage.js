@@ -10,6 +10,7 @@
  */
 
 import { isNative } from '../util/platform.js';
+import { RESOLUTIONS } from './settings.js';
 
 /** One element, with a class and optional text. */
 export function el(tag, className, text) {
@@ -72,6 +73,31 @@ function sliderRow(label, read, write) {
 }
 
 /**
+ * A row of mutually exclusive choices — a segmented control. One tap picks, where a dropdown would
+ * be two, and every option stays on screen to compare against.
+ */
+function choiceRow(label, options, read, write) {
+  const row = el('div', 'title-row title-choice');
+  const group = el('div', 'title-segments');
+  group.setAttribute('role', 'radiogroup');
+  group.setAttribute('aria-label', label);
+  const buttons = options.map(({ value, text }) => {
+    const b = el('button', 'title-segment', text);
+    b.type = 'button';
+    b.setAttribute('role', 'radio');
+    b.addEventListener('click', () => { write(value); paint(); });
+    group.append(b);
+    return { b, value };
+  });
+  const paint = () => {
+    for (const { b, value } of buttons) b.setAttribute('aria-checked', String(read() === value));
+  };
+  row.append(el('span', 'title-label', label), group);
+  paint();
+  return { row, paint };
+}
+
+/**
  * The Settings rows, appended to `body`. Returns `refresh()`, to be called each time the page comes
  * up: the sound switch is the one setting that can change from outside the page (M, or the other
  * screen's copy of it), so it is re-read rather than trusted.
@@ -110,8 +136,13 @@ export function settingsRows(body, { sound, settings }) {
     hapticRows.push(hapticsRow);
     body.append(hapticsRow.row);
   }
+  const resolutionRow = choiceRow('Resolution',
+    RESOLUTIONS.map((value) => ({ value, text: `${value}x` })),
+    () => settings.get().resolution, (value) => settings.set({ resolution: value }));
+  body.append(resolutionRow.row);
   return {
     refresh() {
+      resolutionRow.paint();
       soundRow.paint();
       musicRow.paint();
       sfxRow.paint();

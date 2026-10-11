@@ -48,7 +48,7 @@ import * as THREE from 'three';
  * behind a privacy setting and some return the masked value anyway, so both are read and the
  * unmasked one is only preferred when it is actually there.
  */
-function describeGpu(gl) {
+export function describeGpu(gl) {
   const ext = gl.getExtension('WEBGL_debug_renderer_info');
   const renderer = (ext && gl.getParameter(ext.UNMASKED_RENDERER_WEBGL))
     || gl.getParameter(gl.RENDERER);

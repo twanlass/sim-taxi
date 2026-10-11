@@ -1660,6 +1660,17 @@
       :is(#title-screen, #pause-veil) .title-toggle[aria-checked="true"] .title-switch { background: #F5C130; }
       :is(#title-screen, #pause-veil) .title-toggle[aria-checked="true"] .title-switch-dot { translate: 20px 0; }
 
+      /* A segmented control (Resolution): the picked segment is filled in the switch's yellow. */
+      :is(#title-screen, #pause-veil) .title-segments {
+        flex: none; display: flex; padding: 3px; gap: 2px; border-radius: 999px;
+        background: rgba(255, 255, 255, 0.18);
+      }
+      :is(#title-screen, #pause-veil) .title-segment {
+        min-width: 50px; padding: 6px 10px; border-radius: 999px; text-align: center;
+        font-size: 16px; font-weight: 600; transition: background 0.18s ease, color 0.18s ease;
+      }
+      :is(#title-screen, #pause-veil) .title-segment[aria-checked="true"] { background: #F5C130; color: #1a1a1a; text-shadow: none; }
+
       /* The range input, drawn by hand in both engines' spellings. `--fill` is set from script —
          neither engine has a standard part for the run left of the thumb. `touch-action: none` so
          a horizontal drag on a phone moves the thumb instead of being read as a page gesture. */
@@ -1989,6 +2000,28 @@
       }
       #diag[hidden] { display: none; }
       body.shot-mode #diag { display: none; }
+
+      /* The on-device benchmark — `?bench`, see src/game/bench.js. A status bar across the top
+         while it runs (above the pause button: nothing under it should be pressed mid-bench, and a
+         tap on it is swallowed so it can keep a phone awake), and the results table in the same
+         box once it is done. Same monospace as the readout above, for the same reason: it gets
+         photographed or copied off a phone. */
+      #bench {
+        position: fixed; z-index: 40;
+        left: calc(8px + var(--safe-left)); right: calc(8px + var(--safe-right));
+        top: calc(8px + var(--safe-top));
+        padding: 10px 12px; border-radius: 10px;
+        background: rgba(6, 14, 22, 0.9); color: #b8f0c8;
+        font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre-wrap; touch-action: none;
+      }
+      #bench p { margin: 6px 0 10px; }
+      #bench.is-done { bottom: calc(8px + var(--safe-bottom)); overflow: auto; }
+      #bench pre { margin: 0 0 10px; font: inherit; font-size: 10px; white-space: pre; overflow-x: auto; }
+      #bench button {
+        margin: 0 8px 0 0; padding: 8px 14px; border: 0; border-radius: 8px;
+        background: #b8f0c8; color: #06101a; font: 600 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
 
       #error {
         position: fixed; inset: 0; width: 100vw; height: 100vh; background: #2b1b1b; color: #ffb4a8;

@@ -1,7 +1,8 @@
 /**
  * The player's settings from the title screen, remembered across visits in `localStorage`.
  *
- * All but one live here: the two volume sliders, the tutorial tips and the haptics switch.
+ * All but one live here: the two volume sliders, the tutorial tips, the haptics switch and the
+ * resolution.
  * **Sound on/off is not
  * one of them** — it already had a home before this screen existed (`simTaxi.muted`, owned by
  * game/sfx.js, shared with the pause screen's pill and the M key), and a second copy of it here
@@ -28,7 +29,15 @@ export const DEFAULT_SETTINGS = Object.freeze({
   // `comboHaptics: false` is dropped rather than read as "haptics off": it chose the old knocks,
   // not silence.
   haptics: true,
+  // The pixel-ratio cap: how many canvas pixels per CSS pixel, at most. 2 is the look the game was
+  // built at; 1.5 is a third fewer pixels a side (44% fewer in all) and hard to tell from 2 on a
+  // phone; 1 visibly stair-steps. Added for Tyler to judge 1.5 on the device itself (2026-10-10),
+  // after `?bench` showed a warm iPhone throttling. `?dpr=` on the URL still beats it.
+  resolution: 2,
 });
+
+/** The resolutions the Settings page offers. */
+export const RESOLUTIONS = Object.freeze([2, 1.5, 1]);
 
 const unit = (v, fallback) => (typeof v === 'number' && Number.isFinite(v)
   ? Math.min(1, Math.max(0, v)) : fallback);
@@ -41,6 +50,7 @@ export function cleanSettings(raw) {
     effects: unit(src.effects, DEFAULT_SETTINGS.effects),
     tips: typeof src.tips === 'boolean' ? src.tips : DEFAULT_SETTINGS.tips,
     haptics: typeof src.haptics === 'boolean' ? src.haptics : DEFAULT_SETTINGS.haptics,
+    resolution: RESOLUTIONS.includes(src.resolution) ? src.resolution : DEFAULT_SETTINGS.resolution,
   };
 }
 

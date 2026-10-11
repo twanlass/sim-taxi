@@ -1794,6 +1794,25 @@ Already in safe mode and still losing it? It stops, and leaves the mirrored `Con
 screen saying so. A reload loop is worse than a black screen, because it also takes away the panel
 that would have explained it.
 
+### Heat — `game/governor.js`, and the paused still
+
+The first iPhone `?bench` (2026-10-10, [testing.md](testing.md#what-a-frame-costs-on-a-phone--bench))
+held 59.4 fps on 3.1 ms of CPU from cool, and the same baseline four minutes later read **52 fps
+with 16.6% of frames late** on an unchanged scene. The phone had throttled. Two things answer it:
+
+- **The governor** steps the pixel ratio down a notch (2 → 1.75 → 1.5 → 1.25 → 1, never below the
+  device's own 1) when a two-second window has 8% or more of its frames late, and back up after
+  thirty seconds clean. A step up that slips straight back doubles that wait, up to four minutes.
+  Ratio is the only lever that moves on a live renderer; every target behind the drawing buffer
+  already follows it, the same path recovery uses. Paused and finished runs don't count toward it,
+  and neither does a gap over two seconds (the page was away). It reacts to throttling and cannot
+  anticipate it: the display cap hides headroom. `?governor=off` holds the ratio, and `?bench`
+  turns it off so its rows stay one setting each. Its moves show up in `?diag`.
+- **The pause draws one still**, not sixty a second. A canvas that is not drawn keeps showing its
+  last frame, so the only thing that has to redraw under the veil is a resize.
+
+`?soak` (testing.md) is how either gets judged: one setting for twenty minutes, a row a minute.
+
 ### The renderer readout — `game/diag.js`
 
 `?diag` puts a six-line panel in the bottom-left corner. It is `pointer-events: none`, so the Loco
