@@ -7,7 +7,7 @@ import { PALETTE } from '../palette.js';
 import { unlitMaterial } from '../util/geo.js';
 import { markEmissive, setEmissiveScale } from './bloom.js';
 
-// The bank job: `?robbery=intro`. The robbery as it shipped is a drive-past — the empty taxi goes
+// The bank job: the robbery's opening, by default (`?robbery=classic` for the old drive-past). The robbery as it first shipped is a drive-past — the empty taxi goes
 // by the bank, a 20px figure runs 0.9s from the steps into a moving cab, and the world stops for
 // their line. Reported as hard to grok, and the reason is the trigger: the player is watching the
 // taxi or the next rider, not the bank's doorstep, so the one thing that explains the event (a
@@ -69,6 +69,17 @@ const FALL_SLIDE = 2.1;
 const FALL_FLAT = Math.PI / 2 - 0.08;
 /** How near the taxi's centre a landing may be: half the drawn body (2.0) and a figure's length. */
 const TAXI_CLEAR = 3.4;
+/**
+ * The hit in slow motion: from the shove until just before the bystander comes down, the cut runs
+ * at `IMPACT_SLOW` — robber, flight, notes and the alarm alike, since they all read the cut's own
+ * clock — and eases back to full speed over `IMPACT_EASE` of cut time, ending `IMPACT_LAND` before
+ * the landing so the bounce and skid play at 1x. Only the cut's clock: the world is already stopped
+ * and the camera keeps wall time, so the push-in doesn't stall. 0.3 x (0.6 − 0.08) of flight is
+ * ~1.6s of wall time on the shove.
+ */
+const IMPACT_SLOW = 0.3;
+const IMPACT_EASE = 0.1;
+const IMPACT_LAND = 0.08;
 /** How limp they are once down: the arms and legs still stir, at a tenth of the flail. */
 const LIE_LIMP = 0.9;
 /** Lying there for this long once the world is back, then up, and a jog back to their spot. */
@@ -371,15 +382,24 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
     fare.boardingSide = cut.side;
   }
 
+  /** The cut's time scale, `since` seconds of cut time after the shove: 1, then `IMPACT_SLOW`. */
+  function impactScale(since) {
+    const end = FALL_AIR - IMPACT_LAND;
+    if (since < 0 || since >= end) return 1;
+    const back = Math.max(0, (since - (end - IMPACT_EASE)) / IMPACT_EASE);
+    return IMPACT_SLOW + (1 - IMPACT_SLOW) * back * back * (3 - 2 * back);
+  }
+
   /**
    * One frame of the cut, on wall time. Returns true on the frame the robber is in and the cut
    * is over — main.js opens the robber's line on it.
    */
-  function update(dt, aspectRatio) {
+  function update(wallDt, aspectRatio) {
     if (!cut || cut.done) return false;
+    controller.focusOn(cut.focus.x, cut.focus.z, cut.focus.zoom, wallDt, aspectRatio, CUT_SMOOTHING);
+    const dt = wallDt * impactScale(cut.t - LEAD_IN - cut.contactAt);
     cut.t += dt;
     const time = cut.t - LEAD_IN;
-    controller.focusOn(cut.focus.x, cut.focus.z, cut.focus.zoom, dt, aspectRatio, CUT_SMOOTHING);
     flash(dt, true);
     poseRobber(Math.min(time, cut.runFor + HOP));
 

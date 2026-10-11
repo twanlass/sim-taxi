@@ -1280,7 +1280,7 @@ export function createFareSystem(rng, scene, {
       // with a door in place of a kerb corner.
       boardingFrom: { x: from.x, z: from.z },
       boarding: 0,
-      // `?robbery=intro`: the run to the cab is somebody else's (game/bankjob.js), played while the
+      // The bank job (the default; not `?robbery=classic`): the run to the cab is somebody else's (game/bankjob.js), played while the
       // world is stopped, and the figure and the crystal are handed back by `boardScripted`.
       scripted,
       ringLevel: null,

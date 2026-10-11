@@ -914,10 +914,10 @@ const robberLine = city.bank && !shot
     },
   })
   : null;
-// `?robbery=intro`: the robbery opens on a cut — the alarm, the robber out of the door, a
+// The robbery opens on a cut (`?robbery=classic` for the old drive-past) — the alarm, the robber out of the door, a
 // bystander shoved over, the run to the cab — before the robber's line. See game/bankjob.js; the
 // module itself is built further down, once the cash trail it sheds notes into exists.
-const robberyIntro = new URLSearchParams(window.location.search).get('robbery') === 'intro';
+const robberyIntro = new URLSearchParams(window.location.search).get('robbery') !== 'classic';
 const robbery = city.bank && !shot
   ? createRobbery({
     site: city.bank,
@@ -1337,8 +1337,8 @@ const copLights = createCopLights(scene, { enabled: !budget.safe });
 // Banknotes off the back of a boosting getaway — the one part of the robbery that pays the player
 // back while the risk is being taken rather than at the drop-off. See game/cashtrail.js.
 const cashTrail = createCashTrail(scene, makeRng(runSeed + 211));
-// The bank job's cut — see `robberyIntro` above and game/bankjob.js. Null without the flag, and on
-// a city with no robbery.
+// The bank job's cut — see `robberyIntro` above and game/bankjob.js. Null under `?robbery=classic`,
+// and on a city with no robbery.
 const bankJob = robbery && robberyIntro
   ? createBankJob({
     scene,
