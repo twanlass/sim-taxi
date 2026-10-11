@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
+import { centralParkGround } from './centralpark.js';
 import {
   GRID_I, GRID_J, ROAD_W, SPAN_X, SPAN_Z, lineX, lineZ,
   isUnsignalised, isSegmentClosed, halfRoadX, halfRoadZ, isArterialX, isArterialZ,
@@ -356,6 +357,11 @@ export function createGround(rng, blocks) {
       jitterColor(PALETTE.park, rng, { l: 0.03 }),
       KERB_H + 0.01,
     ));
+  }
+
+  // --- The central park (`?city=big`): two lawns shaped round the road that curves between them.
+  if (blocks.centralPark) {
+    parts.push(...centralParkGround(blocks.centralPark, rng, { kerbH: KERB_H, markY: MARK_Y }));
   }
 
   // --- Block platforms: raised kerb + sidewalk surface, or grass for parks.

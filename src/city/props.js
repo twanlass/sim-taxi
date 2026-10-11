@@ -564,6 +564,8 @@ const centreOf = (area) => ({
 /** The park plots of a city: the merged districts, then whatever lone pocket parks are left. */
 export function parkPlots(blocks) {
   const plots = (blocks.districts ?? []).map((d) => ({ bounds: d.bounds, district: true }));
+  // The central park plants as its two lawns, each cut back to clear the road between them.
+  for (const half of blocks.centralPark?.halves ?? []) plots.push({ bounds: half, district: true });
   for (const block of blocks) {
     if (block.type !== 'park') continue;
     if (block.districtId !== null && block.districtId !== undefined) continue;
