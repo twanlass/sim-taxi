@@ -79,6 +79,7 @@ import { createBirds, chooseRoosts } from './game/birds.js';
 import { createDucks } from './game/ducks.js';
 import { createHoopers } from './game/hoopers.js';
 import { createBoombox } from './game/boombox.js';
+import { createLTrain } from './game/ltrain.js';
 import { courtRect } from './city/blacktop.js';
 import { createSkaters } from './game/skaters.js';
 import { createClassicSkaters } from './game/skatersclassic.js';
@@ -653,6 +654,13 @@ if (props.skateMesh) scene.add(markOccluder(props.skateMesh));
 const skaterFlag = new URLSearchParams(window.location.search).get('skater');
 const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters)(
   scene, makeRng(runSeed + 349), props.skatepark, { stiff: skaterFlag === 'stiff' });
+
+// The elevated train over the east-west arterial's median (`?ltrain=on`, a prototype — see
+// game/ltrain.js). Built here rather than beside the boats because the entrance wave below has to
+// be handed it. Run seed: where the line runs is the arterial's, so the map's already; which way
+// the first train goes and how long the line stands empty is the situation.
+const ltrain = new URLSearchParams(window.location.search).get('ltrain') === 'on' || shot?.atLTrain
+  ? createLTrain(scene, makeRng(runSeed + 421)) : null;
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
 // subject of the opening vignette below. `null` on a city with nowhere to put one, which is a
@@ -1306,7 +1314,8 @@ const cityEntry = createCityEntry({
   // depot's wrench and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
-    ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects],
+    ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
+    ...(ltrain?.entryObjects ?? [])],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
     ...(burger ? [burger.entrySite] : [])],
   dust,
@@ -4362,6 +4371,24 @@ function nearestGulls() {
   return best;
 }
 
+// What the L's deck must not hide (game/ltrain.js): the taxi, every rider waiting on a kerb and
+// the drop-off pin of the fare aboard. Reused rather than allocated per frame.
+const ltrainFade = [];
+function ltrainFadePoints() {
+  ltrainFade.length = 0;
+  const t = traffic.taxi;
+  ltrainFade.push({ x: t.x, z: t.z });
+  for (const slot of fares.slots) {
+    for (const pin of [slot.passenger.group, slot.destination.group]) {
+      if (!pin.visible || !slot.root.visible) continue;
+      pin.getWorldPosition(ltrainProbe);
+      ltrainFade.push({ x: ltrainProbe.x, z: ltrainProbe.z });
+    }
+  }
+  return ltrainFade;
+}
+const ltrainProbe = new THREE.Vector3();
+
 /** The ambient beds' levels for this frame — handed to `sfx.update` as `ambient`. */
 function ambientLevels() {
   const t = traffic.taxi;
@@ -4375,6 +4402,10 @@ function ambientLevels() {
   // — and a pin for it beside the court's in `soundSources` below.
   const gulls = nearestGulls();
   if (gulls) out.seagulls = placeAt(gulls.x, gulls.z, 4);
+  // The L's rumble goes here once there is a recording for it, keyed like the gulls and swelling
+  // with the train's own speed (`ltrain.emitter()` is null while the line is empty):
+  //   const el = ltrain?.emitter();
+  //   if (el) out.ltrain = { ...placeAt(el.x, el.z, el.y), level: el.level };
   // Rain is where the taxi is: the squall's cell grown by the lens's reach, so it is heard a little
   // before the drops land; the storm is the whole city at once. Not placed — it is all around.
   const rainLevel = squall ? squall.rainNear(t.x, t.z, LENS_REACH) : storm ? storm.state.rain : 0;
@@ -5008,6 +5039,10 @@ function tick() {
   // the second argument so the bounce and the notes land on the track's beat (game/boombox.js).
   boombox.update(dt);
   skaters.update(dt);
+  if (ltrain) {
+    ltrain.update(dt);
+    ltrain.setFadePoints(ltrainFadePoints());
+  }
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
   burger?.update(dt, SIGN_SPIN);
@@ -5901,6 +5936,11 @@ if (shot) {
     controller.state.target.set(hoopers.court.x, 0, hoopers.court.z);
     controller.update(aspect());
   }
+  // And the L, framed on its median a block off the middle, where the train is settled below.
+  if (shot.atLTrain && ltrain) {
+    controller.state.target.set(10, 0, ltrain.plan.z);
+    controller.update(aspect());
+  }
   // And the skatepark, the same way.
   if (shot.atSkatepark && skaters.park) {
     controller.state.target.set(skaters.park.x, 0, skaters.park.z);
@@ -6134,6 +6174,11 @@ if (shot) {
   // one. `settle` places one of each beside the lifting span instead of waiting a minute for a tug.
   boats?.settle();
   drawbridge?.settle();
+  // A train mid-crossing over the frame's own target, and the deck already faded over the board.
+  if (ltrain) {
+    ltrain.settle(controller.state.target.x);
+    ltrain.setFadePoints(ltrainFadePoints());
+  }
   // The city's own entrance is an animation that opens at zero too — unsettled, every screenshot
   // is an empty street grid.
   cityEntry.settle();
@@ -6427,6 +6472,8 @@ window.__taxi = {
   boombox,
   /** The riders on the skatepark, and `skaters.park` the park — absent if the city has none. */
   skaters,
+  /** The elevated train, or null without `?ltrain=on` — see game/ltrain.js. */
+  ltrain,
   roadwork,
   /** The truck that sheds crates. `flatbed.stage()` starts it now; `state`, `crates`, `loose()`. */
   flatbed,

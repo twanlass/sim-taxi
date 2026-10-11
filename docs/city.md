@@ -228,6 +228,28 @@ round to 331°. Nearest approach to anything the player acts on is **27°**, and
 the same way it asserts the roadworks orange. That the range comes out cool and slightly wild is a
 consequence of the constraint rather than a choice, and it happens to suit municipal bedding.
 
+### The elevated train (`?ltrain=on`, a prototype)
+
+`game/ltrain.js` stands a Chicago-style L over the east-west arterial: a steel deck on a column
+at each nose of every planted island, two tracks, and one four-car train that crosses the island,
+waits off the end, and comes back on the other track. Behind a flag while it is a prototype; shots
+`ltrain` and `ltrain-far` turn it on themselves.
+
+- **The median is why it is on the arterial.** It is the one strip running the width of the city
+  that no car drives on, so the columns need no clearance rule of their own: `planLTrain` reads
+  `medianRuns()` and stands a bent `COLUMN_NOSE` in from each end. A park built over the arterial
+  leaves a gap with no island, and the deck spans it on the bents either side.
+- **The deck stops at 2.15 off the centreline**, short of every lane's inner flank (2.33 for a
+  truck), so nothing driving under it reaches it whatever its height. The probe asserts it against
+  `laneOffX` and the vehicle widths, not against the number.
+- **It is low (deck top 3.3) because of the camera.** Anything `h` tall hides the ground about
+  `1.09h` behind it on each axis. What it does hide, it dithers out over: the taxi and every
+  visible fare pin are projected up their sightline to the deck and the deck goes see-through
+  there (`FADE_*`). Off the island it dithers out the same way, a little ahead of the ground's own
+  fade, which reads as gone sooner than its alpha says.
+- **Not done:** no stations, no sound (the rumble hook is commented in `ambientLevels`), no lamps at
+  night, and the entrance wave grows the whole line from its middle as one object.
+
 ## Layout: what a block *is*
 
 `layout.js` decides each block's identity before anything is built, so ground, buildings and props

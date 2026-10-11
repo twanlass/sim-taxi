@@ -1132,6 +1132,23 @@ export const PALETTE = {
   soundNear: '#FFB347',
   soundFar: '#5EC8FF',
   soundEar: '#FFFFFF',
+
+  // The elevated train (`?ltrain=on`, game/ltrain.js). The structure is the L's own riveted steel:
+  // a dark green-grey, which is what Chicago paints it and what keeps a 160-unit girder reading as
+  // infrastructure behind the toy-coloured traffic rather than as one more thing to look at. Its
+  // concrete footings are the kerb's family; the ties are old timber.
+  ltrainSteel: '#4F5D58',
+  ltrainSteelDark: '#3E4945',
+  ltrainFooting: '#A9A59B',
+  ltrainTie: '#5C4A3C',
+  ltrainRail: '#9A9C98',
+  // The train: brushed stainless with a red stripe and a dark window band, like the 5000-series
+  // cars. Not white — the body is the biggest bright thing in its block and pure white blooms.
+  ltrainBody: '#C4C9CC',
+  ltrainRoof: '#8F969A',
+  ltrainStripe: '#C8463B',
+  ltrainGlass: '#2C3742',
+  ltrainUnder: '#33373A',
 };
 
 export function color(value) {
