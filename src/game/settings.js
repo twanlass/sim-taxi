@@ -1,8 +1,8 @@
 /**
  * The player's settings from the title screen, remembered across visits in `localStorage`.
  *
- * All but one live here: the two volume sliders, the tutorial tips, the haptics switch and the
- * resolution.
+ * All but one live here: the two volume sliders, the tutorial tips, the haptics switch, the
+ * resolution and the frame rate.
  * **Sound on/off is not
  * one of them** — it already had a home before this screen existed (`simTaxi.muted`, owned by
  * game/sfx.js, shared with the pause screen's pill and the M key), and a second copy of it here
@@ -34,7 +34,14 @@ export const DEFAULT_SETTINGS = Object.freeze({
   // phone; 1 visibly stair-steps. Added for Tyler to judge 1.5 on the device itself (2026-10-10),
   // after `?bench` showed a warm iPhone throttling. `?dpr=` on the URL still beats it.
   resolution: 2,
+  // Frames per second, at most. 30 halves everything the GPU and the sim do per second, which is
+  // the one lever that stays big at any resolution: an iPhone at 1x still ran warm and lost about
+  // 1% of battery a minute (Tyler, 2026-10-11). `?fps=` on the URL beats it.
+  frameRate: 60,
 });
+
+/** The frame rates the Settings page offers. */
+export const FRAME_RATES = Object.freeze([60, 30]);
 
 /** The resolutions the Settings page offers. */
 export const RESOLUTIONS = Object.freeze([2, 1.5, 1]);
@@ -51,6 +58,7 @@ export function cleanSettings(raw) {
     tips: typeof src.tips === 'boolean' ? src.tips : DEFAULT_SETTINGS.tips,
     haptics: typeof src.haptics === 'boolean' ? src.haptics : DEFAULT_SETTINGS.haptics,
     resolution: RESOLUTIONS.includes(src.resolution) ? src.resolution : DEFAULT_SETTINGS.resolution,
+    frameRate: FRAME_RATES.includes(src.frameRate) ? src.frameRate : DEFAULT_SETTINGS.frameRate,
   };
 }
 

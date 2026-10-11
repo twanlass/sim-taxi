@@ -359,6 +359,7 @@ const governor = createGovernor({
   budget,
   enabled: !shot && new URLSearchParams(window.location.search).get('governor') !== 'off',
   onChange: (text) => diag.note(text),
+  targetMs: () => 1000 / Math.min(60, frameRateCap()),
 });
 // The Resolution setting, live: the cap moves and the governor re-derives its ratio from it. Not
 // while `?dpr=` pins it, nor under `?safe`, whose whole point is the cheapest budget.
@@ -4717,8 +4718,18 @@ let bench = null;
 
 // The rAF callback is a wrapper so the bench can time the whole of `tick`, early returns and all.
 // Still named `frame`: tools/perf.mjs closes its per-frame counters on the callback's name.
+// The frame-rate cap: `?fps=30` or the Settings choice. Under 30 every other vsync is skipped
+// outright — nothing is stepped or drawn — and `tick` picks up the longer gap through the clock's
+// own delta. The 4 ms of slack is so a vsync that lands a hair early is not skipped as well, which
+// would drop the rate to 20.
+const fpsPin = Number.parseInt(new URLSearchParams(window.location.search).get('fps'), 10);
+const frameRateCap = () => (shot ? 60 : fpsPin > 0 ? fpsPin : settings.get().frameRate);
+let lastFrameAt = 0;
+
 function frame(t) {
   requestAnimationFrame(frame);
+  if (frameRateCap() < 60 && t - lastFrameAt < 1000 / frameRateCap() - 4) return;
+  lastFrameAt = t;
   bench?.begin(t);
   tick();
   bench?.end();

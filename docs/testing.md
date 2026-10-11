@@ -379,17 +379,23 @@ non-deterministic to a frozen frame. It does change every reference shot once, b
 
 `tools/perf.mjs` counts draws exactly but runs on SwiftShader, so its times mean nothing. `?bench`
 is the other half: open it on the phone, tap Start, and it reloads the game once per setting
-(baseline, `dpr` 1.5 and 1, `msaa=off`, `shadows` 1024 and off, `ao=off`, `bloom=off`, a squall
-pinned overhead, `?safe`, baseline again), each time on the same pinned city with the taxi driving
+(baseline, `dpr=1`, `msaa=off`, `shadows` 1024 and off, `ao=off`, `bloom=off`, `fps=30`, a
+squall pinned overhead, everything off at once, baseline again), each time on the same pinned city with the taxi driving
 itself, and ends on a table with a Copy button. About five minutes in all
 (`src/game/bench.js`).
 
 Reading it:
 
-- **`fps` is capped by the display**, so on a phone that already holds 60 every row says 60. The
-  `cpu` column (time inside the frame callback: the game's JS plus three's draw submission, not the
-  GPU) and `jank` (% of frames over 1.5 vsyncs) still move, and `vs base` switches to `cpu` when
-  both rows are capped.
+- **`fps` is capped by the display**, so on a phone that already holds 60 every row says 60, and
+  the first version of the bench could not rank the GPU settings at all. **`work`** fixes that:
+  each measured frame ends with a one-pixel `readPixels`, which cannot return until the GPU has
+  finished the frame, so it is the frame's whole cost, GPU included. **`busy%`** is work as a
+  share of wall time, the closest thing to power a web page can see, and `vs base` compares it.
+  The read stalls the pipeline, so `fps` and `jank` run a little worse under the bench than in
+  play. `cpu` is the JS alone.
+- **Heat is not pixels alone.** The first bench's motivating report was a phone running warm at
+  *1x* (Tyler, 2026-10-11), so the rows that do not depend on resolution (shadows, the frame rate)
+  are the ones to read first.
 - **The two baselines bracket thermal drift.** A row that beats the first baseline by less than the
   second one moved has not shown anything.
 - One reload per row, because MSAA and AO cannot change on a live renderer. The state rides in the
