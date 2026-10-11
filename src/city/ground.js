@@ -467,6 +467,10 @@ export function createGround(rng, blocks) {
       // skipped too — an arched deck is not at y = 0 and a flat quad laid at 0.02 would sink into
       // it, so the span paints its own (`geometry/bridge.js`).
       if (axis === 'z' && (isRiverGap(k) || isSegmentClosed(line, k, 1))) continue;
+      // A closed X road was always under a district's platform — until the central park
+      // (`?city=big`), whose curving road opens the asphalt where the old straight one ran and
+      // showed its dashes through. Skipping it everywhere is free: nothing else ever saw them.
+      if (axis === 'x' && isSegmentClosed(k, line, 0)) continue;
       const from = along(k) + (axis === 'z' ? halfRoadX(k) : halfRoadZ(k));
       const to = along(k + 1) - (axis === 'z' ? halfRoadX(k + 1) : halfRoadZ(k + 1));
 

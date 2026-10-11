@@ -170,8 +170,8 @@ function flat(shape, y, col) {
 
 /**
  * The park's ground: per lawn, a kerb extruded off its polygon, the walk round it and the grass in
- * the middle — the same three layers `parkSurface` lays on a rectangle, at the same heights — then
- * the dashed centre line down the S. The asphalt under the road is the city slab showing through
+ * the middle — the same three layers `parkSurface` lays on a rectangle, at the same heights — then,
+ * on a one-way road, its arrows. The asphalt under the road is the city slab showing through
  * the gap between the two lawns.
  */
 export function centralParkGround(park, rng, { kerbH, markY }) {
@@ -191,11 +191,9 @@ export function centralParkGround(park, rng, { kerbH, markY }) {
     parts.push(flat(shapeOf(grass), kerbH + 0.01, jitterColor(PALETTE.park, rng, { l: 0.03 })));
   });
 
-  // Centre-line dashes, laid along the arcs by arc length so they keep their pitch round the bends.
-  // Starts and stops a junction's half-width in from each end node; through the middle node it runs
-  // on, because nothing crosses there.
-  const DASH = 1.6;
-  const GAP = 1.4;
+  // No centre line: a park drive reads as a drive, not a street (Tyler's call). A one-way road
+  // still gets its arrows, laid along the arcs by arc length so they keep their pitch round the bends.
+  if (!park.oneway) return parts;
   const markColor = color('laneMark');
   const total = park.arcs.reduce((sum, arc) => sum + arc.length, 0);
   const pointAt = (s) => {
@@ -203,18 +201,7 @@ export function centralParkGround(park, rng, { kerbH, markY }) {
     const local = arc === park.arcs[0] ? s : s - park.arcs[0].length;
     return { p: arc.at(local), t: arc.tangentAt(local) };
   };
-  if (park.oneway) {
-    parts.push(...onewayArrows(pointAt, total, park.oneway, markColor, markY));
-    return parts;
-  }
-  for (let s = HALF_ROAD + 1; s + DASH < total - HALF_ROAD - 1; s += DASH + GAP) {
-    const { p, t } = pointAt(s + DASH / 2);
-    const geo = new THREE.PlaneGeometry(DASH, 0.16);
-    geo.rotateX(-Math.PI / 2);
-    geo.rotateY(-Math.atan2(t.z, t.x));
-    geo.translate(p.x, markY, p.z);
-    parts.push(bakeColor(geo, markColor));
-  }
+  parts.push(...onewayArrows(pointAt, total, park.oneway, markColor, markY));
   return parts;
 }
 
