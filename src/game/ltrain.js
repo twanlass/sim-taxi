@@ -13,18 +13,18 @@ import { markOccluder } from './ssao.js';
 // The elevated train (`?ltrain=on`): a Chicago-style L on a steel structure down the east-west
 // arterial, with one train shuttling along it.
 //
-// **Columns on the arterial's planted median, deck over the whole street.** The columns need
-// somewhere to stand that no car drives on, and the median is the only such strip that runs the
-// width of the city. The deck then cantilevers out over both carriageways on a hammerhead cap, so
-// the traffic drives *under* the line rather than beside it.
+// **One track, on columns in the arterial's planted median.** The columns need somewhere to stand
+// that no car drives on, and the median is the only such strip that runs the width of the city.
+// A double-track deck spanning both carriageways was tried and read well, but covered three times
+// the road; a single track over the median keeps the city underneath in view.
 //
 // **High enough to read as high.** The first cut kept the deck low (3.3) and over the median alone,
 // on the camera's arithmetic: the view climbs 0.92 per unit in both x and z, so anything `h` tall
 // hides about `1.09h` of ground behind it on each axis. That was the right number and the wrong
 // answer — at play zoom a low deck beside the lanes projected onto the road as one more strip of
 // paving, and it read as a railway cut through the city at street level (Tyler, 2026-10-11). What
-// says *raised* from this camera is cars visibly going in under it and a tall shadow-casting column
-// with daylight either side, so the deck is at 6.4 and the cost — more ground hidden behind it — is
+// says *raised* from this camera is a tall column with daylight and traffic either side of it and
+// a shadow landing well off the deck, so the deck is at 6.4 and the cost — more ground hidden behind it — is
 // paid by the fade below rather than by keeping it low.
 //
 // **Faded where it covers something that matters.** The taxi already has its ghost outline for
@@ -33,8 +33,8 @@ import { markOccluder } from './ssao.js';
 // `FADE_*` below.
 //
 // The train is one merged mesh on a straight line, so it moves by translation alone: no curve to
-// follow, no per-car transform. It runs off one end of the island, waits, and comes back on the
-// other track — a shuttle reads as one train on a line that goes somewhere, which a loop on a
+// follow, no per-car transform. It runs off one end of the island, waits, and comes back the
+// other way — a shuttle reads as one train on a line that goes somewhere, which a loop on a
 // straight line could not.
 
 // --- The structure ------------------------------------------------------------------------------
@@ -46,22 +46,20 @@ const GIRDER_D = 0.6;
 export const DECK_UNDERSIDE = DECK_TOP - GIRDER_D;
 
 /**
- * The two tracks' offsets either side of the median's centreline.
- *
- * Right-hand running, like the traffic under it: an eastbound train is on the +z track, the same
- * side `laneOffsetCoord` puts an eastbound car.
+ * The track's offset off the median's centreline: **zero, one track.** Two tracks put the deck out
+ * over both carriageways (Tyler, 2026-10-11: "a single to keep it simple / obscure less"), and a
+ * single line down the middle is a third of the width. The one train shuttles both ways on it.
  */
-export const TRACK_OFF = 2.2;
+export const TRACK_OFF = 0;
+const TRACKS = [TRACK_OFF];
 
 /**
- * Half the deck's width, girder face to girder face.
- *
- * Out over the lanes (centred 3.33 off the middle), so a car in either carriageway is under the
- * deck, and short of the kerb (5.33) so the pavement and the fares on it stay open to the sky.
- * Everything under it clears by height instead: the probe holds the cap's underside above the
- * tallest vehicle and the street lamps' arms.
+ * Half the deck's width, girder face to girder face: the train's half-width and a walkway's worth.
+ * Over the median and its shoulders, and short of every lane's inner flank (2.33 for a truck) — but
+ * the probe still holds the cap above the tallest vehicle and the street lamps, so the deck can be
+ * widened again without anything under it having to be re-measured.
  */
-export const DECK_HALF_W = 4.1;
+export const DECK_HALF_W = 1.35;
 
 const GIRDER_W = 0.22;
 const STRINGER_D = 0.32;
@@ -89,7 +87,7 @@ const FOOTING_W = 1.05;
 const FOOTING_H = 0.22;
 const CAP_W = 0.7;
 const BRACE_DROP = 1.4;
-const BRACE_REACH = 2.2;
+const BRACE_REACH = 1.0;
 const CAP_H = 0.45;
 /** Underside of the hammerhead cap — the lowest thing over a lane. */
 export const CAP_UNDERSIDE = DECK_TOP - GIRDER_D - CAP_H;
@@ -258,8 +256,7 @@ export function planLTrain() {
     from: -LINE_END(),
     to: LINE_END(),
     columns,
-    // Eastbound on +z, westbound on -z: right-hand running, like the cars underneath.
-    tracks: { east: z + TRACK_OFF, west: z - TRACK_OFF },
+    track: z + TRACK_OFF,
     laneOff: laneOffX(line),
   };
 }
@@ -282,12 +279,12 @@ function buildDeck(plan) {
 
   // Two fascia girders, a stringer under each rail and floor beams across — and **no slab**. An
   // L deck is open steel with ties on it, and from a camera looking down at 33 degrees that is the
-  // difference between a structure the traffic is driving under and a roof over the street: through
-  // the ties you see the cars, the lane paint and the deck's own striped shadow below.
+  // difference between a structure and a roof: through the ties you see the median and the deck's
+  // own striped shadow below.
   for (const s of [-1, 1]) {
     parts.push(box(len, GIRDER_D, GIRDER_W, mid, DECK_TOP - GIRDER_D / 2, s * (DECK_HALF_W - GIRDER_W / 2), steel));
   }
-  for (const t of [-TRACK_OFF, TRACK_OFF]) {
+  for (const t of TRACKS) {
     for (const r of [-GAUGE / 2, GAUGE / 2]) {
       parts.push(box(len, STRINGER_D, STRINGER_W, mid, DECK_TOP - STRINGER_D / 2, t + r, dark));
     }
@@ -303,7 +300,7 @@ function buildDeck(plan) {
     }
   }
   // The track: open ties and two rails per side.
-  for (const t of [-TRACK_OFF, TRACK_OFF]) {
+  for (const t of TRACKS) {
     for (let x = plan.from + TIE_PITCH / 2; x < plan.to; x += TIE_PITCH) {
       parts.push(box(TIE_W, TIE_H, TIE_LEN, x, DECK_TOP + TIE_H / 2, t, PALETTE.ltrainTie));
     }
@@ -438,7 +435,7 @@ export function createLTrain(scene, rng) {
   };
 
   const place = () => {
-    const trackZ = state.dir > 0 ? TRACK_OFF : -TRACK_OFF;
+    const trackZ = TRACK_OFF;
     body.position.set(state.x, RAIL_TOP, trackZ);
     body.visible = state.phase === 'run';
   };
@@ -524,7 +521,7 @@ export function createLTrain(scene, rng) {
      * empty. The level is its speed as a share of cruise, so it swells in and out with the ramps.
      */
     emitter: () => (state.phase === 'run'
-      ? { x: state.x, z: plan.z + (state.dir > 0 ? TRACK_OFF : -TRACK_OFF), y: RAIL_TOP, level: state.speed / SPEED }
+      ? { x: state.x, z: plan.z + TRACK_OFF, y: RAIL_TOP, level: state.speed / SPEED }
       : null),
     runTime,
   };

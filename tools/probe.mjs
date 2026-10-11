@@ -19375,15 +19375,15 @@ let chopperOrder; // likewise
       const closedHere = runs.length < GRID_I;
       if (gap > 16 && !closedHere) wideSpan += 1;
     }
-    // The deck covers the lanes and stops short of the kerb, where the fares stand.
-    if (L.DECK_HALF_W <= laneOffX(plan.line) || L.DECK_HALF_W >= laneOffX(plan.line) + LANE_TO_KERB) laneClash += 1;
+    // The deck stays short of the kerb, where the fares stand.
+    if (L.DECK_HALF_W >= laneOffX(plan.line) + LANE_TO_KERB) laneClash += 1;
   }
   createLayout(makeRng(seed));     // put the probe's city back — `createLayout` installs its network
   check('ltrain: every city with an east-west arterial gets a line', planned === 20, `${planned}/20`);
   check('ltrain: every column stands on a planted island or out past the ring road',
     offIsland === 0, `${offIsland} in a junction or a lane`);
   check('ltrain: no span longer than a junction crossing, except over a park', wideSpan === 0, `${wideSpan}`);
-  check('ltrain: the deck spans both carriageways and stops short of the kerb',
+  check('ltrain: the deck stops short of the kerb',
     laneClash === 0, `deck half-width ${L.DECK_HALF_W} against lane ${laneOffX(planLTrain().line).toFixed(2)}`);
   // ...so everything under it has to clear by height: the tallest vehicle (a box truck's box, off
   // its own geometry) and the street lamps, whose arms reach out over the arterial's lanes.
@@ -19398,18 +19398,18 @@ let chopperOrder; // likewise
   // Two minutes of timetable: it leaves, crosses, turns round on the other track, and never leaves
   // the line.
   const lt = createLTrain(new THREE.Scene(), makeRng(9));
-  const tracksSeen = new Set();
+  const dirsSeen = new Set();
   let outside = 0;
   let runs0 = lt.state.runs;
   for (let n = 0; n < 60 * 120; n++) {
     lt.update(1 / 60);
     if (lt.state.phase !== 'run') continue;
-    tracksSeen.add(Math.sign(lt.body.position.z));
+    dirsSeen.add(lt.state.dir);
     if (lt.state.x < lt.plan.from - 1e-6 || lt.state.x > lt.plan.to + 1e-6) outside += 1;
   }
-  check('ltrain: the train shuttles on both tracks and stays on the line',
-    tracksSeen.size === 2 && outside === 0 && lt.state.runs - runs0 >= 3,
-    `${lt.state.runs - runs0} runs, tracks ${[...tracksSeen].join('/')}, ${outside} frames off the line`);
+  check('ltrain: the train shuttles both ways and stays on the line',
+    dirsSeen.size === 2 && outside === 0 && lt.state.runs - runs0 >= 3,
+    `${lt.state.runs - runs0} runs, directions ${[...dirsSeen].join('/')}, ${outside} frames off the line`);
 
   // The dither patch, run rather than trusted: a replace that stops matching hands back the shader
   // untouched and the deck stops fading with nothing logged.
