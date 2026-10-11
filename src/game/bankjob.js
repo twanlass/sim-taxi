@@ -16,7 +16,7 @@ import { markEmissive, setEmissiveScale } from './bloom.js';
 // So the event opens on a cut instead. The robbery's line already stops the world (game/robberline.js),
 // and this stops it one beat earlier and spends the stop on the thing worth seeing:
 //
-//   1. The alarm boxes on the bank start flashing and the camera pulls in on the steps.
+//   1. The red alarm light over the bank's door starts flashing and the camera pulls in.
 //   2. The robber bursts out of the portico with the sack shedding notes (the getaway's own cash
 //      trail, game/cashtrail.js, fed from the robber instead of the tailpipe), shoves the bystander
 //      who was waiting on the pavement over, and runs for the cab's open door.
@@ -97,7 +97,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const dist = (a, b) => Math.hypot(b.x - a.x, b.z - a.z);
 
 /**
- * @param scene      the scene the bystander and the alarm boxes go into
+ * @param scene      the scene the bystander and the alarm light go into
  * @param site       the bank (`city.bank`, from `buildBank`)
  * @param cashTrail  game/cashtrail.js — the notes the sack sheds
  * @param controller the city camera (game/camera.js)
