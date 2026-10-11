@@ -392,7 +392,7 @@ function nearestJunction(x, z) {
  *                 main.js holds it for the robber's line (game/robberline.js): the world stops, the
  *                 robber shouts, and the cops arrive on the tap that clears it. False — the tools'
  *                 default — raises it on the same frame, as it always did.
- * @param scripted true to hand the robber's run to the cab to somebody else (`?robbery=intro`,
+ * @param scripted true to hand the robber's run to the cab to somebody else (the bank job,
  *                 game/bankjob.js) rather than the fare loop's boarding animation — see
  *                 `spawnRobber` in game/fares.js.
  */

@@ -2096,14 +2096,15 @@ Its own element and pool rather than `#coach` and `#spotlight`: the tutorial's L
 mid-showing when a robbery lands, and `body.robber-talk` hides it meanwhile. The tools construct the
 robbery without `holdAlarm`, so the headless suite still sees the police on the frame it fires.
 
-### The bank job (`?robbery=intro`)
+### The bank job
 
-`game/bankjob.js`, behind a flag while it is tried out. The robber's line fixed the event arriving
+`game/bankjob.js`, the default since it was tried out behind a flag; `?robbery=classic` keeps the
+old drive-past. The robber's line fixed the event arriving
 all at once, but not the thing it was reported for: you never *see* the robber get in. The trigger
 is a drive-past, so the player is looking at the taxi or the next rider while a 20px figure runs
 0.9s from the steps into the cab.
 
-So under the flag the event opens on a cut, and the world stops **one beat earlier** than the line
+So the event opens on a cut, and the world stops **one beat earlier** than the line
 would stop it anyway:
 
 1. One red alarm light on the bank's entablature, over the doorway (`bankFrontage` in
@@ -2112,13 +2113,16 @@ would stop it anyway:
    trail, fed from the robber), shoves the **bystander** who is always waiting on the
    pavement outside the bank clean off their feet (airborne, spun, a bounce and a skid, then
    dazed and stirring on the ground — never landing on the cab), and sprints for the cab's door, which swings open as they arrive.
-3. They hop in, and the robber's line takes over exactly as it does without the flag.
+3. They hop in, and the robber's line takes over exactly as it does under `?robbery=classic`.
 
-About 2.6s of wall time, and a tap (or Space/Enter) skips straight to step 3. The alarm keeps going
+The shove plays in **slow motion**: from contact until just before the bystander comes down the
+cut's clock runs at 0.3x (`IMPACT_SLOW`), easing back to 1x so the bounce and skid land at full
+speed. About 4s of wall time in all, and a tap (or Space/Enter) skips straight to step 3. The alarm keeps going
 for as long as the robbery does; the bystander gets up a few seconds into the getaway; the door
 slams and the camera eases back out when the line is cleared.
 
-**Stopped, not slowed.** Slow-motion would keep the traffic alive, but it runs every clock, the
+**Stopped, not slowed** — the world, that is; the impact slow-mo is the cut's own clock, with
+everything else already frozen. Slowing the *world* would keep the traffic alive, but it runs every clock, the
 crystal's flight and the fare loop at a crawl under a figure animated at full speed — two time bases
 in one frame — and the line right after it is a freeze anyway. The cut and the line read as one held
 beat. The robber's crystal waits for them to be in the car (`boardScripted` in game/fares.js) rather
