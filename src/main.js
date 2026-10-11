@@ -123,7 +123,9 @@ import { createTitleScreen } from './game/titlescreen.js';
 import { createSettings } from './game/settings.js';
 import { createPause } from './game/pause.js';
 import { createInspect } from './game/inspect.js';
-import { findRoute, findRouteVia, findRouteOnto, findRouteAlong, planOrigin, crossingOrigin } from './game/route.js';
+import {
+  findRoute, findRouteVia, findRouteOnto, findRouteAlong, planOrigin, crossingOrigin, carryOn,
+} from './game/route.js';
 import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.js';
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
@@ -1072,6 +1074,11 @@ setSpinStyle(getUturnStyle());
 const bootleg = createBootleg({
   taxi: traffic.taxi,
   destination: () => traffic.taxi.pendingTarget ?? null,
+  plan: (target) => {
+    const origin = planOrigin(traffic.taxi);
+    const route = findRoute(origin, target);
+    return route && carryOn(route, target, onwardFrom(target), origin.d);
+  },
   // It has to land like a hit: the screech, a jolt of shake, a buzz, and all four wheels marking the
   // road on the frame it starts. `layRubber` carries the streak on from there.
   onSpin: () => {
@@ -2148,6 +2155,24 @@ let pathDrag = null;
 // on a fare do nothing. Nothing draws on the road to say so any more either — see taxi.js.
 const selected = true;
 
+// `?route=classic`: the route stops dead at a waiting rider's kerb, and the taxi rolls a random
+// exit through their junction like it did before the look-ahead (see `onwardFrom`).
+const routeLookAhead = new URLSearchParams(window.location.search).get('route') !== 'classic';
+
+/**
+ * Where the taxi goes *after* `target`, when that is already decided: the drop-off of the waiting
+ * rider `target` belongs to. Null for anything else — a drop-off, a package, the depot — because
+ * the next trip after those is the player's to pick.
+ *
+ * Matched on identity, the same way the band's sweep and `resumeJob` match targets: a rider's
+ * `target` is their pickup junction object until `beginRide` swaps it for `dropoff`.
+ */
+function onwardFrom(target) {
+  if (!routeLookAhead) return null;
+  const fare = fares.state.fares.find((f) => f.stage === 'waiting' && f.target === target);
+  return fare?.dropoff ?? null;
+}
+
 /**
  * Route the taxi to an intersection. Planning starts from the intersection the taxi is *heading
  * toward* plus its current heading, because that is the first point at which it can make a choice.
@@ -2185,18 +2210,24 @@ function routeTo(target, { via = null, along = null, maxDetour, onto = null } = 
     : onto !== null
       ? findRouteOnto(from, target, onto)
       : findRoute(from, target));
-  const route = plan(planOrigin(car));
+  const origin = planOrigin(car);
+  const route = plan(origin);
   if (!route) return false;
-  car.route = route;
+  // Compared on the bare plans: the onward leg is the same Dijkstra from the same junction either
+  // way, and its length depends on the heading each plan arrives on, which is not what "does the
+  // late turn save a leg" is asking.
+  const crossing = crossingOrigin(car);
+  const late = crossing && plan(crossing);
+  const takeLate = late && late[0] !== car.d && late.length < route.length + 1;
+  const onward = onwardFrom(target);
+  car.route = carryOn(route, target, onward, origin.d);
   car.routeConsumed = false;
   // A taxi that has only just crossed the hold line going straight can still take the corner in
   // front of it (see `crossingOrigin`). Offered only when turning there saves a whole leg: the
   // late plan's first step is the crossing itself, so it is compared against `route` plus one.
   // `route` stays as the fallback — the swap is the sim's to refuse — so the band is right on
   // every frame whichever way that goes.
-  const crossing = crossingOrigin(car);
-  const late = crossing && plan(crossing);
-  car.lateTurn = late && late[0] !== car.d && late.length < route.length + 1 ? late : null;
+  car.lateTurn = takeLate ? carryOn(late, target, onward, crossing.d) : null;
   car.pendingTarget = target;
   // The player has just directed the taxi somewhere, so release the kerb hold even if the route
   // is empty (destination equals the intersection the taxi is already heading toward). Without

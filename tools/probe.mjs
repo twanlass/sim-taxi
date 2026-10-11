@@ -195,9 +195,9 @@ import {
   halfRoadX, halfRoadZ, laneOffX, laneOffZ, laneOffsetFor, medianRuns, MEDIAN_W, LANE_TO_KERB,
 } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
-import { routePath, nearestOnPath, HEAD_GAP, ROUTE_OPACITY } from '../src/game/routeline.js';
+import { routePath, nearestOnPath, HEAD_GAP, ROUTE_OPACITY, ONWARD_LEN } from '../src/game/routeline.js';
 import {
-  findRoute, findRouteVia, findRouteOnto, findRouteAlong, MAX_VIA_DETOUR, allIntersections,
+  findRoute, findRouteVia, findRouteOnto, findRouteAlong, MAX_VIA_DETOUR, allIntersections, carryOn,
 } from '../src/game/route.js';
 import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from '../src/game/streettap.js';
 import { GRAB_RADIUS } from '../src/game/pathdrag.js';
@@ -5759,6 +5759,61 @@ check('every intersection is routable from every approach', unroutable === 0,
   // the path drawn when the route was planned.
   check('the route band never re-shapes ahead of the taxi', drift < 0.05 && frames > 300,
     `max drift ${drift.toFixed(4)} units over ${frames} frames`);
+}
+
+// --- Looking ahead past a waiting rider ------------------------------------
+// A route to a rider carries on toward their drop-off (`carryOn`), so the exit the taxi takes
+// through the pickup junction is the drop-off route's first step rather than a dice roll, and the
+// band shows a dim stub of it. Three claims: the onward steps are the drop-off route from the
+// heading the trip arrives on; the band stops ONWARD_LEN past the kerb and so never reaches the
+// drop-off (which stays hidden until boarding); and the taxi actually leaves the junction the way
+// the stub says.
+{
+  const lScene = new THREE.Scene();
+  const lTraffic = createTraffic(makeRng(seed + 97), lScene, 1);   // taxi alone: nothing to block it
+  const lTaxi = lTraffic.taxi;
+  const origin = planOrigin(lTaxi);
+  const step = (v, max) => (v <= max / 2 ? v + 2 : v - 2);
+  const pickup = { i: step(origin.i, GRID_I), j: step(origin.j, GRID_J) };
+  const dropoff = { i: pickup.i > GRID_I / 2 ? 0 : GRID_I, j: pickup.j > GRID_J / 2 ? 0 : GRID_J };
+
+  const toKerb = findRoute(origin, pickup);
+  const onward = findRoute({ i: pickup.i, j: pickup.j, d: toKerb.at(-1) ?? origin.d }, dropoff);
+  const route = carryOn(toKerb, pickup, dropoff, origin.d);
+  check('a route to a rider carries on along the drop-off route',
+    route.onward === onward.length && route.length === toKerb.length + onward.length
+      && route.slice(toKerb.length).join() === onward.join(),
+    `${toKerb.length} steps to the kerb + ${route.onward} onward`);
+
+  lTaxi.route = route;
+  lTaxi.routeConsumed = false;
+  const lengthOf = (path) => {
+    let total = 0;
+    for (let k = 1; k < path.length; k++) total += Math.hypot(path[k].x - path[k - 1].x, path[k].z - path[k - 1].z);
+    return total;
+  };
+  const bare = lengthOf(routePath(lTaxi, toKerb));
+  const band = routePath(lTaxi, route);
+  const kerbOnly = routePath(lTaxi, route, { onward: false });
+  const past = lengthOf(band) - band.stopAlong;
+  // The bare route ends dead centre of the junction, straight in; the stop on a turn is the arc's
+  // midpoint, which cuts the corner — 2.4 units shorter on the seed this was written against.
+  check('the band stops a short stub past the kerb',
+    Math.abs(band.stopAlong - bare) < 3 && Math.abs(past - ONWARD_LEN) < 0.01
+      && Math.abs(lengthOf(kerbOnly) - band.stopAlong) < 0.01,
+    `kerb at ${band.stopAlong.toFixed(2)} (bare route ${bare.toFixed(2)}), ${past.toFixed(2)} past it`);
+  const end = band.at(-1);
+  check('the look-ahead never reaches the drop-off',
+    Math.hypot(end.x - lineX(dropoff.i), end.z - lineZ(dropoff.j)) > PITCH,
+    `ends ${Math.hypot(end.x - lineX(dropoff.i), end.z - lineZ(dropoff.j)).toFixed(1)} units off it`);
+
+  let exitAtKerb = null;
+  for (let f = 0; f < 120 * 60 && exitAtKerb === null; f++) {
+    lTraffic.update(1 / 60);
+    if (lTaxi.state === 'turn' && lTaxi.i === pickup.i && lTaxi.j === pickup.j) exitAtKerb = lTaxi.dOut;
+  }
+  check('the taxi leaves the pickup the way the look-ahead shows', exitAtKerb === onward[0],
+    `took ${exitAtKerb}, drawn ${onward[0]}`);
 }
 
 // --- Dragging the band to re-route -----------------------------------------

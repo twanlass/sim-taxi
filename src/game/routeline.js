@@ -168,6 +168,7 @@ function densifyOverWater(pts) {
   const span = banks.z1 - banks.z0;
 
   const out = [pts[0]];
+  out.onward = pts.onward;
   for (let k = 1; k < pts.length; k++) {
     const a = pts[k - 1];
     const b = pts[k];
@@ -253,10 +254,71 @@ function trimToEnd(pts, end) {
  * runs to is 13.7 units past the driveway the player tapped — three-quarters of a block of band
  * pointing down the road at nothing.
  */
-export function routePath(car, route) {
+export function routePath(car, route, { onward = true } = {}) {
   const pts = lanePath(car, route);
   const end = car.pendingTarget?.endAt;
-  return end ? trimToEnd(pts, end) : pts;
+  if (end) return trimToEnd(pts, end);
+  return lookAhead(pts, onward ? ONWARD_LEN : 0);
+}
+
+/**
+ * How far the band carries on past a waiting rider's kerb, measured from the middle of their
+ * junction, and how bright that stretch is against the trip itself.
+ *
+ * A route to a rider used to stop dead at the kerb, so which way the taxi left the junction was
+ * news to the player at the moment it happened — boosting into a pickup, it could swing round the
+ * corner straight into a car. The route now carries on toward the drop-off (`carryOn` in game/route.js),
+ * and this is how much of that the band shows.
+ *
+ * **A stub, not the whole leg**, because the whole leg is the drop-off. Where a rider is going stays
+ * hidden until they board, on purpose (docs/gameplay.md, "Neither how far nor where"), and a band
+ * running all the way there would hand it over from the kerb. 18 units is the exit through the
+ * pickup junction (6 to 8 from its middle, depending on the turn) plus most of the block beyond: it
+ * answers "which way out" and gives away a direction, never a destination. The last FADE_TAIL of it
+ * is the band's ordinary tail fade.
+ *
+ * Dimmer, because the stop is still the news. The band is the clock's colour and the drive to the
+ * kerb is what the clock is spending; past the kerb is only a promise about what comes next.
+ */
+export const ONWARD_LEN = 18;
+const ONWARD_DIM = 0.5;
+// The dim is eased in across the middle of the junction rather than stepped, centred on the point
+// the taxi passes as the pickup fires.
+const ONWARD_EASE = 2;
+
+/**
+ * Cut a path that carries on past a pickup (`lanePath` flags the point it passes the kerb with
+ * `stop`) to `extra` units beyond that point, and record where the stop falls as `path.stopAlong`
+ * for the shader. A path with no stop on it comes back as it went in.
+ *
+ * A route still tagged with onward steps but with no stop left on the path is a taxi that has
+ * already crossed the kerb and not been re-planned yet — the frames between the pickup junction
+ * being consumed and the pickup firing — so the stop is the head of the band.
+ */
+function lookAhead(pts, extra) {
+  let k = pts.findIndex((p) => p.stop);
+  if (k < 0) {
+    if (!pts.onward) return pts;
+    k = 0;
+  }
+  let acc = 0;
+  for (let n = 1; n <= k; n++) acc += Math.hypot(pts[n].x - pts[n - 1].x, pts[n].z - pts[n - 1].z);
+  const stopAlong = acc;
+  const limit = stopAlong + extra;
+  for (let n = k + 1; n < pts.length; n++) {
+    const seg = Math.hypot(pts[n].x - pts[n - 1].x, pts[n].z - pts[n - 1].z);
+    if (acc + seg >= limit) {
+      const t = seg > 1e-9 ? (limit - acc) / seg : 0;
+      const a = pts[n - 1];
+      const b = pts[n];
+      pts.length = n;
+      if (t > 1e-4) pts.push({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
+      break;
+    }
+    acc += seg;
+  }
+  pts.stopAlong = stopAlong;
+  return pts;
 }
 
 /** The whole route, junction to junction — `routePath` above, before any trim. */
@@ -323,6 +385,13 @@ function lanePath(car, route) {
   }
 
   const steps = route ?? [];
+  // The junction the trip's own stop is at, when the route carries on past it (`carryOn` in
+  // game/route.js): the step out of it is the first of the onward ones. Negative once that junction is
+  // behind the car, or when nothing carries on.
+  const stopAt = steps.onward ? steps.length - steps.onward : -1;
+  // `pts.onward` tells `lookAhead` the route was tagged even when no point on it is the stop.
+  if (steps.onward) pts.onward = true;
+  const markStop = () => { pts[pts.length - 1].stop = true; };
   for (let k = 0; k < steps.length && k < MAX_STEPS; k++) {
     const dOut = steps[k];
     const entry = entryPoint(d, i, j);
@@ -330,12 +399,18 @@ function lanePath(car, route) {
 
     pushAhead(entry, d);
     if (dOut === d) {
+      // Through the middle of the junction explicitly when it is the stop, so there is a point to
+      // flag at the place the band would otherwise have ended. Collinear, so it changes nothing.
+      if (k === stopAt) { push(lanePoint(d, i, j, isXAxis(d) ? lineX(i) : lineZ(j))); markStop(); }
       push(exit);
     } else {
       // The same quadratic the car drives: control point where the two lane centrelines cross,
       // so the band leaves and rejoins each lane exactly tangent to it.
       const control = turnControl(d, dOut, i, j);
-      for (let s = 1; s <= TURN_STEPS; s++) push(bezier(entry, control, exit, s / TURN_STEPS));
+      for (let s = 1; s <= TURN_STEPS; s++) {
+        push(bezier(entry, control, exit, s / TURN_STEPS));
+        if (k === stopAt && s === TURN_STEPS / 2) markStop();
+      }
     }
 
     const next = nextIntersection(dOut, i, j);
@@ -548,6 +623,7 @@ export function createRouteLine(scene) {
       uReveal: { value: 0 },
       uGrab: { value: 0 },
       uGrabDist: { value: 0 },
+      uStop: { value: 1e9 },
     },
     vertexShader: /* glsl */`
       attribute float aDist;
@@ -575,6 +651,7 @@ export function createRouteLine(scene) {
       uniform float uReveal;
       uniform float uGrab;
       uniform float uGrabDist;
+      uniform float uStop;
       varying float vDist;
       const float PULSE_PERIOD = ${PULSE_PERIOD.toFixed(4)};
       const float PULSE_SPEED = ${PULSE_SPEED.toFixed(4)};
@@ -584,6 +661,8 @@ export function createRouteLine(scene) {
       const float GRAB_FOCUS = ${GRAB_FOCUS.toFixed(4)};
       const float GRAB_GLOW = ${GRAB_GLOW.toFixed(4)};
       const float GRAB_WHITEN = ${GRAB_WHITEN.toFixed(4)};
+      const float ONWARD_DIM = ${ONWARD_DIM.toFixed(4)};
+      const float ONWARD_EASE = ${ONWARD_EASE.toFixed(4)};
       const float TAU = 6.2831853;
       void main() {
         float head = smoothstep(uHeadGap, uHeadGap + uFadeHead, vDist);
@@ -600,7 +679,11 @@ export function createRouteLine(scene) {
         float focus = exp(-pow((vDist - uGrabDist) / GRAB_GLOW, 2.0));
         float held = uGrab * (GRAB_LIFT + GRAB_FOCUS * focus);
 
-        float envelope = uOpacity * (1.0 + held) * head * tail * reveal;
+        // Past the stop the band is a look-ahead rather than the trip — see ONWARD_LEN. uStop is
+        // far off the end of the band on any route that does not carry on past one.
+        float onward = mix(1.0, ONWARD_DIM, smoothstep(uStop - ONWARD_EASE, uStop + ONWARD_EASE, vDist));
+
+        float envelope = uOpacity * (1.0 + held) * head * tail * reveal * onward;
 
         // Position relative to the *destination* end, not the car end. vDist is measured from the
         // car, so it (and uLength) both shrink every frame the taxi drives — using it directly
@@ -767,6 +850,7 @@ export function createRouteLine(scene) {
     }
     const total = s[s.length - 1];
     if (total < 0.01) { mesh.visible = false; return; }
+    material.uniforms.uStop.value = path.stopAlong ?? 1e9;
 
     // A one-block hop (PITCH is 20) is barely longer than the gap and the two fades put together.
     // Scale all three down in proportion rather than letting them overlap into a band that never

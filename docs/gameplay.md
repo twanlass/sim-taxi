@@ -567,6 +567,17 @@ can't reach, which a shipped city never has: `main.js` rerolls any seed where `f
 pair. It exists so an unroutable taxi is still recoverable by hand rather than cruising on random
 turns until the clock runs out.
 
+**The route carries on through the pickup.** The pickup fires with the taxi already inside the
+junction, so the exit it takes there is decided at the hold line — and with the route ending at the
+kerb, that used to be the ambient dice roll (`rollExit`). Boosting into a pickup, the player found
+out which way the taxi was leaving as it left, sometimes straight round a corner into a car. A route
+at a waiting rider now carries on along the drop-off route (`carryOn` in `game/route.js`, the onward
+steps tagged as `route.onward`), so the taxi leaves the kerb the way it is about to drive anyway,
+and the [band](#the-route-band-wears-it-too) shows it as a dim stub `ONWARD_LEN` (18 units) past the
+kerb. A stub rather than the whole leg, because the whole leg *is* the drop-off, which stays hidden
+until boarding ([Neither how far nor where](#neither-how-far-nor-where)): the stub gives away a
+direction, never a destination. `?route=classic` puts back the route that stops at the kerb.
+
 Routing on the pickup frame means planning from a turn the car has already committed to —
 `planOrigin` handles exactly that, and `tools/probe.mjs` asserts a fare is delivered end to end
 with no drop-off ever tapped, because a route planned from the wrong origin silently drops its
