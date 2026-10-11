@@ -10,7 +10,7 @@ import { VIEW_DIR } from './camera.js';
 import { sinkShadowCaster } from './scene.js';
 import { markOccluder } from './ssao.js';
 
-// The elevated train (`?ltrain=on`): a Chicago-style L on a steel structure down the east-west
+// The elevated train (on by default, `?ltrain=off`): a Chicago-style L on a steel structure down the east-west
 // arterial, with one train shuttling along it.
 //
 // **One track, on columns in the arterial's planted median.** The columns need somewhere to stand
