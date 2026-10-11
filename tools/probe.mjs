@@ -19093,11 +19093,19 @@ let chopperOrder; // likewise
         parkedAt = { x: truck.x, z: truck.z, s: truck.s, lane: truck.lane };
         // Plant a car at the head of the lane, coming on at cruise, so there is always somebody to
         // queue: on a quiet street the engine can come and go without anything behind it at all.
+        // The very head, s = 0, and not a little way in: a side-street lane is 12 long, so the
+        // site clamps the stop to `hi` = 4.8 and the engine's tail is under two units from the
+        // junction. There is no room for the car to *come up* — it is inside its follow gap (6.4)
+        // from the first frame and holds where it is put — so the gap this measures is wherever
+        // the plant put it, and the plant has to be outside the engine. The old 0.3 left it 4.5
+        // minus the engine's stopping error, against a floor of 4.5: 4.53 in the 5 × 6 city
+        // (engine at 4.83) and 4.44 in the 6 × 7 (engine at 4.74), a coin flip on the approach.
+        // Nothing else can join the queue: the lane is shut and every ambient route refuses it.
         planted = fTraffic.cars.find((c) => !c.isTaxi && !c.guest && !c.isTruck && c.state === 'drive'
           && c.lane !== truck.lane);
         if (planted) {
           const k = site.laneKey;
-          placeCar(planted, k.d, k.i, k.j, truck.lane.length - 0.3);
+          placeCar(planted, k.d, k.i, k.j, truck.lane.length);
           planted.v = SPEED;
           planted.route = [];
         }
