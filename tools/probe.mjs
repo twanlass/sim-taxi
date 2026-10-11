@@ -17391,6 +17391,9 @@ let chopperOrder; // likewise
   let worstYaw = 0;
   for (const lane of net.lanes) {
     if (lane.degenerate || isLaneClosed(lane.id) || lane.length < 6) continue;
+    // The central park's road bends the whole way and is one-way: `spinTaxi` refuses it as
+    // `'road'` by design, so it is not an ordinary street for this sweep.
+    if (lane.edge.curve.kind !== 'line') continue;
     const to = net.nodeById.get(lane.to);
     const d = net.dirOfLane(lane);
     if (!placeCar(taxi, d, to.gi, to.gj, lane.length / 2)) continue;
