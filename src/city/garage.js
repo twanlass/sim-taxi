@@ -4,6 +4,7 @@ import {
   FINISH, bakeColor, hash01, propMaterial, setFinish, stampEntry, unlitMaterial,
 } from '../util/geo.js';
 import { color, jitterColor } from '../palette.js';
+import { taxiSignGeometry } from '../geometry/taxi.js';
 import { KERB_H } from './ground.js';
 import {
   DIR, GRID_I, GRID_J, HALF_ROAD, LANE, isSegmentClosed, junctionReach, lineX, lineZ,
@@ -93,11 +94,21 @@ const CHECK_DROP = 0.40;
 // at 0.44 × 0.46 on screen.
 const CHECK_SQ = 0.62;
 
-// --- The wrench on the roof -------------------------------------------------
+// --- The sign on the roof ---------------------------------------------------
 // The depot is where the player brings the taxi back for repairs and upgrades, and from play zoom
 // the building has to *say* that before anybody has learned it. So the roof carries a sign the way
-// the burger joint does: one oversized object on a pole, canted, turning slowly. It replaced a
-// radio mast and dish, which said "dispatch" — true, and nothing the player can act on.
+// the burger joint does: one oversized object on a pole, canted, turning slowly.
+//
+// The object is **the taxi itself**, banked on its pole like a used-car lot's rooftop car. The
+// wrench before it said "repairs" to anyone who already knew the depot did repairs, and at play
+// zoom it was a grey sliver half the time — edge-on twice a revolution, steel against a grey roof.
+// A yellow car is the one shape the player is already scanning the map for, so it is the fastest
+// thing to find; what keeps it from being mistaken for *their* car is that it is up a pole,
+// banked off level, a size bigger and turning on the spot, none of which the real one ever is.
+// `?depot=classic` brings the wrench back for comparison.
+//
+// The wrench before it replaced a radio mast and dish, which said "dispatch" — true, and nothing
+// the player can act on.
 //
 // **Almost nothing here is placed by a literal**, which is a habit carried over from the dish: it
 // was resized twice, and both times the numbers that broke were the hand-tuned ones around it. The
@@ -131,16 +142,35 @@ const POLE_STANDOFF = 0.4;
 // fragment to a grazing angle, and at the full share the wrench came out as pale blue as the sky
 // whatever its base colour was. Down here the steel is mostly its own colour with a sheen of sky.
 const WRENCH_MIRROR = 0.35;
+
+// The taxi sign. A size up on the player's car (drawn at TAXI_SCALE = 1.18) so that side by side
+// the one on the roof is plainly the bigger of the two — the cue that it is a model and not a car.
+const TAXI_SIGN_SCALE = 1.5;
+// Banked onto one side, off level: enough that it never reads as parked, not so much it reads as
+// rolling over. A bank rather than nose-up on purpose. Pitched 30° nose-up, the car's end faces
+// came round to the camera twice a revolution, and an end face is a pale slab of bumper and grille
+// — the sign read as a pink box with a cabin on it. Banked, what turns toward the camera is a
+// flank, and the flank is the yellow with the chequer down it.
+const TAXI_SIGN_CANT = Math.PI / 7;
+// How much sky its paint keeps, against the live car's 1.33. Up on a pole and leaning, more of the
+// body faces the sky the gloss bends toward than on a car on the road, and the sign is there to be
+// *yellow* at a glance. Mostly its own colour, then.
+const TAXI_SIGN_GLOSS = 0.3;
+const TAXI_SIGN_MIRROR = 0.5;
+// Higher off the plant than the wrench's WRENCH_CLEAR. From this camera a car's underside covers
+// the top of its own pole, so at the wrench's clearance the pole vanished and the car looked parked
+// on the roof — the one misreading the sign must not invite.
+const TAXI_SIGN_CLEAR = 1.4;
 // The roof plant's taller box, which the wrench's low end sweeps over.
 const PLANT_H = 0.55;
 
 /**
- * How fast the wrench turns, in radians a second — about sixteen seconds a revolution.
+ * How fast the sign turns, in radians a second — about sixteen seconds a revolution.
  *
  * Slow, for the reason `SIGN_SPIN` is one building over: anything much past this stops reading as
  * a sign that turns and starts reading as a tool being spun.
  */
-export const WRENCH_SPIN = 0.4;
+export const DEPOT_SPIN = 0.4;
 
 // The block platform's walking surface — `createGround` lays the pavement one centimetre over the
 // kerb box. A car standing on it rides this much higher than one on the road.
@@ -397,14 +427,30 @@ function wrenchGeometry() {
 }
 
 /**
- * The depot: two merged meshes, a light and a wrench.
+ * The taxi sign, in the same terms as `wrenchGeometry`: built about its own centre, canted, and
+ * handed back for `createGarage` to lift. Centred on its bounding box rather than on the car's
+ * origin, which sits on the road under it — the pole stops at this centre, inside the body.
+ */
+function taxiGeometry() {
+  const geo = taxiSignGeometry();
+  geo.deleteAttribute('uv');
+  geo.computeBoundingBox();
+  const c = geo.boundingBox.getCenter(new THREE.Vector3());
+  geo.translate(-c.x, -c.y, -c.z);
+  geo.scale(TAXI_SIGN_SCALE, TAXI_SIGN_SCALE, TAXI_SIGN_SCALE);
+  geo.rotateX(TAXI_SIGN_CANT);
+  return geo;
+}
+
+/**
+ * The depot: two merged meshes, a light and a turning sign.
  *
  * Two meshes rather than one because the curtain moves and the shell does not. Both are stamped
  * with the same entrance anchor (see `stampEntry`), so the city's opening wave lifts the door with
  * its own building rather than leaving it hanging in the air. The light is unlit and outside the
- * wave, and the wrench is outside it for a different reason — see `wrenchGeometry`.
+ * wave, and the sign is outside it for a different reason — see `wrenchGeometry`.
  */
-export function createGarage(block, rng) {
+export function createGarage(block, rng, { sign: style = 'taxi' } = {}) {
   const site = garageSite(block);
   const { x0, z0, z1 } = block.bounds;
   const { frontX, curtainX, doorZ, kerbX } = site;
@@ -420,19 +466,20 @@ export function createGarage(block, rng) {
   const top = base + HEIGHT;
   const deck = top + 0.34;              // the top of the coping, which the pole stands on
 
-  // --- The pole's placement, worked out from the wrench rather than chosen.
+  // --- The pole's placement, worked out from the sign rather than chosen.
   //
-  // The wrench is built first because everything about the pole depends on how much room it takes:
+  // The sign is built first because everything about the pole depends on how much room it takes:
   // how high it has to stand to sweep clear of the roof plant, and how far in from the roof's edge.
-  const wrenchGeo = wrenchGeometry();
-  wrenchGeo.computeBoundingBox();
-  const hub = deck + PLANT_H + WRENCH_CLEAR - wrenchGeo.boundingBox.min.y;
-  wrenchGeo.translate(0, hub - KERB_H, 0);
+  const signGeo = style === 'classic' ? wrenchGeometry() : taxiGeometry();
+  signGeo.computeBoundingBox();
+  const clear = style === 'classic' ? WRENCH_CLEAR : TAXI_SIGN_CLEAR;
+  const hub = deck + PLANT_H + clear - signGeo.boundingBox.min.y;
+  signGeo.translate(0, hub - KERB_H, 0);
 
   // The radius it sweeps: the furthest any of its vertices gets from the pivot's own axis. Not
-  // `boundingBox.max.x` — the box is measured in one pose and the wrench **turns**, so its
+  // `boundingBox.max.x` — the box is measured in one pose and the sign **turns**, so its
   // footprint is the circle that pose inscribes.
-  const wp = wrenchGeo.attributes.position;
+  const wp = signGeo.attributes.position;
   let orbit = 0;
   for (let i = 0; i < wp.count; i++) orbit = Math.max(orbit, Math.hypot(wp.getX(i), wp.getZ(i)));
 
@@ -523,7 +570,7 @@ export function createGarage(block, rng) {
     span(curtainX, kerbX - KERB_RUN, APRON_Y, PAINT_Y, dz1 - 0.63, dz1 - 0.35, color('garageSign')),
 
     // The pole. Static, so it rides in the shell's merge and the entrance wave lifts it with the
-    // building; only the wrench is excluded from that, and only because it turns.
+    // building; only the sign is excluded from that, and only because it turns.
     ...signPole(poleX, poleZ, deck, hub),
   ];
 
@@ -573,11 +620,11 @@ export function createGarage(block, rng) {
   const light = new THREE.Mesh(lightGeo, unlitMaterial({ vertexColors: true }));
   light.name = 'garage-light';
 
-  // --- The wrench -----------------------------------------------------------
+  // --- The sign: the taxi, or under `?depot=classic` the wrench -------------
   // Built at the top of this function, because the pole is placed off its bounds. Its own mesh and
   // its own pivot, for the reason the burger over the drive-through is one: it turns, and the
   // entrance wave cannot animate anything with a transform of its own. See `wrenchGeometry` for why
-  // the pivot sits on the kerb rather than at the wrench's centre.
+  // the pivot sits on the kerb rather than at the sign's centre.
   //
   // The vehicles' **metal** finish (FINISH_DEFAULTS in util/geo.js): a darkened base, a tight sun
   // glint and a share of the sky and skyline in it. That last is what makes it steel rather than
@@ -589,21 +636,23 @@ export function createGarage(block, rng) {
   // default, so left alone it samples the occlusion of whatever is behind it on screen. The dish
   // that stood here did exactly that and came out with a soft dark blotch of its own roof's crease
   // across it, moving with the camera.
-  const wrench = new THREE.Mesh(wrenchGeo,
-    propMaterial({ ao: false, gloss: { geometry: wrenchGeo, mirror: WRENCH_MIRROR } }));
-  wrench.castShadow = true;
-  wrench.name = 'garage-wrench';
+  const gloss = style === 'classic'
+    ? { geometry: signGeo, mirror: WRENCH_MIRROR }
+    : { geometry: signGeo, amount: TAXI_SIGN_GLOSS, mirror: TAXI_SIGN_MIRROR };
+  const sign = new THREE.Mesh(signGeo, propMaterial({ ao: false, gloss }));
+  sign.castShadow = true;
+  sign.name = 'garage-sign';
 
-  const wrenchPivot = new THREE.Group();
-  wrenchPivot.name = 'garage-wrench-pivot';
-  wrenchPivot.position.set(poleX, KERB_H, poleZ);
+  const signPivot = new THREE.Group();
+  signPivot.name = 'garage-sign-pivot';
+  signPivot.position.set(poleX, KERB_H, poleZ);
   // Seeded rather than zero, the same as the burger's: shot mode ticks once and freezes, so a
-  // wrench that started edge-on would be edge-on in every screenshot of every city.
-  wrenchPivot.rotation.y = rand * Math.PI * 2;
-  wrenchPivot.add(wrench);
+  // sign that started edge-on would be edge-on in every screenshot of every city.
+  signPivot.rotation.y = rand * Math.PI * 2;
+  signPivot.add(sign);
 
   const group = new THREE.Group();
-  group.add(shell, curtain, light, wrenchPivot);
+  group.add(shell, curtain, light, signPivot);
 
   /**
    * Wind the curtain up. `open` is 0 (shut) to 1 (gone).
@@ -628,9 +677,9 @@ export function createGarage(block, rng) {
     // construction stays valid and there is nothing to refresh.
   }
 
-  /** Turn the wrench. One rotation and no state, so a paused frame simply stops being advanced. */
-  function update(dt, spin = WRENCH_SPIN) {
-    wrenchPivot.rotation.y += spin * dt;
+  /** Turn the sign. One rotation and no state, so a paused frame simply stops being advanced. */
+  function update(dt, spin = DEPOT_SPIN) {
+    signPivot.rotation.y += spin * dt;
   }
 
   return {
@@ -639,20 +688,20 @@ export function createGarage(block, rng) {
     shell,
     curtain,
     light,
-    wrench,
-    wrenchPivot,
-    /** The wrench's centre, in world y — where the pole stops. */
+    sign,
+    signPivot,
+    /** The sign's centre, in world y — where the pole stops. */
     hub,
     update,
     /**
-     * The two stamped meshes, for the entrance wave and for the AO prepass — and **not** the wrench,
+     * The two stamped meshes, for the entrance wave and for the AO prepass — and **not** the sign,
      * which is neither: the wave's vertex shader cannot reach a turning object, and a mesh whose
      * matrix changes every frame has no business writing into a screen-space occlusion buffer.
      */
     meshes: [shell, curtain],
     setDoor,
-    /** ...so the wrench grows on the CPU instead, on the shell's own delay. */
-    entryObject: { object: wrenchPivot, x: anchorX, z: anchorZ, rand },
+    /** ...so the sign grows on the CPU instead, on the shell's own delay. */
+    entryObject: { object: signPivot, x: anchorX, z: anchorZ, rand },
     entrySite: { x: anchorX, z: anchorZ, r: Math.max(frontX - bx0, bz1 - bz0) / 2, rand },
   };
 }
