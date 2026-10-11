@@ -2986,6 +2986,9 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // it (sim/police.js), on the cop it becomes when it gives chase — the car is the cruiser, so
       // the thing on screen stays the cruiser rather than turning into a different model of car.
       skin: null,
+      // ...and the pose it was last handed, because the instance it would otherwise be read back
+      // from is collapsed while a skin draws it. `wreckShell` builds the wreck from this.
+      skinPose: null,
     });
   }
 
@@ -4253,7 +4256,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     material.color.set(bodyColor(car));
 
     const shell = new THREE.Group();
-    bodyInst.getMatrixAt(car.instanceIndex, matrix);
+    // A skinned car's instance is collapsed — the patrol cruiser draws it — so its pose comes off
+    // the copy the render pass kept. Read off the instance, a wrecked patrol decomposed a zero
+    // matrix into a NaN scale and the whole car vanished into its own fireball.
+    if (car.skin && car.skinPose) matrix.copy(car.skinPose);
+    else bodyInst.getMatrixAt(car.instanceIndex, matrix);
     matrix.decompose(shell.position, shell.quaternion, shell.scale);
 
     const body = new THREE.Mesh(bodyInst.geometry, material);
@@ -4304,6 +4311,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       cab.castShadow = true;
       cab.receiveShadow = true;
       shell.add(cab);
+      // ...and its siren bar, dark: the housing and its two painted lenses. The lit pods go (below)
+      // because a bar still strobing on a wreck says the police are still coming, but the bar itself
+      // is bolted to the roof and goes where the roof goes. Left out, it vanished on impact.
+      const bar = new THREE.Mesh(sirenHousingMesh.geometry, propMaterial());
+      bar.position.copy(SIREN_HOUSING_AT);
+      bar.castShadow = true;
+      bar.receiveShadow = true;
+      shell.add(bar);
     }
     scene.add(shell);
 
@@ -4338,8 +4353,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         sirenBlueMesh.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
       }
     }
-    // The bar goes with it — the shell is a body, two wheels and (on a cop) its cab, and a bar left
-    // standing where the roof used to be would hang in the air over the wreck.
+    // The bar's instance goes with it — the shell carries its own copy now (above), and the
+    // instance left standing where the roof used to be would hang in the air over the wreck.
     if (!car.isTruck) {
       sirenHousingMesh.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
       sirenHousingMesh.instanceMatrix.needsUpdate = true;
@@ -6903,6 +6918,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       }
       if (car.skin) {
         car.skin(pos, quat, car);
+        (car.skinPose ??= new THREE.Matrix4()).copy(matrix);
         matrix.copy(ZERO_MATRIX);
       }
       writeAmbient(car);

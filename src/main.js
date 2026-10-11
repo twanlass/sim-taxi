@@ -1345,7 +1345,9 @@ const struckGlass = createWindshield(scene, { rng: makeRng(runSeed + 921), roadY
 // is frozen for the replay, and a wake playing back behind a boat standing still is a wake coming
 // off nothing.
 const tape = shot ? null : createTape(scene, {
-  roots: [traffic.taxiGroup],
+  // ...and the patrol cruiser, which is a group of its own rather than an instance: left off, a
+  // patrol the taxi rammed was missing from every cut of its own crash.
+  roots: [traffic.taxiGroup, police.group],
   exclude: (mesh) => mesh.name === 'boat-wake',
 });
 const replayOverlay = document.getElementById('replay');
