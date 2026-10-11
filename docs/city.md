@@ -793,6 +793,18 @@ can be put in the hands that are holding it rather than in a second copy of the 
 The probe runs five minutes of it: the ball never sinks into or leaves the slab, and every miss is
 fetched. `?shot=court` and `?shot=court-far` frame it.
 
+A **boom box** sits beside the court, playing to them (`planBoombox` in `city/blacktop.js`, drawn by
+`game/boombox.js`). Where it goes takes no draw from the props stream: it faces the court, and the
+spots round the court are ranked by how squarely that face turns to the camera — the speakers are
+the read, so the far sideline first, the far baseline next, the near ones last — then the first on
+the lawn and clear of benches, statue, pond and skatepark wins. A court pushed into a corner of its
+park can have a third of a unit of grass on three sides (3 courts in 40 seeds), so a **far
+sideline's apron** ranks ahead of the near lawn: the box is set down on the blacktop outside the
+lines. On the beat it squashes and its woofers pump, and a quaver or a beamed pair floats up over
+it; the notes are opaque and go out by shrinking, because a translucent one blends twice where its
+head, stem and flag overlap. It is silent for now — see [audio.md](audio.md#the-boom-box) for the
+hook.
+
 ### A skatepark
 
 **Exactly one a city**, the court's neighbour and on the court's terms: scenery, nothing routes

@@ -78,6 +78,7 @@ import { createPoliceHeli } from './game/policeheli.js';
 import { createBirds, chooseRoosts } from './game/birds.js';
 import { createDucks } from './game/ducks.js';
 import { createHoopers } from './game/hoopers.js';
+import { createBoombox } from './game/boombox.js';
 import { courtRect } from './city/blacktop.js';
 import { createSkaters } from './game/skaters.js';
 import { createClassicSkaters } from './game/skatersclassic.js';
@@ -639,6 +640,9 @@ scene.add(canopyFuzz.mesh);
 // game/hoopers.js.
 if (props.courtMesh) scene.add(markOccluder(props.courtMesh));
 const hoopers = createHoopers(scene, makeRng(runSeed + 313), props.court);
+// And the boom box on the lawn beside it, playing to them. Where it stands is the map's
+// (`planBoombox`, in the props stream without a draw); which notes it puts out is the run's.
+const boombox = createBoombox(scene, makeRng(runSeed + 317), props.boombox);
 // And the skatepark beside it, on the same two terms: its rail and coping ride outside the props
 // mesh, and who is riding it is the run seed's. See city/skatepark.js and game/skaters.js;
 // `?skater=classic` brings back the first cut's pair of riders (game/skatersclassic.js).
@@ -1295,7 +1299,7 @@ const cityEntry = createCityEntry({
   // depot's wrench and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
-    ...hoopers.entryObjects, ...skaters.entryObjects],
+    ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
     ...(burger ? [burger.entrySite] : [])],
   dust,
@@ -4334,6 +4338,10 @@ function ambientLevels() {
   const works = roadworkSpot();
   if (works) out.construction = { ...placeAt(works.x, works.z), level: works.level };
   if (props.court) out.court = placeAt(props.court.x, props.court.z);
+  // The boom box's music goes here once there is a file for it: a bed keyed like the court's
+  // (FILES, SOUNDS, PLACED, LOOPS, AMBIENT and LOOP_SECONDS in game/sfx.js), placed at its speakers —
+  //   if (boombox.emitter) out.boombox = placeAt(boombox.emitter.x, boombox.emitter.z);
+  // — and a pin for it beside the court's in `soundSources` below.
   const gulls = nearestGulls();
   if (gulls) out.seagulls = placeAt(gulls.x, gulls.z, 4);
   // Rain is where the taxi is: the squall's cell grown by the lens's reach, so it is heard a little
@@ -4961,6 +4969,9 @@ function tick() {
   ducks.update(dt);
   leaves?.update(dt);
   hoopers.update(dt);
+  // No track yet: the box keeps its own time. Once it plays music, pass the track's playback time as
+  // the second argument so the bounce and the notes land on the track's beat (game/boombox.js).
+  boombox.update(dt);
   skaters.update(dt);
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
@@ -6377,6 +6388,8 @@ window.__taxi = {
   ducks,
   /** The players on the basketball court, and `hoopers.court` the court — absent if the city has none. */
   hoopers,
+  /** The boom box beside the court — `boombox.emitter` is where its music will play from. */
+  boombox,
   /** The riders on the skatepark, and `skaters.park` the park — absent if the city has none. */
   skaters,
   roadwork,

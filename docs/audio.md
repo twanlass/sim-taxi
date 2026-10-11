@@ -187,6 +187,16 @@ numbers restart at 16, so his 17 and 18 (gate, bridge) share numbers with our
 | `court` | 31 MONO / ST | Bed at the basketball court, where the city has one | `props.court` |
 | `chirp` | 32 short / long | A patrol spotting the taxi and lighting up | `patrol` `onSpotted` |
 
+### The boom box
+
+The boom box beside the basketball court ([city.md](city.md#a-basketball-court)) bounces and puts
+out notes but has **no sound yet**. It is built to take a track: `boombox.emitter` is where the
+music plays from, and the comment in `ambientLevels` (main.js) shows the line that places a bed
+there, beside the court's own. Add it as a bed keyed like `court` (FILES, SOUNDS, PLACED, LOOPS,
+AMBIENT, LOOP_SECONDS), then set `BPM` in `game/boombox.js` to the track's tempo and pass the bed's
+playback time to `boombox.update(dt, musicTime)` so the bounce lands on the track's beat rather than
+the box's own clock.
+
 The hooks follow the designer's sheet (*sim-taxi audio script, Block 2*), which names each trigger:
 spawn is "buildings appear when the map is generated", the gate "opens and closes as the taxi leaves
 the garage", angry is a passenger who "shouts at the taxi". Two are the nearest event the game has

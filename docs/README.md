@@ -100,7 +100,7 @@ is told the street is cheap, so it is the emptiest road in the city with a ramp 
 fare that leads you down it. See [traffic.md](traffic.md#roadworks-a-street-closed-at-both-ends).
 
 One park in every city has a **basketball court** in it — a blacktop with a hoop at each end —
-with one or two people dribbling and shooting around on it. Scenery,
+with one or two people dribbling and shooting around on it and a boom box playing beside it. Scenery,
 like the duck pond; see [city.md](city.md#a-basketball-court).
 
 And one has a **skatepark**: a quarter pipe at each end, a rail and a funbox down the middle, and
