@@ -4782,12 +4782,16 @@ function frame(t) {
   requestAnimationFrame(frame);
   if (frameRateCap() < 60 && t - lastFrameAt < 1000 / frameRateCap() - 4) return;
   lastFrameAt = t;
+  // Only frames of live play count toward the governor: a paused or finished run is cheap and
+  // would read as headroom. It goes *before* the draw, never after: a step resizes the canvas,
+  // which empties it, and a canvas emptied after this callback has drawn is what gets composited —
+  // the page's pale sky (#dcedf7) for a whole frame, two under the 30 fps cap, reported as a white
+  // flash across the screen. Headless under `?squall&fps=30`, 4 of the run's 6 resizes landed
+  // that way before the move and none after.
+  governor.frame(t, !pause?.state.paused && !fares.state.gameOver && !document.hidden);
   bench?.begin(t);
   tick();
   bench?.end();
-  // Only frames of live play count toward the governor: a paused or finished run is cheap and
-  // would read as headroom.
-  governor.frame(t, !pause?.state.paused && !fares.state.gameOver && !document.hidden);
 }
 
 function tick() {
