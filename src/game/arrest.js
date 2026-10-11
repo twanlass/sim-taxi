@@ -2,7 +2,7 @@ import {
   GRID_I, GRID_J, halfRoadX, halfRoadZ, isXAxis, dirSign, lineX, lineZ, opposite,
 } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
-import { findRoute, planOrigin } from './route.js';
+import { findRoute, planOrigin, serviceLaneCost } from './route.js';
 import { CAR_LEN, CAR_W, SPAWN_CLEARANCE, STOP_SETBACK, releaseCar, stageCar } from '../sim/traffic.js';
 
 // The end of a bank robbery that got where it was going: the robber climbs out onto the corner, puts
@@ -375,7 +375,7 @@ export function createArrest({ traffic, taxi, inShot = null }) {
     const key = `${from.i},${from.j},${from.d}`;
     if (m.routedAt === key && m.car.route?.length) return;
     m.routedAt = key;
-    const route = findRoute(from, J);
+    const route = findRoute(from, J, serviceLaneCost);
     m.car.route = route ?? [];
     m.car.routeConsumed = false;
   }
@@ -636,7 +636,7 @@ export function createArrest({ traffic, taxi, inShot = null }) {
     car.chase = 0;
     car.uturnWanted = false;
     const out = { i: taxi.i > GRID_I / 2 ? 0 : GRID_I, j: taxi.j > GRID_J / 2 ? 0 : GRID_J };
-    car.route = findRoute(planOrigin(car), out) ?? [];
+    car.route = findRoute(planOrigin(car), out, serviceLaneCost) ?? [];
     car.routeConsumed = false;
   }
 

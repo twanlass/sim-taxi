@@ -3,7 +3,9 @@ import { SLAB_X, SLAB_Z } from '../city/ground.js';
 import { SPAWN_CLEARANCE } from '../sim/traffic.js';
 import { contact, touching } from '../sim/collisions.js';
 import { SPOT_RANGE } from '../sim/police.js';
-import { findRoute, findRouteOnto, planOrigin, junctionAhead, turnsRound } from './route.js';
+import {
+  findRoute, findRouteOnto, planOrigin, junctionAhead, turnsRound, serviceLaneCost,
+} from './route.js';
 import { STAND_DOWN_RANGE, STAND_DOWN_TIMEOUT } from './robbery.js';
 import { groundLineClear } from './sightline.js';
 
@@ -279,7 +281,7 @@ export function createPatrol({
   const clampI = (i) => Math.max(0, Math.min(GRID_I, i));
   const clampJ = (j) => Math.max(0, Math.min(GRID_J, j));
   const routeTo = (cop, target) => {
-    const route = findRoute(planOrigin(cop), target);
+    const route = findRoute(planOrigin(cop), target, serviceLaneCost);
     if (route?.length) { cop.route = route; cop.routeConsumed = false; }
     return Boolean(route?.length);
   };
@@ -351,7 +353,7 @@ export function createPatrol({
         i: clampI(taxi.i + rng.int(-PATROL_REACH, PATROL_REACH)),
         j: clampJ(taxi.j + rng.int(-PATROL_REACH, PATROL_REACH)),
       };
-      const route = findRoute(planOrigin(cop), target);
+      const route = findRoute(planOrigin(cop), target, serviceLaneCost);
       if (route?.length && (!best || route.length < best.route.length)) best = { target, route };
     }
     if (!best) return;
@@ -371,7 +373,7 @@ export function createPatrol({
   function headOut(cop) {
     state.leg = 'out';
     if (onExitLane(cop)) { cop.route = []; return; }
-    const route = findRouteOnto(planOrigin(cop), state.exit, state.exitD);
+    const route = findRouteOnto(planOrigin(cop), state.exit, state.exitD, serviceLaneCost);
     if (route?.length) { cop.route = route; cop.routeConsumed = false; }
     else routeTo(cop, state.exit);
   }

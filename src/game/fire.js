@@ -5,7 +5,7 @@ import { cityNetwork } from '../city/roadnet.js';
 import {
   setClosedLanes, isLaneClosed, stopDistance, STOP_SETBACK, SPAWN_CLEARANCE, TRUCK_LEN,
 } from '../sim/traffic.js';
-import { findRoute, findRouteOnto, planOrigin, setHazardLanes } from './route.js';
+import { findRoute, findRouteOnto, planOrigin, setHazardLanes, serviceLaneCost } from './route.js';
 import { heightAt, sightlineClear } from './sightline.js';
 import { unlitMaterial } from '../util/geo.js';
 import { color } from '../palette.js';
@@ -517,7 +517,7 @@ export function createFire({
     const site = state.site;
     if (truck.route?.length) return;
     if (truck.lane === site.lane && truck.state === 'drive' && truck.s < site.stopS + 0.5) return;
-    const route = findRouteOnto(planOrigin(truck), { i: site.laneKey.i, j: site.laneKey.j }, site.laneKey.d);
+    const route = findRouteOnto(planOrigin(truck), { i: site.laneKey.i, j: site.laneKey.j }, site.laneKey.d, serviceLaneCost);
     if (route?.length) { truck.route = route; truck.routeConsumed = false; }
   }
 
@@ -568,7 +568,7 @@ export function createFire({
     truck.route = [];
     const exit = { i: taxi.i > GRID_I / 2 ? 0 : GRID_I, j: taxi.j > GRID_J / 2 ? 0 : GRID_J };
     state.exit = exit;
-    const route = findRoute(planOrigin(truck), exit);
+    const route = findRoute(planOrigin(truck), exit, serviceLaneCost);
     if (route?.length) { truck.route = route; truck.routeConsumed = false; }
   }
 
@@ -772,7 +772,7 @@ export function createFire({
             state.fading = -1;
           }
           if (!truck.route?.length && state.fading >= 0 && ex) {
-            const route = findRoute(planOrigin(truck), ex);
+            const route = findRoute(planOrigin(truck), ex, serviceLaneCost);
             if (route?.length) { truck.route = route; truck.routeConsumed = false; }
           }
           if (state.fading < 0 && state.fade <= 0) retire();

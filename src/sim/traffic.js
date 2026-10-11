@@ -339,6 +339,13 @@ export const isLaneClosed = (id) => closedLanes.has(id);
 const HARD_CLOSURES = ['drawbridge'];
 const hardClosed = (id) => HARD_CLOSURES.some((source) => closedBySource.get(source)?.has(id));
 
+// ...and roadworks are hard for everyone **but the taxi**. The routers in game/ plan police and the
+// fire engine round a zone (`serviceLaneCost` in game/route.js), but a route planned in the forty
+// seconds before the zone stood up still runs through it, and the patrol cruiser holding one drove
+// straight over the trestles. Same refusal, same place, for the same reason as the bridge.
+const refusesLane = (car, id) => hardClosed(id)
+  || (!car.isTaxi && closedBySource.get('roadwork')?.has(id));
+
 // --- The ramp -----------------------------------------------------------------
 //
 // A barricade is a ramp, and hitting one launches the taxi. The arc is *rendered only*: car.s,
@@ -6057,12 +6064,13 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
             let routed = car.route?.length
               ? options.find((o) => net.dirOfLane(net.laneById.get(o.outLane)) === car.route[0])
               : null;
-            // A route onto a shut span is stale, not desynced: drop it and let the car roll an
-            // exit like anybody else (the span's own lanes weigh zero there). Whoever owns the
-            // route re-plans an empty one — game/patrol.js does on its next frame, and `findRoute`
-            // cannot return the span while the leaf is shut. Not counted in `routeDesync`, which
-            // is the claim that this never happens for a route that was valid when it was made.
-            if (routed && hardClosed(routed.outLane)) {
+            // A route onto a shut span — or, for anything but the taxi, into roadworks — is stale,
+            // not desynced: drop it and let the car roll an exit like anybody else (the closed
+            // lanes weigh zero there). Whoever owns the route re-plans an empty one —
+            // game/patrol.js does on its next frame, and its router cannot return either closure.
+            // Not counted in `routeDesync`, which is the claim that this never happens for a route
+            // that was valid when it was made.
+            if (routed && refusesLane(car, routed.outLane)) {
               car.route.length = 0;
               routed = null;
               stats.routeRefused += 1;

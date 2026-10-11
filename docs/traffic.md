@@ -1996,6 +1996,14 @@ The same two lane ids go to `route.js` as well, via `setRoadworkLanes`, and say 
 to ambient traffic these turns are **forbidden**, to the taxi's router they are **cheap**. That
 asymmetry is the whole vignette — the city empties the street and the fare sends the player down it.
 
+**Cheap for the taxi only.** Every other routed car — the patrol cruiser, the robbery's cops, the
+arrest car, the fire engine — plans with `serviceLaneCost`, which prices a roadworks lane at
+Infinity. The discount used to be the shared default, so the closed street was the cheapest road
+in the city to the police as well and the patrol drove through the trestles on purpose. A route
+planned before the zone stood up is caught at the line by `refusesLane` in `sim/traffic.js`, the
+same commit-point refusal the drawbridge uses: the route is dropped, the car rolls an exit, and
+its owner re-plans. `tools/probe.mjs` pins both halves.
+
 This was not the first build. Originally the taxi genuinely had never heard of the closure, on the
 theory that stumbling into it was the discovery. Measured, that theory was wrong: **the player
 cannot steer.** They tap a rider and the taxi routes itself, so "go and look at the roadworks" is
