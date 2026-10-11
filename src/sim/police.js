@@ -123,6 +123,7 @@ function lightBar(shell, carrier) {
   // reads as police.
   const housing = new THREE.Mesh(sirenBaseGeometry(), propMaterial());
   housing.position.copy(sirenBaseAnchor(CABIN_X, CABIN_TOP));
+  housing.castShadow = true;
   housing.receiveShadow = true;
   shell.add(housing);
 
@@ -173,6 +174,7 @@ export function createPolice(scene) {
   group.add(shell);
   const bodyGeometry = policeGeometry();
   const body = new THREE.Mesh(bodyGeometry, propMaterial({ gloss: { geometry: bodyGeometry, floor: SILL_Y } }));
+  body.castShadow = true;
   body.receiveShadow = true;
   shell.add(body);
   const lights = lightBar(shell, group);
@@ -323,6 +325,15 @@ export function createPolice(scene) {
       if (loose && state.fade === 0) loose.done = true;
     }
     for (const material of faders) material.opacity = state.fade;
+    // The shadow pass draws with three's own depth material, which carries `alphaTest` but not
+    // `alphaHash`, so a dissolving cruiser would lay a full-strength shadow under a car that is
+    // mostly gone. Dropped at the same halfway mark as the lamps instead — a flag, not a define,
+    // so switching it relinks nothing. The body cast nothing at all until this was added, and the
+    // cruiser read as floating beside traffic that does.
+    const casting = state.fade >= 0.5;
+    body.castShadow = casting;
+    lights.housing.castShadow = casting;
+    for (const wheel of wheels) wheel.castShadow = casting;
 
     state.lit = Boolean(state.cop || state.loose) && state.bar !== 'off';
     state.chasing = state.lit && state.bar === 'strobe';
