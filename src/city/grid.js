@@ -20,9 +20,9 @@ export const BIG_CITY = typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('city') !== 'classic'
   : globalThis.process?.env?.CITY !== 'classic';
 export const GRID_I = BIG_CITY ? 6 : 5;  // block columns
-// Six rows against five columns, because **one of the rows is the river** (`city/river.js`). The
-// city is a block row taller than it is wide so that the water costs it neither a street nor a
-// buildable block: 25 of the 30 blocks are still land, which is exactly what a 5×5 city had.
+// A row more than columns, because **one of the rows is the river** (`city/river.js`). The city is
+// a block row taller than it is wide so that the water costs it neither a street nor a buildable
+// block: 36 of the 42 blocks are land, a 6×6 city's worth (25 of 30, a 5×5's, under `?city=classic`).
 export const GRID_J = BIG_CITY ? 7 : 6;  // block rows, one of them water
 export const PITCH = 20;             // distance between road centrelines
 export const ROAD_W = 8;             // full road width (two lanes)

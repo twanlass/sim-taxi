@@ -54,7 +54,8 @@ import { CAR_LEN, SPEED, releaseCar, stageCar } from '../sim/traffic.js';
  * High for a restaurant and about right for a *toy* one: the lane is scenery, and scenery nobody
  * ever catches running is scenery that may as well not be there. What it is actually tuned against
  * is how much of the time there is a car in the lot at all, measured over 24 minutes of traffic per
- * density — a run plays between 12 and 22 cars (`carsStart`/`carsEnd` in game/difficulty.js):
+ * density — a run played between 12 and 22 cars (`carsStart`/`carsEnd` in game/difficulty.js) in the
+ * 5 × 6 city these were measured in; the 6 × 7 plays 16 to 30 over ~1.35x the street:
  *
  *     12 cars   1.3 pull in/min   a car in the lot 28% of the time
  *     18 cars   1.5 pull in/min                    34%

@@ -31,7 +31,7 @@ After that, three speech bubbles from the taxi — "this car is you", "tap that 
 nod at the boost pill a couple of seconds after the first drop-off — and that is the whole tutorial;
 see [the opening tutorial](gameplay.md#the-opening-tutorial).
 
-A 5-by-6 block city on a fixed 3/4 orthographic camera. Ambient cars drive a lane-following traffic
+A 6-by-7 block city on a fixed 3/4 orthographic camera. Ambient cars drive a lane-following traffic
 model with real signals. **The player's taxi is one of those cars** — the only difference is that
 its turn at each junction comes from a planned route rather than a dice roll, so it obeys every
 red light exactly like everyone else and cannot cheat its way to a destination.

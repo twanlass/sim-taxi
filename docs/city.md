@@ -944,11 +944,12 @@ light direction rather than as a pale crust; cards on the far side of a lobe, wh
 camera never sees, are dropped after the draw. Covers the parks', the medians' and the courtyard's
 trees; `seed + 144`. The atlas builder both share is `util/cutout.js`.
 
-## `?city=big`: the 6 × 6 experiment and the central park
+## The 6 × 7 city and the central park
 
-`?city=big` (or `CITY=big` for a headless tool) grows the grid to 6 × 7 blocks, 36 of them land, and
-lays a **2 × 2 central park** with a curving road through it (`city/centralpark.js`). Off by default;
-the shipped city is untouched.
+The city is 6 × 7 blocks, 36 of them land, with a **2 × 2 central park** and a curving road through
+it (`city/centralpark.js`). `?city=classic` (`CITY=classic` for a headless tool) builds the old
+5 × 6 city with straight roads only, for comparison. Ambient traffic scales with the street: 16 to
+30 cars against the old city's 12 to 22 ([difficulty.md](difficulty.md)).
 
 The park road is a trick worth knowing before extending it. Every grid road round the park's middle
 junction is **closed**, so the road markings, the junction paint, the depot and drive-through
@@ -966,11 +967,16 @@ is not a crossing road (it was holding both arms 8.5 back), and `planeCrossing` 
 curved lane at its far end. The lawns are built by offsetting the centreline further for each layer
 (kerb, walk, grass) rather than by insetting the kerb polygon, whose clipped ends fold.
 
-`&parkway=oneway` (`PARKWAY=oneway` headless) makes the park road one-way in a direction the seed
-picks: one lane down the centreline of a 6-wide road, with chevrons at its entrance, middle and exit and no centre line.
+The park road is one-way in a direction the seed picks: one lane down the centreline of a 6-wide
+road, with chevrons at its entrance, middle and exit and no centre line. `?parkway=twoway`
+(`PARKWAY=twoway` headless) gives it two lanes.
 
-Known gaps: the headless suite under `CITY=big` fails the checks that compare the network with the
-grid (by design, the park road is not on the grid) and the few that assume every lane is straight.
+The park road is the one road the grid has no opinion about, so `tools/roadnet.mjs` leaves its lanes
+out of the grid comparisons. It also skips the trim checks at the road's two end junctions: the road
+leaves them 28° off square, so its kerb holds the cross street ~0.6 further back than
+`junctionReach` (which knows only square crossings) says. Several probe sweeps skip the park's
+middle junction facing against the one-way, which no car can be in. `npm run check` covers this
+city only; `CITY=classic npm run check` is the old one's suite.
 
 ## Ground, buildings, props
 
