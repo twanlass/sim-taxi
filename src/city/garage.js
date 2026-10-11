@@ -100,7 +100,7 @@ const CHECK_SQ = 0.62;
 // the burger joint does: one oversized object on a pole.
 //
 // The object is **a taxi, cut out of board**: a flat side-on silhouette in the taxi's paint with a
-// pink neon tube round its edge. A yellow car is the one shape the player is already scanning the
+// blue neon tube round its edge. A yellow car is the one shape the player is already scanning the
 // map for, so it is the fastest thing to find — and being *flat* is what stops it being mistaken
 // for their car, because a car on the road never is. The neon says "sign" in a second way that
 // survives daylight (it is unlit, so it is a line of full colour against a sunlit roof) and takes
@@ -560,7 +560,7 @@ function cutoutGeometry() {
   // Wheels: a tyre each with a hubcap, as cylinders along z through the board. Their tops are
   // inside the body, so the board reads as a car standing on them. Wider than the neon tube is
   // deep (`2 · NEON_DEPTH`), so the tube running along the sill is buried in them rather than
-  // grazing their faces — at the same depth it drew pink through the tyres.
+  // grazing their faces — at the same depth it drew neon through the tyres.
   const tread = Math.max(through, 2 * NEON_DEPTH) + 0.08;
   for (const sx of [-1, 1]) {
     const tyre = new THREE.CylinderGeometry(CUT_WHEEL_R, CUT_WHEEL_R, tread, 12);
