@@ -51,6 +51,7 @@ export const BENCH_BASE = {
 /** The settings, in order. Each is one page load. */
 export const BENCH_STEPS = [
   { label: 'baseline', params: {} },
+  { label: 'dpr 3', params: { dpr: '3' } },
   { label: 'dpr 1', params: { dpr: '1' } },
   { label: 'msaa off', params: { msaa: 'off' } },
   { label: 'shadows 1024', params: { shadows: '1024' } },

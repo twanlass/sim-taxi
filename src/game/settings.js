@@ -32,7 +32,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
   // The pixel-ratio cap: how many canvas pixels per CSS pixel, at most. 2 is the look the game was
   // built at; 1.5 is a third fewer pixels a side (44% fewer in all) and hard to tell from 2 on a
   // phone; 1 visibly stair-steps. Added for Tyler to judge 1.5 on the device itself (2026-10-10),
-  // after `?bench` showed a warm iPhone throttling. `?dpr=` on the URL still beats it.
+  // after `?bench` showed a warm iPhone throttling. 3 is an iPhone's native density, offered so
+  // it can be judged too (2026-10-11): 2.25x the pixels of 2, and the governor is the backstop
+  // (game/governor.js steps down from whatever this is). A screen below 3 is capped at its own
+  // ratio, so it costs nothing there. `?dpr=` on the URL still beats it.
   resolution: 2,
   // Frames per second, at most. 30 halves everything the GPU and the sim do per second, which is
   // the one lever that stays big at any resolution: an iPhone at 1x still ran warm and lost about
@@ -44,7 +47,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
 export const FRAME_RATES = Object.freeze([60, 30]);
 
 /** The resolutions the Settings page offers. */
-export const RESOLUTIONS = Object.freeze([2, 1.5, 1]);
+export const RESOLUTIONS = Object.freeze([3, 2, 1.5, 1]);
 
 const unit = (v, fallback) => (typeof v === 'number' && Number.isFinite(v)
   ? Math.min(1, Math.max(0, v)) : fallback);
