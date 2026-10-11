@@ -35,8 +35,14 @@ const SPK_R = 0.25;
 const CONE_R = 0.19;
 const HANDLE_H = 0.2;
 
-/** How hard the box squashes on each beat, and how fast it recovers (per beat). */
-const BOUNCE = 0.07;
+/**
+ * The bounce: on each beat the box hops `HOP` off the ground, spending the first `HOP_T` of the beat
+ * in the air, then squashes by `BOUNCE` as it lands and recovers at `DECAY` per beat. 0.22 is under
+ * two pixels at play zoom and reads mostly close in — any higher and the box leaves its own shadow.
+ */
+const HOP = 0.22;
+const HOP_T = 0.4;
+const BOUNCE = 0.08;
 const DECAY = 7;
 
 // The notes. One per beat, alternating speakers; at 96 BPM and 1.9s of life that is three in the
@@ -197,8 +203,14 @@ export function createBoombox(scene, rng, plan) {
       if (beat > lastBeat) emit();
       lastBeat = beat;
     }
-    const env = Math.exp(-(beats - beat) * DECAY);
-    body.scale.set(1 + BOUNCE * 0.5 * env, 1 - BOUNCE * env, 1 + BOUNCE * 0.5 * env);
+    const phase = beats - beat;
+    // Up and down as a half sine over the hop, then a squash on landing that eases out by the beat.
+    const air = phase < HOP_T;
+    body.position.y = air ? HOP * Math.sin((Math.PI * phase) / HOP_T) : 0;
+    const land = air ? 0 : Math.exp(-(phase - HOP_T) * DECAY);
+    body.scale.set(1 + BOUNCE * 0.5 * land, 1 - BOUNCE * land, 1 + BOUNCE * 0.5 * land);
+    // The woofers kick on the beat itself, as the box leaves the ground.
+    const env = Math.exp(-phase * DECAY);
     for (const cone of cones) {
       cone.scale.set(1 + 0.12 * env, 1 + 0.12 * env, 1 + 2.5 * env);
     }

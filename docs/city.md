@@ -800,7 +800,7 @@ the read, so the far sideline first, the far baseline next, the near ones last â
 the lawn and clear of benches, statue, pond and skatepark wins. A court pushed into a corner of its
 park can have a third of a unit of grass on three sides (3 courts in 40 seeds), so a **far
 sideline's apron** ranks ahead of the near lawn: the box is set down on the blacktop outside the
-lines. On the beat it squashes and its woofers pump, and a quaver or a beamed pair floats up over
+lines. On each beat it hops, squashes as it lands, its woofers pump, and an orange quaver or beamed pair floats up over
 it; the notes are opaque and go out by shrinking, because a translucent one blends twice where its
 head, stem and flag overlap. It is silent for now â€” see [audio.md](audio.md#the-boom-box) for the
 hook.
