@@ -54,8 +54,8 @@ often, and fares pay up to double. A perfect player survives a median of 14.
 A **river** runs east–west through the middle of the city, so every trip across town has to pick a
 crossing. Three of the six roads that meet it carry a bridge; the other three just stop at the
 water. Two of the three **arch** — a low hump the cars rise and pitch over, and a ramp the boosting
-taxi gets air off — and the third is flat, because it is the one that **lifts**: barriers drop, the
-deck clears, and a leaf tilts up off one bank to let a tug through, closing that route for a dozen
+taxi gets air off — and the third is flat, because it is the one that **lifts**: the lamps start, the
+deck clears, barriers drop, and a leaf tilts up off one bank to let a tug through, closing that route for a dozen
 seconds while it does. The barges pass under everything, which is what the arch on the other two is
 for. See [river.md](river.md).
 

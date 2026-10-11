@@ -4284,8 +4284,9 @@ let spawnHeard = false;
 // The aeroplane's run is ~10s of which the middle ~6 are on screen; the master is 7.25s, so it
 // starts this far in, which centres it on the pass. It is steered by distance besides.
 const PLANE_LEAD = 1.4;
-// The drawbridge master is the whole cycle in one (26s) — see docs/audio.md for why that only
-// lines up when nothing holds the span. It is steered for as long as it can be sounding.
+// The drawbridge master is the whole cycle in one (26s), from the arms starting down. The deck
+// clears *before* that (game/drawbridge.js), so a held span holds the sound back rather than
+// stretching the middle of it. It is steered for as long as it can be sounding.
 const BRIDGE_SECONDS = 26;
 
 function cityOneShots(dt) {
@@ -5802,7 +5803,7 @@ if (shot) {
       // **The traffic has to run too, and this is not optional staging.** `clearing` holds until
       // the deck is empty, and a car left standing on it by the warm-up never drives off unless the
       // sim is stepped — so a shot that ticked only the bridge photographed a span with its
-      // barriers down and its leaf still flat, every time, which is a real state and not the one
+      // lamps flashing and its leaf still flat, every time, which is a real state and not the one
       // being framed.
       traffic.update(1 / 60);
     }
