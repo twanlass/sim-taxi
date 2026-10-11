@@ -313,13 +313,13 @@ existing, with a clock running in the back seat.
 ### The cycle
 
 ```
-open ─▶ closing ─▶ clearing ─▶ lifting ─▶ up ─▶ lowering ─▶ raising ─▶ open
+open ─▶ clearing ─▶ closing ─▶ lifting ─▶ up ─▶ lowering ─▶ raising ─▶ open
 ```
 
 | | |
 |---|---|
-| `closing` | Barriers down, and **both** closures published at once. 2.2s. |
-| `clearing` | Hold until nothing is on either lane. **No timeout.** |
+| `clearing` | Lamps flashing, arms still up, **both** closures published at once. Hold until nothing is on either lane. **No timeout.** |
+| `closing` | Barriers down, 2.2s. Re-checks the deck before the leaf moves. |
 | `lifting` | 6.8s, smoothstepped, to 70°. |
 | `up` | Until the boat releases it, or `HOLD_SECONDS` as a backstop. |
 | `lowering` | 6.0s. Gravity is on its side and the beat wants to end sooner. |
@@ -344,7 +344,7 @@ degrees across both faces the camera sees, with the end stripes clamped square (
 
 Each arm carries **two amber warning lamps**, one near either end, flashing alternately at a level
 crossing's rate (`LAMP_PERIOD`, one flash a second per lamp). They come on with the first frame of
-`closing`, so they are already flashing while the arms drop and the deck clears ahead of the leaf,
+`clearing`, so they are the warning while the deck empties and are already flashing as the arms drop,
 run through the whole lift, and go out `LAMP_TAIL` (1s) after `raising` has the arms back up. Both
 arms flash in step so the pair across the road reads as one signal. A lamp is switched on its
 colour (`lightYellow` against the dark `gateLampOff` lens) *and* its bloom scale, with a hard
@@ -360,8 +360,18 @@ and it is the same dust either way. Smaller and shorter than a barricade smash �
 well over 1 — because this is a heavy thing settling, not something exploding, and aimed **along**
 the span so the collars spread down the road rather than out over the water.
 
-**`clearing` is what makes this safe.** The barriers are already down and the lanes already shut, so
-nothing new can reach the deck; what is on it drives off, and only then does the leaf move. A car
+**`clearing` is what makes this safe.** The lamps are going and the lanes already shut, so nothing
+new can reach the deck; what is on it drives off, and only then do the arms drop and the leaf move.
+
+**It clears before the arms drop, not after.** The cycle used to run `closing` then `clearing`. Both
+arms span the whole carriageway, so every car still on the span drove out through the far arm, and
+one already committed to the turn onto it drove in under the near one — reported as cars driving
+through the arms and sitting on the bridge with both arms down. Over 20 cities, 300s each with a
+lift every 30s, 141 of 200 cycles dropped the arms on an occupied deck and 204 cars crossed an arm
+line with it more than a quarter down. Clearing first: 0 and 2, and the 2 are cars setting off
+under an arm on its way back up in `raising` at 56° off the road, which is the level-crossing
+behaviour `raising` exists for. The audio master starts on `closing`, so the hold now sits ahead of
+it rather than in the middle of it. A car
 queued behind a red at the far junction, or a player sitting on the crest with the brake held, holds
 the whole cycle — the boat waits. A lift that fired anyway would be the one event here that can
 throw a car into the river, and "it hardly ever happens" is not a property worth having.
@@ -415,7 +425,7 @@ empty route on its next frame.
 by pricing it high. A weight, however large, is still a number Dijkstra will pay if it has to — and
 on a city where the bridge is the short way across, "has to" is precisely the case that comes up.
 
-The re-plan on `closing` is unconditional and does not need to ask whether the old route used the
+The re-plan on `clearing` is unconditional and does not need to ask whether the old route used the
 span: the lanes are already blocked, so a route that never went near the river re-plans to itself.
 Passing the **same target object** keeps that free — the band's rollout sweep keys off
 `pendingTarget`'s identity ([gameplay.md](gameplay.md#dragging-the-route)).
@@ -427,7 +437,7 @@ junctions. A bridge lane is exactly the deck, so a bar would land on it — and 
 did, on a leaf that then lifted out from under it. See
 [traffic.md](traffic.md#and-none-over-the-river) for the rule and what it deliberately leaves alone.
 The orange boom is the bridge's only "stop", which is also the only one telling the truth: during
-`closing` and `clearing` the lane is already shut while a stop bar would happily be green.
+`clearing` and `closing` the lane is already shut while a stop bar would happily be green.
 
 It used to decline to lift while a siren was running down its line, because the patrol cruiser was
 a scripted car that could not stop for a barrier. It is a car in traffic now and stops like anybody
@@ -620,7 +630,7 @@ bridge that opened for nobody.
 Two things that staging got wrong and are worth not getting wrong again. The **traffic has to be
 stepped too**: `clearing` holds until the deck is empty, and a car left standing there by the warm-up
 never drives off unless the sim runs, so a loop that ticked only the bridge photographed a span with
-its barriers down and its leaf still flat — a real state, and not the one being framed. And
+its lamps flashing and its leaf still flat — a real state, and not the one being framed. And
 `drawbridgeAt` is seconds into the cycle, so it tracks `BARRIER_SECONDS` and `LIFT_SECONDS` and has
 to be re-derived whenever they move; the 3.0 and 9.5 that framed the old cycle both landed on the
 wrong phase once it was slowed.

@@ -71,8 +71,8 @@ const STRIPE_SLANT = 1;
 
 // The warning lamps: two on each arm, one near either end, flashing alternately the way a level
 // crossing's do. They run for the whole time the span is anything but open — from the first frame
-// the arms start down, which is `BARRIER_SECONDS` plus however long the deck takes to clear ahead
-// of the leaf moving — and carry on for `LAMP_TAIL` after the arms are back up, so the last thing
+// of `clearing`, so they are the warning for however long the deck takes to empty, then through
+// the `BARRIER_SECONDS` of the arms coming down and the whole lift — and carry on for `LAMP_TAIL` after the arms are back up, so the last thing
 // the player sees of the cycle is the warning going out rather than the gate arriving.
 //
 // One flash a second per lamp, which is a real crossing's rate (45-65 a minute) at the top end:
@@ -103,16 +103,25 @@ const HOLD_SECONDS = 20;
 /**
  * The cycle.
  *
- *   open -> closing -> clearing -> lifting -> up -> lowering -> open
+ *   open -> clearing -> closing -> lifting -> up -> lowering -> raising -> open
  *
- * `clearing` is what makes this safe, and it has **no timeout**. The barriers are already down and
- * the lanes already shut, so nothing new can get onto the deck; what is on it drives off, and only
- * then does the leaf move. If the deck will not clear — a car queued behind a red at the far
+ * `clearing` is what makes this safe, and it has **no timeout**. The lamps are flashing and the
+ * lanes already shut, so nothing new can get onto the deck; what is on it drives off, and only
+ * then do the arms come down. If the deck will not clear — a car queued behind a red at the far
  * junction, or a player sitting on the crest with the brake held — the boat waits. A lift that
  * fired anyway would be the one event in this game that can throw a car into the river, and "it
  * hardly ever happens" is not a property worth having.
+ *
+ * **It clears *before* the arms drop, not after.** It used to run closing -> clearing: arms down
+ * first, then wait for the deck. Both arms span the whole carriageway, so every car still on the
+ * span drove out through the far arm, and one that had committed to the turn onto it drove in
+ * under the near one — reported as "cars drive through the arms / are on the bridge when both arms
+ * come down". Measured over 20 cities, 300s each with a lift every 30s: 141 of 200 cycles dropped
+ * the arms on an occupied deck, and 204 cars crossed an arm line with the arm more than a quarter
+ * down. Clearing with the arms up and the lamps already going is how a level crossing does it
+ * anyway: the warning comes first, the boom only once the box is empty.
  */
-const PHASES = ['open', 'closing', 'clearing', 'lifting', 'up', 'lowering', 'raising'];
+const PHASES = ['open', 'clearing', 'closing', 'lifting', 'up', 'lowering', 'raising'];
 
 /**
  * The phases in which nothing may cross.
@@ -122,7 +131,7 @@ const PHASES = ['open', 'closing', 'clearing', 'lifting', 'up', 'lowering', 'rai
  * exactly as it does at a level crossing. Reopening only once the arms were vertical would hold the
  * span shut for two seconds after there was anything to hold it shut for.
  */
-const SHUT = new Set(['closing', 'clearing', 'lifting', 'up', 'lowering']);
+const SHUT = new Set(['clearing', 'closing', 'lifting', 'up', 'lowering']);
 
 /**
  * A gate arm in diagonal black and white, built rather than painted.
@@ -304,9 +313,9 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet
   }
 
   function publish() {
-    // Shut to ambient traffic and impassable to the router the moment the barriers start down —
-    // not when the leaf starts to move. The gap between the two is `clearing`, and its whole job is
-    // to empty a deck that nothing new can enter.
+    // Shut to ambient traffic and impassable to the router the moment the lamps start — before the
+    // barriers start down, and well before the leaf moves. `clearing` comes first, and its whole job
+    // is to empty a deck that nothing new can enter while the arms are still out of the way.
     const shut = SHUT.has(state.phase);
     setClosedLanes(shut ? laneIds : [], 'drawbridge');
     setBlockedLanes(shut ? laneIds : []);
@@ -318,7 +327,7 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet
     publish();
     // Re-plan on the way in, not on the way out. A taxi whose route crosses this span has to be
     // given a new one while it still has road to turn off on.
-    if (phase === 'closing') replan?.();
+    if (phase === 'clearing') replan?.();
   }
 
   function pose() {
@@ -357,15 +366,18 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null, wet
         // the patrol cruiser was a scripted car that could not stop for a barrier — and the
         // cruiser is an ordinary car in traffic now (game/patrol.js), which stops for one like
         // anybody else.
-        if (state.requested) enter('closing');
+        if (state.requested) enter('clearing');
+        break;
+      case 'clearing':
+        state.barrier = 0;
+        if (deckClear(cars)) enter('closing');
         break;
       case 'closing':
         state.barrier = Math.min(1, state.t / BARRIER_SECONDS);
-        if (state.t >= BARRIER_SECONDS) enter('clearing');
-        break;
-      case 'clearing':
-        state.barrier = 1;
-        if (deckClear(cars)) enter('lifting');
+        // The deck is checked again before the leaf moves rather than trusted. Nothing should be
+        // able to reach it with the lanes shut, but "should" is not what stands between a car and
+        // the river.
+        if (state.t >= BARRIER_SECONDS && deckClear(cars)) enter('lifting');
         break;
       case 'lifting':
         state.lift = smooth(Math.min(1, state.t / LIFT_SECONDS));

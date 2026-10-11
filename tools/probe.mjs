@@ -18133,6 +18133,11 @@ let chopperOrder; // likewise
     check('the leaf never moves while a car is on the deck',
       bridge.state.lift === 0 && bridge.state.phase === 'clearing',
       `${bridge.state.phase} after 40s, lift ${bridge.state.lift.toFixed(2)}`);
+    // **...and nor do the arms.** Both span the whole carriageway, so dropping them on an occupied
+    // deck — which is what the cycle did when it ran closing before clearing — sends every car on
+    // the span out through the far one. The lamps are the warning; the arms wait for an empty deck.
+    check('the arms stay up while a car is on the deck', bridge.state.barrier === 0,
+      `barrier ${bridge.state.barrier.toFixed(2)} after 40s`);
     // Long enough for the whole lift, whatever it is set to — `OPEN_SECONDS` is the bridge's own
     // answer, so slowing the machinery down cannot leave this waiting six seconds for a seven-second
     // leaf and calling it a failure.
