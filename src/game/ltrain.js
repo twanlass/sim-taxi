@@ -123,6 +123,24 @@ const RAMP = 2.5;
 /** Seconds the line stands empty between runs. Run seed: the timetable is the situation. */
 const WAIT = [5, 14];
 
+// --- Wheel sparks -------------------------------------------------------------------------------
+//
+// Every few seconds a truck under one of the cars throws a short shower off the rail — the thing
+// an L does that nothing else in the city does, and the cue that it is steel on steel up there.
+// Through the shared spark pool (game/sparks.js), with the floor taken off: a spark that leaves
+// the railhead falls through the open deck instead of skating along the top of it, and the pool's
+// life runs out on the way down, so it reads as sparks dripping off the structure.
+//
+// Only at speed and only over the island: a train easing off the end of the line, or out in the
+// haze, sparking at nobody, is a cost with no one to see it.
+const SPARK_GAP = [1.2, 4];   // seconds between showers
+const SPARK_MIN_SPEED = 6;
+const SPARK_PULSES = 3;         // bursts per shower...
+const SPARK_PULSE_GAP = 0.09;   // ...this far apart, so a shower has a beat of duration
+const SPARK_COUNT = [6, 10];
+/** Bogie centres along one car, from its middle. */
+const BOGIE_AT = CAR_LEN / 2 - 0.9;
+
 // --- The fade -----------------------------------------------------------------------------------
 //
 // Done as a **dither**, not as alpha blending. The structure is opaque and stays opaque: it writes
@@ -378,7 +396,7 @@ const smoothstep01 = (t) => {
  * `rng` is a run-seed stream: which way the first train goes and how long the line stands empty
  * is the situation, not the map.
  */
-export function createLTrain(scene, rng) {
+export function createLTrain(scene, rng, { sparks = null } = {}) {
   const plan = planLTrain();
   if (!plan) return null;
 
@@ -465,6 +483,42 @@ export function createLTrain(scene, rng) {
       }
     }
     place();
+    if (sparks) sparkle(dt);
+  }
+
+  let sparkWait = rng.range(SPARK_GAP[0], SPARK_GAP[1]);
+  let pulses = 0;
+  let pulseWait = 0;
+  let bogieX = 0;
+  function sparkle(dt) {
+    const onIsland = Math.abs(state.x) < COAST_FROM;
+    if (state.phase !== 'run' || state.speed < SPARK_MIN_SPEED || !onIsland) {
+      pulses = 0;
+      return;
+    }
+    if (pulses === 0) {
+      sparkWait -= dt;
+      if (sparkWait > 0) return;
+      sparkWait = rng.range(SPARK_GAP[0], SPARK_GAP[1]);
+      pulses = SPARK_PULSES;
+      pulseWait = 0;
+      // Which truck: a car, then one end of it.
+      const car = rng.int(0, CARS - 1);
+      bogieX = -TRAIN_LEN / 2 + CAR_LEN / 2 + car * (CAR_LEN + CAR_GAP) + (rng.chance(0.5) ? 1 : -1) * BOGIE_AT;
+    }
+    pulseWait -= dt;
+    if (pulseWait > 0) return;
+    pulseWait = SPARK_PULSE_GAP;
+    pulses -= 1;
+    // The train is symmetric and only ever translated, so a bogie's world x is the same offset
+    // whichever way it is running. Yaw is a sim heading: 0 runs +x.
+    const yaw = state.dir > 0 ? 0 : Math.PI;
+    const count = rng.int(SPARK_COUNT[0], SPARK_COUNT[1]);
+    // Off the camera's side of the truck (+z, as the view looks in from +x +z): thrown from under
+    // the car on the rail itself, the first cut's sparks were hidden by the body they came out of.
+    const side = CAR_W / 2 + 0.05;
+    sparks.burst(state.x + bogieX, RAIL_TOP + 0.08, plan.z + TRACK_OFF + side, yaw, count, state.speed,
+      { reach: 0.8, lift: 1.0, floor: 0 });
   }
 
   /**
@@ -499,6 +553,12 @@ export function createLTrain(scene, rng) {
     state.x = state.dir > 0 ? plan.from + s : plan.to - s;
     state.speed = SPEED;
     place();
+    // And one shower in the air, so a still shows what the wheels do.
+    if (sparks) {
+      sparkWait = 0;
+      pulses = 0;
+      for (let k = 0; k < SPARK_PULSES; k++) sparkle(SPARK_PULSE_GAP + 1e-3);
+    }
   }
 
   place();

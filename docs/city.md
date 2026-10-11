@@ -249,6 +249,8 @@ waits off the end, and comes back the other way. Behind a flag while it is a pro
   fade: the taxi and every visible fare pin are projected up their sightline to the deck and the
   deck dithers out there (`FADE_*`). Off the island it dithers out the same way, a little ahead of
   the ground's own fade, which reads as gone sooner than its alpha says.
+- **Wheel sparks** every few seconds off one truck, through the shared spark pool with its floor
+  set to the road, so they fall through the open deck. Only at speed and only over the island.
 - **Not done:** no stations, no sound (the rumble hook is commented in `ambientLevels`), no lamps at
   night, and the entrance wave grows the whole line from its middle as one object.
 

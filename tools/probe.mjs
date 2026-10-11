@@ -19411,6 +19411,26 @@ let chopperOrder; // likewise
     dirsSeen.size === 2 && outside === 0 && lt.state.runs - runs0 >= 3,
     `${lt.state.runs - runs0} runs, directions ${[...dirsSeen].join('/')}, ${outside} frames off the line`);
 
+  // Wheel sparks: a few showers a crossing, off the rail, only while running over the island.
+  {
+    const bursts = [];
+    const lts = createLTrain(new THREE.Scene(), makeRng(9), {
+      sparks: { burst: (x, y, z, yaw, count, speed, opts) => bursts.push({ x, y, count, opts }) },
+    });
+    let crossings = 0;
+    for (let n = 0; n < 60 * 120; n++) {
+      const was = lts.state.runs;
+      lts.update(1 / 60);
+      crossings += lts.state.runs - was;
+    }
+    const offRail = bursts.filter((b) => Math.abs(b.y - L.RAIL_TOP) > 0.2 || b.opts.floor !== 0).length;
+    const offIsland = bursts.filter((b) => Math.abs(b.x) > HALF_SPAN_X + 20).length;
+    const perCrossing = bursts.length / 3 / Math.max(1, crossings);
+    check('ltrain: the wheels spark a few times a crossing, off the rail, over the island',
+      perCrossing >= 1.5 && perCrossing <= 8 && offRail === 0 && offIsland === 0,
+      `${perCrossing.toFixed(1)} showers a crossing, ${offRail} off the rail, ${offIsland} off the island`);
+  }
+
   // The dither patch, run rather than trusted: a replace that stops matching hands back the shader
   // untouched and the deck stops fading with nothing logged.
   const stub = {

@@ -660,7 +660,11 @@ const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters
 // be handed it. Run seed: where the line runs is the arterial's, so the map's already; which way
 // the first train goes and how long the line stands empty is the situation.
 const ltrain = new URLSearchParams(window.location.search).get('ltrain') === 'on' || shot?.atLTrain
-  ? createLTrain(scene, makeRng(runSeed + 421)) : null;
+  ? createLTrain(scene, makeRng(runSeed + 421), {
+    // Wheel sparks through the shared pool, which is built further down — only ever called from
+    // the frame loop, by which time it exists.
+    sparks: { burst: (...args) => sparks.burst(...args) },
+  }) : null;
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
 // subject of the opening vignette below. `null` on a city with nowhere to put one, which is a
@@ -6178,6 +6182,7 @@ if (shot) {
   if (ltrain) {
     ltrain.settle(controller.state.target.x);
     ltrain.setFadePoints(ltrainFadePoints());
+    sparks.update(0.12);
   }
   // The city's own entrance is an animation that opens at zero too — unsettled, every screenshot
   // is an empty street grid.
