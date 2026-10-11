@@ -656,10 +656,11 @@ const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters
 // subject of the opening vignette below. `null` on a city with nowhere to put one, which is a
 // state the whole chain below handles rather than one to guard against here: no depot, no
 // vignette, and the run opens the way it always did. See city/garage.js.
-// `?depot=classic` puts the wrench back on its roof in place of the taxi sign.
+// `?depot=model` puts the 3D taxi on its roof in place of the cutout, `?depot=classic` the wrench.
+const depotFlag = new URLSearchParams(window.location.search).get('depot');
 const garage = layout.garageBlock
   ? createGarage(layout.garageBlock, makeRng(seed + 99), {
-    sign: new URLSearchParams(window.location.search).get('depot') === 'classic' ? 'classic' : 'taxi',
+    sign: depotFlag === 'classic' || depotFlag === 'model' ? depotFlag : 'cutout',
   })
   : null;
 if (garage) {
@@ -1143,6 +1144,7 @@ for (const mesh of police.emissiveMeshes) markEmissive(mesh, 'siren');
 // nothing to wire.
 if (burger) markEmissive(burger.glow, 'window');
 if (garage) markEmissive(garage.light, 'bay');
+if (garage?.neon) markEmissive(garage.neon, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.

@@ -206,6 +206,10 @@ export const PALETTE = {
   // ironwork's blue cast rather than going neutral: the reflection does the brightening. #C3CBD4
   // was tried first and read as pale plastic once the sky had been added to it.
   wrenchSteel: '#6E7782',
+  // The neon round the taxi cutout that replaced it. Pink because every warmer hue is spoken for on
+  // that roof — the taxi's yellow is the thing being outlined, and amber, red and green all mean a
+  // fare's clock. Unlit, so it reads by day as a flat line of colour and blooms at night.
+  depotNeon: '#FF4FB0',
 
   // --- The burger joint -------------------------------------------------------
   // The city's one drive-through (city/burgerjoint.js). Like the depot above it, its envelope

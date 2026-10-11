@@ -14733,12 +14733,13 @@ let chopperOrder; // likewise
       paintFar < RAMP_FROM + 1e-6,
       `paint to x ${paintFar.toFixed(2)}, ramp from ${RAMP_FROM.toFixed(2)}`);
 
-    // --- The pole, and the sign turning on it — the taxi by default, and the wrench `?depot=classic`
-    // keeps. Both, because every placement below is derived from the sign's own measured bounds,
-    // and the two signs are different shapes.
-    const classicGarage = createGarage(layout.garageBlock, makeRng(seed + 99), { sign: 'classic' });
+    // --- The pole, and the sign on it — the taxi cutout by default, and the two `?depot=model` and
+    // `?depot=classic` keep. All three, because every placement below is derived from the sign's
+    // own measured bounds, and the three signs are different shapes.
+    const signGarage = (sign) => createGarage(layout.garageBlock, makeRng(seed + 99), { sign });
     const outerCheck = check;
-    for (const [style, dg] of [['taxi', garage], ['classic', classicGarage]]) {
+    for (const [style, dg] of [['cutout', garage], ['model', signGarage('model')],
+      ['classic', signGarage('classic')]]) {
     const pos = dg.shell.geometry.attributes.position;
     const col = dg.shell.geometry.attributes.color;
     const at = (i) => new THREE.Color(col.getX(i), col.getY(i), col.getZ(i)).getHexString();
@@ -14750,7 +14751,12 @@ let chopperOrder; // likewise
     // broke.
     dg.sign.geometry.computeBoundingBox();
     const bb = dg.sign.geometry.boundingBox;
-    const wrenchLow = KERB_H + bb.min.y;
+    // The cutout's neon tube is part of the sign for every one of these: it is the outermost thing.
+    const signGeos = [dg.sign, dg.board, dg.neon].filter(Boolean).map((m) => m.geometry);
+    const wrenchLow = KERB_H + Math.min(...signGeos.map((g) => {
+      g.computeBoundingBox();
+      return g.boundingBox.min.y;
+    }));
     const axis = dg.signPivot.position;
 
     // The radius it actually sweeps — the furthest any vertex gets from the pivot's axis, not the
@@ -14758,7 +14764,10 @@ let chopperOrder; // likewise
     // instant.
     const dp = dg.sign.geometry.attributes.position;
     let orbit = 0;
-    for (let i = 0; i < dp.count; i++) orbit = Math.max(orbit, Math.hypot(dp.getX(i), dp.getZ(i)));
+    for (const g of signGeos) {
+      const gp = g.attributes.position;
+      for (let i = 0; i < gp.count; i++) orbit = Math.max(orbit, Math.hypot(gp.getX(i), gp.getZ(i)));
+    }
 
     // The one thing a sign on this roof could break is the shot the whole depot exists for, and it
     // cannot break it for a reason that is about **x**, not about height: every ray out of the

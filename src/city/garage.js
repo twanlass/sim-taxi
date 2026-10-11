@@ -97,15 +97,20 @@ const CHECK_SQ = 0.62;
 // --- The sign on the roof ---------------------------------------------------
 // The depot is where the player brings the taxi back for repairs and upgrades, and from play zoom
 // the building has to *say* that before anybody has learned it. So the roof carries a sign the way
-// the burger joint does: one oversized object on a pole, canted, turning slowly.
+// the burger joint does: one oversized object on a pole.
 //
-// The object is **the taxi itself**, banked on its pole like a used-car lot's rooftop car. The
-// wrench before it said "repairs" to anyone who already knew the depot did repairs, and at play
-// zoom it was a grey sliver half the time — edge-on twice a revolution, steel against a grey roof.
-// A yellow car is the one shape the player is already scanning the map for, so it is the fastest
-// thing to find; what keeps it from being mistaken for *their* car is that it is up a pole,
-// banked off level, a size bigger and turning on the spot, none of which the real one ever is.
-// `?depot=classic` brings the wrench back for comparison.
+// The object is **a taxi, cut out of board**: a flat side-on silhouette in the taxi's paint with a
+// pink neon tube round its edge. A yellow car is the one shape the player is already scanning the
+// map for, so it is the fastest thing to find — and being *flat* is what stops it being mistaken
+// for their car, because a car on the road never is. The neon says "sign" in a second way that
+// survives daylight (it is unlit, so it is a line of full colour against a sunlit roof) and takes
+// over at night (it blooms). It **sways** on its pole rather than turning, facing the camera: a flat
+// board that turned would go edge-on twice a revolution, which is the problem the wrench had.
+//
+// Two earlier signs are kept for comparison. `?depot=model` is the first cut of this one — the
+// real taxi's 3D model banked on the pole and turning — which read as a car parked on the roof
+// rather than as a sign. `?depot=classic` is the wrench, which said "repairs" only to someone who
+// already knew the depot did repairs, and at play zoom was a grey sliver half the time.
 //
 // The wrench before it replaced a radio mast and dish, which said "dispatch" — true, and nothing
 // the player can act on.
@@ -143,6 +148,38 @@ const POLE_STANDOFF = 0.4;
 // whatever its base colour was. Down here the steel is mostly its own colour with a sheen of sky.
 const WRENCH_MIRROR = 0.35;
 
+// --- The cutout (default) ---
+// The board's outline, side-on, nose toward +x: the body, the cabin on it, the roof light on that.
+// Cartoon proportions rather than the car's — a taller cabin and a bigger roof light — because at
+// play zoom it is the outline that has to say "taxi", and the real car's cabin is a low dark box.
+const CUT_L = 5.0;               // nose to tail
+const CUT_SILL = 0.55;           // the body's underside, over the wheel centres
+const CUT_BELT = 1.45;           // the body's top, where the cabin starts
+const CUT_ROOF = 2.3;            // the cabin's top
+const CUT_LAMP = 0.32;           // the roof light's height over the cabin
+const CUT_WHEEL_R = 0.5;
+const CUT_WHEEL_X = 1.55;        // each wheel's centre, either side of the middle
+// Board thickness, plus a chamfer round every edge so the board catches light as it sways.
+const CUT_T = 0.3;
+const CUT_BEVEL = 0.05;
+// Everything stuck on the faces — windows, chequer, wheels, roof light — is one solid through the
+// board, this much proud of each face. A solid each, not a decal each side: three winds a box, and
+// a hand-wound decal on the back face is the reversed-triangle trap in CLAUDE.md.
+const CUT_PROUD = 0.03;
+// The neon: a tube round the board's whole edge, centred on its mid-plane. Its radius is past half
+// the board's thickness so it stands proud of both faces as well as of the edge — an outline from
+// the front and a bright rim from the side.
+const NEON_R = 0.2;
+// How much of the board's own yellow it gives off, so a face turned from the sun stays yellow.
+// 0.35 left the late-afternoon board peach rather than yellow.
+const BOARD_LIFT = 0.5;
+// The sway. The board faces the camera's diagonal and swings this far either side of it.
+const CUT_FACING = Math.PI / 4;
+const CUT_SWAY = 0.38;
+/** How fast it sways, in radians of phase a second — about six seconds a swing there and back. */
+export const CUT_SWAY_RATE = 1.05;
+
+// --- The 3D model (`?depot=model`) ---
 // The taxi sign. A size up on the player's car (drawn at TAXI_SCALE = 1.18) so that side by side
 // the one on the roof is plainly the bigger of the two — the cue that it is a model and not a car.
 const TAXI_SIGN_SCALE = 1.5;
@@ -443,14 +480,122 @@ function taxiGeometry() {
 }
 
 /**
- * The depot: two merged meshes, a light and a turning sign.
+ * The taxi cutout and its neon, in the same terms as `wrenchGeometry`: built about the board's own
+ * centre and handed back for `createGarage` to lift. The board faces ±z, nose toward +x.
+ *
+ * The board is one extruded `Shape`, for the wrench's reasons: three winds it, and nothing in it
+ * shares a face with anything else. Every detail on it is a solid running *through* it (see
+ * `CUT_PROUD`), so each shows on both faces and none is a hand-wound triangle.
+ */
+function cutoutGeometry() {
+  const half = CUT_L / 2;
+  const lampW = 0.8;
+  const lampX = -0.2;
+  // The cabin, as its four corners: a raked windscreen at the front and a gentler one behind.
+  const cab = { rearFoot: -1.45, rearTop: -1.0, frontTop: 0.55, frontFoot: 1.1 };
+
+  // Counter-clockwise from the tail's bottom corner, seen from +z. The roof light is part of the
+  // outline rather than stuck on, so the neon runs up and over it.
+  const outline = [
+    [-half, CUT_SILL], [half, CUT_SILL], [half, CUT_BELT],
+    [cab.frontFoot, CUT_BELT], [cab.frontTop, CUT_ROOF],
+    [lampX + lampW / 2, CUT_ROOF], [lampX + lampW / 2, CUT_ROOF + CUT_LAMP],
+    [lampX - lampW / 2, CUT_ROOF + CUT_LAMP], [lampX - lampW / 2, CUT_ROOF],
+    [cab.rearTop, CUT_ROOF], [cab.rearFoot, CUT_BELT], [-half, CUT_BELT],
+  ];
+  const shape = new THREE.Shape(outline.map(([x, y]) => new THREE.Vector2(x, y)));
+  const depth = CUT_T - 2 * CUT_BEVEL;
+  const board = new THREE.ExtrudeGeometry(shape, {
+    depth, curveSegments: 1, bevelEnabled: true,
+    bevelThickness: CUT_BEVEL, bevelSize: CUT_BEVEL, bevelSegments: 1,
+  });
+  board.deleteAttribute('uv');
+  board.translate(0, 0, -depth / 2);
+
+  const through = CUT_T + 2 * CUT_PROUD;
+  const slab = (pts, col) => {
+    const geo = new THREE.ExtrudeGeometry(
+      new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y))),
+      { depth: through, bevelEnabled: false, curveSegments: 1 });
+    geo.deleteAttribute('uv');
+    geo.translate(0, 0, -through / 2);
+    return bakeColor(geo, col);
+  };
+  const glass = color('carGlass');
+  const paint = bakeColor(board, color('taxiBody'));
+  const parts = [
+    // Two windows split by the B-pillar, each inset from the cabin's edge so a rim of yellow frames it.
+    slab([[cab.rearFoot + 0.3, CUT_BELT + 0.12], [-0.35, CUT_BELT + 0.12], [-0.35, CUT_ROOF - 0.14],
+      [cab.rearTop + 0.12, CUT_ROOF - 0.14]], glass),
+    slab([[-0.15, CUT_BELT + 0.12], [cab.frontFoot - 0.32, CUT_BELT + 0.12],
+      [cab.frontTop - 0.08, CUT_ROOF - 0.14], [-0.15, CUT_ROOF - 0.14]], glass),
+    // The roof light's face, lit the way the live car's is with a rider aboard.
+    slab([[lampX - lampW / 2 + 0.08, CUT_ROOF + 0.06], [lampX + lampW / 2 - 0.08, CUT_ROOF + 0.06],
+      [lampX + lampW / 2 - 0.08, CUT_ROOF + CUT_LAMP - 0.06],
+      [lampX - lampW / 2 + 0.08, CUT_ROOF + CUT_LAMP - 0.06]], color('taxiSign')),
+  ];
+  // The chequer along the flank, one row as on the car — and for the car's reason, a two-row
+  // chequer at this size is a grey smear.
+  const CELLS = 8;
+  const run = CUT_L - 0.9;
+  const cell = run / CELLS;
+  for (let k = 0; k < CELLS; k++) {
+    const x0 = -run / 2 + k * cell;
+    parts.push(slab([[x0, 1.0], [x0 + cell, 1.0], [x0 + cell, 1.22], [x0, 1.22]],
+      color(k % 2 ? 'taxiSign' : 'taxiTrim')));
+  }
+  // Wheels: a tyre each with a hubcap, as cylinders along z through the board. Their tops are
+  // inside the body, so the board reads as a car standing on them. Wider than the neon tube is
+  // deep (`2 · NEON_R`), so the tube running along the sill is buried in them rather than grazing
+  // their faces — at the same depth it drew pink through the tyres.
+  const tread = Math.max(through, 2 * NEON_R) + 0.08;
+  for (const sx of [-1, 1]) {
+    const tyre = new THREE.CylinderGeometry(CUT_WHEEL_R, CUT_WHEEL_R, tread, 12);
+    tyre.rotateX(Math.PI / 2);
+    tyre.translate(sx * CUT_WHEEL_X, CUT_SILL, 0);
+    parts.push(bakeColor(tyre, color('taxiTrim')));
+    const hub = new THREE.CylinderGeometry(CUT_WHEEL_R * 0.5, CUT_WHEEL_R * 0.5, tread + 0.04, 12);
+    hub.rotateX(Math.PI / 2);
+    hub.translate(sx * CUT_WHEEL_X, CUT_SILL, 0);
+    parts.push(bakeColor(hub, color('hubcap')));
+  }
+  const geo = mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)), false);
+  parts.forEach((g) => g.dispose());
+
+  // The neon: one closed tube along the outline, on the board's mid-plane. It runs along the sill
+  // too, and the wheels swallow it there, so it reads as passing behind them.
+  const path = new THREE.CurvePath();
+  for (let k = 0; k < outline.length; k++) {
+    const [ax, ay] = outline[k];
+    const [bx, by] = outline[(k + 1) % outline.length];
+    path.add(new THREE.LineCurve3(new THREE.Vector3(ax, ay, 0), new THREE.Vector3(bx, by, 0)));
+  }
+  // Enough segments that every corner lands on a ring rather than being cut across: the tube is
+  // sampled evenly by length, so it is sized off the shortest edge.
+  const neonGeo = new THREE.TubeGeometry(path, outline.length * 12, NEON_R, 6, true);
+  neonGeo.deleteAttribute('uv');
+  const neon = bakeColor(neonGeo, color('depotNeon'));
+
+  // About the centre of the whole thing — wheels and tube included — like the wrench.
+  const box = new THREE.Box3();
+  for (const g of [geo, paint, neon]) {
+    g.computeBoundingBox();
+    box.union(g.boundingBox);
+  }
+  const c = box.getCenter(new THREE.Vector3());
+  for (const g of [geo, paint, neon]) g.translate(-c.x, -c.y, -c.z);
+  return { geo, paint, neon };
+}
+
+/**
+ * The depot: two merged meshes, a light and a sign.
  *
  * Two meshes rather than one because the curtain moves and the shell does not. Both are stamped
  * with the same entrance anchor (see `stampEntry`), so the city's opening wave lifts the door with
  * its own building rather than leaving it hanging in the air. The light is unlit and outside the
  * wave, and the sign is outside it for a different reason — see `wrenchGeometry`.
  */
-export function createGarage(block, rng, { sign: style = 'taxi' } = {}) {
+export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
   const site = garageSite(block);
   const { x0, z0, z1 } = block.bounds;
   const { frontX, curtainX, doorZ, kerbX } = site;
@@ -470,18 +615,29 @@ export function createGarage(block, rng, { sign: style = 'taxi' } = {}) {
   //
   // The sign is built first because everything about the pole depends on how much room it takes:
   // how high it has to stand to sweep clear of the roof plant, and how far in from the roof's edge.
-  const signGeo = style === 'classic' ? wrenchGeometry() : taxiGeometry();
-  signGeo.computeBoundingBox();
+  const { geo: signGeo, paint: paintGeo = null, neon: neonGeo = null } = style === 'classic'
+    ? { geo: wrenchGeometry() }
+    : style === 'model' ? { geo: taxiGeometry() } : cutoutGeometry();
+  // Everything that turns with the sign, measured together.
+  const signGeos = [signGeo, paintGeo, neonGeo].filter(Boolean);
+  const low = Math.min(...signGeos.map((g) => {
+    g.computeBoundingBox();
+    return g.boundingBox.min.y;
+  }));
   const clear = style === 'classic' ? WRENCH_CLEAR : TAXI_SIGN_CLEAR;
-  const hub = deck + PLANT_H + clear - signGeo.boundingBox.min.y;
-  signGeo.translate(0, hub - KERB_H, 0);
+  const hub = deck + PLANT_H + clear - low;
+  for (const g of signGeos) g.translate(0, hub - KERB_H, 0);
 
   // The radius it sweeps: the furthest any of its vertices gets from the pivot's own axis. Not
   // `boundingBox.max.x` — the box is measured in one pose and the sign **turns**, so its
   // footprint is the circle that pose inscribes.
-  const wp = signGeo.attributes.position;
+  // The cutout only sways, but it is measured as if it turned: the standoff then holds for any
+  // sway, and the board is no deeper for it.
   let orbit = 0;
-  for (let i = 0; i < wp.count; i++) orbit = Math.max(orbit, Math.hypot(wp.getX(i), wp.getZ(i)));
+  for (const g of signGeos) {
+    const wp = g.attributes.position;
+    for (let i = 0; i < wp.count; i++) orbit = Math.max(orbit, Math.hypot(wp.getX(i), wp.getZ(i)));
+  }
 
   // One standoff answers both of the things the sweep must not reach, because they are the same
   // distance from two different planes. It has to keep its whole orbit **on the roof**, off the +Z
@@ -636,9 +792,10 @@ export function createGarage(block, rng, { sign: style = 'taxi' } = {}) {
   // default, so left alone it samples the occlusion of whatever is behind it on screen. The dish
   // that stood here did exactly that and came out with a soft dark blotch of its own roof's crease
   // across it, moving with the camera.
-  const gloss = style === 'classic'
-    ? { geometry: signGeo, mirror: WRENCH_MIRROR }
-    : { geometry: signGeo, amount: TAXI_SIGN_GLOSS, mirror: TAXI_SIGN_MIRROR };
+  // The cutout is painted board, so it takes no gloss; the other two are metal and a car.
+  const gloss = style === 'classic' ? { geometry: signGeo, mirror: WRENCH_MIRROR }
+    : style === 'model' ? { geometry: signGeo, amount: TAXI_SIGN_GLOSS, mirror: TAXI_SIGN_MIRROR }
+      : null;
   const sign = new THREE.Mesh(signGeo, propMaterial({ ao: false, gloss }));
   sign.castShadow = true;
   sign.name = 'garage-sign';
@@ -650,6 +807,35 @@ export function createGarage(block, rng, { sign: style = 'taxi' } = {}) {
   // sign that started edge-on would be edge-on in every screenshot of every city.
   signPivot.rotation.y = rand * Math.PI * 2;
   signPivot.add(sign);
+
+  // The cutout's board, on its own material for one reason: a lift of its own yellow. Facing the
+  // camera, the board's face is lit only when the sun is round that side, and for much of the day
+  // it is not — and in shadow the taxi's yellow goes lilac under the shadow tint, which is the one
+  // thing this sign must not do. A sign is lit, so this one is: an emissive share of its own paint,
+  // on the board only, so the glass and tyres stuck through it stay dark.
+  let board = null;
+  if (paintGeo) {
+    const paintMat = propMaterial({ ao: false });
+    paintMat.emissive.set(color('taxiBody')).multiplyScalar(BOARD_LIFT);
+    board = new THREE.Mesh(paintGeo, paintMat);
+    board.castShadow = true;
+    board.name = 'garage-board';
+    signPivot.add(board);
+  }
+
+  // The neon, unlit: full colour whatever the sun is doing, which is what lets it read by day, and
+  // put in the bloom by main.js so it glows at night. Its own mesh for both reasons.
+  let neon = null;
+  if (neonGeo) {
+    neon = new THREE.Mesh(neonGeo, unlitMaterial({ vertexColors: true }));
+    neon.castShadow = true;
+    neon.name = 'garage-neon';
+    signPivot.add(neon);
+  }
+  // The sway's phase, seeded for the same reason the spin's start is.
+  let phase = rand * Math.PI * 2;
+  const swing = () => { signPivot.rotation.y = CUT_FACING + CUT_SWAY * Math.sin(phase); };
+  if (neonGeo) swing();
 
   const group = new THREE.Group();
   group.add(shell, curtain, light, signPivot);
@@ -679,6 +865,11 @@ export function createGarage(block, rng, { sign: style = 'taxi' } = {}) {
 
   /** Turn the sign. One rotation and no state, so a paused frame simply stops being advanced. */
   function update(dt, spin = DEPOT_SPIN) {
+    if (neonGeo) {
+      phase += CUT_SWAY_RATE * dt;
+      swing();
+      return;
+    }
     signPivot.rotation.y += spin * dt;
   }
 
@@ -690,6 +881,9 @@ export function createGarage(block, rng, { sign: style = 'taxi' } = {}) {
     light,
     sign,
     signPivot,
+    /** The cutout's yellow board and its neon tube; null on the other two signs. */
+    board,
+    neon,
     /** The sign's centre, in world y — where the pole stops. */
     hub,
     update,
