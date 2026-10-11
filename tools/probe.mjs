@@ -19049,6 +19049,22 @@ let chopperOrder; // likewise
     && lost && m.state.mult === 1 && m.judge().mult === 1 && !m.damage(),
     `first ×${first}, kept ×${kept}, after hit ×${m.state.mult}`);
 
+  // A rider timing out empties it when they were the job — aboard, or being driven to — in either
+  // scope, and leaves it alone for a kerb rider nobody was heading for.
+  const walked = (scope, fare) => {
+    const w = createComboMeter({ scope });
+    w.land('launch');
+    return { lost: w.walkout(fare), mult: w.state.mult };
+  };
+  const aboard = walked('meter', { stage: 'riding', vip: true });
+  const enRoute = walked('run', { stage: 'waiting', directed: true });
+  const bystander = walked('meter', { stage: 'waiting', directed: false });
+  check('a rider walking out on the job breaks the streak; one on another kerb does not',
+    aboard.lost && aboard.mult === 1 && enRoute.lost && enRoute.mult === 1
+    && !bystander.lost && bystander.mult === 3
+    && !createComboMeter().walkout({ stage: 'riding' }),
+    `aboard ×${aboard.mult}, en route ×${enRoute.mult}, bystander ×${bystander.mult}`);
+
   m = createComboMeter();
   for (let k = 0; k < 10; k += 1) m.land('launch');
   check(`the meter stops at ×${COMBO_MAX}`, m.state.mult === COMBO_MAX && m.land('drift', 3).added === 0,
