@@ -482,6 +482,15 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
       apply(aspectRatio);
     },
     /**
+     * Ease the zoom alone, leaving the target to whichever claim owns it this frame. The bank
+     * job's way home (game/bankjob.js): its cut pulled the camera in, and the follow that takes the
+     * framing back only ever moves the target, so the zoom has to be walked back beside it.
+     */
+    easeZoom(targetZoom, dt, aspectRatio, smoothing = 3) {
+      state.zoom += (targetZoom - state.zoom) * (1 - Math.exp(-dt * smoothing));
+      apply(aspectRatio);
+    },
+    /**
      * Start an eased pan to `(x, z)` — see GLIDE_SPEED above for why this is a fixed-duration
      * tween rather than the exponential ease the follows use. The start point is wherever the
      * camera is *now*, so a second call mid-flight redirects from there rather than snapping back

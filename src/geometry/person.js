@@ -509,6 +509,45 @@ export function createPerson({
   }
 
   /**
+   * A sprint somebody else is steering: one frame of the run cycle with the position and heading
+   * left to the caller, which is what `board` and `flee` cannot offer — both run in a straight
+   * line from the figure's own origin. The bank job's robber (game/bankjob.js) runs a bent path
+   * down the steps, past a bystander and on to the cab. Returns the body bob, for the caller to
+   * add to its own height.
+   *
+   * `shove` 0..1 throws the right arm straight out in front — the free hand, since the sack is in
+   * the left — over whatever the run cycle had it doing.
+   */
+  function run(cadence, shove = 0) {
+    const bob = runCycle(cadence);
+    if (shove > 0) {
+      armR.rotation.set(-1.45 * shove + armR.rotation.x * (1 - shove), 0, 0);
+      foreR.rotation.set(-0.15 * shove + foreR.rotation.x * (1 - shove), 0, 0);
+    }
+    group.scale.setScalar(1);
+    return bob;
+  }
+
+  /**
+   * The hop in through the open door, on its own: `board`'s last beat, from wherever the caller's
+   * run left the figure. `k` runs 0..1; (fromX, fromZ) and (inX, inZ) are in the figure's local
+   * frame, the same as `board`'s.
+   */
+  function hopIn(k, fromX, fromZ, inX, inZ) {
+    const jump = Math.max(0, Math.min(1, k));
+    group.rotation.y = Math.atan2(inX - fromX, inZ - fromZ);
+    legL.rotation.set(-1.35, 0, 0);
+    legR.rotation.set(-1.35, 0, 0);
+    armL.rotation.set(0.6, 0, 0);
+    armR.rotation.set(0.6, 0, 0);
+    bend(1.5, 1.5, -0.5, -0.5);
+    group.rotation.x = -0.4;
+    group.position.set(fromX + (inX - fromX) * jump, Math.sin(jump * Math.PI) * 0.5 + jump * 0.5,
+      fromZ + (inZ - fromZ) * jump);
+    group.scale.setScalar(1 - jump * 0.7);
+  }
+
+  /**
    * Exiting: hop out of the taxi, run to the kerb, then fade out.
    *
    * The mirror of `board`. `t` is 0..1 across the whole animation. `dx`/`dz` are the horizontal
@@ -865,7 +904,7 @@ export function createPerson({
   // crew's fade does. `group.children` is not that list any more: the shins and forearms hang off
   // the limb above them.
   return {
-    group, meshes, wave, board, exit, bail, rest, idle, flee, surrender, highlight, setRobber, setOpacity,
-    dribble, shoot, chase, watch, tumble, skate, ride,
+    group, meshes, wave, board, run, hopIn, exit, bail, rest, idle, flee, surrender, highlight, setRobber,
+    setOpacity, dribble, shoot, chase, watch, tumble, skate, ride,
   };
 }

@@ -183,6 +183,52 @@ export function bankSite(b, lot, bounds) {
 }
 
 /**
+ * The points the bank job (game/bankjob.js) needs off the building, in world space: where inside
+ * the portico the robber bursts out of, which way is out to the street and which way runs along
+ * the façade, and where the two alarm boxes hang. Here rather than there for the reason
+ * `bankSite` is the one place the door is worked out — the event and the geometry must not be
+ * able to disagree about where the building's front is.
+ *
+ * The alarm boxes hang on the face of the entablature over the two outermost columns: the front of
+ * the building, at the height of the beam, which is the one place on it that is both facing the
+ * camera and clear of the colonnade's shadow. `ALARM_DEPTH` is how far they stand proud of it.
+ */
+export const ALARM_W = 0.62;
+export const ALARM_H = 0.42;
+export const ALARM_DEPTH = 0.3;
+export function bankFrontage(site) {
+  const out = site.axis === 'x' ? { x: 1, z: 0 } : { x: 0, z: 1 };
+  const along = site.axis === 'x' ? { x: 0, z: 1 } : { x: 1, z: 0 };
+  // `front` is already the centre of the frontage on the front plane (see `bankSite`), so the
+  // frame is that point, `along` across the façade and `out` toward the street.
+  const at = (u, v, y) => ({
+    x: site.front.x + along.x * u - out.x * v,
+    y,
+    z: site.front.z + along.z * u - out.z * v,
+  });
+  // The entablature's front face is `STEP_RUN - 0.15` back from the front plane (`buildBank`).
+  const beamV = STEP_RUN - 0.15 - ALARM_DEPTH / 2;
+  const beamY = PLINTH_TOP + COL_H + ENTAB_H / 2;
+  const lampU = site.width / 2 - COL_MARGIN;
+  // The way out between the columns. An even colonnade has a gap on the centreline; an odd one
+  // has a column there, and a robber who ran out through it would be running through stone.
+  const columns = site.columns ?? COL_MAX;
+  const gapU = columns % 2 ? (site.width - COL_MARGIN * 2) / (columns - 1) / 2 : 0;
+  return {
+    out,
+    along,
+    gapU,
+    at,
+    // Just in front of the door in the back wall of the portico, on the plinth.
+    doorway: at(gapU, PORTICO_DEPTH - 0.25, PLINTH_TOP),
+    // The foot of the steps, in line with that gap.
+    steps: at(gapU, -0.5, KERB_H),
+    stepRun: STEP_RUN,
+    alarms: [at(-lampU, beamV, beamY), at(lampU, beamV, beamY)],
+  };
+}
+
+/**
  * Pick the lot the bank takes, out of every lot in the city.
  *
  * Drawn **after** the courtyard and with its lot excluded, for the reason every one-per-city draw
