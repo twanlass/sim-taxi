@@ -27,6 +27,14 @@ import { arcFromBulge, rightNormal } from './curves.js';
 // 0.25 is 28°, with the S swinging 2.5 off the line each way.
 export const PARKWAY_BULGE = 0.25;
 
+// `&parkway=oneway` makes the park road one-way, in a direction the seed picks: a single lane down
+// the middle of a narrower road, 6 across rather than 8, with arrows painted instead of the centre
+// line. A shortcut through the park in one direction and a detour round it in the other.
+export const PARKWAY_ONEWAY = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('parkway') === 'oneway'
+  : globalThis.process?.env?.PARKWAY === 'oneway';
+const ONEWAY_HALF = 3;
+
 /**
  * Pick the four blocks. Land on all four (both rows on one bank), and the middle lines not an
  * arterial — closing an arterial would break its green wave and its median for a park. Most central
@@ -47,6 +55,9 @@ export function planCentralPark(rng, { arterialX, arterialZ }) {
   candidates.sort((a, b) => a.score - b.score);
   const best = candidates.filter((c) => c.score < candidates[0].score + 1e-6);
   const { bi, bj } = best[rng.int(0, best.length - 1)];
+  // +1 carries traffic W → E, -1 E → W. 0 is two-way.
+  const oneway = PARKWAY_ONEWAY ? (rng.chance(0.5) ? 1 : -1) : 0;
+  const halfWidth = oneway ? ONEWAY_HALF : HALF_ROAD;
 
   const ci = bi + 1;
   const cj = bj + 1;
@@ -83,7 +94,7 @@ export function planCentralPark(rng, { arterialX, arterialZ }) {
   // clipped ends leave sub-unit edges at a 62° corner, and `insetPolygon` folds those inside out
   // at the walk's 1.15. Travel is +X, so the right normal is +Z: side +1 is the park's +Z lawn.
   const lawnsAt = (margin) => [1, -1].map((side) => {
-    const reach = (HALF_ROAD + margin) * side;
+    const reach = (halfWidth + margin) * side;
     const kerb = clipX(centre.map(({ x, z, t }) => {
       const nrm = rightNormal(t.x, t.z);
       return { x: x + nrm.x * reach, z: z + nrm.z * reach };
@@ -104,7 +115,7 @@ export function planCentralPark(rng, { arterialX, arterialZ }) {
   ];
 
   return {
-    bi, bj, W, C, E, arcs, bounds, centre, lawnsAt, halves,
+    bi, bj, W, C, E, arcs, bounds, centre, lawnsAt, halves, oneway, halfWidth,
     cells: [[bi, bj], [bi + 1, bj], [bi, bj + 1], [bi + 1, bj + 1]],
     // Every road round the middle junction, built over in the grid's eyes.
     closed: [
@@ -139,7 +150,7 @@ export function centralParkEdges(park, nodeId) {
       a: nodeId(park.W.i, park.W.j), b: nodeId(park.C.i, park.C.j), bulge: PARKWAY_BULGE },
     { id: `${nodeId(park.C.i, park.C.j)}~${nodeId(park.E.i, park.E.j)}`,
       a: nodeId(park.C.i, park.C.j), b: nodeId(park.E.i, park.E.j), bulge: -PARKWAY_BULGE },
-  ];
+  ].map((edge) => ({ ...edge, oneway: park.oneway, halfWidth: park.halfWidth }));
 }
 
 // --- Ground -------------------------------------------------------------------
@@ -192,6 +203,10 @@ export function centralParkGround(park, rng, { kerbH, markY }) {
     const local = arc === park.arcs[0] ? s : s - park.arcs[0].length;
     return { p: arc.at(local), t: arc.tangentAt(local) };
   };
+  if (park.oneway) {
+    parts.push(...onewayArrows(pointAt, total, park.oneway, markColor, markY));
+    return parts;
+  }
   for (let s = HALF_ROAD + 1; s + DASH < total - HALF_ROAD - 1; s += DASH + GAP) {
     const { p, t } = pointAt(s + DASH / 2);
     const geo = new THREE.PlaneGeometry(DASH, 0.16);
@@ -199,6 +214,36 @@ export function centralParkGround(park, rng, { kerbH, markY }) {
     geo.rotateY(-Math.atan2(t.z, t.x));
     geo.translate(p.x, markY, p.z);
     parts.push(bakeColor(geo, markColor));
+  }
+  return parts;
+}
+
+/**
+ * Direction arrows down a one-way park road: a shaft and a head, every `PITCH` along the S, pointing
+ * the way traffic runs. Built flat in the arrow's own frame (+X forward) and turned onto the road's
+ * tangent; the head is a `ShapeGeometry`, which winds itself to face up whichever way its points go.
+ */
+function onewayArrows(pointAt, total, dir, col, y) {
+  const PITCH = 9;
+  const SHAFT = 1.5;
+  const HEAD = 0.9;
+  const parts = [];
+  for (let s = 7; s < total - 7; s += PITCH) {
+    const { p, t } = pointAt(s);
+    const yaw = -Math.atan2(t.z * dir, t.x * dir);
+    const shaft = new THREE.PlaneGeometry(SHAFT, 0.28);
+    shaft.rotateX(-Math.PI / 2);
+    shaft.translate(-HEAD / 2, 0, 0);
+    const head = new THREE.ShapeGeometry(new THREE.Shape([
+      new THREE.Vector2(SHAFT / 2 - HEAD / 2, 0.55), new THREE.Vector2(SHAFT / 2 - HEAD / 2, -0.55),
+      new THREE.Vector2(SHAFT / 2 + HEAD / 2, 0),
+    ]));
+    head.rotateX(-Math.PI / 2);
+    for (const geo of [shaft, head]) {
+      geo.rotateY(yaw);
+      geo.translate(p.x, y, p.z);
+      parts.push(bakeColor(geo, col));
+    }
   }
   return parts;
 }
