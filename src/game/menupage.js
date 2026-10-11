@@ -10,7 +10,7 @@
  */
 
 import { isNative } from '../util/platform.js';
-import { RESOLUTIONS } from './settings.js';
+import { RESOLUTIONS, FRAME_RATES } from './settings.js';
 
 /** One element, with a class and optional text. */
 export function el(tag, className, text) {
@@ -139,10 +139,14 @@ export function settingsRows(body, { sound, settings }) {
   const resolutionRow = choiceRow('Resolution',
     RESOLUTIONS.map((value) => ({ value, text: `${value}x` })),
     () => settings.get().resolution, (value) => settings.set({ resolution: value }));
-  body.append(resolutionRow.row);
+  const frameRateRow = choiceRow('Frame rate',
+    FRAME_RATES.map((value) => ({ value, text: `${value}` })),
+    () => settings.get().frameRate, (value) => settings.set({ frameRate: value }));
+  body.append(resolutionRow.row, frameRateRow.row);
   return {
     refresh() {
       resolutionRow.paint();
+      frameRateRow.paint();
       soundRow.paint();
       musicRow.paint();
       sfxRow.paint();

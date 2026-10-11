@@ -52,7 +52,12 @@ const PROBATION = 10;
  */
 const STALL_MS = 2000;
 
-export function createGovernor({ renderer, budget, enabled = true, onChange = () => {} }) {
+export function createGovernor({
+  renderer, budget, enabled = true, onChange = () => {},
+  // The interval a frame is meant to take: one vsync, or two under the 30 fps cap. A capped frame
+  // judged against 60 would read as late every time.
+  targetMs = () => VSYNC_MS,
+}) {
   let level = 0;
   let frames = 0;
   let late = 0;
@@ -105,7 +110,7 @@ export function createGovernor({ renderer, budget, enabled = true, onChange = ()
       if (!enabled || !active || !dt || dt > STALL_MS) return;
       if (!windowStart) windowStart = now;
       frames += 1;
-      if (dt >= LATE_VSYNCS * VSYNC_MS) late += 1;
+      if (dt >= LATE_VSYNCS * targetMs()) late += 1;
       if (now - windowStart < WINDOW * 1000) return;
 
       const share = late / frames;

@@ -51,15 +51,16 @@ export const BENCH_BASE = {
 /** The settings, in order. Each is one page load. */
 export const BENCH_STEPS = [
   { label: 'baseline', params: {} },
-  { label: 'dpr 1.5', params: { dpr: '1.5' } },
   { label: 'dpr 1', params: { dpr: '1' } },
   { label: 'msaa off', params: { msaa: 'off' } },
   { label: 'shadows 1024', params: { shadows: '1024' } },
   { label: 'shadows off', params: { shadows: 'off' } },
   { label: 'ao off', params: { ao: 'off' } },
   { label: 'bloom off', params: { bloom: 'off' } },
+  { label: '30 fps', params: { fps: '30' } },
   { label: 'squall overhead', params: { squall: '0.5' } },
-  { label: 'safe (all cheapest)', params: { safe: '' } },
+  // Everything off at once: the floor this renderer can reach without changing what it draws.
+  { label: 'minimum', params: { dpr: '1', msaa: 'off', shadows: 'off', ao: 'off', bloom: 'off' } },
   { label: 'baseline again', params: {} },
 ];
 
@@ -92,7 +93,7 @@ const r1 = (v) => Math.round(v * 10) / 10;
  * One row from a step's raw samples: `intervals` between frames and `cpu` time inside each, in ms.
  * Kept short-keyed because every row rides in the URL of every load after it.
  */
-export function summarize(label, intervals, cpu, extra = {}) {
+export function summarize(label, intervals, cpu, extra = {}, work = [], seconds = 0) {
   const iv = [...intervals].sort((a, b) => a - b);
   const cp = [...cpu].sort((a, b) => a - b);
   const total = intervals.reduce((s, v) => s + v, 0);
@@ -103,9 +104,18 @@ export function summarize(label, intervals, cpu, extra = {}) {
     avg: r1(avg),
     p95: r1(pct(iv, 0.95)),
     max: r1(iv.at(-1) ?? 0),
-    jank: r1(intervals.length ? (100 * intervals.filter((v) => v >= JANK_VSYNCS * VSYNC_MS).length) / intervals.length : 0),
+    // Late against the row's own cadence, so a 30 fps row is not 100% late by construction.
+    jank: r1(intervals.length ? (100 * intervals.filter((v) => v >= JANK_VSYNCS * Math.max(VSYNC_MS, pct(iv, 0.5))).length) / intervals.length : 0),
     cpu: r1(cp.length ? cp.reduce((s, v) => s + v, 0) / cp.length : 0),
     cpu95: r1(pct(cp, 0.95)),
+    // Work: frame start until the GPU has actually finished it (see `syncGpu`), and busy: the
+    // share of wall time spent on that. Busy is the column that tracks power — it falls when a
+    // frame gets cheaper even though the display cap holds the fps column still, and it halves
+    // at 30 fps while work per frame stays the same.
+    ...(work.length ? {
+      work: r1(work.reduce((s, v) => s + v, 0) / work.length),
+      busy: r1(seconds ? (100 * work.reduce((s, v) => s + v, 0)) / (seconds * 1000) : 0),
+    } : {}),
     ...extra,
   };
 }
@@ -113,21 +123,20 @@ export function summarize(label, intervals, cpu, extra = {}) {
 /** The copyable table. Plain text, fixed width, so it pastes into a chat legibly. */
 export function formatResults(results, header = '') {
   const base = results.find((r) => r.k === 'baseline');
-  const cols = ['fps', 'avg', 'p95', 'max', 'jank%', 'cpu', 'cpu95', 'vs base'];
+  const cols = ['fps', 'p95', 'jank%', 'cpu', 'work', 'busy%', 'vs base'];
   const pad = (s, n) => String(s).padStart(n);
   const lines = [header, `${'setting'.padEnd(20)}${cols.map((c, i) => pad(c, i === cols.length - 1 ? 10 : 8)).join('')}`]
     .filter(Boolean);
   for (const r of results) {
-    // Frame cost relative to the first baseline, by the CPU column when the display cap pins both
-    // frame intervals to the same vsync — a 60-vs-60 comparison is a zero that means nothing.
+    // Busy time relative to the first baseline: the power proxy. Rows from before the work column
+    // existed fall back to CPU time.
     let vs = '';
     if (base && r !== base) {
-      const capped = r.avg < VSYNC_MS * 1.05 && base.avg < VSYNC_MS * 1.05;
-      const [a, b] = capped ? [r.cpu, base.cpu] : [r.avg, base.avg];
-      if (b > 0) vs = `${a <= b ? '' : '+'}${Math.round((100 * (a - b)) / b)}%${capped ? ' cpu' : ''}`;
+      const [a, b] = r.busy != null && base.busy != null ? [r.busy, base.busy] : [r.cpu, base.cpu];
+      if (b > 0) vs = `${a <= b ? '' : '+'}${Math.round((100 * (a - b)) / b)}%`;
     }
     const flags = `${r.lost ? ' CONTEXT LOST' : ''}${r.over ? ' run ended' : ''}${r.late ? ' taxi never ready' : ''}`;
-    lines.push(`${r.k.padEnd(20)}${[r.fps, r.avg, r.p95, r.max, r.jank, r.cpu, r.cpu95].map((v) => pad(v, 8)).join('')}${pad(vs, 10)}${flags}`
+    lines.push(`${r.k.padEnd(20)}${[r.fps, r.p95, r.jank, r.cpu, r.work ?? '-', r.busy ?? '-'].map((v) => pad(v, 8)).join('')}${pad(vs, 10)}${flags}`
       + (r.buf ? `  ${r.buf}` : ''));
   }
   return lines.join('\n');
@@ -185,6 +194,16 @@ export function createBench({ renderer, ready, drive, ended, gpu = '?' }) {
   const step = BENCH_STEPS[state.step];
   const intervals = [];
   const cpu = [];
+  const work = [];
+  // One pixel read back from the frame just drawn. A read cannot return until the GPU has finished
+  // everything queued before it, so the time to here is the frame's whole cost, GPU included —
+  // which is exactly what the display cap hides from the frame interval. It stalls the pipeline
+  // while measuring, so it only runs during `measure`, and only under `?bench`.
+  const pixel = new Uint8Array(4);
+  const syncGpu = () => {
+    const gl = renderer.getContext();
+    if (!gl.isContextLost()) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+  };
   const startedAt = performance.now();
   let phase = 'wait';
   let phaseAt = startedAt;
@@ -211,14 +230,15 @@ export function createBench({ renderer, ready, drive, ended, gpu = '?' }) {
       ...(gl.isContextLost() ? { lost: 1 } : {}),
       ...(over ? { over: 1 } : {}),
       ...(late ? { late: 1 } : {}),
-    })];
+    }, work, (performance.now() - phaseAt) / 1000)];
     if (state.step + 1 < BENCH_STEPS.length) {
       go(state.step + 1, results);
       return;
     }
     const header = `Rocket Rides bench · ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`
       + ` · ${gpu} · ${window.innerWidth}x${window.innerHeight} @${window.devicePixelRatio}\n${navigator.userAgent}`
-      + `\nms per frame; jank = frames over ${r1(JANK_VSYNCS * VSYNC_MS)} ms; cpu = time inside the frame callback`;
+      + `\nms; jank = frames over ${JANK_VSYNCS}x the usual interval; cpu = JS in the frame; work = until the GPU finished it;`
+      + ' busy = share of time spent on work (the power proxy; vs base compares it)';
     const text = formatResults(results, header);
     el.classList.add('is-done');
     el.textContent = '';
@@ -265,6 +285,8 @@ export function createBench({ renderer, ready, drive, ended, gpu = '?' }) {
     end() {
       if (phase !== 'measure') return;
       cpu.push(performance.now() - frameStart);
+      syncGpu();
+      work.push(performance.now() - frameStart);
       if (ended()) over = true;
     },
   };
