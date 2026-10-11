@@ -12,11 +12,16 @@
 // because every other name in this file already means "runs along X": `arterialX` is a set of `j`
 // values and `halfRoadX(j)` is a road's extent in z. A `GRID_X` would have read as the opposite of
 // what it is. `i` runs `0..GRID_I` and `j` runs `0..GRID_J`; blocks are `bi < GRID_I`, `bj < GRID_J`.
-export const GRID_I = 5;             // block columns
+// `?city=big` is the size experiment: 7 × 8 blocks, 49 of them land against today's 25. Read at
+// module load because every count below is a constant the rest of the city is built from; headless
+// tools have no `location` and always get the shipped size.
+const BIG_CITY = typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('city') === 'big';
+export const GRID_I = BIG_CITY ? 7 : 5;  // block columns
 // Six rows against five columns, because **one of the rows is the river** (`city/river.js`). The
 // city is a block row taller than it is wide so that the water costs it neither a street nor a
 // buildable block: 25 of the 30 blocks are still land, which is exactly what a 5×5 city had.
-export const GRID_J = 6;             // block rows, one of them water
+export const GRID_J = BIG_CITY ? 8 : 6;  // block rows, one of them water
 export const PITCH = 20;             // distance between road centrelines
 export const ROAD_W = 8;             // full road width (two lanes)
 export const BLOCK = PITCH - ROAD_W; // buildable footprint between two ordinary streets
