@@ -331,8 +331,11 @@ Three things about it are measured rather than chosen:
   under the shadow tint the taxi's yellow went lilac.
 - **The neon is unlit and in the bloom** (`depotNeon`, kind `window`), so by day it is a line of
   full colour against a sunlit roof and at night it glows. Pink because amber, red and green all
-  mean a fare's clock. The tyres are wider than the tube is deep so the length of it along the sill
-  is buried in them.
+  mean a fare's clock. The tube is flattened, thin in the board's plane and deep across it, so it
+  stands proud of both faces without drawing a fat band (a round one had to be 0.4 across to clear
+  them). A brighter spot chases round it and now and then it stutters, both written as vertex
+  colour each frame, which the bloom's copy of the material reads as well. The tyres are wider
+  than the tube is deep so the length of it along the sill is buried in them.
 
 `?depot=model` keeps the first cut of this sign: the real taxi's 3D model (`taxiSignGeometry()` in
 geometry/taxi.js), banked on the pole and turning. It read as a car parked on the roof rather than

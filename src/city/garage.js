@@ -166,10 +166,23 @@ const CUT_BEVEL = 0.05;
 // board, this much proud of each face. A solid each, not a decal each side: three winds a box, and
 // a hand-wound decal on the back face is the reversed-triangle trap in CLAUDE.md.
 const CUT_PROUD = 0.03;
-// The neon: a tube round the board's whole edge, centred on its mid-plane. Its radius is past half
-// the board's thickness so it stands proud of both faces as well as of the edge — an outline from
-// the front and a bright rim from the side.
-const NEON_R = 0.2;
+// The neon: a tube round the board's whole edge, centred on its mid-plane — flattened, thin in the
+// board's plane and deep across it. Deep so it stands proud of both faces (an outline from the front
+// and a bright rim from the side); thin because the line the camera sees is its in-plane width.
+// A round tube had to be 0.2 in radius to clear the faces, and that drew a 0.4 band round the car
+// that read as a fat outline rather than as a tube of light.
+const NEON_R = 0.085;
+const NEON_DEPTH = CUT_T / 2 + 0.04;
+// The neon's life: a brighter spot chasing round the tube, and now and then a stutter. Both are
+// colour written per vertex, which the bloom's copy of the material reads too, so the glow chases
+// and stutters with it.
+const CHASE_RATE = 0.35;         // laps a second
+const CHASE_WIDTH = 0.06;        // the hot spot's half-width, as a fraction of a lap
+const CHASE_BASE = 0.8;          // the rest of the tube, against the hot spot's 1 + its white
+const CHASE_WHITE = 0.35;        // how far the hot spot runs toward white
+const FLICKER_GAP = [4, 11];     // seconds between stutters
+const FLICKER_LEN = 0.4;         // ...and how long each one lasts
+const FLICKER_DIM = 0.35;        // the low the tube drops to while it stutters
 // How much of the board's own yellow it gives off, so a face turned from the sun stays yellow.
 // 0.35 left the late-afternoon board peach rather than yellow.
 const BOARD_LIFT = 0.5;
@@ -546,9 +559,9 @@ function cutoutGeometry() {
   }
   // Wheels: a tyre each with a hubcap, as cylinders along z through the board. Their tops are
   // inside the body, so the board reads as a car standing on them. Wider than the neon tube is
-  // deep (`2 · NEON_R`), so the tube running along the sill is buried in them rather than grazing
-  // their faces — at the same depth it drew pink through the tyres.
-  const tread = Math.max(through, 2 * NEON_R) + 0.08;
+  // deep (`2 · NEON_DEPTH`), so the tube running along the sill is buried in them rather than
+  // grazing their faces — at the same depth it drew pink through the tyres.
+  const tread = Math.max(through, 2 * NEON_DEPTH) + 0.08;
   for (const sx of [-1, 1]) {
     const tyre = new THREE.CylinderGeometry(CUT_WHEEL_R, CUT_WHEEL_R, tread, 12);
     tyre.rotateX(Math.PI / 2);
@@ -572,9 +585,22 @@ function cutoutGeometry() {
   }
   // Enough segments that every corner lands on a ring rather than being cut across: the tube is
   // sampled evenly by length, so it is sized off the shortest edge.
-  const neonGeo = new THREE.TubeGeometry(path, outline.length * 12, NEON_R, 6, true);
-  neonGeo.deleteAttribute('uv');
-  const neon = bakeColor(neonGeo, color('depotNeon'));
+  const SEGS = outline.length * 12;
+  const RADIAL = 6;
+  const neon = new THREE.TubeGeometry(path, SEGS, NEON_R, RADIAL, true);
+  neon.deleteAttribute('uv');
+  // Flattened: the path lies on z = 0, so a vertex's z *is* its offset across the board, and
+  // scaling z deepens the tube without widening the line it draws.
+  neon.scale(1, 1, NEON_DEPTH / NEON_R);
+  // Left indexed and coloured by hand rather than through `bakeColor`, which de-indexes: the chase
+  // rewrites every vertex's colour every frame, and indexed that is about a thousand vertices
+  // rather than five. Each vertex also carries how far round the lap its ring is, for the chase.
+  // TubeGeometry lays its vertices out ring by ring, RADIAL + 1 to a ring.
+  const count = neon.attributes.position.count;
+  const lap = new Float32Array(count);
+  for (let i = 0; i < count; i++) lap[i] = Math.floor(i / (RADIAL + 1)) / SEGS;
+  neon.userData.lap = lap;
+  neon.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
 
   // About the centre of the whole thing — wheels and tube included — like the wrench.
   const box = new THREE.Box3();
@@ -832,6 +858,43 @@ export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
     neon.name = 'garage-neon';
     signPivot.add(neon);
   }
+  // The chase and the stutter. Seeded off the block like the sway, and the stutter's timing off a
+  // hash of how many there have been, so a run replays the same.
+  const neonColor = color('depotNeon');
+  let chase = rand;
+  let flickers = 0;
+  let flickerAt = THREE.MathUtils.lerp(FLICKER_GAP[0], FLICKER_GAP[1], hash01(rand, 0.5));
+  let clock = 0;
+  function runNeon(dt) {
+    clock += dt;
+    chase = (chase + CHASE_RATE * dt) % 1;
+    let level = 1;
+    if (clock > flickerAt) {
+      const into = clock - flickerAt;
+      if (into > FLICKER_LEN) {
+        flickers++;
+        flickerAt = clock + THREE.MathUtils.lerp(FLICKER_GAP[0], FLICKER_GAP[1], hash01(flickers, rand));
+      } else {
+        // A few uneven blinks rather than a fade: on or dimmed, switching every 50ms or so.
+        level = hash01(Math.floor(into / 0.05), flickers + rand) < 0.5 ? FLICKER_DIM : 1;
+      }
+    }
+    const lap = neonGeo.userData.lap;
+    const col = neonGeo.attributes.color;
+    const a = col.array;
+    for (let i = 0; i < lap.length; i++) {
+      let d = Math.abs(lap[i] - chase);
+      d = Math.min(d, 1 - d) / CHASE_WIDTH;
+      const hot = Math.exp(-d * d);
+      const k = (CHASE_BASE + (1 - CHASE_BASE) * hot) * level;
+      const w = CHASE_WHITE * hot * level;
+      a[i * 3] = neonColor.r * k + w;
+      a[i * 3 + 1] = neonColor.g * k + w;
+      a[i * 3 + 2] = neonColor.b * k + w;
+    }
+    col.needsUpdate = true;
+  }
+  if (neonGeo) runNeon(0);
   // The sway's phase, seeded for the same reason the spin's start is.
   let phase = rand * Math.PI * 2;
   const swing = () => { signPivot.rotation.y = CUT_FACING + CUT_SWAY * Math.sin(phase); };
@@ -868,6 +931,7 @@ export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
     if (neonGeo) {
       phase += CUT_SWAY_RATE * dt;
       swing();
+      runNeon(dt);
       return;
     }
     signPivot.rotation.y += spin * dt;
