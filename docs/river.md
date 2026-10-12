@@ -52,7 +52,7 @@ merged faces. `tools/roadnet.mjs` compares land against land.
 | **The other three** | Open water. |
 
 Three crossings, not four, in the 5 × 6 city. The first cut bridged two interior lines as well as
-the ring, and playing it the difference was obvious: with four of six lines carrying road there was almost always a
+the ring, and playing it the difference was obvious: with five of six lines carrying road there was almost always a
 crossing within a block of wherever the taxi already was, and the river stopped being a decision.
 Taking one out puts real distance between the ways over — which is the whole reason for the water.
 
