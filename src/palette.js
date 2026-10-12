@@ -1155,6 +1155,25 @@ export const PALETTE = {
   ltrainStripe: '#C8463B',
   ltrainGlass: '#2C3742',
   ltrainUnder: '#33373A',
+
+  // The graveyard (city/graveyard.js). Its lawn is the park's green taken darker and greyer, so a
+  // cemetery reads as a different kind of grass from a park at a glance rather than as one more
+  // park. The stone is the kerb's grey family, a step cooler than `statuePlinth`, with a darker
+  // weathered pair for variety; the ironwork is one near-black with the same blue cast as
+  // `rooftopIron`. The dead trees are the trunk's family pushed toward grey, so they read as bare
+  // wood rather than as a dark smudge.
+  graveGrass: '#5C7A52',
+  graveMound: '#4F6B47',
+  graveStone: '#CFCCC2',
+  graveStoneDark: '#A19E96',
+  gravePath: '#BDB4A2',
+  graveIron: '#2A2D33',
+  cryptStone: '#C2BEB2',
+  cryptRoof: '#5B5F66',
+  cryptDoor: '#3A3129',
+  deadTree: '#4E4339',
+  graveLantern: '#FFC46A',
+  graveMist: '#E6EBF2',
 };
 
 export function color(value) {

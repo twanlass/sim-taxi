@@ -611,6 +611,31 @@ all. So `createCityEntry` grew an `objects` list: a handful of transforms scaled
 same easeOutBack over the same delay, so the sign comes up with the building under it instead of
 hanging in the air over a hole in the ground.
 
+## The graveyard
+
+`city/graveyard.js`. The third whole block taken out of the tower generator's hands, after the depot
+and the burger joint, and chosen the same way: drawn **last** in `createLayout`, so it moves nothing
+drawn before it, and `null` is a valid answer. Default since 2026-10-12; `?graveyard=classic` (or
+`GRAVEYARD=classic` for the headless tools) skips the draw and gives the block back to the towers.
+
+It is scenery only. Nothing routes into it, nothing on it can be tapped, and the fare loop doesn't
+know it exists. An iron railing on a stone plinth runs round the lawn, with a gate in the +Z fence.
+Headstones stand in rows either side of a gravel path, a crypt stands at the back, there are two bare
+trees, and a little ground mist drifts across. The mist thickens after dark, using the
+same measure of darkness as the helicopter's searchlight.
+
+- **It faces the camera, like the burger joint.** Only +X and +Z faces are ever seen, so the gate is
+  in the +Z fence, every stone faces +Z, and the crypt (the one tall thing) stands against the −Z
+  fence, behind the stones rather than in front of them.
+- **The stones are drawn 1.4× life size** (`STONE_SCALE`). At life size they were four pixels at play
+  zoom, and the lot read as a fenced lawn with grit on it.
+- **Out of downtown, and apart from the other two landmarks.** `chooseGraveyardBlock` keeps it at
+  centrality ≤ 0.5 and off any block touching the depot or the joint. A low lot among towers is one
+  the camera cannot see into. Each filter falls back to the pool it narrows.
+- **It moved the probe's bank.** Taking a block changes which lot the bank lands on for the pinned
+  probe seed, which put the robbery's drop-off on the far corner (0, 6). The arrest check's
+  drive-to-drop-off window went from 10s to 25s to cover that.
+
 ## The bank
 
 `src/city/bank.js`. One per city: a low, wide stone building with a colonnade under a pediment and a
