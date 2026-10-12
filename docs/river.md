@@ -4,8 +4,8 @@
 spans, `src/game/drawbridge.js` for the one that lifts, and `src/geometry/boat.js` +
 `src/game/boats.js` for the traffic on it.
 
-A river runs east–west through the middle of the city, crossed by three bridges. Two of them arch.
-The third is flat, and it opens.
+A river runs east–west through the middle of the city, crossed by four bridges in the 6 × 7 city
+(three under `?city=classic`). All but one of them arch. That one is flat, and it opens.
 
 ## The city grew a row rather than losing one
 
@@ -51,10 +51,16 @@ merged faces. `tools/roadnet.mjs` compares land against land.
 | **One of the two middle lines** (2 or 3) | The drawbridge — always centred on the map. |
 | **The other three** | Open water. |
 
-Three crossings, not four. The first cut bridged two interior lines as well as the ring, and playing
-it the difference was obvious: with five of six lines carrying road there was almost always a
+Three crossings, not four, in the 5 × 6 city. The first cut bridged two interior lines as well as
+the ring, and playing it the difference was obvious: with four of six lines carrying road there was almost always a
 crossing within a block of wherever the taxi already was, and the river stopped being a decision.
 Taking one out puts real distance between the ways over — which is the whole reason for the water.
+
+The 6 × 7 city has seven lines, and three of them left three blocks between every way over: with
+the leaf up, the taxi drove round by the ring. So it gets a **fourth crossing, fixed, one line
+beside the drawbridge** on a side the seed picks (`planRiver`). Four of seven is the density three
+of six was. Beside the drawbridge rather than beside the ring, so a lift still matters: the far side
+is three blocks from a crossing, and the ring already serves the edge.
 
 That leaves **two ways across while the leaf is up**, which is the guarantee the whole feature
 rests on: the drawbridge may close a route, but it may never cut the city in half.
