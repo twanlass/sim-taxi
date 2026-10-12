@@ -27,6 +27,7 @@ import { createCanopyFuzz } from './city/canopyfuzz.js';
 import { createGarage } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import { createGraveyard } from './city/graveyard.js';
+import { plantedCrowns } from './city/props.js';
 import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
@@ -635,7 +636,20 @@ const grass = createGrass(makeRng(seed + 122), layout, props);
 scene.add(grass.mesh);
 // Leaf cards round every tree crown — the parks', the medians' and the courtyard's — on the same
 // terms as the grass. See city/canopyfuzz.js.
-const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), [...props.crowns, ...(city.court?.crowns ?? [])]);
+// The graveyard — the third block `createLayout` took out of the tower generator's hands. Scenery
+// only: not tappable, nothing routes into it. `null` on `?graveyard=classic` or a city with no
+// room, and nothing below needs to know. See city/graveyard.js.
+// Built here rather than beside the depot and the burger joint because its tree has to be planted
+// before the leaf cards below are dressed onto every tree.
+const graveyard = layout.graveyardBlock
+  ? createGraveyard(layout.graveyardBlock, makeRng(seed + 131)) : null;
+if (graveyard) {
+  scene.add(graveyard.group);
+  graveyard.meshes.forEach(markOccluder);
+}
+// Every tree in the city, whoever planted it (`plantedCrowns`, city/props.js) — so a new kind of
+// tree can't come out without its leaves.
+const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), plantedCrowns());
 scene.add(canopyFuzz.mesh);
 // The basketball court's hoops, which ride outside the merged props mesh so the fare board's
 // sightline field never sees them (see `courtParts`) — and the people shooting around on the court. Run seed for the players, like the ducks:
@@ -707,16 +721,6 @@ if (burger) {
   // 150px across at play zoom and already exactly the shape it looks like — and raycasting the real
   // mass is the one version that can never cover a marker the player can see past it.
   burger.group.userData.pickable = 'burger';
-}
-
-// The graveyard — the third block `createLayout` took out of the tower generator's hands. Scenery
-// only: not tappable, nothing routes into it. `null` on `?graveyard=classic` or a city with no
-// room, and nothing below needs to know. See city/graveyard.js.
-const graveyard = layout.graveyardBlock
-  ? createGraveyard(layout.graveyardBlock, makeRng(seed + 131)) : null;
-if (graveyard) {
-  scene.add(graveyard.group);
-  graveyard.meshes.forEach(markOccluder);
 }
 
 // Which kerb corners this camera can see, settled once now that everything permanent is standing.

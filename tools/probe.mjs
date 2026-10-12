@@ -45,6 +45,7 @@ import {
 } from '../src/city/burgerjoint.js';
 import { createDriveThru } from '../src/game/drivethru.js';
 import { createGraveyard } from '../src/city/graveyard.js';
+import { plantedCrowns } from '../src/city/props.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
@@ -19525,8 +19526,8 @@ let chopperOrder; // likewise
 }
 
 // The graveyard (city/graveyard.js): a whole block the towers leave alone, kept apart from the depot
-// and the burger joint, out of downtown, and everything on it inside its own kerb and low enough
-// not to become a tower in the sightline field. Swept over cities rather than trusted to this seed,
+// and the burger joint, out of downtown, and everything on it inside its own kerb and no taller
+// than a big tree. Swept over cities rather than trusted to this seed,
 // and the layout this run is measuring against rebuilt afterwards — `createLayout` installs the
 // network it bakes (see CLAUDE.md).
 {
@@ -19543,6 +19544,25 @@ let chopperOrder; // likewise
   })());
 
   const yard = createGraveyard(block, makeRng(seed + 131));
+
+  // Trees are drawn one way everywhere (`treeParts`, city/props.js): every lobe any generator grew
+  // is in the list the leaf cards are dressed from, and every mesh carrying a crown is smooth.
+  // Grown afresh in main.js's order, because the sweeps above have each laid out a city of their
+  // own since — and `createLayout` clears the list, as it should.
+  {
+    const cityLayout = createLayout(makeRng(seed));
+    const cityBuild = createBuildings(makeRng(seed + 22), cityLayout);
+    const cityProps = createProps(makeRng(seed + 33), cityLayout);
+    const before = plantedCrowns().length;
+    const cityYard = createGraveyard(cityLayout.graveyardBlock, makeRng(seed + 131));
+    const planted = new Set(plantedCrowns());
+    const lobes = [...cityProps.crowns, ...(cityBuild.court?.crowns ?? [])];
+    check('trees: every crown in the city gets leaf cards, the graveyard\'s included',
+      lobes.every((c) => planted.has(c)) && plantedCrowns().length > before,
+      `${lobes.filter((c) => !planted.has(c)).length} missing, graveyard grew ${plantedCrowns().length - before}`);
+    check('trees: every mesh with a tree in it is lit smooth',
+      [cityProps.mesh, cityBuild.mesh, cityYard.shell].every((m) => m.material.flatShading === false));
+  }
   let outside = 0;
   let top = 0;
   for (const mesh of yard.meshes) {
@@ -19553,8 +19573,8 @@ let chopperOrder; // likewise
       top = Math.max(top, p.getY(i));
     }
   }
-  check('graveyard: everything on it stands inside its kerb, under 5 units tall',
-    outside === 0 && top < 5, `${outside} vertices outside, tallest ${top.toFixed(2)}`);
+  check('graveyard: everything on it stands inside its kerb, under 8 units tall',
+    outside === 0 && top < 8, `${outside} vertices outside, tallest ${top.toFixed(2)}`);
 
   let placed = 0;
   let clumped = 0;

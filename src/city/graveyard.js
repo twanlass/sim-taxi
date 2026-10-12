@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, hash01, propMaterial, stampEntry, unlitMaterial } from '../util/geo.js';
-import { color, jitterColor } from '../palette.js';
+import { PALETTE, color, jitterColor } from '../palette.js';
 import { KERB_H, PARK_EDGE } from './ground.js';
 import { GRID_I, GRID_J } from './grid.js';
 import { treeParts } from './props.js';
@@ -51,6 +51,8 @@ const GATE_HALF = 1.0;       // half the opening in the +Z fence
 const GATE_PIER = 0.6;
 const GATE_PIER_H = 1.9;
 const ARCH_R = GATE_HALF + GATE_PIER / 2 - 0.12;
+/** How far the leaves stand open, in radians from shut. */
+const GATE_OPEN = 1.2;
 
 // --- The rows -----------------------------------------------------------------
 const PATH_HALF = 0.65;
@@ -62,7 +64,9 @@ const ROW_PITCH = 1.55;
  */
 const STONE_SCALE = 1.4;
 const STONE_CLEAR = 0.55;    // from the fence and from the path
-const TREE_CLEAR = 1.1;      // no stone inside a trunk's reach
+const TREE_CLEAR = 1.3;      // no stone inside a trunk's reach
+/** The tree's height: past the top of the parks' 3.4–5.6, so it is the one big tree on the block. */
+const TREE_H = 6.6;
 
 // --- The mist -----------------------------------------------------------------
 const MIST_PUFFS = 9;
@@ -160,14 +164,16 @@ function fenceParts(site, rng, parts) {
   const cap = color('graveStone');
   const iron = color('graveIron');
 
-  // Each side as a list of runs between piers, the +Z side broken by the gate.
+  // Each side as a list of runs between piers, both ends broken by a gate on the path's line, so
+  // the path runs straight through the lot from one street to the other.
+  const gap = GATE_HALF + GATE_PIER / 2;
   const runs = [
-    [fence.x0, fence.z0, fence.x1, fence.z0],
     [fence.x0, fence.z0, fence.x0, fence.z1],
     [fence.x1, fence.z0, fence.x1, fence.z1],
-    [fence.x0, fence.z1, gateX - GATE_HALF - GATE_PIER / 2, fence.z1],
-    [gateX + GATE_HALF + GATE_PIER / 2, fence.z1, fence.x1, fence.z1],
   ];
+  for (const z of [fence.z0, fence.z1]) {
+    runs.push([fence.x0, z, gateX - gap, z], [gateX + gap, z, fence.x1, z]);
+  }
   for (const [ax, az, bx, bz] of runs) {
     const len = Math.hypot(bx - ax, bz - az);
     const n = Math.max(1, Math.round(len / PIER_PITCH));
@@ -183,32 +189,33 @@ function fenceParts(site, rng, parts) {
     pier(x, z, PIER_H, PIER, stone, cap, parts);
   }
 
-  // The gate: two tall piers and an iron arch between them, with the leaves standing open inward.
-  for (const s of [-1, 1]) {
-    pier(gateX + s * (GATE_HALF + GATE_PIER / 2), fence.z1, GATE_PIER_H, GATE_PIER, stone, cap, parts);
-  }
-  // Half a torus is a ring three winds itself, so it cannot arrive inside out.
-  const arch = new THREE.TorusGeometry(ARCH_R, 0.05, 4, 14, Math.PI);
-  arch.translate(gateX, FOOT + GATE_PIER_H - 0.25, fence.z1);
-  parts.push(bakeColor(arch, iron));
-  // A little cross at the crown of the arch.
-  const crown = FOOT + GATE_PIER_H - 0.25 + ARCH_R;
-  parts.push(box(0.06, 0.42, 0.06, gateX, crown, fence.z1, iron));
-  parts.push(box(0.26, 0.06, 0.06, gateX, crown + 0.24, fence.z1, iron));
+  // The gates, one at each end: two tall piers and an iron arch between them, with the leaves
+  // standing open into the lot. `inward` is the way into the lot from that fence.
+  for (const [z, inward] of [[fence.z1, -1], [fence.z0, 1]]) {
+    for (const s of [-1, 1]) pier(gateX + s * gap, z, GATE_PIER_H, GATE_PIER, stone, cap, parts);
+    // Half a torus is a ring three winds itself, so it cannot arrive inside out.
+    const arch = new THREE.TorusGeometry(ARCH_R, 0.05, 4, 14, Math.PI);
+    arch.translate(gateX, FOOT + GATE_PIER_H - 0.25, z);
+    parts.push(bakeColor(arch, iron));
+    // A little cross at the crown of the arch.
+    const crown = FOOT + GATE_PIER_H - 0.25 + ARCH_R;
+    parts.push(box(0.06, 0.42, 0.06, gateX, crown, z, iron));
+    parts.push(box(0.26, 0.06, 0.06, gateX, crown + 0.24, z, iron));
 
-  // The leaves, swung most of the way open into the lot.
-  for (const s of [-1, 1]) {
-    const leaf = [];
-    const w = GATE_HALF - 0.05;
-    leaf.push(box(w, 0.05, 0.05, w / 2, 0.25, 0, iron));
-    leaf.push(box(w, 0.05, 0.05, w / 2, 1.1, 0, iron));
-    for (let k = 0; k <= 4; k++) leaf.push(box(0.05, 1.2, 0.05, (w * k) / 4, 0.1, 0, iron));
-    const g = mergeGeometries(leaf, false);
-    leaf.forEach((p) => p.dispose());
-    if (s < 0) g.rotateY(-1.2);
-    else { g.rotateY(Math.PI + 1.2); }
-    g.translate(gateX + s * GATE_HALF, FOOT, fence.z1);
-    parts.push(g);
+    // The leaves, built along +X from the hinge and turned so each points back across the opening
+    // and swings `GATE_OPEN` of the way round into the lot. `rotateY(θ)` sends +X to (cos θ, −sin θ).
+    for (const s of [-1, 1]) {
+      const leaf = [];
+      const w = GATE_HALF - 0.05;
+      leaf.push(box(w, 0.05, 0.05, w / 2, 0.25, 0, iron));
+      leaf.push(box(w, 0.05, 0.05, w / 2, 1.1, 0, iron));
+      for (let k = 0; k <= 4; k++) leaf.push(box(0.05, 1.2, 0.05, (w * k) / 4, 0.1, 0, iron));
+      const g = mergeGeometries(leaf, false);
+      leaf.forEach((p) => p.dispose());
+      g.rotateY(Math.atan2(-inward * Math.sin(GATE_OPEN), -s * Math.cos(GATE_OPEN)));
+      g.translate(gateX + s * GATE_HALF, FOOT, z);
+      parts.push(g);
+    }
   }
 }
 
@@ -352,33 +359,33 @@ export function createGraveyard(block, rng) {
   const { fence, gateX } = site;
   const parts = [];
 
-  // The gravel path, gate to back fence. A slab rather than paint: its top is 0.03 over the lawn,
-  // so it is never coplanar with it.
+  // The gravel path, gate to gate. A slab rather than paint: its top is 0.03 over the lawn, so it
+  // is never coplanar with it.
   parts.push(span(gateX - PATH_HALF, gateX + PATH_HALF, FOOT, GRAVE_GRASS_Y + 0.03,
-    fence.z0 + 0.3, fence.z1 + 0.1, jitterColor(color('gravePath'), rng, { l: 0.02 })));
+    fence.z0 - 0.1, fence.z1 + 0.1, jitterColor(color('gravePath'), rng, { l: 0.02 })));
 
   fenceParts(site, rng, parts);
 
-  // Two of the parks' own trees (`treeParts`, props.js), one in each back corner, so their crowns
-  // stand behind the stones rather than over them — halfway down the side, a crown sat across the
-  // middle of the rows from this camera. A size under the parks' range so they don't swamp the lot.
-  const trees = [
-    { x: fence.x0 + 1.3, z: fence.z0 + 1.3 },
-    { x: fence.x1 - 1.3, z: fence.z0 + 1.3 },
-  ];
-  for (const t of trees) parts.push(...treeParts(t.x, t.z, rng, { low: 3.6, high: 4.4 }));
+  // One big tree, the parks' own (`treeParts`, props.js) at the top of their size and past it, in
+  // the back corner on the −X side of the path so its crown stands behind the stones rather than
+  // over them. Its crown is the one thing here that isn't the parks' palette: a dark plum, so it
+  // reads as the graveyard's tree and not as a park tree that wandered in.
+  const tree = { x: fence.x0 + 1.6, z: fence.z0 + 1.6 };
+  parts.push(...treeParts(tree.x, tree.z, rng, { height: TREE_H, trunk: 0.5, canopy: PALETTE.graveTree }));
 
-  headstoneParts(site, trees, rng, parts);
+  headstoneParts(site, [tree], rng, parts);
 
-  // The lanterns' iron caps and points; the lit glass under them is `glow` below.
-  for (const sx of [-1, 1]) {
-    const x = gateX + sx * (GATE_HALF + GATE_PIER / 2);
-    const y = FOOT + GATE_PIER_H + 0.1;
-    parts.push(box(0.28, 0.06, 0.28, x, y + 0.26, fence.z1, color('graveIron')));
-    const point = new THREE.ConeGeometry(0.16, 0.16, 4);
-    point.rotateY(Math.PI / 4);
-    point.translate(x, y + 0.32 + 0.08, fence.z1);
-    parts.push(bakeColor(point, color('graveIron')));
+  // The lanterns' iron caps and points, on both gates; the lit glass under them is `glow` below.
+  for (const z of [fence.z0, fence.z1]) {
+    for (const sx of [-1, 1]) {
+      const x = gateX + sx * (GATE_HALF + GATE_PIER / 2);
+      const y = FOOT + GATE_PIER_H + 0.1;
+      parts.push(box(0.28, 0.06, 0.28, x, y + 0.26, z, color('graveIron')));
+      const point = new THREE.ConeGeometry(0.16, 0.16, 4);
+      point.rotateY(Math.PI / 4);
+      point.translate(x, y + 0.32 + 0.08, z);
+      parts.push(bakeColor(point, color('graveIron')));
+    }
   }
 
   // One anchor for the lot, so the whole graveyard comes up out of the ground as one object.
@@ -388,7 +395,9 @@ export function createGraveyard(block, rng) {
   const stampAll = (geo) => stampEntry(geo, anchorX, anchorZ, rand);
 
   parts.forEach(stampAll);
-  const shell = new THREE.Mesh(mergeGeometries(parts, false), propMaterial());
+  // Smooth for the tree's crown, which is how every tree in the city is lit (see `treeParts`); the
+  // stones and the ironwork still light off their own face normals.
+  const shell = new THREE.Mesh(mergeGeometries(parts, false), propMaterial({ smooth: true }));
   parts.forEach((p) => p.dispose());
   shell.castShadow = true;
   shell.receiveShadow = true;
@@ -397,10 +406,12 @@ export function createGraveyard(block, rng) {
   // The two lanterns on the gate piers: unlit, for the reason the burger joint's windows are —
   // they are lights, and a pale box in its own shadow reads as grey paint.
   const glowParts = [];
-  for (const s of [-1, 1]) {
-    const x = gateX + s * (GATE_HALF + GATE_PIER / 2);
-    const y = FOOT + GATE_PIER_H + 0.1;
-    glowParts.push(box(0.2, 0.26, 0.2, x, y, fence.z1, color('graveLantern')));
+  for (const z of [fence.z0, fence.z1]) {
+    for (const s of [-1, 1]) {
+      const x = gateX + s * (GATE_HALF + GATE_PIER / 2);
+      const y = FOOT + GATE_PIER_H + 0.1;
+      glowParts.push(box(0.2, 0.26, 0.2, x, y, z, color('graveLantern')));
+    }
   }
   glowParts.forEach(stampAll);
   const glow = new THREE.Mesh(mergeGeometries(glowParts, false), unlitMaterial({ vertexColors: true }));

@@ -1167,6 +1167,8 @@ export const PALETTE = {
   graveStoneDark: '#A19E96',
   gravePath: '#BDB4A2',
   graveIron: '#2A2D33',
+  // The graveyard's one tree: a dark plum crown, off every colour the season paints the parks.
+  graveTree: '#5E3448',
   graveLantern: '#FFC46A',
   graveMist: '#E6EBF2',
 };

@@ -59,6 +59,12 @@ once shipped undetected because nothing headless imported it.
 
 **Colours live in `palette.js`.** Geometry constants live in `city/grid.js`. Don't inline either.
 
+**Every tree is a `treeParts` tree (city/props.js), drawn the same way everywhere.** Its parts go
+into a mesh under `propMaterial({ smooth: true })` (merge it in with whatever it stands beside and
+make that mesh smooth; the crowns' soft normals are lost under the flat default), and its leaf
+cards come for free: every lobe lands in `plantedCrowns()`, which is what the canopy fuzz is built
+from. Don't hand-build a tree, and don't wire crowns to the fuzz by hand. The probe checks both.
+
 **The grid has two counts and two coordinate functions.** `GRID_I` bounds `i`, `GRID_J` bounds `j`,
 and they differ — the city is six block rows tall against five columns because one row is the river.
 `lineX(i)` gives an x and `lineZ(j)` gives a z; there is no `lineCoord`, no `GRID`, no `SPAN` and no
