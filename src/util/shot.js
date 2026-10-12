@@ -535,6 +535,14 @@ export function getFall() {
 }
 
 /**
+ * The autumn palette — `?foliage=classic` brings back the first, higher-contrast set (a red at hue
+ * 6° and a gold at luma 163); anything else is the softer one (palette.js).
+ */
+export function getFoliageClassic() {
+  return new URLSearchParams(window.location.search).get('foliage') === 'classic';
+}
+
+/**
  * The river's surface — `?water=classic` brings back the faceted first build; anything else is the
  * smooth one, with the shelving bed and the lip at the walls (city/riverwater.js).
  */

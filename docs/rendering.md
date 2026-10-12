@@ -1443,7 +1443,9 @@ Everything that was a level in the storm becomes a position here:
 
 The city is in autumn: about two thirds of the broadleaves have turned gold, orange or red, the
 rest stay green. Which colour is a hash of each trunk's position, so it moves no tree and spends
-no draw; `?fall=off` puts the summer back. Parks, medians and courtyards all grow the same tree, so
+no draw; `?fall=off` puts the summer back. The three turned colours are held to a narrow band
+(luma 96–148, saturation 0.50–0.55, and the "red" is a rust at hue 15°) because the first set's
+hue-6° red read as too extreme beside everything else; `?foliage=classic` brings that set back. Parks, medians and courtyards all grow the same tree, so
 the season is set once on the module (`setAutumn`) before the city is built.
 
 When the squall's cell reaches a park, its crown lobes shed leaves: most at the cell's **edge**
