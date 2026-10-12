@@ -48,7 +48,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -18142,6 +18142,10 @@ let chopperOrder; // likewise
       let landS = null;
       let launchTravelled = null;
       let air = null;
+      // The barrel roll: the lowest the body's own up vector gets, and where it is on touchdown.
+      let minUp = 1;
+      let landUp = null;
+      const up = new THREE.Vector3();
       lTraffic.onTaxiLand((event) => { landing = landing ?? event; });
       for (let f = 0; f < 60 * 3 && !landing; f++) {
         lTaxi.boost = true;
@@ -18154,17 +18158,30 @@ let chopperOrder; // likewise
           launchTravelled = lTaxi.hopFrom;
         }
         if (lTaxi.hopFrom != null) peak = Math.max(peak, lTraffic.taxiGroup.position.y - ROAD_Y);
+        up.set(0, 1, 0).applyQuaternion(lTraffic.taxiGroup.quaternion);
+        minUp = Math.min(minUp, up.y);
         if (landing) {
+          landUp = up.y;
           landLane = lTaxi.lane;
           landS = lTaxi.s;
           air = lTaxi.travelled - launchTravelled;
         }
       }
       lTraffic.dispose?.();
-      return { big, peak, landing, landLane, landS, air };
+      return { big, peak, landing, landLane, landS, air, minUp, landUp };
     };
     const straight = fly(DIR.PZ);
     const turning = fly(DIR.PX);
+    setBarrelRoll('classic');
+    const level = fly(DIR.PZ);
+    setBarrelRoll();
+    check('the drift launch barrel-rolls the taxi upside down and lands it on its wheels',
+      straight.minUp < -0.95 && straight.landUp > 0.95,
+      `lowest up ${straight.minUp.toFixed(2)}, ${straight.landUp?.toFixed(2)} at touchdown`);
+    check('...and neither the ordinary hop nor ?barrelroll=classic rolls at all',
+      // The launch's own pitch and the drift's lean take the plain flight to ~0.6; a roll is below 0.
+      turning.minUp > 0.3 && level.big && level.minUp > 0.3,
+      `hop ${turning.minUp.toFixed(2)}, classic ${level.minUp.toFixed(2)}`);
     check('a drift kick carried over the hump is the big launch',
       straight.big && straight.peak > DRIFT_LAUNCH_HEIGHT * 0.9,
       `big ${straight.big}, ${straight.peak.toFixed(2)} of air against ${DRIFT_LAUNCH_HEIGHT}`);

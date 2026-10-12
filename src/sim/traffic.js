@@ -13,7 +13,7 @@ import {
   sirenBaseGeometry, sirenBaseAnchor,
   headlightGeometry, headlightAnchors, headlightMaterial, coneGeometry, coneMaterial, coneQuat,
 } from '../geometry/lights.js';
-import { createTaxiMesh } from '../geometry/taxi.js';
+import { createTaxiMesh, TAXI_ROLL_PIVOT } from '../geometry/taxi.js';
 import { bumperGeometries, bumperAt, bumperLength, BUMPER_D, BUMPER_H } from '../geometry/bumpers.js';
 import { bumperHinge, lampSocket, lampHang } from '../geometry/damage.js';
 import {
@@ -493,6 +493,42 @@ export const DRIFT_LAUNCH_CLEAR = 1.6;
 // compresses its springs to the stops, and the ordinary landing's 0.34 of squat on that drop reads
 // as a car that weighs nothing.
 const DRIFT_SLAM = 1.8;
+
+// --- The barrel roll -------------------------------------------------------------
+//
+// Big Air's flourish (Tyler, 2026-10-12: "for the max air combo — could we add a barrel roll to
+// the taxi?"). The drift launch is the jackpot step on the combo meter, and until now it was a
+// very tall hop: up, level, down. One full turn about the car's own long axis, render-only like
+// the rest of the arc. `?barrelroll=classic` keeps the old flight.
+//
+// **Inside the arc, not across it.** It starts BARREL_FROM in, so the takeoff still reads as a
+// car leaving a ramp, and is level again by BARREL_TO, so the slam lands on the wheels — a roll
+// still turning at touchdown buries the roof and hands the landing's dust and sparks to a car on
+// its side. Between the two it eases in and out (smoothstep), and since `launchTimeScale` in
+// main.js is slowest at u = 0.5, the middle of the turn is the part played in slow motion.
+//
+// **About the body's middle, not its origin.** The taxi's origin is at road level, so rolling
+// about it swings the whole car in a 1.5-unit circle around its own wheels, which reads as a
+// fairground ride. BARREL_PIVOT is half the rear deck's height (`TAXI_ROLL_PIVOT`), roughly where the mass is.
+//
+// The direction is fixed rather than drawn, for the reason BOUNCE_ROLL gives: the run's rng
+// streams stay untouched.
+const BARREL_FROM = 0.12;
+const BARREL_TO = 0.78;
+const BARREL_PIVOT = TAXI_ROLL_PIVOT;
+let barrelRollOn = true;
+
+/** `?barrelroll=classic` puts the level drift launch back; anything else rolls. */
+export function setBarrelRoll(name) {
+  barrelRollOn = name !== 'classic';
+}
+
+/** The barrel roll's angle, in radians, `u` of the way through a drift launch. 0 outside it. */
+export function barrelRollAt(u) {
+  if (!barrelRollOn || u <= BARREL_FROM || u >= BARREL_TO) return 0;
+  const k = (u - BARREL_FROM) / (BARREL_TO - BARREL_FROM);
+  return Math.PI * 2 * k * k * (3 - 2 * k);
+}
 
 /**
  * Launch `car` off a ramp. Idempotent while already airborne — a second barricade doesn't stack.
@@ -4194,6 +4230,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
   const matrix = new THREE.Matrix4();
   const quat = new THREE.Quaternion();
+  const barrelQuat = new THREE.Quaternion();
+  const barrelAxis = new THREE.Vector3(1, 0, 0);
+  const barrelUp = new THREE.Vector3();
+  const barrelPivot = new THREE.Vector3();
   const pos = new THREE.Vector3();
   const scl = new THREE.Vector3(1, 1, 1);
   const euler = new THREE.Euler();
@@ -6809,6 +6849,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // a barricade hangs there instead of continuing its arc on the spot.
       let airY = 0;
       let airPitch = 0;
+      let barrel = 0;
       if (car.hopFrom != null) {
         const big = car.hopBig === true;
         const u = (car.travelled - car.hopFrom) / (big ? DRIFT_LAUNCH_LEN : HOP_LEN);
@@ -6826,6 +6867,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           // Nose up as it leaves the ramp, level at the apex, nose down into the landing. Positive
           // is nose-up here, the same sense as locoWheelie.
           airPitch = (big ? DRIFT_LAUNCH_PITCH : HOP_PITCH) * Math.cos(Math.PI * u);
+          if (big && car.isTaxi) barrel = barrelRollAt(u);
         }
       } else if (car.bounceT != null) {
         // A separate field from `hopFrom` on purpose: everything that asks "is the taxi airborne"
@@ -6874,6 +6916,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // tailpipe — the Loco plume used to burn at road height under a taxi ten units up.
       car.shownLift = airY + deckY;
       car.shownPitch = shownPitch;
+      car.shownBarrel = barrel;
 
       // Roll and pitch both pivot on the car's origin at road level, so tilting drives one edge
       // underground. Lifting by the sagitta of each keeps the low edge on the tarmac and reads as
@@ -6891,6 +6934,15 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // note there: with the default order the roll is applied about the *world* X axis, which
         // only doubles as the car's own axis when it happens to be driving east.
         taxiGroup.rotation.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER);
+        if (barrel !== 0) {
+          // Post-multiplied, so the turn is about the body's own long axis *after* the pitch — a
+          // roll folded into the euler's X turns about the unpitched axis and wobbles the nose.
+          // Then the position moves by however far that swung BARREL_PIVOT, so the pivot stays put.
+          barrelUp.set(0, BARREL_PIVOT, 0).applyQuaternion(taxiGroup.quaternion);
+          taxiGroup.quaternion.multiply(barrelQuat.setFromAxisAngle(barrelAxis, barrel));
+          barrelPivot.set(0, BARREL_PIVOT, 0).applyQuaternion(taxiGroup.quaternion);
+          taxiGroup.position.add(barrelUp).sub(barrelPivot);
+        }
         setTaxiSteer(car.driftAmt ? car.driftSteer : car.wheelAngle);
         setTaxiLights(Math.max(car.brakeLevel, runningFor(car) * TAIL_FLOOR),
           car.turnLeftLevel, car.turnRightLevel);
