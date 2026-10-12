@@ -5787,6 +5787,51 @@ check('every intersection is routable from every approach', unroutable === 0,
     `max drift ${drift.toFixed(4)} units over ${frames} frames`);
 }
 
+// --- The band round the park road's bend -----------------------------------
+// The band is built from grid arithmetic, which only knows straights, so the park road's S-bend
+// came out as two chords cutting 4.5 units across the lawn. Curved lanes are now laid down point by
+// point and crossed on the network's own turns. Two claims, on a taxi driving the whole bend: every
+// part of the band lies on a lane or turn the car can drive, and none of it runs backwards — the
+// turn into the bend's east end once had its control point behind the car and hooked 1.2 units back.
+{
+  const net = cityNetwork();
+  const curved = net.lanes.filter((l) => !l.degenerate && l.edge.curve.kind !== 'line');
+  if (curved.length) {
+    const first = curved.find((l) => !curved.some((m) => m.to === l.from));
+    const A = net.nodeById.get(first.from);
+    const d = net.dirOfLane(first);
+    const route = [];
+    for (let at = { i: A.gi, j: A.gj }, k = 0; k < 4 && at; k++) {
+      route.push(d);
+      at = nextIntersection(d, at.i, at.j);
+    }
+    const car = { state: 'drive', lane: net.laneByGrid(d, A.gi, A.gj), s: 1, i: A.gi, j: A.gj, d };
+    // The last two points are the destination's middle of junction, which is not on a lane.
+    const pts = routePath(car, route, { onward: false }).slice(0, -2);
+    const ref = [];
+    for (const l of net.lanes) if (!l.degenerate) for (let s = 0; s <= l.length; s += 0.05) ref.push(l.path.at(s));
+    for (const t of net.turnById.values()) if (t.legal) for (let s = 0; s <= t.length; s += 0.05) ref.push(t.path.at(s));
+    let off = 0;
+    let backwards = 0;
+    const sign = dirSign(d);
+    for (let k = 0; k < pts.length - 1; k++) {
+      const a = pts[k];
+      const b = pts[k + 1];
+      if ((isXAxis(d) ? b.x - a.x : b.z - a.z) * sign <= 0) backwards += 1;
+      for (let u = 0; u <= 1; u += 0.25) {
+        const x = a.x + (b.x - a.x) * u;
+        const z = a.z + (b.z - a.z) * u;
+        let best = Infinity;
+        for (const r of ref) best = Math.min(best, Math.hypot(r.x - x, r.z - z));
+        off = Math.max(off, best);
+      }
+    }
+    check('the route band follows the park road round its bend', off < 0.05 && pts.length > 20,
+      `${pts.length} points, worst ${off.toFixed(3)} off the curve the car drives`);
+    check('and never runs backwards through the bend', backwards === 0, `${backwards} reversed segments`);
+  }
+}
+
 // --- Looking ahead past a waiting rider ------------------------------------
 // A route to a rider carries on toward their drop-off (`carryOn`), so the exit the taxi takes
 // through the pickup junction is the drop-off route's first step rather than a dice roll, and the

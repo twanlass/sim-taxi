@@ -306,6 +306,9 @@ function buildLanes(nodes, nodeById, edges) {
  * parallel. One rule now covers a right turn, a left, a straight-through and a sweep across a
  * diagonal, exactly as the direction arithmetic used to cover the first three.
  */
+/** How far `q` lies past `p` along direction `t`. */
+const ahead = (p, t, q) => (q.x - p.x) * t.x + (q.z - p.z) * t.z;
+
 function buildTurns(nodes, lanes) {
   const turns = [];
 
@@ -328,8 +331,16 @@ function buildTurns(nodes, lanes) {
         const hand = Math.abs(delta) < STRAIGHT_TOLERANCE ? 'straight'
           : uturn ? 'uturn' : (delta > 0 ? 'right' : 'left');
 
-        const control = rayIntersect(p0, t0, p2, t2)
-          ?? { x: (p0.x + p2.x) / 2, z: (p0.z + p2.z) / 2 };
+        // The tangents are *lines*, and where they cross can be behind the car. Every grid turn
+        // has it in front of both ends, but the park road's one-way bend leaves its east junction
+        // 3.7 units across and only 16° round from the arterial feeding it — an S that no
+        // quadratic can draw — and the lines met 4.9 units *behind* the entry. The curve through
+        // that control point starts by running backwards: cars and the route band both hooked
+        // 1.2 units back toward the car before sweeping into the park. The midpoint is the same
+        // fallback parallel lanes get — a short diagonal, with a kink of 24° in and 8° out.
+        let control = rayIntersect(p0, t0, p2, t2);
+        if (control && (ahead(p0, t0, control) < 0 || ahead(control, t2, p2) < 0)) control = null;
+        control ??= { x: (p0.x + p2.x) / 2, z: (p0.z + p2.z) / 2 };
 
         const turn = {
           id: `${inLane.id}>${outLane.id}`,
