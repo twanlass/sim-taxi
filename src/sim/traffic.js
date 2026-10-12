@@ -3287,11 +3287,11 @@ function curvedTurn(turn) {
  *
  * On the grid that is the quadratic at parameter `u`, as it always has been: every grid turn is
  * symmetric about its middle, so the parameter runs at a steady pace near enough and changing it
- * would move every turn in the city. The bend's turns are not symmetric. Its west exit has its
- * control point 0.34 units from the entry and 11 from the exit, so the parameter spends the first
- * fifth of the turn on the first few centimetres: measured, a taxi doing 6.4 u/s moved 0.009 in a
- * frame and then rushed to catch up — a stall in the middle of a corner. There the point is taken
- * by arc length, off the network's own curve (same three points), so the car moves at its speed.
+ * would move every turn in the city. The bend's turns are not symmetric, and are not quadratics
+ * either (they are the network's cubics, see buildTurns). Paced by parameter, its west exit's
+ * quadratic once spent the first fifth of the turn on the first few centimetres — a taxi doing
+ * 6.4 u/s moved 0.009 in a frame and then rushed to catch up. There the point is taken by arc
+ * length along the network's own curve, so the car moves at its speed.
  */
 export function turnPosition(car, u) {
   if (curvedTurn(car.turn)) return car.turn.path.at(u * car.turn.path.length);
@@ -3299,21 +3299,28 @@ export function turnPosition(car, u) {
 }
 
 /**
- * The body's heading across a junction where one side is the park road's bend.
- *
- * Every other turn joins two lanes on grid axes, so easing from one grid heading to the other is
- * the whole story. Here the lanes meet the junction at an angle, so the grid headings are simply
- * wrong — the body held due west while the car slid 24° off it, then snapped 16-20° in a frame
- * on the lane change (measured, driving the bend). Ease between the two *lanes'* own headings,
- * and lean toward the direction the car is actually moving through the middle, since a quadratic
- * cannot always meet both lanes tangent (the bend's east entry is an S — see buildTurns in
- * city/roadnet.js) and a body that only eased would crab across it.
+ * The arc part of `turnLen`. A grid turn has always been paced by its control polygon, and every
+ * timing on a corner was tuned against that; a turn onto the park road's bend is a cubic
+ * (buildTurns in city/roadnet.js) with no single control point, so it is paced by its own length.
  */
-function curvedTurnYaw(car, outLane, t) {
-  const yIn = yawOf(car.lane.path.tangentAt(car.lane.length));
-  const yOut = outLane ? yawOf(outLane.path.tangentAt(0)) : dirYaw(car.dOut);
-  const along = yawOf(car.turn.path.tangentAt(t * car.turn.path.length));
-  return lerpAngle(lerpAngle(yIn, yOut, t), along, Math.sin(Math.PI * t));
+function arcLength(entry, control, exit, turn) {
+  if (curvedTurn(turn)) return Math.max(0.1, turn.path.length);
+  return Math.max(
+    0.1,
+    Math.hypot(control.x - entry.x, control.z - entry.z) + Math.hypot(exit.x - control.x, exit.z - control.z),
+  );
+}
+
+/**
+ * The body's heading across a junction where one side is the park road's bend: the curve's own
+ * tangent. Every other turn eases from one grid heading to the other, which is the whole story
+ * between two lanes on grid axes; here the lanes meet the junction at an angle, and the grid
+ * headings held the body due west while the car slid 24° off it, then snapped 16-20° in a frame
+ * on landing (measured, driving the bend). The cubic is tangent to both lanes at its ends, so
+ * following it hands over to each lane's heading with no step.
+ */
+function curvedTurnYaw(car, t) {
+  return yawOf(car.turn.path.tangentAt(t * car.turn.path.length));
 }
 
 function bezier(p0, p1, p2, t) {
@@ -3347,11 +3354,7 @@ export function plannedTurn(car) {
   const entry = car.lane.path.at(car.lane.length);
   const exit = net.laneById.get(turn.outLane).path.at(0);
   const control = turn.control;
-  const turnLen = STOP_SETBACK + Math.max(
-    0.1,
-    Math.hypot(control.x - entry.x, control.z - entry.z)
-    + Math.hypot(exit.x - control.x, exit.z - control.z),
-  );
+  const turnLen = STOP_SETBACK + arcLength(entry, control, exit, turn);
   return { entry, control, exit, leadIn: STOP_SETBACK, turnLen, turn };
 }
 
@@ -5139,11 +5142,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       car.exit = exitLane.path.at(0);
       car.control = next.control;
       car.dOut = net.dirOfLane(exitLane);
-      car.turnLen = car.leadIn + Math.max(
-        0.1,
-        Math.hypot(car.control.x - car.entry.x, car.control.z - car.entry.z)
-        + Math.hypot(car.exit.x - car.control.x, car.exit.z - car.control.z),
-      );
+      car.turnLen = car.leadIn + arcLength(car.entry, car.control, car.exit, next);
       car.turnT = travelled / car.turnLen;
       car.route = late.slice(1);
       // The look-ahead past a pickup is tagged on the array as a count from its end (`carryOn` in
@@ -6280,11 +6279,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           // every corner into a long lazy sweep.
           car.hold = car.lane.path.at(holdS);
           car.leadIn = STOP_SETBACK;
-          car.turnLen = car.leadIn + Math.max(
-            0.1,
-            Math.hypot(car.control.x - car.entry.x, car.control.z - car.entry.z)
-            + Math.hypot(car.exit.x - car.control.x, car.exit.z - car.control.z),
-          );
+          car.turnLen = car.leadIn + arcLength(car.entry, car.control, car.exit, chosen);
           // Whatever this step carried past the hold line is the first of the run-up, rather than
           // lost: the same hitch as the landing's, at the other end of the junction (see where
           // `turnT` reaches 1). Never more than the step itself — a car that spawned past its
@@ -6513,20 +6508,28 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         if (travelled < car.leadIn) {
           // Straight run-up from the hold line to the junction boundary.
           const t = travelled / car.leadIn;
-          car.x = car.hold.x + (car.entry.x - car.hold.x) * t;
-          car.z = car.hold.z + (car.entry.z - car.hold.z) * t;
-          // On the park road's bend the run-up is still on a curve, and the grid heading is up to
-          // 16° off it — the body held that and snapped round when the arc began.
-          car.yaw = isCurvedLane(car.lane)
-            ? yawOf(car.lane.path.tangentAt(car.lane.length - car.leadIn + travelled))
-            : dirYaw(car.d);
+          if (isCurvedLane(car.lane)) {
+            // On the park road's bend the run-up is still the curve. Drawn as the chord from the
+            // hold line it was a kink at each end of it — 38 u/s² sideways at cruise, on the frames
+            // the car crossed the hold line and the junction boundary — and the grid heading the
+            // body held there was up to 16° off the road.
+            const s = car.lane.length - car.leadIn + travelled;
+            const p = car.lane.path.at(s);
+            car.x = p.x;
+            car.z = p.z;
+            car.yaw = yawOf(car.lane.path.tangentAt(s));
+          } else {
+            car.x = car.hold.x + (car.entry.x - car.hold.x) * t;
+            car.z = car.hold.z + (car.entry.z - car.hold.z) * t;
+            car.yaw = dirYaw(car.d);
+          }
         } else {
           const t = (travelled - car.leadIn) / (car.turnLen - car.leadIn);
           const p = turnPosition(car, t);
           car.x = p.x;
           car.z = p.z;
           if (curvedTurn(car.turn)) {
-            car.yaw = curvedTurnYaw(car, net.laneById.get(car.turn.outLane), t);
+            car.yaw = curvedTurnYaw(car, t);
           } else {
             car.yaw = lerpAngle(dirYaw(car.d), dirYaw(car.dOut), t);
           }

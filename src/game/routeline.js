@@ -388,7 +388,7 @@ function lanePath(car, route) {
         z: car.hold.z + (car.entry.z - car.hold.z) * t,
       });
       push(car.entry);
-      for (let s = 0; s <= TURN_STEPS; s++) push(bezier(car.entry, car.control, car.exit, s / TURN_STEPS));
+      for (let s = 0; s <= TURN_STEPS; s++) push(turnPosition(car, s / TURN_STEPS));
     } else {
       const t0 = (travelled - car.leadIn) / (car.turnLen - car.leadIn);
       for (let s = 0; s <= TURN_STEPS; s++) {

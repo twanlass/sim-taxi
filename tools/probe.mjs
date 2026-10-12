@@ -2279,8 +2279,7 @@ check('no two cars occupy the same space', worst > 1.6,
   // here exercises — a multiply the wrong way round leaves them at the world origin, or orbiting
   // the city at the car's distance from it. Checked on straight-driving cars only, so the corner
   // lean isn't in the way.
-  const front = wheelAnchors().filter((anchor) => anchor.front);
-  const reach = Math.hypot(front[0].x, front[0].z);
+  const front = wheelAnchors(CAR_LEN, CAR_W).filter((anchor) => anchor.front);
   const wheelMatrix = new THREE.Matrix4();
   const wheelPos = new THREE.Vector3();
   let adrift = 0;
@@ -2298,8 +2297,16 @@ check('no two cars occupy the same space', worst > 1.6,
       // reshuffled the traffic — one at the foot of the ring bridge read 1.46 against a deck of
       // 0.03 under its centre.
       const ground = deckHeightAt(wheelPos.x, wheelPos.z).y;
-      if (Math.abs(out - reach) > 0.25) adrift += 1;
-      else if (wheelPos.y - ground < WHEEL_R - 0.25 || wheelPos.y - ground > WHEEL_R + 0.45) adrift += 1;
+      // A pitched body carries its front axle up (or down) by the axle's own offset, and a pitched
+      // body shortens the axle's reach across the ground by the same angle. Both were invisible
+      // while `reach` was NaN (`wheelAnchors()` called with no car size) and while no sampled car
+      // happened to be pitched — until one at the foot of the ring road's arch, nose on the deck
+      // and tail in the junction, read 23° and 1.11 off the road.
+      const pitch = car.shownPitch ?? 0;
+      const rise = Math.abs(Math.sin(pitch)) * front[w].x;
+      const flat = Math.hypot(front[w].x * Math.cos(pitch), front[w].z);
+      if (Math.abs(out - flat) > 0.25) adrift += 1;
+      else if (wheelPos.y - ground < WHEEL_R - 0.25 - rise || wheelPos.y - ground > WHEEL_R + 0.45 + rise) adrift += 1;
     }
   }
   check('every front wheel is bolted to its car', adrift === 0 && checked > 0,
@@ -5805,17 +5812,30 @@ check('every intersection is routable from every approach', unroutable === 0,
   const net = cityNetwork();
   const curved = net.lanes.filter((l) => !l.degenerate && l.edge.curve.kind !== 'line');
   if (curved.length) {
-    const first = curved.find((l) => !curved.some((m) => m.to === l.from));
+    // The head of the bend: no curved lane feeds it, bar its own twin running the other way.
+    const first = curved.find((l) => !curved.some((m) => m.to === l.from && m.from !== l.to));
     const A = net.nodeById.get(first.from);
     const d = net.dirOfLane(first);
+    // Down the bend, then whichever legal way out of its far junction comes first: straight on is
+    // not always a road (a closure can take the arterial beyond it).
     const route = [];
-    for (let at = { i: A.gi, j: A.gj }, k = 0; k < 4 && at; k++) {
-      route.push(d);
-      at = nextIntersection(d, at.i, at.j);
+    let end = first;
+    route.push(d);
+    for (let next; (next = curved.find((m) => m.from === end.to && m.to !== end.from)); ) {
+      route.push(net.dirOfLane(next));
+      end = next;
     }
+    route.push(net.dirOfLane(net.laneById.get(net.turnById.get(end.exits[0]).outLane)));
     const car = { state: 'drive', lane: net.laneByGrid(d, A.gi, A.gj), s: 1, i: A.gi, j: A.gj, d };
-    // The last two points are the destination's middle of junction, which is not on a lane.
-    const pts = routePath(car, route, { onward: false }).slice(0, -2);
+    let tail = first;
+    for (let next; (next = curved.find((m) => m.from === tail.to && m.to !== tail.from)); ) tail = next;
+    const Z = net.nodeById.get(tail.to);
+    // The bend and its two junctions, no further: past them the band is the grid's business, and
+    // the route's destination stops in the middle of a junction, which is not on any lane.
+    const along = (p) => (isXAxis(d) ? p.x : p.z);
+    const lo = Math.min(along(A), along(Z)) - 6;
+    const hi = Math.max(along(A), along(Z)) + 6;
+    const pts = routePath(car, route, { onward: false }).filter((p) => along(p) > lo && along(p) < hi);
     const ref = [];
     for (const l of net.lanes) if (!l.degenerate) for (let s = 0; s <= l.length; s += 0.05) ref.push(l.path.at(s));
     for (const t of net.turnById.values()) if (t.legal) for (let s = 0; s <= t.length; s += 0.05) ref.push(t.path.at(s));
@@ -5825,7 +5845,10 @@ check('every intersection is routable from every approach', unroutable === 0,
     for (let k = 0; k < pts.length - 1; k++) {
       const a = pts[k];
       const b = pts[k + 1];
-      if ((isXAxis(d) ? b.x - a.x : b.z - a.z) * sign <= 0) backwards += 1;
+      // Short of the far junction only: the way out of it may be a corner, and a corner taken off
+      // a road that arrives at an angle runs past square — backwards, legitimately.
+      const between = (p) => (along(p) - along(A)) * sign >= 0 && (along(Z) - along(p)) * sign >= 6;
+      if (between(a) && between(b) && (along(b) - along(a)) * sign <= 0) backwards += 1;
       for (let u = 0; u <= 1; u += 0.25) {
         const x = a.x + (b.x - a.x) * u;
         const z = a.z + (b.z - a.z) * u;
@@ -5850,38 +5873,66 @@ check('every intersection is routable from every approach', unroutable === 0,
   const net = cityNetwork();
   const curved = net.lanes.filter((l) => !l.degenerate && l.edge.curve.kind !== 'line');
   if (curved.length) {
-    const first = curved.find((l) => !curved.some((m) => m.to === l.from));
-    const last = curved.find((l) => !curved.some((m) => m.from === l.to));
+    // The head of the bend: no curved lane feeds it, bar its own twin running the other way.
+    const first = curved.find((l) => !curved.some((m) => m.to === l.from && m.from !== l.to));
+    const last = (() => {
+      // Follow the chain from the head rather than searching, so a two-way bend ends where this
+      // direction does.
+      let l = first;
+      for (let next; (next = curved.find((m) => m.from === l.to && m.to !== l.from)); ) l = next;
+      return l;
+    })();
     const A = net.nodeById.get(first.from);
     const Z = net.nodeById.get(last.to);
     const d = net.dirOfLane(first);
     const bTraffic = createTraffic(makeRng(seed + 131), new THREE.Scene(), 1);
     const bTaxi = bTraffic.taxi;
     placeCar(bTaxi, d, A.gi, A.gj, 25);
+    // Down the bend, then whichever legal way out of its far junction comes first: straight on is
+    // not always a road (a closure can take the arterial beyond it).
     const route = [];
-    for (let at = { i: A.gi, j: A.gj }, k = 0; k < 4 && at; k++) {
-      route.push(d);
-      at = nextIntersection(d, at.i, at.j);
+    let end = first;
+    route.push(d);
+    for (let next; (next = curved.find((m) => m.from === end.to && m.to !== end.from)); ) {
+      route.push(net.dirOfLane(next));
+      end = next;
     }
+    route.push(net.dirOfLane(net.laneById.get(net.turnById.get(end.exits[0]).outLane)));
     bTaxi.route = route;
     bTaxi.routeConsumed = false;
-    const lo = Math.min(A.x, Z.x) - 10;
-    const hi = Math.max(A.x, Z.x) + 10;
     let { x: px, z: pz, yaw: pyaw } = bTaxi;
     let worstYaw = 0;
     let worstLoss = 0;
+    let worstAccel = 0;
     let frames = 0;
+    let vx = 0;
+    let vz = 0;
     for (let f = 0; f < 60 * 20; f++) {
       bTraffic.update(1 / 60);
       const moved = Math.hypot(bTaxi.x - px, bTaxi.z - pz);
-      const inside = isXAxis(d) ? bTaxi.x > lo && bTaxi.x < hi : bTaxi.z > lo && bTaxi.z < hi;
+      const nvx = (bTaxi.x - px) * 60;
+      const nvz = (bTaxi.z - pz) * 60;
+      // On the bend or crossing one of its junctions; past that it is an ordinary corner, which
+      // has its own pacing (and its own checks).
+      const inside = bTaxi.state === 'turn'
+        ? !!bTaxi.turn?.curved && bTaxi.turn.hand === 'straight'
+        : bTaxi.lane?.path?.kind !== 'line';
       // A car pulling away from the hold line is the one exception: it is pinned 0.02 short of
       // the line while it waits, and gives that back on the frame it leaves.
       if (inside && bTaxi.v > 1) {
         frames += 1;
         worstYaw = Math.max(worstYaw, Math.abs(Math.atan2(Math.sin(bTaxi.yaw - pyaw), Math.cos(bTaxi.yaw - pyaw))));
         worstLoss = Math.max(worstLoss, bTaxi.v / 60 - moved);
+        // Above a crawl only: pulling away from the hold line is its own 0.02 step (see above).
+        // Sideways only — the part across the direction of travel. Braking for a red is along it.
+        const speed = Math.hypot(nvx, nvz);
+        if (bTaxi.v > 3 && speed > 1e-6) {
+          const side = Math.abs((nvx - vx) * nvz - (nvz - vz) * nvx) / speed;
+          worstAccel = Math.max(worstAccel, side * 60);
+        }
       }
+      vx = nvx;
+      vz = nvz;
       ({ x: px, z: pz, yaw: pyaw } = bTaxi);
       if ((isXAxis(d) ? bTaxi.x : bTaxi.z) * dirSign(d) > (isXAxis(d) ? Z.x : Z.z) * dirSign(d) + 15) break;
     }
@@ -5889,6 +5940,11 @@ check('every intersection is routable from every approach', unroutable === 0,
       `worst ${(worstYaw * 180 / Math.PI).toFixed(2)}° in a frame over ${frames} frames`);
     check('and loses no travel at the junctions either end', worstLoss < 0.01,
       `worst frame ${worstLoss.toFixed(3)} units short of its speed`);
+    // The motion itself, which the heading alone does not see. The quadratic turns at the bend's
+    // ends had a kink in the *path*, and a body following a kink is thrown sideways on one frame:
+    // 100 u/s² at cruise, against ~12 for the rest of the drive. The cubics are tangent at both ends.
+    check('and is not thrown sideways where the bend meets the junctions', worstAccel < 25,
+      `worst ${worstAccel.toFixed(1)} u/s² at cruise`);
   }
 }
 
