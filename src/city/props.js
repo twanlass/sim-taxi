@@ -107,16 +107,21 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.
 // parks, the medians, the courtyards) and the season is one fact about the whole city. Set it
 // before the city is built.
 let autumn = true;
-export function setAutumn(on) { autumn = Boolean(on); }
+let classic = false;
+// `classic` is the first, higher-contrast autumn (`?foliage=classic`, palette.js).
+export function setAutumn(on, { classicColours = false } = {}) {
+  autumn = Boolean(on);
+  classic = Boolean(classicColours);
+}
 
 /** The base canopy colour a broadleaf standing at (x, z) wears this season. */
 export function autumnBase(x, z) {
   if (!autumn) return PALETTE.foliage;
   const h = hash01(x * 0.37 + 19.3, z * 0.53 - 7.1);
   if (h < 0.32) return PALETTE.foliage;
-  if (h < 0.52) return PALETTE.foliageGold;
-  if (h < 0.8) return PALETTE.foliageOrange;
-  return PALETTE.foliageRed;
+  if (h < 0.52) return classic ? PALETTE.foliageGoldClassic : PALETTE.foliageGold;
+  if (h < 0.8) return classic ? PALETTE.foliageOrangeClassic : PALETTE.foliageOrange;
+  return classic ? PALETTE.foliageRedClassic : PALETTE.foliageRed;
 }
 
 // The lobe's ellipsoid normal at every vertex, so the crown lights as one soft mass rather than

@@ -775,12 +775,20 @@ export const PALETTE = {
 
   trunk: '#6B4E35',
   foliage: '#4F8F4A',
-  // Autumn (`autumnBase` in city/props.js): the colours a broadleaf turns. Spread across value as
-  // well as hue so a park reads as several trees rather than one tree in four tints — the gold
-  // sits above the lawn's luma, the red well under it, the orange between.
-  foliageGold: '#D4A12A',
-  foliageOrange: '#CC6A27',
-  foliageRed: '#A9382C',
+  // Autumn (`autumnBase` in city/props.js): the colours a broadleaf turns. Still spread across
+  // value as well as hue so a park reads as several trees rather than one tree in four tints — gold
+  // above the green's luma 116, rust under it, orange between — but held to a narrow band. The
+  // first set ran luma 88 to 163 and saturation up to 0.68 with a red at hue 6°, and the red trees
+  // read as stop signs against the rest of the city: "the red is too extreme". These sit at luma
+  // 96 / 121 / 148, saturation 0.50-0.55, hue 15-40°, so the whole season is one warm family and
+  // the darkest of it is a rust rather than a red.
+  foliageGold: '#BE9137',
+  foliageOrange: '#B26A34',
+  foliageRed: '#994D33',
+  // The first autumn, behind `?foliage=classic`.
+  foliageGoldClassic: '#D4A12A',
+  foliageOrangeClassic: '#CC6A27',
+  foliageRedClassic: '#A9382C',
 
   // The duck pond — see city/pond.js. The only water in the game, so these three have nothing to
   // agree with and two things to stay clear of.
