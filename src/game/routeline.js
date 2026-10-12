@@ -7,6 +7,7 @@ import {
 } from '../city/grid.js';
 import { deckHeightAt } from '../city/river.js';
 import { cityNetwork } from '../city/roadnet.js';
+import { turnPosition } from '../sim/traffic.js';
 import { DECK_SEGMENTS } from '../geometry/bridge.js';
 
 /**
@@ -392,7 +393,7 @@ function lanePath(car, route) {
       const t0 = (travelled - car.leadIn) / (car.turnLen - car.leadIn);
       for (let s = 0; s <= TURN_STEPS; s++) {
         const t = t0 + (1 - t0) * (s / TURN_STEPS);
-        push(bezier(car.entry, car.control, car.exit, t));
+        push(turnPosition(car, t));
       }
     }
     const after = nextIntersection(car.dOut, i, j);

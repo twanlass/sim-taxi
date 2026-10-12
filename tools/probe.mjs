@@ -3309,6 +3309,14 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   let sampledLoosePickup = 0;
   const foodDropoffs = new Set();
   const BOARDS = 80;
+  // ...except off the joint itself. `spotLegal` refuses the corner the taxi is at, and a food order
+  // only ever comes from one corner, so a run that happens to finish at the burger joint samples 80
+  // boards of nothing but boxes. Move it one junction on.
+  if (FOOD_PICKUP && pTraffic.taxi.i === FOOD_PICKUP.i && pTraffic.taxi.j === FOOD_PICKUP.j) {
+    const taxi = pTraffic.taxi;
+    const on = nextIntersection(taxi.d, taxi.i, taxi.j);
+    if (on) placeCar(taxi, taxi.d, on.i, on.j, 6);
+  }
   for (let s = 0; s < BOARDS; s++) {
     const boardScene = new THREE.Scene();
     const board = createParcelSystem(makeRng(seed + 900 + s * 7), boardScene,
@@ -5829,6 +5837,58 @@ check('every intersection is routable from every approach', unroutable === 0,
     check('the route band follows the park road round its bend', off < 0.05 && pts.length > 20,
       `${pts.length} points, worst ${off.toFixed(3)} off the curve the car drives`);
     check('and never runs backwards through the bend', backwards === 0, `${backwards} reversed segments`);
+  }
+}
+
+// --- The taxi round the park road's bend -----------------------------------
+// The body used to hold its grid heading through the junctions at either end of the bend and snap
+// to the lane's on the frame it landed — 20° in one frame — and every junction dropped whatever
+// the step carried past the hold line and past the exit, a frame-scale stutter. Drive the taxi
+// through the whole bend and hold both: the heading turns smoothly, and the distance moved each
+// frame matches the speed the sim says it is doing.
+{
+  const net = cityNetwork();
+  const curved = net.lanes.filter((l) => !l.degenerate && l.edge.curve.kind !== 'line');
+  if (curved.length) {
+    const first = curved.find((l) => !curved.some((m) => m.to === l.from));
+    const last = curved.find((l) => !curved.some((m) => m.from === l.to));
+    const A = net.nodeById.get(first.from);
+    const Z = net.nodeById.get(last.to);
+    const d = net.dirOfLane(first);
+    const bTraffic = createTraffic(makeRng(seed + 131), new THREE.Scene(), 1);
+    const bTaxi = bTraffic.taxi;
+    placeCar(bTaxi, d, A.gi, A.gj, 25);
+    const route = [];
+    for (let at = { i: A.gi, j: A.gj }, k = 0; k < 4 && at; k++) {
+      route.push(d);
+      at = nextIntersection(d, at.i, at.j);
+    }
+    bTaxi.route = route;
+    bTaxi.routeConsumed = false;
+    const lo = Math.min(A.x, Z.x) - 10;
+    const hi = Math.max(A.x, Z.x) + 10;
+    let { x: px, z: pz, yaw: pyaw } = bTaxi;
+    let worstYaw = 0;
+    let worstLoss = 0;
+    let frames = 0;
+    for (let f = 0; f < 60 * 20; f++) {
+      bTraffic.update(1 / 60);
+      const moved = Math.hypot(bTaxi.x - px, bTaxi.z - pz);
+      const inside = isXAxis(d) ? bTaxi.x > lo && bTaxi.x < hi : bTaxi.z > lo && bTaxi.z < hi;
+      // A car pulling away from the hold line is the one exception: it is pinned 0.02 short of
+      // the line while it waits, and gives that back on the frame it leaves.
+      if (inside && bTaxi.v > 1) {
+        frames += 1;
+        worstYaw = Math.max(worstYaw, Math.abs(Math.atan2(Math.sin(bTaxi.yaw - pyaw), Math.cos(bTaxi.yaw - pyaw))));
+        worstLoss = Math.max(worstLoss, bTaxi.v / 60 - moved);
+      }
+      ({ x: px, z: pz, yaw: pyaw } = bTaxi);
+      if ((isXAxis(d) ? bTaxi.x : bTaxi.z) * dirSign(d) > (isXAxis(d) ? Z.x : Z.z) * dirSign(d) + 15) break;
+    }
+    check('the taxi turns smoothly round the park road\'s bend', worstYaw < (3 * Math.PI) / 180 && frames > 60,
+      `worst ${(worstYaw * 180 / Math.PI).toFixed(2)}° in a frame over ${frames} frames`);
+    check('and loses no travel at the junctions either end', worstLoss < 0.01,
+      `worst frame ${worstLoss.toFixed(3)} units short of its speed`);
   }
 }
 
@@ -13591,7 +13651,8 @@ let chopperOrder; // likewise
     // Touchdown is published by the traffic model rather than by the site, because the taxi is
     // launched off an arched bridge as well as off a barricade and there is no site there to
     // publish it — see `onTaxiLand` in sim/traffic.js.
-    runTraffic.onTaxiLand((event) => { lands += 1; landing = event; });
+    let settled = false;
+    runTraffic.onTaxiLand((event) => { if (settled) return; lands += 1; landing = event; });
 
     for (let step = 0; step < 60 * 6; step++) {
       const before = taxi.hopFrom;
@@ -13607,13 +13668,18 @@ let chopperOrder; // likewise
       if (before != null && taxi.hopFrom == null && air === null) {
         air = taxi.travelled - launchAt;
       }
-      if (taxi.hopFrom == null && taxi.bounceT != null) bounceFrames += 1;
+      if (!settled && taxi.hopFrom == null && taxi.bounceT != null) bounceFrames += 1;
       // Where the taxi actually was on the frame the event fired. Nothing moves it between the
       // emit — which happens in the render half of the per-car pass — and `update` returning, so
       // this is what the event's own (x, z) has to agree with.
       if (landing && landedAt === null) landedAt = { x: taxi.x, z: taxi.z };
       for (const cone of runwork.cones) if (cone.knocked) peakCone = Math.max(peakCone, cone.y);
       for (const chip of runwork.chips) if (chip.live) peakChip = Math.max(peakChip, chip.y);
+      // The stunt is over once it has landed and bounced. Six seconds at 22 u/s is 130 units of
+      // road, and an overdrive taxi that wanders onto an arched bridge in that time takes off
+      // again (Loco Mode over the hump) — a second, legitimate landing that is not the one under
+      // test. The run carries on for the wreckage to come to rest; the taxi stops being counted.
+      if (lands >= 1 && taxi.hopFrom == null && taxi.bounceT == null) settled = true;
     }
     flights.push({
       boosting, smashes, lands, landing, landedAt, peakY, air, airborneAtLine, taxi, runwork,
@@ -19287,7 +19353,10 @@ let chopperOrder; // likewise
   });
   let steps = 0;
   let steamed = false;
-  for (; steps < 60 * 30; steps++) {
+  // Long enough for LEAVE_MAX. The engine only dissolves once it is out of the taxi's sight
+  // (SPAWN_CLEARANCE) or at its exit, and this taxi is ambient: on some runs it trails the engine
+  // home, and the 30s cap then lands it in 'leaving' through no fault of the fire.
+  for (; steps < 60 * 50; steps++) {
     rTraffic.update(1 / 60);
     late.update(1 / 60);
     if (late.state.fires && late.state.heat >= 1) raining = true;
