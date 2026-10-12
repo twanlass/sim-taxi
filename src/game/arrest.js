@@ -3,7 +3,7 @@ import {
 } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 import { findRoute, planOrigin, serviceLaneCost } from './route.js';
-import { CAR_LEN, CAR_W, SPAWN_CLEARANCE, STOP_SETBACK, releaseCar, stageCar } from '../sim/traffic.js';
+import { CAR_LEN, CAR_W, SPAWN_CLEARANCE, STOP_SETBACK, hardBrake, releaseCar, stageCar } from '../sim/traffic.js';
 
 // The end of a bank robbery that got where it was going: the robber climbs out onto the corner, puts
 // their hands up, and the police come screaming in and **screech to a halt in a fan around them**,
@@ -455,6 +455,19 @@ export function createArrest({ traffic, taxi, inShot = null }) {
       }
     }
     const ahead = lead < Infinity;
+    // ...and nobody behind it closing faster than it can stop. The moment this car is staged the
+    // one behind loses sight of it, and the `stun` below only holds that car on its brakes — it
+    // does not stop it any shorter than `hardBrake` can. That is plenty for a car queued at the
+    // line and nothing like enough for a cop still arriving at a chase's 20 u/s: on the big city's
+    // corner drop-off (0, 7) the second cop came off the junction behind at 21.4 u/s with its nose
+    // 4.8 units off the first one's tail (6.5 to stop), and drove 0.68 into it. Left in traffic
+    // for those few frames instead, the car at the line is still a leader and is queued behind.
+    for (const c of traffic.cars) {
+      if (c === car || c.crashed || c.staged || c.isTaxi) continue;
+      const a = (c.x - centre.x) * arm.u.x + (c.z - centre.z) * arm.u.z;
+      if (a <= along || Math.abs(laneAt(c) - laneAt(car)) >= 1.5) continue;
+      if ((c.v * c.v) / (2 * hardBrake()) > a - along - CAR_LEN - 0.5) return;
+    }
     let run = null;
     if (!ahead && along < armHalf(arm) + STOP_SETBACK + 2) {
       // Pulled up at the line, not still arriving at a chase's 20 u/s: the run in is sized from a

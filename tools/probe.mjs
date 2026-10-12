@@ -17067,7 +17067,12 @@ let chopperOrder; // likewise
         robber.target = robber.dropoff;
         const tgt = robber.target;
         for (const d of [0, 1, 2, 3]) if (placeCar(t5.taxi, d, tgt.i, tgt.j, 30)) break;
-        t5.taxi.route = [];
+        // Routed, not left to roll: 30 units back is behind the junction before the drop-off
+        // (`placeCar` walks back along the chain), and an unrouted taxi rolls the ordinary dice
+        // there. On the classic city that junction is on the map's edge and the dice happened to
+        // go straight; on the big one the drop-off is the corner (0, 7) and 2 runs of 4 turned off
+        // at (0, 6) and never arrived.
+        t5.taxi.route = findRoute(planOrigin(t5.taxi), tgt) ?? [];
         robber.directed = true;
         for (let f = 0; f < 60 * 10 && !run.delivered; f++) {
           t5.update(1 / 60);
@@ -17130,7 +17135,12 @@ let chopperOrder; // likewise
                 }
               }
             }
-            if (run.figure?.settled() && rob5.arrest.state.phase !== 'board') {
+            // Only while there is a robber on the kerb to go through. Once they have boarded the
+            // figure is released (gone on that frame) but `settled()` stays true, and the car with
+            // them in it pulls out across the empty corner they stood on — 1.74 off it on a
+            // classic-city draw, which is a car driving over pavement nobody is standing on.
+            if (run.figure?.settled() && rob5.arrest.state.phase !== 'board'
+              && rob5.arrest.state.arrests === 0) {
               run.nearRobber = Math.min(run.nearRobber, Math.hypot(c.x - run.figure.x, c.z - run.figure.z));
             }
             for (const o of t5.cars) {
