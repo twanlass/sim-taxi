@@ -141,7 +141,8 @@ export const DECK_OVERHANG = EMBANK_WALK;
 const middleRow = (rng) => rng.int(Math.floor((GRID_J - 1) / 2), Math.ceil((GRID_J - 1) / 2));
 
 /**
- * Which crossings carry a bridge, and what kind. **Three of the six.**
+ * Which crossings carry a bridge, and what kind. **Three of the six** in the 5 × 6 city, four of
+ * the seven in the 6 × 7 (the fourth is fixed, beside the drawbridge — see below).
  *
  * **The two ring roads always bridge.** The outermost roads are the signal-free ring (grid.js), the
  * police corridor drives one end to end, and ambient traffic yields into it rather than stopping —
@@ -177,7 +178,24 @@ export function planRiver(rng) {
   // x = 0, so it is whichever of the two either side of it the seed picks (the same pair the
   // arterial is drawn from in layout.js). Still one `rng.int`, so every draw after it in the layout
   // stream — the park districts, the buildings — comes out as it did before.
-  const draw = GRID_I >= 2 ? rng.int(Math.floor(GRID_I / 2), Math.ceil(GRID_I / 2)) : null;
+  //
+  // The 6 × 7 city has one more line and an even column count, so its middle line is unique (3,
+  // which is also the north-south arterial) and the draw above has nothing to pick between. It
+  // spends that same one `next()` on a **fourth crossing**, fixed, one line to the west or east
+  // of the drawbridge. Three across seven lines put three blocks between every way over, and with
+  // the leaf up the taxi was driving round by the ring; four across seven is the density three
+  // across six had (4 of 7 ≈ 3 of 6, where the rejected first cut was 4 of 6). Beside the
+  // drawbridge rather than beside the ring, so a lift still leaves the far side three blocks from
+  // a crossing and the near side one — a choice the player can see, not a bridge the ring already
+  // made redundant.
+  let draw = null;
+  if (GRID_I % 2 === 0 && GRID_I >= 6) {
+    const side = rng.next() < 0.5 ? -1 : 1;
+    draw = GRID_I / 2;
+    crossings.set(draw + side, 'fixed');
+  } else if (GRID_I >= 2) {
+    draw = rng.int(Math.floor(GRID_I / 2), Math.ceil(GRID_I / 2));
+  }
   if (draw !== null) crossings.set(draw, 'draw');
 
   // The crossings with no bridge are closed roads in the ordinary sense — `legalExits` drops them,
