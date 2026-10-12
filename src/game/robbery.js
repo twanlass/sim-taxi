@@ -790,10 +790,17 @@ export function createRobbery({
       if (reach > BLOCK_REACH || reach < BLOCK_NEAR) continue;
       const stopAt = acrossPoint(cop, at);
       const travelled = cop.turnT * cop.turnLen;
-      if (stopAt == null || travelled > stopAt) { cop.blockSpent = key; continue; }
       // Brake on the frame the remaining road equals the stopping distance, so it comes to rest
-      // on the point rather than short of it or through it.
-      if (travelled + stopDistance(cop.v) < stopAt) continue;
+      // on the point rather than short of it or through it. A cop already past that frame — let
+      // in late by the gap, the reach or the occupied-box tests here — cannot stop on the point any
+      // more, so the crossing is spent rather than braked through: a chasing cop arrives at up to
+      // 15.6 u/s round a corner, 3.5 units of stopping, and two blocks let in 0.9 and 0.1 short
+      // of their point slid on to rest 1.06 and 1.30 off the centreline (measured, 6 × 7 city).
+      // Two frames' travel of slack, because the stopping distance grows while a cop accelerates
+      // into the arc: a block braked on time lands up to 1.42 frames past (30 getaways per city).
+      const late = travelled + stopDistance(cop.v) - stopAt;
+      if (stopAt == null || late > 2 * cop.v * dt) { cop.blockSpent = key; continue; }
+      if (late < 0) continue;
       // Not into a box something else is already crossing. The hold keeps anyone new out, but a
       // car already committed to its turn cannot be asked to stop, and it drives through a cop
       // that has stopped across its path — traffic is never collision-tested against traffic.

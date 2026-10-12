@@ -8965,10 +8965,16 @@ function rideToPickup() {
   };
 
   const runs = { cruising: [], boosting: [], third: [], hid: [] };
-  for (let k = 0; k < 10; k++) {
-    const a = outcome(seed + 500 + k, 0);
+  // The full tank is run on more seeds than the rest, because its median is a *time* sitting close
+  // to its bar rather than a count with room either side. Over 40 seeds it is 6.1s in the 6 × 7
+  // city (33 lost; the other 7 all caught inside 0.6s, the staged-into-the-cop's-side case) and
+  // 6.4s in the 5 × 6 (37 lost) — and ten seeds land it either side of 6: 5.8 on the 6 × 7's first
+  // ten, 6.0 on the 5 × 6's. Sixteen read 6.7 and 6.1.
+  const BOOST_SEEDS = 16;
+  for (let k = 0; k < BOOST_SEEDS; k++) {
+    const a = k < 10 ? outcome(seed + 500 + k, 0) : null;
     const b = outcome(seed + 500 + k, BOOST_DURATION);
-    const c = outcome(seed + 500 + k, BOOST_DURATION / 3);
+    const c = k < 10 ? outcome(seed + 500 + k, BOOST_DURATION / 3) : null;
     // Half a second in, off the pill: a cop that would otherwise have caught it (see `cruising`).
     const h = k < 4 ? outcome(seed + 500 + k, 0, 0.5) : null;
     if (a) runs.cruising.push(a);
@@ -8982,8 +8988,8 @@ function rideToPickup() {
   const median = (xs) => { const v = [...xs].sort((p, q) => p - q); return v.length ? v[v.length >> 1] : NaN; };
   const cruiseCaught = runs.cruising.filter((r) => r.how === 'caught');
   const boostLost = runs.boosting.filter((r) => r.how === 'lost');
-  check('the chase is staged on most seeds', runs.cruising.length >= 8 && runs.boosting.length >= 8,
-    `${runs.cruising.length} cruising, ${runs.boosting.length} boosting of 10`);
+  check('the chase is staged on most seeds', runs.cruising.length >= 8 && runs.boosting.length >= BOOST_SEEDS * 0.8,
+    `${runs.cruising.length} of 10 cruising, ${runs.boosting.length} of ${BOOST_SEEDS} boosting`);
   check('a taxi off the pill gets caught', count(runs.cruising, 'caught') >= runs.cruising.length * 0.7,
     `${count(runs.cruising, 'caught')}/${runs.cruising.length} caught, median ${median(cruiseCaught.map((r) => r.t)).toFixed(1)}s`);
   check('a full tank of Loco Mode gets away', count(runs.boosting, 'lost') >= runs.boosting.length * 0.7,
