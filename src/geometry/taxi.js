@@ -51,6 +51,10 @@ export const TAXI_TAILPIPE_HEIGHT = 0.42 + CHASSIS_LIFT;
  */
 export const TAXI_DECK_Y = (1.18 + CHASSIS_LIFT) * TAXI_SCALE;
 
+/** What the drift launch's barrel roll turns about, in world units over the road: roughly where
+ *  the body's mass is (sim/traffic.js, `barrelRollAt`; game/locoflame.js swings the pipe with it). */
+export const TAXI_ROLL_PIVOT = TAXI_DECK_Y / 2;
+
 /**
  * Where the rear tyres meet the road, in world units off the taxi's own origin: the axle sits
  * `TAXI_REAR_AXLE_BACK` behind it and each tread `TAXI_REAR_TRACK` out to its own side.

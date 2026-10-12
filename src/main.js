@@ -30,7 +30,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
-  onDriftLaunch, hopProgress, setSpinStyle,
+  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
@@ -1089,6 +1089,8 @@ const patrol = createPatrol({
 });
 // Boost, then two quick taps of the brake: the taxi spins round onto the far lane. See game/bootleg.js.
 setSpinStyle(getUturnStyle());
+// The drift launch rolls the taxi a full turn in mid-air; `?barrelroll=classic` flies it level.
+setBarrelRoll(new URLSearchParams(window.location.search).get('barrelroll'));
 const bootleg = createBootleg({
   taxi: traffic.taxi,
   destination: () => traffic.taxi.pendingTarget ?? null,

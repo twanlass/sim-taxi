@@ -191,6 +191,14 @@ ignores the brake (a distance-paced arc on a stopping car is a taxi parked ten u
 the slam: the squat and the pitch kick scaled by `DRIFT_SLAM`, a 1.6 shake, a body thud and a ring of
 dust. `tools/probe.mjs` asserts the chain, the brake, the turning exit and the collision skip.
 
+Mid-flight the taxi **barrel-rolls**: one full turn about its own long axis (`barrelRollAt` in
+`sim/traffic.js`), eased in from 12% of the arc and level again by 78%, so the takeoff still reads
+as a ramp and the slam lands on the wheels. It turns about `TAXI_ROLL_PIVOT` (half the deck height)
+rather than the origin at road level, which would swing the car round its own tyres, and the Loco
+plume (`game/locoflame.js`) swings with the tailpipe. Render-only; `?barrelroll=classic` flies it
+level. The probe asserts the body goes upside down and is upright at touchdown, and that neither
+the ordinary hop nor the classic flight rolls.
+
 ## The embankment
 
 Both banks carry a pavement and a railing, built exactly the way a block's platform is: a kerb box
