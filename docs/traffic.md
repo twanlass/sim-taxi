@@ -1218,6 +1218,27 @@ The same day `OVERTAKE_PRE_HOLD` went from 0.2s to 0, so a quick tap, then tap-a
 car throws the combo too. The 0.2 was there to stop stabs at the pill arming it, but a double tap
 with a car in range is deliberate.
 
+**Two input prototypes** (Tyler, 2026-10-09: "the default state is I am holding down loco all the
+time"). `?overtake=double` makes the combo a double tap — let go for as long as you like, tap
+(`OVERTAKE_TAP`, 0.35s or shorter), then press and hold within `OVERTAKE_BLIP_MS` — and a plain
+blip off a hold no longer arms anything. `?overtake=signal` gives the pass a button of its own, an
+amber blinker centred over Loco: a thumb holding the gas flicks up onto it and back without letting
+go (it is not a pedal, so the slide keeps Loco claimed), or taps it outright. It arms the pass for
+`OVERTAKE_ARM_WINDOW` with no car needed yet, and the taxi indicates left until the pass is done
+(`passSignal`). `O` on a keyboard. `tools/overtakebot.mjs`, 16 cities × 60s, 1.2s grace:
+
+| reaction | blip | double tap from a held pill, under the blip rule | under `double` | `signal` (flick) |
+|---|---|---|---|---|
+| 0.35s | 73-76% | 75% brisk, 78% relaxed | 70% / 54% | 98% |
+| 0.6s | 68-81% | 63% / 41% | 52% / 22% | 96% |
+| 0.9s | 45-50% | 51% / 21% | 34% / 19% | 80% |
+
+The blip rule already accepts the double tap (the first re-press arms, the second re-arms), and a
+dedicated double-tap rule is *slower*: it cannot arm until the second press, so it gives up ~0.25s
+of the grace the blip had. The button wins because it is the only input that keeps Loco down — the
+bot's flick costs it nothing, where a thumb's costs a couple of hundred milliseconds, so read its
+column as the ceiling.
+
 **This was built once before and abandoned, and why matters.** The old overtake pulled out to the
 road *centreline*, which is the single worst place on the road:
 

@@ -60,12 +60,25 @@ export const OVERTAKE_ARM_WINDOW = 3.0;
 export const OVERTAKE_GRACE = 1.2;
 
 /**
+ * Under `?overtake=double` (Tyler, 2026-10-09), the combo is a double tap instead of a blip: the
+ * pill is usually down already, so the gesture is let go (for as long as you like), tap, tap and
+ * hold. A press this short or shorter counts as the first tap; the second press then has to land
+ * within OVERTAKE_BLIP_MS of it coming up. Lifting off a long hold and pressing again does *not*
+ * arm, which is what makes it a different input from the blip rather than a looser one, and what
+ * keeps a player feathering the pill from overtaking by accident.
+ */
+export const OVERTAKE_TAP = 0.35;
+
+/**
  * @param taxi   the traffic model's taxi; reads `passGap`, `passLeader` and `passing`, writes
  *               `passArmed`, `passPending` and `passGrace`
  * @param grace  seconds of OVERTAKE_GRACE to give a newly caught car; 0 rams on contact (the
  *               probe and the bot pass it explicitly)
+ * @param input  how the combo is thrown: 'blip' (the default), 'double' (`?overtake=double`, the
+ *               double tap — OVERTAKE_TAP) or 'signal' (`?overtake=signal`, a button of its own —
+ *               see `signal()` below)
  */
-export function createOvertakeCombo({ taxi, grace = 0 }) {
+export function createOvertakeCombo({ taxi, grace = 0, input = 'blip' }) {
   const state = {
     armed: false,
     /** Seconds an armed combo has left to start its pass. */
@@ -98,6 +111,7 @@ export function createOvertakeCombo({ taxi, grace = 0 }) {
     taxi.passArmed = false;
     taxi.passPending = false;
     taxi.passGrace = false;
+    taxi.passSignal = false;
   }
 
   /**
@@ -114,8 +128,13 @@ export function createOvertakeCombo({ taxi, grace = 0 }) {
       blip = null;
       heldFor = 0;
     } else if (!held && wasHeld) {
-      blip = heldFor >= OVERTAKE_PRE_HOLD && behind() ? 0 : null;
-      state.armed = false;
+      // The first half: a blip off a hold, or the first tap of a double tap.
+      const first = input === 'double' ? heldFor <= OVERTAKE_TAP : heldFor >= OVERTAKE_PRE_HOLD;
+      blip = input !== 'signal' && first && behind() ? 0 : null;
+      // Letting go of the pill drops a combo thrown *on* the pill. The signal button is thrown off
+      // it — a thumb reaching for it may well come off Loco to do so — so that arm survives the lift
+      // and the pass goes as soon as Loco is down again.
+      if (input !== 'signal') state.armed = false;
     } else if (held) {
       heldFor += dt;
     } else if (blip !== null) {
@@ -133,6 +152,9 @@ export function createOvertakeCombo({ taxi, grace = 0 }) {
     wasPassing = Boolean(taxi.passing);
 
     taxi.passArmed = state.armed;
+    // The taxi's left indicator, for the signal button: on while it is asking to pull out, and
+    // through the pull-out itself (sim/traffic.js reads it ahead of every other reason to signal).
+    taxi.passSignal = input === 'signal' && (state.armed || Boolean(taxi.passing));
     taxi.passPending = !held && pending();
     // A new car within range starts its own grace; the same car again does not. Keyed on the car
     // rather than on the gap so a leader that drops out of view for a junction box and comes back
@@ -143,5 +165,18 @@ export function createOvertakeCombo({ taxi, grace = 0 }) {
     taxi.passGrace = graceLeft > 0;
   }
 
-  return { state, update, reset };
+  /**
+   * The overtake button (`?overtake=signal`, Tyler 2026-10-09: "treat it almost like a self-driving
+   * car where you would hit your blinker"). Arms the pass outright — no gesture, no car needed yet:
+   * it waits OVERTAKE_ARM_WINDOW for one, and the taxi indicates left for as long as it does.
+   */
+  function signal() {
+    if (input !== 'signal' || taxi.passing) return;
+    state.armed = true;
+    state.armLeft = OVERTAKE_ARM_WINDOW;
+    state.arms += 1;
+    taxi.passArmed = true;
+  }
+
+  return { state, update, reset, signal, input };
 }

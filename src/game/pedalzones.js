@@ -24,20 +24,27 @@ export const PEDAL_SLOP = 16;
 
 /**
  * Grow each rectangle into its zone. `rects` are DOMRect-likes in any order; the result is in the
- * same order. Horizontal neighbours are clipped to the middle of their gap less half the deadband,
- * never inside their own rectangle, so two zones can never overlap.
+ * same order. Every pair of neighbours is clipped to the middle of the gap between them less half
+ * the deadband, never inside its own rectangle, so two zones can never overlap — across the gap
+ * when the two sit side by side (the row), down it when one is stacked over the other (the stacked
+ * layout, `?pedals=left|right`, where the brake hangs under Loco).
  */
 export function pedalZones(rects, reach, deadband) {
   const zones = rects.map((r) => ({
     left: r.left - reach, right: r.right + reach, top: r.top - reach, bottom: r.bottom + reach,
   }));
-  const order = rects.map((r, k) => k).sort((a, b) => rects[a].left - rects[b].left);
-  for (let n = 1; n < order.length; n++) {
-    const a = order[n - 1];
-    const b = order[n];
-    const mid = (rects[a].right + rects[b].left) / 2;
-    zones[a].right = Math.max(rects[a].right, Math.min(zones[a].right, mid - deadband / 2));
-    zones[b].left = Math.min(rects[b].left, Math.max(zones[b].left, mid + deadband / 2));
+  // `lo` is the side of the gap nearer the origin: left of it, or above it.
+  const clip = (a, b, lo, hi) => {
+    const mid = (rects[a][hi] + rects[b][lo]) / 2;
+    zones[a][hi] = Math.max(rects[a][hi], Math.min(zones[a][hi], mid - deadband / 2));
+    zones[b][lo] = Math.min(rects[b][lo], Math.max(zones[b][lo], mid + deadband / 2));
+  };
+  for (let a = 0; a < rects.length; a++) {
+    for (let b = 0; b < rects.length; b++) {
+      if (a === b) continue;
+      if (rects[a].right <= rects[b].left) clip(a, b, 'left', 'right');
+      else if (rects[a].bottom <= rects[b].top) clip(a, b, 'top', 'bottom');
+    }
   }
   return zones;
 }
