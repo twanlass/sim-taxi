@@ -2113,6 +2113,9 @@ would stop it anyway:
    trail, fed from the robber), shoves the **bystander** who is always waiting on the
    pavement outside the bank clean off their feet (airborne, spun, a bounce and a skid, then
    dazed and stirring on the ground — never landing on the cab), and sprints for the cab's door, which swings open as they arrive.
+   The trigger reaches most of the side street, so the cab is often round the side of the block:
+   the run then turns at the block's pavement corner (`aroundBlock`) rather than going straight
+   through the building, which it did on 37% of trigger points before.
 3. They hop in, and the robber's line takes over exactly as it does under `?robbery=classic`.
 
 The shove plays in **slow motion**: from contact until just before the bystander comes down the
