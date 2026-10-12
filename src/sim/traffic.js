@@ -6877,9 +6877,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
       // Roll and pitch both pivot on the car's origin at road level, so tilting drives one edge
       // underground. Lifting by the sagitta of each keeps the low edge on the tarmac and reads as
-      // suspension travel rather than clipping.
+      // suspension travel rather than clipping. Not for the deck's own pitch: `deckY` is already
+      // the mean of the nose's and the tail's deck heights, so a body pitched to the deck has both
+      // ends on it, and lifting by that sagitta too floated a car 0.32 off the foot of an arch —
+      // the probe caught a front wheel 1.0 above the deck under it.
       const lift = Math.abs(Math.sin(roll)) * (CAR_W / 2)
-        + Math.abs(Math.sin(shownPitch)) * (CAR_LEN / 2);
+        + Math.abs(Math.sin(shownPitch - deckPitch)) * (CAR_LEN / 2);
 
       if (car.isTaxi) {
         // `mount` is always 0 here — pulloverTargetFor skips the taxi — but it costs nothing to keep

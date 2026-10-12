@@ -2292,12 +2292,14 @@ check('no two cars occupy the same space', worst > 1.6,
       wheelPos.setFromMatrixPosition(wheelMatrix);
       checked += 1;
       const out = Math.hypot(wheelPos.x - car.x, wheelPos.z - car.z);
-      // Height off whatever the car is standing on: a car crossing an arched bridge is up to
-      // ARCH_RISE above the road, and its wheels with it. None happened to be on one at the
-      // sample instant until the 6 × 7 city's fourth bridge moved the draw.
-      const ground = deckHeightAt(car.x, car.z)?.y ?? 0;
+      // Height off whatever the wheel is standing on: a car climbing an arched bridge is up to
+      // ARCH_RISE above the road, and its front wheels further up the slope than its centre. None
+      // happened to be on one at the sample instant until the 6 × 7 city's fourth bridge
+      // reshuffled the traffic — one at the foot of the ring bridge read 1.46 against a deck of
+      // 0.03 under its centre.
+      const ground = deckHeightAt(wheelPos.x, wheelPos.z).y;
       if (Math.abs(out - reach) > 0.25) adrift += 1;
-      else if (wheelPos.y - ground < WHEEL_R - 0.25 || wheelPos.y - ground > WHEEL_R + 0.45) { adrift += 1; console.log('DBGW', wheelPos.y, ground, car.x, car.z, car.lane.id, car.s, car.lane.length, JSON.stringify(riverBanks())); }
+      else if (wheelPos.y - ground < WHEEL_R - 0.25 || wheelPos.y - ground > WHEEL_R + 0.45) adrift += 1;
     }
   }
   check('every front wheel is bolted to its car', adrift === 0 && checked > 0,
