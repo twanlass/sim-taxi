@@ -173,6 +173,9 @@ export function bankSite(b, lot, bounds) {
     width,
     depth,
     b,
+    // The whole block, kerb to kerb. The bank all but fills it, and whatever else stands on it is
+    // still a building, so this is what a figure on foot has to go round (game/bankjob.js).
+    block: { x0: bounds.x0, z0: bounds.z0, x1: bounds.x1, z1: bounds.z1 },
     front: { x: frontX, z: frontZ },
     door: {
       x: frontX + (axis === 'x' ? out : 0),

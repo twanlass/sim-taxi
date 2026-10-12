@@ -66,7 +66,7 @@ import {
  * does not reach is the street on the *other* side of the block: the bank is 9.7 deep and the road
  * beyond it is another 8 wide, so the nearest point of that carriageway is 18 units away.
  */
-const TRIGGER_RANGE = 12;
+export const TRIGGER_RANGE = 12;
 
 /**
  * Seconds after an event ends before another can start.

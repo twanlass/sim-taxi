@@ -105,7 +105,8 @@ import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.
 import * as difficulty from '../src/game/difficulty.js';
 import { BOARD_MAX } from '../src/game/difficulty.js';
 import { LOCO_PACE_SELF } from './autoplay.mjs';
-import { createRobbery, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
+import { planRun as planBankRun } from '../src/game/bankjob.js';
+import { createRobbery, TRIGGER_RANGE as ROBBERY_TRIGGER_RANGE, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
 import { createPatrol, ESCAPE_BLOCKS, TOUCH_SLACK, SIGHT_HOLD } from '../src/game/patrol.js';
 import { touching } from '../src/sim/collisions.js';
 import { createCashTrail, noteGeometry, NOTE_FOLD, BRICK_H } from '../src/game/cashtrail.js';
@@ -15803,6 +15804,43 @@ let chopperOrder; // likewise
     check('the pediment sits below the roof behind it',
       bank.pedimentY < bank.roofY,
       `pediment ${bank.pedimentY.toFixed(2)}, roof ${bank.roofY.toFixed(2)}`);
+
+    // The bank job's run (game/bankjob.js) from the bystander to the cab, from every point on every
+    // lane the trigger can fire from. It was a straight line, and with the cab round the side of the
+    // block that line ran through the building: 1255 of 3364 such points over 37 cities. Walls are
+    // the block's buildable rectangle — the lot setback in from the kerb — sampled rather than
+    // solved, so the check does not share the arithmetic it is checking.
+    const walls = {
+      x0: bank.block.x0 + BANK_LOT_INSET, z0: bank.block.z0 + BANK_LOT_INSET,
+      x1: bank.block.x1 - BANK_LOT_INSET, z1: bank.block.z1 - BANK_LOT_INSET,
+    };
+    const throughWall = ([a, b]) => {
+      for (let k = 1; k < 100; k++) {
+        const x = a.x + (b.x - a.x) * (k / 100);
+        const z = a.z + (b.z - a.z) * (k / 100);
+        if (x > walls.x0 && x < walls.x1 && z > walls.z0 && z < walls.z1) return true;
+      }
+      return false;
+    };
+    let runs = 0;
+    let rounded = 0;
+    let through = 0;
+    for (const lane of cityNetwork().lanes) {
+      if (!lane.path) continue;
+      for (let s = 0; s <= lane.length; s += 0.5) {
+        const p = lane.path.at(s);
+        if (Math.hypot(p.x - bank.door.x, p.z - bank.door.z) > ROBBERY_TRIGGER_RANGE) continue;
+        const t = lane.path.tangentAt(s);
+        const plan = planBankRun(bank, { x: p.x, z: p.z, yaw: Math.atan2(-t.z, t.x) });
+        runs += 1;
+        if (plan.legs.length > 3) rounded += 1;
+        // The first leg starts inside the portico, which is the point of it.
+        if (plan.legs.slice(1).some(throughWall)) through += 1;
+      }
+    }
+    check('the robber runs round the bank’s block to the cab, never through it',
+      runs > 0 && through === 0 && rounded > 0,
+      `${through} of ${runs} trigger points through a wall, ${rounded} sent round a corner`);
   }
 
   // --- Cop cars are ordinary cars ---------------------------------------------
