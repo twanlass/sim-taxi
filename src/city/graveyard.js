@@ -4,9 +4,10 @@ import { bakeColor, hash01, propMaterial, stampEntry, unlitMaterial } from '../u
 import { color, jitterColor } from '../palette.js';
 import { KERB_H, PARK_EDGE } from './ground.js';
 import { GRID_I, GRID_J } from './grid.js';
+import { treeParts } from './props.js';
 
 // The city's graveyard: one whole block behind an iron fence, with rows of headstones either side
-// of a gravel path, a crypt at the back, two bare trees and a little ground mist. Scenery, on the
+// of a gravel path, two of the parks' trees and a little ground mist. Scenery, on the
 // skatepark's terms — nothing routes through it, nothing on it can be tapped, the fare loop has
 // never heard of it.
 //
@@ -18,8 +19,8 @@ import { GRID_I, GRID_J } from './grid.js';
 // **Which way it faces is not a choice**, for the reason city/burgerjoint.js gives at length: the
 // camera looks down the +X+Z diagonal and never rotates, so only a block's +X and +Z faces are ever
 // in front of what stands on it. So the gate is in the +Z fence, every headstone faces +Z, and the
-// crypt — the one tall thing on the lot — stands against the −Z fence, behind the stones rather
-// than in front of them.
+// trees — the only tall things on the lot — stand in its back half, behind the stones rather than
+// in front of them.
 
 /** On unless `?graveyard=classic` (or `GRAVEYARD=classic` for the headless tools). */
 export const GRAVEYARD_ON = typeof location !== 'undefined'
@@ -51,16 +52,6 @@ const GATE_PIER = 0.6;
 const GATE_PIER_H = 1.9;
 const ARCH_R = GATE_HALF + GATE_PIER / 2 - 0.12;
 
-// --- The crypt ----------------------------------------------------------------
-// About the depot's door in height, so it reads as a building and not as a big headstone, and low
-// enough that the sightline over it (0.92 a unit, see CLAUDE.md) clears the back road.
-const CRYPT_W = 3.3;
-const CRYPT_D = 2.4;
-const CRYPT_WALL = 2.1;
-const PORCH = 0.9;           // the portico in front of the door
-const ROOF_RISE = 0.85;
-const CRYPT_BACK = 0.45;     // in from the −Z fence
-
 // --- The rows -----------------------------------------------------------------
 const PATH_HALF = 0.65;
 const COL_PITCH = 1.2;
@@ -71,6 +62,7 @@ const ROW_PITCH = 1.55;
  */
 const STONE_SCALE = 1.4;
 const STONE_CLEAR = 0.55;    // from the fence and from the path
+const TREE_CLEAR = 1.1;      // no stone inside a trunk's reach
 
 // --- The mist -----------------------------------------------------------------
 const MIST_PUFFS = 9;
@@ -114,15 +106,12 @@ export function chooseGraveyardBlock(rng, blocks) {
 export function graveyardSite(block) {
   const { x0, x1, z0, z1, cx, cz } = block.bounds;
   const fence = { x0: x0 + FENCE_IN, x1: x1 - FENCE_IN, z0: z0 + FENCE_IN, z1: z1 - FENCE_IN };
-  const cryptZ0 = fence.z0 + CRYPT_BACK;
-  const cryptZ1 = cryptZ0 + CRYPT_D;
   return {
     bi: block.bi,
     bj: block.bj,
     bounds: block.bounds,
     fence,
     gateX: cx,
-    crypt: { x0: cx - CRYPT_W / 2, x1: cx + CRYPT_W / 2, z0: cryptZ0, z1: cryptZ1, porch: cryptZ1 + PORCH },
     /** Where the shots aim: the middle of the lawn, taken flat off the ground. */
     focus: { x: cx, z: cz },
   };
@@ -223,57 +212,6 @@ function fenceParts(site, rng, parts) {
   }
 }
 
-// --- The crypt ------------------------------------------------------------------
-
-function cryptParts(site, rng, parts) {
-  const { x0, x1, z0, z1, porch } = site.crypt;
-  const cx = (x0 + x1) / 2;
-  const wall = jitterColor(color('cryptStone'), rng, { l: 0.02 });
-  const trim = color('graveStone');
-  const roof = color('cryptRoof');
-  const door = color('cryptDoor');
-  const top = FOOT + 0.25 + CRYPT_WALL;
-
-  // A two-step base under the whole thing, porch included, so it stands on a plinth like the
-  // real ones do rather than sitting in the grass.
-  parts.push(span(x0 - 0.3, x1 + 0.3, FOOT, FOOT + 0.13, z0 - 0.2, porch + 0.35, trim));
-  parts.push(span(x0 - 0.15, x1 + 0.15, FOOT + 0.13, FOOT + 0.25, z0 - 0.1, porch + 0.15, trim));
-  // The cell.
-  parts.push(span(x0, x1, FOOT + 0.25, top, z0, z1, wall));
-  // The door, proud of the wall rather than set into it (the cell is one solid box), and a lintel.
-  parts.push(span(cx - 0.45, cx + 0.45, FOOT + 0.25, FOOT + 1.55, z1, z1 + 0.05, door));
-  parts.push(span(cx - 0.6, cx + 0.6, FOOT + 1.55, FOOT + 1.72, z1, z1 + 0.08, trim));
-  // Iron bars on the door.
-  for (let k = -2; k <= 2; k++) {
-    parts.push(span(cx + k * 0.16 - 0.02, cx + k * 0.16 + 0.02, FOOT + 0.3, FOOT + 1.5,
-      z1 + 0.05, z1 + 0.08, color('graveIron')));
-  }
-  // The portico: two columns at the front corners of the porch.
-  for (const s of [-1, 1]) {
-    const col = new THREE.CylinderGeometry(0.16, 0.18, CRYPT_WALL, 6);
-    col.translate(cx + s * (CRYPT_W / 2 - 0.3), FOOT + 0.25 + CRYPT_WALL / 2, porch - 0.25);
-    parts.push(bakeColor(col, trim));
-  }
-  // The entablature, round all four sides and over the porch.
-  parts.push(span(x0 - 0.12, x1 + 0.12, top, top + 0.22, z0 - 0.12, porch + 0.05, trim));
-
-  // The pitched roof: a three-sided cylinder is a triangular prism three winds itself. Turned so its
-  // axis runs along Z with the apex up, squashed to the rise, and set on the entablature.
-  const halfW = CRYPT_W / 2 + 0.22;
-  const r = halfW / Math.sin(Math.PI / 3);
-  const len = porch + 0.05 - (z0 - 0.12) + 0.2;
-  const prism = new THREE.CylinderGeometry(r, r, len, 3);
-  prism.rotateX(-Math.PI / 2);
-  prism.scale(1, ROOF_RISE / (1.5 * r), 1);
-  prism.translate(cx, top + 0.22 + (0.5 * r) * (ROOF_RISE / (1.5 * r)), (z0 - 0.12 + porch + 0.05) / 2);
-  parts.push(bakeColor(prism, roof));
-
-  // A stone cross on the front of the ridge.
-  const ridge = top + 0.22 + ROOF_RISE;
-  parts.push(box(0.12, 0.7, 0.12, cx, ridge - 0.1, porch - 0.05, trim));
-  parts.push(box(0.44, 0.12, 0.12, cx, ridge + 0.3, porch - 0.05, trim));
-}
-
 // --- The headstones -------------------------------------------------------------
 
 /** One headstone at the origin, facing +Z, with the grave in front of it. */
@@ -326,8 +264,8 @@ function headstone(kind, rng) {
 }
 
 function headstoneParts(site, trees, rng, parts) {
-  const { fence, gateX, crypt } = site;
-  const zFirst = crypt.porch + 0.9;
+  const { fence, gateX } = site;
+  const zFirst = fence.z0 + STONE_CLEAR + 0.2;
   const zLast = fence.z1 - STONE_CLEAR - 1.2;  // leave the grave in front of the last row room
   const rows = Math.max(1, Math.floor((zLast - zFirst) / ROW_PITCH) + 1);
 
@@ -343,7 +281,7 @@ function headstoneParts(site, trees, rng, parts) {
         if (rng.chance(0.18)) continue;
         const x = inner + side * c * pitch + rng.jitter(0.08);
         const z = zFirst + r * ROW_PITCH + rng.jitter(0.06);
-        if (trees.some((t) => Math.hypot(t.x - x, t.z - z) < 0.9)) continue;
+        if (trees.some((t) => Math.hypot(t.x - x, t.z - z) < TREE_CLEAR)) continue;
         const roll = rng.next();
         const kind = roll < 0.45 ? 'round' : roll < 0.72 ? 'tablet' : roll < 0.92 ? 'cross' : 'obelisk';
         const geo = headstone(kind, rng);
@@ -351,36 +289,6 @@ function headstoneParts(site, trees, rng, parts) {
         geo.translate(x, FOOT, z);
         parts.push(geo);
       }
-    }
-  }
-}
-
-// --- The trees ------------------------------------------------------------------
-
-/** A bare tree: a leaning trunk, a few limbs off the top, a twig or two off each limb. */
-function deadTree(x, z, rng, col, parts) {
-  const limb = (len, r0, r1, from, dir) => {
-    const geo = new THREE.CylinderGeometry(r1, r0, len, 4);
-    geo.translate(0, len / 2, 0);
-    geo.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(
-      new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir)));
-    geo.translate(from.x, from.y, from.z);
-    parts.push(bakeColor(geo, col));
-    return from.clone().addScaledVector(dir, len);
-  };
-  const lean = new THREE.Vector3(rng.jitter(0.15), 1, rng.jitter(0.15)).normalize();
-  const top = limb(rng.range(2.3, 2.7), 0.26, 0.16, new THREE.Vector3(x, FOOT, z), lean);
-  const n = 3 + (rng.chance(0.5) ? 1 : 0);
-  for (let k = 0; k < n; k++) {
-    const yaw = (k / n) * Math.PI * 2 + rng.jitter(0.5);
-    const up = rng.range(0.55, 1.0);
-    const dir = new THREE.Vector3(Math.cos(yaw), up, Math.sin(yaw)).normalize();
-    const start = top.clone().addScaledVector(lean, -rng.range(0, 0.5));
-    const end = limb(rng.range(1.1, 1.6), 0.11, 0.06, start, dir);
-    for (let t = 0; t < 2; t++) {
-      const tw = dir.clone().add(new THREE.Vector3(rng.jitter(0.9), rng.range(0.1, 0.6), rng.jitter(0.9)))
-        .normalize();
-      limb(rng.range(0.5, 0.8), 0.055, 0.025, end.clone().addScaledVector(dir, -0.25 * t), tw);
     }
   }
 }
@@ -441,25 +349,24 @@ function createMist(site, rng) {
 
 export function createGraveyard(block, rng) {
   const site = graveyardSite(block);
-  const { fence, gateX, crypt } = site;
+  const { fence, gateX } = site;
   const parts = [];
 
-  // The gravel path, gate to crypt. A slab rather than paint: its top is 0.03 over the lawn, so it
-  // is never coplanar with it.
+  // The gravel path, gate to back fence. A slab rather than paint: its top is 0.03 over the lawn,
+  // so it is never coplanar with it.
   parts.push(span(gateX - PATH_HALF, gateX + PATH_HALF, FOOT, GRAVE_GRASS_Y + 0.03,
-    crypt.porch + 0.3, fence.z1 + 0.1, jitterColor(color('gravePath'), rng, { l: 0.02 })));
+    fence.z0 + 0.3, fence.z1 + 0.1, jitterColor(color('gravePath'), rng, { l: 0.02 })));
 
   fenceParts(site, rng, parts);
-  cryptParts(site, rng, parts);
 
-  // Two bare trees in opposite corners: one in front, one behind, so the lot has something tall at
-  // both ends and the crypt is not the only silhouette on it.
+  // Two of the parks' own trees (`treeParts`, props.js), one in each back corner, so their crowns
+  // stand behind the stones rather than over them — halfway down the side, a crown sat across the
+  // middle of the rows from this camera. A size under the parks' range so they don't swamp the lot.
   const trees = [
-    { x: fence.x0 + 0.95, z: fence.z1 - 1.0 },
-    { x: fence.x1 - 0.95, z: crypt.z0 + 0.6 },
+    { x: fence.x0 + 1.3, z: fence.z0 + 1.3 },
+    { x: fence.x1 - 1.3, z: fence.z0 + 1.3 },
   ];
-  const bark = jitterColor(color('deadTree'), rng, { l: 0.02 });
-  for (const t of trees) deadTree(t.x, t.z, rng, bark, parts);
+  for (const t of trees) parts.push(...treeParts(t.x, t.z, rng, { low: 3.6, high: 4.4 }));
 
   headstoneParts(site, trees, rng, parts);
 

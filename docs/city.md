@@ -620,13 +620,14 @@ drawn before it, and `null` is a valid answer. Default since 2026-10-12; `?grave
 
 It is scenery only. Nothing routes into it, nothing on it can be tapped, and the fare loop doesn't
 know it exists. An iron railing on a stone plinth runs round the lawn, with a gate in the +Z fence.
-Headstones stand in rows either side of a gravel path, a crypt stands at the back, there are two bare
-trees, and a little ground mist drifts across. The mist thickens after dark, using the
+Headstones stand in rows either side of a gravel path, two of the parks' own trees (`treeParts`)
+stand in the back half, and a little ground mist drifts across. The mist thickens after dark, using the
 same measure of darkness as the helicopter's searchlight.
 
 - **It faces the camera, like the burger joint.** Only +X and +Z faces are ever seen, so the gate is
-  in the +Z fence, every stone faces +Z, and the crypt (the one tall thing) stands against the −Z
-  fence, behind the stones rather than in front of them.
+  in the +Z fence, every stone faces +Z, and the trees (the only tall things) stand in the back
+  half, behind the stones rather than in front of them. A first cut had an above-ground crypt and
+  bare spooky trees; Tyler cut both.
 - **The stones are drawn 1.4× life size** (`STONE_SCALE`). At life size they were four pixels at play
   zoom, and the lot read as a fenced lawn with grit on it.
 - **Out of downtown, and apart from the other two landmarks.** `chooseGraveyardBlock` keeps it at
