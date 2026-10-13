@@ -17,6 +17,8 @@ import { createGround, KERB_H } from './city/ground.js';
 import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river.js';
 import { createHarbor } from './city/harbor.js';
 import { createTerrain } from './city/terrain.js';
+import { createPeakMist } from './game/peakmist.js';
+import { createShore } from './city/shore.js';
 import { tickRiverWater, syncRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/riverwater.js';
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
@@ -434,7 +436,17 @@ const clouds = createClouds(scene, makeRng(runSeed + 277));
 // The clock that drives the sky. Parked at golden hour for now — the cycle works, but the night
 // end of it needs more tuning before it earns its place, so it's off until the ⚙️ panel turns it
 // on. Screenshots keep it frozen regardless: a rendered shot has to be reproducible.
-const daylight = createDaylight({ sun, hemi, sky, fog, clouds });
+// The collar of cloud round the mountain's top (game/peakmist.js), lit with the weather.
+const peakMist = createPeakMist(scene, makeRng(seed + 59));
+const daylight = createDaylight({
+  sun, hemi, sky, fog,
+  clouds: clouds || peakMist ? {
+    setLight(top, bottom) {
+      clouds?.setLight(top, bottom);
+      peakMist?.setLight(top, bottom);
+    },
+  } : null,
+});
 daylight.setDayLength(DAY_SECONDS);
 daylight.setCycling(false);
 if (rain.grade) daylight.setGrade(rain.grade);
@@ -604,6 +616,8 @@ if (island) {
   scene.add(island.terrain);
   scene.add(island.ocean);
   scene.add(island.flora);
+  const shore = createShore(makeRng(seed + 61));
+  if (shore) scene.add(shore);
 }
 // Held onto for its `pad`: exactly one roof in the city carries a landing circle, and the
 // helicopter below has to be told which one — see `choosePad` in city/buildings.js.
@@ -5064,6 +5078,7 @@ function tick() {
   // the second argument so the bounce and the notes land on the track's beat (game/boombox.js).
   boombox.update(dt);
   skaters.update(dt);
+  peakMist?.update(dt);
   if (ltrain) {
     ltrain.update(dt);
     ltrain.setFadePoints(ltrainFadePoints());

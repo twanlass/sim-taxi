@@ -149,6 +149,10 @@ export function coastDistance(x, z, p = pad()) {
   let g = smin(smin(gW, gS, CORNER), gE, CORNER);
   if (harbor) g = smin(g, (p.x1 + MAINLAND_EAST + COAST_WANDER * wave(z, 4)) - x, CORNER);
 
+  // The lighthouse's rock, out in the bay off the south-west corner.
+  const rock = islet(p);
+  g = Math.max(g, rock.r - Math.hypot(x - rock.x, z - rock.z));
+
   // The river's mouths, cut through the verge to the sea.
   const banks = riverBanks();
   if (banks) {
@@ -164,8 +168,21 @@ export function coastDistance(x, z, p = pad()) {
   return g;
 }
 
+// The lighthouse's rock (city/shore.js puts the lighthouse on it): this far out past the pad's
+// south-west corner on each axis, which is clear of both coasts' widest wander and of the rounded
+// corner between them, and this big — a cottage and a tower and a rim of cliff.
+const ISLET_OUT = { x: 32, z: 30 };
+const ISLET_R = 6.5;
+
+/** Where the lighthouse's rock is. */
+export function islet(p = pad()) {
+  return { x: p.x0 - ISLET_OUT.x, z: p.z1 + ISLET_OUT.z, r: ISLET_R };
+}
+
 /** How much of a beach the coast nearest (x, z) is: 0 a rocky drop, 1 sand. */
 export function beachiness(x, z) {
+  const rock = islet();
+  if (Math.hypot(x - rock.x, z - rock.z) < rock.r + 4) return 0;
   // Its own wobble, slower than the coast's, so beaches and rocks come in stretches.
   const s = 0.6 * Math.sin(0.047 * (x - z) + 0.9) + 0.4 * Math.sin(0.113 * (x + z) + 2.6);
   return smoothstep(0.15, 0.55, s);
@@ -181,6 +198,14 @@ const SHOULDER = { x: -40, dz: 58, h: 30, sx: 30, sz: 24 };
 // The foothills, rising off the north walk.
 const FOOT_H = 9;
 const FOOT_RUN = 28;
+
+/**
+ * The main peak: where it stands, how high, and its spread on each axis — for anything placed
+ * against the mountain rather than on it (the mist round its top, game/peakmist.js).
+ */
+export function peak(p = pad()) {
+  return { x: p.x1 + PEAK.dx, z: p.z0 - PEAK.dz, h: PEAK.h + FOOT_H, sx: PEAK.sx, sz: PEAK.sz };
+}
 
 /** How far the mountain lifts the land at (x, z), before the coast is taken into account. */
 export function mountainLift(x, z, p = pad()) {

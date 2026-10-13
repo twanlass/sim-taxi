@@ -8,6 +8,7 @@ behind it that aren't obvious from the code.
 | [architecture.md](architecture.md) | Module map, the frame loop, seeding and determinism, how a change flows through the app, offline support | `src/main.js` |
 | [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts and the duck pond, the depot, the burger joint and the bank, ground/buildings/props | `src/city/` |
 | [river.md](river.md) | The river, its bridges, the span that lifts, the boats it lifts for, and the harbor at its east mouth | `src/city/river.js`, `src/game/drawbridge.js`, `src/city/harbor.js` |
+| [island.md](island.md) | The island: the coast and the ocean round it, the mountain, the L train's tunnels, the dock sheds, the lighthouse (`?island=classic` for the slab) | `src/city/coast.js`, `src/city/terrain.js`, `src/city/railpath.js` |
 | [roadnet.md](roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces | `src/city/roadnet.js`, `src/city/curves.js` |
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the drive-through, the building fire and its engine, cop cars in ambient traffic, the patrol cruiser, and the wreck and its replay | `src/sim/`, `game/wreckage.js`, `game/replay.js` |
 | [gameplay.md](gameplay.md) | The opening vignette, the opening tutorial, the fare loop, routing, dragging the route, the bank robbery, the package courier, picking, the travelling clock, economy, crazy-taxi mode, the burger run, repairs at the depot, pause | `src/game/` |

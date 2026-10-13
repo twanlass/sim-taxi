@@ -42,7 +42,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/crate.js', '../src/game/flatbed.js',
   '../src/geometry/truckdoors.js', '../src/game/boxspill.js',
   '../src/geometry/firetruck.js', '../src/game/fire.js',
-  '../src/city/river.js', '../src/city/harbor.js', '../src/city/terrain.js', '../src/city/coast.js', '../src/geometry/bridge.js',
+  '../src/city/river.js', '../src/city/harbor.js', '../src/city/terrain.js', '../src/game/peakmist.js', '../src/city/railpath.js', '../src/city/shore.js', '../src/city/coast.js', '../src/geometry/bridge.js',
   '../src/geometry/boat.js', '../src/game/drawbridge.js', '../src/game/boats.js', '../src/game/wake.js', '../src/game/ltrain.js', '../src/game/leaves.js', '../src/game/gulls.js',
   '../src/geometry/parcel.js', '../src/geometry/food.js', '../src/geometry/cargo.js',
   '../src/geometry/parcelpad.js', '../src/game/parcels.js',
