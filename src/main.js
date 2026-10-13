@@ -679,6 +679,8 @@ const ltrain = new URLSearchParams(window.location.search).get('ltrain') !== 'cl
     // Wheel sparks through the shared pool, which is built further down — only ever called from
     // the frame loop, by which time it exists.
     sparks: { burst: (...args) => sparks.burst(...args) },
+    // Headlights and tail lamps (2026-10-13, Tyler); `?trainlights=classic` runs it unlit.
+    lights: new URLSearchParams(window.location.search).get('trainlights') !== 'classic',
   }) : null;
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
@@ -1176,6 +1178,7 @@ if (taxiHeadlights) {
 }
 if (lamps) markEmissive(lamps.heads, 'bay');
 for (const mesh of police.emissiveMeshes) markEmissive(mesh, 'siren');
+if (ltrain?.lamps) markEmissive(ltrain.lamps, 'pod');
 // One mesh, three lit things: the pickup window, the menu board and the neon round the roofline
 // are merged into `burger.glow` (see city/burgerjoint.js), so the neon arrived in the bloom with
 // nothing to wire.
@@ -5074,6 +5077,9 @@ function tick() {
   if (ltrain) {
     ltrain.update(dt);
     ltrain.setFadePoints(ltrainFadePoints());
+    // Beams on in the rain, the way the cars' are, and after dark — the searchlight's night measure.
+    ltrain.setBeams(Math.max(runningLightsAt(ltrain.state.x, ltrain.plan.z),
+      1 - THREE.MathUtils.smoothstep(sun.intensity, 0.3, 2.6)));
   }
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
@@ -6217,6 +6223,8 @@ if (shot) {
   if (ltrain) {
     ltrain.settle(controller.state.target.x);
     ltrain.setFadePoints(ltrainFadePoints());
+    ltrain.setBeams(Math.max(runningLightsAt(ltrain.state.x, ltrain.plan.z),
+      1 - THREE.MathUtils.smoothstep(sun.intensity, 0.3, 2.6)));
     sparks.update(0.12);
   }
   // The city's own entrance is an animation that opens at zero too — unsettled, every screenshot
@@ -6512,7 +6520,7 @@ window.__taxi = {
   boombox,
   /** The riders on the skatepark, and `skaters.park` the park — absent if the city has none. */
   skaters,
-  /** The elevated train, or null without `?ltrain=on` — see game/ltrain.js. */
+  /** The elevated train, or null under `?ltrain=classic` — see game/ltrain.js. */
   ltrain,
   roadwork,
   /** The truck that sheds crates. `flatbed.stage()` starts it now; `state`, `crates`, `loose()`. */

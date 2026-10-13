@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial } from '../util/geo.js';
-import { PALETTE } from '../palette.js';
+import { bakeColor, propMaterial, unlitMaterial } from '../util/geo.js';
+import { PALETTE, color } from '../palette.js';
+import { coneGeometry, coneMaterial, coneQuat } from '../geometry/lights.js';
 import {
   GRID_I, GRID_J, lineZ, isArterialX, laneOffX, medianRuns, MEDIAN_W,
 } from '../city/grid.js';
@@ -122,6 +123,45 @@ const SPEED = 12;
 const RAMP = 2.5;
 /** Seconds the line stands empty between runs. Run seed: the timetable is the situation. */
 const WAIT = [5, 14];
+
+// --- Lamps -------------------------------------------------------------------------------------
+//
+// A pair of headlights low on the leading end and a pair of red tail lamps on the trailing one
+// (on by default, `?trainlights=classic` for the unlit train). The train shuttles, so both ends
+// carry both — but rather than switch four pairs on and off, the lamps are one group with the
+// headlights at +x and the tails at -x, and the group is turned half round when the train runs
+// west. The train is symmetric about its middle, so the half turn lands each pair exactly on the
+// other end's sockets.
+//
+// The pods are always lit, the way a real train's are: unlit and emissive like the cars' brake
+// pods, so they read day or night, and in the bloom. What the dark adds is the **beam** — the same
+// additive cone the cars throw (geometry/lights.js), scaled up for a bigger lamp, brought up by
+// `setBeams` off the city's running-light level and the night.
+//
+// Only the +x end is ever face-on to this camera (it looks in from +x +z), so an eastbound train
+// shows its headlights and a westbound one shows its tails. Both read; the other end's pair is a
+// sliver at most.
+const HEAD_R = 0.18;          // 0.36 across: ~2.8px at play zoom, a car's headlight is ~2
+const HEAD_Z = 0.4;           // off the centreline, inside the end window's 0.625
+const TAIL_R = 0.14;
+const TAIL_Z = 0.66;          // the outer corners, so the two ends do not read as one kind of lamp
+const LAMP_Y = 0.62;          // above the railhead: under the end window (0.95), over the skirt
+const LAMP_D = 0.2;
+/** Outer face 0.06 proud of the end face — the end window stands 0.04 proud, and coplanar fights. */
+const LAMP_X = TRAIN_LEN / 2 + 0.06 - LAMP_D / 2;
+/** The beam is the car's cone at this scale: 6.9 long and 2.6 across at the mouth. */
+const BEAM_SCALE = 1.5;
+/** Additive strength at full dark — the cars' own `uStrength`. */
+const BEAM_STRENGTH = 0.45;
+
+function lampPair(radius, x, z) {
+  return mergeGeometries([-1, 1].map((s) => {
+    const geo = new THREE.CylinderGeometry(radius, radius, LAMP_D, 10, 1, false);
+    geo.rotateZ(Math.PI / 2);
+    geo.translate(x, LAMP_Y, s * z);
+    return geo;
+  }), false);
+}
 
 // --- Wheel sparks -------------------------------------------------------------------------------
 //
@@ -396,7 +436,7 @@ const smoothstep01 = (t) => {
  * `rng` is a run-seed stream: which way the first train goes and how long the line stands empty
  * is the situation, not the map.
  */
-export function createLTrain(scene, rng, { sparks = null } = {}) {
+export function createLTrain(scene, rng, { sparks = null, lights = true } = {}) {
   const plan = planLTrain();
   if (!plan) return null;
 
@@ -430,6 +470,37 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
 
   markOccluder(group);
 
+  // Lamps on the body, so they ride it and hide with it between runs. Added after `markOccluder`:
+  // a lamp has no business in the AO prepass. The pods wear the deck's dither too, so they leave
+  // the island and fade over the taxi with the car they are bolted to.
+  let lamps = null;
+  const beams = [];
+  if (lights) {
+    lamps = new THREE.Group();
+    lamps.name = 'ltrainLamps';
+    const heads = new THREE.Mesh(lampPair(HEAD_R, LAMP_X, HEAD_Z),
+      fadeMaterial(unlitMaterial({ color: color('headlight') })));
+    heads.name = 'ltrainHeadlights';
+    const tails = new THREE.Mesh(lampPair(TAIL_R, -LAMP_X, TAIL_Z),
+      fadeMaterial(unlitMaterial({ color: color('lightRed') })));
+    tails.name = 'ltrainTaillights';
+    lamps.add(heads, tails);
+    const beamMaterial = coneMaterial();
+    beamMaterial.uniforms.uStrength.value = 0;
+    for (const s of [-1, 1]) {
+      const beam = new THREE.Mesh(coneGeometry(), beamMaterial);
+      beam.name = 'ltrainBeam';
+      beam.position.set(LAMP_X, LAMP_Y, s * HEAD_Z);
+      beam.quaternion.copy(coneQuat(s));
+      beam.scale.setScalar(BEAM_SCALE);
+      beam.renderOrder = 1;
+      beam.frustumCulled = false;
+      beams.push(beam);
+      lamps.add(beam);
+    }
+    body.add(lamps);
+  }
+
   // --- Running it ---
   const state = {
     phase: 'wait',
@@ -456,7 +527,22 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
     const trackZ = TRACK_OFF;
     body.position.set(state.x, RAIL_TOP, trackZ);
     body.visible = state.phase === 'run';
+    if (lamps) lamps.rotation.y = state.dir > 0 ? 0 : Math.PI;
   };
+
+  /**
+   * The beams' level, 0..1 — how dark it is where the train is (`main.js` hands it the larger of
+   * the running-light level and the night). Faded off the island on the same band the deck is,
+   * from the nose's x, since a cone is additive and has no dither to lose it over the sky.
+   */
+  let beamLevel = 0;
+  function setBeams(level) {
+    beamLevel = THREE.MathUtils.clamp(level, 0, 1);
+    if (!beams.length) return;
+    const nose = state.x + state.dir * TRAIN_LEN / 2;
+    const keep = 1 - smoothstep01((Math.abs(nose) - COAST_FROM) / COAST_BAND);
+    beams[0].material.uniforms.uStrength.value = BEAM_STRENGTH * beamLevel * keep;
+  }
 
   function depart() {
     state.phase = 'run';
@@ -571,6 +657,9 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
     deck,
     columns,
     material,
+    /** The lit pods and their beams, or null under `?trainlights=classic`. The pods go in the bloom. */
+    lamps,
+    setBeams,
     update,
     settle,
     setFadePoints,

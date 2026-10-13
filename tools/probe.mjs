@@ -19548,6 +19548,45 @@ let chopperOrder; // likewise
       `${perCrossing.toFixed(1)} showers a crossing, ${offRail} off the rail, ${offIsland} off the island`);
   }
 
+  // Lamps: the headlights lead and the tails trail whichever way it runs, both sit on the end
+  // face rather than inside the body, and the beam is dark in daylight and lit at night.
+  {
+    const ltl = createLTrain(new THREE.Scene(), makeRng(9));
+    const heads = ltl.lamps.getObjectByName('ltrainHeadlights');
+    const tails = ltl.lamps.getObjectByName('ltrainTaillights');
+    const at = (mesh) => {
+      mesh.geometry.computeBoundingBox();
+      return mesh.geometry.boundingBox.getCenter(new THREE.Vector3()).applyMatrix4(mesh.matrixWorld);
+    };
+    let wrongEnd = 0;
+    let frames = 0;
+    let beamDay = 0;
+    let beamNight = 0;
+    const dirs = new Set();
+    for (let n = 0; n < 60 * 120; n++) {
+      ltl.update(1 / 60);
+      if (ltl.state.phase !== 'run') continue;
+      ltl.group.updateMatrixWorld(true);
+      const lead = (at(heads).x - ltl.state.x) * ltl.state.dir;
+      const trail = (at(tails).x - ltl.state.x) * ltl.state.dir;
+      dirs.add(ltl.state.dir);
+      frames += 1;
+      if (Math.abs(lead - L.TRAIN_LEN / 2) > 0.1 || Math.abs(trail + L.TRAIN_LEN / 2) > 0.1) wrongEnd += 1;
+      if (Math.abs(ltl.state.x) < HALF_SPAN_X / 2) {
+        const beam = ltl.lamps.getObjectByName('ltrainBeam').material.uniforms.uStrength;
+        ltl.setBeams(0);
+        beamDay = Math.max(beamDay, beam.value);
+        ltl.setBeams(1);
+        beamNight = Math.max(beamNight, beam.value);
+      }
+    }
+    const classic = createLTrain(new THREE.Scene(), makeRng(9), { lights: false });
+    check('ltrain: headlights lead and tail lamps trail both ways, beam only in the dark',
+      frames > 0 && dirs.size === 2 && wrongEnd === 0 && beamDay === 0 && beamNight > 0.3
+        && classic.lamps === null,
+      `${wrongEnd}/${frames} frames with a lamp off its end, beam ${beamDay}/${beamNight.toFixed(2)}`);
+  }
+
   // The dither patch, run rather than trusted: a replace that stops matching hands back the shader
   // untouched and the deck stops fading with nothing logged.
   const stub = {
