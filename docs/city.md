@@ -660,7 +660,7 @@ same measure of darkness as the helicopter's searchlight.
   check's drive-to-drop-off window went from 10s to 25s); the double block widened the getaway
   sample, and fixed checks that were measuring the wrong thing — a watching taxi that
   braked to a stop *inside* the next junction and gridlocked the cops, a robber measured against
-  after they had got into the car, a drive-through visit timed from behind a car already in the line.
+  after they had got into the car, a drive-through visit that waited on traffic held to the clip's length (the last two are #483's fixes, taken verbatim).
 
 ## The bank
 
