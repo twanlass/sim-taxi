@@ -38,7 +38,7 @@ import {
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice } from './sim/police.js';
 import {
-  createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
+  createFareSystem, cornerFor, kerbFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
   BOARD_SECONDS, MAX_STRIKES, RATING_FLOOR, ratingFor,
 } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
@@ -967,6 +967,10 @@ const robberLine = city.bank && !shot
 // bystander shoved over, the run to the cab — before the robber's line. See game/bankjob.js; the
 // module itself is built further down, once the cash trail it sheds notes into exists.
 const robberyIntro = new URLSearchParams(window.location.search).get('robbery') !== 'classic';
+// ...and it starts with the bank rider: a fare on the bank's steps, a coin tossed when they spawn,
+// and the robber taking their seat on tails (BANK_CHANCE in game/fares.js). `?bankfare=classic`
+// keeps the drive-past, with a bystander always outside and the alarm always on the building.
+const bankFare = robberyIntro && new URLSearchParams(window.location.search).get('bankfare') !== 'classic';
 const robbery = city.bank && !shot
   ? createRobbery({
     site: city.bank,
@@ -975,6 +979,7 @@ const robbery = city.bank && !shot
     traffic,
     // The bank job owns the run to the cab, so the fare loop's boarding animation stands down.
     scripted: robberyIntro,
+    trigger: bankFare ? 'fare' : 'drive',
     // The police wait for the robber's line to be cleared — see `robberLine` above.
     holdAlarm: true,
     // ...and the robbery waits for a patrol chase to be over — see `busy` in game/robbery.js.
@@ -1418,8 +1423,18 @@ const bankJob = robbery && robberyIntro
     controller,
     setDoor: traffic.setTaxiDoor,
     play: (name, x = null, z = null) => sfx?.play(name, x === null ? {} : { at: placeAt(x, z) }),
+    scenery: !bankFare,
   })
   : null;
+if (bankJob && bankFare) {
+  fares.setBankStop({
+    junction: robbery.junction,
+    x: bankJob.home.x,
+    z: bankJob.home.z,
+    away: bankJob.along,
+    swapReady: () => robbery.swapReady(),
+  });
+}
 // The other half of the tailpipe: `flames` is the bark on the press, this is the plume that burns
 // for as long as the button is held. No seed — the flicker is a flipbook on a clock, and a flame
 // that came out differently on two runs of the same seed would take the screenshots with it.
@@ -2638,7 +2653,7 @@ function canBendRoute() {
 // have dragged, in a move they don't have to make.
 function panToRider(fare) {
   if (!fare) return;
-  const c = cornerFor(fare.target.i, fare.target.j);
+  const c = kerbFor(fare);
   // Same as a swipe: the player has aimed the camera somewhere deliberately, so the opening
   // follow-cam stops. Without this the taxi would tow the framing straight back off the rider the
   // chip was pointing at — and here it would do it *during* the pan, which reads as the camera
@@ -2871,7 +2886,7 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   waitingFare: () => fares.waiting(),
   // The kerb corner, not the junction centre: at this zoom the corner building sits squarely
   // between the camera and the figure otherwise. Same aim as panToRider and the drop-off pointer.
-  fareLocation: (fare) => cornerFor(fare.target.i, fare.target.j),
+  fareLocation: (fare) => kerbFor(fare),
   // Any fare the player has actually sent the taxi at — including one they found and tapped on the
   // map while the first bubble was still up.
   isDispatched: () => Boolean(fares.carrying() || fares.state.fares.some((f) => f.directed)),
@@ -5484,6 +5499,12 @@ function tick() {
   // spawns the next one in the same tick — so this is a list rather than a single event.
   for (const { type, fare } of
     (fareLoopHeld() ? NO_FARE_EVENTS : fares.update(dt, traffic.taxi))) {
+    // The bank rider's coin came up tails: they are off the board, and the robber takes the seat
+    // they were about to — `onBoard` above dispatches the getaway and the bank job's cut opens.
+    if (type === 'swapped') {
+      robbery?.swap();
+      continue;
+    }
     if (type === 'pickup') {
       boardSound();
       traffic.taxi.route = [];
@@ -6215,7 +6236,7 @@ if (shot) {
   if (shot.atPassenger && framed) {
     // Aim at the kerb the rider is standing on, not the middle of the junction — at close zoom
     // the corner building sits squarely between the camera and the figure otherwise.
-    const c = cornerFor(framed.target.i, framed.target.j);
+    const c = kerbFor(framed);
     controller.state.target.set(c.x, 0, c.z);
     controller.update(aspect());
   }
@@ -6735,7 +6756,7 @@ window.__taxi = {
    */
   targetScreenPosition: (fare = fares.focus()) => {
     if (!fare) return null;
-    const c = cornerFor(fare.target.i, fare.target.j);
+    const c = kerbFor(fare);
     return projectToScreen(c.x, KERB_H, c.z);
   },
   /**

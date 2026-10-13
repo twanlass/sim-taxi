@@ -13,8 +13,10 @@ import {
   turnPointAt,
 } from '../sim/traffic.js';
 
-// The bank robbery: the empty taxi drives past the bank, somebody gets in with a bag, and the
-// streets fill with police for as long as it takes to get them where they are going.
+// The bank robbery: the taxi pulls up for the rider on the bank's steps, somebody else gets in with
+// a bag, and the streets fill with police for as long as it takes to get them where they are going.
+// (The rider and their coin are game/fares.js's — BANK_CHANCE. Under `?bankfare=classic` and in the
+// tools it is still the original trigger: the empty taxi driving past the door.)
 //
 // **It is the existing loop turned up, not a new one**, and that is a constraint rather than a
 // description. Nothing here invents a mechanic:
@@ -403,10 +405,14 @@ function nearestJunction(x, z) {
  * @param scripted true to hand the robber's run to the cab to somebody else (the bank job,
  *                 game/bankjob.js) rather than the fare loop's boarding animation — see
  *                 `spawnRobber` in game/fares.js.
+ * @param trigger  `'drive'` (the tools' default, and `?bankfare=classic`): it starts when the empty
+ *                 taxi passes the door. `'fare'`: it never starts on its own, only when the bank
+ *                 rider's coin comes up tails on arrival and `swapReady` agrees — see BANK_CHANCE in
+ *                 game/fares.js — and main.js calls `swap()`.
  */
 export function createRobbery({
   site, taxi, fares, traffic, onBoard = () => {}, holdAlarm = false, busy = () => false,
-  handOff = () => null, inShot = null, scripted = false,
+  handOff = () => null, inShot = null, scripted = false, trigger = 'drive',
 }) {
   // The junction the bank's door belongs to, worked out once: the city does not move, and this is a
   // thirty-six-cell scan.
@@ -1020,13 +1026,16 @@ export function createRobbery({
     if (fares.state.fares.some((f) => f.vip)) return false;
     // ...and not on top of a rider who is already running out — see CALM_LEVEL. This is the gate
     // that keeps an imposed event from ending runs by proxy.
-    if (fares.state.fares.some((f) => f.stage === 'waiting'
+    // The bank rider is left out: it is their seat the robber is taking, so their clock is not one
+    // the event spends.
+    if (fares.state.fares.some((f) => f.stage === 'waiting' && !f.bank
       && urgencyLevel(f.timeLeft / f.limit) < CALM_LEVEL)) return false;
     // A crashed or staged taxi is not driving past anything — it is in a wreck or in its garage.
     if (taxi.crashed || taxi.staged) return false;
     // ...and not with a patrol car already after the taxi — see `busy`.
     if (busy()) return false;
-    return range() <= TRIGGER_RANGE;
+    // The bank rider's arrival is the trigger in its place — the taxi is at the bank by definition.
+    return trigger === 'fare' || range() <= TRIGGER_RANGE;
   }
 
   function start() {
@@ -1277,7 +1286,7 @@ export function createRobbery({
     }
     if (fleet().length) driveOff(dt);
 
-    if (eligible()) start();
+    if (trigger === 'drive' && eligible()) start();
   }
 
   return {
@@ -1288,6 +1297,17 @@ export function createRobbery({
     junction,
     range,
     raiseAlarm,
+    /**
+     * The bank rider's arrival asks this whether the robbery may take their seat: every gate the
+     * drive-past had except the range. The seat is still the rider's at that point, so the one-seat
+     * gate reads it as empty, which is what it is about to be.
+     */
+    swapReady: () => trigger === 'fare' && eligible(),
+    /** ...and this starts it, once the fare loop has taken the rider off the board. */
+    swap() {
+      if (!state.active && !fares.carrying() && !taxi.crashed) start();
+      return state.active;
+    },
     /**
      * For the tools: start one now, past the cooldown and the delivered count — the seat still has
      * to be empty. Returns whether one is running; how a browser test stages a getaway

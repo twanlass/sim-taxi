@@ -2101,19 +2101,32 @@ robbery without `holdAlarm`, so the headless suite still sees the police on the 
 `game/bankjob.js`, the default since it was tried out behind a flag; `?robbery=classic` keeps the
 old drive-past. The robber's line fixed the event arriving
 all at once, but not the thing it was reported for: you never *see* the robber get in. The trigger
-is a drive-past, so the player is looking at the taxi or the next rider while a 20px figure runs
+was a drive-past, so the player was looking at the taxi or the next rider while a 20px figure ran
 0.9s from the steps into the cab.
+
+**It starts with the bank rider.** Now and then a fare spawns on the bank's steps rather than at a
+kerb corner (`BANK_CHANCE` in game/fares.js: 30% of qualifying spawns, from the second delivery, the
+bank junction within the spawn box, 35s after the last one left the board). A coin is tossed when
+they spawn. Tap them and pull up: heads they get in like anybody else; tails, and if the robbery's
+fairness gates are open at that moment (`swapReady` in game/robbery.js — every gate the drive-past
+had except its range, with the bank rider's own clock left out of the calm test), they leave the
+board without a strike and the robber takes their seat. Nobody stands outside the bank and there is
+no alarm on it otherwise. `?bankfare=classic` keeps the drive-past, an ever-present bystander and the
+alarm always on the building.
+
+This makes the robbery **opt-in**, which the first version deliberately was not: a player who never
+takes the bank rider never meets it. And the rate is unmeasured — the drive-past fired 18 times in
+30 autoplay runs, and this fires only when the bank rider is taken and the coin agrees.
 
 So the event opens on a cut, and the world stops **one beat earlier** than the line
 would stop it anyway:
 
-1. One red alarm light on the bank's entablature, over the doorway (`bankFrontage` in
-   city/bank.js), starts flashing, and the camera pulls in on the steps and the cab.
+1. One red alarm light appears on the bank's entablature, over the doorway (`bankFrontage` in
+   city/bank.js), and starts flashing, and the camera pulls in on the steps and the cab.
 2. The robber bursts out of the portico, shedding notes out of the sack (the getaway's own cash
-   trail, fed from the robber), shoves the **bystander** who is always waiting on the
-   pavement outside the bank clean off their feet (airborne, spun, a bounce and a skid, then
+   trail, fed from the robber), shoves the **bank rider** clean off their feet (airborne, spun, a bounce and a skid, then
    dazed and stirring on the ground — never landing on the cab), and sprints for the cab's door, which swings open as they arrive.
-   The trigger reaches most of the side street, so the cab is often round the side of the block:
+   The cab can be round the side of the block (under the drive-past, most of the time):
    the run then turns at the block's pavement corner (`aroundBlock`) rather than going straight
    through the building, which it did on 37% of trigger points before.
 3. They hop in, and the robber's line takes over exactly as it does under `?robbery=classic`.
@@ -2121,7 +2134,8 @@ would stop it anyway:
 The shove plays in **slow motion**: from contact until just before the bystander comes down the
 cut's clock runs at 0.3x (`IMPACT_SLOW`), easing back to 1x so the bounce and skid land at full
 speed. About 4s of wall time in all, and a tap (or Space/Enter) skips straight to step 3. The alarm keeps going
-for as long as the robbery does; the bystander gets up a few seconds into the getaway; the door
+for as long as the robbery does and then goes; the rider gets up a few seconds into the getaway and
+walks back into the bank; the door
 slams and the camera eases back out when the line is cleared.
 
 **Stopped, not slowed** — the world, that is; the impact slow-mo is the cut's own clock, with
@@ -2131,10 +2145,8 @@ in one frame — and the line right after it is a freeze anyway. The cut and the
 beat. The robber's crystal waits for them to be in the car (`boardScripted` in game/fares.js) rather
 than hanging over the steps for the whole run.
 
-**The bystander is scenery, not a fare**: no crystal, no tap target, no board change. A rider
-guaranteed at the bank with a 50/50 of a robbery would make the event opt-in (skip that rider and
-it never happens), which is a different design from the imposed one above and would need the
-fairness gates re-measured.
+Under `?bankfare=classic` the figure shoved over is scenery rather than a fare: no crystal, no tap
+target, no board change, standing outside the bank all run.
 
 ### Dispatch breaks in
 
