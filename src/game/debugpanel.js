@@ -537,6 +537,11 @@ export function createDebugPanel({
     ['reflectEdge', 'Reflect edge', 0, 1, 0.005],
     ['reflectBend', 'Reflect bend', 0, 2, 0.01],
     ['diffuse', 'Base colour', 0, 2, 0.01],
+    ['flakeTilt', 'Flake tilt', 0, 1, 0.01],
+    ['flakeSharp', 'Flake sharpness', 1, 3000, 1],
+    ['coat', 'Clear coat', 0, 3, 0.01],
+    ['tint', 'Metallic tint', 0, 1, 0.01],
+    ['flop', 'Flop', 0, 1, 0.01],
   ];
   const finishSliders = FINISH_FIELDS.map(([key, label, min, max, step]) => {
     const input = slider(min, max, step, 0);

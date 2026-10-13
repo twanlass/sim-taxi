@@ -559,6 +559,19 @@ export function getFoliageClassic() {
 }
 
 /**
+ * The car paint — `?paint=classic` brings back the white flaked sheen with its square flake and
+ * almost no clear coat; anything else is the layered paint (util/geo.js, FINISH_DEFAULTS).
+ */
+export function getPaintClassic() {
+  return new URLSearchParams(window.location.search).get('paint') === 'classic';
+}
+
+/** `?paint=layered|chameleon|satin|toon` — null means the default, toon (util/geo.js, PAINT_LOOKS). */
+export function getPaintLook() {
+  return new URLSearchParams(window.location.search).get('paint');
+}
+
+/**
  * The river's surface — `?water=classic` brings back the faceted first build; anything else is the
  * smooth one, with the shelving bed and the lip at the walls (city/riverwater.js).
  */

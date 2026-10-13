@@ -550,7 +550,7 @@ const SHADOW_LIGHT = /* glsl */ `
  *   buildings are.
  * - `uGlossTop` / `uGlossHorizon` follow the sky dome, written by `game/daylight.js` through
  *   `setGlossSky()`.
- * - `uFinishA/B/C` are the four finishes' own numbers, one vec4 of each per finish, indexed by the
+ * - `uFinishA/B/C/D` are the four finishes' own numbers, one vec4 of each per finish, indexed by the
  *   geometry's `aFinish`. See `FINISH_DEFAULTS` for what each slot is.
  */
 export const GLOSS_UNIFORMS = {
@@ -564,6 +564,7 @@ export const GLOSS_UNIFORMS = {
   uFinishA: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
   uFinishB: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
   uFinishC: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
+  uFinishD: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
   // x: flake cells per unit, y: façade darkness, z: false-colour finish view (0/1).
   uGlossGlobal: { value: new THREE.Vector4() },
 };
@@ -635,11 +636,19 @@ export function setFinish(geometry, finish) {
  * | `glintBend` | A.z | how far the glint's normal bends at a panel's corner — 1.0 is 45° |
  * | `sheen` | A.w | strength of the broad lobe |
  * | `sheenSharp` | B.x | its exponent |
- * | `flake` | B.y | how much of the sheen breaks into metal flake: 0 smooth, 1 full sparkle |
+ * | `flake` | B.y | strength of the metal flake: a lobe of its own, sparkle up close, a soft glow far off |
  * | `reflect` | B.z | how much of the city the finish shows facing the camera |
  * | `reflectEdge` | B.w | how much more it shows at a grazing angle (Fresnel) |
  * | `reflectBend` | C.x | how far the *reflection's* normal bends — slides the skyline across a panel |
  * | `diffuse` | C.y | multiplies the base colour: below 1 darkens it, which is what makes metal |
+ * | `flakeTilt` | C.z | how far each flake leans off the panel — the spread of the sparkle |
+ * | `flakeSharp` | C.w | each flake's own exponent: how pinpoint one sparkle is |
+ * | `coat` | D.x | the clear coat: a Fresnel-weighted mirror of the city over everything else |
+ * | `tint` | D.y | how much the sheen and flake take the paint's own hue — 0 plastic, 1 metallic |
+ * | `flop` | D.z | how much the base colour darkens toward a grazing angle |
+ *
+ * D.w is not a setting: it is the flakes' mean lobe, derived from `flakeTilt` and `flakeSharp`
+ * (`flakeMeanSharp`), which is what they average into once a flake is smaller than a pixel.
  *
  * **Why two bends.** The panels are flat boxes, and under an orthographic camera with a
  * directional sun a flat face has one normal, one view direction and one light — one highlight and
@@ -650,32 +659,101 @@ export function setFinish(geometry, finish) {
  * three's own `normal`, and every car went soft and bubbly.
  */
 //
-// Tuned by eye in `?debug`'s inspect mode, which is what the shape of these says: paint is mostly
-// a broad flaked sheen over a brightened base with a pinpoint glint on top and almost no mirror;
-// glass is near-black with a hard glint and a faint reflection; tyres are darkened rubber. The
-// city reflection survives mainly on glass — paint at 0.02 barely carries it.
+// Tuned by eye in `?debug`'s inspect mode, which is what the shape of these says: glass is
+// near-black with a hard glint and a faint reflection; tyres are darkened rubber; metal is a
+// darkened mirror. Only paint uses the last five — the rest leave them at zero and come out exactly
+// as they did before paint learned them.
+//
+// Paint is built the way a real one is layered, base coat up (see "Car paint" in
+// docs/rendering.md for the measurements behind each number):
+//
+// - a **base** whose colour falls off toward the edges (`flop`), the darkening that gives a box
+//   panel its curve;
+// - a **metallic sheen** in the paint's own hue (`tint`) rather than a white one — a white broad
+//   lobe over a coloured base is exactly what plastic looks like;
+// - **flake**: aluminium chips in the base coat, each its own little mirror tilted off the panel,
+//   which sparkle up close and average into a soft glow where a chip is smaller than a pixel;
+// - a **clear coat** over the lot: Schlick's Fresnel off the bent normal at glass's 4%, so the
+//   city sits faintly in the middle of a panel and strongly at its rolled edges.
 export const FINISH_DEFAULTS = {
   tyre: {
     glint: 0, glintSharp: 20, glintBend: 0.3, sheen: 0.02, sheenSharp: 6, flake: 0,
     reflect: 0, reflectEdge: 0, reflectBend: 0, diffuse: 0.64,
+    flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0, flop: 0,
   },
   paint: {
-    glint: 0.19, glintSharp: 1000, glintBend: 1.02, sheen: 1, sheenSharp: 6, flake: 1,
-    reflect: 0.02, reflectEdge: 0, reflectBend: 1.27, diffuse: 1.36,
+    glint: 0.19, glintSharp: 1000, glintBend: 1.02, sheen: 0.6, sheenSharp: 6, flake: 0.9,
+    reflect: 0, reflectEdge: 0, reflectBend: 1.27, diffuse: 1.36,
+    flakeTilt: 0.35, flakeSharp: 250, coat: 0.75, tint: 0.8, flop: 0.35,
   },
   glass: {
     glint: 0.42, glintSharp: 795, glintBend: 1.06, sheen: 0, sheenSharp: 1, flake: 0,
     reflect: 0.03, reflectEdge: 0.05, reflectBend: 1.14, diffuse: 0.12,
+    flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0, flop: 0,
   },
   metal: {
     glint: 1, glintSharp: 120, glintBend: 1, sheen: 0.25, sheenSharp: 30, flake: 0,
     reflect: 0.3, reflectEdge: 0.2, reflectBend: 0.6, diffuse: 0.7,
+    flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0, flop: 0,
   },
 };
 
+// `?paint=classic`: the paint before the layers above — a white flaked sheen with a square,
+// two-level flake and almost no mirror ("paint at 0.02 barely carries it"). Its own GLSL too
+// (`GLOSS_NORMAL_CLASSIC`, `GLOSS_SPECULAR_CLASSIC`), so it is the old frame and not an
+// approximation of it.
+const PAINT_CLASSIC = {
+  glint: 0.19, glintSharp: 1000, glintBend: 1.02, sheen: 1, sheenSharp: 6, flake: 1,
+  reflect: 0.02, reflectEdge: 0, reflectBend: 1.27, diffuse: 1.36,
+  flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0, flop: 0,
+};
+
+// Three divergent looks on the layered paint's source. `toon` ships as the default; the layered
+// paint and the other two are behind `?paint=<name>`. Each is the
+// layered paint's numbers with these over the top, plus its own GLSL (`PAINT_LOOKS` below).
+//
+// - `chameleon`: colour-shift paint. The base hue rotates as a panel turns away from the camera,
+//   so every car flips to a second colour at its edges — a red car goes purple, a teal one gold.
+// - `satin`: a wrap, not a lacquer. No clear coat to speak of, a broad soft sheen, and a velvet
+//   rim that lifts the paint at grazing angles instead of mirroring the street there.
+// - `toon`: cel paint. The glint and the sheen are hard-edged shapes rather than lobes, and the
+//   clear coat is one hard band of sky along the bent edges.
+const PAINT_LOOK_NUMBERS = {
+  chameleon: { coat: 1, tint: 1, flop: 0.1, sheen: 0.7, flake: 0.9 },
+  satin: {
+    glint: 0.04, glintSharp: 60, sheen: 0.9, sheenSharp: 3, flake: 0.15, coat: 0.1, tint: 0.6,
+    flop: 0, diffuse: 1.3,
+  },
+  toon: { glint: 1, sheen: 0.45, flake: 0, coat: 0, tint: 0.5, flop: 0 },
+};
+
+let classicPaint = false;
+// Toon is the default (Tyler, 2026-10-13); the rest stay one `?paint=` away.
+const PAINT_LOOK_DEFAULT = 'toon';
+let paintLook = PAINT_LOOK_DEFAULT;
+const finishDefaults = () => {
+  const finishes = structuredClone(FINISH_DEFAULTS);
+  if (classicPaint) finishes.paint = { ...PAINT_CLASSIC };
+  else Object.assign(finishes.paint, PAINT_LOOK_NUMBERS[paintLook] ?? {});
+  return finishes;
+};
+
+/**
+ * The flakes' mean lobe: what a field of flakes tilted by `tilt`, each with exponent `sharp`,
+ * averages into once they are too small to see one at a time. Blinn-Phong's exponent n is a
+ * Beckmann roughness of m² ≈ 2/(n+2), and a spread of tilts adds its own variance to that, so
+ * the two widths add in quadrature. Both lobes are normalised (three's `D_BlinnPhong`), so the
+ * mean carries the same energy as the sparkle it stands in for — fading one into the other moves
+ * where the light is, not how much of it there is.
+ */
+export function flakeMeanSharp(tilt, sharp) {
+  const m2 = tilt * tilt + 2 / (sharp + 2);
+  return Math.max(1, 2 / m2 - 2);
+}
+
 export const GLOSS_GLOBAL_DEFAULTS = {
-  // Flake cells per world unit of the body's own space. Sub-pixel at play zoom by design: there the
-  // flakes average into a livelier sheen, and only resolve into sparkle close up.
+  // Flake cells per world unit of the body's own space. ~1.1 phone pixels at play zoom, where the
+  // filter has handed the sparkle over to its mean lobe; ~4 at the closest pinch, where it sparkles.
   flakeSize: 14.5,
   // How dark a building reads in a reflection, as a fraction of the horizon behind it. Near black,
   // as tuned: with the reflections this faint, a dark silhouette against the sky is the only part
@@ -686,7 +764,7 @@ export const GLOSS_GLOBAL_DEFAULTS = {
 };
 
 const glossState = {
-  finishes: structuredClone(FINISH_DEFAULTS),
+  finishes: finishDefaults(),
   global: { ...GLOSS_GLOBAL_DEFAULTS },
 };
 
@@ -695,7 +773,8 @@ function writeFinish(name) {
   const k = FINISH[name.toUpperCase()];
   GLOSS_UNIFORMS.uFinishA.value[k].set(f.glint, f.glintSharp, f.glintBend, f.sheen);
   GLOSS_UNIFORMS.uFinishB.value[k].set(f.sheenSharp, f.flake, f.reflect, f.reflectEdge);
-  GLOSS_UNIFORMS.uFinishC.value[k].set(f.reflectBend, f.diffuse, 0, 0);
+  GLOSS_UNIFORMS.uFinishC.value[k].set(f.reflectBend, f.diffuse, f.flakeTilt, f.flakeSharp);
+  GLOSS_UNIFORMS.uFinishD.value[k].set(f.coat, f.tint, f.flop, flakeMeanSharp(f.flakeTilt, f.flakeSharp));
 }
 
 function writeGlobal() {
@@ -705,6 +784,22 @@ function writeGlobal() {
 
 for (const name of FINISH_NAMES) writeFinish(name);
 writeGlobal();
+
+/**
+ * `?paint=classic` for every glossy material built after this call — `main.js` calls it beside
+ * `setCrayon`, before any vehicle is meshed. Build-time because the two paints are different
+ * source, not different numbers.
+ */
+export function setClassicPaint(enabled) {
+  classicPaint = enabled;
+  resetGlossTuning();
+}
+
+/** `?paint=layered|chameleon|satin|toon` — anything else (no param) is toon, the default. */
+export function setPaintLook(look) {
+  paintLook = look === 'layered' || look in PAINT_LOOK_NUMBERS ? look : PAINT_LOOK_DEFAULT;
+  resetGlossTuning();
+}
 
 /** A copy of the live finish tuning — what the `?debug` panel reads and exports. */
 export const glossTuning = () => structuredClone(glossState);
@@ -725,9 +820,9 @@ export function setGlossGlobal(key, value) {
   writeGlobal();
 }
 
-/** Put every finish back to `FINISH_DEFAULTS`. */
+/** Put every finish back to `FINISH_DEFAULTS` (or the classic paint, under `?paint=classic`). */
 export function resetGlossTuning() {
-  glossState.finishes = structuredClone(FINISH_DEFAULTS);
+  glossState.finishes = finishDefaults();
   glossState.global = { ...GLOSS_GLOBAL_DEFAULTS };
   for (const name of FINISH_NAMES) writeFinish(name);
   writeGlobal();
@@ -768,6 +863,7 @@ const GLOSS_COLOR = /* glsl */ `
 		gFinA = uFinishA[gK];
 		gFinB = uFinishB[gK];
 		gFinC = uFinishC[gK];
+		gFinD = uFinishD[gK];
 		gIsPaint = gK == 1 ? 1.0 : 0.0;
 		gFinishColor = gK == 0 ? vec3(0.15) : gK == 1 ? vec3(0.9, 0.2, 0.15)
 			: gK == 2 ? vec3(0.1, 0.7, 0.9) : vec3(0.95, 0.8, 0.2);
@@ -775,16 +871,73 @@ const GLOSS_COLOR = /* glsl */ `
 	}
 `;
 
-// The two bent normals (see FINISH_DEFAULTS), and the flake. Three's own `normal` is left flat, so
-// the diffuse keeps the facets.
-const GLOSS_NORMAL = /* glsl */ `
-	{
+// The two bent normals (see FINISH_DEFAULTS). Three's own `normal` is left flat, so the diffuse
+// keeps the facets.
+const GLOSS_BEND = /* glsl */ `
 		vec3 gb = vGlossBulge - normal * dot(vGlossBulge, normal);
 		gSpecN = normalize(normal + gFinA.z * gb);
 		gReflN = normalize(normal + gFinC.x * gb);
+`;
+
+// `?paint=classic`'s flake: a square cell over the body's own space, either 3x bright or 0.6x,
+// multiplied into the sheen. Up close it reads as a mosaic of square pixels; at play zoom a cell
+// is ~1.1 phone pixels, so a moving car flickers.
+const GLOSS_NORMAL_CLASSIC = /* glsl */ `
+	{
+${GLOSS_BEND}
 		vec3 gCell = floor(vGlossObj * uGlossGlobal.x);
 		float gHash = fract(sin(dot(gCell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
 		gFlake = mix(1.0, gHash > 0.88 ? 3.0 : 0.6, gFinB.y);
+	}
+`;
+
+// The layered paint's setup, once per fragment before the light loop: the flop, the sheen's hue,
+// and the flake under this fragment.
+//
+// **Flop.** Under the orthographic camera the view direction is +Z in view space, so the bent
+// normal's z *is* N·V. Applied to `diffuseColor` here rather than in the colour chunk because it
+// needs the bent normal, and three only reads `diffuseColor` into the material in
+// `lights_phong_fragment`, which runs after this.
+//
+// **The sheen's hue** is the base colour scaled to a peak of 1, so a dark red car still gets a
+// full-strength red highlight rather than a dim one.
+//
+// **Flake.** One flake per cell of the body's own space — so the flakes ride the car — sat at a
+// random point in its cell with a random radius, which makes them round chips of varying size
+// rather than the classic flake's square mosaic. Each leans off the bent normal by up to
+// `flakeTilt` in a random direction, which is what makes a few of them catch the sun at a time.
+//
+// **The filter is the whole point.** `gFoot` is how many flake cells one pixel spans, from the
+// screen-space derivative of the very coordinate the cells are cut from. Where a cell is bigger
+// than a pixel the sparkle draws; where it is smaller, any one pixel's answer depends on which
+// cell its centre happens to land in, and that changes every frame a car moves a fraction of a
+// pixel — shimmer. So `gFlakeVis` fades the sparkle out across 0.4–0.85 cells a pixel and the
+// light loop hands its energy to the flakes' mean lobe instead (see `flakeMeanSharp`). A phone at
+// play zoom sits at ~0.9 (16 px a unit at DPR 2 against 14.5 cells a unit), on the far side of
+// the fade, so in play the flake is the glow and the sparkle is for close-ups.
+//
+// The hash is Dave Hoskins' hash33 rather than the classic fract(sin(x) * 43758): sin of a large
+// argument is where mobile GPUs part ways, and the cells here are indices, not small numbers.
+const GLOSS_NORMAL = /* glsl */ `
+	{
+${GLOSS_BEND}
+		float gNV = clamp(gReflN.z, 0.0, 1.0);
+		diffuseColor.rgb *= 1.0 - gFinD.z * (1.0 - gNV) * (1.0 - gNV);
+__LOOK_BASE__
+		float gPeak = max(max(diffuseColor.r, diffuseColor.g), max(diffuseColor.b, 1e-3));
+		gTint = mix(vec3(1.0), diffuseColor.rgb / gPeak, gFinD.y);
+
+		vec3 gF = vGlossObj * uGlossGlobal.x + 0.37;
+		vec3 gId = floor(gF);
+		vec3 gRnd = gHash3(gId);
+		float gFoot = max(length(dFdx(gF)), length(dFdy(gF)));
+		float gD = length(fract(gF) - (0.25 + 0.5 * gRnd));
+		float gRad = 0.22 + 0.2 * gRnd.z;
+		gFlakeVis = 1.0 - smoothstep(0.4, 0.85, gFoot);
+		gFlakeDisc = 1.0 - smoothstep(gRad - gFoot, gRad + gFoot, gD);
+		vec3 gT = normalize(cross(normal, abs(normal.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+		vec2 gLean = (gHash3(gId + 17.17).xy * 2.0 - 1.0) * gFinC.z;
+		gFlakeN = normalize(gReflN + gT * gLean.x + cross(normal, gT) * gLean.y);
 	}
 `;
 
@@ -793,7 +946,7 @@ const GLOSS_NORMAL = /* glsl */ `
 // already folded in: a car in a tower's shadow has no sun to glint with, and a cop's lamps glint
 // off the cars beside it.
 const GLOSS_SPECULAR_FROM = 'reflectedLight.directSpecular += irradiance * BRDF_BlinnPhong( directLight.direction, geometryViewDir, geometryNormal, material.specularColor, material.specularShininess ) * material.specularStrength;';
-const GLOSS_SPECULAR_TO = /* glsl */ `{
+const GLOSS_SPECULAR_CLASSIC = /* glsl */ `{
 		vec3 gGlintIrr = saturate( dot( gSpecN, directLight.direction ) ) * directLight.color;
 		reflectedLight.directSpecular += gGlintIrr * gFinA.x
 			* BRDF_BlinnPhong( directLight.direction, geometryViewDir, gSpecN, vec3( 1.0 ), gFinA.y );
@@ -802,8 +955,47 @@ const GLOSS_SPECULAR_TO = /* glsl */ `{
 			* BRDF_BlinnPhong( directLight.direction, geometryViewDir, gReflN, vec3( 1.0 ), gFinB.x );
 	}`;
 
+// The layered paint's lobes. The glint is unchanged — it is the clear coat's own reflection of the
+// sun, and a coat is clear, so it stays white. The sheen and the flake are the base coat's, so they
+// take the paint's hue (`gTint`). The flake is the sparkle where one can be seen and its mean lobe
+// where it cannot, the sparkle weighted by the disc so a fragment between chips is just paint and
+// the mean by the chips' share of a cell (~0.17 for these radii), so the two carry the same light.
+// The sparkle is skipped outright where it is faded out — every fragment of a car at play zoom —
+// which is a branch the whole car takes the same way.
+// Every other finish has `flake` 0 and `tint` 0, which leaves exactly the classic's two lobes.
+const GLOSS_SPECULAR_TO = /* glsl */ `{
+		vec3 gGlintIrr = saturate( dot( gSpecN, directLight.direction ) ) * directLight.color;
+		reflectedLight.directSpecular += gGlintIrr * gFinA.x
+			* BRDF_BlinnPhong( directLight.direction, geometryViewDir, gSpecN, vec3( 1.0 ), gFinA.y );
+		vec3 gSheenIrr = saturate( dot( gReflN, directLight.direction ) ) * directLight.color * gTint;
+		vec3 gFlakeLight = BRDF_BlinnPhong( directLight.direction, geometryViewDir, gReflN, vec3( 1.0 ), gFinD.w ) * 0.17;
+		if ( gFlakeVis > 0.0 ) {
+			vec3 gSpark = BRDF_BlinnPhong( directLight.direction, geometryViewDir, gFlakeN, vec3( 1.0 ), gFinC.w ) * gFlakeDisc;
+			gFlakeLight = mix( gFlakeLight, gSpark, gFlakeVis );
+		}
+		reflectedLight.directSpecular += gSheenIrr * ( gFinA.w
+			* BRDF_BlinnPhong( directLight.direction, geometryViewDir, gReflN, vec3( 1.0 ), gFinB.x )
+			+ gFinB.y * gFlakeLight );
+	}`;
+
+// What the layered paint adds to the fragment's globals, and the hash its flakes are cut with.
+const GLOSS_PAINT_DECLS = /* glsl */ `vec3 gTint;
+vec3 gFlakeN;
+float gFlakeVis;
+float gFlakeDisc;
+vec3 gHash3(vec3 p) {
+	p = fract(p * vec3(0.1031, 0.1030, 0.0973));
+	p += dot(p, p.yxz + 33.33);
+	return fract((p.xxy + p.yxx) * p.zyx);
+}`;
+
 // Mixed into `outgoingLight` after three has summed it, so the glint is already in and the
 // reflection sits over the lit surface the way a clear coat does.
+//
+// The clear coat (`coat`) is Schlick's Fresnel at 4%, capped at about half: its grazing angles
+// come off the *bent* normal, so every corner of a box body is "grazing", and at the full 100% a
+// corner turned into a slab of façade-black or sky-white. Capped, a corner still shows the street
+// in it at nearly ten times the strength of the middle of a panel, which is the curve the eye reads.
 //
 // The reflected ray off a side panel heads *down* — the camera looks down at 33 degrees — and
 // would honestly reflect the asphalt a metre away. That is physically right and reads as nothing,
@@ -813,33 +1005,98 @@ const GLOSS_SPECULAR_TO = /* glsl */ `{
 // Paint's share is scaled per material by `uGloss` (the taxi a touch more, a cargo box less), and
 // every other finish's by `uGlossMirror` — 1 on every vehicle, turned down on the depot's wrench,
 // where a thin turning slab bends almost every fragment to a grazing angle and came out sky-blue.
-const GLOSS_FRAGMENT = /* glsl */ `
+// How a step of the march below a roofline turns into façade. The classic paint's is a hard hit:
+// the first sample under a roof is façade, full strength. Its streaks were already on the glass,
+// but under a clear coat they reached the paint too, and on a white panel a ragged black claw
+// mark from 14 coarse steps reads as a scratch rather than a building. The layered paint's is
+// soft — a sample counts by how far under the roof it is, against a depth that grows with the
+// ray's length — which is what a rough reflection does anyway: the further the thing reflected,
+// the blurrier its edge.
+const GLOSS_HIT_CLASSIC = /* glsl */ `
+				if (texture2D(tGlossCity, gUV).r * uGlossCeiling > gQ.y) {
+					gEnv = uGlossHorizon * uGlossGlobal.y * (0.7 + 0.6 * gQ.y / uGlossCeiling);
+					break;
+				}
+`;
+const GLOSS_HIT_SOFT = /* glsl */ `
+				float gO = clamp((texture2D(tGlossCity, gUV).r * uGlossCeiling - gQ.y) / (0.4 + 0.12 * gT), 0.0, 1.0);
+				if (gO > gOcc) { gOcc = gO; gHitY = gQ.y; }
+				if (gOcc >= 1.0) break;
+`;
+
+const glossFragment = (classic) => /* glsl */ `
 	{
 		vec3 gN = inverseTransformDirection(gReflN, viewMatrix);
 		vec3 gEye = inverseTransformDirection(vec3(0.0, 0.0, 1.0), viewMatrix);
 		vec3 gR = reflect(-gEye, gN);
 		gR.y = max(abs(gR.y), 0.12);
 		gR = normalize(gR);
-		vec3 gEnv = mix(uGlossHorizon, uGlossTop, pow(gR.y, 0.6));
-		float gMirror = (gFinB.z + gFinB.w * pow(1.0 - clamp(gReflN.z, 0.0, 1.0), 3.0))
+		vec3 gEnv = mix(uGlossHorizon, uGlossTop, __LOOK_SKY__);
+		float gGraze = 1.0 - clamp(gReflN.z, 0.0, 1.0);
+		float gMirror = (gFinB.z + gFinB.w * gGraze * gGraze * gGraze
+			+ gFinD.x * (0.04 + 0.96 * pow(min(gGraze, 0.88), 5.0)))
 			* mix(uGlossMirror, uGloss, gIsPaint);
+__LOOK_MIRROR__
 		if (uGlossCityOn > 0.5 && gMirror > 0.0) {
 			float gT = 0.6;
+			float gOcc = 0.0;
+			float gHitY = 0.0;
 			for (int k = 0; k < 14; k++) {
 				vec3 gQ = vGlossWorld + gR * gT;
 				if (gQ.y > uGlossCeiling) break;
 				vec2 gUV = vec2((gQ.z - uGlossCityBox.y) * uGlossCityBox.w, (gQ.x - uGlossCityBox.x) * uGlossCityBox.z);
-				if (texture2D(tGlossCity, gUV).r * uGlossCeiling > gQ.y) {
-					gEnv = uGlossHorizon * uGlossGlobal.y * (0.7 + 0.6 * gQ.y / uGlossCeiling);
-					break;
-				}
+${classic ? GLOSS_HIT_CLASSIC : GLOSS_HIT_SOFT}
 				gT *= 1.3;
 			}
+			gEnv = mix(gEnv, uGlossHorizon * uGlossGlobal.y * (0.7 + 0.6 * gHitY / uGlossCeiling), gOcc);
 		}
+__LOOK_FINAL__
 		outgoingLight = mix(outgoingLight, gEnv, clamp(gMirror, 0.0, 1.0));
 		if (uGlossGlobal.z > 0.5) outgoingLight = gFinishColor;
 	}
 `;
+
+// The explored looks' GLSL, dropped into four slots of the layered paint's source. Anything a look
+// leaves out keeps the layered paint's line.
+//
+// **Chameleon** rotates the base colour about the grey axis (Rodrigues), by up to `CHAMELEON_TURN`
+// radians as N·V falls from 0.6 — the face-on middle of a roof or flank sits around 0.55 under
+// this camera, so the middle of a panel keeps its own colour and only its rolled edges flip.
+//
+// **Satin** adds a velvet rim, the lift a brushed or fibrous surface gets at grazing angles,
+// scaled off the lit colour so it never brightens a panel in shadow.
+//
+// **Toon** thresholds the glint and the sheen into shapes, quantises the sky into two bands, and
+// replaces the clear coat's curve with one hard band past 0.6 graze.
+const CHAMELEON_TURN = 2.3;
+const LOOK_DEFAULT_SKY = 'pow(gR.y, 0.6)';
+const PAINT_LOOKS = {
+  chameleon: {
+    base: `
+		{
+			float gTurn = ${CHAMELEON_TURN.toFixed(2)} * gIsPaint * smoothstep(0.6, 0.0, gNV);
+			const vec3 gK = vec3(0.57735);
+			diffuseColor.rgb = max(diffuseColor.rgb * cos(gTurn) + cross(gK, diffuseColor.rgb) * sin(gTurn)
+				+ gK * dot(gK, diffuseColor.rgb) * (1.0 - cos(gTurn)), 0.0);
+		}`,
+  },
+  satin: {
+    final: `
+		outgoingLight += outgoingLight * gIsPaint * 1.1 * gGraze * gGraze * gGraze;`,
+  },
+  toon: {
+    sky: 'step(0.45, gR.y)',
+    mirror: `
+		gMirror += gIsPaint * 0.5 * step(0.6, gGraze) * uGloss;`,
+    specular: /* glsl */ `{
+		vec3 gH = normalize( directLight.direction + geometryViewDir );
+		float gLit = step( 0.0, dot( gReflN, directLight.direction ) );
+		float gGlintIrr = smoothstep( 0.982, 0.986, dot( gSpecN, gH ) ) * gFinA.x;
+		float gSh = smoothstep( 0.86, 0.87, dot( gReflN, gH ) ) * gFinA.w;
+		reflectedLight.directSpecular += directLight.color * gLit * ( gGlintIrr * 1.6 + gSh * gTint );
+	}`,
+  },
+};
 
 /**
  * The one patch every lit prop material carries — screen-space AO, Crayon Mode, or both.
@@ -867,7 +1124,8 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
   // `?crayon&ao=off` a crayoned material and a bare one would otherwise share a key.
   const useAO = aoEnabled && ao;
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
-    + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? '-gloss' : ''}${cloudsEnabled ? '-clouds' : ''}`;
+    + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}` : ''}`
+    + `${cloudsEnabled ? '-clouds' : ''}`;
   material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {
@@ -878,6 +1136,7 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
     if (gloss) {
       // The shared bag plus this body's own shape and paint share, which differ between a car, a
       // truck's cab and the taxi while the source does not — so per material, under one cache key.
+      const look = classicPaint ? {} : PAINT_LOOKS[paintLook] ?? {};
       Object.assign(shader.uniforms, GLOSS_UNIFORMS, {
         uGloss: { value: gloss.amount },
         uGlossMirror: { value: gloss.mirror },
@@ -907,6 +1166,7 @@ uniform vec3 uGlossHorizon;
 uniform vec4 uFinishA[4];
 uniform vec4 uFinishB[4];
 uniform vec4 uFinishC[4];
+uniform vec4 uFinishD[4];
 uniform vec4 uGlossGlobal;
 uniform float uGloss;
 uniform float uGlossMirror;
@@ -917,19 +1177,24 @@ varying float vGlossFinish;
 vec4 gFinA;
 vec4 gFinB;
 vec4 gFinC;
+vec4 gFinD;
 float gIsPaint;
 vec3 gFinishColor;
 vec3 gSpecN;
 vec3 gReflN;
-float gFlake;`)
+${classicPaint ? 'float gFlake;' : GLOSS_PAINT_DECLS}`)
         .replace('#include <lights_phong_pars_fragment>',
-          THREE.ShaderChunk.lights_phong_pars_fragment.replace(GLOSS_SPECULAR_FROM, GLOSS_SPECULAR_TO))
+          THREE.ShaderChunk.lights_phong_pars_fragment.replace(GLOSS_SPECULAR_FROM,
+            classicPaint ? GLOSS_SPECULAR_CLASSIC : look.specular ?? GLOSS_SPECULAR_TO))
         .replace('#include <color_fragment>', `#include <color_fragment>
 ${GLOSS_COLOR}`)
         .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-${GLOSS_NORMAL}`)
+${classicPaint ? GLOSS_NORMAL_CLASSIC : GLOSS_NORMAL.replace('__LOOK_BASE__', look.base ?? '')}`)
         .replace('#include <envmap_fragment>', `#include <envmap_fragment>
-${GLOSS_FRAGMENT}`);
+${glossFragment(classicPaint || paintLook === 'toon')
+  .replace('__LOOK_SKY__', look.sky ?? LOOK_DEFAULT_SKY)
+  .replace('__LOOK_MIRROR__', look.mirror ?? '')
+  .replace('__LOOK_FINAL__', look.final ?? '')}`);
       // Never a blind replace (CLAUDE.md): a hook that matched nothing is a matte car and no error.
       for (const marker of ['attribute float aFinish', 'vGlossFinish = aFinish', 'aFinish > 2.5']) {
         if (!shader.vertexShader.includes(marker)) throw new Error(`gloss: vertex hook missed (${marker})`);

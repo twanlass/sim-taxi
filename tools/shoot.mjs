@@ -26,8 +26,6 @@ import { join } from 'node:path';
 // somewhere else entirely (e.g. CHROME=/opt/pw-browsers/chromium).
 const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9333;
-const WIDTH = 1280;
-const HEIGHT = 800;
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);
@@ -39,6 +37,11 @@ const outDir = arg('out', './shots');
 const shots = arg('shots', '0,1,2,3').split(',').map((s) => s.trim()).filter(Boolean);
 const settleMs = Number(arg('settle', '250'));
 const timeoutMs = Number(arg('timeout', '120000'));
+// A phone is the screen that matters: `--width 390 --height 844 --dpr 3` is an iPhone in portrait,
+// which puts ~3x the pixels on every world unit that the 1280x800 default does.
+const WIDTH = Number(arg('width', '1280'));
+const HEIGHT = Number(arg('height', '800'));
+const DPR = Number(arg('dpr', '1'));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -154,7 +157,7 @@ try {
     await client.send('Log.enable');
     await client.send('Page.enable');
     await client.send('Emulation.setDeviceMetricsOverride', {
-      width: WIDTH, height: HEIGHT, deviceScaleFactor: 1, mobile: false,
+      width: WIDTH, height: HEIGHT, deviceScaleFactor: DPR, mobile: false,
     });
 
     // Built through URL rather than by concatenation so a base that already carries query params

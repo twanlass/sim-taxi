@@ -365,6 +365,12 @@ Both browser tools take the same two env overrides, for boxes that aren't a Mac 
 CHROME=/opt/pw-browsers/chromium CHROME_FLAGS=--no-sandbox node tools/shoot.mjs --url http://localhost:4173
 ```
 
+`--width 390 --height 844 --dpr 2` shoots the way a phone sees it — an iPhone in portrait at the
+default resolution cap — which puts about twice the pixels on every world unit the 1280x800
+default does. Anything whose look depends on its size in pixels (a flake, a sparkle, a hairline)
+has to be judged there rather than on the desktop framing: the car paint's flake fades out at
+0.85 cells a pixel, which a phone reaches at play zoom and a 1280x800 frame reaches far sooner.
+
 `--url` may carry query params of its own — `--url 'http://localhost:4173/?run=7'` picks which
 situation gets shot, since `?shot=` is merged in rather than concatenated. `?blend=<name>` pins the
 route band's blend mode the same way, which is the only way to shoot it: the ⚙️ panel that switches
