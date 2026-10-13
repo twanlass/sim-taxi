@@ -38,7 +38,7 @@ import {
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice } from './sim/police.js';
 import {
-  createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
+  createFareSystem, cornerFor, kerbFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
   BOARD_SECONDS, MAX_STRIKES, RATING_FLOOR, ratingFor,
 } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
@@ -969,6 +969,10 @@ const robberLine = city.bank && !shot
 // bystander shoved over, the run to the cab — before the robber's line. See game/bankjob.js; the
 // module itself is built further down, once the cash trail it sheds notes into exists.
 const robberyIntro = new URLSearchParams(window.location.search).get('robbery') !== 'classic';
+// ...and it starts with the bank rider: a fare on the bank's steps, a coin tossed when they spawn,
+// and the robber taking their seat on tails (BANK_CHANCE in game/fares.js). `?bankfare=classic`
+// keeps the drive-past, with a bystander always outside and the alarm always on the building.
+const bankFare = robberyIntro && new URLSearchParams(window.location.search).get('bankfare') !== 'classic';
 const robbery = city.bank && !shot
   ? createRobbery({
     site: city.bank,
@@ -977,6 +981,7 @@ const robbery = city.bank && !shot
     traffic,
     // The bank job owns the run to the cab, so the fare loop's boarding animation stands down.
     scripted: robberyIntro,
+    trigger: bankFare ? 'fare' : 'drive',
     // The police wait for the robber's line to be cleared — see `robberLine` above.
     holdAlarm: true,
     // ...and the robbery waits for a patrol chase to be over — see `busy` in game/robbery.js.
@@ -1420,8 +1425,18 @@ const bankJob = robbery && robberyIntro
     controller,
     setDoor: traffic.setTaxiDoor,
     play: (name, x = null, z = null) => sfx?.play(name, x === null ? {} : { at: placeAt(x, z) }),
+    scenery: !bankFare,
   })
   : null;
+if (bankJob && bankFare) {
+  fares.setBankStop({
+    junction: robbery.junction,
+    x: bankJob.home.x,
+    z: bankJob.home.z,
+    away: bankJob.along,
+    swapReady: () => robbery.swapReady(),
+  });
+}
 // The other half of the tailpipe: `flames` is the bark on the press, this is the plume that burns
 // for as long as the button is held. No seed — the flicker is a flipbook on a clock, and a flame
 // that came out differently on two runs of the same seed would take the screenshots with it.
@@ -2640,7 +2655,7 @@ function canBendRoute() {
 // have dragged, in a move they don't have to make.
 function panToRider(fare) {
   if (!fare) return;
-  const c = cornerFor(fare.target.i, fare.target.j);
+  const c = kerbFor(fare);
   // Same as a swipe: the player has aimed the camera somewhere deliberately, so the opening
   // follow-cam stops. Without this the taxi would tow the framing straight back off the rider the
   // chip was pointing at — and here it would do it *during* the pan, which reads as the camera
@@ -2873,7 +2888,7 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   waitingFare: () => fares.waiting(),
   // The kerb corner, not the junction centre: at this zoom the corner building sits squarely
   // between the camera and the figure otherwise. Same aim as panToRider and the drop-off pointer.
-  fareLocation: (fare) => cornerFor(fare.target.i, fare.target.j),
+  fareLocation: (fare) => kerbFor(fare),
   // Any fare the player has actually sent the taxi at — including one they found and tapped on the
   // map while the first bubble was still up.
   isDispatched: () => Boolean(fares.carrying() || fares.state.fares.some((f) => f.directed)),
@@ -4812,21 +4827,50 @@ const clipSite = () => ({
 const clipStage = (cardCanvas) => ({
   scene, camera, renderFrame, canvas: renderer.domElement, freeze: freezeFrame, cardCanvas,
 });
+// The player's taxi and the ambient traffic, as meshes — what a clip takes out of shot to film on a
+// street that has cars on it. Meshes only, so none of this changes the light count (the cruiser,
+// which carries lamps, stays: CLAUDE.md).
+const trafficMeshes = () => [traffic.taxiGroup, traffic.mesh, ...traffic.classicDrawn, traffic.wheelMesh,
+  traffic.truckMesh, traffic.truckWheelMesh,
+  traffic.truckBoxMesh, traffic.bumperMesh, traffic.truckBumperMesh, ...traffic.emissiveMeshes,
+  ...carDamage.meshes];
+/**
+ * A move's clip, filmed where `pick` says. A street with a car parked on it is passed over, since
+ * the city stays frozen under the card — and late in a long run, with traffic at its densest, that
+ * can be every street there is: the overtake's picker, which wants a whole ring-road side clear,
+ * came up empty on one city in five at the end of a run, and the card went up as a bare title with
+ * its keys stuck on their first frame (Tyler, 2026-10-13). So when nothing is clear it picks again
+ * with the cars ignored and films with the traffic out of shot, put back when the card closes. The
+ * still under the card is taken before they go, so the city behind it is the one the player left.
+ */
+const filmMove = (pick, make) => (cardCanvas) => {
+  if (!freezeFrame) return null;
+  const clear = pick(clipSite());
+  if (clear) return make(clipStage(cardCanvas), clear);
+  const anywhere = pick({ ...clipSite(), cars: [] });
+  const clip = anywhere && make(clipStage(cardCanvas), anywhere);
+  if (!clip) return null;
+  const hidden = trafficMeshes().filter((mesh) => mesh?.visible);
+  for (const mesh of hidden) mesh.visible = false;
+  const dispose = clip.dispose.bind(clip);
+  clip.dispose = () => {
+    for (const mesh of hidden) mesh.visible = true;
+    dispose();
+  };
+  return clip;
+};
 const moves = {
   overtake: {
     ...MOVES.overtake, seen: createSeenFlag({ key: MOVES.overtake.seenKey }), clipKeys: overtakeKeys,
-    makeClip: (cardCanvas) => freezeFrame
-      && createOvertakeClip({ ...clipStage(cardCanvas), street: pickOvertakeStreet(clipSite()) }),
+    makeClip: filmMove(pickOvertakeStreet, (stage, street) => createOvertakeClip({ ...stage, street })),
   },
   uturn: {
     ...MOVES.uturn, seen: createSeenFlag({ key: MOVES.uturn.seenKey }), clipKeys: uturnKeys,
-    makeClip: (cardCanvas) => freezeFrame
-      && createUturnClip({ ...clipStage(cardCanvas), street: pickStreet(clipSite()) }),
+    makeClip: filmMove(pickStreet, (stage, street) => createUturnClip({ ...stage, street })),
   },
   drift: {
     ...MOVES.drift, seen: createSeenFlag({ key: MOVES.drift.seenKey }), clipKeys: driftKeys,
-    makeClip: (cardCanvas) => freezeFrame
-      && createDriftClip({ ...clipStage(cardCanvas), corner: pickCorner(clipSite()) }),
+    makeClip: filmMove(pickCorner, (stage, corner) => createDriftClip({ ...stage, corner })),
   },
 };
 // The depot's card, on the same layer: once ever, a beat after the taxi first starts smoking. It
@@ -4837,12 +4881,8 @@ const repairCard = {
   makeClip: (cardCanvas) => freezeFrame && garage && createRepairClip({
     ...clipStage(cardCanvas), site: garage.site, setDoor: garage.setDoor, workshop: repairFx, sparks, dust,
     // The player's taxi, and the ambient traffic frozen wherever it stood — a car stopped on the
-    // depot's lane sat on the stand-in's path. Meshes only, so none of this changes the light count
-    // (the cruiser, which carries lamps, stays: CLAUDE.md).
-    hide: [traffic.taxiGroup, traffic.mesh, ...traffic.classicDrawn, traffic.wheelMesh,
-      traffic.truckMesh, traffic.truckWheelMesh,
-      traffic.truckBoxMesh, traffic.bumperMesh, traffic.truckBumperMesh, ...traffic.emissiveMeshes,
-      ...carDamage.meshes],
+    // depot's lane sat on the stand-in's path.
+    hide: trafficMeshes(),
   }),
 };
 // Seconds of game time until it lands, or negative while the car is not smoking.
@@ -4884,14 +4924,17 @@ const newMoveCalm = () => !fares.state.gameOver && !traffic.taxi.crashed
   && !opening?.visiting() && !depotRun?.active() && !burgerRun?.holdsTaxi()
   && !replay?.active() && replayAt === null;
 /**
- * The run is over and its high-score table has landed: every move it unlocked, one card after the
- * other in MOVES' order, then `done` (the run-end screen's Play again). Answers false when there is
+ * The run is over and its high-score table has landed: the first move it unlocked that has not been
+ * shown yet, then `done` (the run-end screen's Play again). Answers false when there is
  * nothing to show. Over the blackout rather than instead of it (`body.new-move-after-run`), so the
  * card closes back onto the run's own screen; the clip still films the city under it.
  */
 function showUnlockedMoves(done) {
   if (!movesAfterRun || !newMove) return false;
-  const queue = Object.values(moves).filter((m) => newMoveWanted(m) && fares.state.delivered >= m.after);
+  // One card per run's end, the first not yet shown (Tyler, 2026-10-13); a run that unlocked more
+  // leaves the rest for the runs after it, which still have to reach each one's `after`.
+  const queue = Object.values(moves).filter((m) => newMoveWanted(m) && fares.state.delivered >= m.after)
+    .slice(0, 1);
   if (!queue.length) return false;
   document.body.classList.add('new-move-after-run');
   const next = () => {
@@ -5486,6 +5529,12 @@ function tick() {
   // spawns the next one in the same tick — so this is a list rather than a single event.
   for (const { type, fare } of
     (fareLoopHeld() ? NO_FARE_EVENTS : fares.update(dt, traffic.taxi))) {
+    // The bank rider's coin came up tails: they are off the board, and the robber takes the seat
+    // they were about to — `onBoard` above dispatches the getaway and the bank job's cut opens.
+    if (type === 'swapped') {
+      robbery?.swap();
+      continue;
+    }
     if (type === 'pickup') {
       boardSound();
       traffic.taxi.route = [];
@@ -6217,7 +6266,7 @@ if (shot) {
   if (shot.atPassenger && framed) {
     // Aim at the kerb the rider is standing on, not the middle of the junction — at close zoom
     // the corner building sits squarely between the camera and the figure otherwise.
-    const c = cornerFor(framed.target.i, framed.target.j);
+    const c = kerbFor(framed);
     controller.state.target.set(c.x, 0, c.z);
     controller.update(aspect());
   }
@@ -6737,7 +6786,7 @@ window.__taxi = {
    */
   targetScreenPosition: (fare = fares.focus()) => {
     if (!fare) return null;
-    const c = cornerFor(fare.target.i, fare.target.j);
+    const c = kerbFor(fare);
     return projectToScreen(c.x, KERB_H, c.z);
   },
   /**

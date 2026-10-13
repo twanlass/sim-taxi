@@ -28,9 +28,13 @@ import { markEmissive, setEmissiveScale } from './bloom.js';
 // is a freeze, so the cut and the line read as one held beat. Everything here runs on wall time
 // and the main loop draws and returns, the robber's-line branch's shape. A tap skips it.
 //
-// **The bystander is scenery, not a fare.** Somebody always stands outside the bank — which is
-// what makes the shove land, since a victim who appears at the start of the cut reads as staged —
-// but they carry no crystal and no tap target, so there is no board change and no 50/50 to learn.
+// **The bystander is the bank rider.** By default nobody stands outside the bank and the alarm is
+// not there either: a rider appears on the steps as an ordinary fare (BANK_CHANCE in game/fares.js),
+// and when the taxi pulls up for them a coin decides whether they get in or the robber comes out
+// and takes their seat. The figure knocked over here stands exactly where that rider stood, so the
+// swap reads as the rider you came for being shoved out of the way. The alarm appears with the cut
+// and goes with the robbery. `?bankfare=classic` keeps the first version: a bystander who is always
+// there as scenery, an alarm always on the building, and the drive-past trigger.
 
 /** The camera's half-height during the cut, in world units, at its tightest and loosest. */
 const CUT_ZOOM_MIN = 15;
@@ -86,10 +90,15 @@ const IMPACT_EASE = 0.1;
 const IMPACT_LAND = 0.08;
 /** How limp they are once down: the arms and legs still stir, at a tenth of the flail. */
 const LIE_LIMP = 0.9;
-/** Lying there for this long once the world is back, then up, and a jog back to their spot. */
+/**
+ * Lying there for this long once the world is back, then up, and a jog back to their spot — and
+ * when they were the bank rider rather than scenery, a walk back inside the bank, `WALK_IN` units a
+ * second, since nobody is coming for them now.
+ */
 const DOWN_FOR = 4.5;
 const GET_UP = 0.8;
 const WALK_BACK = 1.3;
+const WALK_IN = 2.2;
 /** Where the robber stops short of the door and how far in the hop reaches — fares.js's numbers. */
 const DOOR_STANDOFF = 0.7;
 const DOOR_REACH = 0.5;
@@ -213,8 +222,13 @@ export function planRun(site, taxi) {
  * @param controller the city camera (game/camera.js)
  * @param setDoor    `(side, angle)` — the taxi's rear door (`traffic.setTaxiDoor`)
  * @param play       `(name, x?, z?)` — a one-shot, placed where given
+ * @param scenery    true (`?bankfare=classic`) for a bystander who always stands outside and an
+ *                   alarm always on the building; false for the bank rider, where both appear only
+ *                   with the cut — see the header.
  */
-export function createBankJob({ scene, site, cashTrail, controller, setDoor, play = () => {} }) {
+export function createBankJob({
+  scene, site, cashTrail, controller, setDoor, play = () => {}, scenery = false,
+}) {
   const f = bankFrontage(site);
 
   // --- The alarm light -------------------------------------------------------
@@ -229,6 +243,9 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
   );
   alarm.position.set(f.alarm.x, f.alarm.y, f.alarm.z);
   alarm.name = 'bank-alarm';
+  // Not there at all until the bank is being robbed, unless it is scenery. A mesh, not a light, so
+  // hiding it moves no light count (CLAUDE.md).
+  alarm.visible = scenery;
   scene.add(alarm);
   markEmissive(alarm, 'pod');
   setEmissiveScale(alarm, 0);
@@ -237,11 +254,13 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
     if (!on) {
       if (alarmClock === 0) return;
       alarmClock = 0;
+      alarm.visible = scenery;
       alarm.material.color.copy(lampOff);
       setEmissiveScale(alarm, 0);
       return;
     }
     alarmClock += dt;
+    alarm.visible = true;
     const lit = Math.floor(alarmClock / ALARM_PERIOD) % 2 === 0;
     alarm.material.color.copy(lit ? lampOn : lampOff);
     setEmissiveScale(alarm, lit ? 1 : 0);
@@ -260,6 +279,7 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
   spot.add(tilt);
   const bystander = createPerson({ pickable: null });
   tilt.add(bystander.group);
+  spot.visible = scenery;
   scene.add(spot);
 
   const by = {
@@ -342,7 +362,32 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
       tilt.position.set(0, bob, by.slide * (1 - k));
       bystander.group.rotation.y = Math.PI;
       if (k >= 1) {
-        by.phase = 'stand';
+        by.phase = scenery ? 'stand' : 'leave';
+        by.t = 0;
+        bystander.rest();
+      }
+    } else if (by.phase === 'leave') {
+      // The bank rider's taxi has gone: up the steps and in through the door, then gone.
+      by.t += dt;
+      const s = by.t * WALK_IN;
+      const way = [home, f.steps, f.doorway];
+      let rest = s;
+      let k = 0;
+      while (k < way.length - 2 && rest > dist(way[k], way[k + 1])) { rest -= dist(way[k], way[k + 1]); k += 1; }
+      const a = way[k];
+      const b = way[k + 1];
+      const len = dist(a, b) || 1;
+      const u = Math.min(1, rest / len);
+      const p = { x: lerp(a.x, b.x, u), z: lerp(a.z, b.z, u) };
+      spot.position.set(p.x, groundY(p), p.z);
+      spot.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
+      tilt.rotation.x = 0;
+      tilt.position.set(0, bystander.run(by.t * 8) * 0.5, 0);
+      bystander.group.rotation.y = 0;
+      if (k === way.length - 2 && u >= 1) {
+        by.phase = 'gone';
+        spot.visible = false;
+        spot.position.set(home.x, PAVEMENT, home.z);
         bystander.rest();
       }
     }
@@ -439,6 +484,12 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
     };
     saved = { x: controller.state.target.x, z: controller.state.target.z, zoom: controller.state.zoom };
     returning = 0;
+    // The bank rider's own spot, so they are standing there when the robber comes out.
+    spot.visible = true;
+    spot.position.set(home.x, PAVEMENT, home.z);
+    by.phase = 'stand';
+    by.clock = 0;
+    standPose(0);
     passenger.standing.rest();
     passenger.standing.setRobber(true);
     // Hidden in the portico until the lead-in is over.
@@ -610,6 +661,12 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
       if (door.angle > 0) door.closing = 0;
       if (saved) returning = RETURN_SECONDS;
     },
+    /**
+     * Where the bystander stands and which way is along the frontage away from the door — the bank
+     * rider's doorstep and the way they walk off (`setBankStop` in game/fares.js).
+     */
+    home,
+    along: f.along,
     /** For the tools. */
     state: () => ({ cut: cut && { t: cut.t, done: cut.done, runFor: cut.runFor }, bystander: by.phase }),
     bystander,

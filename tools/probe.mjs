@@ -16431,6 +16431,93 @@ let chopperOrder; // likewise
         `base $${robber.value}, up to $${robber.bonusMax} more`);
     }
 
+    // --- The bank rider ----------------------------------------------------------
+    //
+    // BANK_CHANCE in game/fares.js: a fare on the bank's steps, and a coin read when the taxi
+    // pulls up — heads they get in, tails the robbery takes their seat. Swept over fresh boards
+    // with the taxi a block off the bank, so the bank junction is in the spawn box and not the
+    // taxi's own next junction.
+    {
+      const stand = planBankRun(bank, { x: 0, z: 0, yaw: 0 }).home;
+      const bankRig = (k, { stop = true } = {}) => {
+        const s8 = new THREE.Scene();
+        const t8 = createTraffic(makeRng(seed + 44), s8, 10, 18);
+        const f8 = createFareSystem(makeRng(seed + 900 + k), s8);
+        t8.warmup(1);
+        f8.state.delivered = 5;
+        const got = [];
+        const rob8 = createRobbery({
+          site: bank, taxi: t8.taxi, fares: f8, traffic: t8, onBoard: (fare) => got.push(fare), trigger: 'fare',
+        });
+        rob8.state.since = 1e3;
+        if (stop) {
+          f8.setBankStop({
+            junction: rob8.junction, x: stand.x, z: stand.z, away: { x: 1, z: 0 }, swapReady: () => rob8.swapReady(),
+          });
+        }
+        const J = rob8.junction;
+        t8.taxi.i = J.i > 0 ? J.i - 1 : J.i + 1;
+        t8.taxi.j = J.j;
+        // Off every corner, so nothing resolves until a test drives it there.
+        t8.taxi.x = 1e4; t8.taxi.z = 1e4;
+        f8.update(1 / 60, t8.taxi);
+        return { t8, f8, rob8, got, bankFare: f8.state.fares.find((x) => x.bank) };
+      };
+      const draws = Array.from({ length: 40 }, (_, k) => bankRig(k));
+      const banks = draws.filter((d) => d.bankFare);
+      const heads = banks.filter((d) => !d.bankFare.robberRoll);
+      const tails = banks.filter((d) => d.bankFare.robberRoll);
+      check('a rider turns up on the bank’s steps now and then',
+        banks.length >= 4 && banks.length <= 24, `${banks.length} of 40 fresh boards`);
+      check('...standing on the doorstep, picked up at the bank’s junction',
+        banks.every((d) => d.bankFare.stand && Math.hypot(d.bankFare.stand.x - stand.x, d.bankFare.stand.z - stand.z) < 1e-9
+          && d.bankFare.target.i === d.rob8.junction.i && d.bankFare.target.j === d.rob8.junction.j
+          && d.bankFare.slot.passenger.group.visible));
+      check('...with a coin on both faces across the sweep', heads.length > 0 && tails.length > 0,
+        `${heads.length} heads, ${tails.length} tails`);
+      check('...and never without the bank rider switched on',
+        !Array.from({ length: 20 }, (_, k) => bankRig(k, { stop: false })).some((d) => d.bankFare));
+      check('the drive-past no longer starts one when the bank rider is the trigger', (() => {
+        const d = bankRig(0, { stop: false });
+        d.t8.taxi.x = bank.door.x; d.t8.taxi.z = bank.door.z;
+        for (let f = 0; f < 5; f++) d.rob8.update(1 / 60);
+        return !d.rob8.state.active;
+      })());
+      const arrive = (d) => {
+        const c = intersectionCentre(d.rob8.junction.i, d.rob8.junction.j);
+        d.f8.markDirected(d.bankFare, { pop: false });
+        d.t8.taxi.x = c.x; d.t8.taxi.z = c.z;
+        const events = d.f8.update(1 / 60, d.t8.taxi).map((e) => e.type);
+        if (events.includes('swapped')) d.rob8.swap();
+        return events;
+      };
+      if (tails.length) {
+        const d = tails[0];
+        const strikes = d.f8.state.strikes;
+        const events = arrive(d);
+        check('tails: the robber takes the bank rider’s seat',
+          events.includes('swapped') && !events.includes('pickup') && d.rob8.state.active && d.got.length === 1
+            && !d.f8.state.fares.includes(d.bankFare) && d.f8.carrying()?.robber,
+          `events ${events.join(',')}, ${d.got.length} robbers`);
+        check('...and the rider they shoved costs no star', d.f8.state.strikes === strikes);
+      }
+      if (heads.length) {
+        const d = heads[0];
+        const events = arrive(d);
+        check('heads: the bank rider simply gets in',
+          events.includes('pickup') && !d.rob8.state.active && d.f8.carrying() === d.bankFare,
+          `events ${events.join(',')}`);
+      }
+      if (tails.length > 1) {
+        // Tails, but the gates are shut — the last robbery inside its cooldown: they get in after all.
+        const d = tails[1];
+        d.rob8.state.since = 0;
+        const events = arrive(d);
+        check('tails with the robbery’s gates shut: the rider gets in after all',
+          events.includes('pickup') && !d.rob8.state.active, `events ${events.join(',')}`);
+      }
+    }
+
     // --- The getaway's checkpoints --------------------------------------------
     //
     // ROBBER_CHECKPOINTS in game/fares.js: corners to touch on the way, each a full tank. Checked
