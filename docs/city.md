@@ -251,8 +251,13 @@ waits off the end, and comes back the other way. `?ltrain=classic` takes it out;
   the ground's own fade, which reads as gone sooner than its alpha says.
 - **Wheel sparks** every few seconds off one truck, through the shared spark pool with its floor
   set to the road, so they fall through the open deck. Only at speed and only over the island.
-- **Not done:** no stations, no sound (the rumble hook is commented in `ambientLevels`), no lamps at
-  night, and the entrance wave grows the whole line from its middle as one object.
+- **Lamps** (`?trainlights=classic` for the unlit train): two headlights low on the leading end,
+  two red tail lamps on the outer corners of the trailing one. Always lit and in the bloom, like
+  the cars' pods. The two pairs are one group turned half round when the train runs west, since
+  the train is symmetric. In the rain or after dark the headlights throw the cars' additive cone at
+  1.5x, faded off the island from the nose's x because a cone has no dither.
+- **Not done:** no stations, no sound (the rumble hook is commented in `ambientLevels`), and the
+  entrance wave grows the whole line from its middle as one object.
 
 ## Layout: what a block *is*
 
