@@ -11662,6 +11662,7 @@ function rideToPickup() {
       material.onBeforeCompile(shader, null);
       return { key: material.customProgramCacheKey(), frag: shader.fragmentShader, paint: glossTuning().finishes.paint };
     };
+    setPaintLook('layered');
     const layered = build();
     setClassicPaint(true);
     const classic = build();

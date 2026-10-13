@@ -708,7 +708,8 @@ const PAINT_CLASSIC = {
   flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0, flop: 0,
 };
 
-// Three divergent looks on the layered paint's source, explored behind `?paint=<name>`. Each is the
+// Three divergent looks on the layered paint's source. `toon` ships as the default; the layered
+// paint and the other two are behind `?paint=<name>`. Each is the
 // layered paint's numbers with these over the top, plus its own GLSL (`PAINT_LOOKS` below).
 //
 // - `chameleon`: colour-shift paint. The base hue rotates as a panel turns away from the camera,
@@ -727,7 +728,9 @@ const PAINT_LOOK_NUMBERS = {
 };
 
 let classicPaint = false;
-let paintLook = 'layered';
+// Toon is the default (Tyler, 2026-10-13); the rest stay one `?paint=` away.
+const PAINT_LOOK_DEFAULT = 'toon';
+let paintLook = PAINT_LOOK_DEFAULT;
 const finishDefaults = () => {
   const finishes = structuredClone(FINISH_DEFAULTS);
   if (classicPaint) finishes.paint = { ...PAINT_CLASSIC };
@@ -792,9 +795,9 @@ export function setClassicPaint(enabled) {
   resetGlossTuning();
 }
 
-/** `?paint=chameleon|satin|toon` — one of the explored looks, or `layered` (the default). */
+/** `?paint=layered|chameleon|satin|toon` — anything else (no param) is toon, the default. */
 export function setPaintLook(look) {
-  paintLook = look in PAINT_LOOK_NUMBERS ? look : 'layered';
+  paintLook = look === 'layered' || look in PAINT_LOOK_NUMBERS ? look : PAINT_LOOK_DEFAULT;
   resetGlossTuning();
 }
 

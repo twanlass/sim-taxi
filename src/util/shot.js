@@ -555,7 +555,7 @@ export function getPaintClassic() {
   return new URLSearchParams(window.location.search).get('paint') === 'classic';
 }
 
-/** `?paint=chameleon|satin|toon` — the explored looks (util/geo.js, PAINT_LOOKS); null otherwise. */
+/** `?paint=layered|chameleon|satin|toon` — null means the default, toon (util/geo.js, PAINT_LOOKS). */
 export function getPaintLook() {
   return new URLSearchParams(window.location.search).get('paint');
 }

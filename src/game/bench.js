@@ -58,8 +58,10 @@ export const BENCH_STEPS = [
   { label: 'shadows off', params: { shadows: 'off' } },
   { label: 'ao off', params: { ao: 'off' } },
   { label: 'bloom off', params: { bloom: 'off' } },
-  // The layered car paint against the one before it (util/geo.js). Cars are a few percent of the
-  // frame at play zoom, so this row is expected to sit inside the drift between the two baselines.
+  // The default toon paint against the layered one and the one before both (util/geo.js). Cars
+  // are a few percent of the frame at play zoom, so these rows are expected to sit inside the
+  // drift between the two baselines.
+  { label: 'paint layered', params: { paint: 'layered' } },
   { label: 'paint classic', params: { paint: 'classic' } },
   { label: '30 fps', params: { fps: '30' } },
   { label: 'squall overhead', params: { squall: '0.5' } },

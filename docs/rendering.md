@@ -175,6 +175,9 @@ are per-material uniforms, not source. `tools/links.mjs` counts it at boot, not 
 
 ### Car paint — the layered finish
 
+The shipped default is the `toon` look built on this (see the end of this section); everything below
+is the layered paint it starts from, still one `?paint=layered` away.
+
 Paint is built the way a real one is layered, base coat up, and each layer is one of the `paint`
 numbers in `FINISH_DEFAULTS` (`?paint=classic` keeps the paint before it — its own GLSL, not the
 new shader fed the old numbers). The other three finishes leave every one of these at 0 and render
@@ -224,8 +227,8 @@ length (`GLOSS_HIT_SOFT`): the further the thing reflected, the blurrier its edg
 few overridden (`PAINT_LOOK_NUMBERS`) and up to four GLSL slots filled (`PAINT_LOOKS`):
 `chameleon` turns the base hue by up to 2.3 rad as a panel turns away, so edges flip colour;
 `satin` is a wrap — almost no coat, a broad sheen and a velvet rim; `toon` makes the glint and
-sheen hard shapes and the coat one band of sky past 0.6 graze. They are explorations, not the
-default.
+sheen hard shapes and the coat one band of sky past 0.6 graze. **Toon is the default** (picked
+2026-10-13); `?paint=layered` brings back the realistic layered paint described above.
 
 **Cost.** Per glossy fragment: two hashes, the derivatives, and two more Blinn-Phong lobes per
 light (one at play zoom, where the sparkle is skipped). Cars are a few percent of the frame, and
