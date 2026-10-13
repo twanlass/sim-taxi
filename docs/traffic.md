@@ -750,6 +750,28 @@ rocking back through another cycle. "Feels heavier" is exactly those two numbers
 else — measured over 12s of ordinary driving against a same-seed, same-count control scene of
 ordinary cars, a truck's mean `|pitch|` comes out well under half a car's.
 
+### The classics: a convertible and a Westfalia
+
+Two rare bodies stand in for an ordinary car at `CLASSIC_CHANCE` (1/40) each: an open-top
+convertible in the fleet's paint, and a 1980s VW T3 Westfalia camper in a baked two-tone (ivory over
+burnt orange, black rub strip, roundel on the nose, closed pop-top). Geometry is
+`geometry/classics.js`; `?classics=classic` turns them off and `?classics=0.3` floods the map.
+
+They are **looks only**. `car.model` is read by the render pass and nothing else — speed, length,
+envelope, lights, bumpers, damage and arrests are the ordinary car's, which is why both bodies are
+built on its `CAR_LEN` × `CAR_W` footprint with its wheels and sill. Three things follow from that:
+
+- **The model is read off `phase`, not rolled.** An extra `rng` draw per car would shift every car
+  after it and with it every seeded number in the suite; `classicModel` scales `phase`'s fraction
+  instead, and the probe asserts that turning classics on moves no car.
+- **One body mesh per model, same index space as `mesh`.** A car is drawn by `bodyMeshFor(car)`
+  and holds a zero matrix in the other two, written every frame. Anything that reads a car's
+  transform back off an instance has to ask `bodyMeshFor` — `mesh` holds zero for a classic —
+  which is why the ghost outlines (game/carghosts.js) have a pool per model, with its own hull.
+- **A cop or a truck is never a classic** (`modelOf`): the white cab and siren bar are built to the
+  sedan's roof. The Westfalia also gets no bonnet or boot lid when hit (game/cardamage.js), like a
+  truck — a T3's nose is flat.
+
 ## Boost (crazy-taxi mode)
 
 ```js
