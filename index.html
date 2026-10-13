@@ -1408,6 +1408,24 @@
       }
       #new-move[hidden] { display: none; }
       body.game-over #new-move { display: none; }
+      /* Except at the end of a run, where the moves it unlocked go up over the run-end blackout (30),
+         after the high-score table (main.js `showUnlockedMoves`). */
+      body.new-move-after-run #new-move { display: block; z-index: 31; }
+      /* And there it sits on the blackout itself, typeset like the run-end screen rather than as a
+         tip card (Tyler, 2026-10-13): no white card (speech.js paints its fill inline, hence the
+         !important), the move's name in white and the eyebrow and "+" in the reason's off-white. */
+      body.new-move-after-run #new-move .speech-card { background: none !important; box-shadow: none; }
+      body.new-move-after-run #new-move .speech-title,
+      body.new-move-after-run #new-move .nm-plus { color: rgba(255, 255, 255, 0.72); }
+      body.new-move-after-run #new-move .speech-text { color: #fff; }
+      /* With no card of its own the run's screen would show through the dim and read as part of it,
+         so it steps aside until the last card closes. And an unlit key dimmed for a white card all
+         but vanishes on black, so it is dimmed less. */
+      body.new-move-after-run #run-end .run-end-card { visibility: hidden; }
+      /* The clip is copied in with the frame's alpha, which the white card used to show through as
+         haze; without the card it went murky, so the clip keeps a white backing of its own. */
+      body.new-move-after-run #new-move .nm-clip { background: #fff; }
+      body.new-move-after-run #new-move .nm-key:not(.is-lit) { filter: grayscale(0.85); opacity: 0.55; }
       body.new-move-open #new-move {
         pointer-events: auto; cursor: pointer; touch-action: manipulation;
         background: rgba(6, 14, 22, 0.72);

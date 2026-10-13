@@ -34,6 +34,12 @@ import { createSpeech } from './speech.js';
 // brake is a Loco Mode button too). It waits for the U-turn's card to have been seen, so a run whose
 // early drop-offs were all busy still shows them in order, one drop-off apart at the least.
 //
+// **After the run, by default** (Tyler, 2026-10-13: "show new unlocked combos after the high score
+// screen"). The thresholds above still decide what a run *unlocks*; the card itself waits until the
+// run-end screen's table has landed, every move the run unlocked one after the other, before Play
+// again (main.js `showUnlockedMoves`). What follows about calm drop-offs is the mid-run timing, which
+// `?newmove=classic` keeps.
+//
 // **Remembered**, unlike the opening tutorial, which runs every game on purpose (see tutorial.js).
 // That one is a tap long and is also the only thing that shows a returning player which car is
 // theirs. This one stops the world and asks to be read, and a card announcing a move as "new" on

@@ -485,7 +485,12 @@ function buildBoard(entries, youId) {
  * if it missed), the id of its row, the initials to pre-fill, and a commit that returns the table
  * as it stands afterwards. Only a run with a `rank` is asked to sign itself.
  */
-export function showRunEnd(root, { title, reason, stats, scores = null, onRetry }) {
+/**
+ * `finale(done)`, when given, runs once the last screen has landed and before the Play again
+ * button appears — the New Move cards a run unlocked go up there (main.js) — and calls `done` when
+ * it is finished. Answers false when it has nothing to show, and the button comes straight up.
+ */
+export function showRunEnd(root, { title, reason, stats, scores = null, onRetry, finale = null }) {
   root.innerHTML = '';
   root.hidden = false;
 
@@ -591,6 +596,11 @@ export function showRunEnd(root, { title, reason, stats, scores = null, onRetry 
 
   // --- The sequence ---------------------------------------------------------
 
+  /** The last screen has landed: anything the run unlocked, then the button. */
+  function playFinale() {
+    if (!finale?.(playRetry)) playRetry();
+  }
+
   function playRetry() {
     retry.style.opacity = '';
     retry.disabled = false;
@@ -601,7 +611,7 @@ export function showRunEnd(root, { title, reason, stats, scores = null, onRetry 
   function playBoard(entries) {
     const board = buildBoard(entries, scores?.id ?? null);
     swapBody(board.node, () => {
-      beat((anims) => board.play(anims), board.duration + RETRY_GAP, playRetry);
+      beat((anims) => board.play(anims), board.duration + RETRY_GAP, playFinale);
     });
   }
 
@@ -656,7 +666,7 @@ export function showRunEnd(root, { title, reason, stats, scores = null, onRetry 
   }
 
   function afterStats() {
-    if (!scores) { playRetry(); return; }
+    if (!scores) { playFinale(); return; }
     if (scores.rank) { playEntry(); return; }
     playBoard(scores.entries);
   }
