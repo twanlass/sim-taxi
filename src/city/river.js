@@ -8,7 +8,7 @@ import {
 } from './grid.js';
 import { harborPiers, coastZ, seaInset, seaStartX, coastArcStart } from './harborplan.js';
 import { SLAB_X, KERB_H, PAVE_INSET, EDGE_FADE, FADE_RINGS } from './ground.js';
-import { patchRiverWater, patchHarborWater, getWaterStyle } from './riverwater.js';
+import { patchRiverWater, patchHarborWater, getWaterStyle, SEA_RUN_IN } from './riverwater.js';
 
 // A river running east-west through the city, and the four crossings that get over it.
 //
@@ -481,13 +481,23 @@ export function createRiver(rng, layout) {
   shell.receiveShadow = true;
   shell.name = 'river-shell';
 
-  const water = waterMesh(rng, edges);
+  // One pair of water colours for the river and the sea, so the two are one body of water at the
+  // mouth (`seaTint`).
+  const tint = {
+    deep: new THREE.Color(jitterColor(PALETTE.riverDeep, rng, { l: 0.02 })),
+    open: new THREE.Color(jitterColor(PALETTE.riverWater, rng, { l: 0.02 })),
+  };
+  const water = waterMesh(tint, edges);
   // The surface: ripples, a bed seen through it, and the far wall and the decks mirrored in it.
   // Handed the wall's colour *as built* so its reflection is the same concrete.
   patchRiverWater(water.material, {
     edges,
     banks,
     wall: wallCol,
+    // Where the channel opens into the harbor, and the basin's walls the sea mirrors.
+    sea: harborPiers()
+      ? { x0: channelEast(), z0: harborPiers().basin.z0, z1: harborPiers().basin.z1, xEnd: harborPiers().end }
+      : null,
     bridges: bridgeLines().map((i) => {
       const span = bridgeSpan(i);
       return {
@@ -501,7 +511,7 @@ export function createRiver(rng, layout) {
   group.add(shell);
   group.add(water);
   if (harborPiers()) {
-    const sea = seaMesh(rng);
+    const sea = seaMesh(tint);
     patchHarborWater(sea.material);
     group.add(sea);
   }
@@ -694,9 +704,7 @@ function shoalMix(x) {
  * costs one extra row of vertices — without it the river is a flat blue stripe, and with it the
  * walls read as holding something in.
  */
-function waterMesh(rng, edges) {
-  const deep = new THREE.Color(jitterColor(PALETTE.riverDeep, rng, { l: 0.02 }));
-  const open = new THREE.Color(jitterColor(PALETTE.riverWater, rng, { l: 0.02 }));
+function waterMesh({ deep, open }, edges) {
   // What the water shallows into: the same asphalt `riverMouthFade` builds its skirt from, so the
   // two are the same colour where one lies on top of the other.
   const bed = new THREE.Color(PALETTE.asphalt);
@@ -726,6 +734,12 @@ function waterMesh(rng, edges) {
     }
   }
   xs.push(harborBasin() ? channelEast() : ramp);
+  // Into the sea: over the last `SEA_RUN_IN` before the mouth the strip's colour turns into the
+  // sea's own, the same stretch over which the shader drops the bed to the sea's depth, so at the
+  // join both sheets are one colour. Four columns, so the linear blend follows the smoothstep.
+  const seaFrom = harborBasin() ? channelEast() : null;
+  const seaward = (x) => (seaFrom === null ? 0 : smooth01((x - (seaFrom - SEA_RUN_IN)) / SEA_RUN_IN));
+  if (seaFrom !== null) for (let k = 1; k < 5; k++) xs.push(seaFrom - (SEA_RUN_IN * k) / 4);
   const columns = xs.sort((a, b) => a - b).map((x) => ({
     x,
     y: waterHeightAt(x),
@@ -751,6 +765,8 @@ function waterMesh(rng, edges) {
     // through the shoal. That is what lets the mouth match the skirt lying over it — the thing
     // three attempts at fading the water could never do while the water stayed river-coloured.
     const c = open.clone().lerp(deep, rows[ri].deep).lerp(bed, columns[ci].shoal);
+    const toSea = seaward(columns[ci].x);
+    if (toSea > 0) c.lerp(seaTint({ deep, open }, columns[ci].x, rows[ri].z), toSea);
     pos.push(columns[ci].x, columns[ci].y, rows[ri].z);
     col.push(c.r, c.g, c.b, columns[ci].a);
   };
@@ -792,6 +808,13 @@ function waterMesh(rng, edges) {
   return mesh;
 }
 
+const smooth01 = (t) => { const c = Math.max(0, Math.min(1, t)); return c * c * (3 - 2 * c); };
+
+/** The sea's colour at (x, z): open water near the rim, deepening over 30 units in from it. */
+function seaTint({ deep, open }, x, z) {
+  return open.clone().lerp(deep, smooth01(seaInset(x, z) / 30));
+}
+
 /**
  * The sea east of the city, which the harbor's piers and seawall stand in (city/harborplan.js).
  *
@@ -803,9 +826,7 @@ function waterMesh(rng, edges) {
  * The channel itself keeps its own strip up to the basin's back wall; this skips that rectangle,
  * since two translucent sheets over one patch would draw it twice as dark.
  */
-function seaMesh(rng) {
-  const deep = new THREE.Color(jitterColor(PALETTE.riverDeep, rng, { l: 0.02 }));
-  const open = new THREE.Color(jitterColor(PALETTE.riverWater, rng, { l: 0.02 }));
+function seaMesh(tint) {
   const { basin } = harborPiers();
   const banks = riverBanks();
   const hd = coastZ();
@@ -842,7 +863,7 @@ function seaMesh(rng) {
   // rim, so it stays at sea level and its own colour and simply dissolves into the sky.
   const at = (x, z) => {
     const inset = seaInset(x, z);
-    const c = open.clone().lerp(deep, smooth(inset / 30));
+    const c = seaTint(tint, x, z);
     return { y: WATER_Y, c, a: (1 - smooth(-inset / EDGE_FADE)) * underlap(x, z) };
   };
   const pos = [];
