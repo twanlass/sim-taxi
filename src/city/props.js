@@ -473,8 +473,11 @@ function benchParts(x, z, y, yaw, rng) {
  * separately-pivoting limbs with materials of their own, so a running cycle can move them — and
  * what is needed here is geometry that merges into the city's one props mesh and never moves
  * again. It keeps the rig's proportions and one raised arm, which is all the silhouette needs.
+ *
+ * Exported for the graveyard (city/graveyard.js), which stands one on its lawn. The park's own
+ * statue is still the only one `planParkFurniture` places.
  */
-function statueParts(x, z, y, rng) {
+export function statueParts(x, z, y, rng) {
   const parts = [];
   const stone = jitterColor(PALETTE.statueStone, rng, { l: 0.02 });
   const plinth = jitterColor(PALETTE.statuePlinth, rng, { l: 0.02 });
