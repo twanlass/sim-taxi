@@ -432,7 +432,7 @@ export const HARBOR = typeof location !== 'undefined'
 /** The island's margin past each ring road, before the fade. Owned here so the harbor can measure from it. */
 export const SLAB_MARGIN = ROAD_W * 3;
 /** How much further the island reaches east of the old coast to hold the harbor. */
-export const HARBOR_REACH = HARBOR ? 30 : 0;
+export const HARBOR_REACH = HARBOR ? 40 : 0;
 /** The old coast, measured from the origin, on either side. */
 export const COAST_X = (SPAN_X + SLAB_MARGIN) / 2;
 /** Where the island ends to the west and to the east. Only the east one moves. */
@@ -442,10 +442,12 @@ export const coastEast = () => COAST_X + HARBOR_REACH;
 // Enough for the ring bridge's footway (1.4) and a short walled run, so the river visibly *arrives*
 // at the basin rather than the bridge standing in it.
 const HARBOR_INLET = 9;
-// The basin's half-width in z, measured from the channel's centre line. Two of the 20-unit pitch
-// would reach the next road line; this stops 4 short of it so the yards either side keep room for
-// a crane's legs and a row of containers between the quay edge and the ring road's corner.
-const HARBOR_HALF = 15;
+// The basin's half-width in z, measured from the channel's centre line: 48 across, a little over
+// two blocks. It opened at 30 and Tyler asked for "moar water" — at 30 the yards were the bigger
+// thing and the dock read as a wide canal. 24 still leaves the yards either side 36 deep in the
+// big city (16 in classic, where the river row sits off-centre), room for the cranes' legs and a
+// container block behind them.
+const HARBOR_HALF = 24;
 
 /**
  * The dock basin, or null when there is no harbor (classic, or a city with no river).

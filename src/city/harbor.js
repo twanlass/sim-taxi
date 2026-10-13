@@ -313,7 +313,7 @@ export function createHarbor(rng) {
     rail.translate(basin.x0 + 1 + railLen / 2, topY + 0.01, craneZ + dz);
     parts.push(bakeColor(rail, PALETTE.craneDark));
   }
-  const cranes = 3;
+  const cranes = 4;
   const craneMid = basin.x0 + len * 0.45;
   for (let k = 0; k < cranes; k++) {
     const cx = craneMid + (k - (cranes - 1) / 2) * CRANE_PITCH;

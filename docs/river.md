@@ -272,8 +272,8 @@ Measured the same way afterwards, the mouth tracks the coast to within 1–2 lum
 `HARBOR=classic` for the headless tools) keeps the old east mouth.
 
 The river used to run under the east ring bridge, along a few units of walled channel, and stop under
-the island's rim. Now the island reaches `HARBOR_REACH` (30) further east, and nine units past the ring
-road's kerb the channel opens into a dock basin 30 units across that runs out to sea. The far quay
+the island's rim. Now the island reaches `HARBOR_REACH` (40) further east, and nine units past the ring
+road's kerb the channel opens into a dock basin 48 units across that runs out to sea. The far quay
 carries three gantry cranes with a container ship moored under them, and there is a container
 yard on each side.
 
