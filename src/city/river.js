@@ -4,9 +4,10 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import {
   GRID_I, GRID_J, lineX, lineZ, halfRoadZ, riverBanks, riverRow, segmentKey,
+  harborBasin, coastEast, coastWest,
 } from './grid.js';
 import { SLAB_X, KERB_H, PAVE_INSET, EDGE_FADE, FADE_RINGS } from './ground.js';
-import { patchRiverWater, getWaterStyle } from './riverwater.js';
+import { patchRiverWater, patchHarborWater, getWaterStyle } from './riverwater.js';
 
 // A river running east-west through the city, and the four crossings that get over it.
 //
@@ -382,6 +383,14 @@ const FLAT = Object.freeze({ y: 0, dydz: 0, toCrest: Infinity });
  * runs out past the coast is the river alone, tucked under the skirt that closes each mouth.
  */
 const BANK_REACH = () => SLAB_X / 2;
+/**
+ * How far the island reaches on the side of the map `x` is on. The two used to be the same
+ * number (`BANK_REACH`); the harbor moved the east coast out, so anything measuring "how far
+ * through the mouth is this" asks per side.
+ */
+export const coastFor = (x) => (x < 0 ? -coastWest() : coastEast());
+/** Where the channel's own walls, walk and water stop to the east: the basin, or the coast. */
+const channelEast = () => harborBasin()?.x0 ?? BANK_REACH();
 
 /**
  * The channel: two walls, two parapets, and the water between them.
@@ -411,9 +420,10 @@ export function createRiver(rng, layout) {
   // diagonal, so the south wall shows its +Z face and the north wall is looked *over*. The unseen
   // one still has to exist, because the sun moves all day and the shadow pass is rendered from
   // wherever it happens to be.
+  const east = channelEast();
   for (const [z, facing] of [[edges.z0, 1], [edges.z1, -1]]) {
-    const wall = new THREE.PlaneGeometry(bank * 2, KERB_H - WATER_Y + WALL_FOOT);
-    wall.translate(0, KERB_H - (KERB_H - WATER_Y + WALL_FOOT) / 2, 0);
+    const wall = new THREE.PlaneGeometry(bank + east, KERB_H - WATER_Y + WALL_FOOT);
+    wall.translate((east - bank) / 2, KERB_H - (KERB_H - WATER_Y + WALL_FOOT) / 2, 0);
     if (facing < 0) wall.rotateY(Math.PI);
     wall.translate(0, 0, z);
     solid.push(bakeColor(wall, wallCol));
@@ -430,7 +440,7 @@ export function createRiver(rng, layout) {
   });
   for (const [kerbZ, waterZ] of [[banks.z0, edges.z0], [banks.z1, edges.z1]]) {
     const mid = (kerbZ + waterZ) / 2;
-    for (const [x0, x1] of runsBetween(-bank, bank, gaps)) {
+    for (const [x0, x1] of runsBetween(-bank, east, gaps)) {
       const w = x1 - x0;
       if (w < 0.05) continue;
       const platform = new THREE.BoxGeometry(w, KERB_H, EMBANK_WALK);
@@ -472,6 +482,12 @@ export function createRiver(rng, layout) {
   });
   group.add(shell);
   group.add(water);
+  const basin = harborBasin();
+  if (basin) {
+    const dock = basinWaterMesh(rng, basin);
+    patchHarborWater(dock.material, basin, edges);
+    group.add(dock);
+  }
   const mouths = riverMouthFade();
   if (mouths) group.add(mouths);
 
@@ -517,7 +533,7 @@ function riverMouthFade() {
   // the light one used to be.
   const edges = waterEdges();
   for (const [za, zb] of [[banks.z0, edges.z0], [edges.z1, banks.z1]]) {
-    for (const side of [-1, 1]) {
+    for (const side of harborBasin() ? [-1] : [-1, 1]) {
       const from = side * (SLAB_X / 2);
       for (let ring = 0; ring < FADE_RINGS; ring++) {
         const t0 = ring / FADE_RINGS;
@@ -619,14 +635,14 @@ export function waterHeightAt(x) {
 
 /** How far through the *fade* a world x is: 0 at the coast, 1 where the island has gone entirely. */
 function fadeMix(x) {
-  const t = Math.max(0, Math.min(1, (Math.abs(x) - BANK_REACH()) / EDGE_FADE));
+  const t = Math.max(0, Math.min(1, (Math.abs(x) - coastFor(x)) / EDGE_FADE));
   return t * t * (3 - 2 * t);
 }
 
 /** How far through the shoal a world x is: 0 in the deep channel, 1 at the coast and beyond. */
 function shoalMix(x) {
   const t = Math.max(0, Math.min(1,
-    (Math.abs(x) - (BANK_REACH() - MOUTH_SHOAL)) / MOUTH_SHOAL));
+    (Math.abs(x) - (coastFor(x) - MOUTH_SHOAL)) / MOUTH_SHOAL));
   // Smoothstepped rather than linear so the deep water leaves flat and the ramp has no crease at
   // its top where it meets the level stretch.
   return t * t * (3 - 2 * t);
@@ -680,13 +696,16 @@ function waterMesh(rng, edges) {
   // but sky, so at the tip the fade opened a hole rather than dissolving into haze — luma 211
   // against the 82 of the ground beside it. Now the water is the thing that fades, on the skirt's
   // own band and the skirt's own curve, and by then it is the skirt's own colour too.
-  const xs = [-ramp, ramp];
-  for (const side of [-1, 1]) {
+  // With a harbor the channel's east end is the basin's back wall, deep and opaque: the basin's
+  // own strip (`basinWaterMesh`) takes over there and does the shoaling out to the east coast.
+  const xs = [-ramp];
+  for (const side of harborBasin() ? [-1] : [-1, 1]) {
     xs.push(side * bank);
     for (let ring = 1; ring <= FADE_RINGS; ring++) {
       xs.push(side * (bank + (EDGE_FADE * ring) / FADE_RINGS));
     }
   }
+  xs.push(harborBasin() ? channelEast() : ramp);
   const columns = xs.sort((a, b) => a - b).map((x) => ({
     x,
     y: waterHeightAt(x),
@@ -750,6 +769,53 @@ function waterMesh(rng, edges) {
   // *on* the road; the water is two units under it and must never sort in front of a mark up there.
   mesh.renderOrder = -2;
   mesh.name = 'river-water';
+  return mesh;
+}
+
+/**
+ * The harbor basin's water: the river's strip at the width of the dock, from the back wall out
+ * through the east mouth. Built the river's way — opaque to the coast, shoaling into the ground's
+ * colour over `MOUTH_SHOAL` and dissolving on the skirt's band — so the dock's mouth meets the
+ * island's rim exactly as the old river mouth did, just thirty units wide instead of nine.
+ */
+function basinWaterMesh(rng, basin) {
+  const deep = new THREE.Color(jitterColor(PALETTE.riverDeep, rng, { l: 0.02 }));
+  const open = new THREE.Color(jitterColor(PALETTE.riverWater, rng, { l: 0.02 }));
+  const bed = new THREE.Color(PALETTE.asphalt);
+  const coast = basin.x1;
+  const xs = [basin.x0, coast - MOUTH_SHOAL, coast - MOUTH_SHOAL / 2, coast];
+  for (let ring = 1; ring <= FADE_RINGS; ring++) xs.push(coast + (EDGE_FADE * ring) / FADE_RINGS);
+  const columns = xs.map((x) => ({ x, y: waterHeightAt(x), shoal: shoalMix(x), a: 1 - fadeMix(x) }));
+  const rows = [0, 0.25, 0.5, 0.75, 1].map((u) => ({
+    z: basin.z0 + u * (basin.z1 - basin.z0), deep: Math.sin(Math.PI * u),
+  }));
+
+  const pos = [];
+  const col = [];
+  const vertex = (ci, ri) => {
+    const c = open.clone().lerp(deep, rows[ri].deep).lerp(bed, columns[ci].shoal);
+    pos.push(columns[ci].x, columns[ci].y, rows[ri].z);
+    col.push(c.r, c.g, c.b, columns[ci].a);
+  };
+  // Wound to face up, as `waterMesh` is.
+  for (let ci = 0; ci < columns.length - 1; ci++) {
+    for (let ri = 0; ri < rows.length - 1; ri++) {
+      vertex(ci, ri); vertex(ci, ri + 1); vertex(ci + 1, ri + 1);
+      vertex(ci, ri); vertex(ci + 1, ri + 1); vertex(ci + 1, ri);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 4));
+  geo.computeVertexNormals();
+
+  const material = propMaterial({ ao: false });
+  material.transparent = true;
+  material.depthWrite = false;
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.receiveShadow = true;
+  mesh.renderOrder = -2;
+  mesh.name = 'harbor-water';
   return mesh;
 }
 

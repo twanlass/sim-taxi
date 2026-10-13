@@ -532,6 +532,92 @@ export function patchPondWater(material, pond) {
   return material;
 }
 
+// --- The harbor basin --------------------------------------------------------
+//
+// The dock the river opens into at its east mouth (city/harbor.js). The pond's compose with a
+// rectangle where the pond has its lobed outline: the bed shelves in from the three quay walls and
+// stays deep out towards the open east, where the basin runs off the coast under the island's rim.
+// The channel's own mouth in the back wall is not a wall, so the shelf skips it there.
+//
+// Deeper than the river and with a wider shelf: a dock is dredged for ships, and at 30 units across
+// the river's 0.45 margin would be a hairline round a flat sheet.
+
+const BASIN_BED_EDGE = 0.6;
+const BASIN_BED_MID = 4.0;
+const BASIN_SHELF_W = 4.0;
+
+const HARBOR_UNIFORMS = {
+  // x0, z0, z1 of the basin, and the coast x where it starts to shoal.
+  uBasin: { value: new THREE.Vector4() },
+  // The channel's two water edges, where it opens through the back wall.
+  uInlet: { value: new THREE.Vector2() },
+};
+
+const basinCompose = () => /* glsl */ `
+  {
+    vec3 V = normalize(vec3(viewMatrix[0].z, viewMatrix[1].z, viewMatrix[2].z));
+
+    vec2 p = vWaterWorld.xz;
+    float inInlet = step(uInlet.x, p.y) * step(p.y, uInlet.y);
+    float back = mix(p.x - uBasin.x, 1e3, inInlet);
+    float edge = max(min(back, min(p.y - uBasin.y, uBasin.z - p.y)), 0.0);
+    float shelf = smoothstep(0.0, ${num(BASIN_SHELF_W)}, edge);
+    float depth = mix(${num(BASIN_BED_EDGE)}, ${num(BASIN_BED_MID)}, shelf);
+    // Out through the mouth the bed rises with the water (city/river.js, the shoal), exactly as
+    // the river's own does, so the surface eases into the colour under the island's rim.
+    depth *= waterWet;
+
+    vec3 rd = refract(-V, waterN, 0.7518797);
+    float s = depth / max(-rd.y, 1e-3);
+    vec3 seen = vWaterWorld + rd * s;
+    vec2 cell = floor(seen.xz * 1.3);
+    vec3 under = uWaterBed * (0.75 + 0.5 * waterHash(cell).x);
+    vec3 irr = outgoingLight / max(diffuseColor.rgb, vec3(0.02));
+    under *= irr + waterSun * RECIPROCAL_PI * ${num(CAUSTIC)} * waterCaustic(seen.xz);
+    vec3 T = exp(-vec3(${ABSORB.map(num).join(', ')}) * s);
+    vec3 body = mix(outgoingLight, under, T);
+
+    float cosT = saturate(dot(waterN, V));
+    float fres = ${num(F0)} + ${num(1 - F0)} * pow(1.0 - cosT, 5.0);
+    fres = ${num(REFLECT_FLOOR)} + ${num(1 - REFLECT_FLOOR)} * fres;
+    fres = max(fres, ${num(RIM_REFLECT)} * (1.0 - smoothstep(0.0, ${num(RIM_W)}, edge)));
+    vec3 water = mix(body, uWaterSky, fres) + waterSpec * ${num(GLINT)};
+    water += uWaterSky * ${num(RIM_GLOW)} * (1.0 - smoothstep(0.0, ${num(RIM_GLOW_W)}, edge));
+    outgoingLight = mix(outgoingLight, water, waterWet);
+  }
+`;
+
+/**
+ * Layer the river's surface onto the harbor basin's water.
+ *
+ * @param material  the basin's `propMaterial` — its existing `onBeforeCompile` runs first.
+ * @param basin     `harborBasin()`.
+ * @param edges     `waterEdges()`, for the channel's mouth in the back wall.
+ */
+export function patchHarborWater(material, basin, edges) {
+  HARBOR_UNIFORMS.uBasin.value.set(basin.x0, basin.z0, basin.z1, basin.x1);
+  HARBOR_UNIFORMS.uInlet.value.set(edges.z0, edges.z1);
+
+  const inner = material.onBeforeCompile;
+  const innerKey = material.customProgramCacheKey();
+  material.customProgramCacheKey = () => `${innerKey}-harbor`;
+  material.onBeforeCompile = (shader, renderer) => {
+    inner(shader, renderer);
+    Object.assign(shader.uniforms, UNIFORMS, HARBOR_UNIFORMS);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWaterWorld;')
+      .replace('#include <project_vertex>',
+        '#include <project_vertex>\nvWaterWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <lights_lambert_pars_fragment>',
+        `#include <lights_lambert_pars_fragment>\n${header()}\nuniform vec4 uBasin;\nuniform vec2 uInlet;`)
+      .replace('#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>\n${normalPatch(riverWet())}`)
+      .replace('#include <opaque_fragment>', `${basinCompose()}\n#include <opaque_fragment>`);
+  };
+  return material;
+}
+
 /** Where the drawbridge's leaf is, 0 down to 1 up — so its deck can leave the reflection. */
 export function bindRiverDrawbridge(getLift) {
   drawLift = getLift;

@@ -11,7 +11,8 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { pointInPolygon } from '../src/city/curves.js';
-import { isParkwayMid } from '../src/city/grid.js';
+import { isParkwayMid, coastWest, coastEast, harborBasin, HARBOR } from '../src/city/grid.js';
+import { createHarbor } from '../src/city/harbor.js';
 import { createLayout } from '../src/city/layout.js';
 import {
   createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
@@ -277,10 +278,12 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
 {
   const fade = ground.children.find((c) => c.name === 'asphalt-fade');
   // Signed distance to the rounded-square outline: 0 on the edge, positive outside.
-  const insetX = SLAB_X / 2 - SLAB_RADIUS;
+  // Off-centre in x once the harbor has pushed the east coast out (`coastEast`, grid.js).
+  const cx = (coastWest() + coastEast()) / 2;
+  const insetX = (coastEast() - coastWest()) / 2 - SLAB_RADIUS;
   const insetZ = SLAB_Z / 2 - SLAB_RADIUS;
   const edgeDist = (x, z) => Math.hypot(
-    Math.max(Math.abs(x) - insetX, 0), Math.max(Math.abs(z) - insetZ, 0),
+    Math.max(Math.abs(x - cx) - insetX, 0), Math.max(Math.abs(z) - insetZ, 0),
   ) - SLAB_RADIUS;
 
   const pos = fade?.geometry.attributes.position;
@@ -18439,7 +18442,9 @@ let chopperOrder; // likewise
   // whole fade band so the skirt is never dissolving over open sky.
   {
     const mid = waterHeightAt(0);
-    const coast = waterHeightAt(rBanks ? SLAB_X / 2 : 0);
+    // The east mouth is the harbor's, out at `coastEast`; the west one is still the river's own.
+    const coast = Math.max(Math.abs(waterHeightAt(rBanks ? coastWest() : 0)),
+      Math.abs(waterHeightAt(rBanks ? coastEast() : 0)));
     check('the channel is at full depth down the length of the city',
       Math.abs(mid - WATER_Y) < 1e-9, `${mid.toFixed(2)} against ${WATER_Y}`);
     check('and has risen to meet the ground by the coast',
@@ -18492,6 +18497,86 @@ let chopperOrder; // likewise
       landed.map((ok) => (ok ? 'y' : 'n')).join(''));
     check('and the water does not share a program with an unpatched prop',
       /-river-(smooth|classic)$/.test(wm.customProgramCacheKey()), wm.customProgramCacheKey());
+  }
+
+  // --- The harbor (city/harbor.js): the dock the river opens into at its east mouth.
+  //
+  // Everything here is scenery past the ring road, so what can go wrong is geometry: a wall facing
+  // away from the water renders nothing (the wake's trap, CLAUDE.md), a ship through its own quay,
+  // a slab still lying over the basin and hiding it, or the dock's water wound upside down.
+  {
+    const basin = harborBasin();
+    // `HARBOR=classic` is the old mouth, and asserts that it really is gone rather than skipping.
+    if (!HARBOR) check('harbor: classic has no dock basin', basin === null, basin ? 'still built' : 'none');
+    else check('harbor: the city has a dock basin at the east mouth', !!basin && basin.x0 > HALF_SPAN_X,
+      basin ? `basin ${basin.x0.toFixed(1)}..${basin.x1.toFixed(1)} x, ${basin.z0.toFixed(1)}..${basin.z1.toFixed(1)} z` : 'none');
+    if (basin) {
+      const hb = createHarbor(makeRng(seed + 47));
+      check('harbor: builds', !!hb?.mesh && hb.mesh.geometry.attributes.position.count > 0,
+        hb ? `${hb.mesh.geometry.attributes.position.count / 3} triangles` : 'null');
+
+      // The quay walls face the water, from the winding: the far quay +z, the near one -z.
+      const hp = hb.mesh.geometry.attributes.position;
+      const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+      const n = new THREE.Vector3();
+      let farWall = 0; let nearWall = 0; let wrong = 0;
+      for (let t = 0; t < hp.count; t += 3) {
+        a.fromBufferAttribute(hp, t); b.fromBufferAttribute(hp, t + 1); c.fromBufferAttribute(hp, t + 2);
+        if (Math.min(a.y, b.y, c.y) > WATER_Y - 0.1) continue;      // only the walls reach that low
+        n.subVectors(b, a).cross(c.clone().sub(a)).normalize();
+        const z = (a.z + b.z + c.z) / 3;
+        if (Math.abs(z - basin.z0) < 1e-4) { farWall += 1; if (n.z < 0.99) wrong += 1; }
+        if (Math.abs(z - basin.z1) < 1e-4) { nearWall += 1; if (n.z > -0.99) wrong += 1; }
+      }
+      check('harbor: both quay walls are wound to face the water', farWall > 0 && nearWall > 0 && wrong === 0,
+        `${farWall} far, ${nearWall} near, ${wrong} facing away`);
+
+      // Nothing of the ship or the cranes stands in the quay wall's plane below the deck: the hull
+      // is held off the far wall by its fenders.
+      const box = new THREE.Box3();
+      let hullClear = Infinity;
+      for (let t = 0; t < hp.count; t++) {
+        const y = hp.getY(t);
+        const x = hp.getX(t);
+        const z = hp.getZ(t);
+        if (y < WATER_Y + 0.5 && y > WATER_Y - 1 && x > basin.x0 + 0.5 && z > basin.z0 + 1e-3 && z < basin.z1) {
+          hullClear = Math.min(hullClear, z - basin.z0);
+        }
+        box.expandByPoint(new THREE.Vector3(x, y, z));
+      }
+      check('harbor: the moored ship lies off the quay wall, not through it',
+        hullClear > 0.3 && hullClear < 2, `${hullClear.toFixed(2)} off the wall`);
+      check('harbor: nothing in it stands west of the ring road\'s kerb',
+        box.min.x >= basin.kerbX - 1e-6, `${box.min.x.toFixed(2)} against kerb ${basin.kerbX.toFixed(2)}`);
+
+      // The slab does not cover the basin: no ground triangle has its centre over the dock's water.
+      const gp = ground.geometry.attributes.position;
+      let overDock = 0;
+      for (let t = 0; t < gp.count; t += 3) {
+        const x = (gp.getX(t) + gp.getX(t + 1) + gp.getX(t + 2)) / 3;
+        const z = (gp.getZ(t) + gp.getZ(t + 1) + gp.getZ(t + 2)) / 3;
+        if (x > basin.x0 + 0.1 && x < basin.x1 && z > basin.z0 + 0.1 && z < basin.z1 - 0.1) overDock += 1;
+      }
+      check('harbor: the island\'s slab is cut away over the basin', overDock === 0,
+        `${overDock} ground triangles over the dock`);
+
+      // The dock's water faces up, from its winding.
+      const rh = createRiver(makeRng(seed + 12), layout);
+      const dock = rh.group.getObjectByName('harbor-water');
+      let down = 0;
+      const dp = dock?.geometry.attributes.position;
+      for (let t = 0; dp && t < dp.count; t += 3) {
+        a.fromBufferAttribute(dp, t); b.fromBufferAttribute(dp, t + 1); c.fromBufferAttribute(dp, t + 2);
+        n.subVectors(b, a).cross(c.clone().sub(a));
+        if (n.y <= 0) down += 1;
+      }
+      check('harbor: the dock\'s water is wound to face up', !!dock && down === 0,
+        dock ? `${down} of ${dp.count / 3} facing down` : 'missing');
+      // And it shoals to the ground by the east coast, like the river's own mouth.
+      check('harbor: the dock shoals to the ground at the coast',
+        Math.abs(waterHeightAt(basin.x1)) < 1e-9 && Math.abs(waterHeightAt(basin.x0) - WATER_Y) < 1e-9,
+        `${waterHeightAt(basin.x0).toFixed(2)} at the back wall, ${waterHeightAt(basin.x1).toFixed(3)} at the coast`);
+    }
   }
 
   // --- The paint does not sink into the hump.

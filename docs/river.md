@@ -266,6 +266,41 @@ Measured the same way afterwards, the mouth tracks the coast to within 1–2 lum
 > whatever was behind it. `propMaterial({ ao: false })` is the opt-out. The asphalt's own fade skirt
 > has the same hole and gets away with it only because nothing stands near it.
 
+## The harbor
+
+`src/city/harbor.js`, placed by `harborBasin()` in `grid.js`. Default; `?harbor=classic` (and
+`HARBOR=classic` for the headless tools) keeps the old east mouth.
+
+The river used to run under the east ring bridge, along a few units of walled channel, and stop under
+the island's rim. Now the island reaches `HARBOR_REACH` (30) further east, and nine units past the ring
+road's kerb the channel opens into a dock basin 30 units across that runs out to sea. The far quay
+carries three gantry cranes with a container ship moored under them, and there is a container
+yard on each side.
+
+**East, because east is the near edge.** The camera looks down the −x−z diagonal, so +x is the lower
+right of the screen. The harbor sits in front of the city rather than behind its towers, and a
+crane's height (about 12 to the apex, hiding ~13 units of ground behind it) is thrown up-screen over
+its own yard rather than over the streets. For the same reason the cranes and the ship are on the
+**far** (−z) quay: that quay wall is the one that faces the camera across the water, so the ship sits
+in front of a lit wall.
+
+**Nothing in the grid moved.** The harbor is all outside the ring road, so the road network, routing,
+fares and every probe staging see the same city. The waterfront drive is the east ring road, and its
+junctions already take riders.
+
+What had to learn about it:
+
+| | |
+|---|---|
+| The slab (`ground.js`) | Runs from `coastWest()` to `coastEast()` rather than ±`SLAB_X/2`. Each half loses a rectangle where the basin is, and `asphaltFade` treats the basin's three walls as cuts. Only the basin's mouth, out past the coast, is open. |
+| The water (`river.js`) | The channel's walls, walk and water stop at the basin's back wall. The basin has its own strip (`basinWaterMesh`) that shoals and fades through the east mouth exactly the way the old river mouth did, and its own surface patch (`patchHarborWater`): the pond's compose with a rectangle for an outline. |
+| The coast (`coastFor`) | The shoal, the water's fade, and where boats spawn, fade and retire are all measured per side now. |
+| The camera | Manual panning reaches 0.7 × `HARBOR_REACH` further east, so a phone in portrait can see the ship. |
+
+Shots 48 (`harbor`) and 49 (`harbor-far`) frame it. `tools/probe.mjs` asserts that the quay walls face
+the water, that the ship is held off its quay, that no slab lies over the basin, that the dock's water
+faces up, and that the dock shoals to the ground at the coast.
+
 ## The surface
 
 `src/city/riverwater.js`, layered over `propMaterial`'s own patch on the water strip. Ripples,

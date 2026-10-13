@@ -6,7 +6,7 @@ import { centralParkGround } from './centralpark.js';
 import {
   GRID_I, GRID_J, ROAD_W, SPAN_X, SPAN_Z, lineX, lineZ,
   isUnsignalised, isSegmentClosed, halfRoadX, halfRoadZ, isArterialX, isArterialZ,
-  isRiverGap, riverBanks, medianRuns, MEDIAN_W,
+  isRiverGap, riverBanks, medianRuns, MEDIAN_W, SLAB_MARGIN, coastWest, coastEast, harborBasin,
 } from './grid.js';
 
 const KERB_H = 0.35;
@@ -139,7 +139,7 @@ export const MEDIAN_EDGE = PAVE_INSET;
 // The island is a **rectangle**, not a square: the two axes carry different numbers of blocks
 // since the city grew a row for the river. Same margin off the outer roads on both, which is what
 // keeps the apron reading as one border rather than two.
-const SLAB_MARGIN = ROAD_W * 3;
+// (`SLAB_MARGIN` itself lives in grid.js now, beside the harbor that reaches past it.)
 export const SLAB_X = SPAN_X + SLAB_MARGIN;
 export const SLAB_Z = SPAN_Z + SLAB_MARGIN;
 
@@ -169,20 +169,19 @@ export const FADE_RINGS = 4;
  * from. Shape-space y maps to world **−z** under the `rotateX(-π/2)` every flat surface here is
  * laid with, and the outline is symmetric in both axes, so `d` can be passed straight in.
  */
-function slabShape(w, d, radius) {
-  const hw = w / 2;
+function slabShape(x0, x1, d, radius) {
   const hd = d / 2;
   const shape = new THREE.Shape();
 
-  shape.moveTo(-hw + radius, -hd);
-  shape.lineTo(hw - radius, -hd);
-  shape.absarc(hw - radius, -hd + radius, radius, -Math.PI / 2, 0, false);
-  shape.lineTo(hw, hd - radius);
-  shape.absarc(hw - radius, hd - radius, radius, 0, Math.PI / 2, false);
-  shape.lineTo(-hw + radius, hd);
-  shape.absarc(-hw + radius, hd - radius, radius, Math.PI / 2, Math.PI, false);
-  shape.lineTo(-hw, -hd + radius);
-  shape.absarc(-hw + radius, -hd + radius, radius, Math.PI, Math.PI * 1.5, false);
+  shape.moveTo(x0 + radius, -hd);
+  shape.lineTo(x1 - radius, -hd);
+  shape.absarc(x1 - radius, -hd + radius, radius, -Math.PI / 2, 0, false);
+  shape.lineTo(x1, hd - radius);
+  shape.absarc(x1 - radius, hd - radius, radius, 0, Math.PI / 2, false);
+  shape.lineTo(x0 + radius, hd);
+  shape.absarc(x0 + radius, hd - radius, radius, Math.PI / 2, Math.PI, false);
+  shape.lineTo(x0, -hd + radius);
+  shape.absarc(x0 + radius, -hd + radius, radius, Math.PI, Math.PI * 1.5, false);
 
   return shape;
 }
@@ -202,8 +201,7 @@ function slabShape(w, d, radius) {
  *
  * `rotateX(-PI/2)` maps shape-space y onto world **-z**, which is why the cut goes in negated.
  */
-function slabPieceShape(w, d, radius, cutZ, keep) {
-  const hw = w / 2;
+function slabPieceShape(x0, x1, d, radius, cutZ, keep, basin) {
   const hd = d / 2;
   const cut = -cutZ;
   const shape = new THREE.Shape();
@@ -212,34 +210,52 @@ function slabPieceShape(w, d, radius, cutZ, keep) {
   // starting from the corner nearest shape -x-y. Matching it is not cosmetic: `asphaltFade` walks
   // this outline to build its skirt, and a piece wound the other way would send every one of its
   // outward normals inward.
+  //
+  // With a harbor the east end of each cut steps out to the basin's quay wall: the channel opens
+  // into the dock at `basin.x0` and the basin runs off the east coast, so each piece loses a
+  // rectangle out of the corner it shares with the cut. Still a simple polygon, still wound the
+  // same way round.
   if (keep === 'north') {
     // World z above the cut is shape-y *below* it, so the northern piece is the lower region.
-    shape.moveTo(-hw + radius, -hd);
-    shape.lineTo(hw - radius, -hd);
-    shape.absarc(hw - radius, -hd + radius, radius, -Math.PI / 2, 0, false);
-    shape.lineTo(hw, cut);
-    shape.lineTo(-hw, cut);
-    shape.lineTo(-hw, -hd + radius);
-    shape.absarc(-hw + radius, -hd + radius, radius, Math.PI, Math.PI * 1.5, false);
+    shape.moveTo(x0 + radius, -hd);
+    shape.lineTo(x1 - radius, -hd);
+    shape.absarc(x1 - radius, -hd + radius, radius, -Math.PI / 2, 0, false);
+    if (basin) {
+      shape.lineTo(x1, -basin.z1);
+      shape.lineTo(basin.x0, -basin.z1);
+      shape.lineTo(basin.x0, cut);
+    } else {
+      shape.lineTo(x1, cut);
+    }
+    shape.lineTo(x0, cut);
+    shape.lineTo(x0, -hd + radius);
+    shape.absarc(x0 + radius, -hd + radius, radius, Math.PI, Math.PI * 1.5, false);
   } else {
-    shape.moveTo(-hw, cut);
-    shape.lineTo(hw, cut);
-    shape.lineTo(hw, hd - radius);
-    shape.absarc(hw - radius, hd - radius, radius, 0, Math.PI / 2, false);
-    shape.lineTo(-hw + radius, hd);
-    shape.absarc(-hw + radius, hd - radius, radius, Math.PI / 2, Math.PI, false);
-    shape.lineTo(-hw, cut);
+    shape.moveTo(x0, cut);
+    if (basin) {
+      shape.lineTo(basin.x0, cut);
+      shape.lineTo(basin.x0, -basin.z0);
+      shape.lineTo(x1, -basin.z0);
+    } else {
+      shape.lineTo(x1, cut);
+    }
+    shape.lineTo(x1, hd - radius);
+    shape.absarc(x1 - radius, hd - radius, radius, 0, Math.PI / 2, false);
+    shape.lineTo(x0 + radius, hd);
+    shape.absarc(x0 + radius, hd - radius, radius, Math.PI / 2, Math.PI, false);
+    shape.lineTo(x0, cut);
   }
   return shape;
 }
 
 /** The island's outlines: one shape, or two with the river between them. */
-function slabShapes(w, d, radius) {
+function slabShapes(x0, x1, d, radius) {
   const banks = riverBanks();
-  if (!banks) return [slabShape(w, d, radius)];
+  if (!banks) return [slabShape(x0, x1, d, radius)];
+  const basin = harborBasin();
   return [
-    slabPieceShape(w, d, radius, banks.z1, 'north'),
-    slabPieceShape(w, d, radius, banks.z0, 'south'),
+    slabPieceShape(x0, x1, d, radius, banks.z1, 'north', basin),
+    slabPieceShape(x0, x1, d, radius, banks.z0, 'south', basin),
   ];
 }
 
@@ -263,7 +279,7 @@ function roundedSlab(shape) {
  * both come from `extractPoints` on the same Shape, so there is no seam to leak sky through at
  * the corner arcs — where a hand-sampled ring would drift from Three's own tessellation.
  */
-function asphaltFade(shape, w, d, radius) {
+function asphaltFade(shape, x0, x1, d, radius) {
   const outline = shape.extractPoints(SLAB_SEGMENTS).shape;
   // The path closes on its start point, which would otherwise give the wrap-around a zero-width quad.
   if (outline[outline.length - 1].distanceTo(outline[0]) < 1e-9) outline.pop();
@@ -276,19 +292,26 @@ function asphaltFade(shape, w, d, radius) {
   // Detected by height rather than by being handed the cut: `extractPoints` re-samples the shape
   // and hands back a plain point list with no idea which segment came from where, so the geometry
   // is the only thing left to ask.
+  //
+  // The harbor's basin is inside in the same sense: its back wall and both quays are cuts, and
+  // only its mouth, out past the east coast, is open to the sky.
   const banks = riverBanks();
+  const basin = harborBasin();
+  const near = (a, b) => Math.abs(a - b) < 1e-6;
+  const onBasin = (x, z) => basin !== null && (
+    ((near(z, basin.z0) || near(z, basin.z1)) && x >= basin.x0 - 1e-6)
+    || (near(x, basin.x0) && z >= basin.z0 - 1e-6 && z <= basin.z1 + 1e-6));
   const onCut = banks
-    ? outline.map((p) => Math.abs(-p.y - banks.z0) < 1e-6 || Math.abs(-p.y - banks.z1) < 1e-6)
+    ? outline.map((p) => near(-p.y, banks.z0) || near(-p.y, banks.z1) || onBasin(p.x, -p.y))
     : outline.map(() => false);
 
   // Outward normal of a rounded rectangle in one expression: clamp the point into the box the
   // corner arcs are centred on, and the direction back out to it is the edge normal along a
   // straight and the arc's own radius around a corner. (The two are never equal — every outline
   // point sits exactly `radius` from that box — so there is no zero-length case to guard.)
-  const insetX = w / 2 - radius;
   const insetY = d / 2 - radius;
   const normals = outline.map((p) => new THREE.Vector2(
-    p.x - THREE.MathUtils.clamp(p.x, -insetX, insetX),
+    p.x - THREE.MathUtils.clamp(p.x, x0 + radius, x1 - radius),
     p.y - THREE.MathUtils.clamp(p.y, -insetY, insetY),
   ).divideScalar(radius));
 
@@ -354,7 +377,7 @@ export function createGround(rng, blocks) {
   // it is a gradient over the whole frame rather than an edge fade: at the map's corners it is
   // 0.17 of the way to the sky, which is a long way short of hiding an apron.) The edge itself is
   // feathered rather than cut: see `asphaltFade`.
-  const outlines = slabShapes(SLAB_X, SLAB_Z, SLAB_RADIUS);
+  const outlines = slabShapes(coastWest(), coastEast(), SLAB_Z, SLAB_RADIUS);
   for (const outline of outlines) {
     parts.push(bakeColor(roundedSlab(outline), color('asphalt')));
   }
@@ -555,7 +578,7 @@ export function createGround(rng, blocks) {
   const mesh = new THREE.Mesh(merged, propMaterial());
   mesh.receiveShadow = true;
   mesh.name = 'ground';
-  for (const outline of outlines) mesh.add(asphaltFade(outline, SLAB_X, SLAB_Z, SLAB_RADIUS));
+  for (const outline of outlines) mesh.add(asphaltFade(outline, coastWest(), coastEast(), SLAB_Z, SLAB_RADIUS));
   return mesh;
 }
 

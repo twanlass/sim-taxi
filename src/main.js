@@ -15,6 +15,7 @@ import {
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
 import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river.js';
+import { createHarbor } from './city/harbor.js';
 import { tickRiverWater, syncRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/riverwater.js';
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
@@ -592,6 +593,10 @@ if (river) {
     scene.add(markOccluder(mesh));
   }
 }
+// The harbor at the river's east mouth: quays, yards, cranes and a moored ship, all outside the ring
+// road (city/harbor.js). Its own stream. Null under `?harbor=classic`.
+const harbor = createHarbor(makeRng(seed + 47));
+if (harbor) scene.add(markOccluder(harbor.mesh));
 // Held onto for its `pad`: exactly one roof in the city carries a landing circle, and the
 // helicopter below has to be told which one — see `choosePad` in city/buildings.js.
 const stopPanes = rain.enabled ? collectPanes() : null;

@@ -412,6 +412,64 @@ export function riverBanks() {
   };
 }
 
+// --- The harbor ---------------------------------------------------------------
+//
+// The river's east mouth no longer runs off the coast in a walled stub. Past the ring road the
+// island carries on for `HARBOR_REACH` more units, and the channel opens into a dock basin there:
+// quays down both sides, gantry cranes, container yards and a moored ship (`city/harbor.js`).
+//
+// **East, because east is the near edge.** The camera looks down the -x-z diagonal, so +x is the
+// lower right of the screen: the harbor sits in front of the city rather than behind its towers,
+// and its cranes throw their height up-screen over their own yards rather than over the streets.
+//
+// It is all *outside* the ring road. No street, block or junction moves, so the road network, the
+// routing, the fares and every probe staging see the same city they always did; the waterfront
+// road is the east ring road, and its junctions already take riders. `?harbor=classic` keeps the
+// old mouth. Read at module load for the same reason `BIG_CITY` is.
+export const HARBOR = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('harbor') !== 'classic'
+  : globalThis.process?.env?.HARBOR !== 'classic';
+/** The island's margin past each ring road, before the fade. Owned here so the harbor can measure from it. */
+export const SLAB_MARGIN = ROAD_W * 3;
+/** How much further the island reaches east of the old coast to hold the harbor. */
+export const HARBOR_REACH = HARBOR ? 30 : 0;
+/** The old coast, measured from the origin, on either side. */
+export const COAST_X = (SPAN_X + SLAB_MARGIN) / 2;
+/** Where the island ends to the west and to the east. Only the east one moves. */
+export const coastWest = () => -COAST_X;
+export const coastEast = () => COAST_X + HARBOR_REACH;
+// The channel runs on at its own width for this far past the ring road's kerb before it opens out.
+// Enough for the ring bridge's footway (1.4) and a short walled run, so the river visibly *arrives*
+// at the basin rather than the bridge standing in it.
+const HARBOR_INLET = 9;
+// The basin's half-width in z, measured from the channel's centre line. Two of the 20-unit pitch
+// would reach the next road line; this stops 4 short of it so the yards either side keep room for
+// a crane's legs and a row of containers between the quay edge and the ring road's corner.
+const HARBOR_HALF = 15;
+
+/**
+ * The dock basin, or null when there is no harbor (classic, or a city with no river).
+ *
+ * `x0` is the basin's back wall, where the channel opens out; it runs east past the coast and
+ * shoals under the island's rim just as the old mouth did. `z0`/`z1` are its two quay walls.
+ * `kerbX` is the ring road's east kerb, the inland edge of everything the harbor builds.
+ */
+export function harborBasin() {
+  if (!HARBOR) return null;
+  const banks = riverBanks();
+  if (!banks) return null;
+  const kerbX = lineX(GRID_I) + halfRoadZ(GRID_I);
+  const mid = (banks.z0 + banks.z1) / 2;
+  return {
+    kerbX,
+    x0: kerbX + HARBOR_INLET,
+    x1: coastEast(),
+    z0: mid - HARBOR_HALF,
+    z1: mid + HARBOR_HALF,
+    mid,
+  };
+}
+
 /** Directions a car may leave (i, j) on — no U-turn, no leaving the map, no closed roads. */
 export function legalExits(dIn, i, j) {
   const out = [];
