@@ -16,6 +16,7 @@ import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
 import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river.js';
 import { createHarbor } from './city/harbor.js';
+import { createTerrain } from './city/terrain.js';
 import { tickRiverWater, syncRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/riverwater.js';
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
@@ -597,6 +598,13 @@ if (river) {
 // road (city/harbor.js). Its own stream. Null under `?harbor=classic`.
 const harbor = createHarbor(makeRng(seed + 47));
 if (harbor) scene.add(markOccluder(harbor.mesh));
+// The island past the ring road and the ocean round it (`?island=classic` for the floating slab).
+const island = createTerrain(makeRng(seed + 53));
+if (island) {
+  scene.add(island.terrain);
+  scene.add(island.ocean);
+  scene.add(island.flora);
+}
 // Held onto for its `pad`: exactly one roof in the city carries a landing circle, and the
 // helicopter below has to be told which one — see `choosePad` in city/buildings.js.
 const stopPanes = rain.enabled ? collectPanes() : null;
@@ -639,7 +647,8 @@ const grass = createGrass(makeRng(seed + 122), layout, props);
 scene.add(grass.mesh);
 // Leaf cards round every tree crown — the parks', the medians' and the courtyard's — on the same
 // terms as the grass. See city/canopyfuzz.js.
-const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), [...props.crowns, ...(city.court?.crowns ?? [])]);
+const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), [...props.crowns, ...(city.court?.crowns ?? []),
+  ...(island?.crowns ?? [])]);
 scene.add(canopyFuzz.mesh);
 // The basketball court's hoops, which ride outside the merged props mesh so the fare board's
 // sightline field never sees them (see `courtParts`) — and the people shooting around on the court. Run seed for the players, like the ducks:

@@ -1,4 +1,5 @@
-import { SPAN_Z, SLAB_MARGIN, harborBasin, riverBanks, coastEast } from './grid.js';
+import { SPAN_Z, SLAB_MARGIN, harborBasin, riverBanks, coastEast, ISLAND } from './grid.js';
+import { pad } from './coast.js';
 
 // The shape of the land and the sea around the harbor (city/harbor.js).
 //
@@ -112,6 +113,55 @@ export function islandHalf(side, x0, radius) {
   return pts;
 }
 
+/**
+ * The waterfront on one side of the river, on the island (`city/coast.js`): no west corner and no
+ * coast — the terrain is the coast now — just the strip from the ring road's kerb out to the
+ * seawall, the pier, and the quay back to the channel. The seawall runs from the corner of the
+ * city's pad, where the terrain's own coast takes over, down to the pier.
+ */
+export function waterfrontHalf(side) {
+  const piers = harborPiers();
+  const banks = riverBanks();
+  const { basin } = piers;
+  const pier = side > 0 ? piers.near : piers.far;
+  const cut = side > 0 ? banks.z1 : banks.z0;
+  const p = pad();
+  const edge = side > 0 ? p.z1 : p.z0;
+  const pts = [[basin.kerbX, cut], [basin.kerbX, edge]];
+  const steps = Math.max(1, Math.round(Math.abs(edge - pier.out) / SEAWALL_STEP));
+  for (let k = 0; k <= steps; k++) {
+    const z = edge + (pier.out - edge) * (k / steps);
+    pts.push([seawallX(basin.kerbX, z), z]);
+  }
+  pts.push([piers.end, pier.out], [piers.end, pier.quay], [basin.x0, pier.quay], [basin.x0, cut]);
+  return pts;
+}
+
+/**
+ * The harbor's land on one side, whichever island it stands on: the waterfront alone, or (classic
+ * island) the whole half of the slab with its west corner and coast.
+ */
+export function harborOutline(side, x0, radius) {
+  return ISLAND ? waterfrontHalf(side) : islandHalf(side, x0, radius);
+}
+
+/**
+ * Whether the edge a→b of `harborOutline` stands in the water and wants a wall. On the island that
+ * is everything but the strip's inland edge along the kerb and its edge along the channel's bank;
+ * on the classic slab, everything from where the coast turns into the seawall.
+ */
+export function harborEdgeIsWall(ax, az, bx, bz) {
+  if (!ISLAND) return Math.min(ax, bx) >= seaStartX() - 1e-6;
+  const piers = harborPiers();
+  const banks = riverBanks();
+  const kerb = piers.basin.kerbX;
+  if (Math.abs(ax - kerb) < 1e-6 && Math.abs(bx - kerb) < 1e-6) return false;
+  for (const cut of [banks.z0, banks.z1]) {
+    if (Math.abs(az - cut) < 1e-6 && Math.abs(bz - cut) < 1e-6) return false;
+  }
+  return true;
+}
+
 /** Where the island's coast stops being a coast and becomes the seawall: the corner arc's start. */
 export function seaStartX() {
   const piers = harborPiers();
@@ -176,9 +226,10 @@ export function insidePolygon(poly, x, z) {
  * without a harbor, and west of where the sea starts, where everything is island.
  */
 export function harborLandAt(x, z) {
-  if (!harborPiers() || x < seaStartX()) return true;
+  const piers = harborPiers();
+  if (!piers || x < (ISLAND ? piers.basin.kerbX : seaStartX())) return true;
   const banks = riverBanks();
   if (z > banks.z0 && z < banks.z1) return false;   // the channel and the basin
   // The west end of the outline does not matter out here, so any x0 and radius will do.
-  return insidePolygon(islandHalf(z > 0 ? 1 : -1, -1e3, 1), x, z);
+  return insidePolygon(harborOutline(z > 0 ? 1 : -1, -1e3, 1), x, z);
 }

@@ -591,6 +591,86 @@ export function patchHarborWater(material) {
   return material;
 }
 
+// --- The ocean ----------------------------------------------------------------
+//
+// The open sea round the island (city/terrain.js). The sea's surface again, with two differences
+// that are the whole look of a coast. The depth is **real**: each vertex carries how far down the
+// seabed is under it (`seaDepth`, from `landHeight` in city/coast.js), so the refracted ray finds
+// pale sand a hand's depth down at the shoreline and loses itself in blue a few units out — and
+// the water absorbs red first and blue last, so what lies between is turquoise rather than grey.
+// And where it thins to nothing it breaks: a band of surf against every beach and rock, breathing
+// on the game clock.
+
+// Per unit of water crossed: red goes fastest, blue barely, which is what makes shallows turquoise.
+const OCEAN_ABSORB = [1.1, 0.4, 0.25];
+// The ocean's swell is livelier than a river between walls.
+const OCEAN_WAVE = 1.5;
+// How deep the surf reaches, and how strong it is at the waterline.
+const SURF_DEPTH = 0.55;
+const SURF = 0.85;
+
+const OCEAN_UNIFORMS = {
+  uOceanBed: { value: new THREE.Color(PALETTE.oceanBed) },
+  uOceanFoam: { value: new THREE.Color(PALETTE.foam) },
+};
+
+const oceanCompose = () => /* glsl */ `
+  {
+    vec3 V = normalize(vec3(viewMatrix[0].z, viewMatrix[1].z, viewMatrix[2].z));
+    float depth = max(vSeaDepth, 0.02);
+
+    vec3 rd = refract(-V, waterN, 0.7518797);
+    float s = depth / max(-rd.y, 1e-3);
+    vec3 seen = vWaterWorld + rd * s;
+    vec3 under = uOceanBed * (0.88 + 0.24 * waterHash(floor(seen.xz * 0.9)).x);
+    vec3 irr = outgoingLight / max(diffuseColor.rgb, vec3(0.02));
+    under *= irr + waterSun * RECIPROCAL_PI * ${num(CAUSTIC)} * waterCaustic(seen.xz);
+    vec3 T = exp(-vec3(${OCEAN_ABSORB.map(num).join(', ')}) * s);
+    vec3 body = mix(outgoingLight, under, T);
+
+    float cosT = saturate(dot(waterN, V));
+    float fres = ${num(F0)} + ${num(1 - F0)} * pow(1.0 - cosT, 5.0);
+    fres = ${num(REFLECT_FLOOR)} + ${num(1 - REFLECT_FLOOR)} * fres;
+    vec3 water = mix(body, uWaterSky, fres) + waterSpec * ${num(GLINT)};
+
+    // Surf where the water thins out, swelling in and out along the shore and broken into lace.
+    float surf = 1.0 - smoothstep(0.0, ${num(SURF_DEPTH)}, vSeaDepth);
+    float swell = 0.5 + 0.5 * sin(uWaterTime * 1.3 + (vWaterWorld.x + vWaterWorld.z) * 0.35);
+    float lace = waterHash(floor(vWaterWorld.xz * 2.2)).y;
+    float foam = surf * smoothstep(0.3, 0.7, surf * (0.5 + 0.5 * swell) + 0.3 * lace);
+    water = mix(water, uOceanFoam * irr, foam * ${num(SURF)});
+    outgoingLight = water;
+  }
+`;
+
+/**
+ * Layer the sea's surface onto the ocean, reading its depth from the `seaDepth` attribute.
+ *
+ * @param material  the ocean's `propMaterial` — its existing `onBeforeCompile` runs first.
+ */
+export function patchOceanWater(material) {
+  const inner = material.onBeforeCompile;
+  const innerKey = material.customProgramCacheKey();
+  const styleKey = style;
+  material.customProgramCacheKey = () => `${innerKey}-ocean-${styleKey}`;
+  material.onBeforeCompile = (shader, renderer) => {
+    inner(shader, renderer);
+    Object.assign(shader.uniforms, UNIFORMS, OCEAN_UNIFORMS);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>',
+        '#include <common>\nvarying vec3 vWaterWorld;\nattribute float seaDepth;\nvarying float vSeaDepth;')
+      .replace('#include <project_vertex>',
+        '#include <project_vertex>\nvWaterWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvSeaDepth = seaDepth;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <lights_lambert_pars_fragment>',
+        `#include <lights_lambert_pars_fragment>\n${header()}\nuniform vec3 uOceanBed;\nuniform vec3 uOceanFoam;\nvarying float vSeaDepth;`)
+      .replace('#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>\n${normalPatch(`float waterWet = ${num(OCEAN_WAVE)};`)}`)
+      .replace('#include <opaque_fragment>', `${oceanCompose()}\n#include <opaque_fragment>`);
+  };
+  return material;
+}
+
 /** Where the drawbridge's leaf is, 0 down to 1 up — so its deck can leave the reflection. */
 export function bindRiverDrawbridge(getLift) {
   drawLift = getLift;

@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { pointInPolygon } from '../src/city/curves.js';
-import { isParkwayMid, coastWest, coastEast, harborBasin, HARBOR } from '../src/city/grid.js';
+import { isParkwayMid, coastWest, coastEast, harborBasin, HARBOR, ISLAND } from '../src/city/grid.js';
 import { createHarbor } from '../src/city/harbor.js';
 import { coastArcStart, coastArcZ, SEA_CORNER } from '../src/city/harborplan.js';
 import { createLayout } from '../src/city/layout.js';
@@ -275,8 +275,9 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
 // colour attribute, and being a second mesh is exactly what makes it worth asserting: its inner
 // ring has to land on the slab's own outline to the last bit, or a ring of sky leaks between the
 // two meshes at the corner arcs, where Three's tessellation is the only thing that decides where
-// the boundary actually is.
-{
+// the boundary actually is. The classic slab's only (`ISLAND=classic`): the island has a coast
+// instead, asserted under "The island" below.
+if (!ISLAND) {
   const fade = ground.children.find((c) => c.name === 'asphalt-fade');
   // Signed distance to the rounded-square outline: 0 on the edge, positive outside.
   const insetX = SLAB_X / 2 - SLAB_RADIUS;
@@ -18458,8 +18459,11 @@ let chopperOrder; // likewise
       harborBasin() ? 0 : Math.abs(waterHeightAt(rBanks ? coastEast() : 0)));
     check('the channel is at full depth down the length of the city',
       Math.abs(mid - WATER_Y) < 1e-9, `${mid.toFixed(2)} against ${WATER_Y}`);
-    check('and has risen to meet the ground by the coast',
-      Math.abs(coast) < 1e-9, `${coast.toFixed(3)} at the coast`);
+    // On the island the river runs out into the sea at its own level instead (asserted below).
+    if (!ISLAND) {
+      check('and has risen to meet the ground by the coast',
+        Math.abs(coast) < 1e-9, `${coast.toFixed(3)} at the coast`);
+    }
     // Monotonic, or the shoal has a dip in it that would pond.
     let climbs = true;
     for (let x = 0; x < SLAB_X / 2; x += 0.5) {
@@ -18478,7 +18482,7 @@ let chopperOrder; // likewise
       reach = Math.max(reach, Math.abs(wp.getX(k)));
       if (wp.getY(k) > 1e-9) above += 1;
     }
-    check('the water runs the whole fade band, not a tuck past the coast',
+    if (!ISLAND) check('the water runs the whole fade band, not a tuck past the coast',
       reach >= SLAB_X / 2 + EDGE_FADE - 1e-6,
       `reaches ${reach.toFixed(1)} against a band ending at ${(SLAB_X / 2 + EDGE_FADE).toFixed(1)}`);
     check('and never climbs above the ground it is fading into', above === 0,
@@ -18578,27 +18582,111 @@ let chopperOrder; // likewise
       check('harbor: the island\'s slab is cut away over the basin', overDock === 0,
         `${overDock} ground triangles over the dock`);
 
-      // The dock's water faces up, from its winding.
+      // The dock's water faces up, from its winding. On the island the harbor's water is the
+      // ocean's (asserted under "The island").
       const rh = createRiver(makeRng(seed + 12), layout);
-      const dock = rh.group.getObjectByName('harbor-water');
+      if (!ISLAND) {
+        const dock = rh.group.getObjectByName('harbor-water');
+        let down = 0;
+        const dp = dock?.geometry.attributes.position;
+        for (let t = 0; dp && t < dp.count; t += 3) {
+          a.fromBufferAttribute(dp, t); b.fromBufferAttribute(dp, t + 1); c.fromBufferAttribute(dp, t + 2);
+          n.subVectors(b, a).cross(c.clone().sub(a));
+          if (n.y <= 0) down += 1;
+        }
+        check('harbor: the dock\'s water is wound to face up', !!dock && down === 0,
+          dock ? `${down} of ${dp.count / 3} facing down` : 'missing');
+        // Open sea out to the rim: no shoal, so a boat out there sits on the same water as the dock.
+        check('harbor: the sea stays at sea level out to the rim',
+          Math.abs(waterHeightAt(basin.x1) - WATER_Y) < 1e-9 && Math.abs(waterHeightAt(basin.x0) - WATER_Y) < 1e-9,
+          `${waterHeightAt(basin.x0).toFixed(2)} at the back wall, ${waterHeightAt(basin.x1).toFixed(3)} at the coast`);
+        // And its vertices stay at sea level too, out to the fade: the first cut shoaled the rim and
+        // drew a mud bank round the sea.
+        let off = 0;
+        for (let t = 0; dp && t < dp.count; t++) if (Math.abs(dp.getY(t) - WATER_Y) > 1e-6) off += 1;
+        check('harbor: the sea has no shoal round its rim', !!dock && off === 0, `${off} vertices off sea level`);
+      }
+    }
+  }
+
+  // --- The island (city/coast.js, city/terrain.js; `ISLAND=classic` is the floating slab).
+  //
+  // One height field outside the pad, cut by the sea: the terrain draws what is above it and the
+  // ocean what is below. What has to hold is that the two are the same surface the city and the
+  // river already are — the field meets the walk at kerb height, the river runs out at sea level
+  // into water that is there — and that the coast is where the reference put it: sea on the west,
+  // the south and the east, the mountain to the north.
+  if (ISLAND) {
+    const { createTerrain } = await import('../src/city/terrain.js');
+    const coastMod = await import('../src/city/coast.js');
+    const { pad: islandPad, landHeight, SEA_Y } = coastMod;
+    const ip = islandPad();
+    check('island: the sea is the river\'s own level', SEA_Y === WATER_Y, `${SEA_Y} against ${WATER_Y}`);
+
+    const isle = createTerrain(makeRng(seed + 53));
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    const n = new THREE.Vector3();
+    const upCount = (mesh) => {
+      const q = mesh.geometry.attributes.position;
       let down = 0;
-      const dp = dock?.geometry.attributes.position;
-      for (let t = 0; dp && t < dp.count; t += 3) {
-        a.fromBufferAttribute(dp, t); b.fromBufferAttribute(dp, t + 1); c.fromBufferAttribute(dp, t + 2);
+      for (let t = 0; t < q.count; t += 3) {
+        a.fromBufferAttribute(q, t); b.fromBufferAttribute(q, t + 1); c.fromBufferAttribute(q, t + 2);
         n.subVectors(b, a).cross(c.clone().sub(a));
         if (n.y <= 0) down += 1;
       }
-      check('harbor: the dock\'s water is wound to face up', !!dock && down === 0,
-        dock ? `${down} of ${dp.count / 3} facing down` : 'missing');
-      // Open sea out to the rim: no shoal, so a boat out there sits on the same water as the dock.
-      check('harbor: the sea stays at sea level out to the rim',
-        Math.abs(waterHeightAt(basin.x1) - WATER_Y) < 1e-9 && Math.abs(waterHeightAt(basin.x0) - WATER_Y) < 1e-9,
-        `${waterHeightAt(basin.x0).toFixed(2)} at the back wall, ${waterHeightAt(basin.x1).toFixed(3)} at the coast`);
-      // And its vertices stay at sea level too, out to the fade: the first cut shoaled the rim and
-      // drew a mud bank round the sea.
-      let off = 0;
-      for (let t = 0; dp && t < dp.count; t++) if (Math.abs(dp.getY(t) - WATER_Y) > 1e-6) off += 1;
-      check('harbor: the sea has no shoal round its rim', !!dock && off === 0, `${off} vertices off sea level`);
+      return [down, q.count / 3];
+    };
+    // Computed from the winding rather than read off the normals (CLAUDE.md, the roadworks ramp).
+    const [tDown, tAll] = upCount(isle.terrain);
+    const [oDown, oAll] = upCount(isle.ocean);
+    check('island: every facet of land faces up', tDown === 0, `${tDown} of ${tAll} facing down`);
+    check('island: and every facet of sea', oDown === 0, `${oDown} of ${oAll} facing down`);
+    const floraTris = isle.flora.children.reduce((sum, m) => sum + m.geometry.attributes.position.count / 3, 0);
+    check('island: land, sea and planting stay inside a triangle budget', tAll + oAll + floraTris < 90000,
+      `${tAll} land + ${oAll} sea + ${floraTris} trees and rocks`);
+
+    // The field meets the pad's walk at kerb height all the way round, except where the coast
+    // comes in close — the river's mouths and the harbor's corners — and there the walk's own body
+    // has to reach down past the water, or there is a slot of sky under its last metre.
+    let step = 0;
+    let dips = 0;
+    const edge = [];
+    for (let z = ip.z0; z <= ip.z1; z += 0.5) edge.push([ip.x0, z], ...(harborBasin() ? [] : [[ip.x1, z]]));
+    for (let x = ip.x0; x <= ip.x1; x += 0.5) edge.push([x, ip.z0], [x, ip.z1]);
+    for (const [x, z] of edge) {
+      const h = landHeight(x, z, ip);
+      step = Math.max(step, h - KERB_H);
+      if (h < KERB_H - 1e-6) dips += 1;
+    }
+    check('island: the land never stands above the walk', step < 1e-6, `worst ${step.toFixed(3)} over`);
+    const walkBody = createGround(makeRng(seed + 11), layout);
+    let foot = Infinity;
+    walkBody.traverse((m) => {
+      const q = m.geometry?.attributes.position;
+      for (let k = 0; q && k < q.count; k++) foot = Math.min(foot, q.getY(k));
+    });
+    check('island: and where it drops away, the walk reaches down past the sea to meet it',
+      dips === 0 || foot < SEA_Y - 0.5, `${dips} edge samples below the kerb, walk down to ${foot.toFixed(2)}`);
+    // Sea on three sides, forty units out; land climbing on the fourth.
+    const sea = [[ip.x0 - 40, 0], [0, ip.z1 + 40], ...(harborBasin() ? [] : [[ip.x1 + 40, 0]])];
+    const dry = sea.filter(([x, z]) => landHeight(x, z, ip) > SEA_Y);
+    check('island: open sea west, south and east', dry.length === 0, `${dry.length} of ${sea.length} on land`);
+    const north = landHeight(0, ip.z0 - 60, ip);
+    check('island: and the mountain to the north', north > 10, `${north.toFixed(1)} high, 60 units north`);
+
+    // The river's mouths are open water out to the sea, and its strip reaches past the pad into it.
+    if (rBanks) {
+      const mid = (rBanks.z0 + rBanks.z1) / 2;
+      let blocked = 0;
+      for (let x = ip.x0; x > ip.x0 - 30; x -= 0.5) if (landHeight(x, mid, ip) > SEA_Y) blocked += 1;
+      check('island: the river runs out to sea through an open mouth', blocked === 0, `${blocked} samples on land`);
+      const wp = createRiver(makeRng(seed + 12), layout).water.geometry.attributes.position;
+      let west = 0;
+      for (let k = 0; k < wp.count; k++) west = Math.min(west, wp.getX(k));
+      check('island: and the river\'s water carries on past the walk', west < ip.x0 - 1,
+        `ends at ${west.toFixed(1)} against a walk at ${ip.x0.toFixed(1)}`);
     }
   }
 

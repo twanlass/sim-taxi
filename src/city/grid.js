@@ -429,6 +429,11 @@ export function riverBanks() {
 export const HARBOR = typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('harbor') !== 'classic'
   : globalThis.process?.env?.HARBOR !== 'classic';
+// The island the city stands on: ocean on three sides and a mountain on the fourth
+// (`city/coast.js`). `?island=classic` keeps the old slab floating in the sky with its fade skirt.
+export const ISLAND = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('island') !== 'classic'
+  : globalThis.process?.env?.ISLAND !== 'classic';
 /** The island's margin past each ring road, before the fade. Owned here so the harbor can measure from it. */
 export const SLAB_MARGIN = ROAD_W * 3;
 /** How much further the island reaches east of the old coast to hold the harbor. */

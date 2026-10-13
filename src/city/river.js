@@ -7,6 +7,7 @@ import {
   harborBasin, coastEast, coastWest,
 } from './grid.js';
 import { harborPiers, coastZ, seaInset, seaStartX, coastArcStart } from './harborplan.js';
+import { ISLAND, pad } from './coast.js';
 import { SLAB_X, KERB_H, PAVE_INSET, EDGE_FADE, FADE_RINGS } from './ground.js';
 import { patchRiverWater, patchHarborWater, getWaterStyle } from './riverwater.js';
 
@@ -384,14 +385,23 @@ const FLAT = Object.freeze({ y: 0, dydz: 0, toCrest: Infinity });
  * runs out past the coast is the river alone, tucked under the skirt that closes each mouth.
  */
 const BANK_REACH = () => SLAB_X / 2;
+// On the island (`city/coast.js`) the walls stop at the outer edge of the walk round the ring road
+// instead, and the river runs on through the verge to the sea between the terrain's own banks.
+const bankWest = () => (ISLAND ? -pad().x0 : BANK_REACH());
+// How far past the walk the river's strip carries on before it has handed over to the sea.
+const MOUTH_BLEND = 8;
 /**
  * How far the island reaches on the side of the map `x` is on. The two used to be the same
  * number (`BANK_REACH`); the harbor moved the east coast out, so anything measuring "how far
  * through the mouth is this" asks per side.
  */
-export const coastFor = (x) => (x < 0 ? -coastWest() : coastEast());
+export const coastFor = (x) => {
+  // On the island the river runs out into open sea, and a boat sails well out before it goes.
+  if (ISLAND) return x < 0 ? -pad().x0 + 40 : (harborBasin() ? coastEast() : pad().x1 + 40);
+  return x < 0 ? -coastWest() : coastEast();
+};
 /** Where the channel's own walls, walk and water stop to the east: the basin, or the coast. */
-const channelEast = () => harborBasin()?.x0 ?? BANK_REACH();
+const channelEast = () => harborBasin()?.x0 ?? (ISLAND ? pad().x1 : BANK_REACH());
 
 /**
  * The channel: two walls, two parapets, and the water between them.
@@ -409,7 +419,7 @@ export function createRiver(rng, layout) {
 
   const solid = [];
   const wallCol = jitterColor(PALETTE.riverWall, rng, { l: 0.02 });
-  const bank = BANK_REACH();
+  const bank = bankWest();
 
   const kerbCol = jitterColor(PALETTE.kerb, rng, { l: 0.02 });
   const walkCol = jitterColor(PALETTE.sidewalk, rng, { l: 0.03 });
@@ -483,12 +493,12 @@ export function createRiver(rng, layout) {
   });
   group.add(shell);
   group.add(water);
-  if (harborPiers()) {
+  if (harborPiers() && !ISLAND) {
     const sea = seaMesh(rng);
     patchHarborWater(sea.material);
     group.add(sea);
   }
-  const mouths = riverMouthFade();
+  const mouths = ISLAND ? null : riverMouthFade();
   if (mouths) group.add(mouths);
 
   return { group, shell, water, banks };
@@ -643,7 +653,7 @@ function fadeMix(x) {
 function shoalMix(x) {
   // The sea past the harbor is open water out to the rim (`seaMesh`), so nothing on the east side
   // shelves: a boat there sits at sea level until it fades.
-  if (x > 0 && harborBasin()) return 0;
+  if (ISLAND || (x > 0 && harborBasin())) return 0;
   const t = Math.max(0, Math.min(1,
     (Math.abs(x) - (coastFor(x) - MOUTH_SHOAL)) / MOUTH_SHOAL));
   // Smoothstepped rather than linear so the deep water leaves flat and the ramp has no crease at
@@ -692,6 +702,7 @@ function waterMesh(rng, edges) {
   // The two interior columns sit at the top of each ramp and are what keep the long middle of the
   // river a single flat quad; without them the smoothstep would have nowhere to land and the whole
   // 124 units would be one interpolation.
+  if (ISLAND) return islandWaterMesh(rng, edges, deep, open);
   const bank = BANK_REACH();
   const ramp = bank - MOUTH_SHOAL;
   // Out to the **full** fade band, not a couple of units past the coast. The old strip stopped at
@@ -770,6 +781,53 @@ function waterMesh(rng, edges) {
   mesh.receiveShadow = true;
   // Ahead of the asphalt's own skirt, which sits at -1. Everything else translucent in this game is
   // *on* the road; the water is two units under it and must never sort in front of a mark up there.
+  mesh.renderOrder = -2;
+  mesh.name = 'river-water';
+  return mesh;
+}
+
+/**
+ * The river's strip on the island: flat at the waterline all the way, and handed over to the sea at
+ * each mouth by fading out over `MOUTH_BLEND` units past the walk, with the ocean (city/terrain.js)
+ * already lying under it there. With a harbor the east end does the same at the basin's back wall.
+ */
+function islandWaterMesh(rng, edges, deep, open) {
+  const west = -bankWest();
+  const east = channelEast();
+  const eastOpen = !harborBasin();
+  const columns = [
+    { x: west - MOUTH_BLEND, a: 0 },
+    { x: west, a: 1 },
+    { x: eastOpen ? east : east - MOUTH_BLEND / 2, a: 1 },
+    { x: eastOpen ? east + MOUTH_BLEND : east + MOUTH_BLEND / 2, a: 0 },
+  ];
+  const rows = getWaterStyle() === 'classic'
+    ? [0, 0.5, 1].map((u) => ({ z: edges.z0 + u * (edges.z1 - edges.z0), deep: u === 0.5 ? 0 : 1 }))
+    : [0, 0.25, 0.5, 0.75, 1].map((u) => ({ z: edges.z0 + u * (edges.z1 - edges.z0), deep: Math.sin(Math.PI * u) }));
+  const pos = [];
+  const col = [];
+  const vertex = (ci, ri) => {
+    const a = columns[ci].a;
+    const c = open.clone().lerp(deep, rows[ri].deep);
+    pos.push(columns[ci].x, WATER_Y, rows[ri].z);
+    col.push(c.r, c.g, c.b, a);
+  };
+  // Wound to face up, as `waterMesh` is.
+  for (let ci = 0; ci < columns.length - 1; ci++) {
+    for (let ri = 0; ri < rows.length - 1; ri++) {
+      vertex(ci, ri); vertex(ci, ri + 1); vertex(ci + 1, ri + 1);
+      vertex(ci, ri); vertex(ci + 1, ri + 1); vertex(ci + 1, ri);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 4));
+  geo.computeVertexNormals();
+  const material = propMaterial({ ao: false });
+  material.transparent = true;
+  material.depthWrite = false;
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.receiveShadow = true;
   mesh.renderOrder = -2;
   mesh.name = 'river-water';
   return mesh;

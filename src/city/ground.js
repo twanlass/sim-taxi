@@ -6,9 +6,12 @@ import { centralParkGround } from './centralpark.js';
 import {
   GRID_I, GRID_J, ROAD_W, SPAN_X, SPAN_Z, lineX, lineZ,
   isUnsignalised, isSegmentClosed, halfRoadX, halfRoadZ, isArterialX, isArterialZ,
-  isRiverGap, riverBanks, medianRuns, MEDIAN_W, SLAB_MARGIN, coastWest, coastEast,
+  isRiverGap, riverBanks, medianRuns, MEDIAN_W, SLAB_MARGIN, coastWest, coastEast, ISLAND,
 } from './grid.js';
-import { harborPiers, islandHalf, seaStartX, coastArcStart, coastArcZ, SEA_BLEND } from './harborplan.js';
+import { pad } from './coast.js';
+import {
+  harborPiers, islandHalf, waterfrontHalf, seaStartX, coastArcStart, coastArcZ, SEA_BLEND,
+} from './harborplan.js';
 
 const KERB_H = 0.35;
 const MARK_Y = 0.02;
@@ -253,6 +256,65 @@ function polygonShape(points) {
   return new THREE.Shape(pts);
 }
 
+/**
+ * On the island (`city/coast.js`), the city's paved pad: asphalt out to the ring road's outer kerbs,
+ * a raised walk round the outside of it, and — with a harbor — the waterfront strip east of the
+ * kerb. The terrain takes over at the walk's outer edge.
+ *
+ * Square-cornered throughout, because the terrain's grid is cut to these same lines: a rounded
+ * corner would leave grid cells half under the pavement and half sticking out of it.
+ */
+// How far down the walk's body reaches on the island: below the sea and its shallows.
+const WALK_FOOT = -3;
+
+function islandPad(rng) {
+  const parts = [];
+  const p = pad();
+  const banks = riverBanks();
+  const harbor = harborPiers();
+  const kerbCol = jitterColor(PALETTE.kerb, rng, { l: 0.02 });
+  const walkCol = jitterColor(PALETTE.sidewalk, rng, { l: 0.03 });
+  const flat = (pts, y, col) => {
+    const geo = roundedSlab(polygonShape(pts));
+    geo.translate(0, y, 0);
+    parts.push(bakeColor(geo, col));
+  };
+
+  // Each side of the river in turn (or the whole pad with no river), `cut` being the bank line and
+  // `edge` the pad's outer edge on that side. `s` is +1 for the half with z above the channel.
+  const halves = banks
+    ? [{ s: -1, cut: banks.z0, kerb: p.kN, edge: p.z0 }, { s: 1, cut: banks.z1, kerb: p.kS, edge: p.z1 }]
+    : [{ s: -1, cut: 0, kerb: p.kN, edge: p.z0 }, { s: 1, cut: 0, kerb: p.kS, edge: p.z1 }];
+  const i = PAVE_INSET;
+  for (const { s, cut, kerb, edge } of halves) {
+    // The road surface, kerb to kerb.
+    flat([[p.kW, cut], [p.kW, kerb], [p.kE, kerb], [p.kE, cut]], 0, color('asphalt'));
+
+    // The walk: a U round the outside of the ring road, open at the river. Built as the kerb's
+    // extruded body and a pavement laid on it 0.15 in from its outer edges, the way every block's
+    // platform is.
+    const walk = (k) => (harbor
+      ? [[p.x0 + k, cut], [p.x0 + k, edge - s * k], [p.x1, edge - s * k], [p.kE, kerb + s * k],
+        [p.kW - k, kerb + s * k], [p.kW - k, cut]]
+      : [[p.x0 + k, cut], [p.x0 + k, edge - s * k], [p.x1 - k, edge - s * k], [p.x1 - k, cut],
+        [p.kE + k, cut], [p.kE + k, kerb + s * k], [p.kW - k, kerb + s * k], [p.kW - k, cut]]);
+    // The body runs down to below the sea rather than stopping at the road: wherever the coast
+    // comes close — beside the harbor's seawall, at the river's mouths — the land drops away from
+    // the walk's outer face, and a kerb only 0.35 deep left a slot of sky under it there. Where the
+    // verge is level with the walk (everywhere else) the extra face is behind the ground.
+    const body = new THREE.ExtrudeGeometry(polygonShape(walk(0)),
+      { depth: KERB_H - WALK_FOOT, bevelEnabled: false });
+    body.rotateX(-Math.PI / 2);
+    body.translate(0, WALK_FOOT, 0);
+    parts.push(bakeColor(body, kerbCol));
+    flat(walk(i), KERB_H + 0.01, walkCol);
+
+    // The harbor's waterfront, at road level: the strip to the seawall, the pier and the quays.
+    if (harbor) flat(waterfrontHalf(s), 0, color('asphalt'));
+  }
+  return parts;
+}
+
 /** A shape, lying flat on the ground plane. */
 function roundedSlab(shape) {
   const geo = new THREE.ShapeGeometry(shape, SLAB_SEGMENTS);
@@ -408,10 +470,11 @@ export function createGround(rng, blocks) {
   // it is a gradient over the whole frame rather than an edge fade: at the map's corners it is
   // 0.17 of the way to the sky, which is a long way short of hiding an apron.) The edge itself is
   // feathered rather than cut: see `asphaltFade`.
-  const outlines = slabShapes(coastWest(), coastEast(), SLAB_Z, SLAB_RADIUS);
+  const outlines = ISLAND ? [] : slabShapes(coastWest(), coastEast(), SLAB_Z, SLAB_RADIUS);
   for (const outline of outlines) {
     parts.push(bakeColor(roundedSlab(outline), color('asphalt')));
   }
+  if (ISLAND) parts.push(...islandPad(rng));
 
   // --- Park districts first: a single platform spanning both blocks and the road that used to
   // run between them, so the green reads as one continuous mass.

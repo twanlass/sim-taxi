@@ -5,7 +5,7 @@ import { PALETTE, jitterColor } from '../palette.js';
 import { riverBanks, coastWest, GRID_J, isArterialX, lineZ } from './grid.js';
 import { KERB_H, PAVE_INSET, SLAB_RADIUS } from './ground.js';
 import { WATER_Y, waterEdges } from './river.js';
-import { harborPiers, islandHalf, seaStartX, insidePolygon } from './harborplan.js';
+import { harborPiers, harborOutline, harborEdgeIsWall, insidePolygon } from './harborplan.js';
 
 // The harbor at the river's east mouth: the walls of everything standing in the sea, the riprap
 // along the seawall, the two piers' container yards, the gantry cranes on the far quay and a
@@ -256,15 +256,14 @@ export function createHarbor(rng) {
   //
   // Faced away from the land by testing which side of each edge the land is on, rather than by
   // trusting the outline's winding: a wall wound into the land is a wall that does not draw.
-  const seaFrom = seaStartX();
   const wallBottom = WATER_Y - WALL_FOOT;
   const seawall = [];
   for (const side of [1, -1]) {
-    const poly = islandHalf(side, coastWest(), SLAB_RADIUS);
+    const poly = harborOutline(side, coastWest(), SLAB_RADIUS);
     for (let k = 0; k < poly.length; k++) {
       const [ax, az] = poly[k];
       const [bx, bz] = poly[(k + 1) % poly.length];
-      if (Math.min(ax, bx) < seaFrom - 1e-6) continue;
+      if (!harborEdgeIsWall(ax, az, bx, bz)) continue;
       const len = Math.hypot(bx - ax, bz - az);
       if (len < 1e-6) continue;
       let nx = (bz - az) / len;
