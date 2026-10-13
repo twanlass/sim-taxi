@@ -809,6 +809,10 @@ export const PALETTE = {
   // against 140) and the `sidewalk` a park's walk is paved in (156), so the pond has an edge
   // against everything it touches.
   pondBank: '#8C7F6B',
+  // The north park (city/northpark.js): gravel paths and a grey stone wall along the ring road.
+  parkPath: '#BDB29A',
+  parkWall: '#8E877C',
+  parkWallCap: '#A39C90',
 
   // The basketball court — see city/blacktop.js. A sports court has to read as *paved* inside a
   // lawn, which is a value break before it is a hue: the blacktop at luma ~80 is a dark slab against
@@ -964,6 +968,27 @@ export const PALETTE = {
   // Rust bleeding from the window frames, and the scum line round the foot of the house.
   trashRust: '#7A4A2C',
   trashStack: '#2F3236',
+  // --- The harbor (city/harbor.js) -------------------------------------------
+  //
+  // Same rules as the boats: value against the water and the concrete, and no warm hue above low
+  // saturation, because warm on this board means "act on this". The cranes are white with a slate
+  // machinery house — the light frame reads against the dark basin and the dark ship. The
+  // containers are where the colour lives, all dusty: rust and maroon held down at low saturation
+  // the way the trash barge's rust is, beside slate blue, teal, green and grey.
+  quay: '#9A978E',
+  quayEdge: '#C9C7BF',
+  craneFrame: '#DCDAD3',
+  craneHouse: '#4E6478',
+  craneDark: '#2F3338',
+  shipHull: '#2E3B48',
+  shipBoot: '#5B3B37',
+  shipDeck: '#6A6D70',
+  shipHouse: '#E4E2DC',
+  bollard: '#2B2D30',
+  // The rock tipped along the seawall's foot: a cool grey a step under the wall, so the line of it
+  // reads as stone at the waterline rather than as more wall.
+  riprap: '#6C6E6C',
+  containerColors: ['#8A5242', '#6E4248', '#4A6E91', '#367A78', '#587B5A', '#A3A097', '#7E6847', '#3F5D7B', '#C4C2BA'],
   // The gulls (game/gulls.js): white bodies, grey backs, and nothing else — a yellow bill would be
   // a warm speck at full saturation and would not survive the 3 pixels it occupies anyway.
   gullBody: '#EEF0F0',

@@ -11,7 +11,9 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { pointInPolygon } from '../src/city/curves.js';
-import { isParkwayMid } from '../src/city/grid.js';
+import { isParkwayMid, coastWest, coastEast, coastNorth, harborBasin, HARBOR } from '../src/city/grid.js';
+import { createHarbor } from '../src/city/harbor.js';
+import { coastArcStart, coastArcZ, SEA_CORNER } from '../src/city/harborplan.js';
 import { createLayout } from '../src/city/layout.js';
 import {
   createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
@@ -279,9 +281,20 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
   // Signed distance to the rounded-square outline: 0 on the edge, positive outside.
   const insetX = SLAB_X / 2 - SLAB_RADIUS;
   const insetZ = SLAB_Z / 2 - SLAB_RADIUS;
-  const edgeDist = (x, z) => Math.hypot(
+  const square = (x, z) => Math.hypot(
     Math.max(Math.abs(x) - insetX, 0), Math.max(Math.abs(z) - insetZ, 0),
   ) - SLAB_RADIUS;
+  // With the harbor the east side is a seawall that takes no skirt, so the outline is the west
+  // half of the square with the north and south coasts running straight on east until each turns
+  // into the seawall — where the skirt carries on round the corner arc (`seaCornerFade`, ground.js).
+  const edgeDist = !harborBasin() ? square : (x, z) => {
+    const side = z > 0 ? 1 : -1;
+    // Round the corner arc, radially — its |z| has an infinite slope where the arc turns south, so
+    // float32 storage alone moved a vertex there by 3e-3.
+    const from = coastArcStart(side);
+    if (x >= from) return Math.hypot(x - from, Math.max(Math.abs(z) - (coastArcZ(side, from) - SEA_CORNER), 0)) - SEA_CORNER;
+    return x < 0 ? square(x, z) : Math.abs(z) - SLAB_Z / 2;
+  };
 
   const pos = fade?.geometry.attributes.position;
   const col = fade?.geometry.attributes.color;
@@ -18332,6 +18345,9 @@ let chopperOrder; // likewise
       if (!up && airborne && landZ === null) landZ = jTaxi.z;
       airborne = up;
       jTaxi.boost = true;
+      // Stop once it is off the far end: with no route it wanders on, and six seconds at boost is
+      // long enough to come back over another arch the other way and count that as a second hop.
+      if (!up && jTaxi.z > rSpan.z1 + 6) break;
     }
     check('a boosting taxi leaves the arch half a hop before the crest',
       launchZ !== null && Math.abs((crestZ - launchZ) - HOP_LEN / 2) < 0.4,
@@ -18495,7 +18511,10 @@ let chopperOrder; // likewise
   // whole fade band so the skirt is never dissolving over open sky.
   {
     const mid = waterHeightAt(0);
-    const coast = waterHeightAt(rBanks ? SLAB_X / 2 : 0);
+    // The east mouth opens into the harbor's sea, which stays at sea level out to the rim; the west
+    // one is still the river's own.
+    const coast = Math.max(Math.abs(waterHeightAt(rBanks ? coastWest() : 0)),
+      harborBasin() ? 0 : Math.abs(waterHeightAt(rBanks ? coastEast() : 0)));
     check('the channel is at full depth down the length of the city',
       Math.abs(mid - WATER_Y) < 1e-9, `${mid.toFixed(2)} against ${WATER_Y}`);
     check('and has risen to meet the ground by the coast',
@@ -18548,6 +18567,130 @@ let chopperOrder; // likewise
       landed.map((ok) => (ok ? 'y' : 'n')).join(''));
     check('and the water does not share a program with an unpatched prop',
       /-river-(smooth|classic)$/.test(wm.customProgramCacheKey()), wm.customProgramCacheKey());
+  }
+
+  // --- The harbor (city/harbor.js): the dock the river opens into at its east mouth.
+  //
+  // Everything here is scenery past the ring road, so what can go wrong is geometry: a wall facing
+  // away from the water renders nothing (the wake's trap, CLAUDE.md), a ship through its own quay,
+  // a slab still lying over the basin and hiding it, or the dock's water wound upside down.
+  {
+    const basin = harborBasin();
+    // `HARBOR=classic` is the old mouth, and asserts that it really is gone rather than skipping.
+    if (!HARBOR) check('harbor: classic has no dock basin', basin === null, basin ? 'still built' : 'none');
+    else check('harbor: the city has a dock basin at the east mouth', !!basin && basin.x0 > HALF_SPAN_X,
+      basin ? `basin ${basin.x0.toFixed(1)}..${basin.x1.toFixed(1)} x, ${basin.z0.toFixed(1)}..${basin.z1.toFixed(1)} z` : 'none');
+    if (basin) {
+      const hb = createHarbor(makeRng(seed + 47));
+      check('harbor: builds', !!hb?.mesh && hb.mesh.geometry.attributes.position.count > 0,
+        hb ? `${hb.mesh.geometry.attributes.position.count / 3} triangles` : 'null');
+
+      // The quay walls face the water, from the winding: the far quay +z, the near one -z.
+      const hp = hb.mesh.geometry.attributes.position;
+      const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+      const n = new THREE.Vector3();
+      let farWall = 0; let nearWall = 0; let wrong = 0;
+      for (let t = 0; t < hp.count; t += 3) {
+        a.fromBufferAttribute(hp, t); b.fromBufferAttribute(hp, t + 1); c.fromBufferAttribute(hp, t + 2);
+        if (Math.min(a.y, b.y, c.y) > WATER_Y - 0.1) continue;      // only the walls reach that low
+        n.subVectors(b, a).cross(c.clone().sub(a)).normalize();
+        const z = (a.z + b.z + c.z) / 3;
+        if (Math.abs(z - basin.z0) < 1e-4) { farWall += 1; if (n.z < 0.99) wrong += 1; }
+        if (Math.abs(z - basin.z1) < 1e-4) { nearWall += 1; if (n.z > -0.99) wrong += 1; }
+      }
+      check('harbor: both quay walls are wound to face the water', farWall > 0 && nearWall > 0 && wrong === 0,
+        `${farWall} far, ${nearWall} near, ${wrong} facing away`);
+
+      // The ship alongside lies off the quay wall, not through it: held off by its fenders — the
+      // far one, or the near one when the L train has sent the cranes there. Read off the moving
+      // ship (game/harborships.js) settled on its berth, in world space.
+      const { createHarborShips } = await import('../src/game/harborships.js');
+      const ships = createHarborShips(new THREE.Scene(), makeRng(5), hb.berth);
+      ships.settle();
+      let hullClear = Infinity;
+      {
+        const hull = ships.hulls[ships.state.hull];
+        hull.updateMatrixWorld(true);
+        const sp = hull.geometry.attributes.position;
+        const v = new THREE.Vector3();
+        for (let t = 0; t < sp.count; t++) {
+          v.fromBufferAttribute(sp, t).applyMatrix4(hull.matrixWorld);
+          if (v.y < WATER_Y + 0.5 && v.y > WATER_Y - 1) hullClear = Math.min(hullClear, v.z - basin.z0, basin.z1 - v.z);
+        }
+      }
+      check('harbor: the moored ship lies off the quay wall, not through it',
+        hullClear > 0.3 && hullClear < 2, `${hullClear.toFixed(2)} off the wall`);
+      // And on its way in and out it never runs into a pier, the seawall or the river's mouth: its
+      // four corners sampled over two whole visits stay over open water, and clear of the lane the
+      // river's boats come out on (the channel's middle, game/boats.js).
+      {
+        const { harborLandAt } = await import('../src/city/harborplan.js');
+        const { SHIP_L, SHIP_B } = await import('../src/city/harbor.js');
+        const sim = createHarborShips(new THREE.Scene(), makeRng(9), hb.berth);
+        let aground = 0;
+        let mouth = Infinity;
+        let visits = 0;
+        const mid = (riverBanks().z0 + riverBanks().z1) / 2;
+        for (let f = 0; f < 60 * 420; f++) {
+          sim.update(1 / 60);
+          if (sim.state.leg < 0) continue;
+          visits = sim.state.visits;
+          const { x, z, yaw } = sim.state;
+          for (const [u, w] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+            const cx = x + Math.cos(yaw) * u * SHIP_L / 2 + Math.sin(yaw) * w * SHIP_B / 2;
+            const cz = z - Math.sin(yaw) * u * SHIP_L / 2 + Math.cos(yaw) * w * SHIP_B / 2;
+            if (harborLandAt(cx, cz) && cx > basin.x0) aground += 1;
+            if (cx < hb.berth.seaX + 30) mouth = Math.min(mouth, Math.abs(cz - mid));
+          }
+        }
+        check('harbor: ships come and go without touching land, and wide of the river\'s mouth',
+          visits >= 2 && aground === 0 && mouth > 3, `${visits} visits, ${aground} corner-frames over land, `
+            + `nearest the boats' lane ${mouth.toFixed(1)}`);
+      }
+      const box = new THREE.Box3();
+      for (let t = 0; t < hp.count; t++) box.expandByPoint(new THREE.Vector3(hp.getX(t), hp.getY(t), hp.getZ(t)));
+      // The seawall's corner arcs curl back west of the kerb, out beyond the ring road's far side,
+      // so the test is the ring road's own rectangle.
+      let inCity = 0;
+      for (let t = 0; t < hp.count; t++) {
+        if (hp.getX(t) < basin.kerbX - 1e-6 && Math.abs(hp.getZ(t)) < HALF_SPAN_Z + HALF_ROAD) inCity += 1;
+      }
+      check('harbor: nothing in it stands inside the ring road', inCity === 0,
+        `${inCity} vertices west of kerb ${basin.kerbX.toFixed(2)}`);
+
+      // The slab does not cover the basin: no ground triangle has its centre over the dock's water.
+      const gp = ground.geometry.attributes.position;
+      let overDock = 0;
+      for (let t = 0; t < gp.count; t += 3) {
+        const x = (gp.getX(t) + gp.getX(t + 1) + gp.getX(t + 2)) / 3;
+        const z = (gp.getZ(t) + gp.getZ(t + 1) + gp.getZ(t + 2)) / 3;
+        if (x > basin.x0 + 0.1 && x < basin.x1 && z > basin.z0 + 0.1 && z < basin.z1 - 0.1) overDock += 1;
+      }
+      check('harbor: the island\'s slab is cut away over the basin', overDock === 0,
+        `${overDock} ground triangles over the dock`);
+
+      // The dock's water faces up, from its winding.
+      const rh = createRiver(makeRng(seed + 12), layout);
+      const dock = rh.group.getObjectByName('harbor-water');
+      let down = 0;
+      const dp = dock?.geometry.attributes.position;
+      for (let t = 0; dp && t < dp.count; t += 3) {
+        a.fromBufferAttribute(dp, t); b.fromBufferAttribute(dp, t + 1); c.fromBufferAttribute(dp, t + 2);
+        n.subVectors(b, a).cross(c.clone().sub(a));
+        if (n.y <= 0) down += 1;
+      }
+      check('harbor: the dock\'s water is wound to face up', !!dock && down === 0,
+        dock ? `${down} of ${dp.count / 3} facing down` : 'missing');
+      // Open sea out to the rim: no shoal, so a boat out there sits on the same water as the dock.
+      check('harbor: the sea stays at sea level out to the rim',
+        Math.abs(waterHeightAt(basin.x1) - WATER_Y) < 1e-9 && Math.abs(waterHeightAt(basin.x0) - WATER_Y) < 1e-9,
+        `${waterHeightAt(basin.x0).toFixed(2)} at the back wall, ${waterHeightAt(basin.x1).toFixed(3)} at the coast`);
+      // And its vertices stay at sea level too, out to the fade: the first cut shoaled the rim and
+      // drew a mud bank round the sea.
+      let off = 0;
+      for (let t = 0; dp && t < dp.count; t++) if (Math.abs(dp.getY(t) - WATER_Y) > 1e-6) off += 1;
+      check('harbor: the sea has no shoal round its rim', !!dock && off === 0, `${off} vertices off sea level`);
+    }
   }
 
   // --- The paint does not sink into the hump.
@@ -19635,7 +19778,7 @@ let chopperOrder; // likewise
 // lanes so nothing driving under it can touch it, and the train shuttling on both tracks.
 {
   const { planLTrain, createLTrain, LTRAIN_DIMENSIONS: L } = await import('../src/game/ltrain.js');
-  const { medianRuns, halfRoadZ, laneOffX } = await import('../src/city/grid.js');
+  const { medianRuns, halfRoadZ, halfRoadX } = await import('../src/city/grid.js');
   const { LANE_TO_KERB } = await import('../src/city/grid.js');
   // citylights.js: POST_H 4.2 on a KERB_H kerb.
   const KERB_H_LAMP_TOP = 0.35 + 4.2;
@@ -19643,34 +19786,70 @@ let chopperOrder; // likewise
   let offIsland = 0;
   let wideSpan = 0;
   let laneClash = 0;
-  const ringKerb = HALF_SPAN_X + halfRoadZ(GRID_I);
+  let harborClash = 0;
+  let riverSpans = 0;
+  let drawUnder = 0;
+  const { drawbridgeLine, bridgeLines } = await import('../src/city/river.js');
   for (let s = 0; s < 20; s++) {
     createLayout(makeRng(seed + s * 53));
     const plan = planLTrain();
     if (!plan) continue;
     planned += 1;
-    const runs = medianRuns().filter((r) => r.axis === 'x' && r.line === plan.line);
+    // Distances along the line: x for an east-west one, -z for a north-south one (`plan.alongOf`).
+    const ns = plan.axis === 'z';
+    const ringKerb = ns ? HALF_SPAN_Z + halfRoadX(GRID_J) : HALF_SPAN_X + halfRoadZ(GRID_I);
+    const runs = medianRuns().filter((r) => r.axis === plan.axis && r.line === plan.line)
+      .map((r) => (ns ? { from: -r.to, to: -r.from } : r));
     for (const x of plan.columns) {
       const onIsland = runs.some((r) => x - L.FOOTING_W / 2 >= r.from && x + L.FOOTING_W / 2 <= r.to);
       const offshore = Math.abs(x) - L.FOOTING_W / 2 > ringKerb;
       if (!onIsland && !offshore) offIsland += 1;
     }
     for (let n = 1; n < plan.columns.length; n++) {
-      // A park built over the arterial leaves one long span, which is allowed; anything else is not.
+      // A park built over the arterial leaves one long span, which is allowed, and so does the
+      // river under a north-south line, which gets a truss; anything else is not.
       const gap = plan.columns[n] - plan.columns[n - 1];
-      const closedHere = runs.length < GRID_I;
-      if (gap > 16 && !closedHere) wideSpan += 1;
+      const closedHere = runs.length < (ns ? GRID_J - 1 : GRID_I);
+      const river = ns && (() => {
+        const w0 = plan.world(plan.columns[n - 1]).z;
+        const w1 = plan.world(plan.columns[n]).z;
+        const b = riverBanks();
+        return b && Math.min(w0, w1) < b.z0 && Math.max(w0, w1) > b.z1;
+      })();
+      if (river) riverSpans += 1;
+      if (gap > 16 && !closedHere && !river) wideSpan += 1;
     }
+    // A north-south line crosses the river on a fixed bridge, and the drawbridge is never under it.
+    if (ns && (drawbridgeLine() === plan.line || !bridgeLines().includes(plan.line))) drawUnder += 1;
     // The deck stays short of the kerb, where the fares stand.
-    if (L.DECK_HALF_W >= laneOffX(plan.line) + LANE_TO_KERB) laneClash += 1;
+    if (L.DECK_HALF_W >= plan.laneOff + LANE_TO_KERB) laneClash += 1;
+    // Out over the harbor the line passes the cranes, the ship and the container stacks, and
+    // nothing of theirs may reach up into the deck's slot.
+    if (HARBOR) {
+      const hp = createHarbor(makeRng(seed + s * 53 + 47)).mesh.geometry.attributes.position;
+      for (let t = 0; t < hp.count; t++) {
+        const across = ns ? hp.getX(t) : hp.getZ(t);
+        if (Math.abs(across - plan.c) < L.DECK_HALF_W + 0.3 && hp.getY(t) > L.CAP_UNDERSIDE - 0.3) {
+          harborClash += 1;
+        }
+      }
+    }
   }
   createLayout(makeRng(seed));     // put the probe's city back — `createLayout` installs its network
-  check('ltrain: every city with an east-west arterial gets a line', planned === 20, `${planned}/20`);
+  check('ltrain: every city gets a line', planned === 20, `${planned}/20`);
+  if (planLTrain().axis === 'z') {
+    check('ltrain: the line crosses the river once, on a truss, over a fixed bridge and never the drawbridge',
+      riverSpans === 20 && drawUnder === 0, `${riverSpans}/20 river spans, ${drawUnder} under a leaf or with no bridge`);
+  }
   check('ltrain: every column stands on a planted island or out past the ring road',
     offIsland === 0, `${offIsland} in a junction or a lane`);
   check('ltrain: no span longer than a junction crossing, except over a park', wideSpan === 0, `${wideSpan}`);
+  if (HARBOR) {
+    check('ltrain: nothing in the harbor reaches up into the deck', harborClash === 0,
+      `${harborClash} vertices in the deck's slot over 20 cities`);
+  }
   check('ltrain: the deck stops short of the kerb',
-    laneClash === 0, `deck half-width ${L.DECK_HALF_W} against lane ${laneOffX(planLTrain().line).toFixed(2)}`);
+    laneClash === 0, `deck half-width ${L.DECK_HALF_W} against lane ${planLTrain().laneOff.toFixed(2)}`);
   // ...so everything under it has to clear by height: the tallest vehicle (a box truck's box, off
   // its own geometry) and the street lamps, whose arms reach out over the arterial's lanes.
   const truckTop = traffic.truckBoxMesh.geometry.boundingBox
@@ -19701,7 +19880,7 @@ let chopperOrder; // likewise
   {
     const bursts = [];
     const lts = createLTrain(new THREE.Scene(), makeRng(9), {
-      sparks: { burst: (x, y, z, yaw, count, speed, opts) => bursts.push({ x, y, count, opts }) },
+      sparks: { burst: (x, y, z, yaw, count, speed, opts) => bursts.push({ x, y, z, count, opts }) },
     });
     let crossings = 0;
     for (let n = 0; n < 60 * 120; n++) {
@@ -19710,7 +19889,11 @@ let chopperOrder; // likewise
       crossings += lts.state.runs - was;
     }
     const offRail = bursts.filter((b) => Math.abs(b.y - L.RAIL_TOP) > 0.2 || b.opts.floor !== 0).length;
-    const offIsland = bursts.filter((b) => Math.abs(b.x) > HALF_SPAN_X + 20).length;
+    // The harbor pushes the east coast out, and the line runs over it (`coastEast + coastWest` is
+    // its reach, 0 without one).
+    const offIsland = bursts.filter((b) => (lts.plan.axis === 'z'
+      ? b.z > HALF_SPAN_Z + 20 || b.z < Math.min(-(HALF_SPAN_Z + 20), coastNorth())
+      : b.x < -(HALF_SPAN_X + 20) || b.x > HALF_SPAN_X + 20 + coastEast() + coastWest())).length;
     const perCrossing = bursts.length / 3 / Math.max(1, crossings);
     check('ltrain: the wheels spark a few times a crossing, off the rail, over the island',
       perCrossing >= 1.5 && perCrossing <= 8 && offRail === 0 && offIsland === 0,

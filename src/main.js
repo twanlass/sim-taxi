@@ -15,9 +15,12 @@ import {
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
 import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river.js';
+import { createHarbor } from './city/harbor.js';
+import { createNorthPark } from './city/northpark.js';
 import { tickRiverWater, syncRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/riverwater.js';
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
+import { createHarborShips } from './game/harborships.js';
 import { createBridge } from './geometry/bridge.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps, parkPlots, setAutumn } from './city/props.js';
@@ -592,6 +595,18 @@ if (river) {
     scene.add(markOccluder(mesh));
   }
 }
+// The harbor at the river's east mouth: quays, yards, cranes and a moored ship, all outside the ring
+// road (city/harbor.js). Its own stream. Null under `?harbor=classic`.
+const harbor = createHarbor(makeRng(seed + 47));
+if (harbor) scene.add(markOccluder(harbor.mesh));
+// The big park past the north ring road, where the map ends (city/northpark.js). Its own stream.
+// Null under `?northpark=classic`.
+const northPark = createNorthPark(makeRng(seed + 53));
+if (northPark) {
+  scene.add(markOccluder(northPark.mesh));
+  scene.add(northPark.water);
+  scene.add(northPark.fade);
+}
 // Held onto for its `pad`: exactly one roof in the city carries a landing circle, and the
 // helicopter below has to be told which one — see `choosePad` in city/buildings.js.
 const stopPanes = rain.enabled ? collectPanes() : null;
@@ -634,7 +649,8 @@ const grass = createGrass(makeRng(seed + 122), layout, props);
 scene.add(grass.mesh);
 // Leaf cards round every tree crown — the parks', the medians' and the courtyard's — on the same
 // terms as the grass. See city/canopyfuzz.js.
-const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), [...props.crowns, ...(city.court?.crowns ?? [])]);
+const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), [...props.crowns, ...(city.court?.crowns ?? []),
+  ...(northPark?.crowns ?? [])]);
 scene.add(canopyFuzz.mesh);
 // The basketball court's hoops, which ride outside the merged props mesh so the fare board's
 // sightline field never sees them (see `courtParts`) — and the people shooting around on the court. Run seed for the players, like the ducks:
@@ -655,7 +671,7 @@ const skaterFlag = new URLSearchParams(window.location.search).get('skater');
 const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters)(
   scene, makeRng(runSeed + 349), props.skatepark, { stiff: skaterFlag === 'stiff' });
 
-// The elevated train over the east-west arterial's median — see game/ltrain.js. On by default
+// The elevated train over the north-south arterial's median (`?lroute=classic`: the east-west one) — see game/ltrain.js. On by default
 // since 2026-10-11 (Tyler); `?ltrain=classic` takes it out for comparison. Built here rather than beside the boats because the entrance wave below has to
 // be handed it. Run seed: where the line runs is the arterial's, so the map's already; which way
 // the first train goes and how long the line stands empty is the situation.
@@ -1606,6 +1622,9 @@ if (drawbridge) bindRiverDrawbridge(() => drawbridge.state.lift);
 // unlike the bridge itself: a barge every twenty seconds or so and a tug every minute and a half
 // is the situation, not the map. Null wherever the drawbridge is null, and for the same reason.
 const boats = createBoats(scene, makeRng(runSeed + 401), drawbridge);
+// The container ships that come in to the harbor's berth and go back out to sea
+// (game/harborships.js). Run seed: when one arrives is the situation.
+const harborShips = createHarborShips(scene, makeRng(runSeed + 431), harbor?.berth);
 
 // A street closed for roadworks, once per run, forty seconds or so in — see game/roadwork.js.
 // Ambient traffic routes around it and the taxi has never heard of it, so the closed street is the
@@ -5246,6 +5265,7 @@ function tick() {
   // Boats first, so a tug that reaches its asking distance this frame gets the barriers moving on
   // the same frame rather than the next one.
   boats?.update(dt);
+  harborShips?.update(dt);
   drawbridge?.update(dt, traffic.cars);
   tickRiverWater(dt);
   roadwork.update(dt, traffic.taxi, traffic.cars, fares.occupiedSpots());
@@ -5947,9 +5967,11 @@ if (shot) {
     controller.state.target.set(hoopers.court.x, 0, hoopers.court.z);
     controller.update(aspect());
   }
-  // And the L, framed on its median a block off the middle, where the train is settled below.
+  // And the L, framed on its median a block off the middle, where the train is settled below —
+  // a north-south line framed over its river crossing.
   if (shot.atLTrain && ltrain) {
-    controller.state.target.set(10, 0, ltrain.plan.z);
+    const at = ltrain.plan.world(ltrain.plan.axis === 'z' ? 0 : 10);
+    controller.state.target.set(at.x, 0, at.z);
     controller.update(aspect());
   }
   // And the skatepark, the same way.
@@ -6184,10 +6206,11 @@ if (shot) {
   // that has not been spawned yet never will be and every screenshot of the river is of an empty
   // one. `settle` places one of each beside the lifting span instead of waiting a minute for a tug.
   boats?.settle();
+  harborShips?.settle();
   drawbridge?.settle();
   // A train mid-crossing over the frame's own target, and the deck already faded over the board.
   if (ltrain) {
-    ltrain.settle(controller.state.target.x);
+    ltrain.settle(controller.state.target);
     ltrain.setFadePoints(ltrainFadePoints());
     sparks.update(0.12);
   }

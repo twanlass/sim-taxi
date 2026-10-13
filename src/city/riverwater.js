@@ -532,6 +532,65 @@ export function patchPondWater(material, pond) {
   return material;
 }
 
+// --- The sea ------------------------------------------------------------------
+//
+// The water the harbor stands in, east of the city (city/river.js `seaMesh`). The river's surface
+// with nothing to mirror but the sky and no channel walls to shelve against: deep open water that
+// shoals with the river's own `waterWet` as it nears the rim, so the sea and the river mouth
+// lighten into the coast the same way.
+
+const SEA_BED = 4.0;
+
+const seaCompose = () => /* glsl */ `
+  {
+    vec3 V = normalize(vec3(viewMatrix[0].z, viewMatrix[1].z, viewMatrix[2].z));
+    float depth = ${num(SEA_BED)} * waterWet;
+
+    vec3 rd = refract(-V, waterN, 0.7518797);
+    float s = depth / max(-rd.y, 1e-3);
+    vec3 seen = vWaterWorld + rd * s;
+    vec2 cell = floor(seen.xz * 1.3);
+    vec3 under = uWaterBed * (0.75 + 0.5 * waterHash(cell).x);
+    vec3 irr = outgoingLight / max(diffuseColor.rgb, vec3(0.02));
+    under *= irr + waterSun * RECIPROCAL_PI * ${num(CAUSTIC)} * waterCaustic(seen.xz);
+    vec3 T = exp(-vec3(${ABSORB.map(num).join(', ')}) * s);
+    vec3 body = mix(outgoingLight, under, T);
+
+    float cosT = saturate(dot(waterN, V));
+    float fres = ${num(F0)} + ${num(1 - F0)} * pow(1.0 - cosT, 5.0);
+    fres = ${num(REFLECT_FLOOR)} + ${num(1 - REFLECT_FLOOR)} * fres;
+    vec3 water = mix(body, uWaterSky, fres) + waterSpec * ${num(GLINT)};
+    outgoingLight = mix(outgoingLight, water, waterWet);
+  }
+`;
+
+/**
+ * Layer the river's surface onto the sea round the harbor.
+ *
+ * @param material  the sea's `propMaterial` — its existing `onBeforeCompile` runs first.
+ */
+export function patchHarborWater(material) {
+  const inner = material.onBeforeCompile;
+  const innerKey = material.customProgramCacheKey();
+  const styleKey = style;
+  material.customProgramCacheKey = () => `${innerKey}-sea-${styleKey}`;
+  material.onBeforeCompile = (shader, renderer) => {
+    inner(shader, renderer);
+    Object.assign(shader.uniforms, UNIFORMS);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWaterWorld;')
+      .replace('#include <project_vertex>',
+        '#include <project_vertex>\nvWaterWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <lights_lambert_pars_fragment>',
+        `#include <lights_lambert_pars_fragment>\n${header()}`)
+      .replace('#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>\n${normalPatch(riverWet())}`)
+      .replace('#include <opaque_fragment>', `${seaCompose()}\n#include <opaque_fragment>`);
+  };
+  return material;
+}
+
 /** Where the drawbridge's leaf is, 0 down to 1 up — so its deck can leave the reflection. */
 export function bindRiverDrawbridge(getLift) {
   drawLift = getLift;
