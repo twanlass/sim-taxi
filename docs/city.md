@@ -613,13 +613,22 @@ hanging in the air over a hole in the ground.
 
 ## The graveyard
 
-`city/graveyard.js`. The third whole block taken out of the tower generator's hands, after the depot
-and the burger joint, and chosen the same way: drawn **last** in `createLayout`, so it moves nothing
-drawn before it, and `null` is a valid answer. Default since 2026-10-12; `?graveyard=classic` (or
-`GRAVEYARD=classic` for the headless tools) skips the draw and gives the block back to the towers.
+`city/graveyard.js`. **A double block** since 2026-10-13: two blocks side by side along X and the
+north-south road between them closed, built the way a [park district](#park-districts-close-roads) is — one
+kerb, one lawn and one fence over the lot. `?graveyard=single` (or `GRAVEYARD=single` for the
+headless tools) brings back the first cut, one block drawn **last** in `createLayout` like the depot
+and the burger joint; `?graveyard=classic` leaves the city without one.
+
+The double lot cannot be drawn last, because the road it closes has to be closed before the network
+is baked. So `planGraveyardPair` runs straight after the park districts, beside them, and picks
+**without a draw**: the candidate is hashed off the districts' positions the way the pocket park
+picks its block, so planning it moves no park, tree or tower. Every city gets one (24 of 24 in the
+probe's sweep), never downtown, and never across an arterial — closing a main street breaks its
+green wave.
 
 It is scenery only. Nothing routes into it, nothing on it can be tapped, and the fare loop doesn't
-know it exists. An iron railing on a stone plinth runs round the lawn, with a gate in the +Z fence.
+know it exists. An iron railing on a stone plinth runs round the lawn, with a gate in the middle of
+the +Z fence.
 Headstones stand in rows either side of a gravel path that runs gate to gate (one gate in each
 end), one big tree stands in a back corner, and a little ground mist drifts across. The tree is
 an ordinary `treeParts` tree at 6.6 tall (the parks run 3.4–5.6) with a plum crown, so it lights and
@@ -632,12 +641,26 @@ same measure of darkness as the helicopter's searchlight.
   both.
 - **The stones are drawn 1.4× life size** (`STONE_SCALE`). At life size they were four pixels at play
   zoom, and the lot read as a fenced lawn with grit on it.
-- **Out of downtown, and apart from the other two landmarks.** `chooseGraveyardBlock` keeps it at
-  centrality ≤ 0.5 and off any block touching the depot or the joint. A low lot among towers is one
-  the camera cannot see into. Each filter falls back to the pool it narrows.
-- **It moved the probe's bank.** Taking a block changes which lot the bank lands on for the pinned
-  probe seed, which put the robbery's drop-off on the far corner (0, 6). The arrest check's
-  drive-to-drop-off window went from 10s to 25s to cover that.
+- **Out of downtown.** Both cuts keep it at centrality ≤ 0.5: a low lot among towers is one the
+  camera cannot see into. In practice that is the outer ring of blocks. Each filter falls back to
+  the pool it narrows. The single cut also keeps off any block touching the depot or the joint; the
+  double lot is planned before either exists, and they are placed round it.
+- **Side by side, because of which road it closes.** A pair stacked along Z closes an east-west
+  street, and east-west side streets are the scarce kind: the U-turn's tip card films on three
+  straight open blocks of one (`pickStreet` in game/uturnclip.js), and the north-south streets
+  nearly all cross the river and never qualify. Stacked, 20 cities in 200 had nowhere to film;
+  side by side it is 2 in 200, the same as with no graveyard at all.
+- **What the double block costs.** One road segment and two blocks of kerb, so fewer riders' corners
+  and one fewer way through at the edge of town. Measured on the robbery getaway over seven cities ×
+  12 getaways: cops brake-check a third less (60 to 40) and pass a little less (33 to 28), with
+  roadblocks unchanged (86 to 90). Why is not established; the getaway runs for a corner of the map
+  and the lot sits out by the edge. Losing a cop round corners is unchanged (14 in 32 against 12).
+- **It moves the probe's city.** Taking blocks and a road reshuffles the pinned seed's traffic, and
+  several scenario checks there were calibrated on one draw. The first cut moved the bank (the arrest
+  check's drive-to-drop-off window went from 10s to 25s); the double block widened the getaway
+  sample, and fixed checks that were measuring the wrong thing — a watching taxi that
+  braked to a stop *inside* the next junction and gridlocked the cops, a robber measured against
+  after they had got into the car, a drive-through visit timed from behind a car already in the line.
 
 ## The bank
 

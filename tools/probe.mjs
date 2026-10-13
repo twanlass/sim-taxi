@@ -204,7 +204,7 @@ import {
 } from '../src/game/route.js';
 import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from '../src/game/streettap.js';
 import { GRAB_RADIUS } from '../src/game/pathdrag.js';
-import { nearestJunction, nextIntersection } from '../src/city/grid.js';
+import { nearestJunction, nextIntersection, isSegmentClosed } from '../src/city/grid.js';
 import { DIR, dirYaw, laneOffsetCoord } from '../src/city/grid.js';
 import { PALETTE, BUILDING_COLORS, color } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
@@ -6962,7 +6962,15 @@ function rideToPickup() {
   // And a contact placed by hand: the taxi's nose square in a car's door at cruise, boost off. The
   // car has to be pushed out — that is the whole point of arming the test off boost — and the taxi
   // has to come out of it with every hit point.
-  const qVictim = qTraffic.cars.find((c) => !c.isTaxi && !c.crashed && c.state === 'drive');
+  // Any car mid-block will do; with seven on the map all of them can be in a junction on the frame
+  // the quiet half ends (they were, once the double graveyard reshuffled this city), so roll on
+  // until one is not.
+  const driving = () => qTraffic.cars.find((c) => !c.isTaxi && !c.crashed && c.state === 'drive');
+  for (let step = 0; step < 60 * 5 && !driving(); step++) {
+    qCollisions.update();
+    qTraffic.update(1 / 60);
+  }
+  const qVictim = driving();
   const qTaxi = qTraffic.taxi;
   qTaxi.boost = false;
   qTaxi.yaw = qVictim.yaw + Math.PI / 2;
@@ -15612,6 +15620,7 @@ let chopperOrder; // likewise
       let landed = null;
       let inLot = new Set(runLot.state.queue.map((e) => e.car));
       let held = 0;
+      let behind = false;            // pulled in behind a car already in the line
       while (run.active() && clock < 150) {
         runLot.update(S);
         run.update(S);
@@ -15620,7 +15629,7 @@ let chopperOrder; // likewise
         const now = new Set(runLot.state.queue.map((e) => e.car));
         for (const car of now) {
           if (inLot.has(car)) continue;
-          if (car === taxi) entered = true;
+          if (car === taxi) { entered = true; behind = now.size > 1; }
           else intruders += 1;         // the lot was supposed to be held
         }
         // The one frame a released car can be checked on: `traffic.update` has not composed its
@@ -15632,7 +15641,7 @@ let chopperOrder; // likewise
         clock += S;
       }
       slowest = Math.max(slowest, clock);
-      visits.push(held);
+      visits.push({ held, behind });
 
       if (!entered) neverEntered += 1;
       if (!landed || Math.hypot(landed.x - site.merge.point.x, landed.z - site.merge.point.z) > 1e-9) {
@@ -15660,13 +15669,17 @@ let chopperOrder; // likewise
     // ...and it lasts as long as the speaker does, plus a beat. The clip plays from the frame the lot
     // takes the taxi to the frame it lets go (`driveThruSpeaker` in main.js), so a visit shorter than
     // the clip cuts the conversation off; the visit is the clip and `DRIVE_THRU_TAIL` of quiet after
-    // it. Half a second either way; every trip here starts with the lane empty, which is the visit
-    // the dwells were sized against.
+    // it. Half a second either way, on the trips that pull into an empty lane, which is the visit the
+    // dwells were sized against. The tap holds the lot against anyone *new*, but a car already in the
+    // line stays there, and the taxi waits behind it at the board — 1.6s on the one trip in five
+    // that met one once the double graveyard reshuffled this city's traffic.
     const want = DRIVE_THRU_SECONDS + DRIVE_THRU_TAIL;
-    const offClip = Math.max(...visits.map((v) => Math.abs(v - want)));
+    const clear = visits.filter((v) => !v.behind);
+    const offClip = Math.max(...clear.map((v) => Math.abs(v.held - want)));
     check('...and the visit lasts the drive-through speaker\'s clip and a beat after it',
-      offClip < 0.5, `visits ${visits.map((v) => v.toFixed(2)).join(', ')}s against a `
-      + `${DRIVE_THRU_SECONDS}s clip + ${DRIVE_THRU_TAIL}s`);
+      clear.length >= visits.length - 1 && offClip < 0.5,
+      `visits ${visits.map((v) => v.held.toFixed(2) + (v.behind ? ' (behind a car)' : '')).join(', ')}s `
+      + `against a ${DRIVE_THRU_SECONDS}s clip + ${DRIVE_THRU_TAIL}s`);
     check('...and the route band ends at the driveway rather than at the junction past it',
       worstBandEnd < 1e-9,
       `band finishes ${worstBandEnd.toFixed(2)} from the mouth at its worst`);
@@ -16772,7 +16785,7 @@ let chopperOrder; // likewise
         // A cop turning round in the road (UTURN_* in sim/traffic.js, `wantsToTurnRound` in
         // game/robbery.js): how many, and whether the arc ever meets anything.
         let uturns = 0; let uturnOverlap = 0; let uturnTaxi = Infinity;
-        for (let k = 0; k < 6; k++) {
+        for (let k = 0; k < 12; k++) {
           const s3 = new THREE.Scene();
           const t3 = createTraffic(makeRng(seed + 300 + k * 17), s3, 18, 30);
           const f3 = createFareSystem(makeRng(seed + 55), s3);
@@ -16866,7 +16879,9 @@ let chopperOrder; // likewise
         // A cop already in front on the taxi's road stops across it too, without going round first
         // (COP_AHEAD_* in sim/traffic.js). Before it, a cop ahead drove on down the straight and read
         // as police that had not seen the taxi. Over seeds 1-12 it lifted brake checks from ~1 per six
-        // getaways to ~3, with no overlap and no red run.
+        // getaways to ~3, with no overlap and no red run. Twelve getaways rather than six since the
+        // double graveyard: over seven cities x 12 getaways it took brake checks from 60 to 40 and
+        // passes from 33 to 28 (roadblocks 86 to 90), which left six draws on this seed with none.
         check('...and a cop already ahead of the taxi brake-checks it without overtaking first',
           aheadChecks > 0, `${aheadChecks} of ${checks} brake checks from a cop already in front`);
         check('chasing cops lay rubber and lean like the taxi — corners, passes, and into a roadblock',
@@ -17091,7 +17106,10 @@ let chopperOrder; // likewise
         const crewCars = new Set();
         const last = new Map();
         for (let f = 0; f < 60 * 45; f++) {
-          if (watch && Math.hypot(t5.taxi.x - J5.x, t5.taxi.z - J5.z) > 16) t5.taxi.braking = true;
+          // Pulled up on a street, not in the next junction: `braking` is sticky, and set 16 out it
+          // lands right on the next hold line, where the taxi stopped mid-box on one draw of this
+          // city's traffic (a first cut of the double graveyard) and gridlocked the cops behind it.
+          if (watch && Math.hypot(t5.taxi.x - J5.x, t5.taxi.z - J5.z) > 16 && t5.taxi.state === 'drive') t5.taxi.braking = true;
           t5.update(1 / 60);
           rob5.update(1 / 60);
           f5.update(1 / 60, t5.taxi);
@@ -17133,7 +17151,11 @@ let chopperOrder; // likewise
                 }
               }
             }
-            if (run.figure?.settled() && rob5.arrest.state.phase !== 'board') {
+            // Only while the robber is standing there: once `board` hands the figure back (or the scene
+            // gives up and fades it) the kerb is empty, but `settled()` still answers from where they
+            // stood — and the car the robber just got into pulls out past that spot at 1.74.
+            const onKerb = rob5.arrest.state.phase === 'converge' || rob5.arrest.state.phase === 'standoff';
+            if (run.figure?.settled() && onKerb) {
               run.nearRobber = Math.min(run.nearRobber, Math.hypot(c.x - run.figure.x, c.z - run.figure.z));
             }
             for (const o of t5.cars) {
@@ -17274,6 +17296,7 @@ let chopperOrder; // likewise
   let goodDropped = 0;
   let worstKept = 1;
   let originRejected = 0;
+  let originBuilt = 0;
   let mostRejectedInOneCity = 0;
   let jointCorners = 0;
   let jointSeen = 0;
@@ -17295,6 +17318,10 @@ let chopperOrder; // likewise
       jointCorners += 1;
       if (cornerSeen(sweepLayout.burgerBlock.bi + 1, sweepLayout.burgerBlock.bj + 1)) jointSeen += 1;
     }
+    // Only a block with a building on it hides its own corner: a park or the graveyard lot at
+    // (0, 0) leaves it in plain view, and the double graveyard took (0, 0) in one of these four.
+    const originHasBuilding = sweepLayout.find((b) => b.bi === 0 && b.bj === 0)?.type === 'built';
+    if (originHasBuilding) originBuilt += 1;
     let rejectedHere = 0;
     for (let i = 0; i <= GRID_I; i++) {
       for (let j = 0; j <= GRID_J; j++) {
@@ -17316,7 +17343,7 @@ let chopperOrder; // likewise
         if (!seen) {
           rejected += 1;
           rejectedHere += 1;
-          if (i === 0 && j === 0) originRejected += 1;
+          if (i === 0 && j === 0 && originHasBuilding) originRejected += 1;
           if (vis > 0.85) goodDropped += 1;
         } else {
           worstKept = Math.min(worstKept, vis);
@@ -17342,7 +17369,8 @@ let chopperOrder; // likewise
   // the one corner of block (0, 0) with that block's own building between it and the camera. It is
   // hidden in nearly every city, and it was on the board in all of them.
   check('the origin corner — hidden in nearly every city — is off the board',
-    originRejected >= SEEDS - 1, `${originRejected}/${SEEDS} cities`);
+    originBuilt >= 2 && originRejected >= originBuilt - 1,
+    `${originRejected}/${originBuilt} cities with a building on block (0, 0), of ${SEEDS}`);
   check('the burger joint\u2019s own corner is visible in every city, so food is always on offer',
     jointCorners === SEEDS && jointSeen === jointCorners,
     `${jointSeen}/${jointCorners} joints with a visible pickup corner`);
@@ -19525,9 +19553,9 @@ let chopperOrder; // likewise
     && lt.material.customProgramCacheKey().endsWith('-ltrain'));
 }
 
-// The graveyard (city/graveyard.js): a whole block the towers leave alone, kept apart from the depot
-// and the burger joint, out of downtown, and everything on it inside its own kerb and no taller
-// than a big tree. Swept over cities rather than trusted to this seed,
+// The graveyard (city/graveyard.js): a double block the towers leave alone — two blocks stacked
+// along Z with the road between them closed, so no car drives through it — out of downtown, and
+// everything on it inside its own kerb and no taller than a big tree. Swept over cities rather than trusted to this seed,
 // and the layout this run is measuring against rebuilt afterwards — `createLayout` installs the
 // network it bakes (see CLAUDE.md).
 {
@@ -19577,23 +19605,26 @@ let chopperOrder; // likewise
     outside === 0 && top < 8, `${outside} vertices outside, tallest ${top.toFixed(2)}`);
 
   let placed = 0;
-  let clumped = 0;
   let downtown = 0;
+  let open = 0;
+  let shared = 0;
   const N = 24;
   for (let c = 0; c < N; c++) {
     const sweep = createLayout(makeRng(seed + 7000 + c * 13));
     const g = sweep.graveyardBlock;
-    if (!g) continue;
+    if (!g?.double) continue;
     placed += 1;
     if (g.centrality > 0.6) downtown += 1;
-    for (const other of [sweep.garageBlock, sweep.burgerBlock]) {
-      if (other && Math.abs(other.bi - g.bi) <= 1 && Math.abs(other.bj - g.bj) <= 1) clumped += 1;
+    // The road between the two blocks is gone, and the depot and the joint are elsewhere.
+    if (!isSegmentClosed(g.bi + 1, g.bj, DIR.PZ)) open += 1;
+    if (g.blocks.some((b) => b === sweep.garageBlock || b === sweep.burgerBlock || b.type !== 'graveyard')) {
+      shared += 1;
     }
   }
   createLayout(makeRng(seed));
-  check('graveyard: every city gets one, off downtown, apart from the depot and the joint',
-    placed === N && downtown === 0 && clumped === 0,
-    `${placed}/${N} placed, ${downtown} downtown, ${clumped} beside a landmark`);
+  check('graveyard: every city gets a double block, off downtown, with the road through it closed',
+    placed === N && downtown === 0 && open === 0 && shared === 0,
+    `${placed}/${N} placed, ${downtown} downtown, ${open} with the road open, ${shared} sharing a block`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

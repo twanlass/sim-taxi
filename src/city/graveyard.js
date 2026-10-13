@@ -3,18 +3,21 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, hash01, propMaterial, stampEntry, unlitMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import { KERB_H, PARK_EDGE } from './ground.js';
-import { GRID_I, GRID_J } from './grid.js';
+import { GRID_I, GRID_J, segmentKey } from './grid.js';
 import { treeParts } from './props.js';
 
-// The city's graveyard: one whole block behind an iron fence, with rows of headstones either side
-// of a gravel path, two of the parks' trees and a little ground mist. Scenery, on the
+// The city's graveyard: two blocks and the street between them behind an iron fence, with rows of
+// headstones either side of a gravel path, one big tree and a little ground mist. Scenery, on the
 // skatepark's terms — nothing routes through it, nothing on it can be tapped, the fare loop has
 // never heard of it.
 //
-// It is the third block `createLayout` takes out of the tower generator's hands (after the depot
-// and the burger joint) and it is chosen the same way for the same reasons: drawn **last**, so it
-// cannot reshuffle a park, an arterial, a tower, the depot or the joint, and `null` is a real
-// answer. Default since 2026-10-12; `?graveyard=classic` leaves the block to the towers.
+// **A double block** (Tyler, 2026-10-13), built the way a park district is: two blocks side by
+// side along X and the road that ran between them closed, so the lot is one wide green behind one fence
+// (`planGraveyardPair`). The road has to be closed *before* the network is baked, so unlike the
+// depot and the burger joint this is planned early in `createLayout`, right after the park
+// districts — and **without a draw**, the pocket park's way, so planning it moves nothing else.
+// `?graveyard=single` brings back the first cut: one block, chosen last (`chooseGraveyardBlock`).
+// `?graveyard=classic` leaves the city without one.
 //
 // **Which way it faces is not a choice**, for the reason city/burgerjoint.js gives at length: the
 // camera looks down the +X+Z diagonal and never rotates, so only a block's +X and +Z faces are ever
@@ -22,10 +25,17 @@ import { treeParts } from './props.js';
 // trees — the only tall things on the lot — stand in its back half, behind the stones rather than
 // in front of them.
 
-/** On unless `?graveyard=classic` (or `GRAVEYARD=classic` for the headless tools). */
-export const GRAVEYARD_ON = typeof location !== 'undefined'
-  ? new URLSearchParams(location.search).get('graveyard') !== 'classic'
-  : globalThis.process?.env?.GRAVEYARD !== 'classic';
+/**
+ * `'double'` (the default), `'single'`, or `'classic'` for none — `?graveyard=` in the browser,
+ * `GRAVEYARD=` for the headless tools.
+ */
+export const GRAVEYARD_MODE = (() => {
+  const raw = typeof location !== 'undefined'
+    ? new URLSearchParams(location.search).get('graveyard')
+    : globalThis.process?.env?.GRAVEYARD;
+  return raw === 'classic' || raw === 'single' ? raw : 'double';
+})();
+export const GRAVEYARD_ON = GRAVEYARD_MODE !== 'classic';
 
 /** What ground.js lays the lawn at — the park's own level, since it is the park's own surface. */
 export const GRAVE_GRASS_Y = KERB_H + 0.01;
@@ -69,7 +79,9 @@ const TREE_CLEAR = 1.3;      // no stone inside a trunk's reach
 const TREE_H = 6.6;
 
 // --- The mist -----------------------------------------------------------------
+/** Mist puffs per single block's worth of lawn. */
 const MIST_PUFFS = 9;
+const BLOCK_AREA = 8.5 * 8.5;
 /** Opacity at golden hour and at full dark — `update` mixes between them on the sun's power. */
 const MIST_DAY = 0.07;
 const MIST_NIGHT = 0.5;
@@ -104,6 +116,59 @@ export function chooseGraveyardBlock(rng, blocks) {
   const quiet = pool.filter((b) => b.centrality <= 0.5);
   const inner = quiet.filter((b) => b.bi > 0 && b.bi < GRID_I - 1 && b.bj > 0 && b.bj < GRID_J - 1);
   return rng.pick(inner.length ? inner : quiet.length ? quiet : pool);
+}
+
+/**
+ * Where the double graveyard goes: two blocks side by side along X, and the north-south road
+ * between them closed.
+ *
+ * Side by side rather than stacked along Z because of which road it closes. A stacked pair closes an
+ * east-west street, and an east-west side street is the scarce kind: it is what the U-turn's tip card
+ * films on (`pickStreet` in game/uturnclip.js wants three straight open blocks, off the river), and
+ * the north-south streets nearly all cross the river and never qualify. Stacked, 20 cities in 200
+ * had no street to film; side by side it is 2 in 200, the same as with no graveyard. The lot comes
+ * out wide, with its gate in the middle of the long +Z fence the camera faces and the path running
+ * straight through to the matching gate at the back. Neither block may be water, a park or the
+ * central park;
+ * the road between them may not be a main street (a closed arterial breaks its green wave); and
+ * both blocks are out of downtown, preferring off the outer ring. Each filter falls back to the
+ * pool it narrows.
+ *
+ * **Without a draw**: which candidate wins is hashed off the park districts' positions, the way the
+ * pocket park picks its block, so adding this to `createLayout` moves no park, tree or tower.
+ *
+ * @param o.taken        `(bi, bj) => boolean`, true for a block something else already claimed
+ * @param o.isWater      `(bi, bj) => boolean`
+ * @param o.arterialZ    the N-S main streets, by line i
+ * @param o.centrality   `(bi, bj) => number`, 1 at the core
+ * @param o.districts    the park districts, for the hash
+ */
+export function planGraveyardPair({ taken, isWater, arterialZ, centrality, districts }) {
+  const pairs = [];
+  for (let bi = 0; bi + 1 < GRID_I; bi++) {
+    for (let bj = 0; bj < GRID_J; bj++) {
+      const cells = [[bi, bj], [bi + 1, bj]];
+      if (cells.some(([i, j]) => taken(i, j) || isWater(i, j))) continue;
+      if (arterialZ.has(bi + 1)) continue;
+      pairs.push({ cells, quiet: Math.max(...cells.map(([i, j]) => centrality(i, j))) });
+    }
+  }
+  if (!pairs.length) return null;
+
+  const quiet = pairs.filter((p) => p.quiet <= 0.5);
+  const pool = quiet.length ? quiet : pairs;
+  const inner = pool.filter((p) => p.cells.every(([i, j]) => i > 0 && i < GRID_I - 1 && j > 0 && j < GRID_J - 1));
+  const from = inner.length ? inner : pool;
+  const key = districts.reduce((sum, d, k) => sum + (k + 1) * (d.bounds.cx * 39.346 + d.bounds.cz * 11.135), 7.7);
+  const frac = Math.abs(Math.sin(key) * 43758.5453) % 1;
+  const pick = from[Math.min(from.length - 1, Math.floor(frac * from.length))];
+
+  const [[bi, bj]] = pick.cells;
+  return {
+    cells: pick.cells,
+    // The road between the pair, named by the two junctions at its ends — the district's own key.
+    closed: segmentKey(bi + 1, bj, bi + 1, bj + 1),
+  };
 }
 
 /** Every measurement the mesh is built from, off the block's own bounds. */
@@ -316,7 +381,8 @@ function createMist(site, rng) {
   const hx = (fence.x1 - fence.x0) / 2 - 0.6;
   const hz = (fence.z1 - fence.z0) / 2 - 0.6;
   const puffs = [];
-  for (let k = 0; k < MIST_PUFFS; k++) {
+  const count = Math.round(MIST_PUFFS * Math.max(1, (4 * hx * hz) / BLOCK_AREA));
+  for (let k = 0; k < count; k++) {
     const mesh = new THREE.Mesh(geo, material);
     const s = rng.range(1.0, 1.7);
     mesh.scale.set(s * rng.range(1.2, 1.6), 0.22, s);
