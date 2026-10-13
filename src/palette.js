@@ -1002,6 +1002,10 @@ export const PALETTE = {
   oceanDeep: '#2C77A6',
   oceanBed: '#D6C99C',
   foam: '#F2F6F7',
+  // The L's tunnel portals: a stone headwall round a dark mouth.
+  portalStone: '#A59C90',
+  portalRing: '#BDB4A6',
+  tunnel: '#1B1E22',
   containerColors: ['#8A5242', '#6E4248', '#4A6E91', '#367A78', '#587B5A', '#A3A097', '#7E6847', '#3F5D7B', '#C4C2BA'],
   // The gulls (game/gulls.js): white bodies, grey backs, and nothing else — a yellow bill would be
   // a warm speck at full saturation and would not survive the 3 pixels it occupies anyway.

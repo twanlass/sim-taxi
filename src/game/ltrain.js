@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial } from '../util/geo.js';
+import { bakeColor, propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 import {
   GRID_I, GRID_J, lineZ, isArterialX, laneOffX, medianRuns, MEDIAN_W,
@@ -9,6 +9,8 @@ import { EDGE_FADE, KERB_H } from '../city/ground.js';
 import { coastWest, coastEast } from '../city/grid.js';
 import { WATER_Y } from '../city/river.js';
 import { harborLandAt } from '../city/harborplan.js';
+import { ISLAND, pad, padDistance, landHeight, SEA_Y } from '../city/coast.js';
+import { railPath, railAt, RAIL_DECK_TOP } from '../city/railpath.js';
 import { VIEW_DIR } from './camera.js';
 import { sinkShadowCaster } from './scene.js';
 import { markOccluder } from './ssao.js';
@@ -43,7 +45,7 @@ import { markOccluder } from './ssao.js';
 // --- The structure ------------------------------------------------------------------------------
 
 /** Top of the deck, where the ties sit. See the camera note above for why it is this high. */
-export const DECK_TOP = 6.4;
+export const DECK_TOP = RAIL_DECK_TOP;
 /** Plate girder depth, so the underside is `DECK_TOP - GIRDER_D`. */
 const GIRDER_D = 0.6;
 export const DECK_UNDERSIDE = DECK_TOP - GIRDER_D;
@@ -147,6 +149,8 @@ const SPARK_PULSE_GAP = 0.09;   // ...this far apart, so a shower has a beat of 
 const SPARK_COUNT = [6, 10];
 /** Bogie centres along one car, from its middle. */
 const BOGIE_AT = CAR_LEN / 2 - 0.9;
+// Each car's middle, along the line from the train's.
+const CAR_OFFSETS = Array.from({ length: CARS }, (_, n) => -TRAIN_LEN / 2 + CAR_LEN / 2 + n * (CAR_LEN + CAR_GAP));
 
 // --- The fade -----------------------------------------------------------------------------------
 //
@@ -172,13 +176,17 @@ const FADE_LIFT = (DECK_TOP - GIRDER_D / 2 - SUBJECT_Y) * (VIEW_DIR.x / VIEW_DIR
 // eye reads as gone well before the alpha reaches zero; a deck on the ground's exact ramp was still
 // plainly there over open sky, a dotted girder hanging off the island. So the line starts going at
 // the island's edge less a few units and is gone by about where the ground stops reading.
-const COAST_FROM = (side) => Math.abs(side < 0 ? coastWest() : coastEast()) - 5;
+const COAST_FROM = (side) => (ISLAND ? 1e5 : Math.abs(side < 0 ? coastWest() : coastEast()) - 5);
 const COAST_BAND = EDGE_FADE * 0.6;
 
 const FADE_UNIFORMS = {
   uLFade: { value: Array.from({ length: FADE_SLOTS }, () => new THREE.Vector3(0, 0, 0)) },
   uLCoast: { value: new THREE.Vector3(COAST_FROM(-1), COAST_FROM(1), COAST_BAND) },
   uLRadius: { value: new THREE.Vector3(FADE_IN, FADE_OUT, FADE_FLOOR) },
+  // Each tunnel mouth on the island, as (x, z, and the direction into the hill): past one, the
+  // train is under the mountain and is cut away rather than drawn through the hillside. Zero
+  // direction (the classic slab) cuts nothing.
+  uLPortal: { value: [new THREE.Vector4(0, 0, 0, 0), new THREE.Vector4(0, 0, 0, 0)] },
 };
 
 const PROJECT_VERTEX = '#include <project_vertex>';
@@ -221,6 +229,7 @@ varying vec3 vLWorld;
 uniform vec3 uLFade[${FADE_SLOTS}];
 uniform vec3 uLCoast;
 uniform vec3 uLRadius;
+uniform vec4 uLPortal[2];
 float lBayer(vec2 p) {
   // 4x4 ordered dither threshold in (0, 1).
   ivec2 q = ivec2(mod(p, 4.0));
@@ -243,6 +252,12 @@ float lBayer(vec2 p) {
     keep = min(keep, mix(1.0, uLRadius.z, f * s.z));
   }
   if (keep < 0.999 && keep < lBayer(gl_FragCoord.xy)) discard;
+  // Under the mountain: past a portal's face, within the tunnel's width of its line.
+  for (int k = 0; k < 2; k++) {
+    vec4 pt = uLPortal[k];
+    vec2 r = vLWorld.xz - pt.xy;
+    if (dot(r, pt.zw) > 0.0 && abs(r.y * pt.z - r.x * pt.w) < 6.0) discard;
+  }
 }`);
   };
   return material;
@@ -271,12 +286,27 @@ export function planLTrain() {
     columns.push(run.from + COLUMN_NOSE, run.to - COLUMN_NOSE);
   }
   // A closed segment (a park built over the arterial) has no island, so the line spans it on the
-  // nearest bents either side. Out past the ring road it walks off the island on its own pitch.
+  // nearest bents either side. Out past the ring road it walks off the island on its own pitch —
+  // or, on the island, turns up the coast on posts of its own (`planPosts`).
+  const path = railPath();
   const ringFrom = Math.max(...columns.map(Math.abs), 0);
-  for (const side of [-1, 1]) {
+  for (const side of path ? [] : [-1, 1]) {
     for (let x = ringFrom + OFFSHORE_PITCH; x < LINE_END(side); x += OFFSHORE_PITCH) columns.push(side * x);
   }
   columns.sort((a, b) => a - b);
+
+  if (path) {
+    let from = Infinity;
+    let to = -Infinity;
+    for (let s = 0; s <= path.length; s += 1) {
+      const q = railAt(path, s);
+      from = Math.min(from, q.x);
+      to = Math.max(to, q.x);
+    }
+    return {
+      line, z, from, to, columns, track: z + TRACK_OFF, laneOff: laneOffX(line), path, posts: planPosts(path),
+    };
+  }
 
   return {
     line,
@@ -289,6 +319,74 @@ export function planLTrain() {
   };
 }
 
+/**
+ * The island's posts, out past the walk on each side: the first one just off the pad, then every
+ * `OFFSHORE_PITCH` along the line round the bend and up the coast, standing on whatever is under
+ * them — the verge, the beach, the harbor's waterfront, or the sea bed with a footing at the
+ * waterline. None where the ground has come up under the deck: that is the cutting, and the track
+ * is on the ground there.
+ */
+const POST_IN = 2.5;
+function planPosts(path) {
+  const p = pad();
+  const posts = [];
+  const straight = path.straight;
+  const [west, east] = path.portals;
+  const add = (s) => {
+    const q = railAt(path, s);
+    const foot = footAt(q.x, q.z, p);
+    if (foot > CAP_UNDERSIDE - 1.6) return;
+    posts.push({ s, x: q.x, z: q.z, heading: q.heading, bank: q.bank, foot });
+  };
+  const sW = straight.s0 + (p.x0 - straight.a.x);
+  const sE = straight.s0 + (p.x1 - straight.a.x);
+  for (let s = sW - POST_IN; s > west.s + 1; s -= OFFSHORE_PITCH) add(s);
+  for (let s = sE + POST_IN; s < east.s - 1; s += OFFSHORE_PITCH) add(s);
+  return posts;
+}
+
+/** What a post at (x, z) stands on: the city's level, the ground, or a footing in the sea. */
+function footAt(x, z, p) {
+  if (padDistance(x, z, p) < 0) return KERB_H;
+  // The harbor's waterfront is paved at road level, out over the sea.
+  if (x > p.x1 && harborLandAt(x, z)) return 0;
+  const h = landHeight(x, z, p);
+  return h > SEA_Y + 0.05 ? h : WATER_Y + 0.25;
+}
+
+/**
+ * The line as something to build along and run on: `at(s)` for `s` in `[0, length]`, in the
+ * group's frame (z relative to the median), and the stretch the deck is built over. On the slab
+ * it is the straight it always was; on the island it is `city/railpath.js`'s curve, and the deck
+ * stops a few units into each tunnel.
+ */
+function routeOf(plan) {
+  if (!plan.path) {
+    const length = plan.to - plan.from;
+    return {
+      length,
+      deckFrom: 0,
+      deckTo: length,
+      pieces: [{ kind: 'line', s0: 0, len: length }],
+      at: (s) => ({ x: plan.from + s, z: 0, heading: 0, curve: 0, bank: 0 }),
+      sOfX: (x) => x - plan.from,
+    };
+  }
+  const path = plan.path;
+  return {
+    length: path.length,
+    deckFrom: path.portals[0].s - 3,
+    deckTo: path.portals[1].s + 3,
+    pieces: path.pieces,
+    at: (s) => {
+      const q = railAt(path, s);
+      q.z -= plan.z;
+      return q;
+    },
+    sOfX: (x) => path.straight.s0 + (x - path.straight.a.x),
+  };
+}
+
 // --- Geometry -----------------------------------------------------------------------------------
 
 const box = (w, h, d, x, y, z, color) => {
@@ -297,11 +395,53 @@ const box = (w, h, d, x, y, z, color) => {
   return bakeColor(g, color);
 };
 
+/**
+ * A box lying along the line at a point on it: `geo` is built centred on the origin with its long
+ * axis on x, then carried `o` across the line and `y` up, rolled with the bank about the line's own
+ * axis at deck height, turned to the heading and set down at the point.
+ */
+function placed(geo, q, o, y) {
+  geo.translate(0, y - DECK_TOP, o);
+  // A positive roll takes the +z side (the inside of a bend turning that way) down.
+  if (q.bank) geo.rotateX(q.bank);
+  geo.translate(0, DECK_TOP, 0);
+  if (q.heading) geo.rotateY(-q.heading);
+  geo.translate(q.x, 0, q.z);
+  return geo;
+}
+
+/**
+ * A member running the length of the line: one box per straight, and a chain of short ones round
+ * each bend, each sized to its own radius so the inside girder is shorter than the outside one.
+ */
+function runAlong(route, parts, o, y, h, w, color) {
+  for (const piece of route.pieces) {
+    const a = Math.max(piece.s0, route.deckFrom);
+    const b = Math.min(piece.s0 + piece.len, route.deckTo);
+    if (b <= a) continue;
+    if (piece.kind === 'line') {
+      parts.push(bakeColor(placed(new THREE.BoxGeometry(b - a, h, w), route.at((a + b) / 2), o, y), color));
+      continue;
+    }
+    const n = Math.ceil((b - a) / 1.2);
+    const scale = (piece.r - piece.sgn * o) / piece.r;
+    for (let k = 0; k < n; k++) {
+      const s0 = a + (b - a) * k / n;
+      const s1 = a + (b - a) * (k + 1) / n;
+      const geo = new THREE.BoxGeometry((s1 - s0) * scale + 0.04, h, w);
+      parts.push(bakeColor(placed(geo, route.at((s0 + s1) / 2), o, y), color));
+    }
+  }
+}
+
+/** A member across the line, at every `pitch` along it. */
+function acrossAt(route, parts, pitch, build) {
+  for (let s = route.deckFrom + pitch / 2; s < route.deckTo; s += pitch) build(route.at(s));
+}
+
 /** The deck and its track, in the group's frame (centred on the median, so z is across it). */
-function buildDeck(plan) {
+function buildDeck(route) {
   const parts = [];
-  const len = plan.to - plan.from;
-  const mid = (plan.from + plan.to) / 2;
   const steel = PALETTE.ltrainSteel;
   const dark = PALETTE.ltrainSteelDark;
 
@@ -310,70 +450,90 @@ function buildDeck(plan) {
   // difference between a structure and a roof: through the ties you see the median and the deck's
   // own striped shadow below.
   for (const s of [-1, 1]) {
-    parts.push(box(len, GIRDER_D, GIRDER_W, mid, DECK_TOP - GIRDER_D / 2, s * (DECK_HALF_W - GIRDER_W / 2), steel));
+    runAlong(route, parts, s * (DECK_HALF_W - GIRDER_W / 2), DECK_TOP - GIRDER_D / 2, GIRDER_D, GIRDER_W, steel);
   }
   for (const t of TRACKS) {
     for (const r of [-GAUGE / 2, GAUGE / 2]) {
-      parts.push(box(len, STRINGER_D, STRINGER_W, mid, DECK_TOP - STRINGER_D / 2, t + r, dark));
+      runAlong(route, parts, t + r, DECK_TOP - STRINGER_D / 2, STRINGER_D, STRINGER_W, dark);
     }
   }
-  for (let x = plan.from + FLOOR_PITCH / 2; x < plan.to; x += FLOOR_PITCH) {
-    parts.push(box(FLOOR_W, FLOOR_D, DECK_HALF_W * 2 - GIRDER_W * 2, x, DECK_TOP - STRINGER_D - FLOOR_D / 2 + 0.02, 0, dark));
-  }
+  acrossAt(route, parts, FLOOR_PITCH, (q) => parts.push(bakeColor(placed(
+    new THREE.BoxGeometry(FLOOR_W, FLOOR_D, DECK_HALF_W * 2 - GIRDER_W * 2), q, 0,
+    DECK_TOP - STRINGER_D - FLOOR_D / 2 + 0.02), dark)));
   // Stiffeners standing proud of each girder's outer face: the rhythm that makes a long plate read
   // as riveted steel rather than as a grey bar.
-  for (let x = plan.from + STIFFENER_PITCH / 2; x < plan.to; x += STIFFENER_PITCH) {
+  acrossAt(route, parts, STIFFENER_PITCH, (q) => {
     for (const s of [-1, 1]) {
-      parts.push(box(0.12, GIRDER_D, 0.05, x, DECK_TOP - GIRDER_D / 2, s * (DECK_HALF_W + 0.025), dark));
+      parts.push(bakeColor(placed(new THREE.BoxGeometry(0.12, GIRDER_D, 0.05), q, s * (DECK_HALF_W + 0.025),
+        DECK_TOP - GIRDER_D / 2), dark));
     }
-  }
+  });
   // The track: open ties and two rails per side.
   for (const t of TRACKS) {
-    for (let x = plan.from + TIE_PITCH / 2; x < plan.to; x += TIE_PITCH) {
-      parts.push(box(TIE_W, TIE_H, TIE_LEN, x, DECK_TOP + TIE_H / 2, t, PALETTE.ltrainTie));
-    }
+    acrossAt(route, parts, TIE_PITCH, (q) => parts.push(bakeColor(placed(
+      new THREE.BoxGeometry(TIE_W, TIE_H, TIE_LEN), q, t, DECK_TOP + TIE_H / 2), PALETTE.ltrainTie)));
     for (const r of [-GAUGE / 2, GAUGE / 2]) {
-      parts.push(box(len, RAIL_H, RAIL_W, mid, DECK_TOP + TIE_H + RAIL_H / 2, t + r, PALETTE.ltrainRail));
+      runAlong(route, parts, t + r, DECK_TOP + TIE_H + RAIL_H / 2, RAIL_H, RAIL_W, PALETTE.ltrainRail);
     }
   }
   return mergeGeometries(parts, false);
 }
 
-/** The columns, each a footing, a shaft and a hammerhead cap under the girders. */
+/**
+ * The columns, each a footing, a shaft and a hammerhead cap under the girders: the median's, at
+ * `plan.columns` along the arterial, and on the island the posts round the bends and up the coast.
+ */
 function buildColumns(plan) {
   const parts = [];
-  const base = KERB_H;
-  const capY = DECK_UNDERSIDE - CAP_H / 2;
   for (const x of plan.columns) {
     // Out over the harbor's sea a column stands in the water, on a footing at the waterline, rather
     // than on ground that is not there.
-    const foot = harborLandAt(x, plan.z) ? base : WATER_Y + 0.25;
-    const h = capY - CAP_H / 2 - foot;
-    parts.push(box(FOOTING_W, FOOTING_H, FOOTING_W, x, foot + FOOTING_H / 2 - 0.05, 0, PALETTE.ltrainFooting));
-    parts.push(box(COLUMN_W, h, COLUMN_W, x, foot + h / 2, 0, PALETTE.ltrainSteel));
-    parts.push(box(CAP_W, CAP_H, DECK_HALF_W * 2 - 0.1, x, capY, 0, PALETTE.ltrainSteelDark));
-    // Knee braces from the shaft out under each arm of the cap: what makes a T read as a bent
-    // carrying weight rather than as a sign post.
-    for (const s of [-1, 1]) {
-      const z0 = s * COLUMN_W / 2;
-      const y0 = capY - CAP_H / 2 - BRACE_DROP;
-      const z1 = s * BRACE_REACH;
-      const y1 = capY - CAP_H / 2;
-      const brace = new THREE.BoxGeometry(0.22, Math.hypot(z1 - z0, y1 - y0), 0.22);
-      brace.rotateX(Math.atan2(z1 - z0, y1 - y0));
-      brace.translate(x, (y0 + y1) / 2, (z0 + z1) / 2);
-      parts.push(bakeColor(brace, PALETTE.ltrainSteel));
-    }
+    const foot = harborLandAt(x, plan.z) ? KERB_H : WATER_Y + 0.25;
+    column(parts, { x, z: 0, heading: 0, bank: 0 }, foot);
+  }
+  for (const post of plan.posts ?? []) {
+    column(parts, { x: post.x, z: post.z - plan.z, heading: post.heading, bank: post.bank }, post.foot);
   }
   return mergeGeometries(parts, false);
 }
 
-/** One train, nose along +x, centred on its own origin, floor at y = 0 (the railhead). */
-function buildTrain() {
+function column(parts, q, foot) {
+  const capY = DECK_UNDERSIDE - CAP_H / 2;
+  // The shaft stands plumb; only the cap takes the bank, since it is what the deck sits on.
+  const plumb = { ...q, bank: 0 };
+  const h = capY - CAP_H / 2 - foot;
+  parts.push(bakeColor(placed(new THREE.BoxGeometry(FOOTING_W, FOOTING_H, FOOTING_W), plumb, 0,
+    foot + FOOTING_H / 2 - 0.05), PALETTE.ltrainFooting));
+  parts.push(bakeColor(placed(new THREE.BoxGeometry(COLUMN_W, h, COLUMN_W), plumb, 0, foot + h / 2),
+    PALETTE.ltrainSteel));
+  parts.push(bakeColor(placed(new THREE.BoxGeometry(CAP_W, CAP_H, DECK_HALF_W * 2 - 0.1), q, 0, capY),
+    PALETTE.ltrainSteelDark));
+  // Knee braces from the shaft out under each arm of the cap: what makes a T read as a bent
+  // carrying weight rather than as a sign post.
+  for (const s of [-1, 1]) {
+    const z0 = s * COLUMN_W / 2;
+    const y0 = capY - CAP_H / 2 - BRACE_DROP;
+    const z1 = s * BRACE_REACH;
+    const y1 = capY - CAP_H / 2;
+    const brace = new THREE.BoxGeometry(0.22, Math.hypot(z1 - z0, y1 - y0), 0.22);
+    brace.rotateX(Math.atan2(z1 - z0, y1 - y0));
+    brace.translate(0, (y0 + y1) / 2 - DECK_TOP, (z0 + z1) / 2);
+    brace.translate(0, DECK_TOP, 0);
+    if (q.heading) brace.rotateY(-q.heading);
+    brace.translate(q.x, 0, q.z);
+    parts.push(bakeColor(brace, PALETTE.ltrainSteel));
+  }
+}
+
+/**
+ * One car, nose along +x, centred on its own origin, floor at y = 0 (the railhead). Each car of the
+ * train is its own mesh on this one geometry, because on the island the line bends and every car
+ * has to follow it on its own heading.
+ */
+function buildCar() {
   const parts = [];
-  const half = TRAIN_LEN / 2;
-  for (let n = 0; n < CARS; n++) {
-    const cx = -half + CAR_LEN / 2 + n * (CAR_LEN + CAR_GAP);
+  {
+    const cx = 0;
     // Running gear: a dark skirt and a truck at each end.
     parts.push(box(CAR_LEN - 0.8, 0.22, CAR_W - 0.35, cx, 0.19, 0, PALETTE.ltrainUnder));
     for (const e of [-1, 1]) parts.push(box(1.1, 0.3, CAR_W - 0.2, cx + e * (CAR_LEN / 2 - 0.9), 0.15, 0, PALETTE.ltrainUnder));
@@ -412,6 +572,12 @@ const smoothstep01 = (t) => {
 export function createLTrain(scene, rng, { sparks = null } = {}) {
   const plan = planLTrain();
   if (!plan) return null;
+  const route = routeOf(plan);
+  const portals = FADE_UNIFORMS.uLPortal.value;
+  for (let k = 0; k < 2; k++) {
+    const port = plan.path?.portals[k];
+    portals[k].set(port?.x ?? 0, port?.z ?? 0, port?.dx ?? 0, port?.dz ?? 0);
+  }
 
   // Centred on the median so the city's entrance can grow it as one object from its middle.
   const group = new THREE.Group();
@@ -421,7 +587,7 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
 
   const material = fadeMaterial(propMaterial());
 
-  const deck = new THREE.Mesh(buildDeck(plan), material);
+  const deck = new THREE.Mesh(buildDeck(route), material);
   deck.castShadow = true;
   deck.receiveShadow = true;
   // The deck is a thin shell 3 units over the road: its slab, ties and rails are each a few tenths
@@ -436,9 +602,19 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
   columns.receiveShadow = true;
   group.add(columns);
 
-  const body = new THREE.Mesh(buildTrain(), material);
-  body.castShadow = true;
-  body.receiveShadow = true;
+  const body = new THREE.Group();
+  body.name = 'ltrain-cars';
+  const carGeo = buildCar();
+  const cars = CAR_OFFSETS.map(() => {
+    const car = new THREE.Mesh(carGeo, material);
+    car.castShadow = true;
+    car.receiveShadow = true;
+    // Yaw, then the bank about the car's own length (CLAUDE.md: the default order rolls about
+    // the world's x).
+    car.rotation.order = BODY_EULER_ORDER;
+    body.add(car);
+    return car;
+  });
   group.add(body);
 
   markOccluder(group);
@@ -448,13 +624,15 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
     phase: 'wait',
     dir: rng.chance(0.5) ? 1 : -1,
     x: 0,
+    /** How far along the line the train's middle is (`route.at`). */
+    s: 0,
     t: 0,
     speed: 0,
     wait: rng.range(1, 4),
     /** Bumped once per departure — the hook a rumble or a horn would count. */
     runs: 0,
   };
-  const runLength = plan.to - plan.from;
+  const runLength = route.length;
   // Distance-time profile with a `RAMP` ease at each end and `SPEED` in between.
   const cruiseLen = runLength - SPEED * RAMP;
   const runTime = RAMP * 2 + cruiseLen / SPEED;
@@ -466,9 +644,13 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
   };
 
   const place = () => {
-    const trackZ = TRACK_OFF;
-    body.position.set(state.x, RAIL_TOP, trackZ);
     body.visible = state.phase === 'run';
+    if (!body.visible) return;
+    for (let n = 0; n < CARS; n++) {
+      const q = route.at(state.s + CAR_OFFSETS[n]);
+      cars[n].position.set(q.x, RAIL_TOP, q.z + TRACK_OFF);
+      cars[n].rotation.set(q.bank, -q.heading, 0);
+    }
   };
 
   function depart() {
@@ -491,7 +673,8 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
         state.speed = 0;
       } else {
         const s = along(state.t);
-        state.x = state.dir > 0 ? plan.from + s : plan.to - s;
+        state.s = state.dir > 0 ? s : runLength - s;
+        state.x = route.at(state.s).x;
         state.speed = (along(state.t + 1e-3) - s) / 1e-3;
       }
     }
@@ -504,7 +687,9 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
   let pulseWait = 0;
   let bogieX = 0;
   function sparkle(dt) {
-    const onIsland = Math.abs(state.x) < COAST_FROM(Math.sign(state.x));
+    const onIsland = plan.path
+      ? state.s - TRAIN_LEN / 2 > plan.path.portals[0].s && state.s + TRAIN_LEN / 2 < plan.path.portals[1].s
+      : Math.abs(state.x) < COAST_FROM(Math.sign(state.x));
     if (state.phase !== 'run' || state.speed < SPARK_MIN_SPEED || !onIsland) {
       pulses = 0;
       return;
@@ -523,14 +708,19 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
     if (pulseWait > 0) return;
     pulseWait = SPARK_PULSE_GAP;
     pulses -= 1;
-    // The train is symmetric and only ever translated, so a bogie's world x is the same offset
-    // whichever way it is running. Yaw is a sim heading: 0 runs +x.
-    const yaw = state.dir > 0 ? 0 : Math.PI;
+    // The train is symmetric, so a bogie is the same offset along the line whichever way it is
+    // running. Yaw is a sim heading: 0 runs +x, and forward is (cos, -sin).
+    const q = route.at(state.s + bogieX);
+    const yaw = -q.heading + (state.dir > 0 ? 0 : Math.PI);
     const count = rng.int(SPARK_COUNT[0], SPARK_COUNT[1]);
-    // Off the camera's side of the truck (+z, as the view looks in from +x +z): thrown from under
-    // the car on the rail itself, the first cut's sparks were hidden by the body they came out of.
+    // Off the camera's side of the truck (the side facing +x +z, as the view looks in from
+    // there): thrown from under the car on the rail itself, the first cut's sparks were hidden by
+    // the body they came out of.
+    let px = -Math.sin(q.heading);
+    let pz = Math.cos(q.heading);
+    if (px + pz < 0) { px = -px; pz = -pz; }
     const side = CAR_W / 2 + 0.05;
-    sparks.burst(state.x + bogieX, RAIL_TOP + 0.08, plan.z + TRACK_OFF + side, yaw, count, state.speed,
+    sparks.burst(q.x + px * side, RAIL_TOP + 0.08, plan.z + q.z + TRACK_OFF + pz * side, yaw, count, state.speed,
       { reach: 0.8, lift: 1.0, floor: 0 });
   }
 
@@ -560,10 +750,11 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
    */
   function settle(x = 0) {
     state.phase = 'run';
-    const s = THREE.MathUtils.clamp(x - plan.from, 0, runLength);
+    state.s = THREE.MathUtils.clamp(route.sOfX(x), 0, runLength);
+    const s = state.dir > 0 ? state.s : runLength - state.s;
     // Invert `along` on the cruise segment, which is where any on-island x lands.
     state.t = RAMP + (s - SPEED * RAMP / 2) / SPEED;
-    state.x = state.dir > 0 ? plan.from + s : plan.to - s;
+    state.x = route.at(state.s).x;
     state.speed = SPEED;
     place();
     // And one shower in the air, so a still shows what the wheels do.
@@ -594,7 +785,7 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
      * empty. The level is its speed as a share of cruise, so it swells in and out with the ramps.
      */
     emitter: () => (state.phase === 'run'
-      ? { x: state.x, z: plan.z + TRACK_OFF, y: RAIL_TOP, level: state.speed / SPEED }
+      ? { x: state.x, z: plan.z + route.at(state.s).z + TRACK_OFF, y: RAIL_TOP, level: state.speed / SPEED }
       : null),
     runTime,
   };

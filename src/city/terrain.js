@@ -9,6 +9,7 @@ import {
   ISLAND, SEA_Y, pad, padDistance, landHeight, coastDistance, beachiness, mountainLift,
 } from './coast.js';
 import { patchOceanWater } from './riverwater.js';
+import { railPath, railDistance, RAIL_CUT_FLOOR, RAIL_DECK_TOP, PORTAL_GROUND, PORTAL_DEPTH, CUT_HALF, CUT_SLOPE } from './railpath.js';
 
 // The island's ground outside the city, and the ocean round it (`city/coast.js` says what shape
 // both are and why). Two meshes on one grid: the terrain draws every cell that has land above the
@@ -203,6 +204,8 @@ export function createTerrain(rng) {
   ocean.name = 'ocean';
 
   const { flora, crowns } = createFlora(rng, p);
+  const portals = createPortals();
+  if (portals) flora.add(portals);
   return { terrain, ocean, flora, crowns };
 }
 
@@ -216,6 +219,9 @@ const NEAR_CLEAR = 7;
 const FAR_CLEAR = 2.5;
 // Pines thin out above this and stop at the tree line, which the colours put at about 30.
 const PINE_TOP = 27;
+// Clear of the L's centreline by this much: its deck's half-width and a crown's radius.
+const RAIL_CLEAR = 4.5;
+const PORTAL_CLEAR = 12;
 
 function hashAt(x, z, k) {
   const s = Math.sin(x * (12.9898 + k) + z * (78.233 - k * 3.1)) * 43758.5453;
@@ -233,6 +239,7 @@ function createFlora(rng, p) {
   const parts = [];
   const crowns = [];
   const rocks = [];
+  const rail = railPath();
   const x0 = p.x0 - 70;
   const x1 = p.x1 + 60;
   const z0 = p.z0 - 110;
@@ -245,6 +252,10 @@ function createFlora(rng, p) {
       // The near sides are +x and +z (CLAUDE.md, the camera's diagonal).
       const clear = (x > p.x1 || z > p.z1) ? NEAR_CLEAR : FAR_CLEAR;
       if (out < clear) continue;
+      // Nothing grows on the L's line: under the viaduct, or in its cutting.
+      if (rail && railDistance(rail, x, z) < RAIL_CLEAR) continue;
+      // Nor in front of a portal, where it would stand between the camera and the tunnel mouth.
+      if (rail && rail.portals.some((port) => Math.hypot(x - port.x, z - port.z) < PORTAL_CLEAR)) continue;
       const g = coastDistance(x, z, p);
       const y = landHeight(x, z, p);
       const lift = mountainLift(x, z, p);
@@ -315,4 +326,59 @@ function createFlora(rng, p) {
 function smoothstepJs(a, b, t) {
   const c = Math.max(0, Math.min(1, (t - a) / (b - a)));
   return c * c * (3 - 2 * c);
+}
+
+// --- The tunnel portals ---------------------------------------------------------------------
+
+/**
+ * A stone headwall at each end of the L, where its cutting runs into the mountain: wide enough to
+ * close off the cutting's sides at full height, with a dark arched mouth and a lighter ring round
+ * it. The track and the train past the face are cut away in their own shader (game/ltrain.js), so
+ * the mouth only has to read as a hole, not be one.
+ */
+function createPortals() {
+  const path = railPath();
+  if (!path) return null;
+  const parts = [];
+  const top = PORTAL_GROUND + 0.8;
+  const floor = RAIL_CUT_FLOOR - 0.8;
+  const half = CUT_HALF + (top - RAIL_CUT_FLOOR) / CUT_SLOPE;
+  for (const port of path.portals) {
+    const local = [];
+    // The face is the cutting's own cross-section, a V with a flat floor, so it closes it exactly:
+    // the sides of the wall lie along the cutting's sides.
+    const face = new THREE.Shape([
+      new THREE.Vector2(-CUT_HALF - 0.6, floor), new THREE.Vector2(CUT_HALF + 0.6, floor),
+      new THREE.Vector2(half + 0.6, top), new THREE.Vector2(-half - 0.6, top),
+    ]);
+    const wall = new THREE.ExtrudeGeometry(face, { depth: PORTAL_DEPTH, bevelEnabled: false });
+    wall.translate(0, 0, -PORTAL_DEPTH);
+    local.push(bakeColor(wall, PALETTE.portalStone));
+    const coping = new THREE.BoxGeometry(half * 2 + 1.7, 0.4, PORTAL_DEPTH + 0.4);
+    coping.translate(0, top + 0.2, -PORTAL_DEPTH / 2);
+    local.push(bakeColor(coping, PALETTE.portalRing));
+    // The mouth: the ring, then the dark opening standing just proud of it.
+    const mouth = (w, r, z, colour) => {
+      const sill = RAIL_DECK_TOP - 0.7;
+      const spring = RAIL_DECK_TOP + 2.4;
+      const rect = new THREE.BoxGeometry(w, spring - sill, 0.1);
+      rect.translate(0, (spring + sill) / 2, z);
+      const arch = new THREE.CylinderGeometry(r, r, 0.1, 14);
+      arch.rotateX(Math.PI / 2);
+      arch.translate(0, spring, z);
+      local.push(bakeColor(rect, colour), bakeColor(arch, colour));
+    };
+    mouth(4.4, 2.2, 0.05, PALETTE.portalRing);
+    mouth(3.4, 1.7, 0.12, PALETTE.tunnel);
+    // Built facing +z; turned to face back out along the line, away from the hill.
+    const geo = mergeGeometries(local, false);
+    geo.rotateY(Math.atan2(-port.dx, -port.dz));
+    geo.translate(port.x, 0, port.z);
+    parts.push(geo);
+  }
+  const mesh = new THREE.Mesh(mergeGeometries(parts, false), propMaterial());
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.name = 'tunnel-portals';
+  return mesh;
 }

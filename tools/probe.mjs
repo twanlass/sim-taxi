@@ -19775,6 +19775,7 @@ let chopperOrder; // likewise
 // lanes so nothing driving under it can touch it, and the train shuttling on both tracks.
 {
   const { planLTrain, createLTrain, LTRAIN_DIMENSIONS: L } = await import('../src/game/ltrain.js');
+  const { railInTunnel, PORTAL_GROUND } = await import('../src/city/railpath.js');
   const { medianRuns, halfRoadZ, laneOffX } = await import('../src/city/grid.js');
   const { LANE_TO_KERB } = await import('../src/city/grid.js');
   // citylights.js: POST_H 4.2 on a KERB_H kerb.
@@ -19836,6 +19837,34 @@ let chopperOrder; // likewise
   check('ltrain: the train fits on the deck', L.TRACK_OFF + L.CAR_W / 2 <= L.DECK_HALF_W,
     `${(L.TRACK_OFF + L.CAR_W / 2).toFixed(2)} against ${L.DECK_HALF_W}`);
 
+  // On the island the line turns up the coast at each end and into the mountain (Tyler's pick,
+  // 2026-10-13): both ends go into a hill tall enough to hold a tunnel, and every post out there
+  // stands on what is actually under it — ground, waterfront or a footing at the waterline.
+  if (ISLAND) {
+    const { landHeight: groundAt, SEA_Y: seaLevel } = await import('../src/city/coast.js');
+    let floating = 0;
+    let buried = 0;
+    let tunnels = 0;
+    for (let k = 0; k < 20; k++) {
+      createLayout(makeRng(seed + k * 53));
+      const plan = planLTrain();
+      if (!plan?.path) continue;
+      if (plan.path.portals.every((port) => port.ground >= PORTAL_GROUND)) tunnels += 1;
+      for (const post of plan.posts) {
+        const h = groundAt(post.x, post.z);
+        const under = h > seaLevel + 0.05 ? h : WATER_Y + 0.25;
+        // The walk and the waterfront are paved at their own levels (KERB_H and 0), over ground
+        // the field knows nothing about.
+        if (post.foot === KERB_H || post.foot === 0) continue;
+        if (Math.abs(post.foot - under) > 1e-6) (post.foot > under ? floating += 1 : buried += 1);
+      }
+    }
+    createLayout(makeRng(seed));
+    check('ltrain: on the island, both ends run into a hill tall enough to tunnel', tunnels === 20, `${tunnels}/20 cities`);
+    check('ltrain: and every post out there stands on what is under it', floating === 0 && buried === 0,
+      `${floating} floating, ${buried} sunk`);
+  }
+
   // Two minutes of timetable: it leaves, crosses, turns round on the other track, and never leaves
   // the line.
   const lt = createLTrain(new THREE.Scene(), makeRng(9));
@@ -19856,7 +19885,7 @@ let chopperOrder; // likewise
   {
     const bursts = [];
     const lts = createLTrain(new THREE.Scene(), makeRng(9), {
-      sparks: { burst: (x, y, z, yaw, count, speed, opts) => bursts.push({ x, y, count, opts }) },
+      sparks: { burst: (x, y, z, yaw, count, speed, opts) => bursts.push({ x, y, z, count, opts }) },
     });
     let crossings = 0;
     for (let n = 0; n < 60 * 120; n++) {
@@ -19867,12 +19896,17 @@ let chopperOrder; // likewise
     const offRail = bursts.filter((b) => Math.abs(b.y - L.RAIL_TOP) > 0.2 || b.opts.floor !== 0).length;
     // The harbor pushes the east coast out, and the line runs over it (`coastEast + coastWest` is
     // its reach, 0 without one).
-    const offIsland = bursts.filter((b) => b.x < -(HALF_SPAN_X + 20)
-      || b.x > HALF_SPAN_X + 20 + coastEast() + coastWest()).length;
+    const offIsland = ISLAND
+      ? bursts.filter((b) => railInTunnel(lts.plan.path, b.x, b.z)).length
+      : bursts.filter((b) => b.x < -(HALF_SPAN_X + 20) || b.x > HALF_SPAN_X + 20 + coastEast() + coastWest()).length;
     const perCrossing = bursts.length / 3 / Math.max(1, crossings);
+    // Per hundred units of line in the open, since the island's line runs round the coast and is
+    // nearly twice the slab's: the rate is a property of the wheels, not of the map.
+    const open = lts.plan.path ? lts.plan.path.portals[1].s - lts.plan.path.portals[0].s : lts.plan.to - lts.plan.from;
+    const per100 = perCrossing / (open / 100);
     check('ltrain: the wheels spark a few times a crossing, off the rail, over the island',
-      perCrossing >= 1.5 && perCrossing <= 8 && offRail === 0 && offIsland === 0,
-      `${perCrossing.toFixed(1)} showers a crossing, ${offRail} off the rail, ${offIsland} off the island`);
+      per100 >= 0.6 && per100 <= 3.5 && offRail === 0 && offIsland === 0,
+      `${perCrossing.toFixed(1)} showers a crossing of ${open.toFixed(0)} units, ${offRail} off the rail, ${offIsland} off the island`);
   }
 
   // The dither patch, run rather than trusted: a replace that stops matching hands back the shader

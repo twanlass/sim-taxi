@@ -1,5 +1,6 @@
 import { GRID_I, GRID_J, lineX, lineZ, halfRoadX, halfRoadZ, riverBanks, ISLAND } from './grid.js';
 import { harborPiers } from './harborplan.js';
+import { railCut } from './railpath.js';
 
 // The island the city stands on (`?island=classic` keeps the old floating slab).
 //
@@ -205,6 +206,11 @@ export function mountainLift(x, z, p = pad()) {
  * to the seabed — plus the mountain wherever the land has room for it.
  */
 export function landHeight(x, z, p = pad()) {
+  return railCut(x, z, baseLandHeight(x, z, p));
+}
+
+/** The ground before the L's cuttings are dug through it (`city/railpath.js` reads this one). */
+export function baseLandHeight(x, z, p = pad()) {
   const g = coastDistance(x, z, p);
   const beach = beachiness(x, z);
   const run = CLIFF_RUN + (BEACH_RUN - CLIFF_RUN) * beach;
