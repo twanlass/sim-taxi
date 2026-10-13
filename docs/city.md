@@ -230,10 +230,27 @@ consequence of the constraint rather than a choice, and it happens to suit munic
 
 ### The elevated train (on by default, `?ltrain=classic` to compare)
 
-`game/ltrain.js` stands a Chicago-style L over the east-west arterial: a steel deck on a column
-at each nose of every planted island, one track, and one four-car train that crosses the island,
-waits off the end, and comes back the other way. `?ltrain=classic` takes it out; shots
-`ltrain` and `ltrain-far` turn it on even then.
+`game/ltrain.js` stands a Chicago-style L over the **north-south** arterial: a steel deck on a
+column at each nose of every planted island, one track, and one four-car train that crosses the
+city, waits off the end, and comes back the other way. `?ltrain=classic` takes it out; shots
+`ltrain` and `ltrain-far` turn it on even then. `?lroute=classic` puts it back on the east-west
+arterial, beside the river, with the old crossings (Tyler moved it across the river, 2026-10-13).
+
+- **Built along local +x and turned onto the line.** The geometry, the train and the timetable all
+  work in `a`, distance along the line; a north-south group takes a quarter turn, so local +x is
+  world −z (north) and local +z is world +x, the camera's side. `plan.world(a, o)` and
+  `plan.alongOf(x, z)` convert; the shader's coast fade reads `-z` instead of `x` (`uLAxis`).
+- **It crosses the river on a truss.** The river gap has no median — the road bridge runs junction
+  to junction — so the bents either side stand 34 apart against 7–13 everywhere else. Any span past
+  `TRUSS_FROM` (20) gets a through Warren truss standing up past the train's roof.
+- **The drawbridge moves off its line.** A lifted leaf would go through a 6.4 deck, so `planRiver`
+  always gives the train's line a fixed (arched) bridge and puts the leaf one line over
+  ([river.md](river.md#which-crossings-bridge)). On the arch's crest (1.9) a box truck's top is
+  5.4 against the floor beams' 5.88; the tallest mast (`TUG_AIR`) tops out at 1.4. A Big Air
+  launch off that arch (`DRIFT_LAUNCH_HEIGHT` 10) does go up through the truss, with the deck
+  dithered out round the taxi.
+- **Off the north end** it runs on over the north park (`NORTH_PARK_DEPTH`, `coastNorth()`) and
+  fades past it; off the south end it fades with the slab.
 
 - **The median is why it is on the arterial.** It is the one strip running the width of the city
   that no car drives on, so the columns need no clearance rule of their own: `planLTrain` reads
@@ -253,6 +270,24 @@ waits off the end, and comes back the other way. `?ltrain=classic` takes it out;
   set to the road, so they fall through the open deck. Only at speed and only over the island.
 - **Not done:** no stations, no sound (the rumble hook is commented in `ambientLevels`), no lamps at
   night, and the entrance wave grows the whole line from its middle as one object.
+
+### The north park (default, `?northpark=classic` to drop it)
+
+`city/northpark.js`: past the north ring road the apron gives way to a stone wall with gates, a lawn
+with a lake and a loop of gravel paths, and trees thickening north into a wood that the lawn fades
+out behind (`lawnFade`), so the map ends in green. Tyler, 2026-10-13: "a big park (think Central
+Park). From game view will just look like map ends there at a park."
+
+- **Scenery only**, the harbor's terms: outside the ring road, so no street, block or junction moves;
+  its own rng stream (`seed + 53`). Trees are the shared `treeParts`, and their crowns go to the
+  canopy fuzz with the rest.
+- **Nothing in it hides the city.** The camera looks north-west, so everything planted there is
+  up-screen of the streets.
+- **The L's line runs over it.** Trees and the lake keep `TREE_CLEAR_RAIL` off the line and the wall
+  breaks for its columns. `NORTH_PARK_DEPTH` lives in `grid.js` because the map's north edge
+  (`coastNorth()`) moves with it.
+- Hand-written triangles (paths, lake, shore, fade) go through `upTriangles`, which computes each
+  normal from the winding and flips any that face down.
 
 ## Layout: what a block *is*
 

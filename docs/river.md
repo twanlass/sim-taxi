@@ -48,7 +48,7 @@ merged faces. `tools/roadnet.mjs` compares land against land.
 | | |
 |---|---|
 | **The two ring roads** | Always a bridge. The outermost roads are the signal-free ring, and traffic yields into it rather than stopping — breaking it would need a fallback. |
-| **One of the two middle lines** (2 or 3) | The drawbridge — always centred on the map. |
+| **One of the middle lines** | The drawbridge — near the centre of the map, and never under the L train (below). |
 | **The other three** | Open water. |
 
 Three crossings, not four, in the 5 × 6 city. The first cut bridged two interior lines as well as
@@ -61,6 +61,13 @@ the leaf up, the taxi drove round by the ring. So it gets a **fourth crossing, f
 beside the drawbridge** on a side the seed picks (`planRiver`). Four of seven is the density three
 of six was. Beside the drawbridge rather than beside the ring, so a lift still matters: the far side
 is three blocks from a crossing, and the ring already serves the edge.
+
+**The L train moves the leaf.** The train runs north-south down the arterial (`LTRAIN_NS`,
+[city.md](city.md#the-elevated-train-on-by-default-ltrainclassic-to-compare)), on a 6.4 deck a lifted
+leaf would go through. So the train's line always gets a fixed bridge and the leaf never does: with
+the arterial on the middle line (3) the leaf moves one line over to the seed's side; with it on
+line 2 the leaf stays on 3 and the fourth crossing is the arterial's. Still one `next()`, still four
+crossings. `?lroute=classic` restores the old rule.
 
 That leaves **two ways across while the leaf is up**, which is the guarantee the whole feature
 rests on: the drawbridge may close a route, but it may never cut the city in half.
@@ -275,8 +282,20 @@ The river used to run under the east ring bridge, along a few units of walled ch
 the island's rim. Now the east side of the island is a waterfront: the east ring road, a seawall a few
 units off its kerb, and two piers either side of a dock basin 48 across that the channel opens into
 nine units past the kerb. Everything else east of the ring road is **sea**, out to where the rim used
-to be (`HARBOR_REACH`, 44, past the old coast). The cranes and a container ship are on one quay, and
-each pier carries a container yard.
+to be (`HARBOR_REACH`, 44, past the old coast). Two big cranes (`CRANE_SCALE` 1.4) stand on one
+quay over the ship's berth, each pier carries a big warehouse at its landward end and a container
+yard behind it, and long sheds stand on the aprons beside the channel's last stretch. The seawall is
+a **rocky shore**: a bank of boulders tipped against it from the waterline nearly to the top, and a
+looser apron of smaller ones out in the water (`ROCK_*`). Tyler, 2026-10-13: "keep the harbor on the
+east edge. Rocky shore, maybe some warehouse buildings, 2 big cranes, ships coming in and out of
+port".
+
+**The ships move** (`game/harborships.js`). One container ship at a time: in from past the sea's fade
+down a lane `LANE_OFF` off the berth, eased sideways onto the berth under the cranes, a spell
+alongside, off again, **astern** out past the pier ends, turned about its middle in open water, and
+away. Astern because a 19-long ship turning in the basin sweeps a circle reaching the river's mouth,
+where the barges come out. Two hulls take turns. They fade with `alphaHash` past `coastEast()`, so a
+ship arrives out of nothing rather than popping in over the sky. Shot mode settles one alongside.
 
 **East, because east is the near edge.** The camera looks down the −x−z diagonal, so +x is the lower
 right of the screen. The harbor sits in front of the city rather than behind its towers, and a
@@ -302,11 +321,12 @@ What had to learn about it:
 | The slab (`ground.js`) | Two polygons, one per side of the river, from `islandHalf`. `asphaltFade` treats everything from the corner where each coast turns into the seawall as a cut, and `seaCornerFade` carries the rim on round that corner over the water, tapering out. |
 | The sea (`river.js`) | `seaMesh`: one sheet at sea level from the seawall corners to the rim, deep in the middle and dissolving into the sky with **no shoal**. Shoaling it the way the river mouth does drew a dark mud bank round the whole sea. It reaches six units back under the rim on a ramp, because sitting two units lower it draws 2.17 units further +x and +z than it is, and without the overlap that strip showed open sky. |
 | The coast (`coastFor`) | The water's fade and where boats spawn, fade and retire are measured per side. The east side never shoals (`shoalMix`). |
-| The L train (`ltrain.js`) | Runs on out over the harbor and the sea to `coastEast`, on columns stood in the water where there is no land under them (`harborLandAt`). It is on the first east-west arterial, which in about half of all cities runs along the far pier six units behind the quay — right through the cranes' landside rail. `harbor.js` reads the same arterial off the grid and moves the cranes and the ship to the near quay when it does, and both yards leave the line a lane. |
+| The L train (`ltrain.js`) | Runs north-south now and never comes near the harbor. Under `?lroute=classic` it runs east-west out over the harbor on columns stood in the water (`harborLandAt`), and in about half of all cities along the far pier through the cranes' landside rail, so `harbor.js` moves the cranes and the berth to the near quay when it does. |
 | The camera | Manual panning reaches 0.7 × `HARBOR_REACH` further east, so a phone in portrait can see the ship. |
 
 Shots 48 (`harbor`) and 49 (`harbor-far`) frame it, and `&view=x,z,zoom` reframes any shot.
-`tools/probe.mjs` asserts that the quay walls face the water, that the ship is held off its quay, that
+`tools/probe.mjs` asserts that the quay walls face the water, that the ship is held off its quay and
+never touches land or comes near the boats' lane on its way in and out, that
 nothing stands inside the ring road, that no slab lies over the basin, that the sea faces up and stays
 at sea level out to the rim, that the skirt never reaches back over the city, and that nothing in the
 harbor reaches up into the L train's deck.

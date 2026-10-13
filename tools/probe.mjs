@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { pointInPolygon } from '../src/city/curves.js';
-import { isParkwayMid, coastWest, coastEast, harborBasin, HARBOR } from '../src/city/grid.js';
+import { isParkwayMid, coastWest, coastEast, coastNorth, harborBasin, HARBOR } from '../src/city/grid.js';
 import { createHarbor } from '../src/city/harbor.js';
 import { coastArcStart, coastArcZ, SEA_CORNER } from '../src/city/harborplan.js';
 import { createLayout } from '../src/city/layout.js';
@@ -18545,22 +18545,54 @@ let chopperOrder; // likewise
       check('harbor: both quay walls are wound to face the water', farWall > 0 && nearWall > 0 && wrong === 0,
         `${farWall} far, ${nearWall} near, ${wrong} facing away`);
 
-      // Nothing of the ship or the cranes stands in the quay wall's plane below the deck: the hull
-      // is held off its wall by its fenders — the far one, or the near one when the L train has
-      // sent the cranes there.
-      const box = new THREE.Box3();
+      // The ship alongside lies off the quay wall, not through it: held off by its fenders — the
+      // far one, or the near one when the L train has sent the cranes there. Read off the moving
+      // ship (game/harborships.js) settled on its berth, in world space.
+      const { createHarborShips } = await import('../src/game/harborships.js');
+      const ships = createHarborShips(new THREE.Scene(), makeRng(5), hb.berth);
+      ships.settle();
       let hullClear = Infinity;
-      for (let t = 0; t < hp.count; t++) {
-        const y = hp.getY(t);
-        const x = hp.getX(t);
-        const z = hp.getZ(t);
-        if (y < WATER_Y + 0.5 && y > WATER_Y - 1 && x > basin.x0 + 0.5 && z > basin.z0 + 1e-3 && z < basin.z1 - 1e-3) {
-          hullClear = Math.min(hullClear, z - basin.z0, basin.z1 - z);
+      {
+        const hull = ships.hulls[ships.state.hull];
+        hull.updateMatrixWorld(true);
+        const sp = hull.geometry.attributes.position;
+        const v = new THREE.Vector3();
+        for (let t = 0; t < sp.count; t++) {
+          v.fromBufferAttribute(sp, t).applyMatrix4(hull.matrixWorld);
+          if (v.y < WATER_Y + 0.5 && v.y > WATER_Y - 1) hullClear = Math.min(hullClear, v.z - basin.z0, basin.z1 - v.z);
         }
-        box.expandByPoint(new THREE.Vector3(x, y, z));
       }
       check('harbor: the moored ship lies off the quay wall, not through it',
         hullClear > 0.3 && hullClear < 2, `${hullClear.toFixed(2)} off the wall`);
+      // And on its way in and out it never runs into a pier, the seawall or the river's mouth: its
+      // four corners sampled over two whole visits stay over open water, and clear of the lane the
+      // river's boats come out on (the channel's middle, game/boats.js).
+      {
+        const { harborLandAt } = await import('../src/city/harborplan.js');
+        const { SHIP_L, SHIP_B } = await import('../src/city/harbor.js');
+        const sim = createHarborShips(new THREE.Scene(), makeRng(9), hb.berth);
+        let aground = 0;
+        let mouth = Infinity;
+        let visits = 0;
+        const mid = (riverBanks().z0 + riverBanks().z1) / 2;
+        for (let f = 0; f < 60 * 420; f++) {
+          sim.update(1 / 60);
+          if (sim.state.leg < 0) continue;
+          visits = sim.state.visits;
+          const { x, z, yaw } = sim.state;
+          for (const [u, w] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+            const cx = x + Math.cos(yaw) * u * SHIP_L / 2 + Math.sin(yaw) * w * SHIP_B / 2;
+            const cz = z - Math.sin(yaw) * u * SHIP_L / 2 + Math.cos(yaw) * w * SHIP_B / 2;
+            if (harborLandAt(cx, cz) && cx > basin.x0) aground += 1;
+            if (cx < hb.berth.seaX + 30) mouth = Math.min(mouth, Math.abs(cz - mid));
+          }
+        }
+        check('harbor: ships come and go without touching land, and wide of the river\'s mouth',
+          visits >= 2 && aground === 0 && mouth > 3, `${visits} visits, ${aground} corner-frames over land, `
+            + `nearest the boats' lane ${mouth.toFixed(1)}`);
+      }
+      const box = new THREE.Box3();
+      for (let t = 0; t < hp.count; t++) box.expandByPoint(new THREE.Vector3(hp.getX(t), hp.getY(t), hp.getZ(t)));
       // The seawall's corner arcs curl back west of the kerb, out beyond the ring road's far side,
       // so the test is the ring road's own rectangle.
       let inCity = 0;
@@ -19804,7 +19836,7 @@ let chopperOrder; // likewise
     // The harbor pushes the east coast out, and the line runs over it (`coastEast + coastWest` is
     // its reach, 0 without one).
     const offIsland = bursts.filter((b) => (lts.plan.axis === 'z'
-      ? Math.abs(b.z) > HALF_SPAN_Z + 20
+      ? b.z > HALF_SPAN_Z + 20 || b.z < Math.min(-(HALF_SPAN_Z + 20), coastNorth())
       : b.x < -(HALF_SPAN_X + 20) || b.x > HALF_SPAN_X + 20 + coastEast() + coastWest())).length;
     const perCrossing = bursts.length / 3 / Math.max(1, crossings);
     check('ltrain: the wheels spark a few times a crossing, off the rail, over the island',

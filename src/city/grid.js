@@ -445,8 +445,17 @@ export const COAST_X = (SPAN_X + SLAB_MARGIN) / 2;
 /** Where the island ends to the west and to the east. Only the east one moves. */
 export const coastWest = () => -COAST_X;
 export const coastEast = () => COAST_X + HARBOR_REACH;
+// The big park past the north ring road (city/northpark.js, `?northpark=classic` to drop it): how far
+// its lawn runs north of the ring road's kerb before it fades. Here for the reason HARBOR_REACH is:
+// the map's north edge moves with it, and the L's line has to know where that is.
+export const NORTH_PARK = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('northpark') !== 'classic'
+  : globalThis.process?.env?.NORTHPARK !== 'classic';
+export const NORTH_PARK_DEPTH = 46;
 /** The same pair along z: the north edge and the south one, measured as z (north is negative). */
-export const coastNorth = () => -(SPAN_Z + SLAB_MARGIN) / 2;
+export const coastNorth = () => (NORTH_PARK
+  ? lineZ(0) - halfRoadX(0) - NORTH_PARK_DEPTH
+  : -(SPAN_Z + SLAB_MARGIN) / 2);
 export const coastSouth = () => (SPAN_Z + SLAB_MARGIN) / 2;
 // The channel runs on at its own width for this far past the ring road's kerb before it opens out.
 // Enough for the ring bridge's footway (1.4) and a short walled run, so the river visibly *arrives*

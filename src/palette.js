@@ -809,6 +809,10 @@ export const PALETTE = {
   // against 140) and the `sidewalk` a park's walk is paved in (156), so the pond has an edge
   // against everything it touches.
   pondBank: '#8C7F6B',
+  // The north park (city/northpark.js): gravel paths and a grey stone wall along the ring road.
+  parkPath: '#BDB29A',
+  parkWall: '#8E877C',
+  parkWallCap: '#A39C90',
 
   // The basketball court — see city/blacktop.js. A sports court has to read as *paved* inside a
   // lawn, which is a value break before it is a hue: the blacktop at luma ~80 is a dark slab against

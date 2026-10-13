@@ -2,14 +2,17 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
-import { riverBanks, coastWest, GRID_J, isArterialX, lineZ } from './grid.js';
+import { riverBanks, coastWest, GRID_J, isArterialX, lineZ, LTRAIN_NS } from './grid.js';
 import { KERB_H, PAVE_INSET, SLAB_RADIUS } from './ground.js';
 import { WATER_Y, waterEdges } from './river.js';
 import { harborPiers, islandHalf, seaStartX, insidePolygon } from './harborplan.js';
 
-// The harbor at the river's east mouth: the walls of everything standing in the sea, the riprap
-// along the seawall, the two piers' container yards, the gantry cranes on the far quay and a
-// container ship moored under them.
+// The harbor at the river's east mouth: the walls of everything standing in the sea, the rocks
+// along the seawall, the two piers' container yards and warehouses, the sheds on the aprons and two
+// big gantry cranes on the far quay. The ships that come in under them are game/harborships.js.
+//
+// Tyler, 2026-10-13, once the island had gone: "keep the harbor on the east edge. Rocky shore,
+// maybe some warehouse buildings, 2 big cranes, ships coming in and out of port".
 //
 // Where it goes is grid.js's decision (`harborBasin`), and the shape of the land round it —
 // seawall, piers, quays — is city/harborplan.js's. The slab, its fade skirt and the sea read the
@@ -40,6 +43,11 @@ const CRANE_BACKREACH = 3.5;  // boom behind the landside legs
 const CRANE_APEX = 4.6;       // apex of the A-frame over the boom
 const CRANE_QUAY_GAP = 1.0;   // seaside rail in from the quay edge
 const CRANE_PITCH = 7.5;      // centre to centre along the quay
+// **Two of them, and big.** Three at the size above read as a row of furniture on the quay; two
+// at a third larger again read as the port's landmark. Everything above is in the crane's own frame
+// and the scale goes on the merged crane, so the numbers stay the ones that were measured.
+const CRANE_SCALE = 1.4;
+const CRANES = 2;
 
 // --- The containers -------------------------------------------------------------
 //
@@ -51,11 +59,33 @@ const BOX_H = 1.15;
 const BOX_GAP = 0.12;
 
 // --- The ship --------------------------------------------------------------------
-const SHIP_L = 19;
-const SHIP_B = 5.2;
+export const SHIP_L = 19;
+export const SHIP_B = 5.2;
 const SHIP_FREEBOARD = 2.3;   // deck above the waterline
 const SHIP_DRAUGHT = 0.8;     // hull below it, enough that the shelf never shows under the bilge
 const SHIP_FENDER = 0.7;      // off the quay wall
+
+// --- The rocky shore -------------------------------------------------------------
+//
+// The seawall used to be a wall with a scatter of riprap at its foot, which read as a kerb with
+// gravel on it. Now the rock is the shore: a bank of boulders tipped against the wall from the
+// waterline nearly to the top, and a looser apron of smaller ones out in the water in front.
+const ROCK_BANK = [0.75, 1.3];   // boulder radius against the wall
+const ROCK_APRON = [0.4, 0.8];   // and out in the water
+const ROCK_PITCH = 1.2;
+
+// --- The warehouses ----------------------------------------------------------------
+//
+// Long sheds on the aprons between the ring road and the basin, the strip the quay paving left
+// bare, and one big warehouse at the landward end of each pier with the yard behind it.
+const SHED_X = [2, 6.6];   // from the ring road's kerb
+const SHED_LEN = [9, 13];
+const SHED_GAP = 1.6;
+const SHED_EAVE = [2.8, 3.4];
+const SHED_PITCH = 0.9;
+const WAREHOUSE_LEN = 13;    // along x, from the pier's landward end
+const WAREHOUSE_EAVE = 3.6;
+const WAREHOUSE_PITCH = 1.3;
 
 function box(w, h, d, x, y, z, col) {
   const g = new THREE.BoxGeometry(w, h, d);
@@ -177,7 +207,7 @@ function containerBlock(rng, x0, x1, z0, z1, y, keepClear = null) {
  * The hull is an extruded top-view outline so the bow can come to a point without hand-wound
  * triangles (CLAUDE.md, the winding traps); everything above deck is boxes.
  */
-function ship(rng) {
+export function ship(rng) {
   const parts = [];
   const hl = SHIP_L / 2;
   const hb = SHIP_B / 2;
@@ -285,20 +315,32 @@ export function createHarbor(rng) {
     parts.push(wallQuad(basin.x0, za, basin.x0, zb, 1, 0, KERB_H, wallBottom, wallCol));
   }
 
-  // --- Riprap: broken rock tipped along the foot of the seawall, which is what makes the line read
-  // as a shore rather than as a kerb. Placed by a hash of position so the stream stays put.
+  // --- The rocky shore (see ROCK_* above). Placed off the stream in segment order, so it stays
+  // put for a given city.
+  const rock = (r, x, y, z) => {
+    const g = new THREE.DodecahedronGeometry(r, 0);
+    g.scale(1 + rng.next() * 0.45, 0.7 + rng.next() * 0.35, 1 + rng.next() * 0.45);
+    g.rotateY(rng.next() * Math.PI);
+    g.translate(x, y, z);
+    parts.push(bakeColor(g, jitterColor(PALETTE.riprap, rng, { l: 0.07 })));
+  };
   for (const seg of seawall) {
-    const n = Math.max(1, Math.round(seg.len / 1.1));
+    const n = Math.max(1, Math.round(seg.len / ROCK_PITCH));
     for (let k = 0; k < n; k++) {
+      // The bank: against the wall, crowns up near the top of it.
       const t = (k + rng.next()) / n;
-      const r = 0.42 + rng.next() * 0.4;
-      const out = 0.25 + rng.next() * 0.7;
-      const rock = new THREE.DodecahedronGeometry(r, 0);
-      rock.scale(1 + rng.next() * 0.4, 0.6 + rng.next() * 0.3, 1 + rng.next() * 0.4);
-      rock.rotateY(rng.next() * Math.PI);
-      rock.translate(seg.ax + (seg.bx - seg.ax) * t + seg.nx * out, WATER_Y + 0.25 + rng.next() * 0.35,
+      const r = rng.range(ROCK_BANK[0], ROCK_BANK[1]);
+      const out = r * 0.55 + rng.next() * 0.4;
+      rock(r, seg.ax + (seg.bx - seg.ax) * t + seg.nx * out, WATER_Y + 0.6 + rng.next() * 0.7,
         seg.az + (seg.bz - seg.az) * t + seg.nz * out);
-      parts.push(bakeColor(rock, jitterColor(PALETTE.riprap, rng, { l: 0.05 })));
+      // The apron: smaller, further out, half under the water.
+      if (rng.chance(0.7)) {
+        const u = (k + rng.next()) / n;
+        const ra = rng.range(ROCK_APRON[0], ROCK_APRON[1]);
+        const outA = 1.4 + rng.next() * 1.4;
+        rock(ra, seg.ax + (seg.bx - seg.ax) * u + seg.nx * outA, WATER_Y + 0.05 + rng.next() * 0.25,
+          seg.az + (seg.bz - seg.az) * u + seg.nz * outA);
+      }
     }
   }
 
@@ -347,28 +389,31 @@ export function createHarbor(rng) {
   // runs along the far pier six units behind the quay, which is exactly the cranes' landside rail:
   // 594 vertices of crane in the deck's slot. So the cranes, and the ship they work, take the near
   // quay instead whenever the line crosses their footprint, and the yard leaves the line a lane.
+  // (A north-south line never comes near the harbor.)
   let lz = null;
-  for (let j = 0; j <= GRID_J; j++) if (isArterialX(j)) { lz = lineZ(j); break; }
+  if (!LTRAIN_NS) for (let j = 0; j <= GRID_J; j++) if (isArterialX(j)) { lz = lineZ(j); break; }
   const LINE_CLEAR = 2.5;   // the deck's half-width and its columns' footings, with room
-  const footprint = (quay, dir) => [quay - dir * (CRANE_QUAY_GAP + CRANE_GAUGE + CRANE_BACKREACH),
-    quay + dir * (CRANE_OUTREACH - CRANE_QUAY_GAP)].sort((a, b) => a - b);
+  const footprint = (quay, dir) => [quay - dir * (CRANE_QUAY_GAP + CRANE_GAUGE + CRANE_BACKREACH) * CRANE_SCALE,
+    quay + dir * (CRANE_OUTREACH - CRANE_QUAY_GAP) * CRANE_SCALE].sort((a, b) => a - b);
   const crosses = ([a, b]) => lz !== null && lz + LINE_CLEAR > a && lz - LINE_CLEAR < b;
   const onNear = crosses(footprint(basin.z0, 1)) && !crosses(footprint(basin.z1, -1));
   // `dir` points from the quay out over the water: +z off the far quay, -z off the near one.
   const craneZ = onNear ? basin.z1 : basin.z0;
   const dir = onNear ? -1 : 1;
   const railLen = len - 2;
-  for (const dz of [-CRANE_QUAY_GAP * dir, -(CRANE_QUAY_GAP + CRANE_GAUGE) * dir]) {
+  for (const dz of [-CRANE_QUAY_GAP * CRANE_SCALE * dir, -(CRANE_QUAY_GAP + CRANE_GAUGE) * CRANE_SCALE * dir]) {
     const rail = new THREE.PlaneGeometry(railLen, 0.22);
     rail.rotateX(-Math.PI / 2);
     rail.translate(basin.x0 + 1 + railLen / 2, topY + 0.01, craneZ + dz);
     parts.push(bakeColor(rail, PALETTE.craneDark));
   }
-  const cranes = Math.max(2, Math.floor((len - 4) / CRANE_PITCH));
-  const craneMid = basin.x0 + len * 0.47;
-  for (let k = 0; k < cranes; k++) {
-    const cx = craneMid + (k - (cranes - 1) / 2) * CRANE_PITCH;
+  // Over the ship's berth (`berth` below), a ship's length apart less a little, so both work it.
+  const craneMid = basin.x0 + 2 + SHIP_L / 2;
+  const cranePitch = SHIP_L * 0.55;
+  for (let k = 0; k < CRANES; k++) {
+    const cx = craneMid + (k - (CRANES - 1) / 2) * cranePitch;
     const geo = mergeGeometries(crane(rng, 0.35 + rng.next() * 0.5), false);
+    geo.scale(CRANE_SCALE, CRANE_SCALE, CRANE_SCALE);
     // Built facing +z; a half turn faces it the other way without mirroring its winding.
     if (onNear) geo.rotateY(Math.PI);
     geo.translate(cx, topY, craneZ);
@@ -376,18 +421,58 @@ export function createHarbor(rng) {
   }
 
   // --- Containers: a block on each pier behind the quay strip.
-  const craneBack = CRANE_QUAY_GAP + CRANE_GAUGE + CRANE_BACKREACH + 1.5;
+  const craneBack = (CRANE_QUAY_GAP + CRANE_GAUGE + CRANE_BACKREACH) * CRANE_SCALE + 1.5;
   const clear = lz === null ? null : [lz - LINE_CLEAR, lz + LINE_CLEAR];
-  parts.push(...containerBlock(rng, x0 + 3, piers.end - 2, piers.far.out + 2,
+  // The containers start past each pier's warehouse.
+  const yardFrom = x0 + 3 + WAREHOUSE_LEN + 2;
+  parts.push(...containerBlock(rng, yardFrom, piers.end - 2, piers.far.out + 2,
     basin.z0 - (onNear ? 3.5 : craneBack), topY, clear));
-  parts.push(...containerBlock(rng, x0 + 3, piers.end - 2, basin.z1 + (onNear ? craneBack : 3.5),
+  parts.push(...containerBlock(rng, yardFrom, piers.end - 2, basin.z1 + (onNear ? craneBack : 3.5),
     piers.near.out - 2, topY, clear));
 
-  // --- The ship, moored along the cranes' quay, bow out to sea. Symmetric across its beam, so it
-  // only has to move, not turn.
-  const shipGeo = mergeGeometries(ship(rng), false);
-  shipGeo.translate(basin.x0 + 2 + SHIP_L / 2, WATER_Y, craneZ + dir * (SHIP_FENDER + SHIP_B / 2));
-  parts.push(shipGeo);
+  // --- The warehouses: the aprons' sheds, and a big one at the landward end of each pier, filling
+  // the pier's depth behind the crane strip on the cranes' side.
+  sheds(rng, parts, basin, banks, topY);
+  for (const [z0, z1] of [
+    [piers.far.out + 2, basin.z0 - (onNear ? 3.5 : craneBack)],
+    [basin.z1 + (onNear ? craneBack : 3.5), piers.near.out - 2],
+  ]) {
+    // In two, either side of a lane, where the depth would make one a hangar.
+    const lots = (z1 - z0) > 22 ? [[z0, (z0 + z1) / 2 - 1.5], [(z0 + z1) / 2 + 1.5, z1]] : [[z0, z1]];
+    for (const [za, zb] of lots) warehouse(za, zb);
+  }
+  function warehouse(z0, z1) {
+    const d = z1 - z0;
+    if (d < 6) return;
+    const xc = x0 + 2 + WAREHOUSE_LEN / 2;
+    const zc = (z0 + z1) / 2;
+    const wall = jitterColor(rng.pick([PALETTE.brick, PALETTE.concrete]), rng, { l: 0.05 });
+    parts.push(box(WAREHOUSE_LEN, WAREHOUSE_EAVE, d, xc, topY + WAREHOUSE_EAVE / 2, zc, wall));
+    parts.push(gableRoof(WAREHOUSE_LEN, d, WAREHOUSE_PITCH, xc, topY + WAREHOUSE_EAVE, zc,
+      jitterColor(PALETTE.slate, rng, { l: 0.05 }), true));
+    // Loading doors along the +x end and the +z side: the faces the camera sees.
+    for (let k = 0; k < 3; k++) {
+      const dz = zc - d / 2 + (k + 0.5) * (d / 3);
+      parts.push(box(0.08, WAREHOUSE_EAVE * 0.6, Math.min(2.6, d / 3 - 1), xc + WAREHOUSE_LEN / 2 + 0.04,
+        topY + WAREHOUSE_EAVE * 0.3, dz, PALETTE.garageDoor));
+    }
+    for (let k = 0; k < 3; k++) {
+      const dx = xc - WAREHOUSE_LEN / 2 + (k + 0.5) * (WAREHOUSE_LEN / 3);
+      parts.push(box(2.6, WAREHOUSE_EAVE * 0.6, 0.08, dx, topY + WAREHOUSE_EAVE * 0.3, z1 + 0.04,
+        PALETTE.garageDoor));
+    }
+  }
+
+  // --- Where the ship ties up: along the cranes' quay, a fender off the wall, under the cranes.
+  // The ship itself moves (game/harborships.js).
+  const berth = {
+    x: craneMid,
+    z: craneZ + dir * (SHIP_FENDER + SHIP_B / 2),
+    // Which way is out from the quay, and where the open sea starts past the piers.
+    out: dir,
+    seaX: piers.end,
+    basin,
+  };
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -395,7 +480,7 @@ export function createHarbor(rng) {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = 'harbor';
-  return { mesh, basin };
+  return { mesh, basin, berth };
 }
 
 /**
@@ -415,4 +500,62 @@ function wallQuad(ax, az, bx, bz, nx, nz, top, bottom, col) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(tris.flat()), 3));
   return bakeColor(g, col);
+}
+
+/** The long sheds on the aprons either side of the channel's last stretch. */
+function sheds(rng, parts, basin, banks, floor) {
+  const xa = basin.kerbX + SHED_X[0];
+  const xb = basin.kerbX + SHED_X[1];
+  for (const [z0, z1] of [[basin.z0 + 1, banks.z0 - 1.5], [banks.z1 + 1.5, basin.z1 - 1]]) {
+    let z = z0;
+    while (z1 - z >= SHED_LEN[0]) {
+      const len = Math.min(rng.range(SHED_LEN[0], SHED_LEN[1]), z1 - z);
+      const zc = z + len / 2;
+      z += len + SHED_GAP;
+      const w = xb - xa;
+      const xc = (xa + xb) / 2;
+      const eave = rng.range(SHED_EAVE[0], SHED_EAVE[1]);
+      const wall = jitterColor(rng.pick([PALETTE.brick, PALETTE.tan, PALETTE.concrete]), rng, { l: 0.05 });
+      parts.push(box(w, eave, len, xc, floor + eave / 2, zc, wall));
+      parts.push(gableRoof(w, len, SHED_PITCH, xc, floor + eave, zc, jitterColor(PALETTE.slate, rng, { l: 0.05 })));
+      // Loading doors down the basin side, the side the camera sees.
+      const doors = Math.max(1, Math.floor(len / 4));
+      for (let k = 0; k < doors; k++) {
+        const dz = zc - len / 2 + (k + 0.5) * (len / doors);
+        parts.push(box(0.08, eave * 0.62, Math.min(2.2, len / doors - 0.8), xb + 0.04, floor + eave * 0.31, dz,
+          PALETTE.garageDoor));
+      }
+    }
+  }
+}
+
+/**
+ * A gabled roof over a `w` x `d` footprint with its ridge along z (or along x with `alongX`),
+ * eaves at `y`, `rise` to the ridge and a little overhang. A closed prism from six hand-placed
+ * points, so the probe asserts its winding rather than trusting it.
+ */
+export function gableRoof(w, d, rise, x, y, z, colour, alongX = false) {
+  // Built ridge-along-z; with `alongX` the footprint is swapped first and turned a quarter.
+  const [fw, fd] = alongX ? [d, w] : [w, d];
+  const hw = fw / 2 + 0.25;
+  const hd = fd / 2 + 0.25;
+  const v = [
+    [-hw, 0, -hd], [hw, 0, -hd], [0, rise, -hd],
+    [-hw, 0, hd], [hw, 0, hd], [0, rise, hd],
+  ];
+  const tris = [
+    [0, 2, 1], [3, 4, 5],           // gable ends
+    [0, 3, 5], [0, 5, 2],           // -x slope
+    [1, 2, 5], [1, 5, 4],           // +x slope
+    [0, 1, 4], [0, 4, 3],           // soffit
+  ];
+  const pos = [];
+  for (const t of tris) for (const k of t) pos.push(...v[k]);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array((pos.length / 3) * 2), 2));
+  if (alongX) g.rotateY(Math.PI / 2);
+  g.translate(x, y, z);
+  g.computeVertexNormals();
+  return bakeColor(g, colour);
 }
