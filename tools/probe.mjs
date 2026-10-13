@@ -18242,6 +18242,42 @@ let chopperOrder; // likewise
       !turning.big && turning.landing && turning.landing.big === false,
       `big ${turning.big}`);
 
+    // The carry is a clock and the bridge is a place: a tier-1 kick out of the corner one block back
+    // runs out a few units short of the launch point, and used to fly the ordinary hop at the kick's
+    // speed. DRIFT_LAUNCH_GRACE honours it. And free-driving — no route — the far bank's exit is no
+    // longer a dice roll that can quietly take the jackpot away.
+    const kickInto = (j, rest, trafficSeed = 98) => {
+      const kTraffic = createTraffic(makeRng(seed + trafficSeed), new THREE.Scene(), 1);
+      const kTaxi = kTraffic.taxi;
+      const dIn = [DIR.PX, DIR.NX].find((d) => placeCar(kTaxi, d, lLine, j, 14));
+      kTaxi.parked = false;
+      kTaxi.v = 22;
+      kTaxi.route = [DIR.PZ, ...rest];
+      kTaxi.routeConsumed = false;
+      let tapT = null;
+      let big = null;
+      for (let f = 0; f < 60 * 4 && big === null; f++) {
+        kTaxi.boost = true;
+        const toLine = kTaxi.state === 'drive' ? kTaxi.lane.length - STOP_SETBACK - kTaxi.s : -1;
+        kTaxi.braking = tapT === null && toLine > 0 && toLine <= 6 && driftTaxi(kTaxi) === null;
+        if (kTaxi.braking) tapT = 0;
+        else if (tapT !== null && (tapT += 1 / 60) >= 0.2) kickDrift(kTaxi);
+        const before = kTaxi.hopFrom;
+        kTraffic.update(1 / 60);
+        if (before == null && kTaxi.hopFrom != null) big = onDriftLaunch(kTaxi);
+      }
+      kTraffic.dispose?.();
+      return { dIn, big };
+    };
+    const blockBack = kickInto(riverRow() - 1, [DIR.PZ, DIR.PZ]);
+    check('a tier-1 kick out of the corner one block before the bridge still flies Big Air',
+      blockBack.dIn !== undefined && blockBack.big === true, `big ${blockBack.big}`);
+    const twoBack = kickInto(riverRow() - 2, [DIR.PZ, DIR.PZ, DIR.PZ]);
+    check('...but not one from two blocks back', twoBack.big === false, `big ${twoBack.big}`);
+    const free = Array.from({ length: 8 }, (_, k) => kickInto(riverRow(), [], 200 + k).big);
+    check('kicked onto the bridge with no route, it flies Big Air every time',
+      free.every((b) => b === true), `${free.filter(Boolean).length}/8`);
+
     // Nothing under the taxi at the apex is a hit.
     const cScene = new THREE.Scene();
     const cTraffic = createTraffic(makeRng(seed + 97), cScene, 2);

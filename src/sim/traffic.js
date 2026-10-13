@@ -487,6 +487,15 @@ export function landingRoll(t) {
 export const DRIFT_LAUNCH_LEN = 20;
 export const DRIFT_LAUNCH_HEIGHT = 10;
 const DRIFT_LAUNCH_PITCH = 0.5;
+// How far past the end of a kick's carry the hump still counts it, in units of travel. The carry is
+// a clock (DRIFT_CHAIN.carry) and the bridge is a place, and the two only met when the drift was
+// the turn *onto* the deck: a tier-1 kick out of the corner one block back crosses ~24 units of
+// road before the launch point and its 0.6s at 30.9 u/s covers 18.5 — so it ran out ~5.5 units
+// short and flew the ordinary hop, with the taxi still visibly going at the kick's speed (Tyler,
+// 2026-10-13: "sometimes a max air combo isn't triggered when I think it should be"). 12 covers
+// that block with room for an arterial's wider box, and stays well short of two blocks (~44).
+// A carry cut short — braked, turned, crashed — clears it; only one that ran out on its own counts.
+const DRIFT_LAUNCH_GRACE = 12;
 /** Above this much air the taxi is over the traffic rather than in it. A car roof is ~1.5. */
 export const DRIFT_LAUNCH_CLEAR = 1.6;
 // The slam. Scales the landing's squat, rebound and pitch kick: a body coming down from ten units
@@ -2005,6 +2014,7 @@ function stepDrift(car, dt) {
   d.t += dt;
   // Dropped on the way out, the chain's window opens; dropped any earlier, it was not a kick.
   const drop = () => {
+    car.kickSpentAt = null;
     if (d.phase === 'carry') car.driftLapse = DRIFT_CHAIN.window;
     else car.driftTier = 0;
     car.drift = null;
@@ -2041,7 +2051,13 @@ function stepDrift(car, dt) {
     // carry measured as no longer at all. A real turn still ends it.
     d.carry -= dt;
     const turning = car.state === 'turn' && car.turn.hand !== 'straight';
-    if (d.carry <= 0 || car.braking || turning || (car.state !== 'drive' && car.state !== 'turn')) return drop();
+    if (car.braking || turning || (car.state !== 'drive' && car.state !== 'turn')) return drop();
+    // Run out on its own, rather than cut short: the drift launch still honours it for a few units
+    // more (DRIFT_LAUNCH_GRACE).
+    if (d.carry <= 0) {
+      drop();
+      car.kickSpentAt = car.travelled;
+    }
   }
 }
 
@@ -6546,7 +6562,16 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           car.archHopLane = car.lane.id;
           // A kick still being carried is the drift launch, if the far bank lets the taxi fly
           // straight over it — see DRIFT_LAUNCH_LEN.
-          const big = car.drift?.phase === 'carry' && intentFor(car)?.hand === 'straight';
+          const kicked = car.drift?.phase === 'carry'
+            || (car.kickSpentAt != null && car.travelled - car.kickSpentAt <= DRIFT_LAUNCH_GRACE);
+          // Free-driving, the far bank's exit is a dice roll the player never sees, and losing the
+          // jackpot to it reads as the game forgetting the kick. With no route, fly straight on.
+          if (kicked && !car.route?.length) {
+            const on = car.lane.exits.map((id) => net.turnById.get(id)).find((tn) => tn.hand === 'straight');
+            if (on) { car.intentLane = car.lane.id; car.intentTurn = on.id; }
+          }
+          const big = kicked && intentFor(car)?.hand === 'straight';
+          car.kickSpentAt = null;
           launchHop(car, big);
         }
       }
