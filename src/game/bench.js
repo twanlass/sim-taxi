@@ -58,6 +58,9 @@ export const BENCH_STEPS = [
   { label: 'shadows off', params: { shadows: 'off' } },
   { label: 'ao off', params: { ao: 'off' } },
   { label: 'bloom off', params: { bloom: 'off' } },
+  // The layered car paint against the one before it (util/geo.js). Cars are a few percent of the
+  // frame at play zoom, so this row is expected to sit inside the drift between the two baselines.
+  { label: 'paint classic', params: { paint: 'classic' } },
   { label: '30 fps', params: { fps: '30' } },
   { label: 'squall overhead', params: { squall: '0.5' } },
   // Everything off at once: the floor this renderer can reach without changing what it draws.

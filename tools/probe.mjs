@@ -153,6 +153,7 @@ import {
 import {
   propMaterial, unlitMaterial, setAmbientOcclusion, setCrayon, setCartoon,
   AO_UNIFORMS, CRAYON_UNIFORMS, CARTOON_UNIFORMS, BODY_EULER_ORDER, FINISH,
+  FINISH_DEFAULTS, flakeMeanSharp, setClassicPaint, glossTuning,
 } from '../src/util/geo.js';
 import {
   AO_LAYER, markOccluder, unmarkOccluder, occluderList, RING_BROAD, RING_TIGHT, MAX_DEPTH_DIFF,
@@ -11645,6 +11646,42 @@ function rideToPickup() {
     const taxiFinish = finishes(taxiShell.geometry);
     check('vehicle bodies tag their paint, glass, tyres and hubcaps', hasAll(carFinish) && hasAll(taxiFinish),
       `car [${[...carFinish]}] taxi [${[...taxiFinish]}]`);
+    box.dispose();
+  }
+
+  // The layered paint and `?paint=classic` are different source under different keys — one program
+  // each, so a classic load is the old frame rather than the new shader fed the old numbers. And the
+  // paint's new layers are paint's alone: glass, metal and tyre leave them at zero, which is what
+  // keeps them exactly as they were.
+  {
+    const box = new THREE.BoxGeometry(3.4, 1.2, 1.7);
+    const build = () => {
+      const material = propMaterial({ gloss: { geometry: box } });
+      const lib = THREE.ShaderLib.phong;
+      const shader = { uniforms: { ...lib.uniforms }, vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader };
+      material.onBeforeCompile(shader, null);
+      return { key: material.customProgramCacheKey(), frag: shader.fragmentShader, paint: glossTuning().finishes.paint };
+    };
+    const layered = build();
+    setClassicPaint(true);
+    const classic = build();
+    setClassicPaint(false);
+    const others = ['tyre', 'glass', 'metal'].every((name) => ['flake', 'coat', 'tint', 'flop']
+      .every((k) => FINISH_DEFAULTS[name][k] === 0));
+    check('the layered paint filters its flake and softens its skyline; ?paint=classic is the old source',
+      layered.frag.includes('gFlakeVis') && layered.frag.includes('gOcc = gO')
+      && !classic.frag.includes('gFlakeVis') && classic.frag.includes('gFlake = mix')
+      && layered.key !== classic.key && classic.paint.coat === 0 && layered.paint.coat > 0 && others,
+      `keys ${layered.key} / ${classic.key}`);
+    // The flakes' mean lobe has to be broader than one flake, or the far-off glow is tighter than the
+    // sparkle it stands in for. And the fade has to be finished by play zoom on a phone, where a cell
+    // is ~1.1 px (16 px a unit at DPR 2): `gFlakeVis` reaches 0 at 0.85 cells a pixel.
+    const { flakeTilt, flakeSharp } = FINISH_DEFAULTS.paint;
+    const mean = flakeMeanSharp(flakeTilt, flakeSharp);
+    const cellsPerPixel = glossTuning().global.flakeSize / 16;
+    check('flake glow is broader than a flake, and gone to glow by play zoom',
+      mean > 1 && mean < flakeSharp && cellsPerPixel > 0.85,
+      `mean exponent ${mean.toFixed(1)} against ${flakeSharp}`);
     box.dispose();
   }
 

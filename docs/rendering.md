@@ -152,9 +152,9 @@ body's centre, and only the specular and the reflection read them:
 so the shadow map is already folded into the light: a car in a tower's shadow has nothing to glint
 with, and the cop's lamps glint off the cars beside it.
 
-**The sheen carries metal flake.** Paint's broad lobe is multiplied by a hash over the body's own
-space, 14.5 cells a unit by default (`flakeSize`) — sub-pixel at play zoom, where it averages into a livelier sheen, and only
-sparkle close up. The sheen is also what separates paint from glass when no glint is lined up.
+**The sheen carries metal flake.** The sheen is what separates paint from glass when no glint is
+lined up, and paint's carries the flake — see [the layered finish](#car-paint--the-layered-finish)
+below for how, and for why at play zoom it is a glow rather than a sparkle.
 
 **The reflection marches the city.** The reflected ray is stepped through the height field
 `game/sightline.js` already builds for the fare board, uploaded once as a byte texture
@@ -172,6 +172,57 @@ at boot. `outlinable` in `game/cartoon.js` accepts Phong as well, for a car buil
 
 All glossy bodies share one program (`prop-gloss`, `-ssao` as it applies): the per-shape numbers
 are per-material uniforms, not source. `tools/links.mjs` counts it at boot, not mid-run.
+
+### Car paint — the layered finish
+
+Paint is built the way a real one is layered, base coat up, and each layer is one of the `paint`
+numbers in `FINISH_DEFAULTS` (`?paint=classic` keeps the paint before it — its own GLSL, not the
+new shader fed the old numbers). The other three finishes leave every one of these at 0 and render
+exactly as they did.
+
+- **Flop** (`flop`). The base colour darkens toward a grazing angle, off the reflection's bent
+  normal — whose view-space z *is* N·V under this camera. It is what gives a box panel a curve
+  without touching the facets.
+- **A metallic sheen** (`tint`). The broad lobe takes the paint's own hue, scaled to a peak of 1 so a
+  dark red still gets a full red highlight. The classic sheen was white, and a white broad lobe over a
+  coloured base is precisely what plastic looks like.
+- **Flake** (`flake`, `flakeTilt`, `flakeSharp`, and the global `flakeSize`). Round chips, one per
+  cell of the body's own space, each at a random spot and size and leaning off the panel by up to
+  `flakeTilt`, each a mirror with exponent `flakeSharp` — so only a few catch the sun at once, and
+  they cluster around the highlight the way real metallic paint does. The classic flake was a square
+  cell 3x or 0.6x bright multiplied into the sheen: a mosaic up close.
+- **A clear coat** (`coat`). Schlick's Fresnel at 4%, off the bent normal, mixing the city
+  reflection (below) over everything else. About 6% in the middle of a roof or a flank under this
+  camera; capped at about half at the bent corners, because every corner of a box body is "grazing"
+  and at 100% a corner turned into a slab of façade-black or sky-white. The glint stays the coat's
+  own reflection of the sun, white.
+
+**The flake is filtered, and at play zoom it is the glow, not the sparkle.** A chip's cell is
+1/14.5 of a unit; a phone at play zoom puts ~16 px on a unit (DPR 2, portrait), so a cell is ~1.1
+px, and any one pixel's answer depends on which cell its centre happens to land in — which changes
+every frame a car moves a fraction of a pixel. That is shimmer, and the classic flake had it. So
+the shader measures how many cells a pixel spans (`gFoot`, the screen-space derivative of the very
+coordinate the cells are cut from), fades the sparkle out across 0.4–0.85 cells a pixel, and hands
+its energy to the flakes' **mean lobe**: what a field of tilted chips averages into, derived from
+`flakeTilt` and `flakeSharp` (`flakeMeanSharp`, the two widths added in quadrature). Both lobes are
+normalised Blinn-Phong, so the fade moves the light rather than losing it.
+
+Where it lands, measured on a phone framing (390x844 at DPR 2): sparkle is fully on at the closest
+the player can pinch (zoom 14, ~4 px a cell), half-faded at the wreck cam (zoom 26), and gone to
+glow at play zoom. Moving the camera a third of a pixel a frame at play zoom, paint pixels jumping
+more than 12 levels frame to frame went from 4.3% (classic) to 3.3% on the taxi and 3.7% to 2.9% on
+a traffic car; what is left is edges, which the paint cannot help. The sparkle is skipped outright
+where `gFlakeVis` is 0, a branch a whole car takes the same way.
+
+**The reflected skyline is soft.** The classic march takes the first step under a roofline as
+façade. Its streaks were already on the glass, but under a clear coat they reached the paint, and
+on a white panel a ragged black claw mark from 14 coarse steps reads as a scratch. The layered
+paint counts a step by how far under the roof it is, against a depth that grows with the ray's
+length (`GLOSS_HIT_SOFT`): the further the thing reflected, the blurrier its edge.
+
+**Cost.** Per glossy fragment: two hashes, the derivatives, and two more Blinn-Phong lobes per
+light (one at play zoom, where the sparkle is skipped). Cars are a few percent of the frame, and
+`?bench` has a `paint classic` row to put a number on it on a device; SwiftShader cannot.
 
 ## Camera
 
