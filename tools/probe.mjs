@@ -17085,7 +17085,10 @@ let chopperOrder; // likewise
         robber.target = robber.dropoff;
         const tgt = robber.target;
         for (const d of [0, 1, 2, 3]) if (placeCar(t5.taxi, d, tgt.i, tgt.j, 30)) break;
-        t5.taxi.route = [];
+        // Routed, not left to roll: 30 units back is behind the junction before the drop-off
+        // (`placeCar` walks back along the chain), and an unrouted taxi rolls the ordinary dice
+        // there. (#483's fix, ported.)
+        t5.taxi.route = findRoute(planOrigin(t5.taxi), tgt) ?? [];
         robber.directed = true;
         // 25s rather than the 10 this started with: the graveyard moved this seed's bank, and with
         // it the drop-off onto the map's far corner (0, 6), where a taxi placed 30 back with no
