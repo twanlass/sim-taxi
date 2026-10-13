@@ -29,17 +29,19 @@ import { createGrass } from './city/grass.js';
 import { createCanopyFuzz } from './city/canopyfuzz.js';
 import { createGarage } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
+import { createGraveyard } from './city/graveyard.js';
+import { plantedCrowns } from './city/props.js';
 import {
-  createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
+  createTraffic, placeCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
-  onDriftLaunch, hopProgress, setSpinStyle,
+  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
 import { createPolice } from './sim/police.js';
 import {
-  createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
+  createFareSystem, cornerFor, kerbFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE, REPAIR_PRICE,
   BOARD_SECONDS, MAX_STRIKES, RATING_FLOOR, ratingFor,
 } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
@@ -134,7 +136,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall, getWater, getUturnStyle } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getWater, getUturnStyle } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -613,7 +615,7 @@ const stopPanes = rain.enabled ? collectPanes() : null;
 // The season, before anything plants a tree: the parks, the medians and the courtyards all grow the
 // same broadleaf, and autumn is one fact about the whole city (`autumnBase` in city/props.js).
 const fall = getFall();
-setAutumn(fall);
+setAutumn(fall, { classicColours: getFoliageClassic() });
 const city = createBuildings(makeRng(seed + 22), layout);
 scene.add(markOccluder(city.mesh));
 
@@ -649,8 +651,20 @@ const grass = createGrass(makeRng(seed + 122), layout, props);
 scene.add(grass.mesh);
 // Leaf cards round every tree crown — the parks', the medians' and the courtyard's — on the same
 // terms as the grass. See city/canopyfuzz.js.
-const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), [...props.crowns, ...(city.court?.crowns ?? []),
-  ...(northPark?.crowns ?? [])]);
+// The graveyard — the third block `createLayout` took out of the tower generator's hands. Scenery
+// only: not tappable, nothing routes into it. `null` on `?graveyard=classic` or a city with no
+// room, and nothing below needs to know. See city/graveyard.js.
+// Built here rather than beside the depot and the burger joint because its tree has to be planted
+// before the leaf cards below are dressed onto every tree.
+const graveyard = layout.graveyardBlock
+  ? createGraveyard(layout.graveyardBlock, makeRng(seed + 131)) : null;
+if (graveyard) {
+  scene.add(graveyard.group);
+  graveyard.meshes.forEach(markOccluder);
+}
+// Every tree in the city, whoever planted it (`plantedCrowns`, city/props.js) — so a new kind of
+// tree can't come out without its leaves.
+const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), plantedCrowns());
 scene.add(canopyFuzz.mesh);
 // The basketball court's hoops, which ride outside the merged props mesh so the fare board's
 // sightline field never sees them (see `courtParts`) — and the people shooting around on the court. Run seed for the players, like the ducks:
@@ -680,6 +694,11 @@ const ltrain = new URLSearchParams(window.location.search).get('ltrain') !== 'cl
     // Wheel sparks through the shared pool, which is built further down — only ever called from
     // the frame loop, by which time it exists.
     sparks: { burst: (...args) => sparks.burst(...args) },
+    // Headlights and tail lamps (2026-10-13, Tyler); `?trainlights=classic` runs it unlit.
+    lights: new URLSearchParams(window.location.search).get('trainlights') !== 'classic',
+    // Its own intro, bents then track (2026-10-13, Tyler); `?trainintro=classic` grows the whole
+    // structure with the city's wave instead. Started and driven beside `cityEntry` below.
+    intro: new URLSearchParams(window.location.search).get('trainintro') !== 'classic',
   }) : null;
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
@@ -732,6 +751,7 @@ if (burger) {
 // comes and goes, and the boards would have to be re-asked every time one moved.
 const occluders = setCityOccluders(
   city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? []),
+  ...(graveyard?.meshes ?? []),
 );
 // The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).
 setGlossCity(occluders, SKYLINE_CEILING);
@@ -741,6 +761,13 @@ setGlossCity(occluders, SKYLINE_CEILING);
 // the curve at both ends, the way `?seed=` beats a random city: a pinned density is a pinned
 // density, and a tool that asked for one car should get one car for the whole run.
 const pinnedCars = getCarCount(null);
+// The rare classics — the convertible and the Westfalia (CLASSIC_CHANCE in sim/traffic.js).
+// `?classics=classic` is the fleet without them; a number is the chance of each, so `?classics=0.3`
+// puts several on the map to look at.
+const classicsFlag = new URLSearchParams(window.location.search).get('classics');
+const classicChance = classicsFlag === 'classic' ? 0
+  : Number.isFinite(Number.parseFloat(classicsFlag))
+    ? Math.min(0.5, Math.max(0, Number.parseFloat(classicsFlag))) : CLASSIC_CHANCE;
 const traffic = createTraffic(
   makeRng(runSeed + 44), scene,
   pinnedCars ?? difficulty.carCount(0),
@@ -748,6 +775,7 @@ const traffic = createTraffic(
   TRUCK_CHANCE,
   // At least one, so the flatbed (game/flatbed.js) always has a truck to load. See createTraffic.
   1,
+  classicChance,
 );
 // Experiment: the stop bars are the only thing on screen that shows a signal, so hiding them
 // leaves the traffic model obeying lights the player cannot see. Hidden by default while we look
@@ -954,6 +982,10 @@ const robberLine = city.bank && !shot
 // bystander shoved over, the run to the cab — before the robber's line. See game/bankjob.js; the
 // module itself is built further down, once the cash trail it sheds notes into exists.
 const robberyIntro = new URLSearchParams(window.location.search).get('robbery') !== 'classic';
+// ...and it starts with the bank rider: a fare on the bank's steps, a coin tossed when they spawn,
+// and the robber taking their seat on tails (BANK_CHANCE in game/fares.js). `?bankfare=classic`
+// keeps the drive-past, with a bystander always outside and the alarm always on the building.
+const bankFare = robberyIntro && new URLSearchParams(window.location.search).get('bankfare') !== 'classic';
 const robbery = city.bank && !shot
   ? createRobbery({
     site: city.bank,
@@ -962,6 +994,7 @@ const robbery = city.bank && !shot
     traffic,
     // The bank job owns the run to the cab, so the fare loop's boarding animation stands down.
     scripted: robberyIntro,
+    trigger: bankFare ? 'fare' : 'drive',
     // The police wait for the robber's line to be cleared — see `robberLine` above.
     holdAlarm: true,
     // ...and the robbery waits for a patrol chase to be over — see `busy` in game/robbery.js.
@@ -1070,7 +1103,11 @@ window.addEventListener('keydown', (event) => {
 // crosses town edge to edge with its bar swinging red and blue, and comes after you if you boost in
 // front of it. "Pull over!" goes up over its roof the moment it does (game/copshout.js).
 const police = createPolice(scene);
-const copShout = shot ? null : createCopShout({ project: projectToScreen, viewport });
+// The cops no longer talk during a chase — no "pull over" on spotting, no "lost the suspect" when
+// they give up (Tyler, 2026-10-13): the bar, the strobe and the chirp already say both. The bubbles
+// come back with `?copchat=classic`. The robbery's dispatch call is a different thing and stays.
+const copChat = new URLSearchParams(window.location.search).get('copchat') === 'classic';
+const copShout = shot || !copChat ? null : createCopShout({ project: projectToScreen, viewport });
 
 /**
  * Is a getaway on? The robbery owns the run while it is: the depot and the drive-through both
@@ -1099,12 +1136,14 @@ const patrol = createPatrol({
     sfx?.play('chirp', { at: placeAt(cop.x, cop.z) });
   },
   onCaught: (cop, ram) => bustByPolice(ram),
-  // Said by the cruiser that lost you, from over its own roof.
-  onLost: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
-  onHid: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
+  // Said by the cruiser that lost you, from over its own roof — `?copchat=classic` only.
+  onLost: (cop) => { if (copChat && !fares.state.gameOver) radio?.show(LOST_CALL, cop); },
+  onHid: (cop) => { if (copChat && !fares.state.gameOver) radio?.show(LOST_CALL, cop); },
 });
 // Boost, then two quick taps of the brake: the taxi spins round onto the far lane. See game/bootleg.js.
 setSpinStyle(getUturnStyle());
+// The drift launch rolls the taxi a full turn in mid-air; `?barrelroll=classic` flies it level.
+setBarrelRoll(new URLSearchParams(window.location.search).get('barrelroll'));
 const bootleg = createBootleg({
   taxi: traffic.taxi,
   destination: () => traffic.taxi.pendingTarget ?? null,
@@ -1139,6 +1178,7 @@ const overtake = createOvertakeCombo({
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
 // contact. The ghost outlines hung off the taxi are filtered out inside `markOccluder`.
 markOccluder(traffic.mesh);
+for (const classic of traffic.classicDrawn) markOccluder(classic);
 markOccluder(traffic.wheelMesh);
 markOccluder(traffic.truckMesh);
 markOccluder(traffic.truckWheelMesh);
@@ -1174,10 +1214,12 @@ if (taxiHeadlights) {
 }
 if (lamps) markEmissive(lamps.heads, 'bay');
 for (const mesh of police.emissiveMeshes) markEmissive(mesh, 'siren');
+if (ltrain?.lamps) markEmissive(ltrain.lamps, 'pod');
 // One mesh, three lit things: the pickup window, the menu board and the neon round the roofline
 // are merged into `burger.glow` (see city/burgerjoint.js), so the neon arrived in the bloom with
 // nothing to wire.
 if (burger) markEmissive(burger.glow, 'window');
+if (graveyard) markEmissive(graveyard.glow, 'window');
 if (garage) markEmissive(garage.light, 'bay');
 if (garage?.neon) markEmissive(garage.neon, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
@@ -1198,7 +1240,7 @@ for (const slot of fares.slots) markOccluder(slot.passenger.group);
 if (cartoonEnabled) {
   cartoon.outline(traffic.taxiGroup, { group: 'taxi' });
   cartoon.outline(police.group);
-  for (const source of [traffic.mesh, traffic.truckMesh, traffic.truckBoxMesh]) {
+  for (const source of [traffic.mesh, ...traffic.classicDrawn, traffic.truckMesh, traffic.truckBoxMesh]) {
     scene.add(...cartoon.fleet(source));
   }
 }
@@ -1334,22 +1376,28 @@ const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
-    ...(burger?.meshes ?? []), ...(lamps ? [lamps.posts, lamps.heads] : []),
+    ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []),
+    ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
     ...(props.pondMesh ? [props.pondMesh] : [])],
   // The two things in the city the wave's vertex shader cannot reach, because they turn: the
   // depot's sign and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
+    ...(graveyard ? [graveyard.entryObject] : []),
     ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
     ...(ltrain?.entryObjects ?? [])],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
-    ...(burger ? [burger.entrySite] : [])],
+    ...(burger ? [burger.entrySite] : []), ...(graveyard ? [graveyard.entrySite] : [])],
   dust,
   // The spawn point for now — the wave is re-aimed at the taxi's *post-warmup* position at the
   // bottom of this file, which is where the player actually first sees the car.
   from: { x: traffic.taxi.x, z: traffic.taxi.z },
 });
+// The L's intro runs on the city entry's wave and levers, but on its own clock, since the track
+// is still being laid after the last building has landed.
+const replayLTrainIntro = (from) => ltrain?.intro?.start(from, cityEntry.tuning());
+replayLTrainIntro(traffic.taxi);
 if (litPanes || lamps) {
   rainLightsOn = () => {
     if (cityEntry.running()) return;
@@ -1390,8 +1438,18 @@ const bankJob = robbery && robberyIntro
     controller,
     setDoor: traffic.setTaxiDoor,
     play: (name, x = null, z = null) => sfx?.play(name, x === null ? {} : { at: placeAt(x, z) }),
+    scenery: !bankFare,
   })
   : null;
+if (bankJob && bankFare) {
+  fares.setBankStop({
+    junction: robbery.junction,
+    x: bankJob.home.x,
+    z: bankJob.home.z,
+    away: bankJob.along,
+    swapReady: () => robbery.swapReady(),
+  });
+}
 // The other half of the tailpipe: `flames` is the bark on the press, this is the plume that burns
 // for as long as the button is held. No seed — the flicker is a flipbook on a clock, and a flame
 // that came out differently on two runs of the same seed would take the screenshots with it.
@@ -2613,7 +2671,7 @@ function canBendRoute() {
 // have dragged, in a move they don't have to make.
 function panToRider(fare) {
   if (!fare) return;
-  const c = cornerFor(fare.target.i, fare.target.j);
+  const c = kerbFor(fare);
   // Same as a swipe: the player has aimed the camera somewhere deliberately, so the opening
   // follow-cam stops. Without this the taxi would tow the framing straight back off the rider the
   // chip was pointing at — and here it would do it *during* the pan, which reads as the camera
@@ -2846,7 +2904,7 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   waitingFare: () => fares.waiting(),
   // The kerb corner, not the junction centre: at this zoom the corner building sits squarely
   // between the camera and the figure otherwise. Same aim as panToRider and the drop-off pointer.
-  fareLocation: (fare) => cornerFor(fare.target.i, fare.target.j),
+  fareLocation: (fare) => kerbFor(fare),
   // Any fare the player has actually sent the taxi at — including one they found and tapped on the
   // map while the first bubble was still up.
   isDispatched: () => Boolean(fares.carrying() || fares.state.fares.some((f) => f.directed)),
@@ -3506,6 +3564,8 @@ function updateHud(dt) {
       scores: collectScores(),
       // "Play again" means the run, not the menu: the reload goes straight past the title screen.
       onRetry: () => { skipTitleNextLoad(); location.reload(); },
+      // What the run unlocked, after the table and before the button.
+      finale: showUnlockedMoves,
     });
     document.body.classList.add('game-over');
     sfx?.fadeOutMusic();
@@ -4764,10 +4824,11 @@ const pause = shot ? null : createPause({
   },
 });
 
-// "New Move Unlocked": the card that teaches the bootleg and then the drift, each once ever, a beat
-// after the drop-off that brings a run to that move's `after` fares (MOVES in game/newmove.js). The
-// world stops while it is up — the early return in `frame()` beside the robber's line's. See
-// game/newmove.js for when and why.
+// "New Move Unlocked": the card that teaches the overtake, the bootleg and the drift, each once ever,
+// once a run has reached that move's `after` fares (MOVES in game/newmove.js). By default it goes up
+// after the run, behind the high-score table and before Play again (`showUnlockedMoves`); under
+// `?newmove=classic`, a beat after the drop-off that unlocked it, mid-run. The world stops while it
+// is up — the early return in `frame()` beside the robber's line's. See game/newmove.js for why.
 // Centred over a dim, with the move acted out inside it on a real street of this city — see
 // game/moveclip.js. The street (or for the drift, the corner) is chosen when the card opens, off the
 // cars where they stand then, since they stay there until it closes.
@@ -4782,21 +4843,50 @@ const clipSite = () => ({
 const clipStage = (cardCanvas) => ({
   scene, camera, renderFrame, canvas: renderer.domElement, freeze: freezeFrame, cardCanvas,
 });
+// The player's taxi and the ambient traffic, as meshes — what a clip takes out of shot to film on a
+// street that has cars on it. Meshes only, so none of this changes the light count (the cruiser,
+// which carries lamps, stays: CLAUDE.md).
+const trafficMeshes = () => [traffic.taxiGroup, traffic.mesh, ...traffic.classicDrawn, traffic.wheelMesh,
+  traffic.truckMesh, traffic.truckWheelMesh,
+  traffic.truckBoxMesh, traffic.bumperMesh, traffic.truckBumperMesh, ...traffic.emissiveMeshes,
+  ...carDamage.meshes];
+/**
+ * A move's clip, filmed where `pick` says. A street with a car parked on it is passed over, since
+ * the city stays frozen under the card — and late in a long run, with traffic at its densest, that
+ * can be every street there is: the overtake's picker, which wants a whole ring-road side clear,
+ * came up empty on one city in five at the end of a run, and the card went up as a bare title with
+ * its keys stuck on their first frame (Tyler, 2026-10-13). So when nothing is clear it picks again
+ * with the cars ignored and films with the traffic out of shot, put back when the card closes. The
+ * still under the card is taken before they go, so the city behind it is the one the player left.
+ */
+const filmMove = (pick, make) => (cardCanvas) => {
+  if (!freezeFrame) return null;
+  const clear = pick(clipSite());
+  if (clear) return make(clipStage(cardCanvas), clear);
+  const anywhere = pick({ ...clipSite(), cars: [] });
+  const clip = anywhere && make(clipStage(cardCanvas), anywhere);
+  if (!clip) return null;
+  const hidden = trafficMeshes().filter((mesh) => mesh?.visible);
+  for (const mesh of hidden) mesh.visible = false;
+  const dispose = clip.dispose.bind(clip);
+  clip.dispose = () => {
+    for (const mesh of hidden) mesh.visible = true;
+    dispose();
+  };
+  return clip;
+};
 const moves = {
   overtake: {
     ...MOVES.overtake, seen: createSeenFlag({ key: MOVES.overtake.seenKey }), clipKeys: overtakeKeys,
-    makeClip: (cardCanvas) => freezeFrame
-      && createOvertakeClip({ ...clipStage(cardCanvas), street: pickOvertakeStreet(clipSite()) }),
+    makeClip: filmMove(pickOvertakeStreet, (stage, street) => createOvertakeClip({ ...stage, street })),
   },
   uturn: {
     ...MOVES.uturn, seen: createSeenFlag({ key: MOVES.uturn.seenKey }), clipKeys: uturnKeys,
-    makeClip: (cardCanvas) => freezeFrame
-      && createUturnClip({ ...clipStage(cardCanvas), street: pickStreet(clipSite()) }),
+    makeClip: filmMove(pickStreet, (stage, street) => createUturnClip({ ...stage, street })),
   },
   drift: {
     ...MOVES.drift, seen: createSeenFlag({ key: MOVES.drift.seenKey }), clipKeys: driftKeys,
-    makeClip: (cardCanvas) => freezeFrame
-      && createDriftClip({ ...clipStage(cardCanvas), corner: pickCorner(clipSite()) }),
+    makeClip: filmMove(pickCorner, (stage, corner) => createDriftClip({ ...stage, corner })),
   },
 };
 // The depot's card, on the same layer: once ever, a beat after the taxi first starts smoking. It
@@ -4807,16 +4897,18 @@ const repairCard = {
   makeClip: (cardCanvas) => freezeFrame && garage && createRepairClip({
     ...clipStage(cardCanvas), site: garage.site, setDoor: garage.setDoor, workshop: repairFx, sparks, dust,
     // The player's taxi, and the ambient traffic frozen wherever it stood — a car stopped on the
-    // depot's lane sat on the stand-in's path. Meshes only, so none of this changes the light count
-    // (the cruiser, which carries lamps, stays: CLAUDE.md).
-    hide: [traffic.taxiGroup, traffic.mesh, traffic.wheelMesh, traffic.truckMesh, traffic.truckWheelMesh,
-      traffic.truckBoxMesh, traffic.bumperMesh, traffic.truckBumperMesh, ...traffic.emissiveMeshes,
-      ...carDamage.meshes],
+    // depot's lane sat on the stand-in's path.
+    hide: trafficMeshes(),
   }),
 };
 // Seconds of game time until it lands, or negative while the car is not smoking.
 let repairCardIn = -1;
-const newMove = shot ? null : createNewMove({ viewport });
+// `?newmove=classic` puts the move cards back mid-run, a beat after the drop-off. The depot's card
+// is not a move and stays mid-run either way: it is about the car smoking now.
+const movesAfterRun = new URLSearchParams(window.location.search).get('newmove') !== 'classic';
+// What a closing card hands over to — the next card of the run's queue (`showUnlockedMoves`).
+let afterNewMove = null;
+const newMove = shot ? null : createNewMove({ viewport, onClose: () => afterNewMove?.() });
 // Seconds of game time until the card lands, or negative when none is due, and which move it is.
 let newMoveIn = -1;
 let newMoveDue = null;
@@ -4847,6 +4939,34 @@ const newMoveCalm = () => !fares.state.gameOver && !traffic.taxi.crashed
   && !robbery?.state.active && !patrol.busy() && !robberLine?.isOpen()
   && !opening?.visiting() && !depotRun?.active() && !burgerRun?.holdsTaxi()
   && !replay?.active() && replayAt === null;
+/**
+ * The run is over and its high-score table has landed: the first move it unlocked that has not been
+ * shown yet, then `done` (the run-end screen's Play again). Answers false when there is
+ * nothing to show. Over the blackout rather than instead of it (`body.new-move-after-run`), so the
+ * card closes back onto the run's own screen; the clip still films the city under it.
+ */
+function showUnlockedMoves(done) {
+  if (!movesAfterRun || !newMove) return false;
+  // One card per run's end, the first not yet shown (Tyler, 2026-10-13); a run that unlocked more
+  // leaves the rest for the runs after it, which still have to reach each one's `after`.
+  const queue = Object.values(moves).filter((m) => newMoveWanted(m) && fares.state.delivered >= m.after)
+    .slice(0, 1);
+  if (!queue.length) return false;
+  document.body.classList.add('new-move-after-run');
+  const next = () => {
+    const move = queue.shift();
+    if (!move) {
+      afterNewMove = null;
+      document.body.classList.remove('new-move-after-run');
+      done();
+      return;
+    }
+    afterNewMove = next;
+    if (!openNewMove(move)) next();
+  };
+  next();
+  return true;
+}
 function openNewMove(move = newMoveDue ?? moves.uturn) {
   if (!newMove?.open(move)) return false;
   move.seen.set();
@@ -5037,8 +5157,10 @@ function tick() {
   // finished city with its traffic running, not over the city building itself.
   if (parked()) {
     if (cityEntry.running()) cityEntry.settle();
+    if (ltrain?.intro?.running()) ltrain.intro.settle();
   } else {
     cityEntry.update(dt);
+    ltrain?.intro?.update(dt);
   }
   dust.update(dt);
   spray.update(dt);
@@ -5072,12 +5194,17 @@ function tick() {
   if (ltrain) {
     ltrain.update(dt);
     ltrain.setFadePoints(ltrainFadePoints());
+    // Beams on in the rain, the way the cars' are, and after dark — the searchlight's night measure.
+    ltrain.setBeams(Math.max(runningLightsAt(ltrain.plan.world(ltrain.state.x).x, ltrain.plan.world(ltrain.state.x).z),
+      1 - THREE.MathUtils.smoothstep(sun.intensity, 0.3, 2.6)));
   }
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
   burger?.update(dt, SIGN_SPIN);
   // And the sign on the depot's roof, on the same terms — see DEPOT_SPIN in city/garage.js.
   garage?.update(dt);
+  // The graveyard's ground mist, thicker after dark — the same night measure as the searchlight's.
+  graveyard?.update(dt, 1 - THREE.MathUtils.smoothstep(sun.intensity, 0.3, 2.6));
   controller.updateShake(dt, aspect());
   daylight.update(dt);
 
@@ -5419,6 +5546,12 @@ function tick() {
   // spawns the next one in the same tick — so this is a list rather than a single event.
   for (const { type, fare } of
     (fareLoopHeld() ? NO_FARE_EVENTS : fares.update(dt, traffic.taxi))) {
+    // The bank rider's coin came up tails: they are off the board, and the robber takes the seat
+    // they were about to — `onBoard` above dispatches the getaway and the bank job's cut opens.
+    if (type === 'swapped') {
+      robbery?.swap();
+      continue;
+    }
     if (type === 'pickup') {
       boardSound();
       traffic.taxi.route = [];
@@ -5440,8 +5573,10 @@ function tick() {
       // target and `depotRun.update` stands down on the next frame. A car already staged in the
       // driveway finishes its visit and `resumeJob` hands it the drop-off on the way out.
     } else if (type === 'delivered') {
-      newMoveDue = nextMove(fares.state.delivered);
-      if (newMoveWanted()) newMoveIn = SHOW_DELAY;
+      if (!movesAfterRun) {
+        newMoveDue = nextMove(fares.state.delivered);
+        if (newMoveWanted()) newMoveIn = SHOW_DELAY;
+      }
       // Out they get: open, and shut a beat later once they are clear of the car.
       sfx?.play('doorOpen');
       sfx?.play('doorClose', { delay: 0.7 });
@@ -5994,6 +6129,11 @@ if (shot) {
   // is a couple of units below the middle of the building — but an orthographic camera aimed at a
   // point in the air is aimed at the wrong point on the ground (see the birds), so the target is
   // taken flat off the ground the way every other `at*` shot here takes it.
+  if (shot.atGraveyard && graveyard) {
+    controller.state.target.set(graveyard.site.focus.x, 0, graveyard.site.focus.z);
+    controller.update(aspect());
+  }
+
   if (shot.atDepot && garage) {
     controller.state.target.set(garage.site.focus.x, 0, garage.site.focus.z);
     controller.update(aspect());
@@ -6145,7 +6285,7 @@ if (shot) {
   if (shot.atPassenger && framed) {
     // Aim at the kerb the rider is standing on, not the middle of the junction — at close zoom
     // the corner building sits squarely between the camera and the figure otherwise.
-    const c = cornerFor(framed.target.i, framed.target.j);
+    const c = kerbFor(framed);
     controller.state.target.set(c.x, 0, c.z);
     controller.update(aspect());
   }
@@ -6209,14 +6349,26 @@ if (shot) {
   harborShips?.settle();
   drawbridge?.settle();
   // A train mid-crossing over the frame's own target, and the deck already faded over the board.
+  // `&introAt=1.9` instead freezes the L's own intro that many seconds in, from the frame's target,
+  // with no train on it yet — for looking at the intro a frame at a time.
+  const introAt = Number(new URLSearchParams(window.location.search).get('introAt') ?? NaN);
+  const freezeIntro = Boolean(ltrain?.intro) && Number.isFinite(introAt);
   if (ltrain) {
-    ltrain.settle(controller.state.target);
+    if (!freezeIntro) ltrain.settle(controller.state.target);
     ltrain.setFadePoints(ltrainFadePoints());
+    ltrain.setBeams(Math.max(runningLightsAt(ltrain.plan.world(ltrain.state.x).x, ltrain.plan.world(ltrain.state.x).z),
+      1 - THREE.MathUtils.smoothstep(sun.intensity, 0.3, 2.6)));
     sparks.update(0.12);
   }
   // The city's own entrance is an animation that opens at zero too — unsettled, every screenshot
   // is an empty street grid.
   cityEntry.settle();
+  if (freezeIntro) {
+    ltrain.intro.start(controller.state.target, cityEntry.tuning());
+    ltrain.intro.update(introAt);
+  } else {
+    ltrain?.intro?.settle();
+  }
   // Shot mode never stages the taxi, so there is no vignette to land — but the garage still has to
   // be in the state a run is actually played in, which is shut, the car long gone and the door
   // come down behind it.
@@ -6296,6 +6448,7 @@ if (shot) {
   // already parked inside it by now, so the city builds itself outward from the depot — which is
   // exactly where the camera is about to go.
   cityEntry.replay(traffic.taxi);
+  replayLTrainIntro(traffic.taxi);
   // Every program the city needs, linked here rather than on the frame that first draws it.
   //
   // Three compiles a material's shader lazily, at its first draw, and half this game's meshes are
@@ -6349,7 +6502,7 @@ if (!shot && wantsDebugPanel) {
     cityEntry: {
       tuning: cityEntry.tuning,
       tune: cityEntry.tune,
-      replay: () => cityEntry.replay(traffic.taxi),
+      replay: () => { cityEntry.replay(traffic.taxi); replayLTrainIntro(traffic.taxi); },
     },
     loco,
     /** True when the sliders opened on a tuning restored from a previous session. */
@@ -6507,7 +6660,7 @@ window.__taxi = {
   boombox,
   /** The riders on the skatepark, and `skaters.park` the park — absent if the city has none. */
   skaters,
-  /** The elevated train, or null without `?ltrain=on` — see game/ltrain.js. */
+  /** The elevated train, or null under `?ltrain=classic` — see game/ltrain.js. */
   ltrain,
   roadwork,
   /** The truck that sheds crates. `flatbed.stage()` starts it now; `state`, `crates`, `loose()`. */
@@ -6653,7 +6806,7 @@ window.__taxi = {
    */
   targetScreenPosition: (fare = fares.focus()) => {
     if (!fare) return null;
-    const c = cornerFor(fare.target.i, fare.target.j);
+    const c = kerbFor(fare);
     return projectToScreen(c.x, KERB_H, c.z);
   },
   /**

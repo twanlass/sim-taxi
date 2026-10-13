@@ -384,6 +384,27 @@ export const PALETTE = {
   // whole vehicle as one hull in one colour (carBodyGhost at the cab's index), because the outline
   // says "there is a vehicle there", not "these are its panels".
   truckBox: '#DDD4BE',
+  // The two rare classics (geometry/classics.js). The convertible's body is tinted from carBody
+  // like any car; its folded hood is dark canvas under that tint.
+  convertibleHood: '#2E2F33',
+  // Its interior and driver (`convertibleInteriorGeometry`) are NOT tinted — a mesh of their own —
+  // so these are the colours that show. Brown leather, so the cockpit stands out from the paint
+  // on every car: tinted, the seats were the body's own colour and the hollow read as a dent
+  // (Tyler, 2026-10-13). A white tee, the riders' skin and hair, dark shades.
+  convertibleTub: '#3A2A20',
+  convertibleSeat: '#8A5533',
+  convertibleShirt: '#F1EEE7',
+  convertibleSkin: '#E8B78C',
+  convertibleHair: '#4A3A2E',
+  convertibleShades: '#1B1C20',
+  // The Westfalia is NOT tinted (its instance colour is white): a T3 camper's whole identity is the
+  // two-tone, an ivory upper over a coloured lower with a black rub strip on the split, and a
+  // per-instance multiply would tint the ivory as well. One colourway, a burnt orange off the
+  // taxi's yellow by 26° of hue (18° against #F5C130's 44°) — at one or two on the map it reads as *the* camper.
+  westfaliaLower: '#B5603C',
+  westfaliaUpper: '#EDE6D4',
+  westfaliaRoof: '#F4F1EA',
+  westfaliaTrim: '#25272A',
   // A rammed box truck's rear doors (game/boxspill.js): the leaves are the box's own colour, the
   // latch bar down each free edge is dark steel, and the hold the doors open on is a deep shadow —
   // nothing inside is lit, and a hold the colour of the box reads as the doors having opened on a
@@ -775,12 +796,20 @@ export const PALETTE = {
 
   trunk: '#6B4E35',
   foliage: '#4F8F4A',
-  // Autumn (`autumnBase` in city/props.js): the colours a broadleaf turns. Spread across value as
-  // well as hue so a park reads as several trees rather than one tree in four tints — the gold
-  // sits above the lawn's luma, the red well under it, the orange between.
-  foliageGold: '#D4A12A',
-  foliageOrange: '#CC6A27',
-  foliageRed: '#A9382C',
+  // Autumn (`autumnBase` in city/props.js): the colours a broadleaf turns. Still spread across
+  // value as well as hue so a park reads as several trees rather than one tree in four tints — gold
+  // above the green's luma 116, rust under it, orange between — but held to a narrow band. The
+  // first set ran luma 88 to 163 and saturation up to 0.68 with a red at hue 6°, and the red trees
+  // read as stop signs against the rest of the city: "the red is too extreme". These sit at luma
+  // 96 / 121 / 148, saturation 0.50-0.55, hue 15-40°, so the whole season is one warm family and
+  // the darkest of it is a rust rather than a red.
+  foliageGold: '#BE9137',
+  foliageOrange: '#B26A34',
+  foliageRed: '#994D33',
+  // The first autumn, behind `?foliage=classic`.
+  foliageGoldClassic: '#D4A12A',
+  foliageOrangeClassic: '#CC6A27',
+  foliageRedClassic: '#A9382C',
 
   // The duck pond — see city/pond.js. The only water in the game, so these three have nothing to
   // agree with and two things to stay clear of.
@@ -1180,6 +1209,22 @@ export const PALETTE = {
   ltrainStripe: '#C8463B',
   ltrainGlass: '#2C3742',
   ltrainUnder: '#33373A',
+
+  // The graveyard (city/graveyard.js). Its lawn is the park's green taken darker and greyer, so a
+  // cemetery reads as a different kind of grass from a park at a glance rather than as one more
+  // park. The stone is the kerb's grey family, a step cooler than `statuePlinth`, with a darker
+  // weathered pair for variety; the ironwork is one near-black with the same blue cast as
+  // `rooftopIron`.
+  graveGrass: '#5C7A52',
+  graveMound: '#4F6B47',
+  graveStone: '#CFCCC2',
+  graveStoneDark: '#A19E96',
+  gravePath: '#BDB4A2',
+  graveIron: '#2A2D33',
+  // The graveyard's one tree: a dark plum crown, off every colour the season paints the parks.
+  graveTree: '#5E3448',
+  graveLantern: '#FFC46A',
+  graveMist: '#E6EBF2',
 };
 
 export function color(value) {

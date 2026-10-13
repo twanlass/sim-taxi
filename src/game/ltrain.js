@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial } from '../util/geo.js';
-import { PALETTE } from '../palette.js';
+import { bakeColor, propMaterial, unlitMaterial } from '../util/geo.js';
+import { PALETTE, color } from '../palette.js';
+import { coneGeometry, coneMaterial, coneQuat } from '../geometry/lights.js';
 import {
   GRID_I, GRID_J, lineX, lineZ, isArterialX, isArterialZ, laneOffX, laneOffZ, medianRuns, MEDIAN_W,
   LTRAIN_NS,
@@ -12,7 +13,7 @@ import { WATER_Y } from '../city/river.js';
 import { harborLandAt } from '../city/harborplan.js';
 import { VIEW_DIR } from './camera.js';
 import { sinkShadowCaster } from './scene.js';
-import { markOccluder } from './ssao.js';
+import { markOccluder, setOccluderDepthMaterial } from './ssao.js';
 
 // The elevated train (on by default, `?ltrain=classic`): a Chicago-style L on a steel structure down the
 // north-south arterial, with one train shuttling along it. It crosses the river on the arterial's
@@ -140,6 +141,45 @@ const RAMP = 2.5;
 /** Seconds the line stands empty between runs. Run seed: the timetable is the situation. */
 const WAIT = [5, 14];
 
+// --- Lamps -------------------------------------------------------------------------------------
+//
+// A pair of headlights low on the leading end and a pair of red tail lamps on the trailing one
+// (on by default, `?trainlights=classic` for the unlit train). The train shuttles, so both ends
+// carry both — but rather than switch four pairs on and off, the lamps are one group with the
+// headlights at +x and the tails at -x, and the group is turned half round when the train runs
+// west. The train is symmetric about its middle, so the half turn lands each pair exactly on the
+// other end's sockets.
+//
+// The pods are always lit, the way a real train's are: unlit and emissive like the cars' brake
+// pods, so they read day or night, and in the bloom. What the dark adds is the **beam** — the same
+// additive cone the cars throw (geometry/lights.js), scaled up for a bigger lamp, brought up by
+// `setBeams` off the city's running-light level and the night.
+//
+// Only the +x end is ever face-on to this camera (it looks in from +x +z), so an eastbound train
+// shows its headlights and a westbound one shows its tails. Both read; the other end's pair is a
+// sliver at most.
+const HEAD_R = 0.18;          // 0.36 across: ~2.8px at play zoom, a car's headlight is ~2
+const HEAD_Z = 0.4;           // off the centreline, inside the end window's 0.625
+const TAIL_R = 0.14;
+const TAIL_Z = 0.66;          // the outer corners, so the two ends do not read as one kind of lamp
+const LAMP_Y = 0.62;          // above the railhead: under the end window (0.95), over the skirt
+const LAMP_D = 0.2;
+/** Outer face 0.06 proud of the end face — the end window stands 0.04 proud, and coplanar fights. */
+const LAMP_X = TRAIN_LEN / 2 + 0.06 - LAMP_D / 2;
+/** The beam is the car's cone at this scale: 6.9 long and 2.6 across at the mouth. */
+const BEAM_SCALE = 1.5;
+/** Additive strength at full dark — the cars' own `uStrength`. */
+const BEAM_STRENGTH = 0.45;
+
+function lampPair(radius, x, z) {
+  return mergeGeometries([-1, 1].map((s) => {
+    const geo = new THREE.CylinderGeometry(radius, radius, LAMP_D, 10, 1, false);
+    geo.rotateZ(Math.PI / 2);
+    geo.translate(x, LAMP_Y, s * z);
+    return geo;
+  }), false);
+}
+
 // --- Wheel sparks -------------------------------------------------------------------------------
 //
 // Every few seconds a truck under one of the cars throws a short shower off the rail — the thing
@@ -194,6 +234,15 @@ const FADE_UNIFORMS = {
 };
 
 const PROJECT_VERTEX = '#include <project_vertex>';
+// 4x4 ordered dither threshold in (0, 1): the fade's, and the intro's on a material without one.
+const BAYER = /* glsl */ `
+float lBayer(vec2 p) {
+  ivec2 q = ivec2(mod(p, 4.0));
+  int i = q.x + q.y * 4;
+  float m[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0,
+                          3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+  return (m[i] + 0.5) / 16.0;
+}`;
 const CLIP_FRAGMENT = '#include <clipping_planes_fragment>';
 
 /**
@@ -234,14 +283,7 @@ uniform vec3 uLFade[${FADE_SLOTS}];
 uniform vec3 uLCoast;
 uniform vec3 uLRadius;
 uniform float uLAxis;
-float lBayer(vec2 p) {
-  // 4x4 ordered dither threshold in (0, 1).
-  ivec2 q = ivec2(mod(p, 4.0));
-  int i = q.x + q.y * 4;
-  float m[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0,
-                          3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
-  return (m[i] + 0.5) / 16.0;
-}`)
+${BAYER}`)
       .replace(CLIP_FRAGMENT, `${CLIP_FRAGMENT}
 {
   // Off the island: the same smoothstep the ground fades on. Measured along the line (x, or -z
@@ -260,6 +302,121 @@ float lBayer(vec2 p) {
 }`);
   };
   return material;
+}
+
+// --- The intro ----------------------------------------------------------------------------------
+//
+// The L's own entrance, alongside the city's (game/cityentry.js) rather than inside it (on by
+// default, `?trainintro=classic` grows the whole structure from its middle as one object, which is
+// what it did before). **The bents come up the way the buildings do**: the same wave from the taxi,
+// the same easeOutBack over the same grow, the same footprint swell, read off the city entry's
+// own levers so a retune moves both. **Then the track is laid**: once every bent on the island is
+// standing, the spans drop into place one at a time from the end nearer the taxi, each falling
+// `DROP_H` and dithering in as it comes (Tyler, 2026-10-13: "falling only a short distance").
+//
+// In the vertex shader for the same reason the city's is: the deck and the bents are one merged
+// mesh each, and splitting them into fifty objects for a two-second flourish would cost draw calls
+// for the life of the run. Each vertex carries `aLIntro` = (its start time, its kind, its bent's
+// x); the start times are rewritten on `start()`, because they depend on where the taxi is.
+//
+// Patched into the sun's shadow pass and the AO prepass too (CLAUDE.md: every depth pass), or the
+// finished deck's shadow and contact crease would be on the road before the deck is.
+//
+// The spans come from `deckSpans`, so the order follows whatever the line's own list of spans is.
+
+/** Seconds between one span starting to drop and the next. */
+const SPAN_STAGGER = 0.07;
+/** How far a span falls, and over how long. Short on purpose: it is set down, not dropped. */
+const DROP_H = 1.6;
+const DROP_DUR = 0.4;
+/** A beat between the last bent settling and the first span coming down. */
+const DROP_PAUSE = 0.1;
+/** The footprint swell the bents rise with — the city entry's `XZ_FROM`. */
+const RISE_XZ_FROM = 0.65;
+const RISE_FADE = 0.3;
+
+const INTRO_KIND = { none: 0, rise: 1, drop: 2 };
+
+const INTRO_UNIFORMS = {
+  uLIntroT: { value: 1e6 },
+  uLGrow: { value: 0.3 },
+  uLOver: { value: 3.9 },
+};
+
+const BEGIN_VERTEX = '#include <begin_vertex>';
+
+function patchIntroVertex(shader) {
+  if (!shader.vertexShader.includes(BEGIN_VERTEX)) throw new Error('ltrain: intro patch found no begin_vertex');
+  Object.assign(shader.uniforms, INTRO_UNIFORMS);
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', `#include <common>
+attribute vec3 aLIntro;
+uniform float uLIntroT;
+uniform float uLGrow;
+uniform float uLOver;
+varying float vLIntro;`)
+    .replace(BEGIN_VERTEX, `${BEGIN_VERTEX}
+vLIntro = 1.0;
+if (aLIntro.y > 1.5) {
+  // A span: set down from DROP_H above, easing out, dithering in over the first part of the fall.
+  float t = clamp((uLIntroT - aLIntro.x) / ${DROP_DUR.toFixed(4)}, 0.0, 1.0);
+  float d = 1.0 - t;
+  transformed.y += ${DROP_H.toFixed(4)} * d * d * d;
+  vLIntro = smoothstep(0.0, 0.6, t);
+} else if (aLIntro.y > 0.5) {
+  // A bent: the city entry's rise, about its own foot. aLIntro.z is its x; z is centred on it.
+  float t = clamp((uLIntroT - aLIntro.x) / uLGrow, 0.0, 1.0);
+  float b = t - 1.0;
+  float s = 1.0 + (uLOver + 1.0) * b * b * b + uLOver * b * b;
+  transformed.y = ${KERB_H.toFixed(4)} + (transformed.y - ${KERB_H.toFixed(4)}) * s;
+  float xz = mix(${RISE_XZ_FROM.toFixed(4)}, 1.0, s);
+  transformed.x = aLIntro.z + (transformed.x - aLIntro.z) * xz;
+  transformed.z *= xz;
+  vLIntro = smoothstep(0.0, ${RISE_FADE.toFixed(4)}, t);
+}`);
+}
+
+/**
+ * The intro on a material: the fade's own dither, so nothing new to sort. `bayer` brings the
+ * dither function along for a material that has no fade — the river truss, which Tyler wants
+ * solid round the taxi but which still has to be laid with its spans.
+ */
+function introMaterial(material, { bayer = false } = {}) {
+  const base = material.onBeforeCompile;
+  const baseKey = material.customProgramCacheKey();
+  material.customProgramCacheKey = () => `${baseKey}-lintro`;
+  material.onBeforeCompile = (shader, renderer) => {
+    base.call(material, shader, renderer);
+    patchIntroVertex(shader);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying float vLIntro;${bayer ? BAYER : ''}`)
+      .replace(CLIP_FRAGMENT, `${CLIP_FRAGMENT}
+if (vLIntro < 0.999 && vLIntro < lBayer(gl_FragCoord.xy)) discard;`);
+  };
+  return material;
+}
+
+/** A depth pass's material, intro-patched — a span that has not arrived casts nothing. */
+function introDepth(depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking })) {
+  const base = depth.onBeforeCompile;
+  const baseKey = depth.customProgramCacheKey();
+  depth.customProgramCacheKey = () => `${baseKey}-lintro`;
+  depth.onBeforeCompile = (shader, renderer) => {
+    base.call(depth, shader, renderer);
+    patchIntroVertex(shader);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying float vLIntro;`)
+      .replace('void main() {', 'void main() {\n\tif (vLIntro <= 0.004) discard;');
+  };
+  return depth;
+}
+
+/** Give a geometry its `aLIntro`, all zero — kind none — until `start()` writes it. */
+function addIntro(geo) {
+  geo.setAttribute('aLIntro', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 3), 3));
+  return geo;
 }
 
 // --- Plan ---------------------------------------------------------------------------------------
@@ -330,11 +487,38 @@ const box = (w, h, d, x, y, z, color) => {
   return bakeColor(g, color);
 };
 
-/** The deck and its track, in the group's frame (centred on the median, so z is across it). */
+/**
+ * The deck's spans: the stretches between consecutive bents, plus the two runs off the last bent
+ * at each end. The intro lays them one at a time, so the deck is built span by span rather than as
+ * one length of girder — see the intro above.
+ */
+export function deckSpans(plan) {
+  const cuts = [plan.from, ...plan.columns, plan.to];
+  const spans = [];
+  for (let k = 0; k < cuts.length - 1; k++) spans.push({ from: cuts[k], to: cuts[k + 1] });
+  return spans;
+}
+
+/**
+ * The deck and its track, in the group's frame (centred on the median, so z is across it). One
+ * merged geometry, with each vertex's span index in `span`. The lengthwise members — girders,
+ * stringers and rails — are cut at every bent, which leaves butt joints over the caps and nothing
+ * coplanar overlapping; the cross members go to the span their x falls in.
+ */
 function buildDeck(plan) {
+  const spans = deckSpans(plan);
+  const geos = spans.map((span) => buildDeckSpan(plan, span));
+  geos.forEach((geo, k) => {
+    geo.setAttribute('span', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count).fill(k), 1));
+  });
+  return mergeGeometries(geos, false);
+}
+
+function buildDeckSpan(plan, span) {
   const parts = [];
-  const len = plan.to - plan.from;
-  const mid = (plan.from + plan.to) / 2;
+  const len = span.to - span.from;
+  const mid = (span.from + span.to) / 2;
+  const inSpan = (x) => x >= span.from && x < span.to;
   const steel = PALETTE.ltrainSteel;
   const dark = PALETTE.ltrainSteelDark;
 
@@ -351,11 +535,13 @@ function buildDeck(plan) {
     }
   }
   for (let x = plan.from + FLOOR_PITCH / 2; x < plan.to; x += FLOOR_PITCH) {
+    if (!inSpan(x)) continue;
     parts.push(box(FLOOR_W, FLOOR_D, DECK_HALF_W * 2 - GIRDER_W * 2, x, DECK_TOP - STRINGER_D - FLOOR_D / 2 + 0.02, 0, dark));
   }
   // Stiffeners standing proud of each girder's outer face: the rhythm that makes a long plate read
   // as riveted steel rather than as a grey bar.
   for (let x = plan.from + STIFFENER_PITCH / 2; x < plan.to; x += STIFFENER_PITCH) {
+    if (!inSpan(x)) continue;
     for (const s of [-1, 1]) {
       parts.push(box(0.12, GIRDER_D, 0.05, x, DECK_TOP - GIRDER_D / 2, s * (DECK_HALF_W + 0.025), dark));
     }
@@ -363,6 +549,7 @@ function buildDeck(plan) {
   // The track: open ties and two rails per side.
   for (const t of TRACKS) {
     for (let x = plan.from + TIE_PITCH / 2; x < plan.to; x += TIE_PITCH) {
+      if (!inSpan(x)) continue;
       parts.push(box(TIE_W, TIE_H, TIE_LEN, x, DECK_TOP + TIE_H / 2, t, PALETTE.ltrainTie));
     }
     for (const r of [-GAUGE / 2, GAUGE / 2]) {
@@ -400,7 +587,7 @@ function strut(a, b, w, colour) {
 
 /** The trusses in the group's frame, or null when no span is long enough to want one. */
 function buildTrusses(plan) {
-  const parts = [];
+  const geos = [];
   const steel = PALETTE.ltrainSteel;
   const dark = PALETTE.ltrainSteelDark;
   const lo = DECK_TOP - 0.1;
@@ -410,6 +597,7 @@ function buildTrusses(plan) {
     const a0 = plan.columns[n - 1];
     const a1 = plan.columns[n];
     if (a1 - a0 < TRUSS_FROM) continue;
+    const parts = [];
     const panels = Math.max(2, Math.round((a1 - a0) / TRUSS_PANEL));
     const step = (a1 - a0) / panels;
     for (const side of [-1, 1]) {
@@ -431,16 +619,22 @@ function buildTrusses(plan) {
     for (let k = 1; k < panels; k++) {
       parts.push(strut([a0 + k * step, hi, -zs], [a0 + k * step, hi, zs], TRUSS_W * 0.8, dark));
     }
+    // Laid with the span it stands on: `deckSpans` puts the run before the first bent at 0, so the
+    // span between bents n-1 and n is n.
+    const geo = mergeGeometries(parts, false);
+    geo.setAttribute('span', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count).fill(n), 1));
+    geos.push(geo);
   }
-  return parts.length ? mergeGeometries(parts, false) : null;
+  return geos.length ? mergeGeometries(geos, false) : null;
 }
 
 /** The columns, each a footing, a shaft and a hammerhead cap under the girders. */
 function buildColumns(plan) {
-  const parts = [];
   const base = KERB_H;
   const capY = DECK_UNDERSIDE - CAP_H / 2;
+  const geos = [];
   for (const x of plan.columns) {
+    const parts = [];
     // Out over the harbor's sea a column stands in the water, on a footing at the waterline, rather
     // than on ground that is not there.
     const w = plan.world(x);
@@ -461,8 +655,11 @@ function buildColumns(plan) {
       brace.translate(x, (y0 + y1) / 2, (z0 + z1) / 2);
       parts.push(bakeColor(brace, PALETTE.ltrainSteel));
     }
+    const geo = mergeGeometries(parts, false);
+    geo.setAttribute('span', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count).fill(geos.length), 1));
+    geos.push(geo);
   }
-  return mergeGeometries(parts, false);
+  return mergeGeometries(geos, false);
 }
 
 /** One train, nose along +x, centred on its own origin, floor at y = 0 (the railhead). */
@@ -506,7 +703,7 @@ const smoothstep01 = (t) => {
  * `rng` is a run-seed stream: which way the first train goes and how long the line stands empty
  * is the situation, not the map.
  */
-export function createLTrain(scene, rng, { sparks = null } = {}) {
+export function createLTrain(scene, rng, { sparks = null, lights = true, intro = true } = {}) {
   const plan = planLTrain();
   if (!plan) return null;
 
@@ -519,8 +716,9 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
   scene.add(group);
 
   const material = fadeMaterial(propMaterial());
+  if (intro) introMaterial(material);
 
-  const deck = new THREE.Mesh(buildDeck(plan), material);
+  const deck = new THREE.Mesh(addIntro(buildDeck(plan)), material);
   deck.castShadow = true;
   deck.receiveShadow = true;
   // The deck is a thin shell 3 units over the road: its slab, ties and rails are each a few tenths
@@ -528,32 +726,137 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
   // for the same reason it is on a bridge, since its shadow lands three units down on asphalt.
   sinkShadowCaster(deck);
   group.add(deck);
+  if (intro) introDepth(deck.customDepthMaterial);
 
   // The river truss stays solid: Tyler, 2026-10-13, "don't do any truss fading". It is its own mesh
   // on a plain material so the deck's dither round the taxi and the pins never reaches it — the
   // taxi under it is still found by the ghost outline. It stands over the river, nowhere near the
   // coast, so the coast fade has nothing to do there either.
   const trussGeo = buildTrusses(plan);
+  let truss = null;
   if (trussGeo) {
-    const truss = new THREE.Mesh(trussGeo, propMaterial());
+    const trussMaterial = propMaterial();
+    if (intro) introMaterial(trussMaterial, { bayer: true });
+    truss = new THREE.Mesh(addIntro(trussGeo), trussMaterial);
     truss.name = 'ltrain-truss';
     truss.castShadow = true;
     truss.receiveShadow = true;
+    if (intro) truss.customDepthMaterial = introDepth();
     group.add(truss);
   }
 
   // The columns are not sunk: their shadow starts at their own foot, and sinking it would detach it.
-  const columns = new THREE.Mesh(buildColumns(plan), material);
+  const columns = new THREE.Mesh(addIntro(buildColumns(plan)), material);
   columns.castShadow = true;
   columns.receiveShadow = true;
+  if (intro) columns.customDepthMaterial = introDepth();
   group.add(columns);
 
-  const body = new THREE.Mesh(buildTrain(), material);
+  const body = new THREE.Mesh(addIntro(buildTrain()), material);
   body.castShadow = true;
   body.receiveShadow = true;
   group.add(body);
 
   markOccluder(group);
+  if (intro) {
+    setOccluderDepthMaterial(deck, introDepth());
+    setOccluderDepthMaterial(columns, introDepth());
+    if (truss) setOccluderDepthMaterial(truss, introDepth());
+  }
+
+  // Lamps on the body, so they ride it and hide with it between runs. Added after `markOccluder`:
+  // a lamp has no business in the AO prepass. The pods wear the deck's dither too, so they leave
+  // the island and fade over the taxi with the car they are bolted to.
+  let lamps = null;
+  const beams = [];
+  if (lights) {
+    lamps = new THREE.Group();
+    lamps.name = 'ltrainLamps';
+    const heads = new THREE.Mesh(lampPair(HEAD_R, LAMP_X, HEAD_Z),
+      fadeMaterial(unlitMaterial({ color: color('headlight') })));
+    heads.name = 'ltrainHeadlights';
+    const tails = new THREE.Mesh(lampPair(TAIL_R, -LAMP_X, TAIL_Z),
+      fadeMaterial(unlitMaterial({ color: color('lightRed') })));
+    tails.name = 'ltrainTaillights';
+    lamps.add(heads, tails);
+    const beamMaterial = coneMaterial();
+    beamMaterial.uniforms.uStrength.value = 0;
+    for (const s of [-1, 1]) {
+      const beam = new THREE.Mesh(coneGeometry(), beamMaterial);
+      beam.name = 'ltrainBeam';
+      beam.position.set(LAMP_X, LAMP_Y, s * HEAD_Z);
+      beam.quaternion.copy(coneQuat(s));
+      beam.scale.setScalar(BEAM_SCALE);
+      beam.renderOrder = 1;
+      beam.frustumCulled = false;
+      beams.push(beam);
+      lamps.add(beam);
+    }
+    body.add(lamps);
+  }
+
+  // --- The intro ---
+  const spans = deckSpans(plan);
+  let introT = 1e6;
+  let introEnd = 0;
+  /**
+   * Each bent's and each span's start time, for a wave from `from` (a world `{ x, z }`) on the city
+   * entry's levers (`{ wave, grow, overshoot }`, its `tuning()`). Pure, so the probe can read it.
+   */
+  function introSchedule(from, { wave = 0.015, grow = 0.3 } = {}) {
+    const rise = plan.columns.map((x) => {
+      const w = plan.world(x);
+      return Math.hypot(w.x - from.x, w.z - from.z) * wave;
+    });
+    // The deck waits on the island's bents only: the ones out past the coast are fading into the
+    // haze, and waiting on them would leave a finished row of pillars standing there for no reason.
+    const onIsland = (a) => Math.abs(a) < COAST_FROM(Math.sign(a) || 1);
+    const island = plan.columns.map((x, k) => (onIsland(x) ? rise[k] : 0));
+    const firstDrop = Math.max(...island) + grow + DROP_PAUSE;
+    // From the end nearer the taxi. Spans before the first one on the island all come down with it.
+    const dir = plan.alongOf(from.x, from.z) <= 0 ? 1 : -1;
+    const order = spans.map((_, k) => k).sort((a, b) => dir * (spans[a].from - spans[b].from));
+    const firstIsland = order.findIndex((k) => onIsland((spans[k].from + spans[k].to) / 2));
+    const drop = new Array(spans.length);
+    order.forEach((k, rank) => { drop[k] = firstDrop + SPAN_STAGGER * Math.max(0, rank - firstIsland); });
+    const end = Math.max(...drop) + DROP_DUR;
+    return { rise, drop, end };
+  }
+  const writeIntro = (mesh, times, kind, anchor) => {
+    const at = mesh.geometry.attributes.aLIntro;
+    const idx = mesh.geometry.attributes.span;
+    for (let i = 0; i < at.count; i++) {
+      const k = idx.getX(i);
+      at.setXYZ(i, times[k], kind, anchor ? anchor[k] : 0);
+    }
+    at.needsUpdate = true;
+  };
+  const intro_ = intro ? {
+    /** Run it from the top, from `from`, on the city entry's levers. */
+    start(from, levers = {}) {
+      const { rise, drop, end } = introSchedule(from, levers);
+      writeIntro(columns, rise, INTRO_KIND.rise, plan.columns);
+      writeIntro(deck, drop, INTRO_KIND.drop, null);
+      if (truss) writeIntro(truss, drop, INTRO_KIND.drop, null);
+      INTRO_UNIFORMS.uLGrow.value = levers.grow ?? 0.3;
+      INTRO_UNIFORMS.uLOver.value = levers.overshoot ?? 3.9;
+      introT = 0;
+      introEnd = end;
+      INTRO_UNIFORMS.uLIntroT.value = introT;
+    },
+    update(dt) {
+      if (introT >= introEnd) return;
+      introT = Math.min(introEnd, introT + dt);
+      INTRO_UNIFORMS.uLIntroT.value = introT;
+    },
+    /** Land it — shot mode, the title screen. */
+    settle() {
+      introT = introEnd;
+      INTRO_UNIFORMS.uLIntroT.value = 1e6;
+    },
+    running: () => introT < introEnd,
+    schedule: introSchedule,
+  } : null;
 
   // --- Running it ---
   const state = {
@@ -581,7 +884,22 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
     const trackZ = TRACK_OFF;
     body.position.set(state.x, RAIL_TOP, trackZ);
     body.visible = state.phase === 'run';
+    if (lamps) lamps.rotation.y = state.dir > 0 ? 0 : Math.PI;
   };
+
+  /**
+   * The beams' level, 0..1 — how dark it is where the train is (`main.js` hands it the larger of
+   * the running-light level and the night). Faded off the island on the same band the deck is,
+   * from the nose's x, since a cone is additive and has no dither to lose it over the sky.
+   */
+  let beamLevel = 0;
+  function setBeams(level) {
+    beamLevel = THREE.MathUtils.clamp(level, 0, 1);
+    if (!beams.length) return;
+    const nose = state.x + state.dir * TRAIN_LEN / 2;
+    const keep = 1 - smoothstep01((Math.abs(nose) - COAST_FROM(Math.sign(nose) || 1)) / COAST_BAND);
+    beams[0].material.uniforms.uStrength.value = BEAM_STRENGTH * beamLevel * keep;
+  }
 
   function depart() {
     state.phase = 'run';
@@ -591,7 +909,8 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
 
   function update(dt) {
     if (state.phase === 'wait') {
-      state.wait -= dt;
+      // No train on a line that is still being built.
+      if (!intro_?.running()) state.wait -= dt;
       if (state.wait <= 0) depart();
     }
     if (state.phase === 'run') {
@@ -701,11 +1020,18 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
     deck,
     columns,
     material,
+    /** The lit pods and their beams, or null under `?trainlights=classic`. The pods go in the bloom. */
+    lamps,
+    setBeams,
     update,
     settle,
     setFadePoints,
-    /** The entrance wave's handle: the whole structure grows from the middle of its median. */
-    entryObjects: [{ object: group, x: plan.x, z: plan.z, rand: 0.5 }],
+    /**
+     * The L's own intro (bents rise, then the spans are laid), or null under `?trainintro=classic`,
+     * where the entrance wave grows the whole structure from the middle of its median instead.
+     */
+    intro: intro_,
+    entryObjects: intro ? [] : [{ object: group, x: plan.x, z: plan.z, rand: 0.5 }],
     /**
      * Where a rumble would play from: the train's middle while it runs, null while the line is
      * empty. The level is its speed as a share of cruise, so it swells in and out with the ramps.

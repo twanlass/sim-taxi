@@ -13,7 +13,8 @@ import {
   sirenBaseGeometry, sirenBaseAnchor,
   headlightGeometry, headlightAnchors, headlightMaterial, coneGeometry, coneMaterial, coneQuat,
 } from '../geometry/lights.js';
-import { createTaxiMesh } from '../geometry/taxi.js';
+import { createTaxiMesh, TAXI_ROLL_PIVOT } from '../geometry/taxi.js';
+import { convertibleGeometry, convertibleInteriorGeometry, westfaliaGeometry } from '../geometry/classics.js';
 import { bumperGeometries, bumperAt, bumperLength, BUMPER_D, BUMPER_H } from '../geometry/bumpers.js';
 import { bumperHinge, lampSocket, lampHang } from '../geometry/damage.js';
 import {
@@ -487,12 +488,57 @@ export function landingRoll(t) {
 export const DRIFT_LAUNCH_LEN = 20;
 export const DRIFT_LAUNCH_HEIGHT = 10;
 const DRIFT_LAUNCH_PITCH = 0.5;
+// How far past the end of a kick's carry the hump still counts it, in units of travel. The carry is
+// a clock (DRIFT_CHAIN.carry) and the bridge is a place, and the two only met when the drift was
+// the turn *onto* the deck: a tier-1 kick out of the corner one block back crosses ~24 units of
+// road before the launch point and its 0.6s at 30.9 u/s covers 18.5 — so it ran out ~5.5 units
+// short and flew the ordinary hop, with the taxi still visibly going at the kick's speed (Tyler,
+// 2026-10-13: "sometimes a max air combo isn't triggered when I think it should be"). 12 covers
+// that block with room for an arterial's wider box, and stays well short of two blocks (~44).
+// A carry cut short — braked, turned, crashed — clears it; only one that ran out on its own counts.
+const DRIFT_LAUNCH_GRACE = 12;
 /** Above this much air the taxi is over the traffic rather than in it. A car roof is ~1.5. */
 export const DRIFT_LAUNCH_CLEAR = 1.6;
 // The slam. Scales the landing's squat, rebound and pitch kick: a body coming down from ten units
 // compresses its springs to the stops, and the ordinary landing's 0.34 of squat on that drop reads
 // as a car that weighs nothing.
 const DRIFT_SLAM = 1.8;
+
+// --- The barrel roll -------------------------------------------------------------
+//
+// Big Air's flourish (Tyler, 2026-10-12: "for the max air combo — could we add a barrel roll to
+// the taxi?"). The drift launch is the jackpot step on the combo meter, and until now it was a
+// very tall hop: up, level, down. One full turn about the car's own long axis, render-only like
+// the rest of the arc. `?barrelroll=classic` keeps the old flight.
+//
+// **Inside the arc, not across it.** It starts BARREL_FROM in, so the takeoff still reads as a
+// car leaving a ramp, and is level again by BARREL_TO, so the slam lands on the wheels — a roll
+// still turning at touchdown buries the roof and hands the landing's dust and sparks to a car on
+// its side. Between the two it eases in and out (smoothstep), and since `launchTimeScale` in
+// main.js is slowest at u = 0.5, the middle of the turn is the part played in slow motion.
+//
+// **About the body's middle, not its origin.** The taxi's origin is at road level, so rolling
+// about it swings the whole car in a 1.5-unit circle around its own wheels, which reads as a
+// fairground ride. BARREL_PIVOT is half the rear deck's height (`TAXI_ROLL_PIVOT`), roughly where the mass is.
+//
+// The direction is fixed rather than drawn, for the reason BOUNCE_ROLL gives: the run's rng
+// streams stay untouched.
+const BARREL_FROM = 0.12;
+const BARREL_TO = 0.78;
+const BARREL_PIVOT = TAXI_ROLL_PIVOT;
+let barrelRollOn = true;
+
+/** `?barrelroll=classic` puts the level drift launch back; anything else rolls. */
+export function setBarrelRoll(name) {
+  barrelRollOn = name !== 'classic';
+}
+
+/** The barrel roll's angle, in radians, `u` of the way through a drift launch. 0 outside it. */
+export function barrelRollAt(u) {
+  if (!barrelRollOn || u <= BARREL_FROM || u >= BARREL_TO) return 0;
+  const k = (u - BARREL_FROM) / (BARREL_TO - BARREL_FROM);
+  return Math.PI * 2 * k * k * (3 - 2 * k);
+}
 
 /**
  * Launch `car` off a ramp. Idempotent while already airborne — a second barricade doesn't stack.
@@ -1969,6 +2015,7 @@ function stepDrift(car, dt) {
   d.t += dt;
   // Dropped on the way out, the chain's window opens; dropped any earlier, it was not a kick.
   const drop = () => {
+    car.kickSpentAt = null;
     if (d.phase === 'carry') car.driftLapse = DRIFT_CHAIN.window;
     else car.driftTier = 0;
     car.drift = null;
@@ -2005,7 +2052,13 @@ function stepDrift(car, dt) {
     // carry measured as no longer at all. A real turn still ends it.
     d.carry -= dt;
     const turning = car.state === 'turn' && car.turn.hand !== 'straight';
-    if (d.carry <= 0 || car.braking || turning || (car.state !== 'drive' && car.state !== 'turn')) return drop();
+    if (car.braking || turning || (car.state !== 'drive' && car.state !== 'turn')) return drop();
+    // Run out on its own, rather than cut short: the drift launch still honours it for a few units
+    // more (DRIFT_LAUNCH_GRACE).
+    if (d.carry <= 0) {
+      drop();
+      car.kickSpentAt = car.travelled;
+    }
   }
 }
 
@@ -2732,7 +2785,33 @@ const LOOKAHEAD = 40;
  */
 export const SPAWN_CLEARANCE = 50;
 
-function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
+/**
+ * The two rare classics (geometry/classics.js): an open-top convertible and a 1980s VW Westfalia.
+ * Each turns up in place of an ordinary car at CLASSIC_CHANCE, so at the opening 16 cars about one
+ * run in three has a camper on the map from the start and about half meet one by the end. They are
+ * ordinary cars in every way the sim knows — same length, speed, envelope, lights, damage — and
+ * `car.model` is read by nothing but the render pass.
+ *
+ * Zero by default like `truckChance`, so the scripted scenarios in tools/ draw exactly what they
+ * always did; main.js opts in (`?classics=classic` turns them off, `?classics=0.3` floods them).
+ */
+export const CLASSIC_MODELS = ['convertible', 'westfalia'];
+export const CLASSIC_CHANCE = 1 / 40;
+
+/**
+ * Read off the car's idle-bob `phase` rather than rolled: an extra `rng` draw per car would shift
+ * every car spawned after it, and with it every seeded measurement in the suite. The fractional
+ * part of `phase` scaled by a large odd number is uniform and independent of anything `phase` is
+ * used for at the scale it is used at.
+ */
+function classicModel(phase, chance) {
+  if (!(chance > 0)) return null;
+  const u = ((phase / (Math.PI * 2)) * 997) % 1;
+  const k = Math.floor(u / chance);
+  return k < CLASSIC_MODELS.length ? CLASSIC_MODELS[k] : null;
+}
+
+function spawnCars(rng, count, into = [], accept = null, truckChance = 0, classicChance = 0) {
   const net = cityNetwork();
   const cars = into;
   const want = cars.length + count;
@@ -2779,6 +2858,11 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
     // fails the clash or accept check and retries elsewhere doesn't burn a truck roll on a spot it
     // never actually took.
     const isTruck = rng.range(0, 1) < truckChance;
+    // Drawn here rather than inline in the literal below, in the order the literal drew them, so
+    // the stream is byte-for-byte what it was — the classic is read off `phase` rather than given a
+    // roll of its own for the same reason (see `classicModel`).
+    const colorIndex = rng.int(0, PALETTE.carBody.length - 1);
+    const phase = rng.range(0, Math.PI * 2);
 
     cars.push({
       d, i, j, s, lane,
@@ -2800,10 +2884,13 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       police: false,
       // Same index, same array, whether this is a car or a truck's cab — see PALETTE.truckBox for
       // the one part of a truck that doesn't read this.
-      colorIndex: rng.int(0, PALETTE.carBody.length - 1),
+      colorIndex,
+      // Which body draws it: null for the ordinary car, or one of CLASSIC_MODELS. Looks only —
+      // see `classicModel`.
+      model: isTruck ? null : classicModel(phase, classicChance),
       // Drives the idle bob. Per-car phase so a queue doesn't bounce in lockstep.
       travelled: 0,
-      phase: rng.range(0, Math.PI * 2),
+      phase,
       speedFactor: 0,
       v: SPEED,     // already rolling, so the city doesn't lurch into motion on frame one
       prevV: SPEED, // paired with car.v so accel = Δv/dt on frame one is a clean zero, not a spike
@@ -3389,10 +3476,14 @@ function lerpAngle(a, b, t) {
  *                     leaving the vignette to wait on the density ramp to roll one — minutes, or
  *                     never. Only honoured when `truckChance` is above zero, since that is what
  *                     makes spawnCars leave truck-sized gaps round every car.
+ * @param classicChance  how often each of CLASSIC_MODELS stands in for an ordinary car. 0 by
+ *                     default for the same reason `truckChance` is; main.js passes CLASSIC_CHANCE.
  */
-export function createTraffic(rng, scene, count = 24, maxCars = count, truckChance = 0, minTrucks = 0) {
+export function createTraffic(
+  rng, scene, count = 24, maxCars = count, truckChance = 0, minTrucks = 0, classicChance = 0,
+) {
   const net = cityNetwork();
-  const cars = spawnCars(rng, count, [], null, truckChance);
+  const cars = spawnCars(rng, count, [], null, truckChance, classicChance);
   const MAX_CARS = Math.max(count, maxCars);
 
   // The player's taxi is an ordinary car in this same array — that is what subjects it to
@@ -3737,6 +3828,57 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   policeCabMesh.name = 'carPoliceCab';
   policeCabMesh.count = ambient.length;
 
+  // The rare classics (CLASSIC_MODELS): a body mesh each, in the same index space as `mesh`. A car
+  // is drawn by exactly one of the three and the other two hold a zero matrix at its index, so
+  // everything else hung off a car — the steered wheels, bumpers, lamps, the siren bar — is shared
+  // and needs to know nothing about which body it is on. A whole mesh per model rather than a
+  // shape switch inside one, because an InstancedMesh has one geometry; it costs a draw call per
+  // model per pass, over a couple of dozen zero-scale instances.
+  //
+  // Every slot starts collapsed: an InstancedMesh's matrices default to the identity, which would
+  // stand a camper at the origin in every slot no classic has written to.
+  const classicMeshes = {};
+  const collapsed = new THREE.Matrix4().makeScale(0, 0, 0);
+  const white = new THREE.Color(1, 1, 1);
+  for (const [model, build] of [['convertible', convertibleGeometry], ['westfalia', westfaliaGeometry]]) {
+    const geometry = build(CAR_LEN, CAR_W);
+    const classic = neverCull(new THREE.InstancedMesh(
+      geometry, propMaterial({ gloss: { geometry, floor: SILL_Y } }), MAX_AMBIENT,
+    ));
+    classic.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    classic.castShadow = true;
+    classic.receiveShadow = true;
+    classic.name = model === 'westfalia' ? 'carWestfalia' : 'carConvertible';
+    classic.count = ambient.length;
+    for (let i = 0; i < MAX_AMBIENT; i++) {
+      classic.setMatrixAt(i, collapsed);
+      // Seeded so `instanceColor` exists before the first compile (see game/carghosts.js).
+      classic.setColorAt(i, white);
+    }
+    classicMeshes[model] = classic;
+  }
+  const classicList = Object.values(classicMeshes);
+  // The convertible's interior and driver: untinted, so a mesh of their own rather than part of a
+  // body the fleet paints (see convertibleInteriorGeometry). Rides the convertible's matrix and is collapsed
+  // everywhere else, on the same terms as the bodies.
+  const interiorMesh = neverCull(new THREE.InstancedMesh(
+    convertibleInteriorGeometry(CAR_LEN, CAR_W), propMaterial(), MAX_AMBIENT,
+  ));
+  interiorMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  interiorMesh.castShadow = true;
+  interiorMesh.receiveShadow = true;
+  interiorMesh.name = 'carConvertibleInterior';
+  interiorMesh.count = ambient.length;
+  for (let i = 0; i < MAX_AMBIENT; i++) interiorMesh.setMatrixAt(i, collapsed);
+  // Every mesh the classics add, for anything that has to treat them all alike (counts, the
+  // per-frame upload, and main.js's occluder, outline and hide lists).
+  const classicDrawn = [...classicList, interiorMesh];
+  // Which classic body a car is drawn with, or null for the ordinary one. A cop is always the
+  // ordinary car — the white cab and the siren bar are built to its roof — and so is a truck.
+  const modelOf = (car) => (car.isTruck || car.police ? null : car.model ?? null);
+  /** The instanced mesh that draws this car's body this frame. */
+  const bodyMeshFor = (car) => (car.isTruck ? truckMesh : classicMeshes[modelOf(car)] ?? mesh);
+
   const tint = new THREE.Color();
   // A cop car is an ordinary car wearing `policeBody` instead of its own draw from `PALETTE.carBody`
   // — the same white the cruiser is built in, so the two read as the same force; the cab's blue is
@@ -3744,9 +3886,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // left alone, so a cop car still carries the ordinary draw it would have had — which costs
   // nothing and means a cop is never the only car in the city with no colour of its own.
   const bodyColor = (car) => (car.police ? PALETTE.policeBody : PALETTE.carBody[car.colorIndex]);
+  // The Westfalia's two-tone is baked, so its instance colour is white — and so are its front
+  // wheels', to match the rear pair baked into the same untinted body. Every body mesh gets the
+  // car's colour at its index, drawn or not, so a slot is right whichever body it next wears.
+  const tintOf = (car) => (modelOf(car) === 'westfalia' ? white : bodyColor(car));
   const paint = (car, index) => {
-    tint.set(bodyColor(car));
+    tint.set(tintOf(car));
     mesh.setColorAt(index, tint);
+    for (const classic of classicList) classic.setColorAt(index, tint);
     // Tinted with the body it belongs to, not left neutral. The tyre is baked dark and the
     // instance colour multiplies on top, so a front wheel that skipped this would sit a shade
     // off its own rear wheel on every car in the city.
@@ -3786,7 +3933,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       if (closedLanes.has(lane.id)) return false;
       const at = lane.path.at(s);
       return Math.hypot(at.x - taxi.x, at.z - taxi.z) >= SPAWN_CLEARANCE;
-    });
+    }, 0, classicChance);
     if (cars.length === before) return;
 
     const car = cars[cars.length - 1];
@@ -3830,6 +3977,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       }
       paint(car, car.instanceIndex);
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      for (const classic of classicList) classic.instanceColor.needsUpdate = true;
       if (wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
       mesh.count = ambient.length;
       wheelMesh.count = ambient.length * FRONT.length;
@@ -3840,6 +3988,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       sirenBlueMesh.count = ambient.length * LIGHT_PODS;
       sirenHousingMesh.count = ambient.length;
       policeCabMesh.count = ambient.length;
+      for (const classic of classicDrawn) classic.count = ambient.length;
       bumperMesh.count = ambient.length * 2;
     }
   }
@@ -3979,6 +4128,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
   function countPolice() {
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    for (const classic of classicList) classic.instanceColor.needsUpdate = true;
     if (wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
     mesh.count = ambient.length;
     wheelMesh.count = ambient.length * FRONT.length;
@@ -3989,6 +4139,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     sirenBlueMesh.count = ambient.length * LIGHT_PODS;
     sirenHousingMesh.count = ambient.length;
     policeCabMesh.count = ambient.length;
+    for (const classic of classicDrawn) classic.count = ambient.length;
     bumperMesh.count = ambient.length * 2;
   }
 
@@ -4048,6 +4199,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     paint(a, ib);
     paint(b, ia);
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    for (const classic of classicList) classic.instanceColor.needsUpdate = true;
     if (wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
     return true;
   }
@@ -4139,10 +4291,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // With ?cars=1 there are no ambient vehicles at all, so setColorAt is never called and
   // instanceColor is still null.
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  for (const classic of classicList) classic.instanceColor.needsUpdate = true;
   if (wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
   if (truckMesh.instanceColor) truckMesh.instanceColor.needsUpdate = true;
   if (truckWheelMesh.instanceColor) truckWheelMesh.instanceColor.needsUpdate = true;
   scene.add(mesh);
+  for (const classic of classicList) scene.add(classic);
   scene.add(wheelMesh);
   scene.add(truckMesh);
   scene.add(truckWheelMesh);
@@ -4243,6 +4397,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
   const matrix = new THREE.Matrix4();
   const quat = new THREE.Quaternion();
+  const barrelQuat = new THREE.Quaternion();
+  const barrelAxis = new THREE.Vector3(1, 0, 0);
+  const barrelUp = new THREE.Vector3();
+  const barrelPivot = new THREE.Vector3();
   const pos = new THREE.Vector3();
   const scl = new THREE.Vector3(1, 1, 1);
   const euler = new THREE.Euler();
@@ -4292,7 +4450,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // an ordinary car's wreck, just aimed at whichever pair this car actually lives in. Both wear
     // PALETTE.carBody at this car's own colorIndex; a truck's cargo box is a second, separately
     // coloured mesh added below only for a truck.
-    const bodyInst = car.isTruck ? truckMesh : mesh;
+    const bodyInst = bodyMeshFor(car);
     const wheelInst = car.isTruck ? truckWheelMesh : wheelMesh;
     const front = car.isTruck ? TRUCK_FRONT : FRONT;
 
@@ -4302,7 +4460,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     const material = propMaterial();
     // `bodyColor`, not `carBody` directly: a wrecked cop car is still a cop car, and a shell
     // painted from its `colorIndex` turned it back into whatever ordinary car it was drawn as.
-    material.color.set(bodyColor(car));
+    // `tintOf` for the one car whose paint is not its instance colour: the Westfalia's is baked.
+    material.color.set(tintOf(car));
 
     const shell = new THREE.Group();
     // A skinned car's instance is collapsed — the patrol cruiser draws it — so its pose comes off
@@ -4355,6 +4514,16 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // A cop's white cab, on the same terms as the cargo box: its own mesh and its own material,
     // so the wreck scorches it in step. Left out, a wrecked cop lay in the road as a blue hatchback
     // with a glass roof.
+    // The convertible's interior goes with it, driver still in their seat: a material of its own,
+    // so the shell's paint does not tint it, and it is collected and scorched with the rest (game/wreckage.js).
+    if (bodyInst === classicMeshes.convertible) {
+      const driver = new THREE.Mesh(interiorMesh.geometry, propMaterial());
+      driver.castShadow = true;
+      driver.receiveShadow = true;
+      shell.add(driver);
+      interiorMesh.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
+      interiorMesh.instanceMatrix.needsUpdate = true;
+    }
     if (car.police && !car.isTruck) {
       const cab = new THREE.Mesh(policeCabMesh.geometry, propMaterial());
       cab.castShadow = true;
@@ -4497,10 +4666,19 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
    * the point that scale shrinks about. See `writeLight` below.
    */
   function writeAmbient(car) {
-    const bodyInst = car.isTruck ? truckMesh : mesh;
+    const bodyInst = bodyMeshFor(car);
     const wheelInst = car.isTruck ? truckWheelMesh : wheelMesh;
     const front = car.isTruck ? TRUCK_FRONT : FRONT;
     bodyInst.setMatrixAt(car.instanceIndex, matrix);
+    // The two bodies a car is not wearing, collapsed at its index — every frame rather than on the
+    // frame it changed, for the reason the siren bar below is written for every car.
+    if (!car.isTruck) {
+      for (const other of [mesh, ...classicList]) {
+        if (other !== bodyInst) other.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
+      }
+      interiorMesh.setMatrixAt(car.instanceIndex,
+        bodyInst === classicMeshes.convertible ? matrix : ZERO_MATRIX);
+    }
     // The cargo box rides the identical transform — its offset from the cab is baked into its own
     // geometry (see truckBoxGeometry()), not carried as a separate local matrix.
     //
@@ -6573,7 +6751,16 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           car.archHopLane = car.lane.id;
           // A kick still being carried is the drift launch, if the far bank lets the taxi fly
           // straight over it — see DRIFT_LAUNCH_LEN.
-          const big = car.drift?.phase === 'carry' && intentFor(car)?.hand === 'straight';
+          const kicked = car.drift?.phase === 'carry'
+            || (car.kickSpentAt != null && car.travelled - car.kickSpentAt <= DRIFT_LAUNCH_GRACE);
+          // Free-driving, the far bank's exit is a dice roll the player never sees, and losing the
+          // jackpot to it reads as the game forgetting the kick. With no route, fly straight on.
+          if (kicked && !car.route?.length) {
+            const on = car.lane.exits.map((id) => net.turnById.get(id)).find((tn) => tn.hand === 'straight');
+            if (on) { car.intentLane = car.lane.id; car.intentTurn = on.id; }
+          }
+          const big = kicked && intentFor(car)?.hand === 'straight';
+          car.kickSpentAt = null;
           launchHop(car, big);
         }
       }
@@ -6876,6 +7063,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // a barricade hangs there instead of continuing its arc on the spot.
       let airY = 0;
       let airPitch = 0;
+      let barrel = 0;
       if (car.hopFrom != null) {
         const big = car.hopBig === true;
         const u = (car.travelled - car.hopFrom) / (big ? DRIFT_LAUNCH_LEN : HOP_LEN);
@@ -6893,6 +7081,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           // Nose up as it leaves the ramp, level at the apex, nose down into the landing. Positive
           // is nose-up here, the same sense as locoWheelie.
           airPitch = (big ? DRIFT_LAUNCH_PITCH : HOP_PITCH) * Math.cos(Math.PI * u);
+          if (big && car.isTaxi) barrel = barrelRollAt(u);
         }
       } else if (car.bounceT != null) {
         // A separate field from `hopFrom` on purpose: everything that asks "is the taxi airborne"
@@ -6941,6 +7130,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // tailpipe — the Loco plume used to burn at road height under a taxi ten units up.
       car.shownLift = airY + deckY;
       car.shownPitch = shownPitch;
+      car.shownBarrel = barrel;
 
       // Roll and pitch both pivot on the car's origin at road level, so tilting drives one edge
       // underground. Lifting by the sagitta of each keeps the low edge on the tarmac and reads as
@@ -6961,6 +7151,15 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // note there: with the default order the roll is applied about the *world* X axis, which
         // only doubles as the car's own axis when it happens to be driving east.
         taxiGroup.rotation.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER);
+        if (barrel !== 0) {
+          // Post-multiplied, so the turn is about the body's own long axis *after* the pitch — a
+          // roll folded into the euler's X turns about the unpitched axis and wobbles the nose.
+          // Then the position moves by however far that swung BARREL_PIVOT, so the pivot stays put.
+          barrelUp.set(0, BARREL_PIVOT, 0).applyQuaternion(taxiGroup.quaternion);
+          taxiGroup.quaternion.multiply(barrelQuat.setFromAxisAngle(barrelAxis, barrel));
+          barrelPivot.set(0, BARREL_PIVOT, 0).applyQuaternion(taxiGroup.quaternion);
+          taxiGroup.position.add(barrelUp).sub(barrelPivot);
+        }
         setTaxiSteer(car.driftAmt ? car.driftSteer : car.wheelAngle);
         setTaxiLights(Math.max(car.brakeLevel, runningFor(car) * TAIL_FLOOR),
           car.turnLeftLevel, car.turnRightLevel);
@@ -7005,6 +7204,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     truckBumperMesh.instanceMatrix.needsUpdate = true;
     sirenHousingMesh.instanceMatrix.needsUpdate = true;
     policeCabMesh.instanceMatrix.needsUpdate = true;
+    for (const classic of classicDrawn) classic.instanceMatrix.needsUpdate = true;
     headMesh.count = brakeMesh.count;
     truckHeadMesh.count = truckBrakeMesh.count;
     coneMesh.count = brakeMesh.count;
@@ -7032,6 +7232,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   return {
     cars, taxi, taxiGroup, taxiDamage, setTaxiOccupied, setTaxiHighlight, setTaxiDoor, setCarCount, mesh,
     wheelMesh, barMesh, update, warmup,
+    /**
+     * The rare classics' body meshes, index-aligned with `mesh` — see `classicMeshes`. A car is
+     * drawn by `bodyMeshFor(car)` and holds a zero matrix in the others, so anything that reads a
+     * car's transform back off an instance (the ghost outlines) has to ask that, not `mesh`.
+     */
+    classicMeshes, bodyMeshFor, modelOf,
+    /** The convertible's interior and driver, index-aligned with `mesh`, and every mesh the classics add. */
+    classicInteriorMesh: interiorMesh, classicDrawn,
     /** The fleet's bumpers, drawn apart from the bodies — see `bumperMesh`. */
     bumperMesh, truckBumperMesh,
     /** A car's paint, cop or not: game/cardamage.js paints a lid it has knocked open with it. */

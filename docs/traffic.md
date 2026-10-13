@@ -750,6 +750,32 @@ rocking back through another cycle. "Feels heavier" is exactly those two numbers
 else — measured over 12s of ordinary driving against a same-seed, same-count control scene of
 ordinary cars, a truck's mean `|pitch|` comes out well under half a car's.
 
+### The classics: a convertible and a Westfalia
+
+Two rare bodies stand in for an ordinary car at `CLASSIC_CHANCE` (1/40) each: an open-top
+convertible in the fleet's paint, and a 1980s VW T3 Westfalia camper in a baked two-tone (ivory over
+burnt orange, black rub strip, roundel on the nose, closed pop-top). Geometry is
+`geometry/classics.js`; `?classics=classic` turns them off and `?classics=0.3` floods the map.
+
+They are **looks only**. `car.model` is read by the render pass and nothing else — speed, length,
+envelope, lights, bumpers, damage and arrests are the ordinary car's, which is why both bodies are
+built on its `CAR_LEN` × `CAR_W` footprint with its wheels and sill. Three things follow from that:
+
+- **The model is read off `phase`, not rolled.** An extra `rng` draw per car would shift every car
+  after it and with it every seeded number in the suite; `classicModel` scales `phase`'s fraction
+  instead, and the probe asserts that turning classics on moves no car.
+- **One body mesh per model, same index space as `mesh`.** A car is drawn by `bodyMeshFor(car)`
+  and holds a zero matrix in the other two, written every frame. Anything that reads a car's
+  transform back off an instance has to ask `bodyMeshFor` — `mesh` holds zero for a classic —
+  which is why the ghost outlines (game/carghosts.js) have a pool per model, with its own hull.
+- **The convertible's interior is a fourth mesh, untinted.** Its seats, tub, wheel and driver
+  (`convertibleInteriorGeometry`) ride the convertible's matrix with no instance colour, so the
+  leather is brown on every car instead of the body's paint and the driver is not dyed to match.
+  The seats are low and the windscreen tall so the driver's eyes sit under its top.
+- **A cop or a truck is never a classic** (`modelOf`): the white cab and siren bar are built to the
+  sedan's roof. The Westfalia also gets no bonnet or boot lid when hit (game/cardamage.js), like a
+  truck — a T3's nose is flat.
+
 ## Boost (crazy-taxi mode)
 
 ```js
@@ -3152,8 +3178,10 @@ spell out inline, and which both now need because both can have cars in the flee
 **Spotted** is the old bust's rule: boost within `SPOT_RANGE` (20, one block) of the patrol car,
 engaged rather than held so the cooldown tail after release still counts. The bar comes up, the
 car becomes a chasing cop (`chase = 1`, a stern chase at the taxi's junction, re-aimed per
-junction), and **"POLICE / Taxi: pull over now"** goes up in a speech bubble over its roof (`game/copshout.js`) — the
-cop talking to the player, where [dispatch's card](gameplay.md#dispatch-breaks-in) is the police
+junction). The bar, the strobe and the chirp are the whole announcement. Under `?copchat=classic`
+**"POLICE / Taxi: pull over now"** also goes up in a speech bubble over its roof (`game/copshout.js`), with
+`LOST_CALL` ("Lost the suspect. Resuming patrol.") when the chase ends — cut from the default on
+2026-10-13 as chatter. The shout was the cop talking to the player, where [dispatch's card](gameplay.md#dispatch-breaks-in) is the police
 talking about them. A DOM bubble projected over the car every frame, not geometry: this one has to
 be read, and there is no font in the scene.
 
@@ -3214,7 +3242,7 @@ times in 16 rather than 7; a cruising taxi is caught as often as before.
 
 **Gone to ground** is the depot. A taxi that turns in at the driveway mid-chase calls it off on the
 frame the opening takes it off the road (`hideout`, called from the depot's `onArrive` in main.js):
-the same stand-down as lost, `LOST_CALL` included. It is no free exit — a
+the same stand-down as lost (`LOST_CALL` included, under `?copchat=classic`). It is no free exit — a
 repair needs a damaged car and costs `REPAIR_PRICE`, and the taxi has to reach the mouth with the
 cop still behind it, which is a touch away from Busted.
 

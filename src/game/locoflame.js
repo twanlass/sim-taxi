@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
 import { unlitMaterial } from '../util/geo.js';
 import { markEmissive } from './bloom.js';
-import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../geometry/taxi.js';
+import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_ROLL_PIVOT } from '../geometry/taxi.js';
 
 // The flame that burns out of the tailpipe for as long as Loco Mode is held.
 //
@@ -304,11 +304,16 @@ export function createLocoFlame(scene) {
     group.visible = true;
     // Up with the body: over an arch, off a ramp, ten units up on the drift launch. A nose-up
     // pitch drops the tail, by the sine of it over the tailpipe's reach back from the origin.
+    // The drift launch's barrel roll (sim/traffic.js) turns the body about TAXI_ROLL_PIVOT, so the
+    // pipe, which sits below that, swings out sideways and over the top with it.
+    const roll = car.shownBarrel ?? 0;
+    const below = TAXI_TAILPIPE_HEIGHT - TAXI_ROLL_PIVOT;
+    const side = below * Math.sin(roll);
     group.position.set(
-      car.x - Math.cos(car.yaw) * TAXI_TAILPIPE_BACK,
-      TAXI_TAILPIPE_HEIGHT + (car.shownLift ?? 0)
+      car.x - Math.cos(car.yaw) * TAXI_TAILPIPE_BACK + Math.sin(car.yaw) * side,
+      TAXI_TAILPIPE_HEIGHT + (car.shownLift ?? 0) + below * (Math.cos(roll) - 1)
         - Math.sin(car.shownPitch ?? 0) * TAXI_TAILPIPE_BACK,
-      car.z + Math.sin(car.yaw) * TAXI_TAILPIPE_BACK,
+      car.z + Math.sin(car.yaw) * TAXI_TAILPIPE_BACK + Math.cos(car.yaw) * side,
     );
     // Local +X is the plume's own length, and it has to lie along the car's backward direction:
     // rotating the group by yaw + π sends local +X to (−cos yaw, 0, sin yaw), which is exactly the

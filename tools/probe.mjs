@@ -48,11 +48,13 @@ import {
   createBurgerJoint, burgerSite, burgerGeometry, BURGER_R, SIGN_SPIN, VIEW_RISE, ROOF_Y, CAP_Y,
 } from '../src/city/burgerjoint.js';
 import { createDriveThru } from '../src/game/drivethru.js';
+import { createGraveyard } from '../src/city/graveyard.js';
+import { plantedCrowns } from '../src/city/props.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -109,7 +111,8 @@ import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.
 import * as difficulty from '../src/game/difficulty.js';
 import { BOARD_MAX } from '../src/game/difficulty.js';
 import { LOCO_PACE_SELF } from './autoplay.mjs';
-import { createRobbery, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
+import { planRun as planBankRun } from '../src/game/bankjob.js';
+import { createRobbery, TRIGGER_RANGE as ROBBERY_TRIGGER_RANGE, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
 import { createPatrol, ESCAPE_BLOCKS, TOUCH_SLACK, SIGHT_HOLD } from '../src/game/patrol.js';
 import { touching } from '../src/sim/collisions.js';
 import { createCashTrail, noteGeometry, NOTE_FOLD, BRICK_H } from '../src/game/cashtrail.js';
@@ -205,7 +208,7 @@ import {
 } from '../src/game/route.js';
 import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from '../src/game/streettap.js';
 import { GRAB_RADIUS } from '../src/game/pathdrag.js';
-import { nearestJunction, nextIntersection } from '../src/city/grid.js';
+import { nearestJunction, nextIntersection, isSegmentClosed } from '../src/city/grid.js';
 import { DIR, dirYaw, laneOffsetCoord } from '../src/city/grid.js';
 import { PALETTE, BUILDING_COLORS, color } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
@@ -2158,7 +2161,11 @@ check('signals actually stop people', stoppedFrames > simFrames * 0.5,
   `someone stopped on ${((stoppedFrames / simFrames) * 100).toFixed(0)}% of frames`);
 
 // --- Positional invariants.
-const positions = traffic.cars.map((c) => ({ x: c.x, z: c.z, state: c.state }));
+const positions = traffic.cars.map((c) => ({
+  x: c.x, z: c.z, state: c.state,
+  // On the central park's road, which bends the whole way and so has no grid lane centre to sit on.
+  curved: Boolean(c.lane?.edge?.curve?.kind && c.lane.edge.curve.kind !== 'line'),
+}));
 // The outermost road centrelines sit exactly at ±HALF_SPAN_X / ±HALF_SPAN_Z, so a car in the far
 // lane is legitimately LANE units beyond that. The original bound here was simply too tight.
 const limitX = HALF_SPAN_X + LANE + 1;
@@ -2196,7 +2203,7 @@ const lineIndexZ = (z) => Math.min(GRID_J, Math.max(0, Math.round((z + HALF_SPAN
 // that road's lanes sit out — LANE on an ordinary street, further on a divided arterial — and
 // somewhere along a road on the other.
 const offLane = positions.filter((p) => {
-  if (p.state !== 'drive') return false;
+  if (p.state !== 'drive' || p.curved) return false;
   const dx = distToLineX(p.x);
   const dz = distToLineZ(p.z);
   const onXLane = Math.abs(dz - laneOffX(lineIndexZ(p.z))) < 0.05;
@@ -7160,7 +7167,15 @@ function rideToPickup() {
   // And a contact placed by hand: the taxi's nose square in a car's door at cruise, boost off. The
   // car has to be pushed out — that is the whole point of arming the test off boost — and the taxi
   // has to come out of it with every hit point.
-  const qVictim = qTraffic.cars.find((c) => !c.isTaxi && !c.crashed && c.state === 'drive');
+  // Any car mid-block will do; with seven on the map all of them can be in a junction on the frame
+  // the quiet half ends (they were, once the double graveyard reshuffled this city), so roll on
+  // until one is not.
+  const driving = () => qTraffic.cars.find((c) => !c.isTaxi && !c.crashed && c.state === 'drive');
+  for (let step = 0; step < 60 * 5 && !driving(); step++) {
+    qCollisions.update();
+    qTraffic.update(1 / 60);
+  }
+  const qVictim = driving();
   const qTaxi = qTraffic.taxi;
   qTaxi.boost = false;
   qTaxi.yaw = qVictim.yaw + Math.PI / 2;
@@ -16043,6 +16058,43 @@ let chopperOrder; // likewise
     check('the pediment sits below the roof behind it',
       bank.pedimentY < bank.roofY,
       `pediment ${bank.pedimentY.toFixed(2)}, roof ${bank.roofY.toFixed(2)}`);
+
+    // The bank job's run (game/bankjob.js) from the bystander to the cab, from every point on every
+    // lane the trigger can fire from. It was a straight line, and with the cab round the side of the
+    // block that line ran through the building: 1255 of 3364 such points over 37 cities. Walls are
+    // the block's buildable rectangle — the lot setback in from the kerb — sampled rather than
+    // solved, so the check does not share the arithmetic it is checking.
+    const walls = {
+      x0: bank.block.x0 + BANK_LOT_INSET, z0: bank.block.z0 + BANK_LOT_INSET,
+      x1: bank.block.x1 - BANK_LOT_INSET, z1: bank.block.z1 - BANK_LOT_INSET,
+    };
+    const throughWall = ([a, b]) => {
+      for (let k = 1; k < 100; k++) {
+        const x = a.x + (b.x - a.x) * (k / 100);
+        const z = a.z + (b.z - a.z) * (k / 100);
+        if (x > walls.x0 && x < walls.x1 && z > walls.z0 && z < walls.z1) return true;
+      }
+      return false;
+    };
+    let runs = 0;
+    let rounded = 0;
+    let through = 0;
+    for (const lane of cityNetwork().lanes) {
+      if (!lane.path) continue;
+      for (let s = 0; s <= lane.length; s += 0.5) {
+        const p = lane.path.at(s);
+        if (Math.hypot(p.x - bank.door.x, p.z - bank.door.z) > ROBBERY_TRIGGER_RANGE) continue;
+        const t = lane.path.tangentAt(s);
+        const plan = planBankRun(bank, { x: p.x, z: p.z, yaw: Math.atan2(-t.z, t.x) });
+        runs += 1;
+        if (plan.legs.length > 3) rounded += 1;
+        // The first leg starts inside the portico, which is the point of it.
+        if (plan.legs.slice(1).some(throughWall)) through += 1;
+      }
+    }
+    check('the robber runs round the bank’s block to the cab, never through it',
+      runs > 0 && through === 0 && rounded > 0,
+      `${through} of ${runs} trigger points through a wall, ${rounded} sent round a corner`);
   }
 
   // --- Cop cars are ordinary cars ---------------------------------------------
@@ -16570,6 +16622,93 @@ let chopperOrder; // likewise
         `base $${robber.value}, up to $${robber.bonusMax} more`);
     }
 
+    // --- The bank rider ----------------------------------------------------------
+    //
+    // BANK_CHANCE in game/fares.js: a fare on the bank's steps, and a coin read when the taxi
+    // pulls up — heads they get in, tails the robbery takes their seat. Swept over fresh boards
+    // with the taxi a block off the bank, so the bank junction is in the spawn box and not the
+    // taxi's own next junction.
+    {
+      const stand = planBankRun(bank, { x: 0, z: 0, yaw: 0 }).home;
+      const bankRig = (k, { stop = true } = {}) => {
+        const s8 = new THREE.Scene();
+        const t8 = createTraffic(makeRng(seed + 44), s8, 10, 18);
+        const f8 = createFareSystem(makeRng(seed + 900 + k), s8);
+        t8.warmup(1);
+        f8.state.delivered = 5;
+        const got = [];
+        const rob8 = createRobbery({
+          site: bank, taxi: t8.taxi, fares: f8, traffic: t8, onBoard: (fare) => got.push(fare), trigger: 'fare',
+        });
+        rob8.state.since = 1e3;
+        if (stop) {
+          f8.setBankStop({
+            junction: rob8.junction, x: stand.x, z: stand.z, away: { x: 1, z: 0 }, swapReady: () => rob8.swapReady(),
+          });
+        }
+        const J = rob8.junction;
+        t8.taxi.i = J.i > 0 ? J.i - 1 : J.i + 1;
+        t8.taxi.j = J.j;
+        // Off every corner, so nothing resolves until a test drives it there.
+        t8.taxi.x = 1e4; t8.taxi.z = 1e4;
+        f8.update(1 / 60, t8.taxi);
+        return { t8, f8, rob8, got, bankFare: f8.state.fares.find((x) => x.bank) };
+      };
+      const draws = Array.from({ length: 40 }, (_, k) => bankRig(k));
+      const banks = draws.filter((d) => d.bankFare);
+      const heads = banks.filter((d) => !d.bankFare.robberRoll);
+      const tails = banks.filter((d) => d.bankFare.robberRoll);
+      check('a rider turns up on the bank’s steps now and then',
+        banks.length >= 4 && banks.length <= 24, `${banks.length} of 40 fresh boards`);
+      check('...standing on the doorstep, picked up at the bank’s junction',
+        banks.every((d) => d.bankFare.stand && Math.hypot(d.bankFare.stand.x - stand.x, d.bankFare.stand.z - stand.z) < 1e-9
+          && d.bankFare.target.i === d.rob8.junction.i && d.bankFare.target.j === d.rob8.junction.j
+          && d.bankFare.slot.passenger.group.visible));
+      check('...with a coin on both faces across the sweep', heads.length > 0 && tails.length > 0,
+        `${heads.length} heads, ${tails.length} tails`);
+      check('...and never without the bank rider switched on',
+        !Array.from({ length: 20 }, (_, k) => bankRig(k, { stop: false })).some((d) => d.bankFare));
+      check('the drive-past no longer starts one when the bank rider is the trigger', (() => {
+        const d = bankRig(0, { stop: false });
+        d.t8.taxi.x = bank.door.x; d.t8.taxi.z = bank.door.z;
+        for (let f = 0; f < 5; f++) d.rob8.update(1 / 60);
+        return !d.rob8.state.active;
+      })());
+      const arrive = (d) => {
+        const c = intersectionCentre(d.rob8.junction.i, d.rob8.junction.j);
+        d.f8.markDirected(d.bankFare, { pop: false });
+        d.t8.taxi.x = c.x; d.t8.taxi.z = c.z;
+        const events = d.f8.update(1 / 60, d.t8.taxi).map((e) => e.type);
+        if (events.includes('swapped')) d.rob8.swap();
+        return events;
+      };
+      if (tails.length) {
+        const d = tails[0];
+        const strikes = d.f8.state.strikes;
+        const events = arrive(d);
+        check('tails: the robber takes the bank rider’s seat',
+          events.includes('swapped') && !events.includes('pickup') && d.rob8.state.active && d.got.length === 1
+            && !d.f8.state.fares.includes(d.bankFare) && d.f8.carrying()?.robber,
+          `events ${events.join(',')}, ${d.got.length} robbers`);
+        check('...and the rider they shoved costs no star', d.f8.state.strikes === strikes);
+      }
+      if (heads.length) {
+        const d = heads[0];
+        const events = arrive(d);
+        check('heads: the bank rider simply gets in',
+          events.includes('pickup') && !d.rob8.state.active && d.f8.carrying() === d.bankFare,
+          `events ${events.join(',')}`);
+      }
+      if (tails.length > 1) {
+        // Tails, but the gates are shut — the last robbery inside its cooldown: they get in after all.
+        const d = tails[1];
+        d.rob8.state.since = 0;
+        const events = arrive(d);
+        check('tails with the robbery’s gates shut: the rider gets in after all',
+          events.includes('pickup') && !d.rob8.state.active, `events ${events.join(',')}`);
+      }
+    }
+
     // --- The getaway's checkpoints --------------------------------------------
     //
     // ROBBER_CHECKPOINTS in game/fares.js: corners to touch on the way, each a full tank. Checked
@@ -16972,7 +17111,7 @@ let chopperOrder; // likewise
         // A cop turning round in the road (UTURN_* in sim/traffic.js, `wantsToTurnRound` in
         // game/robbery.js): how many, and whether the arc ever meets anything.
         let uturns = 0; let uturnOverlap = 0; let uturnTaxi = Infinity;
-        for (let k = 0; k < 6; k++) {
+        for (let k = 0; k < 12; k++) {
           const s3 = new THREE.Scene();
           const t3 = createTraffic(makeRng(seed + 300 + k * 17), s3, 18, 30);
           const f3 = createFareSystem(makeRng(seed + 55), s3);
@@ -17066,7 +17205,9 @@ let chopperOrder; // likewise
         // A cop already in front on the taxi's road stops across it too, without going round first
         // (COP_AHEAD_* in sim/traffic.js). Before it, a cop ahead drove on down the straight and read
         // as police that had not seen the taxi. Over seeds 1-12 it lifted brake checks from ~1 per six
-        // getaways to ~3, with no overlap and no red run.
+        // getaways to ~3, with no overlap and no red run. Twelve getaways rather than six since the
+        // double graveyard: over seven cities x 12 getaways it took brake checks from 60 to 40 and
+        // passes from 33 to 28 (roadblocks 86 to 90), which left six draws on this seed with none.
         check('...and a cop already ahead of the taxi brake-checks it without overtaking first',
           aheadChecks > 0, `${aheadChecks} of ${checks} brake checks from a cop already in front`);
         check('chasing cops lay rubber and lean like the taxi — corners, passes, and into a roadblock',
@@ -17277,7 +17418,10 @@ let chopperOrder; // likewise
         // at (0, 6) and never arrived.
         t5.taxi.route = findRoute(planOrigin(t5.taxi), tgt) ?? [];
         robber.directed = true;
-        for (let f = 0; f < 60 * 10 && !run.delivered; f++) {
+        // 25s rather than the 10 this started with: the graveyard moved this seed's bank, and with
+        // it the drop-off onto the map's far corner (0, 6), where a taxi placed 30 back with no
+        // route needs ~12s to get round the corner onto it. 3 of 4 runs deliver at 25s; at 10s, 2.
+        for (let f = 0; f < 60 * 25 && !run.delivered; f++) {
           t5.update(1 / 60);
           rob5.update(1 / 60);
           for (const e of f5.update(1 / 60, t5.taxi)) {
@@ -17296,7 +17440,10 @@ let chopperOrder; // likewise
         const crewCars = new Set();
         const last = new Map();
         for (let f = 0; f < 60 * 45; f++) {
-          if (watch && Math.hypot(t5.taxi.x - J5.x, t5.taxi.z - J5.z) > 16) t5.taxi.braking = true;
+          // Pulled up on a street, not in the next junction: `braking` is sticky, and set 16 out it
+          // lands right on the next hold line, where the taxi stopped mid-box on one draw of this
+          // city's traffic (a first cut of the double graveyard) and gridlocked the cops behind it.
+          if (watch && Math.hypot(t5.taxi.x - J5.x, t5.taxi.z - J5.z) > 16 && t5.taxi.state === 'drive') t5.taxi.braking = true;
           t5.update(1 / 60);
           rob5.update(1 / 60);
           f5.update(1 / 60, t5.taxi);
@@ -17485,6 +17632,7 @@ let chopperOrder; // likewise
   let goodDropped = 0;
   let worstKept = 1;
   let originRejected = 0;
+  let originBuilt = 0;
   let mostRejectedInOneCity = 0;
   let jointCorners = 0;
   let jointSeen = 0;
@@ -17506,6 +17654,10 @@ let chopperOrder; // likewise
       jointCorners += 1;
       if (cornerSeen(sweepLayout.burgerBlock.bi + 1, sweepLayout.burgerBlock.bj + 1)) jointSeen += 1;
     }
+    // Only a block with a building on it hides its own corner: a park or the graveyard lot at
+    // (0, 0) leaves it in plain view, and the double graveyard took (0, 0) in one of these four.
+    const originHasBuilding = sweepLayout.find((b) => b.bi === 0 && b.bj === 0)?.type === 'built';
+    if (originHasBuilding) originBuilt += 1;
     let rejectedHere = 0;
     for (let i = 0; i <= GRID_I; i++) {
       for (let j = 0; j <= GRID_J; j++) {
@@ -17527,7 +17679,7 @@ let chopperOrder; // likewise
         if (!seen) {
           rejected += 1;
           rejectedHere += 1;
-          if (i === 0 && j === 0) originRejected += 1;
+          if (i === 0 && j === 0 && originHasBuilding) originRejected += 1;
           if (vis > 0.85) goodDropped += 1;
         } else {
           worstKept = Math.min(worstKept, vis);
@@ -17553,7 +17705,8 @@ let chopperOrder; // likewise
   // the one corner of block (0, 0) with that block's own building between it and the camera. It is
   // hidden in nearly every city, and it was on the board in all of them.
   check('the origin corner — hidden in nearly every city — is off the board',
-    originRejected >= SEEDS - 1, `${originRejected}/${SEEDS} cities`);
+    originBuilt >= 2 && originRejected >= originBuilt - 1,
+    `${originRejected}/${originBuilt} cities with a building on block (0, 0), of ${SEEDS}`);
   check('the burger joint\u2019s own corner is visible in every city, so food is always on offer',
     jointCorners === SEEDS && jointSeen === jointCorners,
     `${jointSeen}/${jointCorners} joints with a visible pickup corner`);
@@ -18407,6 +18560,10 @@ let chopperOrder; // likewise
       let landS = null;
       let launchTravelled = null;
       let air = null;
+      // The barrel roll: the lowest the body's own up vector gets, and where it is on touchdown.
+      let minUp = 1;
+      let landUp = null;
+      const up = new THREE.Vector3();
       lTraffic.onTaxiLand((event) => { landing = landing ?? event; });
       for (let f = 0; f < 60 * 3 && !landing; f++) {
         lTaxi.boost = true;
@@ -18419,17 +18576,30 @@ let chopperOrder; // likewise
           launchTravelled = lTaxi.hopFrom;
         }
         if (lTaxi.hopFrom != null) peak = Math.max(peak, lTraffic.taxiGroup.position.y - ROAD_Y);
+        up.set(0, 1, 0).applyQuaternion(lTraffic.taxiGroup.quaternion);
+        minUp = Math.min(minUp, up.y);
         if (landing) {
+          landUp = up.y;
           landLane = lTaxi.lane;
           landS = lTaxi.s;
           air = lTaxi.travelled - launchTravelled;
         }
       }
       lTraffic.dispose?.();
-      return { big, peak, landing, landLane, landS, air };
+      return { big, peak, landing, landLane, landS, air, minUp, landUp };
     };
     const straight = fly(DIR.PZ);
     const turning = fly(DIR.PX);
+    setBarrelRoll('classic');
+    const level = fly(DIR.PZ);
+    setBarrelRoll();
+    check('the drift launch barrel-rolls the taxi upside down and lands it on its wheels',
+      straight.minUp < -0.95 && straight.landUp > 0.95,
+      `lowest up ${straight.minUp.toFixed(2)}, ${straight.landUp?.toFixed(2)} at touchdown`);
+    check('...and neither the ordinary hop nor ?barrelroll=classic rolls at all',
+      // The launch's own pitch and the drift's lean take the plain flight to ~0.6; a roll is below 0.
+      turning.minUp > 0.3 && level.big && level.minUp > 0.3,
+      `hop ${turning.minUp.toFixed(2)}, classic ${level.minUp.toFixed(2)}`);
     check('a drift kick carried over the hump is the big launch',
       straight.big && straight.peak > DRIFT_LAUNCH_HEIGHT * 0.9,
       `big ${straight.big}, ${straight.peak.toFixed(2)} of air against ${DRIFT_LAUNCH_HEIGHT}`);
@@ -18446,6 +18616,42 @@ let chopperOrder; // likewise
     check('a route turning at the far bank gets the ordinary hop instead',
       !turning.big && turning.landing && turning.landing.big === false,
       `big ${turning.big}`);
+
+    // The carry is a clock and the bridge is a place: a tier-1 kick out of the corner one block back
+    // runs out a few units short of the launch point, and used to fly the ordinary hop at the kick's
+    // speed. DRIFT_LAUNCH_GRACE honours it. And free-driving — no route — the far bank's exit is no
+    // longer a dice roll that can quietly take the jackpot away.
+    const kickInto = (j, rest, trafficSeed = 98) => {
+      const kTraffic = createTraffic(makeRng(seed + trafficSeed), new THREE.Scene(), 1);
+      const kTaxi = kTraffic.taxi;
+      const dIn = [DIR.PX, DIR.NX].find((d) => placeCar(kTaxi, d, lLine, j, 14));
+      kTaxi.parked = false;
+      kTaxi.v = 22;
+      kTaxi.route = [DIR.PZ, ...rest];
+      kTaxi.routeConsumed = false;
+      let tapT = null;
+      let big = null;
+      for (let f = 0; f < 60 * 4 && big === null; f++) {
+        kTaxi.boost = true;
+        const toLine = kTaxi.state === 'drive' ? kTaxi.lane.length - STOP_SETBACK - kTaxi.s : -1;
+        kTaxi.braking = tapT === null && toLine > 0 && toLine <= 6 && driftTaxi(kTaxi) === null;
+        if (kTaxi.braking) tapT = 0;
+        else if (tapT !== null && (tapT += 1 / 60) >= 0.2) kickDrift(kTaxi);
+        const before = kTaxi.hopFrom;
+        kTraffic.update(1 / 60);
+        if (before == null && kTaxi.hopFrom != null) big = onDriftLaunch(kTaxi);
+      }
+      kTraffic.dispose?.();
+      return { dIn, big };
+    };
+    const blockBack = kickInto(riverRow() - 1, [DIR.PZ, DIR.PZ]);
+    check('a tier-1 kick out of the corner one block before the bridge still flies Big Air',
+      blockBack.dIn !== undefined && blockBack.big === true, `big ${blockBack.big}`);
+    const twoBack = kickInto(riverRow() - 2, [DIR.PZ, DIR.PZ, DIR.PZ]);
+    check('...but not one from two blocks back', twoBack.big === false, `big ${twoBack.big}`);
+    const free = Array.from({ length: 8 }, (_, k) => kickInto(riverRow(), [], 200 + k).big);
+    check('kicked onto the bridge with no route, it flies Big Air every time',
+      free.every((b) => b === true), `${free.filter(Boolean).length}/8`);
 
     // Nothing under the taxi at the apex is a hit.
     const cScene = new THREE.Scene();
@@ -19900,6 +20106,86 @@ let chopperOrder; // likewise
       `${perCrossing.toFixed(1)} showers a crossing, ${offRail} off the rail, ${offIsland} off the island`);
   }
 
+  // Lamps: the headlights lead and the tails trail whichever way it runs, both sit on the end
+  // face rather than inside the body, and the beam is dark in daylight and lit at night.
+  {
+    const ltl = createLTrain(new THREE.Scene(), makeRng(9));
+    const heads = ltl.lamps.getObjectByName('ltrainHeadlights');
+    const tails = ltl.lamps.getObjectByName('ltrainTaillights');
+    const at = (mesh) => {
+      mesh.geometry.computeBoundingBox();
+      return mesh.geometry.boundingBox.getCenter(new THREE.Vector3()).applyMatrix4(mesh.matrixWorld);
+    };
+    let wrongEnd = 0;
+    let frames = 0;
+    let beamDay = 0;
+    let beamNight = 0;
+    const dirs = new Set();
+    for (let n = 0; n < 60 * 120; n++) {
+      ltl.update(1 / 60);
+      if (ltl.state.phase !== 'run') continue;
+      ltl.group.updateMatrixWorld(true);
+      // Along the line, whichever way it runs (x, or -z for a north-south one).
+      const along = (v) => ltl.plan.alongOf(v.x, v.z);
+      const lead = (along(at(heads)) - ltl.state.x) * ltl.state.dir;
+      const trail = (along(at(tails)) - ltl.state.x) * ltl.state.dir;
+      dirs.add(ltl.state.dir);
+      frames += 1;
+      if (Math.abs(lead - L.TRAIN_LEN / 2) > 0.1 || Math.abs(trail + L.TRAIN_LEN / 2) > 0.1) wrongEnd += 1;
+      if (Math.abs(ltl.state.x) < HALF_SPAN_X / 2) {
+        const beam = ltl.lamps.getObjectByName('ltrainBeam').material.uniforms.uStrength;
+        ltl.setBeams(0);
+        beamDay = Math.max(beamDay, beam.value);
+        ltl.setBeams(1);
+        beamNight = Math.max(beamNight, beam.value);
+      }
+    }
+    const classic = createLTrain(new THREE.Scene(), makeRng(9), { lights: false });
+    check('ltrain: headlights lead and tail lamps trail both ways, beam only in the dark',
+      frames > 0 && dirs.size === 2 && wrongEnd === 0 && beamDay === 0 && beamNight > 0.3
+        && classic.lamps === null,
+      `${wrongEnd}/${frames} frames with a lamp off its end, beam ${beamDay}/${beamNight.toFixed(2)}`);
+  }
+
+  // The intro: bents rise on the city's wave, then the spans are laid one at a time from the
+  // taxi's end, and only once the island's bents are up. Run on the schedule the shaders read.
+  {
+    const lti = createLTrain(new THREE.Scene(), makeRng(9));
+    const { deckSpans } = await import('../src/game/ltrain.js');
+    const spans = deckSpans(lti.plan);
+    const from = { x: -30, z: 10 };
+    const { rise, drop, end } = lti.intro.schedule(from, { wave: 0.015, grow: 0.3 });
+    const islandRise = lti.plan.columns.map((x, k) => (Math.abs(x) < HALF_SPAN_X ? rise[k] : 0));
+    const firstDrop = Math.min(...drop);
+    const mid = spans.map((sp) => (sp.from + sp.to) / 2);
+    const island = spans.map((_, k) => k).filter((k) => Math.abs(mid[k]) < HALF_SPAN_X - 5)
+      .sort((a, b) => mid[a] - mid[b]);
+    // Taxi on the west, so the island's spans come down west to east, each after the last.
+    const ordered = island.every((k, n) => n === 0 || drop[k] > drop[island[n - 1]] + 1e-6);
+    const deckIdx = lti.deck.geometry.attributes.span;
+    let maxSpan = 0;
+    for (let i = 0; i < deckIdx.count; i++) maxSpan = Math.max(maxSpan, deckIdx.getX(i));
+    lti.intro.start(from, { wave: 0.015, grow: 0.3, overshoot: 3.9 });
+    const heldTrain = (() => {
+      for (let n = 0; n < 60; n++) lti.update(1 / 60);
+      return lti.state.phase === 'wait';
+    })();
+    for (let n = 0; n < 60 * 6; n++) lti.intro.update(1 / 60);
+    const stubI = { vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader, uniforms: {} };
+    lti.material.onBeforeCompile(stubI, null);
+    const stubD = { vertexShader: THREE.ShaderLib.depth.vertexShader, fragmentShader: THREE.ShaderLib.depth.fragmentShader, uniforms: {} };
+    lti.deck.customDepthMaterial.onBeforeCompile(stubD, null);
+    const classicI = createLTrain(new THREE.Scene(), makeRng(9), { intro: false });
+    check('ltrain: the bents rise first, then the island spans are laid one at a time from the taxi\'s end',
+      firstDrop >= Math.max(...islandRise) + 0.3 && ordered && island.length >= 8
+        && maxSpan === spans.length - 1 && end < 5 && heldTrain && !lti.intro.running()
+        && stubI.vertexShader.includes('aLIntro') && stubI.fragmentShader.includes('vLIntro <')
+        && stubD.vertexShader.includes('aLIntro') && stubD.vertexShader.includes('mvPosition.z -=')
+        && lti.material.customProgramCacheKey().endsWith('-lintro')
+        && classicI.intro === null && classicI.entryObjects.length === 1,
+      `${island.length} island spans, first drop ${firstDrop.toFixed(2)}s, done ${end.toFixed(2)}s, ordered ${ordered}`);
+  }
+
   // The dither patch, run rather than trusted: a replace that stops matching hands back the shader
   // untouched and the deck stops fading with nothing logged.
   const stub = {
@@ -19910,7 +20196,128 @@ let chopperOrder; // likewise
   lt.material.onBeforeCompile(stub, null);
   check('ltrain: the fade lands in the shader', stub.fragmentShader.includes('discard')
     && stub.vertexShader.includes('vLWorld = ') && 'uLFade' in stub.uniforms
-    && lt.material.customProgramCacheKey().endsWith('-ltrain'));
+    && lt.material.customProgramCacheKey().includes('-ltrain'));
+}
+
+// The graveyard (city/graveyard.js): a double block the towers leave alone — two blocks stacked
+// along Z with the road between them closed, so no car drives through it — out of downtown, and
+// everything on it inside its own kerb and no taller than a big tree. Swept over cities rather than trusted to this seed,
+// and the layout this run is measuring against rebuilt afterwards — `createLayout` installs the
+// network it bakes (see CLAUDE.md).
+{
+  const block = layout.graveyardBlock;
+  check('graveyard: the city puts one somewhere', Boolean(block) && block.type === 'graveyard',
+    block ? `block (${block.bi}, ${block.bj})` : 'none');
+  check('graveyard: the tower generator leaves its block alone', (() => {
+    const p = buildings.mesh.geometry.attributes.position;
+    const b = block.bounds;
+    for (let i = 0; i < p.count; i++) {
+      if (p.getX(i) > b.x0 && p.getX(i) < b.x1 && p.getZ(i) > b.z0 && p.getZ(i) < b.z1) return false;
+    }
+    return true;
+  })());
+
+  const yard = createGraveyard(block, makeRng(seed + 131));
+
+  // Trees are drawn one way everywhere (`treeParts`, city/props.js): every lobe any generator grew
+  // is in the list the leaf cards are dressed from, and every mesh carrying a crown is smooth.
+  // Grown afresh in main.js's order, because the sweeps above have each laid out a city of their
+  // own since — and `createLayout` clears the list, as it should.
+  {
+    const cityLayout = createLayout(makeRng(seed));
+    const cityBuild = createBuildings(makeRng(seed + 22), cityLayout);
+    const cityProps = createProps(makeRng(seed + 33), cityLayout);
+    const before = plantedCrowns().length;
+    const cityYard = createGraveyard(cityLayout.graveyardBlock, makeRng(seed + 131));
+    const planted = new Set(plantedCrowns());
+    const lobes = [...cityProps.crowns, ...(cityBuild.court?.crowns ?? [])];
+    check('trees: every crown in the city gets leaf cards, the graveyard\'s included',
+      lobes.every((c) => planted.has(c)) && plantedCrowns().length > before,
+      `${lobes.filter((c) => !planted.has(c)).length} missing, graveyard grew ${plantedCrowns().length - before}`);
+    check('trees: every mesh with a tree in it is lit smooth',
+      [cityProps.mesh, cityBuild.mesh, cityYard.shell].every((m) => m.material.flatShading === false));
+  }
+  let outside = 0;
+  let top = 0;
+  for (const mesh of yard.meshes) {
+    const p = mesh.geometry.attributes.position;
+    const b = block.bounds;
+    for (let i = 0; i < p.count; i++) {
+      if (p.getX(i) < b.x0 || p.getX(i) > b.x1 || p.getZ(i) < b.z0 || p.getZ(i) > b.z1) outside += 1;
+      top = Math.max(top, p.getY(i));
+    }
+  }
+  check('graveyard: everything on it stands inside its kerb, under 8 units tall',
+    outside === 0 && top < 8, `${outside} vertices outside, tallest ${top.toFixed(2)}`);
+
+  let placed = 0;
+  let downtown = 0;
+  let open = 0;
+  let shared = 0;
+  const N = 24;
+  for (let c = 0; c < N; c++) {
+    const sweep = createLayout(makeRng(seed + 7000 + c * 13));
+    const g = sweep.graveyardBlock;
+    if (!g?.double) continue;
+    placed += 1;
+    if (g.centrality > 0.6) downtown += 1;
+    // The road between the two blocks is gone, and the depot and the joint are elsewhere.
+    if (!isSegmentClosed(g.bi + 1, g.bj, DIR.PZ)) open += 1;
+    if (g.blocks.some((b) => b === sweep.garageBlock || b === sweep.burgerBlock || b.type !== 'graveyard')) {
+      shared += 1;
+    }
+  }
+  createLayout(makeRng(seed));
+  check('graveyard: every city gets a double block, off downtown, with the road through it closed',
+    placed === N && downtown === 0 && open === 0 && shared === 0,
+    `${placed}/${N} placed, ${downtown} downtown, ${open} with the road open, ${shared} sharing a block`);
+}
+
+// The rare classics (CLASSIC_MODELS in sim/traffic.js). Looks only: the model is read off `phase`
+// rather than rolled, so turning them on must not move a single car — every seeded measurement in
+// this file was taken with them off — and each car must be drawn by exactly one body mesh, since
+// the other two hold a zero matrix at its index and a slip there is either a missing car or a
+// sedan and a camper standing in the same spot.
+{
+  const plainScene = new THREE.Scene();
+  const plain = createTraffic(makeRng(seed + 44), plainScene, 24);
+  const classicScene = new THREE.Scene();
+  const classic = createTraffic(makeRng(seed + 44), classicScene, 24, 24, 0, 0, 0.3);
+  const same = plain.cars.length === classic.cars.length && plain.cars.every((car, i) => {
+    const other = classic.cars[i];
+    return car.lane === other.lane && car.s === other.s && car.colorIndex === other.colorIndex
+      && car.phase === other.phase;
+  });
+  const models = classic.cars.filter((car) => car.model);
+  check('classics: turning them on moves no car and repaints none',
+    same && plain.cars.every((car) => car.model === null),
+    `${models.length} classics in ${classic.cars.length}`);
+  classic.update(1 / 60);
+  const scaleAt = (inst, index) => {
+    const m = new THREE.Matrix4();
+    inst.getMatrixAt(index, m);
+    return new THREE.Vector3().setFromMatrixScale(m).x;
+  };
+  const bodies = [classic.mesh, ...Object.values(classic.classicMeshes)];
+  const wrong = classic.ambient.filter((car) => {
+    const drawn = bodies.filter((inst) => scaleAt(inst, car.instanceIndex) > 0.5);
+    return drawn.length !== 1 || drawn[0] !== classic.bodyMeshFor(car);
+  }).length;
+  const driverWrong = classic.ambient.filter((car) =>
+    (scaleAt(classic.classicInteriorMesh, car.instanceIndex) > 0.5) !== (classic.modelOf(car) === 'convertible')).length;
+  check('classics: every convertible has a driver in it, and nothing else does',
+    driverWrong === 0, `${driverWrong} wrong`);
+  const kinds = new Set(models.map((car) => car.model));
+  check('classics: each car is drawn by exactly one body, and both models turn up',
+    wrong === 0 && kinds.size === 2, `${wrong} cars drawn wrong, models ${[...kinds].join('/')}`);
+  const tint = new THREE.Color();
+  const campers = classic.ambient.filter((car) => car.model === 'westfalia');
+  const tinted = campers.filter((car) => {
+    classic.classicMeshes.westfalia.getColorAt(car.instanceIndex, tint);
+    return tint.r < 1 || tint.g < 1 || tint.b < 1;
+  }).length;
+  check('classics: the Westfalia wears its baked two-tone, untinted',
+    campers.length > 0 && tinted === 0, `${tinted} of ${campers.length} tinted`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

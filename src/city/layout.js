@@ -7,6 +7,8 @@ import { planRiver, setRiverCrossings } from './river.js';
 import { roadNetFromGrid, setCityNetwork } from './roadnet.js';
 import { chooseGarageBlock } from './garage.js';
 import { chooseBurgerBlock } from './burgerjoint.js';
+import { chooseGraveyardBlock, planGraveyardPair, GRAVEYARD_MODE } from './graveyard.js';
+import { clearPlantedCrowns } from './props.js';
 import { configureSignals } from '../sim/traffic.js';
 
 // Decides what each block *is* before anything is built. Ground, buildings and props all read
@@ -18,6 +20,9 @@ import { configureSignals } from '../sim/traffic.js';
  * a uniform mat of identical towers. Parks are more likely out in the cheaper suburbs.
  */
 export function createLayout(rng) {
+  // A new layout is a new city, so the last one's trees are no longer anybody's (`plantedCrowns`).
+  clearPlantedCrowns();
+
   // --- Arterials, first ------------------------------------------------------
   // Road hierarchy is a property of the city, so it is decided here alongside the blocks and
   // handed to the signal model. Two main streets, one per axis, drawn from the middle lines so
@@ -108,10 +113,6 @@ export function createLayout(rng) {
     }
   }
 
-  // The river's bridgeless crossings join the districts' closures: from here down nothing knows
-  // the difference between a road a park built over and a road with a river across it.
-  setClosedSegments([...closed, ...river.closed]);
-
   // Normalised by the map's own half-diagonal, which stopped being `HALF_SPAN * SQRT2` when the
   // two axes came apart. Taken per axis rather than off the longer one: centrality is "how far in
   // from the edge is this", and the edge is nearer on the short axis.
@@ -131,15 +132,36 @@ export function createLayout(rng) {
   for (let bi = 0; bi < GRID_I; bi++) {
     for (let bj = 0; bj < GRID_J; bj++) floorDist = Math.min(floorDist, offCentre(bi, bj));
   }
+  const centralityOf = (bi, bj) => {
+    const distance = (offCentre(bi, bj) - floorDist) / (1 - floorDist);
+    // 1 at the core, ~0 at the corners.
+    return Math.max(0, 1 - distance * 1.55);
+  };
+
+  // **The graveyard, as a double block** — two blocks and the road between them, the way a park
+  // district is, so the road has to be closed here with the districts' rather than at the end with
+  // the depot's. Planned without a draw (see `planGraveyardPair`), so nothing above or below moves
+  // but the blocks it takes and the road it closes. `?graveyard=single` plans nothing here and takes
+  // one block at the end instead.
+  const gravePair = GRAVEYARD_MODE === 'double' ? planGraveyardPair({
+    taken: (bi, bj) => parkCells.has(`${bi},${bj}`) || centralCells.has(`${bi},${bj}`),
+    isWater: isRiverBlock,
+    arterialZ,
+    centrality: centralityOf,
+    districts,
+  }) : null;
+  const graveCells = new Set(gravePair ? gravePair.cells.map(([bi, bj]) => `${bi},${bj}`) : []);
+  if (gravePair) closed.push(gravePair.closed);
+
+  // The river's bridgeless crossings join the districts' closures: from here down nothing knows
+  // the difference between a road a park built over and a road with a river across it.
+  setClosedSegments([...closed, ...river.closed]);
 
   const blocks = [];
 
   for (let bi = 0; bi < GRID_I; bi++) {
     for (let bj = 0; bj < GRID_J; bj++) {
-      const distance = (offCentre(bi, bj) - floorDist) / (1 - floorDist);
-
-      // 1 at the core, ~0 at the corners.
-      const centrality = Math.max(0, 1 - distance * 1.55);
+      const centrality = centralityOf(bi, bj);
 
       // A district claim wins; otherwise the occasional lone pocket park out in the suburbs.
       const central = centralCells.has(`${bi},${bj}`);
@@ -159,7 +181,9 @@ export function createLayout(rng) {
         bi,
         bj,
         bounds: blockBounds(bi, bj),
-        type: water ? 'river' : isPark ? 'park' : 'built',
+        // The graveyard's two blocks still roll for a park above, and throw it away — the river's
+        // reason: the draw stays the same shape for every seed wherever the graveyard landed.
+        type: water ? 'river' : graveCells.has(`${bi},${bj}`) ? 'graveyard' : isPark ? 'park' : 'built',
         districtId: water || !inDistrict ? null : districtId,
         districtBounds: water || !inDistrict ? null
           : central ? centralPark.bounds : districts[districtId].bounds,
@@ -224,6 +248,32 @@ export function createLayout(rng) {
   const burger = chooseBurgerBlock(rng, blocks);
   if (burger) burger.type = 'burger';
   blocks.burgerBlock = burger ?? null;
+
+  // ...and the graveyard, after both and for the same reasons: a whole block, `null` a real answer,
+  // and drawn last so that adding it moves nothing above. It reads the depot's and the joint's
+  // blocks as spoken for so the three landmarks don't clump. `?graveyard=classic` skips the draw
+  // and leaves the block to the towers. See city/graveyard.js.
+  // In double mode the pair was planned above; this is the `?graveyard=single` path.
+  if (GRAVEYARD_MODE === 'single') {
+    const single = chooseGraveyardBlock(rng, blocks);
+    if (single) single.type = 'graveyard';
+    blocks.graveyardBlock = single ?? null;
+  } else if (gravePair) {
+    // One record for the whole lot, shaped like a block so `createGraveyard` takes either: the
+    // first block's indices, and bounds spanning both blocks and the road between them.
+    const [a, b] = gravePair.cells.map(([bi, bj]) => blocks.find((k) => k.bi === bi && k.bj === bj));
+    const x0 = Math.min(a.bounds.x0, b.bounds.x0);
+    const x1 = Math.max(a.bounds.x1, b.bounds.x1);
+    const z0 = Math.min(a.bounds.z0, b.bounds.z0);
+    const z1 = Math.max(a.bounds.z1, b.bounds.z1);
+    blocks.graveyardBlock = {
+      bi: a.bi, bj: a.bj, type: 'graveyard', double: true, blocks: [a, b],
+      centrality: Math.max(a.centrality, b.centrality),
+      bounds: { x0, x1, z0, z1, cx: (x0 + x1) / 2, cz: (z0 + z1) / 2 },
+    };
+  } else {
+    blocks.graveyardBlock = null;
+  }
 
   // Bake the road network for the city just decided, and install it as *the* network. Everything
   // above — the closures, the arterials, their coordinated directions — is exactly the input it

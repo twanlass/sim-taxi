@@ -428,6 +428,22 @@ export function createGround(rng, blocks) {
     ));
   }
 
+  // --- The graveyard as a double block (city/graveyard.js): one platform over both blocks and the
+  // road it closed, on the districts' terms, in its own darker grass.
+  const graveLot = blocks.graveyardBlock?.double ? blocks.graveyardBlock : null;
+  if (graveLot) {
+    const { x0, x1, z0, z1, cx, cz } = graveLot.bounds;
+    const w = x1 - x0;
+    const d = z1 - z0;
+    parts.push(curbBox(w, KERB_H, d, cx, 0, cz, jitterColor(PALETTE.kerb, rng, { l: 0.02 })));
+    parts.push(...parkSurface(
+      w - PAVE_INSET * 2, d - PAVE_INSET * 2, cx, cz,
+      jitterColor(PALETTE.sidewalk, rng, { l: 0.03 }),
+      jitterColor(PALETTE.graveGrass, rng, { l: 0.03 }),
+      KERB_H + 0.01,
+    ));
+  }
+
   // --- The central park (`?city=big`): two lawns shaped round the road that curves between them.
   if (blocks.centralPark) {
     parts.push(...centralParkGround(blocks.centralPark, rng, { kerbH: KERB_H, markY: MARK_Y }));
@@ -439,6 +455,7 @@ export function createGround(rng, blocks) {
     // it is the channel wall and the parapet on each bank, and those are `city/river.js`'s.
     if (block.type === 'river') continue;
     if (block.districtId !== null && block.districtId !== undefined) continue;
+    if (graveLot && block.type === 'graveyard') continue;
     const { x0, z0, cx, cz } = block.bounds;
     const w = block.bounds.x1 - x0;
     const d = block.bounds.z1 - z0;
@@ -447,11 +464,12 @@ export function createGround(rng, blocks) {
 
     // A pocket park gets the same walk round it as a district, for the same reason: it is a block
     // on a street, and the thing that says so is the pavement it presents to the street.
-    if (block.type === 'park') {
+    // The single-block graveyard (`?graveyard=single`) is laid the same way in its own darker grass.
+    if (block.type === 'park' || block.type === 'graveyard') {
       parts.push(...parkSurface(
         w - PAVE_INSET * 2, d - PAVE_INSET * 2, cx, cz,
         jitterColor(PALETTE.sidewalk, rng, { l: 0.03 }),
-        jitterColor(PALETTE.park, rng, { l: 0.03 }),
+        jitterColor(block.type === 'park' ? PALETTE.park : PALETTE.graveGrass, rng, { l: 0.03 }),
         KERB_H + 0.01,
       ));
     } else {

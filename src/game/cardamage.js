@@ -200,7 +200,9 @@ export function createCarDamage({ scene, traffic, sparks, roadY, rng = Math.rand
     // Whatever is already open slams; the lid at the struck end flies open if it was not.
     if (rig.hood) rig.hood.v -= BOOT_HIT_KICK;
     if (rig.boot) rig.boot.v -= BOOT_HIT_KICK;
-    if (!car.isTruck) {
+    // The Westfalia keeps its lamps and bumper and loses no lids, like a truck: a T3 has a flat
+    // nose with no bonnet in it, and a lid hinged where a sedan's sits would open out of its face.
+    if (!car.isTruck && traffic.modelOf?.(car) !== 'westfalia') {
       if (end > 0 && !rig.hood) rig.hood = lid(HOOD_REST);
       if (end < 0 && !rig.boot) rig.boot = lid(BOOT_REST);
     }

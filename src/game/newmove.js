@@ -34,6 +34,12 @@ import { createSpeech } from './speech.js';
 // brake is a Loco Mode button too). It waits for the U-turn's card to have been seen, so a run whose
 // early drop-offs were all busy still shows them in order, one drop-off apart at the least.
 //
+// **After the run, by default** (Tyler, 2026-10-13: "show new unlocked combos after the high score
+// screen"). The thresholds above still decide what a run *unlocks*; the card itself waits until the
+// run-end screen's table has landed, and then shows one move a run, the first it unlocked that has
+// not been shown, before Play again (main.js `showUnlockedMoves`; one a run is Tyler's too). What
+// follows about calm drop-offs is the mid-run timing, which `?newmove=classic` keeps.
+//
 // **Remembered**, unlike the opening tutorial, which runs every game on purpose (see tutorial.js).
 // That one is a tap long and is also the only thing that shows a returning player which car is
 // theirs. This one stops the world and asks to be read, and a card announcing a move as "new" on
@@ -104,6 +110,13 @@ export const SHOW_DELAY = 0.9;
  * 300 is about the shortest a deliberate tap follows something appearing.
  */
 const TAP_GUARD_MS = 300;
+
+/**
+ * The pedal row's loop, in seconds, on a card with no clip to keep time — long enough for every
+ * move's sequence to play out and hold a beat. Without it the row sat on the clip's first frame, one
+ * key lit and the rest dead, which read as broken (Tyler, 2026-10-13).
+ */
+const IDLE_KEYS_LOOP = 5;   // the U-turn's row dims at 4.2s, the latest of the three
 
 /**
  * @param {object} opts
@@ -205,9 +218,11 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
   let move = null;
   let open = false;
   let openedAt = 0;
+  // The pedal row's own clock, for a card with no clip (IDLE_KEYS_LOOP).
+  let idleT = 0;
 
   function pressKeys() {
-    const state = move.clipKeys(clip ? clip.time : 0);
+    const state = move.clipKeys(clip ? clip.time : idleT);
     for (const [name, key] of Object.entries(keys)) {
       key.classList.toggle('is-lit', state[name].lit);
       key.classList.toggle('is-down', state[name].down);
@@ -253,6 +268,7 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
       open = true;
       move = next;
       openedAt = performance.now();
+      idleT = 0;
       buildKeys(move.keys);
       canvas.hidden = false;
       // Shown first, so the card's canvas has its size before the clip measures it.
@@ -270,6 +286,7 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
     update(dt) {
       if (!open) return false;
       clip?.update(dt);
+      idleT = (idleT + dt) % IDLE_KEYS_LOOP;
       pressKeys();
       bubble.update(dt);
       return Boolean(clip);

@@ -79,7 +79,7 @@ src/
     robbery.js          the bank robbery: who gets in outside the bank, and the cops that come with them
     arrest.js           the robbery's drop-off: the cops circle the robber on the corner and take them in
     patrol.js           the patrol cruiser's life: across town edge to edge, chase, caught or lost, out
-    copshout.js         "Taxi: pull over now" over the patrol car's roof when it spots the taxi
+    copshout.js         "Taxi: pull over now" over the patrol car's roof when it spots the taxi (`?copchat=classic` only)
     speech.js           the one speech bubble: pinned on its target, waiting at the edge when it's off frame
     repairclip.js       the depot's tip card clip: a smoking taxi tapped in for repairs and back out clean
     radio.js            the dispatch bubble that says the fare who just got in is a robber

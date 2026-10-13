@@ -49,8 +49,36 @@ export function treeShape(height, trunk = 0.42) {
  * `crowns`, if handed an array, collects each canopy lobe as `{ x, y, z, r, color, tx, tz }` — the
  * ellipsoid `city/canopyfuzz.js` dresses in leaf cards. Recorded, never drawn: it spends nothing
  * from `rng`, so a tree grown with it is the tree grown without it.
+ *
+ * **This is the only way to draw a tree, and it comes with two obligations the caller cannot opt
+ * out of** (Tyler, 2026-10-12: "make sure we always draw trees the same way"):
+ *
+ * - The parts go into a mesh under `propMaterial({ smooth: true })`. The crowns carry soft normals
+ *   (`softCrown`) that only a smooth material reads; under the flat default every facet lights on
+ *   its own and the tree reads as a different, harder tree. Smooth costs the rest of the mesh
+ *   nothing — `bakeColors` gives every face its own normal — so merge a tree in with whatever it
+ *   stands beside and make that whole mesh smooth.
+ * - Its leaf cards are automatic: every lobe is also recorded in `plantedCrowns()`, which is what
+ *   main.js hands `createCanopyFuzz`. A new place that plants trees gets its leaves without being
+ *   wired up, which is how the graveyard's first trees came out bald.
+ *
+ * `canopy` overrides the season's colour for one tree (the graveyard's).
  */
-export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.42, crowns = null } = {}) {
+const planted = [];
+
+/** Every canopy lobe `treeParts` has grown since the city was laid out — the leaf cards' input. */
+export function plantedCrowns() {
+  return planted;
+}
+
+/** Forget the last city's trees. `createLayout` calls it, since a new layout is a new city. */
+export function clearPlantedCrowns() {
+  planted.length = 0;
+}
+
+export function treeParts(x, z, rng, {
+  low = 3.4, high = 5.6, height, trunk = 0.42, crowns = null, canopy: canopyBase = null,
+} = {}) {
   const parts = [];
   const shape = treeShape(height ?? rng.range(low, high), trunk);
   const { trunkH, crownR: r, crownY: base } = shape;
@@ -66,7 +94,7 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.
   // tree-to-tree while the blobs of one crown stay siblings. Hashed from the trunk position
   // rather than drawn, same reason as the entry stamp (util/geo.js hash01): spending a draw
   // here would reshuffle every tree planted after this one.
-  const canopy = new THREE.Color(autumnBase(x, z));
+  const canopy = new THREE.Color(canopyBase ?? autumnBase(x, z));
   const hsl = { h: 0, s: 0, l: 0 };
   canopy.getHSL(hsl);
   canopy.setHSL(
@@ -82,7 +110,9 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.
     geo.translate(x + ox, base + oy, z + oz);
     const tint = jitterColor(canopy, rng, { h: 0.02, l: 0.07 });
     parts.push(softCrown(bakeColor(geo, tint), x + ox, base + oy, z + oz));
-    crowns?.push({ x: x + ox, y: base + oy, z: z + oz, r: radius, color: tint, tx: x, tz: z });
+    const lobe = { x: x + ox, y: base + oy, z: z + oz, r: radius, color: tint, tx: x, tz: z };
+    crowns?.push(lobe);
+    planted.push(lobe);
   };
 
   blob(r, 0, 0, 0, 1);
@@ -107,16 +137,21 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.
 // parks, the medians, the courtyards) and the season is one fact about the whole city. Set it
 // before the city is built.
 let autumn = true;
-export function setAutumn(on) { autumn = Boolean(on); }
+let classic = false;
+// `classic` is the first, higher-contrast autumn (`?foliage=classic`, palette.js).
+export function setAutumn(on, { classicColours = false } = {}) {
+  autumn = Boolean(on);
+  classic = Boolean(classicColours);
+}
 
 /** The base canopy colour a broadleaf standing at (x, z) wears this season. */
 export function autumnBase(x, z) {
   if (!autumn) return PALETTE.foliage;
   const h = hash01(x * 0.37 + 19.3, z * 0.53 - 7.1);
   if (h < 0.32) return PALETTE.foliage;
-  if (h < 0.52) return PALETTE.foliageGold;
-  if (h < 0.8) return PALETTE.foliageOrange;
-  return PALETTE.foliageRed;
+  if (h < 0.52) return classic ? PALETTE.foliageGoldClassic : PALETTE.foliageGold;
+  if (h < 0.8) return classic ? PALETTE.foliageOrangeClassic : PALETTE.foliageOrange;
+  return classic ? PALETTE.foliageRedClassic : PALETTE.foliageRed;
 }
 
 // The lobe's ellipsoid normal at every vertex, so the crown lights as one soft mass rather than

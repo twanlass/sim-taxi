@@ -254,6 +254,11 @@ export const SHOTS = [
   // its kerbs the deck hides. Appended, for the index-addressing reason stated above `birds`.
   { name: 'ltrain', description: 'the elevated train, close', target: [0, 0], zoom: 14, warmup: 12, atLTrain: true },
   { name: 'ltrain-far', description: 'the elevated train at play zoom', target: [0, 0], zoom: 52, warmup: 12, atLTrain: true },
+  // The graveyard (city/graveyard.js), on the usual pair. Close: do the stones read as headstones
+  // and the railings as railings. At play zoom: is it a landmark or a grey smudge on a lawn.
+  // Appended, for the index-addressing reason stated above `birds`.
+  { name: 'graveyard', description: 'the graveyard, close', target: [0, 0], zoom: 11, warmup: 12, atGraveyard: true },
+  { name: 'graveyard-far', description: 'the graveyard at play zoom', target: [0, 0], zoom: 52, warmup: 12, atGraveyard: true },
   // The harbor at the river's east mouth (city/harbor.js): the cranes, the moored ship and the
   // basin close up, and then at play zoom with the city beside it, which is where it has to read.
   { name: 'harbor', description: 'the harbor: cranes, ship and the dock basin', target: [82, 2], zoom: 22, warmup: 12 },
@@ -543,6 +548,14 @@ export function getSquall(
  */
 export function getFall() {
   return !isOff(new URLSearchParams(window.location.search).get('fall') ?? '');
+}
+
+/**
+ * The autumn palette — `?foliage=classic` brings back the first, higher-contrast set (a red at hue
+ * 6° and a gold at luma 163); anything else is the softer one (palette.js).
+ */
+export function getFoliageClassic() {
+  return new URLSearchParams(window.location.search).get('foliage') === 'classic';
 }
 
 /**

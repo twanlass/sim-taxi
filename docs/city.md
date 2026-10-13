@@ -270,8 +270,19 @@ arterial, beside the river, with the old crossings (Tyler moved it across the ri
   the ground's own fade, which reads as gone sooner than its alpha says.
 - **Wheel sparks** every few seconds off one truck, through the shared spark pool with its floor
   set to the road, so they fall through the open deck. Only at speed and only over the island.
-- **Not done:** no stations, no sound (the rumble hook is commented in `ambientLevels`), no lamps at
-  night, and the entrance wave grows the whole line from its middle as one object.
+- **Lamps** (`?trainlights=classic` for the unlit train): two headlights low on the leading end,
+  two red tail lamps on the outer corners of the trailing one. Always lit and in the bloom, like
+  the cars' pods. The two pairs are one group turned half round when the train runs west, since
+  the train is symmetric. In the rain or after dark the headlights throw the cars' additive cone at
+  1.5x, faded off the island from the nose's x because a cone has no dither.
+- **Its own intro** (`?trainintro=classic` for the old one, which grew the whole line from its
+  middle with the city's wave). The bents rise like the buildings, on the city entry's wave and
+  levers. Once every bent on the island is up, the spans drop `DROP_H` into place one at a time
+  from the end nearer the taxi, dithering in. It is a vertex patch on the deck and column meshes
+  (`aLIntro`), carried into the shadow and AO depth passes, and the timetable holds the train
+  until the line is built. The spans come from `deckSpans`, so a rerouted line keeps the stagger.
+  For a still of it, `?shot=ltrain-far&introAt=2` freezes the intro two seconds in.
+- **Not done:** no stations, and no sound (the rumble hook is commented in `ambientLevels`).
 
 ### The north park (default, `?northpark=classic` to drop it)
 
@@ -647,6 +658,57 @@ coordinates** — and a world coordinate in a rotating object's local space is n
 all. So `createCityEntry` grew an `objects` list: a handful of transforms scaled on the CPU, on the
 same easeOutBack over the same delay, so the sign comes up with the building under it instead of
 hanging in the air over a hole in the ground.
+
+## The graveyard
+
+`city/graveyard.js`. **A double block** since 2026-10-13: two blocks side by side along X and the
+north-south road between them closed, built the way a [park district](#park-districts-close-roads) is — one
+kerb, one lawn and one fence over the lot. `?graveyard=single` (or `GRAVEYARD=single` for the
+headless tools) brings back the first cut, one block drawn **last** in `createLayout` like the depot
+and the burger joint; `?graveyard=classic` leaves the city without one.
+
+The double lot cannot be drawn last, because the road it closes has to be closed before the network
+is baked. So `planGraveyardPair` runs straight after the park districts, beside them, and picks
+**without a draw**: the candidate is hashed off the districts' positions the way the pocket park
+picks its block, so planning it moves no park, tree or tower. Every city gets one (24 of 24 in the
+probe's sweep), never downtown, and never across an arterial — closing a main street breaks its
+green wave.
+
+It is scenery only. Nothing routes into it, nothing on it can be tapped, and the fare loop doesn't
+know it exists. An iron railing on a stone plinth runs round the lawn, with a gate in the middle of
+the +Z fence.
+Headstones stand in rows either side of a gravel path that runs gate to gate (one gate in each
+end), one big tree stands in a back corner, and a little ground mist drifts across. The tree is
+an ordinary `treeParts` tree at 6.6 tall (the parks run 3.4–5.6) with a plum crown, so it lights and
+wears leaf cards exactly as every other tree does. The mist thickens after dark, using the
+same measure of darkness as the helicopter's searchlight.
+
+- **It faces the camera, like the burger joint.** Only +X and +Z faces are ever seen, so the gate is
+  in the +Z fence, every stone faces +Z, and the tree stands in the back corner, behind the stones
+  rather than over them. A first cut had an above-ground crypt and bare spooky trees; Tyler cut
+  both.
+- **The stones are drawn 1.4× life size** (`STONE_SCALE`). At life size they were four pixels at play
+  zoom, and the lot read as a fenced lawn with grit on it.
+- **Out of downtown.** Both cuts keep it at centrality ≤ 0.5: a low lot among towers is one the
+  camera cannot see into. In practice that is the outer ring of blocks. Each filter falls back to
+  the pool it narrows. The single cut also keeps off any block touching the depot or the joint; the
+  double lot is planned before either exists, and they are placed round it.
+- **Side by side, because of which road it closes.** A pair stacked along Z closes an east-west
+  street, and east-west side streets are the scarce kind: the U-turn's tip card films on three
+  straight open blocks of one (`pickStreet` in game/uturnclip.js), and the north-south streets
+  nearly all cross the river and never qualify. Stacked, 20 cities in 200 had nowhere to film;
+  side by side it is 2 in 200, the same as with no graveyard at all.
+- **What the double block costs.** One road segment and two blocks of kerb, so fewer riders' corners
+  and one fewer way through at the edge of town. Measured on the robbery getaway over seven cities ×
+  12 getaways: cops brake-check a third less (60 to 40) and pass a little less (33 to 28), with
+  roadblocks unchanged (86 to 90). Why is not established; the getaway runs for a corner of the map
+  and the lot sits out by the edge. Losing a cop round corners is unchanged (14 in 32 against 12).
+- **It moves the probe's city.** Taking blocks and a road reshuffles the pinned seed's traffic, and
+  several scenario checks there were calibrated on one draw. The first cut moved the bank (the arrest
+  check's drive-to-drop-off window went from 10s to 25s); the double block widened the getaway
+  sample, and fixed checks that were measuring the wrong thing — a watching taxi that
+  braked to a stop *inside* the next junction and gridlocked the cops, a robber measured against
+  after they had got into the car, a drive-through visit that waited on traffic held to the clip's length (the last two are #483's fixes, taken verbatim).
 
 ## The bank
 

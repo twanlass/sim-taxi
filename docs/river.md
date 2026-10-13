@@ -197,12 +197,26 @@ the far bank (8 wide, 10.67 for an arterial) and comes down 3.25 or 0.6 into the
 units clear of its hold line. So it only fires when the exit at the far bank is **straight on** —
 a turning route there gets the ordinary hop, since the arc would otherwise bend sideways in mid-air.
 
+The carry is a clock and the bridge is a place, so the kick also counts for `DRIFT_LAUNCH_GRACE`
+= 12 units of travel after its carry runs out on its own (not braked, turned or crashed out of): a
+tier-1 kick out of the corner one block back otherwise ran out ~5.5 units short of the launch point
+and flew the ordinary hop at the kick's speed. A free-driving taxi (no route) with a kick in hand
+has its far-bank exit set to straight on, rather than losing the jackpot to an unseen dice roll.
+
 While it is up there the taxi keeps the boosting taxi's priority junction whatever the pill says,
 ignores the brake (a distance-paced arc on a stopping car is a taxi parked ten units up), and
 `sim/collisions.js` skips it above `DRIFT_LAUNCH_CLEAR`. main.js slows the sim toward the apex
 (`launchTimeScale`, down to 0.4) so 0.65s of flight hangs for about a second, and the landing is
 the slam: the squat and the pitch kick scaled by `DRIFT_SLAM`, a 1.6 shake, a body thud and a ring of
 dust. `tools/probe.mjs` asserts the chain, the brake, the turning exit and the collision skip.
+
+Mid-flight the taxi **barrel-rolls**: one full turn about its own long axis (`barrelRollAt` in
+`sim/traffic.js`), eased in from 12% of the arc and level again by 78%, so the takeoff still reads
+as a ramp and the slam lands on the wheels. It turns about `TAXI_ROLL_PIVOT` (half the deck height)
+rather than the origin at road level, which would swing the car round its own tyres, and the Loco
+plume (`game/locoflame.js`) swings with the tailpipe. Render-only; `?barrelroll=classic` flies it
+level. The probe asserts the body goes upside down and is upright at touchdown, and that neither
+the ordinary hop nor the classic flight rolls.
 
 ## The embankment
 

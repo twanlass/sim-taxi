@@ -28,9 +28,13 @@ import { markEmissive, setEmissiveScale } from './bloom.js';
 // is a freeze, so the cut and the line read as one held beat. Everything here runs on wall time
 // and the main loop draws and returns, the robber's-line branch's shape. A tap skips it.
 //
-// **The bystander is scenery, not a fare.** Somebody always stands outside the bank — which is
-// what makes the shove land, since a victim who appears at the start of the cut reads as staged —
-// but they carry no crystal and no tap target, so there is no board change and no 50/50 to learn.
+// **The bystander is the bank rider.** By default nobody stands outside the bank and the alarm is
+// not there either: a rider appears on the steps as an ordinary fare (BANK_CHANCE in game/fares.js),
+// and when the taxi pulls up for them a coin decides whether they get in or the robber comes out
+// and takes their seat. The figure knocked over here stands exactly where that rider stood, so the
+// swap reads as the rider you came for being shoved out of the way. The alarm appears with the cut
+// and goes with the robbery. `?bankfare=classic` keeps the first version: a bystander who is always
+// there as scenery, an alarm always on the building, and the drive-past trigger.
 
 /** The camera's half-height during the cut, in world units, at its tightest and loosest. */
 const CUT_ZOOM_MIN = 15;
@@ -41,8 +45,12 @@ const CUT_SMOOTHING = 5;
 const LEAD_IN = 0.45;
 /** A sprint, in world units per second — a rider's boarding run is ~5. */
 const RUN_SPEED = 7;
-/** ...and the longest the run may take, however far the cab is: it speeds up to fit. */
-const RUN_MAX = 1.6;
+/**
+ * ...and the longest the run may take, however far the cab is: it speeds up to fit. A cab round
+ * the side of the block makes the run up to 16.8 units (`aroundBlock`), which at the old 1.6 was
+ * a 10.5 u/s blur; 2.2 holds that to 7.6, and a run out front (~6 units) never reaches it.
+ */
+const RUN_MAX = 2.2;
 /** The hop in through the door. */
 const HOP = 0.32;
 /** A beat of the robber being in before the line opens, so the hop lands. */
@@ -82,10 +90,15 @@ const IMPACT_EASE = 0.1;
 const IMPACT_LAND = 0.08;
 /** How limp they are once down: the arms and legs still stir, at a tenth of the flail. */
 const LIE_LIMP = 0.9;
-/** Lying there for this long once the world is back, then up, and a jog back to their spot. */
+/**
+ * Lying there for this long once the world is back, then up, and a jog back to their spot — and
+ * when they were the bank rider rather than scenery, a walk back inside the bank, `WALK_IN` units a
+ * second, since nobody is coming for them now.
+ */
 const DOWN_FOR = 4.5;
 const GET_UP = 0.8;
 const WALK_BACK = 1.3;
+const WALK_IN = 2.2;
 /** Where the robber stops short of the door and how far in the hop reaches — fares.js's numbers. */
 const DOOR_STANDOFF = 0.7;
 const DOOR_REACH = 0.5;
@@ -108,14 +121,114 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const dist = (a, b) => Math.hypot(b.x - a.x, b.z - a.z);
 
 /**
+ * How far in from the kerb a figure running round the bank's block keeps — mid-pavement — and how
+ * far in from the kerb the walls start for the purpose of not running through them: the lot setback
+ * (`INSET` in city/buildings.js, 0.85) less a body's half-width.
+ */
+const ROUND_KERB = 0.3;
+const WALL_IN = 0.55;
+
+/** Does the segment `a`→`b` pass through the inside of the rectangle `r`? Liang–Barsky. */
+function crosses(a, b, r) {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  let t0 = 0;
+  let t1 = 1;
+  for (const [p, q] of [[-dx, a.x - r.x0], [dx, r.x1 - a.x], [-dz, a.z - r.z0], [dz, r.z1 - a.z]]) {
+    if (p === 0) {
+      if (q <= 0) return false;
+      continue;
+    }
+    const t = q / p;
+    if (p < 0) t0 = Math.max(t0, t);
+    else t1 = Math.min(t1, t);
+    if (t0 >= t1) return false;
+  }
+  return t1 - t0 > 1e-6;
+}
+
+/**
+ * The way from `from` to `to` on foot without going through the bank's block: none, one or two of
+ * the block's pavement corners to pass through, shortest first.
+ *
+ * The run used to be a straight line from the bystander to the cab's door, which is fine while the
+ * cab is out front and runs straight through the building when it is not — and the trigger fires
+ * anywhere within 12 units of the door, which takes in most of the side street (TRIGGER_RANGE in
+ * game/robbery.js). Reported as the robber knocking the bystander over and running through the bank.
+ * The block is convex, so the shortest way round it turns at one corner or at two adjacent ones;
+ * trying every such route is eight segments' worth of arithmetic, once a robbery.
+ */
+export function aroundBlock(block, from, to) {
+  const walls = {
+    x0: block.x0 + WALL_IN, z0: block.z0 + WALL_IN, x1: block.x1 - WALL_IN, z1: block.z1 - WALL_IN,
+  };
+  if (!crosses(from, to, walls)) return [];
+  // Round the kerb, anticlockwise, so neighbours in the list are neighbours on the block.
+  const corners = [
+    { x: block.x0 + ROUND_KERB, z: block.z0 + ROUND_KERB },
+    { x: block.x1 - ROUND_KERB, z: block.z0 + ROUND_KERB },
+    { x: block.x1 - ROUND_KERB, z: block.z1 - ROUND_KERB },
+    { x: block.x0 + ROUND_KERB, z: block.z1 - ROUND_KERB },
+  ];
+  let best = null;
+  let bestLength = Infinity;
+  const consider = (via) => {
+    const points = [from, ...via, to];
+    let length = 0;
+    for (let k = 1; k < points.length; k++) {
+      if (crosses(points[k - 1], points[k], walls)) return;
+      length += dist(points[k - 1], points[k]);
+    }
+    if (length < bestLength) { best = via; bestLength = length; }
+  };
+  for (let k = 0; k < 4; k++) {
+    consider([corners[k]]);
+    consider([corners[k], corners[(k + 1) % 4]]);
+    consider([corners[(k + 1) % 4], corners[k]]);
+  }
+  return best ?? [];
+}
+
+/**
+ * The robber's run, planned off where the taxi is: out of the door, down the steps, past the
+ * bystander at arm's length, then to the cab's door — round the block if it has to be. Pure, so
+ * tools/probe.mjs can sweep it against every lane the trigger can fire from.
+ */
+export function planRun(site, taxi) {
+  const f = bankFrontage(site);
+  const home = f.at(f.gapU + BYSTANDER_ALONG, BYSTANDER_OUT, 0);
+  const side = taxiSideToward(taxi, f.steps.x, f.steps.z);
+  const run = taxiDoorPoint(taxi, side, DOOR_STANDOFF, { x: 0, z: 0 });
+  const inside = taxiDoorPoint(taxi, side, -DOOR_REACH, { x: 0, z: 0 });
+  // The shove: the robber passes the bystander at arm's length on the side they came from.
+  const toBy = { x: home.x - f.steps.x, z: home.z - f.steps.z };
+  const l = Math.hypot(toBy.x, toBy.z) || 1;
+  const contact = { x: home.x - (toBy.x / l) * SHOVE_GAP, z: home.z - (toBy.z / l) * SHOVE_GAP };
+  // ...and from there to the cab, round the block rather than through it if the cab is round the
+  // side (see `aroundBlock`).
+  const way = [contact, ...(site.block ? aroundBlock(site.block, contact, run) : []), run];
+  const legs = [
+    [f.doorway, f.steps],
+    [f.steps, contact],
+    ...way.slice(1).map((p, k) => [way[k], p]),
+  ];
+  return { home, toBy: { x: toBy.x / l, z: toBy.z / l }, side, run, inside, contact, legs };
+}
+
+/**
  * @param scene      the scene the bystander and the alarm light go into
  * @param site       the bank (`city.bank`, from `buildBank`)
  * @param cashTrail  game/cashtrail.js — the notes the sack sheds
  * @param controller the city camera (game/camera.js)
  * @param setDoor    `(side, angle)` — the taxi's rear door (`traffic.setTaxiDoor`)
  * @param play       `(name, x?, z?)` — a one-shot, placed where given
+ * @param scenery    true (`?bankfare=classic`) for a bystander who always stands outside and an
+ *                   alarm always on the building; false for the bank rider, where both appear only
+ *                   with the cut — see the header.
  */
-export function createBankJob({ scene, site, cashTrail, controller, setDoor, play = () => {} }) {
+export function createBankJob({
+  scene, site, cashTrail, controller, setDoor, play = () => {}, scenery = false,
+}) {
   const f = bankFrontage(site);
 
   // --- The alarm light -------------------------------------------------------
@@ -130,6 +243,9 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
   );
   alarm.position.set(f.alarm.x, f.alarm.y, f.alarm.z);
   alarm.name = 'bank-alarm';
+  // Not there at all until the bank is being robbed, unless it is scenery. A mesh, not a light, so
+  // hiding it moves no light count (CLAUDE.md).
+  alarm.visible = scenery;
   scene.add(alarm);
   markEmissive(alarm, 'pod');
   setEmissiveScale(alarm, 0);
@@ -138,11 +254,13 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
     if (!on) {
       if (alarmClock === 0) return;
       alarmClock = 0;
+      alarm.visible = scenery;
       alarm.material.color.copy(lampOff);
       setEmissiveScale(alarm, 0);
       return;
     }
     alarmClock += dt;
+    alarm.visible = true;
     const lit = Math.floor(alarmClock / ALARM_PERIOD) % 2 === 0;
     alarm.material.color.copy(lit ? lampOn : lampOff);
     setEmissiveScale(alarm, lit ? 1 : 0);
@@ -153,7 +271,7 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
   // Three groups so no Euler order has to be got right: `spot` stands on the pavement and turns to
   // face the way the fall goes, `tilt` tips about the feet in that frame, and the figure inside
   // poses as it likes.
-  const home = f.at(f.gapU + BYSTANDER_ALONG, BYSTANDER_OUT, 0);
+  const { home } = planRun(site, { x: 0, z: 0, yaw: 0 });
   const facing = Math.atan2(f.out.x, f.out.z);
   const spot = new THREE.Group();
   spot.position.set(home.x, PAVEMENT, home.z);
@@ -161,6 +279,7 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
   spot.add(tilt);
   const bystander = createPerson({ pickable: null });
   tilt.add(bystander.group);
+  spot.visible = scenery;
   scene.add(spot);
 
   const by = {
@@ -243,7 +362,32 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
       tilt.position.set(0, bob, by.slide * (1 - k));
       bystander.group.rotation.y = Math.PI;
       if (k >= 1) {
-        by.phase = 'stand';
+        by.phase = scenery ? 'stand' : 'leave';
+        by.t = 0;
+        bystander.rest();
+      }
+    } else if (by.phase === 'leave') {
+      // The bank rider's taxi has gone: up the steps and in through the door, then gone.
+      by.t += dt;
+      const s = by.t * WALK_IN;
+      const way = [home, f.steps, f.doorway];
+      let rest = s;
+      let k = 0;
+      while (k < way.length - 2 && rest > dist(way[k], way[k + 1])) { rest -= dist(way[k], way[k + 1]); k += 1; }
+      const a = way[k];
+      const b = way[k + 1];
+      const len = dist(a, b) || 1;
+      const u = Math.min(1, rest / len);
+      const p = { x: lerp(a.x, b.x, u), z: lerp(a.z, b.z, u) };
+      spot.position.set(p.x, groundY(p), p.z);
+      spot.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
+      tilt.rotation.x = 0;
+      tilt.position.set(0, bystander.run(by.t * 8) * 0.5, 0);
+      bystander.group.rotation.y = 0;
+      if (k === way.length - 2 && u >= 1) {
+        by.phase = 'gone';
+        spot.visible = false;
+        spot.position.set(home.x, PAVEMENT, home.z);
         bystander.rest();
       }
     }
@@ -260,7 +404,11 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
 
   const groundY = (p) => {
     // The plinth's top, down the steps as a ramp, to the pavement. `v` is how far behind the front
-    // plane this point is, which is what the steps are laid out along.
+    // plane this point is, which is what the steps are laid out along — but only across the
+    // frontage: a point round the side of the block is behind the front plane too, and on the
+    // pavement.
+    const u = (p.x - site.front.x) * f.along.x + (p.z - site.front.z) * f.along.z;
+    if (Math.abs(u) > site.width / 2) return PAVEMENT;
     const v = -((p.x - site.front.x) * f.out.x + (p.z - site.front.z) * f.out.z);
     const k = Math.max(0, Math.min(1, v / f.stepRun));
     return lerp(PAVEMENT, f.doorway.y, k);
@@ -291,21 +439,10 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
    */
   function begin(fare, taxi) {
     const passenger = fare.slot.passenger;
-    const side = taxiSideToward(taxi, f.steps.x, f.steps.z);
-    const run = taxiDoorPoint(taxi, side, DOOR_STANDOFF, { x: 0, z: 0 });
-    const inside = taxiDoorPoint(taxi, side, -DOOR_REACH, { x: 0, z: 0 });
-    // The shove: the robber passes the bystander at arm's length on the side they came from.
-    const toBy = { x: home.x - f.steps.x, z: home.z - f.steps.z };
-    const l = Math.hypot(toBy.x, toBy.z) || 1;
-    const contact = { x: home.x - (toBy.x / l) * SHOVE_GAP, z: home.z - (toBy.z / l) * SHOVE_GAP };
+    const { toBy, side, run, inside, contact, legs } = planRun(site, taxi);
     // Pushed away from the robber and a little out toward the road, which is where a shove off a
     // pavement sends you.
-    const push = { x: toBy.x / l + f.out.x * 0.5, z: toBy.z / l + f.out.z * 0.5 };
-    const legs = [
-      [f.doorway, f.steps],
-      [f.steps, contact],
-      [contact, run],
-    ];
+    const push = { x: toBy.x + f.out.x * 0.5, z: toBy.z + f.out.z * 0.5 };
     const length = legs.reduce((sum, [a, b]) => sum + dist(a, b), 0);
     const speed = Math.max(RUN_SPEED, length / RUN_MAX);
     cut = {
@@ -347,6 +484,12 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
     };
     saved = { x: controller.state.target.x, z: controller.state.target.z, zoom: controller.state.zoom };
     returning = 0;
+    // The bank rider's own spot, so they are standing there when the robber comes out.
+    spot.visible = true;
+    spot.position.set(home.x, PAVEMENT, home.z);
+    by.phase = 'stand';
+    by.clock = 0;
+    standPose(0);
     passenger.standing.rest();
     passenger.standing.setRobber(true);
     // Hidden in the portico until the lead-in is over.
@@ -518,6 +661,12 @@ export function createBankJob({ scene, site, cashTrail, controller, setDoor, pla
       if (door.angle > 0) door.closing = 0;
       if (saved) returning = RETURN_SECONDS;
     },
+    /**
+     * Where the bystander stands and which way is along the frontage away from the door — the bank
+     * rider's doorstep and the way they walk off (`setBankStop` in game/fares.js).
+     */
+    home,
+    along: f.along,
     /** For the tools. */
     state: () => ({ cut: cut && { t: cut.t, done: cut.done, runFor: cut.runFor }, bystander: by.phase }),
     bystander,
