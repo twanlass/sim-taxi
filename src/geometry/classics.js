@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, setFinish, FINISH } from '../util/geo.js';
-import { color } from '../palette.js';
+import { PALETTE, color } from '../palette.js';
 import {
   CHASSIS_LIFT, archedBodyGeometries, wheelGeometries, extrudeOutlines,
 } from './wheels.js';
@@ -113,6 +113,50 @@ export function convertibleGeometry(len, width) {
   parts.push(paint(rail, 'hubcap', FINISH.METAL));
 
   parts.push(...wheelGeometries(len, width));
+  return merge(parts);
+}
+
+/**
+ * The convertible's driver, sat in the left front bucket with both hands on the wheel, in the same
+ * car-local frame as `convertibleGeometry`. Without a roof the empty seat is in plain view, and a
+ * car visibly driving itself reads as a bug (Tyler, 2026-10-13).
+ *
+ * Its own geometry rather than part of the body because the body is tinted per car by the fleet's
+ * instance colour, which would turn a red car's driver red. sim/traffic.js draws this as a second,
+ * untinted instanced mesh riding the body's matrix.
+ *
+ * The figure is geometry/person.js's at about 0.5 scale — torso, head, hair — seated, so the
+ * shoulders and head stand clear of the beltline lip (BODY_TOP + 0.11) and the head tops out at
+ * 2.68, 0.6 above a sedan's roof: at play zoom it is a pale shirt and a head, which is the read.
+ * Sunglasses, because it is a convertible.
+ */
+export function convertibleDriverGeometry(len, width) {
+  const cockpitW = width * 0.78;
+  const seatZ = -cockpitW * 0.25;           // the left bucket — see the steering wheel above
+  const seatTop = BODY_TOP + 0.13;          // the cushion's top
+  const torsoX = len * -0.02 - 0.1;         // sat back against the seat back
+  const TORSO_H = 0.62;
+  const HEAD = 0.31;
+  const parts = [];
+  const bake = (g, hex) => bakeColor(g, new THREE.Color(hex));
+  parts.push(bake(box(0.3, TORSO_H, 0.48, torsoX, seatTop + TORSO_H / 2, seatZ), PALETTE.convertibleShirt));
+  const headY = seatTop + TORSO_H + HEAD / 2;
+  parts.push(bake(box(HEAD, HEAD, HEAD, torsoX, headY, seatZ), PALETTE.convertibleSkin));
+  parts.push(bake(box(HEAD + 0.03, 0.1, HEAD + 0.03, torsoX, headY + HEAD / 2, seatZ), PALETTE.convertibleHair));
+  // The sunglasses: a band across the front of the face, proud of it.
+  parts.push(bake(box(0.04, 0.07, HEAD + 0.02, torsoX + HEAD / 2 + 0.01, headY + 0.03, seatZ), PALETTE.convertibleShades));
+  // Arms, shoulder to the wheel's rim (`cockpitFront - 0.14`, BODY_TOP + 0.24 in convertibleGeometry),
+  // each a box laid along the line between the two and the shirt's colour.
+  const shoulder = new THREE.Vector3(torsoX + 0.05, seatTop + TORSO_H - 0.1, 0);
+  const hand = new THREE.Vector3(len * 0.1 - 0.2, BODY_TOP + 0.3, 0);
+  const reach = hand.clone().sub(shoulder);
+  for (const side of [-1, 1]) {
+    const arm = new THREE.BoxGeometry(reach.length(), 0.11, 0.11);
+    arm.rotateZ(Math.atan2(reach.y, reach.x));
+    const mid = shoulder.clone().add(hand).multiplyScalar(0.5);
+    arm.translate(mid.x, mid.y, seatZ + side * 0.17);
+    parts.push(bake(arm, PALETTE.convertibleShirt));
+  }
   return merge(parts);
 }
 

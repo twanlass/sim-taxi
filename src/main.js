@@ -1155,7 +1155,7 @@ const overtake = createOvertakeCombo({
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
 // contact. The ghost outlines hung off the taxi are filtered out inside `markOccluder`.
 markOccluder(traffic.mesh);
-for (const classic of Object.values(traffic.classicMeshes)) markOccluder(classic);
+for (const classic of traffic.classicDrawn) markOccluder(classic);
 markOccluder(traffic.wheelMesh);
 markOccluder(traffic.truckMesh);
 markOccluder(traffic.truckWheelMesh);
@@ -1217,7 +1217,7 @@ for (const slot of fares.slots) markOccluder(slot.passenger.group);
 if (cartoonEnabled) {
   cartoon.outline(traffic.taxiGroup, { group: 'taxi' });
   cartoon.outline(police.group);
-  for (const source of [traffic.mesh, ...Object.values(traffic.classicMeshes), traffic.truckMesh, traffic.truckBoxMesh]) {
+  for (const source of [traffic.mesh, ...traffic.classicDrawn, traffic.truckMesh, traffic.truckBoxMesh]) {
     scene.add(...cartoon.fleet(source));
   }
 }
@@ -4827,7 +4827,7 @@ const repairCard = {
     // The player's taxi, and the ambient traffic frozen wherever it stood — a car stopped on the
     // depot's lane sat on the stand-in's path. Meshes only, so none of this changes the light count
     // (the cruiser, which carries lamps, stays: CLAUDE.md).
-    hide: [traffic.taxiGroup, traffic.mesh, ...Object.values(traffic.classicMeshes), traffic.wheelMesh,
+    hide: [traffic.taxiGroup, traffic.mesh, ...traffic.classicDrawn, traffic.wheelMesh,
       traffic.truckMesh, traffic.truckWheelMesh,
       traffic.truckBoxMesh, traffic.bumperMesh, traffic.truckBumperMesh, ...traffic.emissiveMeshes,
       ...carDamage.meshes],

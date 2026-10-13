@@ -19736,6 +19736,10 @@ let chopperOrder; // likewise
     const drawn = bodies.filter((inst) => scaleAt(inst, car.instanceIndex) > 0.5);
     return drawn.length !== 1 || drawn[0] !== classic.bodyMeshFor(car);
   }).length;
+  const driverWrong = classic.ambient.filter((car) =>
+    (scaleAt(classic.classicDriverMesh, car.instanceIndex) > 0.5) !== (classic.modelOf(car) === 'convertible')).length;
+  check('classics: every convertible has a driver in it, and nothing else does',
+    driverWrong === 0, `${driverWrong} wrong`);
   const kinds = new Set(models.map((car) => car.model));
   check('classics: each car is drawn by exactly one body, and both models turn up',
     wrong === 0 && kinds.size === 2, `${wrong} cars drawn wrong, models ${[...kinds].join('/')}`);

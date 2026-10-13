@@ -391,6 +391,12 @@ export const PALETTE = {
   convertibleTub: '#2A2624',
   convertibleSeat: '#D8C6A6',
   convertibleHood: '#2E2F33',
+  // Its driver (`convertibleDriverGeometry`), who is NOT tinted — drawn as a mesh of their own —
+  // so these are the colours that show: a white tee, the riders' skin and hair, dark shades.
+  convertibleShirt: '#F1EEE7',
+  convertibleSkin: '#E8B78C',
+  convertibleHair: '#4A3A2E',
+  convertibleShades: '#1B1C20',
   // The Westfalia is NOT tinted (its instance colour is white): a T3 camper's whole identity is the
   // two-tone, an ivory upper over a coloured lower with a black rub strip on the split, and a
   // per-instance multiply would tint the ivory as well. One colourway, a burnt orange off the

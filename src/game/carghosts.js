@@ -326,7 +326,7 @@ export function createCarGhosts(scene, traffic) {
   const {
     mesh, wheelMesh, ambient, wheelsPerCar, taxi,
     truckMesh, truckWheelMesh, truckBoxMesh, trucks, truckWheelsPerCar,
-    classicMeshes = {}, modelOf = () => null,
+    classicMeshes = {}, modelOf = () => null, classicDriverMesh = null,
   } = traffic;
 
   const carPool = createPool(scene, {
@@ -385,6 +385,10 @@ export function createCarGhosts(scene, traffic) {
       parts: [
         { source: classic, per: 1, label: 'Body' },
         { source: wheelMesh, per: wheelsPerCar, label: 'Wheel' },
+        // The convertible's driver is an opaque part of that car, so it is masked like one —
+        // left out, the rim would paint across them wherever they stand in front of the hull.
+        ...(model === 'convertible' && classicDriverMesh
+          ? [{ source: classicDriverMesh, per: 1, label: 'Driver' }] : []),
       ],
       rimSource: classic.geometry,
     });
