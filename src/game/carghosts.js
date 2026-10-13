@@ -326,6 +326,7 @@ export function createCarGhosts(scene, traffic) {
   const {
     mesh, wheelMesh, ambient, wheelsPerCar, taxi,
     truckMesh, truckWheelMesh, truckBoxMesh, trucks, truckWheelsPerCar,
+    classicMeshes = {}, modelOf = () => null, classicInteriorMesh = null,
   } = traffic;
 
   const carPool = createPool(scene, {
@@ -372,7 +373,29 @@ export function createCarGhosts(scene, traffic) {
   // createPool's.
   truckHull.dispose();
 
-  const pools = [carPool, truckPool];
+  // The rare classics (sim/traffic.js `classicMeshes`) are ordinary cars in their own body mesh,
+  // so each is a car pool of its own: masked and rimmed by its own silhouette — a camper traced
+  // with a sedan's hull would leave its whole upper half outside the outline — and read back off
+  // the mesh that actually holds its matrix, since `mesh` holds a zero one for it.
+  const classicPools = {};
+  for (const [model, classic] of Object.entries(classicMeshes)) {
+    classicPools[model] = createPool(scene, {
+      name: `${model}Ghost`,
+      body: classic,
+      parts: [
+        { source: classic, per: 1, label: 'Body' },
+        { source: wheelMesh, per: wheelsPerCar, label: 'Wheel' },
+        // The convertible's interior and driver are an opaque part of that car, so it is masked like one —
+        // left out, the rim would paint across them wherever they stand in front of the hull.
+        ...(model === 'convertible' && classicInteriorMesh
+          ? [{ source: classicInteriorMesh, per: 1, label: 'Interior' }] : []),
+      ],
+      rimSource: classic.geometry,
+    });
+  }
+  const poolFor = (car) => classicPools[modelOf(car)] ?? carPool;
+
+  const pools = [carPool, truckPool, ...Object.values(classicPools)];
 
   // Nearest-N working set, across both classes. Preallocated and refilled in place: a build-and-sort
   // per frame would allocate through a loop that already runs at 60Hz for nothing — N is 8 against
@@ -412,7 +435,7 @@ export function createCarGhosts(scene, traffic) {
       const dz = car.z - taxi.z;
       const d2 = dx * dx + dz * dz;
       if (d2 > limit) continue;
-      consider(car, Math.sqrt(d2), pool);
+      consider(car, Math.sqrt(d2), typeof pool === 'function' ? pool(car) : pool);
     }
   }
 
@@ -447,7 +470,7 @@ export function createCarGhosts(scene, traffic) {
     }
 
     found = 0;
-    scan(ambient, carPool);
+    scan(ambient, poolFor);
     scan(trucks, truckPool);
 
     const fade = smoothstep(state.strength) * GHOST_OPACITY;
@@ -457,6 +480,7 @@ export function createCarGhosts(scene, traffic) {
     }
 
     state.cars = carPool.commit();
+    for (const pool of Object.values(classicPools)) state.cars += pool.commit();
     state.trucks = truckPool.commit();
     state.active = found;
   }

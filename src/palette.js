@@ -384,6 +384,27 @@ export const PALETTE = {
   // whole vehicle as one hull in one colour (carBodyGhost at the cab's index), because the outline
   // says "there is a vehicle there", not "these are its panels".
   truckBox: '#DDD4BE',
+  // The two rare classics (geometry/classics.js). The convertible's body is tinted from carBody
+  // like any car; its folded hood is dark canvas under that tint.
+  convertibleHood: '#2E2F33',
+  // Its interior and driver (`convertibleInteriorGeometry`) are NOT tinted — a mesh of their own —
+  // so these are the colours that show. Brown leather, so the cockpit stands out from the paint
+  // on every car: tinted, the seats were the body's own colour and the hollow read as a dent
+  // (Tyler, 2026-10-13). A white tee, the riders' skin and hair, dark shades.
+  convertibleTub: '#3A2A20',
+  convertibleSeat: '#8A5533',
+  convertibleShirt: '#F1EEE7',
+  convertibleSkin: '#E8B78C',
+  convertibleHair: '#4A3A2E',
+  convertibleShades: '#1B1C20',
+  // The Westfalia is NOT tinted (its instance colour is white): a T3 camper's whole identity is the
+  // two-tone, an ivory upper over a coloured lower with a black rub strip on the split, and a
+  // per-instance multiply would tint the ivory as well. One colourway, a burnt orange off the
+  // taxi's yellow by 26° of hue (18° against #F5C130's 44°) — at one or two on the map it reads as *the* camper.
+  westfaliaLower: '#B5603C',
+  westfaliaUpper: '#EDE6D4',
+  westfaliaRoof: '#F4F1EA',
+  westfaliaTrim: '#25272A',
   // A rammed box truck's rear doors (game/boxspill.js): the leaves are the box's own colour, the
   // latch bar down each free edge is dark steel, and the hold the doors open on is a deep shadow —
   // nothing inside is lit, and a hold the colour of the box reads as the doors having opened on a

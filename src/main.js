@@ -29,7 +29,7 @@ import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import { createGraveyard } from './city/graveyard.js';
 import { plantedCrowns } from './city/props.js';
 import {
-  createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
+  createTraffic, placeCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
   onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll,
@@ -746,6 +746,13 @@ setGlossCity(occluders, SKYLINE_CEILING);
 // the curve at both ends, the way `?seed=` beats a random city: a pinned density is a pinned
 // density, and a tool that asked for one car should get one car for the whole run.
 const pinnedCars = getCarCount(null);
+// The rare classics — the convertible and the Westfalia (CLASSIC_CHANCE in sim/traffic.js).
+// `?classics=classic` is the fleet without them; a number is the chance of each, so `?classics=0.3`
+// puts several on the map to look at.
+const classicsFlag = new URLSearchParams(window.location.search).get('classics');
+const classicChance = classicsFlag === 'classic' ? 0
+  : Number.isFinite(Number.parseFloat(classicsFlag))
+    ? Math.min(0.5, Math.max(0, Number.parseFloat(classicsFlag))) : CLASSIC_CHANCE;
 const traffic = createTraffic(
   makeRng(runSeed + 44), scene,
   pinnedCars ?? difficulty.carCount(0),
@@ -753,6 +760,7 @@ const traffic = createTraffic(
   TRUCK_CHANCE,
   // At least one, so the flatbed (game/flatbed.js) always has a truck to load. See createTraffic.
   1,
+  classicChance,
 );
 // Experiment: the stop bars are the only thing on screen that shows a signal, so hiding them
 // leaves the traffic model obeying lights the player cannot see. Hidden by default while we look
@@ -1150,6 +1158,7 @@ const overtake = createOvertakeCombo({
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
 // contact. The ghost outlines hung off the taxi are filtered out inside `markOccluder`.
 markOccluder(traffic.mesh);
+for (const classic of traffic.classicDrawn) markOccluder(classic);
 markOccluder(traffic.wheelMesh);
 markOccluder(traffic.truckMesh);
 markOccluder(traffic.truckWheelMesh);
@@ -1211,7 +1220,7 @@ for (const slot of fares.slots) markOccluder(slot.passenger.group);
 if (cartoonEnabled) {
   cartoon.outline(traffic.taxiGroup, { group: 'taxi' });
   cartoon.outline(police.group);
-  for (const source of [traffic.mesh, traffic.truckMesh, traffic.truckBoxMesh]) {
+  for (const source of [traffic.mesh, ...traffic.classicDrawn, traffic.truckMesh, traffic.truckBoxMesh]) {
     scene.add(...cartoon.fleet(source));
   }
 }
@@ -4828,7 +4837,8 @@ const repairCard = {
     // The player's taxi, and the ambient traffic frozen wherever it stood — a car stopped on the
     // depot's lane sat on the stand-in's path. Meshes only, so none of this changes the light count
     // (the cruiser, which carries lamps, stays: CLAUDE.md).
-    hide: [traffic.taxiGroup, traffic.mesh, traffic.wheelMesh, traffic.truckMesh, traffic.truckWheelMesh,
+    hide: [traffic.taxiGroup, traffic.mesh, ...traffic.classicDrawn, traffic.wheelMesh,
+      traffic.truckMesh, traffic.truckWheelMesh,
       traffic.truckBoxMesh, traffic.bumperMesh, traffic.truckBumperMesh, ...traffic.emissiveMeshes,
       ...carDamage.meshes],
   }),

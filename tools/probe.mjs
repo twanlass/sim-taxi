@@ -19748,6 +19748,53 @@ let chopperOrder; // likewise
     `${placed}/${N} placed, ${downtown} downtown, ${open} with the road open, ${shared} sharing a block`);
 }
 
+// The rare classics (CLASSIC_MODELS in sim/traffic.js). Looks only: the model is read off `phase`
+// rather than rolled, so turning them on must not move a single car — every seeded measurement in
+// this file was taken with them off — and each car must be drawn by exactly one body mesh, since
+// the other two hold a zero matrix at its index and a slip there is either a missing car or a
+// sedan and a camper standing in the same spot.
+{
+  const plainScene = new THREE.Scene();
+  const plain = createTraffic(makeRng(seed + 44), plainScene, 24);
+  const classicScene = new THREE.Scene();
+  const classic = createTraffic(makeRng(seed + 44), classicScene, 24, 24, 0, 0, 0.3);
+  const same = plain.cars.length === classic.cars.length && plain.cars.every((car, i) => {
+    const other = classic.cars[i];
+    return car.lane === other.lane && car.s === other.s && car.colorIndex === other.colorIndex
+      && car.phase === other.phase;
+  });
+  const models = classic.cars.filter((car) => car.model);
+  check('classics: turning them on moves no car and repaints none',
+    same && plain.cars.every((car) => car.model === null),
+    `${models.length} classics in ${classic.cars.length}`);
+  classic.update(1 / 60);
+  const scaleAt = (inst, index) => {
+    const m = new THREE.Matrix4();
+    inst.getMatrixAt(index, m);
+    return new THREE.Vector3().setFromMatrixScale(m).x;
+  };
+  const bodies = [classic.mesh, ...Object.values(classic.classicMeshes)];
+  const wrong = classic.ambient.filter((car) => {
+    const drawn = bodies.filter((inst) => scaleAt(inst, car.instanceIndex) > 0.5);
+    return drawn.length !== 1 || drawn[0] !== classic.bodyMeshFor(car);
+  }).length;
+  const driverWrong = classic.ambient.filter((car) =>
+    (scaleAt(classic.classicInteriorMesh, car.instanceIndex) > 0.5) !== (classic.modelOf(car) === 'convertible')).length;
+  check('classics: every convertible has a driver in it, and nothing else does',
+    driverWrong === 0, `${driverWrong} wrong`);
+  const kinds = new Set(models.map((car) => car.model));
+  check('classics: each car is drawn by exactly one body, and both models turn up',
+    wrong === 0 && kinds.size === 2, `${wrong} cars drawn wrong, models ${[...kinds].join('/')}`);
+  const tint = new THREE.Color();
+  const campers = classic.ambient.filter((car) => car.model === 'westfalia');
+  const tinted = campers.filter((car) => {
+    classic.classicMeshes.westfalia.getColorAt(car.instanceIndex, tint);
+    return tint.r < 1 || tint.g < 1 || tint.b < 1;
+  }).length;
+  check('classics: the Westfalia wears its baked two-tone, untinted',
+    campers.length > 0 && tinted === 0, `${tinted} of ${campers.length} tinted`);
+}
+
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
 // how many cars happen to be moving at the instant the sim stops.
 const throughput = stats.distance / stats.time / traffic.cars.length;
