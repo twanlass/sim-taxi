@@ -3511,6 +3511,8 @@ function updateHud(dt) {
       scores: collectScores(),
       // "Play again" means the run, not the menu: the reload goes straight past the title screen.
       onRetry: () => { skipTitleNextLoad(); location.reload(); },
+      // What the run unlocked, after the table and before the button.
+      finale: showUnlockedMoves,
     });
     document.body.classList.add('game-over');
     sfx?.fadeOutMusic();
@@ -4769,10 +4771,11 @@ const pause = shot ? null : createPause({
   },
 });
 
-// "New Move Unlocked": the card that teaches the bootleg and then the drift, each once ever, a beat
-// after the drop-off that brings a run to that move's `after` fares (MOVES in game/newmove.js). The
-// world stops while it is up — the early return in `frame()` beside the robber's line's. See
-// game/newmove.js for when and why.
+// "New Move Unlocked": the card that teaches the overtake, the bootleg and the drift, each once ever,
+// once a run has reached that move's `after` fares (MOVES in game/newmove.js). By default it goes up
+// after the run, behind the high-score table and before Play again (`showUnlockedMoves`); under
+// `?newmove=classic`, a beat after the drop-off that unlocked it, mid-run. The world stops while it
+// is up — the early return in `frame()` beside the robber's line's. See game/newmove.js for why.
 // Centred over a dim, with the move acted out inside it on a real street of this city — see
 // game/moveclip.js. The street (or for the drift, the corner) is chosen when the card opens, off the
 // cars where they stand then, since they stay there until it closes.
@@ -4821,7 +4824,12 @@ const repairCard = {
 };
 // Seconds of game time until it lands, or negative while the car is not smoking.
 let repairCardIn = -1;
-const newMove = shot ? null : createNewMove({ viewport });
+// `?newmove=classic` puts the move cards back mid-run, a beat after the drop-off. The depot's card
+// is not a move and stays mid-run either way: it is about the car smoking now.
+const movesAfterRun = new URLSearchParams(window.location.search).get('newmove') !== 'classic';
+// What a closing card hands over to — the next card of the run's queue (`showUnlockedMoves`).
+let afterNewMove = null;
+const newMove = shot ? null : createNewMove({ viewport, onClose: () => afterNewMove?.() });
 // Seconds of game time until the card lands, or negative when none is due, and which move it is.
 let newMoveIn = -1;
 let newMoveDue = null;
@@ -4852,6 +4860,31 @@ const newMoveCalm = () => !fares.state.gameOver && !traffic.taxi.crashed
   && !robbery?.state.active && !patrol.busy() && !robberLine?.isOpen()
   && !opening?.visiting() && !depotRun?.active() && !burgerRun?.holdsTaxi()
   && !replay?.active() && replayAt === null;
+/**
+ * The run is over and its high-score table has landed: every move it unlocked, one card after the
+ * other in MOVES' order, then `done` (the run-end screen's Play again). Answers false when there is
+ * nothing to show. Over the blackout rather than instead of it (`body.new-move-after-run`), so the
+ * card closes back onto the run's own screen; the clip still films the city under it.
+ */
+function showUnlockedMoves(done) {
+  if (!movesAfterRun || !newMove) return false;
+  const queue = Object.values(moves).filter((m) => newMoveWanted(m) && fares.state.delivered >= m.after);
+  if (!queue.length) return false;
+  document.body.classList.add('new-move-after-run');
+  const next = () => {
+    const move = queue.shift();
+    if (!move) {
+      afterNewMove = null;
+      document.body.classList.remove('new-move-after-run');
+      done();
+      return;
+    }
+    afterNewMove = next;
+    if (!openNewMove(move)) next();
+  };
+  next();
+  return true;
+}
 function openNewMove(move = newMoveDue ?? moves.uturn) {
   if (!newMove?.open(move)) return false;
   move.seen.set();
@@ -5449,8 +5482,10 @@ function tick() {
       // target and `depotRun.update` stands down on the next frame. A car already staged in the
       // driveway finishes its visit and `resumeJob` hands it the drop-off on the way out.
     } else if (type === 'delivered') {
-      newMoveDue = nextMove(fares.state.delivered);
-      if (newMoveWanted()) newMoveIn = SHOW_DELAY;
+      if (!movesAfterRun) {
+        newMoveDue = nextMove(fares.state.delivered);
+        if (newMoveWanted()) newMoveIn = SHOW_DELAY;
+      }
       // Out they get: open, and shut a beat later once they are clear of the car.
       sfx?.play('doorOpen');
       sfx?.play('doorClose', { delay: 0.7 });

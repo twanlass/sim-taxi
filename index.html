@@ -1408,6 +1408,9 @@
       }
       #new-move[hidden] { display: none; }
       body.game-over #new-move { display: none; }
+      /* Except at the end of a run, where the moves it unlocked go up over the run-end blackout (30),
+         after the high-score table (main.js `showUnlockedMoves`). */
+      body.new-move-after-run #new-move { display: block; z-index: 31; }
       body.new-move-open #new-move {
         pointer-events: auto; cursor: pointer; touch-action: manipulation;
         background: rgba(6, 14, 22, 0.72);
