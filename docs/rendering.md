@@ -220,6 +220,13 @@ on a white panel a ragged black claw mark from 14 coarse steps reads as a scratc
 paint counts a step by how far under the roof it is, against a depth that grows with the ray's
 length (`GLOSS_HIT_SOFT`): the further the thing reflected, the blurrier its edge.
 
+**Three explored looks** sit on the same source behind `?paint=`, each the layered numbers with a
+few overridden (`PAINT_LOOK_NUMBERS`) and up to four GLSL slots filled (`PAINT_LOOKS`):
+`chameleon` turns the base hue by up to 2.3 rad as a panel turns away, so edges flip colour;
+`satin` is a wrap — almost no coat, a broad sheen and a velvet rim; `toon` makes the glint and
+sheen hard shapes and the coat one band of sky past 0.6 graze. They are explorations, not the
+default.
+
 **Cost.** Per glossy fragment: two hashes, the derivatives, and two more Blinn-Phong lobes per
 light (one at play zoom, where the sparkle is skipped). Cars are a few percent of the frame, and
 `?bench` has a `paint classic` row to put a number on it on a device; SwiftShader cannot.

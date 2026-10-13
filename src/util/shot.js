@@ -555,6 +555,11 @@ export function getPaintClassic() {
   return new URLSearchParams(window.location.search).get('paint') === 'classic';
 }
 
+/** `?paint=chameleon|satin|toon` — the explored looks (util/geo.js, PAINT_LOOKS); null otherwise. */
+export function getPaintLook() {
+  return new URLSearchParams(window.location.search).get('paint');
+}
+
 /**
  * The river's surface — `?water=classic` brings back the faceted first build; anything else is the
  * smooth one, with the shelving bed and the lip at the walls (city/riverwater.js).

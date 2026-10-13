@@ -153,7 +153,7 @@ import {
 import {
   propMaterial, unlitMaterial, setAmbientOcclusion, setCrayon, setCartoon,
   AO_UNIFORMS, CRAYON_UNIFORMS, CARTOON_UNIFORMS, BODY_EULER_ORDER, FINISH,
-  FINISH_DEFAULTS, flakeMeanSharp, setClassicPaint, glossTuning,
+  FINISH_DEFAULTS, flakeMeanSharp, setClassicPaint, setPaintLook, glossTuning,
 } from '../src/util/geo.js';
 import {
   AO_LAYER, markOccluder, unmarkOccluder, occluderList, RING_BROAD, RING_TIGHT, MAX_DEPTH_DIFF,
@@ -11666,6 +11666,14 @@ function rideToPickup() {
     setClassicPaint(true);
     const classic = build();
     setClassicPaint(false);
+    // The explored looks (`?paint=chameleon|satin|toon`): every slot filled, each its own program.
+    const looks = ['chameleon', 'satin', 'toon'].map((look) => { setPaintLook(look); return build(); });
+    setPaintLook('layered');
+    check('each explored paint look fills its slots and keys its own program',
+      looks.every((l) => !l.frag.includes('__LOOK') && l.frag.includes('gGlintIrr'))
+      && new Set([layered.key, classic.key, ...looks.map((l) => l.key)]).size === 5
+      && !layered.frag.includes('__LOOK'),
+      looks.map((l) => l.key).join(' '));
     const others = ['tyre', 'glass', 'metal'].every((name) => ['flake', 'coat', 'tint', 'flop']
       .every((k) => FINISH_DEFAULTS[name][k] === 0));
     check('the layered paint filters its flake and softens its skyline; ?paint=classic is the old source',

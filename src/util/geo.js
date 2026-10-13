@@ -708,10 +708,32 @@ const PAINT_CLASSIC = {
   flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0, flop: 0,
 };
 
+// Three divergent looks on the layered paint's source, explored behind `?paint=<name>`. Each is the
+// layered paint's numbers with these over the top, plus its own GLSL (`PAINT_LOOKS` below).
+//
+// - `chameleon`: colour-shift paint. The base hue rotates as a panel turns away from the camera,
+//   so every car flips to a second colour at its edges — a red car goes purple, a teal one gold.
+// - `satin`: a wrap, not a lacquer. No clear coat to speak of, a broad soft sheen, and a velvet
+//   rim that lifts the paint at grazing angles instead of mirroring the street there.
+// - `toon`: cel paint. The glint and the sheen are hard-edged shapes rather than lobes, and the
+//   clear coat is one hard band of sky along the bent edges.
+const PAINT_LOOK_NUMBERS = {
+  chameleon: { coat: 1, tint: 1, flop: 0.1, sheen: 0.7, flake: 0.9 },
+  satin: {
+    glint: 0.04, glintSharp: 60, sheen: 0.9, sheenSharp: 3, flake: 0.15, coat: 0.1, tint: 0.6,
+    flop: 0, diffuse: 1.3,
+  },
+  toon: { glint: 1, sheen: 0.45, flake: 0, coat: 0, tint: 0.5, flop: 0 },
+};
+
 let classicPaint = false;
-const finishDefaults = () => (classicPaint
-  ? { ...structuredClone(FINISH_DEFAULTS), paint: { ...PAINT_CLASSIC } }
-  : structuredClone(FINISH_DEFAULTS));
+let paintLook = 'layered';
+const finishDefaults = () => {
+  const finishes = structuredClone(FINISH_DEFAULTS);
+  if (classicPaint) finishes.paint = { ...PAINT_CLASSIC };
+  else Object.assign(finishes.paint, PAINT_LOOK_NUMBERS[paintLook] ?? {});
+  return finishes;
+};
 
 /**
  * The flakes' mean lobe: what a field of flakes tilted by `tilt`, each with exponent `sharp`,
@@ -767,6 +789,12 @@ writeGlobal();
  */
 export function setClassicPaint(enabled) {
   classicPaint = enabled;
+  resetGlossTuning();
+}
+
+/** `?paint=chameleon|satin|toon` — one of the explored looks, or `layered` (the default). */
+export function setPaintLook(look) {
+  paintLook = look in PAINT_LOOK_NUMBERS ? look : 'layered';
   resetGlossTuning();
 }
 
@@ -892,6 +920,7 @@ const GLOSS_NORMAL = /* glsl */ `
 ${GLOSS_BEND}
 		float gNV = clamp(gReflN.z, 0.0, 1.0);
 		diffuseColor.rgb *= 1.0 - gFinD.z * (1.0 - gNV) * (1.0 - gNV);
+__LOOK_BASE__
 		float gPeak = max(max(diffuseColor.r, diffuseColor.g), max(diffuseColor.b, 1e-3));
 		gTint = mix(vec3(1.0), diffuseColor.rgb / gPeak, gFinD.y);
 
@@ -999,11 +1028,12 @@ const glossFragment = (classic) => /* glsl */ `
 		vec3 gR = reflect(-gEye, gN);
 		gR.y = max(abs(gR.y), 0.12);
 		gR = normalize(gR);
-		vec3 gEnv = mix(uGlossHorizon, uGlossTop, pow(gR.y, 0.6));
+		vec3 gEnv = mix(uGlossHorizon, uGlossTop, __LOOK_SKY__);
 		float gGraze = 1.0 - clamp(gReflN.z, 0.0, 1.0);
 		float gMirror = (gFinB.z + gFinB.w * gGraze * gGraze * gGraze
 			+ gFinD.x * (0.04 + 0.96 * pow(min(gGraze, 0.88), 5.0)))
 			* mix(uGlossMirror, uGloss, gIsPaint);
+__LOOK_MIRROR__
 		if (uGlossCityOn > 0.5 && gMirror > 0.0) {
 			float gT = 0.6;
 			float gOcc = 0.0;
@@ -1017,10 +1047,53 @@ ${classic ? GLOSS_HIT_CLASSIC : GLOSS_HIT_SOFT}
 			}
 			gEnv = mix(gEnv, uGlossHorizon * uGlossGlobal.y * (0.7 + 0.6 * gHitY / uGlossCeiling), gOcc);
 		}
+__LOOK_FINAL__
 		outgoingLight = mix(outgoingLight, gEnv, clamp(gMirror, 0.0, 1.0));
 		if (uGlossGlobal.z > 0.5) outgoingLight = gFinishColor;
 	}
 `;
+
+// The explored looks' GLSL, dropped into four slots of the layered paint's source. Anything a look
+// leaves out keeps the layered paint's line.
+//
+// **Chameleon** rotates the base colour about the grey axis (Rodrigues), by up to `CHAMELEON_TURN`
+// radians as N·V falls from 0.6 — the face-on middle of a roof or flank sits around 0.55 under
+// this camera, so the middle of a panel keeps its own colour and only its rolled edges flip.
+//
+// **Satin** adds a velvet rim, the lift a brushed or fibrous surface gets at grazing angles,
+// scaled off the lit colour so it never brightens a panel in shadow.
+//
+// **Toon** thresholds the glint and the sheen into shapes, quantises the sky into two bands, and
+// replaces the clear coat's curve with one hard band past 0.6 graze.
+const CHAMELEON_TURN = 2.3;
+const LOOK_DEFAULT_SKY = 'pow(gR.y, 0.6)';
+const PAINT_LOOKS = {
+  chameleon: {
+    base: `
+		{
+			float gTurn = ${CHAMELEON_TURN.toFixed(2)} * gIsPaint * smoothstep(0.6, 0.0, gNV);
+			const vec3 gK = vec3(0.57735);
+			diffuseColor.rgb = max(diffuseColor.rgb * cos(gTurn) + cross(gK, diffuseColor.rgb) * sin(gTurn)
+				+ gK * dot(gK, diffuseColor.rgb) * (1.0 - cos(gTurn)), 0.0);
+		}`,
+  },
+  satin: {
+    final: `
+		outgoingLight += outgoingLight * gIsPaint * 1.1 * gGraze * gGraze * gGraze;`,
+  },
+  toon: {
+    sky: 'step(0.45, gR.y)',
+    mirror: `
+		gMirror += gIsPaint * 0.5 * step(0.6, gGraze) * uGloss;`,
+    specular: /* glsl */ `{
+		vec3 gH = normalize( directLight.direction + geometryViewDir );
+		float gLit = step( 0.0, dot( gReflN, directLight.direction ) );
+		float gGlintIrr = smoothstep( 0.982, 0.986, dot( gSpecN, gH ) ) * gFinA.x;
+		float gSh = smoothstep( 0.86, 0.87, dot( gReflN, gH ) ) * gFinA.w;
+		reflectedLight.directSpecular += directLight.color * gLit * ( gGlintIrr * 1.6 + gSh * gTint );
+	}`,
+  },
+};
 
 /**
  * The one patch every lit prop material carries — screen-space AO, Crayon Mode, or both.
@@ -1048,7 +1121,7 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
   // `?crayon&ao=off` a crayoned material and a bare one would otherwise share a key.
   const useAO = aoEnabled && ao;
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
-    + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : ''}` : ''}`
+    + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}` : ''}`
     + `${cloudsEnabled ? '-clouds' : ''}`;
   material.customProgramCacheKey = () => key;
 
@@ -1060,6 +1133,7 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
     if (gloss) {
       // The shared bag plus this body's own shape and paint share, which differ between a car, a
       // truck's cab and the taxi while the source does not — so per material, under one cache key.
+      const look = classicPaint ? {} : PAINT_LOOKS[paintLook] ?? {};
       Object.assign(shader.uniforms, GLOSS_UNIFORMS, {
         uGloss: { value: gloss.amount },
         uGlossMirror: { value: gloss.mirror },
@@ -1108,13 +1182,16 @@ vec3 gReflN;
 ${classicPaint ? 'float gFlake;' : GLOSS_PAINT_DECLS}`)
         .replace('#include <lights_phong_pars_fragment>',
           THREE.ShaderChunk.lights_phong_pars_fragment.replace(GLOSS_SPECULAR_FROM,
-            classicPaint ? GLOSS_SPECULAR_CLASSIC : GLOSS_SPECULAR_TO))
+            classicPaint ? GLOSS_SPECULAR_CLASSIC : look.specular ?? GLOSS_SPECULAR_TO))
         .replace('#include <color_fragment>', `#include <color_fragment>
 ${GLOSS_COLOR}`)
         .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-${classicPaint ? GLOSS_NORMAL_CLASSIC : GLOSS_NORMAL}`)
+${classicPaint ? GLOSS_NORMAL_CLASSIC : GLOSS_NORMAL.replace('__LOOK_BASE__', look.base ?? '')}`)
         .replace('#include <envmap_fragment>', `#include <envmap_fragment>
-${glossFragment(classicPaint)}`);
+${glossFragment(classicPaint || paintLook === 'toon')
+  .replace('__LOOK_SKY__', look.sky ?? LOOK_DEFAULT_SKY)
+  .replace('__LOOK_MIRROR__', look.mirror ?? '')
+  .replace('__LOOK_FINAL__', look.final ?? '')}`);
       // Never a blind replace (CLAUDE.md): a hook that matched nothing is a matte car and no error.
       for (const marker of ['attribute float aFinish', 'vGlossFinish = aFinish', 'aFinish > 2.5']) {
         if (!shader.vertexShader.includes(marker)) throw new Error(`gloss: vertex hook missed (${marker})`);
