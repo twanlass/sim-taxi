@@ -19622,6 +19622,45 @@ let chopperOrder; // likewise
       `${wrongEnd}/${frames} frames with a lamp off its end, beam ${beamDay}/${beamNight.toFixed(2)}`);
   }
 
+  // The intro: bents rise on the city's wave, then the spans are laid one at a time from the
+  // taxi's end, and only once the island's bents are up. Run on the schedule the shaders read.
+  {
+    const lti = createLTrain(new THREE.Scene(), makeRng(9));
+    const { deckSpans } = await import('../src/game/ltrain.js');
+    const spans = deckSpans(lti.plan);
+    const from = { x: -30, z: 10 };
+    const { rise, drop, end } = lti.intro.schedule(from, { wave: 0.015, grow: 0.3 });
+    const islandRise = lti.plan.columns.map((x, k) => (Math.abs(x) < HALF_SPAN_X ? rise[k] : 0));
+    const firstDrop = Math.min(...drop);
+    const mid = spans.map((sp) => (sp.from + sp.to) / 2);
+    const island = spans.map((_, k) => k).filter((k) => Math.abs(mid[k]) < HALF_SPAN_X - 5)
+      .sort((a, b) => mid[a] - mid[b]);
+    // Taxi on the west, so the island's spans come down west to east, each after the last.
+    const ordered = island.every((k, n) => n === 0 || drop[k] > drop[island[n - 1]] + 1e-6);
+    const deckIdx = lti.deck.geometry.attributes.span;
+    let maxSpan = 0;
+    for (let i = 0; i < deckIdx.count; i++) maxSpan = Math.max(maxSpan, deckIdx.getX(i));
+    lti.intro.start(from, { wave: 0.015, grow: 0.3, overshoot: 3.9 });
+    const heldTrain = (() => {
+      for (let n = 0; n < 60; n++) lti.update(1 / 60);
+      return lti.state.phase === 'wait';
+    })();
+    for (let n = 0; n < 60 * 6; n++) lti.intro.update(1 / 60);
+    const stubI = { vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader, uniforms: {} };
+    lti.material.onBeforeCompile(stubI, null);
+    const stubD = { vertexShader: THREE.ShaderLib.depth.vertexShader, fragmentShader: THREE.ShaderLib.depth.fragmentShader, uniforms: {} };
+    lti.deck.customDepthMaterial.onBeforeCompile(stubD, null);
+    const classicI = createLTrain(new THREE.Scene(), makeRng(9), { intro: false });
+    check('ltrain: the bents rise first, then the island spans are laid one at a time from the taxi\'s end',
+      firstDrop >= Math.max(...islandRise) + 0.3 && ordered && island.length >= 8
+        && maxSpan === spans.length - 1 && end < 5 && heldTrain && !lti.intro.running()
+        && stubI.vertexShader.includes('aLIntro') && stubI.fragmentShader.includes('vLIntro <')
+        && stubD.vertexShader.includes('aLIntro') && stubD.vertexShader.includes('mvPosition.z -=')
+        && lti.material.customProgramCacheKey().endsWith('-lintro')
+        && classicI.intro === null && classicI.entryObjects.length === 1,
+      `${island.length} island spans, first drop ${firstDrop.toFixed(2)}s, done ${end.toFixed(2)}s, ordered ${ordered}`);
+  }
+
   // The dither patch, run rather than trusted: a replace that stops matching hands back the shader
   // untouched and the deck stops fading with nothing logged.
   const stub = {
@@ -19632,7 +19671,7 @@ let chopperOrder; // likewise
   lt.material.onBeforeCompile(stub, null);
   check('ltrain: the fade lands in the shader', stub.fragmentShader.includes('discard')
     && stub.vertexShader.includes('vLWorld = ') && 'uLFade' in stub.uniforms
-    && lt.material.customProgramCacheKey().endsWith('-ltrain'));
+    && lt.material.customProgramCacheKey().includes('-ltrain'));
 }
 
 // The graveyard (city/graveyard.js): a double block the towers leave alone — two blocks stacked
