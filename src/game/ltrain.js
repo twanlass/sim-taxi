@@ -369,7 +369,6 @@ function buildDeck(plan) {
       parts.push(box(len, RAIL_H, RAIL_W, mid, DECK_TOP + TIE_H + RAIL_H / 2, t + r, PALETTE.ltrainRail));
     }
   }
-  trusses(plan, parts);
   return mergeGeometries(parts, false);
 }
 
@@ -399,7 +398,9 @@ function strut(a, b, w, colour) {
   return bakeColor(g, colour);
 }
 
-function trusses(plan, parts) {
+/** The trusses in the group's frame, or null when no span is long enough to want one. */
+function buildTrusses(plan) {
+  const parts = [];
   const steel = PALETTE.ltrainSteel;
   const dark = PALETTE.ltrainSteelDark;
   const lo = DECK_TOP - 0.1;
@@ -431,6 +432,7 @@ function trusses(plan, parts) {
       parts.push(strut([a0 + k * step, hi, -zs], [a0 + k * step, hi, zs], TRUSS_W * 0.8, dark));
     }
   }
+  return parts.length ? mergeGeometries(parts, false) : null;
 }
 
 /** The columns, each a footing, a shaft and a hammerhead cap under the girders. */
@@ -526,6 +528,19 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
   // for the same reason it is on a bridge, since its shadow lands three units down on asphalt.
   sinkShadowCaster(deck);
   group.add(deck);
+
+  // The river truss stays solid: Tyler, 2026-10-13, "don't do any truss fading". It is its own mesh
+  // on a plain material so the deck's dither round the taxi and the pins never reaches it — the
+  // taxi under it is still found by the ghost outline. It stands over the river, nowhere near the
+  // coast, so the coast fade has nothing to do there either.
+  const trussGeo = buildTrusses(plan);
+  if (trussGeo) {
+    const truss = new THREE.Mesh(trussGeo, propMaterial());
+    truss.name = 'ltrain-truss';
+    truss.castShadow = true;
+    truss.receiveShadow = true;
+    group.add(truss);
+  }
 
   // The columns are not sunk: their shadow starts at their own foot, and sinking it would detach it.
   const columns = new THREE.Mesh(buildColumns(plan), material);

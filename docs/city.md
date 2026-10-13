@@ -242,13 +242,15 @@ arterial, beside the river, with the old crossings (Tyler moved it across the ri
   `plan.alongOf(x, z)` convert; the shader's coast fade reads `-z` instead of `x` (`uLAxis`).
 - **It crosses the river on a truss.** The river gap has no median — the road bridge runs junction
   to junction — so the bents either side stand 34 apart against 7–13 everywhere else. Any span past
-  `TRUSS_FROM` (20) gets a through Warren truss standing up past the train's roof.
+  `TRUSS_FROM` (20) gets a through Warren truss standing up past the train's roof. The truss is
+  its own mesh on a plain material and never fades (Tyler: "don't do any truss fading"); the deck
+  under it still dithers round the taxi and the pins like the rest of the line.
 - **The drawbridge moves off its line.** A lifted leaf would go through a 6.4 deck, so `planRiver`
   always gives the train's line a fixed (arched) bridge and puts the leaf one line over
   ([river.md](river.md#which-crossings-bridge)). On the arch's crest (1.9) a box truck's top is
   5.4 against the floor beams' 5.88; the tallest mast (`TUG_AIR`) tops out at 1.4. A Big Air
-  launch off that arch (`DRIFT_LAUNCH_HEIGHT` 10) does go up through the truss, with the deck
-  dithered out round the taxi.
+  launch off that arch (`DRIFT_LAUNCH_HEIGHT` 10) does go up through the truss, and Tyler kept it
+  that way: the taxi flies through solid steel and the ghost outline shows it behind the members.
 - **Off the north end** it runs on over the north park (`NORTH_PARK_DEPTH`, `coastNorth()`) and
   fades past it; off the south end it fades with the slab.
 
