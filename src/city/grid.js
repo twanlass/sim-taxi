@@ -432,7 +432,7 @@ export const HARBOR = typeof location !== 'undefined'
 /** The island's margin past each ring road, before the fade. Owned here so the harbor can measure from it. */
 export const SLAB_MARGIN = ROAD_W * 3;
 /** How much further the island reaches east of the old coast to hold the harbor. */
-export const HARBOR_REACH = HARBOR ? 40 : 0;
+export const HARBOR_REACH = HARBOR ? 44 : 0;
 /** The old coast, measured from the origin, on either side. */
 export const COAST_X = (SPAN_X + SLAB_MARGIN) / 2;
 /** Where the island ends to the west and to the east. Only the east one moves. */

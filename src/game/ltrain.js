@@ -5,7 +5,10 @@ import { PALETTE } from '../palette.js';
 import {
   GRID_I, GRID_J, lineZ, isArterialX, laneOffX, medianRuns, MEDIAN_W,
 } from '../city/grid.js';
-import { SLAB_X, EDGE_FADE, KERB_H } from '../city/ground.js';
+import { EDGE_FADE, KERB_H } from '../city/ground.js';
+import { coastWest, coastEast } from '../city/grid.js';
+import { WATER_Y } from '../city/river.js';
+import { harborLandAt } from '../city/harborplan.js';
 import { VIEW_DIR } from './camera.js';
 import { sinkShadowCaster } from './scene.js';
 import { markOccluder } from './ssao.js';
@@ -98,8 +101,12 @@ export const CAP_UNDERSIDE = DECK_TOP - GIRDER_D - CAP_H;
  */
 const OFFSHORE_PITCH = 11;
 
-/** How far off each end of the map the line runs, so a train can vanish into the haze whole. */
-const LINE_END = () => SLAB_X / 2 + EDGE_FADE + TRAIN_LEN / 2 + 2;
+/**
+ * How far off each end of the map the line runs, so a train can vanish into the haze whole. Per
+ * side, because with the harbor (`?harbor=classic` to drop it) the east coast is out past the piers
+ * and the line runs on over them and the sea.
+ */
+const LINE_END = (side) => Math.abs(side < 0 ? coastWest() : coastEast()) + EDGE_FADE + TRAIN_LEN / 2 + 2;
 
 // --- The train ----------------------------------------------------------------------------------
 
@@ -165,12 +172,12 @@ const FADE_LIFT = (DECK_TOP - GIRDER_D / 2 - SUBJECT_Y) * (VIEW_DIR.x / VIEW_DIR
 // eye reads as gone well before the alpha reaches zero; a deck on the ground's exact ramp was still
 // plainly there over open sky, a dotted girder hanging off the island. So the line starts going at
 // the island's edge less a few units and is gone by about where the ground stops reading.
-const COAST_FROM = SLAB_X / 2 - 5;
+const COAST_FROM = (side) => Math.abs(side < 0 ? coastWest() : coastEast()) - 5;
 const COAST_BAND = EDGE_FADE * 0.6;
 
 const FADE_UNIFORMS = {
   uLFade: { value: Array.from({ length: FADE_SLOTS }, () => new THREE.Vector3(0, 0, 0)) },
-  uLCoast: { value: new THREE.Vector2(COAST_FROM, COAST_BAND) },
+  uLCoast: { value: new THREE.Vector3(COAST_FROM(-1), COAST_FROM(1), COAST_BAND) },
   uLRadius: { value: new THREE.Vector3(FADE_IN, FADE_OUT, FADE_FLOOR) },
 };
 
@@ -212,7 +219,7 @@ varying vec3 vLWorld;`)
       .replace('#include <common>', `#include <common>
 varying vec3 vLWorld;
 uniform vec3 uLFade[${FADE_SLOTS}];
-uniform vec2 uLCoast;
+uniform vec3 uLCoast;
 uniform vec3 uLRadius;
 float lBayer(vec2 p) {
   // 4x4 ordered dither threshold in (0, 1).
@@ -225,7 +232,8 @@ float lBayer(vec2 p) {
       .replace(CLIP_FRAGMENT, `${CLIP_FRAGMENT}
 {
   // Off the island: the same smoothstep the ground fades on.
-  float edge = clamp((abs(vLWorld.x) - uLCoast.x) / uLCoast.y, 0.0, 1.0);
+  // x is the west coast's distance and y the east's, which the harbor pushes further out.
+  float edge = clamp((abs(vLWorld.x) - (vLWorld.x < 0.0 ? uLCoast.x : uLCoast.y)) / uLCoast.z, 0.0, 1.0);
   float keep = 1.0 - edge * edge * (3.0 - 2.0 * edge);
   // Over something the player needs to see. z of a slot is its strength, 0 for an empty one.
   for (int k = 0; k < ${FADE_SLOTS}; k++) {
@@ -265,14 +273,16 @@ export function planLTrain() {
   // A closed segment (a park built over the arterial) has no island, so the line spans it on the
   // nearest bents either side. Out past the ring road it walks off the island on its own pitch.
   const ringFrom = Math.max(...columns.map(Math.abs), 0);
-  for (let x = ringFrom + OFFSHORE_PITCH; x < LINE_END(); x += OFFSHORE_PITCH) columns.push(x, -x);
+  for (const side of [-1, 1]) {
+    for (let x = ringFrom + OFFSHORE_PITCH; x < LINE_END(side); x += OFFSHORE_PITCH) columns.push(side * x);
+  }
   columns.sort((a, b) => a - b);
 
   return {
     line,
     z,
-    from: -LINE_END(),
-    to: LINE_END(),
+    from: -LINE_END(-1),
+    to: LINE_END(1),
     columns,
     track: z + TRACK_OFF,
     laneOff: laneOffX(line),
@@ -334,10 +344,13 @@ function buildColumns(plan) {
   const parts = [];
   const base = KERB_H;
   const capY = DECK_UNDERSIDE - CAP_H / 2;
-  const shaftH = capY - CAP_H / 2 - base;
   for (const x of plan.columns) {
-    parts.push(box(FOOTING_W, FOOTING_H, FOOTING_W, x, base + FOOTING_H / 2 - 0.05, 0, PALETTE.ltrainFooting));
-    parts.push(box(COLUMN_W, shaftH, COLUMN_W, x, base + shaftH / 2, 0, PALETTE.ltrainSteel));
+    // Out over the harbor's sea a column stands in the water, on a footing at the waterline, rather
+    // than on ground that is not there.
+    const foot = harborLandAt(x, plan.z) ? base : WATER_Y + 0.25;
+    const h = capY - CAP_H / 2 - foot;
+    parts.push(box(FOOTING_W, FOOTING_H, FOOTING_W, x, foot + FOOTING_H / 2 - 0.05, 0, PALETTE.ltrainFooting));
+    parts.push(box(COLUMN_W, h, COLUMN_W, x, foot + h / 2, 0, PALETTE.ltrainSteel));
     parts.push(box(CAP_W, CAP_H, DECK_HALF_W * 2 - 0.1, x, capY, 0, PALETTE.ltrainSteelDark));
     // Knee braces from the shaft out under each arm of the cap: what makes a T read as a bent
     // carrying weight rather than as a sign post.
@@ -491,7 +504,7 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
   let pulseWait = 0;
   let bogieX = 0;
   function sparkle(dt) {
-    const onIsland = Math.abs(state.x) < COAST_FROM;
+    const onIsland = Math.abs(state.x) < COAST_FROM(Math.sign(state.x));
     if (state.phase !== 'run' || state.speed < SPARK_MIN_SPEED || !onIsland) {
       pulses = 0;
       return;

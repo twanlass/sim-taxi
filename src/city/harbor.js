@@ -2,16 +2,18 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
-import { HALF_SPAN_Z, SLAB_MARGIN, harborBasin, riverBanks } from './grid.js';
-import { KERB_H, PAVE_INSET } from './ground.js';
+import { riverBanks, coastWest, GRID_J, isArterialX, lineZ } from './grid.js';
+import { KERB_H, PAVE_INSET, SLAB_RADIUS } from './ground.js';
 import { WATER_Y, waterEdges } from './river.js';
+import { harborPiers, islandHalf, seaStartX, insidePolygon } from './harborplan.js';
 
-// The harbor at the river's east mouth: the dock basin's quay walls, the two container yards
-// either side of it, the gantry cranes on the far quay and a container ship moored under them.
+// The harbor at the river's east mouth: the walls of everything standing in the sea, the riprap
+// along the seawall, the two piers' container yards, the gantry cranes on the far quay and a
+// container ship moored under them.
 //
-// Where it goes is grid.js's decision (`harborBasin`) — the island grows `HARBOR_REACH` past the
-// east ring road and the channel opens into the basin there — and the slab, the fade skirt and the
-// water already know about it (ground.js, river.js). This module is the scenery standing on it.
+// Where it goes is grid.js's decision (`harborBasin`), and the shape of the land round it —
+// seawall, piers, quays — is city/harborplan.js's. The slab, its fade skirt and the sea read the
+// same outline (ground.js, river.js). This module is the scenery standing on it.
 // None of it is a road: the waterfront drive is the east ring road, which is unchanged.
 //
 // **The cranes go on the far quay, the -z one.** The camera looks down the -x-z diagonal, so the
@@ -20,10 +22,6 @@ import { WATER_Y, waterEdges } from './river.js';
 // basin. On the near quay the same cranes would stand between the camera and everything else.
 
 const WALL_FOOT = 0.6;
-// Where the yards stop short of the island's rounded corners. The slab's corner arcs start
-// `SLAB_RADIUS` (22) in from each end, so a yard running out to `HALF_SPAN_Z + SLAB_MARGIN/2 - 22`
-// ends exactly where the coast starts to curve.
-const YARD_END = HALF_SPAN_Z + SLAB_MARGIN / 2 - 22;
 // The yards start a footway's width off the ring road's kerb: the ring bridge's footway reaches
 // 1.4 past the kerb (`DECK_OVERHANG`), and the apron beside the inlet has to clear its abutment.
 const YARD_SET = 1.4;
@@ -149,7 +147,7 @@ function stack(rng, x, y, z, tiers, along = 'x') {
  * lane left every few rows for the straddle carriers. Heights vary, and a few slots are empty, so
  * the block reads as worked rather than as a solid.
  */
-function containerBlock(rng, x0, x1, z0, z1, y) {
+function containerBlock(rng, x0, x1, z0, z1, y, keepClear = null) {
   const parts = [];
   const pitchX = BOX_L + BOX_GAP;
   const pitchZ = BOX_W + BOX_GAP;
@@ -162,6 +160,8 @@ function containerBlock(rng, x0, x1, z0, z1, y) {
   const aisle = Math.max(3, Math.round(nx / 3));
   for (let r = 0; r < nz; r++) {
     if (r % 4 === 3) continue;          // the lane
+    const rz = offZ + r * pitchZ;
+    if (keepClear && rz + pitchZ / 2 > keepClear[0] && rz - pitchZ / 2 < keepClear[1]) continue;
     for (let c = 0; c < nx; c++) {
       if (c % aisle === aisle - 1) continue;
       if (rng.chance(0.18)) continue;
@@ -240,41 +240,75 @@ function ship(rng) {
  * mesh like the rest of the city's scenery.
  */
 export function createHarbor(rng) {
-  const basin = harborBasin();
-  if (!basin) return null;
+  const piers = harborPiers();
+  if (!piers) return null;
+  const { basin } = piers;
   const banks = riverBanks();
-  const edges = waterEdges();
   const parts = [];
   const wallCol = jitterColor(PALETTE.riverWall, rng, { l: 0.02 });
   const kerbCol = jitterColor(PALETTE.kerb, rng, { l: 0.02 });
   const quayCol = jitterColor(PALETTE.quay, rng, { l: 0.02 });
-  const wallH = KERB_H - WATER_Y + WALL_FOOT;
-  const wallY = KERB_H - wallH / 2;
 
-  // --- The quay walls: both sides of the basin, out to the coast, and the back wall either side
-  // of the channel's mouth. Faced into the water, like the channel's own.
-  const len = basin.x1 - basin.x0;
-  const far = new THREE.PlaneGeometry(len, wallH);
-  far.translate(basin.x0 + len / 2, wallY, basin.z0);
-  parts.push(bakeColor(far, wallCol));
-  const nearWall = new THREE.PlaneGeometry(len, wallH);
-  nearWall.rotateY(Math.PI);
-  nearWall.translate(basin.x0 + len / 2, wallY, basin.z1);
-  parts.push(bakeColor(nearWall, wallCol));
-  for (const [z0, z1] of [[basin.z0, edges.z0], [edges.z1, basin.z1]]) {
-    const back = new THREE.PlaneGeometry(z1 - z0, wallH);
-    back.rotateY(Math.PI / 2);
-    back.translate(basin.x0, wallY, (z0 + z1) / 2);
-    parts.push(bakeColor(back, wallCol));
+  // --- The walls: every edge of the land that stands in the sea — the seawall and its corner, both
+  // piers, both quays and the basin's back wall — read off the same outline the slab is cut from
+  // (city/harborplan.js), so the two cannot disagree. Ground level down past the waterline; a
+  // pier's own kerb box covers the step from there up to the yard.
+  //
+  // Faced away from the land by testing which side of each edge the land is on, rather than by
+  // trusting the outline's winding: a wall wound into the land is a wall that does not draw.
+  const seaFrom = seaStartX();
+  const wallBottom = WATER_Y - WALL_FOOT;
+  const seawall = [];
+  for (const side of [1, -1]) {
+    const poly = islandHalf(side, coastWest(), SLAB_RADIUS);
+    for (let k = 0; k < poly.length; k++) {
+      const [ax, az] = poly[k];
+      const [bx, bz] = poly[(k + 1) % poly.length];
+      if (Math.min(ax, bx) < seaFrom - 1e-6) continue;
+      const len = Math.hypot(bx - ax, bz - az);
+      if (len < 1e-6) continue;
+      let nx = (bz - az) / len;
+      let nz = -(bx - ax) / len;
+      if (insidePolygon(poly, (ax + bx) / 2 + nx * 0.05, (az + bz) / 2 + nz * 0.05)) { nx = -nx; nz = -nz; }
+      parts.push(wallQuad(ax, az, bx, bz, nx, nz, 0, wallBottom, wallCol));
+      // The seawall proper — not a pier or a quay — takes the riprap.
+      const onPier = Math.abs(az - bz) < 1e-6 || Math.abs(ax - bx) < 1e-6;
+      if (!onPier || Math.max(ax, bx) < basin.x0 - 1) seawall.push({ ax, az, bx, bz, nx, nz, len });
+    }
+  }
+
+  // The ends of the channel's two embankments, where they stop at the basin. Each is a strip
+  // `EMBANK_WALK` wide between the bank and the channel wall, open at this end — which showed the
+  // sky through it as a bright speck either side of the inlet.
+  const edges = waterEdges();
+  for (const [za, zb] of [[banks.z0, edges.z0], [edges.z1, banks.z1]]) {
+    parts.push(wallQuad(basin.x0, za, basin.x0, zb, 1, 0, KERB_H, wallBottom, wallCol));
+  }
+
+  // --- Riprap: broken rock tipped along the foot of the seawall, which is what makes the line read
+  // as a shore rather than as a kerb. Placed by a hash of position so the stream stays put.
+  for (const seg of seawall) {
+    const n = Math.max(1, Math.round(seg.len / 1.1));
+    for (let k = 0; k < n; k++) {
+      const t = (k + rng.next()) / n;
+      const r = 0.42 + rng.next() * 0.4;
+      const out = 0.25 + rng.next() * 0.7;
+      const rock = new THREE.DodecahedronGeometry(r, 0);
+      rock.scale(1 + rng.next() * 0.4, 0.6 + rng.next() * 0.3, 1 + rng.next() * 0.4);
+      rock.rotateY(rng.next() * Math.PI);
+      rock.translate(seg.ax + (seg.bx - seg.ax) * t + seg.nx * out, WATER_Y + 0.25 + rng.next() * 0.35,
+        seg.az + (seg.bz - seg.az) * t + seg.nz * out);
+      parts.push(bakeColor(rock, jitterColor(PALETTE.riprap, rng, { l: 0.05 })));
+    }
   }
 
   // --- The yards and the apron, as raised platforms the way a block's is: a kerb box with the
   // quay's concrete inset on top.
   const x0 = basin.kerbX + YARD_SET;
   const platforms = [
-    // The two yards along the basin, out to the coast.
-    { x0, x1: basin.x1, z0: -YARD_END, z1: basin.z0 },
-    { x0, x1: basin.x1, z0: basin.z1, z1: YARD_END },
+    // The two piers, from the ring road out along the basin.
+    { x0, x1: piers.end, z0: piers.far.out, z1: basin.z0 },
+    { x0, x1: piers.end, z0: basin.z1, z1: piers.near.out },
     // The apron either side of the channel's last stretch, between the ring bridge and the basin.
     { x0, x1: basin.x0, z0: basin.z0, z1: banks.z0 },
     { x0, x1: basin.x0, z0: banks.z1, z1: basin.z1 },
@@ -290,6 +324,7 @@ export function createHarbor(rng) {
     parts.push(bakeColor(top, quayCol));
   }
   const topY = KERB_H + 0.01;
+  const len = piers.end - basin.x0;
 
   // --- The quay edges: a pale coping line and a row of bollards, both sides.
   for (const [z, dir] of [[basin.z0, -1], [basin.z1, 1]]) {
@@ -297,39 +332,61 @@ export function createHarbor(rng) {
     coping.rotateX(-Math.PI / 2);
     coping.translate(basin.x0 + len / 2, topY + 0.01, z + dir * 0.3);
     parts.push(bakeColor(coping, PALETTE.quayEdge));
-    for (let x = basin.x0 + 1.5; x < basin.x1 - 1; x += 3.2) {
+    for (let x = basin.x0 + 1.5; x < piers.end - 1; x += 3.2) {
       const b = new THREE.CylinderGeometry(0.16, 0.2, 0.42, 6);
       b.translate(x, topY + 0.21, z + dir * 0.75);
       parts.push(bakeColor(b, PALETTE.bollard));
     }
   }
 
-  // --- The cranes on the far quay, and their rails.
-  const craneZ = basin.z0;
+  // --- The cranes, and their rails. On the far quay unless the L train runs over it.
+  //
+  // The line is the city's first east-west arterial (game/ltrain.js `planLTrain`, read off the
+  // grid the same way here because a city module cannot import a game one), and it carries on out
+  // over the harbor at deck height 6.4 — under the cranes' 7.75 boom. In over half of all cities it
+  // runs along the far pier six units behind the quay, which is exactly the cranes' landside rail:
+  // 594 vertices of crane in the deck's slot. So the cranes, and the ship they work, take the near
+  // quay instead whenever the line crosses their footprint, and the yard leaves the line a lane.
+  let lz = null;
+  for (let j = 0; j <= GRID_J; j++) if (isArterialX(j)) { lz = lineZ(j); break; }
+  const LINE_CLEAR = 2.5;   // the deck's half-width and its columns' footings, with room
+  const footprint = (quay, dir) => [quay - dir * (CRANE_QUAY_GAP + CRANE_GAUGE + CRANE_BACKREACH),
+    quay + dir * (CRANE_OUTREACH - CRANE_QUAY_GAP)].sort((a, b) => a - b);
+  const crosses = ([a, b]) => lz !== null && lz + LINE_CLEAR > a && lz - LINE_CLEAR < b;
+  const onNear = crosses(footprint(basin.z0, 1)) && !crosses(footprint(basin.z1, -1));
+  // `dir` points from the quay out over the water: +z off the far quay, -z off the near one.
+  const craneZ = onNear ? basin.z1 : basin.z0;
+  const dir = onNear ? -1 : 1;
   const railLen = len - 2;
-  for (const dz of [-CRANE_QUAY_GAP, -CRANE_QUAY_GAP - CRANE_GAUGE]) {
+  for (const dz of [-CRANE_QUAY_GAP * dir, -(CRANE_QUAY_GAP + CRANE_GAUGE) * dir]) {
     const rail = new THREE.PlaneGeometry(railLen, 0.22);
     rail.rotateX(-Math.PI / 2);
     rail.translate(basin.x0 + 1 + railLen / 2, topY + 0.01, craneZ + dz);
     parts.push(bakeColor(rail, PALETTE.craneDark));
   }
-  const cranes = 4;
-  const craneMid = basin.x0 + len * 0.45;
+  const cranes = Math.max(2, Math.floor((len - 4) / CRANE_PITCH));
+  const craneMid = basin.x0 + len * 0.47;
   for (let k = 0; k < cranes; k++) {
     const cx = craneMid + (k - (cranes - 1) / 2) * CRANE_PITCH;
     const geo = mergeGeometries(crane(rng, 0.35 + rng.next() * 0.5), false);
+    // Built facing +z; a half turn faces it the other way without mirroring its winding.
+    if (onNear) geo.rotateY(Math.PI);
     geo.translate(cx, topY, craneZ);
     parts.push(geo);
   }
 
-  // --- Containers: a big block in each yard behind the quay strip, a few strays on the apron.
-  const farBack = craneZ - CRANE_QUAY_GAP - CRANE_GAUGE - CRANE_BACKREACH - 1.5;
-  parts.push(...containerBlock(rng, x0 + 3, basin.x1 - 4, -YARD_END + 2, farBack, topY));
-  parts.push(...containerBlock(rng, x0 + 3, basin.x1 - 4, basin.z1 + 3.5, YARD_END - 2, topY));
+  // --- Containers: a block on each pier behind the quay strip.
+  const craneBack = CRANE_QUAY_GAP + CRANE_GAUGE + CRANE_BACKREACH + 1.5;
+  const clear = lz === null ? null : [lz - LINE_CLEAR, lz + LINE_CLEAR];
+  parts.push(...containerBlock(rng, x0 + 3, piers.end - 2, piers.far.out + 2,
+    basin.z0 - (onNear ? 3.5 : craneBack), topY, clear));
+  parts.push(...containerBlock(rng, x0 + 3, piers.end - 2, basin.z1 + (onNear ? craneBack : 3.5),
+    piers.near.out - 2, topY, clear));
 
-  // --- The ship, moored along the far quay under the cranes, bow out to sea.
+  // --- The ship, moored along the cranes' quay, bow out to sea. Symmetric across its beam, so it
+  // only has to move, not turn.
   const shipGeo = mergeGeometries(ship(rng), false);
-  shipGeo.translate(basin.x0 + 2 + SHIP_L / 2, WATER_Y, basin.z0 + SHIP_FENDER + SHIP_B / 2);
+  shipGeo.translate(basin.x0 + 2 + SHIP_L / 2, WATER_Y, craneZ + dir * (SHIP_FENDER + SHIP_B / 2));
   parts.push(shipGeo);
 
   const merged = mergeGeometries(parts, false);
@@ -339,4 +396,23 @@ export function createHarbor(rng) {
   mesh.receiveShadow = true;
   mesh.name = 'harbor';
   return { mesh, basin };
+}
+
+/**
+ * A vertical wall along a→b from `top` down to `bottom`, wound so its face points along (nx, nz).
+ * Hand-written triangles, so the winding is checked here against the normal it is meant to have
+ * rather than trusted (CLAUDE.md, the roadworks ramp).
+ */
+function wallQuad(ax, az, bx, bz, nx, nz, top, bottom, col) {
+  const A = [ax, top, az]; const B = [bx, top, bz]; const C = [bx, bottom, bz]; const D = [ax, bottom, az];
+  let tris = [A, C, B, A, D, C];
+  // Face normal of the first triangle from its winding: (C - A) x (B - A).
+  const u = [C[0] - A[0], C[1] - A[1], C[2] - A[2]];
+  const v = [B[0] - A[0], B[1] - A[1], B[2] - A[2]];
+  const fx = u[1] * v[2] - u[2] * v[1];
+  const fz = u[0] * v[1] - u[1] * v[0];
+  if (fx * nx + fz * nz < 0) tris = [A, B, C, A, C, D];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(tris.flat()), 3));
+  return bakeColor(g, col);
 }

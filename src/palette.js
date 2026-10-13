@@ -981,6 +981,9 @@ export const PALETTE = {
   shipDeck: '#6A6D70',
   shipHouse: '#E4E2DC',
   bollard: '#2B2D30',
+  // The rock tipped along the seawall's foot: a cool grey a step under the wall, so the line of it
+  // reads as stone at the waterline rather than as more wall.
+  riprap: '#6C6E6C',
   containerColors: ['#8A5242', '#6E4248', '#4A6E91', '#367A78', '#587B5A', '#A3A097', '#7E6847', '#3F5D7B', '#C4C2BA'],
   // The gulls (game/gulls.js): white bodies, grey backs, and nothing else — a yellow bill would be
   // a warm speck at full saturation and would not survive the 3 pixels it occupies anyway.

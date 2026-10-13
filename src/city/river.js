@@ -6,6 +6,7 @@ import {
   GRID_I, GRID_J, lineX, lineZ, halfRoadZ, riverBanks, riverRow, segmentKey,
   harborBasin, coastEast, coastWest,
 } from './grid.js';
+import { harborPiers, coastZ, seaInset, seaStartX, coastArcStart } from './harborplan.js';
 import { SLAB_X, KERB_H, PAVE_INSET, EDGE_FADE, FADE_RINGS } from './ground.js';
 import { patchRiverWater, patchHarborWater, getWaterStyle } from './riverwater.js';
 
@@ -482,11 +483,10 @@ export function createRiver(rng, layout) {
   });
   group.add(shell);
   group.add(water);
-  const basin = harborBasin();
-  if (basin) {
-    const dock = basinWaterMesh(rng, basin);
-    patchHarborWater(dock.material, basin, edges);
-    group.add(dock);
+  if (harborPiers()) {
+    const sea = seaMesh(rng);
+    patchHarborWater(sea.material);
+    group.add(sea);
   }
   const mouths = riverMouthFade();
   if (mouths) group.add(mouths);
@@ -641,6 +641,9 @@ function fadeMix(x) {
 
 /** How far through the shoal a world x is: 0 in the deep channel, 1 at the coast and beyond. */
 function shoalMix(x) {
+  // The sea past the harbor is open water out to the rim (`seaMesh`), so nothing on the east side
+  // shelves: a boat there sits at sea level until it fades.
+  if (x > 0 && harborBasin()) return 0;
   const t = Math.max(0, Math.min(1,
     (Math.abs(x) - (coastFor(x) - MOUTH_SHOAL)) / MOUTH_SHOAL));
   // Smoothstepped rather than linear so the deep water leaves flat and the ramp has no crease at
@@ -697,7 +700,7 @@ function waterMesh(rng, edges) {
   // against the 82 of the ground beside it. Now the water is the thing that fades, on the skirt's
   // own band and the skirt's own curve, and by then it is the skirt's own colour too.
   // With a harbor the channel's east end is the basin's back wall, deep and opaque: the basin's
-  // own strip (`basinWaterMesh`) takes over there and does the shoaling out to the east coast.
+  // own sheet (`seaMesh`) takes over there and does the shoaling out to the east coast.
   const xs = [-ramp];
   for (const side of harborBasin() ? [-1] : [-1, 1]) {
     xs.push(side * bank);
@@ -773,35 +776,75 @@ function waterMesh(rng, edges) {
 }
 
 /**
- * The harbor basin's water: the river's strip at the width of the dock, from the back wall out
- * through the east mouth. Built the river's way — opaque to the coast, shoaling into the ground's
- * colour over `MOUTH_SHOAL` and dissolving on the skirt's band — so the dock's mouth meets the
- * island's rim exactly as the old river mouth did, just thirty units wide instead of nine.
+ * The sea east of the city, which the harbor's piers and seawall stand in (city/harborplan.js).
+ *
+ * One sheet from the seawall's corner out past the old rim, under the island's east half: the land
+ * is opaque and above it, so the sheet only shows where there is no land. Opaque in open water and
+ * dissolving on the skirt's band past where the rim would be; along the north and south coasts the
+ * island's own rim carries on over it round each seawall corner (`seaCornerFade`, ground.js).
+ *
+ * The channel itself keeps its own strip up to the basin's back wall; this skips that rectangle,
+ * since two translucent sheets over one patch would draw it twice as dark.
  */
-function basinWaterMesh(rng, basin) {
+function seaMesh(rng) {
   const deep = new THREE.Color(jitterColor(PALETTE.riverDeep, rng, { l: 0.02 }));
   const open = new THREE.Color(jitterColor(PALETTE.riverWater, rng, { l: 0.02 }));
-  const bed = new THREE.Color(PALETTE.asphalt);
-  const coast = basin.x1;
-  const xs = [basin.x0, coast - MOUTH_SHOAL, coast - MOUTH_SHOAL / 2, coast];
-  for (let ring = 1; ring <= FADE_RINGS; ring++) xs.push(coast + (EDGE_FADE * ring) / FADE_RINGS);
-  const columns = xs.map((x) => ({ x, y: waterHeightAt(x), shoal: shoalMix(x), a: 1 - fadeMix(x) }));
-  const rows = [0, 0.25, 0.5, 0.75, 1].map((u) => ({
-    z: basin.z0 + u * (basin.z1 - basin.z0), deep: Math.sin(Math.PI * u),
-  }));
+  const { basin } = harborPiers();
+  const banks = riverBanks();
+  const hd = coastZ();
+  const east = coastEast();
+  const smooth = (t) => { const c = Math.max(0, Math.min(1, t)); return c * c * (3 - 2 * c); };
 
+  // Lines every 3 units, plus the exact lines the rim's own rings and the channel's edges sit on,
+  // so the fade matches the skirt ring for ring and no quad straddles the channel.
+  const lines = (from, to, exact) => {
+    const out = [...exact];
+    for (let v = from; v < to; v += 3) out.push(v);
+    out.push(to);
+    return [...new Set(out.filter((v) => v >= from - 1e-9 && v <= to + 1e-9).map((v) => +v.toFixed(6)))]
+      .sort((a, b) => a - b);
+  };
+  const rings = [];
+  for (let k = 0; k <= FADE_RINGS; k++) rings.push((EDGE_FADE * k) / FADE_RINGS);
+  // The sea starts where each coast turns into the seawall, less `UNDERLAP` out past the coast: it
+  // sits two units down, so under this camera its edge draws 2.17 units further +x than it is, and
+  // without the overlap that much open sky shows through the rim fading out over it. It comes in on
+  // a ramp over the first `UNDERLAP - 2` of that, because a sheet that starts on a line draws the
+  // line through the rim — and full by 2 short of the corner, which is 0.17 past it on screen.
+  const UNDERLAP = 6;
+  const underlap = (x, z) => smooth((x - (coastArcStart(z > 0 ? 1 : -1) - UNDERLAP)) / (UNDERLAP - 2));
+  const xs = lines(seaStartX() - UNDERLAP, east + EDGE_FADE, [basin.x0, ...[1, -1].flatMap((s) =>
+    [coastArcStart(s), coastArcStart(s) - UNDERLAP]), ...rings.map((r) => east + r)]);
+  const zs = lines(-hd - EDGE_FADE, hd + EDGE_FADE,
+    [banks.z0, banks.z1, ...rings.flatMap((r) => [hd + r, -hd - r])]);
+
+  // **No shoal out here.** The first cut ran the channel's mouth treatment round the whole rim —
+  // shelving up to the ground and easing into the asphalt's colour — and it drew a dark mud bank
+  // framing the sea, which is what a coast looks like and not what open water does. The river
+  // needs that treatment because its mouth is a 12-unit notch between two dark rims; the sea is the
+  // rim, so it stays at sea level and its own colour and simply dissolves into the sky.
+  const at = (x, z) => {
+    const inset = seaInset(x, z);
+    const c = open.clone().lerp(deep, smooth(inset / 30));
+    return { y: WATER_Y, c, a: (1 - smooth(-inset / EDGE_FADE)) * underlap(x, z) };
+  };
   const pos = [];
   const col = [];
-  const vertex = (ci, ri) => {
-    const c = open.clone().lerp(deep, rows[ri].deep).lerp(bed, columns[ci].shoal);
-    pos.push(columns[ci].x, columns[ci].y, rows[ri].z);
-    col.push(c.r, c.g, c.b, columns[ci].a);
+  const vertex = (x, z) => {
+    const v = at(x, z);
+    pos.push(x, v.y, z);
+    col.push(v.c.r, v.c.g, v.c.b, v.a);
   };
-  // Wound to face up, as `waterMesh` is.
-  for (let ci = 0; ci < columns.length - 1; ci++) {
-    for (let ri = 0; ri < rows.length - 1; ri++) {
-      vertex(ci, ri); vertex(ci, ri + 1); vertex(ci + 1, ri + 1);
-      vertex(ci, ri); vertex(ci + 1, ri + 1); vertex(ci + 1, ri);
+  for (let i = 0; i < xs.length - 1; i++) {
+    for (let j = 0; j < zs.length - 1; j++) {
+      const cx = (xs[i] + xs[i + 1]) / 2;
+      const cz = (zs[j] + zs[j + 1]) / 2;
+      if (cx < basin.x0 && cz > banks.z0 && cz < banks.z1) continue;   // the channel's own strip
+      const arc = coastArcStart(cz > 0 ? 1 : -1);
+      if (cx < arc - UNDERLAP || (cx < arc && Math.abs(cz) < hd)) continue;   // the island's own coast
+      // Wound to face up, as `waterMesh` is: (x, z) -> (x, z+) -> (x+, z+).
+      vertex(xs[i], zs[j]); vertex(xs[i], zs[j + 1]); vertex(xs[i + 1], zs[j + 1]);
+      vertex(xs[i], zs[j]); vertex(xs[i + 1], zs[j + 1]); vertex(xs[i + 1], zs[j]);
     }
   }
   const geo = new THREE.BufferGeometry();

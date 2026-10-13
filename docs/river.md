@@ -272,17 +272,24 @@ Measured the same way afterwards, the mouth tracks the coast to within 1–2 lum
 `HARBOR=classic` for the headless tools) keeps the old east mouth.
 
 The river used to run under the east ring bridge, along a few units of walled channel, and stop under
-the island's rim. Now the island reaches `HARBOR_REACH` (40) further east, and nine units past the ring
-road's kerb the channel opens into a dock basin 48 units across that runs out to sea. The far quay
-carries three gantry cranes with a container ship moored under them, and there is a container
-yard on each side.
+the island's rim. Now the east side of the island is a waterfront: the east ring road, a seawall a few
+units off its kerb, and two piers either side of a dock basin 48 across that the channel opens into
+nine units past the kerb. Everything else east of the ring road is **sea**, out to where the rim used
+to be (`HARBOR_REACH`, 44, past the old coast). The cranes and a container ship are on one quay, and
+each pier carries a container yard.
 
 **East, because east is the near edge.** The camera looks down the −x−z diagonal, so +x is the lower
 right of the screen. The harbor sits in front of the city rather than behind its towers, and a
 crane's height (about 12 to the apex, hiding ~13 units of ground behind it) is thrown up-screen over
 its own yard rather than over the streets. For the same reason the cranes and the ship are on the
-**far** (−z) quay: that quay wall is the one that faces the camera across the water, so the ship sits
-in front of a lit wall.
+**far** (−z) quay by default: that quay wall faces the camera across the water, so the ship sits in
+front of a lit wall.
+
+**One outline, read by three files.** `city/harborplan.js` builds the shoreline — `islandHalf()` per
+side: the west corner, the coast, a rounded corner into a seawall that wobbles on two sines, round
+the pier and back along the quay. The slab is cut from it (`ground.js`), the walls and riprap stand
+on it (`harbor.js`), and the sea (`seaMesh` in `river.js`) lies under it. Tyler, circling the bare
+asphalt past the yards: "Can we fill these with water? And make the waterfront edge more organic".
 
 **Nothing in the grid moved.** The harbor is all outside the ring road, so the road network, routing,
 fares and every probe staging see the same city. The waterfront drive is the east ring road, and its
@@ -292,14 +299,17 @@ What had to learn about it:
 
 | | |
 |---|---|
-| The slab (`ground.js`) | Runs from `coastWest()` to `coastEast()` rather than ±`SLAB_X/2`. Each half loses a rectangle where the basin is, and `asphaltFade` treats the basin's three walls as cuts. Only the basin's mouth, out past the coast, is open. |
-| The water (`river.js`) | The channel's walls, walk and water stop at the basin's back wall. The basin has its own strip (`basinWaterMesh`) that shoals and fades through the east mouth exactly the way the old river mouth did, and its own surface patch (`patchHarborWater`): the pond's compose with a rectangle for an outline. |
-| The coast (`coastFor`) | The shoal, the water's fade, and where boats spawn, fade and retire are all measured per side now. |
+| The slab (`ground.js`) | Two polygons, one per side of the river, from `islandHalf`. `asphaltFade` treats everything from the corner where each coast turns into the seawall as a cut, and `seaCornerFade` carries the rim on round that corner over the water, tapering out. |
+| The sea (`river.js`) | `seaMesh`: one sheet at sea level from the seawall corners to the rim, deep in the middle and dissolving into the sky with **no shoal**. Shoaling it the way the river mouth does drew a dark mud bank round the whole sea. It reaches six units back under the rim on a ramp, because sitting two units lower it draws 2.17 units further +x and +z than it is, and without the overlap that strip showed open sky. |
+| The coast (`coastFor`) | The water's fade and where boats spawn, fade and retire are measured per side. The east side never shoals (`shoalMix`). |
+| The L train (`ltrain.js`) | Runs on out over the harbor and the sea to `coastEast`, on columns stood in the water where there is no land under them (`harborLandAt`). It is on the first east-west arterial, which in about half of all cities runs along the far pier six units behind the quay — right through the cranes' landside rail. `harbor.js` reads the same arterial off the grid and moves the cranes and the ship to the near quay when it does, and both yards leave the line a lane. |
 | The camera | Manual panning reaches 0.7 × `HARBOR_REACH` further east, so a phone in portrait can see the ship. |
 
-Shots 48 (`harbor`) and 49 (`harbor-far`) frame it. `tools/probe.mjs` asserts that the quay walls face
-the water, that the ship is held off its quay, that no slab lies over the basin, that the dock's water
-faces up, and that the dock shoals to the ground at the coast.
+Shots 48 (`harbor`) and 49 (`harbor-far`) frame it, and `&view=x,z,zoom` reframes any shot.
+`tools/probe.mjs` asserts that the quay walls face the water, that the ship is held off its quay, that
+nothing stands inside the ring road, that no slab lies over the basin, that the sea faces up and stays
+at sea level out to the rim, that the skirt never reaches back over the city, and that nothing in the
+harbor reaches up into the L train's deck.
 
 ## The surface
 

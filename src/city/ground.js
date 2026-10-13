@@ -6,8 +6,9 @@ import { centralParkGround } from './centralpark.js';
 import {
   GRID_I, GRID_J, ROAD_W, SPAN_X, SPAN_Z, lineX, lineZ,
   isUnsignalised, isSegmentClosed, halfRoadX, halfRoadZ, isArterialX, isArterialZ,
-  isRiverGap, riverBanks, medianRuns, MEDIAN_W, SLAB_MARGIN, coastWest, coastEast, harborBasin,
+  isRiverGap, riverBanks, medianRuns, MEDIAN_W, SLAB_MARGIN, coastWest, coastEast,
 } from './grid.js';
+import { harborPiers, islandHalf, seaStartX, coastArcStart, coastArcZ, SEA_BLEND } from './harborplan.js';
 
 const KERB_H = 0.35;
 const MARK_Y = 0.02;
@@ -201,7 +202,7 @@ function slabShape(x0, x1, d, radius) {
  *
  * `rotateX(-PI/2)` maps shape-space y onto world **-z**, which is why the cut goes in negated.
  */
-function slabPieceShape(x0, x1, d, radius, cutZ, keep, basin) {
+function slabPieceShape(x0, x1, d, radius, cutZ, keep) {
   const hd = d / 2;
   const cut = -cutZ;
   const shape = new THREE.Shape();
@@ -210,35 +211,18 @@ function slabPieceShape(x0, x1, d, radius, cutZ, keep, basin) {
   // starting from the corner nearest shape -x-y. Matching it is not cosmetic: `asphaltFade` walks
   // this outline to build its skirt, and a piece wound the other way would send every one of its
   // outward normals inward.
-  //
-  // With a harbor the east end of each cut steps out to the basin's quay wall: the channel opens
-  // into the dock at `basin.x0` and the basin runs off the east coast, so each piece loses a
-  // rectangle out of the corner it shares with the cut. Still a simple polygon, still wound the
-  // same way round.
   if (keep === 'north') {
     // World z above the cut is shape-y *below* it, so the northern piece is the lower region.
     shape.moveTo(x0 + radius, -hd);
     shape.lineTo(x1 - radius, -hd);
     shape.absarc(x1 - radius, -hd + radius, radius, -Math.PI / 2, 0, false);
-    if (basin) {
-      shape.lineTo(x1, -basin.z1);
-      shape.lineTo(basin.x0, -basin.z1);
-      shape.lineTo(basin.x0, cut);
-    } else {
-      shape.lineTo(x1, cut);
-    }
+    shape.lineTo(x1, cut);
     shape.lineTo(x0, cut);
     shape.lineTo(x0, -hd + radius);
     shape.absarc(x0 + radius, -hd + radius, radius, Math.PI, Math.PI * 1.5, false);
   } else {
     shape.moveTo(x0, cut);
-    if (basin) {
-      shape.lineTo(basin.x0, cut);
-      shape.lineTo(basin.x0, -basin.z0);
-      shape.lineTo(x1, -basin.z0);
-    } else {
-      shape.lineTo(x1, cut);
-    }
+    shape.lineTo(x1, cut);
     shape.lineTo(x1, hd - radius);
     shape.absarc(x1 - radius, hd - radius, radius, 0, Math.PI / 2, false);
     shape.lineTo(x0 + radius, hd);
@@ -252,11 +236,21 @@ function slabPieceShape(x0, x1, d, radius, cutZ, keep, basin) {
 function slabShapes(x0, x1, d, radius) {
   const banks = riverBanks();
   if (!banks) return [slabShape(x0, x1, d, radius)];
-  const basin = harborBasin();
+  // With a harbor each half's east side is the waterfront instead: a seawall, a pier and the dock
+  // (city/harborplan.js), with the sea under all of it rather than more island.
+  if (harborPiers()) return [1, -1].map((side) => polygonShape(islandHalf(side, x0, radius)));
   return [
-    slabPieceShape(x0, x1, d, radius, banks.z1, 'north', basin),
-    slabPieceShape(x0, x1, d, radius, banks.z0, 'south', basin),
+    slabPieceShape(x0, x1, d, radius, banks.z1, 'north'),
+    slabPieceShape(x0, x1, d, radius, banks.z0, 'south'),
   ];
+}
+
+/** A world-space (x, z) polygon as a Shape, wound anticlockwise in shape space like the slab's. */
+function polygonShape(points) {
+  // Shape-space y is world -z, under the rotateX(-PI/2) every flat surface here is laid with.
+  const pts = points.map(([x, z]) => new THREE.Vector2(x, -z));
+  if (THREE.ShapeUtils.isClockWise(pts)) pts.reverse();
+  return new THREE.Shape(pts);
 }
 
 /** A shape, lying flat on the ground plane. */
@@ -279,6 +273,41 @@ function roundedSlab(shape) {
  * both come from `extractPoints` on the same Shape, so there is no seam to leak sky through at
  * the corner arcs — where a hand-sampled ring would drift from Three's own tessellation.
  */
+/**
+ * The rim carried on round each seawall corner over the water, tapering out — so the dark skirt
+ * along the north and south coasts hands over to the sea's own fade instead of stopping on a line
+ * (`SEA_BLEND` in harborplan.js says why a line does not work). Appended to the skirt's arrays in
+ * its shape space, where y is -z.
+ */
+function seaCornerFade(pos, col, c, alphaAt) {
+  const STEP = 1;
+  for (const side of [1, -1]) {
+    const from = coastArcStart(side);
+    const n = Math.round(SEA_BLEND / STEP);
+    const taper = (k) => { const u = k / n; return 1 - u * u * (3 - 2 * u); };
+    const at = (k, ring) => {
+      const x = from + (SEA_BLEND * k) / n;
+      const t = ring / FADE_RINGS;
+      return [x, -side * (coastArcZ(side, x) + EDGE_FADE * t), alphaAt(t) * taper(k)];
+    };
+    const tri = (a, b, d) => {
+      // Faces +y once rotated, like the shape: counter-clockwise in (x, y). Asserted rather than
+      // worked out per side, since the side flip mirrors it.
+      const cross = (b[0] - a[0]) * (d[1] - a[1]) - (b[1] - a[1]) * (d[0] - a[0]);
+      for (const p of cross > 0 ? [a, b, d] : [a, d, b]) {
+        pos.push(p[0], p[1], 0);
+        col.push(c.r, c.g, c.b, p[2]);
+      }
+    };
+    for (let k = 0; k < n; k++) {
+      for (let ring = 0; ring < FADE_RINGS; ring++) {
+        tri(at(k, ring), at(k + 1, ring), at(k + 1, ring + 1));
+        tri(at(k, ring), at(k + 1, ring + 1), at(k, ring + 1));
+      }
+    }
+  }
+}
+
 function asphaltFade(shape, x0, x1, d, radius) {
   const outline = shape.extractPoints(SLAB_SEGMENTS).shape;
   // The path closes on its start point, which would otherwise give the wrap-around a zero-width quad.
@@ -293,16 +322,15 @@ function asphaltFade(shape, x0, x1, d, radius) {
   // and hands back a plain point list with no idea which segment came from where, so the geometry
   // is the only thing left to ask.
   //
-  // The harbor's basin is inside in the same sense: its back wall and both quays are cuts, and
-  // only its mouth, out past the east coast, is open to the sky.
+  // The harbor's waterfront is inside in the same sense: everything from the corner where the coast
+  // turns into the seawall is a wall standing in the sea, and the sea does its own fading
+  // (`seaMesh` in river.js).
   const banks = riverBanks();
-  const basin = harborBasin();
+  const seaFrom = seaStartX();
   const near = (a, b) => Math.abs(a - b) < 1e-6;
-  const onBasin = (x, z) => basin !== null && (
-    ((near(z, basin.z0) || near(z, basin.z1)) && x >= basin.x0 - 1e-6)
-    || (near(x, basin.x0) && z >= basin.z0 - 1e-6 && z <= basin.z1 + 1e-6));
   const onCut = banks
-    ? outline.map((p) => near(-p.y, banks.z0) || near(-p.y, banks.z1) || onBasin(p.x, -p.y))
+    ? outline.map((p) => near(-p.y, banks.z0) || near(-p.y, banks.z1)
+      || p.x >= coastArcStart(-p.y > 0 ? 1 : -1) - 1e-6)
     : outline.map(() => false);
 
   // Outward normal of a rounded rectangle in one expression: clamp the point into the box the
@@ -311,7 +339,9 @@ function asphaltFade(shape, x0, x1, d, radius) {
   // point sits exactly `radius` from that box — so there is no zero-length case to guard.)
   const insetY = d / 2 - radius;
   const normals = outline.map((p) => new THREE.Vector2(
-    p.x - THREE.MathUtils.clamp(p.x, x0 + radius, x1 - radius),
+    // East of the city the coast is the seawall, which never takes a skirt, so the only corners
+    // the skirt goes round with a harbor are the two west ones.
+    p.x - THREE.MathUtils.clamp(p.x, x0 + radius, Number.isFinite(seaFrom) ? Infinity : x1 - radius),
     p.y - THREE.MathUtils.clamp(p.y, -insetY, insetY),
   ).divideScalar(radius));
 
@@ -338,6 +368,7 @@ function asphaltFade(shape, x0, x1, d, radius) {
       vertex(i, ring); vertex(j, ring + 1); vertex(j, ring);
     }
   }
+  if (Number.isFinite(seaFrom)) seaCornerFade(pos, col, c, alphaAt);
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
