@@ -256,8 +256,14 @@ waits off the end, and comes back the other way. `?ltrain=classic` takes it out;
   the cars' pods. The two pairs are one group turned half round when the train runs west, since
   the train is symmetric. In the rain or after dark the headlights throw the cars' additive cone at
   1.5x, faded off the island from the nose's x because a cone has no dither.
-- **Not done:** no stations, no sound (the rumble hook is commented in `ambientLevels`), and the
-  entrance wave grows the whole line from its middle as one object.
+- **Its own intro** (`?trainintro=classic` for the old one, which grew the whole line from its
+  middle with the city's wave). The bents rise like the buildings, on the city entry's wave and
+  levers. Once every bent on the island is up, the spans drop `DROP_H` into place one at a time
+  from the end nearer the taxi, dithering in. It is a vertex patch on the deck and column meshes
+  (`aLIntro`), carried into the shadow and AO depth passes, and the timetable holds the train
+  until the line is built. The spans come from `deckSpans`, so a rerouted line keeps the stagger.
+  For a still of it, `?shot=ltrain-far&introAt=2` freezes the intro two seconds in.
+- **Not done:** no stations, and no sound (the rumble hook is commented in `ambientLevels`).
 
 ## Layout: what a block *is*
 

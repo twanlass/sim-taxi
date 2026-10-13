@@ -681,6 +681,9 @@ const ltrain = new URLSearchParams(window.location.search).get('ltrain') !== 'cl
     sparks: { burst: (...args) => sparks.burst(...args) },
     // Headlights and tail lamps (2026-10-13, Tyler); `?trainlights=classic` runs it unlit.
     lights: new URLSearchParams(window.location.search).get('trainlights') !== 'classic',
+    // Its own intro, bents then track (2026-10-13, Tyler); `?trainintro=classic` grows the whole
+    // structure with the city's wave instead. Started and driven beside `cityEntry` below.
+    intro: new URLSearchParams(window.location.search).get('trainintro') !== 'classic',
   }) : null;
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
@@ -1358,6 +1361,10 @@ const cityEntry = createCityEntry({
   // bottom of this file, which is where the player actually first sees the car.
   from: { x: traffic.taxi.x, z: traffic.taxi.z },
 });
+// The L's intro runs on the city entry's wave and levers, but on its own clock, since the track
+// is still being laid after the last building has landed.
+const replayLTrainIntro = (from) => ltrain?.intro?.start(from, cityEntry.tuning());
+replayLTrainIntro(traffic.taxi);
 if (litPanes || lamps) {
   rainLightsOn = () => {
     if (cityEntry.running()) return;
@@ -5042,8 +5049,10 @@ function tick() {
   // finished city with its traffic running, not over the city building itself.
   if (parked()) {
     if (cityEntry.running()) cityEntry.settle();
+    if (ltrain?.intro?.running()) ltrain.intro.settle();
   } else {
     cityEntry.update(dt);
+    ltrain?.intro?.update(dt);
   }
   dust.update(dt);
   spray.update(dt);
@@ -6220,8 +6229,12 @@ if (shot) {
   boats?.settle();
   drawbridge?.settle();
   // A train mid-crossing over the frame's own target, and the deck already faded over the board.
+  // `&introAt=1.9` instead freezes the L's own intro that many seconds in, from the frame's target,
+  // with no train on it yet — for looking at the intro a frame at a time.
+  const introAt = Number(new URLSearchParams(window.location.search).get('introAt') ?? NaN);
+  const freezeIntro = Boolean(ltrain?.intro) && Number.isFinite(introAt);
   if (ltrain) {
-    ltrain.settle(controller.state.target.x);
+    if (!freezeIntro) ltrain.settle(controller.state.target.x);
     ltrain.setFadePoints(ltrainFadePoints());
     ltrain.setBeams(Math.max(runningLightsAt(ltrain.state.x, ltrain.plan.z),
       1 - THREE.MathUtils.smoothstep(sun.intensity, 0.3, 2.6)));
@@ -6230,6 +6243,12 @@ if (shot) {
   // The city's own entrance is an animation that opens at zero too — unsettled, every screenshot
   // is an empty street grid.
   cityEntry.settle();
+  if (freezeIntro) {
+    ltrain.intro.start(controller.state.target, cityEntry.tuning());
+    ltrain.intro.update(introAt);
+  } else {
+    ltrain?.intro?.settle();
+  }
   // Shot mode never stages the taxi, so there is no vignette to land — but the garage still has to
   // be in the state a run is actually played in, which is shut, the car long gone and the door
   // come down behind it.
@@ -6309,6 +6328,7 @@ if (shot) {
   // already parked inside it by now, so the city builds itself outward from the depot — which is
   // exactly where the camera is about to go.
   cityEntry.replay(traffic.taxi);
+  replayLTrainIntro(traffic.taxi);
   // Every program the city needs, linked here rather than on the frame that first draws it.
   //
   // Three compiles a material's shader lazily, at its first draw, and half this game's meshes are
@@ -6362,7 +6382,7 @@ if (!shot && wantsDebugPanel) {
     cityEntry: {
       tuning: cityEntry.tuning,
       tune: cityEntry.tune,
-      replay: () => cityEntry.replay(traffic.taxi),
+      replay: () => { cityEntry.replay(traffic.taxi); replayLTrainIntro(traffic.taxi); },
     },
     loco,
     /** True when the sliders opened on a tuning restored from a previous session. */
