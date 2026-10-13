@@ -3,18 +3,25 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 import {
-  GRID_I, GRID_J, lineZ, isArterialX, laneOffX, medianRuns, MEDIAN_W,
+  GRID_I, GRID_J, lineX, lineZ, isArterialX, isArterialZ, laneOffX, laneOffZ, medianRuns, MEDIAN_W,
+  LTRAIN_NS,
 } from '../city/grid.js';
 import { EDGE_FADE, KERB_H } from '../city/ground.js';
-import { coastWest, coastEast } from '../city/grid.js';
+import { coastWest, coastEast, coastNorth, coastSouth } from '../city/grid.js';
 import { WATER_Y } from '../city/river.js';
 import { harborLandAt } from '../city/harborplan.js';
 import { VIEW_DIR } from './camera.js';
 import { sinkShadowCaster } from './scene.js';
 import { markOccluder } from './ssao.js';
 
-// The elevated train (on by default, `?ltrain=classic`): a Chicago-style L on a steel structure down the east-west
-// arterial, with one train shuttling along it.
+// The elevated train (on by default, `?ltrain=classic`): a Chicago-style L on a steel structure down the
+// north-south arterial, with one train shuttling along it. It crosses the river on the arterial's
+// fixed bridge and runs off both ends of the map (Tyler, 2026-10-13; `?lroute=classic` puts it back
+// on the east-west arterial, beside the river).
+//
+// **Everything is built along local +x** and the group is turned onto the line: a quarter turn for
+// north-south, so local +x runs north (world -z) and local +z is world +x, the camera's side. `a`
+// below is distance along the line in that frame, `c` the line's own cross coordinate in the world.
 //
 // **One track, on columns in the arterial's planted median.** The columns need somewhere to stand
 // that no car drives on, and the median is the only such strip that runs the width of the city.
@@ -106,7 +113,10 @@ const OFFSHORE_PITCH = 11;
  * side, because with the harbor (`?harbor=classic` to drop it) the east coast is out past the piers
  * and the line runs on over them and the sea.
  */
-const LINE_END = (side) => Math.abs(side < 0 ? coastWest() : coastEast()) + EDGE_FADE + TRAIN_LEN / 2 + 2;
+const coastAt = (side) => (LTRAIN_NS
+  ? Math.abs(side < 0 ? coastSouth() : coastNorth())
+  : Math.abs(side < 0 ? coastWest() : coastEast()));
+const LINE_END = (side) => coastAt(side) + EDGE_FADE + TRAIN_LEN / 2 + 2;
 
 // --- The train ----------------------------------------------------------------------------------
 
@@ -172,13 +182,15 @@ const FADE_LIFT = (DECK_TOP - GIRDER_D / 2 - SUBJECT_Y) * (VIEW_DIR.x / VIEW_DIR
 // eye reads as gone well before the alpha reaches zero; a deck on the ground's exact ramp was still
 // plainly there over open sky, a dotted girder hanging off the island. So the line starts going at
 // the island's edge less a few units and is gone by about where the ground stops reading.
-const COAST_FROM = (side) => Math.abs(side < 0 ? coastWest() : coastEast()) - 5;
+const COAST_FROM = (side) => coastAt(side) - 5;
 const COAST_BAND = EDGE_FADE * 0.6;
 
 const FADE_UNIFORMS = {
   uLFade: { value: Array.from({ length: FADE_SLOTS }, () => new THREE.Vector3(0, 0, 0)) },
   uLCoast: { value: new THREE.Vector3(COAST_FROM(-1), COAST_FROM(1), COAST_BAND) },
   uLRadius: { value: new THREE.Vector3(FADE_IN, FADE_OUT, FADE_FLOOR) },
+  // 1 when the line runs north-south: the coast fade then reads distance along -z, not x.
+  uLAxis: { value: LTRAIN_NS ? 1 : 0 },
 };
 
 const PROJECT_VERTEX = '#include <project_vertex>';
@@ -221,6 +233,7 @@ varying vec3 vLWorld;
 uniform vec3 uLFade[${FADE_SLOTS}];
 uniform vec3 uLCoast;
 uniform vec3 uLRadius;
+uniform float uLAxis;
 float lBayer(vec2 p) {
   // 4x4 ordered dither threshold in (0, 1).
   ivec2 q = ivec2(mod(p, 4.0));
@@ -231,9 +244,10 @@ float lBayer(vec2 p) {
 }`)
       .replace(CLIP_FRAGMENT, `${CLIP_FRAGMENT}
 {
-  // Off the island: the same smoothstep the ground fades on.
-  // x is the west coast's distance and y the east's, which the harbor pushes further out.
-  float edge = clamp((abs(vLWorld.x) - (vLWorld.x < 0.0 ? uLCoast.x : uLCoast.y)) / uLCoast.z, 0.0, 1.0);
+  // Off the island: the same smoothstep the ground fades on. Measured along the line (x, or -z
+  // for a north-south one); x is the near coast's distance (west or south) and y the far one's.
+  float lAlong = mix(vLWorld.x, -vLWorld.z, uLAxis);
+  float edge = clamp((abs(lAlong) - (lAlong < 0.0 ? uLCoast.x : uLCoast.y)) / uLCoast.z, 0.0, 1.0);
   float keep = 1.0 - edge * edge * (3.0 - 2.0 * edge);
   // Over something the player needs to see. z of a slot is its strength, 0 for an empty one.
   for (int k = 0; k < ${FADE_SLOTS}; k++) {
@@ -254,21 +268,32 @@ float lBayer(vec2 p) {
  * Where the line runs and where its columns stand. Pure: reads the grid, builds nothing, so the
  * probe can sweep it over seeds.
  *
- * Returns null on a city with no east-west arterial, which today's layout never builds — but the
- * big-park work may, and an L with nowhere to stand should be absent rather than wrong.
+ * Returns null on a city with no arterial on the line's axis, which today's layout never builds —
+ * but an L with nowhere to stand should be absent rather than wrong.
+ *
+ * `columns` and `from`/`to` are distances along the line (`a`, see the top of the file): world x
+ * for an east-west line, world -z for a north-south one. `c` is the line's cross coordinate.
  */
 export function planLTrain() {
+  const ns = LTRAIN_NS;
   let line = null;
-  for (let j = 0; j <= GRID_J; j++) if (isArterialX(j)) { line = j; break; }
+  // Interior lines only: a ring road has no median.
+  if (ns) {
+    for (let i = 1; i < GRID_I; i++) if (isArterialZ(i)) { line = i; break; }
+  } else {
+    for (let j = 0; j <= GRID_J; j++) if (isArterialX(j)) { line = j; break; }
+  }
   if (line === null) return null;
 
-  const z = lineZ(line);
+  const c = ns ? lineX(line) : lineZ(line);
   const columns = [];
   // One bent at each nose of every planted island. Two per block reads as a structure; one in the
-  // middle left 20-unit spans that looked like a girder balanced on a pin.
+  // middle left 20-unit spans that looked like a girder balanced on a pin. A north-south island
+  // runs in z, and `a` is -z, so its ends swap.
   for (const run of medianRuns()) {
-    if (run.axis !== 'x' || run.line !== line) continue;
-    columns.push(run.from + COLUMN_NOSE, run.to - COLUMN_NOSE);
+    if (run.axis !== (ns ? 'z' : 'x') || run.line !== line) continue;
+    if (ns) columns.push(-run.to + COLUMN_NOSE, -run.from - COLUMN_NOSE);
+    else columns.push(run.from + COLUMN_NOSE, run.to - COLUMN_NOSE);
   }
   // A closed segment (a park built over the arterial) has no island, so the line spans it on the
   // nearest bents either side. Out past the ring road it walks off the island on its own pitch.
@@ -280,12 +305,20 @@ export function planLTrain() {
 
   return {
     line,
-    z,
+    axis: ns ? 'z' : 'x',
+    c,
+    // The world point at the median's middle, where the group stands.
+    x: ns ? c : 0,
+    z: ns ? 0 : c,
     from: -LINE_END(-1),
     to: LINE_END(1),
     columns,
-    track: z + TRACK_OFF,
-    laneOff: laneOffX(line),
+    track: c + TRACK_OFF,
+    laneOff: ns ? laneOffZ(line) : laneOffX(line),
+    /** World (x, z) of the point `a` along the line and `o` across it (towards the camera). */
+    world: ns ? (a, o = 0) => ({ x: c + o, z: -a }) : (a, o = 0) => ({ x: a, z: c + o }),
+    /** The reverse: a world point's distance along the line. */
+    alongOf: ns ? (x, z) => -z : (x) => x,
   };
 }
 
@@ -336,7 +369,68 @@ function buildDeck(plan) {
       parts.push(box(len, RAIL_H, RAIL_W, mid, DECK_TOP + TIE_H + RAIL_H / 2, t + r, PALETTE.ltrainRail));
     }
   }
+  trusses(plan, parts);
   return mergeGeometries(parts, false);
+}
+
+// --- The river truss ----------------------------------------------------------------------------
+//
+// A north-south line crosses the river, and the river has no median: the road bridge under it runs
+// junction to junction, so the bents either side stand 34 units apart against the 7 to 13 of
+// every other span. A plate girder that long reads as a plank balanced on two posts. So any span
+// past `TRUSS_FROM` gets a through truss — a Warren girder each side, standing up past the train's
+// roof (8.35) and braced across the top — which is what a real L does over a river, and which
+// gives the crossing a landmark. Every member stays outside the train's half-width (0.88) and
+// above its roof, so the train runs through it untouched.
+const TRUSS_FROM = 20;
+const TRUSS_H = 3.3;
+const TRUSS_PANEL = 4.5;
+const TRUSS_W = 0.2;
+
+/** A box from `a` to `b` (local x, y, z arrays), `w` square. */
+function strut(a, b, w, colour) {
+  const va = new THREE.Vector3(...a);
+  const vb = new THREE.Vector3(...b);
+  const len = va.distanceTo(vb);
+  const g = new THREE.BoxGeometry(w, len, w);
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), vb.clone().sub(va).normalize());
+  g.applyQuaternion(q);
+  g.translate((va.x + vb.x) / 2, (va.y + vb.y) / 2, (va.z + vb.z) / 2);
+  return bakeColor(g, colour);
+}
+
+function trusses(plan, parts) {
+  const steel = PALETTE.ltrainSteel;
+  const dark = PALETTE.ltrainSteelDark;
+  const lo = DECK_TOP - 0.1;
+  const hi = DECK_TOP + TRUSS_H;
+  const zs = DECK_HALF_W + TRUSS_W / 2;
+  for (let n = 1; n < plan.columns.length; n++) {
+    const a0 = plan.columns[n - 1];
+    const a1 = plan.columns[n];
+    if (a1 - a0 < TRUSS_FROM) continue;
+    const panels = Math.max(2, Math.round((a1 - a0) / TRUSS_PANEL));
+    const step = (a1 - a0) / panels;
+    for (const side of [-1, 1]) {
+      const z = side * zs;
+      // The top chord runs between the first and last panel points; the end posts are inclined.
+      parts.push(strut([a0, lo, z], [a0 + step, hi, z], TRUSS_W * 1.3, steel));
+      parts.push(strut([a1, lo, z], [a1 - step, hi, z], TRUSS_W * 1.3, steel));
+      parts.push(strut([a0 + step, hi, z], [a1 - step, hi, z], TRUSS_W * 1.3, steel));
+      for (let k = 1; k < panels - 1; k++) {
+        // Warren diagonals: down to the deck and back up, panel by panel, with a vertical at each
+        // top panel point.
+        const x0 = a0 + k * step;
+        const x1 = x0 + step;
+        parts.push(strut([x0, hi, z], [x0, lo, z], TRUSS_W * 0.8, dark));
+        parts.push(strut(k % 2 ? [x0, hi, z] : [x0, lo, z], k % 2 ? [x1, lo, z] : [x1, hi, z], TRUSS_W, steel));
+      }
+    }
+    // Lateral bracing over the top: a strut across at each panel point clear of the train's roof.
+    for (let k = 1; k < panels; k++) {
+      parts.push(strut([a0 + k * step, hi, -zs], [a0 + k * step, hi, zs], TRUSS_W * 0.8, dark));
+    }
+  }
 }
 
 /** The columns, each a footing, a shaft and a hammerhead cap under the girders. */
@@ -347,7 +441,8 @@ function buildColumns(plan) {
   for (const x of plan.columns) {
     // Out over the harbor's sea a column stands in the water, on a footing at the waterline, rather
     // than on ground that is not there.
-    const foot = harborLandAt(x, plan.z) ? base : WATER_Y + 0.25;
+    const w = plan.world(x);
+    const foot = harborLandAt(w.x, w.z) ? base : WATER_Y + 0.25;
     const h = capY - CAP_H / 2 - foot;
     parts.push(box(FOOTING_W, FOOTING_H, FOOTING_W, x, foot + FOOTING_H / 2 - 0.05, 0, PALETTE.ltrainFooting));
     parts.push(box(COLUMN_W, h, COLUMN_W, x, foot + h / 2, 0, PALETTE.ltrainSteel));
@@ -416,7 +511,9 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
   // Centred on the median so the city's entrance can grow it as one object from its middle.
   const group = new THREE.Group();
   group.name = 'ltrain';
-  group.position.set(0, 0, plan.z);
+  group.position.set(plan.x, 0, plan.z);
+  // A quarter turn puts local +x on world -z and local +z on world +x (see the top of the file).
+  if (plan.axis === 'z') group.rotation.y = Math.PI / 2;
   scene.add(group);
 
   const material = fadeMaterial(propMaterial());
@@ -523,14 +620,18 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
     if (pulseWait > 0) return;
     pulseWait = SPARK_PULSE_GAP;
     pulses -= 1;
-    // The train is symmetric and only ever translated, so a bogie's world x is the same offset
-    // whichever way it is running. Yaw is a sim heading: 0 runs +x.
-    const yaw = state.dir > 0 ? 0 : Math.PI;
+    // The train is symmetric and only ever translated, so a bogie is the same offset along the line
+    // whichever way it is running. Yaw is a sim heading: 0 runs +x, and a north-south line's
+    // forward (`a` growing) is -z, a quarter turn back.
+    const base = plan.axis === 'z' ? Math.PI / 2 : 0;
+    const yaw = base + (state.dir > 0 ? 0 : Math.PI);
     const count = rng.int(SPARK_COUNT[0], SPARK_COUNT[1]);
-    // Off the camera's side of the truck (+z, as the view looks in from +x +z): thrown from under
-    // the car on the rail itself, the first cut's sparks were hidden by the body they came out of.
+    // Off the camera's side of the truck (local +z, which is +z or +x in the world, both towards a
+    // view looking in from +x +z): thrown from under the car on the rail itself, the first cut's
+    // sparks were hidden by the body they came out of.
     const side = CAR_W / 2 + 0.05;
-    sparks.burst(state.x + bogieX, RAIL_TOP + 0.08, plan.z + TRACK_OFF + side, yaw, count, state.speed,
+    const at = plan.world(state.x + bogieX, TRACK_OFF + side);
+    sparks.burst(at.x, RAIL_TOP + 0.08, at.z, yaw, count, state.speed,
       { reach: 0.8, lift: 1.0, floor: 0 });
   }
 
@@ -548,19 +649,20 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
       if (!p) continue;
       const fx = p.x + FADE_LIFT;
       const fz = p.z + FADE_LIFT;
-      if (Math.abs(fz - plan.z) > reach) continue;
+      if (Math.abs((plan.axis === 'z' ? fx : fz) - plan.c) > reach) continue;
       slots[n++].set(fx, fz, p.strength ?? 1);
     }
     for (; n < FADE_SLOTS; n++) slots[n].set(0, 0, 0);
   }
 
   /**
-   * Shot mode: park a train mid-run over `x` (the frame's target) so a still has one in it. The
-   * fare loop ticks once and freezes, so anything driven off sim time needs telling (CLAUDE.md).
+   * Shot mode: park a train mid-run level with `target` (the frame's, a world `{ x, z }`) so a
+   * still has one in it. The fare loop ticks once and freezes, so anything driven off sim time
+   * needs telling (CLAUDE.md).
    */
-  function settle(x = 0) {
+  function settle(target = { x: 0, z: 0 }) {
     state.phase = 'run';
-    const s = THREE.MathUtils.clamp(x - plan.from, 0, runLength);
+    const s = THREE.MathUtils.clamp(plan.alongOf(target.x, target.z) - plan.from, 0, runLength);
     // Invert `along` on the cruise segment, which is where any on-island x lands.
     state.t = RAMP + (s - SPEED * RAMP / 2) / SPEED;
     state.x = state.dir > 0 ? plan.from + s : plan.to - s;
@@ -588,13 +690,13 @@ export function createLTrain(scene, rng, { sparks = null } = {}) {
     settle,
     setFadePoints,
     /** The entrance wave's handle: the whole structure grows from the middle of its median. */
-    entryObjects: [{ object: group, x: 0, z: plan.z, rand: 0.5 }],
+    entryObjects: [{ object: group, x: plan.x, z: plan.z, rand: 0.5 }],
     /**
      * Where a rumble would play from: the train's middle while it runs, null while the line is
      * empty. The level is its speed as a share of cruise, so it swells in and out with the ramps.
      */
     emitter: () => (state.phase === 'run'
-      ? { x: state.x, z: plan.z + TRACK_OFF, y: RAIL_TOP, level: state.speed / SPEED }
+      ? { ...plan.world(state.x, TRACK_OFF), y: RAIL_TOP, level: state.speed / SPEED }
       : null),
     runTime,
   };

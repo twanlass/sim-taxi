@@ -660,7 +660,7 @@ const skaterFlag = new URLSearchParams(window.location.search).get('skater');
 const skaters = (skaterFlag === 'classic' ? createClassicSkaters : createSkaters)(
   scene, makeRng(runSeed + 349), props.skatepark, { stiff: skaterFlag === 'stiff' });
 
-// The elevated train over the east-west arterial's median — see game/ltrain.js. On by default
+// The elevated train over the north-south arterial's median (`?lroute=classic`: the east-west one) — see game/ltrain.js. On by default
 // since 2026-10-11 (Tyler); `?ltrain=classic` takes it out for comparison. Built here rather than beside the boats because the entrance wave below has to
 // be handed it. Run seed: where the line runs is the arterial's, so the map's already; which way
 // the first train goes and how long the line stands empty is the situation.
@@ -5952,9 +5952,11 @@ if (shot) {
     controller.state.target.set(hoopers.court.x, 0, hoopers.court.z);
     controller.update(aspect());
   }
-  // And the L, framed on its median a block off the middle, where the train is settled below.
+  // And the L, framed on its median a block off the middle, where the train is settled below —
+  // a north-south line framed over its river crossing.
   if (shot.atLTrain && ltrain) {
-    controller.state.target.set(10, 0, ltrain.plan.z);
+    const at = ltrain.plan.world(ltrain.plan.axis === 'z' ? 0 : 10);
+    controller.state.target.set(at.x, 0, at.z);
     controller.update(aspect());
   }
   // And the skatepark, the same way.
@@ -6192,7 +6194,7 @@ if (shot) {
   drawbridge?.settle();
   // A train mid-crossing over the frame's own target, and the deck already faded over the board.
   if (ltrain) {
-    ltrain.settle(controller.state.target.x);
+    ltrain.settle(controller.state.target);
     ltrain.setFadePoints(ltrainFadePoints());
     sparks.update(0.12);
   }

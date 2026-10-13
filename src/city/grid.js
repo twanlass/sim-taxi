@@ -20,6 +20,13 @@ export const BIG_CITY = typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('city') !== 'classic'
   : globalThis.process?.env?.CITY !== 'classic';
 export const GRID_I = BIG_CITY ? 6 : 5;  // block columns
+// The L train runs north-south, down the north-south arterial (Tyler, 2026-10-13: across the river
+// rather than beside it). `?lroute=classic` keeps the old east-west line. Here rather than in
+// game/ltrain.js because the river has to know: the drawbridge cannot lift under the deck, so it
+// moves off the train's line (`planRiver`).
+export const LTRAIN_NS = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('lroute') !== 'classic'
+  : globalThis.process?.env?.LROUTE !== 'classic';
 // A row more than columns, because **one of the rows is the river** (`city/river.js`). The city is
 // a block row taller than it is wide so that the water costs it neither a street nor a buildable
 // block: 36 of the 42 blocks are land, a 6×6 city's worth (25 of 30, a 5×5's, under `?city=classic`).
@@ -438,6 +445,9 @@ export const COAST_X = (SPAN_X + SLAB_MARGIN) / 2;
 /** Where the island ends to the west and to the east. Only the east one moves. */
 export const coastWest = () => -COAST_X;
 export const coastEast = () => COAST_X + HARBOR_REACH;
+/** The same pair along z: the north edge and the south one, measured as z (north is negative). */
+export const coastNorth = () => -(SPAN_Z + SLAB_MARGIN) / 2;
+export const coastSouth = () => (SPAN_Z + SLAB_MARGIN) / 2;
 // The channel runs on at its own width for this far past the ring road's kerb before it opens out.
 // Enough for the ring bridge's footway (1.4) and a short walled run, so the river visibly *arrives*
 // at the basin rather than the bridge standing in it.

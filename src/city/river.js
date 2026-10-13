@@ -4,7 +4,7 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import {
   GRID_I, GRID_J, lineX, lineZ, halfRoadZ, riverBanks, riverRow, segmentKey,
-  harborBasin, coastEast, coastWest,
+  harborBasin, coastEast, coastWest, isArterialZ, LTRAIN_NS,
 } from './grid.js';
 import { harborPiers, coastZ, seaInset, seaStartX, coastArcStart } from './harborplan.js';
 import { SLAB_X, KERB_H, PAVE_INSET, EDGE_FADE, FADE_RINGS } from './ground.js';
@@ -190,11 +190,28 @@ export function planRiver(rng) {
   // drawbridge rather than beside the ring, so a lift still leaves the far side three blocks from
   // a crossing and the near side one — a choice the player can see, not a bridge the ring already
   // made redundant.
+  //
+  // **Except under the L.** The train runs north-south down the arterial (`LTRAIN_NS`), crossing
+  // the river at deck height 6.4, and a leaf lifted under it would go through the deck. So the
+  // train's line always gets a fixed bridge and the leaf never sits on it: with the arterial on the
+  // middle line the leaf moves one line over, to the side the seed picks; with it one line west,
+  // the leaf stays in the middle and the fixed crossing is the arterial's. Four crossings either
+  // way, two of them beside each other in the middle of the map, and the same single `next()`.
   let draw = null;
   if (GRID_I % 2 === 0 && GRID_I >= 6) {
     const side = rng.next() < 0.5 ? -1 : 1;
-    draw = GRID_I / 2;
-    crossings.set(draw + side, 'fixed');
+    const mid = GRID_I / 2;
+    const rail = LTRAIN_NS ? [...Array(GRID_I + 1).keys()].find((i) => i > 0 && i < GRID_I && isArterialZ(i)) : undefined;
+    if (rail === mid) {
+      draw = mid + side;
+      crossings.set(mid, 'fixed');
+    } else if (rail !== undefined) {
+      draw = mid;
+      crossings.set(rail, 'fixed');
+    } else {
+      draw = mid;
+      crossings.set(draw + side, 'fixed');
+    }
   } else if (GRID_I >= 2) {
     draw = rng.int(Math.floor(GRID_I / 2), Math.ceil(GRID_I / 2));
   }

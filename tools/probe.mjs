@@ -18289,6 +18289,9 @@ let chopperOrder; // likewise
       if (!up && airborne && landZ === null) landZ = jTaxi.z;
       airborne = up;
       jTaxi.boost = true;
+      // Stop once it is off the far end: with no route it wanders on, and six seconds at boost is
+      // long enough to come back over another arch the other way and count that as a second hop.
+      if (!up && jTaxi.z > rSpan.z1 + 6) break;
     }
     check('a boosting taxi leaves the arch half a hop before the crest',
       launchZ !== null && Math.abs((crestZ - launchZ) - HOP_LEN / 2) < 0.4,
@@ -19687,7 +19690,7 @@ let chopperOrder; // likewise
 // lanes so nothing driving under it can touch it, and the train shuttling on both tracks.
 {
   const { planLTrain, createLTrain, LTRAIN_DIMENSIONS: L } = await import('../src/game/ltrain.js');
-  const { medianRuns, halfRoadZ, laneOffX } = await import('../src/city/grid.js');
+  const { medianRuns, halfRoadZ, halfRoadX } = await import('../src/city/grid.js');
   const { LANE_TO_KERB } = await import('../src/city/grid.js');
   // citylights.js: POST_H 4.2 on a KERB_H kerb.
   const KERB_H_LAMP_TOP = 0.35 + 4.2;
@@ -19696,39 +19699,60 @@ let chopperOrder; // likewise
   let wideSpan = 0;
   let laneClash = 0;
   let harborClash = 0;
-  const ringKerb = HALF_SPAN_X + halfRoadZ(GRID_I);
+  let riverSpans = 0;
+  let drawUnder = 0;
+  const { drawbridgeLine, bridgeLines } = await import('../src/city/river.js');
   for (let s = 0; s < 20; s++) {
     createLayout(makeRng(seed + s * 53));
     const plan = planLTrain();
     if (!plan) continue;
     planned += 1;
-    const runs = medianRuns().filter((r) => r.axis === 'x' && r.line === plan.line);
+    // Distances along the line: x for an east-west one, -z for a north-south one (`plan.alongOf`).
+    const ns = plan.axis === 'z';
+    const ringKerb = ns ? HALF_SPAN_Z + halfRoadX(GRID_J) : HALF_SPAN_X + halfRoadZ(GRID_I);
+    const runs = medianRuns().filter((r) => r.axis === plan.axis && r.line === plan.line)
+      .map((r) => (ns ? { from: -r.to, to: -r.from } : r));
     for (const x of plan.columns) {
       const onIsland = runs.some((r) => x - L.FOOTING_W / 2 >= r.from && x + L.FOOTING_W / 2 <= r.to);
       const offshore = Math.abs(x) - L.FOOTING_W / 2 > ringKerb;
       if (!onIsland && !offshore) offIsland += 1;
     }
     for (let n = 1; n < plan.columns.length; n++) {
-      // A park built over the arterial leaves one long span, which is allowed; anything else is not.
+      // A park built over the arterial leaves one long span, which is allowed, and so does the
+      // river under a north-south line, which gets a truss; anything else is not.
       const gap = plan.columns[n] - plan.columns[n - 1];
-      const closedHere = runs.length < GRID_I;
-      if (gap > 16 && !closedHere) wideSpan += 1;
+      const closedHere = runs.length < (ns ? GRID_J - 1 : GRID_I);
+      const river = ns && (() => {
+        const w0 = plan.world(plan.columns[n - 1]).z;
+        const w1 = plan.world(plan.columns[n]).z;
+        const b = riverBanks();
+        return b && Math.min(w0, w1) < b.z0 && Math.max(w0, w1) > b.z1;
+      })();
+      if (river) riverSpans += 1;
+      if (gap > 16 && !closedHere && !river) wideSpan += 1;
     }
+    // A north-south line crosses the river on a fixed bridge, and the drawbridge is never under it.
+    if (ns && (drawbridgeLine() === plan.line || !bridgeLines().includes(plan.line))) drawUnder += 1;
     // The deck stays short of the kerb, where the fares stand.
-    if (L.DECK_HALF_W >= laneOffX(plan.line) + LANE_TO_KERB) laneClash += 1;
+    if (L.DECK_HALF_W >= plan.laneOff + LANE_TO_KERB) laneClash += 1;
     // Out over the harbor the line passes the cranes, the ship and the container stacks, and
     // nothing of theirs may reach up into the deck's slot.
     if (HARBOR) {
       const hp = createHarbor(makeRng(seed + s * 53 + 47)).mesh.geometry.attributes.position;
       for (let t = 0; t < hp.count; t++) {
-        if (Math.abs(hp.getZ(t) - plan.z) < L.DECK_HALF_W + 0.3 && hp.getY(t) > L.CAP_UNDERSIDE - 0.3) {
+        const across = ns ? hp.getX(t) : hp.getZ(t);
+        if (Math.abs(across - plan.c) < L.DECK_HALF_W + 0.3 && hp.getY(t) > L.CAP_UNDERSIDE - 0.3) {
           harborClash += 1;
         }
       }
     }
   }
   createLayout(makeRng(seed));     // put the probe's city back — `createLayout` installs its network
-  check('ltrain: every city with an east-west arterial gets a line', planned === 20, `${planned}/20`);
+  check('ltrain: every city gets a line', planned === 20, `${planned}/20`);
+  if (planLTrain().axis === 'z') {
+    check('ltrain: the line crosses the river once, on a truss, over a fixed bridge and never the drawbridge',
+      riverSpans === 20 && drawUnder === 0, `${riverSpans}/20 river spans, ${drawUnder} under a leaf or with no bridge`);
+  }
   check('ltrain: every column stands on a planted island or out past the ring road',
     offIsland === 0, `${offIsland} in a junction or a lane`);
   check('ltrain: no span longer than a junction crossing, except over a park', wideSpan === 0, `${wideSpan}`);
@@ -19737,7 +19761,7 @@ let chopperOrder; // likewise
       `${harborClash} vertices in the deck's slot over 20 cities`);
   }
   check('ltrain: the deck stops short of the kerb',
-    laneClash === 0, `deck half-width ${L.DECK_HALF_W} against lane ${laneOffX(planLTrain().line).toFixed(2)}`);
+    laneClash === 0, `deck half-width ${L.DECK_HALF_W} against lane ${planLTrain().laneOff.toFixed(2)}`);
   // ...so everything under it has to clear by height: the tallest vehicle (a box truck's box, off
   // its own geometry) and the street lamps, whose arms reach out over the arterial's lanes.
   const truckTop = traffic.truckBoxMesh.geometry.boundingBox
@@ -19768,7 +19792,7 @@ let chopperOrder; // likewise
   {
     const bursts = [];
     const lts = createLTrain(new THREE.Scene(), makeRng(9), {
-      sparks: { burst: (x, y, z, yaw, count, speed, opts) => bursts.push({ x, y, count, opts }) },
+      sparks: { burst: (x, y, z, yaw, count, speed, opts) => bursts.push({ x, y, z, count, opts }) },
     });
     let crossings = 0;
     for (let n = 0; n < 60 * 120; n++) {
@@ -19779,8 +19803,9 @@ let chopperOrder; // likewise
     const offRail = bursts.filter((b) => Math.abs(b.y - L.RAIL_TOP) > 0.2 || b.opts.floor !== 0).length;
     // The harbor pushes the east coast out, and the line runs over it (`coastEast + coastWest` is
     // its reach, 0 without one).
-    const offIsland = bursts.filter((b) => b.x < -(HALF_SPAN_X + 20)
-      || b.x > HALF_SPAN_X + 20 + coastEast() + coastWest()).length;
+    const offIsland = bursts.filter((b) => (lts.plan.axis === 'z'
+      ? Math.abs(b.z) > HALF_SPAN_Z + 20
+      : b.x < -(HALF_SPAN_X + 20) || b.x > HALF_SPAN_X + 20 + coastEast() + coastWest())).length;
     const perCrossing = bursts.length / 3 / Math.max(1, crossings);
     check('ltrain: the wheels spark a few times a crossing, off the rail, over the island',
       perCrossing >= 1.5 && perCrossing <= 8 && offRail === 0 && offIsland === 0,
