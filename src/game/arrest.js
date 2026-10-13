@@ -3,7 +3,7 @@ import {
 } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 import { findRoute, planOrigin, serviceLaneCost } from './route.js';
-import { CAR_LEN, CAR_W, SPAWN_CLEARANCE, STOP_SETBACK, releaseCar, stageCar } from '../sim/traffic.js';
+import { CAR_LEN, CAR_W, SPAWN_CLEARANCE, STOP_SETBACK, hardBrake, releaseCar, stageCar } from '../sim/traffic.js';
 
 // The end of a bank robbery that got where it was going: the robber climbs out onto the corner, puts
 // their hands up, and the police come screaming in and **screech to a halt in a fan around them**,
@@ -171,7 +171,7 @@ export function createArrest({ traffic, taxi, inShot = null }) {
     for (let e = 0; e < 4; e++) {
       const leave = net.laneOutByGrid(e, at.i, at.j);
       const arrive = net.laneByGrid(opposite(e), at.i, at.j);
-      out.push({ e, u: unit(e), leave, exists: Boolean(leave || arrive) });
+      out.push({ e, u: unit(e), leave, arrive, exists: Boolean(leave || arrive) });
     }
     return out;
   }
@@ -381,21 +381,30 @@ export function createArrest({ traffic, taxi, inShot = null }) {
   }
 
   /**
-   * The free slot furthest from this car that it has a clear run at, and the run — or null. Called
-   * with the car's own pose, which for a car still in traffic is its pose on the lane.
+   * The free slot furthest from every way into the box that this car has a clear run at, and the
+   * run — or null. Called with the car's own pose, which for a car still in traffic is its pose on
+   * the lane.
    *
-   * **Furthest, not nearest.** The cops mostly arrive down the same arm, the one the chase came in
-   * on, and the slot nearest the mouth of that arm is parked right across it: taken first, it walled
-   * off the box from every car behind (measured, the first build: one car in the fan on 4 runs of
-   * 4, the other two sat at the line for the whole standoff). Filled from the far side, each car
-   * leaves the next one the road it needs.
+   * **Away from the mouths, not toward or away from the car.** Nearest first was the first build:
+   * the cops mostly arrive down the same arm, and the slot nearest its mouth is parked right across
+   * it, walling off the box from every car behind (one car in the fan on 4 runs of 4, the other two
+   * sat at the line for the whole standoff). Furthest from the car fixed that and only that: it is
+   * furthest from *this* arm, which at a junction with another arm in is often the slot across the
+   * other one's mouth. A ring corner has two arms and the outer two slots sit one in each mouth, so
+   * on the 6 × 7 city's corner drop-off (0, 7) the first car in down one arm parked across the
+   * other, and the second cop sat at that line for the rest of the scene — both of the runs in 8
+   * still fanning one car once ARREST_REACH (game/robbery.js) had a third cop in reach. Scored by
+   * the nearest arm mouth instead, the first car takes the slot that blocks nobody (there the
+   * middle one), and each car after takes what is left the same way: two or more in the fan on 3
+   * of 8 → 8 of 8 there with ARREST_REACH at six blocks, and 6 → 8 of 8 on the classic city's
+   * T-junction drop-off, at either reach.
    */
   function slotRun(m, x, z, yaw) {
     let best = null;
     let bestD = -Infinity;
     for (const slot of slots) {
       if (slot.by) continue;
-      const d = Math.hypot(slot.x - x, slot.z - z);
+      const d = mouthRoom(slot);
       if (d <= bestD) continue;
       if (!poseOk(slot.x, slot.z, slot.yaw, m)) continue;
       const path = slideIn(x, z, yaw, slot);
@@ -404,6 +413,17 @@ export function createArrest({ traffic, taxi, inShot = null }) {
       bestD = d;
     }
     return best;
+  }
+
+  /** How far a slot is from the nearest place a car comes into the box: the end of a lane in. */
+  function mouthRoom(slot) {
+    let room = Infinity;
+    for (const arm of arms) {
+      if (!arm.arrive) continue;
+      const p = arm.arrive.path.at(arm.arrive.length);
+      room = Math.min(room, Math.hypot(slot.x - p.x, slot.z - p.z));
+    }
+    return room;
   }
 
   /** Onto its run at a slot, and claim it. */
@@ -455,6 +475,19 @@ export function createArrest({ traffic, taxi, inShot = null }) {
       }
     }
     const ahead = lead < Infinity;
+    // ...and nobody behind it closing faster than it can stop. The moment this car is staged the
+    // one behind loses sight of it, and the `stun` below only holds that car on its brakes — it
+    // does not stop it any shorter than `hardBrake` can. That is plenty for a car queued at the
+    // line and nothing like enough for a cop still arriving at a chase's 20 u/s: on the big city's
+    // corner drop-off (0, 7) the second cop came off the junction behind at 21.4 u/s with its nose
+    // 4.8 units off the first one's tail (6.5 to stop), and drove 0.68 into it. Left in traffic
+    // for those few frames instead, the car at the line is still a leader and is queued behind.
+    for (const c of traffic.cars) {
+      if (c === car || c.crashed || c.staged || c.isTaxi) continue;
+      const a = (c.x - centre.x) * arm.u.x + (c.z - centre.z) * arm.u.z;
+      if (a <= along || Math.abs(laneAt(c) - laneAt(car)) >= 1.5) continue;
+      if ((c.v * c.v) / (2 * hardBrake()) > a - along - CAR_LEN - 0.5) return;
+    }
     let run = null;
     if (!ahead && along < armHalf(arm) + STOP_SETBACK + 2) {
       // Pulled up at the line, not still arriving at a chase's 20 u/s: the run in is sized from a
