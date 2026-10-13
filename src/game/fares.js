@@ -177,6 +177,27 @@ const VIP_COOLDOWN = 55;          // seconds between opportunities, so a VIP sta
 const VIP_CHANCE = 0.16;          // chance a qualifying spawn actually becomes one
 const VIP_PAYOUT = 3;
 
+// --- The bank rider ---------------------------------------------------------------
+//
+// A rider on the bank's steps, and the only way a robbery starts (the default; `?bankfare=classic`
+// keeps the drive-past). They are an ordinary fare in every respect but where they stand — the
+// bank's doorstep rather than a kerb corner — and one coin, tossed when they spawn and read when
+// the taxi pulls up: heads they get in like anybody else, tails the robber comes out of the door,
+// shoves them over and takes their seat (game/bankjob.js). The toss is only half of it — the
+// robbery's own fairness gates still have to pass at that moment (`swapReady`, game/robbery.js),
+// and when they don't the rider simply gets in.
+//
+// Tossed at spawn rather than at arrival so it comes off this module's own seeded stream: a
+// `?run=` replays the same robberies.
+//
+// Unmeasured. The drive-past fired whenever the taxi passed the door with the gates open — 18
+// robberies in 30 autoplay runs (CALM_LEVEL in game/robbery.js) — and this fires only when the
+// player takes the bank rider and the coin agrees, so expect it rarer until these are tuned.
+const BANK_MIN_DELIVERED = 2;     // the robbery's own MIN_DELIVERED: no rider at the bank before then
+const BANK_COOLDOWN = 35;         // seconds after a bank rider leaves the board before the next
+const BANK_CHANCE = 0.3;          // chance a qualifying spawn is the bank rider
+const BANK_ROBBER_ODDS = 0.5;     // the coin
+
 // The clock is a fraction of the run's own pace rather than a flat number, so a VIP tightens
 // along the same ramp as everything else — just harder. Never below VIP_MIN_PACE, which is about
 // as fast as a taxi holding Loco Mode at every chance actually gets round the map
@@ -462,6 +483,15 @@ const NO_EVENTS = Object.freeze([]);
  * Pin position for an intersection: on the pavement corner rather than in the carriageway, so it
  * never sits under a vehicle. Corners are flipped at the grid edge where there is no block.
  */
+/**
+ * Where a fare stands while it waits: the bank rider's doorstep (`fare.stand`), or the kerb corner
+ * of its junction for everybody else. Anything aiming at a waiting rider — the camera's peek, the
+ * tutorial's pointer, the tools' tap — asks this rather than `cornerFor`.
+ */
+export function kerbFor(fare) {
+  return fare.stand ?? cornerFor(fare.target.i, fare.target.j);
+}
+
 export function cornerFor(i, j) {
   // Right on the kerb, on the corner that faces the camera.
   //
@@ -999,6 +1029,26 @@ export function createFareSystem(rng, scene, {
   // Never while one is already live on the board, and gated by its own cooldown/chance on top of
   // that — a VIP has to stay a rare thing to be a special one.
   let lastVipAt = -Infinity;
+  // The bank's doorstep, set by main.js (`setBankStop`) when the bank rider is on. Null otherwise —
+  // the tools and `?bankfare=classic` — and then no bank rider ever spawns.
+  let bankStop = null;
+  let lastBankAt = -Infinity;
+  /** Is the next spawn the bank rider? See BANK_CHANCE. */
+  function wantsBank(taxiCar, near) {
+    if (!bankStop || state.delivered < BANK_MIN_DELIVERED) return false;
+    if (state.fares.some((f) => f.bank || f.robber)) return false;
+    if (state.elapsed - lastBankAt < BANK_COOLDOWN) return false;
+    const { junction } = bankStop;
+    // Within reach, by the same box an ordinary spawn is drawn from...
+    if (Math.abs(junction.i - near.i) > SPAWN_RADIUS || Math.abs(junction.j - near.j) > SPAWN_RADIUS) return false;
+    // ...and not on a junction another fare, the courier or the taxi's next turn has spoken for.
+    // `freeCorner`'s sightline and river tests are about the kerb corner, which is not where this
+    // rider stands — the bank's front faces the camera by construction (city/bank.js).
+    if (spokenFor(taxiCar).some((a) => a.i === junction.i && a.j === junction.j)) return false;
+    if (reserved().some((a) => (a.i === junction.i && a.j === junction.j) || onSameBlock(junction, a))) return false;
+    return rng.chance(BANK_CHANCE);
+  }
+
   function wantsVip() {
     if (state.delivered < VIP_MIN_DELIVERED) return false;
     if (state.fares.some((f) => f.vip)) return false;
@@ -1085,7 +1135,7 @@ export function createFareSystem(rng, scene, {
     return { work, limit };
   }
 
-  function spawnFare(taxiCar, near = null, vip = false) {
+  function spawnFare(taxiCar, near = null, vip = false, bank = false) {
     const slot = slots.find((s) => !state.fares.some((f) => f.slot === s)
       && !exits.some((e) => e.slot === s));
     if (!slot) return null;
@@ -1094,11 +1144,17 @@ export function createFareSystem(rng, scene, {
     // That is the one spawn this cap applies to; every later empty-board refill is an ordinary one
     // and gets the ramp's own radius.
     const isFirstEver = state.lastSpawnAt === -Infinity;
-    const spot = pickIntersection(taxiCar, near, isFirstEver ? FIRST_FARE_MAX_BLOCKS : null);
+    const spot = bank
+      ? { i: bankStop.junction.i, j: bankStop.junction.j }
+      : pickIntersection(taxiCar, near, isFirstEver ? FIRST_FARE_MAX_BLOCKS : null);
     const fare = {
       slot,
       stage: 'waiting',
       vip,
+      // The bank rider (see BANK_CHANCE): where they stand, and the coin. `stand` goes at pickup.
+      bank,
+      stand: bank ? { x: bankStop.x, z: bankStop.z } : null,
+      robberRoll: bank && rng.chance(BANK_ROBBER_ODDS),
       target: spot,
       // Where they were picked up. `target` moves to the drop-off at `beginRide`, so without a
       // separate copy the trip distance (and its fare) can't be measured later.
@@ -1176,7 +1232,15 @@ export function createFareSystem(rng, scene, {
       : budget.limit;
     fare.timeLeft = fare.limit;
 
-    place(slot.passenger, spot.i, spot.j);
+    if (bank) {
+      // On the bank's doorstep rather than a kerb corner — `spawnRobber`'s placement, which is the
+      // same spot's other use.
+      slot.passenger.group.position.set(fare.stand.x, 0.12, fare.stand.z);
+      slot.passenger.postGroup.position.set(0, KERB_H, 0);
+      slot.passenger.postGroup.scale.setScalar(1);
+      slot.passenger.group.visible = true;
+      lastBankAt = state.elapsed;
+    } else place(slot.passenger, spot.i, spot.j);
     // Slot reuse: the previous rider on this slot may have left the figure shrunk and tumbled at
     // the end of their board() pose. Reset so the new waiter starts clean on this frame — wave()
     // would fix it on the next tick, but there is one frame between spawn and first wave.
@@ -1192,7 +1256,7 @@ export function createFareSystem(rng, scene, {
     // Full urgency: the clock has not started draining yet this frame, so the diamond opens on the
     // top level by construction rather than by rounding. Placed on the same kerb corner the figure
     // stands on, which is where it will launch from at pickup.
-    const corner = cornerFor(spot.i, spot.j);
+    const corner = kerbFor(fare);
     // The last argument is the one-seat step-back: a rider who arrives while someone is already in
     // the car opens *already* stepped back rather than shrinking in front of the player
     // (game/faremarker.js). Passed here rather than set on the marker afterwards because these
@@ -1377,7 +1441,8 @@ export function createFareSystem(rng, scene, {
   function beginRide(fare) {
     // Remember where the pickup happened before we overwrite `target` with the drop-off. The
     // boarding animation needs the kerb corner as its origin so the figure can run from it.
-    fare.boardingFrom = cornerFor(fare.target.i, fare.target.j);
+    fare.boardingFrom = kerbFor(fare);
+    fare.stand = null;
     fare.boarding = 0;
     // A rider standing next to the taxi when they were tapped can be collected mid-pop — the pop is
     // 0.4s and the drive is usually seconds, but not always. The waiting branch that drives the
@@ -1538,7 +1603,9 @@ export function createFareSystem(rng, scene, {
       // own parity means two riders lost on neighbouring corners do not leave in lockstep.
       const centre = intersectionCentre(fare.pickup.i, fare.pickup.j);
       const corner = cornerFor(fare.pickup.i, fare.pickup.j);
-      run = (fare.pickup.i + fare.pickup.j) % 2 === 0
+      // The bank rider walks off along the bank's frontage instead (`bankStop.away`).
+      if (fare.stand && bankStop) run = { dx: bankStop.away.x * BAIL_RUN, dz: bankStop.away.z * BAIL_RUN };
+      else run = (fare.pickup.i + fare.pickup.j) % 2 === 0
         ? { dx: Math.sign(corner.x - centre.x) * BAIL_RUN, dz: 0 }
         : { dx: 0, dz: Math.sign(corner.z - centre.z) * BAIL_RUN };
     }
@@ -1679,8 +1746,10 @@ export function createFareSystem(rng, scene, {
     // extra clocks arrive out of phase and the board turns into a prioritisation puzzle instead
     // of a single hard moment followed by a lull.
     if (shouldRefill()) {
-      const vip = wantsVip();
-      const spawned = spawnFare(taxiCar, spawnBias(taxiCar), vip);
+      const near = spawnBias(taxiCar);
+      const bank = wantsBank(taxiCar, near);
+      const vip = !bank && wantsVip();
+      const spawned = spawnFare(taxiCar, near, vip, bank);
       if (spawned) {
         state.lastSpawnAt = state.elapsed;
         if (spawned.vip) lastVipAt = state.elapsed;
@@ -1856,7 +1925,7 @@ export function createFareSystem(rng, scene, {
         // nearly made — both are in frame.
         state.failSpot = fare.stage === 'riding'
           ? { x: taxiCar.x, z: taxiCar.z }
-          : cornerFor(fare.target.i, fare.target.j);
+          : kerbFor(fare);
         // Everything else on the board goes, exactly as a wreck clears it — but *this* fare's rider
         // stays. It still leaves `state.fares` on the line below, so nothing keeps ticking a clock
         // that has already run out.
@@ -1890,6 +1959,15 @@ export function createFareSystem(rng, scene, {
       if (!fare.directed || distanceToTarget(fare, taxiCar) >= ARRIVE_RADIUS) continue;
 
       if (fare.stage === 'waiting') {
+        // The bank rider's coin, read now: the robbery takes their seat if it came up tails and the
+        // robbery's gates are open (`swapReady`). They leave the board without a strike — it was not
+        // the player who let them down — and main.js starts the robbery off the 'swapped' event.
+        if (fare.robberRoll && bankStop?.swapReady(fare)) {
+          clear(fare);
+          lastBankAt = state.elapsed;
+          emit('swapped', fare);
+          continue;
+        }
         beginRide(fare);
         emit('pickup', fare);
       } else if (fare.checkpoints?.length) {
@@ -2114,6 +2192,13 @@ export function createFareSystem(rng, scene, {
     refuse,
     /** A robber gets into the taxi outside the bank — see `spawnRobber` and game/robbery.js. */
     spawnRobber,
+    /**
+     * Turn the bank rider on: `{ junction, x, z, away, swapReady }` — the junction they are picked
+     * up at, the doorstep they stand on, the unit direction they walk off in if their clock runs
+     * out, and `(fare) => boolean`, asked on arrival whether the robbery may take their seat. See
+     * BANK_CHANCE.
+     */
+    setBankStop: (stop) => { bankStop = stop; },
     /** The bank job's robber is in — see `boardScripted`. */
     boardScripted,
     /** Is one in the car right now? The trigger's own cooldown reads it, and so does the HUD. */

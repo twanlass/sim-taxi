@@ -322,7 +322,8 @@ export function createFarePointers({ camera, pinLocation, viewport = null, onTap
     const kerb = waiting.slice().sort((a, b) => a.slot.index - b.slot.index);
     for (const fare of kerb) {
       if (fare.stage !== 'waiting') continue;
-      const c = pinLocation(fare.target.i, fare.target.j);
+      // The bank rider stands on the bank's steps rather than a kerb corner (`kerbFor`, game/fares.js).
+      const c = fare.stand ?? pinLocation(fare.target.i, fare.target.j);
       aim(arrowAt(slot), c, colorOf ? colorOf(fare) : null, false);
       slot += 1;
     }
