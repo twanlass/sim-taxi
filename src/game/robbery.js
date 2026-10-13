@@ -320,11 +320,19 @@ const PAIR_OVERSHOOT = 0.75;
 
 /**
  * The drop-off. How far from the robber's junction, in world units, a cop may be and still be sent
- * to the arrest (game/arrest.js) rather than stood down — four blocks, about five seconds at a
- * chasing cop's pace, which is inside the arrest's own `ARREST_WAIT`. The getaway keeps half the
+ * to the arrest (game/arrest.js) rather than stood down — six blocks. The getaway keeps half the
  * fleet on the taxi's own junction (`CUT_OFF_AHEAD`), so most of it is well inside this anyway.
+ *
+ * It was four (80), which held on the 5 × 6 city and not on the 6 × 7 one: the bigger map puts the
+ * rest of the fleet further off, so the probe's eight staged drop-offs had a fleet 100–145 from
+ * the robber against 75–110, and the crew in reach came out at two cops on 7 runs of 8 (three on 5
+ * of 8 before) — with no spare when one of the two is held up. Six blocks is still inside the
+ * scene's own clock: cops starting 75–80 out were parked 4–7 s in, the robber gives up at
+ * `ARREST_WAIT` (14 s) only if nobody has, and the fan waits `STANDOFF_TIME + LATE_WAIT` (6 s)
+ * past the first car for the rest. Measured with `slotRun`'s mouth rule in game/arrest.js: two or
+ * more in the fan on 8 runs of 8 on both cities, against 3 of 8 on the big one at 80.
  */
-const ARREST_REACH = 80;
+const ARREST_REACH = 6 * PITCH;
 
 /**
  * How many cars fan out round the robber, at most and at least. Three is the fleet less the one handed to

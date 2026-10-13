@@ -2355,7 +2355,7 @@ export const roadGrip = () => grip;
  * past HARD_BRAKE, at which point a "hard" brake that stops the car *slower* than simply lifting
  * off is not a brake; the max is what keeps the pedal monotonic against its own tuning.
  */
-const hardBrake = () => Math.max(HARD_BRAKE, loco.brake) * grip;
+export const hardBrake = () => Math.max(HARD_BRAKE, loco.brake) * grip;
 
 /**
  * The top of the scatter lerp: a car fleeing the boosting taxi is pushed toward the taxi's own
