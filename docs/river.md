@@ -184,6 +184,12 @@ the far bank (8 wide, 10.67 for an arterial) and comes down 3.25 or 0.6 into the
 units clear of its hold line. So it only fires when the exit at the far bank is **straight on** —
 a turning route there gets the ordinary hop, since the arc would otherwise bend sideways in mid-air.
 
+The carry is a clock and the bridge is a place, so the kick also counts for `DRIFT_LAUNCH_GRACE`
+= 12 units of travel after its carry runs out on its own (not braked, turned or crashed out of): a
+tier-1 kick out of the corner one block back otherwise ran out ~5.5 units short of the launch point
+and flew the ordinary hop at the kick's speed. A free-driving taxi (no route) with a kick in hand
+has its far-bank exit set to straight on, rather than losing the jackpot to an unseen dice roll.
+
 While it is up there the taxi keeps the boosting taxi's priority junction whatever the pill says,
 ignores the brake (a distance-paced arc on a stopping car is a taxi parked ten units up), and
 `sim/collisions.js` skips it above `DRIFT_LAUNCH_CLEAR`. main.js slows the sim toward the apex
