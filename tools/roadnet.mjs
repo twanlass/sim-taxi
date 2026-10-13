@@ -435,9 +435,12 @@ for (let s = 0; s < SEEDS; s++) {
       // graph and the wrong one about what can be built on, and `roadNetFromGrid` tags them
       // `'water'` for exactly that reason.
       if (block.type === 'river') continue;
+      // The double graveyard closed the road between its two blocks too, and comes back as one.
+      if (layout.graveyardBlock?.double && block.type === 'graveyard') continue;
       wanted.push(block.bounds);
     }
     for (const district of layout.districts) wanted.push(district.bounds);
+    if (layout.graveyardBlock?.double) wanted.push(layout.graveyardBlock.bounds);
 
     const land = net.blocks.filter((b) => b.type !== 'water');
     check(`${tag} block count`, land.length === wanted.length,
