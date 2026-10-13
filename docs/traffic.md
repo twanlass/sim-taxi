@@ -3152,8 +3152,10 @@ spell out inline, and which both now need because both can have cars in the flee
 **Spotted** is the old bust's rule: boost within `SPOT_RANGE` (20, one block) of the patrol car,
 engaged rather than held so the cooldown tail after release still counts. The bar comes up, the
 car becomes a chasing cop (`chase = 1`, a stern chase at the taxi's junction, re-aimed per
-junction), and **"POLICE / Taxi: pull over now"** goes up in a speech bubble over its roof (`game/copshout.js`) — the
-cop talking to the player, where [dispatch's card](gameplay.md#dispatch-breaks-in) is the police
+junction). The bar, the strobe and the chirp are the whole announcement. Under `?copchat=classic`
+**"POLICE / Taxi: pull over now"** also goes up in a speech bubble over its roof (`game/copshout.js`), with
+`LOST_CALL` ("Lost the suspect. Resuming patrol.") when the chase ends — cut from the default on
+2026-10-13 as chatter. The shout was the cop talking to the player, where [dispatch's card](gameplay.md#dispatch-breaks-in) is the police
 talking about them. A DOM bubble projected over the car every frame, not geometry: this one has to
 be read, and there is no font in the scene.
 
@@ -3214,7 +3216,7 @@ times in 16 rather than 7; a cruising taxi is caught as often as before.
 
 **Gone to ground** is the depot. A taxi that turns in at the driveway mid-chase calls it off on the
 frame the opening takes it off the road (`hideout`, called from the depot's `onArrive` in main.js):
-the same stand-down as lost, `LOST_CALL` included. It is no free exit — a
+the same stand-down as lost (`LOST_CALL` included, under `?copchat=classic`). It is no free exit — a
 repair needs a damaged car and costs `REPAIR_PRICE`, and the taxi has to reach the mouth with the
 cop still behind it, which is a touch away from Busted.
 
