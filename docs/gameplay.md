@@ -2142,9 +2142,9 @@ fairness gates re-measured.
 the robbery's cop car nearest the bank: "POLICE DISPATCH / 10-65 in progress!" The police come in
 just off screen near the bank, so the call usually opens waiting at the screen's edge with its
 pointer aimed at them — the first word the player gets about which way the police are coming from.
-It was pinned on the taxi at first, which read as the taxi calling the police on itself. When the
-patrol cruiser loses the taxi, the cruiser says "POLICE / Lost the suspect. Resuming patrol." from
-its own roof.
+It was pinned on the taxi at first, which read as the taxi calling the police on itself. Under
+`?copchat=classic`, a patrol cruiser that loses the taxi also says "POLICE / Lost the suspect.
+Resuming patrol." from its own roof; by default the chase ends with the bar going dark.
 
 The figure alone was not enough, and the reason is the trigger. A robbery fires on a drive-*past*,
 so the player is watching the taxi or the next rider, not a 20px figure on the bank's steps. The
@@ -2509,7 +2509,7 @@ see its header and [traffic.md](traffic.md#the-arrest-a-junction-closed-to-traff
 cannot happen (no cop gets there within 14s, nowhere to pull up) lets the robber walk off.
 
 **The nearest cop comes after the taxi.** It is handed to the patrol (`pursueNearest`) and from then
-on it *is* the patrol cruiser in a chase: strobe, "Pull over!", caught on a touch or lost two and a
+on it *is* the patrol cruiser in a chase: strobe (and "Pull over!" under `?copchat=classic`), caught on a touch or lost two and a
 half blocks out, with the patrol's catch-up. Only a cop already inside that escape range is taken —
 one further out has lost the taxi by the patrol's own rule. A touch in the first 1.5s does not
 count (`HANDOFF_GRACE`), because the box-in can have a cop on the taxi's bumper on the very frame

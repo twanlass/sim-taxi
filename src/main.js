@@ -1072,7 +1072,11 @@ window.addEventListener('keydown', (event) => {
 // crosses town edge to edge with its bar swinging red and blue, and comes after you if you boost in
 // front of it. "Pull over!" goes up over its roof the moment it does (game/copshout.js).
 const police = createPolice(scene);
-const copShout = shot ? null : createCopShout({ project: projectToScreen, viewport });
+// The cops no longer talk during a chase — no "pull over" on spotting, no "lost the suspect" when
+// they give up (Tyler, 2026-10-13): the bar, the strobe and the chirp already say both. The bubbles
+// come back with `?copchat=classic`. The robbery's dispatch call is a different thing and stays.
+const copChat = new URLSearchParams(window.location.search).get('copchat') === 'classic';
+const copShout = shot || !copChat ? null : createCopShout({ project: projectToScreen, viewport });
 
 /**
  * Is a getaway on? The robbery owns the run while it is: the depot and the drive-through both
@@ -1101,9 +1105,9 @@ const patrol = createPatrol({
     sfx?.play('chirp', { at: placeAt(cop.x, cop.z) });
   },
   onCaught: (cop, ram) => bustByPolice(ram),
-  // Said by the cruiser that lost you, from over its own roof.
-  onLost: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
-  onHid: (cop) => { if (!fares.state.gameOver) radio?.show(LOST_CALL, cop); },
+  // Said by the cruiser that lost you, from over its own roof — `?copchat=classic` only.
+  onLost: (cop) => { if (copChat && !fares.state.gameOver) radio?.show(LOST_CALL, cop); },
+  onHid: (cop) => { if (copChat && !fares.state.gameOver) radio?.show(LOST_CALL, cop); },
 });
 // Boost, then two quick taps of the brake: the taxi spins round onto the far lane. See game/bootleg.js.
 setSpinStyle(getUturnStyle());
