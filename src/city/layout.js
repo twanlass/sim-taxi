@@ -7,6 +7,8 @@ import { planRiver, setRiverCrossings } from './river.js';
 import { roadNetFromGrid, setCityNetwork } from './roadnet.js';
 import { chooseGarageBlock } from './garage.js';
 import { chooseBurgerBlock } from './burgerjoint.js';
+import { chooseGraveyardBlock, GRAVEYARD_ON } from './graveyard.js';
+import { clearPlantedCrowns } from './props.js';
 import { configureSignals } from '../sim/traffic.js';
 
 // Decides what each block *is* before anything is built. Ground, buildings and props all read
@@ -18,6 +20,9 @@ import { configureSignals } from '../sim/traffic.js';
  * a uniform mat of identical towers. Parks are more likely out in the cheaper suburbs.
  */
 export function createLayout(rng) {
+  // A new layout is a new city, so the last one's trees are no longer anybody's (`plantedCrowns`).
+  clearPlantedCrowns();
+
   // --- Arterials, first ------------------------------------------------------
   // Road hierarchy is a property of the city, so it is decided here alongside the blocks and
   // handed to the signal model. Two main streets, one per axis, drawn from the middle lines so
@@ -224,6 +229,14 @@ export function createLayout(rng) {
   const burger = chooseBurgerBlock(rng, blocks);
   if (burger) burger.type = 'burger';
   blocks.burgerBlock = burger ?? null;
+
+  // ...and the graveyard, after both and for the same reasons: a whole block, `null` a real answer,
+  // and drawn last so that adding it moves nothing above. It reads the depot's and the joint's
+  // blocks as spoken for so the three landmarks don't clump. `?graveyard=classic` skips the draw
+  // and leaves the block to the towers. See city/graveyard.js.
+  const graveyard = GRAVEYARD_ON ? chooseGraveyardBlock(rng, blocks) : null;
+  if (graveyard) graveyard.type = 'graveyard';
+  blocks.graveyardBlock = graveyard ?? null;
 
   // Bake the road network for the city just decided, and install it as *the* network. Everything
   // above — the closures, the arterials, their coordinated directions — is exactly the input it

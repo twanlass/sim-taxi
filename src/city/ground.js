@@ -393,11 +393,12 @@ export function createGround(rng, blocks) {
 
     // A pocket park gets the same walk round it as a district, for the same reason: it is a block
     // on a street, and the thing that says so is the pavement it presents to the street.
-    if (block.type === 'park') {
+    // The graveyard (city/graveyard.js) is laid the same way in its own darker grass.
+    if (block.type === 'park' || block.type === 'graveyard') {
       parts.push(...parkSurface(
         w - PAVE_INSET * 2, d - PAVE_INSET * 2, cx, cz,
         jitterColor(PALETTE.sidewalk, rng, { l: 0.03 }),
-        jitterColor(PALETTE.park, rng, { l: 0.03 }),
+        jitterColor(block.type === 'park' ? PALETTE.park : PALETTE.graveGrass, rng, { l: 0.03 }),
         KERB_H + 0.01,
       ));
     } else {

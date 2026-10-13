@@ -254,6 +254,11 @@ export const SHOTS = [
   // its kerbs the deck hides. Appended, for the index-addressing reason stated above `birds`.
   { name: 'ltrain', description: 'the elevated train, close', target: [0, 0], zoom: 14, warmup: 12, atLTrain: true },
   { name: 'ltrain-far', description: 'the elevated train at play zoom', target: [0, 0], zoom: 52, warmup: 12, atLTrain: true },
+  // The graveyard (city/graveyard.js), on the usual pair. Close: do the stones read as headstones
+  // and the railings as railings. At play zoom: is it a landmark or a grey smudge on a lawn.
+  // Appended, for the index-addressing reason stated above `birds`.
+  { name: 'graveyard', description: 'the graveyard, close', target: [0, 0], zoom: 11, warmup: 12, atGraveyard: true },
+  { name: 'graveyard-far', description: 'the graveyard at play zoom', target: [0, 0], zoom: 52, warmup: 12, atGraveyard: true },
 ];
 
 export function getActiveShot() {

@@ -26,6 +26,8 @@ import { createGrass } from './city/grass.js';
 import { createCanopyFuzz } from './city/canopyfuzz.js';
 import { createGarage } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
+import { createGraveyard } from './city/graveyard.js';
+import { plantedCrowns } from './city/props.js';
 import {
   createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
@@ -634,7 +636,20 @@ const grass = createGrass(makeRng(seed + 122), layout, props);
 scene.add(grass.mesh);
 // Leaf cards round every tree crown — the parks', the medians' and the courtyard's — on the same
 // terms as the grass. See city/canopyfuzz.js.
-const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), [...props.crowns, ...(city.court?.crowns ?? [])]);
+// The graveyard — the third block `createLayout` took out of the tower generator's hands. Scenery
+// only: not tappable, nothing routes into it. `null` on `?graveyard=classic` or a city with no
+// room, and nothing below needs to know. See city/graveyard.js.
+// Built here rather than beside the depot and the burger joint because its tree has to be planted
+// before the leaf cards below are dressed onto every tree.
+const graveyard = layout.graveyardBlock
+  ? createGraveyard(layout.graveyardBlock, makeRng(seed + 131)) : null;
+if (graveyard) {
+  scene.add(graveyard.group);
+  graveyard.meshes.forEach(markOccluder);
+}
+// Every tree in the city, whoever planted it (`plantedCrowns`, city/props.js) — so a new kind of
+// tree can't come out without its leaves.
+const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), plantedCrowns());
 scene.add(canopyFuzz.mesh);
 // The basketball court's hoops, which ride outside the merged props mesh so the fare board's
 // sightline field never sees them (see `courtParts`) — and the people shooting around on the court. Run seed for the players, like the ducks:
@@ -716,6 +731,7 @@ if (burger) {
 // comes and goes, and the boards would have to be re-asked every time one moved.
 const occluders = setCityOccluders(
   city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? []),
+  ...(graveyard?.meshes ?? []),
 );
 // The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).
 setGlossCity(occluders, SKYLINE_CEILING);
@@ -1164,6 +1180,7 @@ for (const mesh of police.emissiveMeshes) markEmissive(mesh, 'siren');
 // are merged into `burger.glow` (see city/burgerjoint.js), so the neon arrived in the bloom with
 // nothing to wire.
 if (burger) markEmissive(burger.glow, 'window');
+if (graveyard) markEmissive(graveyard.glow, 'window');
 if (garage) markEmissive(garage.light, 'bay');
 if (garage?.neon) markEmissive(garage.neon, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
@@ -1320,17 +1337,19 @@ const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
-    ...(burger?.meshes ?? []), ...(lamps ? [lamps.posts, lamps.heads] : []),
+    ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []),
+    ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
     ...(props.pondMesh ? [props.pondMesh] : [])],
   // The two things in the city the wave's vertex shader cannot reach, because they turn: the
   // depot's sign and the burger over the drive-through. See the `objects` note in
   // game/cityentry.js.
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
+    ...(graveyard ? [graveyard.entryObject] : []),
     ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
     ...(ltrain?.entryObjects ?? [])],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
-    ...(burger ? [burger.entrySite] : [])],
+    ...(burger ? [burger.entrySite] : []), ...(graveyard ? [graveyard.entrySite] : [])],
   dust,
   // The spawn point for now — the wave is re-aimed at the taxi's *post-warmup* position at the
   // bottom of this file, which is where the player actually first sees the car.
@@ -5061,6 +5080,8 @@ function tick() {
   burger?.update(dt, SIGN_SPIN);
   // And the sign on the depot's roof, on the same terms — see DEPOT_SPIN in city/garage.js.
   garage?.update(dt);
+  // The graveyard's ground mist, thicker after dark — the same night measure as the searchlight's.
+  graveyard?.update(dt, 1 - THREE.MathUtils.smoothstep(sun.intensity, 0.3, 2.6));
   controller.updateShake(dt, aspect());
   daylight.update(dt);
 
@@ -5974,6 +5995,11 @@ if (shot) {
   // is a couple of units below the middle of the building — but an orthographic camera aimed at a
   // point in the air is aimed at the wrong point on the ground (see the birds), so the target is
   // taken flat off the ground the way every other `at*` shot here takes it.
+  if (shot.atGraveyard && graveyard) {
+    controller.state.target.set(graveyard.site.focus.x, 0, graveyard.site.focus.z);
+    controller.update(aspect());
+  }
+
   if (shot.atDepot && garage) {
     controller.state.target.set(garage.site.focus.x, 0, garage.site.focus.z);
     controller.update(aspect());

@@ -44,6 +44,8 @@ import {
   createBurgerJoint, burgerSite, burgerGeometry, BURGER_R, SIGN_SPIN, VIEW_RISE, ROOF_Y, CAP_Y,
 } from '../src/city/burgerjoint.js';
 import { createDriveThru } from '../src/game/drivethru.js';
+import { createGraveyard } from '../src/city/graveyard.js';
+import { plantedCrowns } from '../src/city/props.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
@@ -17067,7 +17069,10 @@ let chopperOrder; // likewise
         for (const d of [0, 1, 2, 3]) if (placeCar(t5.taxi, d, tgt.i, tgt.j, 30)) break;
         t5.taxi.route = [];
         robber.directed = true;
-        for (let f = 0; f < 60 * 10 && !run.delivered; f++) {
+        // 25s rather than the 10 this started with: the graveyard moved this seed's bank, and with
+        // it the drop-off onto the map's far corner (0, 6), where a taxi placed 30 back with no
+        // route needs ~12s to get round the corner onto it. 3 of 4 runs deliver at 25s; at 10s, 2.
+        for (let f = 0; f < 60 * 25 && !run.delivered; f++) {
           t5.update(1 / 60);
           rob5.update(1 / 60);
           for (const e of f5.update(1 / 60, t5.taxi)) {
@@ -19518,6 +19523,77 @@ let chopperOrder; // likewise
   check('ltrain: the fade lands in the shader', stub.fragmentShader.includes('discard')
     && stub.vertexShader.includes('vLWorld = ') && 'uLFade' in stub.uniforms
     && lt.material.customProgramCacheKey().endsWith('-ltrain'));
+}
+
+// The graveyard (city/graveyard.js): a whole block the towers leave alone, kept apart from the depot
+// and the burger joint, out of downtown, and everything on it inside its own kerb and no taller
+// than a big tree. Swept over cities rather than trusted to this seed,
+// and the layout this run is measuring against rebuilt afterwards — `createLayout` installs the
+// network it bakes (see CLAUDE.md).
+{
+  const block = layout.graveyardBlock;
+  check('graveyard: the city puts one somewhere', Boolean(block) && block.type === 'graveyard',
+    block ? `block (${block.bi}, ${block.bj})` : 'none');
+  check('graveyard: the tower generator leaves its block alone', (() => {
+    const p = buildings.mesh.geometry.attributes.position;
+    const b = block.bounds;
+    for (let i = 0; i < p.count; i++) {
+      if (p.getX(i) > b.x0 && p.getX(i) < b.x1 && p.getZ(i) > b.z0 && p.getZ(i) < b.z1) return false;
+    }
+    return true;
+  })());
+
+  const yard = createGraveyard(block, makeRng(seed + 131));
+
+  // Trees are drawn one way everywhere (`treeParts`, city/props.js): every lobe any generator grew
+  // is in the list the leaf cards are dressed from, and every mesh carrying a crown is smooth.
+  // Grown afresh in main.js's order, because the sweeps above have each laid out a city of their
+  // own since — and `createLayout` clears the list, as it should.
+  {
+    const cityLayout = createLayout(makeRng(seed));
+    const cityBuild = createBuildings(makeRng(seed + 22), cityLayout);
+    const cityProps = createProps(makeRng(seed + 33), cityLayout);
+    const before = plantedCrowns().length;
+    const cityYard = createGraveyard(cityLayout.graveyardBlock, makeRng(seed + 131));
+    const planted = new Set(plantedCrowns());
+    const lobes = [...cityProps.crowns, ...(cityBuild.court?.crowns ?? [])];
+    check('trees: every crown in the city gets leaf cards, the graveyard\'s included',
+      lobes.every((c) => planted.has(c)) && plantedCrowns().length > before,
+      `${lobes.filter((c) => !planted.has(c)).length} missing, graveyard grew ${plantedCrowns().length - before}`);
+    check('trees: every mesh with a tree in it is lit smooth',
+      [cityProps.mesh, cityBuild.mesh, cityYard.shell].every((m) => m.material.flatShading === false));
+  }
+  let outside = 0;
+  let top = 0;
+  for (const mesh of yard.meshes) {
+    const p = mesh.geometry.attributes.position;
+    const b = block.bounds;
+    for (let i = 0; i < p.count; i++) {
+      if (p.getX(i) < b.x0 || p.getX(i) > b.x1 || p.getZ(i) < b.z0 || p.getZ(i) > b.z1) outside += 1;
+      top = Math.max(top, p.getY(i));
+    }
+  }
+  check('graveyard: everything on it stands inside its kerb, under 8 units tall',
+    outside === 0 && top < 8, `${outside} vertices outside, tallest ${top.toFixed(2)}`);
+
+  let placed = 0;
+  let clumped = 0;
+  let downtown = 0;
+  const N = 24;
+  for (let c = 0; c < N; c++) {
+    const sweep = createLayout(makeRng(seed + 7000 + c * 13));
+    const g = sweep.graveyardBlock;
+    if (!g) continue;
+    placed += 1;
+    if (g.centrality > 0.6) downtown += 1;
+    for (const other of [sweep.garageBlock, sweep.burgerBlock]) {
+      if (other && Math.abs(other.bi - g.bi) <= 1 && Math.abs(other.bj - g.bj) <= 1) clumped += 1;
+    }
+  }
+  createLayout(makeRng(seed));
+  check('graveyard: every city gets one, off downtown, apart from the depot and the joint',
+    placed === N && downtown === 0 && clumped === 0,
+    `${placed}/${N} placed, ${downtown} downtown, ${clumped} beside a landmark`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
