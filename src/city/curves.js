@@ -221,6 +221,62 @@ export function bezierCurve(p0, p1, p2, samples = 24) {
   };
 }
 
+/**
+ * A cubic Bezier wrapped the same way as `bezierCurve` above.
+ *
+ * For a turn the quadratic cannot draw: a quadratic has one control point, so it can leave one
+ * lane tangent or meet the other tangent but not both whenever the two do not cross in front of
+ * it — an S. The park road's bend meets its end junctions like that, and the kink the quadratic
+ * left there was a 24° step in heading that the taxi took in one frame (see buildTurns in
+ * city/roadnet.js). Two handles leave and arrive tangent whatever the lanes are doing.
+ */
+export function cubicCurve(p0, p1, p2, p3, samples = 32) {
+  const at3 = (t) => {
+    const mt = 1 - t;
+    const a = mt * mt * mt;
+    const b = 3 * mt * mt * t;
+    const c = 3 * mt * t * t;
+    const d = t * t * t;
+    return { x: a * p0.x + b * p1.x + c * p2.x + d * p3.x, z: a * p0.z + b * p1.z + c * p2.z + d * p3.z };
+  };
+  const pts = [];
+  const cum = [0];
+  for (let n = 0; n <= samples; n++) {
+    pts.push(at3(n / samples));
+    if (n > 0) cum.push(cum[n - 1] + dist(pts[n - 1], pts[n]));
+  }
+  const length = cum[samples];
+  const paramAt = (s) => {
+    if (length < EPS) return 0;
+    const target = Math.min(Math.max(s, 0), length);
+    let lo = 0;
+    let hi = samples;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (cum[mid] <= target) lo = mid; else hi = mid;
+    }
+    const span = cum[hi] - cum[lo];
+    return (lo + (span > EPS ? (target - cum[lo]) / span : 0)) / samples;
+  };
+  return {
+    kind: 'cubic',
+    length,
+    p0,
+    p1,
+    p2,
+    p3,
+    at: (s) => at3(paramAt(s)),
+    tangentAt(s) {
+      const t = paramAt(s);
+      const mt = 1 - t;
+      const dx = 3 * mt * mt * (p1.x - p0.x) + 6 * mt * t * (p2.x - p1.x) + 3 * t * t * (p3.x - p2.x);
+      const dz = 3 * mt * mt * (p1.z - p0.z) + 6 * mt * t * (p2.z - p1.z) + 3 * t * t * (p3.z - p2.z);
+      const len = Math.hypot(dx, dz);
+      return len > EPS ? { x: dx / len, z: dz / len } : { x: 1, z: 0 };
+    },
+  };
+}
+
 // --- Polygons ---------------------------------------------------------------
 
 /** Twice the signed area. Positive means counter-clockwise in (x, z). */

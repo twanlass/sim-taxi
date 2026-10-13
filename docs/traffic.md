@@ -2566,7 +2566,7 @@ whole block at once.
 rule about appetite. Blocking those laps also removes the passes they were making, so `ENTER_CHANCE`
 carries the rate instead. What it is tuned against is not how many cars stop but **how much of the
 time there is a car in the lot at all**, measured over 24 minutes of traffic per density — a run
-plays between 12 and 22 cars ([difficulty.md](difficulty.md)):
+played between 12 and 22 cars when this was measured, in the 5 × 6 city (`?city=classic` today; the 6 × 7 plays 16 to 30 over more street) ([difficulty.md](difficulty.md)):
 
 | cars | pull in / min | a car in the lot |
 |---|---|---|

@@ -6,6 +6,8 @@ import {
   nextIntersection, riverBanks,
 } from '../city/grid.js';
 import { deckHeightAt } from '../city/river.js';
+import { cityNetwork } from '../city/roadnet.js';
+import { turnPosition } from '../sim/traffic.js';
 import { DECK_SEGMENTS } from '../geometry/bridge.js';
 
 /**
@@ -321,6 +323,28 @@ function lookAhead(pts, extra) {
   return pts;
 }
 
+/**
+ * Spacing of the points laid down a *curved* lane — the central park's S-bend, the one road in the
+ * city that is not a straight. The grid arithmetic below (`entryPoint`/`exitPoint`) only knows
+ * straights, so it drew the bend as two chords: 12 and 13 units of straight band cutting across a
+ * lawn the taxi was visibly driving round. 1 unit puts ~13 points down each half of the bend; the
+ * bend's tightest radius is ~20, so the chord sits at most 1/(8·20) = 0.006 off the curve.
+ *
+ * Fixed in the lane's own arc length, not counted from the car: points that slide with the car
+ * re-shape the band ahead of it every frame (the probe's "never re-shapes ahead").
+ */
+const CURVE_STEP = 1;
+
+const isCurved = (lane) => !!lane && !lane.degenerate && lane.edge.curve.kind !== 'line';
+
+/** Points down a curved lane strictly after arc length `from`, up to and including its end. */
+function pushCurve(push, lane, from = 0) {
+  for (let s = (Math.floor(from / CURVE_STEP) + 1) * CURVE_STEP; s < lane.length - 1e-3; s += CURVE_STEP) {
+    push(lane.path.at(s));
+  }
+  push(lane.path.at(lane.length));
+}
+
 /** The whole route, junction to junction — `routePath` above, before any trim. */
 function lanePath(car, route) {
   const pts = [];
@@ -342,6 +366,7 @@ function lanePath(car, route) {
   let i = car.i;
   let j = car.j;
   let d = car.d;
+  const net = cityNetwork();
 
   if (car.state === 'turn' && car.entry && car.control && car.exit) {
     // Mid-junction: pick the arc up where the car is on it. `car.i/j` still name the junction it
@@ -363,12 +388,12 @@ function lanePath(car, route) {
         z: car.hold.z + (car.entry.z - car.hold.z) * t,
       });
       push(car.entry);
-      for (let s = 0; s <= TURN_STEPS; s++) push(bezier(car.entry, car.control, car.exit, s / TURN_STEPS));
+      for (let s = 0; s <= TURN_STEPS; s++) push(turnPosition(car, s / TURN_STEPS));
     } else {
       const t0 = (travelled - car.leadIn) / (car.turnLen - car.leadIn);
       for (let s = 0; s <= TURN_STEPS; s++) {
         const t = t0 + (1 - t0) * (s / TURN_STEPS);
-        push(bezier(car.entry, car.control, car.exit, t));
+        push(turnPosition(car, t));
       }
     }
     const after = nextIntersection(car.dOut, i, j);
@@ -376,12 +401,15 @@ function lanePath(car, route) {
     d = car.dOut;
     i = after.i;
     j = after.j;
+    const onto = net?.laneByGrid(d, i, j);
+    if (isCurved(onto)) pushCurve(push, onto);
   } else {
     // The lane point, not `car.x/car.z`: the taxi weaves inside its lane in Loco Mode, and the
     // band belongs to the lane rather than to that manoeuvre.
     // Straight off the lane the car is on. `car.s` is arc length along that lane now, not a
     // world coordinate, so it can only be resolved by the lane that owns it.
     push(car.lane.path.at(car.s));
+    if (isCurved(car.lane)) pushCurve(push, car.lane, car.s);
   }
 
   const steps = route ?? [];
@@ -396,6 +424,28 @@ function lanePath(car, route) {
     const dOut = steps[k];
     const entry = entryPoint(d, i, j);
     const exit = exitPoint(dOut, i, j);
+
+    // Either side of a curved lane, the grid's points are not where the lane meets the junction
+    // (the bend arrives at an angle), so the crossing is the network's own turn — the curve the
+    // car drives — and the lane after it is laid down point by point.
+    const inLane = net?.laneByGrid(d, i, j);
+    const outLane = net?.laneOutByGrid(dOut, i, j);
+    if (isCurved(inLane) || isCurved(outLane)) {
+      const turn = inLane && outLane && net.turnById.get(`${inLane.id}>${outLane.id}`);
+      if (turn) {
+        for (let s = 0; s <= TURN_STEPS; s++) {
+          push(turn.path.at((turn.length * s) / TURN_STEPS));
+          if (k === stopAt && s === TURN_STEPS / 2) markStop();
+        }
+        if (isCurved(outLane)) pushCurve(push, outLane);
+        const next = nextIntersection(dOut, i, j);
+        if (!next) return densifyOverWater(pts);
+        d = dOut;
+        i = next.i;
+        j = next.j;
+        continue;
+      }
+    }
 
     pushAhead(entry, d);
     if (dOut === d) {

@@ -71,6 +71,10 @@ const SMOOTH_AMP = 0.06;
 const SMOOTH_DETAIL = 0.35;
 // Half-width of the blend between the mirrored wall and the sky above it, in world units of height.
 const EDGE_SOFT = 0.3;
+// The open sea's bed, deeper than the channel's middle: open water past the mouth reads as its own
+// deep colour. And how far up the channel the bed starts falling toward it.
+const SEA_BED = 4.0;
+export const SEA_RUN_IN = 10;
 
 // The lattice the ripples are cut on, in world units. One unit is ~7.7px at play zoom, so 1.35 is
 // about ten pixels a facet: big enough to read as low-poly from the default zoom, small enough that
@@ -116,6 +120,12 @@ const UNIFORMS = {
   // drawbridge drops out of the reflection while its leaf is up: a flat deck mirrored under a
   // leaf standing on end is worse than no deck at all.
   uWaterBridges: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
+  // Where the channel opens into the harbor's sea: x of the mouth (the basin's back wall), and 1
+  // when there is a sea at all. See "One surface" below.
+  uWaterSea: { value: new THREE.Vector2() },
+  // The basin's two quay lines (z) and where its piers end (x): the walls the sea can mirror.
+  uWaterBasin: { value: new THREE.Vector3() },
+  uWaterQuay: { value: new THREE.Color(PALETTE.quay) },
 };
 
 let drawLift = () => 0;
@@ -141,7 +151,63 @@ uniform vec3 uWaterBed;
 uniform vec2 uWaterEdges;
 uniform vec2 uWaterBanks;
 uniform vec4 uWaterBridges[3];
+uniform vec2 uWaterSea;
+uniform vec3 uWaterBasin;
+uniform vec3 uWaterQuay;
 varying vec3 vWaterWorld;
+
+// 1 where there is channel wall at this x, 0 past the mouth, where the walls stop and the sea opens.
+// A hard step, because the wall's end is a hard corner: the basin's back wall takes over on exactly
+// that line (waterReflect), and any softening of it is a band where neither wall is whole and the
+// sky shows through — a pale sliver straight down the screen from each corner.
+float waterWallAt(float x) {
+  return uWaterSea.y > 0.0 ? step(x, uWaterSea.x) : 1.0;
+}
+
+// The harbor's own walls that face the way the channel's far wall does, which are the only ones a
+// ray leaving the water under this camera can meet: the basin's back wall either side of the
+// mouth (facing +x) and the far quay (facing +z). A ray from p along d that reaches one before
+// best shortens best to it and answers 1 or 2; 0 for neither, or no harbor.
+int waterBasinHit(vec3 p, vec3 d, inout float best) {
+  if (uWaterSea.y <= 0.0) return 0;
+  int face = 0;
+  if (p.x > uWaterSea.x && d.x < 0.0) {
+    float sb = (p.x - uWaterSea.x) / -d.x;
+    float zb = p.z + d.z * sb;
+    if (sb < best && zb > uWaterBasin.x && zb < uWaterBasin.y && (zb < uWaterEdges.x || zb > uWaterEdges.y)) {
+      best = sb;
+      face = 1;
+    }
+  }
+  if (p.z > uWaterBasin.x && d.z < 0.0) {
+    float sq = (p.z - uWaterBasin.x) / -d.z;
+    float xq = p.x + d.x * sq;
+    if (sq < best && xq > uWaterSea.x && xq < uWaterBasin.z) {
+      best = sq;
+      face = 2;
+    }
+  }
+  return face;
+}
+
+// How far p (world xz) is from the nearest wall, for the lip. Down the channel that is the nearer
+// channel wall; past the mouth it is the back wall, the two quays, or — in the opening itself —
+// the end of whichever channel wall is nearer, so the lip turns the corner instead of stopping.
+float waterEdgeDist(vec2 p) {
+  float d = min(p.y - uWaterEdges.x, uWaterEdges.y - p.y);
+  // Short of the mouth but outside the channel is the sea along the seawall, not a channel margin.
+  if (uWaterSea.y > 0.0 && p.x <= uWaterSea.x && d < 0.0) return 1e3;
+  if (uWaterSea.y > 0.0 && p.x > uWaterSea.x) {
+    // Outside the basin — the open sea either side of the piers — there is no lip: those walls are
+    // a long way off and the open water must not read as a margin.
+    if (p.y < uWaterBasin.x || p.y > uWaterBasin.y) return 1e3;
+    d = p.y > uWaterEdges.x && p.y < uWaterEdges.y
+      ? min(length(p - vec2(uWaterSea.x, uWaterEdges.x)), length(p - vec2(uWaterSea.x, uWaterEdges.y)))
+      : p.x - uWaterSea.x;
+    if (p.x < uWaterBasin.z) d = min(d, min(p.y - uWaterBasin.x, uWaterBasin.y - p.y));
+  }
+  return max(d, 0.0);
+}
 
 vec3 waterN = vec3(0.0, 1.0, 0.0);
 vec3 waterSpec = vec3(0.0);
@@ -236,8 +302,17 @@ float waterDeck(float z, float rise) {
 // +x face or its underside.
 vec3 waterReflect(vec3 p, vec3 r) {
   float best = (p.z - uWaterEdges.x) / max(-r.z, 1e-3);
+  // Past the mouth the far wall's plane is open sea, so the ray carries on to the sky — and a
+  // point out in the basin past that plane (best < 0) never meets it at all.
+  float wallHere = best > 0.0 ? waterWallAt(p.x + r.x * best) : 0.0;
+  if (wallHere <= 0.0) best = 1e6;
+  // Without the harbor's walls the sea mirrored nothing but sky, a flat sheet beside a river full
+  // of reflections. Each lit the way it faces: the back wall is side-on to the sun.
+  int face = waterBasinHit(p, r, best);
+  if (face > 0) wallHere = 1.0;
   float y = p.y + r.y * best;
-  vec3 wall = waterLit(uWaterWall, vec3(0.0, 0.0, 1.0));
+  vec3 wall = face == 0 ? waterLit(uWaterWall, vec3(0.0, 0.0, 1.0))
+    : waterLit(uWaterQuay, face == 1 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 0.0, 1.0));
   // The wall's top edge, softened over a few hundredths so a facet tipping across it fades rather
   // than flips a whole triangle from concrete to sky.
   #ifdef WATER_SMOOTH
@@ -258,7 +333,9 @@ vec3 waterReflect(vec3 p, vec3 r) {
     float rail = step(abs(up - ${num(RAIL_H - RAIL_W / 2)}), ${num(RAIL_W)})
                + step(abs(up - ${num(RAIL_H * 0.5)}), ${num(RAIL_W * 0.7)});
   #endif
-  col = mix(col, wall, 0.6 * clamp(rail, 0.0, 1.0));
+  // The railing runs along the channel only; the quays are open.
+  col = mix(col, wall, face == 0 ? 0.6 * clamp(rail, 0.0, 1.0) : 0.0);
+  col = mix(uWaterSky, col, wallHere);
   for (int k = 0; k < 3; k++) {
     vec4 b = uWaterBridges[k];
     if (b.w <= 0.0) continue;
@@ -333,18 +410,26 @@ const compose = () => /* glsl */ `
     float across = clamp((vWaterWorld.z - uWaterEdges.x) / (uWaterEdges.y - uWaterEdges.x), 0.0, 1.0);
     #ifdef WATER_SMOOTH
       float shelf = sin(PI * across);
-      float depth = mix(${num(BED_EDGE)}, ${num(BED_MID)}, shelf) * waterWet;
+      float depth = mix(${num(BED_EDGE)}, ${num(BED_MID)}, shelf);
     #else
-      float depth = ${num(BED_DEPTH)} * waterWet;
+      float depth = ${num(BED_DEPTH)};
     #endif
+    // The channel's bed falls away to the sea's over the last stretch before the mouth, and the
+    // lip runs only where there is a wall to make one.
+    float seaward = uWaterSea.y > 0.0
+      ? smoothstep(uWaterSea.x - ${num(SEA_RUN_IN)}, uWaterSea.x, vWaterWorld.x) : 0.0;
+    depth = mix(depth, ${num(SEA_BED)}, seaward) * waterWet;
     float sBed = depth / max(-rd.y, 1e-3);
-    float sWall = rd.z < 0.0 ? (vWaterWorld.z - uWaterEdges.x) / -rd.z : 1e6;
+    float sWall = rd.z < 0.0 && vWaterWorld.z > uWaterEdges.x ? (vWaterWorld.z - uWaterEdges.x) / -rd.z : 1e6;
+    if (waterWallAt(vWaterWorld.x + rd.x * sWall) < 0.5) sWall = 1e6;
+    // The harbor's walls carry on under the surface the same way.
+    int sunk = waterBasinHit(vWaterWorld, rd, sWall);
     float s = min(sBed, sWall);
     vec3 seen = vWaterWorld + rd * s;
     vec3 under;
     if (sWall < sBed) {
       // Pour lines on the wall, so it reads as carrying on rather than as a tint.
-      under = uWaterWall * (0.82 + 0.18 * step(0.5, fract(seen.y * 1.6)));
+      under = (sunk == 0 ? uWaterWall : uWaterQuay) * (0.82 + 0.18 * step(0.5, fract(seen.y * 1.6)));
     } else {
       vec2 cell = floor(seen.xz * 1.3);
       under = uWaterBed * (0.75 + 0.5 * waterHash(cell).x);
@@ -364,7 +449,7 @@ const compose = () => /* glsl */ `
 
     #ifdef WATER_SMOOTH
       // The lip at each wall, in world units from the nearer one.
-      float edge = min(across, 1.0 - across) * (uWaterEdges.y - uWaterEdges.x);
+      float edge = waterEdgeDist(vWaterWorld.xz);
       fres = max(fres, ${num(RIM_REFLECT)} * (1.0 - smoothstep(0.0, ${num(RIM_W)}, edge)));
       vec3 water = mix(body, refl, fres) + waterSpec * ${num(GLINT)};
       water += uWaterSky * ${num(RIM_GLOW)} * (1.0 - smoothstep(0.0, ${num(RIM_GLOW_W)}, edge));
@@ -383,9 +468,13 @@ const compose = () => /* glsl */ `
  * @param banks     `riverBanks()`: the kerb lines the bridges span.
  * @param bridges   one `{ x0, x1, rise, draw }` per crossing that carries a deck.
  * @param wall      the channel wall's colour as built, so the mirror image matches the wall.
+ * @param sea       with a harbor, `{ x0, z0, z1, xEnd }`: the mouth, the basin's quay lines and
+ *                  where its piers end (see "One surface" under The sea).
  */
-export function patchRiverWater(material, { edges, banks, bridges, wall }) {
+export function patchRiverWater(material, { edges, banks, bridges, wall, sea = null }) {
   UNIFORMS.uWaterEdges.value.set(edges.z0, edges.z1);
+  UNIFORMS.uWaterSea.value.set(sea?.x0 ?? 0, sea ? 1 : 0);
+  if (sea) UNIFORMS.uWaterBasin.value.set(sea.z0, sea.z1, sea.xEnd);
   UNIFORMS.uWaterBanks.value.set(banks.z0, banks.z1);
   if (wall) UNIFORMS.uWaterWall.value.set(wall);
   drawSlot = -1;
@@ -395,7 +484,11 @@ export function patchRiverWater(material, { edges, banks, bridges, wall }) {
     v.set(b.x0, b.x1, b.rise, 1);
     if (b.draw) drawSlot = k;
   });
+  return patchWater(material);
+}
 
+/** The river's program, onto a material `propMaterial` has already patched. */
+function patchWater(material) {
   const inner = material.onBeforeCompile;
   const innerKey = material.customProgramCacheKey();
   const styleKey = style;
@@ -530,6 +623,34 @@ export function patchPondWater(material, pond) {
       .replace('#include <opaque_fragment>', `${pondCompose()}\n#include <opaque_fragment>`);
   };
   return material;
+}
+
+// --- The sea ------------------------------------------------------------------
+//
+// The water the harbor stands in, east of the city (city/river.js `seaMesh`).
+//
+// **One surface.** The sea used to compile a compose of its own — the river's with the walls, the
+// bridges and the shelf taken out — and the mouth drew a hard line where the two met: on the river
+// side the far wall's reflection band and the shelving bed's light margins, on the sea side a flat
+// sky-tinted sheet, and the two vertex colourings disagreeing on top. Tyler, 2026-10-13: "can we use
+// the same water shader ... so we don't see this seam where the river and ocean meet". So the sea
+// is now the river's own program (`compose`), and what differs is worked out from where the pixel
+// is rather than from which mesh it belongs to:
+//
+// - **The walls stop at the mouth** (`waterWallAt`). A reflected or refracted ray that reaches the
+//   far wall's plane past `uWaterSea.x` finds open water there and carries on to the sky — so the
+//   wall's reflection ends where the wall does, on both sides of the join, instead of on the join.
+// - **The bed falls away** from the channel's shelf to the sea's `SEA_BED` over the `SEA_RUN_IN`
+//   before the mouth, so the river's light margins darken into the open water rather than stopping.
+// - **The lip** runs along every wall the water meets, the quays included (`waterEdgeDist`), and
+//   round the corner at each side of the mouth.
+//
+// The bridges stay in: water past the mouth looks back up the channel at the ring bridge, and a
+// reflection that met the join and stopped would be the seam over again.
+
+/** Layer the river's surface onto the sea round the harbor (after `patchRiverWater`). */
+export function patchHarborWater(material) {
+  return patchWater(material);
 }
 
 /** Where the drawbridge's leaf is, 0 down to 1 up — so its deck can leave the reflection. */

@@ -3357,6 +3357,59 @@ function applyKnock(car, dt) {
   car.yaw += k.yaw;
 }
 
+const isCurvedLane = (lane) => !!lane?.path && lane.path.kind !== 'line';
+
+/** Whether a turn joins the park road's bend at either end. Memoised on the network's turn. */
+function curvedTurn(turn) {
+  if (!turn) return false;
+  if (turn.curved === undefined) {
+    const net = cityNetwork();
+    turn.curved = isCurvedLane(net.laneById.get(turn.inLane)) || isCurvedLane(net.laneById.get(turn.outLane));
+  }
+  return turn.curved;
+}
+
+/**
+ * Where a car `u` of the way through its arc is — 0 at the junction boundary, 1 at the exit.
+ *
+ * On the grid that is the quadratic at parameter `u`, as it always has been: every grid turn is
+ * symmetric about its middle, so the parameter runs at a steady pace near enough and changing it
+ * would move every turn in the city. The bend's turns are not symmetric, and are not quadratics
+ * either (they are the network's cubics, see buildTurns). Paced by parameter, its west exit's
+ * quadratic once spent the first fifth of the turn on the first few centimetres — a taxi doing
+ * 6.4 u/s moved 0.009 in a frame and then rushed to catch up. There the point is taken by arc
+ * length along the network's own curve, so the car moves at its speed.
+ */
+export function turnPosition(car, u) {
+  if (curvedTurn(car.turn)) return car.turn.path.at(u * car.turn.path.length);
+  return bezier(car.entry, car.control, car.exit, u);
+}
+
+/**
+ * The arc part of `turnLen`. A grid turn has always been paced by its control polygon, and every
+ * timing on a corner was tuned against that; a turn onto the park road's bend is a cubic
+ * (buildTurns in city/roadnet.js) with no single control point, so it is paced by its own length.
+ */
+function arcLength(entry, control, exit, turn) {
+  if (curvedTurn(turn)) return Math.max(0.1, turn.path.length);
+  return Math.max(
+    0.1,
+    Math.hypot(control.x - entry.x, control.z - entry.z) + Math.hypot(exit.x - control.x, exit.z - control.z),
+  );
+}
+
+/**
+ * The body's heading across a junction where one side is the park road's bend: the curve's own
+ * tangent. Every other turn eases from one grid heading to the other, which is the whole story
+ * between two lanes on grid axes; here the lanes meet the junction at an angle, and the grid
+ * headings held the body due west while the car slid 24° off it, then snapped 16-20° in a frame
+ * on landing (measured, driving the bend). The cubic is tangent to both lanes at its ends, so
+ * following it hands over to each lane's heading with no step.
+ */
+function curvedTurnYaw(car, t) {
+  return yawOf(car.turn.path.tangentAt(t * car.turn.path.length));
+}
+
 function bezier(p0, p1, p2, t) {
   const mt = 1 - t;
   return {
@@ -3388,17 +3441,13 @@ export function plannedTurn(car) {
   const entry = car.lane.path.at(car.lane.length);
   const exit = net.laneById.get(turn.outLane).path.at(0);
   const control = turn.control;
-  const turnLen = STOP_SETBACK + Math.max(
-    0.1,
-    Math.hypot(control.x - entry.x, control.z - entry.z)
-    + Math.hypot(exit.x - control.x, exit.z - control.z),
-  );
+  const turnLen = STOP_SETBACK + arcLength(entry, control, exit, turn);
   return { entry, control, exit, leadIn: STOP_SETBACK, turnLen, turn };
 }
 
 export function turnPointAt(car, t) {
   return {
-    ...bezier(car.entry, car.control, car.exit, t),
+    ...turnPosition(car, t),
     travelled: car.leadIn + t * (car.turnLen - car.leadIn),
   };
 }
@@ -5271,11 +5320,7 @@ export function createTraffic(
       car.exit = exitLane.path.at(0);
       car.control = next.control;
       car.dOut = net.dirOfLane(exitLane);
-      car.turnLen = car.leadIn + Math.max(
-        0.1,
-        Math.hypot(car.control.x - car.entry.x, car.control.z - car.entry.z)
-        + Math.hypot(car.exit.x - car.control.x, car.exit.z - car.control.z),
-      );
+      car.turnLen = car.leadIn + arcLength(car.entry, car.control, car.exit, next);
       car.turnT = travelled / car.turnLen;
       car.route = late.slice(1);
       // The look-ahead past a pickup is tagged on the array as a count from its end (`carryOn` in
@@ -6412,11 +6457,12 @@ export function createTraffic(
           // every corner into a long lazy sweep.
           car.hold = car.lane.path.at(holdS);
           car.leadIn = STOP_SETBACK;
-          car.turnLen = car.leadIn + Math.max(
-            0.1,
-            Math.hypot(car.control.x - car.entry.x, car.control.z - car.entry.z)
-            + Math.hypot(car.exit.x - car.control.x, car.exit.z - car.control.z),
-          );
+          car.turnLen = car.leadIn + arcLength(car.entry, car.control, car.exit, chosen);
+          // Whatever this step carried past the hold line is the first of the run-up, rather than
+          // lost: the same hitch as the landing's, at the other end of the junction (see where
+          // `turnT` reaches 1). Never more than the step itself — a car that spawned past its
+          // line starts the run-up from the line, not from wherever it is.
+          car.turnT = Math.min(0.999, Math.max(0, Math.min(step, step - distToLine)) / car.turnLen);
           car.state = 'turn';
           car.stopAt = null;
           stats.moving += 1;
@@ -6552,7 +6598,12 @@ export function createTraffic(
           }
 
           car.lane = exitLane;
-          car.s = 0;                 // the exit point is where the landing lane begins
+          // The exit point is where the landing lane begins, and whatever the last step carried
+          // past it is road already driven. Dropping it lost up to a frame's travel at every
+          // junction — a hitch of 0.08 units at 8.5 u/s that read as a stutter on the frame the
+          // car straightened up, and was plainest on the park road's bend, where the body also
+          // turns on that frame.
+          car.s = Math.min((car.turnT - 1) * car.turnLen, exitLane.length);
           car.turn = null;
           syncGrid(car);
           car.state = 'drive';
@@ -6635,15 +6686,31 @@ export function createTraffic(
         if (travelled < car.leadIn) {
           // Straight run-up from the hold line to the junction boundary.
           const t = travelled / car.leadIn;
-          car.x = car.hold.x + (car.entry.x - car.hold.x) * t;
-          car.z = car.hold.z + (car.entry.z - car.hold.z) * t;
-          car.yaw = dirYaw(car.d);
+          if (isCurvedLane(car.lane)) {
+            // On the park road's bend the run-up is still the curve. Drawn as the chord from the
+            // hold line it was a kink at each end of it — 38 u/s² sideways at cruise, on the frames
+            // the car crossed the hold line and the junction boundary — and the grid heading the
+            // body held there was up to 16° off the road.
+            const s = car.lane.length - car.leadIn + travelled;
+            const p = car.lane.path.at(s);
+            car.x = p.x;
+            car.z = p.z;
+            car.yaw = yawOf(car.lane.path.tangentAt(s));
+          } else {
+            car.x = car.hold.x + (car.entry.x - car.hold.x) * t;
+            car.z = car.hold.z + (car.entry.z - car.hold.z) * t;
+            car.yaw = dirYaw(car.d);
+          }
         } else {
           const t = (travelled - car.leadIn) / (car.turnLen - car.leadIn);
-          const p = bezier(car.entry, car.control, car.exit, t);
+          const p = turnPosition(car, t);
           car.x = p.x;
           car.z = p.z;
-          car.yaw = lerpAngle(dirYaw(car.d), dirYaw(car.dOut), t);
+          if (curvedTurn(car.turn)) {
+            car.yaw = curvedTurnYaw(car, t);
+          } else {
+            car.yaw = lerpAngle(dirYaw(car.d), dirYaw(car.dOut), t);
+          }
         }
       }
 
@@ -7067,9 +7134,12 @@ export function createTraffic(
 
       // Roll and pitch both pivot on the car's origin at road level, so tilting drives one edge
       // underground. Lifting by the sagitta of each keeps the low edge on the tarmac and reads as
-      // suspension travel rather than clipping.
+      // suspension travel rather than clipping. Not for the deck's own pitch: `deckY` is already
+      // the mean of the nose's and the tail's deck heights, so a body pitched to the deck has both
+      // ends on it, and lifting by that sagitta too floated a car 0.32 off the foot of an arch —
+      // the probe caught a front wheel 1.0 above the deck under it.
       const lift = Math.abs(Math.sin(roll)) * (CAR_W / 2)
-        + Math.abs(Math.sin(shownPitch)) * (CAR_LEN / 2);
+        + Math.abs(Math.sin(shownPitch - deckPitch)) * (CAR_LEN / 2);
 
       if (car.isTaxi) {
         // `mount` is always 0 here — pulloverTargetFor skips the taxi — but it costs nothing to keep

@@ -27,12 +27,12 @@ import { arcFromBulge, rightNormal } from './curves.js';
 // 0.25 is 28°, with the S swinging 2.5 off the line each way.
 export const PARKWAY_BULGE = 0.25;
 
-// `&parkway=oneway` makes the park road one-way, in a direction the seed picks: a single lane down
-// the middle of a narrower road, 6 across rather than 8, with three chevrons painted on it. A
-// shortcut through the park in one direction and a detour round it in the other.
+// The park road is one-way, in a direction the seed picks: a single lane down the middle of a
+// narrower road, 6 across rather than 8, with three chevrons painted on it. A shortcut through the
+// park in one direction and a detour round it in the other. `?parkway=twoway` gives it two lanes.
 export const PARKWAY_ONEWAY = typeof location !== 'undefined'
-  ? new URLSearchParams(location.search).get('parkway') === 'oneway'
-  : globalThis.process?.env?.PARKWAY === 'oneway';
+  ? new URLSearchParams(location.search).get('parkway') !== 'twoway'
+  : globalThis.process?.env?.PARKWAY !== 'twoway';
 const ONEWAY_HALF = 3;
 
 /**

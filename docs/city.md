@@ -230,10 +230,29 @@ consequence of the constraint rather than a choice, and it happens to suit munic
 
 ### The elevated train (on by default, `?ltrain=classic` to compare)
 
-`game/ltrain.js` stands a Chicago-style L over the east-west arterial: a steel deck on a column
-at each nose of every planted island, one track, and one four-car train that crosses the island,
-waits off the end, and comes back the other way. `?ltrain=classic` takes it out; shots
-`ltrain` and `ltrain-far` turn it on even then.
+`game/ltrain.js` stands a Chicago-style L over the **north-south** arterial: a steel deck on a
+column at each nose of every planted island, one track, and one four-car train that crosses the
+city, waits off the end, and comes back the other way. `?ltrain=classic` takes it out; shots
+`ltrain` and `ltrain-far` turn it on even then. `?lroute=classic` puts it back on the east-west
+arterial, beside the river, with the old crossings (Tyler moved it across the river, 2026-10-13).
+
+- **Built along local +x and turned onto the line.** The geometry, the train and the timetable all
+  work in `a`, distance along the line; a north-south group takes a quarter turn, so local +x is
+  world −z (north) and local +z is world +x, the camera's side. `plan.world(a, o)` and
+  `plan.alongOf(x, z)` convert; the shader's coast fade reads `-z` instead of `x` (`uLAxis`).
+- **It crosses the river on a truss.** The river gap has no median — the road bridge runs junction
+  to junction — so the bents either side stand 34 apart against 7–13 everywhere else. Any span past
+  `TRUSS_FROM` (20) gets a through Warren truss standing up past the train's roof. The truss is
+  its own mesh on a plain material and never fades (Tyler: "don't do any truss fading"); the deck
+  under it still dithers round the taxi and the pins like the rest of the line.
+- **The drawbridge moves off its line.** A lifted leaf would go through a 6.4 deck, so `planRiver`
+  always gives the train's line a fixed (arched) bridge and puts the leaf one line over
+  ([river.md](river.md#which-crossings-bridge)). On the arch's crest (1.9) a box truck's top is
+  5.4 against the floor beams' 5.88; the tallest mast (`TUG_AIR`) tops out at 1.4. A Big Air
+  launch off that arch (`DRIFT_LAUNCH_HEIGHT` 10) does go up through the truss, and Tyler kept it
+  that way: the taxi flies through solid steel and the ghost outline shows it behind the members.
+- **Off the north end** it runs on over the north park (`NORTH_PARK_DEPTH`, `coastNorth()`) and
+  fades past it; off the south end it fades with the slab.
 
 - **The median is why it is on the arterial.** It is the one strip running the width of the city
   that no car drives on, so the columns need no clearance rule of their own: `planLTrain` reads
@@ -264,6 +283,24 @@ waits off the end, and comes back the other way. `?ltrain=classic` takes it out;
   until the line is built. The spans come from `deckSpans`, so a rerouted line keeps the stagger.
   For a still of it, `?shot=ltrain-far&introAt=2` freezes the intro two seconds in.
 - **Not done:** no stations, and no sound (the rumble hook is commented in `ambientLevels`).
+
+### The north park (default, `?northpark=classic` to drop it)
+
+`city/northpark.js`: past the north ring road the apron gives way to a stone wall with gates, a lawn
+with a lake and a loop of gravel paths, and trees thickening north into a wood that the lawn fades
+out behind (`lawnFade`), so the map ends in green. Tyler, 2026-10-13: "a big park (think Central
+Park). From game view will just look like map ends there at a park."
+
+- **Scenery only**, the harbor's terms: outside the ring road, so no street, block or junction moves;
+  its own rng stream (`seed + 53`). Trees are the shared `treeParts`, and their crowns go to the
+  canopy fuzz with the rest.
+- **Nothing in it hides the city.** The camera looks north-west, so everything planted there is
+  up-screen of the streets.
+- **The L's line runs over it.** Trees and the lake keep `TREE_CLEAR_RAIL` off the line and the wall
+  breaks for its columns. `NORTH_PARK_DEPTH` lives in `grid.js` because the map's north edge
+  (`coastNorth()`) moves with it.
+- Hand-written triangles (paths, lake, shore, fade) go through `upTriangles`, which computes each
+  normal from the winding and flips any that face down.
 
 ## Layout: what a block *is*
 
@@ -1006,11 +1043,12 @@ light direction rather than as a pale crust; cards on the far side of a lobe, wh
 camera never sees, are dropped after the draw. Covers the parks', the medians' and the courtyard's
 trees; `seed + 144`. The atlas builder both share is `util/cutout.js`.
 
-## `?city=big`: the 6 × 6 experiment and the central park
+## The 6 × 7 city and the central park
 
-`?city=big` (or `CITY=big` for a headless tool) grows the grid to 6 × 7 blocks, 36 of them land, and
-lays a **2 × 2 central park** with a curving road through it (`city/centralpark.js`). Off by default;
-the shipped city is untouched.
+The city is 6 × 7 blocks, 36 of them land, with a **2 × 2 central park** and a curving road through
+it (`city/centralpark.js`). `?city=classic` (`CITY=classic` for a headless tool) builds the old
+5 × 6 city with straight roads only, for comparison. Ambient traffic scales with the street: 16 to
+30 cars against the old city's 12 to 22 ([difficulty.md](difficulty.md)).
 
 The park road is a trick worth knowing before extending it. Every grid road round the park's middle
 junction is **closed**, so the road markings, the junction paint, the depot and drive-through
@@ -1028,11 +1066,16 @@ is not a crossing road (it was holding both arms 8.5 back), and `planeCrossing` 
 curved lane at its far end. The lawns are built by offsetting the centreline further for each layer
 (kerb, walk, grass) rather than by insetting the kerb polygon, whose clipped ends fold.
 
-`&parkway=oneway` (`PARKWAY=oneway` headless) makes the park road one-way in a direction the seed
-picks: one lane down the centreline of a 6-wide road, with chevrons at its entrance, middle and exit and no centre line.
+The park road is one-way in a direction the seed picks: one lane down the centreline of a 6-wide
+road, with chevrons at its entrance, middle and exit and no centre line. `?parkway=twoway`
+(`PARKWAY=twoway` headless) gives it two lanes.
 
-Known gaps: the headless suite under `CITY=big` fails the checks that compare the network with the
-grid (by design, the park road is not on the grid) and the few that assume every lane is straight.
+The park road is the one road the grid has no opinion about, so `tools/roadnet.mjs` leaves its lanes
+out of the grid comparisons. It also skips the trim checks at the road's two end junctions: the road
+leaves them 28° off square, so its kerb holds the cross street ~0.6 further back than
+`junctionReach` (which knows only square crossings) says. Several probe sweeps skip the park's
+middle junction facing against the one-way, which no car can be in. `npm run check` covers this
+city only; `CITY=classic npm run check` is the old one's suite.
 
 ## Ground, buildings, props
 

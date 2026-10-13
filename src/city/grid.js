@@ -12,17 +12,24 @@
 // because every other name in this file already means "runs along X": `arterialX` is a set of `j`
 // values and `halfRoadX(j)` is a road's extent in z. A `GRID_X` would have read as the opposite of
 // what it is. `i` runs `0..GRID_I` and `j` runs `0..GRID_J`; blocks are `bi < GRID_I`, `bj < GRID_J`.
-// `?city=big` is the size experiment: 6 × 7 blocks, 36 of them land against today's 25, with a
-// 2 × 2 central park and a curving road through it (`city/centralpark.js`). Read at module load
-// because every count below is a constant the rest of the city is built from; headless tools have
-// no `location` and get the shipped size unless run with `CITY=big` in the environment.
+// The city is 6 × 7 blocks, 36 of them land, with a 2 × 2 central park and a curving road through
+// it (`city/centralpark.js`). `?city=classic` keeps the old 5 × 6 (25 land blocks) with straight
+// roads only. Read at module load because every count below is a constant the rest of the city is
+// built from; headless tools have no `location` and take `CITY=classic` from the environment.
 export const BIG_CITY = typeof location !== 'undefined'
-  ? new URLSearchParams(location.search).get('city') === 'big'
-  : globalThis.process?.env?.CITY === 'big';
+  ? new URLSearchParams(location.search).get('city') !== 'classic'
+  : globalThis.process?.env?.CITY !== 'classic';
 export const GRID_I = BIG_CITY ? 6 : 5;  // block columns
-// Six rows against five columns, because **one of the rows is the river** (`city/river.js`). The
-// city is a block row taller than it is wide so that the water costs it neither a street nor a
-// buildable block: 25 of the 30 blocks are still land, which is exactly what a 5×5 city had.
+// The L train runs north-south, down the north-south arterial (Tyler, 2026-10-13: across the river
+// rather than beside it). `?lroute=classic` keeps the old east-west line. Here rather than in
+// game/ltrain.js because the river has to know: the drawbridge cannot lift under the deck, so it
+// moves off the train's line (`planRiver`).
+export const LTRAIN_NS = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('lroute') !== 'classic'
+  : globalThis.process?.env?.LROUTE !== 'classic';
+// A row more than columns, because **one of the rows is the river** (`city/river.js`). The city is
+// a block row taller than it is wide so that the water costs it neither a street nor a buildable
+// block: 36 of the 42 blocks are land, a 6×6 city's worth (25 of 30, a 5×5's, under `?city=classic`).
 export const GRID_J = BIG_CITY ? 7 : 6;  // block rows, one of them water
 export const PITCH = 20;             // distance between road centrelines
 export const ROAD_W = 8;             // full road width (two lanes)
@@ -409,6 +416,78 @@ export function riverBanks() {
   return {
     z0: lineZ(riverRowIndex) + halfRoadX(riverRowIndex),
     z1: lineZ(riverRowIndex + 1) - halfRoadX(riverRowIndex + 1),
+  };
+}
+
+// --- The harbor ---------------------------------------------------------------
+//
+// The river's east mouth no longer runs off the coast in a walled stub. Past the ring road the
+// island carries on for `HARBOR_REACH` more units, and the channel opens into a dock basin there:
+// quays down both sides, gantry cranes, container yards and a moored ship (`city/harbor.js`).
+//
+// **East, because east is the near edge.** The camera looks down the -x-z diagonal, so +x is the
+// lower right of the screen: the harbor sits in front of the city rather than behind its towers,
+// and its cranes throw their height up-screen over their own yards rather than over the streets.
+//
+// It is all *outside* the ring road. No street, block or junction moves, so the road network, the
+// routing, the fares and every probe staging see the same city they always did; the waterfront
+// road is the east ring road, and its junctions already take riders. `?harbor=classic` keeps the
+// old mouth. Read at module load for the same reason `BIG_CITY` is.
+export const HARBOR = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('harbor') !== 'classic'
+  : globalThis.process?.env?.HARBOR !== 'classic';
+/** The island's margin past each ring road, before the fade. Owned here so the harbor can measure from it. */
+export const SLAB_MARGIN = ROAD_W * 3;
+/** How much further the island reaches east of the old coast to hold the harbor. */
+export const HARBOR_REACH = HARBOR ? 44 : 0;
+/** The old coast, measured from the origin, on either side. */
+export const COAST_X = (SPAN_X + SLAB_MARGIN) / 2;
+/** Where the island ends to the west and to the east. Only the east one moves. */
+export const coastWest = () => -COAST_X;
+export const coastEast = () => COAST_X + HARBOR_REACH;
+// The big park past the north ring road (city/northpark.js, `?northpark=classic` to drop it): how far
+// its lawn runs north of the ring road's kerb before it fades. Here for the reason HARBOR_REACH is:
+// the map's north edge moves with it, and the L's line has to know where that is.
+export const NORTH_PARK = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('northpark') !== 'classic'
+  : globalThis.process?.env?.NORTHPARK !== 'classic';
+export const NORTH_PARK_DEPTH = 46;
+/** The same pair along z: the north edge and the south one, measured as z (north is negative). */
+export const coastNorth = () => (NORTH_PARK
+  ? lineZ(0) - halfRoadX(0) - NORTH_PARK_DEPTH
+  : -(SPAN_Z + SLAB_MARGIN) / 2);
+export const coastSouth = () => (SPAN_Z + SLAB_MARGIN) / 2;
+// The channel runs on at its own width for this far past the ring road's kerb before it opens out.
+// Enough for the ring bridge's footway (1.4) and a short walled run, so the river visibly *arrives*
+// at the basin rather than the bridge standing in it.
+const HARBOR_INLET = 9;
+// The basin's half-width in z, measured from the channel's centre line: 48 across, a little over
+// two blocks. It opened at 30 and Tyler asked for "moar water" — at 30 the yards were the bigger
+// thing and the dock read as a wide canal. 24 still leaves the yards either side 36 deep in the
+// big city (16 in classic, where the river row sits off-centre), room for the cranes' legs and a
+// container block behind them.
+const HARBOR_HALF = 24;
+
+/**
+ * The dock basin, or null when there is no harbor (classic, or a city with no river).
+ *
+ * `x0` is the basin's back wall, where the channel opens out; it runs east past the coast and
+ * shoals under the island's rim just as the old mouth did. `z0`/`z1` are its two quay walls.
+ * `kerbX` is the ring road's east kerb, the inland edge of everything the harbor builds.
+ */
+export function harborBasin() {
+  if (!HARBOR) return null;
+  const banks = riverBanks();
+  if (!banks) return null;
+  const kerbX = lineX(GRID_I) + halfRoadZ(GRID_I);
+  const mid = (banks.z0 + banks.z1) / 2;
+  return {
+    kerbX,
+    x0: kerbX + HARBOR_INLET,
+    x1: coastEast(),
+    z0: mid - HARBOR_HALF,
+    z1: mid + HARBOR_HALF,
+    mid,
   };
 }
 

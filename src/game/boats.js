@@ -5,12 +5,12 @@ import {
   createBargeMesh, createTugMesh, BARGE_LEN, TUG_LEN, BARGE_BEAM, TUG_BEAM,
 } from '../geometry/boat.js';
 import {
-  waterEdges, waterHeightAt, bridgeSpan, bridgeLines, drawbridgeLine, BARGE_AIR, TUG_AIR,
+  waterEdges, waterHeightAt, bridgeSpan, bridgeLines, drawbridgeLine, BARGE_AIR, TUG_AIR, coastFor,
 } from '../city/river.js';
 import { createGullFlock, MOVE_SECONDS, MOVE_REACH, LIFT_RAMP } from './gulls.js';
 import { OPEN_SECONDS } from './drawbridge.js';
 import { createWake } from './wake.js';
-import { SLAB_X, EDGE_FADE } from '../city/ground.js';
+import { EDGE_FADE } from '../city/ground.js';
 
 // Traffic on the river, and the thing that asks the drawbridge to lift.
 //
@@ -23,7 +23,9 @@ import { SLAB_X, EDGE_FADE } from '../city/ground.js';
 // a fact about the map and has to stay learnable, but *when* is the situation.
 
 /** How far off each end of the map a boat is spawned and retired. Out past the fade skirt. */
-const OFF_MAP = () => SLAB_X / 2 + 26;
+// Per side, since the harbor moved the east coast out (`coastFor`, city/river.js): `sign` is the
+// end of the map the boat is at.
+const OFF_MAP = (sign = -1) => coastFor(sign) + 26;
 
 // --- Coming and going -------------------------------------------------------
 //
@@ -36,9 +38,8 @@ const OFF_MAP = () => SLAB_X / 2 + 26;
 // So a boat fades on the same band the ground under it does: solid at the coast, gone by the time
 // the asphalt is. Nothing here needs to know where the water's own alpha gets to, because the two
 // are the same ramp measured from the same line.
-const FADE_FROM = () => SLAB_X / 2;
 const fadeAt = (x) => {
-  const out = Math.abs(x) - FADE_FROM();
+  const out = Math.abs(x) - coastFor(x);
   if (out <= 0) return 1;
   const t = Math.min(1, out / EDGE_FADE);
   return 1 - t * t * (3 - 2 * t);      // the smoothstep `asphaltFade` and the water both use
@@ -206,12 +207,11 @@ export function createBoats(scene, rng, drawbridge) {
     const drawn = rng.chance(0.5) ? 1 : -1;
     const dir = riverDir() ?? drawn;
     mesh.rotation.y = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
-    const off = OFF_MAP();
     const boat = {
       kind,
       mesh,
       dir,
-      x: dir > 0 ? -off : off,
+      x: dir > 0 ? -OFF_MAP(-1) : OFF_MAP(1),
       z: laneZ(dir),
       speed: kind === 'tug' ? TUG_SPEED : BARGE_SPEED,
       asked: false,
@@ -262,8 +262,6 @@ export function createBoats(scene, rng, drawbridge) {
     }
 
     const gate = spanX();
-    const off = OFF_MAP();
-
     for (let k = boats.length - 1; k >= 0; k--) {
       const boat = boats[k];
       const before = boat.x;
@@ -310,7 +308,7 @@ export function createBoats(scene, rng, drawbridge) {
       // distance it is not a special case any more, it is just what the emitter does.
       wake.follow(boat, Math.abs(boat.x - before));
 
-      if (Math.abs(boat.x) > off) {
+      if (Math.abs(boat.x) > OFF_MAP(boat.x)) {
         // A tug retired without ever getting through — it can only happen if the bridge never
         // cleared — still has to let go, or the span stays shut for the rest of the run.
         if (boat.kind === 'tug' && boat.asked && drawbridge) drawbridge.release();

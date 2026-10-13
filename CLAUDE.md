@@ -5,7 +5,7 @@ Guidance for Claude Code when working in this repository.
 ## What this is
 
 **Rocket Rides** — a low-poly 3D browser game. Crazy Taxi meets Flight Control: a fixed 3/4 view of a
-5-by-6 block city with a river down the middle of it, ambient traffic obeying real signals, and one
+6-by-7 block city with a river down the middle of it and a central park, ambient traffic obeying real signals, and one
 taxi you route by tapping fares.
 
 Three.js r0.180 + Vite 7. **Every mesh is generated in code** — no models, no loader. The one
@@ -23,7 +23,7 @@ about to change.
 | [docs/README.md](docs/README.md) | **Index — start here** |
 | [docs/architecture.md](docs/architecture.md) | Module map, frame loop, seeding, `window.__taxi` test hook |
 | [docs/city.md](docs/city.md) | Coordinates, direction encoding, layout, park districts, divided arterials |
-| [docs/river.md](docs/river.md) | The river, the three bridges, the drawbridge and the boats |
+| [docs/river.md](docs/river.md) | The river, the bridges, the drawbridge, the boats and the harbor at the east mouth |
 | [docs/traffic.md](docs/traffic.md) | Signals, arterials, ring road, car physics, boost, cop cars, the patrol cruiser, the building fire, the crash replay |
 | [docs/gameplay.md](docs/gameplay.md) | Opening vignette, fare loop, routing, picking, timer ring, economy |
 | [docs/difficulty.md](docs/difficulty.md) | The ramp: budgeted clocks, board size, shifts, the sweeps behind the numbers |
@@ -66,7 +66,7 @@ cards come for free: every lobe lands in `plantedCrowns()`, which is what the ca
 from. Don't hand-build a tree, and don't wire crowns to the fuzz by hand. The probe checks both.
 
 **The grid has two counts and two coordinate functions.** `GRID_I` bounds `i`, `GRID_J` bounds `j`,
-and they differ — the city is six block rows tall against five columns because one row is the river.
+and they differ — the city is seven block rows tall against six columns because one row is the river.
 `lineX(i)` gives an x and `lineZ(j)` gives a z; there is no `lineCoord`, no `GRID`, no `SPAN` and no
 `HALF_SPAN`, because the two axes are centred on the origin with different half-spans and one
 function cannot tell which it was handed. Anything reaching for "the whole map" wants `MAX_SPAN`;

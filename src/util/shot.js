@@ -259,6 +259,10 @@ export const SHOTS = [
   // Appended, for the index-addressing reason stated above `birds`.
   { name: 'graveyard', description: 'the graveyard, close', target: [0, 0], zoom: 11, warmup: 12, atGraveyard: true },
   { name: 'graveyard-far', description: 'the graveyard at play zoom', target: [0, 0], zoom: 52, warmup: 12, atGraveyard: true },
+  // The harbor at the river's east mouth (city/harbor.js): the cranes, the moored ship and the
+  // basin close up, and then at play zoom with the city beside it, which is where it has to read.
+  { name: 'harbor', description: 'the harbor: cranes, ship and the dock basin', target: [82, 2], zoom: 22, warmup: 12 },
+  { name: 'harbor-far', description: 'the harbor at play zoom, beside the city', target: [66, 8], zoom: 52, warmup: 12 },
 ];
 
 export function getActiveShot() {
@@ -266,7 +270,14 @@ export function getActiveShot() {
   if (!params.has('shot')) return null;
   const index = Number.parseInt(params.get('shot'), 10);
   const shot = SHOTS[Number.isNaN(index) ? 0 : index];
-  return shot ? { ...shot, index } : null;
+  if (!shot) return null;
+  // `&view=x,z,zoom` re-frames any shot without adding one, for looking at a part of the map no
+  // preset covers. The state the shot stages is unchanged; only the camera moves.
+  const view = (params.get('view') ?? '').split(',').map(Number);
+  if (view.length === 3 && view.every(Number.isFinite)) {
+    return { ...shot, index, target: [view[0], view[1]], zoom: view[2] };
+  }
+  return { ...shot, index };
 }
 
 /**

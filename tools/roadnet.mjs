@@ -194,6 +194,16 @@ for (let s = 0; s < SEEDS; s++) {
   const layout = createLayout(makeRng(seed));
   const net = roadNetFromGrid(layout);
   const tag = `seed ${seed}`;
+  // The central park's road is closed in the grid and put back in the network as two arcs
+  // (`city/centralpark.js`), so it is the one road the grid has no opinion about: every
+  // comparison below skips its lanes and the turns onto and off them, and asserts it separately.
+  const park = layout.centralPark;
+  const parkLane = (lane) => lane.edge.curve.kind !== 'line';
+  // The park road leaves its two end junctions 28° off the street it continues, so its kerb
+  // sweeps a little way across the cross street there and holds that street's lanes ~0.6 further
+  // back than `junctionReach` (which only knows square crossings). Right for the network, unknown
+  // to the grid: those two junctions are left out of the trim comparisons.
+  const parkEnd = (i, j) => park && [park.W, park.E].some((n) => n.i === i && n.j === j);
 
   // --- Constants shared across the module boundary --------------------------
   check(`${tag} cruise matches SPEED`, SIGNAL_DEFAULTS.cruise === SPEED,
@@ -234,7 +244,7 @@ for (let s = 0; s < SEEDS; s++) {
         for (let dIn = 0; dIn < 4; dIn++) {
           const inLane = net.laneByGrid(dIn, i, j);
           const expect = new Set(legalExits(dIn, i, j).map(String));
-          if (!inLane) {
+          if (!inLane || parkLane(inLane)) {
             // No lane means the road the car would have arrived on doesn't exist, so there is
             // nothing to compare — the grid would never place a car there either.
             continue;
@@ -243,6 +253,7 @@ for (let s = 0; s < SEEDS; s++) {
           for (const turnId of inLane.exits) {
             const turn = net.turnById.get(turnId);
             const out = net.laneById.get(turn.outLane);
+            if (parkLane(out)) continue;
             const to = net.nodeById.get(out.to);
             for (let d = 0; d < 4; d++) {
               const n = nextIntersection(d, i, j);
@@ -274,13 +285,13 @@ for (let s = 0; s < SEEDS; s++) {
       for (let j = 0; j <= GRID_J; j++) {
         for (let d = 0; d < 4; d++) {
           const lane = net.laneByGrid(d, i, j);
-          if (!lane) continue;
+          if (!lane || parkLane(lane)) continue;
           const back = isXAxis(d) ? { i: i - dirSign(d), j } : { i, j: j - dirSign(d) };
           const at = `(${i},${j}) d${d}`;
 
           centres.push([near(laneCoordOf(lane, d), laneOffsetCoord(d, i, j)), at]);
-          entries.push([apart(lane.path.at(lane.length), entryPoint(d, i, j)), at]);
-          exits.push([apart(lane.path.at(0), exitPoint(d, back.i, back.j)), at]);
+          if (!parkEnd(i, j)) entries.push([apart(lane.path.at(lane.length), entryPoint(d, i, j)), at]);
+          if (!parkEnd(back.i, back.j)) exits.push([apart(lane.path.at(0), exitPoint(d, back.i, back.j)), at]);
         }
       }
     }
@@ -296,7 +307,7 @@ for (let s = 0; s < SEEDS; s++) {
       for (let j = 0; j <= GRID_J; j++) {
         for (let dIn = 0; dIn < 4; dIn++) {
           const inLane = net.laneByGrid(dIn, i, j);
-          if (!inLane) continue;
+          if (!inLane || parkLane(inLane)) continue;
           for (const dOut of legalExits(dIn, i, j)) {
             const turn = inLane.exits.map((id) => net.turnById.get(id)).find((t) => {
               const to = net.laneById.get(t.outLane).to;
@@ -407,8 +418,11 @@ for (let s = 0; s < SEEDS; s++) {
         // the whole line, while the network measures it along the chain that still exists, which
         // is the more defensible of the two: a wave cannot propagate across a road that isn't
         // there. Anything drifting *without* that explanation is a bug in the phase bake.
+        //
+        // The central park's middle line is the same story the other way round: the grid sees the
+        // street cut at the park, the network sees it carry on through on the park road.
         const truncated = node.signal.wave.chainTotal < fullSpanAt(i, j) - TOL;
-        if (truncated) {
+        if (truncated || (park && j === park.C.j)) {
           drifted += 1;
         } else {
           unexplained += 1;
@@ -442,7 +456,16 @@ for (let s = 0; s < SEEDS; s++) {
     for (const district of layout.districts) wanted.push(district.bounds);
     if (layout.graveyardBlock?.double) wanted.push(layout.graveyardBlock.bounds);
 
-    const land = net.blocks.filter((b) => b.type !== 'water');
+    // The central park comes back as two faces, one each side of its curving road. Their bounds
+    // are curved, so they are counted here and kept out of the rectangle match below.
+    const inPark = (b) => park && b.bounds.x0 >= park.bounds.x0 - TOL && b.bounds.x1 <= park.bounds.x1 + TOL
+      && b.bounds.z0 >= park.bounds.z0 - TOL && b.bounds.z1 <= park.bounds.z1 + TOL;
+    const allLand = net.blocks.filter((b) => b.type !== 'water');
+    const land = allLand.filter((b) => !inPark(b));
+    if (park) {
+      check(`${tag} central park is two faces`, allLand.length - land.length === 2,
+        `${allLand.length - land.length}`);
+    }
     check(`${tag} block count`, land.length === wanted.length,
       `net ${land.length} vs layout ${wanted.length}`);
 
@@ -474,8 +497,9 @@ for (let s = 0; s < SEEDS; s++) {
       for (let j = 0; j <= GRID_J; j++) {
         for (let d = 0; d < 4; d++) {
           const lane = net.laneByGrid(d, i, j);
-          if (!lane) continue;
+          if (!lane || parkLane(lane)) continue;
           const back = isXAxis(d) ? { i: i - dirSign(d), j } : { i, j: j - dirSign(d) };
+          if (parkEnd(i, j) || parkEnd(back.i, back.j)) continue;
           const want = PITCH - junctionReach(d, i, j) - junctionReach(d, back.i, back.j);
           spans.push([near(lane.length, want), `(${i},${j}) d${d}`]);
         }
@@ -512,13 +536,16 @@ for (let s = 0; s < SEEDS; s++) {
     // from their own kerb. That invariant is what lets every kerb-measured constant in the sim
     // survive the widening untouched — see the divided-arterial note in grid.js — so it is worth
     // asserting on the network rather than only where it is written down.
+    // The park road is neither class: one-way it is a single lane down the middle of a road 6
+    // across, and either way it was never on the grid these constants describe.
+    const gridEdges = net.edges.filter((e) => e.curve.kind === 'line');
     check(`${tag} arterials are divided, side streets are not`,
-      net.edges.every((e) => {
+      gridEdges.every((e) => {
         const half = e.klass === 'arterial' ? HALF_ARTERIAL : HALF_ROAD;
         return near(e.halfWidth, half) <= TOL && near(e.laneOffset, half - LANE_TO_KERB) <= TOL;
       }));
     check(`${tag} a lane is LANE_TO_KERB from its own kerb`,
-      net.edges.every((e) => near(e.halfWidth - e.laneOffset, LANE_TO_KERB) <= TOL));
+      gridEdges.every((e) => near(e.halfWidth - e.laneOffset, LANE_TO_KERB) <= TOL));
   }
 
   // --- Routing --------------------------------------------------------------
@@ -540,6 +567,11 @@ for (let s = 0; s < SEEDS; s++) {
           const reference = refRoute({ i: from.i, j: from.j, d }, to);
           compared += 1;
           if (JSON.stringify(mine) === JSON.stringify(reference)) continue;
+          // With the park road in, the network has a street the reference cannot see, so a
+          // different route is expected wherever it is shorter, and the park's middle junction is
+          // unreachable to the reference outright. What must still hold is that nothing the
+          // reference can reach is lost.
+          if (park && (mine !== null || reference === null)) continue;
           mismatched += 1;
           if (!example) example = `(${from.i},${from.j},d${d})→(${to.i},${to.j}): `
             + `${JSON.stringify(mine)} vs ${JSON.stringify(reference)}`;

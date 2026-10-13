@@ -25,7 +25,7 @@ import {
   halfRoadX, halfRoadZ, laneOffX, laneOffZ,
 } from './grid.js';
 import {
-  lineCurve, arcFromBulge, bezierCurve, rayIntersect, bearingOf, wrapAngle,
+  lineCurve, arcFromBulge, bezierCurve, cubicCurve, rayIntersect, bearingOf, wrapAngle,
   insetPolygon, signedArea2, polygonBounds,
 } from './curves.js';
 import { centralParkEdges } from './centralpark.js';
@@ -298,6 +298,9 @@ function buildLanes(nodes, nodeById, edges) {
   return lanes;
 }
 
+/** How far `q` lies past `p` along direction `t`. */
+const ahead = (p, t, q) => (q.x - p.x) * t.x + (q.z - p.z) * t.z;
+
 /**
  * Every legal movement across every junction, as a curve a car can follow.
  *
@@ -328,14 +331,48 @@ function buildTurns(nodes, lanes) {
         const hand = Math.abs(delta) < STRAIGHT_TOLERANCE ? 'straight'
           : uturn ? 'uturn' : (delta > 0 ? 'right' : 'left');
 
-        const control = rayIntersect(p0, t0, p2, t2)
-          ?? { x: (p0.x + p2.x) / 2, z: (p0.z + p2.z) / 2 };
+        // The tangents are *lines*, and where they cross can be behind the car. Every grid turn
+        // has it in front of both ends, but the park road's one-way bend leaves its east junction
+        // 3.7 units across and only 16° round from the arterial feeding it — an S that no
+        // quadratic can draw — and the lines met 4.9 units *behind* the entry. The curve through
+        // that control point starts by running backwards: cars and the route band both hooked
+        // 1.2 units back toward the car before sweeping into the park. The midpoint is the same
+        // fallback parallel lanes get — a short diagonal, with a kink of 24° in and 8° out.
+        let control = rayIntersect(p0, t0, p2, t2);
+        if (control && (ahead(p0, t0, control) < 0 || ahead(control, t2, p2) < 0)) control = null;
+        const crossed = control;
+        control ??= { x: (p0.x + p2.x) / 2, z: (p0.z + p2.z) / 2 };
+
+        // A turn onto or off a curved lane is a cubic: both ends tangent to their lanes. The
+        // quadratic's kinks there were small as angles and large as motion — the bend's east
+        // entry put a 24° step in the taxi's heading, which at Loco speed is 345 u/s² of sideways
+        // snap against ~18 for an ordinary corner, and read as the car jerking off its line.
+        // Where the tangents do cross in front, the handles run two-thirds of the way to that
+        // point, which is the quadratic itself written as a cubic — the same curve, so a turn off
+        // the bend onto a cross street is exactly as sharp as any other corner. Where they do not
+        // (the S), a third of the chord each, the usual choice for a curve that should look drawn;
+        // a flat third everywhere made the bend's right turns twice as tight as a grid corner,
+        // 9.6° of heading in one frame at cruise. Grid turns keep their quadratic: every number
+        // tuned on a corner was tuned on that.
+        const curved = inLane.path.kind !== 'line' || outLane.path.kind !== 'line';
+        let path;
+        if (!curved) {
+          path = bezierCurve(p0, control, p2);
+        } else if (crossed) {
+          path = cubicCurve(p0,
+            { x: p0.x + (crossed.x - p0.x) * (2 / 3), z: p0.z + (crossed.z - p0.z) * (2 / 3) },
+            { x: p2.x + (crossed.x - p2.x) * (2 / 3), z: p2.z + (crossed.z - p2.z) * (2 / 3) }, p2);
+        } else {
+          const handle = Math.hypot(p2.x - p0.x, p2.z - p0.z) / 3;
+          path = cubicCurve(p0, { x: p0.x + t0.x * handle, z: p0.z + t0.z * handle },
+            { x: p2.x - t2.x * handle, z: p2.z - t2.z * handle }, p2);
+        }
 
         const turn = {
           id: `${inLane.id}>${outLane.id}`,
           node: node.id, inLane: inLane.id, outLane: outLane.id,
-          hand, delta, control,
-          path: bezierCurve(p0, control, p2),
+          hand, delta, control, curved,
+          path,
           legal: !uturn && inLane.edge !== outLane.edge,
           phase: -1,
           conflicts: [],

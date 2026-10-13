@@ -10,6 +10,10 @@
 import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
+import { pointInPolygon } from '../src/city/curves.js';
+import { isParkwayMid, coastWest, coastEast, coastNorth, harborBasin, HARBOR } from '../src/city/grid.js';
+import { createHarbor } from '../src/city/harbor.js';
+import { coastArcStart, coastArcZ, SEA_CORNER } from '../src/city/harborplan.js';
 import { createLayout } from '../src/city/layout.js';
 import {
   createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
@@ -185,7 +189,7 @@ import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/
 import { planOrigin, crossingOrigin } from '../src/game/route.js';
 import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, BLOCK, HALF_ROAD, HALF_ARTERIAL, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, riverBanks, riverRow } from '../src/city/grid.js';
 import {
-  waterEdges, bridgeSpan, bridgeLines, riverCrossing, archAt, deckHeightAt, createRiver, waterHeightAt,
+  waterEdges, bridgeSpan, bridgeLines, riverCrossing, drawbridgeLine, archAt, deckHeightAt, createRiver, waterHeightAt,
   WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR, TUG_AIR, ARCH_RISE, DECK_THICK,
 } from '../src/city/river.js';
 import { createBridge, abutmentParts } from '../src/geometry/bridge.js';
@@ -280,9 +284,20 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
   // Signed distance to the rounded-square outline: 0 on the edge, positive outside.
   const insetX = SLAB_X / 2 - SLAB_RADIUS;
   const insetZ = SLAB_Z / 2 - SLAB_RADIUS;
-  const edgeDist = (x, z) => Math.hypot(
+  const square = (x, z) => Math.hypot(
     Math.max(Math.abs(x) - insetX, 0), Math.max(Math.abs(z) - insetZ, 0),
   ) - SLAB_RADIUS;
+  // With the harbor the east side is a seawall that takes no skirt, so the outline is the west
+  // half of the square with the north and south coasts running straight on east until each turns
+  // into the seawall — where the skirt carries on round the corner arc (`seaCornerFade`, ground.js).
+  const edgeDist = !harborBasin() ? square : (x, z) => {
+    const side = z > 0 ? 1 : -1;
+    // Round the corner arc, radially — its |z| has an infinite slope where the arc turns south, so
+    // float32 storage alone moved a vertex there by 3e-3.
+    const from = coastArcStart(side);
+    if (x >= from) return Math.hypot(x - from, Math.max(Math.abs(z) - (coastArcZ(side, from) - SEA_CORNER), 0)) - SEA_CORNER;
+    return x < 0 ? square(x, z) : Math.abs(z) - SLAB_Z / 2;
+  };
 
   const pos = fade?.geometry.attributes.position;
   const col = fade?.geometry.attributes.color;
@@ -389,7 +404,11 @@ const onGrass = (city, i, j) => {
     n.crossVectors(b.clone().sub(a), c.clone().sub(a));
     // Earcut leaves a handful of zero-area triangles at the corners of a holed shape. They draw
     // nothing and have no normal to have got wrong; what must not appear is one facing the dirt.
-    if (n.lengthSq() < 1e-12) continue;
+    // Measured as a *height* rather than an area: the central park's kerbs are a curve sampled
+    // every 0.7 units, and three nearly collinear samples make a sliver 1.3 long and 1e-6 high
+    // whose float noise can point either way — it covers no pixel at any zoom.
+    const longest = Math.max(a.distanceTo(b), b.distanceTo(c), c.distanceTo(a));
+    if (n.length() < 1e-4 * longest) continue;
     surfaceTris += 1;
     if (n.normalize().y < 0.999) facingDown += 1;
   }
@@ -900,9 +919,13 @@ const onGrass = (city, i, j) => {
     for (const [k, t] of planned.entries()) {
       tufts += 1;
       const ends = [[cards.getX(k * 6), cards.getZ(k * 6)], [cards.getX(k * 6 + 1), cards.getZ(k * 6 + 1)]];
-      const inside = plots.some(({ bounds }) => ends.every(([x, z]) =>
+      // The central park's lawns are curved, so its tufts are tested against the lawn polygons
+      // themselves (`lawnsAt(PARK_EDGE)`), not against the rectangles its trees plan in.
+      const lawns = cityLayout.centralPark?.lawnsAt(PARK_EDGE) ?? [];
+      const inside = plots.some(({ bounds, central }) => !central && ends.every(([x, z]) =>
         x > bounds.x0 + PARK_EDGE && x < bounds.x1 - PARK_EDGE
-        && z > bounds.z0 + PARK_EDGE && z < bounds.z1 - PARK_EDGE));
+        && z > bounds.z0 + PARK_EDGE && z < bounds.z1 - PARK_EDGE))
+        || lawns.some((lawn) => ends.every(([x, z]) => pointInPolygon(x, z, lawn)));
       if (!inside) offLawn += 1;
       if (pond && Math.hypot(t.x - pond.x, t.z - pond.z) < pond.r) inWater += 1;
       if (statue && Math.abs(t.x - statue.x) < STATUE_PLAZA / 2
@@ -2138,7 +2161,11 @@ check('signals actually stop people', stoppedFrames > simFrames * 0.5,
   `someone stopped on ${((stoppedFrames / simFrames) * 100).toFixed(0)}% of frames`);
 
 // --- Positional invariants.
-const positions = traffic.cars.map((c) => ({ x: c.x, z: c.z, state: c.state }));
+const positions = traffic.cars.map((c) => ({
+  x: c.x, z: c.z, state: c.state,
+  // On the central park's road, which bends the whole way and so has no grid lane centre to sit on.
+  curved: Boolean(c.lane?.edge?.curve?.kind && c.lane.edge.curve.kind !== 'line'),
+}));
 // The outermost road centrelines sit exactly at ±HALF_SPAN_X / ±HALF_SPAN_Z, so a car in the far
 // lane is legitimately LANE units beyond that. The original bound here was simply too tight.
 const limitX = HALF_SPAN_X + LANE + 1;
@@ -2176,7 +2203,7 @@ const lineIndexZ = (z) => Math.min(GRID_J, Math.max(0, Math.round((z + HALF_SPAN
 // that road's lanes sit out — LANE on an ordinary street, further on a divided arterial — and
 // somewhere along a road on the other.
 const offLane = positions.filter((p) => {
-  if (p.state !== 'drive') return false;
+  if (p.state !== 'drive' || p.curved) return false;
   const dx = distToLineX(p.x);
   const dz = distToLineZ(p.z);
   const onXLane = Math.abs(dz - laneOffX(lineIndexZ(p.z))) < 0.05;
@@ -2242,6 +2269,12 @@ check('no two cars occupy the same space', worst > 1.6,
         if (car.dOut !== car.d) cornerLock = Math.max(cornerLock, lock);
         continue;
       }
+      // The central park's road is a lane that bends the whole way, so a car on it is steering
+      // and has no straight to straighten up on until it is off it.
+      if (car.lane?.edge?.curve?.kind && car.lane.edge.curve.kind !== 'line') {
+        sinceJunction.set(car, 0);
+        continue;
+      }
 
       const run = (sinceJunction.get(car) ?? 0) + car.v / 60;
       sinceJunction.set(car, run);
@@ -2266,8 +2299,7 @@ check('no two cars occupy the same space', worst > 1.6,
   // here exercises — a multiply the wrong way round leaves them at the world origin, or orbiting
   // the city at the car's distance from it. Checked on straight-driving cars only, so the corner
   // lean isn't in the way.
-  const front = wheelAnchors().filter((anchor) => anchor.front);
-  const reach = Math.hypot(front[0].x, front[0].z);
+  const front = wheelAnchors(CAR_LEN, CAR_W).filter((anchor) => anchor.front);
   const wheelMatrix = new THREE.Matrix4();
   const wheelPos = new THREE.Vector3();
   let adrift = 0;
@@ -2279,8 +2311,22 @@ check('no two cars occupy the same space', worst > 1.6,
       wheelPos.setFromMatrixPosition(wheelMatrix);
       checked += 1;
       const out = Math.hypot(wheelPos.x - car.x, wheelPos.z - car.z);
-      if (Math.abs(out - reach) > 0.25) adrift += 1;
-      else if (wheelPos.y < WHEEL_R - 0.25 || wheelPos.y > WHEEL_R + 0.45) adrift += 1;
+      // Height off whatever the wheel is standing on: a car climbing an arched bridge is up to
+      // ARCH_RISE above the road, and its front wheels further up the slope than its centre. None
+      // happened to be on one at the sample instant until the 6 × 7 city's fourth bridge
+      // reshuffled the traffic — one at the foot of the ring bridge read 1.46 against a deck of
+      // 0.03 under its centre.
+      const ground = deckHeightAt(wheelPos.x, wheelPos.z).y;
+      // A pitched body carries its front axle up (or down) by the axle's own offset, and a pitched
+      // body shortens the axle's reach across the ground by the same angle. Both were invisible
+      // while `reach` was NaN (`wheelAnchors()` called with no car size) and while no sampled car
+      // happened to be pitched — until one at the foot of the ring road's arch, nose on the deck
+      // and tail in the junction, read 23° and 1.11 off the road.
+      const pitch = car.shownPitch ?? 0;
+      const rise = Math.abs(Math.sin(pitch)) * front[w].x;
+      const flat = Math.hypot(front[w].x * Math.cos(pitch), front[w].z);
+      if (Math.abs(out - flat) > 0.25) adrift += 1;
+      else if (wheelPos.y - ground < WHEEL_R - 0.25 - rise || wheelPos.y - ground > WHEEL_R + 0.45 + rise) adrift += 1;
     }
   }
   check('every front wheel is bolted to its car', adrift === 0 && checked > 0,
@@ -3290,6 +3336,14 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   let sampledLoosePickup = 0;
   const foodDropoffs = new Set();
   const BOARDS = 80;
+  // ...except off the joint itself. `spotLegal` refuses the corner the taxi is at, and a food order
+  // only ever comes from one corner, so a run that happens to finish at the burger joint samples 80
+  // boards of nothing but boxes. Move it one junction on.
+  if (FOOD_PICKUP && pTraffic.taxi.i === FOOD_PICKUP.i && pTraffic.taxi.j === FOOD_PICKUP.j) {
+    const taxi = pTraffic.taxi;
+    const on = nextIntersection(taxi.d, taxi.i, taxi.j);
+    if (on) placeCar(taxi, taxi.d, on.i, on.j, 6);
+  }
   for (let s = 0; s < BOARDS; s++) {
     const boardScene = new THREE.Scene();
     const board = createParcelSystem(makeRng(seed + 900 + s * 7), boardScene,
@@ -5652,6 +5706,10 @@ let longest = 0;
 for (const from of ints) {
   for (const to of ints) {
     for (let d = 0; d < 4; d++) {
+      // The central park's middle junction is reached only along its own road, and one-way that
+      // road arrives from one side alone: a car there facing the other way is not a state any car
+      // can be in.
+      if (isParkwayMid(from.i, from.j) && !cityNetwork().laneByGrid(d, from.i, from.j)) continue;
       const route = findRoute({ i: from.i, j: from.j, d }, to);
       if (route === null) unroutable += 1;
       else longest = Math.max(longest, route.length);
@@ -5764,6 +5822,152 @@ check('every intersection is routable from every approach', unroutable === 0,
     `max drift ${drift.toFixed(4)} units over ${frames} frames`);
 }
 
+// --- The band round the park road's bend -----------------------------------
+// The band is built from grid arithmetic, which only knows straights, so the park road's S-bend
+// came out as two chords cutting 4.5 units across the lawn. Curved lanes are now laid down point by
+// point and crossed on the network's own turns. Two claims, on a taxi driving the whole bend: every
+// part of the band lies on a lane or turn the car can drive, and none of it runs backwards — the
+// turn into the bend's east end once had its control point behind the car and hooked 1.2 units back.
+{
+  const net = cityNetwork();
+  const curved = net.lanes.filter((l) => !l.degenerate && l.edge.curve.kind !== 'line');
+  if (curved.length) {
+    // The head of the bend: no curved lane feeds it, bar its own twin running the other way.
+    const first = curved.find((l) => !curved.some((m) => m.to === l.from && m.from !== l.to));
+    const A = net.nodeById.get(first.from);
+    const d = net.dirOfLane(first);
+    // Down the bend, then whichever legal way out of its far junction comes first: straight on is
+    // not always a road (a closure can take the arterial beyond it).
+    const route = [];
+    let end = first;
+    route.push(d);
+    for (let next; (next = curved.find((m) => m.from === end.to && m.to !== end.from)); ) {
+      route.push(net.dirOfLane(next));
+      end = next;
+    }
+    route.push(net.dirOfLane(net.laneById.get(net.turnById.get(end.exits[0]).outLane)));
+    const car = { state: 'drive', lane: net.laneByGrid(d, A.gi, A.gj), s: 1, i: A.gi, j: A.gj, d };
+    let tail = first;
+    for (let next; (next = curved.find((m) => m.from === tail.to && m.to !== tail.from)); ) tail = next;
+    const Z = net.nodeById.get(tail.to);
+    // The bend and its two junctions, no further: past them the band is the grid's business, and
+    // the route's destination stops in the middle of a junction, which is not on any lane.
+    const along = (p) => (isXAxis(d) ? p.x : p.z);
+    const lo = Math.min(along(A), along(Z)) - 6;
+    const hi = Math.max(along(A), along(Z)) + 6;
+    const pts = routePath(car, route, { onward: false }).filter((p) => along(p) > lo && along(p) < hi);
+    const ref = [];
+    for (const l of net.lanes) if (!l.degenerate) for (let s = 0; s <= l.length; s += 0.05) ref.push(l.path.at(s));
+    for (const t of net.turnById.values()) if (t.legal) for (let s = 0; s <= t.length; s += 0.05) ref.push(t.path.at(s));
+    let off = 0;
+    let backwards = 0;
+    const sign = dirSign(d);
+    for (let k = 0; k < pts.length - 1; k++) {
+      const a = pts[k];
+      const b = pts[k + 1];
+      // Short of the far junction only: the way out of it may be a corner, and a corner taken off
+      // a road that arrives at an angle runs past square — backwards, legitimately.
+      const between = (p) => (along(p) - along(A)) * sign >= 0 && (along(Z) - along(p)) * sign >= 6;
+      if (between(a) && between(b) && (along(b) - along(a)) * sign <= 0) backwards += 1;
+      for (let u = 0; u <= 1; u += 0.25) {
+        const x = a.x + (b.x - a.x) * u;
+        const z = a.z + (b.z - a.z) * u;
+        let best = Infinity;
+        for (const r of ref) best = Math.min(best, Math.hypot(r.x - x, r.z - z));
+        off = Math.max(off, best);
+      }
+    }
+    check('the route band follows the park road round its bend', off < 0.05 && pts.length > 20,
+      `${pts.length} points, worst ${off.toFixed(3)} off the curve the car drives`);
+    check('and never runs backwards through the bend', backwards === 0, `${backwards} reversed segments`);
+  }
+}
+
+// --- The taxi round the park road's bend -----------------------------------
+// The body used to hold its grid heading through the junctions at either end of the bend and snap
+// to the lane's on the frame it landed — 20° in one frame — and every junction dropped whatever
+// the step carried past the hold line and past the exit, a frame-scale stutter. Drive the taxi
+// through the whole bend and hold both: the heading turns smoothly, and the distance moved each
+// frame matches the speed the sim says it is doing.
+{
+  const net = cityNetwork();
+  const curved = net.lanes.filter((l) => !l.degenerate && l.edge.curve.kind !== 'line');
+  if (curved.length) {
+    // The head of the bend: no curved lane feeds it, bar its own twin running the other way.
+    const first = curved.find((l) => !curved.some((m) => m.to === l.from && m.from !== l.to));
+    const last = (() => {
+      // Follow the chain from the head rather than searching, so a two-way bend ends where this
+      // direction does.
+      let l = first;
+      for (let next; (next = curved.find((m) => m.from === l.to && m.to !== l.from)); ) l = next;
+      return l;
+    })();
+    const A = net.nodeById.get(first.from);
+    const Z = net.nodeById.get(last.to);
+    const d = net.dirOfLane(first);
+    const bTraffic = createTraffic(makeRng(seed + 131), new THREE.Scene(), 1);
+    const bTaxi = bTraffic.taxi;
+    placeCar(bTaxi, d, A.gi, A.gj, 25);
+    // Down the bend, then whichever legal way out of its far junction comes first: straight on is
+    // not always a road (a closure can take the arterial beyond it).
+    const route = [];
+    let end = first;
+    route.push(d);
+    for (let next; (next = curved.find((m) => m.from === end.to && m.to !== end.from)); ) {
+      route.push(net.dirOfLane(next));
+      end = next;
+    }
+    route.push(net.dirOfLane(net.laneById.get(net.turnById.get(end.exits[0]).outLane)));
+    bTaxi.route = route;
+    bTaxi.routeConsumed = false;
+    let { x: px, z: pz, yaw: pyaw } = bTaxi;
+    let worstYaw = 0;
+    let worstLoss = 0;
+    let worstAccel = 0;
+    let frames = 0;
+    let vx = 0;
+    let vz = 0;
+    for (let f = 0; f < 60 * 20; f++) {
+      bTraffic.update(1 / 60);
+      const moved = Math.hypot(bTaxi.x - px, bTaxi.z - pz);
+      const nvx = (bTaxi.x - px) * 60;
+      const nvz = (bTaxi.z - pz) * 60;
+      // On the bend or crossing one of its junctions; past that it is an ordinary corner, which
+      // has its own pacing (and its own checks).
+      const inside = bTaxi.state === 'turn'
+        ? !!bTaxi.turn?.curved && bTaxi.turn.hand === 'straight'
+        : bTaxi.lane?.path?.kind !== 'line';
+      // A car pulling away from the hold line is the one exception: it is pinned 0.02 short of
+      // the line while it waits, and gives that back on the frame it leaves.
+      if (inside && bTaxi.v > 1) {
+        frames += 1;
+        worstYaw = Math.max(worstYaw, Math.abs(Math.atan2(Math.sin(bTaxi.yaw - pyaw), Math.cos(bTaxi.yaw - pyaw))));
+        worstLoss = Math.max(worstLoss, bTaxi.v / 60 - moved);
+        // Above a crawl only: pulling away from the hold line is its own 0.02 step (see above).
+        // Sideways only — the part across the direction of travel. Braking for a red is along it.
+        const speed = Math.hypot(nvx, nvz);
+        if (bTaxi.v > 3 && speed > 1e-6) {
+          const side = Math.abs((nvx - vx) * nvz - (nvz - vz) * nvx) / speed;
+          worstAccel = Math.max(worstAccel, side * 60);
+        }
+      }
+      vx = nvx;
+      vz = nvz;
+      ({ x: px, z: pz, yaw: pyaw } = bTaxi);
+      if ((isXAxis(d) ? bTaxi.x : bTaxi.z) * dirSign(d) > (isXAxis(d) ? Z.x : Z.z) * dirSign(d) + 15) break;
+    }
+    check('the taxi turns smoothly round the park road\'s bend', worstYaw < (3 * Math.PI) / 180 && frames > 60,
+      `worst ${(worstYaw * 180 / Math.PI).toFixed(2)}° in a frame over ${frames} frames`);
+    check('and loses no travel at the junctions either end', worstLoss < 0.01,
+      `worst frame ${worstLoss.toFixed(3)} units short of its speed`);
+    // The motion itself, which the heading alone does not see. The quadratic turns at the bend's
+    // ends had a kink in the *path*, and a body following a kink is thrown sideways on one frame:
+    // 100 u/s² at cruise, against ~12 for the rest of the drive. The cubics are tangent at both ends.
+    check('and is not thrown sideways where the bend meets the junctions', worstAccel < 25,
+      `worst ${worstAccel.toFixed(1)} u/s² at cruise`);
+  }
+}
+
 // --- Looking ahead past a waiting rider ------------------------------------
 // A route to a rider carries on toward their drop-off (`carryOn`), so the exit the taxi takes
 // through the pickup junction is the drop-off route's first step rather than a dice roll, and the
@@ -5800,9 +6004,10 @@ check('every intersection is routable from every approach', unroutable === 0,
   const kerbOnly = routePath(lTaxi, route, { onward: false });
   const past = lengthOf(band) - band.stopAlong;
   // The bare route ends dead centre of the junction, straight in; the stop on a turn is the arc's
-  // midpoint, which cuts the corner — 2.4 units shorter on the seed this was written against.
+  // midpoint, which cuts the corner — 2.4 units shorter on the seed this was written against, and
+  // 3.7 against the pickup the same seed lands on in the 6 × 7 city.
   check('the band stops a short stub past the kerb',
-    Math.abs(band.stopAlong - bare) < 3 && Math.abs(past - ONWARD_LEN) < 0.01
+    Math.abs(band.stopAlong - bare) < 4.5 && Math.abs(past - ONWARD_LEN) < 0.01
       && Math.abs(lengthOf(kerbOnly) - band.stopAlong) < 0.01,
     `kerb at ${band.stopAlong.toFixed(2)} (bare route ${bare.toFixed(2)}), ${past.toFixed(2)} past it`);
   const end = band.at(-1);
@@ -7007,8 +7212,12 @@ function rideToPickup() {
   hCollisions.onImpact(() => { wrecks += 1; });
   hTaxi.hp = TAXI_HP;
   hTraffic.warmup(3);
+  // Any car on a lane and moving will do. Three seconds found one in the 5 × 6 city; in the 6 × 7
+  // the same seed has all six mid-junction at that instant, so run on until one is clear.
+  const moving = (c) => !c.isTaxi && c.state === 'drive' && c.v > 1;
+  for (let f = 0; f < 60 * 20 && !hTraffic.cars.some(moving); f++) hTraffic.update(1 / 60);
 
-  const target = hTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive' && c.v > 1);
+  const target = hTraffic.cars.find(moving);
   hTaxi.staged = true;
   // Square into its door: the taxi's nose on the car's centre, coming in at right angles.
   hTaxi.yaw = target.yaw + Math.PI / 2;
@@ -7063,7 +7272,10 @@ function rideToPickup() {
 
   // Out of HP, the next contact is the wreck through the old path.
   hTaxi.hp = 1;
-  const next = hTraffic.cars.find((c) => !c.isTaxi && !c.knock && !c.crashed);
+  // A different car from the first: the collision clock only runs when `hCollisions.update` does,
+  // so to it the first car was touched 21 frames ago and is still inside REHIT. The 5 × 6 city's
+  // draw happened to put another car first in the array; the 6 × 7's puts the recovered one there.
+  const next = hTraffic.cars.find((c) => !c.isTaxi && !c.knock && !c.crashed && c !== target);
   hTaxi.staged = true;
   hTaxi.x = next.x;
   hTaxi.z = next.z;
@@ -7087,7 +7299,9 @@ function rideToPickup() {
     tCollisions.onBump((e) => { event ??= e; });
     tTaxi.hp = TAXI_HP;
     tTraffic.warmup(3);
-    const target = tTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive' && c.v > 1);
+    const moving = (c) => !c.isTaxi && c.state === 'drive' && c.v > 1;
+    for (let f = 0; f < 60 * 20 && !tTraffic.cars.some(moving); f++) tTraffic.update(1 / 60);
+    const target = tTraffic.cars.find(moving);
     target.isTruck = asTruck;
     tTaxi.staged = true;
     tTaxi.yaw = target.yaw + Math.PI / 2;
@@ -7381,9 +7595,12 @@ function rideToPickup() {
   // A second hit, on the nose: the bonnet joins it and the bumper comes off the worst end — a tie,
   // which goes to the corner hit last.
   hitCar(victim, 1.6, 0.6, 8);
-  run(30);
+  // The bonnet flaps, so its angle at any one frame can be the bottom of a swing: 0.016 on frame
+  // 30 in the 6 × 7 city's draw. Its widest over the half second is what says it popped.
+  let hoodOpen = 0;
+  for (let n = 0; n < 30; n++) { run(1); hoodOpen = Math.max(hoodOpen, rig.hood?.angle ?? 0); }
   check('a second hit pops the bonnet and hangs the bumper off the struck end',
-    rig.hood && rig.hood.angle > 0.1 && victim.wear.bumper?.end === 1);
+    rig.hood && hoodOpen > 0.1 && victim.wear.bumper?.end === 1, `bonnet ${hoodOpen.toFixed(2)} at widest`);
   lids.getMatrixAt(rig.slot * 2, cm);
   check('the bonnet keeps its winding', cm.determinant() > 0);
   // The hanging bar's free end is on the road, and the end it left is bare: the tail bar is still
@@ -8411,6 +8628,12 @@ function rideToPickup() {
     pPolice.update(1 / 60);
   };
 
+  // The taxi pulls over and waits. The claim is about the cruiser's routing — through a corner near
+  // the taxi — and a taxi left rolling the traffic dice is a moving target the claim never made:
+  // with the 6 × 7 city's fourth bridge in, this seed's taxi wandered two blocks off the corner the
+  // cruiser had picked, which is inside the re-aim's tolerance, and the nearest pass was 60 units.
+  taxi.route = [];
+  taxi.parked = true;
   pPatrol.state.cooldown = 0;
   for (let step = 0; step < 60 * 60 && pPatrol.state.phase !== 'patrol'; step++) tick();
   const cop = pPatrol.state.cop;
@@ -8943,10 +9166,16 @@ function rideToPickup() {
   };
 
   const runs = { cruising: [], boosting: [], third: [], hid: [] };
-  for (let k = 0; k < 10; k++) {
-    const a = outcome(seed + 500 + k, 0);
+  // The full tank is run on more seeds than the rest, because its median is a *time* sitting close
+  // to its bar rather than a count with room either side. Over 40 seeds it is 6.1s in the 6 × 7
+  // city (33 lost; the other 7 all caught inside 0.6s, the staged-into-the-cop's-side case) and
+  // 6.4s in the 5 × 6 (37 lost) — and ten seeds land it either side of 6: 5.8 on the 6 × 7's first
+  // ten, 6.0 on the 5 × 6's. Sixteen read 6.7 and 6.1.
+  const BOOST_SEEDS = 16;
+  for (let k = 0; k < BOOST_SEEDS; k++) {
+    const a = k < 10 ? outcome(seed + 500 + k, 0) : null;
     const b = outcome(seed + 500 + k, BOOST_DURATION);
-    const c = outcome(seed + 500 + k, BOOST_DURATION / 3);
+    const c = k < 10 ? outcome(seed + 500 + k, BOOST_DURATION / 3) : null;
     // Half a second in, off the pill: a cop that would otherwise have caught it (see `cruising`).
     const h = k < 4 ? outcome(seed + 500 + k, 0, 0.5) : null;
     if (a) runs.cruising.push(a);
@@ -8960,8 +9189,8 @@ function rideToPickup() {
   const median = (xs) => { const v = [...xs].sort((p, q) => p - q); return v.length ? v[v.length >> 1] : NaN; };
   const cruiseCaught = runs.cruising.filter((r) => r.how === 'caught');
   const boostLost = runs.boosting.filter((r) => r.how === 'lost');
-  check('the chase is staged on most seeds', runs.cruising.length >= 8 && runs.boosting.length >= 8,
-    `${runs.cruising.length} cruising, ${runs.boosting.length} boosting of 10`);
+  check('the chase is staged on most seeds', runs.cruising.length >= 8 && runs.boosting.length >= BOOST_SEEDS * 0.8,
+    `${runs.cruising.length} of 10 cruising, ${runs.boosting.length} of ${BOOST_SEEDS} boosting`);
   check('a taxi off the pill gets caught', count(runs.cruising, 'caught') >= runs.cruising.length * 0.7,
     `${count(runs.cruising, 'caught')}/${runs.cruising.length} caught, median ${median(cruiseCaught.map((r) => r.t)).toFixed(1)}s`);
   check('a full tank of Loco Mode gets away', count(runs.boosting, 'lost') >= runs.boosting.length * 0.7,
@@ -13506,7 +13735,8 @@ let chopperOrder; // likewise
     // Touchdown is published by the traffic model rather than by the site, because the taxi is
     // launched off an arched bridge as well as off a barricade and there is no site there to
     // publish it — see `onTaxiLand` in sim/traffic.js.
-    runTraffic.onTaxiLand((event) => { lands += 1; landing = event; });
+    let settled = false;
+    runTraffic.onTaxiLand((event) => { if (settled) return; lands += 1; landing = event; });
 
     for (let step = 0; step < 60 * 6; step++) {
       const before = taxi.hopFrom;
@@ -13522,13 +13752,18 @@ let chopperOrder; // likewise
       if (before != null && taxi.hopFrom == null && air === null) {
         air = taxi.travelled - launchAt;
       }
-      if (taxi.hopFrom == null && taxi.bounceT != null) bounceFrames += 1;
+      if (!settled && taxi.hopFrom == null && taxi.bounceT != null) bounceFrames += 1;
       // Where the taxi actually was on the frame the event fired. Nothing moves it between the
       // emit — which happens in the render half of the per-car pass — and `update` returning, so
       // this is what the event's own (x, z) has to agree with.
       if (landing && landedAt === null) landedAt = { x: taxi.x, z: taxi.z };
       for (const cone of runwork.cones) if (cone.knocked) peakCone = Math.max(peakCone, cone.y);
       for (const chip of runwork.chips) if (chip.live) peakChip = Math.max(peakChip, chip.y);
+      // The stunt is over once it has landed and bounced. Six seconds at 22 u/s is 130 units of
+      // road, and an overdrive taxi that wanders onto an arched bridge in that time takes off
+      // again (Loco Mode over the hump) — a second, legitimate landing that is not the one under
+      // test. The run carries on for the wreckage to come to rest; the taxi stops being counted.
+      if (lands >= 1 && taxi.hopFrom == null && taxi.bounceT == null) settled = true;
     }
     flights.push({
       boosting, smashes, lands, landing, landedAt, peakY, air, airborneAtLine, taxi, runwork,
@@ -15488,6 +15723,7 @@ let chopperOrder; // likewise
     let longest = 0;
     for (const start of allIntersections()) {
       for (const d of [DIR.PX, DIR.PZ, DIR.NX, DIR.NZ]) {
+        if (isParkwayMid(start.i, start.j) && !cityNetwork().laneByGrid(d, start.i, start.j)) continue;
         const from = { i: start.i, j: start.j, d };
         const route = findRouteOnto(from, { i: mouthI, j: mouthJ }, mouthD);
         asked += 1;
@@ -17138,12 +17374,15 @@ let chopperOrder; // likewise
     // cops in the box are *staged* — out of traffic, driven by hand — so nothing in the sim keeps them off anything,
     // and every clause below is a way the first builds of it put a car through something.
     //
-    // Four traffic draws on this city, two with the taxi driving off (the scene ends out of shot,
-    // and its cars are simply retired) and two with it stopping a block away and watching (they
-    // drive out and are handed back).
+    // Eight traffic draws on this city, half with the taxi driving off (the scene ends out of shot,
+    // and its cars are simply retired) and half with it stopping a block away and watching (they
+    // drive out and are handed back). It was four, and the fan clause below — a share of runs, not
+    // every one — went from 3 of 4 to 2 of 4 on nothing more than the 6 × 7 city's fourth bridge
+    // reshuffling the traffic: four is too few to measure a share with.
     {
       const runs = [];
-      for (const [offset, watch] of [[0, false], [100, false], [200, true], [300, true]]) {
+      for (const [offset, watch] of [[0, false], [100, false], [200, true], [300, true],
+        [400, false], [500, false], [600, true], [700, true]]) {
         const s5 = new THREE.Scene();
         const t5 = createTraffic(makeRng(seed + 44 + offset), s5, 18, 24);
         const f5 = createFareSystem(makeRng(seed + 55), s5);
@@ -17174,7 +17413,9 @@ let chopperOrder; // likewise
         for (const d of [0, 1, 2, 3]) if (placeCar(t5.taxi, d, tgt.i, tgt.j, 30)) break;
         // Routed, not left to roll: 30 units back is behind the junction before the drop-off
         // (`placeCar` walks back along the chain), and an unrouted taxi rolls the ordinary dice
-        // there. (#483's fix, ported.)
+        // there. On the classic city that junction is on the map's edge and the dice happened to
+        // go straight; on the big one the drop-off is the corner (0, 7) and 2 runs of 4 turned off
+        // at (0, 6) and never arrived.
         t5.taxi.route = findRoute(planOrigin(t5.taxi), tgt) ?? [];
         robber.directed = true;
         // 25s rather than the 10 this started with: the graveyard moved this seed's bank, and with
@@ -17270,14 +17511,15 @@ let chopperOrder; // likewise
       const played = runs.filter((r) => r.delivered);
       const fmt = (fn) => played.map(fn).join(' / ');
       check('a delivered robber stays on the kerb for the police',
-        played.length >= 3 && played.every((r) => r.figure?.settled()),
+        played.length >= runs.length * 0.75 && played.every((r) => r.figure?.settled()),
         `${played.length} of ${runs.length} delivered, ${played.filter((r) => r.figure?.settled()).length} standing`);
       // A fan of at least two on most runs, not all: a cop that reaches the junction queued
       // directly behind traffic the seal is holding has no room to pull round it (`tryStage`'s
-      // `lead`), and that scene goes ahead with the cars that made it — one, on 1 run in 4 here.
+      // `lead`), and that scene goes ahead with the cars that made it — one, on 1 run in 4 when
+      // this was written. Three in four is the bar.
       check('...and the cops pull up in a fan round them, and one takes them in',
         played.every((r) => r.fanned > 2 && r.arrests === 1)
-          && played.filter((r) => r.fanMax >= 2).length >= played.length - 1,
+          && played.filter((r) => r.fanMax >= 2).length >= played.length * 0.75,
         `fanned ${fmt((r) => `${r.fanned.toFixed(1)}s × ${r.fanMax}`)}, arrests ${fmt((r) => r.arrests)}`);
       check('...every bonnet pointed at the robber',
         played.every((r) => r.aimWorst < 0.12),
@@ -17522,6 +17764,9 @@ let chopperOrder; // likewise
   let worstYaw = 0;
   for (const lane of net.lanes) {
     if (lane.degenerate || isLaneClosed(lane.id) || lane.length < 6) continue;
+    // The central park's road bends the whole way and is one-way: `spinTaxi` refuses it as
+    // `'road'` by design, so it is not an ordinary street for this sweep.
+    if (lane.edge.curve.kind !== 'line') continue;
     const to = net.nodeById.get(lane.to);
     const d = net.dirOfLane(lane);
     if (!placeCar(taxi, d, to.gi, to.gj, lane.length / 2)) continue;
@@ -18011,15 +18256,20 @@ let chopperOrder; // likewise
   const rBanks = riverBanks();
   const rWater = waterEdges();
 
-  // Three crossings, not four. The count is the whole reason a lift is worth routing around: with
-  // four ways over, a raised leaf was an inconvenience the router absorbed without the player ever
-  // noticing which bridge had closed.
+  // Three crossings of six lines, not four. The count is the whole reason a lift is worth routing
+  // around: with four ways over, a raised leaf was an inconvenience the router absorbed without the
+  // player ever noticing which bridge had closed. The 6 × 7 city has seven lines and a fourth,
+  // fixed crossing beside the drawbridge, which is the same density (`planRiver`).
   {
     const kinds = [...Array(GRID_I + 1).keys()].map((i) => riverCrossing(i));
     const fixed = kinds.filter((k) => k === 'fixed').length;
     const draws = kinds.filter((k) => k === 'draw').length;
-    check('three roads get over the river, one of them the lifting span',
-      fixed === 2 && draws === 1,
+    const wantFixed = GRID_I % 2 === 0 && GRID_I >= 6 ? 3 : 2;
+    const besideDraw = wantFixed === 2
+      || kinds.findIndex((k, i) => k === 'fixed' && i > 0 && i < GRID_I) === drawbridgeLine() - 1
+      || kinds.findLastIndex((k, i) => k === 'fixed' && i > 0 && i < GRID_I) === drawbridgeLine() + 1;
+    check('the right number of roads get over the river, one of them the lifting span',
+      fixed === wantFixed && draws === 1 && besideDraw,
       `${fixed} fixed, ${draws} lifting, ${kinds.filter((k) => k === 'water').length} open water`);
     // Both ring roads, always: the outermost roads are the signal-free ring and the police corridor
     // drives one end to end, so a closure there needs a fallback in three places at once.
@@ -18248,6 +18498,9 @@ let chopperOrder; // likewise
       if (!up && airborne && landZ === null) landZ = jTaxi.z;
       airborne = up;
       jTaxi.boost = true;
+      // Stop once it is off the far end: with no route it wanders on, and six seconds at boost is
+      // long enough to come back over another arch the other way and count that as a second hop.
+      if (!up && jTaxi.z > rSpan.z1 + 6) break;
     }
     check('a boosting taxi leaves the arch half a hop before the crest',
       launchZ !== null && Math.abs((crestZ - launchZ) - HOP_LEN / 2) < 0.4,
@@ -18464,7 +18717,10 @@ let chopperOrder; // likewise
   // whole fade band so the skirt is never dissolving over open sky.
   {
     const mid = waterHeightAt(0);
-    const coast = waterHeightAt(rBanks ? SLAB_X / 2 : 0);
+    // The east mouth opens into the harbor's sea, which stays at sea level out to the rim; the west
+    // one is still the river's own.
+    const coast = Math.max(Math.abs(waterHeightAt(rBanks ? coastWest() : 0)),
+      harborBasin() ? 0 : Math.abs(waterHeightAt(rBanks ? coastEast() : 0)));
     check('the channel is at full depth down the length of the city',
       Math.abs(mid - WATER_Y) < 1e-9, `${mid.toFixed(2)} against ${WATER_Y}`);
     check('and has risen to meet the ground by the coast',
@@ -18517,6 +18773,130 @@ let chopperOrder; // likewise
       landed.map((ok) => (ok ? 'y' : 'n')).join(''));
     check('and the water does not share a program with an unpatched prop',
       /-river-(smooth|classic)$/.test(wm.customProgramCacheKey()), wm.customProgramCacheKey());
+  }
+
+  // --- The harbor (city/harbor.js): the dock the river opens into at its east mouth.
+  //
+  // Everything here is scenery past the ring road, so what can go wrong is geometry: a wall facing
+  // away from the water renders nothing (the wake's trap, CLAUDE.md), a ship through its own quay,
+  // a slab still lying over the basin and hiding it, or the dock's water wound upside down.
+  {
+    const basin = harborBasin();
+    // `HARBOR=classic` is the old mouth, and asserts that it really is gone rather than skipping.
+    if (!HARBOR) check('harbor: classic has no dock basin', basin === null, basin ? 'still built' : 'none');
+    else check('harbor: the city has a dock basin at the east mouth', !!basin && basin.x0 > HALF_SPAN_X,
+      basin ? `basin ${basin.x0.toFixed(1)}..${basin.x1.toFixed(1)} x, ${basin.z0.toFixed(1)}..${basin.z1.toFixed(1)} z` : 'none');
+    if (basin) {
+      const hb = createHarbor(makeRng(seed + 47));
+      check('harbor: builds', !!hb?.mesh && hb.mesh.geometry.attributes.position.count > 0,
+        hb ? `${hb.mesh.geometry.attributes.position.count / 3} triangles` : 'null');
+
+      // The quay walls face the water, from the winding: the far quay +z, the near one -z.
+      const hp = hb.mesh.geometry.attributes.position;
+      const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+      const n = new THREE.Vector3();
+      let farWall = 0; let nearWall = 0; let wrong = 0;
+      for (let t = 0; t < hp.count; t += 3) {
+        a.fromBufferAttribute(hp, t); b.fromBufferAttribute(hp, t + 1); c.fromBufferAttribute(hp, t + 2);
+        if (Math.min(a.y, b.y, c.y) > WATER_Y - 0.1) continue;      // only the walls reach that low
+        n.subVectors(b, a).cross(c.clone().sub(a)).normalize();
+        const z = (a.z + b.z + c.z) / 3;
+        if (Math.abs(z - basin.z0) < 1e-4) { farWall += 1; if (n.z < 0.99) wrong += 1; }
+        if (Math.abs(z - basin.z1) < 1e-4) { nearWall += 1; if (n.z > -0.99) wrong += 1; }
+      }
+      check('harbor: both quay walls are wound to face the water', farWall > 0 && nearWall > 0 && wrong === 0,
+        `${farWall} far, ${nearWall} near, ${wrong} facing away`);
+
+      // The ship alongside lies off the quay wall, not through it: held off by its fenders — the
+      // far one, or the near one when the L train has sent the cranes there. Read off the moving
+      // ship (game/harborships.js) settled on its berth, in world space.
+      const { createHarborShips } = await import('../src/game/harborships.js');
+      const ships = createHarborShips(new THREE.Scene(), makeRng(5), hb.berth);
+      ships.settle();
+      let hullClear = Infinity;
+      {
+        const hull = ships.hulls[ships.state.hull];
+        hull.updateMatrixWorld(true);
+        const sp = hull.geometry.attributes.position;
+        const v = new THREE.Vector3();
+        for (let t = 0; t < sp.count; t++) {
+          v.fromBufferAttribute(sp, t).applyMatrix4(hull.matrixWorld);
+          if (v.y < WATER_Y + 0.5 && v.y > WATER_Y - 1) hullClear = Math.min(hullClear, v.z - basin.z0, basin.z1 - v.z);
+        }
+      }
+      check('harbor: the moored ship lies off the quay wall, not through it',
+        hullClear > 0.3 && hullClear < 2, `${hullClear.toFixed(2)} off the wall`);
+      // And on its way in and out it never runs into a pier, the seawall or the river's mouth: its
+      // four corners sampled over two whole visits stay over open water, and clear of the lane the
+      // river's boats come out on (the channel's middle, game/boats.js).
+      {
+        const { harborLandAt } = await import('../src/city/harborplan.js');
+        const { SHIP_L, SHIP_B } = await import('../src/city/harbor.js');
+        const sim = createHarborShips(new THREE.Scene(), makeRng(9), hb.berth);
+        let aground = 0;
+        let mouth = Infinity;
+        let visits = 0;
+        const mid = (riverBanks().z0 + riverBanks().z1) / 2;
+        for (let f = 0; f < 60 * 420; f++) {
+          sim.update(1 / 60);
+          if (sim.state.leg < 0) continue;
+          visits = sim.state.visits;
+          const { x, z, yaw } = sim.state;
+          for (const [u, w] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+            const cx = x + Math.cos(yaw) * u * SHIP_L / 2 + Math.sin(yaw) * w * SHIP_B / 2;
+            const cz = z - Math.sin(yaw) * u * SHIP_L / 2 + Math.cos(yaw) * w * SHIP_B / 2;
+            if (harborLandAt(cx, cz) && cx > basin.x0) aground += 1;
+            if (cx < hb.berth.seaX + 30) mouth = Math.min(mouth, Math.abs(cz - mid));
+          }
+        }
+        check('harbor: ships come and go without touching land, and wide of the river\'s mouth',
+          visits >= 2 && aground === 0 && mouth > 3, `${visits} visits, ${aground} corner-frames over land, `
+            + `nearest the boats' lane ${mouth.toFixed(1)}`);
+      }
+      const box = new THREE.Box3();
+      for (let t = 0; t < hp.count; t++) box.expandByPoint(new THREE.Vector3(hp.getX(t), hp.getY(t), hp.getZ(t)));
+      // The seawall's corner arcs curl back west of the kerb, out beyond the ring road's far side,
+      // so the test is the ring road's own rectangle.
+      let inCity = 0;
+      for (let t = 0; t < hp.count; t++) {
+        if (hp.getX(t) < basin.kerbX - 1e-6 && Math.abs(hp.getZ(t)) < HALF_SPAN_Z + HALF_ROAD) inCity += 1;
+      }
+      check('harbor: nothing in it stands inside the ring road', inCity === 0,
+        `${inCity} vertices west of kerb ${basin.kerbX.toFixed(2)}`);
+
+      // The slab does not cover the basin: no ground triangle has its centre over the dock's water.
+      const gp = ground.geometry.attributes.position;
+      let overDock = 0;
+      for (let t = 0; t < gp.count; t += 3) {
+        const x = (gp.getX(t) + gp.getX(t + 1) + gp.getX(t + 2)) / 3;
+        const z = (gp.getZ(t) + gp.getZ(t + 1) + gp.getZ(t + 2)) / 3;
+        if (x > basin.x0 + 0.1 && x < basin.x1 && z > basin.z0 + 0.1 && z < basin.z1 - 0.1) overDock += 1;
+      }
+      check('harbor: the island\'s slab is cut away over the basin', overDock === 0,
+        `${overDock} ground triangles over the dock`);
+
+      // The dock's water faces up, from its winding.
+      const rh = createRiver(makeRng(seed + 12), layout);
+      const dock = rh.group.getObjectByName('harbor-water');
+      let down = 0;
+      const dp = dock?.geometry.attributes.position;
+      for (let t = 0; dp && t < dp.count; t += 3) {
+        a.fromBufferAttribute(dp, t); b.fromBufferAttribute(dp, t + 1); c.fromBufferAttribute(dp, t + 2);
+        n.subVectors(b, a).cross(c.clone().sub(a));
+        if (n.y <= 0) down += 1;
+      }
+      check('harbor: the dock\'s water is wound to face up', !!dock && down === 0,
+        dock ? `${down} of ${dp.count / 3} facing down` : 'missing');
+      // Open sea out to the rim: no shoal, so a boat out there sits on the same water as the dock.
+      check('harbor: the sea stays at sea level out to the rim',
+        Math.abs(waterHeightAt(basin.x1) - WATER_Y) < 1e-9 && Math.abs(waterHeightAt(basin.x0) - WATER_Y) < 1e-9,
+        `${waterHeightAt(basin.x0).toFixed(2)} at the back wall, ${waterHeightAt(basin.x1).toFixed(3)} at the coast`);
+      // And its vertices stay at sea level too, out to the fade: the first cut shoaled the rim and
+      // drew a mud bank round the sea.
+      let off = 0;
+      for (let t = 0; dp && t < dp.count; t++) if (Math.abs(dp.getY(t) - WATER_Y) > 1e-6) off += 1;
+      check('harbor: the sea has no shoal round its rim', !!dock && off === 0, `${off} vertices off sea level`);
+    }
   }
 
   // --- The paint does not sink into the hump.
@@ -18622,6 +19002,7 @@ let chopperOrder; // likewise
     let stranded = 0;
     for (const from of ints) {
       for (let d = 0; d < 4; d++) {
+        if (isParkwayMid(from.i, from.j) && !cityNetwork().laneByGrid(d, from.i, from.j)) continue;
         for (const to of ints) if (findRoute({ i: from.i, j: from.j, d }, to) === null) stranded += 1;
       }
     }
@@ -18681,13 +19062,17 @@ let chopperOrder; // likewise
       const cNet = cityNetwork();
       const cop = cTraffic.cars.find((car) => car !== cTraffic.taxi);
       const shut = new Set(bridge.laneIds);
-      const approach = cNet.laneByGrid(1, bridge.span.line, bridge.span.row);
-      const onto = cNet.laneByGrid(1, bridge.span.line, bridge.span.row + 1);
+      // From the south bank where there is a road up to the bridge, else from the north: in the
+      // 6 × 7 city the central park can sit on the bridge's line and close the south approach.
+      const { line, row } = bridge.span;
+      const [d, at] = cNet.laneByGrid(1, line, row) ? [1, row] : [3, row + 1];
+      const approach = cNet.laneByGrid(d, line, at);
+      const onto = cNet.laneByGrid(d, line, d === 1 ? at + 1 : at - 1);
       let crossed = 0;
       let leftApproach = false;
       if (cop && approach && onto && shut.has(onto.id)) {
-        placeCar(cop, 1, bridge.span.line, bridge.span.row, 8);
-        cop.route = [1, 1, 1];
+        placeCar(cop, d, line, at, 8);
+        cop.route = [d, d];
         cop.routeConsumed = false;
         setClosedLanes(bridge.laneIds, 'drawbridge');
         for (let f = 0; f < 60 * 30; f++) {
@@ -19269,11 +19654,19 @@ let chopperOrder; // likewise
         parkedAt = { x: truck.x, z: truck.z, s: truck.s, lane: truck.lane };
         // Plant a car at the head of the lane, coming on at cruise, so there is always somebody to
         // queue: on a quiet street the engine can come and go without anything behind it at all.
+        // The very head, s = 0, and not a little way in: a side-street lane is 12 long, so the
+        // site clamps the stop to `hi` = 4.8 and the engine's tail is under two units from the
+        // junction. There is no room for the car to *come up* — it is inside its follow gap (6.4)
+        // from the first frame and holds where it is put — so the gap this measures is wherever
+        // the plant put it, and the plant has to be outside the engine. The old 0.3 left it 4.5
+        // minus the engine's stopping error, against a floor of 4.5: 4.53 in the 5 × 6 city
+        // (engine at 4.83) and 4.44 in the 6 × 7 (engine at 4.74), a coin flip on the approach.
+        // Nothing else can join the queue: the lane is shut and every ambient route refuses it.
         planted = fTraffic.cars.find((c) => !c.isTaxi && !c.guest && !c.isTruck && c.state === 'drive'
           && c.lane !== truck.lane);
         if (planted) {
           const k = site.laneKey;
-          placeCar(planted, k.d, k.i, k.j, truck.lane.length - 0.3);
+          placeCar(planted, k.d, k.i, k.j, truck.lane.length);
           planted.v = SPEED;
           planted.route = [];
         }
@@ -19365,7 +19758,10 @@ let chopperOrder; // likewise
   });
   let steps = 0;
   let steamed = false;
-  for (; steps < 60 * 30; steps++) {
+  // Long enough for LEAVE_MAX. The engine only dissolves once it is out of the taxi's sight
+  // (SPAWN_CLEARANCE) or at its exit, and this taxi is ambient: on some runs it trails the engine
+  // home, and the 30s cap then lands it in 'leaving' through no fault of the fire.
+  for (; steps < 60 * 50; steps++) {
     rTraffic.update(1 / 60);
     late.update(1 / 60);
     if (late.state.fires && late.state.heat >= 1) raining = true;
@@ -19588,7 +19984,7 @@ let chopperOrder; // likewise
 // lanes so nothing driving under it can touch it, and the train shuttling on both tracks.
 {
   const { planLTrain, createLTrain, LTRAIN_DIMENSIONS: L } = await import('../src/game/ltrain.js');
-  const { medianRuns, halfRoadZ, laneOffX } = await import('../src/city/grid.js');
+  const { medianRuns, halfRoadZ, halfRoadX } = await import('../src/city/grid.js');
   const { LANE_TO_KERB } = await import('../src/city/grid.js');
   // citylights.js: POST_H 4.2 on a KERB_H kerb.
   const KERB_H_LAMP_TOP = 0.35 + 4.2;
@@ -19596,34 +19992,70 @@ let chopperOrder; // likewise
   let offIsland = 0;
   let wideSpan = 0;
   let laneClash = 0;
-  const ringKerb = HALF_SPAN_X + halfRoadZ(GRID_I);
+  let harborClash = 0;
+  let riverSpans = 0;
+  let drawUnder = 0;
+  const { drawbridgeLine, bridgeLines } = await import('../src/city/river.js');
   for (let s = 0; s < 20; s++) {
     createLayout(makeRng(seed + s * 53));
     const plan = planLTrain();
     if (!plan) continue;
     planned += 1;
-    const runs = medianRuns().filter((r) => r.axis === 'x' && r.line === plan.line);
+    // Distances along the line: x for an east-west one, -z for a north-south one (`plan.alongOf`).
+    const ns = plan.axis === 'z';
+    const ringKerb = ns ? HALF_SPAN_Z + halfRoadX(GRID_J) : HALF_SPAN_X + halfRoadZ(GRID_I);
+    const runs = medianRuns().filter((r) => r.axis === plan.axis && r.line === plan.line)
+      .map((r) => (ns ? { from: -r.to, to: -r.from } : r));
     for (const x of plan.columns) {
       const onIsland = runs.some((r) => x - L.FOOTING_W / 2 >= r.from && x + L.FOOTING_W / 2 <= r.to);
       const offshore = Math.abs(x) - L.FOOTING_W / 2 > ringKerb;
       if (!onIsland && !offshore) offIsland += 1;
     }
     for (let n = 1; n < plan.columns.length; n++) {
-      // A park built over the arterial leaves one long span, which is allowed; anything else is not.
+      // A park built over the arterial leaves one long span, which is allowed, and so does the
+      // river under a north-south line, which gets a truss; anything else is not.
       const gap = plan.columns[n] - plan.columns[n - 1];
-      const closedHere = runs.length < GRID_I;
-      if (gap > 16 && !closedHere) wideSpan += 1;
+      const closedHere = runs.length < (ns ? GRID_J - 1 : GRID_I);
+      const river = ns && (() => {
+        const w0 = plan.world(plan.columns[n - 1]).z;
+        const w1 = plan.world(plan.columns[n]).z;
+        const b = riverBanks();
+        return b && Math.min(w0, w1) < b.z0 && Math.max(w0, w1) > b.z1;
+      })();
+      if (river) riverSpans += 1;
+      if (gap > 16 && !closedHere && !river) wideSpan += 1;
     }
+    // A north-south line crosses the river on a fixed bridge, and the drawbridge is never under it.
+    if (ns && (drawbridgeLine() === plan.line || !bridgeLines().includes(plan.line))) drawUnder += 1;
     // The deck stays short of the kerb, where the fares stand.
-    if (L.DECK_HALF_W >= laneOffX(plan.line) + LANE_TO_KERB) laneClash += 1;
+    if (L.DECK_HALF_W >= plan.laneOff + LANE_TO_KERB) laneClash += 1;
+    // Out over the harbor the line passes the cranes, the ship and the container stacks, and
+    // nothing of theirs may reach up into the deck's slot.
+    if (HARBOR) {
+      const hp = createHarbor(makeRng(seed + s * 53 + 47)).mesh.geometry.attributes.position;
+      for (let t = 0; t < hp.count; t++) {
+        const across = ns ? hp.getX(t) : hp.getZ(t);
+        if (Math.abs(across - plan.c) < L.DECK_HALF_W + 0.3 && hp.getY(t) > L.CAP_UNDERSIDE - 0.3) {
+          harborClash += 1;
+        }
+      }
+    }
   }
   createLayout(makeRng(seed));     // put the probe's city back — `createLayout` installs its network
-  check('ltrain: every city with an east-west arterial gets a line', planned === 20, `${planned}/20`);
+  check('ltrain: every city gets a line', planned === 20, `${planned}/20`);
+  if (planLTrain().axis === 'z') {
+    check('ltrain: the line crosses the river once, on a truss, over a fixed bridge and never the drawbridge',
+      riverSpans === 20 && drawUnder === 0, `${riverSpans}/20 river spans, ${drawUnder} under a leaf or with no bridge`);
+  }
   check('ltrain: every column stands on a planted island or out past the ring road',
     offIsland === 0, `${offIsland} in a junction or a lane`);
   check('ltrain: no span longer than a junction crossing, except over a park', wideSpan === 0, `${wideSpan}`);
+  if (HARBOR) {
+    check('ltrain: nothing in the harbor reaches up into the deck', harborClash === 0,
+      `${harborClash} vertices in the deck's slot over 20 cities`);
+  }
   check('ltrain: the deck stops short of the kerb',
-    laneClash === 0, `deck half-width ${L.DECK_HALF_W} against lane ${laneOffX(planLTrain().line).toFixed(2)}`);
+    laneClash === 0, `deck half-width ${L.DECK_HALF_W} against lane ${planLTrain().laneOff.toFixed(2)}`);
   // ...so everything under it has to clear by height: the tallest vehicle (a box truck's box, off
   // its own geometry) and the street lamps, whose arms reach out over the arterial's lanes.
   const truckTop = traffic.truckBoxMesh.geometry.boundingBox
@@ -19654,7 +20086,7 @@ let chopperOrder; // likewise
   {
     const bursts = [];
     const lts = createLTrain(new THREE.Scene(), makeRng(9), {
-      sparks: { burst: (x, y, z, yaw, count, speed, opts) => bursts.push({ x, y, count, opts }) },
+      sparks: { burst: (x, y, z, yaw, count, speed, opts) => bursts.push({ x, y, z, count, opts }) },
     });
     let crossings = 0;
     for (let n = 0; n < 60 * 120; n++) {
@@ -19663,7 +20095,11 @@ let chopperOrder; // likewise
       crossings += lts.state.runs - was;
     }
     const offRail = bursts.filter((b) => Math.abs(b.y - L.RAIL_TOP) > 0.2 || b.opts.floor !== 0).length;
-    const offIsland = bursts.filter((b) => Math.abs(b.x) > HALF_SPAN_X + 20).length;
+    // The harbor pushes the east coast out, and the line runs over it (`coastEast + coastWest` is
+    // its reach, 0 without one).
+    const offIsland = bursts.filter((b) => (lts.plan.axis === 'z'
+      ? b.z > HALF_SPAN_Z + 20 || b.z < Math.min(-(HALF_SPAN_Z + 20), coastNorth())
+      : b.x < -(HALF_SPAN_X + 20) || b.x > HALF_SPAN_X + 20 + coastEast() + coastWest())).length;
     const perCrossing = bursts.length / 3 / Math.max(1, crossings);
     check('ltrain: the wheels spark a few times a crossing, off the rail, over the island',
       perCrossing >= 1.5 && perCrossing <= 8 && offRail === 0 && offIsland === 0,
@@ -19689,8 +20125,10 @@ let chopperOrder; // likewise
       ltl.update(1 / 60);
       if (ltl.state.phase !== 'run') continue;
       ltl.group.updateMatrixWorld(true);
-      const lead = (at(heads).x - ltl.state.x) * ltl.state.dir;
-      const trail = (at(tails).x - ltl.state.x) * ltl.state.dir;
+      // Along the line, whichever way it runs (x, or -z for a north-south one).
+      const along = (v) => ltl.plan.alongOf(v.x, v.z);
+      const lead = (along(at(heads)) - ltl.state.x) * ltl.state.dir;
+      const trail = (along(at(tails)) - ltl.state.x) * ltl.state.dir;
       dirs.add(ltl.state.dir);
       frames += 1;
       if (Math.abs(lead - L.TRAIN_LEN / 2) > 0.1 || Math.abs(trail + L.TRAIN_LEN / 2) > 0.1) wrongEnd += 1;

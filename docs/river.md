@@ -4,8 +4,8 @@
 spans, `src/game/drawbridge.js` for the one that lifts, and `src/geometry/boat.js` +
 `src/game/boats.js` for the traffic on it.
 
-A river runs east–west through the middle of the city, crossed by three bridges. Two of them arch.
-The third is flat, and it opens.
+A river runs east–west through the middle of the city, crossed by four bridges in the 6 × 7 city
+(three under `?city=classic`). All but one of them arch. That one is flat, and it opens.
 
 ## The city grew a row rather than losing one
 
@@ -48,13 +48,26 @@ merged faces. `tools/roadnet.mjs` compares land against land.
 | | |
 |---|---|
 | **The two ring roads** | Always a bridge. The outermost roads are the signal-free ring, and traffic yields into it rather than stopping — breaking it would need a fallback. |
-| **One of the two middle lines** (2 or 3) | The drawbridge — always centred on the map. |
+| **One of the middle lines** | The drawbridge — near the centre of the map, and never under the L train (below). |
 | **The other three** | Open water. |
 
-Three crossings, not four. The first cut bridged two interior lines as well as the ring, and playing
-it the difference was obvious: with five of six lines carrying road there was almost always a
+Three crossings, not four, in the 5 × 6 city. The first cut bridged two interior lines as well as
+the ring, and playing it the difference was obvious: with five of six lines carrying road there was almost always a
 crossing within a block of wherever the taxi already was, and the river stopped being a decision.
 Taking one out puts real distance between the ways over — which is the whole reason for the water.
+
+The 6 × 7 city has seven lines, and three of them left three blocks between every way over: with
+the leaf up, the taxi drove round by the ring. So it gets a **fourth crossing, fixed, one line
+beside the drawbridge** on a side the seed picks (`planRiver`). Four of seven is the density three
+of six was. Beside the drawbridge rather than beside the ring, so a lift still matters: the far side
+is three blocks from a crossing, and the ring already serves the edge.
+
+**The L train moves the leaf.** The train runs north-south down the arterial (`LTRAIN_NS`,
+[city.md](city.md#the-elevated-train-on-by-default-ltrainclassic-to-compare)), on a 6.4 deck a lifted
+leaf would go through. So the train's line always gets a fixed bridge and the leaf never does: with
+the arterial on the middle line (3) the leaf moves one line over to the seed's side; with it on
+line 2 the leaf stays on 3 and the fourth crossing is the arterial's. Still one `next()`, still four
+crossings. `?lroute=classic` restores the old rule.
 
 That leaves **two ways across while the leaf is up**, which is the guarantee the whole feature
 rests on: the drawbridge may close a route, but it may never cut the city in half.
@@ -273,6 +286,64 @@ Measured the same way afterwards, the mouth tracks the coast to within 1–2 lum
 > prepass, quite rightly — but *receiving* was the default, so the water read the occlusion of
 > whatever was behind it. `propMaterial({ ao: false })` is the opt-out. The asphalt's own fade skirt
 > has the same hole and gets away with it only because nothing stands near it.
+
+## The harbor
+
+`src/city/harbor.js`, placed by `harborBasin()` in `grid.js`. Default; `?harbor=classic` (and
+`HARBOR=classic` for the headless tools) keeps the old east mouth.
+
+The river used to run under the east ring bridge, along a few units of walled channel, and stop under
+the island's rim. Now the east side of the island is a waterfront: the east ring road, a seawall a few
+units off its kerb, and two piers either side of a dock basin 48 across that the channel opens into
+nine units past the kerb. Everything else east of the ring road is **sea**, out to where the rim used
+to be (`HARBOR_REACH`, 44, past the old coast). Two big cranes (`CRANE_SCALE` 1.4) stand on one
+quay over the ship's berth, each pier carries a big warehouse at its landward end and a container
+yard behind it, and long sheds stand on the aprons beside the channel's last stretch. The seawall is
+a **rocky shore**: a bank of boulders tipped against it from the waterline nearly to the top, and a
+looser apron of smaller ones out in the water (`ROCK_*`). Tyler, 2026-10-13: "keep the harbor on the
+east edge. Rocky shore, maybe some warehouse buildings, 2 big cranes, ships coming in and out of
+port".
+
+**The ships move** (`game/harborships.js`). One container ship at a time: in from past the sea's fade
+down a lane `LANE_OFF` off the berth, eased sideways onto the berth under the cranes, a spell
+alongside, off again, **astern** out past the pier ends, turned about its middle in open water, and
+away. Astern because a 19-long ship turning in the basin sweeps a circle reaching the river's mouth,
+where the barges come out. Two hulls take turns. They fade with `alphaHash` past `coastEast()`, so a
+ship arrives out of nothing rather than popping in over the sky. Shot mode settles one alongside.
+
+**East, because east is the near edge.** The camera looks down the −x−z diagonal, so +x is the lower
+right of the screen. The harbor sits in front of the city rather than behind its towers, and a
+crane's height (about 12 to the apex, hiding ~13 units of ground behind it) is thrown up-screen over
+its own yard rather than over the streets. For the same reason the cranes and the ship are on the
+**far** (−z) quay by default: that quay wall faces the camera across the water, so the ship sits in
+front of a lit wall.
+
+**One outline, read by three files.** `city/harborplan.js` builds the shoreline — `islandHalf()` per
+side: the west corner, the coast, a rounded corner into a seawall that wobbles on two sines, round
+the pier and back along the quay. The slab is cut from it (`ground.js`), the walls and riprap stand
+on it (`harbor.js`), and the sea (`seaMesh` in `river.js`) lies under it. Tyler, circling the bare
+asphalt past the yards: "Can we fill these with water? And make the waterfront edge more organic".
+
+**Nothing in the grid moved.** The harbor is all outside the ring road, so the road network, routing,
+fares and every probe staging see the same city. The waterfront drive is the east ring road, and its
+junctions already take riders.
+
+What had to learn about it:
+
+| | |
+|---|---|
+| The slab (`ground.js`) | Two polygons, one per side of the river, from `islandHalf`. `asphaltFade` treats everything from the corner where each coast turns into the seawall as a cut, and `seaCornerFade` carries the rim on round that corner over the water, tapering out. |
+| The sea (`river.js`) | `seaMesh`: one sheet at sea level from the seawall corners to the rim, deep in the middle and dissolving into the sky with **no shoal**. Shoaling it the way the river mouth does drew a dark mud bank round the whole sea. It reaches six units back under the rim on a ramp, because sitting two units lower it draws 2.17 units further +x and +z than it is, and without the overlap that strip showed open sky. It shares the river's colours and the river's own water program (`patchHarborWater` is `patchRiverWater`'s compile), so the mouth is one body of water: the walls end where they end (`waterWallAt`), the basin's back wall and far quay are mirrored and seen under the surface (`waterBasinHit`), the lip runs along the quays and round each corner of the mouth (`waterEdgeDist`), and the channel's bed and colour run into the sea's over the last `SEA_RUN_IN` (10) before the mouth. A separate sea compose drew a hard line across the mouth. |
+| The coast (`coastFor`) | The water's fade and where boats spawn, fade and retire are measured per side. The east side never shoals (`shoalMix`). |
+| The L train (`ltrain.js`) | Runs north-south now and never comes near the harbor. Under `?lroute=classic` it runs east-west out over the harbor on columns stood in the water (`harborLandAt`), and in about half of all cities along the far pier through the cranes' landside rail, so `harbor.js` moves the cranes and the berth to the near quay when it does. |
+| The camera | Manual panning reaches 0.7 × `HARBOR_REACH` further east, so a phone in portrait can see the ship. |
+
+Shots 48 (`harbor`) and 49 (`harbor-far`) frame it, and `&view=x,z,zoom` reframes any shot.
+`tools/probe.mjs` asserts that the quay walls face the water, that the ship is held off its quay and
+never touches land or comes near the boats' lane on its way in and out, that
+nothing stands inside the ring road, that no slab lies over the basin, that the sea faces up and stays
+at sea level out to the rim, that the skirt never reaches back over the city, and that nothing in the
+harbor reaches up into the L train's deck.
 
 ## The surface
 
