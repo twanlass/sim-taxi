@@ -984,28 +984,6 @@ export const PALETTE = {
   // The rock tipped along the seawall's foot: a cool grey a step under the wall, so the line of it
   // reads as stone at the waterline rather than as more wall.
   riprap: '#6C6E6C',
-
-  // --- The island (city/terrain.js): the verge, the coast and the mountain, and the sea round them.
-  // The verge is a shade off `park` so the city's own lawns still read as planted against it.
-  verge: '#6C9150',
-  vergeDry: '#86A05C',
-  forest: '#4E7440',
-  // The mountain's conifers (`treeParts` with `species: 'pine'`): darker than any broadleaf, and
-  // they stay green in the fall.
-  pine: '#3D5F3A',
-  sand: '#D8C79A',
-  sandWet: '#B5A27A',
-  cliff: '#77736C',
-  mountainRock: '#857F78',
-  snow: '#EEF2F5',
-  // The open sea: deep water, and the sand it shows through where it is shallow.
-  oceanDeep: '#2C77A6',
-  oceanBed: '#D6C99C',
-  foam: '#F2F6F7',
-  // The L's tunnel portals: a stone headwall round a dark mouth.
-  portalStone: '#A59C90',
-  portalRing: '#BDB4A6',
-  tunnel: '#1B1E22',
   containerColors: ['#8A5242', '#6E4248', '#4A6E91', '#367A78', '#587B5A', '#A3A097', '#7E6847', '#3F5D7B', '#C4C2BA'],
   // The gulls (game/gulls.js): white bodies, grey backs, and nothing else — a yellow bill would be
   // a warm speck at full saturation and would not survive the 3 pixels it occupies anyway.

@@ -50,10 +50,7 @@ export function treeShape(height, trunk = 0.42) {
  * ellipsoid `city/canopyfuzz.js` dresses in leaf cards. Recorded, never drawn: it spends nothing
  * from `rng`, so a tree grown with it is the tree grown without it.
  */
-export function treeParts(x, z, rng, {
-  low = 3.4, high = 5.6, height, trunk = 0.42, crowns = null, species = 'broadleaf',
-} = {}) {
-  if (species === 'pine') return pineParts(x, z, rng, height ?? rng.range(low, high));
+export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.42, crowns = null } = {}) {
   const parts = [];
   const shape = treeShape(height ?? rng.range(low, high), trunk);
   const { trunkH, crownR: r, crownY: base } = shape;
@@ -97,35 +94,6 @@ export function treeParts(x, z, rng, {
       Math.sin(angle) * reach, 0);
   }
 
-  return parts;
-}
-
-/**
- * The conifer: the island's mountain forest (city/terrain.js), reached only through `treeParts`
- * with `species: 'pine'` so there is still one place a tree is drawn. A short trunk under three
- * stacked cones, each narrower than the one below, with the crown's soft normals so the stack
- * lights as one mass the way a broadleaf's lobes do. Evergreen: it does not turn in the fall, which
- * is also what keeps a mountainside of them from reading as the parks' colours spilled uphill.
- * Smaller in triangles than a broadleaf by a factor of four, because there are hundreds of them.
- */
-function pineParts(x, z, rng, height) {
-  const parts = [];
-  const trunkH = height * 0.22;
-  const trunkGeo = new THREE.CylinderGeometry(height * 0.03, height * 0.045, trunkH, 5);
-  trunkGeo.translate(x, KERB_H + trunkH / 2, z);
-  parts.push(bakeColor(trunkGeo, jitterColor(PALETTE.trunk, rng, { l: 0.05 })));
-
-  const green = jitterColor(PALETTE.pine, rng, { h: 0.015, l: 0.06 });
-  const tiers = 3;
-  for (let t = 0; t < tiers; t++) {
-    const r = height * (0.3 - t * 0.07);
-    const h = height * (0.42 - t * 0.06);
-    const y = KERB_H + trunkH * 0.8 + t * height * 0.21;
-    const cone = new THREE.ConeGeometry(r, h, 7, 1);
-    cone.rotateY(rng.range(0, Math.PI));
-    cone.translate(x, y + h / 2, z);
-    parts.push(softCrown(bakeColor(cone, jitterColor(green, rng, { l: 0.03 })), x, y + h * 0.3, z));
-  }
   return parts;
 }
 

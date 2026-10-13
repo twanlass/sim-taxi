@@ -16,9 +16,6 @@ import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
 import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river.js';
 import { createHarbor } from './city/harbor.js';
-import { createTerrain } from './city/terrain.js';
-import { createPeakMist } from './game/peakmist.js';
-import { createShore } from './city/shore.js';
 import { tickRiverWater, syncRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/riverwater.js';
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
@@ -436,17 +433,7 @@ const clouds = createClouds(scene, makeRng(runSeed + 277));
 // The clock that drives the sky. Parked at golden hour for now — the cycle works, but the night
 // end of it needs more tuning before it earns its place, so it's off until the ⚙️ panel turns it
 // on. Screenshots keep it frozen regardless: a rendered shot has to be reproducible.
-// The collar of cloud round the mountain's top (game/peakmist.js), lit with the weather.
-const peakMist = createPeakMist(scene, makeRng(seed + 59));
-const daylight = createDaylight({
-  sun, hemi, sky, fog,
-  clouds: clouds || peakMist ? {
-    setLight(top, bottom) {
-      clouds?.setLight(top, bottom);
-      peakMist?.setLight(top, bottom);
-    },
-  } : null,
-});
+const daylight = createDaylight({ sun, hemi, sky, fog, clouds });
 daylight.setDayLength(DAY_SECONDS);
 daylight.setCycling(false);
 if (rain.grade) daylight.setGrade(rain.grade);
@@ -610,15 +597,6 @@ if (river) {
 // road (city/harbor.js). Its own stream. Null under `?harbor=classic`.
 const harbor = createHarbor(makeRng(seed + 47));
 if (harbor) scene.add(markOccluder(harbor.mesh));
-// The island past the ring road and the ocean round it (`?island=classic` for the floating slab).
-const island = createTerrain(makeRng(seed + 53));
-if (island) {
-  scene.add(island.terrain);
-  scene.add(island.ocean);
-  scene.add(island.flora);
-  const shore = createShore(makeRng(seed + 61));
-  if (shore) scene.add(shore);
-}
 // Held onto for its `pad`: exactly one roof in the city carries a landing circle, and the
 // helicopter below has to be told which one — see `choosePad` in city/buildings.js.
 const stopPanes = rain.enabled ? collectPanes() : null;
@@ -661,8 +639,7 @@ const grass = createGrass(makeRng(seed + 122), layout, props);
 scene.add(grass.mesh);
 // Leaf cards round every tree crown — the parks', the medians' and the courtyard's — on the same
 // terms as the grass. See city/canopyfuzz.js.
-const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), [...props.crowns, ...(city.court?.crowns ?? []),
-  ...(island?.crowns ?? [])]);
+const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), [...props.crowns, ...(city.court?.crowns ?? [])]);
 scene.add(canopyFuzz.mesh);
 // The basketball court's hoops, which ride outside the merged props mesh so the fare board's
 // sightline field never sees them (see `courtParts`) — and the people shooting around on the court. Run seed for the players, like the ducks:
@@ -5078,7 +5055,6 @@ function tick() {
   // the second argument so the bounce and the notes land on the track's beat (game/boombox.js).
   boombox.update(dt);
   skaters.update(dt);
-  peakMist?.update(dt);
   if (ltrain) {
     ltrain.update(dt);
     ltrain.setFadePoints(ltrainFadePoints());
