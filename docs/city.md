@@ -678,7 +678,8 @@ It is scenery only. Nothing routes into it, nothing on it can be tapped, and the
 know it exists. An iron railing on a stone plinth runs round the lawn, with a gate in the middle of
 the +Z fence.
 Headstones stand in rows either side of a gravel path that runs gate to gate (one gate in each
-end), one big tree stands in a back corner, and a little ground mist drifts across. The tree is
+end), one big tree stands in a back corner, one of the parks' statues (`statueParts`) stands on its
+plaza in the −X half for some asymmetry, and a little ground mist drifts across. The tree is
 an ordinary `treeParts` tree at 6.6 tall (the parks run 3.4–5.6) with a plum crown, so it lights and
 wears leaf cards exactly as every other tree does. The mist thickens after dark, using the
 same measure of darkness as the helicopter's searchlight.

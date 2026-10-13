@@ -4,7 +4,7 @@ import { bakeColor, hash01, propMaterial, stampEntry, unlitMaterial } from '../u
 import { PALETTE, color, jitterColor } from '../palette.js';
 import { KERB_H, PARK_EDGE } from './ground.js';
 import { GRID_I, GRID_J, segmentKey } from './grid.js';
-import { treeParts } from './props.js';
+import { STATUE_PLAZA, statueParts, treeParts } from './props.js';
 
 // The city's graveyard: two blocks and the street between them behind an iron fence, with rows of
 // headstones either side of a gravel path, one big tree and a little ground mist. Scenery, on the
@@ -337,7 +337,8 @@ function headstone(kind, rng) {
   return geo;
 }
 
-function headstoneParts(site, trees, rng, parts) {
+/** `keepOut`: the tree and the statue, each `{ x, z, r? }` — no stone within `r` (TREE_CLEAR by default). */
+function headstoneParts(site, keepOut, rng, parts) {
   const { fence, gateX } = site;
   const zFirst = fence.z0 + STONE_CLEAR + 0.2;
   const zLast = fence.z1 - STONE_CLEAR - 1.2;  // leave the grave in front of the last row room
@@ -355,7 +356,7 @@ function headstoneParts(site, trees, rng, parts) {
         if (rng.chance(0.3)) continue;
         const x = inner + side * c * pitch + rng.jitter(0.08);
         const z = zFirst + r * ROW_PITCH + rng.jitter(0.06);
-        if (trees.some((t) => Math.hypot(t.x - x, t.z - z) < TREE_CLEAR)) continue;
+        if (keepOut.some((t) => Math.hypot(t.x - x, t.z - z) < (t.r ?? TREE_CLEAR))) continue;
         const roll = rng.next();
         const kind = roll < 0.45 ? 'round' : roll < 0.72 ? 'tablet' : roll < 0.92 ? 'cross' : 'obelisk';
         const geo = headstone(kind, rng);
@@ -441,7 +442,18 @@ export function createGraveyard(block, rng) {
   const tree = { x: fence.x0 + 1.6, z: fence.z0 + 1.6 };
   parts.push(...treeParts(tree.x, tree.z, rng, { height: TREE_H, trunk: 0.5, canopy: PALETTE.graveTree }));
 
-  headstoneParts(site, [tree], rng, parts);
+  // A park statue (Tyler, 2026-10-13: "a little more asymmetric appeal"), the parks' own model with
+  // its paved square, out in the lawn of the −X block in front of the tree. Off the middle of its
+  // half on purpose: centred, it would only have made the lot more symmetrical.
+  const statue = {
+    x: fence.x0 + (gateX - PATH_HALF - fence.x0) * 0.4,
+    z: (fence.z0 + fence.z1) / 2 + 0.6,
+    // Clear of the whole plaza, corner to corner, and a stone's width past it.
+    r: STATUE_PLAZA / 2 * Math.SQRT2 + 0.4,
+  };
+  parts.push(...statueParts(statue.x, statue.z, GRAVE_GRASS_Y, rng));
+
+  headstoneParts(site, [tree, statue], rng, parts);
 
   // The lanterns' iron caps and points, on both gates; the lit glass under them is `glow` below.
   for (const z of [fence.z0, fence.z1]) {
