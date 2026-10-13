@@ -4810,21 +4810,50 @@ const clipSite = () => ({
 const clipStage = (cardCanvas) => ({
   scene, camera, renderFrame, canvas: renderer.domElement, freeze: freezeFrame, cardCanvas,
 });
+// The player's taxi and the ambient traffic, as meshes — what a clip takes out of shot to film on a
+// street that has cars on it. Meshes only, so none of this changes the light count (the cruiser,
+// which carries lamps, stays: CLAUDE.md).
+const trafficMeshes = () => [traffic.taxiGroup, traffic.mesh, ...traffic.classicDrawn, traffic.wheelMesh,
+  traffic.truckMesh, traffic.truckWheelMesh,
+  traffic.truckBoxMesh, traffic.bumperMesh, traffic.truckBumperMesh, ...traffic.emissiveMeshes,
+  ...carDamage.meshes];
+/**
+ * A move's clip, filmed where `pick` says. A street with a car parked on it is passed over, since
+ * the city stays frozen under the card — and late in a long run, with traffic at its densest, that
+ * can be every street there is: the overtake's picker, which wants a whole ring-road side clear,
+ * came up empty on one city in five at the end of a run, and the card went up as a bare title with
+ * its keys stuck on their first frame (Tyler, 2026-10-13). So when nothing is clear it picks again
+ * with the cars ignored and films with the traffic out of shot, put back when the card closes. The
+ * still under the card is taken before they go, so the city behind it is the one the player left.
+ */
+const filmMove = (pick, make) => (cardCanvas) => {
+  if (!freezeFrame) return null;
+  const clear = pick(clipSite());
+  if (clear) return make(clipStage(cardCanvas), clear);
+  const anywhere = pick({ ...clipSite(), cars: [] });
+  const clip = anywhere && make(clipStage(cardCanvas), anywhere);
+  if (!clip) return null;
+  const hidden = trafficMeshes().filter((mesh) => mesh?.visible);
+  for (const mesh of hidden) mesh.visible = false;
+  const dispose = clip.dispose.bind(clip);
+  clip.dispose = () => {
+    for (const mesh of hidden) mesh.visible = true;
+    dispose();
+  };
+  return clip;
+};
 const moves = {
   overtake: {
     ...MOVES.overtake, seen: createSeenFlag({ key: MOVES.overtake.seenKey }), clipKeys: overtakeKeys,
-    makeClip: (cardCanvas) => freezeFrame
-      && createOvertakeClip({ ...clipStage(cardCanvas), street: pickOvertakeStreet(clipSite()) }),
+    makeClip: filmMove(pickOvertakeStreet, (stage, street) => createOvertakeClip({ ...stage, street })),
   },
   uturn: {
     ...MOVES.uturn, seen: createSeenFlag({ key: MOVES.uturn.seenKey }), clipKeys: uturnKeys,
-    makeClip: (cardCanvas) => freezeFrame
-      && createUturnClip({ ...clipStage(cardCanvas), street: pickStreet(clipSite()) }),
+    makeClip: filmMove(pickStreet, (stage, street) => createUturnClip({ ...stage, street })),
   },
   drift: {
     ...MOVES.drift, seen: createSeenFlag({ key: MOVES.drift.seenKey }), clipKeys: driftKeys,
-    makeClip: (cardCanvas) => freezeFrame
-      && createDriftClip({ ...clipStage(cardCanvas), corner: pickCorner(clipSite()) }),
+    makeClip: filmMove(pickCorner, (stage, corner) => createDriftClip({ ...stage, corner })),
   },
 };
 // The depot's card, on the same layer: once ever, a beat after the taxi first starts smoking. It
@@ -4835,12 +4864,8 @@ const repairCard = {
   makeClip: (cardCanvas) => freezeFrame && garage && createRepairClip({
     ...clipStage(cardCanvas), site: garage.site, setDoor: garage.setDoor, workshop: repairFx, sparks, dust,
     // The player's taxi, and the ambient traffic frozen wherever it stood — a car stopped on the
-    // depot's lane sat on the stand-in's path. Meshes only, so none of this changes the light count
-    // (the cruiser, which carries lamps, stays: CLAUDE.md).
-    hide: [traffic.taxiGroup, traffic.mesh, ...traffic.classicDrawn, traffic.wheelMesh,
-      traffic.truckMesh, traffic.truckWheelMesh,
-      traffic.truckBoxMesh, traffic.bumperMesh, traffic.truckBumperMesh, ...traffic.emissiveMeshes,
-      ...carDamage.meshes],
+    // depot's lane sat on the stand-in's path.
+    hide: trafficMeshes(),
   }),
 };
 // Seconds of game time until it lands, or negative while the car is not smoking.
@@ -4882,14 +4907,17 @@ const newMoveCalm = () => !fares.state.gameOver && !traffic.taxi.crashed
   && !opening?.visiting() && !depotRun?.active() && !burgerRun?.holdsTaxi()
   && !replay?.active() && replayAt === null;
 /**
- * The run is over and its high-score table has landed: every move it unlocked, one card after the
- * other in MOVES' order, then `done` (the run-end screen's Play again). Answers false when there is
+ * The run is over and its high-score table has landed: the first move it unlocked that has not been
+ * shown yet, then `done` (the run-end screen's Play again). Answers false when there is
  * nothing to show. Over the blackout rather than instead of it (`body.new-move-after-run`), so the
  * card closes back onto the run's own screen; the clip still films the city under it.
  */
 function showUnlockedMoves(done) {
   if (!movesAfterRun || !newMove) return false;
-  const queue = Object.values(moves).filter((m) => newMoveWanted(m) && fares.state.delivered >= m.after);
+  // One card per run's end, the first not yet shown (Tyler, 2026-10-13); a run that unlocked more
+  // leaves the rest for the runs after it, which still have to reach each one's `after`.
+  const queue = Object.values(moves).filter((m) => newMoveWanted(m) && fares.state.delivered >= m.after)
+    .slice(0, 1);
   if (!queue.length) return false;
   document.body.classList.add('new-move-after-run');
   const next = () => {
