@@ -14,7 +14,7 @@ import {
   headlightGeometry, headlightAnchors, headlightMaterial, coneGeometry, coneMaterial, coneQuat,
 } from '../geometry/lights.js';
 import { createTaxiMesh, TAXI_ROLL_PIVOT } from '../geometry/taxi.js';
-import { convertibleGeometry, convertibleDriverGeometry, westfaliaGeometry } from '../geometry/classics.js';
+import { convertibleGeometry, convertibleInteriorGeometry, westfaliaGeometry } from '../geometry/classics.js';
 import { bumperGeometries, bumperAt, bumperLength, BUMPER_D, BUMPER_H } from '../geometry/bumpers.js';
 import { bumperHinge, lampSocket, lampHang } from '../geometry/damage.js';
 import {
@@ -3809,21 +3809,21 @@ export function createTraffic(
     classicMeshes[model] = classic;
   }
   const classicList = Object.values(classicMeshes);
-  // The convertible's driver: untinted, so a mesh of its own rather than part of a body the fleet
-  // paints (see convertibleDriverGeometry). Rides the convertible's matrix and is collapsed
+  // The convertible's interior and driver: untinted, so a mesh of their own rather than part of a
+  // body the fleet paints (see convertibleInteriorGeometry). Rides the convertible's matrix and is collapsed
   // everywhere else, on the same terms as the bodies.
-  const driverMesh = neverCull(new THREE.InstancedMesh(
-    convertibleDriverGeometry(CAR_LEN, CAR_W), propMaterial(), MAX_AMBIENT,
+  const interiorMesh = neverCull(new THREE.InstancedMesh(
+    convertibleInteriorGeometry(CAR_LEN, CAR_W), propMaterial(), MAX_AMBIENT,
   ));
-  driverMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  driverMesh.castShadow = true;
-  driverMesh.receiveShadow = true;
-  driverMesh.name = 'carConvertibleDriver';
-  driverMesh.count = ambient.length;
-  for (let i = 0; i < MAX_AMBIENT; i++) driverMesh.setMatrixAt(i, collapsed);
+  interiorMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  interiorMesh.castShadow = true;
+  interiorMesh.receiveShadow = true;
+  interiorMesh.name = 'carConvertibleInterior';
+  interiorMesh.count = ambient.length;
+  for (let i = 0; i < MAX_AMBIENT; i++) interiorMesh.setMatrixAt(i, collapsed);
   // Every mesh the classics add, for anything that has to treat them all alike (counts, the
   // per-frame upload, and main.js's occluder, outline and hide lists).
-  const classicDrawn = [...classicList, driverMesh];
+  const classicDrawn = [...classicList, interiorMesh];
   // Which classic body a car is drawn with, or null for the ordinary one. A cop is always the
   // ordinary car — the white cab and the siren bar are built to its roof — and so is a truck.
   const modelOf = (car) => (car.isTruck || car.police ? null : car.model ?? null);
@@ -4465,15 +4465,15 @@ export function createTraffic(
     // A cop's white cab, on the same terms as the cargo box: its own mesh and its own material,
     // so the wreck scorches it in step. Left out, a wrecked cop lay in the road as a blue hatchback
     // with a glass roof.
-    // The convertible's driver stays in their seat: a material of their own, so the shell's paint
-    // does not tint them, and it is collected and scorched with the rest (game/wreckage.js).
+    // The convertible's interior goes with it, driver still in their seat: a material of its own,
+    // so the shell's paint does not tint it, and it is collected and scorched with the rest (game/wreckage.js).
     if (bodyInst === classicMeshes.convertible) {
-      const driver = new THREE.Mesh(driverMesh.geometry, propMaterial());
+      const driver = new THREE.Mesh(interiorMesh.geometry, propMaterial());
       driver.castShadow = true;
       driver.receiveShadow = true;
       shell.add(driver);
-      driverMesh.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
-      driverMesh.instanceMatrix.needsUpdate = true;
+      interiorMesh.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
+      interiorMesh.instanceMatrix.needsUpdate = true;
     }
     if (car.police && !car.isTruck) {
       const cab = new THREE.Mesh(policeCabMesh.geometry, propMaterial());
@@ -4627,7 +4627,7 @@ export function createTraffic(
       for (const other of [mesh, ...classicList]) {
         if (other !== bodyInst) other.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
       }
-      driverMesh.setMatrixAt(car.instanceIndex,
+      interiorMesh.setMatrixAt(car.instanceIndex,
         bodyInst === classicMeshes.convertible ? matrix : ZERO_MATRIX);
     }
     // The cargo box rides the identical transform — its offset from the cab is baked into its own
@@ -7168,8 +7168,8 @@ export function createTraffic(
      * car's transform back off an instance (the ghost outlines) has to ask that, not `mesh`.
      */
     classicMeshes, bodyMeshFor, modelOf,
-    /** The convertible's driver, index-aligned with `mesh`, and every mesh the classics add. */
-    classicDriverMesh: driverMesh, classicDrawn,
+    /** The convertible's interior and driver, index-aligned with `mesh`, and every mesh the classics add. */
+    classicInteriorMesh: interiorMesh, classicDrawn,
     /** The fleet's bumpers, drawn apart from the bodies — see `bumperMesh`. */
     bumperMesh, truckBumperMesh,
     /** A car's paint, cop or not: game/cardamage.js paints a lid it has knocked open with it. */

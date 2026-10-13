@@ -384,15 +384,15 @@ export const PALETTE = {
   // whole vehicle as one hull in one colour (carBodyGhost at the cab's index), because the outline
   // says "there is a vehicle there", not "these are its panels".
   truckBox: '#DDD4BE',
-  // The two rare classics (geometry/classics.js). The convertible is tinted from carBody like any
-  // car, so these multiply under its paint: the tub is near-black whatever the car, and the seats
-  // come out as leather the colour of the car — red on red, slate on slate — which is what a
-  // matched interior looks like. The folded hood is dark canvas.
-  convertibleTub: '#2A2624',
-  convertibleSeat: '#D8C6A6',
+  // The two rare classics (geometry/classics.js). The convertible's body is tinted from carBody
+  // like any car; its folded hood is dark canvas under that tint.
   convertibleHood: '#2E2F33',
-  // Its driver (`convertibleDriverGeometry`), who is NOT tinted — drawn as a mesh of their own —
-  // so these are the colours that show: a white tee, the riders' skin and hair, dark shades.
+  // Its interior and driver (`convertibleInteriorGeometry`) are NOT tinted — a mesh of their own —
+  // so these are the colours that show. Brown leather, so the cockpit stands out from the paint
+  // on every car: tinted, the seats were the body's own colour and the hollow read as a dent
+  // (Tyler, 2026-10-13). A white tee, the riders' skin and hair, dark shades.
+  convertibleTub: '#3A2A20',
+  convertibleSeat: '#8A5533',
   convertibleShirt: '#F1EEE7',
   convertibleSkin: '#E8B78C',
   convertibleHair: '#4A3A2E',

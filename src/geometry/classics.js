@@ -67,39 +67,19 @@ export function convertibleGeometry(len, width) {
     parts.push(setFinish(bakeColor(
       box(cockpitLen + 0.3, LIP_H, side, cockpitMid, lipY, sz * (width - side) / 2), white), FINISH.PAINT));
   }
-  // The tub: dark, a hair above the body top and below the lip, so it is a floor seen over a sill.
-  // 0.02 narrower than the gap between the lips, so its sides do not lie on their inner faces.
-  parts.push(paint(box(cockpitLen, 0.04, cockpitW - 0.02, cockpitMid, BODY_TOP + 0.01, 0),
-    'convertibleTub', FINISH.TYRE));
-
-  // Seats. Fronts are two buckets with backs; the rear is one bench. Cushion tops at BODY_TOP + 0.12
-  // and backs to + 0.42 — high enough to clear the lip by a pixel or two from this camera.
-  const seatW = cockpitW * 0.4;
-  for (const sz of [-1, 1]) {
-    const z = sz * cockpitW * 0.25;
-    parts.push(paint(box(0.42, 0.12, seatW, len * -0.02, BODY_TOP + 0.07, z), 'convertibleSeat'));
-    parts.push(paint(box(0.12, 0.34, seatW, len * -0.02 - 0.24, BODY_TOP + 0.24, z), 'convertibleSeat'));
-  }
-  parts.push(paint(box(0.38, 0.12, cockpitW * 0.9, len * -0.24, BODY_TOP + 0.07, 0), 'convertibleSeat'));
-  parts.push(paint(box(0.12, 0.28, cockpitW * 0.9, len * -0.24 - 0.22, BODY_TOP + 0.2, 0), 'convertibleSeat'));
-  // A steering wheel, as a dark plate tilted toward the driver. Left-hand drive, like the traffic —
-  // and with +x forward and +y up the driver's left is -z (up × forward).
-  const wheel = new THREE.BoxGeometry(0.04, 0.24, 0.26);
-  wheel.rotateZ(0.5);
-  wheel.translate(cockpitFront - 0.14, BODY_TOP + 0.24, -cockpitW * 0.25);
-  parts.push(paint(wheel, 'convertibleTub', FINISH.TYRE));
-
   // The folded soft top: a canvas roll on the rear deck behind the bench, its underside 0.01 into
   // the deck.
   const hood = new THREE.BoxGeometry(0.34, 0.2, cockpitW * 1.04);
   hood.translate(cockpitBack - 0.12, BODY_TOP + 0.09, 0);
   parts.push(paint(hood, 'convertibleHood', FINISH.TYRE));
 
-  // The windscreen, raked 35° back, with a chrome top rail. Built upright at the origin, tipped
+  // The windscreen, raked 32° back, with a chrome top rail. Built upright at the origin, tipped
   // about its own foot (positive rotateZ takes +y toward -x, i.e. leans it back), then stood on
-  // the cowl at the front of the cockpit.
-  const RAKE = 0.62;
-  const SCREEN_H = 0.5;
+  // the cowl at the front of the cockpit. Tall enough that its top (y 2.09) clears the driver's
+  // eyes (2.04, `convertibleInteriorGeometry`): over a 0.5 screen they sat above it, which reads
+  // as someone peering over the glass rather than sitting behind it (Tyler, 2026-10-13).
+  const RAKE = 0.55;
+  const SCREEN_H = 0.72;
   const screenW = width * 0.84;
   const screen = new THREE.BoxGeometry(0.05, SCREEN_H, screenW);
   screen.translate(0, SCREEN_H / 2, 0);
@@ -117,37 +97,65 @@ export function convertibleGeometry(len, width) {
 }
 
 /**
- * The convertible's driver, sat in the left front bucket with both hands on the wheel, in the same
- * car-local frame as `convertibleGeometry`. Without a roof the empty seat is in plain view, and a
- * car visibly driving itself reads as a bug (Tyler, 2026-10-13).
+ * The convertible's interior — the tub, the seats, the steering wheel — and its driver, sat in the
+ * left front bucket with both hands on the wheel, in the same car-local frame as
+ * `convertibleGeometry`. Without a roof the seats are in plain view, and a car visibly driving
+ * itself reads as a bug (Tyler, 2026-10-13).
  *
  * Its own geometry rather than part of the body because the body is tinted per car by the fleet's
- * instance colour, which would turn a red car's driver red. sim/traffic.js draws this as a second,
- * untinted instanced mesh riding the body's matrix.
+ * instance colour: tinted, the seats came out the car's own colour and the cockpit vanished into
+ * the paint, and the driver would have gone red on a red car. sim/traffic.js draws this as a
+ * second, untinted instanced mesh riding the body's matrix, so the leather is brown on every car.
  *
- * The figure is geometry/person.js's at about 0.5 scale — torso, head, hair — seated, so the
- * shoulders and head stand clear of the beltline lip (BODY_TOP + 0.11) and the head tops out at
- * 2.68, 0.6 above a sedan's roof: at play zoom it is a pale shirt and a head, which is the read.
+ * Low seats and a short torso, so the driver's eyes (y 2.04) sit under the windscreen's top
+ * (2.09): the figure is geometry/person.js's at about half scale with the torso cut to 0.28.
  * Sunglasses, because it is a convertible.
  */
-export function convertibleDriverGeometry(len, width) {
+export function convertibleInteriorGeometry(len, width) {
+  const cockpitFront = len * 0.1;
+  const cockpitBack = -len * 0.36;
   const cockpitW = width * 0.78;
-  const seatZ = -cockpitW * 0.25;           // the left bucket — see the steering wheel above
-  const seatTop = BODY_TOP + 0.13;          // the cushion's top
+  const cockpitMid = (cockpitFront + cockpitBack) / 2;
+  const cockpitLen = cockpitFront - cockpitBack;
+  const seatZ = -cockpitW * 0.25;           // the left bucket — see the steering wheel below
+  const seatTop = BODY_TOP + 0.09;          // the cushion's top
   const torsoX = len * -0.02 - 0.1;         // sat back against the seat back
-  const TORSO_H = 0.62;
-  const HEAD = 0.31;
+  const TORSO_H = 0.28;
+  const HEAD = 0.28;
   const parts = [];
   const bake = (g, hex) => bakeColor(g, new THREE.Color(hex));
+  const paint = (g, name) => bake(g, PALETTE[name]);
+
+  // The tub: dark, a hair above the body top and below the lip, so it is a floor seen over a sill.
+  // 0.02 narrower than the gap between the lips, so its sides do not lie on their inner faces.
+  parts.push(paint(box(cockpitLen, 0.04, cockpitW - 0.02, cockpitMid, BODY_TOP + 0.01, 0), 'convertibleTub'));
+
+  // Seats. Fronts are two buckets with backs; the rear is one bench. Set low in the tub — cushion
+  // tops at BODY_TOP + 0.09, backs to + 0.34 — so the driver sits down in the car.
+  const seatW = cockpitW * 0.4;
+  for (const sz of [-1, 1]) {
+    const z = sz * cockpitW * 0.25;
+    parts.push(paint(box(0.42, 0.1, seatW, len * -0.02, BODY_TOP + 0.04, z), 'convertibleSeat'));
+    parts.push(paint(box(0.12, 0.3, seatW, len * -0.02 - 0.24, BODY_TOP + 0.19, z), 'convertibleSeat'));
+  }
+  parts.push(paint(box(0.38, 0.1, cockpitW * 0.9, len * -0.24, BODY_TOP + 0.04, 0), 'convertibleSeat'));
+  parts.push(paint(box(0.12, 0.26, cockpitW * 0.9, len * -0.24 - 0.22, BODY_TOP + 0.17, 0), 'convertibleSeat'));
+  // The driver's side, then. A steering wheel, as a dark plate tilted toward the driver. Left-hand drive, like the traffic —
+  // and with +x forward and +y up the driver's left is -z (up × forward).
+  const wheel = new THREE.BoxGeometry(0.04, 0.24, 0.26);
+  wheel.rotateZ(0.5);
+  wheel.translate(cockpitFront - 0.14, BODY_TOP + 0.24, seatZ);
+  parts.push(paint(wheel, 'convertibleTub'));
+
   parts.push(bake(box(0.3, TORSO_H, 0.48, torsoX, seatTop + TORSO_H / 2, seatZ), PALETTE.convertibleShirt));
   const headY = seatTop + TORSO_H + HEAD / 2;
   parts.push(bake(box(HEAD, HEAD, HEAD, torsoX, headY, seatZ), PALETTE.convertibleSkin));
   parts.push(bake(box(HEAD + 0.03, 0.1, HEAD + 0.03, torsoX, headY + HEAD / 2, seatZ), PALETTE.convertibleHair));
   // The sunglasses: a band across the front of the face, proud of it.
   parts.push(bake(box(0.04, 0.07, HEAD + 0.02, torsoX + HEAD / 2 + 0.01, headY + 0.03, seatZ), PALETTE.convertibleShades));
-  // Arms, shoulder to the wheel's rim (`cockpitFront - 0.14`, BODY_TOP + 0.24 in convertibleGeometry),
+  // Arms, shoulder to the wheel's rim (`cockpitFront - 0.14`, BODY_TOP + 0.24, above),
   // each a box laid along the line between the two and the shirt's colour.
-  const shoulder = new THREE.Vector3(torsoX + 0.05, seatTop + TORSO_H - 0.1, 0);
+  const shoulder = new THREE.Vector3(torsoX + 0.05, seatTop + TORSO_H - 0.06, 0);
   const hand = new THREE.Vector3(len * 0.1 - 0.2, BODY_TOP + 0.3, 0);
   const reach = hand.clone().sub(shoulder);
   for (const side of [-1, 1]) {

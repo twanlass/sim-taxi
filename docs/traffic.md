@@ -768,6 +768,10 @@ built on its `CAR_LEN` × `CAR_W` footprint with its wheels and sill. Three thin
   and holds a zero matrix in the other two, written every frame. Anything that reads a car's
   transform back off an instance has to ask `bodyMeshFor` — `mesh` holds zero for a classic —
   which is why the ghost outlines (game/carghosts.js) have a pool per model, with its own hull.
+- **The convertible's interior is a fourth mesh, untinted.** Its seats, tub, wheel and driver
+  (`convertibleInteriorGeometry`) ride the convertible's matrix with no instance colour, so the
+  leather is brown on every car instead of the body's paint and the driver is not dyed to match.
+  The seats are low and the windscreen tall so the driver's eyes sit under its top.
 - **A cop or a truck is never a classic** (`modelOf`): the white cab and siren bar are built to the
   sedan's roof. The Westfalia also gets no bonnet or boot lid when hit (game/cardamage.js), like a
   truck — a T3's nose is flat.
