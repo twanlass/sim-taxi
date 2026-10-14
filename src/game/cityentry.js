@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { KERB_H } from '../city/ground.js';
-import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
+import { coastWest, coastEast, coastNorth, coastSouth } from '../city/grid.js';
 import { setOccluderDepthMaterial } from './ssao.js';
 
 // The city's entrance: streets and ground are already in place, then the buildings and trees
@@ -123,12 +123,16 @@ export function createCityEntry({
 
   // Past the furthest corner's delay plus one full grow — every eT clamps to 1 from here on.
   // Measured from the origin, not the centre: a taxi spawned near an edge pushes the far corner
-  // out toward 140 units, and an end computed from the centre would cut that corner off mid-pop.
+  // out past 250 units, and an end computed from the centre would cut that corner off mid-pop.
   // A function of the live origin rather than a constant, because `replay` can re-aim the wave.
+  // The corners are the *island's*, not the street grid's: the west edge and its corner stand up to
+  // 50 units outside the grid, and a finish computed off the grid froze them part-grown — the
+  // corner's mid-rises at (-90, -100) are 134 units from a spawn at the origin against the grid
+  // corner's 92, and landed at a tenth of their height with the wave declared done.
   const endAt = () => {
     const cornerDist = Math.max(
-      ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) =>
-        Math.hypot(sx * HALF_SPAN_X - uEntryFrom.value.x, sz * HALF_SPAN_Z - uEntryFrom.value.y)),
+      ...[[coastWest(), coastNorth()], [coastEast(), coastNorth()], [coastWest(), coastSouth()], [coastEast(), coastSouth()]]
+        .map(([x, z]) => Math.hypot(x - uEntryFrom.value.x, z - uEntryFrom.value.y)),
     );
     return cornerDist * uEntryWave.value + uEntryJitter.value + uEntryDur.value + 0.1;
   };

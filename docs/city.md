@@ -348,6 +348,16 @@ block them off from the game grid with construction barriers."
   towers. The new north-south streets stop at the embankment; there are no bridges out there.
 - **The camera can pan a little further west** (`PAN_LIMIT_WEST`, half the reach), to look up at the
   skyline.
+- **The northwest corner** (`?westcorner=classic` leaves it open ground): the two columns carry on
+  north of the north ring road for two rows of blocks (`cornerBlocks`), with mid-rises only (7–15,
+  under `SKYLINE_CEILING`, so the helicopters need nothing new). The west ring road carries on north
+  between them and the park, shut where it leaves the ring by a trestle and cones (`northClosure`).
+  The park gives up its west strip to that street and starts at its far kerb, behind a pavement and
+  a wall of its own, and its lawn feather no longer runs west: that feather is what spilled green
+  across the asphalt. The ground there is an asphalt patch laid 0.03 under the slab, filling the
+  slab's rounded corner, with its own feather off the west and north (`patchFade`). Tyler,
+  2026-10-14: "fill in this corner with another some mid rise buildings and smooth out the park
+  transition."
 
 ## Layout: what a block *is*
 

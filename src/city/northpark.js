@@ -4,6 +4,7 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
 import {
   GRID_I, lineX, lineZ, halfRoadX, halfRoadZ, isArterialZ, LTRAIN_NS, NORTH_PARK, NORTH_PARK_DEPTH,
+  WEST_CORNER,
 } from './grid.js';
 import { KERB_H, EDGE_FADE, FADE_RINGS } from './ground.js';
 import { STATUE_PLAZA, statueParts, treeParts } from './props.js';
@@ -71,13 +72,18 @@ const PYLON_H = 0.95;
 export function northParkBounds() {
   const kN = lineZ(0) - halfRoadX(0);
   return {
-    x0: lineX(0) - halfRoadZ(0) - 2,
+    // With the corner west of it built up (city/westedge.js), the park gives its west strip to the
+    // west ring road carried on north, and starts at that street's far kerb.
+    x0: WEST_CORNER ? lineX(0) + halfRoadZ(0) : lineX(0) - halfRoadZ(0) - 2,
     x1: lineX(GRID_I) + halfRoadZ(GRID_I) + 2,
     z0: kN - DEPTH,
     z1: kN,
     wall: kN - WALK - WALL_T / 2,
   };
 }
+
+/** Where the lawn starts: past the west pavement, when there is one. */
+const lawnX0 = (b) => (WEST_CORNER ? b.x0 + WALK : b.x0);
 
 /** The x of the L's line when it runs north over the park, or null. */
 function railX() {
@@ -101,7 +107,10 @@ export function createNorthPark(rng) {
     slab.translate((b.x0 + b.x1) / 2, TOP_Y / 2, (b.z0 + b.z1) / 2);
     parts.push(bakeColor(slab, PALETTE.kerb));
     parts.push(flat(b.x0, b.x1, b.z1 - WALK, b.z1, LAWN_Y, PALETTE.sidewalk));
-    parts.push(flat(b.x0, b.x1, b.z0, b.z1 - WALK, LAWN_Y, PALETTE.park));
+    // And down the west side too, when a street runs along it: the park presents the same pavement
+    // and wall to it that it does to the ring road.
+    if (WEST_CORNER) parts.push(flat(b.x0, b.x0 + WALK, b.z0, b.z1 - WALK, LAWN_Y, PALETTE.sidewalk));
+    parts.push(flat(lawnX0(b), b.x1, b.z0, b.z1 - WALK, LAWN_Y, PALETTE.park));
   }
 
   // --- The lake, in the middle of the lawn and nudged by the seed. An ellipse bent by two lobes,
@@ -215,7 +224,23 @@ export function createNorthPark(rng) {
   {
     const stone = PALETTE.parkWall;
     const cuts = [...gates].sort((p, q) => p - q);
-    let from = b.x0;
+    // Round the corner onto the west wall, when there is one.
+    let from = WEST_CORNER ? b.x0 + WALK : b.x0;
+    if (WEST_CORNER) {
+      const x = b.x0 + WALK + WALL_T / 2;
+      // Stopping short of the far edge, where the lawn has started fading out from under it.
+      const z0 = b.z0 + 3;
+      const z1 = b.wall + WALL_T / 2;
+      const g = new THREE.BoxGeometry(WALL_T, WALL_H, z1 - z0);
+      g.translate(x, LAWN_Y + WALL_H / 2, (z0 + z1) / 2);
+      parts.push(bakeColor(g, stone));
+      const cap = new THREE.BoxGeometry(WALL_T + 0.14, 0.1, z1 - z0);
+      cap.translate(x, LAWN_Y + WALL_H + 0.05, (z0 + z1) / 2);
+      parts.push(bakeColor(cap, PALETTE.parkWallCap));
+      const corner = new THREE.BoxGeometry(0.8, WALL_H + 0.45, 0.8);
+      corner.translate(x, LAWN_Y + (WALL_H + 0.45) / 2, b.wall);
+      parts.push(bakeColor(corner, stone));
+    }
     const run = (x0, x1) => {
       if (x1 - x0 < 0.5) return;
       const g = new THREE.BoxGeometry(x1 - x0, WALL_H, WALL_T);
@@ -259,7 +284,7 @@ export function createNorthPark(rng) {
     return best;
   };
   for (let z = b.z0 + 2; z < b.wall - 2.2; z += TREE_PITCH) {
-    for (let x = b.x0 + 1.5; x < b.x1 - 1.5; x += TREE_PITCH) {
+    for (let x = lawnX0(b) + (WEST_CORNER ? 2.2 : 1.5); x < b.x1 - 1.5; x += TREE_PITCH) {
       const tx = x + rng.range(-1.6, 1.6);
       const tz = z + rng.range(-1.6, 1.6);
       // 0 at the wall, 1 at the far edge.
@@ -490,8 +515,13 @@ function lawnFade(b) {
       outline.push({ x: cx, z: cz, nx: Math.cos(a), nz: Math.sin(a) });
     }
   };
-  outline.push({ x: b.x0, z: b.z1, nx: -1, nz: 0 });
-  corner(b.x0, b.z0, Math.PI, Math.PI * 1.5);
+  // With the corner built up the west edge is the street's kerb, so the feather starts square at the
+  // north-west corner, beside the corner's own asphalt one (city/westedge.js `patchFade`).
+  if (WEST_CORNER) outline.push({ x: b.x0, z: b.z0, nx: 0, nz: -1 });
+  else {
+    outline.push({ x: b.x0, z: b.z1, nx: -1, nz: 0 });
+    corner(b.x0, b.z0, Math.PI, Math.PI * 1.5);
+  }
   // With the park shore the east edge is lawn running on to the seawall (city/parkshore.js), so
   // the feather stops square at the north-east corner instead of going round it.
   if (parkShore()) outline.push({ x: b.x1, z: b.z0, nx: 0, nz: -1 });

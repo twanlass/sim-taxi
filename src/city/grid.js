@@ -463,6 +463,12 @@ export const NORTH_PARK = typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('northpark') !== 'classic'
   : globalThis.process?.env?.NORTHPARK !== 'classic';
 export const NORTH_PARK_DEPTH = 46;
+// The corner where those two meet (city/westedge.js, `?westcorner=classic` to leave it empty): mid-rises
+// north of the north ring road's stubs, and the west ring road carried on north between them and the
+// park, which gives up its west strip to it (`northParkBounds`).
+export const WEST_CORNER = WEST_EDGE && NORTH_PARK && (typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('westcorner') !== 'classic'
+  : globalThis.process?.env?.WESTCORNER !== 'classic');
 /** The same pair along z: the north edge and the south one, measured as z (north is negative). */
 export const coastNorth = () => (NORTH_PARK
   ? lineZ(0) - halfRoadX(0) - NORTH_PARK_DEPTH
