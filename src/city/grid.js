@@ -457,6 +457,12 @@ export const coastNorth = () => (NORTH_PARK
   ? lineZ(0) - halfRoadX(0) - NORTH_PARK_DEPTH
   : -(SPAN_Z + SLAB_MARGIN) / 2);
 export const coastSouth = () => (SPAN_Z + SLAB_MARGIN) / 2;
+// The south shore (city/southshore.js, `?southshore=classic` for the old apron): the harbor's rocky
+// shore carried on round the south end, with a strip of park between the ring road and the water.
+// It needs the harbor's sea to stand in, so it is off wherever the harbor is.
+export const SOUTH_SHORE = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('southshore') !== 'classic'
+  : globalThis.process?.env?.SOUTHSHORE !== 'classic';
 // The channel runs on at its own width for this far past the ring road's kerb before it opens out.
 // Enough for the ring bridge's footway (1.4) and a short walled run, so the river visibly *arrives*
 // at the basin rather than the bridge standing in it.

@@ -126,6 +126,9 @@ const UNIFORMS = {
   // The basin's two quay lines (z) and where its piers end (x): the walls the sea can mirror.
   uWaterBasin: { value: new THREE.Vector3() },
   uWaterQuay: { value: new THREE.Color(PALETTE.quay) },
+  // z past which the water is the open sea along the south shore (city/southshore.js), or far
+  // off the map without one.
+  uWaterShore: { value: 1e6 },
 };
 
 let drawLift = () => 0;
@@ -154,6 +157,7 @@ uniform vec4 uWaterBridges[3];
 uniform vec2 uWaterSea;
 uniform vec3 uWaterBasin;
 uniform vec3 uWaterQuay;
+uniform float uWaterShore;
 varying vec3 vWaterWorld;
 
 // 1 where there is channel wall at this x, 0 past the mouth, where the walls stop and the sea opens.
@@ -304,6 +308,10 @@ vec3 waterReflect(vec3 p, vec3 r) {
   float best = (p.z - uWaterEdges.x) / max(-r.z, 1e-3);
   // Past the mouth the far wall's plane is open sea, so the ray carries on to the sky — and a
   // point out in the basin past that plane (best < 0) never meets it at all.
+  // Out in front of the south shore the channel, its far wall and its bridges are all behind the
+  // whole city, so the sea there mirrors the sky. Without this the bridges' decks, whose profile
+  // reads 0 off the end of their span, came out as dark bands across the open water.
+  if (p.z > uWaterShore) return uWaterSky;
   float wallHere = best > 0.0 ? waterWallAt(p.x + r.x * best) : 0.0;
   if (wallHere <= 0.0) best = 1e6;
   // Without the harbor's walls the sea mirrored nothing but sky, a flat sheet beside a river full
@@ -418,9 +426,13 @@ const compose = () => /* glsl */ `
     // lip runs only where there is a wall to make one.
     float seaward = uWaterSea.y > 0.0
       ? smoothstep(uWaterSea.x - ${num(SEA_RUN_IN)}, uWaterSea.x, vWaterWorld.x) : 0.0;
+    // The sea along the south shore is the sea all the way west of the mouth, not a channel margin:
+    // read as one, its bed came up to the channel's shallow edge and showed through olive.
+    seaward = max(seaward, step(uWaterShore, vWaterWorld.z));
     depth = mix(depth, ${num(SEA_BED)}, seaward) * waterWet;
     float sBed = depth / max(-rd.y, 1e-3);
-    float sWall = rd.z < 0.0 && vWaterWorld.z > uWaterEdges.x ? (vWaterWorld.z - uWaterEdges.x) / -rd.z : 1e6;
+    float sWall = rd.z < 0.0 && vWaterWorld.z > uWaterEdges.x && vWaterWorld.z < uWaterShore
+      ? (vWaterWorld.z - uWaterEdges.x) / -rd.z : 1e6;
     if (waterWallAt(vWaterWorld.x + rd.x * sWall) < 0.5) sWall = 1e6;
     // The harbor's walls carry on under the surface the same way.
     int sunk = waterBasinHit(vWaterWorld, rd, sWall);
@@ -468,13 +480,15 @@ const compose = () => /* glsl */ `
  * @param banks     `riverBanks()`: the kerb lines the bridges span.
  * @param bridges   one `{ x0, x1, rise, draw }` per crossing that carries a deck.
  * @param wall      the channel wall's colour as built, so the mirror image matches the wall.
- * @param sea       with a harbor, `{ x0, z0, z1, xEnd }`: the mouth, the basin's quay lines and
- *                  where its piers end (see "One surface" under The sea).
+ * @param sea       with a harbor, `{ x0, z0, z1, xEnd, shore }`: the mouth, the basin's quay lines,
+ *                  where its piers end (see "One surface" under The sea), and the z past which the
+ *                  south shore's sea lies, if there is one.
  */
 export function patchRiverWater(material, { edges, banks, bridges, wall, sea = null }) {
   UNIFORMS.uWaterEdges.value.set(edges.z0, edges.z1);
   UNIFORMS.uWaterSea.value.set(sea?.x0 ?? 0, sea ? 1 : 0);
   if (sea) UNIFORMS.uWaterBasin.value.set(sea.z0, sea.z1, sea.xEnd);
+  UNIFORMS.uWaterShore.value = sea?.shore ?? 1e6;
   UNIFORMS.uWaterBanks.value.set(banks.z0, banks.z1);
   if (wall) UNIFORMS.uWaterWall.value.set(wall);
   drawSlot = -1;

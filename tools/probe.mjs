@@ -13,7 +13,7 @@ import { makeRng } from '../src/util/rng.js';
 import { pointInPolygon } from '../src/city/curves.js';
 import { isParkwayMid, coastWest, coastEast, coastNorth, harborBasin, HARBOR } from '../src/city/grid.js';
 import { createHarbor } from '../src/city/harbor.js';
-import { coastArcStart, coastArcZ, SEA_CORNER } from '../src/city/harborplan.js';
+import { coastArcStart, coastArcZ, SEA_CORNER, southShore } from '../src/city/harborplan.js';
 import { createLayout } from '../src/city/layout.js';
 import {
   createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
@@ -291,8 +291,12 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
   // With the harbor the east side is a seawall that takes no skirt, so the outline is the west
   // half of the square with the north and south coasts running straight on east until each turns
   // into the seawall — where the skirt carries on round the corner arc (`seaCornerFade`, ground.js).
+  //
+  // With the south shore the south half's coast is a wall standing in the sea too, and its west edge
+  // runs square down to it, so the only skirt that half has is straight out west.
   const edgeDist = !harborBasin() ? square : (x, z) => {
     const side = z > 0 ? 1 : -1;
+    if (side > 0 && southShore()) return coastWest() - x;
     // Round the corner arc, radially — its |z| has an infinite slope where the arc turns south, so
     // float32 storage alone moved a vertex there by 3e-3.
     const from = coastArcStart(side);
@@ -18942,6 +18946,76 @@ let chopperOrder; // likewise
       let off = 0;
       for (let t = 0; dp && t < dp.count; t++) if (Math.abs(dp.getY(t) - WATER_Y) > 1e-6) off += 1;
       check('harbor: the sea has no shoal round its rim', !!dock && off === 0, `${off} vertices off sea level`);
+    }
+  }
+
+  // --- The south shore (city/southshore.js): the harbor's rocky shore carried on round the south
+  // end, a strip of park in front of it. Scenery past the ring road again, so geometry again: its
+  // seawall faces the sea, nothing of it stands on the road, the slab stops at the shoreline and
+  // the sea lies in front of it.
+  {
+    const { southKerbZ, shoreZ, coastArcStart: arcStart } = await import('../src/city/harborplan.js');
+    const { createSouthShore } = await import('../src/city/southshore.js');
+    const { SOUTH_SHORE } = await import('../src/city/grid.js');
+    const ss = createSouthShore(makeRng(seed + 59));
+    if (!SOUTH_SHORE || !harborBasin()) {
+      check('south shore: classic (or no harbor) builds none', ss === null && !southShore(), ss ? 'still built' : 'none');
+    } else {
+      const sp = ss?.mesh.geometry.attributes.position;
+      check('south shore: builds', !!sp && sp.count > 0, sp ? `${sp.count / 3} triangles` : 'null');
+      const kerb = southKerbZ();
+      const x1 = arcStart(1);
+      let onRoad = 0;
+      let walls = 0;
+      let wrong = 0;
+      const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+      const n = new THREE.Vector3();
+      const onShore = (v) => v.x <= x1 + 1e-4 && Math.abs(v.z - shoreZ(v.x)) < 1e-4;
+      for (let t = 0; sp && t < sp.count; t += 3) {
+        a.fromBufferAttribute(sp, t); b.fromBufferAttribute(sp, t + 1); c.fromBufferAttribute(sp, t + 2);
+        for (const v of [a, b, c]) if (v.z < kerb - 1e-6) onRoad += 1;
+        // The seawall's quads: vertical, every corner on the shoreline, below the ground.
+        if (![a, b, c].every(onShore) || Math.max(a.y, b.y, c.y) > 1e-6) continue;
+        n.subVectors(b, a).cross(c.clone().sub(a));
+        if (Math.abs(n.y) > 1e-6 * n.length()) continue;
+        walls += 1;
+        if (n.z <= 0) wrong += 1;
+      }
+      check('south shore: nothing of it stands north of the ring road\'s kerb', onRoad === 0,
+        `${onRoad} vertices north of z ${kerb.toFixed(2)}`);
+      check('south shore: its seawall is wound to face the sea', walls > 0 && wrong === 0,
+        `${wrong} of ${walls} wall triangles facing the land`);
+
+      // The slab stops at the shoreline: no ground triangle has its centre out over the water.
+      const gp = ground.geometry.attributes.position;
+      let overSea = 0;
+      for (let t = 0; t < gp.count; t += 3) {
+        const x = (gp.getX(t) + gp.getX(t + 1) + gp.getX(t + 2)) / 3;
+        const z = (gp.getZ(t) + gp.getZ(t + 1) + gp.getZ(t + 2)) / 3;
+        if (x > coastWest() && x < x1 && z > shoreZ(x) + 0.1) overSea += 1;
+      }
+      check('south shore: the island\'s slab stops at the shoreline', overSea === 0,
+        `${overSea} ground triangles over the sea`);
+
+      // And the sea is in front of it, facing up: some of its triangles lie between the shoreline
+      // and its rim along the whole south end.
+      const rs = createRiver(makeRng(seed + 12), layout);
+      const sea = rs.group.getObjectByName('harbor-water').geometry.attributes.position;
+      const covered = new Set();
+      let down = 0;
+      for (let t = 0; t < sea.count; t += 3) {
+        a.fromBufferAttribute(sea, t); b.fromBufferAttribute(sea, t + 1); c.fromBufferAttribute(sea, t + 2);
+        n.subVectors(b, a).cross(c.clone().sub(a));
+        if (n.y <= 0) down += 1;
+        const x = (a.x + b.x + c.x) / 3;
+        const z = (a.z + b.z + c.z) / 3;
+        if (x > coastWest() && x < x1 && z > shoreZ(x) + 1) covered.add(Math.floor((x - coastWest()) / 10));
+      }
+      const columns = Math.floor((x1 - coastWest()) / 10);
+      let gaps = 0;
+      for (let k = 0; k < columns; k++) if (!covered.has(k)) gaps += 1;
+      check('south shore: the sea lies in front of the whole shoreline, facing up', gaps === 0 && down === 0,
+        `${gaps} of ${columns} ten-unit stretches with no sea, ${down} sea triangles facing down`);
     }
   }
 
