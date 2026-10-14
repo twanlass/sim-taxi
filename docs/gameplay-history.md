@@ -539,6 +539,9 @@ charge; it tweens either way now, and the total never goes below zero (see `char
 
 Now: [The combo meter](gameplay.md#the-combo-meter).
 
+Before Stuntman (2026-10-14, `?stuntman=classic`), smashing through a roadworks barricade earned
+nothing but the hop: the closed street's only reward was being empty.
+
 **How it got here**, so nobody walks the same road twice. The [shift](difficulty.md#shifts) used to
 stamp 1×, 1.25×, 1.5× or 2× into every price at spawn, with no counter on screen, and VIPs stacked a
 streak of their own (3×, 4×, 5× back to back). Both paid for getting further rather than for *how*.
@@ -587,7 +590,7 @@ that is an alarm rather than a countdown: it says *now*, not *how long*.
 
 ## The bank robbery
 
-The robbery first shipped as a **drive-past**: an empty cab passing the bank set it off. The cut of the robber leaving the bank came in behind `?robbery=intro` (#475, 2026-10-11) and became the default with #478; the robber running round the block rather than through the building is #484; the bank rider replaced the drive-past as the trigger in #499 (2026-10-13), with `?bankfare=classic` keeping the drive-past. Ramming a cop on the pill became the wreck outright in #466 (2026-10-10, `?cop=classic` for the bump). The cop chat bubbles were cut in #492 (2026-10-12, `?copchat=classic`). Now: [The bank robbery](gameplay.md#the-bank-robbery).
+The robbery first shipped as a **drive-past**: an empty cab passing the bank set it off. The cut of the robber leaving the bank came in behind `?robbery=intro` (#475, 2026-10-11) and became the default with #478; the robber running round the block rather than through the building is #484; the bank rider replaced the drive-past as the trigger in #499 (2026-10-13), with `?bankfare=classic` keeping the drive-past. The bank rider's coin was fair (50/50 on every visit) until it became loaded — rising 15 points per bank rider who rode, reset by a robbery (2026-10-14, `?robberyodds=classic` for the fair coin). Ramming a cop on the pill became the wreck outright in #466 (2026-10-10, `?cop=classic` for the bump). The cop chat bubbles were cut in #492 (2026-10-12, `?copchat=classic`). Now: [The bank robbery](gameplay.md#the-bank-robbery).
 
 `src/game/robbery.js`, `src/city/bank.js`, `src/game/fares.js` (`spawnRobber`), `sim/traffic.js`
 (`setPoliceCars`). One city block is a [bank](city.md#the-bank) — a low stone building under a
@@ -1136,3 +1139,20 @@ the per-car `heldKey` dedup that kept a held red from counting once per frame) a
 conversion were removed along with the rows.
 Nothing in the simulation uses the conversion; it exists so the stat is in a unit a player has a
 feel for.
+
+## Getting caught, before the capture model
+
+`?capture=classic`. Until 2026-10-14 the police ended a run by three rules, one per kind of cop:
+
+- **A patrol cop's touch was "Busted!"**, at any speed — rammed from behind on a straight at full
+  cruise was the same arrest as being pinned at a junction. Ramming the cop yourself on the pill was
+  the exception (`RAMMED_GRACE`), until the next rule made that a wreck instead.
+- **A boosted hit on any cop was the wreck**, whatever the HP (`lethalPolice` in
+  `sim/collisions.js`, #466; `?cop=classic` on top priced a cop like any other car).
+- **A getaway's cops could not arrest anybody**, so during a robbery the only way the police ended a
+  run was that wreck.
+
+Reported from play (Tyler, 2026-10-14): "hitting a cop is insta fail. That sucks during the robbery
+vignette where you wanna smash through roadblocks." The getaway fills the tank and throws roadblocks
+across your route; the third rule made the second the one thing it asked of you that ended the run.
+Replaced by [getting caught](gameplay.md#getting-caught).

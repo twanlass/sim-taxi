@@ -441,8 +441,10 @@ function loopWindow(buffer, seconds) {
 /**
  * @param {object} opts
  * @param {{ next: () => number }} [opts.rng]  Draws each trigger's take (`pickTake`). Math.random without.
+ * @param {boolean} [opts.menuMusic]  Hold the station off the air until `goOnAir` — the title menu
+ *   plays songs alone until then. False (`?menumusic=classic`, or no title screen) opens on the intro.
  */
-export function createSfx({ rng } = {}) {
+export function createSfx({ rng, menuMusic = false } = {}) {
   const hasAudio = typeof window !== 'undefined'
     && (window.AudioContext || window.webkitAudioContext);
   const state = {
@@ -497,7 +499,7 @@ export function createSfx({ rng } = {}) {
       state, play: noop, update: noop, hold: noop, setMuted: noop, toggleMuted: () => true,
       setVolumes: noop,
       locoOn: noop, locoOff: noop, release: noop, steer: noop, duckMusic: noop, fadeOutMusic: noop,
-      tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
+      goOnAir: noop, tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
       audition: () => null, stopAuditions: noop, files: FILES, radioFiles: RADIO_FILES,
       replace: async () => ({ ok: false, failed: [] }), revert: noop, replaced: () => null,
       pickReplacement: noop,
@@ -759,13 +761,27 @@ export function createSfx({ rng } = {}) {
   const trackLevel = (key) => RADIO.gain[key] * mix.music.tracks[key].gain;
   // Tracks on the clock right now, so a level moved on the panel reaches the song that is playing.
   const radioVoices = new Set();
-  async function decodeRadio(key) {
-    try {
-      radioBuffers[key] = await ctx.decodeAudioData(await bytes[key]);
-    } catch (err) {
-      console.warn(`sfx: ${key} did not load`, err);
-    }
+  // One decode per file however many callers ask: the menu and the cut to the intro can both want
+  // the same track inside the same second.
+  const decoding = {};
+  function decodeRadio(key) {
+    decoding[key] ??= (async () => {
+      try {
+        radioBuffers[key] = await ctx.decodeAudioData(await bytes[key]);
+      } catch (err) {
+        console.warn(`sfx: ${key} did not load`, err);
+      }
+    })();
+    return decoding[key];
   }
+  // The station proper — intro, then songs with ad breaks and IDs — or the title menu's songs on
+  // their own. Off the air until Play when there is a title screen (`goOnAir`); see `startRadio`.
+  let onAir = !menuMusic;
+  // Bumped on the cut to the intro, so the menu's tracks, stopped mid-song, cannot top the queue
+  // back up from their `onended`.
+  let generation = 0;
+  // While the intro is still decoding after the cut, nothing may be scheduled ahead of it.
+  let introPending = false;
 
   /** Play `key` into the music bus from `when`, calling `onEnd` once it has finished. */
   function playTrack(key, when, onEnd) {
@@ -776,7 +792,7 @@ export function createSfx({ rng } = {}) {
     const g = ctx.createGain();
     g.gain.value = trackLevel(key);
     src.connect(g).connect(radioBus);
-    const voice = { key, gain: g };
+    const voice = { key, gain: g, src, at: when };
     radioVoices.add(voice);
     src.onended = () => { radioVoices.delete(voice); onEnd(); };
     src.start(when, w.start, w.end - w.start);
@@ -788,8 +804,9 @@ export function createSfx({ rng } = {}) {
   let queuedEnd = 0;
   function queue(key) {
     const when = Math.max(queuedEnd, ctx.currentTime);
+    const gen = generation;
     ahead++;
-    queuedEnd = playTrack(key, when, () => { ahead--; topUp(); });
+    queuedEnd = playTrack(key, when, () => { if (gen !== generation) return; ahead--; topUp(); });
     state.radio = [...state.radio.slice(-7), { track: key, at: when }];
   }
 
@@ -800,6 +817,7 @@ export function createSfx({ rng } = {}) {
    * lands. The clock stops with a hold, so a pause stops the radio mid-song, queue and all.
    */
   function topUp() {
+    if (introPending) return;
     const freshPick = (keys, last) => {
       const loaded = keys.filter((k) => trackBuffer(k));
       if (!loaded.length) return null;
@@ -816,6 +834,8 @@ export function createSfx({ rng } = {}) {
       if (!song) return;
       lastSong = song;
       queue(song);
+      // The menu is songs alone: the station only talks once it is on the air.
+      if (!onAir) continue;
       // Count the song, then line up what follows it. A break with no ad decoded is skipped
       // whole: a tee-up into nothing is worse than no break.
       songsPlayed++;
@@ -828,15 +848,59 @@ export function createSfx({ rng } = {}) {
   }
 
   /**
-   * The intro always, then songs for as long as the page is open. The intro is decoded first so it
-   * starts as soon after the tap as it can; the songs decode while it plays. A file that failed to
-   * download is a warning and a gap in the rotation, never an error — the rule for every sound here.
+   * On the air: the intro, then songs for as long as the page is open. The intro is decoded first
+   * so it starts as soon after the tap as it can; the songs decode while it plays. A file that
+   * failed to download is a warning and a gap in the rotation, never an error — the rule for every
+   * sound here.
+   *
+   * Off the air (the title menu, Tyler October 2026): one song picked at random, decoded ahead of
+   * everything else so the menu is not silent for long after the first tap, then more songs back to
+   * back with no ads and no ID until Play cuts to the intro (`goOnAir`).
    */
   async function startRadio() {
+    if (onAir) { openStation(); return; }
+    const first = RADIO.songs[Math.floor(random() * RADIO.songs.length)];
+    await decodeRadio(first);
+    if (!onAir && trackBuffer(first)) { lastSong = first; queue(first); }
+    await Promise.all(RADIO.all.map(decodeRadio));
+    if (!onAir) topUp();
+  }
+
+  /** Cut whatever the menu is playing and open the station on its intro. */
+  async function openStation() {
+    generation++;
+    const t = ctx.currentTime;
+    // The first song after the intro is never the one the menu was playing. `lastSong` alone is
+    // the menu's *next* song, already queued behind it, so read the one actually sounding.
+    const sounding = [...radioVoices].filter((v) => v.at <= t).pop();
+    if (sounding && RADIO.songs.includes(sounding.key)) lastSong = sounding.key;
+    for (const v of radioVoices) {
+      // A cut, but not a click: 60ms down, then stopped.
+      v.gain.gain.cancelScheduledValues(t);
+      v.gain.gain.setTargetAtTime(0, t, 0.02);
+      try { v.src.stop(t + 0.1); } catch { /* not started yet: stop() still cancels it */ }
+    }
+    radioVoices.clear();
+    ahead = 0;
+    queuedEnd = 0;
+    between.length = 0;
+    songsPlayed = 0;
+    introPending = true;
     await decodeRadio(RADIO.intro);
-    if (radioBuffers[RADIO.intro]) queue(RADIO.intro);
-    await Promise.all(RADIO.all.filter((k) => k !== RADIO.intro).map(decodeRadio));
+    introPending = false;
+    if (trackBuffer(RADIO.intro)) queue(RADIO.intro);
+    await Promise.all(RADIO.all.map(decodeRadio));
     topUp();
+  }
+
+  /**
+   * Play: the menu's song gives way to the announcer. Before the first tap there is no context yet
+   * and nothing to cut, so it only flips the flag and `startRadio` opens on the intro itself.
+   */
+  function goOnAir() {
+    if (onAir) return;
+    onAir = true;
+    if (ctx) openStation();
   }
 
   // The unlock. Created *inside* the gesture, because Safari only lets a context start running
@@ -1225,6 +1289,7 @@ export function createSfx({ rng } = {}) {
     steer,
     duckMusic,
     fadeOutMusic,
+    goOnAir,
     setMuted,
     setVolumes,
     toggleMuted: () => { setMuted(!state.muted); return state.muted; },

@@ -170,7 +170,8 @@ const PURSUIT_FROM = 14;
 const PURSUIT_FULL = 34;
 
 /**
- * How a cop catches the taxi: it touches it. Rammed from behind or sideswiped on a pass — any
+ * How a cop catches the taxi under `?capture=classic`: it touches it. (By default the touch has to
+ * be a pin — see PIN_HOLD — and a ram at speed is a hit.) Rammed from behind or sideswiped on a pass — any
  * contact of the cop's making, and that is the arrest. A taxi that drives into the cop on the pill is
  * the exception: that is a bump (RAMMED_GRACE). Off the pill even that is the arrest.
  *
@@ -215,6 +216,104 @@ const HANDOFF_GRACE = 1.5;
  */
 const RAMMED_GRACE = 1.5;
 
+// --- The capture model ------------------------------------------------------------------------
+//
+// One rule each way, the same for every cop in the game (Tyler, 2026-10-14: "hitting a cop is insta
+// fail ... that sucks during the robbery where you wanna smash through roadblocks"):
+//
+//   - **Hitting a cop is hitting a car.** HP off by closing speed (sim/collisions.js), whoever
+//     did the hitting. A fast enough hit is still the wreck; a roadblock is something to smash.
+//   - **Busted is being stopped with a cop on you.** A chasing cop touching the taxi while it is
+//     barely moving, for PIN_HOLD. A cop that rams a taxi still doing a speed is a hit, not a catch:
+//     it costs HP, the cop drops back for RAM_BACKOFF, and it comes again.
+//
+// Before it there were three rules and the same blue car meant a different one in each place: a
+// patrol cop's touch was "Busted!" at any speed, a boosted hit on *any* cop was the wreck whatever
+// the HP (#466), and the robbery's cops could not arrest anybody at all. `?capture=classic` keeps them.
+//
+// The pin is deliberately not the meter this module had before contact became the catch (see
+// TOUCH_SLACK): that one filled on a cop being *near* a slow taxi and read as a timer. This one
+// needs the cop's bumper on the taxi *and* the taxi stuck — boxed in, rammed to a stop, nosed into
+// a roadblock — and it is short.
+
+/**
+ * Under this speed, in u/s, a taxi a cop is touching is pinned. A third of ordinary cruise (8.5):
+ * a taxi pulling away from a stop line is through it in well under a second, one shoved to a crawl
+ * against a roadblock or held at a junction with a cop on its bumper is not.
+ */
+export const PIN_SPEED = 3;
+
+/**
+ * How long, in seconds, the pin has to hold. Long enough that a cop scraping past a taxi pulling out
+ * of a junction is not an arrest, short enough that it is not the timer the old meter was. Unpinned,
+ * the clock runs back down at the same rate, so a taxi that wriggles free for a moment is not let
+ * off a pin it is about to be caught in again.
+ */
+export const PIN_HOLD = 0.75;
+
+/**
+ * After a ram at speed, how long the cop holds off before it may ram again, in seconds. It is also
+ * stunned by the hit itself (the bump's knock, sim/collisions.js), so this is mostly the gap the
+ * taxi gets to use.
+ */
+const RAM_BACKOFF = 1.5;
+
+/**
+ * The pin clock over a set of cops — the patrol's one, or a getaway's whole fleet (main.js).
+ * `update` answers the cop that has made the arrest, or null.
+ */
+export function createPin(taxi) {
+  let held = 0;
+  return {
+    get held() { return held; },
+    reset() { held = 0; },
+    update(dt, cops) {
+      let on = null;
+      if (!taxi.crashed && !taxi.staged && Math.abs(taxi.v) < PIN_SPEED) {
+        for (const cop of cops) {
+          if (!cop.crashed && touching(taxi, cop, TOUCH_SLACK)) { on = cop; break; }
+        }
+      }
+      held = on ? held + dt : Math.max(0, held - dt);
+      return on && held >= PIN_HOLD ? on : null;
+    },
+  };
+}
+
+/**
+ * The ram that ends a run, read off the two cars before the cop is stopped: where they meet, the
+ * normal from the cop into the taxi, and how hard the cop came in along it. main.js plays it as a
+ * bump before the bust.
+ */
+export function ramOf(cop, taxi) {
+  const seam = contact(cop, taxi);
+  const rvx = Math.cos(cop.yaw) * cop.v - Math.cos(taxi.yaw) * taxi.v;
+  const rvz = -Math.sin(cop.yaw) * cop.v + Math.sin(taxi.yaw) * taxi.v;
+  return {
+    x: seam.cx, z: seam.cz, nx: seam.nx, nz: seam.nz,
+    closing: Math.max(0, rvx * seam.nx + rvz * seam.nz),
+  };
+}
+
+/**
+ * Pull the arresting cop up where it is. `roadblock` is the chosen stop the box-in already uses —
+ * it rides the braking flag — and it is what keeps the cop from driving on into a taxi the traffic
+ * model has stopped counting as a car in its lane.
+ *
+ * And it stops *here*, not after a braking distance. The bust freezes the taxi and flags it
+ * crashed, and a crashed taxi drops out of sim/collisions.js, so nothing shoves the cop off it any
+ * more: a ram arrives at up to 21 u/s, and braking from that at the ordinary rate carried the cop
+ * straight through — measured over 30 staged catches, 20 ended 1.2–2.3 units deep, 2.3 being the
+ * whole envelope, one car drawn on top of the other. The touch is the impact.
+ */
+export function holdArrest(cop) {
+  cop.v = 0;
+  cop.roadblock = Infinity;
+  cop.pursuit = 0;
+  cop.ram = false;
+  cop.uturnWanted = false;
+}
+
 /**
  * @param rng      its own stream: where a patrol cruises, and the cooldowns between them
  * @param police   the cruiser's look (sim/police.js) — `wear`/`shed` the traffic car
@@ -226,13 +325,19 @@ const RAMMED_GRACE = 1.5;
  * @param onCaught `(cop, ram) => void` — the run ends here: main.js plays the ram as a bump, stops
  *                 the taxi and raises "Busted!". `ram` is `{ x, z, nx, nz, closing }` — the seam,
  *                 the normal from the cop into the taxi, and the closing speed along it
+ * @param capture  the capture model above: a touch at speed is a ram (`onRammed`), and the catch is
+ *                 the pin. Off by default so the tools' patrol checks keep the rule they measured;
+ *                 main.js turns it on unless `?capture=classic`
+ * @param onRammed `(cop) => void` — under `capture`, the cop has just rammed a taxi still doing a
+ *                 speed: main.js charges it as a hit (`strike` in sim/collisions.js)
  * @param onLost   `(cop) => void` — the taxi got away
  * @param onHid    `(cop) => void` — the taxi got away into the depot (`hideout`)
  */
 export function createPatrol({
-  rng, police, traffic, taxi, blocked = () => false,
-  onSpotted = () => {}, onCaught = () => {}, onLost = () => {}, onHid = () => {},
+  rng, police, traffic, taxi, blocked = () => false, capture = false,
+  onSpotted = () => {}, onCaught = () => {}, onRammed = () => {}, onLost = () => {}, onHid = () => {},
 }) {
+  const pin = createPin(taxi);
   const state = {
     phase: 'off',
     /** Seconds until the next patrol comes in. The first is short: a run opens with a patrol due. */
@@ -269,6 +374,8 @@ export function createPatrol({
     caught: 0,
     lost: 0,
     hid: 0,
+    /** Rams at speed under `capture` — hits, not catches. */
+    rams: 0,
   };
 
   // Where the chase was last aimed. Keyed on its endpoints and left alone in between — re-planning
@@ -529,6 +636,7 @@ export function createPatrol({
 
   /** Lights on, and after the taxi. */
   function spot(cop, grace = 0) {
+    pin.reset();
     cop.siren = true;
     police.setBar('strobe');
     cop.chase = 1;
@@ -565,6 +673,17 @@ export function createPatrol({
     state.standingDown = 0;
     state.searchAt = null;
     aimedAt = null;
+  }
+
+  /** The arrest: the cop pulls up on the spot and the run ends "Busted!" (main.js). */
+  function catchTaxi(cop) {
+    state.caught += 1;
+    // Read before the stop below zeroes the cop.
+    const ram = ramOf(cop, taxi);
+    holdArrest(cop);
+    pin.reset();
+    state.phase = 'arrest';
+    onCaught(cop, ram);
   }
 
   /** Off the road, and the cooldown to the next one starts. */
@@ -654,33 +773,21 @@ export function createPatrol({
       state.grace -= dt;
       cop.ram = state.grace <= 0;
     }
-    if (state.grace <= 0 && touching(taxi, cop, TOUCH_SLACK)) {
-      state.caught += 1;
-      // The ram, read before the stop below zeroes the cop: where the two meet, and how hard the
-      // cop came in along the line between them. main.js plays it as a bump before the bust.
-      const seam = contact(cop, taxi);
-      const rvx = Math.cos(cop.yaw) * cop.v - Math.cos(taxi.yaw) * taxi.v;
-      const rvz = -Math.sin(cop.yaw) * cop.v + Math.sin(taxi.yaw) * taxi.v;
-      const ram = {
-        x: seam.cx, z: seam.cz, nx: seam.nx, nz: seam.nz,
-        closing: Math.max(0, rvx * seam.nx + rvz * seam.nz),
-      };
-      // Pull up where it is. `roadblock` is the chosen stop the box-in already uses — it rides the
-      // braking flag — and it is what keeps the cop from driving on into a taxi the traffic model
-      // has stopped counting as a car in its lane.
-      //
-      // And it stops *here*, not after a braking distance. The bust freezes the taxi and flags it
-      // crashed, and a crashed taxi drops out of sim/collisions.js, so nothing shoves the cop off it
-      // any more: a ram arrives at up to 21 u/s, and braking from that at the ordinary rate carried
-      // the cop straight through — measured over 30 staged catches, 20 ended 1.2–2.3 units deep,
-      // 2.3 being the whole envelope, one car drawn on top of the other. The touch is the impact.
-      cop.v = 0;
-      cop.roadblock = Infinity;
-      cop.pursuit = 0;
-      cop.ram = false;
-      cop.uturnWanted = false;
-      state.phase = 'arrest';
-      onCaught(cop, ram);
+    if (capture) {
+      // A ram at speed is a hit: charged by main.js, and the cop backs off before it tries again.
+      if (state.grace <= 0 && Math.abs(taxi.v) >= PIN_SPEED && touching(taxi, cop, TOUCH_SLACK)) {
+        state.rams += 1;
+        state.grace = RAM_BACKOFF;
+        cop.ram = false;
+        onRammed(cop);
+        if (taxi.crashed) return;   // that hit was the last of the HP — the wreck, not a bust
+      }
+      if (pin.update(dt, state.grace <= 0 ? [cop] : []) === cop) {
+        catchTaxi(cop);
+        return;
+      }
+    } else if (state.grace <= 0 && touching(taxi, cop, TOUCH_SLACK)) {
+      catchTaxi(cop);
       return;
     }
     state.clear = near > ESCAPE_RANGE ? state.clear + dt : Math.max(0, state.clear - dt);

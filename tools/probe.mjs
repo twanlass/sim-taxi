@@ -58,7 +58,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -117,7 +117,9 @@ import { BOARD_MAX } from '../src/game/difficulty.js';
 import { LOCO_PACE_SELF } from './autoplay.mjs';
 import { planRun as planBankRun } from '../src/game/bankjob.js';
 import { createRobbery, TRIGGER_RANGE as ROBBERY_TRIGGER_RANGE, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
-import { createPatrol, ESCAPE_BLOCKS, TOUCH_SLACK, SIGHT_HOLD } from '../src/game/patrol.js';
+import {
+  createPatrol, createPin, ESCAPE_BLOCKS, TOUCH_SLACK, SIGHT_HOLD, PIN_HOLD, PIN_SPEED,
+} from '../src/game/patrol.js';
 import { touching } from '../src/sim/collisions.js';
 import { createCashTrail, noteGeometry, NOTE_FOLD, BRICK_H } from '../src/game/cashtrail.js';
 import { createCopLights } from '../src/game/coplights.js';
@@ -9564,6 +9566,92 @@ function rideToPickup() {
   }
 }
 
+// --- Getting caught: the capture model ---------------------------------------
+// game/patrol.js, "The capture model". A chasing cop that touches a taxi still doing a speed lands a
+// hit (HP, through `strike` in sim/collisions.js) and is not an arrest; the arrest is the pin — the
+// taxi held under PIN_SPEED with the cop on it for PIN_HOLD. Staged as the ram checks above are:
+// the cop square into the taxi's door, re-placed every frame so the knock cannot carry it off.
+{
+  const s = seed;
+  createLayout(makeRng(s));
+  const cScene = new THREE.Scene();
+  const cTraffic = createTraffic(makeRng(s + 44), cScene, CARS_DEFAULT);
+  const cPolice = createPolice(cScene);
+  const taxi = cTraffic.taxi;
+  const cCollisions = createCollisions(cTraffic.cars, taxi);
+  let caught = false;
+  let rammed = 0;
+  const cPatrol = createPatrol({
+    rng: makeRng(s + 66), police: cPolice, traffic: cTraffic, taxi, capture: true,
+    onCaught: () => { caught = true; },
+    onRammed: (cop) => { rammed += 1; cCollisions.strike(cop); },
+  });
+  cPatrol.state.cooldown = 0;
+  for (let step = 0; step < 60 * 90 && cPatrol.state.phase !== 'patrol'; step++) {
+    cTraffic.update(1 / 60); cPatrol.update(1 / 60); cPolice.update(1 / 60);
+  }
+  const cop = cPatrol.state.cop;
+  const onDoor = () => {
+    cop.yaw = taxi.yaw + Math.PI / 2;
+    cop.x = taxi.x - Math.cos(cop.yaw) * 1.6;
+    cop.z = taxi.z + Math.sin(cop.yaw) * 1.6;
+    cop.v = 6;
+  };
+  if (cop) {
+    // Spotted the way the patrol checks above do it: boosting a few units off it for one frame.
+    const at = { x: taxi.x, z: taxi.z };
+    taxi.x = cop.x + 6; taxi.z = cop.z;
+    cPatrol.update(1 / 60, { boosting: true });
+    taxi.x = at.x; taxi.z = at.z;
+    taxi.hp = TAXI_HP;
+    taxi.boost = false;
+    // A ram at cruise: a hit, not the arrest.
+    onDoor();
+    taxi.v = 8;
+    cPatrol.update(1 / 60);
+    check('capture: a cop ramming a taxi at speed is a hit, not a bust',
+      cPatrol.state.phase === 'chase' && !caught && rammed === 1 && taxi.hp < TAXI_HP && !taxi.crashed,
+      `phase ${cPatrol.state.phase}, caught ${caught}, rams ${rammed}, hp ${taxi.hp}`);
+    // Pinned: stopped, the cop held on its door. Not inside the backoff, not before PIN_HOLD, and
+    // then the arrest.
+    const hpAfterRam = taxi.hp;
+    let at1 = false;
+    const frames = (sec) => Math.round(sec * 60);
+    for (let f = 0; f < frames(1.5 + PIN_HOLD * 0.6); f++) {
+      onDoor(); taxi.v = 0; cPatrol.update(1 / 60);
+    }
+    at1 = caught;
+    for (let f = 0; f < frames(PIN_HOLD); f++) {
+      onDoor(); taxi.v = 0; cPatrol.update(1 / 60);
+      if (caught) break;
+    }
+    check('capture: pinned under PIN_SPEED, the arrest comes after PIN_HOLD and not before',
+      !at1 && caught && cPatrol.state.phase === 'arrest' && taxi.hp === hpAfterRam,
+      `early ${at1}, caught ${caught}, phase ${cPatrol.state.phase}`);
+  } else {
+    check('capture: a cop ramming a taxi at speed is a hit, not a bust', false, 'no patrol on the map');
+  }
+
+  // The getaway's pin is the same clock over a fleet. A taxi moving at PIN_SPEED is never pinned.
+  const pin = createPin(taxi);
+  const fleetCop = cTraffic.cars.find((c) => c !== taxi && c !== cop && !c.crashed);
+  taxi.crashed = false;
+  taxi.staged = false;
+  const place = () => {
+    fleetCop.yaw = taxi.yaw + Math.PI / 2;
+    fleetCop.x = taxi.x - Math.cos(fleetCop.yaw) * 1.6;
+    fleetCop.z = taxi.z + Math.sin(fleetCop.yaw) * 1.6;
+  };
+  let moving = null;
+  for (let f = 0; f < 120; f++) { place(); taxi.v = PIN_SPEED; moving = moving ?? pin.update(1 / 60, [fleetCop]); }
+  let stuck = null;
+  let stuckAt = 0;
+  for (let f = 0; f < 120 && !stuck; f++) { place(); taxi.v = 0; stuck = pin.update(1 / 60, [fleetCop]); stuckAt = f + 1; }
+  check('capture: the getaway pin catches a stopped taxi, never a moving one',
+    moving === null && stuck === fleetCop && Math.abs(stuckAt / 60 - PIN_HOLD) < 0.05,
+    `moving ${Boolean(moving)}, stuck after ${(stuckAt / 60).toFixed(2)}s`);
+}
+
 // --- A patrol turns round in the road ----------------------------------------
 // sim/traffic.js (UTURN_SPEED) and game/patrol.js (`turnRound`). A taxi that boosts past a patrol
 // the other way used to leave the cop driving on to lap the block, which is all the router can do
@@ -16853,12 +16941,15 @@ let chopperOrder; // likewise
       if (tails.length) {
         const d = tails[0];
         const strikes = d.f8.state.strikes;
+        d.f8.state.bankRides = 2;
         const events = arrive(d);
         check('tails: the robber takes the bank rider’s seat',
           events.includes('swapped') && !events.includes('pickup') && d.rob8.state.active && d.got.length === 1
             && !d.f8.state.fares.includes(d.bankFare) && d.f8.carrying()?.robber,
           `events ${events.join(',')}, ${d.got.length} robbers`);
         check('...and the rider they shoved costs no star', d.f8.state.strikes === strikes);
+        check('...and the robbery puts the coin back to even', d.f8.robberOdds() === 0.5,
+          `${d.f8.robberOdds()}`);
       }
       if (heads.length) {
         const d = heads[0];
@@ -16866,6 +16957,15 @@ let chopperOrder; // likewise
         check('heads: the bank rider simply gets in',
           events.includes('pickup') && !d.rob8.state.active && d.f8.carrying() === d.bankFare,
           `events ${events.join(',')}`);
+        // BANK_ROBBER_STEP: every bank rider who rides loads the coin, up to a cap short of certain.
+        const steps = [d.f8.robberOdds()];
+        for (let k = 0; k < 4; k++) { d.f8.state.bankRides += 1; steps.push(d.f8.robberOdds()); }
+        // `steps[0]` is after the pickup just made, so the run reads from the second toss on.
+        check('...and loads the coin for the next one: 65, 80, 95, then held at 95',
+          [0.65, 0.8, 0.95, 0.95, 0.95].every((v, k) => Math.abs(steps[k] - v) < 1e-9),
+          steps.map((v) => v.toFixed(2)).join(' '));
+        const flat = createFareSystem(makeRng(seed + 900), new THREE.Scene(), { risingOdds: false });
+        check('...but not under ?robberyodds=classic', flat.robberOdds() === 0.5 && flat.state.bankRides === 0);
       }
       if (tails.length > 1) {
         // Tails, but the gates are shut — the last robbery inside its cooldown: they get in after all.
@@ -18070,11 +18170,15 @@ let chopperOrder; // likewise
       if (setup()) {
         taxi.braking = true;
         let low = Infinity;
+        let flew = false;
         for (let k = 0; k < 60 && !(taxi.state === 'drive' && taxi.lane.id === out.id); k++) {
           dTraffic.update(1 / 60);
           low = Math.min(low, taxi.v);
+          flew ||= taxi.hopFrom != null;
         }
-        braked = Math.max(braked, low);
+        // An approach over an arched span hops off the crest, and the brake is deaf in the air
+        // (HOP_MIN_V in sim/traffic.js) — that corner says nothing about the pedal on the road.
+        if (!flew) braked = Math.max(braked, low);
         taxi.braking = false;
       }
     }
@@ -19370,6 +19474,53 @@ let chopperOrder; // likewise
       `${boosted?.launches} launches over one span`);
     check('a taxi at cruise drives over it', cruised && cruised.launches === 0,
       `${cruised?.launches} launches without boost`);
+
+    // **A hop always comes down.** Boosting onto the hump with the brake held from the first
+    // frame stopped the taxi 3.5 units over the crest, where it hung for as long as the pedal was
+    // down — 121 frames in the measurement this was written against. And one braking onto it
+    // below cruise does not take off at all.
+    const stall = (style, v, brake) => {
+      setHopStyle(style);
+      const sScene = new THREE.Scene();
+      const sTraffic = createTraffic(makeRng(seed + 851), sScene, 1);
+      const taxi = sTraffic.taxi;
+      const lane = net.laneByGrid(1, jSpan.line, jSpan.row + 1);
+      // Already inside the launch window, which opens HOP_LEN / 2 short of the crest: the launch
+      // is decided on the first frame, before the brake has taken anything off.
+      // The deck lane runs bank to bank, so its middle is the crest.
+      placeCar(taxi, 1, jSpan.line, jSpan.row + 1, lane.length / 2 + HOP_LEN / 2 - 0.2);
+      taxi.parked = false;
+      taxi.route = [1, 1, 1];
+      taxi.routeConsumed = false;
+      taxi.v = v;
+      // Already in Loco Mode, slowed by the pedal: the press's own surge (`loco.kick`) is spent.
+      taxi.wasBoosting = true;
+      let air = 0;
+      let launches = 0;
+      let wasAir = false;
+      for (let f = 0; f < 60 * 3; f++) {
+        taxi.boost = true;
+        taxi.braking = brake;
+        sTraffic.update(1 / 60);
+        const up = taxi.hopFrom != null;
+        if (up) air += 1;
+        if (up && !wasAir) launches += 1;
+        wasAir = up;
+      }
+      sTraffic.dispose?.();
+      setHopStyle();
+      return { air, launches, lane: !!lane };
+    };
+    const braked = stall(undefined, SPEED * 1.3, true);
+    const brakedClassic = stall('classic', SPEED * 1.3, true);
+    const crawled = stall(undefined, HOP_MIN_V * 0.5, true);
+    const crawledClassic = stall('classic', HOP_MIN_V * 0.5, true);
+    check('braking over the hump does not park the taxi in mid-air',
+      braked.launches === 1 && braked.air < 60 && brakedClassic.air > 100,
+      `${braked.launches} launch, ${braked.air} frames of air (classic: ${brakedClassic.air})`);
+    check('and a taxi crawling onto the hump does not take off',
+      crawled.launches === 0 && crawledClassic.launches === 1,
+      `${crawled.launches} launches at ${(HOP_MIN_V * 0.5).toFixed(1)} u/s (classic: ${crawledClassic.launches})`);
   }
 
   // --- The lift, and the two things it must never do.
@@ -20244,6 +20395,11 @@ let chopperOrder; // likewise
     && !bystander.lost && bystander.mult === 3
     && !createComboMeter().walkout({ stage: 'riding' }),
     `aboard ×${aboard.mult}, en route ×${enRoute.mult}, bystander ×${bystander.mult}`);
+
+  m = createComboMeter();
+  const stunt = m.land('stuntman');
+  check('smashing a roadworks barricade is Stuntman, a whole step',
+    stunt?.label === 'Stuntman' && stunt.added === 1 && m.state.mult === 2, `${stunt?.label} +${stunt?.added}`);
 
   m = createComboMeter();
   for (let k = 0; k < 10; k += 1) m.land('launch');

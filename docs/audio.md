@@ -212,8 +212,10 @@ masters they already sit level with it (the 25 siren -28.5 dB against the crash'
 
 ## The radio
 
-The music is a car radio, the station KPRS. `MUSIC_radio_intro` (6.3 s; it replaced a 15 s one in
-October 2026) always plays first, then a hard cut to one of four 30 s songs (`MUSIC_country`,
+The music is a car radio, the station KPRS. On the **title menu** it is not on the air yet: the
+first tap starts one of the four songs at random, and more follow back to back (no ads, no ID) for
+as long as the menu is up. **Play** cuts it (60 ms down) to `MUSIC_radio_intro` (6.3 s; it replaced
+a 15 s one in October 2026), the announcer's "beautiful day in this concrete jungle", then a hard cut to one of four 30 s songs (`MUSIC_country`,
 `MUSIC_jazz`, `MUSIC_rock`, `MUSIC_funk`) at random, and at the end of each a fresh pick, never the
 song that just played. Between songs the station talks:
 
@@ -224,9 +226,11 @@ song that just played. Between songs the station talks:
   due, and the ID follows the break rather than splitting it.
 
 So the hour runs: intro, song, song, *break*, song, *ID*, song, *break*, song, song, *break*, *ID*, …
-It starts on the first tap with everything else, so it opens on the title screen, and since a Retry
-is a reload every run opens on the intro. `__taxi.sfx.state.radio` lists the last few items
-scheduled.
+The menu's song is never the first song after the intro. Play again reloads past the title screen,
+so that run goes straight to the intro on its first tap, as do `?title=off` and `?dev`. Before
+October 2026 the station went on the air on the first tap anywhere, so the intro played under the
+menu and was usually over by the time the run began; `?menumusic=classic` keeps that.
+`__taxi.sfx.state.radio` lists the last few items scheduled.
 
 It lives in `sfx.js` beside the effects (`RADIO`, `RADIO_FILES`, `startRadio`) but outside
 `FILES`/`SOUNDS`/the mix: it plays into the **music bus**, so the Music slider and the mute steer
