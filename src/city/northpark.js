@@ -39,6 +39,10 @@ const TREE_CLEAR_PATH = 1.9;
 const TREE_CLEAR_LAKE = 2.4;
 const TREE_CLEAR_RAIL = 4;
 const TREE_PITCH = 4.4;
+// The grass thins north at this rate (density 1 - NORTH_THIN * fraction of the depth), so it is
+// gone by ~70% of the way to the far edge, where the wood stands. At full density over the whole
+// lawn it was ~7,200 tufts — four times every other park in the city put together.
+export const NORTH_THIN = 1.4;
 
 // Heights, named off each other (CLAUDE.md: two flat surfaces at one height shimmer).
 const TOP_Y = KERB_H;               // the platform
@@ -318,7 +322,28 @@ export function createNorthPark(rng) {
   waterMesh.receiveShadow = true;
   waterMesh.name = 'north-park-lake';
 
-  return { mesh, water: waterMesh, fade: lawnFade(b), crowns, bounds: b, lake, drives };
+  // --- The lawn as `city/grass.js` scatters tufts over it: north of the wall, off the paths, the
+  // lake's bank and the drives. Full where the park meets the street and thinning north into the
+  // wood, where the trees have the ground covered and the tufts would only cost triangles, then to
+  // nothing over the last few units before each feathered edge so the grass does not stop on a line
+  // where the lawn is still fading.
+  const grassNorth = b.wall - WALL_T / 2 - 0.1;
+  const feather = (d) => Math.min(1, Math.max(0, d / 8));
+  const grass = {
+    bounds: { x0: lawnX0(b) + (WEST_CORNER ? WALL_T : 0), x1: b.x1, z0: b.z0, z1: grassNorth },
+    inside: (x, z) => x > lawnX0(b) + (WEST_CORNER ? WALL_T + 0.1 : 0.05) && x < b.x1 - 0.05
+      && z > b.z0 + 0.05 && z < grassNorth,
+    blocked: (x, z, reach) => lakeDistance(x, z) < 1.1 + reach * 0.7
+      || pathDistance(x, z) < PATH_W / 2 + reach * 0.6
+      || inDrive(x, z, reach * 0.6),
+    density: (x, z) => {
+      const north = (b.z1 - z) / DEPTH;
+      const edge = Math.min(z - b.z0, WEST_CORNER ? Infinity : x - b.x0, parkShore() ? Infinity : b.x1 - x);
+      return Math.max(0, 1 - NORTH_THIN * north) * feather(edge);
+    },
+  };
+
+  return { mesh, water: waterMesh, fade: lawnFade(b), crowns, bounds: b, lake, drives, grass };
 }
 
 /**
