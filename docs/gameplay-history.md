@@ -821,6 +821,15 @@ came is reached by sliding the body round over the last stretch of the run (`sli
 of road the box does not have. Every run in and every pull-out is sampled before it is driven — four
 corners on the road, the centre clear of every other car — and a car without a clear one waits.
 
+### The police helicopter's first searchlight
+
+[Today's light](gameplay.md#the-police-helicopter). `?helispot=classic` puts it back. The first pool
+was flat to 0.72 of its radius and then fell to nothing over the last 28%, and the dark ring round it
+went dark from just inside that rim, so the edge of the light was a hard bright line against a dark
+band. It also ran at about 1.6× today's strength (beam 0.75 by day and 0.38 at night, pool 1.0 and
+0.75, ring 0.45 and 0.12). Tyler found it "too strong and too sharp" (2026-10-14); the soft light
+keeps the half-brightness radius where it was and changes only the edge and the strength.
+
 ## The package courier
 
 The courier layer has always been collected by a route passing the pad. What changed is how the player bends the route there: the band drag came first, the tap on the box second, and since 2026-10-05 the drag is off by default (`?drag=on`), leaving the box tap and the street tap. Now: [The package courier](gameplay.md#the-package-courier).
