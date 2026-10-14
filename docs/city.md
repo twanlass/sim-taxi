@@ -1125,6 +1125,16 @@ a shared grey (a flat grey cap on everything drained the tan/brick/concrete fami
 tell each other apart at play zoom), then a plant room, up to two AC units, and — one roof in
 eight, mid-rise only — a **water tower**: tank, hoop, conical cap and four legs.
 
+Every flat cap is hollowed into a **lip**: `lippedCap` in `city/buildings.js` builds it as a floor
+slab and a `LIP_W` (0.28) rim, with the deck sunk `ROOF_SINK` (0.22) inside, and the floor a stop
+darker than the rim so the two-pixel sink still reads at play zoom. The towers, the courtyard
+wings, the depot and the bank all go through it. The sink is cut *down* into the cap rather than
+built up off it, so the roofline every occlusion measurement in the city was taken against does not
+move; only the deck drops, and everything on a roof stands on `deck` — the furniture, the helipad,
+the depot's sign pole, the bank's drum and the roosting pigeons go down with it. Five boxes merged
+into the building's own geometry, so no draw calls. `?roofs=classic` keeps the solid cap
+([history](rendering-history.md#flat-roofs)).
+
 Two exceptions to the flat deck, which together are most of what gives the map a suburb-to-downtown
 gradient:
 

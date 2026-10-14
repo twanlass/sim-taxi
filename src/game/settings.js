@@ -1,8 +1,8 @@
 /**
  * The player's settings from the title screen, remembered across visits in `localStorage`.
  *
- * All but one live here: the two volume sliders, the tutorial tips, the haptics switch, the
- * resolution and the frame rate.
+ * All but one live here: the two volume sliders, the tutorial tips, the haptics switch and the
+ * quality.
  * **Sound on/off is not
  * one of them** — it already had a home before this screen existed (`simTaxi.muted`, owned by
  * game/sfx.js, shared with the pause screen's pill and the M key), and a second copy of it here
@@ -29,25 +29,31 @@ export const DEFAULT_SETTINGS = Object.freeze({
   // `comboHaptics: false` is dropped rather than read as "haptics off": it chose the old knocks,
   // not silence.
   haptics: true,
-  // The pixel-ratio cap: how many canvas pixels per CSS pixel, at most. 2 is the look the game was
-  // built at; 1.5 is a third fewer pixels a side (44% fewer in all) and hard to tell from 2 on a
-  // phone; 1 visibly stair-steps. Added for Tyler to judge 1.5 on the device itself (2026-10-10),
-  // after `?bench` showed a warm iPhone throttling. 3 is an iPhone's native density, offered so
-  // it can be judged too (2026-10-11): 2.25x the pixels of 2, and the governor is the backstop
-  // (game/governor.js steps down from whatever this is). A screen below 3 is capped at its own
-  // ratio, so it costs nothing there. `?dpr=` on the URL still beats it.
-  resolution: 2,
-  // Frames per second, at most. 30 halves everything the GPU and the sim do per second, which is
-  // the one lever that stays big at any resolution: an iPhone at 1x still ran warm and lost about
-  // 1% of battery a minute (Tyler, 2026-10-11). `?fps=` on the URL beats it.
-  frameRate: 60,
+  // One of `QUALITIES`. Regular by default: it is the one that keeps a phone cool.
+  quality: 'regular',
 });
 
-/** The frame rates the Settings page offers. */
-export const FRAME_RATES = Object.freeze([60, 30]);
+/**
+ * The Quality toggle: a pixel-ratio cap and a frame-rate cap, chosen together (Tyler, 2026-10-14).
+ * It replaced separate Resolution (3/2/1.5/1) and Frame rate (60/30) rows, so a player is not
+ * managing two numbers. What the two halves cost, from `?bench` on an iPhone (2026-10-11):
+ *   - Frame rate is the big lever. 30 fps took 33% off busy time at any resolution; an iPhone at
+ *     1x and 60 still ran warm and lost about 1% of battery a minute. 30 is the only step below 60
+ *     that paces evenly, because rAF in iOS Safari and WKWebView runs at 60 even on a 120 Hz screen
+ *     (the bench's everything-off row sat at exactly 60.0 at 46% busy); 40 was tried and alternates
+ *     one and two refreshes a frame.
+ *   - Resolution is the small one. 2x to 1x took only 11% off. 3 is an iPhone's native density
+ *     (2.25x the pixels of 2); a screen below 3 is capped at its own ratio, and the governor
+ *     (game/governor.js) steps down from either cap when frames slip.
+ * `?dpr=` and `?fps=` on the URL still beat whichever is chosen.
+ */
+export const QUALITIES = Object.freeze({
+  ultra: Object.freeze({ label: 'Ultra', resolution: 3, frameRate: 60 }),
+  regular: Object.freeze({ label: 'Regular', resolution: 2, frameRate: 30 }),
+});
 
-/** The resolutions the Settings page offers. */
-export const RESOLUTIONS = Object.freeze([3, 2, 1.5, 1]);
+/** The resolution and frame rate a settings object asks for. */
+export const qualityOf = (values) => QUALITIES[values.quality] ?? QUALITIES[DEFAULT_SETTINGS.quality];
 
 const unit = (v, fallback) => (typeof v === 'number' && Number.isFinite(v)
   ? Math.min(1, Math.max(0, v)) : fallback);
@@ -60,8 +66,8 @@ export function cleanSettings(raw) {
     effects: unit(src.effects, DEFAULT_SETTINGS.effects),
     tips: typeof src.tips === 'boolean' ? src.tips : DEFAULT_SETTINGS.tips,
     haptics: typeof src.haptics === 'boolean' ? src.haptics : DEFAULT_SETTINGS.haptics,
-    resolution: RESOLUTIONS.includes(src.resolution) ? src.resolution : DEFAULT_SETTINGS.resolution,
-    frameRate: FRAME_RATES.includes(src.frameRate) ? src.frameRate : DEFAULT_SETTINGS.frameRate,
+    // A stored `resolution`/`frameRate` from before the toggle is dropped: the toggle starts fresh.
+    quality: Object.hasOwn(QUALITIES, src.quality) ? src.quality : DEFAULT_SETTINGS.quality,
   };
 }
 

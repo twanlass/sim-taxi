@@ -6,6 +6,7 @@ import { coastEast } from '../city/grid.js';
 import { EDGE_FADE } from '../city/ground.js';
 import { ship as shipParts, SHIP_L } from '../city/harbor.js';
 import { markOccluder } from './ssao.js';
+import { sinkShadowCaster } from './scene.js';
 
 // Ships coming in and out of the harbor (city/harbor.js builds the port; this moves the ships).
 //
@@ -55,15 +56,28 @@ export function createHarborShips(scene, rng, berth) {
   material.alphaHash = true;
   const fadeFrom = coastEast() - 2;
   const fadeTo = coastEast() + EDGE_FADE * 0.7;
-  const hulls = [0, 1].map(() => {
-    const parts = shipParts(rng);
+  const merge = (parts) => {
     const geo = mergeGeometries(parts, false);
     parts.forEach((p) => p.dispose());
     const mesh = new THREE.Mesh(geo, material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    return mesh;
+  };
+  // Everything on deck is its own mesh, riding on the hull, so its shadow can be sunk
+  // (game/scene.js). The deck is 0.08 thick and the bridge's roof 0.18, against a shadow-map texel
+  // that slides by more than either across its own width: both shadowed themselves in blotches,
+  // and the heave and roll below slid the blotches about every frame — which read as z-fighting
+  // over the whole superstructure. The hull is not sunk, so its shadow on the water still starts
+  // at the waterline; it is solid and a long way deep, and has nothing to self-shadow.
+  const hulls = [0, 1].map(() => {
+    const { hull, upper } = shipParts(rng);
+    const mesh = merge(hull);
     mesh.name = 'harbor-ship';
     mesh.visible = false;
+    const works = sinkShadowCaster(merge(upper));
+    works.name = 'harbor-ship-upper';
+    mesh.add(works);
     scene.add(markOccluder(mesh));
     return mesh;
   });

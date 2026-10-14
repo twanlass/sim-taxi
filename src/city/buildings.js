@@ -65,6 +65,46 @@ function shade(col, amount = 0.78) {
   return col.clone().multiplyScalar(amount);
 }
 
+// `?roofs=classic` keeps the solid cap every flat roof used to be: one box, deck on its top face.
+// Headless tools have no `location` and take `ROOFS=classic` from the environment.
+export const ROOFS_CLASSIC = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('roofs') === 'classic'
+  : globalThis.process?.env?.ROOFS === 'classic';
+
+// The parapet: how wide the lip is, and how far the deck inside it sits below its top. The lip is
+// cut *down* into the cap rather than standing up off it, so the roofline the city's occlusion
+// arithmetic was measured against (`cornerSeen`, the bank, the garage door) does not move — only
+// the deck drops, and everything on a roof stands on `deck`, so the furniture, the helipad and
+// the roosting pigeons go down with it.
+export const LIP_W = 0.28;
+export const ROOF_SINK = 0.22;
+
+/**
+ * A flat roof's cap as a slab with a lip round its edge: the outer box `w × h × d` from `base`,
+ * hollowed `ROOF_SINK` deep inside a `LIP_W` rim. Returns the deck height — the floor inside the
+ * lip, which is what anything standing on the roof stands on.
+ *
+ * Five boxes rather than one: the floor, then the rim as two long sides and two short ones that
+ * fill between them, so no two pieces overlap and nothing is coplanar but the seams. The floor is
+ * a stop darker than the rim — the same cut-from-the-envelope colour, read as the lip's own
+ * shadow — because at play zoom the sink is two pixels deep and the colour step is most of what
+ * says it is there.
+ */
+export function lippedCap(parts, w, h, d, x, base, z, col, floorCol = shade(col, 0.86)) {
+  if (ROOFS_CLASSIC || w < 4 * LIP_W || d < 4 * LIP_W) {
+    parts.push(box(w, h, d, x, base, z, col));
+    return base + h;
+  }
+  const deck = base + h - ROOF_SINK;
+  parts.push(box(w, deck - base, d, x, base, z, floorCol));
+  const inner = d - 2 * LIP_W;
+  parts.push(box(w, ROOF_SINK, LIP_W, x, deck, z - (d - LIP_W) / 2, col));
+  parts.push(box(w, ROOF_SINK, LIP_W, x, deck, z + (d - LIP_W) / 2, col));
+  parts.push(box(LIP_W, ROOF_SINK, inner, x - (w - LIP_W) / 2, deck, z, col));
+  parts.push(box(LIP_W, ROOF_SINK, inner, x + (w - LIP_W) / 2, deck, z, col));
+  return deck;
+}
+
 function box(w, h, d, x, base, z, col) {
   const geo = new THREE.BoxGeometry(w, h, d);
   geo.translate(x, base + h / 2, z);
@@ -606,14 +646,12 @@ export function pitchedRoof(parts, cx, cz, cw, cd, y, body, rng) {
  */
 function roofKit(parts, cx, cz, cw, cd, y, style, body, rng, stats) {
   const capH = 0.3;
-  if (style === 'punched') {
-    parts.push(box(cw + 0.36, capH, cd + 0.36, cx, y, cz, shade(body)));
-  } else {
+  // Either way the cap is hollowed into a lip with the deck sunk inside it — see `lippedCap`.
+  const deck = style === 'punched'
+    ? lippedCap(parts, cw + 0.36, capH, cd + 0.36, cx, y, cz, shade(body))
     // A curtain wall has no cornice to have — the glass runs to a flush parapet, which is the
     // whole visual difference between the two at a distance.
-    parts.push(box(cw, capH, cd, cx, y, cz, color('rooftop')));
-  }
-  const deck = y + capH;
+    : lippedCap(parts, cw, capH, cd, cx, y, cz, color('rooftop'));
 
   // Every flat deck in the city, with the slice of `parts` its furniture is about to occupy. One of
   // them becomes the helipad once they are all known — see `choosePad` — and the slice is why the
@@ -945,7 +983,8 @@ function buildCourtyard(lot, block, rng, parts) {
       ribbonWindows(parts, wx, KERB_H, wz, ww, wd, h, firstFloorH, windowColor, peak, wing.faces);
     }
     // A cornice per wing, so the stepped heights read as four buildings in a terrace.
-    parts.push(box(ww + 0.3, 0.26, wd + 0.3, wx, KERB_H + h, wz, shade(body)));
+    const deck = lippedCap(parts, ww + 0.3, 0.26, wd + 0.3, wx, KERB_H + h, wz, shade(body));
+    wing.deck = deck;
   }
 
   // Street-level glazing and an entrance, on the perimeter as usual. The courtyard is behind it.
@@ -1001,12 +1040,14 @@ function buildCourtyard(lot, block, rng, parts) {
     parts.push(...treeParts(tx, tz, rng, { height, trunk: TREE_TRUNK, crowns }));
   }
 
-  // One AC unit or two on the tallest wing, reached through the same kit as everything else —
-  // minus the water tower, which wants a roof this doesn't have.
+  // One AC unit on one of the back pair, reached through the same kit as everything else — minus
+  // the water tower, which wants a roof this doesn't have. It stands on that wing's own deck: it
+  // used to stand at the *tallest* wing's height whichever of the two it was put on, which floated
+  // it over the shorter one.
   if (yw > 2 && yd > 2 && rng.chance(0.5)) {
     const wing = wings[rng.chance(0.5) ? 2 : 3];
     parts.push(box(rng.range(0.5, 0.8), 0.4, rng.range(0.45, 0.7),
-      rng.range(wing.x0 + 0.6, wing.x1 - 0.6), KERB_H + tallest + 0.26,
+      rng.range(wing.x0 + 0.6, wing.x1 - 0.6), wing.deck ?? KERB_H + tallest + 0.26,
       rng.range(wing.z0 + 0.6, wing.z1 - 0.6), color('rooftop')));
   }
 
