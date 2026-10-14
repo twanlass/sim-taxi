@@ -463,6 +463,12 @@ export const coastSouth = () => (SPAN_Z + SLAB_MARGIN) / 2;
 export const SOUTH_SHORE = typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('southshore') !== 'classic'
   : globalThis.process?.env?.SOUTHSHORE !== 'classic';
+// The park shore (`?parkshore=classic`): the harbor's seawall and rocks carried straight on north
+// along the north park's east edge, where they used to curl west and stop at the park's corner.
+// Needs both the harbor and the north park.
+export const PARK_SHORE = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('parkshore') !== 'classic'
+  : globalThis.process?.env?.PARKSHORE !== 'classic';
 // The channel runs on at its own width for this far past the ring road's kerb before it opens out.
 // Enough for the ring bridge's footway (1.4) and a short walled run, so the river visibly *arrives*
 // at the basin rather than the bridge standing in it.

@@ -1,6 +1,6 @@
 import {
   SPAN_Z, SLAB_MARGIN, harborBasin, riverBanks, coastEast, coastWest, lineZ, halfRoadX, GRID_J,
-  SOUTH_SHORE,
+  SOUTH_SHORE, PARK_SHORE, NORTH_PARK, coastNorth,
 } from './grid.js';
 
 // The shape of the land and the sea around the harbor (city/harbor.js).
@@ -55,6 +55,32 @@ const SHORE_EASE = 14;
 const SHORE_STEP = 1.5;
 // How much open sea lies in front of the shoreline before its rim, where it starts to dissolve.
 const SHORE_SEA = 16;
+
+// --- The park shore (city/parkshore.js) --------------------------------------------------------
+//
+// North of the harbor the seawall used to round its corner west at the old coast and stop, under
+// the north park's lawn — so the rocks curled away and the park's grass met the water bare, fading
+// out over the sea. Tyler, 2026-10-14: "Let's continue the rocky edge along the park to make this
+// transition smoother". With the park shore the seawall runs straight on north to the park's far
+// edge, and the outline closes back west *under* the park, where nothing of it shows.
+//
+// Where that closure turns north off the old coast, under the park's lawn: clear of the ring road
+// and the park's east edge, so it is hidden by the park's platform the whole way.
+const PARK_SHORE_TURN = 12;
+
+/** Whether the park's east edge is a shore: on by default, with both a harbor and the north park. */
+export const parkShore = () => PARK_SHORE && NORTH_PARK && !!harborBasin();
+/** The x the outline turns north at, under the park, off the old north coast. */
+export const parkShoreTurnX = () => harborBasin().kerbX - PARK_SHORE_TURN;
+
+/** Whether an outline edge is the park shore's closure under the park rather than a coast. */
+export function parkShoreClosure(ax, az, bx, bz) {
+  if (!parkShore()) return false;
+  const tx = parkShoreTurnX();
+  const zN = coastNorth();
+  return (Math.abs(ax - tx) < 1e-9 && Math.abs(bx - tx) < 1e-9)
+    || (Math.abs(az - zN) < 1e-9 && Math.abs(bz - zN) < 1e-9);
+}
 
 /** Whether the south end is a shore: on by default, and only where there is a harbor's sea. */
 export const southShore = () => SOUTH_SHORE && !!harborBasin();
@@ -172,9 +198,19 @@ export function islandHalf(side, x0, radius) {
     arc(x0 + radius, side * (hd - radius), radius, Math.PI, Math.PI / 2, 14);
   }
   // Along the coast and round into the seawall.
-  const topZ = side * (coastHalfZ(side) - SEA_CORNER);
-  const wallTop = seawallX(basin.kerbX, topZ);
-  arc(wallTop - SEA_CORNER, topZ, SEA_CORNER, Math.PI / 2, 0, 8);
+  let topZ = side * (coastHalfZ(side) - SEA_CORNER);
+  if (side < 0 && parkShore()) {
+    // Along the old coast under the park, north to the park's far edge, and east to the seawall,
+    // which then runs south the whole way: no corner arc.
+    const tx = parkShoreTurnX();
+    topZ = coastNorth();
+    push(tx, -coastZ());
+    push(tx, topZ);
+    push(seawallX(basin.kerbX, topZ), topZ);
+  } else {
+    const wallTop = seawallX(basin.kerbX, topZ);
+    arc(wallTop - SEA_CORNER, topZ, SEA_CORNER, Math.PI / 2, 0, 8);
+  }
   // Down the seawall to the pier.
   const steps = Math.max(1, Math.round(Math.abs(topZ - pier.out) / SEAWALL_STEP));
   for (let k = 1; k <= steps; k++) {
@@ -210,6 +246,8 @@ export const SEA_BLEND = SEA_CORNER;
 export function coastArcStart(side) {
   const piers = harborPiers();
   if (!piers) return Infinity;
+  // With the park shore the north coast stops being a coast where the closure turns off it.
+  if (side < 0 && parkShore()) return parkShoreTurnX();
   return seawallX(piers.basin.kerbX, side * (coastHalfZ(side) - SEA_CORNER)) - SEA_CORNER;
 }
 
@@ -232,7 +270,7 @@ export function seaInset(x, z) {
   // With the south shore the sea also runs west in front of it, to the island's west edge, and
   // rounds that corner too.
   const south = z > 0 && southShore();
-  const hd = south ? seaRimSouth() : coastZ();
+  const hd = south ? seaRimSouth() : (z < 0 && parkShore() ? -coastNorth() : coastZ());
   const qx = south
     ? Math.max(x - (coastEast() - SEA_RADIUS), coastWest() + SEA_RADIUS - x)
     : x - (coastEast() - SEA_RADIUS);

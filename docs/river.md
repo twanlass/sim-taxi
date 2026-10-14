@@ -347,6 +347,22 @@ nothing stands inside the ring road, that no slab lies over the basin, that the 
 at sea level out to the rim, that the skirt never reaches back over the city, and that nothing in the
 harbor reaches up into the L train's deck.
 
+## The park shore
+
+`src/city/parkshore.js`. Default; `?parkshore=classic` (and `PARKSHORE=classic`) keeps the old
+corner. Needs both the harbor and the north park.
+
+North of the harbor the seawall used to round its corner west at the old coast, under the north
+park's lawn, so the rocks curled away and stopped and the park's grass met the water bare, fading
+out over the sea. Tyler, 2026-10-14: "Let's continue the rocky edge along the park to make this
+transition smoother". Now the seawall runs straight on north to the park's far edge with the same
+rocks (harbor.js builds them, as it always did along the seawall), and the sea runs on north
+beside it to a rim level with the park's. `islandHalf` closes the outline back west *under* the
+park (`parkShoreClosure`, `parkShoreTurnX`), where the park's platform hides it and nothing builds a
+wall on it. `parkshore.js` lays the park's own kerb, pavement band and lawn over the couple of units
+between the park's east edge and the wall, and fades it north on the park's feather
+(`PARK_FADE`). The park's feather no longer goes round its north-east corner (`lawnFade`).
+
 ## The south shore
 
 `src/city/southshore.js`. Default; `?southshore=classic` (and `SOUTHSHORE=classic` for the headless

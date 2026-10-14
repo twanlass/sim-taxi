@@ -10,6 +10,7 @@ import {
 } from './grid.js';
 import {
   harborPiers, islandHalf, seaStartX, coastArcStart, coastArcZ, SEA_BLEND, southShore, onShoreline,
+  parkShore,
 } from './harborplan.js';
 
 const KERB_H = 0.35;
@@ -285,7 +286,8 @@ function seaCornerFade(pos, col, c, alphaAt) {
   const STEP = 1;
   // With the south shore the south corner is sea on both sides of it, so only the north one has a
   // rim to carry round.
-  for (const side of southShore() ? [-1] : [1, -1]) {
+  // Likewise the north one with the park shore, whose seawall runs on north with no corner at all.
+  for (const side of [1, -1].filter((s) => !(s > 0 ? southShore() : parkShore()))) {
     const from = coastArcStart(side);
     const n = Math.round(SEA_BLEND / STEP);
     const taper = (k) => { const u = k / n; return 1 - u * u * (3 - 2 * u); };

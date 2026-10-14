@@ -18,6 +18,7 @@ import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river
 import { createHarbor } from './city/harbor.js';
 import { createNorthPark } from './city/northpark.js';
 import { createSouthShore } from './city/southshore.js';
+import { createParkShore } from './city/parkshore.js';
 import { tickRiverWater, syncRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/riverwater.js';
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
@@ -611,6 +612,13 @@ if (northPark) {
   scene.add(markOccluder(northPark.mesh));
   scene.add(northPark.water);
   scene.add(northPark.fade);
+}
+// The ground between the north park and the seawall that now runs on north beside it
+// (city/parkshore.js). Null under `?parkshore=classic`.
+const parkShoreStrip = createParkShore();
+if (parkShoreStrip) {
+  scene.add(markOccluder(parkShoreStrip.mesh));
+  scene.add(parkShoreStrip.fade);
 }
 // The harbor's rocky shore carried on round the south end, with a strip of park between the ring
 // road and the water (city/southshore.js). Its own stream. Null under `?southshore=classic`.

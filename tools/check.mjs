@@ -16,7 +16,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/pathdrag.js', '../src/game/sfx.js', '../src/game/audiopanel.js', '../src/game/soundrings.js',
   '../src/game/soundpins.js', '../src/game/quicktips.js', '../src/game/quicktips.js',
   '../src/game/dust.js', '../src/game/spray.js', '../src/game/blast.js', '../src/game/flyover.js', '../src/game/birds.js', '../src/game/ducks.js',
-  '../src/city/blacktop.js', '../src/game/hoopers.js', '../src/city/skatepark.js', '../src/city/northpark.js', '../src/city/southshore.js', '../src/game/harborships.js', '../src/game/skaters.js', '../src/game/skatersclassic.js',
+  '../src/city/blacktop.js', '../src/game/hoopers.js', '../src/city/skatepark.js', '../src/city/northpark.js', '../src/city/southshore.js', '../src/city/parkshore.js', '../src/game/harborships.js', '../src/game/skaters.js', '../src/game/skatersclassic.js',
   '../src/game/clouds.js', '../src/geometry/cloud.js', '../src/game/rain.js', '../src/game/citylights.js', '../src/game/storm.js', '../src/game/squall.js',
   '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/city/burgerjoint.js', '../src/game/drivethru.js',

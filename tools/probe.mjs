@@ -13,7 +13,7 @@ import { makeRng } from '../src/util/rng.js';
 import { pointInPolygon } from '../src/city/curves.js';
 import { isParkwayMid, coastWest, coastEast, coastNorth, harborBasin, HARBOR } from '../src/city/grid.js';
 import { createHarbor } from '../src/city/harbor.js';
-import { coastArcStart, coastArcZ, SEA_CORNER, southShore } from '../src/city/harborplan.js';
+import { coastArcStart, coastArcZ, SEA_CORNER, southShore, parkShore } from '../src/city/harborplan.js';
 import { createLayout } from '../src/city/layout.js';
 import {
   createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
@@ -297,6 +297,9 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
   const edgeDist = !harborBasin() ? square : (x, z) => {
     const side = z > 0 ? 1 : -1;
     if (side > 0 && southShore()) return coastWest() - x;
+    // And with the park shore the north coast has no corner either: it stops square where the
+    // outline turns north under the park, so the skirt there runs straight out north.
+    if (side < 0 && parkShore()) return Math.abs(z) - SLAB_Z / 2;
     // Round the corner arc, radially — its |z| has an infinite slope where the arc turns south, so
     // float32 storage alone moved a vertex there by 3e-3.
     const from = coastArcStart(side);

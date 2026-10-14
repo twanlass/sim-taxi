@@ -7,6 +7,7 @@ import {
 } from './grid.js';
 import { KERB_H, EDGE_FADE, FADE_RINGS } from './ground.js';
 import { treeParts } from './props.js';
+import { parkShore } from './harborplan.js';
 
 // The big park along the city's north edge (`?northpark=classic` leaves the old apron).
 //
@@ -22,6 +23,8 @@ import { treeParts } from './props.js';
 // north edge with it), and then the fade beyond it.
 const DEPTH = NORTH_PARK_DEPTH;
 const FADE = EDGE_FADE * 1.4;
+/** The lawn's feather, for the park shore's strip beside it (city/parkshore.js) to fade on. */
+export const PARK_FADE = FADE;
 // The pavement along the ring road, and the wall at its back.
 const WALK = 1.8;
 const WALL_H = 0.55;
@@ -326,8 +329,13 @@ function lawnFade(b) {
   };
   outline.push({ x: b.x0, z: b.z1, nx: -1, nz: 0 });
   corner(b.x0, b.z0, Math.PI, Math.PI * 1.5);
-  corner(b.x1, b.z0, Math.PI * 1.5, Math.PI * 2);
-  outline.push({ x: b.x1, z: b.z1, nx: 1, nz: 0 });
+  // With the park shore the east edge is lawn running on to the seawall (city/parkshore.js), so
+  // the feather stops square at the north-east corner instead of going round it.
+  if (parkShore()) outline.push({ x: b.x1, z: b.z0, nx: 0, nz: -1 });
+  else {
+    corner(b.x1, b.z0, Math.PI * 1.5, Math.PI * 2);
+    outline.push({ x: b.x1, z: b.z1, nx: 1, nz: 0 });
+  }
   const tris = [];
   for (let ring = 0; ring < FADE_RINGS; ring++) {
     for (let k = 1; k < outline.length; k++) {

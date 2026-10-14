@@ -5,7 +5,9 @@ import { PALETTE, jitterColor } from '../palette.js';
 import { riverBanks, coastWest, GRID_J, isArterialX, lineZ, LTRAIN_NS } from './grid.js';
 import { KERB_H, PAVE_INSET, SLAB_RADIUS } from './ground.js';
 import { WATER_Y, waterEdges } from './river.js';
-import { harborPiers, islandHalf, seaStartX, insidePolygon, onShoreline } from './harborplan.js';
+import {
+  harborPiers, islandHalf, seaStartX, insidePolygon, onShoreline, parkShoreClosure,
+} from './harborplan.js';
 
 // The harbor at the river's east mouth: the walls of everything standing in the sea, the rocks
 // along the seawall, the two piers' container yards and warehouses, the sheds on the aprons and two
@@ -297,6 +299,8 @@ export function createHarbor(rng) {
       if (Math.min(ax, bx) < seaFrom - 1e-6) continue;
       // The south shore builds its own (city/southshore.js), off its own stream.
       if (onShoreline(ax, az) && onShoreline(bx, bz)) continue;
+      // Nor is the park shore's closure under the north park a wall (harborplan.js).
+      if (parkShoreClosure(ax, az, bx, bz)) continue;
       const len = Math.hypot(bx - ax, bz - az);
       if (len < 1e-6) continue;
       let nx = (bz - az) / len;
