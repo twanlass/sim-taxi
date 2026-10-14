@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial, unlitMaterial } from '../util/geo.js';
+import { bakeColor, propMaterial, unlitMaterial, setFinish, FINISH, vehiclePaintOn } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { coneGeometry, coneMaterial, coneQuat } from '../geometry/lights.js';
 import {
@@ -699,6 +699,7 @@ const box = (w, h, d, x, y, z, color) => {
   g.translate(x, y, z);
   return bakeColor(g, color);
 };
+const boxPart = box;
 
 /** A box laid across the line at `a`: `len` along it, `across` over it, centred `o` off it at height `y`. */
 function crossBox(plan, a, o, len, h, across, y, colour) {
@@ -947,6 +948,10 @@ function buildColumns(plan) {
 /** One car, nose along +x, centred on its own origin, floor at y = 0 (the railhead). */
 function buildCar() {
   const parts = [];
+  // Tagged for the cars' paint the train wears (`createLTrain`): the running gear is metal, the
+  // glazing glass, everything else paint.
+  const box = (w, h, d, x, y, z, color) => setFinish(boxPart(w, h, d, x, y, z, color),
+    color === PALETTE.ltrainUnder ? FINISH.METAL : color === PALETTE.ltrainGlass ? FINISH.GLASS : FINISH.PAINT);
   // Running gear: a dark skirt and a truck at each end.
   parts.push(box(CAR_LEN - 0.8, 0.22, CAR_W - 0.35, 0, 0.19, 0, PALETTE.ltrainUnder));
   for (const e of [-1, 1]) parts.push(box(1.1, 0.3, CAR_W - 0.2, e * BOGIE_AT, 0.15, 0, PALETTE.ltrainUnder));
@@ -1029,9 +1034,18 @@ export function createLTrain(scene, rng, { sparks = null, lights = true, intro =
   const body = new THREE.Group();
   body.name = 'ltrainCars';
   const carGeo = addIntro(buildCar());
+  // The cars wear the cars' paint, on a material of their own carrying the same fade and intro as
+  // the deck's; `?vehiclepaint=classic` puts them back on the deck's plain one. At the cargo box's
+  // 0.55 of the paint's reflection, for the cargo box's reason: a long flat side bends to grazing
+  // along most of its length, and at full strength the whole train went to a band of sky.
+  let carMaterial = material;
+  if (vehiclePaintOn()) {
+    carMaterial = fadeMaterial(propMaterial({ gloss: { geometry: carGeo, amount: 0.55 } }));
+    if (intro) introMaterial(carMaterial);
+  }
   const cars = [];
   for (let n = 0; n < CARS; n++) {
-    const car = new THREE.Mesh(carGeo, material);
+    const car = new THREE.Mesh(carGeo, carMaterial);
     car.castShadow = true;
     car.receiveShadow = true;
     cars.push(car);

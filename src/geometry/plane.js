@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, unlitMaterial } from '../util/geo.js';
+import { bakeColor, unlitMaterial, propMaterial, setFinish, FINISH, vehiclePaintOn } from '../util/geo.js';
 import { color } from '../palette.js';
 import { stampGhostMask } from './ghostoutline.js';
 
@@ -46,11 +46,28 @@ const TRAIL_DECAY = 1.8;
 const DISC_ALPHA = 0.11;
 const PROP_BLADE = 2.1;
 
+// What each paint name is made of, for the cars' gloss material (`skin` below). Anything not
+// listed is paint.
+const FINISH_OF = { carGlass: FINISH.GLASS, planeProp: FINISH.METAL };
+
 /** One axis-aligned box, coloured and placed. Every part of the plane is one of these. */
 function box(w, h, d, x, y, z, name) {
   const geometry = new THREE.BoxGeometry(w, h, d);
   geometry.translate(x, y, z);
-  return bakeColor(geometry, color(name));
+  return setFinish(bakeColor(geometry, color(name)), FINISH_OF[name] ?? FINISH.PAINT);
+}
+
+/**
+ * The aircraft's own material: the cars' paint (`propMaterial({ gloss })`) with the AO lookup off,
+ * for the reason the doc comment on `createPlaneMesh` gives, or under `?vehiclepaint=classic` the
+ * plain flat Lambert it wore before. Transparent either way, for the fade.
+ */
+function skin(geometry) {
+  const material = vehiclePaintOn()
+    ? propMaterial({ ao: false, gloss: { geometry } })
+    : new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  material.transparent = true;
+  return stampGhostMask(material);
 }
 
 /** Position along a streamer, and how wide and how strong it is there. */
@@ -159,7 +176,7 @@ function airframe() {
     const strut = new THREE.BoxGeometry(0.13, 0.13, len);
     strut.rotateX(-side * Math.asin(dy / len));
     strut.translate(0.45, -0.35 + dy / 2, side * (0.45 + dz / 2));
-    parts.push(bakeColor(strut, color('planeBody')));
+    parts.push(setFinish(bakeColor(strut, color('planeBody')), FINISH.PAINT));
   }
 
   // No landing gear. At a 33° camera looking down on something 30 units up, the underside is
@@ -178,8 +195,8 @@ function airframe() {
  * mesh that receives occlusion without being in the depth prepass wears the occlusion of whatever
  * stands behind it (see the occluder rule in docs/rendering.md). Behind this one is the entire
  * skyline, so it would fly across the city collecting every building's contact line. It cannot go
- * in the prepass either — it is transparent, for the fade at both ends of a run. With AO off the
- * two materials are the same material anyway.
+ * in the prepass either — it is transparent, for the fade at both ends of a run. So it wears the
+ * cars' paint with the AO lookup switched off (`skin`).
  */
 export function createPlaneMesh() {
   const group = new THREE.Group();
@@ -188,19 +205,15 @@ export function createPlaneMesh() {
 
   // Both opaque parts stamp the ghost mask — see stampGhostMask. The disc and the trails write no
   // depth, so the ghosts never saw them.
-  const body = new THREE.Mesh(
-    airframe(),
-    stampGhostMask(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true })),
-  );
+  const frame = airframe();
+  const body = new THREE.Mesh(frame, skin(frame));
   group.add(body);
 
   // The propeller, as its own mesh so it can spin about the fuselage axis. One bar rather than a
   // cross: a Cessna has two blades, and two blades is also 180° of symmetry — at the spin rate in
   // flyover.js that is what keeps it reading as rotation instead of strobing backwards.
-  const blade = new THREE.Mesh(
-    box(0.09, PROP_BLADE, 0.24, 0, 0, 0, 'planeProp'),
-    stampGhostMask(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true })),
-  );
+  const bladeGeometry = box(0.09, PROP_BLADE, 0.24, 0, 0, 0, 'planeProp');
+  const blade = new THREE.Mesh(bladeGeometry, skin(bladeGeometry));
   blade.position.x = PROP_X;
   group.add(blade);
 
@@ -246,7 +259,7 @@ export function createPlaneMesh() {
   // visibly above it, on a shadow map sized for the whole city and with a few texels to spare for
   // a wing.
 
-  const skin = [body.material, blade.material, trails.material];
+  const skins = [body.material, blade.material, trails.material];
 
   return {
     group,
@@ -256,7 +269,7 @@ export function createPlaneMesh() {
     setTrailRoll: (roll) => writeTrails(trailGeometry, roll),
     /** One opacity for the whole aircraft — the fade in and out at the ends of a run. */
     setFade: (fade) => {
-      for (const material of skin) material.opacity = fade;
+      for (const material of skins) material.opacity = fade;
       disc.material.opacity = DISC_ALPHA * fade;
     },
   };

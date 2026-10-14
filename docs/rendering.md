@@ -111,12 +111,13 @@ History: [what the arches replaced](rendering-history.md#wheel-wells--archedbody
 ### Car finishes — `propMaterial({ gloss })` in `util/geo.js`
 
 Every vehicle body and every wheel — the fleet, truck cabs and boxes, the cop cars, the cruiser and
-the taxi — is `MeshPhongMaterial` rather than the Lambert everything else wears, with one more patch
-on top of `patchProp`. Wrecks stay plain Lambert.
+the taxi, and [every other vehicle](#every-other-vehicle) — is `MeshPhongMaterial` rather than the
+Lambert everything else wears, with one more patch on top of `patchProp`. Wrecks stay plain Lambert.
 
-**Four finishes, one program.** `setFinish()` bakes an `aFinish` attribute per part —
+**Five finishes, one program.** `setFinish()` bakes an `aFinish` attribute per part —
 `FINISH.TYRE`, `PAINT`, `GLASS`, `METAL` (the hubcaps, `geometry/wheels.js`, and the chrome
-bumpers, `geometry/bumpers.js`) — and the shader
+bumpers, `geometry/bumpers.js`) and `MATTE`, for what a vehicle carries rather than what it is
+made of (below) — and the shader
 indexes three shared `vec4` uniform arrays with it, so each finish has its own full set of numbers
 (`FINISH_DEFAULTS`: glint, glint sharpness, glint bend, sheen, sheen sharpness, flake, reflect,
 reflect edge, reflect bend, base colour) while every glossy material still compiles to the same
@@ -179,6 +180,36 @@ All glossy bodies share one program (`prop-gloss`, `-ssao` as it applies): the p
 are per-material uniforms, not source. `tools/links.mjs` counts it at boot, not mid-run.
 
 History: [the first bent normal](rendering-history.md#car-finishes--propmaterial-gloss--in-utilgeojs).
+
+### Every other vehicle
+
+The plane, the civil and police helicopters, the trash barge, the sailboat, the container ships and
+the L train wear the same paint (Tyler, 2026-10-14). Each builder tags its parts by what they are
+made of — liveries, hulls, wheelhouses and car bodies are `PAINT`, glazing is `GLASS`, rotors,
+skids, masts, rigging and running gear are `METAL`, the barge's fender tyres `TYRE` — and hands
+its mesh `propMaterial({ gloss })`. `?vehiclepaint=classic` puts them all back on the plain
+material they wore before; the tags stay on the geometry either way, since a plain material
+ignores them.
+
+- **`MATTE` is for the cargo.** The barge's heap, its rust streaks and grime, the sailboat's sail
+  cover, the gulls riding the barge and a ship's deck and containers share their vehicle's mesh and
+  material but are not paint. Every number is zero and the diffuse is 1, so they draw exactly as a
+  plain prop does. `TYRE` is no answer to "not shiny": its diffuse of 0.64 turned the barge's green
+  wheelhouse black when it was tried as one.
+- **The aircraft keep their AO off** (`propMaterial({ ao: false, gloss })`): they are transparent
+  for their fade, so they cannot be in the AO prepass, and a receiver outside it wears the occlusion
+  of whatever is behind it. That is one more program than the fleet's, shared by the plane and both
+  helicopters.
+- **The ships' curve is centred on a whole ship**, hull to funnel cap, measured off a throwaway
+  build (`shipBounds` in `game/harborships.js`), because one material covers both hulls and
+  everything on deck.
+- **The ships and the train reflect at 0.55**, the cargo box's `amount`: a long flat side bends to
+  grazing along most of its length, and at full strength the toon coat's sky band covered the
+  whole train and a ship's whole bow — a silver streak across the city at play zoom.
+- **The L train's body gets its own material** with the deck's fade and intro patched on top, so
+  the deck and the columns stay plain.
+- **Not covered:** the depot's neon taxi is a sign, the flatbed's deck and crates ride on a
+  traffic truck that already wears the paint, and the skaters' boards are props.
 
 ### Car paint — the layered finish
 

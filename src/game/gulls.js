@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, BODY_EULER_ORDER } from '../util/geo.js';
+import { bakeColor, setFinish, FINISH, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 import { GULL_STAND } from '../geometry/boat.js';
 
@@ -61,10 +61,12 @@ const SHOULDER = new THREE.Vector3(0.08, 0.24, 0.02);
 export const FLY_SCALE = 1.5;
 const WING_LEN = 0.62;
 
+// Matte: a gull wears the barge's material, which is the cars' paint, and a bird is not paint.
+// Untagged it would read as `FINISH.TYRE` and come out a grey gull.
 function box(w, h, d, x, y, z, col) {
   const geo = new THREE.BoxGeometry(w, h, d);
   geo.translate(x, y, z);
-  return bakeColor(geo, col);
+  return setFinish(bakeColor(geo, col), FINISH.MATTE);
 }
 
 let shared = null;

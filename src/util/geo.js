@@ -561,10 +561,10 @@ export const GLOSS_UNIFORMS = {
   uGlossCeiling: { value: 1 },
   uGlossTop: { value: new THREE.Color(PALETTE.skyTop).convertSRGBToLinear() },
   uGlossHorizon: { value: new THREE.Color(PALETTE.skyBottom).convertSRGBToLinear() },
-  uFinishA: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
-  uFinishB: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
-  uFinishC: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
-  uFinishD: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
+  uFinishA: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector4()) },
+  uFinishB: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector4()) },
+  uFinishC: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector4()) },
+  uFinishD: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector4()) },
   // x: flake cells per unit, y: façade darkness, z: false-colour finish view (0/1).
   uGlossGlobal: { value: new THREE.Vector4() },
 };
@@ -616,8 +616,13 @@ export function setGlossCity(field, ceiling) {
 // A geometry with no `aFinish` at all reads 0 — WebGL hands a disabled attribute its default — so
 // anything untagged is tyre: matte rather than mirrored. `tools/probe.mjs` asserts the vehicles
 // carry it.
-export const FINISH = { TYRE: 0, PAINT: 1, GLASS: 2, METAL: 3 };
-export const FINISH_NAMES = ['tyre', 'paint', 'glass', 'metal'];
+//
+// MATTE is the one finish that is not a vehicle part: what a vehicle *carries* — the barge's heap,
+// a ship's containers, the gulls on the barge — on the same mesh as its paint. Every number zero
+// and a diffuse of 1, so it draws exactly as a plain prop would. TYRE is no answer to "not
+// shiny": its diffuse of 0.64 took the barge's green wheelhouse to black once already.
+export const FINISH = { TYRE: 0, PAINT: 1, GLASS: 2, METAL: 3, MATTE: 4 };
+export const FINISH_NAMES = ['tyre', 'paint', 'glass', 'metal', 'matte'];
 
 /** Tag every vertex of a geometry with one finish. Returns the geometry, like `bakeColor`. */
 export function setFinish(geometry, finish) {
@@ -625,6 +630,18 @@ export function setFinish(geometry, finish) {
   geometry.setAttribute('aFinish', new THREE.BufferAttribute(new Float32Array(count).fill(finish), 1));
   return geometry;
 }
+
+// Every other vehicle on the cars' paint: the plane, both helicopters, the barge, the sailboat,
+// the container ships and the L train (Tyler, 2026-10-14: "the same metal shader we're using for
+// the cars ... all vehicles"). `?vehiclepaint=classic` puts them back on the plain flat material
+// they wore before. Their geometry carries `aFinish` either way — a plain material ignores it —
+// so the flag only decides which material each one is handed. Set by `main.js` before anything is
+// meshed, like `setClassicPaint`.
+let vehiclePaint = true;
+export function setVehiclePaint(enabled) {
+  vehiclePaint = enabled;
+}
+export const vehiclePaintOn = () => vehiclePaint;
 
 /**
  * Every number a finish has, and where it lands in the shader.
@@ -694,6 +711,11 @@ export const FINISH_DEFAULTS = {
   metal: {
     glint: 1, glintSharp: 120, glintBend: 1, sheen: 0.25, sheenSharp: 30, flake: 0,
     reflect: 0.3, reflectEdge: 0.2, reflectBend: 0.6, diffuse: 0.7,
+    flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0, flop: 0,
+  },
+  matte: {
+    glint: 0, glintSharp: 1, glintBend: 0, sheen: 0, sheenSharp: 1, flake: 0,
+    reflect: 0, reflectEdge: 0, reflectBend: 0, diffuse: 1,
     flakeTilt: 0, flakeSharp: 1, coat: 0, tint: 0, flop: 0,
   },
 };
@@ -847,10 +869,11 @@ const GLOSS_VERTEX = /* glsl */ `
 // painted per car through `instanceColor`, which multiplies every vertex — so a chrome bumper
 // (geometry/bumpers.js) came out red on a red car, and the hubcaps had always been steel dipped in
 // the car's paint. Metal is the one finish that is never paint. `> 2.5` rather than `== 3.0` for
-// the same rounding reason GLOSS_COLOR uses `int(x + 0.5)`; METAL is the highest finish there is.
+// the same rounding reason GLOSS_COLOR uses `int(x + 0.5)`; the upper bound keeps MATTE, the one
+// finish above it, taking a tint like any other.
 const GLOSS_COLOR_VERTEX = THREE.ShaderChunk.color_vertex.replace(
   'vColor.xyz *= instanceColor.xyz;',
-  'vColor.xyz *= aFinish > 2.5 ? vec3(1.0) : instanceColor.xyz;',
+  'vColor.xyz *= aFinish > 2.5 && aFinish < 3.5 ? vec3(1.0) : instanceColor.xyz;',
 );
 if (GLOSS_COLOR_VERTEX === THREE.ShaderChunk.color_vertex) throw new Error('gloss: color_vertex hook missed');
 
@@ -859,14 +882,14 @@ if (GLOSS_COLOR_VERTEX === THREE.ShaderChunk.color_vertex) throw new Error('glos
 // arrive as 1.9999 — the triangle never mixes finishes, but interpolation does not know that.
 const GLOSS_COLOR = /* glsl */ `
 	{
-		int gK = clamp(int(vGlossFinish + 0.5), 0, 3);
+		int gK = clamp(int(vGlossFinish + 0.5), 0, 4);
 		gFinA = uFinishA[gK];
 		gFinB = uFinishB[gK];
 		gFinC = uFinishC[gK];
 		gFinD = uFinishD[gK];
 		gIsPaint = gK == 1 ? 1.0 : 0.0;
 		gFinishColor = gK == 0 ? vec3(0.15) : gK == 1 ? vec3(0.9, 0.2, 0.15)
-			: gK == 2 ? vec3(0.1, 0.7, 0.9) : vec3(0.95, 0.8, 0.2);
+			: gK == 2 ? vec3(0.1, 0.7, 0.9) : gK == 3 ? vec3(0.95, 0.8, 0.2) : vec3(0.6, 0.45, 0.85);
 		diffuseColor.rgb *= gFinC.y;
 	}
 `;
@@ -1163,10 +1186,10 @@ uniform vec4 uGlossCityBox;
 uniform float uGlossCeiling;
 uniform vec3 uGlossTop;
 uniform vec3 uGlossHorizon;
-uniform vec4 uFinishA[4];
-uniform vec4 uFinishB[4];
-uniform vec4 uFinishC[4];
-uniform vec4 uFinishD[4];
+uniform vec4 uFinishA[5];
+uniform vec4 uFinishB[5];
+uniform vec4 uFinishC[5];
+uniform vec4 uFinishD[5];
 uniform vec4 uGlossGlobal;
 uniform float uGloss;
 uniform float uGlossMirror;
@@ -1196,7 +1219,7 @@ ${glossFragment(classicPaint || paintLook === 'toon')
   .replace('__LOOK_MIRROR__', look.mirror ?? '')
   .replace('__LOOK_FINAL__', look.final ?? '')}`);
       // Never a blind replace (CLAUDE.md): a hook that matched nothing is a matte car and no error.
-      for (const marker of ['attribute float aFinish', 'vGlossFinish = aFinish', 'aFinish > 2.5']) {
+      for (const marker of ['attribute float aFinish', 'vGlossFinish = aFinish', 'aFinish > 2.5 && aFinish < 3.5']) {
         if (!shader.vertexShader.includes(marker)) throw new Error(`gloss: vertex hook missed (${marker})`);
       }
       for (const marker of ['uniform float uGloss;', 'gFinA = uFinishA', 'gSpecN = normalize',

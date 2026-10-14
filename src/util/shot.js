@@ -571,6 +571,15 @@ export function getPaintClassic() {
   return new URLSearchParams(window.location.search).get('paint') === 'classic';
 }
 
+/**
+ * Every other vehicle's paint — `?vehiclepaint=classic` takes the plane, the helicopters, the boats,
+ * the ships and the L train back off the cars' paint onto the plain flat material (util/geo.js,
+ * `setVehiclePaint`).
+ */
+export function getVehiclePaintClassic() {
+  return new URLSearchParams(window.location.search).get('vehiclepaint') === 'classic';
+}
+
 /** `?paint=layered|chameleon|satin|toon` — null means the default, toon (util/geo.js, PAINT_LOOKS). */
 export function getPaintLook() {
   return new URLSearchParams(window.location.search).get('paint');
