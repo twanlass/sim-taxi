@@ -1783,7 +1783,10 @@ forgiving misses meaningfully padded the survival curve. Never on the tutorial f
 [bank](city.md#the-bank) — a low stone building under a colonnade with a dome behind it. **Now and
 then a rider spawns on its steps** (`BANK_CHANCE`: 30% of qualifying spawns from the second
 delivery, 35s after the last one left the board; #499). They are an ordinary tappable fare. Tap
-them and pull up, and a coin tossed when they spawned decides it: heads they get in like anybody
+them and pull up, and a coin tossed when they spawned decides it — **a loaded one**: even odds on
+the first bank rider of a run, then 15 points more robbery for each one who rode (50, 65, 80, 95,
+capped there), back to even once a robbery happens (`BANK_ROBBER_STEP`; #522,
+`?robberyodds=classic` for a fair coin every time). Heads they get in like anybody
 else; tails a robber bursts out of the bank, shoves them over and takes their seat — see
 [the bank job](#the-bank-job) — and the streets go blue for as long as it takes to get the robber
 where they are going. `?bankfare=classic` restores the drive-past robbery, where passing the bank
@@ -1958,7 +1961,10 @@ player *sees* the robber get in.
 
 **It starts with the bank rider** (`BANK_CHANCE` in game/fares.js: 30% of qualifying spawns, from
 the second delivery, the bank junction within the spawn box, 35s after the last one left the
-board). A coin is tossed when they spawn. Tap them and pull up: heads they get in like anybody
+board). A coin is tossed when they spawn, loaded by every bank rider who has ridden since the last
+robbery: 50% robbery, then 65, 80 and 95, back to 50 after one fires (`BANK_ROBBER_STEP` in
+game/fares.js; a rider who got in because the gates were shut counts as one who rode). Keep taking
+the bank's fares and you are pushing your luck. Tap them and pull up: heads they get in like anybody
 else; tails, and if the robbery's fairness gates are open at that moment (`swapReady` in
 game/robbery.js — every [gate](#the-trigger) but the drive-past's range, with the bank rider's own
 clock left out of the calm test), they leave the board without a strike and the robber takes their

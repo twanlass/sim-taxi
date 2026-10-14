@@ -48,6 +48,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
 | `?robbery=classic` | The robbery with no opening cut (straight to the drive-past). Also implies `?bankfare=classic` | #475, #478 | [gameplay.md](gameplay.md) |
 | `?bankfare=classic` | The drive-past robbery instead of the bank rider fare | #499 | [gameplay.md](gameplay.md) |
+| `?robberyodds=classic` | The bank rider's coin stays a fair 50/50 instead of loading toward a robbery with each bank ride | #522 | [gameplay.md](gameplay.md#the-bank-job) |
 | `?uturn=classic` | The first U-turn, a spin on the spot, instead of the handbrake turn | #458 | [gameplay.md](gameplay.md) |
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |
 | `?route=classic` | The route stops dead at the rider's kerb, with no stub past the pickup | #480 | [gameplay.md](gameplay.md) |
