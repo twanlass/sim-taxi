@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { RIGHT, VIEW_UP, VIEW_DIR } from './camera.js';
 import { SLAB_X, SLAB_Z, EDGE_FADE } from '../city/ground.js';
-import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
+import { HALF_SPAN_X, HALF_SPAN_Z, WEST_EDGE, WEST_REACH } from '../city/grid.js';
+import { WEST_SKYLINE } from '../city/westedge.js';
 import { SKYLINE_CEILING } from '../city/buildings.js';
 import { PALETTE } from '../palette.js';
 import { unlitMaterial } from '../util/geo.js';
@@ -142,6 +143,16 @@ for (const [rx, rz, y] of [
   for (const x of [-rx, rx]) {
     for (const z of [-rz, rz]) KEEP_OUT.push(screenOf(x, y, z, {}));
   }
+}
+// The high rises past the west ring road (city/westedge.js): the ground the island now reaches out
+// to in the west, and a third box standing on it as tall as their skyline. Points, not a rebuilt
+// pair: the hull takes whatever it is handed, and on this side it is these that make it.
+if (WEST_EDGE) {
+  for (const z of [-CITY_REACH_Z, CITY_REACH_Z]) KEEP_OUT.push(screenOf(-(CITY_REACH_X + WEST_REACH), 0, z, {}));
+  // The tall column's far corners only. Its near ones lie inside the hull these make with the
+  // ring road's parapet (by 2.1 at the closest), and putting them in anyway grows a short edge at
+  // the apex that the smoothing cuts into twice over: it bit 4.5 against the 3.5 `ROUND` pays back.
+  for (const z of [-BUILT_REACH_Z, BUILT_REACH_Z]) KEEP_OUT.push(screenOf(-(BUILT_REACH_X + WEST_REACH), WEST_SKYLINE, z, {}));
 }
 
 /**

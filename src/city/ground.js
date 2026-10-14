@@ -642,4 +642,4 @@ export function createGround(rng, blocks) {
   return mesh;
 }
 
-export { KERB_H, SLAB_RADIUS, roundedRectShape };
+export { KERB_H, MARK_Y, SLAB_RADIUS, roundedRectShape, curbBox, roundedPaint, paint };

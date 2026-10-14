@@ -442,8 +442,19 @@ export const SLAB_MARGIN = ROAD_W * 3;
 export const HARBOR_REACH = HARBOR ? 44 : 0;
 /** The old coast, measured from the origin, on either side. */
 export const COAST_X = (SPAN_X + SLAB_MARGIN) / 2;
-/** Where the island ends to the west and to the east. Only the east one moves. */
-export const coastWest = () => -COAST_X;
+// The high rises past the west ring road (city/westedge.js, `?westedge=classic` to drop them): two
+// more columns of blocks on the grid's own pitch, so the streets visibly carry on west of the map,
+// barricaded off where they leave it. West, because west is the *far* edge: the camera looks down
+// the -x-z diagonal, so everything out there stands up-screen of the city and no tower can stand
+// between the camera and a street. Read at module load for the reason `HARBOR` is.
+export const WEST_EDGE = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('westedge') !== 'classic'
+  : globalThis.process?.env?.WESTEDGE !== 'classic';
+/** How many block columns stand west of the ring road, and how much further west the island reaches for them. */
+export const WEST_COLUMNS = WEST_EDGE ? 2 : 0;
+export const WEST_REACH = WEST_COLUMNS * PITCH;
+/** Where the island ends to the west and to the east. Both move now: the harbor east, the high rises west. */
+export const coastWest = () => -COAST_X - WEST_REACH;
 export const coastEast = () => COAST_X + HARBOR_REACH;
 // The big park past the north ring road (city/northpark.js, `?northpark=classic` to drop it): how far
 // its lawn runs north of the ring road's kerb before it fades. Here for the reason HARBOR_REACH is:
