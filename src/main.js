@@ -839,6 +839,8 @@ const combo = createComboMeter({ scope: comboScope(new URLSearchParams(window.lo
 const ratingOn = new URLSearchParams(window.location.search).get('rating') !== 'off';
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   rating: ratingOn,
+  // The bank rider's coin loads with every one who rides — BANK_ROBBER_STEP in game/fares.js.
+  risingOdds: new URLSearchParams(window.location.search).get('robberyodds') !== 'classic',
   reserved: () => parcels?.occupiedSpots() ?? [],
   judgeRun: () => combo.judge(),
 });
@@ -1112,7 +1114,13 @@ function boardSound() {
 
 // The sound — see game/sfx.js. Silent in shot mode, which renders stills and has nobody listening.
 // Its own stream, which draws the take each one-shot plays (the designer's A/B/C variants).
-const sfx = shot ? null : createSfx({ rng: makeRng(runSeed + 811) });
+// `menuMusic`: the title menu plays songs alone and Play cuts to the announcer (`goOnAir` in
+// `beginRun`); with no title screen, `beginRun` runs at boot and the radio opens on the intro as
+// ever. `?menumusic=classic` opens on the intro under the menu too.
+const sfx = shot ? null : createSfx({
+  rng: makeRng(runSeed + 811),
+  menuMusic: new URLSearchParams(window.location.search).get('menumusic') !== 'classic',
+});
 // The ⚙️ panel's handle once it exists (`createDebugPanel` at the bottom of the file), so the frame
 // can ask whether it is open — the sound rings below show only then.
 let debugPanel = null;
@@ -4810,6 +4818,7 @@ function parked() {
 let runBegun = false;
 function beginRun() {
   runBegun = true;
+  sfx?.goOnAir();
   if (!settings.get().tips) dropTutorial();
 }
 function dropTutorial() {
