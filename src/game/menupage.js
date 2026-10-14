@@ -10,7 +10,7 @@
  */
 
 import { isNative } from '../util/platform.js';
-import { RESOLUTIONS, FRAME_RATES } from './settings.js';
+import { QUALITIES } from './settings.js';
 
 /** One element, with a class and optional text. */
 export function el(tag, className, text) {
@@ -136,17 +136,13 @@ export function settingsRows(body, { sound, settings }) {
     hapticRows.push(hapticsRow);
     body.append(hapticsRow.row);
   }
-  const resolutionRow = choiceRow('Resolution',
-    RESOLUTIONS.map((value) => ({ value, text: `${value}x` })),
-    () => settings.get().resolution, (value) => settings.set({ resolution: value }));
-  const frameRateRow = choiceRow('Frame rate',
-    FRAME_RATES.map((value) => ({ value, text: `${value}` })),
-    () => settings.get().frameRate, (value) => settings.set({ frameRate: value }));
-  body.append(resolutionRow.row, frameRateRow.row);
+  const qualityRow = choiceRow('Quality',
+    Object.entries(QUALITIES).map(([value, q]) => ({ value, text: q.label })),
+    () => settings.get().quality, (value) => settings.set({ quality: value }));
+  body.append(qualityRow.row);
   return {
     refresh() {
-      resolutionRow.paint();
-      frameRateRow.paint();
+      qualityRow.paint();
       soundRow.paint();
       musicRow.paint();
       sfxRow.paint();

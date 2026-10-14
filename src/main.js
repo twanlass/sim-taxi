@@ -126,7 +126,7 @@ import {
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createTitleScreen } from './game/titlescreen.js';
-import { createSettings } from './game/settings.js';
+import { createSettings, qualityOf } from './game/settings.js';
 import { createPause } from './game/pause.js';
 import { createInspect } from './game/inspect.js';
 import {
@@ -233,7 +233,7 @@ const budget = {
   safeSource: safeModeSource(),
   msaa: getMsaa(),
   shadowMapSize: getShadowMapSize(),
-  pixelRatioCap: getPixelRatioCap(getSafeMode() ? 1 : shot ? 2 : settings.get().resolution),
+  pixelRatioCap: getPixelRatioCap(getSafeMode() ? 1 : shot ? 2 : qualityOf(settings.get()).resolution),
   ao: getAmbientOcclusion(),
   crayon: getCrayon(),
   cartoon: getCartoon(),
@@ -373,11 +373,13 @@ const governor = createGovernor({
   onChange: (text) => diag.note(text),
   targetMs: () => 1000 / Math.min(60, frameRateCap()),
 });
-// The Resolution setting, live: the cap moves and the governor re-derives its ratio from it. Not
-// while `?dpr=` pins it, nor under `?safe`, whose whole point is the cheapest budget.
+// The Quality setting's resolution, live: the cap moves and the governor re-derives its ratio from
+// it. Not while `?dpr=` pins it, nor under `?safe`, whose whole point is the cheapest budget. The
+// frame-rate half needs nothing here: `frameRateCap` reads the setting every frame.
 settings.onChange((v) => {
-  if (shot || resolutionPinned || budget.safe || v.resolution === budget.pixelRatioCap) return;
-  budget.pixelRatioCap = v.resolution;
+  const { resolution } = qualityOf(v);
+  if (shot || resolutionPinned || budget.safe || resolution === budget.pixelRatioCap) return;
+  budget.pixelRatioCap = resolution;
   governor.reset();
   renderer.setPixelRatio(governor.ratio());
   // A ratio change resizes the canvas, which empties it — and this is usually changed from the pause
@@ -4989,7 +4991,7 @@ let bench = null;
 // own delta. The 4 ms of slack is so a vsync that lands a hair early is not skipped as well, which
 // would drop the rate to 20.
 const fpsPin = Number.parseInt(new URLSearchParams(window.location.search).get('fps'), 10);
-const frameRateCap = () => (shot ? 60 : fpsPin > 0 ? fpsPin : settings.get().frameRate);
+const frameRateCap = () => (shot ? 60 : fpsPin > 0 ? fpsPin : qualityOf(settings.get()).frameRate);
 let lastFrameAt = 0;
 
 function frame(t) {
