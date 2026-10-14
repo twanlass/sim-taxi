@@ -314,6 +314,23 @@ try {
       retire.apply(1 / 30);
       if (!(mesh.instanceMatrix.array[0] === 0)) fail.push('a retired instance survived its own sample');
     }
+    // The same blink on a taped *node*: the patrol cruiser is a group of its own, not an instance,
+    // and `police.shed()` hides it on the impact frame its shell is copied out on. Nearest-sample
+    // visibility hid it for the back half of the gap while the shell was still hidden — the cop car
+    // flashed out just before every replay cut's blast.
+    {
+      const cruiser = new THREE.Group();
+      scene.add(cruiser);
+      const shed = createTape(scene, { roots: [cruiser] });
+      shed.record(0);
+      cruiser.visible = false;
+      shed.record(1 / 30, true);
+      shed.apply(0.9 / 30);
+      if (!cruiser.visible) fail.push('a shed node vanished before the sample that sheds it');
+      shed.apply(1 / 30);
+      if (cruiser.visible) fail.push('a shed node survived its own sample');
+      scene.remove(cruiser);
+    }
     const wreckage = createWreckage();
     const shell = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
     wreckage.take(shell, { hideBefore: true });

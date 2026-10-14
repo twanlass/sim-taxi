@@ -41,11 +41,11 @@ const VSYNC_MS = 1000 / 60;
  * full 22 cars; and no squall, which arrives twelve seconds in and would land in some rows and
  * not others. The squall gets a row of its own, pinned overhead. And the resolution governor off
  * (game/governor.js): each row is one fixed setting, and a governor stepping the ratio under it
- * would turn the dpr rows into the same row. `dpr=2` pins the baseline against the player's own
- * Resolution setting.
+ * would turn the dpr rows into the same row. `dpr=2` and `fps=60` pin the baseline against the
+ * player's own Quality setting, whose Regular is 30 fps and would otherwise halve every row.
  */
 export const BENCH_BASE = {
-  seed: '71624', run: '7', title: 'off', vignette: 'off', debug: '', d: '1', squall: 'off', governor: 'off', dpr: '2',
+  seed: '71624', run: '7', title: 'off', vignette: 'off', debug: '', d: '1', squall: 'off', governor: 'off', dpr: '2', fps: '60',
 };
 
 /** The settings, in order. Each is one page load. */

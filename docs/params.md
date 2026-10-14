@@ -103,7 +103,7 @@ See [rendering.md](rendering.md) for all of these.
 | `?safe` / `=off` | All four budget flags at their cheapest (no MSAA, 1024 shadows, DPR 1, no AO). On by default on Android; `=off` restores the full budget |
 | `?msaa=off` | No multisampling |
 | `?shadows=off` / `=1024` | No sun shadows, or that map size (power of two, 256–4096) |
-| `?dpr=N` | Caps `devicePixelRatio` (0.5–4, default 2) and pins it against the Resolution setting |
+| `?dpr=N` | Caps `devicePixelRatio` (0.5–4, default 2) and pins it against the Quality setting |
 | `?ao=off` | No ambient occlusion |
 | `?fps=30` | Caps the frame rate, overriding the Settings choice |
 | `?governor=off` | Holds the resolution where the budget put it, instead of stepping down when hot |

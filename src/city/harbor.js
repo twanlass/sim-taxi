@@ -208,8 +208,12 @@ function containerBlock(rng, x0, x1, z0, z1, y, keepClear = null) {
  * The container ship, in its own frame: waterline at y = 0, bow toward +x, beam along z.
  * The hull is an extruded top-view outline so the bow can come to a point without hand-wound
  * triangles (CLAUDE.md, the winding traps); everything above deck is boxes.
+ *
+ * Returns `{ hull, upper }`, two lists of parts: the hull and its boot-top, which are solid, and
+ * everything standing on the deck, which is drawn with its shadow sunk (game/harborships.js).
  */
 export function ship(rng) {
+  const hullParts = [];
   const parts = [];
   const hl = SHIP_L / 2;
   const hb = SHIP_B / 2;
@@ -231,12 +235,12 @@ export function ship(rng) {
   // matter here, and the bow still points +x.
   const hull = extrude(outline, hullH);
   hull.translate(0, -SHIP_DRAUGHT, 0);
-  parts.push(bakeColor(hull, PALETTE.shipHull));
+  hullParts.push(bakeColor(hull, PALETTE.shipHull));
   // The boot-top: a band at the waterline in the hull's antifouling colour, a hair proud of it.
   const boot = extrude(outline, 0.45);
   boot.scale(1.004, 1, 1.02);
   boot.translate(0, -0.15, 0);
-  parts.push(bakeColor(boot, PALETTE.shipBoot));
+  hullParts.push(bakeColor(boot, PALETTE.shipBoot));
   // The deck, inset so the hull's sheer shows as a rim round it.
   const deck = box(SHIP_L - 4.2, 0.08, SHIP_B - 0.5, -0.6, SHIP_FREEBOARD + 0.04, 0, PALETTE.shipDeck);
   parts.push(deck);
@@ -245,8 +249,13 @@ export function ship(rng) {
   const houseX = -hl + 1.6;
   parts.push(box(2.6, 3.4, SHIP_B - 0.6, houseX, SHIP_FREEBOARD + 1.7, 0, PALETTE.shipHouse));
   parts.push(box(2.75, 0.45, SHIP_B - 0.3, houseX, SHIP_FREEBOARD + 2.9, 0, PALETTE.craneDark));
-  parts.push(box(3.0, 0.18, SHIP_B + 0.6, houseX + 0.1, SHIP_FREEBOARD + 3.45, 0, PALETTE.shipHouse));
-  parts.push(box(1.1, 1.5, 1.2, houseX - 0.5, SHIP_FREEBOARD + 4.1, 0, PALETTE.craneHouse));
+  // The bridge wings' roof. It stops 0.1 short of the first bay rather than on it: at 3.0 wide its
+  // forward edge landed exactly on the aft face of the containers, one plane shared by two faces
+  // across the whole height of the plate, and the two flickered against each other.
+  parts.push(box(2.9, 0.18, SHIP_B + 0.6, houseX + 0.05, SHIP_FREEBOARD + 3.45, 0, PALETTE.shipHouse));
+  // The funnel stops inside its cap rather than level with it: both tops at FREEBOARD + 4.85 was a
+  // tie between two colours on one plane, and the cap's top drew half black, half grey.
+  parts.push(box(1.1, 1.45, 1.2, houseX - 0.5, SHIP_FREEBOARD + 4.075, 0, PALETTE.craneHouse));
   parts.push(box(1.14, 0.3, 1.24, houseX - 0.5, SHIP_FREEBOARD + 4.7, 0, PALETTE.craneDark));
 
   // The cargo: bays of containers across the beam, forward of the house. Stacked lower towards
@@ -262,7 +271,7 @@ export function ship(rng) {
       parts.push(...stack(rng, bayX0 + b * (BOX_L + 0.15), SHIP_FREEBOARD + 0.08, z, tiers));
     }
   }
-  return parts;
+  return { hull: hullParts, upper: parts };
 }
 
 /**
