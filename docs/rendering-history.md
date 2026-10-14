@@ -151,6 +151,15 @@ Measured on a rendered shot, as mean blue-minus-red per band, across those versi
 The road read #636972 → #5F7F97 at 0.17 and the zenith colour (56 points of blue-over-red against the
 bare road's 15). `scene.js` notes both want re-taking at 0.19 / 0.73.
 
+### Past the edge of the map
+
+[Current](rendering.md#past-the-edge-of-the-map--cityhorizonjs).
+
+Until 2026-10-14 the island simply stopped: past the west towers' last street, and past the north
+park, the asphalt and the lawn ran out over the slab's fade skirt and dissolved into the sky dome.
+With the 22–33 unit west skyline standing right at that line, the fade read as a dark smear with the
+sky behind it — reported as "the world just ends". `?horizon=classic` brings it back.
+
 ## Crayon Mode — `game/crayon.js`
 
 ### The line — a texel, not a radius

@@ -190,11 +190,13 @@ const REHIT = 0.35;          // s
 
 /**
  * @param lethalPolice  a charged hit on a police car empties the taxi's HP on the spot, so it is
- *   the wreck rather than a bump. Tyler's call: ramming a cop is a crash like any other, just a
- *   fatal one. Off by default so the tools that measure first contact (tools/lab.mjs) and the
- *   probe's bump checks keep their currency; main.js turns it on unless `?cop=classic`. Only the
+ *   the wreck rather than a bump (#466). Only under `?capture=classic` now: the capture model
+ *   (game/patrol.js) prices a cop like any other car, because the robbery's roadblocks are there to
+ *   be smashed through and a fatal cop made that the one thing a getaway could not ask for. Off by
+ *   default so the tools that measure first contact (tools/lab.mjs) and the
+ *   probe's bump checks keep their currency. Only the
  *   *charged* path — a contact off the pill is still a shove, and a cop catching a taxi that is
- *   not boosting is still the arrest (game/patrol.js).
+ *   not boosting is still the arrest under it (game/patrol.js).
  */
 export function createCollisions(cars, taxi, { lethalPolice = false } = {}) {
   const listeners = [];
@@ -255,45 +257,69 @@ export function createCollisions(cars, taxi, { lethalPolice = false } = {}) {
         continue;
       }
 
-      const px = (taxi.x + other.x) / 2;
-      const pz = (taxi.z + other.z) / 2;
-      // Read before the two lines below zero it. Everything the crash throws downfield is sized
-      // off how fast the taxi arrived — the fireball's drift, the shards, the tyres, both shells
-      // and the smoke collar (see util/carry.js) — and once `taxi.v` is zeroed there is nothing
-      // left in the world to recover it from: the listener runs after the fact and both cars are
-      // out of the sim by then.
-      const speed = taxi.v;
-      // Closing speed, not the taxi's own: a car driving away from the bumper is a nudge, one
-      // crossing in front of it is not. Read here rather than inside the bump path because the
-      // wreck needs it too — it is what decides whether the driver goes through the windscreen
-      // (game/ejection.js), and both speeds are zeroed below.
-      const rvx = Math.cos(taxi.yaw) * taxi.v - Math.cos(other.yaw) * other.v;
-      const rvz = -Math.sin(taxi.yaw) * taxi.v + Math.sin(other.yaw) * other.v;
-      const closing = Math.hypot(rvx, rvz);
-
-      if (taxi.hp != null) {
-        const damage = lethalPolice && other.police ? taxi.hp : bumpDamage(closing);
-        taxi.hp = Math.max(0, taxi.hp - damage);
-        if (taxi.hp > 0) {
-          bump(other, closing, damage, pen.cx, pen.cz, pen);
-          continue;
-        }
-        // Out of hit points: this one is the wreck, through exactly the path it always was.
-      }
-
-      // Both cars are wrecked. `crashed` is what takes a car out of the simulation entirely —
-      // every loop in traffic.js skips it — so neither body drives, queues or is queued behind
-      // again. main.js detonates each one and leaves both shells lying in the road, then ends the
-      // run. (Every hit before this one is a bump — see `bump` below.)
-      taxi.crashed = true;
-      taxi.boost = false;
-      taxi.v = 0;
-      other.crashed = true;
-      other.v = 0;
-
-      emit({ x: px, z: pz, speed, closing, taxi, other });
-      return;   // one impact per frame is plenty — the taxi is done anyway.
+      if (charge(other, pen)) return;   // one impact per frame is plenty — the taxi is done anyway.
     }
+  }
+
+  /**
+   * Charge a contact: a bump that costs HP by closing speed, or — out of HP, or with no HP armed —
+   * the wreck. Answers whether it was the wreck. `update` runs it for a boosting taxi; `strike`
+   * below for a hit the taxi takes from a cop while off the pill.
+   */
+  function charge(other, pen) {
+    const px = (taxi.x + other.x) / 2;
+    const pz = (taxi.z + other.z) / 2;
+    // Read before the two lines below zero it. Everything the crash throws downfield is sized
+    // off how fast the taxi arrived — the fireball's drift, the shards, the tyres, both shells
+    // and the smoke collar (see util/carry.js) — and once `taxi.v` is zeroed there is nothing
+    // left in the world to recover it from: the listener runs after the fact and both cars are
+    // out of the sim by then.
+    const speed = taxi.v;
+    // Closing speed, not the taxi's own: a car driving away from the bumper is a nudge, one
+    // crossing in front of it is not. Read here rather than inside the bump path because the
+    // wreck needs it too — it is what decides whether the driver goes through the windscreen
+    // (game/ejection.js), and both speeds are zeroed below.
+    const rvx = Math.cos(taxi.yaw) * taxi.v - Math.cos(other.yaw) * other.v;
+    const rvz = -Math.sin(taxi.yaw) * taxi.v + Math.sin(other.yaw) * other.v;
+    const closing = Math.hypot(rvx, rvz);
+
+    if (taxi.hp != null) {
+      const damage = lethalPolice && other.police ? taxi.hp : bumpDamage(closing);
+      taxi.hp = Math.max(0, taxi.hp - damage);
+      if (taxi.hp > 0) {
+        bump(other, closing, damage, pen.cx, pen.cz, pen);
+        return false;
+      }
+      // Out of hit points: this one is the wreck, through exactly the path it always was.
+    }
+
+    // Both cars are wrecked. `crashed` is what takes a car out of the simulation entirely —
+    // every loop in traffic.js skips it — so neither body drives, queues or is queued behind
+    // again. main.js detonates each one and leaves both shells lying in the road, then ends the
+    // run. (Every hit before this one is a bump — see `bump` below.)
+    taxi.crashed = true;
+    taxi.boost = false;
+    taxi.v = 0;
+    other.crashed = true;
+    other.v = 0;
+
+    emit({ x: px, z: pz, speed, closing, taxi, other });
+    return true;
+  }
+
+  /**
+   * A chasing cop has rammed the taxi at speed (game/patrol.js, under the capture model) and that
+   * is a hit like any other: HP off by closing speed, the bump's knock and its effects, or the wreck
+   * if it was the last of the HP. Off the pill `update` only ever shoves, and by the time the patrol
+   * asks, the shove has already left the two bodies at the envelope — so the seam comes from
+   * `contact` when `penetration` has nothing. Recorded in `lastTouch` so the same contact is not
+   * charged again by a boost press a frame later. Answers whether it was the wreck.
+   */
+  function strike(other) {
+    if (taxi.crashed || other.crashed) return false;
+    lastTouch.set(other, clock);
+    const pen = penetration(taxi, other) ?? { depth: 0, ...contact(taxi, other) };
+    return charge(other, pen);
   }
 
   // Contact resolution moves only the other body, so on its own it is frictionless: the taxi drove
@@ -361,5 +387,5 @@ export function createCollisions(cars, taxi, { lethalPolice = false } = {}) {
     }
   }
 
-  return { update, onImpact, onBump };
+  return { update, strike, onImpact, onBump };
 }

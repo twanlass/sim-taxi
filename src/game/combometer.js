@@ -26,7 +26,7 @@
 //
 // Steps are in halves, priced against how hard each move is to land: an overtake or a bootleg is a
 // half, a drift kick a half per chain tier (DRIFT_CHAIN in sim/traffic.js, so a full chain of three
-// is +3 on its own), and the bridge launch — a drift kick still being carried over an arch heading
+// is +3 on its own), Stuntman — smashing through a roadworks barricade — a whole step, and the bridge launch — a drift kick still being carried over an arch heading
 // straight on — is the jackpot at +2. A fare is ~$11–23, so ×5 is the most one ride can be worth.
 //
 // Pure bookkeeping: main.js tells it what was landed and what hurt, and the fare loop asks it for
@@ -40,6 +40,10 @@ export const COMBO_STEPS = {
   // By chain tier, 1-based.
   drift: { label: ['Drift', 'Drift ×2', 'Drift ×3'], step: [0.5, 1, 1.5] },
   launch: { label: 'Big Air', step: 2 },
+  // Smashing through a roadworks barricade (game/roadwork.js). A whole step rather than a half: it
+  // comes at most once or twice a run, the site is up for one stretch of it, and getting a fare's
+  // route through it is the work — the smash itself is the payoff for having gone there.
+  stuntman: { label: 'Stuntman', step: 1 },
 };
 
 /** The meter's scope: 'run' when `?combo=run` asks for it, 'meter' otherwise. */

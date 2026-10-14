@@ -878,6 +878,41 @@ from `refresh()` so it keeps up while the cycle drives the sky underneath it.
 At **Sky sample 1, Chroma 1** the colour comes out as `skyTop` exactly — the arithmetic stated in
 one line, and what the probe pins the whole derivation against.
 
+### Past the edge of the map — `city/horizon.js`
+
+The island does not end any more; it fades. Past the west towers and past the north park the grid
+carries on, block after block on the city's own pitch, and each block is more sky than the one
+before it until there is only sky. Tyler, 2026-10-14: "fill in with some more buildings then some fog
+to obscure the edge. Wanna create the illusion that the world goes on forever."
+`?horizon=classic` puts the bare edge back.
+
+- **Its own haze, not the scene's.** The scene's fog is a function of screen height (above), so it
+  cannot thicken past the coast without thickening over the top of the playable city by the same
+  amount. This one is a function of where a fragment stands on the ground: the distance outside the
+  last street to the west (`lineX(-2)`) and the corner's last street to the north, ramped to opaque
+  over `HORIZON_GONE` (92). Nothing on the island wears it. It feathers out over 14 units on the two
+  sides that face the sea (south of the south shore's line, east of the north park).
+- **It fades to the sky, exactly.** What the edge used to dissolve into was the dome, and the haze
+  colour above is deliberately *not* the dome. So each fragment finds the point of the dome behind it
+  — the camera is orthographic, so that is one ray along the view axis to the dome's sphere
+  (`SKY_RADIUS`, `SKY_DROP` in `game/scene.js`) — and runs the dome's own gradient there, reading the
+  dome's own uniform objects. The day cycle, Rain Mode's grade and the ⚙️ sky sliders move it with no
+  wiring, and at full haze it is the sky's own pixel, at dusk as at noon.
+- **Painted windows.** The towers are plain boxes (some with a set-back crown); the patch darkens a
+  grid of storey-by-bay cells on every wall, found from the screen-space normal. That is the one
+  detail that still says *building* through the haze, and it costs nothing in geometry.
+- **Cheap on purpose.** One mesh, one draw, ~2.3k triangles, no shadow cast, no AO, not in the
+  entrance wave (it is the world the island stands in, so it is already there while the island
+  builds). It receives the sun's shadow where the map reaches. `?bench` has a "horizon off" row.
+- **Every street stays open.** Blocks sit on the grid's pitch, so each street of the city runs on
+  out through the haze as a clear corridor; `tools/check.mjs` holds that, and that no block stands
+  on the island's own land. The river row is left as open ground.
+- **Heights stay out of the aircraft's way.** West of the island the skyline carries on under
+  `WEST_SKYLINE`, as the west towers do; north of the park it stays under 19, because the
+  helicopters transit at 22 and nothing keeps them out of the north.
+
+History: [the bare edge](rendering-history.md#past-the-edge-of-the-map).
+
 ## Ambient occlusion — `game/ssao.js`
 
 A soft darkening where geometry meets geometry: building bases on the pavement, kerbs against the
