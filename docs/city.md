@@ -295,6 +295,11 @@ Park). From game view will just look like map ends there at a park."
 - **Scenery only**, the harbor's terms: outside the ring road, so no street, block or junction moves;
   its own rng stream (`seed + 53`). Trees are the shared `treeParts`, and their crowns go to the
   canopy fuzz with the rest.
+- **The lake is the river's water** (`patchLakeWater`, `city/riverwater.js`): the duck pond's
+  compose, with its shelf measured off the lake's lobed ellipse and the river's own reflection and
+  lip (the pond's darker tuning left a lake this size a flat sheet). It shipped as a flat disc and read
+  as paint beside the canal; every body of water wears the one shader (CLAUDE.md, checked in the
+  probe). `?water=classic` keeps the flat disc.
 - **Nothing in it hides the city.** The camera looks north-west, so everything planted there is
   up-screen of the streets.
 - **The L's line runs over it.** Trees and the lake keep `TREE_CLEAR_RAIL` off the line and the wall

@@ -67,6 +67,13 @@ make that mesh smooth; the crowns' soft normals are lost under the flat default)
 cards come for free: every lobe lands in `plantedCrowns()`, which is what the canopy fuzz is built
 from. Don't hand-build a tree, and don't wire crowns to the fuzz by hand. The probe checks both.
 
+**Every body of water wears the one water shader (city/riverwater.js).** The river, the sea, the
+duck pond and the north park's lake all compile the river's surface — its normal, glint, caustics,
+absorption and Fresnel — and differ only in the outline their shelf is measured from
+(`patchPondWater`, `patchLakeWater`, `patchStillWater` for a new shape). A new pond, lake or
+fountain gets a patch there, never a flat disc in a water colour beside it. The probe checks both
+the built meshes and every file that paints with `pondWater`/`riverWater`.
+
 **The grid has two counts and two coordinate functions.** `GRID_I` bounds `i`, `GRID_J` bounds `j`,
 and they differ — the city is seven block rows tall against six columns because one row is the river.
 `lineX(i)` gives an x and `lineZ(j)` gives a z; there is no `lineCoord`, no `GRID`, no `SPAN` and no
