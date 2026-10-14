@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { propMaterial } from '../util/geo.js';
+import { propMaterial, vehiclePaintOn } from '../util/geo.js';
 import { makeRng } from '../util/rng.js';
 import {
   createBargeMesh, createTugMesh, BARGE_LEN, TUG_LEN, BARGE_BEAM, TUG_BEAM,
@@ -198,7 +198,9 @@ export function createBoats(scene, rng, drawbridge) {
 
   function launch(kind) {
     const geo = kind === 'tug' ? createTugMesh(rng) : createBargeMesh(rng);
-    const mesh = new THREE.Mesh(geo, propMaterial());
+    // On the cars' paint, with the heap, the rust and the canvas tagged matte (geometry/boat.js);
+    // `?vehiclepaint=classic` puts the hull back on the plain prop material.
+    const mesh = new THREE.Mesh(geo, vehiclePaintOn() ? propMaterial({ gloss: { geometry: geo } }) : propMaterial());
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     // Per-boat material, so each can carry its own opacity as it comes in and goes out.

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, unlitMaterial } from '../util/geo.js';
+import { bakeColor, unlitMaterial, propMaterial, setFinish, FINISH, vehiclePaintOn } from '../util/geo.js';
 import { color } from '../palette.js';
 import { stampGhostMask } from './ghostoutline.js';
 
@@ -55,11 +55,34 @@ const HALO_ALPHA = 0.33;
 // visit, and two coincident faces at one opacity blend to a third colour that is neither.
 const TIP_FRAC = 1 / 6;
 
+// What each paint name is made of, for the cars' gloss material (`skin` below): the glazing is
+// glass, the dark rotor, mast, skids and searchlight housing are metal, and everything else —
+// both liveries and the blade tips — is paint.
+const FINISH_OF = { carGlass: FINISH.GLASS, heliRotor: FINISH.METAL };
+
+/** Bake a paint name onto a part, with the finish that name is made of. */
+function painted(geometry, name) {
+  return setFinish(bakeColor(geometry, color(name)), FINISH_OF[name] ?? FINISH.PAINT);
+}
+
 /** One axis-aligned box, coloured and placed. Most of the helicopter is one of these. */
 function box(w, h, d, x, y, z, name) {
   const geometry = new THREE.BoxGeometry(w, h, d);
   geometry.translate(x, y, z);
-  return bakeColor(geometry, color(name));
+  return painted(geometry, name);
+}
+
+/**
+ * The machine's own material: the cars' paint (`propMaterial({ gloss })`) with the AO lookup off,
+ * for the reason the doc comment on `createHelicopterMesh` gives, or under `?vehiclepaint=classic`
+ * the plain flat Lambert it wore before. Transparent either way, for the fade.
+ */
+function skin(geometry) {
+  const material = vehiclePaintOn()
+    ? propMaterial({ ao: false, gloss: { geometry } })
+    : new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  material.transparent = true;
+  return stampGhostMask(material);
 }
 
 /**
@@ -156,7 +179,7 @@ function airframe(livery = 'civil') {
 
   const mast = new THREE.CylinderGeometry(0.11, 0.13, 0.5, 6);
   mast.translate(0.1, ROTOR_Y - 0.28, 0);
-  parts.push(bakeColor(mast, color('heliRotor')));
+  parts.push(painted(mast, 'heliRotor'));
 
   // Skids. Two runners under the cabin on four struts, with the front of each runner kicked up —
   // that upturn is the one piece of shape on the underside that reads from a camera 33° above,
@@ -174,7 +197,7 @@ function airframe(livery = 'civil') {
     const toe = new THREE.BoxGeometry(0.5, SKID_H, 0.13);
     toe.rotateZ(0.45);
     toe.translate(1.82, SKID_Y + 0.18, z);
-    parts.push(bakeColor(toe, color('heliRotor')));
+    parts.push(painted(toe, 'heliRotor'));
   }
 
   // The searchlight: a dark housing slung under the nose. The lens is a separate unlit mesh (see
@@ -205,10 +228,7 @@ function rotor(radius, chord, thickness, hub, discAlpha, discSegments) {
   const geometry = mergeGeometries(parts, false);
   parts.forEach((part) => part.dispose());
 
-  const blade = new THREE.Mesh(
-    geometry,
-    stampGhostMask(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true })),
-  );
+  const blade = new THREE.Mesh(geometry, skin(geometry));
   const disc = new THREE.Mesh(
     new THREE.CircleGeometry(radius, discSegments),
     unlitMaterial({
@@ -230,8 +250,8 @@ function rotor(radius, chord, thickness, hub, discAlpha, discSegments) {
  * carries the screen-space AO lookup, and a mesh that receives occlusion without being in the
  * depth prepass wears the occlusion of whatever stands behind it (see the occluder rule in
  * docs/rendering.md). Behind this one is a tower and then the rest of the skyline. It cannot go
- * into the prepass either — it is transparent, for the fade at both ends of a visit. With AO off
- * the two materials are the same material anyway.
+ * into the prepass either — it is transparent, for the fade at both ends of a visit. So it wears
+ * the cars' paint with the AO lookup switched off (`skin`).
  */
 export function createHelicopterMesh({ livery = 'civil' } = {}) {
   const group = new THREE.Group();
@@ -239,10 +259,8 @@ export function createHelicopterMesh({ livery = 'civil' } = {}) {
 
   // Every part that writes depth stamps the ghost mask — see stampGhostMask. The rotor discs and
   // the halo write none, so the ghosts never saw them.
-  const body = new THREE.Mesh(
-    airframe(livery),
-    stampGhostMask(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true })),
-  );
+  const frame = airframe(livery);
+  const body = new THREE.Mesh(frame, skin(frame));
   group.add(body);
 
   // The main rotor. One bar rather than a cross, exactly as the propeller is: two blades is 180°
@@ -329,7 +347,7 @@ export function createHelicopterMesh({ livery = 'civil' } = {}) {
     }
   }
 
-  const skin = [body.material, main.blade.material, tail.blade.material];
+  const skins = [body.material, main.blade.material, tail.blade.material];
   let fade = 1;
   let blur = 1;
   let lit = false;
@@ -368,7 +386,7 @@ export function createHelicopterMesh({ livery = 'civil' } = {}) {
     setSearchlight: (level) => { if (lens) lens.scale.setScalar(Math.max(1e-3, level)); },
     setFade: (next) => {
       fade = next;
-      for (const material of skin) material.opacity = fade;
+      for (const material of skins) material.opacity = fade;
       if (lens) lens.material.opacity = fade;
       lamp.material.opacity = fade;
       halo.material.opacity = HALO_ALPHA * fade;

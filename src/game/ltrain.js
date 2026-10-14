@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial, unlitMaterial } from '../util/geo.js';
+import { bakeColor, propMaterial, unlitMaterial, setFinish, FINISH, vehiclePaintOn } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { coneGeometry, coneMaterial, coneQuat } from '../geometry/lights.js';
 import {
@@ -486,6 +486,7 @@ const box = (w, h, d, x, y, z, color) => {
   g.translate(x, y, z);
   return bakeColor(g, color);
 };
+const boxPart = box;
 
 /**
  * The deck's spans: the stretches between consecutive bents, plus the two runs off the last bent
@@ -666,6 +667,10 @@ function buildColumns(plan) {
 function buildTrain() {
   const parts = [];
   const half = TRAIN_LEN / 2;
+  // Tagged for the cars' paint the train wears (`createLTrain`): the running gear is metal, the
+  // glazing glass, everything else paint.
+  const box = (w, h, d, x, y, z, color) => setFinish(boxPart(w, h, d, x, y, z, color),
+    color === PALETTE.ltrainUnder ? FINISH.METAL : color === PALETTE.ltrainGlass ? FINISH.GLASS : FINISH.PAINT);
   for (let n = 0; n < CARS; n++) {
     const cx = -half + CAR_LEN / 2 + n * (CAR_LEN + CAR_GAP);
     // Running gear: a dark skirt and a truck at each end.
@@ -752,7 +757,18 @@ export function createLTrain(scene, rng, { sparks = null, lights = true, intro =
   if (intro) columns.customDepthMaterial = introDepth();
   group.add(columns);
 
-  const body = new THREE.Mesh(addIntro(buildTrain()), material);
+  // The train itself wears the cars' paint, on a material of its own carrying the same fade and
+  // intro as the deck's; `?vehiclepaint=classic` puts it back on the deck's plain one.
+  const trainGeo = addIntro(buildTrain());
+  let bodyMaterial = material;
+  if (vehiclePaintOn()) {
+    // At the cargo box's 0.55 of the paint's reflection, for the cargo box's reason: a long flat
+    // side bends to grazing along most of its length, and at full strength the whole train went
+    // to a band of sky — a silver streak across the city at play zoom.
+    bodyMaterial = fadeMaterial(propMaterial({ gloss: { geometry: trainGeo, amount: 0.55 } }));
+    if (intro) introMaterial(bodyMaterial);
+  }
+  const body = new THREE.Mesh(trainGeo, bodyMaterial);
   body.castShadow = true;
   body.receiveShadow = true;
   group.add(body);

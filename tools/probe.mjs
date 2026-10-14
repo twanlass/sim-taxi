@@ -12812,6 +12812,42 @@ let planeOrder;   // read out of the block below, checked in 'Which axis a body 
 let chopperOrder; // likewise
 
 // --- The ambient flyover --------------------------------------------------------
+// Every other vehicle wears the cars' paint (docs/rendering.md, "Every other vehicle"): each
+// mesh is on the gloss material and its geometry is tagged, every vertex of it. A part merged in
+// untagged would read as tyre, and a gloss mesh with no paint on it means a builder forgot to tag.
+{
+  const { setVehiclePaint, FINISH: F } = await import('../src/util/geo.js');
+  const { ship: shipParts } = await import('../src/city/harbor.js');
+  const { createLTrain: ltrainFor } = await import('../src/game/ltrain.js');
+  const tagged = (geometry, ...need) => {
+    const finish = geometry.attributes.aFinish;
+    if (!finish || finish.count !== geometry.attributes.position.count) return false;
+    const seen = new Set(finish.array);
+    return need.every((f) => seen.has(f));
+  };
+  const gloss = (mesh) => mesh.material.isMeshPhongMaterial === true;
+  const plane = createPlaneMesh();
+  const heli = createHelicopterMesh();
+  const cops = createHelicopterMesh({ livery: 'police' });
+  const bodies = [plane.group.children[0], heli.group.children[0], cops.group.children[0]];
+  const barge = createBargeMesh(makeRng(3));
+  const tug = createTugMesh(makeRng(4));
+  const { hull, upper } = shipParts(makeRng(5));
+  const train = ltrainFor(new THREE.Scene(), makeRng(9));
+  check('every other vehicle is on the cars\' paint, with its parts tagged',
+    bodies.every((m) => gloss(m) && m.material.transparent && tagged(m.geometry, F.PAINT, F.GLASS))
+    && tagged(barge, F.PAINT, F.TYRE, F.MATTE) && tagged(tug, F.PAINT, F.GLASS, F.METAL, F.MATTE)
+    && [...hull, ...upper].every((g) => tagged(g)) && tagged(train?.body.geometry ?? barge, F.PAINT, F.GLASS, F.METAL)
+    && (!train || (gloss(train.body) && !gloss(train.deck))),
+    `plane ${gloss(bodies[0])}, heli ${gloss(bodies[1])}, police ${gloss(bodies[2])}, train ${train ? gloss(train.body) : 'none'}`);
+  setVehiclePaint(false);
+  const classicPlane = createPlaneMesh();
+  const classicTrain = ltrainFor(new THREE.Scene(), makeRng(9));
+  setVehiclePaint(true);
+  check('?vehiclepaint=classic puts them back on the plain material',
+    !gloss(classicPlane.group.children[0]) && (!classicTrain || classicTrain.body.material === classicTrain.deck.material));
+}
+
 // A plane crossing the sky is the one thing in the game with no failure state to notice: if it
 // clips a tower, pops into frame at the edge of a wide monitor, or flies parallel to the streets,
 // nothing breaks and nobody is told. All three are numbers, so they belong here.
