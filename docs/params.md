@@ -21,6 +21,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?harbor=classic` | The old river mouth, with no harbor, cranes or ships | #488, #497 | [river.md](river.md) |
 | `?northpark=classic` | No park past the north ring road | #483 | [city.md](city.md) |
 | `?westedge=classic` | No high rises past the west ring road: the island ends at the old west coast. Headless tools take `WESTEDGE=classic` | #510 | [city.md](city.md#the-west-edge-high-rises-default-westedgeclassic-to-drop-them) |
+| `?westcorner=classic` | No mid-rises in the northwest corner: open asphalt between the west edge and the north park, which keeps its old west strip and feather. Headless tools take `WESTCORNER=classic` | | [city.md](city.md#the-west-edge-high-rises-default-westedgeclassic-to-drop-them) |
 | `?parkdrive=classic` | No arched drives round statues in the north park's wall | | [city.md](city.md) |
 | `?parkshore=classic` | The harbor's seawall curling west and stopping at the north park's corner, instead of running on north beside it. Headless tools take `PARKSHORE=classic` | #512 | [river.md](river.md#the-park-shore) |
 | `?southshore=classic` | The old south apron fading into the sky, instead of the rocky shore and park strip. Headless tools take `SOUTHSHORE=classic` | #512 | [river.md](river.md#the-south-shore) |

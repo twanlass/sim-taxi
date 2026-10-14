@@ -14,7 +14,7 @@ import { pointInPolygon } from '../src/city/curves.js';
 import { isParkwayMid, coastWest, coastEast, coastNorth, harborBasin, HARBOR } from '../src/city/grid.js';
 import { createHarbor } from '../src/city/harbor.js';
 import {
-  createWestEdge, westKerbX, westClosures, WEST_SKYLINE, WEST_CLEAR_X,
+  createWestEdge, westKerbX, westClosures, WEST_SKYLINE, WEST_CLEAR_X, cornerBlocks, northClosure,
 } from '../src/city/westedge.js';
 import { coastArcStart, coastArcZ, SEA_CORNER, southShore, parkShore } from '../src/city/harborplan.js';
 import { createLayout } from '../src/city/layout.js';
@@ -19064,11 +19064,17 @@ let chopperOrder; // likewise
       check('west edge: classic builds nothing past the west ring road', coastWest() === -(SLAB_X / 2), `coast ${coastWest()}`);
     } else {
       const kerb = westKerbX();
-      // Scenery only: nothing out there reaches the ring road it is shut off from.
+      // Scenery only: nothing out there reaches the ring road it is shut off from. The corner north
+      // of the north ring road is out of it (it is checked on its own below), and so is the corner's
+      // asphalt patch, which lies under the slab rather than on it.
+      const kN = lineZ(0) - halfRoadX(0);
       let pastKerb = 0;
       for (const mesh of [we.ground, we.towers]) {
         const p = mesh.geometry.attributes.position;
-        for (let k = 0; k < p.count; k++) if (p.getX(k) > kerb + 1e-6) pastKerb += 1;
+        for (let k = 0; k < p.count; k++) {
+          if (p.getY(k) < 0 || p.getZ(k) < kN - 1e-6) continue;
+          if (p.getX(k) > kerb + 1e-6) pastKerb += 1;
+        }
       }
       check('west edge: nothing in it stands on the ring road', pastKerb === 0, `${pastKerb} vertices east of x = ${kerb}`);
 
@@ -19160,6 +19166,54 @@ let chopperOrder; // likewise
       }
       check('west edge: the police helicopter never flies over the tall column', heliWest > WEST_CLEAR_X + 2,
         `westmost ${heliWest.toFixed(1)} over ${sorties} sorties, column's kerb at ${WEST_CLEAR_X}`);
+
+      // The northwest corner (`?westcorner=classic` drops it): mid-rises on every block, all of them
+      // under the city's ceiling, nothing in it east of the carried-on ring road's far kerb (the
+      // park starts there), and that street shut across its width where it leaves the ring.
+      const blocks = cornerBlocks();
+      if (!blocks.length) {
+        check('west corner: classic builds no corner', !we.fade && !northClosure(), 'corner built');
+      } else {
+        const parkKerb = lineX(0) + halfRoadZ(0);
+        const corner = we.sites.filter((t) => t.corner);
+        const bare = blocks.filter((b) => !corner.some((t) => t.cx > b.bounds.x0 && t.cx < b.bounds.x1
+          && t.cz > b.bounds.z0 && t.cz < b.bounds.z1)).length;
+        const top = Math.max(...corner.map((t) => t.top));
+        check('west corner: every block has mid-rises under the city ceiling',
+          bare === 0 && top < SKYLINE_CEILING, `${bare} of ${blocks.length} bare, tallest ${top.toFixed(1)}`);
+        let intoPark = 0;
+        for (const mesh of [we.ground, we.towers]) {
+          const p = mesh.geometry.attributes.position;
+          for (let k = 0; k < p.count; k++) {
+            if (p.getY(k) >= 0 && p.getZ(k) < kN - 1e-6 && p.getX(k) > parkKerb + 1e-6) intoPark += 1;
+          }
+        }
+        check('west corner: nothing stands past the street into the park', intoPark === 0,
+          `${intoPark} vertices east of x = ${parkKerb}`);
+        const c = northClosure();
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (let k = 0; k < gp.count; k++) {
+          if (Math.abs(gp.getZ(k) - c.z) > 0.5 || gp.getY(k) < 0.5) continue;
+          lo = Math.min(lo, gp.getX(k));
+          hi = Math.max(hi, gp.getX(k));
+        }
+        check('west corner: the ring road is shut across its width where it carries on north',
+          lo < c.x - c.half + 0.6 && hi > c.x + c.half - 0.6, `trestle ${lo.toFixed(2)}..${hi.toFixed(2)}, street ${c.x - c.half}..${c.x + c.half}`);
+        // The patch's feather faces up and fades out, like every skirt.
+        const fp = we.fade.geometry.attributes.position;
+        const fc = we.fade.geometry.attributes.color;
+        let down = 0;
+        let minA = 1;
+        for (let k = 0; k < fp.count; k += 3) {
+          const ax = fp.getX(k); const az = fp.getZ(k);
+          const ny = (fp.getZ(k + 1) - az) * (fp.getX(k + 2) - ax) - (fp.getX(k + 1) - ax) * (fp.getZ(k + 2) - az);
+          if (ny <= 0) down += 1;
+        }
+        for (let k = 0; k < fc.count; k++) minA = Math.min(minA, fc.getW(k));
+        check('west corner: its asphalt feather faces up and fades out', down === 0 && minA < 1e-6,
+          `${down} faces down, faintest alpha ${minA}`);
+      }
     }
   }
 

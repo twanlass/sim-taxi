@@ -4,9 +4,12 @@ import { bakeColor, hash01, propMaterial, stampEntry } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import {
   WEST_EDGE, WEST_COLUMNS, GRID_J, HALF_ROAD, lineX, lineZ, halfRoadX, halfRoadZ,
-  isArterialX, isRiverBlock, isRiverGap, MEDIAN_W,
+  isArterialX, isRiverBlock, isRiverGap, MEDIAN_W, WEST_CORNER, coastWest, coastNorth, SLAB_MARGIN,
+  SPAN_Z,
 } from './grid.js';
-import { KERB_H, PAVE_INSET, curbBox, roundedPaint, paint } from './ground.js';
+import {
+  KERB_H, PAVE_INSET, curbBox, roundedPaint, paint, SLAB_RADIUS, EDGE_FADE, FADE_RINGS,
+} from './ground.js';
 import { buildHighRise, splitLot } from './buildings.js';
 import { barricadeParts, coneGeometry } from '../geometry/roadworks.js';
 
@@ -55,6 +58,16 @@ const BARRIER_BACK = 1.1;
 const CONE_BACK = 2.6;
 const CONE_PITCH = 1.7;
 
+// The north-west corner, past the north ring road: mid-rises, the city's own height and no taller, so
+// the step from the skyline down to the park is a step rather than a cliff.
+const CORNER_H = [7, 15];
+const CORNER_ROWS = 2;
+// The asphalt under the corner, which the island's slab stops short of: a hair *under* the slab
+// rather than butted against its rounded corner, which is tessellated its own way and would leave
+// slivers of sky or of overlap along the arc. Where the two cover the same ground the slab wins
+// the depth test by this much, the margin a façade's windows stand off their wall by.
+const PATCH_Y = -0.03;
+
 // Heights, named off the block platform's own (CLAUDE.md: two flat surfaces at one height shimmer).
 const PAVE_Y = KERB_H + 0.01;
 
@@ -82,6 +95,34 @@ export function westBlocks() {
     }
   }
   return out;
+}
+
+/**
+ * The corner's blocks, north of the north ring road in the same two columns: rows -1 and -2 of the
+ * grid carried on. The row against the ring road stops at its kerb rather than at an ordinary
+ * street's.
+ */
+export function cornerBlocks() {
+  if (!WEST_CORNER) return [];
+  const out = [];
+  for (let c = 1; c <= WEST_COLUMNS; c++) {
+    const bi = -c;
+    const x0 = lineX(bi) + HALF_ROAD;
+    const x1 = bi === -1 ? westKerbX() : lineX(bi + 1) - HALF_ROAD;
+    for (let r = 1; r <= CORNER_ROWS; r++) {
+      const bj = -r;
+      const z0 = lineZ(bj) + HALF_ROAD;
+      const z1 = bj === -1 ? lineZ(0) - halfRoadX(0) : lineZ(bj + 1) - HALF_ROAD;
+      out.push({ column: c, bi, bj, corner: true, bounds: { x0, x1, z0, z1, cx: (x0 + x1) / 2, cz: (z0 + z1) / 2 } });
+    }
+  }
+  return out;
+}
+
+/** The west ring road carried on north past the corner, shut where it leaves the ring. */
+export function northClosure() {
+  if (!WEST_CORNER) return null;
+  return { x: lineX(0), z: lineZ(0) - halfRoadX(0) - BARRIER_BACK, half: halfRoadZ(0) };
 }
 
 /** The barricaded mouths: one per street along X, at the ring road's west kerb. */
@@ -200,6 +241,9 @@ export function createWestEdge(rng) {
     }
   }
 
+  // --- The north-west corner. Built last, so the stream above is the one it always was.
+  const fade = WEST_CORNER ? buildCorner(ground, towers, sites, rng, kerbCol, walkCol, run) : null;
+
   const groundMesh = new THREE.Mesh(mergeGeometries(ground, false), propMaterial());
   ground.forEach((p) => p.dispose());
   groundMesh.castShadow = true;
@@ -212,7 +256,133 @@ export function createWestEdge(rng) {
   towerMesh.receiveShadow = true;
   towerMesh.name = 'west-edge-towers';
 
-  return { ground: groundMesh, towers: towerMesh, sites, blocks, closures: westClosures() };
+  return { ground: groundMesh, towers: towerMesh, fade, sites, blocks, closures: westClosures() };
+}
+
+/**
+ * The corner where the high rises meet the north park: the ground the island's slab never reached,
+ * mid-rises on it, the streets painted, and the west ring road carried on north beside the park and
+ * shut where it leaves the ring. Returns the ground's fade skirt.
+ */
+function buildCorner(ground, towers, sites, rng, kerbCol, walkCol, run) {
+  const xW = coastWest();
+  const zN = coastNorth();
+  // East under the park's platform, which starts at the carried-on street's east kerb; south to
+  // where the slab's corner arc begins, so the patch fills the arc's outside.
+  const xE = lineX(0) + halfRoadZ(0) + 4;
+  const zS = -(SPAN_Z + SLAB_MARGIN) / 2 + SLAB_RADIUS;
+  const patch = new THREE.PlaneGeometry(xE - xW, zS - zN);
+  patch.rotateX(-Math.PI / 2);
+  patch.translate((xW + xE) / 2, PATCH_Y, (zN + zS) / 2);
+  ground.push(bakeColor(patch, color('asphalt')));
+
+  const blocks = cornerBlocks();
+  for (const block of blocks) {
+    const { x0, x1, z0, z1, cx, cz } = block.bounds;
+    ground.push(curbBox(x1 - x0, KERB_H, z1 - z0, cx, 0, cz, kerbCol()));
+    ground.push(roundedPaint(x1 - x0 - PAVE_INSET * 2, z1 - z0 - PAVE_INSET * 2, cx, cz, walkCol(), PAVE_Y));
+  }
+
+  // The paint, between the corner's own junctions. Not out past the outermost streets: those run on
+  // into the fade, and paint does not fade with the ground under it.
+  const closure = northClosure();
+  for (let r = 1; r <= CORNER_ROWS; r++) {
+    for (let c = 1; c <= WEST_COLUMNS; c++) {
+      const east = c === 1 ? westKerbX() : lineX(-c + 1) - HALF_ROAD;
+      run('x', lineZ(-r), lineX(-c) + HALF_ROAD, east, false);
+    }
+  }
+  for (let c = 0; c <= WEST_COLUMNS; c++) {
+    const x = lineX(-c);
+    for (let r = 1; r < CORNER_ROWS; r++) run('z', x, lineZ(-r - 1) + HALF_ROAD, lineZ(-r) - HALF_ROAD, false);
+    const south = c === 0 ? closure.z - (CONE_BACK - BARRIER_BACK) - 1 : lineZ(0) - halfRoadX(0);
+    run('z', x, lineZ(-1) + HALF_ROAD, south, false);
+  }
+
+  // The closure across the carried-on ring road: the trestle as it comes, spanning x, cones behind it.
+  {
+    const { x, z, half } = closure;
+    const { trestle } = barricadeParts({ width: half * 2 - 0.4 });
+    for (const part of trestle) {
+      part.translate(x, 0, z);
+      ground.push(part);
+    }
+    const cone = coneGeometry();
+    const count = Math.max(2, Math.floor((half * 2 - 1.2) / CONE_PITCH));
+    for (let k = 0; k < count; k++) {
+      const u = (k + 0.5) / count - 0.5;
+      const g = cone.clone();
+      g.rotateY(rng.range(0, Math.PI));
+      g.translate(x + u * (half * 2 - 1.2), 0, z - (CONE_BACK - BARRIER_BACK) - (k % 2) * 0.5);
+      ground.push(g);
+    }
+    cone.dispose();
+  }
+
+  for (const block of blocks) {
+    const { x0, x1, z0, z1 } = block.bounds;
+    for (const lot of splitLot(x0, z0, x1, z1, 2, rng)) {
+      const height = rng.range(CORNER_H[0], CORNER_H[1]);
+      const range = buildHighRise(towers, lot, block.bounds, rng, height);
+      const cx = (lot.x0 + lot.x1) / 2;
+      const cz = (lot.z0 + lot.z1) / 2;
+      for (let i = range.from; i < range.to; i++) stampEntry(towers[i], cx, cz, hash01(cx, cz));
+      sites.push({ cx, cz, top: topOf(towers, range), column: block.column, corner: true });
+    }
+  }
+
+  // The feather stops at the park's west edge, where the lawn's own takes over.
+  return patchFade(xW, lineX(0) + halfRoadZ(0), zN, zS);
+}
+
+/**
+ * The corner patch's own feather off its west and north edges, the island skirt's band and curve
+ * (ground.js `asphaltFade`), round on a fan at the corner. Its east end stops square under the
+ * park's lawn feather, which carries the same edge on in green.
+ */
+function patchFade(xW, xE, zN, zS) {
+  const c = new THREE.Color(color('asphalt'));
+  const alphaAt = (t) => 1 - t * t * (3 - 2 * t);
+  const outline = [{ x: xW, z: zS, nx: -1, nz: 0 }];
+  for (let k = 0; k <= 8; k++) {
+    const a = Math.PI + (Math.PI / 2) * (k / 8);
+    outline.push({ x: xW, z: zN, nx: Math.cos(a), nz: Math.sin(a) });
+  }
+  outline.push({ x: xE, z: zN, nx: 0, nz: -1 });
+  const pos = [];
+  const cols = [];
+  for (let ring = 0; ring < FADE_RINGS; ring++) {
+    for (let k = 1; k < outline.length; k++) {
+      const at = (o, r) => ({
+        x: o.x + o.nx * EDGE_FADE * (r / FADE_RINGS),
+        z: o.z + o.nz * EDGE_FADE * (r / FADE_RINGS),
+        a: alphaAt(r / FADE_RINGS),
+      });
+      const p = outline[k - 1];
+      const q = outline[k];
+      for (const [a, b, d] of [[at(p, ring), at(q, ring), at(q, ring + 1)], [at(p, ring), at(q, ring + 1), at(p, ring + 1)]]) {
+        // Faces up from its own winding: y of (b - a) x (d - a) in the x-z plane.
+        const ny = (b.z - a.z) * (d.x - a.x) - (b.x - a.x) * (d.z - a.z);
+        if (Math.abs(ny) < 1e-9) continue;   // the fan's first ring is a point
+        for (const v of ny > 0 ? [a, b, d] : [a, d, b]) {
+          pos.push(v.x, PATCH_Y, v.z);
+          cols.push(c.r, c.g, c.b, v.a);
+        }
+      }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(cols), 4));
+  geo.computeVertexNormals();
+  const material = propMaterial();
+  material.transparent = true;
+  material.depthWrite = false;
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.receiveShadow = true;
+  mesh.renderOrder = -1;
+  mesh.name = 'west-corner-fade';
+  return mesh;
 }
 
 /** The highest point of the parts in `range`. */

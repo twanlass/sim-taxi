@@ -644,6 +644,9 @@ scene.add(markOccluder(city.mesh));
 // too. Its own stream. Null under `?westedge=classic`.
 const westEdge = createWestEdge(makeRng(seed + 59));
 if (westEdge) scene.add(markOccluder(westEdge.ground), markOccluder(westEdge.towers));
+// The northwest corner's asphalt skirt (`?westcorner=classic` drops the corner). Transparent, so not
+// an occluder.
+if (westEdge?.fade) scene.add(westEdge.fade);
 
 // Rain Mode's city lights — lit windows over the panes just built, and street lamps. A wet street
 // is a mirror for lamps, and a daytime city has almost none. See game/citylights.js. Their own
