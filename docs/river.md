@@ -69,7 +69,10 @@ is three blocks from a crossing, and the ring already serves the edge.
 leaf would go through. So the train's line always gets a fixed bridge and the leaf never does: with
 the arterial on the middle line (3) the leaf moves one line over to the seed's side; with it on
 line 2 the leaf stays on 3 and the fourth crossing is the arterial's. Still one `next()`, still four
-crossings. `?lroute=classic` restores the old rule.
+crossings. `?lroute=classic` restores the old rule. Since the line turns west at the east-west
+arterial, which is always north of the river, the default train never actually crosses; the rule
+stays because only the straight line (`?ltrainwest=classic`) does, and dropping it would move every
+city's bridges.
 
 That leaves **two ways across while the leaf is up**, which is the guarantee the whole feature
 rests on: the drawbridge may close a route, but it may never cut the city in half.
@@ -180,6 +183,14 @@ a span to work out — and `dirSign` turns it into a distance ahead.
 The one guard that survived unchanged is `car.archHopLane !== car.lane.id` — once per crossing.
 Without it the hop retriggers every frame the launch window is satisfied and the taxi hovers across
 the river.
+
+**It only launches a taxi doing at least cruise speed (`HOP_MIN_V`), and once up it always comes
+down.** The arc is paced by distance, so a car that stops in the air stays in the air: boosting onto
+the hump and braking hung the taxi 3.5 units over the crest for as long as the pedal was held, and
+slowing before the hump launched a hop at walking pace (Tyler, 2026-10-14: "the car sort of gets
+stuck in a little jump sequence"). Now the brake is deaf for every hop, not just the drift launch,
+and the arc never runs slower than half of cruise — a taxi held up in the air by something else comes
+down where it is. `?hop=classic` puts the stall back.
 
 **The landing is the other half of the stunt.** Touchdown fires `traffic.onTaxiLand` — the same
 event the barricade's landing fires, see [traffic.md](traffic.md#touchdown-published) — which rocks

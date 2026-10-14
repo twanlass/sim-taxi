@@ -196,7 +196,17 @@ const VIP_PAYOUT = 3;
 const BANK_MIN_DELIVERED = 2;     // the robbery's own MIN_DELIVERED: no rider at the bank before then
 const BANK_COOLDOWN = 35;         // seconds after a bank rider leaves the board before the next
 const BANK_CHANCE = 0.3;          // chance a qualifying spawn is the bank rider
-const BANK_ROBBER_ODDS = 0.5;     // the coin
+// The coin is loaded, and it loads further every time it lets the player off (Tyler, 2026-10-14):
+// even odds on the first bank rider of a run, then BANK_ROBBER_STEP more for each bank rider who got
+// in and rode, up to BANK_ROBBER_MAX — a player who keeps taking the bank's fares is pushing their
+// luck, and the game should say so. A robbery puts it back to even, so it does not then fire on
+// every visit for the rest of the run: 50, 65, 80, 95, robbery, 50... A rider who got in because
+// `swapReady` refused on tails counts as one who rode — from the player's seat, nothing happened.
+// Rolled at spawn like the coin always was, so the odds are the ones standing when the rider
+// appears. `?robberyodds=classic` keeps a fair coin.
+const BANK_ROBBER_ODDS = 0.5;     // the coin's first toss of a run (and every toss under classic)
+const BANK_ROBBER_STEP = 0.15;    // added per bank rider who rode
+const BANK_ROBBER_MAX = 0.95;     // never a certainty
 
 // The clock is a fraction of the run's own pace rather than a flat number, so a VIP tightens
 // along the same ramp as everything else — just harder. Never below VIP_MIN_PACE, which is about
@@ -701,7 +711,7 @@ export const waitingTargets = (slot) => [slot.passenger.group, slot.marker.group
  *                  Read per call, since the set moves every time a package is collected.
  */
 export function createFareSystem(rng, scene, {
-  reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true,
+  reserved = () => [], judgeRun = () => ({ runs: [], mult: 1 }), rating = true, risingOdds = true,
 } = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
@@ -735,6 +745,9 @@ export function createFareSystem(rng, scene, {
     // `state.elapsed` deliberately keeps running: it drives the spawn stagger and the marker
     // animations, neither of which is the player's to pay for.
     paused: false,
+    // Bank riders who got in and rode since the last robbery (or the start of the run). Loads the
+    // coin — see BANK_ROBBER_STEP. Always 0 under `risingOdds: false`.
+    bankRides: 0,
   };
 
   const slots = Array.from({ length: MAX_FARES }, (_, index) => createSlot(scene, index));
@@ -1033,6 +1046,8 @@ export function createFareSystem(rng, scene, {
   // the tools and `?bankfare=classic` — and then no bank rider ever spawns.
   let bankStop = null;
   let lastBankAt = -Infinity;
+  /** The chance the next bank rider's coin comes up tails. See BANK_ROBBER_STEP. */
+  const robberOdds = () => Math.min(BANK_ROBBER_MAX, BANK_ROBBER_ODDS + BANK_ROBBER_STEP * state.bankRides);
   /** Is the next spawn the bank rider? See BANK_CHANCE. */
   function wantsBank(taxiCar, near) {
     if (!bankStop || state.delivered < BANK_MIN_DELIVERED) return false;
@@ -1154,7 +1169,7 @@ export function createFareSystem(rng, scene, {
       // The bank rider (see BANK_CHANCE): where they stand, and the coin. `stand` goes at pickup.
       bank,
       stand: bank ? { x: bankStop.x, z: bankStop.z } : null,
-      robberRoll: bank && rng.chance(BANK_ROBBER_ODDS),
+      robberRoll: bank && rng.chance(robberOdds()),
       target: spot,
       // Where they were picked up. `target` moves to the drop-off at `beginRide`, so without a
       // separate copy the trip distance (and its fare) can't be measured later.
@@ -1965,9 +1980,11 @@ export function createFareSystem(rng, scene, {
         if (fare.robberRoll && bankStop?.swapReady(fare)) {
           clear(fare);
           lastBankAt = state.elapsed;
+          state.bankRides = 0;
           emit('swapped', fare);
           continue;
         }
+        if (fare.bank && risingOdds) state.bankRides += 1;
         beginRide(fare);
         emit('pickup', fare);
       } else if (fare.checkpoints?.length) {
@@ -2199,6 +2216,7 @@ export function createFareSystem(rng, scene, {
      * BANK_CHANCE.
      */
     setBankStop: (stop) => { bankStop = stop; },
+    robberOdds,
     /** The bank job's robber is in — see `boardScripted`. */
     boardScripted,
     /** Is one in the car right now? The trigger's own cooldown reads it, and so does the HUD. */

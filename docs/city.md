@@ -231,29 +231,45 @@ consequence of the constraint rather than a choice, and it happens to suit munic
 
 ### The elevated train (on by default, `?ltrain=classic` to compare)
 
-`game/ltrain.js` stands a Chicago-style L over the **north-south** arterial: a steel deck on a
-column at each nose of every planted island, one track, and one four-car train that crosses the
-city, waits off the end, and comes back the other way. `?ltrain=classic` takes it out; shots
-`ltrain` and `ltrain-far` turn it on even then. `?lroute=classic` puts it back on the east-west
-arterial, beside the river, with the old crossings (Tyler moved it across the river, 2026-10-13).
+`game/ltrain.js` stands a Chicago-style L over the city's two arterials: in off the north park
+down the **north-south** one's median, a quarter turn right at the **east-west** one, and out west
+along its median, through the [west edge](#the-west-edge-high-rises-default-westedgeclassic-to-drop-them)'s
+high rises and off the island. A steel deck on a column at each nose of every planted island, one
+track, and one four-car train that crosses the city, waits off the end, and comes back the other
+way. `?ltrain=classic` takes it out; shots `ltrain` and `ltrain-far` turn it on even then, framed on
+the corner. Tyler, 2026-10-14: "make a right turn and head out of town through the west side high
+rises. Doesn't make sense fading off into the ocean." `?ltrainwest=classic` keeps the straight
+north-south line it replaced, and `?lroute=classic` the east-west one before that
+([rendering-history.md](rendering-history.md#the-l-trains-route)).
 
-- **Built along local +x and turned onto the line.** The geometry, the train and the timetable all
-  work in `a`, distance along the line; a north-south group takes a quarter turn, so local +x is
-  world −z (north) and local +z is world +x, the camera's side. `plan.world(a, o)` and
-  `plan.alongOf(x, z)` convert; the shader's coast fade reads `-z` instead of `x` (`uLAxis`).
-- **It crosses the river on a truss.** The river gap has no median — the road bridge runs junction
-  to junction — so the bents either side stand 34 apart against 7–13 everywhere else. Any span past
-  `TRUSS_FROM` (20) gets a through Warren truss standing up past the train's roof. The truss is
-  its own mesh on a plain material and never fades (Tyler: "don't do any truss fading"); the deck
-  under it still dithers round the taxi and the pins like the rest of the line.
-- **The drawbridge moves off its line.** A lifted leaf would go through a 6.4 deck, so `planRiver`
-  always gives the train's line a fixed (arched) bridge and puts the leaf one line over
-  ([river.md](river.md#which-crossings-bridge)). On the arch's crest (1.9) a box truck's top is
-  5.4 against the floor beams' 5.88; the tallest mast (`TUG_AIR`) tops out at 1.4. A Big Air
-  launch off that arch (`DRIFT_LAUNCH_HEIGHT` 10) does go up through the truss, and Tyler kept it
-  that way: the taxi flies through solid steel and the ghost outline shows it behind the members.
+- **Built along a path.** The geometry, the train and the timetable all work in `a`, distance along
+  the line (0 at the middle of the curve, growing towards the north end), and `o`, the offset across
+  it towards the camera. `planLTrain` turns the line into straight pieces and one quarter circle;
+  `plan.world(a, o)`, `plan.frame(a)` and `plan.alongOf(x, z)` convert. Lengthwise members are swept
+  along it (`sweepBox`, every triangle's winding checked against its face), cross members and bents
+  are turned square to it, and each car stands on the chord between its two trucks.
+- **The corner is a quarter circle across the junction, on no columns of its own.** Nothing stands
+  in a junction box, so the curve runs from the far nose of the island on one leg to the far nose on
+  the other: radius 13.65, a 21.4 span, the near noses dropped because they would stand under the
+  curve off its centreline. 5.2-unit cars on 13.65 is the ratio of the Loop's tightest curves; a
+  car's middle bows 0.11 in and its ends swing 0.13 out, and the probe walks every car round it
+  (worst corner 1.00 off the line against the deck's 1.35). The inner edge comes about 0.5 over the
+  corner of the block inside the curve, 6.4 up. Where a park district has closed the road next to
+  the junction (about 1 city in 12), a bent stands on its lawn at the curve's end instead.
+- **Out west it keeps the city's rhythm.** The west edge's streets have no islands, but the line
+  stands a bent where each nose would be, so the spacing does not change at the ring road. The first
+  stands on the centreline just behind the barricade, which leaves its middle cone out
+  (`RAIL_CLEAR` in city/westedge.js). Past the far column it carries on at `OFFSHORE_PITCH` and
+  dithers out with the coast. The coast fade tests all four coasts (`uLCoast`), since the line
+  leaves over two of them.
+- **The river.** The east-west arterial is always north of the river, so the turning line never
+  crosses it and has no truss. Under `?ltrainwest=classic` it does: the bents either side stand 34
+  apart, and any straight span past `TRUSS_FROM` (20) gets a through Warren truss standing up past
+  the train's roof, its own mesh on a plain material that never fades (Tyler: "don't do any truss
+  fading"). `planRiver` still keeps the drawbridge's leaf off the north-south arterial's line
+  ([river.md](river.md#which-crossings-bridge)), so the bridges are where they were.
 - **Off the north end** it runs on over the north park (`NORTH_PARK_DEPTH`, `coastNorth()`) and
-  fades past it; off the south end it fades out over the [south shore](river.md#the-south-shore)'s lawn.
+  fades past it; off the west end it fades between the far column's towers.
 
 - **The median is why it is on the arterial.** It is the one strip running the width of the city
   that no car drives on, so the columns need no clearance rule of their own: `planLTrain` reads
@@ -358,6 +374,9 @@ block them off from the game grid with construction barriers."
   slab's rounded corner, with its own feather off the west and north (`patchFade`). Tyler,
   2026-10-14: "fill in this corner with another some mid rise buildings and smooth out the park
   transition."
+- **Past all of it the city carries on into the haze** (`city/horizon.js`, `?horizon=classic` for the
+  bare edge): plain towers on the grid's pitch past the west towers and past the north park, fading
+  into the sky. See [rendering.md](rendering.md#past-the-edge-of-the-map--cityhorizonjs).
 
 ## Layout: what a block *is*
 

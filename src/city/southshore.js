@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, bakeColors, propMaterial } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
-import { GRID_I, lineX, halfRoadZ, isArterialZ, LTRAIN_NS, coastWest } from './grid.js';
+import { GRID_I, lineX, halfRoadZ, isArterialZ, LTRAIN_NS, LTRAIN_WEST, coastWest } from './grid.js';
 import { KERB_H, PAVE_INSET, SLAB_RADIUS, EDGE_FADE, FADE_RINGS } from './ground.js';
 import { WATER_Y } from './river.js';
 import { wallQuad } from './harbor.js';
@@ -66,9 +66,10 @@ const CART_END_MARGIN = 20;       // off each end of the walkway
 const LAWN_Y = KERB_H + 0.01;      // lawn and pavement band, side by side
 const PATH_Y = LAWN_Y + 0.01;      // the walkway on the lawn
 
-/** The x of the L's line where it runs south over the strip, or null. */
+/** The x of the L's line where it runs south over the strip, or null. It only does on the straight
+ *  north-south line (`?ltrainwest=classic`); by default it turns west long before it gets here. */
 function railX() {
-  if (!LTRAIN_NS) return null;
+  if (!LTRAIN_NS || LTRAIN_WEST) return null;
   for (let i = 1; i < GRID_I; i++) if (isArterialZ(i)) return lineX(i);
   return null;
 }

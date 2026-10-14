@@ -58,7 +58,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -117,7 +117,9 @@ import { BOARD_MAX } from '../src/game/difficulty.js';
 import { LOCO_PACE_SELF } from './autoplay.mjs';
 import { planRun as planBankRun } from '../src/game/bankjob.js';
 import { createRobbery, TRIGGER_RANGE as ROBBERY_TRIGGER_RANGE, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
-import { createPatrol, ESCAPE_BLOCKS, TOUCH_SLACK, SIGHT_HOLD } from '../src/game/patrol.js';
+import {
+  createPatrol, createPin, ESCAPE_BLOCKS, TOUCH_SLACK, SIGHT_HOLD, PIN_HOLD, PIN_SPEED,
+} from '../src/game/patrol.js';
 import { touching } from '../src/sim/collisions.js';
 import { createCashTrail, noteGeometry, NOTE_FOLD, BRICK_H } from '../src/game/cashtrail.js';
 import { createCopLights } from '../src/game/coplights.js';
@@ -9564,6 +9566,92 @@ function rideToPickup() {
   }
 }
 
+// --- Getting caught: the capture model ---------------------------------------
+// game/patrol.js, "The capture model". A chasing cop that touches a taxi still doing a speed lands a
+// hit (HP, through `strike` in sim/collisions.js) and is not an arrest; the arrest is the pin — the
+// taxi held under PIN_SPEED with the cop on it for PIN_HOLD. Staged as the ram checks above are:
+// the cop square into the taxi's door, re-placed every frame so the knock cannot carry it off.
+{
+  const s = seed;
+  createLayout(makeRng(s));
+  const cScene = new THREE.Scene();
+  const cTraffic = createTraffic(makeRng(s + 44), cScene, CARS_DEFAULT);
+  const cPolice = createPolice(cScene);
+  const taxi = cTraffic.taxi;
+  const cCollisions = createCollisions(cTraffic.cars, taxi);
+  let caught = false;
+  let rammed = 0;
+  const cPatrol = createPatrol({
+    rng: makeRng(s + 66), police: cPolice, traffic: cTraffic, taxi, capture: true,
+    onCaught: () => { caught = true; },
+    onRammed: (cop) => { rammed += 1; cCollisions.strike(cop); },
+  });
+  cPatrol.state.cooldown = 0;
+  for (let step = 0; step < 60 * 90 && cPatrol.state.phase !== 'patrol'; step++) {
+    cTraffic.update(1 / 60); cPatrol.update(1 / 60); cPolice.update(1 / 60);
+  }
+  const cop = cPatrol.state.cop;
+  const onDoor = () => {
+    cop.yaw = taxi.yaw + Math.PI / 2;
+    cop.x = taxi.x - Math.cos(cop.yaw) * 1.6;
+    cop.z = taxi.z + Math.sin(cop.yaw) * 1.6;
+    cop.v = 6;
+  };
+  if (cop) {
+    // Spotted the way the patrol checks above do it: boosting a few units off it for one frame.
+    const at = { x: taxi.x, z: taxi.z };
+    taxi.x = cop.x + 6; taxi.z = cop.z;
+    cPatrol.update(1 / 60, { boosting: true });
+    taxi.x = at.x; taxi.z = at.z;
+    taxi.hp = TAXI_HP;
+    taxi.boost = false;
+    // A ram at cruise: a hit, not the arrest.
+    onDoor();
+    taxi.v = 8;
+    cPatrol.update(1 / 60);
+    check('capture: a cop ramming a taxi at speed is a hit, not a bust',
+      cPatrol.state.phase === 'chase' && !caught && rammed === 1 && taxi.hp < TAXI_HP && !taxi.crashed,
+      `phase ${cPatrol.state.phase}, caught ${caught}, rams ${rammed}, hp ${taxi.hp}`);
+    // Pinned: stopped, the cop held on its door. Not inside the backoff, not before PIN_HOLD, and
+    // then the arrest.
+    const hpAfterRam = taxi.hp;
+    let at1 = false;
+    const frames = (sec) => Math.round(sec * 60);
+    for (let f = 0; f < frames(1.5 + PIN_HOLD * 0.6); f++) {
+      onDoor(); taxi.v = 0; cPatrol.update(1 / 60);
+    }
+    at1 = caught;
+    for (let f = 0; f < frames(PIN_HOLD); f++) {
+      onDoor(); taxi.v = 0; cPatrol.update(1 / 60);
+      if (caught) break;
+    }
+    check('capture: pinned under PIN_SPEED, the arrest comes after PIN_HOLD and not before',
+      !at1 && caught && cPatrol.state.phase === 'arrest' && taxi.hp === hpAfterRam,
+      `early ${at1}, caught ${caught}, phase ${cPatrol.state.phase}`);
+  } else {
+    check('capture: a cop ramming a taxi at speed is a hit, not a bust', false, 'no patrol on the map');
+  }
+
+  // The getaway's pin is the same clock over a fleet. A taxi moving at PIN_SPEED is never pinned.
+  const pin = createPin(taxi);
+  const fleetCop = cTraffic.cars.find((c) => c !== taxi && c !== cop && !c.crashed);
+  taxi.crashed = false;
+  taxi.staged = false;
+  const place = () => {
+    fleetCop.yaw = taxi.yaw + Math.PI / 2;
+    fleetCop.x = taxi.x - Math.cos(fleetCop.yaw) * 1.6;
+    fleetCop.z = taxi.z + Math.sin(fleetCop.yaw) * 1.6;
+  };
+  let moving = null;
+  for (let f = 0; f < 120; f++) { place(); taxi.v = PIN_SPEED; moving = moving ?? pin.update(1 / 60, [fleetCop]); }
+  let stuck = null;
+  let stuckAt = 0;
+  for (let f = 0; f < 120 && !stuck; f++) { place(); taxi.v = 0; stuck = pin.update(1 / 60, [fleetCop]); stuckAt = f + 1; }
+  check('capture: the getaway pin catches a stopped taxi, never a moving one',
+    moving === null && stuck === fleetCop && Math.abs(stuckAt / 60 - PIN_HOLD) < 0.05,
+    `moving ${Boolean(moving)}, stuck after ${(stuckAt / 60).toFixed(2)}s`);
+}
+
 // --- A patrol turns round in the road ----------------------------------------
 // sim/traffic.js (UTURN_SPEED) and game/patrol.js (`turnRound`). A taxi that boosts past a patrol
 // the other way used to leave the cop driving on to lap the block, which is all the router can do
@@ -12812,6 +12900,42 @@ let planeOrder;   // read out of the block below, checked in 'Which axis a body 
 let chopperOrder; // likewise
 
 // --- The ambient flyover --------------------------------------------------------
+// Every other vehicle wears the cars' paint (docs/rendering.md, "Every other vehicle"): each
+// mesh is on the gloss material and its geometry is tagged, every vertex of it. A part merged in
+// untagged would read as tyre, and a gloss mesh with no paint on it means a builder forgot to tag.
+{
+  const { setVehiclePaint, FINISH: F } = await import('../src/util/geo.js');
+  const { ship: shipParts } = await import('../src/city/harbor.js');
+  const { createLTrain: ltrainFor } = await import('../src/game/ltrain.js');
+  const tagged = (geometry, ...need) => {
+    const finish = geometry.attributes.aFinish;
+    if (!finish || finish.count !== geometry.attributes.position.count) return false;
+    const seen = new Set(finish.array);
+    return need.every((f) => seen.has(f));
+  };
+  const gloss = (mesh) => mesh.material.isMeshPhongMaterial === true;
+  const plane = createPlaneMesh();
+  const heli = createHelicopterMesh();
+  const cops = createHelicopterMesh({ livery: 'police' });
+  const bodies = [plane.group.children[0], heli.group.children[0], cops.group.children[0]];
+  const barge = createBargeMesh(makeRng(3));
+  const tug = createTugMesh(makeRng(4));
+  const { hull, upper } = shipParts(makeRng(5));
+  const train = ltrainFor(new THREE.Scene(), makeRng(9));
+  check('every other vehicle is on the cars\' paint, with its parts tagged',
+    bodies.every((m) => gloss(m) && m.material.transparent && tagged(m.geometry, F.PAINT, F.GLASS))
+    && tagged(barge, F.PAINT, F.TYRE, F.MATTE) && tagged(tug, F.PAINT, F.GLASS, F.METAL, F.MATTE)
+    && [...hull, ...upper].every((g) => tagged(g)) && tagged(train?.body.children[0].geometry ?? barge, F.PAINT, F.GLASS, F.METAL)
+    && (!train || (gloss(train.body.children[0]) && !gloss(train.deck))),
+    `plane ${gloss(bodies[0])}, heli ${gloss(bodies[1])}, police ${gloss(bodies[2])}, train ${train ? gloss(train.body.children[0]) : 'none'}`);
+  setVehiclePaint(false);
+  const classicPlane = createPlaneMesh();
+  const classicTrain = ltrainFor(new THREE.Scene(), makeRng(9));
+  setVehiclePaint(true);
+  check('?vehiclepaint=classic puts them back on the plain material',
+    !gloss(classicPlane.group.children[0]) && (!classicTrain || classicTrain.body.children[0].material === classicTrain.deck.material));
+}
+
 // A plane crossing the sky is the one thing in the game with no failure state to notice: if it
 // clips a tower, pops into frame at the edge of a wide monitor, or flies parallel to the streets,
 // nothing breaks and nobody is told. All three are numbers, so they belong here.
@@ -16853,12 +16977,15 @@ let chopperOrder; // likewise
       if (tails.length) {
         const d = tails[0];
         const strikes = d.f8.state.strikes;
+        d.f8.state.bankRides = 2;
         const events = arrive(d);
         check('tails: the robber takes the bank rider’s seat',
           events.includes('swapped') && !events.includes('pickup') && d.rob8.state.active && d.got.length === 1
             && !d.f8.state.fares.includes(d.bankFare) && d.f8.carrying()?.robber,
           `events ${events.join(',')}, ${d.got.length} robbers`);
         check('...and the rider they shoved costs no star', d.f8.state.strikes === strikes);
+        check('...and the robbery puts the coin back to even', d.f8.robberOdds() === 0.5,
+          `${d.f8.robberOdds()}`);
       }
       if (heads.length) {
         const d = heads[0];
@@ -16866,6 +16993,15 @@ let chopperOrder; // likewise
         check('heads: the bank rider simply gets in',
           events.includes('pickup') && !d.rob8.state.active && d.f8.carrying() === d.bankFare,
           `events ${events.join(',')}`);
+        // BANK_ROBBER_STEP: every bank rider who rides loads the coin, up to a cap short of certain.
+        const steps = [d.f8.robberOdds()];
+        for (let k = 0; k < 4; k++) { d.f8.state.bankRides += 1; steps.push(d.f8.robberOdds()); }
+        // `steps[0]` is after the pickup just made, so the run reads from the second toss on.
+        check('...and loads the coin for the next one: 65, 80, 95, then held at 95',
+          [0.65, 0.8, 0.95, 0.95, 0.95].every((v, k) => Math.abs(steps[k] - v) < 1e-9),
+          steps.map((v) => v.toFixed(2)).join(' '));
+        const flat = createFareSystem(makeRng(seed + 900), new THREE.Scene(), { risingOdds: false });
+        check('...but not under ?robberyodds=classic', flat.robberOdds() === 0.5 && flat.state.bankRides === 0);
       }
       if (tails.length > 1) {
         // Tails, but the gates are shut — the last robbery inside its cooldown: they get in after all.
@@ -18070,11 +18206,15 @@ let chopperOrder; // likewise
       if (setup()) {
         taxi.braking = true;
         let low = Infinity;
+        let flew = false;
         for (let k = 0; k < 60 && !(taxi.state === 'drive' && taxi.lane.id === out.id); k++) {
           dTraffic.update(1 / 60);
           low = Math.min(low, taxi.v);
+          flew ||= taxi.hopFrom != null;
         }
-        braked = Math.max(braked, low);
+        // An approach over an arched span hops off the crest, and the brake is deaf in the air
+        // (HOP_MIN_V in sim/traffic.js) — that corner says nothing about the pedal on the road.
+        if (!flew) braked = Math.max(braked, low);
         taxi.braking = false;
       }
     }
@@ -19370,6 +19510,53 @@ let chopperOrder; // likewise
       `${boosted?.launches} launches over one span`);
     check('a taxi at cruise drives over it', cruised && cruised.launches === 0,
       `${cruised?.launches} launches without boost`);
+
+    // **A hop always comes down.** Boosting onto the hump with the brake held from the first
+    // frame stopped the taxi 3.5 units over the crest, where it hung for as long as the pedal was
+    // down — 121 frames in the measurement this was written against. And one braking onto it
+    // below cruise does not take off at all.
+    const stall = (style, v, brake) => {
+      setHopStyle(style);
+      const sScene = new THREE.Scene();
+      const sTraffic = createTraffic(makeRng(seed + 851), sScene, 1);
+      const taxi = sTraffic.taxi;
+      const lane = net.laneByGrid(1, jSpan.line, jSpan.row + 1);
+      // Already inside the launch window, which opens HOP_LEN / 2 short of the crest: the launch
+      // is decided on the first frame, before the brake has taken anything off.
+      // The deck lane runs bank to bank, so its middle is the crest.
+      placeCar(taxi, 1, jSpan.line, jSpan.row + 1, lane.length / 2 + HOP_LEN / 2 - 0.2);
+      taxi.parked = false;
+      taxi.route = [1, 1, 1];
+      taxi.routeConsumed = false;
+      taxi.v = v;
+      // Already in Loco Mode, slowed by the pedal: the press's own surge (`loco.kick`) is spent.
+      taxi.wasBoosting = true;
+      let air = 0;
+      let launches = 0;
+      let wasAir = false;
+      for (let f = 0; f < 60 * 3; f++) {
+        taxi.boost = true;
+        taxi.braking = brake;
+        sTraffic.update(1 / 60);
+        const up = taxi.hopFrom != null;
+        if (up) air += 1;
+        if (up && !wasAir) launches += 1;
+        wasAir = up;
+      }
+      sTraffic.dispose?.();
+      setHopStyle();
+      return { air, launches, lane: !!lane };
+    };
+    const braked = stall(undefined, SPEED * 1.3, true);
+    const brakedClassic = stall('classic', SPEED * 1.3, true);
+    const crawled = stall(undefined, HOP_MIN_V * 0.5, true);
+    const crawledClassic = stall('classic', HOP_MIN_V * 0.5, true);
+    check('braking over the hump does not park the taxi in mid-air',
+      braked.launches === 1 && braked.air < 60 && brakedClassic.air > 100,
+      `${braked.launches} launch, ${braked.air} frames of air (classic: ${brakedClassic.air})`);
+    check('and a taxi crawling onto the hump does not take off',
+      crawled.launches === 0 && crawledClassic.launches === 1,
+      `${crawled.launches} launches at ${(HOP_MIN_V * 0.5).toFixed(1)} u/s (classic: ${crawledClassic.launches})`);
   }
 
   // --- The lift, and the two things it must never do.
@@ -20246,6 +20433,11 @@ let chopperOrder; // likewise
     `aboard ×${aboard.mult}, en route ×${enRoute.mult}, bystander ×${bystander.mult}`);
 
   m = createComboMeter();
+  const stunt = m.land('stuntman');
+  check('smashing a roadworks barricade is Stuntman, a whole step',
+    stunt?.label === 'Stuntman' && stunt.added === 1 && m.state.mult === 2, `${stunt?.label} +${stunt?.added}`);
+
+  m = createComboMeter();
   for (let k = 0; k < 10; k += 1) m.land('launch');
   check(`the meter stops at ×${COMBO_MAX}`, m.state.mult === COMBO_MAX && m.land('drift', 3).added === 0,
     `×${m.state.mult}`);
@@ -20367,7 +20559,7 @@ let chopperOrder; // likewise
 // planted island (never in a junction box, where the turns cross), the deck stopping short of the
 // lanes so nothing driving under it can touch it, and the train shuttling on both tracks.
 {
-  const { planLTrain, createLTrain, LTRAIN_DIMENSIONS: L } = await import('../src/game/ltrain.js');
+  const { planLTrain, createLTrain, LTRAIN_DIMENSIONS: L, deckSpans: deckSpansOf } = await import('../src/game/ltrain.js');
   const { medianRuns, halfRoadZ, halfRoadX } = await import('../src/city/grid.js');
   const { LANE_TO_KERB } = await import('../src/city/grid.js');
   // citylights.js: POST_H 4.2 on a KERB_H kerb.
@@ -20385,21 +20577,39 @@ let chopperOrder; // likewise
     const plan = planLTrain();
     if (!plan) continue;
     planned += 1;
-    // Distances along the line: x for an east-west one, -z for a north-south one (`plan.alongOf`).
+    // Judged in the world, footing by footing: on a planted island, out past the ring road's kerb,
+    // or on a park district's lawn where one closed the road (the line turning west stands a bent
+    // there rather than span the corner and the whole closed block at once).
     const ns = plan.axis === 'z';
-    const ringKerb = ns ? HALF_SPAN_Z + halfRoadX(GRID_J) : HALF_SPAN_X + halfRoadZ(GRID_I);
-    const runs = medianRuns().filter((r) => r.axis === plan.axis && r.line === plan.line)
-      .map((r) => (ns ? { from: -r.to, to: -r.from } : r));
-    for (const x of plan.columns) {
-      const onIsland = runs.some((r) => x - L.FOOTING_W / 2 >= r.from && x + L.FOOTING_W / 2 <= r.to);
-      const offshore = Math.abs(x) - L.FOOTING_W / 2 > ringKerb;
-      if (!onIsland && !offshore) offIsland += 1;
+    const half = L.FOOTING_W / 2;
+    const xKerb = HALF_SPAN_X + halfRoadZ(GRID_I);
+    const zKerb = HALF_SPAN_Z + halfRoadX(GRID_J);
+    const islands = medianRuns();
+    for (const a of plan.columns) {
+      const w = plan.world(a);
+      const onIsland = islands.some((r) => w.x - half >= r.x0 - 1e-6 && w.x + half <= r.x1 + 1e-6
+        && w.z - half >= r.z0 - 1e-6 && w.z + half <= r.z1 + 1e-6);
+      const offshore = Math.abs(w.x) - half > xKerb || Math.abs(w.z) - half > zKerb;
+      // On the line of a road a park closed, clear of the junction boxes at either end of it.
+      const gi = (w.x + HALF_SPAN_X) / 20;
+      const gj = (w.z + HALF_SPAN_Z) / 20;
+      const clearOfBox = (g) => Math.abs(g - Math.round(g)) * 20 > HALF_ARTERIAL + half;
+      const onLawn = (Math.abs(gi - Math.round(gi)) < 1e-6 && clearOfBox(gj)
+          && isSegmentClosed(Math.round(gi), Math.floor(gj), DIR.PZ))
+        || (Math.abs(gj - Math.round(gj)) < 1e-6 && clearOfBox(gi)
+          && isSegmentClosed(Math.floor(gi), Math.round(gj), DIR.PX));
+      if (!onIsland && !offshore && !onLawn) offIsland += 1;
     }
     for (let n = 1; n < plan.columns.length; n++) {
       // A park built over the arterial leaves one long span, which is allowed, and so does the
-      // river under a north-south line, which gets a truss; anything else is not.
+      // river under a north-south line, which gets a truss, and the corner of the line that turns
+      // west, which is a curve across a junction; anything else is not.
       const gap = plan.columns[n] - plan.columns[n - 1];
-      const closedHere = runs.length < (ns ? GRID_J - 1 : GRID_I);
+      // Any segment of the line's own arterials closed by a park.
+      const closedHere = (plan.axis !== 'x' && [...Array(GRID_J).keys()].some((k) => isSegmentClosed(plan.line, k, DIR.PZ)))
+        || (plan.axis !== 'z' && [...Array(GRID_I).keys()].some((k) => isSegmentClosed(k, plan.lineX ?? plan.line, DIR.PX)));
+      const corner = !plan.straight(plan.columns[n - 1], plan.columns[n]);
+      if (corner) continue;
       const river = ns && (() => {
         const w0 = plan.world(plan.columns[n - 1]).z;
         const w1 = plan.world(plan.columns[n]).z;
@@ -20417,7 +20627,8 @@ let chopperOrder; // likewise
     // nothing of theirs may reach up into the deck's slot.
     if (HARBOR) {
       const hp = createHarbor(makeRng(seed + s * 53 + 47)).mesh.geometry.attributes.position;
-      for (let t = 0; t < hp.count; t++) {
+      // The line that turns west never comes near it.
+      for (let t = 0; plan.c !== null && t < hp.count; t++) {
         const across = ns ? hp.getX(t) : hp.getZ(t);
         if (Math.abs(across - plan.c) < L.DECK_HALF_W + 0.3 && hp.getY(t) > L.CAP_UNDERSIDE - 0.3) {
           harborClash += 1;
@@ -20430,6 +20641,74 @@ let chopperOrder; // likewise
   if (planLTrain().axis === 'z') {
     check('ltrain: the line crosses the river once, on a truss, over a fixed bridge and never the drawbridge',
       riverSpans === 20 && drawUnder === 0, `${riverSpans}/20 river spans, ${drawUnder} under a leaf or with no bridge`);
+  }
+  // The corner (the line turning west, the default): the line comes down the north-south arterial,
+  // turns at the east-west one and runs out west past the west coast, and never goes south of the
+  // turn or near the river. Round the curve every car's corners stay on the deck, and the curve's
+  // swept members are wound outward — the corner span is all sweeps and ties, so its signed volume
+  // goes negative if they come out inside out (CLAUDE.md: the roadworks ramp, the bridge deck), and
+  // every railhead triangle there must face up.
+  if (planLTrain().route === 'west') {
+    const { LTRAIN_DIMENSIONS: LD } = await import('../src/game/ltrain.js');
+    let wrongWay = 0;
+    let offDeck = 0;
+    let worst = 0;
+    for (let s = 0; s < 20; s++) {
+      createLayout(makeRng(seed + s * 53));
+      const plan = planLTrain();
+      const { x: cx, z: cz, r } = plan.corner;
+      const west = plan.world(plan.from);
+      const north = plan.world(plan.to);
+      const southmost = Math.max(...plan.columns.map((a) => plan.world(a).z));
+      if (west.x > coastWest() || Math.abs(west.z - cz) > 1e-6 || north.z > coastNorth()
+        || Math.abs(north.x - cx) > 1e-6 || southmost > cz + 1e-6 || r < 10) wrongWay += 1;
+      // Each car as placed by its trucks, at a fine step through the curve.
+      for (let a = -r * Math.PI / 4 - 6; a <= r * Math.PI / 4 + 6; a += 0.1) {
+        const p0 = plan.world(a - (LD.CAR_LEN / 2 - 0.9));
+        const p1 = plan.world(a + (LD.CAR_LEN / 2 - 0.9));
+        const hx = (p1.x - p0.x) / Math.hypot(p1.x - p0.x, p1.z - p0.z);
+        const hz = (p1.z - p0.z) / Math.hypot(p1.x - p0.x, p1.z - p0.z);
+        const mx = (p0.x + p1.x) / 2;
+        const mz = (p0.z + p1.z) / 2;
+        for (const e of [-1, 1]) {
+          for (const o of [-1, 1]) {
+            const x = mx + hx * e * LD.CAR_LEN / 2 - hz * o * LD.CAR_W / 2;
+            const z = mz + hz * e * LD.CAR_LEN / 2 + hx * o * LD.CAR_W / 2;
+            const d = plan.nearest(x, z).d;
+            worst = Math.max(worst, d);
+            if (d > LD.DECK_HALF_W) offDeck += 1;
+          }
+        }
+      }
+    }
+    createLayout(makeRng(seed));
+    const lt = createLTrain(new THREE.Scene(), makeRng(9), { intro: false });
+    const arc = lt.plan.segs.find((sg) => sg.kind === 'arc');
+    const k = deckSpansOf(lt.plan).findIndex((sp) => sp.from <= arc.a0 + 1e-6 && sp.to >= arc.a1 - 1e-6);
+    const pos = lt.deck.geometry.attributes.position;
+    const spanAt = lt.deck.geometry.attributes.span;
+    let volume = 0;
+    let railTops = 0;
+    let railDown = 0;
+    const railTop = LD.RAIL_TOP;
+    const v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    for (let t = 0; t < pos.count; t += 3) {
+      if (spanAt.getX(t) !== k) continue;
+      for (let q = 0; q < 3; q++) v[q].fromBufferAttribute(pos, t + q);
+      volume += v[0].dot(v[1].clone().cross(v[2])) / 6;
+      if (v.every((p) => Math.abs(p.y - railTop) < 1e-4)) {
+        railTops += 1;
+        const ny = v[1].clone().sub(v[0]).cross(v[2].clone().sub(v[0])).y;
+        if (ny <= 0) railDown += 1;
+      }
+    }
+    check('ltrain: the line turns west at the east-west arterial and runs off the west coast, never south of it',
+      wrongWay === 0, `${wrongWay} of 20 cities wrong`);
+    check('ltrain: round the corner every car stays on the deck',
+      offDeck === 0, `worst corner ${worst.toFixed(2)} off the line against ${LD.DECK_HALF_W}`);
+    check('ltrain: the corner span is wound outward, railheads facing up',
+      k >= 0 && volume > 0 && railTops > 20 && railDown === 0,
+      `span ${k}, volume ${volume.toFixed(2)}, ${railDown}/${railTops} railhead triangles facing down`);
   }
   check('ltrain: every column stands on a planted island or out past the ring road',
     offIsland === 0, `${offIsland} in a junction or a lane`);
@@ -20481,9 +20760,8 @@ let chopperOrder; // likewise
     const offRail = bursts.filter((b) => Math.abs(b.y - L.RAIL_TOP) > 0.2 || b.opts.floor !== 0).length;
     // The harbor pushes the east coast out, and the line runs over it (`coastEast + coastWest` is
     // its reach, 0 without one).
-    const offIsland = bursts.filter((b) => (lts.plan.axis === 'z'
-      ? b.z > HALF_SPAN_Z + 20 || b.z < Math.min(-(HALF_SPAN_Z + 20), coastNorth())
-      : b.x < -(HALF_SPAN_X + 20) || b.x > HALF_SPAN_X + 20 + coastEast() + coastWest())).length;
+    const offIsland = bursts.filter((b) => b.x < coastWest() || b.x > coastEast()
+      || b.z < coastNorth() || b.z > HALF_SPAN_Z + 20).length;
     const perCrossing = bursts.length / 3 / Math.max(1, crossings);
     check('ltrain: the wheels spark a few times a crossing, off the rail, over the island',
       perCrossing >= 1.5 && perCrossing <= 8 && offRail === 0 && offIsland === 0,
@@ -20508,6 +20786,10 @@ let chopperOrder; // likewise
     for (let n = 0; n < 60 * 120; n++) {
       ltl.update(1 / 60);
       if (ltl.state.phase !== 'run') continue;
+      // Round the corner the end car is a chord across the curve, so its face is not exactly half
+      // a train along the line from the middle; judged on the straights.
+      const arc = ltl.plan.segs.find((sg) => sg.kind === 'arc');
+      if (arc && ltl.state.x + L.TRAIN_LEN / 2 > arc.a0 - 1 && ltl.state.x - L.TRAIN_LEN / 2 < arc.a1 + 1) continue;
       ltl.group.updateMatrixWorld(true);
       // Along the line, whichever way it runs (x, or -z for a north-south one).
       const along = (v) => ltl.plan.alongOf(v.x, v.z);

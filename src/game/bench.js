@@ -63,8 +63,14 @@ export const BENCH_STEPS = [
   // drift between the two baselines.
   { label: 'paint layered', params: { paint: 'layered' } },
   { label: 'paint classic', params: { paint: 'classic' } },
+  // The plane, helicopters, boats, ships and L train back on the plain material (util/geo.js
+  // `setVehiclePaint`). Most of them are off screen most of the time, so this one only moves when
+  // one is in frame — the barge and the train are the likeliest.
+  { label: 'vehicle paint classic', params: { vehiclepaint: 'classic' } },
   // What the high rises past the west ring road cost (city/westedge.js): the same city without them.
   { label: 'west edge off', params: { westedge: 'classic' } },
+  // What the city past the edge of the map costs (city/horizon.js): one draw, plain boxes.
+  { label: 'horizon off', params: { horizon: 'classic' } },
   // The tufts on the lawns past the ring road (city/grass.js `EDGE_GRASS`): no draw calls (they ride
   // in the parks' grass mesh) and +12.9k of 651k triangles headless, so what this row measures is
   // the alpha-tested overdraw, which only a phone can answer.

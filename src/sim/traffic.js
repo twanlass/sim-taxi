@@ -499,6 +499,38 @@ const DRIFT_LAUNCH_PITCH = 0.5;
 const DRIFT_LAUNCH_GRACE = 12;
 /** Above this much air the taxi is over the traffic rather than in it. A car roof is ~1.5. */
 export const DRIFT_LAUNCH_CLEAR = 1.6;
+
+// --- A hop always comes down ------------------------------------------------------
+//
+// The arc is distance-paced (see HOP_LEN), and a distance-paced arc on a car that stops is a car
+// parked in mid-air. The drift launch was made deaf to the brake for exactly that reason; the
+// ordinary hop was not, and the arch jump is where it showed (Tyler, 2026-10-14: "you stop
+// mid-hump or you slow down before the hump, the car sort of gets stuck in a little jump
+// sequence"). Measured: boosting onto the hump and braking at once launched the hop at 10 u/s and
+// stopped the taxi 3.5 units up over the crest, where it hung for as long as the pedal was held —
+// 121 frames of air — rocking on the pitch spring, and then finished the arc from a standstill.
+//
+// Three things close it, and each covers a case the others cannot:
+//  - **The brake is deaf for every hop**, not just the drift launch.
+//  - **The arch only launches a taxi going at least HOP_MIN_V.** Slowed to a crawl before the
+//    hump, the launch fired anyway and the hop played out at walking pace. Cruise speed is the
+//    line: below it the arch is a road, the same as it is for a taxi that is not boosting.
+//  - **The arc never runs slower than HOP_FLOOR_V**, whatever the car does underneath it. A leader
+//    the taxi closes on in the air can still hold it to nothing, and the brake is not the only
+//    way to lose speed; past this floor the hop finishes on a clock and the taxi comes down where
+//    it is. Half of cruise, not cruise: a barricade hop at cruise dips under SPEED for a frame at
+//    the turn's hand-over, and a floor at SPEED shortened it to 5.39 against HOP_LEN 5.5. At half
+//    it never touches a hop at speed, and the longest a stopped taxi can stay up is 1.3s.
+//
+// `?hop=classic` puts the old arc back.
+export const HOP_MIN_V = SPEED;
+const HOP_FLOOR_V = SPEED / 2;
+let hopFloorOn = true;
+
+/** `?hop=classic` lets a hop stall in the air again; anything else always lands. */
+export function setHopStyle(name) {
+  hopFloorOn = name !== 'classic';
+}
 // The slam. Scales the landing's squat, rebound and pitch kick: a body coming down from ten units
 // compresses its springs to the stops, and the ordinary landing's 0.34 of squat on that drop reads
 // as a car that weighs nothing.
@@ -548,6 +580,7 @@ export function launchHop(car, big = false) {
   if (car.hopFrom != null) return;
   car.hopFrom = car.travelled;
   car.hopBig = big;
+  car.hopSeenAt = null;
 }
 
 /** Whether `car` is in the air on the drift launch, rather than an ordinary hop or the road. */
@@ -6036,7 +6069,7 @@ export function createTraffic(
       const fullPower = car.boost && !car.boostEasing;
       // Nothing to brake against in the air — see DRIFT_LAUNCH_LEN. main.js rewrites the pedal
       // every frame, so this lasts exactly as long as the flight.
-      if (onDriftLaunch(car)) car.braking = false;
+      if (hopFloorOn ? car.hopFrom != null : onDriftLaunch(car)) car.braking = false;
       if (car.drift || car.driftTier) stepDrift(car, dt);
 
       if (car.state === 'drive' && car.uturn?.kind === 'spin') {
@@ -6823,7 +6856,8 @@ export function createTraffic(
       // Keyed to the lane so one crossing is one jump. Without it the car lands still inside the
       // launch window and immediately goes again, which is a taxi skipping across the river like a
       // stone.
-      if (car.isTaxi && car.boost && car.state === 'drive' && car.hopFrom == null) {
+      if (car.isTaxi && car.boost && car.state === 'drive' && car.hopFrom == null
+        && (!hopFloorOn || car.v >= HOP_MIN_V)) {
         // `toCrest` is signed in +z and the span runs along Z, so `dirSign` turns it into a
         // distance *ahead* to the top. Infinity off a bridge, so a flat road never satisfies it.
         const ahead = deckHeightAt(car.x, car.z).toCrest * dirSign(car.d);
@@ -7139,17 +7173,26 @@ export function createTraffic(
         else wheelieBoost = locoWheelie(car.wheelieT);
       }
       // Off a roadworks ramp. Read off distance travelled rather than a clock — see HOP_LEN —
-      // so the arc is the same shape at cruise and in overdrive, and a taxi that stops halfway up
-      // a barricade hangs there instead of continuing its arc on the spot.
+      // so the arc is the same shape at cruise and in overdrive. Down to a floor: a taxi that
+      // slows under HOP_FLOOR_V in the air finishes the arc on a clock rather than hanging there.
       let airY = 0;
       let airPitch = 0;
       let barrel = 0;
       if (car.hopFrom != null) {
         const big = car.hopBig === true;
+        // The floor (see HOP_FLOOR_V): whatever the car fell short of the floor's pace this frame is
+        // taken off the launch point, so every reader of the arc — `hopProgress` included — sees
+        // the same progress without knowing the floor exists.
+        if (hopFloorOn && car.hopSeenAt != null) {
+          const short = HOP_FLOOR_V * dt - (car.travelled - car.hopSeenAt);
+          if (short > 0) car.hopFrom -= short;
+        }
+        car.hopSeenAt = car.travelled;
         const u = (car.travelled - car.hopFrom) / (big ? DRIFT_LAUNCH_LEN : HOP_LEN);
         if (u >= 1) {
           car.hopFrom = null;
           car.hopBig = false;
+          car.hopSeenAt = null;
           // Touchdown, and the only frame that can see it. Hand the landing to the bounce, load the
           // suspension, and tell anything outside the sim that it happened — see `onTaxiLand`.
           car.bounceT = 0;

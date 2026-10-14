@@ -1619,7 +1619,15 @@ in `game/fares.js`).
 Every combo the taxi lands on a job steps a multiplier up, and the drop-off pays the fare at it
 (`game/combometer.js`, Tyler's idea after the Duolingo combo streak). It starts each ride at ×1: an
 overtake or a bootleg U-turn +0.5, a drift kick +0.5 per chain tier (so a full chain of three is
-+3), the bridge launch +2, capped at ×5. Combos only count on a job — from the tap that sends the
++3), **Stuntman** +1, the bridge launch +2, capped at ×5.
+
+Stuntman is smashing through a [roadworks](traffic.md#roadworks-a-street-closed-at-both-ends)
+barricade, at any speed (Tyler, 2026-10-14). It also pays a sixth of the Loco tank back on the
+energy bits a drift kick uses, the same refund as the first kick of a chain (`DRIFT_CHAIN.fuel[0]`).
+The refund lands whether or not there is a job in hand; the step, like every combo, only on one.
+The zone comes up once a run, so this is a once-a-run move; the router already prices the closed
+street cheap and aims a drop-off at it, so a player on a fare usually gets the chance.
+`?stuntman=classic` makes the smash scenery again: no step, no refund. Combos only count on a job — from the tap that sends the
 taxi at a rider, through the pickup, to the drop-off (`fares.job()`) — so a stunt done idling
 between fares builds nothing.
 
@@ -1776,6 +1784,32 @@ the fare soak (`tools/soak.mjs`): frequent enough to be a real event, not so fre
 forgiving misses meaningfully padded the survival curve. Never on the tutorial fare
 (`VIP_MIN_DELIVERED`) — nothing on the board yet for a purple diamond to be distinguished *from*.
 
+## Getting caught
+
+One rule each way, the same for every cop in the game — the patrol cruiser, a getaway's fleet, a
+roadblock, the arrest crew at a drop-off (`game/patrol.js`, "The capture model"; Tyler, 2026-10-14):
+
+- **Hitting a cop is hitting a car.** HP off by closing speed, the same `bumpDamage` as anything
+  else ([bumps and hit points](traffic.md#bumps-and-hit-points)), whoever did the hitting. A flat-out
+  hit can still be the wreck — it just has to be the one that empties the HP. So a
+  [roadblock](#they-box-you-in) is something to smash through on the pill, at a price.
+- **"Busted!" is being stopped with a cop on you.** A chasing cop touching the taxi while it is doing
+  under `PIN_SPEED` (3 u/s, a third of cruise) for `PIN_HOLD` (0.75s) — boxed in, rammed to a stop at
+  a junction, nosed into a roadblock. The clock runs back down when the taxi gets free. A cop that
+  rams a taxi still doing a speed lands a hit (HP, the bump's knock) and drops back for
+  `RAM_BACKOFF` (1.5s) before it tries again. A getaway's cops arrest the same way once the alarm is
+  up; the arrest crew at a drop-off never does.
+
+The pin is not the proximity meter the patrol had before contact became the catch: that one filled
+on a cop being *near* a slow taxi and read as a timer. This one needs the cop's bumper on the taxi
+and the taxi stuck. There is no bar for it on screen.
+
+It replaced three rules that each meant something different by the same blue car: a patrol touch
+was "Busted!" at any speed, a boosted hit on *any* cop was the wreck whatever the HP (#466), and a
+getaway's cops could not arrest at all — which made the getaway's roadblocks, the one thing it asks
+you to smash, the one thing that ended a run outright. `?capture=classic` keeps them; see
+[history](gameplay-history.md#getting-caught-before-the-capture-model).
+
 ## The bank robbery
 
 `src/game/robbery.js`, `src/game/bankjob.js`, `src/city/bank.js`, `src/game/fares.js`
@@ -1783,7 +1817,10 @@ forgiving misses meaningfully padded the survival curve. Never on the tutorial f
 [bank](city.md#the-bank) — a low stone building under a colonnade with a dome behind it. **Now and
 then a rider spawns on its steps** (`BANK_CHANCE`: 30% of qualifying spawns from the second
 delivery, 35s after the last one left the board; #499). They are an ordinary tappable fare. Tap
-them and pull up, and a coin tossed when they spawned decides it: heads they get in like anybody
+them and pull up, and a coin tossed when they spawned decides it — **a loaded one**: even odds on
+the first bank rider of a run, then 15 points more robbery for each one who rode (50, 65, 80, 95,
+capped there), back to even once a robbery happens (`BANK_ROBBER_STEP`; #522,
+`?robberyodds=classic` for a fair coin every time). Heads they get in like anybody
 else; tails a robber bursts out of the bank, shoves them over and takes their seat — see
 [the bank job](#the-bank-job) — and the streets go blue for as long as it takes to get the robber
 where they are going. `?bankfare=classic` restores the drive-past robbery, where passing the bank
@@ -1817,10 +1854,9 @@ description, and it is worth listing what is *not* new, because none of it is:
   unsafe crossing would be a cop driving *through* a car rather than into it. See
   [the licence](traffic.md#the-one-licence-a-red-on-a-provably-empty-junction).
 - Loco Mode is untouched — the same finite tank, spent in a hold.
-- The fail state is untouched in kind. [`sim/collisions.js`](../src/sim/collisions.js) treats a cop
-  as a car, with one exception: **ramming a police car on the gas is the wreck outright**, whatever
-  the taxi's HP (`lethalPolice`, #466; `?cop=classic` prices a cop like any other car, a bump that
-  costs hit points). The police **put themselves in your way** — see
+- The fail state is the game's own ([getting caught](#getting-caught)): a cop is a car to
+  [`sim/collisions.js`](../src/sim/collisions.js), so ramming one costs hit points, and being pinned
+  by one is "Busted!". The police **put themselves in your way** — see
   [they box you in](#they-box-you-in) — so a cop in the road is something to route round or wait
   out rather than drive through.
 
@@ -1836,13 +1872,14 @@ the ride into a getaway is one they never see.
 An imposed event that can end a run is the one thing a score-attack cannot have. So a robber whose
 clock runs out does exactly what a missed VIP does: gets out mid-street, swears about it
 ([the outburst bubble](#they-leave-and-they-let-you-know)) and goes. The event costs the bonus and
-the seat it was occupying, and nothing else. The robbery's own cops never arrest anybody.
+the seat it was occupying, and nothing else. The clock running out cannot end the run.
 
 **What it can cost is the escape afterwards, and whatever the player drives into.** Deliver the
-robber and one cop comes after *you* as an ordinary [patrol chase](traffic.md#the-patrol-cruiser) —
-caught on a touch off the gas is "Busted!" ([the drop-off](#the-drop-off-the-arrest-and-the-tail)) —
-and ramming any cop on the gas is the wreck. Nothing about the event *being imposed* can end the
-run; a player who drives the getaway or rams a cop has chosen to. The drop-off fills the tank to pay
+robber and one cop comes after *you* as an ordinary [patrol chase](traffic.md#the-patrol-cruiser)
+([the drop-off](#the-drop-off-the-arrest-and-the-tail)). During the getaway and after it, the
+police end a run the way they do anywhere ([getting caught](#getting-caught)): pinned is "Busted!",
+and a ram that empties the HP is the wreck. Nothing about the event *being imposed* can end the
+run; a player who gets boxed in or drives the HP out of the taxi has done it themselves. The drop-off fills the tank to pay
 for the chase, so the choice is "boost clear", not "hope".
 
 ### The robber
@@ -1958,7 +1995,10 @@ player *sees* the robber get in.
 
 **It starts with the bank rider** (`BANK_CHANCE` in game/fares.js: 30% of qualifying spawns, from
 the second delivery, the bank junction within the spawn box, 35s after the last one left the
-board). A coin is tossed when they spawn. Tap them and pull up: heads they get in like anybody
+board). A coin is tossed when they spawn, loaded by every bank rider who has ridden since the last
+robbery: 50% robbery, then 65, 80 and 95, back to 50 after one fires (`BANK_ROBBER_STEP` in
+game/fares.js; a rider who got in because the gates were shut counts as one who rode). Keep taking
+the bank's fares and you are pushing your luck. Tap them and pull up: heads they get in like anybody
 else; tails, and if the robbery's fairness gates are open at that moment (`swapReady` in
 game/robbery.js — every [gate](#the-trigger) but the drive-past's range, with the bank rider's own
 clock left out of the calm test), they leave the board without a strike and the robber takes their

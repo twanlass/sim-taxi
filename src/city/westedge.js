@@ -5,7 +5,7 @@ import { PALETTE, color, jitterColor } from '../palette.js';
 import {
   WEST_EDGE, WEST_COLUMNS, GRID_J, HALF_ROAD, lineX, lineZ, halfRoadX, halfRoadZ,
   isArterialX, isRiverBlock, isRiverGap, MEDIAN_W, WEST_CORNER, coastWest, coastNorth, SLAB_MARGIN,
-  SPAN_Z,
+  SPAN_Z, LTRAIN_WEST,
 } from './grid.js';
 import {
   KERB_H, PAVE_INSET, curbBox, roundedPaint, paint, SLAB_RADIUS, EDGE_FADE, FADE_RINGS,
@@ -57,6 +57,9 @@ const FAR_FAMILIES = ['glass', 'glass', 'slate', 'slate', 'concrete', 'pale'];
 const BARRIER_BACK = 1.1;
 const CONE_BACK = 2.6;
 const CONE_PITCH = 1.7;
+// How far off the street's centreline a cone keeps from the L's footing (1.05 square) where the
+// line runs out over the closure.
+const RAIL_CLEAR = 1.0;
 
 // The north-west corner, past the north ring road: mid-rises, the city's own height and no taller, so
 // the step from the skyline down to the park is a step rather than a cliff.
@@ -190,7 +193,7 @@ export function createWestEdge(rng) {
 
   // --- The closures: the roadworks' own trestle, turned across the street, and cones behind it.
   const cone = coneGeometry();
-  for (const { x, z, half } of westClosures()) {
+  for (const { j, x, z, half } of westClosures()) {
     const { trestle } = barricadeParts({ width: half * 2 - 0.4 });
     for (const part of trestle) {
       // The trestle's frame has its span along local x; a street along X wants it along z.
@@ -199,9 +202,16 @@ export function createWestEdge(rng) {
       ground.push(part);
     }
     const count = Math.max(2, Math.floor((half * 2 - 1.2) / CONE_PITCH));
+    // The L runs out west along the arterial (game/ltrain.js), and its first bent past the ring road
+    // stands on the street's centreline just behind the trestle — where the middle cone would be.
+    const rail = LTRAIN_WEST && isArterialX(j);
     for (let k = 0; k < count; k++) {
       // Staggered, the way cones go down by hand rather than by ruler.
       const u = (k + 0.5) / count - 0.5;
+      if (rail && Math.abs(u * (half * 2 - 1.2)) < RAIL_CLEAR) {
+        rng.next();
+        continue;
+      }
       const g = cone.clone();
       g.rotateY(rng.range(0, Math.PI));
       g.translate(x - (CONE_BACK - BARRIER_BACK) - (k % 2) * 0.5, 0, z + u * (half * 2 - 1.2));

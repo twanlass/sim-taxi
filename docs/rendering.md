@@ -111,12 +111,13 @@ History: [what the arches replaced](rendering-history.md#wheel-wells--archedbody
 ### Car finishes — `propMaterial({ gloss })` in `util/geo.js`
 
 Every vehicle body and every wheel — the fleet, truck cabs and boxes, the cop cars, the cruiser and
-the taxi — is `MeshPhongMaterial` rather than the Lambert everything else wears, with one more patch
-on top of `patchProp`. Wrecks stay plain Lambert.
+the taxi, and [every other vehicle](#every-other-vehicle) — is `MeshPhongMaterial` rather than the
+Lambert everything else wears, with one more patch on top of `patchProp`. Wrecks stay plain Lambert.
 
-**Four finishes, one program.** `setFinish()` bakes an `aFinish` attribute per part —
+**Five finishes, one program.** `setFinish()` bakes an `aFinish` attribute per part —
 `FINISH.TYRE`, `PAINT`, `GLASS`, `METAL` (the hubcaps, `geometry/wheels.js`, and the chrome
-bumpers, `geometry/bumpers.js`) — and the shader
+bumpers, `geometry/bumpers.js`) and `MATTE`, for what a vehicle carries rather than what it is
+made of (below) — and the shader
 indexes three shared `vec4` uniform arrays with it, so each finish has its own full set of numbers
 (`FINISH_DEFAULTS`: glint, glint sharpness, glint bend, sheen, sheen sharpness, flake, reflect,
 reflect edge, reflect bend, base colour) while every glossy material still compiles to the same
@@ -179,6 +180,36 @@ All glossy bodies share one program (`prop-gloss`, `-ssao` as it applies): the p
 are per-material uniforms, not source. `tools/links.mjs` counts it at boot, not mid-run.
 
 History: [the first bent normal](rendering-history.md#car-finishes--propmaterial-gloss--in-utilgeojs).
+
+### Every other vehicle
+
+The plane, the civil and police helicopters, the trash barge, the sailboat, the container ships and
+the L train wear the same paint (Tyler, 2026-10-14). Each builder tags its parts by what they are
+made of — liveries, hulls, wheelhouses and car bodies are `PAINT`, glazing is `GLASS`, rotors,
+skids, masts, rigging and running gear are `METAL`, the barge's fender tyres `TYRE` — and hands
+its mesh `propMaterial({ gloss })`. `?vehiclepaint=classic` puts them all back on the plain
+material they wore before; the tags stay on the geometry either way, since a plain material
+ignores them.
+
+- **`MATTE` is for the cargo.** The barge's heap, its rust streaks and grime, the sailboat's sail
+  cover, the gulls riding the barge and a ship's deck and containers share their vehicle's mesh and
+  material but are not paint. Every number is zero and the diffuse is 1, so they draw exactly as a
+  plain prop does. `TYRE` is no answer to "not shiny": its diffuse of 0.64 turned the barge's green
+  wheelhouse black when it was tried as one.
+- **The aircraft keep their AO off** (`propMaterial({ ao: false, gloss })`): they are transparent
+  for their fade, so they cannot be in the AO prepass, and a receiver outside it wears the occlusion
+  of whatever is behind it. That is one more program than the fleet's, shared by the plane and both
+  helicopters.
+- **The ships' curve is centred on a whole ship**, hull to funnel cap, measured off a throwaway
+  build (`shipBounds` in `game/harborships.js`), because one material covers both hulls and
+  everything on deck.
+- **The ships and the train reflect at 0.55**, the cargo box's `amount`: a long flat side bends to
+  grazing along most of its length, and at full strength the toon coat's sky band covered the
+  whole train and a ship's whole bow — a silver streak across the city at play zoom.
+- **The L train's body gets its own material** with the deck's fade and intro patched on top, so
+  the deck and the columns stay plain.
+- **Not covered:** the depot's neon taxi is a sign, the flatbed's deck and crates ride on a
+  traffic truck that already wears the paint, and the skaters' boards are props.
 
 ### Car paint — the layered finish
 
@@ -846,6 +877,41 @@ from `refresh()` so it keeps up while the cycle drives the sky underneath it.
 
 At **Sky sample 1, Chroma 1** the colour comes out as `skyTop` exactly — the arithmetic stated in
 one line, and what the probe pins the whole derivation against.
+
+### Past the edge of the map — `city/horizon.js`
+
+The island does not end any more; it fades. Past the west towers and past the north park the grid
+carries on, block after block on the city's own pitch, and each block is more sky than the one
+before it until there is only sky. Tyler, 2026-10-14: "fill in with some more buildings then some fog
+to obscure the edge. Wanna create the illusion that the world goes on forever."
+`?horizon=classic` puts the bare edge back.
+
+- **Its own haze, not the scene's.** The scene's fog is a function of screen height (above), so it
+  cannot thicken past the coast without thickening over the top of the playable city by the same
+  amount. This one is a function of where a fragment stands on the ground: the distance outside the
+  last street to the west (`lineX(-2)`) and the corner's last street to the north, ramped to opaque
+  over `HORIZON_GONE` (92). Nothing on the island wears it. It feathers out over 14 units on the two
+  sides that face the sea (south of the south shore's line, east of the north park).
+- **It fades to the sky, exactly.** What the edge used to dissolve into was the dome, and the haze
+  colour above is deliberately *not* the dome. So each fragment finds the point of the dome behind it
+  — the camera is orthographic, so that is one ray along the view axis to the dome's sphere
+  (`SKY_RADIUS`, `SKY_DROP` in `game/scene.js`) — and runs the dome's own gradient there, reading the
+  dome's own uniform objects. The day cycle, Rain Mode's grade and the ⚙️ sky sliders move it with no
+  wiring, and at full haze it is the sky's own pixel, at dusk as at noon.
+- **Painted windows.** The towers are plain boxes (some with a set-back crown); the patch darkens a
+  grid of storey-by-bay cells on every wall, found from the screen-space normal. That is the one
+  detail that still says *building* through the haze, and it costs nothing in geometry.
+- **Cheap on purpose.** One mesh, one draw, ~2.3k triangles, no shadow cast, no AO, not in the
+  entrance wave (it is the world the island stands in, so it is already there while the island
+  builds). It receives the sun's shadow where the map reaches. `?bench` has a "horizon off" row.
+- **Every street stays open.** Blocks sit on the grid's pitch, so each street of the city runs on
+  out through the haze as a clear corridor; `tools/check.mjs` holds that, and that no block stands
+  on the island's own land. The river row is left as open ground.
+- **Heights stay out of the aircraft's way.** West of the island the skyline carries on under
+  `WEST_SKYLINE`, as the west towers do; north of the park it stays under 19, because the
+  helicopters transit at 22 and nothing keeps them out of the north.
+
+History: [the bare edge](rendering-history.md#past-the-edge-of-the-map).
 
 ## Ambient occlusion — `game/ssao.js`
 
