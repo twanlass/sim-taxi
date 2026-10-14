@@ -1619,7 +1619,15 @@ in `game/fares.js`).
 Every combo the taxi lands on a job steps a multiplier up, and the drop-off pays the fare at it
 (`game/combometer.js`, Tyler's idea after the Duolingo combo streak). It starts each ride at ×1: an
 overtake or a bootleg U-turn +0.5, a drift kick +0.5 per chain tier (so a full chain of three is
-+3), the bridge launch +2, capped at ×5. Combos only count on a job — from the tap that sends the
++3), **Stuntman** +1, the bridge launch +2, capped at ×5.
+
+Stuntman is smashing through a [roadworks](traffic.md#roadworks-a-street-closed-at-both-ends)
+barricade, at any speed (Tyler, 2026-10-14). It also pays a sixth of the Loco tank back on the
+energy bits a drift kick uses, the same refund as the first kick of a chain (`DRIFT_CHAIN.fuel[0]`).
+The refund lands whether or not there is a job in hand; the step, like every combo, only on one.
+The zone comes up once a run, so this is a once-a-run move; the router already prices the closed
+street cheap and aims a drop-off at it, so a player on a fare usually gets the chance.
+`?stuntman=classic` makes the smash scenery again: no step, no refund. Combos only count on a job — from the tap that sends the
 taxi at a rider, through the pickup, to the drop-off (`fares.job()`) — so a stunt done idling
 between fares builds nothing.
 

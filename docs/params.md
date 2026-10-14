@@ -42,6 +42,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?damage=classic` | The taxi's damage ladder before the first-hit flash, grime and steam | #456 | [gameplay.md](gameplay.md) |
 | `?wreck=classic` / `=quick` | The old fireball, or the quick cut (default is `flat`) | #398 | [traffic.md](traffic.md) |
 | `?cop=classic` | Boosting into a cop is a bump rather than a full wreck | #466 | [gameplay.md](gameplay.md) |
+| `?stuntman=classic` | Smashing a roadworks barricade is scenery: no Stuntman combo step, no Loco refund | | [gameplay.md](gameplay.md#the-combo-meter) |
 | `?chasesiren=classic` | No 🚨 on the cash row during a chase | #513 | [traffic.md](traffic.md#spotted-and-then-caught-or-lost) |
 | `?helispot=classic` | The police helicopter's first, brighter and harder-edged searchlight | | [gameplay.md](gameplay.md) |
 | `?menumusic=classic` | The radio's intro plays under the title menu on the first tap, rather than a song until Play | #519 | [audio.md](audio.md#the-radio) |
