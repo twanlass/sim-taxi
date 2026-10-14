@@ -69,7 +69,10 @@ is three blocks from a crossing, and the ring already serves the edge.
 leaf would go through. So the train's line always gets a fixed bridge and the leaf never does: with
 the arterial on the middle line (3) the leaf moves one line over to the seed's side; with it on
 line 2 the leaf stays on 3 and the fourth crossing is the arterial's. Still one `next()`, still four
-crossings. `?lroute=classic` restores the old rule.
+crossings. `?lroute=classic` restores the old rule. Since the line turns west at the east-west
+arterial, which is always north of the river, the default train never actually crosses; the rule
+stays because only the straight line (`?ltrainwest=classic`) does, and dropping it would move every
+city's bridges.
 
 That leaves **two ways across while the leaf is up**, which is the guarantee the whole feature
 rests on: the drawbridge may close a route, but it may never cut the city in half.

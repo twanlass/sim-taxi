@@ -27,6 +27,14 @@ export const GRID_I = BIG_CITY ? 6 : 5;  // block columns
 export const LTRAIN_NS = typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('lroute') !== 'classic'
   : globalThis.process?.env?.LROUTE !== 'classic';
+// And it does not run on to the south shore: south of the east-west arterial it is gone, and the
+// line turns west there instead, out along the arterial's median and through the west edge's high
+// rises (Tyler, 2026-10-14: "make a right turn and head out of town through the west side high
+// rises. Doesn't make sense fading off into the ocean"). `?ltrainwest=classic` keeps the straight
+// north-south line. Only means anything on a north-south line.
+export const LTRAIN_WEST = LTRAIN_NS && (typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('ltrainwest') !== 'classic'
+  : globalThis.process?.env?.LTRAINWEST !== 'classic');
 // A row more than columns, because **one of the rows is the river** (`city/river.js`). The city is
 // a block row taller than it is wide so that the water costs it neither a street nor a buildable
 // block: 36 of the 42 blocks are land, a 6×6 city's worth (25 of 30, a 5×5's, under `?city=classic`).
@@ -289,7 +297,7 @@ export function isSegmentClosed(i, j, d) {
 export const MEDIAN_W = 2.4;
 // How far short of the junction box the island stops. It has to clear the turn arcs of everything
 // crossing, and leave room for the double line that stands in for the median across the junction.
-const MEDIAN_END_GAP = 1.8;
+export const MEDIAN_END_GAP = 1.8;
 // Below this a run is a stub rather than a planter, and it reads as debris dropped in the road.
 const MEDIAN_MIN_LEN = 4;
 

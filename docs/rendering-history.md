@@ -720,3 +720,16 @@ Until the lip, a flat roof's cap was one solid box — 0.3 tall on a tower, 0.26
 building thanks to the cornice's overhang, but from 33° up every roof was one flat plane of a
 single colour. Tyler asked for a raised lip and a sunk centre for detail; `?roofs=classic` keeps
 the solid cap. See [city.md](city.md).
+
+## The L train's route
+
+[Current](city.md#the-elevated-train-on-by-default-ltrainclassic-to-compare).
+
+The L first ran east-west along the river's arterial (`?lroute=classic`). On 2026-10-13 (#483) it
+moved to the north-south arterial and ran straight across the city: over the river on a through
+truss, past which a Big Air launch off the arched bridge flew up through the steel, and on south to
+fade out over the south shore's lawn, where its last column stood. Tyler, 2026-10-14: "Doesn't make
+sense fading off into the ocean." It now turns west at the east-west arterial instead, which is
+always north of the river, so the truss and the south half went with that stretch.
+`?ltrainwest=classic` brings the straight line back, truss and all.
+
