@@ -802,7 +802,7 @@ function buildableOf(lot) {
   };
 }
 
-function buildTower(lot, block, rng, parts, stats) {
+function buildTower(lot, block, rng, parts, stats, { height: fixed = null, families = BUILDING_COLORS } = {}) {
   const { w, d, cx, cz } = buildableOf(lot);
   if (w < 2 || d < 2) return;
 
@@ -812,10 +812,12 @@ function buildTower(lot, block, rng, parts, stats) {
   // instead of an evenly tall grid.
   // Capped far lower than the city sim's 43. Downtown towers there were tall enough to hide the
   // taxi behind them, and the player has to be able to see the car they're directing at all times.
+  // A height handed in (the high rises past the west ring road) skips the draw, so the city's own
+  // stream is the one it always was.
   const ceiling = 5 + block.centrality * 11;
-  const height = Math.max(5, rng.range(0.42, 1) * ceiling);
+  const height = fixed ?? Math.max(5, rng.range(0.42, 1) * ceiling);
 
-  const family = rng.pick(BUILDING_COLORS);
+  const family = rng.pick(families);
   const style = CURTAIN_WALL.has(family) ? 'curtain' : 'punched';
   const body = jitterColor(color(family), rng, { l: 0.05 });
   const windowColor = color('window');
@@ -871,6 +873,22 @@ function buildTower(lot, block, rng, parts, stats) {
     roofKit(parts, cx, cz, cw, cd, y, style, body, rng, stats);
   }
 }
+
+/**
+ * One tower on `lot`, `height` to its top tier, built exactly the way the city's own are — the same
+ * setbacks, façades, shopfronts and cornice — for the high rises past the west ring road
+ * (city/westedge.js). Its roof is nobody's helipad: the deck goes into a throwaway list rather than
+ * the city's, since a landing circle out there would be one the chopper flies through towers to
+ * reach. `families` narrows the envelope colours. Returns the parts' range, for the entrance wave.
+ */
+export function buildHighRise(parts, lot, bounds, rng, height, families = BUILDING_COLORS) {
+  const from = parts.length;
+  buildTower(lot, { bounds, centrality: 0 }, rng, parts, { decks: [], pitched: 0 }, { height, families });
+  return { from, to: parts.length };
+}
+
+/** Recursive lot subdivision, exported for the high rises past the west ring road. */
+export { splitLot };
 
 // --- Courtyard blocks -------------------------------------------------------
 //

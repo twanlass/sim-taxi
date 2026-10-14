@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { HALF_SPAN_X, HALF_SPAN_Z, HARBOR_REACH } from '../city/grid.js';
+import { HALF_SPAN_X, HALF_SPAN_Z, HARBOR_REACH, WEST_REACH } from '../city/grid.js';
 
 // Classic 3/4 sim camera: a fixed orthographic view looking down a diagonal. Orthographic rather
 // than perspective is what makes it read as a city *sim* — parallel lines stay parallel, so
@@ -614,11 +614,13 @@ const PAN_SLOP = 8;
 // pushed off screen, which on a phone is unrecoverable without a landmark to steer back by.
 // Per axis, because the map is no longer square: one number here lets the camera pan off the
 // short side and stops it short of the long one.
-const PAN_LIMIT_X = HALF_SPAN_X;
 const PAN_LIMIT_Z = HALF_SPAN_Z;
 // East is further, by the harbor's reach past the old coast: it is all scenery past the ring road,
 // and on a phone in portrait the yard and the ship are off the edge without it.
 const PAN_LIMIT_EAST = HALF_SPAN_X + HARBOR_REACH * 0.7;
+// And west, by half the high rises' reach (city/westedge.js): enough to look up at the skyline, which
+// stands up-screen of its own ground, without being able to push the streets off the frame.
+const PAN_LIMIT_WEST = HALF_SPAN_X + WEST_REACH * 0.5;
 
 /**
  * Drag to pan, tap to pick.
@@ -649,7 +651,7 @@ export function attachDragPan(controller, domElement, getAspect, isEnabled = () 
     controller.cancelGlide();
     const target = controller.state.target;
     target.addScaledVector(RIGHT, right).addScaledVector(UP, up);
-    target.x = THREE.MathUtils.clamp(target.x, -PAN_LIMIT_X, PAN_LIMIT_EAST);
+    target.x = THREE.MathUtils.clamp(target.x, -PAN_LIMIT_WEST, PAN_LIMIT_EAST);
     target.z = THREE.MathUtils.clamp(target.z, -PAN_LIMIT_Z, PAN_LIMIT_Z);
     controller.update(getAspect());
   }
