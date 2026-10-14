@@ -769,6 +769,14 @@ export const PALETTE = {
   // saturated enough that a parked cop's roof still says red-and-blue at 4px a lens.
   sirenRedOff: '#8E2A22',
   sirenBlueOff: '#23489A',
+  // The 🚨 in the HUD while the police are after the taxi (game/chasesiren.js): a red lens on a
+  // steel base with a pale lamp turning inside it, and the rays the emoji draws either side of it.
+  // The lens is `lightRed` rather than a red of its own — it is the same lamp the cruiser's bar
+  // carries, pulled out of the city and made big enough to read.
+  chaseSirenBase: '#5B6470',
+  chaseSirenLip: '#C9D0D8',
+  chaseSirenLamp: '#FFF4D6',
+  chaseSirenRay: '#FFD25A',
   lightYellow: '#F0B23A',
   lightGreen: '#4FBF63',
   // An ambient car's turn signal — deliberately more orange than lightYellow above so a blinking

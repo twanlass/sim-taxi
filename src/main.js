@@ -110,6 +110,7 @@ import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
 import { createTaxiFinder } from './game/taxifinder.js';
 import { createCargoChip } from './game/cargochip.js';
+import { createChaseSiren } from './game/chasesiren.js';
 import { createTutorial, LOCO_HINT_HOLD } from './game/tutorial.js';
 import { createOpening, entryPath } from './game/opening.js';
 import { createWipe } from './game/wipe.js';
@@ -143,7 +144,7 @@ import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getA
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
-import { createPatrol } from './game/patrol.js';
+import { createPatrol, ESCAPE_HOLD, SIGHT_HOLD } from './game/patrol.js';
 import { createCopShout } from './game/copshout.js';
 import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createBankJob } from './game/bankjob.js';
@@ -2847,6 +2848,9 @@ const taxiFinder = createTaxiFinder({
 // game/cargochip.js. Built only when the layer is on, because it opens a WebGL context of its own
 // and a run under `?parcels=0` can never have anything to put in it.
 const cargoChip = parcels ? createCargoChip({ sun, hemi }) : null;
+// The 🚨 on the cash row while the police are after the taxi; `?chasesiren=classic` goes without.
+const chaseSiren = new URLSearchParams(window.location.search).get('chasesiren') !== 'classic'
+  ? createChaseSiren() : null;
 const farePointers = createFarePointers({
   camera,
   // Aim at the kerb corner where the mark actually stands, not the intersection centre — a
@@ -5862,6 +5866,17 @@ function tick() {
     !fares.state.gameOver && !controller.isGliding() && !tutorial?.holdsCamera());
   // A no-op unless a package is aboard — it draws nothing while the chip is down.
   cargoChip?.render();
+  // Up for a patrol chase or a getaway, and down for the arrest itself: once the cuffs are on, the
+  // chase is over. `losing` is how far the patrol's own two escape counters have run (game/patrol.js),
+  // which is what cools the lamp while the cop has lost sight of you.
+  if (chaseSiren) {
+    const chasing = patrol.state.phase === 'chase';
+    chaseSiren.update(!fares.state.gameOver && (chasing || getaway()), {
+      losing: chasing && !getaway()
+        ? Math.max(patrol.state.clear / ESCAPE_HOLD, patrol.state.unseen / SIGHT_HOLD) : 0,
+      caught: patrol.state.phase === 'arrest' || fares.state.gameOver,
+    });
+  }
   // Every arrow stands in for a mark it points at, so each is painted from its own fare — see
   // game/farepointers.js. The waiting riders get one too now that the chips are gone, which is
   // what keeps an off-screen fare findable at all.
@@ -6626,6 +6641,7 @@ window.__taxi = {
    * does to it; `setCarrying` is the flightless version of the same, and what a delivery puts back.
    */
   cargoChip,
+  chaseSiren,
   /**
    * The "back to the taxi" chip, for `tools/smoke.mjs`: `isUp()` is whether it is currently
    * offering itself. Browser-only in the same way the cargo chip is — a WebGL context in a DOM

@@ -3185,6 +3185,17 @@ junction). The bar, the strobe and the chirp are the whole announcement. Under `
 talking about them. A DOM bubble projected over the car every frame, not geometry: this one has to
 be read, and there is no font in the scene.
 
+**The 🚨 in the HUD** says the chase is on for as long as it is on (`game/chasesiren.js`, Tyler's
+idea, 2026-10-14): a low-poly beacon on the cash row, just left of the pause, a squared-off solid red lens
+whose shader sweeps a hot spot round it, flashing once a turn as the spot swings past the camera. It pops in on the spot and is up for a [getaway](gameplay.md#the-bank-robbery) too. While
+the cop is losing you (the gap held past escape range, or the taxi out of its sight) the lamp cools
+with the patrol's own two counters: slower, dimmer, half faded. Lost, it spins down and fades out
+over 1.2s; caught, it just pops away. The bar and the
+[edge wash](rendering.md#off-screen-police-warning) are about where the cop *is*; this is the one
+cue that stays put when the cop drops round a corner. Its own 60 × 44 WebGL context with its own
+lights (an icon has to read at night), drawing only while it is on screen. `?chasesiren=classic`
+goes without.
+
 **Caught** is a touch. Any contact of the cop's making — rammed from behind, sideswiped on a pass —
 is the arrest, and so is any contact at all off the pill (`touching` in
 `sim/collisions.js`, with `TOUCH_SLACK` of 0.15 because off boost contact is resolved by shoving the
