@@ -300,7 +300,17 @@ Park). From game view will just look like map ends there at a park."
 - **The L's line runs over it.** Trees and the lake keep `TREE_CLEAR_RAIL` off the line and the wall
   breaks for its columns. `NORTH_PARK_DEPTH` lives in `grid.js` because the map's north edge
   (`coastNorth()`) moves with it.
-- Hand-written triangles (paths, lake, shore, fade) go through `upTriangles`, which computes each
+- **The drives** (`?parkdrive=classic` to drop them): a rainbow of asphalt off the ring road through a
+  break in the wall, round a statue on a lawn island, with three yellow pylons shutting each mouth.
+  Tyler, 2026-10-14: "purely decorative and shouldn't be part of the traffic map", so it is not in
+  the road network and no fare stands on it. `placeDrive` squares it on to a street meeting the
+  ring road, so that street ends on the statue and its junction box falls between the two mouths.
+  There is one each side of the L ("Add one to either side of the train"): on each side, the
+  street nearest the line that is clear of it and of the lake's loop. Where the loop covers every
+  street on a side, the lake slides along the wall the least distance that frees one; when the L
+  runs down the middle street that can't be done and that city gets one drive (3 seeds in 40).
+  Gates and trees keep off the drives, and they are built last.
+- Hand-written triangles (paths, lake, shore, fade, drive) go through `upTriangles`, which computes each
   normal from the winding and flips any that face down.
 
 ## Layout: what a block *is*

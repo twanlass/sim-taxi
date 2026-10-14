@@ -6,7 +6,7 @@ import {
   GRID_I, lineX, lineZ, halfRoadX, halfRoadZ, isArterialZ, LTRAIN_NS, NORTH_PARK, NORTH_PARK_DEPTH,
 } from './grid.js';
 import { KERB_H, EDGE_FADE, FADE_RINGS } from './ground.js';
-import { treeParts } from './props.js';
+import { STATUE_PLAZA, statueParts, treeParts } from './props.js';
 
 // The big park along the city's north edge (`?northpark=classic` leaves the old apron).
 //
@@ -41,6 +41,27 @@ const LAWN_Y = TOP_Y + 0.01;        // lawn and pavement
 const PATH_Y = LAWN_Y + 0.01;       // paths on the lawn
 const BANK_Y = LAWN_Y + 0.012;      // the lake's shore band
 const WATER_Y = LAWN_Y + 0.008;     // and its water, inside the band
+const DRIVE_Y = LAWN_Y + 0.014;     // the drive's asphalt, over the lawn and the pavement it crosses
+
+// The drive: a rainbow of asphalt off the ring road, round a statue and back out again, with both
+// mouths shut by a row of yellow pylons. Tyler, 2026-10-14: "To help break up the park wall let's
+// add a rainbow shaped drive way into the park around a statue / fountain. Block off the entrances
+// from the Main Street with some yellow pylons. It's purely decorative". So it is not in the road
+// network: nothing routes onto it and no fare stands on it. Then, on seeing it: "Add one to either
+// side of the train", so there is one each side of the L where the lake leaves room.
+// `?parkdrive=classic` leaves the wall
+// unbroken.
+const PARK_DRIVE = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('parkdrive') !== 'classic'
+  : globalThis.process?.env?.PARKDRIVE !== 'classic';
+// The arch is a half ring centred on the wall's line, so each leg runs straight across the
+// pavement to the kerb. Its mouths are 3 wide; the inner radius leaves the statue's 3.6 plaza a
+// pace of lawn all round.
+const DRIVE_R = 8;
+const DRIVE_W = 3;
+const DRIVE_EDGE = 0.3;
+const PYLON_R = 0.15;
+const PYLON_H = 0.95;
 
 /** Where the park is: the solid lawn's rectangle, with the ring road's kerb along its south side. */
 export function northParkBounds() {
@@ -109,24 +130,59 @@ export function createNorthPark(rng) {
     const out = Math.hypot(x - lake.x, z - lake.z) - Math.hypot(edge.x - lake.x, edge.z - lake.z);
     return out;
   };
-  parts.push(ring(lakeAt, 0, 1.1, BANK_Y, PALETTE.pondBank));
-  const water = disc(lakeAt, WATER_Y, PALETTE.pondWater);
-
   // --- Paths: the loop round the lake, a little way out from its shore, and a spur from each gate
   // in the wall to the nearest point on it.
-  const loop = [];
-  for (let k = 0; k <= 72; k++) {
-    const a = (k / 72) * Math.PI * 2;
-    const wob = 1.2 * Math.sin(5 * a + lake.p2);
-    loop.push(lakeAt(a, 5.5 + wob));
+  const loopFor = () => {
+    const pts = [];
+    for (let k = 0; k <= 72; k++) {
+      const a = (k / 72) * Math.PI * 2;
+      const wob = 1.2 * Math.sin(5 * a + lake.p2);
+      pts.push(lakeAt(a, 5.5 + wob));
+    }
+    return pts;
+  };
+  let loop = loopFor();
+
+  // A drive goes where it can be seen to: square on to a street meeting the ring road, so the
+  // street ends on the statue, and the junction box falls between its two mouths (the box reaches
+  // 4, or 5.33 off an arterial, and the inner kerb of a mouth is at 6.5). Of the streets clear of
+  // the L and of the lake's loop, the one nearest the L on each side of it, which is the stretch of
+  // bare wall Tyler circled and its mirror.
+  let drives = PARK_DRIVE ? placeDrives(b, rail, loop) : [];
+  // The loop's south side comes within ~5 of the wall, so on about one seed in six it sits over
+  // every street on one side of the L and that side gets no drive (7 of 40 measured). Slide the
+  // lake along the wall, the least distance that frees a street on both sides and keeps it off the
+  // line and inside the lawn — it is the one thing in the park nobody placed on purpose.
+  if (PARK_DRIVE && rail !== null && drives.length < 2) {
+    const home = lake.x;
+    const lo = b.x0 + lake.rx + 6;
+    const hi = b.x1 - lake.rx - 6;
+    let best = null;
+    for (let step = 1; step <= 24 && !best; step++) {
+      for (const dir of [-1, 1]) {
+        const x = home + dir * step;
+        if (x < lo || x > hi || Math.abs(x - rail) < lake.rx + TREE_CLEAR_RAIL) continue;
+        lake.x = x;
+        const tried = placeDrives(b, rail, loopFor());
+        if (tried.length === 2) { best = x; break; }
+      }
+    }
+    lake.x = best ?? home;
+    loop = loopFor();
+    drives = placeDrives(b, rail, loop);
   }
+  parts.push(ring(lakeAt, 0, 1.1, BANK_Y, PALETTE.pondBank));
+  const water = disc(lakeAt, WATER_Y, PALETTE.pondWater);
   parts.push(ribbon(loop, PATH_W, PATH_Y, PALETTE.parkPath));
   const paths = [loop];
+  const inDrive = (x, z, pad) => drives.some((d) => Math.abs(x - d.x) < DRIVE_R + DRIVE_W / 2 + pad
+    && z > d.z - DRIVE_R - DRIVE_W / 2 - pad);
   const gates = [];
   const gateCount = 4;
   for (let g = 0; g < gateCount; g++) {
     const x = b.x0 + (b.x1 - b.x0) * ((g + 0.5) / gateCount) + rng.range(-5, 5);
     if (rail !== null && Math.abs(x - rail) < GATE_W + 2) continue;
+    if (inDrive(x, b.wall, GATE_W + 1)) continue;
     gates.push(x);
     // From the gap in the wall, north and bending toward the loop's nearest point.
     let best = loop[0];
@@ -145,6 +201,8 @@ export function createNorthPark(rng) {
         z: u * u * start.z + 2 * u * t * mid.z + t * t * best.z,
       });
     }
+    // A spur from a gate further along can still bend across the arch on its way to the loop.
+    if (spur.some((p) => inDrive(p.x, p.z, PATH_W))) { gates.pop(); continue; }
     parts.push(ribbon(spur, PATH_W, PATH_Y, PALETTE.parkPath));
     paths.push(spur);
   }
@@ -170,9 +228,14 @@ export function createNorthPark(rng) {
     };
     // The L's columns stand on the lawn, so the wall breaks round the line too.
     if (rail !== null) cuts.push(rail);
+    // And across the whole drive, mouths and island both: a wall between the legs would stand in
+    // front of the statue.
+    const driveHalf = DRIVE_R + DRIVE_W / 2 + DRIVE_EDGE + 0.4;
+    const driveXs = drives.map((d) => d.x);
+    cuts.push(...driveXs);
     cuts.sort((p, q) => p - q);
     for (const x of cuts) {
-      const half = x === rail ? 1.4 : GATE_W / 2;
+      const half = x === rail ? 1.4 : driveXs.includes(x) ? driveHalf : GATE_W / 2;
       run(from, x - half);
       if (x !== rail) { pier(x - half - 0.4); pier(x + half + 0.4); }
       from = x + half;
@@ -204,9 +267,13 @@ export function createNorthPark(rng) {
       if (rail !== null && Math.abs(tx - rail) < TREE_CLEAR_RAIL) continue;
       if (lakeDistance(tx, tz) < TREE_CLEAR_LAKE) continue;
       if (pathDistance(tx, tz) < TREE_CLEAR_PATH) continue;
+      if (inDrive(tx, tz, TREE_CLEAR_PATH)) continue;
       parts.push(...treeParts(tx, tz, rng, { low: 4.2, high: 6.8, crowns }));
     }
   }
+
+  // Built last, so that switching it off (`?parkdrive=classic`) moves no tree the gates didn't.
+  for (const d of drives) parts.push(...driveParts(d, rng));
 
   const mesh = new THREE.Mesh(mergeGeometries(parts, false), propMaterial({ smooth: true }));
   parts.forEach((p) => p.dispose());
@@ -218,7 +285,98 @@ export function createNorthPark(rng) {
   waterMesh.receiveShadow = true;
   waterMesh.name = 'north-park-lake';
 
-  return { mesh, water: waterMesh, fade: lawnFade(b), crowns, bounds: b, lake };
+  return { mesh, water: waterMesh, fade: lawnFade(b), crowns, bounds: b, lake, drives };
+}
+
+/**
+ * Where the drives go: at most one each side of the L (or the two streets nearest the middle, with
+ * no L), and none on a side with no room. `x` is the street a drive faces, `z` the wall's line (the
+ * arch's centre), `kerb` the ring road's kerb its legs run down to.
+ */
+function placeDrives(b, rail, loop) {
+  const reach = DRIVE_R + DRIVE_W / 2 + DRIVE_EDGE;
+  const z = b.z1 - WALK;
+  const fits = (x) => {
+    if (x - reach < b.x0 + 2 || x + reach > b.x1 - 2) return false;
+    if (isArterialZ(lineXIndex(x))) return false;
+    if (rail !== null && Math.abs(x - rail) < reach + TREE_CLEAR_RAIL) return false;
+    // The lake's loop path, with a pace of lawn between it and the outer edge.
+    for (const p of loop) {
+      if (p.z > z - reach - 2 && Math.abs(p.x - x) < reach + 2 && Math.hypot(p.x - x, p.z - z) < reach + 2) return false;
+    }
+    return true;
+  };
+  const streets = [];
+  for (let i = 1; i < GRID_I; i++) if (fits(lineX(i))) streets.push(lineX(i));
+  const at = (x) => ({ x, z, kerb: b.z1 });
+  const mid = rail === null ? 0 : rail;
+  const near = (side) => streets.filter((x) => Math.sign(x - mid) === side)
+    .sort((p, q) => Math.abs(p - mid) - Math.abs(q - mid))[0];
+  const picks = [near(-1), near(1)].filter((x) => x !== undefined);
+  // Neighbouring streets are 20 apart and a drive is 19.6 across, so two side by side would share
+  // a wall pier; with no L to split them that can happen, and one is the answer.
+  if (picks.length === 2 && picks[1] - picks[0] < 2 * reach + 3) picks.pop();
+  return picks.map(at);
+}
+
+function lineXIndex(x) {
+  for (let i = 0; i <= GRID_I; i++) if (Math.abs(lineX(i) - x) < 1e-6) return i;
+  return -1;
+}
+
+/** The drive's asphalt, its kerb edging, the statue on the island and the pylons in its mouths. */
+function driveParts(d, rng) {
+  const parts = [];
+  // The centre line: down the west leg from the kerb, over the arch, and back down the east one.
+  const centre = [];
+  const leg = (sx, z0, z1) => {
+    for (let k = 0; k <= 2; k++) centre.push({ x: d.x + sx * DRIVE_R, z: z0 + (z1 - z0) * (k / 2) });
+  };
+  leg(-1, d.kerb, d.z);
+  for (let k = 1; k < 36; k++) {
+    const a = Math.PI - (k / 36) * Math.PI;
+    centre.push({ x: d.x + Math.cos(a) * DRIVE_R, z: d.z - Math.sin(a) * DRIVE_R });
+  }
+  leg(1, d.z, d.kerb);
+  parts.push(ribbon(centre, DRIVE_W, DRIVE_Y, PALETTE.asphalt));
+  // The edging: a kerb-grey strip either side, laid edge to edge with the asphalt rather than
+  // under it (CLAUDE.md: touching is a seam, overlapping is a shimmer).
+  const offset = (pts, by) => pts.map((p, k) => {
+    const a = pts[Math.max(0, k - 1)];
+    const c = pts[Math.min(pts.length - 1, k + 1)];
+    const len = Math.hypot(c.x - a.x, c.z - a.z) || 1;
+    return { x: p.x - ((c.z - a.z) / len) * by, z: p.z + ((c.x - a.x) / len) * by };
+  });
+  const edge = (DRIVE_W + DRIVE_EDGE) / 2;
+  parts.push(ribbon(offset(centre, edge), DRIVE_EDGE, DRIVE_Y, PALETTE.kerb));
+  parts.push(ribbon(offset(centre, -edge), DRIVE_EDGE, DRIVE_Y, PALETTE.kerb));
+
+  // The statue, in the middle of the island and pushed back off the pavement so its plaza sits on
+  // lawn: the park's own figure (city/props.js), the one the graveyard borrows too.
+  const inner = DRIVE_R - DRIVE_W / 2;
+  const sz = d.z - Math.min(inner - STATUE_PLAZA / 2 - 0.8, 3);
+  parts.push(...statueParts(d.x, sz, LAWN_Y, rng));
+
+  // The pylons: three across each mouth, on the pavement a step back from the kerb, so the drive
+  // reads as shut from the street that faces it.
+  const pylon = new THREE.Color(PALETTE.parkPylon);
+  const band = new THREE.Color(PALETTE.parkPylonBand);
+  for (const sx of [-1, 1]) {
+    for (const t of [-1, 0, 1]) {
+      const x = d.x + sx * DRIVE_R + t * (DRIVE_W / 2 - 0.45);
+      const z = d.kerb - 0.55;
+      const post = new THREE.CylinderGeometry(PYLON_R, PYLON_R * 1.15, PYLON_H, 8);
+      post.translate(x, DRIVE_Y + PYLON_H / 2, z);
+      parts.push(bakeColor(post, pylon));
+      const cap = new THREE.CylinderGeometry(PYLON_R * 0.8, PYLON_R, 0.08, 8);
+      cap.translate(x, DRIVE_Y + PYLON_H + 0.04, z);
+      parts.push(bakeColor(cap, pylon));
+      const stripe = new THREE.CylinderGeometry(PYLON_R * 1.04, PYLON_R * 1.04, 0.1, 8);
+      stripe.translate(x, DRIVE_Y + PYLON_H * 0.72, z);
+      parts.push(bakeColor(stripe, band));
+    }
+  }
+  return parts;
 }
 
 // --- Builders ----------------------------------------------------------------------------------
