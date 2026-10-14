@@ -9,14 +9,15 @@ A river runs east–west through the middle of the city, crossed by four bridges
 
 ## The city grew a row rather than losing one
 
-The obvious way to put water on this map is to flood a block row. It costs five of the twenty-five
+The obvious way to put water on this map is to flood a block row. It costs a whole row of land
 blocks, and with them whichever one-per-city landmark happened to be standing there — the depot, the
 burger joint, the courtyard, the helipad.
 
-So the Z axis has **six** block rows against X's five, and one of them is the channel. Land stays at
-25 blocks, every street survives, and the map gains an east–west street it did not have. That is
-what made `GRID` come apart into `GRID_I` and `GRID_J`
-([architecture.md](architecture.md#the-grid-has-two-counts)), and it is the whole of the cost.
+So the Z axis has **one more** block row than X has columns — seven against six (six against five
+under `?city=classic`) — and one of them is the channel. Land stays a square (36 blocks, or 25),
+every street survives, and the map gains an east–west street it did not have. That is what made
+`GRID` come apart into `GRID_I` and `GRID_J` ([city.md](city.md#coordinates)), and it is the whole
+of the cost.
 
 **The row *is* the river**, which is what keeps everything downstream cheap:
 
@@ -29,7 +30,8 @@ what made `GRID` come apart into `GRID_I` and `GRID_J`
   district uses when it builds over a road, so `legalExits`, the road network, ambient traffic and
   the router all learn about them for free.
 
-The river takes one of the two middle rows, so the land either side comes out 2 and 3. That is the
+The river takes the middle row (`middleRow` in `city/river.js`), so the land either side comes out
+3 and 3 — or 2 and 3 in the classic city, which has two middle rows to pick from. That is the
 point of it: a trip across town has to pick a crossing.
 
 ### Two things the network could not work out for itself
@@ -38,7 +40,7 @@ point of it: a trip across town has to pick a crossing.
 there — water is not a road, so it sees an ordinary face, merged across every crossing without a
 bridge. That is the right answer about the graph and the wrong one about what can be built on.
 
-And a river face is *not* what `blockBounds` says: five river blocks come back as one or two big
+And a river face is *not* what `blockBounds` says: a row of river blocks comes back as one or two big
 merged faces. `tools/roadnet.mjs` compares land against land.
 
 ## Which crossings bridge

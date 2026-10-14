@@ -302,7 +302,7 @@ that carries two trees rather than one, with a park across the road, so the orna
 broadleaf it is deliberately *not* are in the same frame. Appended, same rule as 37.
 
 Shot 13 (`flyover`) has the wreck's problem without the wreck's drama: the
-[ambient plane](rendering.md#the-flyover--gameflyoverjs) is up for six seconds every minute or so,
+[ambient plane](rendering.md#the-flyover--gameflyoverjs-geometryplanejs) is up for six seconds every minute or so,
 so there is nothing to point a camera at unless one is staged. It launches a flight, steps it
 `flyoverAt` seconds forward, and then **aims at the aeroplane** rather than at the middle of the
 map — the heading and the sideways offset of the flight line both come off the run seed, so a

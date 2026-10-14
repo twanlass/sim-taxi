@@ -1,8 +1,8 @@
 # Rocket Rides 🚕
 
-Crazy Taxi meets Flight Control. A fixed 3/4 view of a small city with real traffic signals, and
-one taxi you route by tapping. Three.js — every mesh is generated in code; the sound effects are
-the one thing loaded from files.
+Crazy Taxi meets Flight Control. A fixed 3/4 view of a 6 × 6 city with a river through the middle,
+ambient traffic, and one taxi you route by tapping fares. Three.js, and every mesh is generated in
+code; the only files loaded are the sound designer's recordings and the radio.
 
 ## Play
 
@@ -11,88 +11,70 @@ npm install
 npm run dev          # http://localhost:5173  (and the passing lab at /lab/)
 ```
 
-Tap the waiting passenger and the taxi drives there, **obeying every traffic signal**. Pick them
-up and it carries straight on to their destination by itself — the only thing you choose is *which
-rider to grab*. A fare pays by distance, **$8** for a one-block hop up to **$35** across town.
+Tap a waiting rider and the taxi drives there, obeying every junction exactly like the rest of the
+traffic. Once they're aboard it carries on to their destination by itself; the choice is which
+rider to grab, and how to drive the trip. A fare pays by distance, **$8** for a one-block hop up to
+**$35** across town, times the **combo meter**.
 
-The 60-second clock does **not** reset at pickup: one deadline covers spawn to drop-off, so
-collecting a rider quickly is what buys the time to deliver them. Let a clock expire and the run
-ends.
+Each rider's clock is budgeted from the driving their trip costs and runs from spawn to drop-off, so
+collecting quickly is what buys the time to deliver. A rider whose clock runs out costs a star: the
+run opens on 5.0 and ends at 2.0.
 
-**Loco Mode** (bottom left) is the crazy-taxi button — **hold** for double speed that blows
-through red lights and squeals around corners, release to pause. Find two clear blocks in a row and
-it keeps climbing past double, to 67mph; every corner hands that back. A full tank is 15 seconds of
-boost, and it never refills on its own: you start with a third and every drop-off earns another
-third. On a keyboard, **hold the spacebar** for the same thing.
+Two pedals on the bottom edge:
 
-**Brake** (to its right) is the other pedal: hold it and the taxi screeches to a stop wherever it
-is, leaving rubber off all four wheels; let go and it goes back to driving itself. Nothing to earn
-and nothing to spend. On a keyboard, **hold B**.
+- **Loco Mode** (centre, or hold Space) is the crazy-taxi button. Hold for double speed that runs
+  red lights and squeals round corners. A full tank is 15 seconds; you start with a third and each
+  drop-off earns another third.
+- **Brake** (to its left, or hold B) stops the taxi where it is. Let go and it drives itself again.
 
-The whole city is always on screen. There is nothing to pan or zoom, so every tap is unambiguous.
+Combine them for moves that build the combo: **overtake** (blip Loco behind a car), **U-turn**
+(Loco, then brake twice), **drift** (Loco, tap the brake, Loco again), and **Big Air** off an arched
+bridge with a drift kick, which ends in a barrel roll. The first three unlock as you deliver, and
+each is taught by a card after the run that unlocked it.
+
+On a desktop the whole city is in frame. On a phone the camera follows the taxi and you can drag to
+look around.
 
 ## Test
 
 ```bash
-npm run check        # the whole headless suite, ~1.8s
+npm run check        # the whole headless suite, ~2s
 ```
 
-```
-ok    modules  all import and construct · sun 0.00→3.84
-ok    probe    28/28
-ok    routing  30/30
-ok    fares    6/25
-ok    signals  7.05
-```
-
-The assertion that matters most is the one **no screenshot can make**: given a target, does the
-routed taxi actually arrive — while still stopping at every red? The soak test is the fairness
-check: if a perfect player with a fixed reaction delay ever fails on a timer, the deadline is
-unfair, because a real player is strictly slower.
-
-See [docs/testing.md](docs/testing.md) for the individual tools and the screenshot harness.
+The assertion that matters most is the one no screenshot can make: given a target, does the routed
+taxi actually arrive, while still stopping where it should? The soak test is the fairness check: if
+a perfect player with a fixed reaction delay ever fails on a timer, the deadline is unfair, because
+a real player is strictly slower. See [docs/testing.md](docs/testing.md).
 
 ## Documentation
 
-[**docs/**](docs/README.md) covers each system — what it does, which files own it, and the
-decisions behind it.
-
-- [architecture.md](docs/architecture.md) — module map, frame loop, seeding
-- [city.md](docs/city.md) — coordinates, layout, park districts
-- [traffic.md](docs/traffic.md) — signals, physics, boost, police corridor
-- [gameplay.md](docs/gameplay.md) — fares, routing, the travelling timer
-- [rendering.md](docs/rendering.md) — low-poly technique, lighting, effects
-- [testing.md](docs/testing.md) — the headless suite
-- [lab.md](docs/lab.md) — the passing lab at `/lab/`, a straight road with no lights
-- [ios.md](docs/ios.md) — the App Store build: the WKWebView shell and its custom URL scheme
+Start at [**docs/README.md**](docs/README.md): one doc per system, what it does, which files own it,
+and the decisions behind it. Every URL parameter is listed in [docs/params.md](docs/params.md).
 
 ## The idea worth stealing
 
 **A routed taxi is just a car whose turn choice comes from a route instead of a dice roll.**
 
-There is exactly one place in `src/sim/traffic.js` where a car picks its exit direction at an
-intersection. A car with a `route` takes the next step from it; everyone else rolls the weighted
-straight/right/left dice. Everything downstream — signals, following distance, left-turn yielding,
-don't-block-the-box — is untouched and applies to the taxi identically.
+There is exactly one place in `src/sim/traffic.js` where a car picks its exit at an intersection. A
+car with a `route` takes the next step from it; everyone else rolls the weighted straight/right/left
+dice. Everything downstream (junction control, following distance, left-turn yielding,
+don't-block-the-box) is untouched and applies to the taxi identically. So the taxi cannot cheat its
+way to a destination, and gameplay changes almost never touch traffic code.
 
-So the taxi cannot cheat its way to a destination, and gameplay changes almost never touch traffic
-code.
-
-The routing itself is BFS over **directed** states `(i, j, d)` — 144 of them, instant. The node has
-to carry the approach direction because U-turns are illegal; a plain `(i, j)` node would plan
-routes the car could never execute.
+The router is a Dijkstra over **directed** states, a junction plus the direction the car arrives
+from, because U-turns are not a legal exit and a plain junction node would plan routes the car could
+never drive. See [docs/gameplay.md](docs/gameplay.md#routing).
 
 ## Deploy
 
-Static build, deployed on Netlify — see `netlify.toml`.
+Static build on Netlify (`netlify.toml`): push to `main` and it deploys.
 
 ```bash
 npm run build        # → dist/
 ```
 
-There is also an iOS shell under `ios/` — a WKWebView serving the same bundle over a custom URL
-scheme, which is what gives it a real origin and therefore working `localStorage`. See
-[docs/ios.md](docs/ios.md).
+The iOS app under `ios/` is a WKWebView serving the same bundle over a custom URL scheme, which gives
+it a real origin and therefore working `localStorage`. See [docs/ios.md](docs/ios.md).
 
 ```bash
 npm run build:ios    # → dist/, then ios/SimTaxi/web/
@@ -100,4 +82,4 @@ npm run build:ios    # → dist/, then ios/SimTaxi/web/
 
 ## Built with
 
-Three.js r0.180 · Vite 7 · no assets, no loaders, no textures.
+Three.js r0.180 · Vite 7 · no models, no loaders, no textures.
