@@ -842,6 +842,11 @@ export const PALETTE = {
   parkPath: '#BDB29A',
   parkWall: '#8E877C',
   parkWallCap: '#A39C90',
+  // The pylons shutting its drive: a school-bus yellow, held off the taxi's 34° at ~46° and darker
+  // than a highlighter, so a row of them reads as posts and not as six tiny cabs. The band is the
+  // dark of a bollard's reflector collar.
+  parkPylon: '#E2B72A',
+  parkPylonBand: '#2B2D30',
 
   // The basketball court — see city/blacktop.js. A sports court has to read as *paved* inside a
   // lawn, which is a value break before it is a hue: the blacktop at luma ~80 is a dark slab against

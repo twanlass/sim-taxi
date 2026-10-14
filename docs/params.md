@@ -20,7 +20,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?city=classic` | The 5 × 6 city (25 land blocks, straight roads only, three bridges). Headless tools take `CITY=classic` | #483 | [city.md](city.md) |
 | `?harbor=classic` | The old river mouth, with no harbor, cranes or ships | #488, #497 | [river.md](river.md) |
 | `?northpark=classic` | No park past the north ring road | #483 | [city.md](city.md) |
-| `?westedge=classic` | No high rises past the west ring road: the island ends at the old west coast. Headless tools take `WESTEDGE=classic` | — | [city.md](city.md#the-west-edge-high-rises-default-westedgeclassic-to-drop-them) |
+| `?westedge=classic` | No high rises past the west ring road: the island ends at the old west coast. Headless tools take `WESTEDGE=classic` | #510 | [city.md](city.md#the-west-edge-high-rises-default-westedgeclassic-to-drop-them) |
+| `?parkdrive=classic` | No arched drives round statues in the north park's wall | | [city.md](city.md) |
 | `?parkway=twoway` | A two-lane road through the central park instead of the one-way one | #473 | [city.md](city.md) |
 | `?graveyard=single` / `=classic` | One graveyard block / no graveyard (default is two blocks with the street between closed) | #487, #491 | [city.md](city.md) |
 | `?ltrain=classic` | No L train | #482 | [city.md](city.md) |
@@ -29,6 +30,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?trainintro=classic` | The L without its own intro | #494 | [city.md](city.md) |
 | `?depot=classic` / `=model` | The depot's wrench sign / a 3D taxi on its roof (default is the neon cutout) | #479 | [city.md](city.md) |
 | `?skater=classic` / `=stiff` | The first pair of skaters / the single skater before it got a waist joint | #461, #463 | [city.md](city.md) |
+| `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?foliage=classic` | The first, louder autumn palette | #486 | [rendering.md](rendering.md) |
 | `?water=classic` | The faceted first river surface | | [river.md](river.md) |
 | `?paint=classic` / `=layered` / `=chameleon` / `=satin` | Car paint before the layered finish, or one of the explored looks (default is `toon`) | #501 | [rendering.md](rendering.md) |
@@ -36,6 +38,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?damage=classic` | The taxi's damage ladder before the first-hit flash, grime and steam | #456 | [gameplay.md](gameplay.md) |
 | `?wreck=classic` / `=quick` | The old fireball, or the quick cut (default is `flat`) | #398 | [traffic.md](traffic.md) |
 | `?cop=classic` | Boosting into a cop is a bump rather than a full wreck | #466 | [gameplay.md](gameplay.md) |
+| `?helispot=classic` | The police helicopter's first, brighter and harder-edged searchlight | | [gameplay.md](gameplay.md) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
 | `?robbery=classic` | The robbery with no opening cut (straight to the drive-past). Also implies `?bankfare=classic` | #475, #478 | [gameplay.md](gameplay.md) |
 | `?bankfare=classic` | The drive-past robbery instead of the bank rider fare | #499 | [gameplay.md](gameplay.md) |
@@ -102,7 +105,7 @@ See [rendering.md](rendering.md) for all of these.
 | `?safe` / `=off` | All four budget flags at their cheapest (no MSAA, 1024 shadows, DPR 1, no AO). On by default on Android; `=off` restores the full budget |
 | `?msaa=off` | No multisampling |
 | `?shadows=off` / `=1024` | No sun shadows, or that map size (power of two, 256–4096) |
-| `?dpr=N` | Caps `devicePixelRatio` (0.5–4, default 2) and pins it against the Resolution setting |
+| `?dpr=N` | Caps `devicePixelRatio` (0.5–4, default 2) and pins it against the Quality setting |
 | `?ao=off` | No ambient occlusion |
 | `?fps=30` | Caps the frame rate, overriding the Settings choice |
 | `?governor=off` | Holds the resolution where the budget put it, instead of stepping down when hot |

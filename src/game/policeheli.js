@@ -88,9 +88,32 @@ const POOL_LIFT = 0.32;
  * round the pool is darkened — the light reads by contrast with its surroundings, which is how a
  * searchlight is actually seen in daylight on film.
  */
-const BEAM = { day: 0.75, night: 0.38 };
-const POOL = { day: 1.0, night: 0.75 };
-const SHADE = { day: 0.45, night: 0.12 };
+/**
+ * The soft light (default since Tyler found the first one "too strong and too sharp"): about 60% of
+ * the first light's strength, and a pool with no rim. The first pool was flat to 0.72 of its radius
+ * and then dropped to nothing over the last 28%, with the shade ring going dark from just inside
+ * that edge — so the edge was a hard white line against a dark band, which is what read as sharp.
+ * Now the pool falls off from 0.4 SPOT_R all the way out to a disc `spread` times bigger, which
+ * lands its half-brightness at 0.85 SPOT_R — where the old one's was (0.86) — so the light
+ * covers the same street and only its edge has changed. The shade ring starts outside that and
+ * fades over twice the distance. `?helispot=classic` keeps the first light.
+ */
+const LOOKS = {
+  soft: {
+    beam: { day: 0.45, night: 0.24 },
+    pool: { day: 0.62, night: 0.55 },
+    shade: { day: 0.28, night: 0.08 },
+    spread: 1.3,
+    shadeScale: 2.4,
+  },
+  classic: {
+    beam: { day: 0.75, night: 0.38 },
+    pool: { day: 1.0, night: 0.75 },
+    shade: { day: 0.45, night: 0.12 },
+    spread: 1,
+    shadeScale: 1.9,
+  },
+};
 
 // --- Rotor -----------------------------------------------------------------------------
 const TAIL_RATIO = 4.6;
@@ -176,34 +199,62 @@ function discMaterial(fragment, blending) {
   });
 }
 
-const POOL_FRAG = /* glsl */ `
-  uniform vec3 uColor;
-  uniform float uStrength;
-  varying float vR;
-  void main() {
-    float a = (1.0 - smoothstep(0.72, 1.0, vR)) * (0.75 + 0.25 * (1.0 - vR));
-    gl_FragColor = vec4(uColor * a * uStrength, 1.0);
-  }
-`;
-// The shade ring: the disc is 1.9 pool radii across, dark from just inside the pool's rim to
-// nothing at its own.
-const SHADE_SCALE = 1.9;
-const SHADE_FRAG = /* glsl */ `
-  uniform float uStrength;
-  varying float vR;
-  void main() {
-    float r = vR * 1.9;
-    float a = smoothstep(0.8, 1.05, r) * (1.0 - smoothstep(1.05, 1.9, r));
-    gl_FragColor = vec4(0.02, 0.03, 0.06, a * uStrength);
-  }
-`;
+const POOL_FRAG = {
+  // Hot in the middle and fading the whole way out, so there is no edge to find. vR here runs to
+  // the spread disc's rim, 1.3 SPOT_R.
+  soft: /* glsl */ `
+    uniform vec3 uColor;
+    uniform float uStrength;
+    varying float vR;
+    void main() {
+      float a = 1.0 - smoothstep(0.3, 1.0, vR);
+      gl_FragColor = vec4(uColor * a * a * (3.0 - 2.0 * a) * uStrength, 1.0);
+    }
+  `,
+  classic: /* glsl */ `
+    uniform vec3 uColor;
+    uniform float uStrength;
+    varying float vR;
+    void main() {
+      float a = (1.0 - smoothstep(0.72, 1.0, vR)) * (0.75 + 0.25 * (1.0 - vR));
+      gl_FragColor = vec4(uColor * a * uStrength, 1.0);
+    }
+  `,
+};
+// The shade ring, in pool radii (vR times the disc's own scale). Classic: 1.9 across, dark from
+// just inside the pool's rim to nothing at its own. Soft: 2.4 across, starting at the pool's
+// half-brightness and easing in and out over twice the width, so it darkens the street round the
+// light rather than outlining it.
+const SHADE_FRAG = {
+  soft: /* glsl */ `
+    uniform float uStrength;
+    varying float vR;
+    void main() {
+      float r = vR * 2.4;
+      float a = smoothstep(0.75, 1.4, r) * (1.0 - smoothstep(1.4, 2.4, r));
+      gl_FragColor = vec4(0.02, 0.03, 0.06, a * uStrength);
+    }
+  `,
+  classic: /* glsl */ `
+    uniform float uStrength;
+    varying float vR;
+    void main() {
+      float r = vR * 1.9;
+      float a = smoothstep(0.8, 1.05, r) * (1.0 - smoothstep(1.05, 1.9, r));
+      gl_FragColor = vec4(0.02, 0.03, 0.06, a * uStrength);
+    }
+  `,
+};
 
 /**
  * @param scene
  * @param rng      `makeRng` — which side it comes in from.
  * @param groundY  `(x, z) => y` of the road surface there (the bridges are not at 0).
+ * @param classic  `?helispot=classic`: the first, harder-edged searchlight.
  */
-export function createPoliceHeli(scene, rng, { groundY = () => 0 } = {}) {
+export function createPoliceHeli(scene, rng, { groundY = () => 0, classic = false } = {}) {
+  const look = classic ? 'classic' : 'soft';
+  const { beam: BEAM, pool: POOL, shade: SHADE, spread: POOL_SPREAD, shadeScale: SHADE_SCALE } = LOOKS[look];
   const state = {
     mode: 'away',               // 'away' | 'track' | 'out'
     sorties: 0,
@@ -231,10 +282,10 @@ export function createPoliceHeli(scene, rng, { groundY = () => 0 } = {}) {
   beam.frustumCulled = false;
   // The radial reads `position.xy`, so the disc is laid flat by the mesh rather than baked flat.
   const flat = new THREE.CircleGeometry(1, 40);
-  const pool = new THREE.Mesh(flat, discMaterial(POOL_FRAG, THREE.AdditiveBlending));
+  const pool = new THREE.Mesh(flat, discMaterial(POOL_FRAG[look], THREE.AdditiveBlending));
   pool.name = 'heliPool';
   pool.renderOrder = 2;
-  const shade = new THREE.Mesh(flat, discMaterial(SHADE_FRAG, THREE.NormalBlending));
+  const shade = new THREE.Mesh(flat, discMaterial(SHADE_FRAG[look], THREE.NormalBlending));
   shade.name = 'heliShade';
   shade.renderOrder = 1;
   const light = new THREE.Group();
@@ -402,7 +453,7 @@ export function createPoliceHeli(scene, rng, { groundY = () => 0 } = {}) {
       disc.position.set(ax, gy, az);
       disc.rotation.set(-Math.PI / 2, yaw, 0, 'YXZ');
     }
-    pool.scale.set(SPOT_R * stretch, SPOT_R, 1);
+    pool.scale.set(SPOT_R * POOL_SPREAD * stretch, SPOT_R * POOL_SPREAD, 1);
     shade.scale.set(SPOT_R * stretch * SHADE_SCALE, SPOT_R * SHADE_SCALE, 1);
 
     beam.material.uniforms.uStrength.value = lerp(BEAM.day, BEAM.night, dark) * level;

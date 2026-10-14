@@ -2362,7 +2362,11 @@ The light is faked rather than a `SpotLight`, which would add a light to every l
 shine through towers with no shadow map behind it: an additive cone from the lamp under the nose, an
 additive pool where it lands, and a normally blended dark ring round the pool. The ring carries the
 daytime read; an additive pool on a sunlit street is too faint to see on its own. The strengths ease
-between day and night off the sun's power. The rotor sound is synthesised in `game/sfx.js`
+between day and night off the sun's power. The light is deliberately soft: the pool is brightest in
+the middle and fades the whole way out to 1.3 of its nominal radius with no rim, and the ring starts
+outside the pool's half-brightness and eases in and out, so it darkens the street round the light
+rather than outlining it (`LOOKS` in `game/policeheli.js`;
+[the first, harder light](gameplay-history.md#the-police-helicopters-first-searchlight)). The rotor sound is synthesised in `game/sfx.js`
 (`makeRotor`) because the designer's set has no recording of one.
 
 The machine is painted in the cruisers' own two colours turned round: `policeCab` white all over
