@@ -263,6 +263,10 @@ export const SHOTS = [
   // basin close up, and then at play zoom with the city beside it, which is where it has to read.
   { name: 'harbor', description: 'the harbor: cranes, ship and the dock basin', target: [82, 2], zoom: 22, warmup: 12 },
   { name: 'harbor-far', description: 'the harbor at play zoom, beside the city', target: [66, 8], zoom: 52, warmup: 12 },
+  // The south shore (city/southshore.js): the harbor's rocks carried on round the south end, the
+  // strip of park in front of them, close and then at play zoom.
+  { name: 'south-shore', description: 'the south shore: rocks, lawn, walkway and trees', target: [-10, 84], zoom: 20, warmup: 12 },
+  { name: 'south-shore-far', description: 'the south shore at play zoom, beside the city', target: [10, 72], zoom: 52, warmup: 12 },
 ];
 
 export function getActiveShot() {

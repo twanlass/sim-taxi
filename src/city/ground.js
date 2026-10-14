@@ -8,7 +8,10 @@ import {
   isUnsignalised, isSegmentClosed, halfRoadX, halfRoadZ, isArterialX, isArterialZ,
   isRiverGap, riverBanks, medianRuns, MEDIAN_W, SLAB_MARGIN, coastWest, coastEast,
 } from './grid.js';
-import { harborPiers, islandHalf, seaStartX, coastArcStart, coastArcZ, SEA_BLEND } from './harborplan.js';
+import {
+  harborPiers, islandHalf, seaStartX, coastArcStart, coastArcZ, SEA_BLEND, southShore, onShoreline,
+  parkShore,
+} from './harborplan.js';
 
 const KERB_H = 0.35;
 const MARK_Y = 0.02;
@@ -281,7 +284,10 @@ function roundedSlab(shape) {
  */
 function seaCornerFade(pos, col, c, alphaAt) {
   const STEP = 1;
-  for (const side of [1, -1]) {
+  // With the south shore the south corner is sea on both sides of it, so only the north one has a
+  // rim to carry round.
+  // Likewise the north one with the park shore, whose seawall runs on north with no corner at all.
+  for (const side of [1, -1].filter((s) => !(s > 0 ? southShore() : parkShore()))) {
     const from = coastArcStart(side);
     const n = Math.round(SEA_BLEND / STEP);
     const taper = (k) => { const u = k / n; return 1 - u * u * (3 - 2 * u); };
@@ -330,7 +336,9 @@ function asphaltFade(shape, x0, x1, d, radius) {
   const near = (a, b) => Math.abs(a - b) < 1e-6;
   const onCut = banks
     ? outline.map((p) => near(-p.y, banks.z0) || near(-p.y, banks.z1)
-      || p.x >= coastArcStart(-p.y > 0 ? 1 : -1) - 1e-6)
+      || p.x >= coastArcStart(-p.y > 0 ? 1 : -1) - 1e-6
+      // And the south shore, which is a wall standing in the sea like the seawall it continues.
+      || onShoreline(p.x, -p.y))
     : outline.map(() => false);
 
   // Outward normal of a rounded rectangle in one expression: clamp the point into the box the
@@ -338,11 +346,14 @@ function asphaltFade(shape, x0, x1, d, radius) {
   // straight and the arc's own radius around a corner. (The two are never equal — every outline
   // point sits exactly `radius` from that box — so there is no zero-length case to guard.)
   const insetY = d / 2 - radius;
+  // The south half with a shore has no south corner to go round: its west edge runs square down to
+  // the shoreline (harborplan.js `islandHalf`), so its skirt points due west the whole way.
+  const lowY = southShore() ? -Infinity : -insetY;
   const normals = outline.map((p) => new THREE.Vector2(
     // East of the city the coast is the seawall, which never takes a skirt, so the only corners
     // the skirt goes round with a harbor are the two west ones.
     p.x - THREE.MathUtils.clamp(p.x, x0 + radius, Number.isFinite(seaFrom) ? Infinity : x1 - radius),
-    p.y - THREE.MathUtils.clamp(p.y, -insetY, insetY),
+    p.y - THREE.MathUtils.clamp(p.y, lowY, insetY),
   ).divideScalar(radius));
 
   // Smoothstep, not linear. A linear ramp leaves a kink in the falloff exactly where it meets the

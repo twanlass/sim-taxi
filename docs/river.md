@@ -347,7 +347,62 @@ nothing stands inside the ring road, that no slab lies over the basin, that the 
 at sea level out to the rim, that the skirt never reaches back over the city, and that nothing in the
 harbor reaches up into the L train's deck.
 
-## The surface
+## The park shore
+
+`src/city/parkshore.js`. Default; `?parkshore=classic` (and `PARKSHORE=classic`) keeps the old
+corner. Needs both the harbor and the north park.
+
+North of the harbor the seawall used to round its corner west at the old coast, under the north
+park's lawn, so the rocks curled away and stopped and the park's grass met the water bare, fading
+out over the sea. Tyler, 2026-10-14: "Let's continue the rocky edge along the park to make this
+transition smoother". Now the seawall runs straight on north to the park's far edge with the same
+rocks (harbor.js builds them, as it always did along the seawall), and the sea runs on north
+beside it to a rim level with the park's. `islandHalf` closes the outline back west *under* the
+park (`parkShoreClosure`, `parkShoreTurnX`), where the park's platform hides it and nothing builds a
+wall on it. `parkshore.js` lays the park's own kerb, pavement band and lawn over the couple of units
+between the park's east edge and the wall, and fades it north on the park's feather
+(`PARK_FADE`). The park's feather no longer goes round its north-east corner (`lawnFade`).
+
+## The south shore
+
+`src/city/southshore.js`. Default; `?southshore=classic` (and `SOUTHSHORE=classic` for the headless
+tools) keeps the old apron fading into the sky. Needs the harbor's sea, so it is off under
+`?harbor=classic` too.
+
+The harbor's seawall turns the south-east corner and runs west the whole length of the south end,
+with the same bank of boulders against it and the sea in front. Between the south ring road and the
+water is a raised strip of park: a kerb with a pale pavement band facing the road, lawn, a walkway
+that swings along it (`PATH_SWING`) and turns up to meet the pavement at the corner, lawn on to the
+water's edge, and a few small trees. Tyler, 2026-10-14, circling where the harbor's rocks stopped:
+"Continue the rocky shoreline around the south end. Opposite the buildings add a curb, then grass
+patch then swooping walkway then more grass at the waters edge."
+
+**The outline is the harbor's.** `islandHalf` in `harborplan.js` runs the south half's west edge
+square down to the shoreline (`shoreZ`: 13 off the kerb, wobbling on two sines and eased flat into
+the corner arc) and along it, so the slab, the strip and the sea all read one line. The slab's
+skirt skips the shoreline the way it skips the seawall (`onShoreline`), the sea (`seaMesh`) runs west
+in front of it to the island's edge and fades on the skirt's band out past `seaRimSouth()`, and at
+the west end the lawn, band and walkway carry on over that band and dissolve with it
+(`westFade`).
+
+**A hot dog cart** stands on the lawn beside the walkway, on the road side, at the point where the
+path has swung furthest toward the water and left the most room (`placeCart`, no draw, so it is
+the same spot every run of a city). Steel box, red skirt, red and mustard umbrella, scaled 1.3 so
+it reads at play zoom. Tyler, 2026-10-14: "let's place a hot dog cart along the way".
+
+**The trees are kept small and down by the water** (8 off the kerb, 3.3–4.4 tall). Everything
+here is down-screen of the ring road, and the sightline climbs 0.92 per unit, so a crown that tall
+hides about 5 units of ground behind it: lawn, never the road or a rider.
+
+**The sea out there mirrors only the sky.** The water program follows a reflected ray toward −z,
+which from the south shore crosses the whole city: it met the channel's far wall ninety units off
+and every bridge deck on the way (whose profile reads 0 past its span) and drew them as dark bands
+across the open water. Past `uWaterShore` it returns the sky, and the bed is the sea's depth rather
+than the channel's shallow margin, which had shown through olive.
+
+Nothing in the grid moved: the strip is outside the ring road, so no street, junction or fare
+changes. Shots 52 (`south-shore`) and 53 (`south-shore-far`) frame it.
+
 
 `src/city/riverwater.js`, layered over `propMaterial`'s own patch on the water strip. Ripples,
 depth, refraction and reflection, all in the water's fragment shader with **no extra pass**.
