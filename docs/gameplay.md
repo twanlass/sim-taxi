@@ -1785,7 +1785,7 @@ then a rider spawns on its steps** (`BANK_CHANCE`: 30% of qualifying spawns from
 delivery, 35s after the last one left the board; #499). They are an ordinary tappable fare. Tap
 them and pull up, and a coin tossed when they spawned decides it — **a loaded one**: even odds on
 the first bank rider of a run, then 15 points more robbery for each one who rode (50, 65, 80, 95,
-capped there), back to even once a robbery happens (`BANK_ROBBER_STEP`; #TBD,
+capped there), back to even once a robbery happens (`BANK_ROBBER_STEP`; #522,
 `?robberyodds=classic` for a fair coin every time). Heads they get in like anybody
 else; tails a robber bursts out of the bank, shoves them over and takes their seat — see
 [the bank job](#the-bank-job) — and the streets go blue for as long as it takes to get the robber
