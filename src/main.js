@@ -3490,7 +3490,7 @@ function applyWorldPressure() {
 function formatRunTime(seconds) {
   const total = Math.max(0, Math.round(seconds));
   const secs = total % 60;
-  return `${Math.floor(total / 60)}:${String(secs).padStart(2, '0')}s`;
+  return `${Math.floor(total / 60)}:${String(secs).padStart(2, '0')}`;
 }
 
 /**
