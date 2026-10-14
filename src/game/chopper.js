@@ -1,5 +1,6 @@
 import { createHelicopterMesh, HELI_SKID_DROP } from '../geometry/helicopter.js';
 import { BODY_EULER_ORDER } from '../util/geo.js';
+import { WEST_CLEAR_X } from '../city/westedge.js';
 
 // A helicopter that visits the city's rooftop helipad every couple of minutes: it comes in over the
 // skyline on a curve, banking as it lines up, settles onto the circle in its own dust, sits with the
@@ -124,6 +125,8 @@ const WOBBLE_LIFT = 1.6;
 // arriving across one leaves the tail hanging over the parapet. Lining up along it also means the
 // bank is always the same size on screen, which is the shot this is for.
 const APPROACH_SKEW = 0.34;      // radians
+// How far east of the west edge's tall column a leg has to start: the rotor's reach and a little.
+export const WEST_MARGIN = 6;
 
 /**
  * The curve, which is the whole reason this is not a straight line onto the pad.
@@ -343,17 +346,25 @@ export function createChopper(scene, rng, pad, { onWash = () => {} } = {}) {
     // the machine is long, so which way it sits on the pad is decided by the building.
     const alongX = pad.cw >= pad.cd;
     const axis = alongX ? 0 : Math.PI / 2;
-    const inbound = axis + (rng.chance(0.5) ? 0 : Math.PI) + rng.jitter(APPROACH_SKEW);
-
-    state.inbound = inbound;
+    let inbound = axis + (rng.chance(0.5) ? 0 : Math.PI) + rng.jitter(APPROACH_SKEW);
     // Which side the base leg is flown on. Left and right are the same manoeuvre mirrored, and
     // alternating them is most of what stops two visits in one run looking like a repeat.
     state.side = rng.chance(0.5) ? 1 : -1;
     // Back down the inbound heading to the far edge of the map, and out to one side of it.
-    const f = heading(inbound);
-    const p = { x: -f.z, z: f.x };          // perpendicular, in the ground plane
-    state.x = pad.x - f.x * ENTRY_DIST + p.x * state.side * CURVE_OFFSET;
-    state.z = pad.z - f.z * ENTRY_DIST + p.z * state.side * CURVE_OFFSET;
+    const entry = (a) => {
+      const f = heading(a);
+      const p = { x: -f.z, z: f.x };          // perpendicular, in the ground plane
+      return {
+        x: pad.x - f.x * ENTRY_DIST + p.x * state.side * CURVE_OFFSET,
+        z: pad.z - f.z * ENTRY_DIST + p.z * state.side * CURVE_OFFSET,
+      };
+    };
+    // Never in over the high rises past the west ring road (city/westedge.js): the far column there
+    // stands well above `CRUISE_ALT`. The leg the other way round is the same leg mirrored about the
+    // pad, and the pad is in the city, so that one starts east of it. It leaves the way it came.
+    if (entry(inbound).x < WEST_CLEAR_X + WEST_MARGIN) inbound += Math.PI;
+    state.inbound = inbound;
+    ({ x: state.x, z: state.z } = entry(inbound));
     state.y = CRUISE_ALT;
     // Pointing down the base leg, i.e. parallel to the line it will end up on. The turn onto final
     // comes from the aim point sliding across, not from an error it starts with.

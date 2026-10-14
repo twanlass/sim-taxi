@@ -20,6 +20,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?city=classic` | The 5 × 6 city (25 land blocks, straight roads only, three bridges). Headless tools take `CITY=classic` | #483 | [city.md](city.md) |
 | `?harbor=classic` | The old river mouth, with no harbor, cranes or ships | #488, #497 | [river.md](river.md) |
 | `?northpark=classic` | No park past the north ring road | #483 | [city.md](city.md) |
+| `?westedge=classic` | No high rises past the west ring road: the island ends at the old west coast. Headless tools take `WESTEDGE=classic` | #510 | [city.md](city.md#the-west-edge-high-rises-default-westedgeclassic-to-drop-them) |
+| `?parkdrive=classic` | No arched drives round statues in the north park's wall | | [city.md](city.md) |
 | `?parkway=twoway` | A two-lane road through the central park instead of the one-way one | #473 | [city.md](city.md) |
 | `?graveyard=single` / `=classic` | One graveyard block / no graveyard (default is two blocks with the street between closed) | #487, #491 | [city.md](city.md) |
 | `?ltrain=classic` | No L train | #482 | [city.md](city.md) |

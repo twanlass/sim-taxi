@@ -402,6 +402,12 @@ const FLAT = Object.freeze({ y: 0, dydz: 0, toCrest: Infinity });
  */
 const BANK_REACH = () => SLAB_X / 2;
 /**
+ * Where the channel stops to the west: the coast, which the high rises past the west ring road have
+ * moved out (`WEST_REACH`, city/westedge.js). The walls and the walk run on through them, so the
+ * river reaches the edge of the world between two banks rather than in an open trench.
+ */
+const channelWest = () => -coastWest();
+/**
  * How far the island reaches on the side of the map `x` is on. The two used to be the same
  * number (`BANK_REACH`); the harbor moved the east coast out, so anything measuring "how far
  * through the mouth is this" asks per side.
@@ -426,7 +432,7 @@ export function createRiver(rng, layout) {
 
   const solid = [];
   const wallCol = jitterColor(PALETTE.riverWall, rng, { l: 0.02 });
-  const bank = BANK_REACH();
+  const bank = channelWest();
 
   const kerbCol = jitterColor(PALETTE.kerb, rng, { l: 0.02 });
   const walkCol = jitterColor(PALETTE.sidewalk, rng, { l: 0.03 });
@@ -561,7 +567,7 @@ function riverMouthFade() {
   const edges = waterEdges();
   for (const [za, zb] of [[banks.z0, edges.z0], [edges.z1, banks.z1]]) {
     for (const side of harborBasin() ? [-1] : [-1, 1]) {
-      const from = side * (SLAB_X / 2);
+      const from = side < 0 ? -channelWest() : SLAB_X / 2;
       for (let ring = 0; ring < FADE_RINGS; ring++) {
         const t0 = ring / FADE_RINGS;
         const t1 = (ring + 1) / FADE_RINGS;
@@ -718,7 +724,7 @@ function waterMesh({ deep, open }, edges) {
   // river a single flat quad; without them the smoothstep would have nowhere to land and the whole
   // 124 units would be one interpolation.
   const bank = BANK_REACH();
-  const ramp = bank - MOUTH_SHOAL;
+  const west = channelWest();
   // Out to the **full** fade band, not a couple of units past the coast. The old strip stopped at
   // a couple of units past the coast and left the skirt fading across a void: nothing under it
   // but sky, so at the tip the fade opened a hole rather than dissolving into haze — luma 211
@@ -726,14 +732,16 @@ function waterMesh({ deep, open }, edges) {
   // own band and the skirt's own curve, and by then it is the skirt's own colour too.
   // With a harbor the channel's east end is the basin's back wall, deep and opaque: the basin's
   // own sheet (`seaMesh`) takes over there and does the shoaling out to the east coast.
-  const xs = [-ramp];
+  // Per side: the west coast has moved out past the east one's old line (`channelWest`).
+  const xs = [-(west - MOUTH_SHOAL)];
   for (const side of harborBasin() ? [-1] : [-1, 1]) {
-    xs.push(side * bank);
+    const reach = side < 0 ? west : bank;
+    xs.push(side * reach);
     for (let ring = 1; ring <= FADE_RINGS; ring++) {
-      xs.push(side * (bank + (EDGE_FADE * ring) / FADE_RINGS));
+      xs.push(side * (reach + (EDGE_FADE * ring) / FADE_RINGS));
     }
   }
-  xs.push(harborBasin() ? channelEast() : ramp);
+  xs.push(harborBasin() ? channelEast() : bank - MOUTH_SHOAL);
   // Into the sea: over the last `SEA_RUN_IN` before the mouth the strip's colour turns into the
   // sea's own, the same stretch over which the shader drops the bed to the sea's depth, so at the
   // join both sheets are one colour. Four columns, so the linear blend follows the smoothstep.
