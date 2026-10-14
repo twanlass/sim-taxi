@@ -1312,6 +1312,55 @@ const boostGap = (car, leader) => (car.passOffset > 0
   ? Math.min(BOOST_GAP + truckExtra(leader), envelopeGap(car.passOffset, leader))
   : BOOST_GAP + truckExtra(leader) + (car.passArmed !== undefined && !car.passing ? COMBO_TAILGATE : 0));
 /**
+ * How fast the taxi may go while it swings out round `leader`, `ahead` units behind it — the cap
+ * the tailgate becomes for the length of the swing, in place of `leader.v + sqrt(2·brake·room)`.
+ *
+ * That expression is the speed you can still *stop* from inside the room you have now, and during
+ * the swing it is the wrong question twice over: the room is measured at the offset the taxi has
+ * reached so far, and that offset grows with every unit of road the taxi covers, so the gap it
+ * needs shrinks to nothing within half the change. Asked anyway, it held the taxi to the speed of
+ * the car it was pulling out round for the first half of every pass that started from a tailgate:
+ * measured over 24 cities with the combo thrown at every car and 30% trucks, the cap bound on 20%
+ * of a car pass's frames and 29% of a truck's, a truck pass reached the truck's tail at a median
+ * 18.3 u/s, and what it looked like from the thumb was the taxi hesitating as it went alongside —
+ * worst behind a truck, which the taxi has been tailgating at truck speed (Tyler, 2026-10-14).
+ *
+ * So it looks ahead instead. The swing is paced by road, so after `x` more units the offset is
+ * known exactly, and so is the gap that offset needs (`boostGap`'s own envelope rule). Held at a
+ * steady `v` the taxi closes `x · (1 − leader.v / v)` on the leader over those `x`, and the pass is
+ * safe at `v` if that never eats into the gap the offset at `x` still needs. Inverted, every `x`
+ * gives a ceiling, and the cap is the lowest of them — sampled across the part of the swing that
+ * still overlaps the leader's envelope, past which nothing can touch. A standing lane change is
+ * credited road faster than it rolls (`passCredit`), which only ever makes the real offset larger
+ * than the one assumed here. The positional budget still clamps each step to the room the taxi has
+ * *now*, so a leader that brakes mid-swing is caught there, as before. `?passpace=classic` keeps
+ * the stopping-distance cap.
+ */
+function swingCap(car, leader, ahead) {
+  if (!passPaced || !car.passing || car.pass >= 1 || leader !== car.passTarget) return 0;
+  const lateral = passLateralOn(car);
+  const fade = PASS_FADE * (lateral / PASS_LATERAL);
+  const lv = Math.max(0, leader.v ?? 0);
+  const STEPS = 10;
+  let cap = Infinity;
+  for (let k = 1; k <= STEPS; k++) {
+    const t = car.pass + ((1 - car.pass) * k) / STEPS;
+    const x = (t - car.pass) * fade;
+    const lat = passEase(t) * lateral;
+    const need = Math.min(BOOST_GAP + truckExtra(leader), envelopeGap(lat, leader));
+    if (need === 0) break;
+    const slack = ahead - need;
+    if (slack >= x) continue;
+    cap = Math.min(cap, slack <= 0 ? lv : lv / (1 - slack / x));
+  }
+  return cap;
+}
+let passPaced = true;
+/** `?passpace=classic` holds a swinging taxi to the stopping-distance cap; anything else looks ahead. */
+export function setPassPace(name) {
+  passPaced = name !== 'classic';
+}
+/**
  * Extra daylight behind a car the taxi is not passing, wherever the overtake combo
  * (game/overtake.js) decides passes — held until the pull-out actually starts, not just until the
  * combo arms, because an arm thrown mid-junction waits for the next lane (passes are only decided
@@ -5450,7 +5499,15 @@ export function createTraffic(
         // turning onto, so a truck headed for the same road — on it already, or crawling round the
         // same corner ahead — is measured as the crow flies from the taxi's nose instead.
         const exit = taxi.state === 'turn' ? taxi.turn?.outLane : undefined;
-        const onExit = exit !== undefined
+        // Not while the taxi is out in the oncoming lane, though: the lane bookkeeping still puts an
+        // overtaking taxi on its own lane, so a truck it is passing straight across a junction is
+        // "on the same exit", and `bodyClearance` — a straight line, blind to which side the truck
+        // is on — measured it 1-2 units off the taxi's nose from four units across the road. That
+        // held the taxi to the truck's speed plus a few u/s through every junction of a truck pass:
+        // the biggest single loss of pace in one, measured, and the "hesitating alongside a truck"
+        // Tyler reported (2026-10-14). Out of the lane, the heading test below asks properly.
+        // `?passpace=classic` keeps the old reading.
+        const onExit = exit !== undefined && (seesLeader(taxi) || !passPaced)
           && (other.state === 'turn' ? other.turn?.outLane : other.lane?.id) === exit;
         // In front, not alongside — and the test has to be one the truck would agree with, or the
         // two wait for each other. Two bodies shoved level by a bump share a lane at the same `s`,
@@ -6082,7 +6139,7 @@ export function createTraffic(
           const gap = car.boost ? boostGap(car, leader) : followGap(car, leader);
           const room = Math.max(0, ahead - gap);
           allowed = Math.min(allowed, room);
-          leadCap = (leader?.v ?? 0) + Math.sqrt(2 * brake() * room);
+          leadCap = Math.max((leader?.v ?? 0) + Math.sqrt(2 * brake() * room), swingCap(car, leader, ahead));
         }
 
         // A truck in front of the boosting taxi, measured by its body — see `truckRoom`.
@@ -6570,7 +6627,7 @@ export function createTraffic(
         const leadGap = lead === undefined ? undefined : leaderDist.get(car);
         if (leadGap !== undefined) {
           const room = Math.max(0, leadGap - (car.boost ? boostGap(car, lead) : followGap(car, lead)));
-          target = Math.min(target, lead.v + Math.sqrt(2 * brake() * room));
+          target = Math.min(target, Math.max(lead.v + Math.sqrt(2 * brake() * room), swingCap(car, lead, leadGap)));
         }
         // And a truck in front, by its body — see `truckRoom`. This one can stop the taxi in the
         // box, which `bargesThrough` otherwise never does; it only does it with a truck physically
