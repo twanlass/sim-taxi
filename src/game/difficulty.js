@@ -123,6 +123,44 @@ const TUNING = {
   policeCooldownEnd: [8, 14],
 };
 
+// The shipped tuning, kept so a mode can be laid over it rather than over whatever the last mode
+// or the ⚙️ panel left behind.
+const BASE = Object.freeze({ ...TUNING });
+
+/**
+ * The Difficulty row in Settings (Tyler, 2026-10-14): three patches over `TUNING`, each naming only
+ * what it moves. **Easy is the shipped curve, untouched** — the game as it played before the row
+ * existed — and every number the sweep tables in this file and in docs/difficulty.md quote is Easy's.
+ *
+ * Regular and Hard move three things, all of them on the fare game: the clocks start tighter
+ * (`paceStart`), riders arrive faster (`pressure*`, which is how more of them end up on the kerb at
+ * once), and the ramp gets there sooner (`rampFares`). `paceEnd` is the same 0.85 in all three:
+ * `LOCO_PACE_SELF` (0.8) is the fastest the taxi can actually be driven, so there is almost no room
+ * below it, and Hard is meant to be harder rather than unwinnable. A shorter ramp also brings the
+ * traffic and police ceilings in sooner, since those ride the same curve.
+ *
+ * Measured with `node tools/difficulty-sweep.mjs 21 modes` — see docs/difficulty.md.
+ */
+export const MODES = Object.freeze({
+  easy: Object.freeze({ label: 'Easy', tuning: {} }),
+  regular: Object.freeze({ label: 'Regular', tuning: {
+    paceStart: 1.4, pressureStart: 0.8, pressureEnd: 1.6, rampFares: 10,
+  } }),
+  hard: Object.freeze({ label: 'Hard', tuning: {
+    paceStart: 1.25, pressureStart: 1.0, pressureEnd: 1.9, rampFares: 7,
+  } }),
+});
+
+let mode = 'easy';
+
+/** Switch to a named mode. Resets the whole tuning to that mode's, ⚙️ panel edits included. */
+export function setMode(name) {
+  mode = Object.hasOwn(MODES, name) ? name : 'easy';
+  Object.assign(TUNING, BASE, MODES[mode].tuning);
+  return mode;
+}
+export const getMode = () => mode;
+
 /**
  * Seconds one taxi spends per delivery, start to finish, at the shipped pace of play: the reaction,
  * the drive to the kerb and the trip. Pressure is measured against it — a spawn every

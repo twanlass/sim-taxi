@@ -1,8 +1,8 @@
 /**
  * The player's settings from the title screen, remembered across visits in `localStorage`.
  *
- * All but one live here: the two volume sliders, the tutorial tips, the haptics switch and the
- * quality.
+ * All but one live here: the two volume sliders, the tutorial tips, the haptics switch, the
+ * quality and the difficulty.
  * **Sound on/off is not
  * one of them** — it already had a home before this screen existed (`simTaxi.muted`, owned by
  * game/sfx.js, shared with the pause screen's pill and the M key), and a second copy of it here
@@ -13,6 +13,8 @@
  * taking the screen down over a preference. Anything unknown or out of range in a stored payload is
  * dropped back to its default, so a corrupt key costs that one value and not the lot.
  */
+
+import { MODES } from './difficulty.js';
 
 export const SETTINGS_KEY = 'simTaxi.settings';
 
@@ -31,6 +33,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
   haptics: true,
   // One of `QUALITIES`. Regular by default: it is the one that keeps a phone cool.
   quality: 'regular',
+  // One of `MODES` in game/difficulty.js. Easy by default: it is the curve the game shipped with
+  // before the row existed, so nobody's game changes until they pick another.
+  difficulty: 'easy',
 });
 
 /**
@@ -68,6 +73,7 @@ export function cleanSettings(raw) {
     haptics: typeof src.haptics === 'boolean' ? src.haptics : DEFAULT_SETTINGS.haptics,
     // A stored `resolution`/`frameRate` from before the toggle is dropped: the toggle starts fresh.
     quality: Object.hasOwn(QUALITIES, src.quality) ? src.quality : DEFAULT_SETTINGS.quality,
+    difficulty: Object.hasOwn(MODES, src.difficulty) ? src.difficulty : DEFAULT_SETTINGS.difficulty,
   };
 }
 

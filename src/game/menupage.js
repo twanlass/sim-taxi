@@ -11,6 +11,7 @@
 
 import { isNative } from '../util/platform.js';
 import { QUALITIES } from './settings.js';
+import { MODES } from './difficulty.js';
 
 /** One element, with a class and optional text. */
 export function el(tag, className, text) {
@@ -140,9 +141,15 @@ export function settingsRows(body, { sound, settings }) {
     Object.entries(QUALITIES).map(([value, q]) => ({ value, text: q.label })),
     () => settings.get().quality, (value) => settings.set({ quality: value }));
   body.append(qualityRow.row);
+  // Takes effect from the next rider to spawn, so it can be flipped from the pause screen mid-run.
+  const difficultyRow = choiceRow('Difficulty',
+    Object.entries(MODES).map(([value, m]) => ({ value, text: m.label })),
+    () => settings.get().difficulty, (value) => settings.set({ difficulty: value }));
+  body.append(difficultyRow.row);
   return {
     refresh() {
       qualityRow.paint();
+      difficultyRow.paint();
       soundRow.paint();
       musicRow.paint();
       sfxRow.paint();
