@@ -358,6 +358,9 @@ block them off from the game grid with construction barriers."
   slab's rounded corner, with its own feather off the west and north (`patchFade`). Tyler,
   2026-10-14: "fill in this corner with another some mid rise buildings and smooth out the park
   transition."
+- **Past all of it the city carries on into the haze** (`city/horizon.js`, `?horizon=classic` for the
+  bare edge): plain towers on the grid's pitch past the west towers and past the north park, fading
+  into the sky. See [rendering.md](rendering.md#past-the-edge-of-the-map--cityhorizonjs).
 
 ## Layout: what a block *is*
 
