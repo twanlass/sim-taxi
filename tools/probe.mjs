@@ -16853,12 +16853,15 @@ let chopperOrder; // likewise
       if (tails.length) {
         const d = tails[0];
         const strikes = d.f8.state.strikes;
+        d.f8.state.bankRides = 2;
         const events = arrive(d);
         check('tails: the robber takes the bank rider’s seat',
           events.includes('swapped') && !events.includes('pickup') && d.rob8.state.active && d.got.length === 1
             && !d.f8.state.fares.includes(d.bankFare) && d.f8.carrying()?.robber,
           `events ${events.join(',')}, ${d.got.length} robbers`);
         check('...and the rider they shoved costs no star', d.f8.state.strikes === strikes);
+        check('...and the robbery puts the coin back to even', d.f8.robberOdds() === 0.5,
+          `${d.f8.robberOdds()}`);
       }
       if (heads.length) {
         const d = heads[0];
@@ -16866,6 +16869,15 @@ let chopperOrder; // likewise
         check('heads: the bank rider simply gets in',
           events.includes('pickup') && !d.rob8.state.active && d.f8.carrying() === d.bankFare,
           `events ${events.join(',')}`);
+        // BANK_ROBBER_STEP: every bank rider who rides loads the coin, up to a cap short of certain.
+        const steps = [d.f8.robberOdds()];
+        for (let k = 0; k < 4; k++) { d.f8.state.bankRides += 1; steps.push(d.f8.robberOdds()); }
+        // `steps[0]` is after the pickup just made, so the run reads from the second toss on.
+        check('...and loads the coin for the next one: 65, 80, 95, then held at 95',
+          [0.65, 0.8, 0.95, 0.95, 0.95].every((v, k) => Math.abs(steps[k] - v) < 1e-9),
+          steps.map((v) => v.toFixed(2)).join(' '));
+        const flat = createFareSystem(makeRng(seed + 900), new THREE.Scene(), { risingOdds: false });
+        check('...but not under ?robberyodds=classic', flat.robberOdds() === 0.5 && flat.state.bankRides === 0);
       }
       if (tails.length > 1) {
         // Tails, but the gates are shut — the last robbery inside its cooldown: they get in after all.

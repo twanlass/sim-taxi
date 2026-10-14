@@ -839,6 +839,8 @@ const combo = createComboMeter({ scope: comboScope(new URLSearchParams(window.lo
 const ratingOn = new URLSearchParams(window.location.search).get('rating') !== 'off';
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   rating: ratingOn,
+  // The bank rider's coin loads with every one who rides — BANK_ROBBER_STEP in game/fares.js.
+  risingOdds: new URLSearchParams(window.location.search).get('robberyodds') !== 'classic',
   reserved: () => parcels?.occupiedSpots() ?? [],
   judgeRun: () => combo.judge(),
 });
