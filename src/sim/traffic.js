@@ -344,8 +344,15 @@ const hardClosed = (id) => HARD_CLOSURES.some((source) => closedBySource.get(sou
 // fire engine round a zone (`serviceLaneCost` in game/route.js), but a route planned in the forty
 // seconds before the zone stood up still runs through it, and the patrol cruiser holding one drove
 // straight over the trestles. Same refusal, same place, for the same reason as the bridge.
+//
+// The warehouse's street (city/warehouse.js) is the same refusal with the taxi let through on one
+// condition: the boost is down. The taxi's router only offers it the street while Loco Mode is held
+// (`setPassageOpen` in game/route.js), and `taxi.boost` covers the one-second tail after release —
+// so this only bites a taxi that let go a whole lane short of the door, and that taxi meets a shut
+// door as a wall: the route is dropped here and main.js re-plans it round (`detoured`).
 const refusesLane = (car, id) => hardClosed(id)
-  || (!car.isTaxi && closedBySource.get('roadwork')?.has(id));
+  || (!car.isTaxi && closedBySource.get('roadwork')?.has(id))
+  || (closedBySource.get('warehouse')?.has(id) && !(car.isTaxi && car.boost));
 
 // --- The ramp -----------------------------------------------------------------
 //
@@ -2836,6 +2843,9 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0, classi
     // the same traffic.
     const lane = net.laneByGrid(d, i, j);
     if (!lane || lane.degenerate) continue;
+    // ...and none inside the warehouse, closed for good from the moment the city is laid out. The
+    // only closure that exists before the first car does; every later spawn asks `accept`.
+    if (closedLanes.has(lane.id)) continue;
 
     // `s` is now arc length along the lane rather than a world coordinate on an axis. The draw is
     // kept identical — one `rng.range` over the same span — and mirrored for the two negative
@@ -6315,6 +6325,8 @@ export function createTraffic(
               car.route.length = 0;
               routed = null;
               stats.routeRefused += 1;
+              // The taxi's owner is main.js, which re-plans on this flag (a pass's detour sets it too).
+              if (car === taxi) car.detoured = true;
             }
 
             // A routed car (the player's taxi) takes the next turn its route calls for; everyone

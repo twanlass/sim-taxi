@@ -267,6 +267,10 @@ export const SHOTS = [
   // strip of park in front of them, close and then at play zoom.
   { name: 'south-shore', description: 'the south shore: rocks, lawn, walkway and trees', target: [-10, 84], zoom: 20, warmup: 12 },
   { name: 'south-shore-far', description: 'the south shore at play zoom, beside the city', target: [10, 72], zoom: 52, warmup: 12 },
+  // The warehouse shortcut (city/warehouse.js). Close: do the doors read as doors you could drive
+  // through. At play zoom: does the shed read as a building with a street going into it.
+  { name: 'warehouse', description: 'the warehouse shortcut, close', target: [0, 0], zoom: 13, warmup: 12, atWarehouse: true },
+  { name: 'warehouse-far', description: 'the warehouse at play zoom', target: [0, 0], zoom: 52, warmup: 12, atWarehouse: true },
 ];
 
 export function getActiveShot() {

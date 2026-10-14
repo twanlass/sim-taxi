@@ -27,6 +27,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?southshore=classic` | The old south apron fading into the sky, instead of the rocky shore and park strip. Headless tools take `SOUTHSHORE=classic` | #512 | [river.md](river.md#the-south-shore) |
 | `?parkway=twoway` | A two-lane road through the central park instead of the one-way one | #473 | [city.md](city.md) |
 | `?graveyard=single` / `=classic` | One graveyard block / no graveyard (default is two blocks with the street between closed) | #487, #491 | [city.md](city.md) |
+| `?warehouse=classic` | No warehouse shortcut: its two blocks go back to the towers and its street opens to traffic. Headless tools take `WAREHOUSE=classic` | | [city.md](city.md#the-warehouse-shortcut) |
 | `?ltrain=classic` | No L train | #482 | [city.md](city.md) |
 | `?lroute=classic` | The L train running east–west instead of north–south over the river | #483 | [city.md](city.md) |
 | `?trainlights=classic` | The L's deck without its lamps | #489 | [city.md](city.md) |

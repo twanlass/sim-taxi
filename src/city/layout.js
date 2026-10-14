@@ -1,15 +1,17 @@
 import {
   GRID_I, GRID_J, blockBounds, HALF_SPAN_X, HALF_SPAN_Z, isRiverBlock, segmentKey,
-  setArterialLines, setClosedSegments, setParkBlocks, setRiverRow, BIG_CITY, setParkwayMid,
+  setArterialLines, setClosedSegments, setParkBlocks, setRiverRow, BIG_CITY, setParkwayMid, DIR,
 } from './grid.js';
 import { planCentralPark } from './centralpark.js';
 import { planRiver, setRiverCrossings } from './river.js';
-import { roadNetFromGrid, setCityNetwork } from './roadnet.js';
+import { cityNetwork, roadNetFromGrid, setCityNetwork } from './roadnet.js';
 import { chooseGarageBlock } from './garage.js';
 import { chooseBurgerBlock } from './burgerjoint.js';
 import { chooseGraveyardBlock, planGraveyardPair, GRAVEYARD_MODE } from './graveyard.js';
 import { clearPlantedCrowns } from './props.js';
-import { configureSignals } from '../sim/traffic.js';
+import { chooseWarehousePair, WAREHOUSE_ON } from './warehouse.js';
+import { configureSignals, setClosedLanes } from '../sim/traffic.js';
+import { setPassageLanes } from '../game/route.js';
 
 // Decides what each block *is* before anything is built. Ground, buildings and props all read
 // this, so a park is a park in every system rather than three subsystems each rolling their own
@@ -275,11 +277,30 @@ export function createLayout(rng) {
     blocks.graveyardBlock = null;
   }
 
+  // ...and the warehouse, last of all: two blocks side by side with the street between them roofed
+  // over, chosen without a draw so nothing above moves. Its street stays in the network — see
+  // city/warehouse.js for why it is closed by lane rather than by segment.
+  const warehouse = WAREHOUSE_ON ? chooseWarehousePair(blocks, arterialZ) : null;
+  if (warehouse) for (const b of warehouse.blocks) b.type = 'warehouse';
+  blocks.warehouseLot = warehouse;
+
   // Bake the road network for the city just decided, and install it as *the* network. Everything
   // above — the closures, the arterials, their coordinated directions — is exactly the input it
   // needs, so this is the one place in the codebase that has it all in hand. Callers get the
   // network by asking `cityNetwork()` rather than by being handed one.
   setCityNetwork(roadNetFromGrid(blocks));
+
+  // The warehouse's two lanes, named off the network just installed and handed to the two places
+  // that close them: ambient traffic (zero weight, refused at the line) and the taxi's router
+  // (Infinity until Loco Mode opens it). Set every time, empty when there is no warehouse, because
+  // a second `createLayout` must not inherit the last city's closure.
+  const net = cityNetwork();
+  const passage = warehouse ? [
+    net.laneOutByGrid(DIR.PZ, warehouse.street.i, warehouse.street.j0),
+    net.laneOutByGrid(DIR.NZ, warehouse.street.i, warehouse.street.j1),
+  ].filter(Boolean).map((l) => l.id) : [];
+  setClosedLanes(passage, 'warehouse');
+  setPassageLanes(passage);
 
   return blocks;
 }
