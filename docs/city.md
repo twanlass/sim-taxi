@@ -11,14 +11,14 @@ happening to agree on the same magic number.
 ## Coordinates
 
 ```js
-GRID_I = 5    // block columns → i runs 0..5
-GRID_J = 6    // block rows    → j runs 0..6, and 6 × 7 = 42 intersections
+GRID_I = 6    // block columns → i runs 0..6   (5 under ?city=classic)
+GRID_J = 7    // block rows    → j runs 0..7, and 7 × 8 = 56 intersections   (6 classic)
 PITCH = 20    // distance between road centrelines
 ROAD_W = 8    // full road width (two lanes)
 BLOCK = 12    // PITCH - ROAD_W, the buildable footprint between two ordinary streets
 LANE  = 2     // lane centre offset from the centreline
-SPAN_X = 100  // GRID_I * PITCH
-SPAN_Z = 120  // GRID_J * PITCH
+SPAN_X = 120  // GRID_I * PITCH   (100 classic)
+SPAN_Z = 140  // GRID_J * PITCH   (120 classic)
 
 ARTERIAL_ROAD_W = 10.667   // ROAD_W × 4/3 — a main street is divided, see below
 LANE_TO_KERB    = 2        // lane centre to its own kerb, the same on every road
@@ -34,13 +34,14 @@ genuinely different arithmetic and a single `lineCoord` would silently answer fo
 Every other name in this file already means "runs along X" — `arterialX` is a set of `j` values and
 `halfRoadX(j)` is a road's extent in z — so a `GRID_X` would have read as the opposite of what it is.
 
-About five blocks a side is a gameplay constant, not an aesthetic one: the whole city has to fit on
-screen at once, because that is what allows a fixed camera and unambiguous tap-to-select. (This is
-the main change from `city-lab`, which used a 10×10 grid with a pannable camera.)
+The size is a gameplay constant, not an aesthetic one. On a desktop the whole city fits in frame,
+which is what allows a fixed camera and unambiguous tap-to-select; on a phone in portrait it cannot,
+so the camera follows the taxi and the map can be dragged (`attachDragPan` in `game/camera.js`, see
+[rendering.md](rendering.md#camera)). The city grew from 5 × 5 land blocks to 6 × 6 in #483, with a
+2 × 2 central park in the middle; `?city=classic` keeps the old size.
 
-The sixth row is the one asymmetry, and it is **water** — see [river.md](river.md). Land is still 25
-blocks, exactly what a 5×5 city had; the extra row is what stops the river costing the map a street
-or a landmark.
+The extra row is the one asymmetry, and it is **water** — see [river.md](river.md). Land is still a
+square (36 blocks); the extra row is what stops the river costing the map a street or a landmark.
 
 ## Direction encoding
 

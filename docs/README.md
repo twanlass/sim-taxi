@@ -1,4 +1,4 @@
-# Taxi Lab — documentation index
+# Rocket Rides — documentation index
 
 Start here. Each doc covers one system: what it does, which files own it, and the decisions
 behind it that aren't obvious from the code.
@@ -10,137 +10,107 @@ behind it that aren't obvious from the code.
 | [river.md](river.md) | The river, its bridges, the span that lifts, the boats it lifts for, and the harbor at its east mouth | `src/city/river.js`, `src/game/drawbridge.js`, `src/city/harbor.js` |
 | [roadnet.md](roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces | `src/city/roadnet.js`, `src/city/curves.js` |
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the drive-through, the building fire and its engine, cop cars in ambient traffic, the patrol cruiser, and the wreck and its replay | `src/sim/`, `game/wreckage.js`, `game/replay.js` |
-| [gameplay.md](gameplay.md) | The opening vignette, the opening tutorial, the fare loop, routing, dragging the route, the bank robbery, the package courier, picking, the travelling clock, economy, crazy-taxi mode, the burger run, repairs at the depot, pause | `src/game/` |
+| [gameplay.md](gameplay.md) | The title screen, the opening vignette and tutorial, the fare loop, routing and tapping a street, the bank robbery, the package courier, picking, the travelling clock, economy and the combo meter, the pedals and the moves (overtake, U-turn, drift), the New Move cards, the burger run, repairs at the depot, pause | `src/game/` |
+| [gameplay-history.md](gameplay-history.md) | How each of those got to where it is: superseded designs, rejected attempts, and what each `?x=classic` brings back | |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
-| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, Crayon and Cartoon Mode, bloom, effects, sirens | `src/game/scene.js`, `src/geometry/` |
+| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, car paint, weather, Crayon and Cartoon Mode, bloom, effects, sirens | `src/game/scene.js`, `src/geometry/` |
+| [rendering-history.md](rendering-history.md) | The same for rendering: looks that were replaced and why | |
 | [audio.md](audio.md) | The taxi's sound: the designer's files and how they're encoded, the engine and Loco beds, the one-shots and where they fire, the tap unlock, pause and mute, the Audio sections of the ⚙️ panel (`?audio`) | `src/game/sfx.js`, `src/game/audiopanel.js`, `assets/audio/` |
+| [params.md](params.md) | Every URL parameter, including the `?<feature>=classic` toggles. `npm run check` keeps it complete | `src/util/shot.js`, `src/main.js` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 | [lab.md](lab.md) | The passing lab at `/lab/` — one straight road with no lights, for watching Loco Mode overtake | `src/lab/`, `lab/` |
 | [ios.md](ios.md) | The App Store build: the WKWebView shell, why a custom URL scheme rather than `file://`, the native flag | `ios/`, `src/util/platform.js` |
 
 ## The 60-second version
 
-A run opens on the taxi's **garage**: the camera comes down onto a roller door, the door goes up, the
-car drives out and bumps down the kerb into traffic, and the camera pulls back to the game. One block
-of every city is the depot rather than a block of towers. See
-[the opening vignette](gameplay.md#the-opening-vignette). Tap it later with a damaged taxi and the same
-shot plays backwards and forwards again: the car drives back in, the door comes down, and it comes
-out repaired — see [repairs at the depot](gameplay.md#repairs-at-the-depot).
+A 6 × 6 block city on a fixed 3/4 orthographic camera, with a river through the middle of it and a
+2 × 2 central park. Ambient cars drive a lane-following traffic model through junctions that run as
+all-way stops (the signal plan is still there, behind `?lights=on`). **The player's taxi is one of
+those cars**: the only difference is that its turn at each junction comes from a planned route
+rather than a dice roll, so it obeys every junction exactly like everyone else and cannot cheat its
+way to a destination. On a desktop the whole city is in frame; on a phone the camera follows the
+taxi and the map can be dragged ([rendering.md](rendering.md#camera)).
 
-After that, three speech bubbles from the taxi — "this car is you", "tap that rider", and a
-nod at the boost pill a couple of seconds after the first drop-off — and that is the whole tutorial;
-see [the opening tutorial](gameplay.md#the-opening-tutorial).
+A run opens on the **title screen** over the live city ([gameplay.md](gameplay.md#the-title-screen)).
+Press Play and the camera comes down onto the taxi's **garage**: the door goes up, the car drives out
+into traffic and the camera pulls back to the game ([the opening vignette](gameplay.md#the-opening-vignette)).
+Three speech bubbles from the taxi are the whole tutorial ([the opening tutorial](gameplay.md#the-opening-tutorial)).
 
-A 6-by-7 block city on a fixed 3/4 orthographic camera. Ambient cars drive a lane-following traffic
-model with real signals. **The player's taxi is one of those cars** — the only difference is that
-its turn at each junction comes from a planned route rather than a dice roll, so it obeys every
-red light exactly like everyone else and cannot cheat its way to a destination.
+**The fare loop.** A rider appears on a corner under a floating crystal, coloured green through red
+by how much of their patience is left, standing in a disc of the same colour. Tap them and the road
+ahead fills with a band of paint in that rider's colour; once they're aboard a ring in the same
+colour marks where they're going and the taxi drives there **without being told to**. Tap a street
+to send the route down it instead ([tap a street](gameplay.md#tap-a-street-to-send-the-route-down-it)).
+The clock does **not** reset at pickup: one deadline covers spawn to drop-off, **budgeted from the
+driving that trip actually costs**. A rider whose clock runs out is a strike, shown as a driver's
+**star rating** that opens at 5.0 and ends the run at 2.0 ([difficulty.md](difficulty.md#strikes)).
 
-A passenger appears at an intersection under a floating **plumbob**, coloured green through red by
-how much of their patience is left and swelling each time that colour steps, standing in a **disc**
-on the pavement in the same colour. Tap them to route the taxi there — the road ahead fills with a
-**band of paint in that rider's own colour**, and you can drag it sideways to send the car round a
-different way — and once they're aboard a **ring** in the same colour appears where they're going
-and the taxi drives on to it **without being told to**. Crystal, band and ring: one trip, one hue.
-The only choice on the board is which rider to grab. The clock does **not** reset at pickup — one
-deadline covers spawn to drop-off, which is the whole tension of the game, and it is **budgeted
-from the driving that trip actually costs** rather than being the same number for everyone. A
-delivery pays by distance, $8 for a one-block hop up to $35 across town, times the [combo meter](gameplay.md#the-combo-meter): overtakes, U-turns, drift kicks and bridge launches on the way build it up to ×5, and any hit that costs HP empties it. Let a clock expire and the run ends.
+**Pay.** A delivery pays by distance, $8 for a one-block hop up to $35 across town, times the
+[combo meter](gameplay.md#the-combo-meter): overtakes, U-turns, drift kicks and Big Air on the way
+build it up, and a hit that costs HP, or a rider walking out, breaks it.
 
-Everything **ramps with the deliveries you land**: the board grows from one rider to four, clocks
-tighten from twice the driving they cost down to 1.15×, traffic thickens, the police come round more
-often, and fares pay up to double. A perfect player survives a median of 14.
+**The pedals.** Two round buttons on the bottom edge. **Loco Mode**, in the middle, is the
+crazy-taxi button: hold for double speed that runs red lights; two clear blocks take it past double,
+and any corner takes that back. A full tank is 15 seconds, earned rather than regenerated: a third
+to start, a third per drop-off, a sixth per package, 15% from a burger run, and a dry tank creeps
+back to a quarter. The **brake**, to its left, stops the car where it is and costs nothing. Slide a
+thumb from one to the other without lifting ([the pedal slide](gameplay.md#the-pedal-slide)). See
+[crazy-taxi mode](gameplay.md#crazy-taxi-mode) and [the brake](gameplay.md#the-brake).
 
-A **river** runs east–west through the middle of the city, so every trip across town has to pick a
-crossing. Three of the six roads that meet it carry a bridge; the other three just stop at the
-water. Two of the three **arch** — a low hump the cars rise and pitch over, and a ramp the boosting
-taxi gets air off — and the third is flat, because it is the one that **lifts**: the lamps start, the
-deck clears, barriers drop, and a leaf tilts up off one bank to let a tug through, closing that route for a dozen
-seconds while it does. The barges pass under everything, which is what the arch on the other two is
-for. See [river.md](river.md).
+**The moves.** Combinations of the two pedals:
 
-Alongside the riders, one or two **packages** wait on corners under cyan rounded-square pads. You
-cannot tap one: the only way to collect or deliver a package is to **drag the route band through its
-junction**, which is what finally gives that gesture a reason to exist. A package rides alongside a
-passenger, carries no clock and can never cost you a run — but the detour is paid out of the clock of
-whoever is in the back seat, and taking every one on offer halves how long you last. See
-[the package courier](gameplay.md#the-package-courier).
+- **Overtake**: blip Loco off and on behind a car and the taxi goes round it. Hold Loco behind a car
+  without the blip and, after a short grace, you ram it.
+- **U-turn**: in Loco, tap the brake twice for a handbrake turn onto the far lane, with a drift kick
+  out of it.
+- **Drift**: Loco, tap the brake, Loco again round a corner, for a slide and an exit kick that
+  refunds some of the tank. Kicks chain, up to three tiers.
+- **Big Air**: carry a drift kick over an arched bridge and the taxi launches off it in a barrel roll
+  ([river.md](river.md#the-drift-launch)).
 
-One block of every city is a **burger joint**: a low restaurant under a red band with a line of
-neon tracing its roofline, a burger turning slowly on a pole above that, and a drive-through lane
-down its street side. Ambient cars
-pull in off one road, crawl past the menu board and the pickup window, and come back out onto
-another — a third of the time there is one in there.
+The first three unlock as you deliver, and each is taught by a card **after the run** that unlocked
+it ([gameplay.md](gameplay.md#new-move-unlocked-the-overtake-u-turn-and-drift-cards)).
 
-**And you can tap it.** The taxi drives itself round to the mouth, crawls the lane, stops at the
-board and again at the window, and comes back out with a splash of boost in the tank — 15% of it,
-the smallest top-up in the game, and the only one you *buy* rather than earn: **$10** off the
-counter, taken at the window. The rest of the price is whatever the clock in the back seat is worth,
-because nobody is stopping you taking a rider through a drive-through. See
-[the burger run](gameplay.md#the-burger-run),
-[the burger joint](city.md#the-burger-joint-and-its-drive-through) and
-[the drive-through](traffic.md#the-drive-through).
+**The ramp.** Everything ramps with the deliveries you land: the board grows from one rider to four,
+clocks tighten, traffic thickens, the police come round more often, and fares pay more. See
+[difficulty.md](difficulty.md).
 
-One block of every city is a **bank** — low and wide under a colonnade, with a patinated dome behind
-it, the one curved mass and the one gap in the skyline. Drive past it with an **empty cab** and a
-masked robber comes down the steps with a sack and gets in, bound for the far side of the
-city with a loose clock and a bonus for beating it. Four of the cars already on the road turn blue, put flashing bars on,
-and **start driving at you** — at twice the speed of the traffic and under the speed of a boosting
-taxi, which is the whole of the decision the event offers. They are still ordinary cars: they queue,
-they stop at reds, none of them can arrest you — but they **box you in**: a cop stops across a
-junction up your route, or goes round you and brake-checks you. Wait, route round, or ram it for a
-bump that costs hit points. Lean on the pill and the loot comes streaming out of the back. It pays a bonus
-scaled to the clock you land it with, and missing one never ends a run: the event is imposed rather
-than chosen, so it is not allowed to cost the player the game. See
-[the bank robbery](gameplay.md#the-bank-robbery).
+**The river** runs east–west through the middle of the city, so every trip across town picks a
+crossing. Four of the seven north–south roads carry a bridge. Three of them **arch**, a hump the cars
+rise over and a ramp the boosting taxi gets air off; the fourth is flat, because it **lifts** to let
+a tug through, closing that route for a dozen seconds. At the east mouth is a **harbor** with cranes,
+warehouses and ships moving in and out. See [river.md](river.md).
 
-Once a run, a side street closes for **roadworks** — barricades at both ends, cones, a hole in the
-road and two workers standing over it. Ambient traffic routes around it while the taxi's own router
-is told the street is cheap, so it is the emptiest road in the city with a ramp at each end — and a
-fare that leads you down it. See [traffic.md](traffic.md#roadworks-a-street-closed-at-both-ends).
+**The L train** runs north–south on a raised track across the river, with sparks, lamps under the
+deck and an intro of its own; the deck fades where it would hide the taxi or a fare. See
+[city.md](city.md#the-elevated-train-on-by-default-ltrainclassic-to-compare).
 
-One park in every city has a **basketball court** in it — a blacktop with a hoop at each end —
-with one or two people dribbling and shooting around on it and a boom box playing beside it. Scenery,
-like the duck pond; see [city.md](city.md#a-basketball-court).
+**Landmarks**, one of each per city:
 
-And one has a **skatepark**: a quarter pipe at each end, a rail and a funbox down the middle, and
-one rider carving between them through airs, flips, grinds and stalls (`?skater=classic` for the
-old pair). Same terms as the court;
-see [city.md](city.md#a-skatepark).
+- The **depot**: the taxi's garage. Tap it with a damaged taxi to drive in and come out repaired
+  ([repairs at the depot](gameplay.md#repairs-at-the-depot)).
+- The **burger joint**: tap it for a drive-through run that buys 15% of a tank for $10
+  ([the burger run](gameplay.md#the-burger-run)). Ambient cars use the drive-through too.
+- The **bank**: sometimes a rider waits on its steps. Pick them up and half the time a masked robber
+  shoves them over and takes the seat; four cop cars come onto the map and box you in on the way to
+  the getaway drop-off, and a clock bonus pays for beating them
+  ([the bank robbery](gameplay.md#the-bank-robbery)). Boosting into a cop is a full wreck.
+- The **graveyard**: two blocks and the street between them behind an iron fence, with a statue
+  ([city.md](city.md#the-graveyard)).
+- A **basketball court** with a boom box and a **skatepark** with one rider, in the parks.
 
-One of the city's trucks is a **flatbed stacked with crates**. Some while into a run it starts
-hitting bumps and the load comes off the back into the road; drive through one and it smashes, for
-nothing but the fun of it — no hit points. See [traffic.md](traffic.md#the-flatbed-that-sheds-its-load).
+**Things that happen.** Packages wait on corners under cyan pads; drive near one and the taxi picks
+it up ([the package courier](gameplay.md#the-package-courier)). A patrol cruiser crosses town and
+comes after you if you boost in front of it. Once a run a side street closes for **roadworks**, with
+a ramp at each end. A **flatbed** sheds crates, a rammed **box truck** spills its load, and now and
+then a **building catches fire** and an engine comes to put it out. One car in forty is a classic: a
+convertible or an 80s camper van. See [traffic.md](traffic.md).
 
-Ram a **box truck** and its back doors burst open and part of its load pours out — one crate for a
-nudge, the whole box for a flat-out hit. Scenery again: the crates cost nothing and block nothing,
-and anything that drives into one knocks it on down the road. See
-[traffic.md](traffic.md#a-rammed-box-truck-spills-its-load).
+**Weather and season.** It is autumn by default, a squall crosses the city now and then, and the day
+runs to night. See [rendering.md](rendering.md).
 
-Now and then a **building catches fire**: flames out of the top floors and a column of smoke. A fire
-engine comes in with its bar going, stops in the street in front of it — and the traffic behind it
-queues — swings its ladder up and hoses the fire out, then drives off. See
-[traffic.md](traffic.md#the-building-fire).
-
-The route the taxi is driving is drawn as a yellow band down the lane, and it is **draggable**:
-press it and pull sideways and the junction under your finger becomes a waypoint the route has to
-go through, re-planned live while the car keeps driving. That is the one way to answer traffic on
-the road ahead without giving up the fare. See
-[dragging the route](gameplay.md#dragging-the-route).
-
-**Loco Mode** (bottom left) is the crazy-taxi button: **hold** for double speed that runs red
-lights, release to pause the meter. Two clear blocks in a row take it past double into the
-overdrive band, and any corner takes that back. A full tank is 15 seconds of boost, earned rather than
-regenerated: you start with a third, each drop-off tops it up by another third, and a delivered
-package pours in half of that.
-
-Next to it, taking the right 40% of the same row, is the **brake**: hold it and the taxi screeches
-to a halt with rubber off all four wheels, let go and it drives itself again. It costs nothing and
-has nothing to run out of. See [the brake](gameplay.md#the-brake).
-
-The two are one control surface: **slide** a held thumb from Loco Mode onto the brake and the car
-changes hands as it crosses, with no lift in between. See
-[the pedal slide](gameplay.md#the-pedal-slide).
+Every switch behind these, including the `?<feature>=classic` toggles that bring back what a rework
+replaced, is listed in [params.md](params.md).
 
 ## Conventions worth knowing before editing
 

@@ -76,6 +76,9 @@ const TOOLS = [
   // The passing lab at /lab/. Nothing else imports `src/lab/`, so without this the one page in
   // the project whose entire job is to be looked at could stop working silently.
   { name: 'lab',     args: ['tools/lab.mjs'],          pick: /(\d+\/\d+) checks passed/ },
+  // The docs against the code: every URL parameter in src/ has a row in docs/params.md (and every
+  // row is still read), and every relative link between the docs lands on a heading that exists.
+  { name: 'docs',    args: ['tools/docs.mjs'],         pick: /(\d+\/\d+) checks passed/ },
   // The New Move card's U-turn is a recording of the sim (game/uturnreel.js); this films it again
   // and fails if the game's U-turn has moved on without it.
   { name: 'uturn',   args: ['tools/uturnreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },

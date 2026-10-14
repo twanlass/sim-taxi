@@ -560,7 +560,8 @@ export function getFoliageClassic() {
 
 /**
  * The car paint — `?paint=classic` brings back the white flaked sheen with its square flake and
- * almost no clear coat; anything else is the layered paint (util/geo.js, FINISH_DEFAULTS).
+ * almost no clear coat; anything else is built on the layered paint (util/geo.js, FINISH_DEFAULTS),
+ * with `getPaintLook` below picking which look goes on top of it.
  */
 export function getPaintClassic() {
   return new URLSearchParams(window.location.search).get('paint') === 'classic';

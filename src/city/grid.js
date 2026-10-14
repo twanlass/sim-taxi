@@ -382,7 +382,7 @@ export function setRiverRow(row) {
   riverRowIndex = row ?? null;
 }
 
-// The central park's middle junction (`?city=big` only): a network node the park road runs
+// The central park's middle junction (the 6 × 7 city only): a network node the park road runs
 // through, sitting in the middle of a lawn, so nothing should treat it as a kerb corner.
 let parkwayMid = null;
 export function setParkwayMid(at) { parkwayMid = at ?? null; }

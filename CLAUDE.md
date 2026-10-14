@@ -22,13 +22,15 @@ about to change.
 |---|---|
 | [docs/README.md](docs/README.md) | **Index — start here** |
 | [docs/architecture.md](docs/architecture.md) | Module map, frame loop, seeding, `window.__taxi` test hook |
-| [docs/city.md](docs/city.md) | Coordinates, direction encoding, layout, park districts, divided arterials |
+| [docs/city.md](docs/city.md) | Coordinates, direction encoding, layout, park districts, divided arterials, landmarks, the L train |
+| [docs/roadnet.md](docs/roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces |
 | [docs/river.md](docs/river.md) | The river, the bridges, the drawbridge, the boats and the harbor at the east mouth |
 | [docs/traffic.md](docs/traffic.md) | Signals, arterials, ring road, car physics, boost, cop cars, the patrol cruiser, the building fire, the crash replay |
-| [docs/gameplay.md](docs/gameplay.md) | Opening vignette, fare loop, routing, picking, timer ring, economy |
+| [docs/gameplay.md](docs/gameplay.md) | Title screen, opening vignette, fare loop, routing, picking, timer ring, economy, combo meter, pedals and moves, the bank robbery |
 | [docs/difficulty.md](docs/difficulty.md) | The ramp: budgeted clocks, board size, shifts, the sweeps behind the numbers |
 | [docs/rendering.md](docs/rendering.md) | Low-poly technique, camera, lighting, day/night, effects |
 | [docs/audio.md](docs/audio.md) | The taxi's sound: the files, what plays when, the tap unlock, mute, the Audio sections of the ⚙️ panel (`?audio`) |
+| [docs/params.md](docs/params.md) | Every URL parameter, including the `?<feature>=classic` toggles |
 | [docs/testing.md](docs/testing.md) | `npm run check`, the headless tools, screenshots |
 | [docs/lab.md](docs/lab.md) | The passing lab at `/lab/` — a straight road with no lights, for watching Loco Mode |
 | [docs/ios.md](docs/ios.md) | The App Store build: the WKWebView shell, the custom URL scheme, `window.__native` |
@@ -81,6 +83,12 @@ road has to go through `halfRoadX/Z`, `laneOffX/Z`, `laneOffsetFor` or `junction
 each load unless pinned. Shot mode pins the city seed so screenshots don't move under an
 unrelated change. Each generator draws from its own offset stream so that editing one system
 doesn't reshuffle every other one.
+
+**Docs describe the game as it is now.** When a rework changes a system, rewrite the section's
+opening to describe the new default, and move what it replaced (and why) to that doc's history file
+(`docs/gameplay-history.md`, `docs/rendering-history.md`) rather than appending a paragraph under the
+old description. A new `?param` gets a row in [docs/params.md](docs/params.md); `npm run check`
+fails without one, and on any doc link whose heading no longer exists.
 
 **Comments carry the "why".** Many record a measurement or a failed first attempt. If you change
 behaviour a comment describes, update the comment — and if you measure something, write the number
