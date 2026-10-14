@@ -81,8 +81,8 @@ rise over and a ramp the boosting taxi gets air off; the fourth is flat, because
 a tug through, closing that route for a dozen seconds. At the east mouth is a **harbor** with cranes,
 warehouses and ships moving in and out. See [river.md](river.md).
 
-**The L train** runs north–south on a raised track across the river, with sparks, lamps under the
-deck and an intro of its own; the deck fades where it would hide the taxi or a fare. See
+**The L train** comes south on a raised track off the north park, turns west at the east-west
+arterial and runs out through the west edge's high rises, with sparks, lamps and an intro of its own; the deck fades where it would hide the taxi or a fare. See
 [city.md](city.md#the-elevated-train-on-by-default-ltrainclassic-to-compare).
 
 **Landmarks**, one of each per city:
