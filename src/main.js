@@ -1732,7 +1732,23 @@ const harborShips = createHarborShips(scene, makeRng(runSeed + 431), harbor?.ber
 // emptiest road in the city with a ramp at each end. Run seed, like the flyover: which street and
 // when is part of the situation rather than part of the map.
 const roadwork = createRoadwork(makeRng(runSeed + 177), scene, camera);
+// Stuntman (Tyler, 2026-10-14): smashing through a barricade is a combo, and pays Loco back the way
+// a drift's first kick does. Any smash counts, at any speed — the taxi only gets there by being
+// routed down a street the city has closed, which is the choice; the hop off the trestle is what
+// it earns. `?stuntman=classic` keeps the smash as scenery and nothing else.
+const stuntman = new URLSearchParams(window.location.search).get('stuntman') !== 'classic';
+const STUNTMAN_FUEL = DRIFT_CHAIN.fuel[0];
 roadwork.onSmash(({ x, z }) => {
+  if (stuntman && !fares.state.gameOver) {
+    flyEnergyToBoost({
+      from: taxiScreenPos,
+      to: fuelScreenPos,
+      delay: 0,
+      onArrive: () => boost.topUp(STUNTMAN_FUEL),
+    });
+    haptic('drift-kick');
+    landCombo('stuntman');
+  }
   // Just under half the wreck's 2.4. It was 0.55, which is the shake a *kerb* would earn — this is
   // a trestle exploding across the windscreen, and the camera has to admit that something happened.
   // Still short of the wreck, because the wreck ends the run and this does not.

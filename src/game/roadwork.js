@@ -19,8 +19,8 @@ import { setRoadworkLanes } from './route.js';
 // ids handed to `setClosedLanes` in sim/traffic.js, where they zero the weight of any turn that
 // would enter them. The taxi's turn comes from its route, which is planned over the untouched road
 // network, so it drives straight in — and since nothing else is in there, the closed street is the
-// emptiest road in the city. That is the whole reward: no cash, no boost, just a fast lane and a
-// ramp at the end of it.
+// emptiest road in the city: a fast lane and a ramp at the end of it. Going through the ramp is
+// the Stuntman combo (main.js, `roadwork.onSmash`): a step on the meter and some Loco back.
 //
 // Scheduling is modelled on game/flyover.js and is deliberately **off the difficulty curve**, for
 // the same reason the flyover is: nothing about this is pressure. One zone per run, one cooldown,

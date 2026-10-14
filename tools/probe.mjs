@@ -20246,6 +20246,11 @@ let chopperOrder; // likewise
     `aboard ×${aboard.mult}, en route ×${enRoute.mult}, bystander ×${bystander.mult}`);
 
   m = createComboMeter();
+  const stunt = m.land('stuntman');
+  check('smashing a roadworks barricade is Stuntman, a whole step',
+    stunt?.label === 'Stuntman' && stunt.added === 1 && m.state.mult === 2, `${stunt?.label} +${stunt?.added}`);
+
+  m = createComboMeter();
   for (let k = 0; k < 10; k += 1) m.land('launch');
   check(`the meter stops at ×${COMBO_MAX}`, m.state.mult === COMBO_MAX && m.land('drift', 3).added === 0,
     `×${m.state.mult}`);

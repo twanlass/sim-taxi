@@ -539,6 +539,9 @@ charge; it tweens either way now, and the total never goes below zero (see `char
 
 Now: [The combo meter](gameplay.md#the-combo-meter).
 
+Before Stuntman (2026-10-14, `?stuntman=classic`), smashing through a roadworks barricade earned
+nothing but the hop: the closed street's only reward was being empty.
+
 **How it got here**, so nobody walks the same road twice. The [shift](difficulty.md#shifts) used to
 stamp 1×, 1.25×, 1.5× or 2× into every price at spawn, with no counter on screen, and VIPs stacked a
 streak of their own (3×, 4×, 5× back to back). Both paid for getting further rather than for *how*.

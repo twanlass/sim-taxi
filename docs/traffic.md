@@ -1972,7 +1972,8 @@ a build that shot every cut from behind the city showed it. See
 street is closed off: a striped trestle across each end, two rows of cones, a heap of spoil beside
 the hole it came out of, and two workers standing over it. Ambient traffic routes around it. **The
 player's taxi is sent through it**, so the closed street is the emptiest road in the city — and
-each barricade is a ramp.
+each barricade is a ramp. Smashing through one is the **Stuntman** combo
+([gameplay.md](gameplay.md#the-combo-meter)): a step on the meter and a sixth of the Loco tank back.
 
 ### The closure is soft, and that is not a shortcut
 
