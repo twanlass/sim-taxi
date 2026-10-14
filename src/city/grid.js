@@ -442,8 +442,19 @@ export const SLAB_MARGIN = ROAD_W * 3;
 export const HARBOR_REACH = HARBOR ? 44 : 0;
 /** The old coast, measured from the origin, on either side. */
 export const COAST_X = (SPAN_X + SLAB_MARGIN) / 2;
-/** Where the island ends to the west and to the east. Only the east one moves. */
-export const coastWest = () => -COAST_X;
+// The high rises past the west ring road (city/westedge.js, `?westedge=classic` to drop them): two
+// more columns of blocks on the grid's own pitch, so the streets visibly carry on west of the map,
+// barricaded off where they leave it. West, because west is the *far* edge: the camera looks down
+// the -x-z diagonal, so everything out there stands up-screen of the city and no tower can stand
+// between the camera and a street. Read at module load for the reason `HARBOR` is.
+export const WEST_EDGE = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('westedge') !== 'classic'
+  : globalThis.process?.env?.WESTEDGE !== 'classic';
+/** How many block columns stand west of the ring road, and how much further west the island reaches for them. */
+export const WEST_COLUMNS = WEST_EDGE ? 2 : 0;
+export const WEST_REACH = WEST_COLUMNS * PITCH;
+/** Where the island ends to the west and to the east. Both move now: the harbor east, the high rises west. */
+export const coastWest = () => -COAST_X - WEST_REACH;
 export const coastEast = () => COAST_X + HARBOR_REACH;
 // The big park past the north ring road (city/northpark.js, `?northpark=classic` to drop it): how far
 // its lawn runs north of the ring road's kerb before it fades. Here for the reason HARBOR_REACH is:
@@ -452,11 +463,29 @@ export const NORTH_PARK = typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('northpark') !== 'classic'
   : globalThis.process?.env?.NORTHPARK !== 'classic';
 export const NORTH_PARK_DEPTH = 46;
+// The corner where those two meet (city/westedge.js, `?westcorner=classic` to leave it empty): mid-rises
+// north of the north ring road's stubs, and the west ring road carried on north between them and the
+// park, which gives up its west strip to it (`northParkBounds`).
+export const WEST_CORNER = WEST_EDGE && NORTH_PARK && (typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('westcorner') !== 'classic'
+  : globalThis.process?.env?.WESTCORNER !== 'classic');
 /** The same pair along z: the north edge and the south one, measured as z (north is negative). */
 export const coastNorth = () => (NORTH_PARK
   ? lineZ(0) - halfRoadX(0) - NORTH_PARK_DEPTH
   : -(SPAN_Z + SLAB_MARGIN) / 2);
 export const coastSouth = () => (SPAN_Z + SLAB_MARGIN) / 2;
+// The south shore (city/southshore.js, `?southshore=classic` for the old apron): the harbor's rocky
+// shore carried on round the south end, with a strip of park between the ring road and the water.
+// It needs the harbor's sea to stand in, so it is off wherever the harbor is.
+export const SOUTH_SHORE = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('southshore') !== 'classic'
+  : globalThis.process?.env?.SOUTHSHORE !== 'classic';
+// The park shore (`?parkshore=classic`): the harbor's seawall and rocks carried straight on north
+// along the north park's east edge, where they used to curl west and stop at the park's corner.
+// Needs both the harbor and the north park.
+export const PARK_SHORE = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('parkshore') !== 'classic'
+  : globalThis.process?.env?.PARKSHORE !== 'classic';
 // The channel runs on at its own width for this far past the ring road's kerb before it opens out.
 // Enough for the ring bridge's footway (1.4) and a short walled run, so the river visibly *arrives*
 // at the basin rather than the bridge standing in it.

@@ -850,6 +850,11 @@ export const PALETTE = {
   parkPath: '#BDB29A',
   parkWall: '#8E877C',
   parkWallCap: '#A39C90',
+  // The pylons shutting its drive: a school-bus yellow, held off the taxi's 34° at ~46° and darker
+  // than a highlighter, so a row of them reads as posts and not as six tiny cabs. The band is the
+  // dark of a bollard's reflector collar.
+  parkPylon: '#E2B72A',
+  parkPylonBand: '#2B2D30',
 
   // The basketball court — see city/blacktop.js. A sports court has to read as *paved* inside a
   // lawn, which is a value break before it is a hue: the blacktop at luma ~80 is a dark slab against
@@ -1080,6 +1085,14 @@ export const PALETTE = {
   // propped against a barricade and this one is finished furniture. The frame reuses `pole` — it
   // is the same painted metal every other piece of street furniture in the city stands on.
   benchSlat: '#A2733F',
+
+  // The hot dog cart on the south shore's walkway (city/southshore.js). Brushed steel for the box
+  // so it reads as a cart and not as a bin, a red skirt band, and the umbrella in red and mustard
+  // segments, the one loud thing on a strip that is otherwise lawn, path and rock.
+  cartSteel: '#C9CDD0',
+  cartTrim: '#B8352B',
+  cartUmbrellaRed: '#D44A3A',
+  cartUmbrellaMustard: '#E8B63A',
 
   // The statue. Pale limestone for the figure and a greyer stone under it, and the split matters
   // more than either colour: the figure is the thing to see from across the map, so it takes the

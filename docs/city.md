@@ -253,7 +253,7 @@ arterial, beside the river, with the old crossings (Tyler moved it across the ri
   launch off that arch (`DRIFT_LAUNCH_HEIGHT` 10) does go up through the truss, and Tyler kept it
   that way: the taxi flies through solid steel and the ghost outline shows it behind the members.
 - **Off the north end** it runs on over the north park (`NORTH_PARK_DEPTH`, `coastNorth()`) and
-  fades past it; off the south end it fades with the slab.
+  fades past it; off the south end it fades out over the [south shore](river.md#the-south-shore)'s lawn.
 
 - **The median is why it is on the arterial.** It is the one strip running the width of the city
   that no car drives on, so the columns need no clearance rule of their own: `planLTrain` reads
@@ -295,13 +295,69 @@ Park). From game view will just look like map ends there at a park."
 - **Scenery only**, the harbor's terms: outside the ring road, so no street, block or junction moves;
   its own rng stream (`seed + 53`). Trees are the shared `treeParts`, and their crowns go to the
   canopy fuzz with the rest.
+- **The lake is the river's water** (`patchLakeWater`, `city/riverwater.js`): the duck pond's
+  compose, with its shelf measured off the lake's lobed ellipse and the river's own reflection and
+  lip (the pond's darker tuning left a lake this size a flat sheet). It shipped as a flat disc and read
+  as paint beside the canal; every body of water wears the one shader (CLAUDE.md, checked in the
+  probe). `?water=classic` keeps the flat disc.
 - **Nothing in it hides the city.** The camera looks north-west, so everything planted there is
   up-screen of the streets.
 - **The L's line runs over it.** Trees and the lake keep `TREE_CLEAR_RAIL` off the line and the wall
   breaks for its columns. `NORTH_PARK_DEPTH` lives in `grid.js` because the map's north edge
   (`coastNorth()`) moves with it.
-- Hand-written triangles (paths, lake, shore, fade) go through `upTriangles`, which computes each
+- **The drives** (`?parkdrive=classic` to drop them): a rainbow of asphalt off the ring road through a
+  break in the wall, round a statue on a lawn island, with three yellow pylons shutting each mouth.
+  Tyler, 2026-10-14: "purely decorative and shouldn't be part of the traffic map", so it is not in
+  the road network and no fare stands on it. `placeDrive` squares it on to a street meeting the
+  ring road, so that street ends on the statue and its junction box falls between the two mouths.
+  There is one each side of the L ("Add one to either side of the train"): on each side, the
+  street nearest the line that is clear of it and of the lake's loop. Where the loop covers every
+  street on a side, the lake slides along the wall the least distance that frees one; when the L
+  runs down the middle street that can't be done and that city gets one drive (3 seeds in 40).
+  Gates and trees keep off the drives, and they are built last.
+- Hand-written triangles (paths, lake, shore, fade, drive) go through `upTriangles`, which computes each
   normal from the winding and flips any that face down.
+
+### The west edge high rises (default, `?westedge=classic` to drop them)
+
+`city/westedge.js`: past the west ring road the island carries on for two more columns of blocks on
+the grid's own pitch (`WEST_COLUMNS`, `WEST_REACH` in `grid.js`, which moves `coastWest()` out by
+40). Every street running along X carries on west to the coast with its own paint, and is shut where
+it leaves the ring road by the roadworks' trestle (`barricadeParts`) and a row of cones. Tyler,
+2026-10-14: "start some high rises and sky scrapers. Have through streets visually continue but
+block them off from the game grid with construction barriers."
+
+- **Scenery only**, the north park's terms: no lane, junction, fare or car is out there and the road
+  network never hears of it; its own rng stream (`seed + 59`). The towers are `buildHighRise` in
+  `city/buildings.js`, the city's own tower with a height handed in, so the setbacks, façades and
+  shopfronts match. They rise in the entrance wave and Rain Mode lights their windows.
+- **Two heights.** The near column stays under the city's `SKYLINE_CEILING`; the far one is the
+  skyline, 22–33 to the parapet, glass and slate mostly, some with a mast. Nothing reaches past
+  `WEST_SKYLINE` (38).
+- **Nothing out there can hide the city, at any height.** The sightline off any point climbs toward
+  +x+z, away from the west edge, so a tower west of the ring road's kerb is always drawn *behind*
+  the streets. `tools/probe.mjs` fires rays from the ring road at taxi height to hold it.
+- **The aircraft go round or over.** The aeroplane cruises at 48 rather than 30, so its belly clears
+  `WEST_SKYLINE` by 4.6 at the bottom of its jitter. The two helicopters fly at 22, under the far
+  column, so neither starts a leg west of `WEST_CLEAR_X` (its east kerb) plus `WEST_MARGIN`: the
+  rooftop chopper flips its approach end for end, the police helicopter swings a westerly entry
+  round to the north and never leaves westward. The clouds' keep-out takes the far column as a
+  third box (`KEEP_OUT` in `game/clouds.js`).
+- **The river runs through it.** The channel's walls, walk and railing run on to the new coast
+  (`channelWest` in `city/river.js`) and the water shoals and fades there, so boats sail out between
+  towers. The new north-south streets stop at the embankment; there are no bridges out there.
+- **The camera can pan a little further west** (`PAN_LIMIT_WEST`, half the reach), to look up at the
+  skyline.
+- **The northwest corner** (`?westcorner=classic` leaves it open ground): the two columns carry on
+  north of the north ring road for two rows of blocks (`cornerBlocks`), with mid-rises only (7–15,
+  under `SKYLINE_CEILING`, so the helicopters need nothing new). The west ring road carries on north
+  between them and the park, shut where it leaves the ring by a trestle and cones (`northClosure`).
+  The park gives up its west strip to that street and starts at its far kerb, behind a pavement and
+  a wall of its own, and its lawn feather no longer runs west: that feather is what spilled green
+  across the asphalt. The ground there is an asphalt patch laid 0.03 under the slab, filling the
+  slab's rounded corner, with its own feather off the west and north (`patchFade`). Tyler,
+  2026-10-14: "fill in this corner with another some mid rise buildings and smooth out the park
+  transition."
 
 ## Layout: what a block *is*
 
@@ -1069,7 +1125,7 @@ curved lane at its far end. The lawns are built by offsetting the centreline fur
 (kerb, walk, grass) rather than by insetting the kerb polygon, whose clipped ends fold.
 
 The park road is one-way in a direction the seed picks: one lane down the centreline of a 6-wide
-road, with chevrons at its entrance, middle and exit and no centre line. `?parkway=twoway`
+road, with chevrons a quarter, half and three quarters of the way along and no centre line. `?parkway=twoway`
 (`PARKWAY=twoway` headless) gives it two lanes.
 
 The park road is the one road the grid has no opinion about, so `tools/roadnet.mjs` leaves its lanes
@@ -1119,6 +1175,16 @@ face normal computed from the winding** — see the roadworks ramp in [CLAUDE.md
 a shared grey (a flat grey cap on everything drained the tan/brick/concrete families of any way to
 tell each other apart at play zoom), then a plant room, up to two AC units, and — one roof in
 eight, mid-rise only — a **water tower**: tank, hoop, conical cap and four legs.
+
+Every flat cap is hollowed into a **lip**: `lippedCap` in `city/buildings.js` builds it as a floor
+slab and a `LIP_W` (0.28) rim, with the deck sunk `ROOF_SINK` (0.22) inside, and the floor a stop
+darker than the rim so the two-pixel sink still reads at play zoom. The towers, the courtyard
+wings, the depot and the bank all go through it. The sink is cut *down* into the cap rather than
+built up off it, so the roofline every occlusion measurement in the city was taken against does not
+move; only the deck drops, and everything on a roof stands on `deck` — the furniture, the helipad,
+the depot's sign pole, the bank's drum and the roosting pigeons go down with it. Five boxes merged
+into the building's own geometry, so no draw calls. `?roofs=classic` keeps the solid cap
+([history](rendering-history.md#flat-roofs)).
 
 Two exceptions to the flat deck, which together are most of what gives the map a suburb-to-downtown
 gradient:

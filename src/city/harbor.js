@@ -5,7 +5,9 @@ import { PALETTE, jitterColor } from '../palette.js';
 import { riverBanks, coastWest, GRID_J, isArterialX, lineZ, LTRAIN_NS } from './grid.js';
 import { KERB_H, PAVE_INSET, SLAB_RADIUS } from './ground.js';
 import { WATER_Y, waterEdges } from './river.js';
-import { harborPiers, islandHalf, seaStartX, insidePolygon } from './harborplan.js';
+import {
+  harborPiers, islandHalf, seaStartX, insidePolygon, onShoreline, parkShoreClosure,
+} from './harborplan.js';
 
 // The harbor at the river's east mouth: the walls of everything standing in the sea, the rocks
 // along the seawall, the two piers' container yards and warehouses, the sheds on the aprons and two
@@ -206,8 +208,12 @@ function containerBlock(rng, x0, x1, z0, z1, y, keepClear = null) {
  * The container ship, in its own frame: waterline at y = 0, bow toward +x, beam along z.
  * The hull is an extruded top-view outline so the bow can come to a point without hand-wound
  * triangles (CLAUDE.md, the winding traps); everything above deck is boxes.
+ *
+ * Returns `{ hull, upper }`, two lists of parts: the hull and its boot-top, which are solid, and
+ * everything standing on the deck, which is drawn with its shadow sunk (game/harborships.js).
  */
 export function ship(rng) {
+  const hullParts = [];
   const parts = [];
   const hl = SHIP_L / 2;
   const hb = SHIP_B / 2;
@@ -229,12 +235,12 @@ export function ship(rng) {
   // matter here, and the bow still points +x.
   const hull = extrude(outline, hullH);
   hull.translate(0, -SHIP_DRAUGHT, 0);
-  parts.push(bakeColor(hull, PALETTE.shipHull));
+  hullParts.push(bakeColor(hull, PALETTE.shipHull));
   // The boot-top: a band at the waterline in the hull's antifouling colour, a hair proud of it.
   const boot = extrude(outline, 0.45);
   boot.scale(1.004, 1, 1.02);
   boot.translate(0, -0.15, 0);
-  parts.push(bakeColor(boot, PALETTE.shipBoot));
+  hullParts.push(bakeColor(boot, PALETTE.shipBoot));
   // The deck, inset so the hull's sheer shows as a rim round it.
   const deck = box(SHIP_L - 4.2, 0.08, SHIP_B - 0.5, -0.6, SHIP_FREEBOARD + 0.04, 0, PALETTE.shipDeck);
   parts.push(deck);
@@ -243,8 +249,13 @@ export function ship(rng) {
   const houseX = -hl + 1.6;
   parts.push(box(2.6, 3.4, SHIP_B - 0.6, houseX, SHIP_FREEBOARD + 1.7, 0, PALETTE.shipHouse));
   parts.push(box(2.75, 0.45, SHIP_B - 0.3, houseX, SHIP_FREEBOARD + 2.9, 0, PALETTE.craneDark));
-  parts.push(box(3.0, 0.18, SHIP_B + 0.6, houseX + 0.1, SHIP_FREEBOARD + 3.45, 0, PALETTE.shipHouse));
-  parts.push(box(1.1, 1.5, 1.2, houseX - 0.5, SHIP_FREEBOARD + 4.1, 0, PALETTE.craneHouse));
+  // The bridge wings' roof. It stops 0.1 short of the first bay rather than on it: at 3.0 wide its
+  // forward edge landed exactly on the aft face of the containers, one plane shared by two faces
+  // across the whole height of the plate, and the two flickered against each other.
+  parts.push(box(2.9, 0.18, SHIP_B + 0.6, houseX + 0.05, SHIP_FREEBOARD + 3.45, 0, PALETTE.shipHouse));
+  // The funnel stops inside its cap rather than level with it: both tops at FREEBOARD + 4.85 was a
+  // tie between two colours on one plane, and the cap's top drew half black, half grey.
+  parts.push(box(1.1, 1.45, 1.2, houseX - 0.5, SHIP_FREEBOARD + 4.075, 0, PALETTE.craneHouse));
   parts.push(box(1.14, 0.3, 1.24, houseX - 0.5, SHIP_FREEBOARD + 4.7, 0, PALETTE.craneDark));
 
   // The cargo: bays of containers across the beam, forward of the house. Stacked lower towards
@@ -260,7 +271,7 @@ export function ship(rng) {
       parts.push(...stack(rng, bayX0 + b * (BOX_L + 0.15), SHIP_FREEBOARD + 0.08, z, tiers));
     }
   }
-  return parts;
+  return { hull: hullParts, upper: parts };
 }
 
 /**
@@ -295,6 +306,10 @@ export function createHarbor(rng) {
       const [ax, az] = poly[k];
       const [bx, bz] = poly[(k + 1) % poly.length];
       if (Math.min(ax, bx) < seaFrom - 1e-6) continue;
+      // The south shore builds its own (city/southshore.js), off its own stream.
+      if (onShoreline(ax, az) && onShoreline(bx, bz)) continue;
+      // Nor is the park shore's closure under the north park a wall (harborplan.js).
+      if (parkShoreClosure(ax, az, bx, bz)) continue;
       const len = Math.hypot(bx - ax, bz - az);
       if (len < 1e-6) continue;
       let nx = (bz - az) / len;
@@ -488,7 +503,7 @@ export function createHarbor(rng) {
  * Hand-written triangles, so the winding is checked here against the normal it is meant to have
  * rather than trusted (CLAUDE.md, the roadworks ramp).
  */
-function wallQuad(ax, az, bx, bz, nx, nz, top, bottom, col) {
+export function wallQuad(ax, az, bx, bz, nx, nz, top, bottom, col) {
   const A = [ax, top, az]; const B = [bx, top, bz]; const C = [bx, bottom, bz]; const D = [ax, bottom, az];
   let tris = [A, C, B, A, D, C];
   // Face normal of the first triangle from its winding: (C - A) x (B - A).

@@ -13,8 +13,12 @@ import { makeRng } from '../src/util/rng.js';
 import { pointInPolygon } from '../src/city/curves.js';
 import { isParkwayMid, coastWest, coastEast, coastNorth, harborBasin, HARBOR } from '../src/city/grid.js';
 import { createHarbor } from '../src/city/harbor.js';
-import { coastArcStart, coastArcZ, SEA_CORNER } from '../src/city/harborplan.js';
+import {
+  createWestEdge, westKerbX, westClosures, WEST_SKYLINE, WEST_CLEAR_X, cornerBlocks, northClosure,
+} from '../src/city/westedge.js';
+import { coastArcStart, coastArcZ, SEA_CORNER, southShore, parkShore } from '../src/city/harborplan.js';
 import { createLayout } from '../src/city/layout.js';
+import { createNorthPark } from '../src/city/northpark.js';
 import {
   createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
 } from '../src/city/ground.js';
@@ -283,16 +287,27 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
 {
   const fade = ground.children.find((c) => c.name === 'asphalt-fade');
   // Signed distance to the rounded-square outline: 0 on the edge, positive outside.
-  const insetX = SLAB_X / 2 - SLAB_RADIUS;
+  // Centred between the two coasts rather than on the origin: the high rises past the west ring
+  // road move the west one out (city/westedge.js). Without them, and without the harbor, the two
+  // are the same thing.
+  const midX = (coastWest() + SLAB_X / 2) / 2;
+  const insetX = (SLAB_X / 2 - coastWest()) / 2 - SLAB_RADIUS;
   const insetZ = SLAB_Z / 2 - SLAB_RADIUS;
   const square = (x, z) => Math.hypot(
-    Math.max(Math.abs(x) - insetX, 0), Math.max(Math.abs(z) - insetZ, 0),
+    Math.max(Math.abs(x - midX) - insetX, 0), Math.max(Math.abs(z) - insetZ, 0),
   ) - SLAB_RADIUS;
   // With the harbor the east side is a seawall that takes no skirt, so the outline is the west
   // half of the square with the north and south coasts running straight on east until each turns
   // into the seawall — where the skirt carries on round the corner arc (`seaCornerFade`, ground.js).
+  //
+  // With the south shore the south half's coast is a wall standing in the sea too, and its west edge
+  // runs square down to it, so the only skirt that half has is straight out west.
   const edgeDist = !harborBasin() ? square : (x, z) => {
     const side = z > 0 ? 1 : -1;
+    if (side > 0 && southShore()) return coastWest() - x;
+    // And with the park shore the north coast has no corner either: it stops square where the
+    // outline turns north under the park, so the skirt there runs straight out north.
+    if (side < 0 && parkShore()) return Math.abs(z) - SLAB_Z / 2;
     // Round the corner arc, radially — its |z| has an infinite slope where the arc turns south, so
     // float32 storage alone moved a vertex there by 3e-3.
     const from = coastArcStart(side);
@@ -369,6 +384,38 @@ const onGrass = (city, i, j) => {
   createLayout(makeRng(seed));
   check('every city has corners for a courier job to stand on', leanest >= 16,
     `leanest ${leanest}/${(GRID_I + 1) * (GRID_J + 1)} on seed ${leanestSeed}`);
+}
+
+// --- The north park's drives -----------------------------------------------
+//
+// Decorative, so what can go wrong is that they don't get built, or land on top of each other:
+// `placeDrives` wants one each side of the L and gives a side up when every street on it is under
+// the line or behind the lake's loop, after sliding the lake along to make room. Measured over 40
+// seeds: none without a drive, 3 with only one — all three with the L down the middle street,
+// where the lake has to sit 21 off the line and its loop then covers both streets on its side.
+{
+  let missing = 0;
+  let single = 0;
+  let firstSingle = -1;
+  let overlap = 0;
+  let built = 0;
+  for (let s = 0; s < 40; s++) {
+    createLayout(makeRng(s));
+    const park = createNorthPark(makeRng(s + 53));
+    if (!park) continue;
+    built += 1;
+    const xs = park.drives.map((d) => d.x).sort((p, q) => p - q);
+    if (xs.length === 0) missing += 1;
+    if (xs.length === 1) { single += 1; if (firstSingle < 0) firstSingle = s; }
+    if (xs.length === 2 && xs[1] - xs[0] < 20) overlap += 1;
+    park.mesh.geometry.dispose();
+  }
+  createLayout(makeRng(seed));
+  check('north park: every city gets its arched drive', built === 0 || missing === 0,
+    `${missing}/${built} without one`);
+  check('north park: a drive each side of the L, bar the cities the lake leaves no room in',
+    single <= 3, `${single}/${built} with one${firstSingle >= 0 ? `, first seed ${firstSingle}` : ''}`);
+  check('north park: two drives never share a stretch of wall', overlap === 0, `${overlap}/${built} too close`);
 }
 
 // --- The walk round a park --------------------------------------------------
@@ -6733,7 +6780,7 @@ function rideToPickup() {
   // it, and the ending says so in rating words.
   check('the run ends as the rating reaches its floor',
     RATING_START === 5 && ratingFor(kFares.state.strikes) === RATING_FLOOR && RATING_FLOOR === 2
-      && kFares.state.failTitle === 'Deactivated!' && /2\.0 stars/.test(kFares.state.failReason),
+      && kFares.state.failTitle === 'Fired!' && /2\.0 stars/.test(kFares.state.failReason),
     `${kFares.state.failTitle} ${kFares.state.failReason}`);
 
   const spot = kFares.state.failSpot;
@@ -12776,7 +12823,11 @@ let chopperOrder; // likewise
   // The tallest thing it has to miss, measured off the city that was actually built rather than
   // off the constant the generator caps at.
   buildings.mesh.geometry.computeBoundingBox();
-  const skyline = buildings.mesh.geometry.boundingBox.max.y;
+  // The high rises past the west ring road too (city/westedge.js): every flight crosses that edge.
+  const westTowers = createWestEdge(makeRng(seed + 59))?.towers;
+  westTowers?.geometry.computeBoundingBox();
+  const skyline = Math.max(buildings.mesh.geometry.boundingBox.max.y,
+    westTowers?.geometry.boundingBox.max.y ?? 0);
   check('the plane clears the skyline',
     minY - PLANE_UNDERSIDE > skyline + 4,
     `underside ${(minY - PLANE_UNDERSIDE).toFixed(1)} vs tallest tower ${skyline.toFixed(1)}`);
@@ -13097,11 +13148,16 @@ let chopperOrder; // likewise
   // checked against what is actually standing under it rather than against the ceiling constant.
   const CELL = 2;
   const cells = new Map();
-  const cityPos = buildings.mesh.geometry.attributes.position;
-  for (let i = 0; i < cityPos.count; i++) {
-    const key = `${Math.floor(cityPos.getX(i) / CELL)},${Math.floor(cityPos.getZ(i) / CELL)}`;
-    const y = cityPos.getY(i);
-    if (!(cells.get(key) >= y)) cells.set(key, y);
+  // The high rises past the west ring road stand in it too: a leg flown in over them is a leg flown
+  // through them (city/westedge.js).
+  for (const mesh of [buildings.mesh, createWestEdge(makeRng(seed + 59))?.towers]) {
+    if (!mesh) continue;
+    const cityPos = mesh.geometry.attributes.position;
+    for (let i = 0; i < cityPos.count; i++) {
+      const key = `${Math.floor(cityPos.getX(i) / CELL)},${Math.floor(cityPos.getZ(i) / CELL)}`;
+      const y = cityPos.getY(i);
+      if (!(cells.get(key) >= y)) cells.set(key, y);
+    }
   }
   const tallestNear = (x, z, radius) => {
     let top = 0;
@@ -18821,6 +18877,62 @@ let chopperOrder; // likewise
       /-river-(smooth|classic)$/.test(wm.customProgramCacheKey()), wm.customProgramCacheKey());
   }
 
+  // One water shader (Tyler, 2026-10-14: "All new water features should use it"). Every body of
+  // water in the city wears the river's surface (city/riverwater.js), and the patch marks the
+  // material it lands on, so a new pond, lake or fountain that ships as a flat disc fails here. Two
+  // halves, because either alone has a hole:
+  //
+  // - **What is built**: every water mesh the city has — the river and the sea, the duck pond, the
+  //   north park's lake — carries `userData.sharedWater`.
+  // - **What could be built**: a mesh nobody told this check about cannot be found at runtime, so any
+  //   file that paints with a water colour must also import a patch from riverwater.js. That is the
+  //   way a new water feature actually gets written: by reaching for `pondWater` or `riverWater`.
+  {
+    const { createNorthPark } = await import('../src/city/northpark.js');
+    const { getWaterStyle } = await import('../src/city/riverwater.js');
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const waters = [];
+    createRiver(makeRng(seed + 44), layout).group.traverse((o) => {
+      if (o.isMesh && /water/.test(o.name)) waters.push(o);
+    });
+    if (propsBuild.pondMesh) waters.push(propsBuild.pondMesh);
+    const park = createNorthPark(makeRng(seed + 53));
+    if (park) waters.push(park.water);
+    const flat = waters.filter((m) => !m.material.userData.sharedWater);
+    check('water: every body of water in the city wears the shared water shader',
+      waters.length >= 2 && flat.length === 0,
+      `${waters.length} water meshes${flat.length ? `, flat: ${flat.map((m) => m.name).join(', ')}` : ''}`);
+
+    const src = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../src');
+    const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? walk(path.join(d, e.name)) : e.name.endsWith('.js') ? [path.join(d, e.name)] : []);
+    const painters = walk(src).filter((f) => !f.endsWith('palette.js') && !f.endsWith('riverwater.js'))
+      .filter((f) => /PALETTE\.(pondWater|pondShallow|riverWater|riverDeep)\b/.test(fs.readFileSync(f, 'utf8')));
+    const unpatched = painters.filter((f) =>
+      !/import\s*\{[^}]*\bpatch\w*Water\b[^}]*\}\s*from\s*'\.\/riverwater\.js'/.test(fs.readFileSync(f, 'utf8')));
+    check('water: every file that paints with a water colour patches it with the shared shader',
+      painters.length > 0 && unpatched.length === 0,
+      unpatched.length ? unpatched.map((f) => path.relative(src, f)).join(', ') : `${painters.length} files`);
+
+    // And the lake's patch lands, against three's real Lambert source, the river check's way.
+    if (park && getWaterStyle() !== 'classic') {
+      const ls = {
+        uniforms: {},
+        vertexShader: THREE.ShaderLib.lambert.vertexShader,
+        fragmentShader: THREE.ShaderLib.lambert.fragmentShader,
+      };
+      park.water.material.onBeforeCompile(ls, null);
+      check('water: the north park lake\'s patch lands, on a program of its own kind',
+        ls.vertexShader.includes('vWaterWorld = (modelMatrix')
+          && /float edge = max\(length\(off\) \* \(k \/ t - 1\.0\)[\s\S]*outgoingLight = water;[\s\S]*#include <opaque_fragment>/
+            .test(ls.fragmentShader)
+          && 'uPond' in ls.uniforms && 'uWaterTime' in ls.uniforms
+          && park.water.material.customProgramCacheKey().endsWith('-lake'),
+        park.water.material.customProgramCacheKey());
+    }
+  }
+
   // --- The harbor (city/harbor.js): the dock the river opens into at its east mouth.
   //
   // Everything here is scenery past the ring road, so what can go wrong is geometry: a wall facing
@@ -18942,6 +19054,166 @@ let chopperOrder; // likewise
       let off = 0;
       for (let t = 0; dp && t < dp.count; t++) if (Math.abs(dp.getY(t) - WATER_Y) > 1e-6) off += 1;
       check('harbor: the sea has no shoal round its rim', !!dock && off === 0, `${off} vertices off sea level`);
+    }
+  }
+
+  // --- The high rises past the west ring road (city/westedge.js).
+  {
+    const we = createWestEdge(makeRng(seed + 59));
+    if (!we) {
+      check('west edge: classic builds nothing past the west ring road', coastWest() === -(SLAB_X / 2), `coast ${coastWest()}`);
+    } else {
+      const kerb = westKerbX();
+      // Scenery only: nothing out there reaches the ring road it is shut off from. The corner north
+      // of the north ring road is out of it (it is checked on its own below), and so is the corner's
+      // asphalt patch, which lies under the slab rather than on it.
+      const kN = lineZ(0) - halfRoadX(0);
+      let pastKerb = 0;
+      for (const mesh of [we.ground, we.towers]) {
+        const p = mesh.geometry.attributes.position;
+        for (let k = 0; k < p.count; k++) {
+          if (p.getY(k) < 0 || p.getZ(k) < kN - 1e-6) continue;
+          if (p.getX(k) > kerb + 1e-6) pastKerb += 1;
+        }
+      }
+      check('west edge: nothing in it stands on the ring road', pastKerb === 0, `${pastKerb} vertices east of x = ${kerb}`);
+
+      // Every street that carries on west is shut where it leaves the ring road, the trestle spanning
+      // the whole carriageway.
+      const closures = westClosures();
+      const gp = we.ground.geometry.attributes.position;
+      let open = 0;
+      for (const c of closures) {
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (let k = 0; k < gp.count; k++) {
+          if (Math.abs(gp.getX(k) - c.x) > 0.5 || gp.getY(k) < 0.5) continue;
+          lo = Math.min(lo, gp.getZ(k));
+          hi = Math.max(hi, gp.getZ(k));
+        }
+        if (!(lo < c.z - c.half + 0.6 && hi > c.z + c.half - 0.6)) open += 1;
+      }
+      check('west edge: every street west is barricaded across its width',
+        closures.length === GRID_J + 1 && open === 0, `${closures.length} closures, ${open} left open`);
+
+      // The skyline: the near column under the city's own ceiling, nothing anywhere over WEST_SKYLINE.
+      const tp = we.towers.geometry.attributes.position;
+      let nearTop = 0;
+      let farTop = 0;
+      for (let k = 0; k < tp.count; k++) {
+        if (tp.getX(k) > WEST_CLEAR_X) nearTop = Math.max(nearTop, tp.getY(k));
+        else farTop = Math.max(farTop, tp.getY(k));
+      }
+      check('west edge: the near column stays under the city ceiling, the far one under WEST_SKYLINE',
+        nearTop < SKYLINE_CEILING && farTop <= WEST_SKYLINE && farTop > SKYLINE_CEILING + 5,
+        `near ${nearTop.toFixed(1)} (ceiling ${SKYLINE_CEILING}), far ${farTop.toFixed(1)} (cap ${WEST_SKYLINE})`);
+
+      // No tower can stand between the camera and a street. Rays toward the camera from the ring
+      // road's whole length and from every lane in the west column of blocks, at the ground and at a
+      // taxi's roof, through the towers as built.
+      const ray = new THREE.Raycaster();
+      we.towers.geometry.computeBoundingSphere();
+      let hidden = 0;
+      let fired = 0;
+      for (let z = lineZ(0) - 4; z <= lineZ(GRID_J) + 4; z += 2) {
+        for (const x of [kerb, lineX(0), lineX(1) - 4]) {
+          for (const y of [0.05, 1.6]) {
+            ray.set(new THREE.Vector3(x, y, z), VIEW_DIR.clone());
+            fired += 1;
+            if (ray.intersectObject(we.towers, false).length) hidden += 1;
+          }
+        }
+      }
+      check('west edge: no tower hides any part of the ring road from the camera', hidden === 0,
+        `${hidden} of ${fired} sightlines blocked`);
+
+      // The helicopters fly at 22, under the far column, so neither may start a leg over it: the
+      // rooftop chopper from a pad anywhere along the west of the city, and the police helicopter
+      // chasing a taxi anywhere down the west ring road.
+      let chopperWest = 0;
+      let legs = 0;
+      for (const pz of [-60, -30, 0, 30, 60]) {
+        for (const cw of [3, 8]) {
+          const fake = { x: lineX(0) + 8, z: pz, y: 14, r: 2.4, cw, cd: 11 - cw, deck: 14 };
+          const ch = createChopper(new THREE.Scene(), makeRng(seed + pz + cw), fake);
+          for (let v = 0; v < 12; v++) {
+            ch.visit();
+            legs += 1;
+            if (ch.state.x < WEST_CLEAR_X + 4) chopperWest += 1;
+          }
+        }
+      }
+      check('west edge: the rooftop chopper never comes in over the tall column', chopperWest === 0,
+        `${chopperWest} of ${legs} legs start west of x = ${WEST_CLEAR_X + 4}`);
+
+      const { createPoliceHeli } = await import('../src/game/policeheli.js');
+      let heliWest = Infinity;
+      let sorties = 0;
+      for (const tz of [-70, -40, -10, 20, 50, 70]) {
+        const heli = createPoliceHeli(new THREE.Scene(), makeRng(seed + tz));
+        for (let n = 0; n < 4; n++) {
+          const target = { x: lineX(0), z: tz };
+          for (let f = 0; f < 60 * 8; f++) {
+            heli.update(1 / 60, target);
+            heliWest = Math.min(heliWest, heli.state.x);
+          }
+          for (let f = 0; f < 60 * 20 && heli.busy(); f++) {
+            heli.update(1 / 60, null);
+            heliWest = Math.min(heliWest, heli.state.x);
+          }
+          sorties += 1;
+        }
+      }
+      check('west edge: the police helicopter never flies over the tall column', heliWest > WEST_CLEAR_X + 2,
+        `westmost ${heliWest.toFixed(1)} over ${sorties} sorties, column's kerb at ${WEST_CLEAR_X}`);
+
+      // The northwest corner (`?westcorner=classic` drops it): mid-rises on every block, all of them
+      // under the city's ceiling, nothing in it east of the carried-on ring road's far kerb (the
+      // park starts there), and that street shut across its width where it leaves the ring.
+      const blocks = cornerBlocks();
+      if (!blocks.length) {
+        check('west corner: classic builds no corner', !we.fade && !northClosure(), 'corner built');
+      } else {
+        const parkKerb = lineX(0) + halfRoadZ(0);
+        const corner = we.sites.filter((t) => t.corner);
+        const bare = blocks.filter((b) => !corner.some((t) => t.cx > b.bounds.x0 && t.cx < b.bounds.x1
+          && t.cz > b.bounds.z0 && t.cz < b.bounds.z1)).length;
+        const top = Math.max(...corner.map((t) => t.top));
+        check('west corner: every block has mid-rises under the city ceiling',
+          bare === 0 && top < SKYLINE_CEILING, `${bare} of ${blocks.length} bare, tallest ${top.toFixed(1)}`);
+        let intoPark = 0;
+        for (const mesh of [we.ground, we.towers]) {
+          const p = mesh.geometry.attributes.position;
+          for (let k = 0; k < p.count; k++) {
+            if (p.getY(k) >= 0 && p.getZ(k) < kN - 1e-6 && p.getX(k) > parkKerb + 1e-6) intoPark += 1;
+          }
+        }
+        check('west corner: nothing stands past the street into the park', intoPark === 0,
+          `${intoPark} vertices east of x = ${parkKerb}`);
+        const c = northClosure();
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (let k = 0; k < gp.count; k++) {
+          if (Math.abs(gp.getZ(k) - c.z) > 0.5 || gp.getY(k) < 0.5) continue;
+          lo = Math.min(lo, gp.getX(k));
+          hi = Math.max(hi, gp.getX(k));
+        }
+        check('west corner: the ring road is shut across its width where it carries on north',
+          lo < c.x - c.half + 0.6 && hi > c.x + c.half - 0.6, `trestle ${lo.toFixed(2)}..${hi.toFixed(2)}, street ${c.x - c.half}..${c.x + c.half}`);
+        // The patch's feather faces up and fades out, like every skirt.
+        const fp = we.fade.geometry.attributes.position;
+        const fc = we.fade.geometry.attributes.color;
+        let down = 0;
+        let minA = 1;
+        for (let k = 0; k < fp.count; k += 3) {
+          const ax = fp.getX(k); const az = fp.getZ(k);
+          const ny = (fp.getZ(k + 1) - az) * (fp.getX(k + 2) - ax) - (fp.getX(k + 1) - ax) * (fp.getZ(k + 2) - az);
+          if (ny <= 0) down += 1;
+        }
+        for (let k = 0; k < fc.count; k++) minA = Math.min(minA, fc.getW(k));
+        check('west corner: its asphalt feather faces up and fades out', down === 0 && minA < 1e-6,
+          `${down} faces down, faintest alpha ${minA}`);
+      }
     }
   }
 

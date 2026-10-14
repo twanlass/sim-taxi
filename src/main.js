@@ -17,6 +17,9 @@ import { createGround, KERB_H } from './city/ground.js';
 import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river.js';
 import { createHarbor } from './city/harbor.js';
 import { createNorthPark } from './city/northpark.js';
+import { createSouthShore } from './city/southshore.js';
+import { createParkShore } from './city/parkshore.js';
+import { createWestEdge } from './city/westedge.js';
 import { tickRiverWater, syncRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/riverwater.js';
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
@@ -127,7 +130,7 @@ import {
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createTitleScreen } from './game/titlescreen.js';
-import { createSettings } from './game/settings.js';
+import { createSettings, qualityOf } from './game/settings.js';
 import { createPause } from './game/pause.js';
 import { createInspect } from './game/inspect.js';
 import {
@@ -234,7 +237,7 @@ const budget = {
   safeSource: safeModeSource(),
   msaa: getMsaa(),
   shadowMapSize: getShadowMapSize(),
-  pixelRatioCap: getPixelRatioCap(getSafeMode() ? 1 : shot ? 2 : settings.get().resolution),
+  pixelRatioCap: getPixelRatioCap(getSafeMode() ? 1 : shot ? 2 : qualityOf(settings.get()).resolution),
   ao: getAmbientOcclusion(),
   crayon: getCrayon(),
   cartoon: getCartoon(),
@@ -374,11 +377,13 @@ const governor = createGovernor({
   onChange: (text) => diag.note(text),
   targetMs: () => 1000 / Math.min(60, frameRateCap()),
 });
-// The Resolution setting, live: the cap moves and the governor re-derives its ratio from it. Not
-// while `?dpr=` pins it, nor under `?safe`, whose whole point is the cheapest budget.
+// The Quality setting's resolution, live: the cap moves and the governor re-derives its ratio from
+// it. Not while `?dpr=` pins it, nor under `?safe`, whose whole point is the cheapest budget. The
+// frame-rate half needs nothing here: `frameRateCap` reads the setting every frame.
 settings.onChange((v) => {
-  if (shot || resolutionPinned || budget.safe || v.resolution === budget.pixelRatioCap) return;
-  budget.pixelRatioCap = v.resolution;
+  const { resolution } = qualityOf(v);
+  if (shot || resolutionPinned || budget.safe || resolution === budget.pixelRatioCap) return;
+  budget.pixelRatioCap = resolution;
   governor.reset();
   renderer.setPixelRatio(governor.ratio());
   // A ratio change resizes the canvas, which empties it — and this is usually changed from the pause
@@ -612,6 +617,20 @@ if (northPark) {
   scene.add(northPark.water);
   scene.add(northPark.fade);
 }
+// The ground between the north park and the seawall that now runs on north beside it
+// (city/parkshore.js). Null under `?parkshore=classic`.
+const parkShoreStrip = createParkShore();
+if (parkShoreStrip) {
+  scene.add(markOccluder(parkShoreStrip.mesh));
+  scene.add(parkShoreStrip.fade);
+}
+// The harbor's rocky shore carried on round the south end, with a strip of park between the ring
+// road and the water (city/southshore.js). Its own stream. Null under `?southshore=classic`.
+const southShore = createSouthShore(makeRng(seed + 61));
+if (southShore) {
+  scene.add(markOccluder(southShore.mesh));
+  scene.add(southShore.fade);
+}
 // Held onto for its `pad`: exactly one roof in the city carries a landing circle, and the
 // helicopter below has to be told which one — see `choosePad` in city/buildings.js.
 const stopPanes = rain.enabled ? collectPanes() : null;
@@ -621,6 +640,14 @@ const fall = getFall();
 setAutumn(fall, { classicColours: getFoliageClassic() });
 const city = createBuildings(makeRng(seed + 22), layout);
 scene.add(markOccluder(city.mesh));
+// The high rises past the west ring road, the streets carrying on to them and the barricades shutting
+// them off (city/westedge.js). Built before the panes are collected, so Rain Mode lights their windows
+// too. Its own stream. Null under `?westedge=classic`.
+const westEdge = createWestEdge(makeRng(seed + 59));
+if (westEdge) scene.add(markOccluder(westEdge.ground), markOccluder(westEdge.towers));
+// The northwest corner's asphalt skirt (`?westcorner=classic` drops the corner). Transparent, so not
+// an occluder.
+if (westEdge?.fade) scene.add(westEdge.fade);
 
 // Rain Mode's city lights — lit windows over the panes just built, and street lamps. A wet street
 // is a mirror for lamps, and a daytime city has almost none. See game/citylights.js. Their own
@@ -1378,7 +1405,7 @@ const spray = createSpray(scene, makeRng(seed + 78));
 const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
-  meshes: [city.mesh, propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
+  meshes: [city.mesh, ...(westEdge ? [westEdge.towers] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
     ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []),
     ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
@@ -1553,7 +1580,11 @@ const chopper = createChopper(scene, makeRng(runSeed + 233), city.pad, {
 const HELI_FROM_CHECKPOINT = 1;
 const HELI_TAIL_SECONDS = 6;
 const policeHeli = robbery
-  ? createPoliceHeli(scene, makeRng(runSeed + 457), { groundY: (x, z) => deckHeightAt(x, z).y })
+  ? createPoliceHeli(scene, makeRng(runSeed + 457), {
+    groundY: (x, z) => deckHeightAt(x, z).y,
+    // The first searchlight, before it was softened — see LOOKS in game/policeheli.js.
+    classic: new URLSearchParams(window.location.search).get('helispot') === 'classic',
+  })
   : null;
 // The car the robber was put in, once the arrest has handed it back to traffic: `{ car, left }`.
 let heliTail = null;
@@ -3494,7 +3525,7 @@ function applyWorldPressure() {
 function formatRunTime(seconds) {
   const total = Math.max(0, Math.round(seconds));
   const secs = total % 60;
-  return `${Math.floor(total / 60)}:${String(secs).padStart(2, '0')}s`;
+  return `${Math.floor(total / 60)}:${String(secs).padStart(2, '0')}`;
 }
 
 /**
@@ -4993,7 +5024,7 @@ let bench = null;
 // own delta. The 4 ms of slack is so a vsync that lands a hair early is not skipped as well, which
 // would drop the rate to 20.
 const fpsPin = Number.parseInt(new URLSearchParams(window.location.search).get('fps'), 10);
-const frameRateCap = () => (shot ? 60 : fpsPin > 0 ? fpsPin : settings.get().frameRate);
+const frameRateCap = () => (shot ? 60 : fpsPin > 0 ? fpsPin : qualityOf(settings.get()).frameRate);
 let lastFrameAt = 0;
 
 function frame(t) {

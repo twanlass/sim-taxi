@@ -126,6 +126,9 @@ const UNIFORMS = {
   // The basin's two quay lines (z) and where its piers end (x): the walls the sea can mirror.
   uWaterBasin: { value: new THREE.Vector3() },
   uWaterQuay: { value: new THREE.Color(PALETTE.quay) },
+  // z past which the water is the open sea along the south shore (city/southshore.js), or far
+  // off the map without one.
+  uWaterShore: { value: 1e6 },
 };
 
 let drawLift = () => 0;
@@ -154,6 +157,7 @@ uniform vec4 uWaterBridges[3];
 uniform vec2 uWaterSea;
 uniform vec3 uWaterBasin;
 uniform vec3 uWaterQuay;
+uniform float uWaterShore;
 varying vec3 vWaterWorld;
 
 // 1 where there is channel wall at this x, 0 past the mouth, where the walls stop and the sea opens.
@@ -304,6 +308,10 @@ vec3 waterReflect(vec3 p, vec3 r) {
   float best = (p.z - uWaterEdges.x) / max(-r.z, 1e-3);
   // Past the mouth the far wall's plane is open sea, so the ray carries on to the sky — and a
   // point out in the basin past that plane (best < 0) never meets it at all.
+  // Out in front of the south shore the channel, its far wall and its bridges are all behind the
+  // whole city, so the sea there mirrors the sky. Without this the bridges' decks, whose profile
+  // reads 0 off the end of their span, came out as dark bands across the open water.
+  if (p.z > uWaterShore) return uWaterSky;
   float wallHere = best > 0.0 ? waterWallAt(p.x + r.x * best) : 0.0;
   if (wallHere <= 0.0) best = 1e6;
   // Without the harbor's walls the sea mirrored nothing but sky, a flat sheet beside a river full
@@ -418,9 +426,13 @@ const compose = () => /* glsl */ `
     // lip runs only where there is a wall to make one.
     float seaward = uWaterSea.y > 0.0
       ? smoothstep(uWaterSea.x - ${num(SEA_RUN_IN)}, uWaterSea.x, vWaterWorld.x) : 0.0;
+    // The sea along the south shore is the sea all the way west of the mouth, not a channel margin:
+    // read as one, its bed came up to the channel's shallow edge and showed through olive.
+    seaward = max(seaward, step(uWaterShore, vWaterWorld.z));
     depth = mix(depth, ${num(SEA_BED)}, seaward) * waterWet;
     float sBed = depth / max(-rd.y, 1e-3);
-    float sWall = rd.z < 0.0 && vWaterWorld.z > uWaterEdges.x ? (vWaterWorld.z - uWaterEdges.x) / -rd.z : 1e6;
+    float sWall = rd.z < 0.0 && vWaterWorld.z > uWaterEdges.x && vWaterWorld.z < uWaterShore
+      ? (vWaterWorld.z - uWaterEdges.x) / -rd.z : 1e6;
     if (waterWallAt(vWaterWorld.x + rd.x * sWall) < 0.5) sWall = 1e6;
     // The harbor's walls carry on under the surface the same way.
     int sunk = waterBasinHit(vWaterWorld, rd, sWall);
@@ -468,13 +480,15 @@ const compose = () => /* glsl */ `
  * @param banks     `riverBanks()`: the kerb lines the bridges span.
  * @param bridges   one `{ x0, x1, rise, draw }` per crossing that carries a deck.
  * @param wall      the channel wall's colour as built, so the mirror image matches the wall.
- * @param sea       with a harbor, `{ x0, z0, z1, xEnd }`: the mouth, the basin's quay lines and
- *                  where its piers end (see "One surface" under The sea).
+ * @param sea       with a harbor, `{ x0, z0, z1, xEnd, shore }`: the mouth, the basin's quay lines,
+ *                  where its piers end (see "One surface" under The sea), and the z past which the
+ *                  south shore's sea lies, if there is one.
  */
 export function patchRiverWater(material, { edges, banks, bridges, wall, sea = null }) {
   UNIFORMS.uWaterEdges.value.set(edges.z0, edges.z1);
   UNIFORMS.uWaterSea.value.set(sea?.x0 ?? 0, sea ? 1 : 0);
   if (sea) UNIFORMS.uWaterBasin.value.set(sea.z0, sea.z1, sea.xEnd);
+  UNIFORMS.uWaterShore.value = sea?.shore ?? 1e6;
   UNIFORMS.uWaterBanks.value.set(banks.z0, banks.z1);
   if (wall) UNIFORMS.uWaterWall.value.set(wall);
   drawSlot = -1;
@@ -493,6 +507,7 @@ function patchWater(material) {
   const innerKey = material.customProgramCacheKey();
   const styleKey = style;
   material.customProgramCacheKey = () => `${innerKey}-river-${styleKey}`;
+  material.userData.sharedWater = 'river';
   material.onBeforeCompile = (shader, renderer) => {
     inner(shader, renderer);
     Object.assign(shader.uniforms, UNIFORMS);
@@ -554,25 +569,26 @@ const POND_RIM_GLOW_W = 0.8;
 // a municipal pond is a bowl, not a ledge.
 const POND_SHELF_W = 1.6;
 
-const POND_UNIFORMS = {
-  // x, z, nominal radius, shore width — `pond` as planned.
-  uPond: { value: new THREE.Vector4() },
-  // amp, phase for the 2- and 3-cycle lobes, in that order.
-  uPondLobes: { value: new THREE.Vector4() },
-};
-
-const pondCompose = () => /* glsl */ `
-  {
-    vec3 V = normalize(vec3(viewMatrix[0].z, viewMatrix[1].z, viewMatrix[2].z));
-
-    // Distance in from the waterline, off the same outline pond.js draws the shore with.
+// Distance in from the waterline, off the same outline pond.js draws the shore with.
+const pondEdge = () => /* glsl */ `
     vec2 off = vWaterWorld.xz - uPond.xy;
     float ang = atan(off.y, off.x);
     float f = 1.0 - uPondLobes.x * (1.0 + sin(2.0 * ang + uPondLobes.y)) * 0.5
                   - uPondLobes.z * (1.0 + sin(3.0 * ang + uPondLobes.w)) * 0.5;
     float edge = max(uPond.z * f - uPond.w - length(off), 0.0);
-    float shelf = smoothstep(0.0, ${num(POND_SHELF_W)}, edge);
-    float depth = mix(${num(POND_BED_EDGE)}, ${num(POND_BED_MID)}, shelf);
+`;
+
+const POND_TUNE = {
+  bedEdge: POND_BED_EDGE, bedMid: POND_BED_MID, shelf: POND_SHELF_W,
+  reflect: POND_REFLECT, rim: POND_RIM_W, glow: POND_RIM_GLOW, glowW: POND_RIM_GLOW_W,
+};
+
+const stillCompose = (edgeGlsl, t) => /* glsl */ `
+  {
+    vec3 V = normalize(vec3(viewMatrix[0].z, viewMatrix[1].z, viewMatrix[2].z));
+${edgeGlsl}
+    float shelf = smoothstep(0.0, ${num(t.shelf)}, edge);
+    float depth = mix(${num(t.bedEdge)}, ${num(t.bedMid)}, shelf);
 
     vec3 rd = refract(-V, waterN, 0.7518797);
     float s = depth / max(-rd.y, 1e-3);
@@ -586,10 +602,10 @@ const pondCompose = () => /* glsl */ `
 
     float cosT = saturate(dot(waterN, V));
     float fres = ${num(F0)} + ${num(1 - F0)} * pow(1.0 - cosT, 5.0);
-    fres = ${num(POND_REFLECT)} * (${num(REFLECT_FLOOR)} + ${num(1 - REFLECT_FLOOR)} * fres);
-    fres = max(fres, ${num(RIM_REFLECT)} * (1.0 - smoothstep(0.0, ${num(POND_RIM_W)}, edge)));
+    fres = ${num(t.reflect)} * (${num(REFLECT_FLOOR)} + ${num(1 - REFLECT_FLOOR)} * fres);
+    fres = max(fres, ${num(RIM_REFLECT)} * (1.0 - smoothstep(0.0, ${num(t.rim)}, edge)));
     vec3 water = mix(body, uWaterSky, fres) + waterSpec * ${num(GLINT)};
-    water += uWaterSky * ${num(POND_RIM_GLOW)} * (1.0 - smoothstep(0.0, ${num(POND_RIM_GLOW_W)}, edge));
+    water += uWaterSky * ${num(t.glow)} * (1.0 - smoothstep(0.0, ${num(t.glowW)}, edge));
     outgoingLight = water;
   }
 `;
@@ -601,16 +617,80 @@ const pondCompose = () => /* glsl */ `
  * @param pond      the pond as `planPond` returns it.
  */
 export function patchPondWater(material, pond) {
-  POND_UNIFORMS.uPond.value.set(pond.x, pond.z, pond.r, pond.bank);
   const [l2, l3] = pond.lobes;
-  POND_UNIFORMS.uPondLobes.value.set(l2.amp, l2.phase, l3.amp, l3.phase);
+  return patchStillWater(material, 'pond', {
+    // x, z, nominal radius, shore width — `pond` as planned.
+    uPond: { value: new THREE.Vector4(pond.x, pond.z, pond.r, pond.bank) },
+    // amp, phase for the 2- and 3-cycle lobes, in that order.
+    uPondLobes: { value: new THREE.Vector4(l2.amp, l2.phase, l3.amp, l3.phase) },
+  }, pondEdge(), POND_TUNE);
+}
 
+// --- The north park's lake -----------------------------------------------------
+//
+// The reservoir in the park along the city's north edge (city/northpark.js), on the duck pond's
+// compose. Tyler, 2026-10-14: "Pond needs our water shader. All new water features should use it."
+// It had shipped as a flat `propMaterial` disc, which beside the river read as a painted hole in
+// the lawn. Only the outline differs from the duck pond's: an ellipse whose two radii are both
+// scaled by the lobes (`lakeR` in northpark.js) rather than a circle less a sum of them, and no
+// shore band to take off — the bank ring there starts *at* the waterline.
+//
+// The rest is the **river's** tuning, not the pond's. The pond cut its sky reflection to 45% and its
+// lip to a third of the river's to stay a dark hole in a small lawn; on a lake 30 units across that
+// left a flat sheet with nothing on it to ripple — the river's waves read through what they
+// reflect, and at 45% of a sky there is too little to bend. Only the shelf is the lake's own:
+// LAKE_SHELF_W of light margin, the river's walk-to-channel gradient at reservoir scale.
+const LAKE_SHELF_W = 4;
+//
+// The edge distance is measured along the ray from the lake's centre, which overstates it a little
+// off the ends of the long axis. That only moves where the shelf and the lip fade, by a fraction of
+// a unit on a lake 26 to 34 across; the exact distance to a lobed ellipse is a root-find per pixel.
+
+const LAKE_TUNE = {
+  bedEdge: BED_EDGE, bedMid: BED_MID, shelf: LAKE_SHELF_W,
+  reflect: 1, rim: RIM_W, glow: RIM_GLOW, glowW: RIM_GLOW_W,
+};
+
+const lakeEdge = () => /* glsl */ `
+    vec2 off = vWaterWorld.xz - uPond.xy;
+    vec2 n = off / uPond.zw;
+    float ang = atan(n.y, n.x);
+    float k = 1.0 + uPondLobes.x * sin(2.0 * ang + uPondLobes.y)
+                  + uPondLobes.z * sin(3.0 * ang + uPondLobes.w);
+    float t = max(length(n), 1e-4);
+    float edge = max(length(off) * (k / t - 1.0), 0.0);
+`;
+
+/**
+ * Layer the river's surface onto the north park's lake — see the note above.
+ *
+ * @param material  the water's `propMaterial`.
+ * @param lake      `{ x, z, rx, rz, l2, p2, l3, p3 }` as `createNorthPark` plans it.
+ */
+export function patchLakeWater(material, lake) {
+  return patchStillWater(material, 'lake', {
+    uPond: { value: new THREE.Vector4(lake.x, lake.z, lake.rx, lake.rz) },
+    uPondLobes: { value: new THREE.Vector4(lake.l2, lake.p2, lake.l3, lake.p3) },
+  }, lakeEdge(), LAKE_TUNE);
+}
+
+/**
+ * The still-water program both of the above compile: the river's normal, glint, caustics,
+ * absorption and Fresnel, with a radial shelf off whatever outline `edgeGlsl` measures.
+ *
+ * The shape uniforms are **per material**. They were one module-level object while there was one
+ * pond, and a second body of water on the same object would have drawn its shelf round the first
+ * one's outline. The key is per *outline kind*, not per material (CLAUDE.md: a key is a promise
+ * about source), so every lake shares one program.
+ */
+function patchStillWater(material, kind, shape, edgeGlsl, tune) {
   const inner = material.onBeforeCompile;
   const innerKey = material.customProgramCacheKey();
-  material.customProgramCacheKey = () => `${innerKey}-pond`;
+  material.customProgramCacheKey = () => `${innerKey}-${kind}`;
+  material.userData.sharedWater = kind;
   material.onBeforeCompile = (shader, renderer) => {
     inner(shader, renderer);
-    Object.assign(shader.uniforms, UNIFORMS, POND_UNIFORMS);
+    Object.assign(shader.uniforms, UNIFORMS, shape);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vWaterWorld;')
       .replace('#include <project_vertex>',
@@ -620,7 +700,7 @@ export function patchPondWater(material, pond) {
         `#include <lights_lambert_pars_fragment>\n${header()}\nuniform vec4 uPond;\nuniform vec4 uPondLobes;`)
       .replace('#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>\n${normalPatch('float waterWet = 1.0;')}`)
-      .replace('#include <opaque_fragment>', `${pondCompose()}\n#include <opaque_fragment>`);
+      .replace('#include <opaque_fragment>', `${stillCompose(edgeGlsl, tune)}\n#include <opaque_fragment>`);
   };
   return material;
 }

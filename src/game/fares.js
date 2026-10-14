@@ -1902,7 +1902,7 @@ export function createFareSystem(rng, scene, {
         state.gameOver = true;
         if (rating) {
           // What a rideshare app does to a driver whose rating falls too far.
-          state.failTitle = 'Deactivated!';
+          state.failTitle = 'Fired!';
           state.failReason = `Your rating fell to ${ratingFor(state.strikes).toFixed(1)} stars.`;
         } else {
           state.failReason = 'Three riders gave up on you.';

@@ -16,7 +16,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/pathdrag.js', '../src/game/sfx.js', '../src/game/audiopanel.js', '../src/game/soundrings.js',
   '../src/game/soundpins.js', '../src/game/quicktips.js', '../src/game/quicktips.js',
   '../src/game/dust.js', '../src/game/spray.js', '../src/game/blast.js', '../src/game/flyover.js', '../src/game/birds.js', '../src/game/ducks.js',
-  '../src/city/blacktop.js', '../src/game/hoopers.js', '../src/city/skatepark.js', '../src/city/northpark.js', '../src/game/harborships.js', '../src/game/skaters.js', '../src/game/skatersclassic.js',
+  '../src/city/blacktop.js', '../src/game/hoopers.js', '../src/city/skatepark.js', '../src/city/northpark.js', '../src/city/southshore.js', '../src/city/parkshore.js', '../src/game/harborships.js', '../src/game/skaters.js', '../src/game/skatersclassic.js',
   '../src/game/clouds.js', '../src/geometry/cloud.js', '../src/game/rain.js', '../src/game/citylights.js', '../src/game/storm.js', '../src/game/squall.js',
   '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/city/burgerjoint.js', '../src/game/drivethru.js',
@@ -313,6 +313,23 @@ try {
       if (xOf(0) !== 3) fail.push('a retired instance vanished before the sample that retires it');
       retire.apply(1 / 30);
       if (!(mesh.instanceMatrix.array[0] === 0)) fail.push('a retired instance survived its own sample');
+    }
+    // The same blink on a taped *node*: the patrol cruiser is a group of its own, not an instance,
+    // and `police.shed()` hides it on the impact frame its shell is copied out on. Nearest-sample
+    // visibility hid it for the back half of the gap while the shell was still hidden — the cop car
+    // flashed out just before every replay cut's blast.
+    {
+      const cruiser = new THREE.Group();
+      scene.add(cruiser);
+      const shed = createTape(scene, { roots: [cruiser] });
+      shed.record(0);
+      cruiser.visible = false;
+      shed.record(1 / 30, true);
+      shed.apply(0.9 / 30);
+      if (!cruiser.visible) fail.push('a shed node vanished before the sample that sheds it');
+      shed.apply(1 / 30);
+      if (cruiser.visible) fail.push('a shed node survived its own sample');
+      scene.remove(cruiser);
     }
     const wreckage = createWreckage();
     const shell = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());

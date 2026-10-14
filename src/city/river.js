@@ -4,9 +4,12 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import {
   GRID_I, GRID_J, lineX, lineZ, halfRoadZ, riverBanks, riverRow, segmentKey,
-  harborBasin, coastEast, coastWest, isArterialZ, LTRAIN_NS,
+  harborBasin, coastEast, coastWest, coastNorth, isArterialZ, LTRAIN_NS,
 } from './grid.js';
-import { harborPiers, coastZ, seaInset, seaStartX, coastArcStart } from './harborplan.js';
+import {
+  harborPiers, coastZ, seaInset, seaStartX, coastArcStart, southShore, shoreZ, seaRimSouth, southKerbZ,
+  parkShore, seawallX,
+} from './harborplan.js';
 import { SLAB_X, KERB_H, PAVE_INSET, EDGE_FADE, FADE_RINGS } from './ground.js';
 import { patchRiverWater, patchHarborWater, getWaterStyle, SEA_RUN_IN } from './riverwater.js';
 
@@ -402,6 +405,12 @@ const FLAT = Object.freeze({ y: 0, dydz: 0, toCrest: Infinity });
  */
 const BANK_REACH = () => SLAB_X / 2;
 /**
+ * Where the channel stops to the west: the coast, which the high rises past the west ring road have
+ * moved out (`WEST_REACH`, city/westedge.js). The walls and the walk run on through them, so the
+ * river reaches the edge of the world between two banks rather than in an open trench.
+ */
+const channelWest = () => -coastWest();
+/**
  * How far the island reaches on the side of the map `x` is on. The two used to be the same
  * number (`BANK_REACH`); the harbor moved the east coast out, so anything measuring "how far
  * through the mouth is this" asks per side.
@@ -426,7 +435,7 @@ export function createRiver(rng, layout) {
 
   const solid = [];
   const wallCol = jitterColor(PALETTE.riverWall, rng, { l: 0.02 });
-  const bank = BANK_REACH();
+  const bank = channelWest();
 
   const kerbCol = jitterColor(PALETTE.kerb, rng, { l: 0.02 });
   const walkCol = jitterColor(PALETTE.sidewalk, rng, { l: 0.03 });
@@ -496,7 +505,13 @@ export function createRiver(rng, layout) {
     wall: wallCol,
     // Where the channel opens into the harbor, and the basin's walls the sea mirrors.
     sea: harborPiers()
-      ? { x0: channelEast(), z0: harborPiers().basin.z0, z1: harborPiers().basin.z1, xEnd: harborPiers().end }
+      ? {
+        x0: channelEast(),
+        z0: harborPiers().basin.z0,
+        z1: harborPiers().basin.z1,
+        xEnd: harborPiers().end,
+        shore: southShore() ? southKerbZ() : null,
+      }
       : null,
     bridges: bridgeLines().map((i) => {
       const span = bridgeSpan(i);
@@ -561,7 +576,7 @@ function riverMouthFade() {
   const edges = waterEdges();
   for (const [za, zb] of [[banks.z0, edges.z0], [edges.z1, banks.z1]]) {
     for (const side of harborBasin() ? [-1] : [-1, 1]) {
-      const from = side * (SLAB_X / 2);
+      const from = side < 0 ? -channelWest() : SLAB_X / 2;
       for (let ring = 0; ring < FADE_RINGS; ring++) {
         const t0 = ring / FADE_RINGS;
         const t1 = (ring + 1) / FADE_RINGS;
@@ -718,7 +733,7 @@ function waterMesh({ deep, open }, edges) {
   // river a single flat quad; without them the smoothstep would have nowhere to land and the whole
   // 124 units would be one interpolation.
   const bank = BANK_REACH();
-  const ramp = bank - MOUTH_SHOAL;
+  const west = channelWest();
   // Out to the **full** fade band, not a couple of units past the coast. The old strip stopped at
   // a couple of units past the coast and left the skirt fading across a void: nothing under it
   // but sky, so at the tip the fade opened a hole rather than dissolving into haze — luma 211
@@ -726,14 +741,16 @@ function waterMesh({ deep, open }, edges) {
   // own band and the skirt's own curve, and by then it is the skirt's own colour too.
   // With a harbor the channel's east end is the basin's back wall, deep and opaque: the basin's
   // own sheet (`seaMesh`) takes over there and does the shoaling out to the east coast.
-  const xs = [-ramp];
+  // Per side: the west coast has moved out past the east one's old line (`channelWest`).
+  const xs = [-(west - MOUTH_SHOAL)];
   for (const side of harborBasin() ? [-1] : [-1, 1]) {
-    xs.push(side * bank);
+    const reach = side < 0 ? west : bank;
+    xs.push(side * reach);
     for (let ring = 1; ring <= FADE_RINGS; ring++) {
-      xs.push(side * (bank + (EDGE_FADE * ring) / FADE_RINGS));
+      xs.push(side * (reach + (EDGE_FADE * ring) / FADE_RINGS));
     }
   }
-  xs.push(harborBasin() ? channelEast() : ramp);
+  xs.push(harborBasin() ? channelEast() : bank - MOUTH_SHOAL);
   // Into the sea: over the last `SEA_RUN_IN` before the mouth the strip's colour turns into the
   // sea's own, the same stretch over which the shader drops the bed to the sea's depth, so at the
   // join both sheets are one colour. Four columns, so the linear blend follows the smoothstep.
@@ -850,11 +867,23 @@ function seaMesh(tint) {
   // a ramp over the first `UNDERLAP - 2` of that, because a sheet that starts on a line draws the
   // line through the rim — and full by 2 short of the corner, which is 0.17 past it on screen.
   const UNDERLAP = 6;
-  const underlap = (x, z) => smooth((x - (coastArcStart(z > 0 ? 1 : -1) - UNDERLAP)) / (UNDERLAP - 2));
-  const xs = lines(seaStartX() - UNDERLAP, east + EDGE_FADE, [basin.x0, ...[1, -1].flatMap((s) =>
-    [coastArcStart(s), coastArcStart(s) - UNDERLAP]), ...rings.map((r) => east + r)]);
-  const zs = lines(-hd - EDGE_FADE, hd + EDGE_FADE,
-    [banks.z0, banks.z1, ...rings.flatMap((r) => [hd + r, -hd - r])]);
+  //
+  // With the south shore the sea also runs the length of the south end in front of it, west to the
+  // island's edge and fading there on the skirt's band; it reaches `UNDERLAP` back under the land,
+  // which hides it, and needs no ramp, since nowhere along that coast is there a rim to butt against.
+  const south = southShore();
+  // With the park shore the north side is the same: the sea runs on north beside the park.
+  const park = parkShore();
+  const rimN = park ? -coastNorth() : hd;
+  const underlap = (x, z) => ((south && z > 0) || (park && z < 0)
+    ? 1 : smooth((x - (coastArcStart(z > 0 ? 1 : -1) - UNDERLAP)) / (UNDERLAP - 2)));
+  const west = coastWest();
+  const rimS = south ? seaRimSouth() : hd;
+  const xs = lines(south ? west - EDGE_FADE : seaStartX() - UNDERLAP, east + EDGE_FADE, [basin.x0,
+    ...[1, -1].flatMap((s) => [coastArcStart(s), coastArcStart(s) - UNDERLAP]),
+    ...rings.map((r) => east + r), ...(south ? rings.map((r) => west - r) : [])]);
+  const zs = lines(-rimN - EDGE_FADE, rimS + EDGE_FADE,
+    [banks.z0, banks.z1, ...rings.flatMap((r) => [rimS + r, -rimN - r])]);
 
   // **No shoal out here.** The first cut ran the channel's mouth treatment round the whole rim —
   // shelving up to the ground and easing into the asphalt's colour — and it drew a dark mud bank
@@ -879,7 +908,12 @@ function seaMesh(tint) {
       const cz = (zs[j] + zs[j + 1]) / 2;
       if (cx < basin.x0 && cz > banks.z0 && cz < banks.z1) continue;   // the channel's own strip
       const arc = coastArcStart(cz > 0 ? 1 : -1);
-      if (cx < arc - UNDERLAP || (cx < arc && Math.abs(cz) < hd)) continue;   // the island's own coast
+      if (south && cz > 0) {
+        if (cx < arc && cz < shoreZ(cx) - UNDERLAP) continue;   // under the south shore's land
+      } else if (park && cz < 0) {
+        // From a little under the seawall east, the whole way north beside the park.
+        if (cx < seawallX(basin.kerbX, cz) - UNDERLAP) continue;
+      } else if (cx < arc - UNDERLAP || (cx < arc && Math.abs(cz) < hd)) continue;   // the island's own coast
       // Wound to face up, as `waterMesh` is: (x, z) -> (x, z+) -> (x+, z+).
       vertex(xs[i], zs[j]); vertex(xs[i], zs[j + 1]); vertex(xs[i + 1], zs[j + 1]);
       vertex(xs[i], zs[j]); vertex(xs[i + 1], zs[j + 1]); vertex(xs[i + 1], zs[j]);
