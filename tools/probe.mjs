@@ -20367,7 +20367,7 @@ let chopperOrder; // likewise
 // planted island (never in a junction box, where the turns cross), the deck stopping short of the
 // lanes so nothing driving under it can touch it, and the train shuttling on both tracks.
 {
-  const { planLTrain, createLTrain, LTRAIN_DIMENSIONS: L } = await import('../src/game/ltrain.js');
+  const { planLTrain, createLTrain, LTRAIN_DIMENSIONS: L, deckSpans: deckSpansOf } = await import('../src/game/ltrain.js');
   const { medianRuns, halfRoadZ, halfRoadX } = await import('../src/city/grid.js');
   const { LANE_TO_KERB } = await import('../src/city/grid.js');
   // citylights.js: POST_H 4.2 on a KERB_H kerb.
@@ -20385,21 +20385,39 @@ let chopperOrder; // likewise
     const plan = planLTrain();
     if (!plan) continue;
     planned += 1;
-    // Distances along the line: x for an east-west one, -z for a north-south one (`plan.alongOf`).
+    // Judged in the world, footing by footing: on a planted island, out past the ring road's kerb,
+    // or on a park district's lawn where one closed the road (the line turning west stands a bent
+    // there rather than span the corner and the whole closed block at once).
     const ns = plan.axis === 'z';
-    const ringKerb = ns ? HALF_SPAN_Z + halfRoadX(GRID_J) : HALF_SPAN_X + halfRoadZ(GRID_I);
-    const runs = medianRuns().filter((r) => r.axis === plan.axis && r.line === plan.line)
-      .map((r) => (ns ? { from: -r.to, to: -r.from } : r));
-    for (const x of plan.columns) {
-      const onIsland = runs.some((r) => x - L.FOOTING_W / 2 >= r.from && x + L.FOOTING_W / 2 <= r.to);
-      const offshore = Math.abs(x) - L.FOOTING_W / 2 > ringKerb;
-      if (!onIsland && !offshore) offIsland += 1;
+    const half = L.FOOTING_W / 2;
+    const xKerb = HALF_SPAN_X + halfRoadZ(GRID_I);
+    const zKerb = HALF_SPAN_Z + halfRoadX(GRID_J);
+    const islands = medianRuns();
+    for (const a of plan.columns) {
+      const w = plan.world(a);
+      const onIsland = islands.some((r) => w.x - half >= r.x0 - 1e-6 && w.x + half <= r.x1 + 1e-6
+        && w.z - half >= r.z0 - 1e-6 && w.z + half <= r.z1 + 1e-6);
+      const offshore = Math.abs(w.x) - half > xKerb || Math.abs(w.z) - half > zKerb;
+      // On the line of a road a park closed, clear of the junction boxes at either end of it.
+      const gi = (w.x + HALF_SPAN_X) / 20;
+      const gj = (w.z + HALF_SPAN_Z) / 20;
+      const clearOfBox = (g) => Math.abs(g - Math.round(g)) * 20 > HALF_ARTERIAL + half;
+      const onLawn = (Math.abs(gi - Math.round(gi)) < 1e-6 && clearOfBox(gj)
+          && isSegmentClosed(Math.round(gi), Math.floor(gj), DIR.PZ))
+        || (Math.abs(gj - Math.round(gj)) < 1e-6 && clearOfBox(gi)
+          && isSegmentClosed(Math.floor(gi), Math.round(gj), DIR.PX));
+      if (!onIsland && !offshore && !onLawn) offIsland += 1;
     }
     for (let n = 1; n < plan.columns.length; n++) {
       // A park built over the arterial leaves one long span, which is allowed, and so does the
-      // river under a north-south line, which gets a truss; anything else is not.
+      // river under a north-south line, which gets a truss, and the corner of the line that turns
+      // west, which is a curve across a junction; anything else is not.
       const gap = plan.columns[n] - plan.columns[n - 1];
-      const closedHere = runs.length < (ns ? GRID_J - 1 : GRID_I);
+      // Any segment of the line's own arterials closed by a park.
+      const closedHere = (plan.axis !== 'x' && [...Array(GRID_J).keys()].some((k) => isSegmentClosed(plan.line, k, DIR.PZ)))
+        || (plan.axis !== 'z' && [...Array(GRID_I).keys()].some((k) => isSegmentClosed(k, plan.lineX ?? plan.line, DIR.PX)));
+      const corner = !plan.straight(plan.columns[n - 1], plan.columns[n]);
+      if (corner) continue;
       const river = ns && (() => {
         const w0 = plan.world(plan.columns[n - 1]).z;
         const w1 = plan.world(plan.columns[n]).z;
@@ -20417,7 +20435,8 @@ let chopperOrder; // likewise
     // nothing of theirs may reach up into the deck's slot.
     if (HARBOR) {
       const hp = createHarbor(makeRng(seed + s * 53 + 47)).mesh.geometry.attributes.position;
-      for (let t = 0; t < hp.count; t++) {
+      // The line that turns west never comes near it.
+      for (let t = 0; plan.c !== null && t < hp.count; t++) {
         const across = ns ? hp.getX(t) : hp.getZ(t);
         if (Math.abs(across - plan.c) < L.DECK_HALF_W + 0.3 && hp.getY(t) > L.CAP_UNDERSIDE - 0.3) {
           harborClash += 1;
@@ -20430,6 +20449,74 @@ let chopperOrder; // likewise
   if (planLTrain().axis === 'z') {
     check('ltrain: the line crosses the river once, on a truss, over a fixed bridge and never the drawbridge',
       riverSpans === 20 && drawUnder === 0, `${riverSpans}/20 river spans, ${drawUnder} under a leaf or with no bridge`);
+  }
+  // The corner (the line turning west, the default): the line comes down the north-south arterial,
+  // turns at the east-west one and runs out west past the west coast, and never goes south of the
+  // turn or near the river. Round the curve every car's corners stay on the deck, and the curve's
+  // swept members are wound outward — the corner span is all sweeps and ties, so its signed volume
+  // goes negative if they come out inside out (CLAUDE.md: the roadworks ramp, the bridge deck), and
+  // every railhead triangle there must face up.
+  if (planLTrain().route === 'west') {
+    const { LTRAIN_DIMENSIONS: LD } = await import('../src/game/ltrain.js');
+    let wrongWay = 0;
+    let offDeck = 0;
+    let worst = 0;
+    for (let s = 0; s < 20; s++) {
+      createLayout(makeRng(seed + s * 53));
+      const plan = planLTrain();
+      const { x: cx, z: cz, r } = plan.corner;
+      const west = plan.world(plan.from);
+      const north = plan.world(plan.to);
+      const southmost = Math.max(...plan.columns.map((a) => plan.world(a).z));
+      if (west.x > coastWest() || Math.abs(west.z - cz) > 1e-6 || north.z > coastNorth()
+        || Math.abs(north.x - cx) > 1e-6 || southmost > cz + 1e-6 || r < 10) wrongWay += 1;
+      // Each car as placed by its trucks, at a fine step through the curve.
+      for (let a = -r * Math.PI / 4 - 6; a <= r * Math.PI / 4 + 6; a += 0.1) {
+        const p0 = plan.world(a - (LD.CAR_LEN / 2 - 0.9));
+        const p1 = plan.world(a + (LD.CAR_LEN / 2 - 0.9));
+        const hx = (p1.x - p0.x) / Math.hypot(p1.x - p0.x, p1.z - p0.z);
+        const hz = (p1.z - p0.z) / Math.hypot(p1.x - p0.x, p1.z - p0.z);
+        const mx = (p0.x + p1.x) / 2;
+        const mz = (p0.z + p1.z) / 2;
+        for (const e of [-1, 1]) {
+          for (const o of [-1, 1]) {
+            const x = mx + hx * e * LD.CAR_LEN / 2 - hz * o * LD.CAR_W / 2;
+            const z = mz + hz * e * LD.CAR_LEN / 2 + hx * o * LD.CAR_W / 2;
+            const d = plan.nearest(x, z).d;
+            worst = Math.max(worst, d);
+            if (d > LD.DECK_HALF_W) offDeck += 1;
+          }
+        }
+      }
+    }
+    createLayout(makeRng(seed));
+    const lt = createLTrain(new THREE.Scene(), makeRng(9), { intro: false });
+    const arc = lt.plan.segs.find((sg) => sg.kind === 'arc');
+    const k = deckSpansOf(lt.plan).findIndex((sp) => sp.from <= arc.a0 + 1e-6 && sp.to >= arc.a1 - 1e-6);
+    const pos = lt.deck.geometry.attributes.position;
+    const spanAt = lt.deck.geometry.attributes.span;
+    let volume = 0;
+    let railTops = 0;
+    let railDown = 0;
+    const railTop = LD.RAIL_TOP;
+    const v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    for (let t = 0; t < pos.count; t += 3) {
+      if (spanAt.getX(t) !== k) continue;
+      for (let q = 0; q < 3; q++) v[q].fromBufferAttribute(pos, t + q);
+      volume += v[0].dot(v[1].clone().cross(v[2])) / 6;
+      if (v.every((p) => Math.abs(p.y - railTop) < 1e-4)) {
+        railTops += 1;
+        const ny = v[1].clone().sub(v[0]).cross(v[2].clone().sub(v[0])).y;
+        if (ny <= 0) railDown += 1;
+      }
+    }
+    check('ltrain: the line turns west at the east-west arterial and runs off the west coast, never south of it',
+      wrongWay === 0, `${wrongWay} of 20 cities wrong`);
+    check('ltrain: round the corner every car stays on the deck',
+      offDeck === 0, `worst corner ${worst.toFixed(2)} off the line against ${LD.DECK_HALF_W}`);
+    check('ltrain: the corner span is wound outward, railheads facing up',
+      k >= 0 && volume > 0 && railTops > 20 && railDown === 0,
+      `span ${k}, volume ${volume.toFixed(2)}, ${railDown}/${railTops} railhead triangles facing down`);
   }
   check('ltrain: every column stands on a planted island or out past the ring road',
     offIsland === 0, `${offIsland} in a junction or a lane`);
@@ -20481,9 +20568,8 @@ let chopperOrder; // likewise
     const offRail = bursts.filter((b) => Math.abs(b.y - L.RAIL_TOP) > 0.2 || b.opts.floor !== 0).length;
     // The harbor pushes the east coast out, and the line runs over it (`coastEast + coastWest` is
     // its reach, 0 without one).
-    const offIsland = bursts.filter((b) => (lts.plan.axis === 'z'
-      ? b.z > HALF_SPAN_Z + 20 || b.z < Math.min(-(HALF_SPAN_Z + 20), coastNorth())
-      : b.x < -(HALF_SPAN_X + 20) || b.x > HALF_SPAN_X + 20 + coastEast() + coastWest())).length;
+    const offIsland = bursts.filter((b) => b.x < coastWest() || b.x > coastEast()
+      || b.z < coastNorth() || b.z > HALF_SPAN_Z + 20).length;
     const perCrossing = bursts.length / 3 / Math.max(1, crossings);
     check('ltrain: the wheels spark a few times a crossing, off the rail, over the island',
       perCrossing >= 1.5 && perCrossing <= 8 && offRail === 0 && offIsland === 0,
@@ -20508,6 +20594,10 @@ let chopperOrder; // likewise
     for (let n = 0; n < 60 * 120; n++) {
       ltl.update(1 / 60);
       if (ltl.state.phase !== 'run') continue;
+      // Round the corner the end car is a chord across the curve, so its face is not exactly half
+      // a train along the line from the middle; judged on the straights.
+      const arc = ltl.plan.segs.find((sg) => sg.kind === 'arc');
+      if (arc && ltl.state.x + L.TRAIN_LEN / 2 > arc.a0 - 1 && ltl.state.x - L.TRAIN_LEN / 2 < arc.a1 + 1) continue;
       ltl.group.updateMatrixWorld(true);
       // Along the line, whichever way it runs (x, or -z for a north-south one).
       const along = (v) => ltl.plan.alongOf(v.x, v.z);
