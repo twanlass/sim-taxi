@@ -369,6 +369,11 @@ in front of it to the island's edge and fades on the skirt's band out past `seaR
 the west end the lawn, band and walkway carry on over that band and dissolve with it
 (`westFade`).
 
+**A hot dog cart** stands on the lawn beside the walkway, on the road side, at the point where the
+path has swung furthest toward the water and left the most room (`placeCart`, no draw, so it is
+the same spot every run of a city). Steel box, red skirt, red and mustard umbrella, scaled 1.3 so
+it reads at play zoom. Tyler, 2026-10-14: "let's place a hot dog cart along the way".
+
 **The trees are kept small and down by the water** (8 off the kerb, 3.3–4.4 tall). Everything
 here is down-screen of the ring road, and the sightline climbs 0.92 per unit, so a crown that tall
 hides about 5 units of ground behind it: lawn, never the road or a rider.

@@ -1073,6 +1073,14 @@ export const PALETTE = {
   // is the same painted metal every other piece of street furniture in the city stands on.
   benchSlat: '#A2733F',
 
+  // The hot dog cart on the south shore's walkway (city/southshore.js). Brushed steel for the box
+  // so it reads as a cart and not as a bin, a red skirt band, and the umbrella in red and mustard
+  // segments, the one loud thing on a strip that is otherwise lawn, path and rock.
+  cartSteel: '#C9CDD0',
+  cartTrim: '#B8352B',
+  cartUmbrellaRed: '#D44A3A',
+  cartUmbrellaMustard: '#E8B63A',
+
   // The statue. Pale limestone for the figure and a greyer stone under it, and the split matters
   // more than either colour: the figure is the thing to see from across the map, so it takes the
   // lightest value in the park — 20 points above the plinth, which is itself darker than the

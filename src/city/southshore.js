@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial } from '../util/geo.js';
+import { bakeColor, bakeColors, propMaterial } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
 import { GRID_I, lineX, halfRoadZ, isArterialZ, LTRAIN_NS, coastWest } from './grid.js';
 import { KERB_H, PAVE_INSET, SLAB_RADIUS, EDGE_FADE, FADE_RINGS } from './ground.js';
@@ -50,6 +50,16 @@ const ROCK_BANK = [0.75, 1.3];
 const ROCK_APRON = [0.4, 0.8];
 const ROCK_PITCH = 1.2;
 const WALL_FOOT = 0.6;
+// The hot dog cart (Tyler, 2026-10-14: "let's place a hot dog cart along the way"). It stands on
+// the lawn beside the walkway, on the road side, where the path has swung furthest toward the water
+// and left the most room, and out of the first and last stretches so it is not at the corner or in
+// the fade. Sized off the taxi: the drawn taxi is ~4 long, the cart about half that with its handle.
+const CART_FROM_PATH = 1.2;       // its centre off the path's edge
+// Built at street-furniture size and then grown: at 1 it was ~15px long at play zoom, a speck with
+// an umbrella on it.
+const CART_SCALE = 1.3;
+const CART_KEEP_OUT = 2.4;        // what a tree keeps clear of it
+const CART_END_MARGIN = 20;       // off each end of the walkway
 
 // Heights, named off each other (CLAUDE.md: two flat surfaces at one height shimmer).
 const LAWN_Y = KERB_H + 0.01;      // lawn and pavement band, side by side
@@ -210,8 +220,12 @@ export function createSouthShore(rng) {
     }
   }
 
-  // --- A few trees, by the water, clear of the walkway and the L's columns.
+  // --- The hot dog cart, beside the walkway.
   const rail = railX();
+  const cart = placeCart(path, kerbZ, rail);
+  if (cart) parts.push(...hotDogCart(cart));
+
+  // --- A few trees, by the water, clear of the walkway, the cart and the L's columns.
   const pathDistance = (x, z) => {
     let best = Infinity;
     for (let k = 1; k < path.length; k++) best = Math.min(best, segDistance(x, z, path[k - 1], path[k]));
@@ -229,6 +243,7 @@ export function createSouthShore(rng) {
     if (hi <= lo || roll < 0.2) continue;
     if (rail !== null && Math.abs(tx - rail) < TREE_CLEAR_RAIL) continue;
     if (pathDistance(tx, tz) < TREE_CLEAR_PATH) continue;
+    if (cart && Math.hypot(tx - cart.x, tz - cart.z) < CART_KEEP_OUT) continue;
     parts.push(...treeParts(tx, tz, rng, { low: TREE_HEIGHT[0], high: TREE_HEIGHT[1], crowns }));
   }
 
@@ -238,7 +253,83 @@ export function createSouthShore(rng) {
   mesh.receiveShadow = true;
   mesh.name = 'south-shore';
 
-  return { mesh, fade: westFade(kerbZ, x0, joinX, { lawnCol, walkCol, pathCol }), crowns };
+  return { mesh, fade: westFade(kerbZ, x0, joinX, { lawnCol, walkCol, pathCol }), crowns, cart };
+}
+
+/**
+ * Where the cart stands: on the walkway's road side at the point where that side has the most lawn,
+ * turned to face the path. No draw, so it is the same spot for a given city and moving it reshuffles
+ * nothing. Null if no stretch has the room.
+ */
+function placeCart(path, kerbZ, rail) {
+  let best = null;
+  for (let k = 1; k < path.length - 1; k++) {
+    const p = path[k];
+    if (p.x < path[0].x + CART_END_MARGIN || p.x > path[path.length - 1].x - CART_END_MARGIN) continue;
+    if (rail !== null && Math.abs(p.x - rail) < TREE_CLEAR_RAIL) continue;
+    const room = p.z - PATH_W / 2 - (kerbZ + WALK);
+    if (!best || room > best.room) best = { k, room };
+  }
+  if (!best || best.room < 2.4) return null;
+  const p = path[best.k];
+  const q = path[best.k + 1];
+  const o = path[best.k - 1];
+  // The path's direction there, and the normal toward the kerb (-z side).
+  const len = Math.hypot(q.x - o.x, q.z - o.z);
+  const tx = (q.x - o.x) / len;
+  const tz = (q.z - o.z) / len;
+  const nx = tz;
+  const nz = -tx;
+  const off = PATH_W / 2 + CART_FROM_PATH;
+  // Its serving side faces the path; yaw turns the cart's local +z (that side) onto -n.
+  return { x: p.x + nx * off, z: p.z + nz * off, yaw: Math.atan2(-nx, -nz) };
+}
+
+/** The cart in its own frame (serving side +z, standing on the lawn at y 0), then placed. */
+function hotDogCart({ x, z, yaw }) {
+  const parts = [];
+  const box = (w, h, d, px, py, pz, colour) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    g.translate(px, py, pz);
+    parts.push(bakeColor(g, colour));
+  };
+  const steel = PALETTE.cartSteel;
+  // Two wheels at one end and a leg at the other, the way a street cart parks.
+  for (const s of [-1, 1]) {
+    const w = new THREE.CylinderGeometry(0.24, 0.24, 0.1, 10);
+    w.rotateX(Math.PI / 2);
+    w.translate(-0.45, 0.24, s * 0.4);
+    parts.push(bakeColor(w, PALETTE.wheelWell));
+  }
+  box(0.1, 0.32, 0.1, 0.55, 0.16, 0, PALETTE.pole);
+  // The box: a red skirt band low down, steel above it, and a darker counter top.
+  box(1.5, 0.22, 0.78, 0, 0.42, 0, PALETTE.cartTrim);
+  box(1.5, 0.48, 0.78, 0, 0.77, 0, steel);
+  box(1.56, 0.06, 0.84, 0, 1.04, 0, PALETTE.pole);
+  // The handle off the wheel end, and the umbrella's pole from the middle of the box.
+  box(0.36, 0.06, 0.06, -0.93, 0.92, 0.28, PALETTE.pole);
+  box(0.36, 0.06, 0.06, -0.93, 0.92, -0.28, PALETTE.pole);
+  box(0.06, 0.06, 0.62, -1.1, 0.92, 0, PALETTE.pole);
+  box(0.06, 1.05, 0.06, 0.1, 1.55, 0, PALETTE.pole);
+  // The umbrella: an eight-sided cone in alternating segments, wide enough to shade the whole cart.
+  const cone = new THREE.ConeGeometry(1.15, 0.42, 8, 1, true).toNonIndexed();
+  cone.translate(0.1, 2.24, 0);
+  const red = new THREE.Color(PALETTE.cartUmbrellaRed);
+  const mustard = new THREE.Color(PALETTE.cartUmbrellaMustard);
+  const n = cone.attributes.position.count;
+  const colours = new Float32Array(n * 3);
+  for (let v = 0; v < n; v++) {
+    // One triangle per segment: with a point at the top, three skips the torso's other one.
+    const c = Math.floor(v / 3) % 2 === 0 ? red : mustard;
+    colours.set([c.r, c.g, c.b], v * 3);
+  }
+  parts.push(bakeColors(cone, colours));
+  for (const g of parts) {
+    g.scale(CART_SCALE, CART_SCALE, CART_SCALE);
+    g.rotateY(yaw);
+    g.translate(x, LAWN_Y, z);
+  }
+  return parts;
 }
 
 /** A strip `w` wide down a polyline, lying flat at y. */
