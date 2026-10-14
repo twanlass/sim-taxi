@@ -1595,12 +1595,11 @@ Rear-ending a car at boost cruise closes at ~10.5 u/s and costs 24; T-boning cro
 cruise closes at ~21 and costs 37; anything in the overdrive band costs 49–55. So a sloppy tailgate
 is forgiven about four times and a red run flat out about twice.
 
-**Except a police car, which is always the wreck.** A charged hit on anything with `police` set
-empties the taxi's HP on the spot (`lethalPolice` in `createCollisions`), so it plays out as
-[the wreck](#the-wreck) — fireball, crash cam, ejection over `EJECT_CLOSING` — from full health.
-Only the charged path: a cop touching a taxi that is off the pill is still the patrol's arrest
-(`game/patrol.js`). `?cop=classic` prices a cop like any other car, where ramming the patrol is a
-bump that buys `RAMMED_GRACE`.
+**A police car is priced like any other.** That includes a cop ramming the taxi: under the
+[capture model](gameplay.md#getting-caught) a chasing cop that hits a taxi still doing over
+`PIN_SPEED` is charged through the same path (`strike` in `createCollisions`), off the pill or on.
+Under `?capture=classic` a charged hit on anything with `police` set empties the taxi's HP on the
+spot (`lethalPolice`, #466) — the wreck from full health — unless `?cop=classic` is set too.
 
 **The taxi rams — when it cannot pass.** A boosting taxi with `hp` that has no way round the car in
 front stops following it: no `BOOST_GAP`, no moving-leader cap, in lanes or junctions (`rams()` in
@@ -3197,10 +3196,13 @@ cue that stays put when the cop drops round a corner. Its own 60 × 44 WebGL con
 lights (an icon has to read at night), drawing only while it is on screen. `?chasesiren=classic`
 goes without.
 
-**Caught** is a touch. Any contact of the cop's making — rammed from behind, sideswiped on a pass —
-is the arrest, and so is any contact at all off the pill (`touching` in
-`sim/collisions.js`, with `TOUCH_SLACK` of 0.15 because off boost contact is resolved by shoving the
-struck car out to the envelope before anything later in the frame can read it). To make that the
+**Caught** is a pin ([getting caught](gameplay.md#getting-caught)): the cop touching the taxi
+while it is doing under `PIN_SPEED` (3 u/s) for `PIN_HOLD` (0.75s), the clock running back down when
+it is free (`createPin` in `game/patrol.js`; `touching` in `sim/collisions.js`, with `TOUCH_SLACK`
+of 0.15 because off boost contact is resolved by shoving the struck car out to the envelope before
+anything later in the frame can read it). A touch at speed is a **ram**: a hit like any other car's
+(`onRammed` → `strike`), after which the cop holds off for `RAM_BACKOFF` (1.5s). Under
+`?capture=classic` any touch is the arrest, at any speed. To make contact the
 thing a chase is about, a chasing patrol sets `car.ram` and follows the taxi at `RAM_GAP` (3.9
 centre to centre, 0.3 inside the envelope) instead of the ordinary following gap: a cop that queued
 a car length back could only ever catch a taxi that reversed into it. It used to be a meter — within
@@ -3222,7 +3224,8 @@ arrests nor rams. Without it the bump was a bust one frame later: a boost within
 a patrolling cop on the very frame of the hit, the chase arms the touch, and the two cars are still
 in contact. Who hit whom is read off the contact normal before either speed is touched
 (`taxiStruck` on the bump event: the taxi brought more of the closing speed along it than the cop
-did), so a cop ramming a boosting taxi is still the arrest. The last bump is still the wreck.
+did), so under `?capture=classic` a cop ramming a boosting taxi is still the arrest; by default it
+is the same bump, and buys the same grace. The last bump is still the wreck.
 
 **Lost** is the gap between the two cars holding past `ESCAPE_BLOCKS` (2.5 blocks, 50 units) for
 `ESCAPE_HOLD` (1.5s) — a little inside the robbery's `LOST_RANGE`, which is "out of the picture" on

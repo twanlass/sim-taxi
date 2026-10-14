@@ -144,7 +144,9 @@ import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getA
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
-import { createPatrol, ESCAPE_HOLD, SIGHT_HOLD } from './game/patrol.js';
+import {
+  createPatrol, createPin, holdArrest, ramOf, ESCAPE_HOLD, SIGHT_HOLD,
+} from './game/patrol.js';
 import { createCopShout } from './game/copshout.js';
 import { createRobberLine, ROBBER_LINES } from './game/robberline.js';
 import { createBankJob } from './game/bankjob.js';
@@ -1169,6 +1171,12 @@ const getaway = () => Boolean(robbery?.state.active);
  * game/tutorial.js.
  */
 const hushTips = () => getaway() || patrol.busy();
+// How the police end a run (game/patrol.js, "The capture model"): a hit on a cop is a hit on a car,
+// and "Busted!" is being pinned — stopped with a chasing cop's bumper on you — by the patrol or by a
+// getaway's fleet alike. `?capture=classic` keeps the three rules it replaced: any patrol touch is
+// the bust, a boosted hit on any cop is the wreck, and a getaway's cops never arrest anybody.
+const captureClassic = new URLSearchParams(window.location.search).get('capture') === 'classic';
+const getawayPin = createPin(traffic.taxi);
 const patrol = createPatrol({
   rng: makeRng(runSeed + 66),
   police,
@@ -1183,6 +1191,9 @@ const patrol = createPatrol({
     sfx?.play('chirp', { at: placeAt(cop.x, cop.z) });
   },
   onCaught: (cop, ram) => bustByPolice(ram),
+  capture: !captureClassic,
+  // A ram at speed is a hit like any other, charged through the same path a boosted one is.
+  onRammed: (cop) => { collisions.strike(cop); },
   // Said by the cruiser that lost you, from over its own roof — `?copchat=classic` only.
   onLost: (cop) => { if (copChat && !fares.state.gameOver) radio?.show(LOST_CALL, cop); },
   onHid: (cop) => { if (copChat && !fares.state.gameOver) radio?.show(LOST_CALL, cop); },
@@ -2025,10 +2036,11 @@ const TAXI_KEEP = 0.8;          // and the taxi this much less, for having hit s
 const SHELL_SPIN = 0.6;
 const STRUCK_SPIN = 1.9;
 
-// Ramming a police car is the wreck, whatever the taxi's HP (`lethalPolice` in sim/collisions.js).
-// `?cop=classic` keeps the old rule: a cop is priced like any other car.
+// A police car is priced like any other car (the capture model, above). Under `?capture=classic`,
+// ramming one is the wreck whatever the taxi's HP (`lethalPolice` in sim/collisions.js, #466) —
+// unless `?cop=classic` as well, which was the rule before that.
 const collisions = createCollisions(traffic.cars, traffic.taxi, {
-  lethalPolice: new URLSearchParams(window.location.search).get('cop') !== 'classic',
+  lethalPolice: captureClassic && new URLSearchParams(window.location.search).get('cop') !== 'classic',
 });
 
 // Hit points. Arming `hp` is what turns every contact but the last into a bump rather than the
@@ -2072,8 +2084,10 @@ collisions.onBump(({ x, z, closing, nx, nz, speed, rearEnd, other, taxiStruck, d
   hitCue?.hit({ damage, hp, taxi });
   const yaw = traffic.taxi.yaw;
   // Ramming the patrol car on the pill is a bump like any other, not a bust — game/patrol.js
-  // `rammed`. The collision pass runs before the patrol's, so this lands the same frame.
-  if (taxiStruck && other.police) patrol.rammed(other);
+  // `rammed`. The collision pass runs before the patrol's, so this lands the same frame. Under the
+  // capture model the cop ramming a boosting taxi is the same hit, already charged here, so the
+  // patrol is told either way — or it would charge the same contact a second time as its own ram.
+  if (other.police && (taxiStruck || !captureClassic)) patrol.rammed(other);
   // Every bump costs HP, and any HP lost empties the combo meter (game/combometer.js). When it was
   // showing a streak, the hand is told it has gone as the meter falls.
   if (combo.damage()) {
@@ -5441,6 +5455,20 @@ function tick() {
   // fifth blue car that punishes the thing the event asks for. Reported from a real run before the
   // rule existed: "I got busted by the actual cop car; none of the other police actually moved."
   patrol.update(dt, { boosting: boost.isEngaged() && !fares.state.gameOver });
+  // The getaway's cops can arrest too, under the capture model: the same pin the patrol's catch is.
+  // Only once the alarm is up — the robber climbing in at the bank is a taxi stopped among nobody's
+  // police yet — and never the arrest crew at the drop-off, whose cars belong to their scene.
+  if (!captureClassic && getaway() && robbery.state.alarmed && !fares.state.gameOver) {
+    const cop = getawayPin.update(dt, traffic.policeCars.filter((c) => !c.patrol && !c.arrest && !c.staged));
+    if (cop) {
+      const ram = ramOf(cop, traffic.taxi);
+      holdArrest(cop);
+      getawayPin.reset();
+      bustByPolice(ram);
+    }
+  } else {
+    getawayPin.reset();
+  }
   // The cruiser's mesh and lamps, after the traffic car it wears has moved and after the patrol
   // has decided whether its bar is on.
   police.update(dt);
