@@ -58,7 +58,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -18070,11 +18070,15 @@ let chopperOrder; // likewise
       if (setup()) {
         taxi.braking = true;
         let low = Infinity;
+        let flew = false;
         for (let k = 0; k < 60 && !(taxi.state === 'drive' && taxi.lane.id === out.id); k++) {
           dTraffic.update(1 / 60);
           low = Math.min(low, taxi.v);
+          flew ||= taxi.hopFrom != null;
         }
-        braked = Math.max(braked, low);
+        // An approach over an arched span hops off the crest, and the brake is deaf in the air
+        // (HOP_MIN_V in sim/traffic.js) — that corner says nothing about the pedal on the road.
+        if (!flew) braked = Math.max(braked, low);
         taxi.braking = false;
       }
     }
@@ -19370,6 +19374,53 @@ let chopperOrder; // likewise
       `${boosted?.launches} launches over one span`);
     check('a taxi at cruise drives over it', cruised && cruised.launches === 0,
       `${cruised?.launches} launches without boost`);
+
+    // **A hop always comes down.** Boosting onto the hump with the brake held from the first
+    // frame stopped the taxi 3.5 units over the crest, where it hung for as long as the pedal was
+    // down — 121 frames in the measurement this was written against. And one braking onto it
+    // below cruise does not take off at all.
+    const stall = (style, v, brake) => {
+      setHopStyle(style);
+      const sScene = new THREE.Scene();
+      const sTraffic = createTraffic(makeRng(seed + 851), sScene, 1);
+      const taxi = sTraffic.taxi;
+      const lane = net.laneByGrid(1, jSpan.line, jSpan.row + 1);
+      // Already inside the launch window, which opens HOP_LEN / 2 short of the crest: the launch
+      // is decided on the first frame, before the brake has taken anything off.
+      // The deck lane runs bank to bank, so its middle is the crest.
+      placeCar(taxi, 1, jSpan.line, jSpan.row + 1, lane.length / 2 + HOP_LEN / 2 - 0.2);
+      taxi.parked = false;
+      taxi.route = [1, 1, 1];
+      taxi.routeConsumed = false;
+      taxi.v = v;
+      // Already in Loco Mode, slowed by the pedal: the press's own surge (`loco.kick`) is spent.
+      taxi.wasBoosting = true;
+      let air = 0;
+      let launches = 0;
+      let wasAir = false;
+      for (let f = 0; f < 60 * 3; f++) {
+        taxi.boost = true;
+        taxi.braking = brake;
+        sTraffic.update(1 / 60);
+        const up = taxi.hopFrom != null;
+        if (up) air += 1;
+        if (up && !wasAir) launches += 1;
+        wasAir = up;
+      }
+      sTraffic.dispose?.();
+      setHopStyle();
+      return { air, launches, lane: !!lane };
+    };
+    const braked = stall(undefined, SPEED * 1.3, true);
+    const brakedClassic = stall('classic', SPEED * 1.3, true);
+    const crawled = stall(undefined, HOP_MIN_V * 0.5, true);
+    const crawledClassic = stall('classic', HOP_MIN_V * 0.5, true);
+    check('braking over the hump does not park the taxi in mid-air',
+      braked.launches === 1 && braked.air < 60 && brakedClassic.air > 100,
+      `${braked.launches} launch, ${braked.air} frames of air (classic: ${brakedClassic.air})`);
+    check('and a taxi crawling onto the hump does not take off',
+      crawled.launches === 0 && crawledClassic.launches === 1,
+      `${crawled.launches} launches at ${(HOP_MIN_V * 0.5).toFixed(1)} u/s (classic: ${crawledClassic.launches})`);
   }
 
   // --- The lift, and the two things it must never do.
