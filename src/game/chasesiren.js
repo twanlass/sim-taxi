@@ -33,26 +33,28 @@ import { unlitMaterial } from '../util/geo.js';
 // ## The flash
 //
 // A beacon is a lamp with a reflector turning round it, and what you see from any one place is a
-// flash once a turn as the reflector's mouth swings past you. That is what this does, literally: the
-// reflector is a half-cylinder turning inside a translucent lens, and the lens's glow and the rays
-// either side of it are driven off how squarely that mouth faces the camera. So the light is never
-// out of step with the thing making it.
+// flash once a turn as the reflector's mouth swings past you. The lens is solid (Tyler, 2026-10-14;
+// the first cut was translucent with a real reflector turning inside), so the turning light is
+// painted onto it by its own shader instead: a hot spot sweeps round the lens at the reflector's yaw,
+// with faceted lighting and a gloss highlight so it still reads as moulded plastic. The whole-lens
+// flash and the rays either side are driven off how squarely that hot spot faces the camera, so the
+// light is never out of step with the thing making it.
 //
 // ## Losing them
 //
 // A patrol chase ends lost once the gap has held past ESCAPE_HOLD or the cop has gone SIGHT_HOLD
 // without seeing the taxi (game/patrol.js). Both are counted up as they happen, so the siren reads the
-// larger of the two fractions as `losing` and **cools** with it: the reflector slows to a third of its
+// larger of the two fractions as `losing` and **cools** with it: the hot spot slows to a third of its
 // pace, the flash dims, and the lamp fades toward half. A siren winding down is the player watching
 // the escape work. If the cop finds them again the counts fall back and it winds up again. When the
 // chase is finally lost it spins down and fades out over COOL_MS; a chase that ends in the cuffs just
 // pops away, since the arrest has its own beat and nothing was escaped.
 
 /** Canvas size in CSS px. Wider than tall: the rays reach out to either side of the lens. */
-const W = 72;
-const H = 52;
+const W = 60;
+const H = 44;
 
-/** One turn of the reflector, in ms. A real rotator is ~2–3 turns a second; this is a touch slower so the flash reads as a pulse at 50px rather than a flicker. */
+/** One turn of the hot spot, in ms. A real rotator is ~2–3 turns a second; this is a touch slower so the flash reads as a pulse at 50px rather than a flicker. */
 const TURN_MS = 720;
 
 /** Exit lengths — must match the `#chase-siren` transitions in index.html, since this keeps drawing until they end. */
@@ -88,6 +90,71 @@ const HALF_W = 1.18;
 const HALF_H = HALF_W * (H / W);
 const CENTRE_Y = 0.48;
 
+/** The key light's direction in world space, shared by the meshes' Lambert and the lens shader. */
+const KEY_DIR = new THREE.Vector3(-2, 4, 3).normalize();
+
+/**
+ * The lens's shader. Faceted like the rest of the city (the normal comes from screen-space
+ * derivatives of the view position, the way three's flatShading does it, so each of the eight sides
+ * lights as one flat face), lit by the same key as the base, and carrying the beacon:
+ *
+ *   - a hot spot centred on the angle uYaw round the lens's own axis, tight (cos^8) for the core and
+ *     broad (cos^2) for the red around it, so it reads as light inside the plastic sweeping round;
+ *   - uFlash, the whole lens lifting as that spot faces the camera;
+ *   - a gloss highlight and a thin rim off the key, which is most of what says "moulded plastic".
+ *
+ * Its own lights, not three's, so it compiles no light uniforms and needs no lights in the scene.
+ * No backticks in the GLSL below (CLAUDE.md: one ends the template literal).
+ */
+function lensMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(PALETTE.lightRed) },
+      uHot: { value: new THREE.Color(PALETTE.chaseSirenLamp) },
+      uLight: { value: new THREE.Vector3(0, 0, 1) },
+      uYaw: { value: 0 },
+      uFlash: { value: 0 },
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vLocal;
+      varying vec3 vViewPosition;
+      void main() {
+        vLocal = position;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vViewPosition = -mv.xyz;
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      uniform vec3 uHot;
+      uniform vec3 uLight;
+      uniform float uYaw;
+      uniform float uFlash;
+      varying vec3 vLocal;
+      varying vec3 vViewPosition;
+      void main() {
+        vec3 n = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));
+        float ndl = max(dot(n, uLight), 0.0);
+        // Where this fragment sits round the lens, against where the light inside is pointing.
+        float d = max(cos(atan(vLocal.x, vLocal.z) - uYaw), 0.0);
+        float core = pow(d, 8.0);
+        float spill = d * d;
+        vec3 c = uColor * (0.38 + 0.62 * ndl);
+        c += uColor * spill * 0.45;
+        c = mix(c, uHot, core * 0.8);
+        c += uColor * uFlash * 0.5;
+        // Gloss off the key (view direction is +Z in view space under this ortho camera), and a rim.
+        vec3 h = normalize(uLight + vec3(0.0, 0.0, 1.0));
+        c += vec3(pow(max(dot(n, h), 0.0), 20.0) * 0.45);
+        c += vec3(pow(1.0 - max(n.z, 0.0), 3.0) * 0.18);
+        gl_FragColor = vec4(c, 1.0);
+        #include <colorspace_fragment>
+      }
+    `,
+  });
+}
+
 function buildSiren() {
   const group = new THREE.Group();
   const flat = (hex) => new THREE.MeshLambertMaterial({ color: hex, flatShading: true });
@@ -101,32 +168,12 @@ function buildSiren() {
   lip.position.y = BASE_H + LIP_H / 2;
   group.add(base, lip);
 
-  // The turning part: a lamp and a half-cylinder reflector behind it. The reflector covers theta
-  // π/2 → 3π/2, which in three's cylinder is the −Z half — so at yaw 0 its mouth faces +Z, the camera.
-  const rotor = new THREE.Group();
-  rotor.position.y = DOME_Y;
-  const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.42, 6),
-    unlitMaterial({ color: PALETTE.chaseSirenLamp }));
-  lamp.position.y = 0.3;
-  const reflector = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.3, 0.3, 0.5, 8, 1, true, Math.PI / 2, Math.PI),
-    new THREE.MeshLambertMaterial({ color: PALETTE.chaseSirenLip, side: THREE.DoubleSide, flatShading: true }));
-  reflector.position.y = 0.3;
-  rotor.add(lamp, reflector);
-  group.add(rotor);
-
-  // The lens: an eight-sided drum with a chamfered lid, translucent enough that the rotor shows
-  // through it. Emissive carries the flash.
-  const domeMat = new THREE.MeshLambertMaterial({
-    color: PALETTE.lightRed, emissive: PALETTE.lightRed, emissiveIntensity: 0.2,
-    transparent: true, opacity: 0.68, flatShading: true, depthWrite: false,
-  });
+  // The lens: an eight-sided drum with a chamfered lid, solid, wearing the beacon shader below.
+  const domeMat = lensMaterial();
   const dome = new THREE.Mesh(new THREE.CylinderGeometry(LENS_R, LENS_R, LENS_H, 8), domeMat);
   dome.position.y = DOME_Y + LENS_H / 2;
-  dome.renderOrder = 1;
   const lid = new THREE.Mesh(new THREE.CylinderGeometry(LENS_R - CHAMFER, LENS_R, CHAMFER, 8), domeMat);
   lid.position.y = DOME_Y + LENS_H + CHAMFER / 2;
-  lid.renderOrder = 1;
   group.add(dome, lid);
 
   // The emoji's rays, three a side, standing in the screen plane (the group is turned to face the
@@ -156,7 +203,7 @@ function buildSiren() {
   }
   group.add(rays);
 
-  return { group, rotor, domeMat, rays, rayMat, rayList };
+  return { group, domeMat, rays, rayMat, rayList };
 }
 
 export function createChaseSiren() {
@@ -177,7 +224,7 @@ export function createChaseSiren() {
   const scene = new THREE.Scene();
   // A key from the upper left and a cool fill, fixed — see "Its own lights" above.
   const key = new THREE.DirectionalLight(0xffffff, 2.2);
-  key.position.set(-2, 4, 3);
+  key.position.copy(KEY_DIR);
   scene.add(key, new THREE.HemisphereLight(0xdfeeff, 0x3a3f48, 1.4));
 
   const siren = buildSiren();
@@ -189,6 +236,9 @@ export function createChaseSiren() {
   // Rays in the screen plane: face them along the view axis. lookAt on an Object3D points its +Z at
   // the target, which is the plane's front.
   siren.rays.lookAt(camera.position.x, RAY_Y + (camera.position.y - CENTRE_Y), camera.position.z);
+  // The lens shader lights in view space; the camera never moves, so the key is turned into it once.
+  camera.updateMatrixWorld();
+  siren.domeMat.uniforms.uLight.value.copy(KEY_DIR).transformDirection(camera.matrixWorldInverse);
 
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
@@ -197,7 +247,7 @@ export function createChaseSiren() {
   let offAt = -Infinity;
   let outMs = OUT_MS;
   let cooling = false;
-  // The reflector's yaw, integrated rather than read off the clock, because its rate changes.
+  // The hot spot's yaw, integrated rather than read off the clock, because its rate changes.
   let yaw = 0;
   let lastAt = 0;
   // `losing` eased, so a cop catching sight again does not snap the lamp back to full in a frame.
@@ -210,13 +260,13 @@ export function createChaseSiren() {
     // Spinning down through the cooldown exit: the rate falls to nothing over COOL_MS.
     const spinDown = cooling ? Math.max(0, 1 - (now - offAt) / COOL_MS) : 1;
     yaw += (dt * 1000 / (TURN_MS * (1 + COOL_SLOW * cool))) * Math.PI * 2 * spinDown;
-    // How squarely the reflector's mouth faces the camera: cos of its yaw. Squared past a threshold,
-    // so the flash is a short bright pulse with the lens dim between, the way a rotator looks, rather
-    // than a sine breathing up and down. Cooling takes the edge off it.
-    siren.rotor.rotation.y = yaw;
+    // How squarely the hot spot faces the camera: cos of its yaw. Squared past a threshold, so the
+    // flash is a short bright pulse with the lens dim between, the way a rotator looks, rather than a
+    // sine breathing up and down. Cooling takes the edge off it.
+    siren.domeMat.uniforms.uYaw.value = yaw;
     const face = Math.max(0, (Math.cos(yaw) - 0.25) / 0.75);
     const flash = face * face * (1 - 0.5 * cool);
-    siren.domeMat.emissiveIntensity = 0.2 + 1.8 * flash;
+    siren.domeMat.uniforms.uFlash.value = flash;
     siren.rayMat.opacity = flash;
     for (const ray of siren.rayList) ray.scale.x = 0.55 + 0.45 * flash;
 
