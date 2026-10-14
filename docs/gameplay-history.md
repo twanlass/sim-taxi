@@ -1136,3 +1136,20 @@ the per-car `heldKey` dedup that kept a held red from counting once per frame) a
 conversion were removed along with the rows.
 Nothing in the simulation uses the conversion; it exists so the stat is in a unit a player has a
 feel for.
+
+## Getting caught, before the capture model
+
+`?capture=classic`. Until 2026-10-14 the police ended a run by three rules, one per kind of cop:
+
+- **A patrol cop's touch was "Busted!"**, at any speed — rammed from behind on a straight at full
+  cruise was the same arrest as being pinned at a junction. Ramming the cop yourself on the pill was
+  the exception (`RAMMED_GRACE`), until the next rule made that a wreck instead.
+- **A boosted hit on any cop was the wreck**, whatever the HP (`lethalPolice` in
+  `sim/collisions.js`, #466; `?cop=classic` on top priced a cop like any other car).
+- **A getaway's cops could not arrest anybody**, so during a robbery the only way the police ended a
+  run was that wreck.
+
+Reported from play (Tyler, 2026-10-14): "hitting a cop is insta fail. That sucks during the robbery
+vignette where you wanna smash through roadblocks." The getaway fills the tank and throws roadblocks
+across your route; the third rule made the second the one thing it asked of you that ended the run.
+Replaced by [getting caught](gameplay.md#getting-caught).

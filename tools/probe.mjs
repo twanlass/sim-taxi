@@ -117,7 +117,9 @@ import { BOARD_MAX } from '../src/game/difficulty.js';
 import { LOCO_PACE_SELF } from './autoplay.mjs';
 import { planRun as planBankRun } from '../src/game/bankjob.js';
 import { createRobbery, TRIGGER_RANGE as ROBBERY_TRIGGER_RANGE, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
-import { createPatrol, ESCAPE_BLOCKS, TOUCH_SLACK, SIGHT_HOLD } from '../src/game/patrol.js';
+import {
+  createPatrol, createPin, ESCAPE_BLOCKS, TOUCH_SLACK, SIGHT_HOLD, PIN_HOLD, PIN_SPEED,
+} from '../src/game/patrol.js';
 import { touching } from '../src/sim/collisions.js';
 import { createCashTrail, noteGeometry, NOTE_FOLD, BRICK_H } from '../src/game/cashtrail.js';
 import { createCopLights } from '../src/game/coplights.js';
@@ -9562,6 +9564,92 @@ function rideToPickup() {
     check('...and the patrol stands down rather than arresting a wreck',
       rPatrol.state.cop === null && !caught, `phase ${rPatrol.state.phase}`);
   }
+}
+
+// --- Getting caught: the capture model ---------------------------------------
+// game/patrol.js, "The capture model". A chasing cop that touches a taxi still doing a speed lands a
+// hit (HP, through `strike` in sim/collisions.js) and is not an arrest; the arrest is the pin — the
+// taxi held under PIN_SPEED with the cop on it for PIN_HOLD. Staged as the ram checks above are:
+// the cop square into the taxi's door, re-placed every frame so the knock cannot carry it off.
+{
+  const s = seed;
+  createLayout(makeRng(s));
+  const cScene = new THREE.Scene();
+  const cTraffic = createTraffic(makeRng(s + 44), cScene, CARS_DEFAULT);
+  const cPolice = createPolice(cScene);
+  const taxi = cTraffic.taxi;
+  const cCollisions = createCollisions(cTraffic.cars, taxi);
+  let caught = false;
+  let rammed = 0;
+  const cPatrol = createPatrol({
+    rng: makeRng(s + 66), police: cPolice, traffic: cTraffic, taxi, capture: true,
+    onCaught: () => { caught = true; },
+    onRammed: (cop) => { rammed += 1; cCollisions.strike(cop); },
+  });
+  cPatrol.state.cooldown = 0;
+  for (let step = 0; step < 60 * 90 && cPatrol.state.phase !== 'patrol'; step++) {
+    cTraffic.update(1 / 60); cPatrol.update(1 / 60); cPolice.update(1 / 60);
+  }
+  const cop = cPatrol.state.cop;
+  const onDoor = () => {
+    cop.yaw = taxi.yaw + Math.PI / 2;
+    cop.x = taxi.x - Math.cos(cop.yaw) * 1.6;
+    cop.z = taxi.z + Math.sin(cop.yaw) * 1.6;
+    cop.v = 6;
+  };
+  if (cop) {
+    // Spotted the way the patrol checks above do it: boosting a few units off it for one frame.
+    const at = { x: taxi.x, z: taxi.z };
+    taxi.x = cop.x + 6; taxi.z = cop.z;
+    cPatrol.update(1 / 60, { boosting: true });
+    taxi.x = at.x; taxi.z = at.z;
+    taxi.hp = TAXI_HP;
+    taxi.boost = false;
+    // A ram at cruise: a hit, not the arrest.
+    onDoor();
+    taxi.v = 8;
+    cPatrol.update(1 / 60);
+    check('capture: a cop ramming a taxi at speed is a hit, not a bust',
+      cPatrol.state.phase === 'chase' && !caught && rammed === 1 && taxi.hp < TAXI_HP && !taxi.crashed,
+      `phase ${cPatrol.state.phase}, caught ${caught}, rams ${rammed}, hp ${taxi.hp}`);
+    // Pinned: stopped, the cop held on its door. Not inside the backoff, not before PIN_HOLD, and
+    // then the arrest.
+    const hpAfterRam = taxi.hp;
+    let at1 = false;
+    const frames = (sec) => Math.round(sec * 60);
+    for (let f = 0; f < frames(1.5 + PIN_HOLD * 0.6); f++) {
+      onDoor(); taxi.v = 0; cPatrol.update(1 / 60);
+    }
+    at1 = caught;
+    for (let f = 0; f < frames(PIN_HOLD); f++) {
+      onDoor(); taxi.v = 0; cPatrol.update(1 / 60);
+      if (caught) break;
+    }
+    check('capture: pinned under PIN_SPEED, the arrest comes after PIN_HOLD and not before',
+      !at1 && caught && cPatrol.state.phase === 'arrest' && taxi.hp === hpAfterRam,
+      `early ${at1}, caught ${caught}, phase ${cPatrol.state.phase}`);
+  } else {
+    check('capture: a cop ramming a taxi at speed is a hit, not a bust', false, 'no patrol on the map');
+  }
+
+  // The getaway's pin is the same clock over a fleet. A taxi moving at PIN_SPEED is never pinned.
+  const pin = createPin(taxi);
+  const fleetCop = cTraffic.cars.find((c) => c !== taxi && c !== cop && !c.crashed);
+  taxi.crashed = false;
+  taxi.staged = false;
+  const place = () => {
+    fleetCop.yaw = taxi.yaw + Math.PI / 2;
+    fleetCop.x = taxi.x - Math.cos(fleetCop.yaw) * 1.6;
+    fleetCop.z = taxi.z + Math.sin(fleetCop.yaw) * 1.6;
+  };
+  let moving = null;
+  for (let f = 0; f < 120; f++) { place(); taxi.v = PIN_SPEED; moving = moving ?? pin.update(1 / 60, [fleetCop]); }
+  let stuck = null;
+  let stuckAt = 0;
+  for (let f = 0; f < 120 && !stuck; f++) { place(); taxi.v = 0; stuck = pin.update(1 / 60, [fleetCop]); stuckAt = f + 1; }
+  check('capture: the getaway pin catches a stopped taxi, never a moving one',
+    moving === null && stuck === fleetCop && Math.abs(stuckAt / 60 - PIN_HOLD) < 0.05,
+    `moving ${Boolean(moving)}, stuck after ${(stuckAt / 60).toFixed(2)}s`);
 }
 
 // --- A patrol turns round in the road ----------------------------------------
