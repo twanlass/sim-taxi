@@ -1,4 +1,7 @@
-import { SPAN_Z, SLAB_MARGIN, harborBasin, riverBanks, coastEast } from './grid.js';
+import {
+  SPAN_Z, SLAB_MARGIN, harborBasin, riverBanks, coastEast, coastWest, lineZ, halfRoadX, GRID_J,
+  SOUTH_SHORE, PARK_SHORE, NORTH_PARK, coastNorth,
+} from './grid.js';
 
 // The shape of the land and the sea around the harbor (city/harbor.js).
 //
@@ -32,6 +35,92 @@ const SEAWALL_STEP = 1.5;
 
 /** Half the island's depth in z: where the north and south coasts are. */
 export const coastZ = () => (SPAN_Z + SLAB_MARGIN) / 2;
+
+// --- The south shore (city/southshore.js) ------------------------------------------------------
+//
+// With it on, the island's south coast is not a coast fading into the sky any more: it is the
+// harbor's seawall carried on round the corner and west along the whole south end, a strip of park
+// standing between the ring road and the water, and the sea in front of it. Tyler, 2026-10-14,
+// circling where the harbor's rocks stop: "Continue the rocky shoreline around the south end".
+//
+// How far the shoreline's mean line sits off the south ring road's kerb. The strip has to hold a
+// kerb, a lawn, a walkway that swoops and more lawn to the water, and at 13 that is about 5 units
+// of grass either side of a 1.6 path at its widest swing.
+const SHORE_SET = 13;
+// The shoreline's wobble, on two sines like the seawall's, eased flat over `SHORE_EASE` at the east
+// end so it meets the corner arc on the exact line the arc was built for.
+const SHORE_WOBBLE = [1.1, 0.5];
+const SHORE_EASE = 14;
+// Spacing of the shoreline's vertices along x.
+const SHORE_STEP = 1.5;
+// How much open sea lies in front of the shoreline before its rim, where it starts to dissolve.
+const SHORE_SEA = 16;
+
+// --- The park shore (city/parkshore.js) --------------------------------------------------------
+//
+// North of the harbor the seawall used to round its corner west at the old coast and stop, under
+// the north park's lawn — so the rocks curled away and the park's grass met the water bare, fading
+// out over the sea. Tyler, 2026-10-14: "Let's continue the rocky edge along the park to make this
+// transition smoother". With the park shore the seawall runs straight on north to the park's far
+// edge, and the outline closes back west *under* the park, where nothing of it shows.
+//
+// Where that closure turns north off the old coast, under the park's lawn: clear of the ring road
+// and the park's east edge, so it is hidden by the park's platform the whole way.
+const PARK_SHORE_TURN = 12;
+
+/** Whether the park's east edge is a shore: on by default, with both a harbor and the north park. */
+export const parkShore = () => PARK_SHORE && NORTH_PARK && !!harborBasin();
+/** The x the outline turns north at, under the park, off the old north coast. */
+export const parkShoreTurnX = () => harborBasin().kerbX - PARK_SHORE_TURN;
+
+/** Whether an outline edge is the park shore's closure under the park rather than a coast. */
+export function parkShoreClosure(ax, az, bx, bz) {
+  if (!parkShore()) return false;
+  const tx = parkShoreTurnX();
+  const zN = coastNorth();
+  return (Math.abs(ax - tx) < 1e-9 && Math.abs(bx - tx) < 1e-9)
+    || (Math.abs(az - zN) < 1e-9 && Math.abs(bz - zN) < 1e-9);
+}
+
+/** Whether the south end is a shore: on by default, and only where there is a harbor's sea. */
+export const southShore = () => SOUTH_SHORE && !!harborBasin();
+/** The south ring road's outer kerb. */
+export const southKerbZ = () => lineZ(GRID_J) + halfRoadX(GRID_J);
+/** The shoreline's mean line. */
+export const shoreMeanZ = () => southKerbZ() + SHORE_SET;
+/** Where the sea in front of the south shore stops being open water and starts to fade. */
+export const seaRimSouth = () => shoreMeanZ() + SHORE_SEA;
+
+/**
+ * Half the island's depth on one side: `side` +1 for the half south of the river (z above the
+ * channel), -1 for the other. The south half reaches the shoreline's mean line when there is one.
+ */
+export const coastHalfZ = (side) => (side > 0 && southShore() ? shoreMeanZ() : coastZ());
+
+/** The shoreline's z at a world x: the mean line, wobbling, flat again where it meets the corner. */
+export function shoreZ(x) {
+  const ease = Math.min(1, Math.max(0, (coastArcStart(1) - x) / SHORE_EASE));
+  const e = ease * ease * (3 - 2 * ease);
+  return shoreMeanZ() + e * (SHORE_WOBBLE[0] * Math.sin(0.37 * x + 1.3)
+    + SHORE_WOBBLE[1] * Math.sin(1.13 * x + 0.2));
+}
+
+/** Whether a world (x, z) lies on the shoreline itself, as the outline built it. */
+export function onShoreline(x, z) {
+  return southShore() && z > 0 && x <= coastArcStart(1) + 1e-6 && Math.abs(z - shoreZ(x)) < 1e-6;
+}
+
+/** The shoreline from the island's west edge to the corner arc, as world (x, z) points. */
+export function shorePoints(x0) {
+  const x1 = coastArcStart(1);
+  const n = Math.max(1, Math.round((x1 - x0) / SHORE_STEP));
+  const pts = [];
+  for (let k = 0; k <= n; k++) {
+    const x = x0 + ((x1 - x0) * k) / n;
+    pts.push([x, shoreZ(x)]);
+  }
+  return pts;
+}
 
 /**
  * The seawall's x at a given z: a wobbling line rather than a ruled one. Two sines at unrelated
@@ -92,12 +181,36 @@ export function islandHalf(side, x0, radius) {
   };
 
   push(x0, cut);
-  // The west corner, as the whole island's was (ground.js `slabShape`).
-  arc(x0 + radius, side * (hd - radius), radius, Math.PI, Math.PI / 2, 14);
+  const south = side > 0 && southShore();
+  if (south) {
+    // The south shore: straight down the west edge to the water, square, and along the shoreline.
+    // Square because the west edge's skirt has to stop on the shoreline and the sea's own fade take
+    // over beyond it; a rounded corner would fan the skirt out over the water.
+    // Points down the west edge too, not just its two ends: the skirt is built per outline segment
+    // and skips any whose two ends are both on a cut, which a single segment from the river's cut to
+    // the shoreline would be.
+    const z1 = shoreZ(x0);
+    const n = Math.max(1, Math.ceil((z1 - cut) / 4));
+    for (let k = 1; k < n; k++) push(x0, cut + ((z1 - cut) * k) / n);
+    for (const [x, z] of shorePoints(x0)) push(x, z);
+  } else {
+    // The west corner, as the whole island's was (ground.js `slabShape`).
+    arc(x0 + radius, side * (hd - radius), radius, Math.PI, Math.PI / 2, 14);
+  }
   // Along the coast and round into the seawall.
-  const topZ = side * (hd - SEA_CORNER);
-  const wallTop = seawallX(basin.kerbX, topZ);
-  arc(wallTop - SEA_CORNER, topZ, SEA_CORNER, Math.PI / 2, 0, 8);
+  let topZ = side * (coastHalfZ(side) - SEA_CORNER);
+  if (side < 0 && parkShore()) {
+    // Along the old coast under the park, north to the park's far edge, and east to the seawall,
+    // which then runs south the whole way: no corner arc.
+    const tx = parkShoreTurnX();
+    topZ = coastNorth();
+    push(tx, -coastZ());
+    push(tx, topZ);
+    push(seawallX(basin.kerbX, topZ), topZ);
+  } else {
+    const wallTop = seawallX(basin.kerbX, topZ);
+    arc(wallTop - SEA_CORNER, topZ, SEA_CORNER, Math.PI / 2, 0, 8);
+  }
   // Down the seawall to the pier.
   const steps = Math.max(1, Math.round(Math.abs(topZ - pier.out) / SEAWALL_STEP));
   for (let k = 1; k <= steps; k++) {
@@ -133,13 +246,15 @@ export const SEA_BLEND = SEA_CORNER;
 export function coastArcStart(side) {
   const piers = harborPiers();
   if (!piers) return Infinity;
-  return seawallX(piers.basin.kerbX, side * (coastZ() - SEA_CORNER)) - SEA_CORNER;
+  // With the park shore the north coast stops being a coast where the closure turns off it.
+  if (side < 0 && parkShore()) return parkShoreTurnX();
+  return seawallX(piers.basin.kerbX, side * (coastHalfZ(side) - SEA_CORNER)) - SEA_CORNER;
 }
 
 /** The corner arc's |z| at a world x past `coastArcStart(side)`: the coast curving into the seawall. */
 export function coastArcZ(side, x) {
   const dx = Math.min(SEA_CORNER, Math.max(0, x - coastArcStart(side)));
-  return coastZ() - (SEA_CORNER - Math.sqrt(SEA_CORNER * SEA_CORNER - dx * dx));
+  return coastHalfZ(side) - (SEA_CORNER - Math.sqrt(SEA_CORNER * SEA_CORNER - dx * dx));
 }
 
 // The sea's own outer edge: a rectangle out to the east coast, rounded at its two east corners on
@@ -152,8 +267,13 @@ const SEA_RADIUS = 22;
  * the sea's shoal and fade run on the rim's own band.
  */
 export function seaInset(x, z) {
-  const hd = coastZ();
-  const qx = x - (coastEast() - SEA_RADIUS);
+  // With the south shore the sea also runs west in front of it, to the island's west edge, and
+  // rounds that corner too.
+  const south = z > 0 && southShore();
+  const hd = south ? seaRimSouth() : (z < 0 && parkShore() ? -coastNorth() : coastZ());
+  const qx = south
+    ? Math.max(x - (coastEast() - SEA_RADIUS), coastWest() + SEA_RADIUS - x)
+    : x - (coastEast() - SEA_RADIUS);
   const qz = Math.abs(z) - (hd - SEA_RADIUS);
   const outside = Math.hypot(Math.max(qx, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qz), 0);
   return SEA_RADIUS - outside;
@@ -176,7 +296,10 @@ export function insidePolygon(poly, x, z) {
  * without a harbor, and west of where the sea starts, where everything is island.
  */
 export function harborLandAt(x, z) {
-  if (!harborPiers() || x < seaStartX()) return true;
+  if (!harborPiers()) return true;
+  // In front of the south shore is sea all the way west.
+  if (southShore() && z > 0 && x <= coastArcStart(1) && z > shoreZ(x)) return false;
+  if (x < seaStartX()) return true;
   const banks = riverBanks();
   if (z > banks.z0 && z < banks.z1) return false;   // the channel and the basin
   // The west end of the outline does not matter out here, so any x0 and radius will do.

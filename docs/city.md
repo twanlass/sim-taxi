@@ -253,7 +253,7 @@ arterial, beside the river, with the old crossings (Tyler moved it across the ri
   launch off that arch (`DRIFT_LAUNCH_HEIGHT` 10) does go up through the truss, and Tyler kept it
   that way: the taxi flies through solid steel and the ghost outline shows it behind the members.
 - **Off the north end** it runs on over the north park (`NORTH_PARK_DEPTH`, `coastNorth()`) and
-  fades past it; off the south end it fades with the slab.
+  fades past it; off the south end it fades out over the [south shore](river.md#the-south-shore)'s lawn.
 
 - **The median is why it is on the arterial.** It is the one strip running the width of the city
   that no car drives on, so the columns need no clearance rule of their own: `planLTrain` reads

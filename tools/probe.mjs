@@ -16,7 +16,7 @@ import { createHarbor } from '../src/city/harbor.js';
 import {
   createWestEdge, westKerbX, westClosures, WEST_SKYLINE, WEST_CLEAR_X,
 } from '../src/city/westedge.js';
-import { coastArcStart, coastArcZ, SEA_CORNER } from '../src/city/harborplan.js';
+import { coastArcStart, coastArcZ, SEA_CORNER, southShore, parkShore } from '../src/city/harborplan.js';
 import { createLayout } from '../src/city/layout.js';
 import { createNorthPark } from '../src/city/northpark.js';
 import {
@@ -299,8 +299,15 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
   // With the harbor the east side is a seawall that takes no skirt, so the outline is the west
   // half of the square with the north and south coasts running straight on east until each turns
   // into the seawall — where the skirt carries on round the corner arc (`seaCornerFade`, ground.js).
+  //
+  // With the south shore the south half's coast is a wall standing in the sea too, and its west edge
+  // runs square down to it, so the only skirt that half has is straight out west.
   const edgeDist = !harborBasin() ? square : (x, z) => {
     const side = z > 0 ? 1 : -1;
+    if (side > 0 && southShore()) return coastWest() - x;
+    // And with the park shore the north coast has no corner either: it stops square where the
+    // outline turns north under the park, so the skirt there runs straight out north.
+    if (side < 0 && parkShore()) return Math.abs(z) - SLAB_Z / 2;
     // Round the corner arc, radially — its |z| has an infinite slope where the arc turns south, so
     // float32 storage alone moved a vertex there by 3e-3.
     const from = coastArcStart(side);
