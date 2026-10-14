@@ -3,7 +3,7 @@ import { PALETTE } from '../palette.js';
 import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 import { unlitMaterial } from '../util/geo.js';
 
-// The chase siren: a low-poly 🚨 in the top-centre of the HUD for as long as the police are after the
+// The chase siren: a low-poly 🚨 in the top-right of the HUD for as long as the police are after the
 // taxi — a patrol chase (game/patrol.js) or a getaway (game/robbery.js). Tyler's idea (2026-10-14),
 // circled on a phone screenshot: the city already says "chase" with the strobing bar and the wash
 // over the frame edge (game/sirenglow.js), but both of those are about where the cop *is*, and a
@@ -12,8 +12,9 @@ import { unlitMaterial } from '../util/geo.js';
 //
 // ## Where it sits
 //
-// Centred under the cash row, which is where the combo meter lives — so it sits directly beneath the
-// meter when there is a combo going and on its own under an empty row when there is not. Inside
+// On the cash row, level with the cash and just left of the pause (Tyler, 2026-10-14). The first cut
+// sat top centre, which is the combo meter's spot, and stepping aside whenever a meter came up was
+// two things fighting over one place; the corner by the pause is nobody's. Inside
 // `#hud`, so it rides every rule that already hides the HUD (the title, the replay, shot mode, the
 // slide in and out) without a line of its own in any of them.
 //
@@ -25,7 +26,7 @@ import { unlitMaterial } from '../util/geo.js';
 //   - **Its own lights, not the city's.** The cargo chip mirrors the sun because it is a portrait
 //     of something out on the street, and a box lit by a different afternoon would look pasted on.
 //     This is an icon, not a portrait, and it has to read at night — when a mirrored sun would leave
-//     the base nearly black. The dome is mostly emissive anyway.
+//     the base nearly black. The lens is mostly emissive anyway.
 //   - **It draws only while it is up**, and for the length of its exit. Nothing renders between
 //     chases, so between chases it costs nothing.
 //
@@ -33,41 +34,59 @@ import { unlitMaterial } from '../util/geo.js';
 //
 // A beacon is a lamp with a reflector turning round it, and what you see from any one place is a
 // flash once a turn as the reflector's mouth swings past you. That is what this does, literally: the
-// reflector is a half-cylinder turning inside a translucent dome, and the dome's glow and the rays
+// reflector is a half-cylinder turning inside a translucent lens, and the lens's glow and the rays
 // either side of it are driven off how squarely that mouth faces the camera. So the light is never
 // out of step with the thing making it.
+//
+// ## Losing them
+//
+// A patrol chase ends lost once the gap has held past ESCAPE_HOLD or the cop has gone SIGHT_HOLD
+// without seeing the taxi (game/patrol.js). Both are counted up as they happen, so the siren reads the
+// larger of the two fractions as `losing` and **cools** with it: the reflector slows to a third of its
+// pace, the flash dims, and the lamp fades toward half. A siren winding down is the player watching
+// the escape work. If the cop finds them again the counts fall back and it winds up again. When the
+// chase is finally lost it spins down and fades out over COOL_MS; a chase that ends in the cuffs just
+// pops away, since the arrest has its own beat and nothing was escaped.
 
-/** Canvas size in CSS px. Wider than tall: the rays reach out to either side of the dome. */
+/** Canvas size in CSS px. Wider than tall: the rays reach out to either side of the lens. */
 const W = 72;
 const H = 52;
 
 /** One turn of the reflector, in ms. A real rotator is ~2–3 turns a second; this is a touch slower so the flash reads as a pulse at 50px rather than a flicker. */
 const TURN_MS = 720;
 
-/** Exit length — must match the `#chase-siren` transition in index.html, since this keeps drawing until it ends. */
+/** Exit lengths — must match the `#chase-siren` transitions in index.html, since this keeps drawing until they end. */
 const OUT_MS = 320;
+const COOL_MS = 1200;
+/** How far `losing` slows the turn (×3 the period at 1) and fades the lamp (to 0.5 at 1). */
+const COOL_SLOW = 2;
+const COOL_FADE = 0.5;
 
 /** The wobble it arrives with: a lamp slammed onto a roof. */
 const WOBBLE_MS = 700;
 const WOBBLE = 0.32;
 
-// Geometry, in the icon's own units: base 0.62 across at the bottom, dome 0.5 radius on top.
+// Geometry, in the icon's own units: base 0.62 in radius at the bottom, the lens 0.46 on top of it.
 const BASE_R = 0.62;
 const BASE_H = 0.26;
 const LIP_R = 0.66;
 const LIP_H = 0.07;
-const DOME_R = 0.5;
+// The lens: straight sides and a flat top with a chamfered edge, so it stands as a block the way
+// 🚨's does. It was a hemisphere first, stretched a quarter taller, and Tyler asked for it squarer,
+// like the emoji: at 50px a rounded dome reads as a blob rather than a lamp.
+const LENS_R = 0.46;
+const LENS_H = 0.6;
+const CHAMFER = 0.1;
 const DOME_Y = BASE_H + LIP_H;
-const DOME_TALL = 1.25;
-// Where the rays fan from: the dome's middle, in the camera-facing plane.
-const RAY_Y = DOME_Y + DOME_R * DOME_TALL * 0.45;
+// Where the rays fan from: the lens's middle, in the camera-facing plane.
+const RAY_Y = DOME_Y + (LENS_H + CHAMFER) * 0.5;
 
-// Framing. The camera looks down 22° — enough to see the dome is round and the base is a drum, not
+// Framing. The camera looks down 22° — enough to see the lens and the base are drums, not
 // so much that the rays (which stand in the screen plane) foreshorten against it.
 const ELEVATION = THREE.MathUtils.degToRad(22);
 const HALF_W = 1.18;
 const HALF_H = HALF_W * (H / W);
-const CENTRE_Y = 0.5;
+const CENTRE_Y = 0.48;
 
 function buildSiren() {
   const group = new THREE.Group();
@@ -86,32 +105,29 @@ function buildSiren() {
   // π/2 → 3π/2, which in three's cylinder is the −Z half — so at yaw 0 its mouth faces +Z, the camera.
   const rotor = new THREE.Group();
   rotor.position.y = DOME_Y;
-  const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.3, 6),
+  const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.42, 6),
     unlitMaterial({ color: PALETTE.chaseSirenLamp }));
-  lamp.position.y = 0.17;
+  lamp.position.y = 0.3;
   const reflector = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.3, 0.3, 0.38, 8, 1, true, Math.PI / 2, Math.PI),
+    new THREE.CylinderGeometry(0.3, 0.3, 0.5, 8, 1, true, Math.PI / 2, Math.PI),
     new THREE.MeshLambertMaterial({ color: PALETTE.chaseSirenLip, side: THREE.DoubleSide, flatShading: true }));
-  reflector.position.y = 0.17;
+  reflector.position.y = 0.3;
   rotor.add(lamp, reflector);
   group.add(rotor);
 
-  // The dome: an eight-by-four hemisphere, translucent enough that the rotor shows through it, with
-  // a knob on top as the emoji has. Emissive carries the flash.
+  // The lens: an eight-sided drum with a chamfered lid, translucent enough that the rotor shows
+  // through it. Emissive carries the flash.
   const domeMat = new THREE.MeshLambertMaterial({
     color: PALETTE.lightRed, emissive: PALETTE.lightRed, emissiveIntensity: 0.2,
     transparent: true, opacity: 0.68, flatShading: true, depthWrite: false,
   });
-  const dome = new THREE.Mesh(
-    new THREE.SphereGeometry(DOME_R, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2), domeMat);
-  dome.position.y = DOME_Y;
-  // Stretched up a quarter: the emoji's dome is a bullet, and a true hemisphere read as a jelly mould.
-  dome.scale.y = DOME_TALL;
+  const dome = new THREE.Mesh(new THREE.CylinderGeometry(LENS_R, LENS_R, LENS_H, 8), domeMat);
+  dome.position.y = DOME_Y + LENS_H / 2;
   dome.renderOrder = 1;
-  const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 0.08, 6), domeMat);
-  knob.position.y = DOME_Y + DOME_R * DOME_TALL + 0.03;
-  knob.renderOrder = 1;
-  group.add(dome, knob);
+  const lid = new THREE.Mesh(new THREE.CylinderGeometry(LENS_R - CHAMFER, LENS_R, CHAMFER, 8), domeMat);
+  lid.position.y = DOME_Y + LENS_H + CHAMFER / 2;
+  lid.renderOrder = 1;
+  group.add(dome, lid);
 
   // The emoji's rays, three a side, standing in the screen plane (the group is turned to face the
   // camera once in `createChaseSiren`). DoubleSide so their winding cannot hide them — see CLAUDE.md
@@ -128,8 +144,8 @@ function buildSiren() {
     for (const deg of [34, 4, -26]) {
       const a = THREE.MathUtils.degToRad(deg);
       const pivot = new THREE.Group();
-      // Leaving the dome on a line from its centre, angled up or down; mirrored for the left side.
-      pivot.position.set(side * Math.cos(a) * 0.68, Math.sin(a) * 0.62, 0);
+      // Leaving the lens on a line from its centre, angled up or down; mirrored for the left side.
+      pivot.position.set(side * Math.cos(a) * 0.64, Math.sin(a) * 0.5, 0);
       pivot.rotation.z = side > 0 ? a : Math.PI - a;
       const ray = new THREE.Mesh(rayGeo, rayMat);
       ray.renderOrder = 2;
@@ -179,16 +195,27 @@ export function createChaseSiren() {
   let on = false;
   let onAt = 0;
   let offAt = -Infinity;
+  let outMs = OUT_MS;
+  let cooling = false;
+  // The reflector's yaw, integrated rather than read off the clock, because its rate changes.
+  let yaw = 0;
+  let lastAt = 0;
+  // `losing` eased, so a cop catching sight again does not snap the lamp back to full in a frame.
+  let cool = 0;
 
   function draw(now) {
     const t = now - onAt;
-    // The reflector's yaw, and how squarely its mouth faces the camera: cos of that yaw. Squared past
-    // a threshold, so the flash is a short bright pulse with the dome dim between, the way a rotator
-    // looks, rather than a sine breathing up and down.
-    const yaw = (t / TURN_MS) * Math.PI * 2;
+    const dt = Math.min(0.1, (now - lastAt) / 1000);
+    lastAt = now;
+    // Spinning down through the cooldown exit: the rate falls to nothing over COOL_MS.
+    const spinDown = cooling ? Math.max(0, 1 - (now - offAt) / COOL_MS) : 1;
+    yaw += (dt * 1000 / (TURN_MS * (1 + COOL_SLOW * cool))) * Math.PI * 2 * spinDown;
+    // How squarely the reflector's mouth faces the camera: cos of its yaw. Squared past a threshold,
+    // so the flash is a short bright pulse with the lens dim between, the way a rotator looks, rather
+    // than a sine breathing up and down. Cooling takes the edge off it.
     siren.rotor.rotation.y = yaw;
     const face = Math.max(0, (Math.cos(yaw) - 0.25) / 0.75);
-    const flash = face * face;
+    const flash = face * face * (1 - 0.5 * cool);
     siren.domeMat.emissiveIntensity = 0.2 + 1.8 * flash;
     siren.rayMat.opacity = flash;
     for (const ray of siren.rayList) ray.scale.x = 0.55 + 0.45 * flash;
@@ -204,19 +231,37 @@ export function createChaseSiren() {
 
   return {
     /**
-     * Once a frame. `active` is whether the police are after the taxi right now; the element's
-     * `is-on` class carries the pop in and out (index.html), and this draws for as long as any of
-     * it is on screen. Wall time rather than sim time, like the rest of the HUD.
+     * Once a frame. `active` is whether the police are after the taxi right now; `losing` (0–1) how
+     * near they are to losing it; `caught` whether the chase just ended in an arrest, which takes the
+     * quick exit rather than the cooldown. The element's classes carry the pop in and the two ways
+     * out (index.html), and this draws for as long as any of it is on screen. Wall time rather than
+     * sim time, like the rest of the HUD.
      */
-    update(active) {
+    update(active, { losing = 0, caught = false } = {}) {
       const now = performance.now();
       if (active !== on) {
         on = active;
-        if (on) onAt = now; else offAt = now;
+        if (on) {
+          onAt = now;
+          lastAt = now;
+          cool = 0;
+          cooling = false;
+        } else {
+          offAt = now;
+          cooling = !caught;
+          outMs = cooling ? COOL_MS : OUT_MS;
+        }
         el.classList.toggle('is-on', on);
+        el.classList.toggle('is-cooling', !on && cooling);
         el.setAttribute('aria-hidden', String(!on));
       }
-      if (on || now - offAt < OUT_MS) draw(now);
+      if (on) {
+        // Eased toward the target at ~4/s: quick enough to follow the patrol's own counters.
+        const k = Math.min(1, ((now - lastAt) / 1000) * 4);
+        cool += (Math.max(0, Math.min(1, losing)) - cool) * k;
+        canvas.style.opacity = String(1 - COOL_FADE * cool);
+      }
+      if (on || now - offAt < outMs) draw(now);
     },
     /** For tools: is it up. */
     isOn: () => on,

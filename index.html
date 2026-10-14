@@ -238,14 +238,17 @@
         position: absolute; top: 0; left: 50%; translate: -50% 0; height: var(--hud-row);
         display: flex; flex-direction: row; align-items: center; gap: 6px;
       }
-      /* The chase siren (game/chasesiren.js): a low-poly 🚨 centred under the cash row — beneath
-         the combo meter when there is one — for as long as the police are after the taxi. Pops in
-         with an overshoot and shrinks away; the 0.32s out has to match OUT_MS in the module, which
-         keeps drawing until it ends. The red glow is the drop shadow's colour, so it holds against
-         pale asphalt the way the digits do and reads as a lamp at the same time. */
+      /* The chase siren (game/chasesiren.js): a low-poly 🚨 on the cash row, level with the cash
+         and just left of the pause (Tyler, 2026-10-14), for as long as the police are after the
+         taxi. The canvas is 72px wide for the rays either side of a ~40px lamp, so butting it
+         against the pause's 42px square leaves the lamp ~16px off the pause glyph. Pops in with an
+         overshoot. Two ways out: a short shrink (0.32s, OUT_MS) when the chase ends in an arrest,
+         and a slow fade with no shrink (1.2s, COOL_MS) when the cops lose you — the module spins
+         the lamp down over the same span. Both have to match the module, which keeps drawing until
+         they end. The red glow is the drop shadow's colour, so it holds against pale asphalt the
+         way the digits do and reads as a lamp at the same time. */
       #chase-siren {
-        position: absolute; top: calc(var(--hud-row) - 2px);
-        left: calc(50vw - var(--hud-side) - var(--safe-left)); translate: -50% 0;
+        position: absolute; top: calc((var(--hud-row) - 52px) / 2); right: var(--pause-w);
         width: 72px; height: 52px;
         filter: drop-shadow(0 2px 5px rgba(20, 40, 55, 0.55)) drop-shadow(0 0 6px rgba(226, 75, 60, 0.55));
         opacity: 0; transform: scale(0.3) translateY(-30%); transform-origin: center top;
@@ -255,6 +258,7 @@
         opacity: 1; transform: none;
         transition: opacity 0.15s ease, transform 0.45s cubic-bezier(0.34, 1.7, 0.64, 1);
       }
+      #chase-siren.is-cooling { transform: none; transition: opacity 1.2s ease-in; }
       #chase-siren canvas { display: block; width: 72px; height: 52px; }
       @media (prefers-reduced-motion: reduce) {
         #chase-siren, #chase-siren.is-on { transform: none; }
