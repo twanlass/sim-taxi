@@ -51,6 +51,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?robberyodds=classic` | The bank rider's coin stays a fair 50/50 instead of loading toward a robbery with each bank ride | #522 | [gameplay.md](gameplay.md#the-bank-job) |
 | `?uturn=classic` | The first U-turn, a spin on the spot, instead of the handbrake turn | #458 | [gameplay.md](gameplay.md) |
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |
+| `?hop=classic` | A hop can stall in mid-air: braking (or crawling) over the hump hangs the taxi in the air | | [river.md](river.md) |
 | `?route=classic` | The route stops dead at the rider's kerb, with no stub past the pickup | #480 | [gameplay.md](gameplay.md) |
 | `?newmove=classic` | New Move cards mid-run instead of after the run | #493 | [gameplay.md](gameplay.md) |
 
