@@ -35,6 +35,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?damage=classic` | The taxi's damage ladder before the first-hit flash, grime and steam | #456 | [gameplay.md](gameplay.md) |
 | `?wreck=classic` / `=quick` | The old fireball, or the quick cut (default is `flat`) | #398 | [traffic.md](traffic.md) |
 | `?cop=classic` | Boosting into a cop is a bump rather than a full wreck | #466 | [gameplay.md](gameplay.md) |
+| `?helispot=classic` | The police helicopter's first, brighter and harder-edged searchlight | | [gameplay.md](gameplay.md) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
 | `?robbery=classic` | The robbery with no opening cut (straight to the drive-past). Also implies `?bankfare=classic` | #475, #478 | [gameplay.md](gameplay.md) |
 | `?bankfare=classic` | The drive-past robbery instead of the bank rider fare | #499 | [gameplay.md](gameplay.md) |
