@@ -238,6 +238,27 @@
         position: absolute; top: 0; left: 50%; translate: -50% 0; height: var(--hud-row);
         display: flex; flex-direction: row; align-items: center; gap: 6px;
       }
+      /* The chase siren (game/chasesiren.js): a low-poly 🚨 centred under the cash row — beneath
+         the combo meter when there is one — for as long as the police are after the taxi. Pops in
+         with an overshoot and shrinks away; the 0.32s out has to match OUT_MS in the module, which
+         keeps drawing until it ends. The red glow is the drop shadow's colour, so it holds against
+         pale asphalt the way the digits do and reads as a lamp at the same time. */
+      #chase-siren {
+        position: absolute; top: calc(var(--hud-row) - 2px);
+        left: calc(50vw - var(--hud-side) - var(--safe-left)); translate: -50% 0;
+        width: 72px; height: 52px;
+        filter: drop-shadow(0 2px 5px rgba(20, 40, 55, 0.55)) drop-shadow(0 0 6px rgba(226, 75, 60, 0.55));
+        opacity: 0; transform: scale(0.3) translateY(-30%); transform-origin: center top;
+        transition: opacity 0.2s ease, transform 0.32s cubic-bezier(0.55, 0, 0.85, 0.4);
+      }
+      #chase-siren.is-on {
+        opacity: 1; transform: none;
+        transition: opacity 0.15s ease, transform 0.45s cubic-bezier(0.34, 1.7, 0.64, 1);
+      }
+      #chase-siren canvas { display: block; width: 72px; height: 52px; }
+      @media (prefers-reduced-motion: reduce) {
+        #chase-siren, #chase-siren.is-on { transform: none; }
+      }
       /* The combo meter (game/combometer.js; `updateComboTag` in main.js): the count,
          "3x", centred on the screen on the cash row, with the tailpipe's flame licking out of its
          left — Tyler's call (2026-10-07) after a bar was tried: the meter has no full state, so a
@@ -2097,6 +2118,8 @@
       <!-- What the ride aboard is on course for — Loco, Perfect, Stealth. Filled by `updateRunTags`
            in main.js; empty between rides. -->
       <div id="runs" class="runs"></div>
+      <!-- The 🚨 while the police are after the taxi, drawn into by game/chasesiren.js. -->
+      <div id="chase-siren" role="img" aria-label="Police chase" aria-hidden="true"></div>
     </div>
     <!-- The courier load, drawn into by game/cargochip.js while a package is aboard. Empty here:
          the box inside it is the real `createParcel` mesh in a WebGL context of its own, the same

@@ -46,7 +46,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/boat.js', '../src/game/drawbridge.js', '../src/game/boats.js', '../src/game/wake.js', '../src/game/ltrain.js', '../src/game/leaves.js', '../src/game/gulls.js',
   '../src/geometry/parcel.js', '../src/geometry/food.js', '../src/geometry/cargo.js',
   '../src/geometry/parcelpad.js', '../src/game/parcels.js',
-  '../src/game/cargochip.js',
+  '../src/game/cargochip.js', '../src/game/chasesiren.js',
   '../src/game/tutorial.js', '../src/game/titlescreen.js', '../src/game/settings.js', '../src/game/highscores.js', '../src/game/locostash.js',
   '../src/util/platform.js', '../src/util/haptics.js',
   '../src/lab/labroad.js'];

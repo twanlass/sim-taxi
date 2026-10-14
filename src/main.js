@@ -107,6 +107,7 @@ import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
 import { createTaxiFinder } from './game/taxifinder.js';
 import { createCargoChip } from './game/cargochip.js';
+import { createChaseSiren } from './game/chasesiren.js';
 import { createTutorial, LOCO_HINT_HOLD } from './game/tutorial.js';
 import { createOpening, entryPath } from './game/opening.js';
 import { createWipe } from './game/wipe.js';
@@ -2816,6 +2817,9 @@ const taxiFinder = createTaxiFinder({
 // game/cargochip.js. Built only when the layer is on, because it opens a WebGL context of its own
 // and a run under `?parcels=0` can never have anything to put in it.
 const cargoChip = parcels ? createCargoChip({ sun, hemi }) : null;
+// The 🚨 under the cash row while the police are after the taxi; `?chasesiren=classic` goes without.
+const chaseSiren = new URLSearchParams(window.location.search).get('chasesiren') !== 'classic'
+  ? createChaseSiren() : null;
 const farePointers = createFarePointers({
   camera,
   // Aim at the kerb corner where the mark actually stands, not the intersection centre — a
@@ -5831,6 +5835,9 @@ function tick() {
     !fares.state.gameOver && !controller.isGliding() && !tutorial?.holdsCamera());
   // A no-op unless a package is aboard — it draws nothing while the chip is down.
   cargoChip?.render();
+  // Up for a patrol chase or a getaway, and down for the arrest itself: once the cuffs are on, the
+  // chase is over.
+  chaseSiren?.update(!fares.state.gameOver && (patrol.state.phase === 'chase' || getaway()));
   // Every arrow stands in for a mark it points at, so each is painted from its own fare — see
   // game/farepointers.js. The waiting riders get one too now that the chips are gone, which is
   // what keeps an off-screen fare findable at all.
@@ -6595,6 +6602,7 @@ window.__taxi = {
    * does to it; `setCarrying` is the flightless version of the same, and what a delivery puts back.
    */
   cargoChip,
+  chaseSiren,
   /**
    * The "back to the taxi" chip, for `tools/smoke.mjs`: `isUp()` is whether it is currently
    * offering itself. Browser-only in the same way the cargo chip is — a WebGL context in a DOM
