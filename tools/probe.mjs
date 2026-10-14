@@ -6733,7 +6733,7 @@ function rideToPickup() {
   // it, and the ending says so in rating words.
   check('the run ends as the rating reaches its floor',
     RATING_START === 5 && ratingFor(kFares.state.strikes) === RATING_FLOOR && RATING_FLOOR === 2
-      && kFares.state.failTitle === 'Deactivated!' && /2\.0 stars/.test(kFares.state.failReason),
+      && kFares.state.failTitle === 'Fired!' && /2\.0 stars/.test(kFares.state.failReason),
     `${kFares.state.failTitle} ${kFares.state.failReason}`);
 
   const spot = kFares.state.failSpot;
