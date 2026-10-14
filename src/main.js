@@ -38,7 +38,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
-  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll,
+  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setHopStyle,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
@@ -841,6 +841,8 @@ const combo = createComboMeter({ scope: comboScope(new URLSearchParams(window.lo
 const ratingOn = new URLSearchParams(window.location.search).get('rating') !== 'off';
 const fares = createFareSystem(makeRng(runSeed + 55), scene, {
   rating: ratingOn,
+  // The bank rider's coin loads with every one who rides — BANK_ROBBER_STEP in game/fares.js.
+  risingOdds: new URLSearchParams(window.location.search).get('robberyodds') !== 'classic',
   reserved: () => parcels?.occupiedSpots() ?? [],
   judgeRun: () => combo.judge(),
 });
@@ -1200,6 +1202,8 @@ const patrol = createPatrol({
 setSpinStyle(getUturnStyle());
 // The drift launch rolls the taxi a full turn in mid-air; `?barrelroll=classic` flies it level.
 setBarrelRoll(new URLSearchParams(window.location.search).get('barrelroll'));
+// A hop always comes down; `?hop=classic` lets the brake park the taxi in mid-air again.
+setHopStyle(new URLSearchParams(window.location.search).get('hop'));
 const bootleg = createBootleg({
   taxi: traffic.taxi,
   destination: () => traffic.taxi.pendingTarget ?? null,
@@ -1749,7 +1753,23 @@ const harborShips = createHarborShips(scene, makeRng(runSeed + 431), harbor?.ber
 // emptiest road in the city with a ramp at each end. Run seed, like the flyover: which street and
 // when is part of the situation rather than part of the map.
 const roadwork = createRoadwork(makeRng(runSeed + 177), scene, camera);
+// Stuntman (Tyler, 2026-10-14): smashing through a barricade is a combo, and pays Loco back the way
+// a drift's first kick does. Any smash counts, at any speed — the taxi only gets there by being
+// routed down a street the city has closed, which is the choice; the hop off the trestle is what
+// it earns. `?stuntman=classic` keeps the smash as scenery and nothing else.
+const stuntman = new URLSearchParams(window.location.search).get('stuntman') !== 'classic';
+const STUNTMAN_FUEL = DRIFT_CHAIN.fuel[0];
 roadwork.onSmash(({ x, z }) => {
+  if (stuntman && !fares.state.gameOver) {
+    flyEnergyToBoost({
+      from: taxiScreenPos,
+      to: fuelScreenPos,
+      delay: 0,
+      onArrive: () => boost.topUp(STUNTMAN_FUEL),
+    });
+    haptic('drift-kick');
+    landCombo('stuntman');
+  }
   // Just under half the wreck's 2.4. It was 0.55, which is the shake a *kerb* would earn — this is
   // a trestle exploding across the windscreen, and the camera has to admit that something happened.
   // Still short of the wreck, because the wreck ends the run and this does not.

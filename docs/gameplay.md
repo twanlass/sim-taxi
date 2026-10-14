@@ -1619,7 +1619,15 @@ in `game/fares.js`).
 Every combo the taxi lands on a job steps a multiplier up, and the drop-off pays the fare at it
 (`game/combometer.js`, Tyler's idea after the Duolingo combo streak). It starts each ride at ×1: an
 overtake or a bootleg U-turn +0.5, a drift kick +0.5 per chain tier (so a full chain of three is
-+3), the bridge launch +2, capped at ×5. Combos only count on a job — from the tap that sends the
++3), **Stuntman** +1, the bridge launch +2, capped at ×5.
+
+Stuntman is smashing through a [roadworks](traffic.md#roadworks-a-street-closed-at-both-ends)
+barricade, at any speed (Tyler, 2026-10-14). It also pays a sixth of the Loco tank back on the
+energy bits a drift kick uses, the same refund as the first kick of a chain (`DRIFT_CHAIN.fuel[0]`).
+The refund lands whether or not there is a job in hand; the step, like every combo, only on one.
+The zone comes up once a run, so this is a once-a-run move; the router already prices the closed
+street cheap and aims a drop-off at it, so a player on a fare usually gets the chance.
+`?stuntman=classic` makes the smash scenery again: no step, no refund. Combos only count on a job — from the tap that sends the
 taxi at a rider, through the pickup, to the drop-off (`fares.job()`) — so a stunt done idling
 between fares builds nothing.
 
@@ -1809,7 +1817,10 @@ you to smash, the one thing that ended a run outright. `?capture=classic` keeps 
 [bank](city.md#the-bank) — a low stone building under a colonnade with a dome behind it. **Now and
 then a rider spawns on its steps** (`BANK_CHANCE`: 30% of qualifying spawns from the second
 delivery, 35s after the last one left the board; #499). They are an ordinary tappable fare. Tap
-them and pull up, and a coin tossed when they spawned decides it: heads they get in like anybody
+them and pull up, and a coin tossed when they spawned decides it — **a loaded one**: even odds on
+the first bank rider of a run, then 15 points more robbery for each one who rode (50, 65, 80, 95,
+capped there), back to even once a robbery happens (`BANK_ROBBER_STEP`; #522,
+`?robberyodds=classic` for a fair coin every time). Heads they get in like anybody
 else; tails a robber bursts out of the bank, shoves them over and takes their seat — see
 [the bank job](#the-bank-job) — and the streets go blue for as long as it takes to get the robber
 where they are going. `?bankfare=classic` restores the drive-past robbery, where passing the bank
@@ -1984,7 +1995,10 @@ player *sees* the robber get in.
 
 **It starts with the bank rider** (`BANK_CHANCE` in game/fares.js: 30% of qualifying spawns, from
 the second delivery, the bank junction within the spawn box, 35s after the last one left the
-board). A coin is tossed when they spawn. Tap them and pull up: heads they get in like anybody
+board). A coin is tossed when they spawn, loaded by every bank rider who has ridden since the last
+robbery: 50% robbery, then 65, 80 and 95, back to 50 after one fires (`BANK_ROBBER_STEP` in
+game/fares.js; a rider who got in because the gates were shut counts as one who rode). Keep taking
+the bank's fares and you are pushing your luck. Tap them and pull up: heads they get in like anybody
 else; tails, and if the robbery's fairness gates are open at that moment (`swapReady` in
 game/robbery.js — every [gate](#the-trigger) but the drive-past's range, with the bank rider's own
 clock left out of the calm test), they leave the board without a strike and the robber takes their
