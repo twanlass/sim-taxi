@@ -3042,6 +3042,34 @@ of the tailpipe for exactly as long as the button is down (`game/locoflame.js`, 
 [rendering.md](rendering.md#the-tailpipe-plume--gamelocoflamejs)). The burst is the bark on the
 press; this is what says the mode is *still on*, which nothing but the draining fuel gauge said before.
 
+## The warehouse shortcut
+
+One street in every city runs through a warehouse (the building is in
+[city.md](city.md#the-warehouse-shortcut)). With its doors shut it is a wall. Hold **Loco Mode**
+and it becomes a way through: the taxi hits the door, it bursts open, and the car comes out of the
+far door in a ball of dust. Shipped as **boost smash**, Tyler's pick from three on 2026-10-14 (the
+other two were "the router always uses it" and "tap the warehouse to open it").
+
+- **The router only sees the street while the boost is held.** Its two lanes cost Infinity in
+  `laneCost` until `setPassageOpen(true)` (game/route.js), which main.js sets from `taxi.boost` on
+  the frame it changes. That flag covers the one-second tail after release. Opening re-plans the
+  trip only if the shortest way now runs through the shed, so the route band snaps through the
+  building the moment the button goes down. Closing re-plans only if the route still uses the street
+  and the taxi has not yet turned onto it (`onPassage`). A tapped street or a package detour is left
+  alone either way.
+- **Too slow to the door is a wall.** A taxi that let go a whole lane short reaches the line with
+  `taxi.boost` false. `refusesLane` (sim/traffic.js) drops the route there, the taxi turns as if the
+  street were not there, and main.js re-plans from the far side (`detoured`).
+- **Nobody follows.** Ambient cars weigh the turn in at zero, and every other routed car (the
+  patrol, the robbery's cops, the fire engine) prices it at Infinity (`serviceLaneCost`) and is
+  refused it at the line. A boosting taxi with cops behind it loses them through the shed.
+- **The smash.** `game/shortcut.js` watches for the taxi's nose at a shut door while it is on the
+  street or turning onto it. Going in: a shake of 1.0, the crash sound pitched up, a dust burst and
+  sparks. Coming out is the payoff: a bigger shake, and a dust ball opened as a collar so it rolls
+  out of the opening. Both grow with how far into overdrive the taxi is.
+- **What it does not do yet.** It pays nothing and does not feed the combo meter, and a fare's clock
+  set while the boost is held is budgeted with the street open.
+
 ## The burger run
 
 **Tap the burger joint.** The taxi drives itself round to the drive-through, crawls the lane, stops

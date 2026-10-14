@@ -78,7 +78,10 @@ import { createRepairFx } from '../src/game/repairfx.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
 import {
   findRoute as planRoute, setRoadworkLanes, setBlockedLanes, setHazardLanes, laneCost, serviceLaneCost,
+  setPassageOpen, routeUsesPassage, isPassageLane,
 } from '../src/game/route.js';
+import { createWarehouse } from '../src/city/warehouse.js';
+import { createShortcut } from '../src/game/shortcut.js';
 import { createCollisions, TAXI_HP, bumpDamage, penetration } from '../src/sim/collisions.js';
 import { createTaxiDamage } from '../src/game/taxidamage.js';
 import { createCarDamage } from '../src/game/cardamage.js';
@@ -20589,6 +20592,116 @@ let chopperOrder; // likewise
   check('graveyard: every city gets a double block, off downtown, with the road through it closed',
     placed === N && downtown === 0 && open === 0 && shared === 0,
     `${placed}/${N} placed, ${downtown} downtown, ${open} with the road open, ${shared} sharing a block`);
+}
+
+// The warehouse shortcut (city/warehouse.js, game/shortcut.js): a street that is a wall to every
+// car but a boosting taxi. Asked of the router, of the sim at the hold line, and of the doors — and
+// swept over cities for the one placement rule that can break the game, a junction left as a
+// cul-de-sac. The layout this run measures against is rebuilt at the end (CLAUDE.md).
+{
+  const lot = layout.warehouseLot;
+  check('warehouse: the city puts one somewhere', Boolean(lot) && lot.blocks.every((b) => b.type === 'warehouse'),
+    lot ? `street on line ${lot.street.i}, ${lot.street.j0}-${lot.street.j1}` : 'none');
+  check('warehouse: the tower generator leaves its blocks alone', (() => {
+    const p = buildings.mesh.geometry.attributes.position;
+    const b = lot.bounds;
+    for (let i = 0; i < p.count; i++) {
+      if (p.getX(i) > b.x0 && p.getX(i) < b.x1 && p.getZ(i) > b.z0 && p.getZ(i) < b.z1) return false;
+    }
+    return true;
+  })());
+  const { i, j0, j1 } = lot.street;
+  const net = cityNetwork();
+  const lanes = [net.laneOutByGrid(DIR.PZ, i, j0), net.laneOutByGrid(DIR.NZ, i, j1)];
+  check('warehouse: its street stays in the network, both lanes closed to traffic',
+    lanes.every(Boolean) && !isSegmentClosed(i, j0, DIR.PZ) && lanes.every((l) => isLaneClosed(l.id) && isPassageLane(l)));
+
+  const from = { i, j: j0, d: DIR.PZ };
+  setPassageOpen(false);
+  const shut = planRoute(from, { i, j: j1 });
+  setPassageOpen(true);
+  const open = planRoute(from, { i, j: j1 });
+  const service = planRoute(from, { i, j: j1 }, serviceLaneCost);
+  setPassageOpen(false);
+  check('warehouse: the router goes round while shut and straight through under boost, the police never',
+    shut && !routeUsesPassage(from, shut) && open?.length === 1 && open[0] === DIR.PZ
+      && service && !routeUsesPassage(from, service),
+    `shut ${JSON.stringify(shut)}, open ${JSON.stringify(open)}, service ${JSON.stringify(service)}`);
+
+  // The hold line: a taxi routed straight through goes in only with the boost down. Without it the
+  // route is refused at the line and flagged for main.js to re-plan.
+  const drive = (boost) => {
+    const traffic = createTraffic(makeRng(seed + 44), new THREE.Scene(), 1);
+    const taxi = traffic.taxi;
+    placeCar(taxi, DIR.PZ, i, j0, 10);
+    taxi.route = [DIR.PZ, DIR.PZ];
+    taxi.boost = boost;
+    for (let k = 0; k < 600 && taxi.state !== 'turn'; k++) traffic.update(1 / 60);
+    for (let k = 0; k < 600 && taxi.state === 'turn'; k++) traffic.update(1 / 60);
+    return { lane: taxi.lane?.id, detoured: Boolean(taxi.detoured) };
+  };
+  const slow = drive(false);
+  const fast = drive(true);
+  check('warehouse: at the line, a boosting taxi drives in and one without boost is turned away',
+    fast.lane === lanes[0].id && slow.lane !== lanes[0].id && slow.detoured,
+    `boost -> ${fast.lane}, none -> ${slow.lane} (detoured ${slow.detoured})`);
+
+  const shed = createWarehouse(lot, makeRng(seed + 151));
+  let outside = 0;
+  let top = 0;
+  for (const mesh of shed.meshes) {
+    const p = mesh.geometry.attributes.position;
+    const b = lot.bounds;
+    for (let k = 0; k < p.count; k++) {
+      if (p.getX(k) < b.x0 || p.getX(k) > b.x1 || p.getZ(k) < b.z0 || p.getZ(k) > b.z1) outside += 1;
+      top = Math.max(top, p.getY(k));
+    }
+  }
+  check('warehouse: the shed stands inside its two blocks, under 8 units tall',
+    outside === 0 && top < 8, `${outside} vertices outside, tallest ${top.toFixed(2)}`);
+
+  // The doors: a taxi driven up the street bursts the one it goes in by and then the one it leaves
+  // by, the second flagged as the exit, and neither comes down while the car is inside.
+  const { site } = shed;
+  const levels = [0, 0];
+  const smashes = [];
+  const doors = createShortcut({
+    site, setDoor: (n, v) => { levels[n] = v; }, onSmash: (e) => smashes.push(e),
+  });
+  const fake = { x: site.cx + 2, z: site.wall.z0 - 8, yaw: -Math.PI / 2, v: 20, crashed: false };
+  let closedOnCar = false;
+  for (let k = 0; k < 120; k++) {
+    fake.z += fake.v / 60;
+    doors.update(1 / 60, fake);
+    if (doors.inside(fake) && doors.state.doors.some((d) => d.state === 'closing')) closedOnCar = true;
+  }
+  check('warehouse: the doors burst going in and coming out, and stay up over the car',
+    smashes.length === 2 && !smashes[0].exit && smashes[1].exit && levels.every((v) => v === 1) && !closedOnCar,
+    `${smashes.length} smashes, exits ${smashes.map((e) => e.exit)}, doors ${levels}`);
+  for (let k = 0; k < 600; k++) doors.update(1 / 60, fake);
+  check('warehouse: once the taxi is clear, both doors roll back down', levels.every((v) => v === 0),
+    `doors ${levels}`);
+
+  let placed = 0;
+  let dead = 0;
+  const N = 24;
+  for (let c = 0; c < N; c++) {
+    const sweep = createLayout(makeRng(seed + 9000 + c * 17));
+    const w = sweep.warehouseLot;
+    if (!w) continue;
+    placed += 1;
+    // From every arrival at either end, the other end is still reachable with the street shut.
+    for (const [a, b] of [[w.street.j0, w.street.j1], [w.street.j1, w.street.j0]]) {
+      for (const d of [DIR.PX, DIR.PZ, DIR.NX, DIR.NZ]) {
+        if (!cityNetwork().laneByGrid(d, w.street.i, a)) continue;
+        if (isPassageLane(cityNetwork().laneByGrid(d, w.street.i, a))) continue;
+        if (!planRoute({ i: w.street.i, j: a, d }, { i: w.street.i, j: b })) dead += 1;
+      }
+    }
+  }
+  createLayout(makeRng(seed));
+  check('warehouse: every city gets one, and neither end of its street is left a dead end',
+    placed === N && dead === 0, `${placed}/${N} placed, ${dead} arrivals with no way out`);
 }
 
 // The rare classics (CLASSIC_MODELS in sim/traffic.js). Looks only: the model is read off `phase`

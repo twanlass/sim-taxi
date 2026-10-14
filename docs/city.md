@@ -768,6 +768,40 @@ same measure of darkness as the helicopter's searchlight.
   braked to a stop *inside* the next junction and gridlocked the cops, a robber measured against
   after they had got into the car, a drive-through visit that waited on traffic held to the clip's length (the last two are #483's fixes, taken verbatim).
 
+## The warehouse shortcut
+
+`city/warehouse.js` builds the shed and `game/shortcut.js` runs its doors. Two blocks side by side
+along X sit under one low brick shed, and the north-south street between them runs through the
+middle of it, with a roller door at each end. To every car in the city but one it is a wall. A
+taxi under Loco Mode can drive straight through: the door bursts open as it hits it, and the car
+comes out of the far door in a ball of dust. The gameplay half is in
+[gameplay.md](gameplay.md#the-warehouse-shortcut). `?warehouse=classic` (or `WAREHOUSE=classic`
+for the headless tools) leaves the two blocks to the towers.
+
+- **The street is closed by lane, not by segment.** The graveyard and the park districts delete
+  their road from the network (`setClosedSegments`), and after that nothing can drive it. This
+  keeps the edge and closes its two lanes the way roadworks close theirs:
+  `setClosedLanes(ids, 'warehouse')` for ambient traffic and `setPassageLanes` for the taxi's
+  router, both installed by `createLayout` beside the network they name. So every tool that builds
+  a city gets the same closure the game does. Nothing spawns on the lanes, either.
+- **Chosen last and without a draw.** The pair is picked after the depot, the burger joint and the
+  graveyard, from `'built'` blocks only, and hashed off the park districts' positions. Adding it
+  moves nothing but the towers on its two blocks. It is never across an arterial, and both of the
+  street's junctions must keep two other open arms, because a closed street that leaves a cul-de-sac
+  makes a junction no router can leave. Off the ring and out of downtown are preferred. Every city
+  in a 40-seed sweep gets one.
+- **Side by side, so one door faces the camera.** The street runs along Z, so one door is on the +Z
+  face and in view. A taxi heading +Z bursts *out* of the front of the building, which is the half
+  of the gag worth seeing. Heading −Z, it bursts in at the front and out round the back.
+- **Low.** The eaves are 5.2 over the pavement with a sawtooth roof, glazed to +Z, on top. It is a
+  shed among towers, and the camera has to see over it. The taxi inside is shown by its ghost
+  outline like anywhere else it is hidden.
+- **The doors are the depot's curtain.** Slats rise by a clamp and collapse at the lintel
+  (`setDoor`). Hit, a door is fully up in a tenth of a second. It rolls back down at the depot's
+  pace once the taxi is six units clear of the shed, never onto a car still inside it.
+- **The tunnel walls stand 0.06 off each kerb line** (`KERB_PROUD`). Exactly on it, they would
+  share a plane with the kerb's own riser.
+
 ## The bank
 
 `src/city/bank.js`. One per city: a low, wide stone building with a colonnade under a pediment and a

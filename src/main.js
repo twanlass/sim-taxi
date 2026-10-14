@@ -33,6 +33,8 @@ import { createCanopyFuzz } from './city/canopyfuzz.js';
 import { createGarage } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import { createGraveyard } from './city/graveyard.js';
+import { createWarehouse } from './city/warehouse.js';
+import { createShortcut } from './game/shortcut.js';
 import { plantedCrowns } from './city/props.js';
 import {
   createTraffic, placeCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
@@ -135,6 +137,7 @@ import { createPause } from './game/pause.js';
 import { createInspect } from './game/inspect.js';
 import {
   findRoute, findRouteVia, findRouteOnto, findRouteAlong, planOrigin, crossingOrigin, carryOn,
+  setPassageOpen, routeUsesPassage, onPassage,
 } from './game/route.js';
 import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.js';
 import { createPathDrag } from './game/pathdrag.js';
@@ -692,6 +695,15 @@ if (graveyard) {
   scene.add(graveyard.group);
   graveyard.meshes.forEach(markOccluder);
 }
+// The warehouse shortcut — two blocks and the street between them under one shed, a wall to every
+// car but a boosting taxi (city/warehouse.js). `null` on `?warehouse=classic` or a city with no
+// pair to put it on. The doors, and what happens when the taxi hits them, are wired further down.
+const warehouse = layout.warehouseLot
+  ? createWarehouse(layout.warehouseLot, makeRng(seed + 151)) : null;
+if (warehouse) {
+  scene.add(warehouse.group);
+  warehouse.meshes.forEach(markOccluder);
+}
 // Every tree in the city, whoever planted it (`plantedCrowns`, city/props.js) — so a new kind of
 // tree can't come out without its leaves.
 const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), plantedCrowns());
@@ -781,7 +793,7 @@ if (burger) {
 // comes and goes, and the boards would have to be re-asked every time one moved.
 const occluders = setCityOccluders(
   city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? []),
-  ...(graveyard?.meshes ?? []),
+  ...(graveyard?.meshes ?? []), ...(warehouse?.meshes ?? []),
 );
 // The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).
 setGlossCity(occluders, SKYLINE_CEILING);
@@ -1406,7 +1418,7 @@ const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, ...(westEdge ? [westEdge.towers] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
-    ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []),
+    ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(warehouse?.meshes ?? []),
     ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
     ...(props.pondMesh ? [props.pondMesh] : [])],
@@ -1418,7 +1430,8 @@ const cityEntry = createCityEntry({
     ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
     ...(ltrain?.entryObjects ?? [])],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
-    ...(burger ? [burger.entrySite] : []), ...(graveyard ? [graveyard.entrySite] : [])],
+    ...(burger ? [burger.entrySite] : []), ...(graveyard ? [graveyard.entrySite] : []),
+    ...(warehouse ? [warehouse.entrySite] : [])],
   dust,
   // The spawn point for now — the wave is re-aimed at the taxi's *post-warmup* position at the
   // bottom of this file, which is where the player actually first sees the car.
@@ -1734,6 +1747,34 @@ roadwork.onSmash(({ x, z }) => {
   // impact read as exhaust rather than as hitting something. See `dust.burst`.
   dust.burst(x, z, traffic.taxi.yaw);
 });
+// The warehouse's doors (game/shortcut.js). A door hit going in is the roadworks smash turned up a
+// notch — it is a roller door, not a trestle. The door the taxi leaves by is the payoff: the big
+// dust ball Tyler asked for, thrown out of the opening along the car's heading and opened as a
+// collar so it rolls out of the building rather than sitting on the bonnet. Both scale on speed,
+// so a taxi deep into overdrive leaves the bigger cloud.
+const shortcut = warehouse ? createShortcut({
+  site: warehouse.site,
+  setDoor: warehouse.setDoor,
+  committed: onPassage,
+  onSmash: ({ x, z, yaw, exit, v }) => {
+    const hit = Math.max(0, Math.min(1, (v - SPEED) / Math.max(1e-6, boostCruise() - SPEED)));
+    controller.kickShake(exit ? 1.2 + 0.4 * hit : 1.0);
+    sfx?.play('crash', { gain: exit ? 0.6 : 0.5, rate: exit ? 1.05 : 1.2 });
+    haptic('drift-kick');
+    if (exit) {
+      dust.burst(x, z, yaw, 36, 1.5 + 0.5 * hit, { ring: 1.8, linger: 1.8, startSize: 1.1 });
+      dust.burst(x, z, yaw, 16, 1.0, { linger: 1.4, startSize: 0.8 });
+    } else {
+      dust.burst(x, z, yaw, 18, 1.0 + 0.3 * hit, { linger: 1.1 });
+    }
+    sparks.burst(x, 1.2, z, yaw, exit ? 10 : 7, v * 0.5, { lift: 1.4 });
+  },
+}) : null;
+// Whether the taxi's router may plan through the warehouse: only under boost. Tracked so the
+// re-plan happens on the edge rather than every frame (CLAUDE.md: re-planning every frame stalls
+// the taxi).
+let passageWasOpen = false;
+
 // Touchdown, off whichever ramp — the roadworks barricade or the crest of an arched bridge under
 // Loco Mode. One handler for both, because it is one event: `traffic.onTaxiLand` fires on the frame
 // the arc ends and hands over where it landed, how fast, and how high the surface under it is.
@@ -2331,6 +2372,18 @@ function onwardFrom(target) {
  * keeps the same destination must pass the same object rather than an equal one — otherwise every
  * frame of a drag replays the sweep and the band never finishes drawing itself.
  */
+/**
+ * Re-plan the taxi's current trip through whoever owns it: a burger run or a depot run knows which
+ * way it has to arrive and the plain `routeTo` does not. What a pass's detour and the warehouse's
+ * boost edge both want.
+ */
+function rerouteTaxi() {
+  if (!traffic.taxi.pendingTarget) return;
+  if (burgerRun?.active()) burgerRun.reroute(null);
+  else if (depotRun?.active()) depotRun.reroute(null);
+  else routeTo(traffic.taxi.pendingTarget);
+}
+
 function routeTo(target, { via = null, along = null, maxDetour, onto = null } = {}) {
   const car = traffic.taxi;
   const plan = (from) => (along
@@ -5351,10 +5404,28 @@ function tick() {
   // arrive and the plain `routeTo` does not.
   if (traffic.taxi.detoured) {
     traffic.taxi.detoured = false;
-    if (traffic.taxi.pendingTarget) {
-      if (burgerRun?.active()) burgerRun.reroute(null);
-      else if (depotRun?.active()) depotRun.reroute(null);
-      else routeTo(traffic.taxi.pendingTarget);
+    rerouteTaxi();
+  }
+  // The warehouse opens to the router on the frame the boost goes down and shuts on the frame it
+  // comes off — `taxi.boost`, so the one-second tail after release still counts. Re-planned only when
+  // it changes the answer: opening re-plans if the shortest way now runs through the shed, closing
+  // if the route still does and the taxi has not yet turned onto the street. Anything else the
+  // route was carrying — a tapped street, a package detour — is left alone.
+  if (warehouse) {
+    const open = traffic.taxi.boost && !traffic.taxi.crashed && !traffic.taxi.staged;
+    if (open !== passageWasOpen) {
+      passageWasOpen = open;
+      setPassageOpen(open);
+      const car = traffic.taxi;
+      if (car.pendingTarget) {
+        const from = planOrigin(car);
+        if (open) {
+          const via = findRoute(from, car.pendingTarget);
+          if (routeUsesPassage(from, via)) rerouteTaxi();
+        } else if (routeUsesPassage(from, car.route) && !onPassage(car)) {
+          rerouteTaxi();
+        }
+      }
     }
   }
   sfx?.update(dt, traffic.taxi, {
@@ -5433,6 +5504,7 @@ function tick() {
   drawbridge?.update(dt, traffic.cars);
   tickRiverWater(dt);
   roadwork.update(dt, traffic.taxi, traffic.cars, fares.occupiedSpots());
+  shortcut?.update(dt, traffic.taxi);
   // After the traffic step for the same reason: it rides the truck's instance matrix, which has to
   // be this frame's, and it tests crates against the cars where they now are.
   flatbed.update(dt, traffic.taxi, traffic.cars);
@@ -6182,6 +6254,11 @@ if (shot) {
     controller.update(aspect());
   }
 
+  if (shot.atWarehouse && warehouse) {
+    controller.state.target.set(warehouse.site.cx, 0, warehouse.site.wall.z1);
+    controller.update(aspect());
+  }
+
   if (shot.atDepot && garage) {
     controller.state.target.set(garage.site.focus.x, 0, garage.site.focus.z);
     controller.update(aspect());
@@ -6712,6 +6789,13 @@ window.__taxi = {
   /** The elevated train, or null under `?ltrain=classic` — see game/ltrain.js. */
   ltrain,
   roadwork,
+  /**
+   * The warehouse shortcut, or null: the shed (`site`, `setDoor`, city/warehouse.js) and its doors'
+   * state machine (`shortcut.state`, game/shortcut.js). `placeCar` beside it so a tool can put the
+   * taxi on the approach and hold Loco Mode into the door.
+   */
+  warehouse: warehouse && { ...warehouse, shortcut },
+  placeCar,
   /** The truck that sheds crates. `flatbed.stage()` starts it now; `state`, `crates`, `loose()`. */
   flatbed,
   /** Box trucks spilling their load. `boxSpill.hit(truck, closing)` rams one; `boxes`, `doors`. */

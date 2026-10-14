@@ -85,6 +85,56 @@ export function setHazardLanes(ids) {
   hazardLanes = new Set(ids);
 }
 
+/**
+ * The street through the warehouse (city/warehouse.js), installed by `createLayout` with the
+ * network it names, and whether the taxi may plan through it right now.
+ *
+ * Closed, not cheap: unlike the roadworks lure above, the warehouse is a wall until the player
+ * holds Loco Mode, and a shortcut nobody asked for is not one. So the lanes cost Infinity — which
+ * `search` refuses to pay, the way it refuses a raised bridge — until main.js opens them on the
+ * frame the boost goes down, and re-plans. To every other router (`serviceLaneCost`) they are
+ * always a wall: the police do not follow the taxi through, which is half the fun.
+ */
+let passageLanes = new Set();
+let passageOpen = false;
+export function setPassageLanes(ids) {
+  passageLanes = new Set(ids);
+}
+export function setPassageOpen(open) {
+  passageOpen = Boolean(open);
+}
+/** Is this lane (or lane id) the warehouse's street? */
+export const isPassageLane = (lane) => passageLanes.has(typeof lane === 'string' ? lane : lane?.id);
+/**
+ * Is the car on the warehouse's street, or in the junction turning onto it? What decides that a
+ * taxi has committed to the shortcut: past this, letting go of the boost no longer re-plans it off.
+ */
+//
+// `car.lane` is still the lane a turn started from until the turn ends, and a turn starts at the
+// hold line — which, at the far end of the shed, is *inside* it. So a taxi pulling out of the far
+// door is on the street by its lane, whatever its turn says.
+export const onPassage = (car) => passageLanes.has(car.lane?.id)
+  || (car.state === 'turn' && passageLanes.has(car.turn?.outLane));
+
+/**
+ * Does this route, driven from `from`, go through the warehouse? Walks the directions the way the
+ * car will: the lane out of each junction, then the junction at its far end.
+ */
+export function routeUsesPassage(from, route) {
+  if (!passageLanes.size || !route?.length) return false;
+  const net = cityNetwork();
+  let { i, j } = from;
+  for (const d of route) {
+    const lane = net.laneOutByGrid(d, i, j);
+    if (!lane) return false;
+    if (passageLanes.has(lane.id)) return true;
+    const next = net.nodeById.get(lane.to);
+    i = next.gi;
+    j = next.gj;
+  }
+  return false;
+}
+
 /** Whether a route may use this lane at all. */
 export const laneOpen = (lane) => !blockedLanes.has(lane.id);
 
@@ -115,6 +165,7 @@ export function laneCost(lane) {
   // lane shortens as many routes as it bends. Without the aimed drop-off the same weights give
   // 33% / 67% / 67% / 67%, which is the measurement that says the two mechanisms are both needed:
   // this discount cannot pull a route that was never heading that way.
+  if (passageLanes.has(lane.id)) return passageOpen ? EDGE_COST.side : Infinity;
   if (hazardLanes.has(lane.id)) return EDGE_COST.side + HAZARD_COST;
   if (roadworkLanes.has(lane.id)) return EDGE_COST.roadwork;
   if (lane.klass === 'ring') return EDGE_COST.ring;
@@ -139,7 +190,8 @@ export function laneCost(lane) {
  * reachable down their other arms and nothing becomes unroutable. A route planned before the zone
  * stood up is caught at the line instead, where traffic.js refuses it.
  */
-export const serviceLaneCost = (lane) => (roadworkLanes.has(lane.id) ? Infinity : laneCost(lane));
+export const serviceLaneCost = (lane) => (roadworkLanes.has(lane.id) || passageLanes.has(lane.id)
+  ? Infinity : laneCost(lane));
 
 /** The search's one non-lane state: "arrived at the origin junction, about to choose". */
 const START = Symbol('start');

@@ -306,6 +306,23 @@ export const PALETTE = {
   // shows its back, so there is no pale edge for a white band to be confused with.
   cashBand: '#F7F7F2',
 
+  // --- The warehouse shortcut -------------------------------------------------
+  // The shed two blocks wide with a street through it (city/warehouse.js). Brick a shade redder and
+  // darker than the towers' `brick` (#A06A57), so it reads as an older, lower building than its
+  // neighbours rather than as one of them cut short.
+  warehouseWall: '#93573F',
+  warehouseTrim: '#3E4146',
+  warehouseRoof: '#6F757D',
+  // The sawtooth's glazing and the high windows: a dusty blue, lighter than `slate`, so the teeth
+  // read as glass catching the sky rather than as more roof.
+  warehouseGlass: '#8EA7B8',
+  // Corrugated roller doors, pale against the brick so the two openings are the first thing seen.
+  warehouseDoor: '#C3C6C2',
+  // The tunnel's inside, the depot's `garageBay` dark: an opening is a hole.
+  warehouseBay: '#2E3135',
+  // The hazard posts either side of each door.
+  warehouseHazard: '#F0BE2C',
+
   // --- The bank ---------------------------------------------------------------
   // The city's one bank (city/bank.js), and the third building the tower generator does not draw.
   // Unlike the depot and the burger joint its envelope stays **inside** the muted family every
