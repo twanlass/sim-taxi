@@ -206,16 +206,17 @@ export function centralParkGround(park, rng, { kerbH, markY }) {
 }
 
 /**
- * Chevrons down a one-way park road — at the entrance, halfway and the exit, pointing the way
- * traffic runs. One flat ">" each, built in its own frame (+X forward) and turned onto the road's
- * tangent; a `ShapeGeometry` winds itself to face up whichever way its points go.
+ * Chevrons down a one-way park road — a quarter, half and three quarters of the way along, pointing
+ * the way traffic runs. The outer two once sat 7 units in from each junction, close enough to read as
+ * part of the junction paint (Tyler's call); the quarter points put them mid-arc, ~10.5 in.
+ * One flat ">" each, built in its own frame (+X forward) and turned onto the road's tangent; a `ShapeGeometry` winds itself to face up whichever way its points go.
  */
 function onewayArrows(pointAt, total, dir, col, y) {
   const chevron = [
     [-0.6, 1.5], [0.7, 0], [-0.6, -1.5], [-1.5, -1.5], [-0.2, 0], [-1.5, 1.5],
   ].map(([x, z]) => new THREE.Vector2(x, z));
   const parts = [];
-  for (const s of [7, total / 2, total - 7]) {
+  for (const s of [total / 4, total / 2, (3 * total) / 4]) {
     const { p, t } = pointAt(s);
     const geo = new THREE.ShapeGeometry(new THREE.Shape(chevron));
     geo.rotateX(-Math.PI / 2);
