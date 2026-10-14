@@ -1440,10 +1440,17 @@ just entered the lane, typically. No gate refuses them.
 
 The route gate that was left here went too; see above.
 
-**One courtesy is kept.** A car being passed still does not *choose* a left turn across the taxi
-(`car === taxi.passTarget` in the exit roll). A car that has already committed to one when the taxi
-pulls out will turn into it — that is the case the old gate existed for, and it is now the player's
-risk to read.
+**One courtesy is kept, and half of one gate is back.** A car being passed still does not *choose*
+a left turn across the taxi (`car === taxi.passTarget` in the exit roll). And the taxi does not pull
+out round a car that is *already* part way round a left (`turningAcross`): it tailgates it for the
+fraction of a second the car takes to leave the lane instead. Without it, 12 of 73 passes (24 cities
+× 60s, Loco held) pulled out alongside a car mid-left and spent the rest of its arc grinding down its
+flank, with the contact (`lean` in `sim/collisions.js`) holding the taxi to the car's corner speed —
+boost down to ~10 u/s, side by side, which is how it got reported. The reason the gate was removed
+does not apply to this half of it: it gates only the pull-out, not `canPass`, so a refusal tailgates
+rather than rams, and the car it refuses for is leaving the road anyway. Over a second set of 48
+cities × 60s, passes with any contact while the taxi was level with its car went from 30 of 143 to
+18 of 130; what is left is oncoming and cross traffic, which the player can see coming. `?passturn=classic` pulls out regardless.
 
 #### How dangerous it should be
 

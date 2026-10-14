@@ -697,6 +697,29 @@ const PASS_LATERAL = 2 * LANE;
 /** How far across, and how much road it takes, for a pass on the road this car is currently on. */
 const passLateralOn = (car) => 2 * laneOffsetFor(car.d, car.i, car.j);
 /**
+ * Is this car already part way round a left turn — across the very lane a pass would borrow?
+ *
+ * The one judgement gate brought back from the two that were removed (docs/traffic.md, "How
+ * dangerous it should be"). Pulling out round a car that has already committed to a left put the
+ * taxi alongside it for the rest of its arc: 12 of 73 passes over 24 cities × 60s with Loco held,
+ * the taxi grinding along the car's flank while `lean` (sim/collisions.js) held it to the car's
+ * corner speed — boost speed down to ~10 u/s, side by side (15 of 73 passes touched something
+ * mid-pass before, 8 of 66 after). Reported as "the taxi slows down as
+ * it's side by side with the car it is passing" (Tyler, 2026-10-14).
+ *
+ * It was removed because a refused pass rammed, and that is no longer what a refusal does: this
+ * gates only the pull-out, not `canPass`, so a taxi held behind a car mid-turn tailgates it rather
+ * than driving into it, and the car is off the road inside half a second anyway. A real turn is
+ * the hand, not `state === 'turn'`, which a straight crossing is too (CLAUDE.md).
+ * `?passturn=classic` pulls out regardless, as before.
+ */
+const turningAcross = (car) => passTurnGate && car?.state === 'turn' && car.turn?.hand === 'left';
+let passTurnGate = true;
+/** `?passturn=classic` lets the taxi pull out round a car already turning left; anything else waits. */
+export function setPassTurnGate(name) {
+  passTurnGate = name !== 'classic';
+}
+/**
  * Units of road for the full lane change.
  *
  * It was 7, ramped **linearly** — and a linear ramp is why the manoeuvre read as angular. The
@@ -5559,7 +5582,7 @@ export function createTraffic(
         // is enough, which the passing lab and the probe still drive. Staying out does not ask.
         taxi.passing = locoHeld
           && ((taxi.passing && alongside())
-            || (room && near && taxi.passArmed !== false));
+            || (room && near && taxi.passArmed !== false && !turningAcross(leader)));
         // Latched on the frame the taxi pulls out and held for the whole manoeuvre, rather than
         // re-read per frame: half way through a pass the taxi is *ahead* of this car in lane
         // coordinates, so `leaderOf` has already moved on to whatever is in front of them both.
