@@ -18821,6 +18821,62 @@ let chopperOrder; // likewise
       /-river-(smooth|classic)$/.test(wm.customProgramCacheKey()), wm.customProgramCacheKey());
   }
 
+  // One water shader (Tyler, 2026-10-14: "All new water features should use it"). Every body of
+  // water in the city wears the river's surface (city/riverwater.js), and the patch marks the
+  // material it lands on, so a new pond, lake or fountain that ships as a flat disc fails here. Two
+  // halves, because either alone has a hole:
+  //
+  // - **What is built**: every water mesh the city has — the river and the sea, the duck pond, the
+  //   north park's lake — carries `userData.sharedWater`.
+  // - **What could be built**: a mesh nobody told this check about cannot be found at runtime, so any
+  //   file that paints with a water colour must also import a patch from riverwater.js. That is the
+  //   way a new water feature actually gets written: by reaching for `pondWater` or `riverWater`.
+  {
+    const { createNorthPark } = await import('../src/city/northpark.js');
+    const { getWaterStyle } = await import('../src/city/riverwater.js');
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const waters = [];
+    createRiver(makeRng(seed + 44), layout).group.traverse((o) => {
+      if (o.isMesh && /water/.test(o.name)) waters.push(o);
+    });
+    if (propsBuild.pondMesh) waters.push(propsBuild.pondMesh);
+    const park = createNorthPark(makeRng(seed + 53));
+    if (park) waters.push(park.water);
+    const flat = waters.filter((m) => !m.material.userData.sharedWater);
+    check('water: every body of water in the city wears the shared water shader',
+      waters.length >= 2 && flat.length === 0,
+      `${waters.length} water meshes${flat.length ? `, flat: ${flat.map((m) => m.name).join(', ')}` : ''}`);
+
+    const src = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../src');
+    const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? walk(path.join(d, e.name)) : e.name.endsWith('.js') ? [path.join(d, e.name)] : []);
+    const painters = walk(src).filter((f) => !f.endsWith('palette.js') && !f.endsWith('riverwater.js'))
+      .filter((f) => /PALETTE\.(pondWater|pondShallow|riverWater|riverDeep)\b/.test(fs.readFileSync(f, 'utf8')));
+    const unpatched = painters.filter((f) =>
+      !/import\s*\{[^}]*\bpatch\w*Water\b[^}]*\}\s*from\s*'\.\/riverwater\.js'/.test(fs.readFileSync(f, 'utf8')));
+    check('water: every file that paints with a water colour patches it with the shared shader',
+      painters.length > 0 && unpatched.length === 0,
+      unpatched.length ? unpatched.map((f) => path.relative(src, f)).join(', ') : `${painters.length} files`);
+
+    // And the lake's patch lands, against three's real Lambert source, the river check's way.
+    if (park && getWaterStyle() !== 'classic') {
+      const ls = {
+        uniforms: {},
+        vertexShader: THREE.ShaderLib.lambert.vertexShader,
+        fragmentShader: THREE.ShaderLib.lambert.fragmentShader,
+      };
+      park.water.material.onBeforeCompile(ls, null);
+      check('water: the north park lake\'s patch lands, on a program of its own kind',
+        ls.vertexShader.includes('vWaterWorld = (modelMatrix')
+          && /float edge = max\(length\(off\) \* \(k \/ t - 1\.0\)[\s\S]*outgoingLight = water;[\s\S]*#include <opaque_fragment>/
+            .test(ls.fragmentShader)
+          && 'uPond' in ls.uniforms && 'uWaterTime' in ls.uniforms
+          && park.water.material.customProgramCacheKey().endsWith('-lake'),
+        park.water.material.customProgramCacheKey());
+    }
+  }
+
   // --- The harbor (city/harbor.js): the dock the river opens into at its east mouth.
   //
   // Everything here is scenery past the ring road, so what can go wrong is geometry: a wall facing

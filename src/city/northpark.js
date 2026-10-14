@@ -7,6 +7,7 @@ import {
 } from './grid.js';
 import { KERB_H, EDGE_FADE, FADE_RINGS } from './ground.js';
 import { treeParts } from './props.js';
+import { patchLakeWater, getWaterStyle } from './riverwater.js';
 
 // The big park along the city's north edge (`?northpark=classic` leaves the old apron).
 //
@@ -214,7 +215,11 @@ export function createNorthPark(rng) {
   mesh.receiveShadow = true;
   mesh.name = 'north-park';
 
-  const waterMesh = new THREE.Mesh(water, propMaterial({ ao: false }));
+  // The river's surface, on the duck pond's compose (`patchLakeWater`, city/riverwater.js). Every
+  // body of water wears it — `tools/probe.mjs` checks — except under `?water=classic`.
+  const waterMat = propMaterial({ ao: false });
+  if (getWaterStyle() !== 'classic') patchLakeWater(waterMat, lake);
+  const waterMesh = new THREE.Mesh(water, waterMat);
   waterMesh.receiveShadow = true;
   waterMesh.name = 'north-park-lake';
 
