@@ -5032,6 +5032,8 @@ let bench = null;
 // outright — nothing is stepped or drawn — and `tick` picks up the longer gap through the clock's
 // own delta. The 4 ms of slack is so a vsync that lands a hair early is not skipped as well, which
 // would drop the rate to 20.
+// Set by the talk's `presenter.hold()` — read by the early returns in `tick` below.
+let presenterHeld = false;
 const fpsPin = Number.parseInt(new URLSearchParams(window.location.search).get('fps'), 10);
 const frameRateCap = () => (shot ? 60 : fpsPin > 0 ? fpsPin : qualityOf(settings.get()).frameRate);
 let lastFrameAt = 0;
@@ -5046,7 +5048,7 @@ function frame(t) {
   // the page's pale sky (#dcedf7) for a whole frame, two under the 30 fps cap, reported as a white
   // flash across the screen. Headless under `?squall&fps=30`, 4 of the run's 6 resizes landed
   // that way before the move and none after.
-  governor.frame(t, !pause?.state.paused && !fares.state.gameOver && !document.hidden);
+  governor.frame(t, !pause?.state.paused && !presenterHeld && !fares.state.gameOver && !document.hidden);
   bench?.begin(t);
   tick();
   bench?.end();
@@ -5064,7 +5066,7 @@ function tick() {
   // canvas from an empty buffer, and the city would blink out until the player resumed.
   // The sound stops with the world — both of the early returns below — and starts with it again.
   sfx?.hold(Boolean(pause?.state.paused || robberLine?.isOpen() || newMove?.isOpen()
-    || inspect?.state.on));
+    || inspect?.state.on || presenterHeld));
   // Drawn once, not every frame. Nothing in the world moves while paused, and a canvas that is not
   // drawn keeps showing its last frame — so drawing the same still sixty times a second was pure
   // heat and battery, for as long as the player left the game paused. `stillDrawn` is cleared on a
@@ -5079,6 +5081,13 @@ function tick() {
   // camera handed to game/inspect.js — which moves it from input events, so all this has to do is
   // draw.
   if (inspect?.state.on) {
+    renderFrame();
+    return;
+  }
+  // Held by the talk at /talk/ (see the `presenter` handle on `window.__taxi`): the same freeze
+  // again, for the slide that shows the game as a still before it comes alive. Drawn every frame
+  // rather than once, because the talk moves the camera's projection under the hold.
+  if (presenterHeld) {
     renderFrame();
     return;
   }
@@ -6734,6 +6743,20 @@ window.__taxi = {
   /** The route-band drag, for `tools/smoke.mjs`: `isGrabbing`, `didDrag`, `via`. */
   pathDrag,
   camera: controller,
+  /**
+   * The talk at /talk/ (src/talk/talk.js) drives the game from outside, through a same-origin
+   * iframe. `hold(true)` freezes the world the way the pause does but with nothing drawn over it;
+   * `settle()` finishes the city's entrance at once, so the still is a whole city. Everything else
+   * the talk does — the camera's close-up, hiding the HUD — it does from its own side.
+   */
+  presenter: {
+    hold: (on) => { presenterHeld = Boolean(on); },
+    held: () => presenterHeld,
+    settle: () => {
+      if (cityEntry.running()) cityEntry.settle();
+      if (ltrain?.intro?.running()) ltrain.intro.settle();
+    },
+  },
   /**
    * A world point in viewport pixels, the kerb corner a fare's marks stand on, and the frame the
    * renderer actually draws — for `tools/smoke.mjs`, which uses the three together to work out
