@@ -703,3 +703,11 @@ The first pass at the dust was 5 puffs at power ~0.6 per building, invisible at 
 
 The ⚙️ button used to be always on, but at small widths it sat right where the streak counter now
 lives.
+
+## Flat roofs
+
+Until the lip, a flat roof's cap was one solid box — 0.3 tall on a tower, 0.26 on a courtyard wing,
+0.34 on the depot, 0.25 on the bank — and the deck was its top face. It read as the top of a
+building thanks to the cornice's overhang, but from 33° up every roof was one flat plane of a
+single colour. Tyler asked for a raised lip and a sunk centre for detail; `?roofs=classic` keeps
+the solid cap. See [city.md](city.md).

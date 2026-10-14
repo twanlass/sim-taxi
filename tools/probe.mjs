@@ -15,6 +15,7 @@ import { isParkwayMid, coastWest, coastEast, coastNorth, harborBasin, HARBOR } f
 import { createHarbor } from '../src/city/harbor.js';
 import { coastArcStart, coastArcZ, SEA_CORNER, southShore, parkShore } from '../src/city/harborplan.js';
 import { createLayout } from '../src/city/layout.js';
+import { createNorthPark } from '../src/city/northpark.js';
 import {
   createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
 } from '../src/city/ground.js';
@@ -376,6 +377,38 @@ const onGrass = (city, i, j) => {
   createLayout(makeRng(seed));
   check('every city has corners for a courier job to stand on', leanest >= 16,
     `leanest ${leanest}/${(GRID_I + 1) * (GRID_J + 1)} on seed ${leanestSeed}`);
+}
+
+// --- The north park's drives -----------------------------------------------
+//
+// Decorative, so what can go wrong is that they don't get built, or land on top of each other:
+// `placeDrives` wants one each side of the L and gives a side up when every street on it is under
+// the line or behind the lake's loop, after sliding the lake along to make room. Measured over 40
+// seeds: none without a drive, 3 with only one — all three with the L down the middle street,
+// where the lake has to sit 21 off the line and its loop then covers both streets on its side.
+{
+  let missing = 0;
+  let single = 0;
+  let firstSingle = -1;
+  let overlap = 0;
+  let built = 0;
+  for (let s = 0; s < 40; s++) {
+    createLayout(makeRng(s));
+    const park = createNorthPark(makeRng(s + 53));
+    if (!park) continue;
+    built += 1;
+    const xs = park.drives.map((d) => d.x).sort((p, q) => p - q);
+    if (xs.length === 0) missing += 1;
+    if (xs.length === 1) { single += 1; if (firstSingle < 0) firstSingle = s; }
+    if (xs.length === 2 && xs[1] - xs[0] < 20) overlap += 1;
+    park.mesh.geometry.dispose();
+  }
+  createLayout(makeRng(seed));
+  check('north park: every city gets its arched drive', built === 0 || missing === 0,
+    `${missing}/${built} without one`);
+  check('north park: a drive each side of the L, bar the cities the lake leaves no room in',
+    single <= 3, `${single}/${built} with one${firstSingle >= 0 ? `, first seed ${firstSingle}` : ''}`);
+  check('north park: two drives never share a stretch of wall', overlap === 0, `${overlap}/${built} too close`);
 }
 
 // --- The walk round a park --------------------------------------------------

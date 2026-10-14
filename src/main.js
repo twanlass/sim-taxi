@@ -1570,7 +1570,11 @@ const chopper = createChopper(scene, makeRng(runSeed + 233), city.pad, {
 const HELI_FROM_CHECKPOINT = 1;
 const HELI_TAIL_SECONDS = 6;
 const policeHeli = robbery
-  ? createPoliceHeli(scene, makeRng(runSeed + 457), { groundY: (x, z) => deckHeightAt(x, z).y })
+  ? createPoliceHeli(scene, makeRng(runSeed + 457), {
+    groundY: (x, z) => deckHeightAt(x, z).y,
+    // The first searchlight, before it was softened — see LOOKS in game/policeheli.js.
+    classic: new URLSearchParams(window.location.search).get('helispot') === 'classic',
+  })
   : null;
 // The car the robber was put in, once the arrest has handed it back to traffic: `{ car, left }`.
 let heliTail = null;
