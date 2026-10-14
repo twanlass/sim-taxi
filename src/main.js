@@ -20,6 +20,7 @@ import { createNorthPark } from './city/northpark.js';
 import { createSouthShore } from './city/southshore.js';
 import { createParkShore } from './city/parkshore.js';
 import { createWestEdge } from './city/westedge.js';
+import { createHorizon } from './city/horizon.js';
 import { tickRiverWater, syncRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/riverwater.js';
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
@@ -648,6 +649,11 @@ if (westEdge) scene.add(markOccluder(westEdge.ground), markOccluder(westEdge.tow
 // The northwest corner's asphalt skirt (`?westcorner=classic` drops the corner). Transparent, so not
 // an occluder.
 if (westEdge?.fade) scene.add(westEdge.fade);
+// The city carrying on past the edge of the map and fading into the sky (city/horizon.js,
+// `?horizon=classic` for the bare edge). Not an occluder and not in the entrance wave: it is the
+// world the island stands in, so it is already there while the island builds itself.
+const horizon = createHorizon(makeRng(seed + 63), sky.uniforms);
+if (horizon) scene.add(horizon.mesh);
 
 // Rain Mode's city lights — lit windows over the panes just built, and street lamps. A wet street
 // is a mirror for lamps, and a daytime city has almost none. See game/citylights.js. Their own

@@ -6,9 +6,14 @@ import { DISTANCE, PLAY_ZOOM, DEPTH_PER_SCREEN_UNIT } from './camera.js';
 
 /** The dome's gradient curve. Exported because the haze reads the same gradient — see hazeColor. */
 export const SKY_EXPONENT = 0.7;
+/** The dome's radius, and how far below the origin its gradient is measured from. Exported because
+ * the filler past the edge of the map (city/horizon.js) works out which point of the dome sits
+ * behind each of its fragments, and has to be asking about this dome. */
+export const SKY_RADIUS = 900;
+export const SKY_DROP = 90;
 
 function createSky() {
-  const geometry = new THREE.SphereGeometry(900, 24, 12);
+  const geometry = new THREE.SphereGeometry(SKY_RADIUS, 24, 12);
   const material = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
@@ -30,7 +35,7 @@ function createSky() {
       uniform float exponent;
       varying vec3 vWorldPosition;
       void main() {
-        float h = normalize(vWorldPosition + vec3(0.0, 90.0, 0.0)).y;
+        float h = normalize(vWorldPosition + vec3(0.0, ${SKY_DROP.toFixed(1)}, 0.0)).y;
         gl_FragColor = vec4(mix(bottomColor, topColor, pow(max(h, 0.0), exponent)), 1.0);
       }
     `,

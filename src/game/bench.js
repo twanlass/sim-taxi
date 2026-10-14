@@ -65,6 +65,8 @@ export const BENCH_STEPS = [
   { label: 'paint classic', params: { paint: 'classic' } },
   // What the high rises past the west ring road cost (city/westedge.js): the same city without them.
   { label: 'west edge off', params: { westedge: 'classic' } },
+  // What the city past the edge of the map costs (city/horizon.js): one draw, plain boxes.
+  { label: 'horizon off', params: { horizon: 'classic' } },
   // The tufts on the lawns past the ring road (city/grass.js `EDGE_GRASS`): no draw calls (they ride
   // in the parks' grass mesh) and +12.9k of 651k triangles headless, so what this row measures is
   // the alpha-tested overdraw, which only a phone can answer.

@@ -109,6 +109,45 @@ try {
     throw new Error('sinkShadowCaster: the depth patch did not land in the shader');
   }
 
+  // The city past the edge of the map (city/horizon.js): its haze patch run against three's own
+  // Lambert source, for the reason the sink above is — a replace that misses is a city with no fade
+  // and nothing logged. And its blocks, which must stand clear of every piece of the island's own
+  // land and clear of every street line, so the streets carry on out as open corridors.
+  {
+    const THREE = await import('three');
+    const { hazeMaterial, horizonBlocks, horizonEdges, hazeAt, HORIZON } = await import('../src/city/horizon.js');
+    const { propMaterial } = await import('../src/util/geo.js');
+    const { westBlocks, cornerBlocks } = await import('../src/city/westedge.js');
+    const { northParkBounds } = await import('../src/city/northpark.js');
+    const { lineX, lineZ, GRID_I, GRID_J, HALF_ROAD } = await import('../src/city/grid.js');
+    const hazed = hazeMaterial(propMaterial({ ao: false }), world.sky.uniforms);
+    const lambert = THREE.ShaderLib.lambert;
+    const shader = { vertexShader: lambert.vertexShader, fragmentShader: lambert.fragmentShader, uniforms: {} };
+    hazed.onBeforeCompile(shader);
+    if (!shader.fragmentShader.includes('gl_FragColor.rgb = mix(gl_FragColor.rgb, hzCol, hzF)')
+      || !shader.vertexShader.includes('vHzWorld = (modelMatrix')) {
+      throw new Error('horizon: the haze patch did not land in the shader');
+    }
+    if (!hazed.customProgramCacheKey().endsWith('-horizon')) throw new Error('horizon: no program cache key of its own');
+    if (HORIZON) {
+      const e = horizonEdges();
+      const blocks = horizonBlocks(e);
+      if (blocks.length < 30) throw new Error(`horizon: only ${blocks.length} blocks past the edge`);
+      const park = northParkBounds();
+      const land = [...westBlocks(), ...cornerBlocks()].map((b) => b.bounds)
+        .concat([{ x0: lineX(0) - HALF_ROAD, x1: lineX(GRID_I) + HALF_ROAD, z0: lineZ(0) - HALF_ROAD, z1: lineZ(GRID_J) + HALF_ROAD }])
+        .concat([{ x0: park.x0, x1: park.x1, z0: park.z0, z1: park.z1 }]);
+      const overlaps = (a, b) => a.x0 < b.x1 - 1e-6 && b.x0 < a.x1 - 1e-6 && a.z0 < b.z1 - 1e-6 && b.z0 < a.z1 - 1e-6;
+      for (const { bounds } of blocks) {
+        if (land.some((l) => overlaps(bounds, l))) throw new Error(`horizon: a block at (${bounds.cx}, ${bounds.cz}) stands on the island`);
+        for (let k = -12; k <= GRID_I + 12; k++) {
+          if (lineX(k) > bounds.x0 - HALF_ROAD + 1e-6 && lineX(k) < bounds.x1 + HALF_ROAD - 1e-6) throw new Error('horizon: a block stands in a street');
+        }
+      }
+      if (hazeAt(lineX(-1), lineZ(0), e) !== 0) throw new Error('horizon: the haze reaches onto the island');
+    }
+  }
+
   // The resolution governor (game/governor.js), fed synthetic frame times: a clean 60 holds, a
   // throttled phone steps down within a few windows and stops at a ratio of 1, a stall is not load,
   // and half a minute clean climbs one step back.
