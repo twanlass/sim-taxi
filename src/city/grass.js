@@ -43,6 +43,15 @@ import { BOOMBOX_W, onCourt } from './blacktop.js';
 // general, and here it is what is wanted: what stands behind a tuft in screen space is the lawn it
 // grows out of, so it samples that lawn's occlusion and darkens where the lawn darkens.
 
+/**
+ * The lawns past the ring road — the north park, the park shore beside it and the south shore's
+ * strip — grow the same tufts (`?edgegrass=classic` leaves them flat green). Tyler, 2026-10-14:
+ * "Can we add grass blades to the new parks on south and north edges?"
+ */
+export const EDGE_GRASS = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('edgegrass') !== 'classic'
+  : globalThis.process?.env?.EDGEGRASS !== 'classic';
+
 /** What ground.js lays a park's lawn at — the same number `pond.js` names `GRASS_Y`. */
 const LAWN_Y = KERB_H + 0.01;
 // Sunk a little into the lawn so no lit gap shows under a tuft's root where the card's bottom
@@ -159,60 +168,85 @@ export function planGrass(rng, blocks, {
   for (const poly of blocks.centralPark?.lawnsAt(PARK_EDGE + 0.05) ?? []) {
     areas.push({ bounds: polygonBounds(poly), inside: (x, z) => pointInPolygon(x, z, poly) });
   }
+  const blocked = (x, z, reach) => {
+    if (statue && Math.abs(x - statue.x) < STATUE_PLAZA / 2 + reach
+      && Math.abs(z - statue.z) < STATUE_PLAZA / 2 + reach) return true;
+    if (pond && Math.hypot(x - pond.x, z - pond.z) < pond.r + reach * 0.6) return true;
+    // Off the blacktop, with a card's reach to spare — long grass sprouting from a court's apron
+    // reads as the slab being laid under the lawn rather than in it.
+    if (court && onCourt(court, x, z, reach)) return true;
+    // And off the skatepark's concrete, on the same terms (`onCourt` reads only a slab's centre,
+    // axis and size, which the two share).
+    if (skatepark && onCourt(skatepark, x, z, reach)) return true;
+    // And out from under the boom box beside the court — a radius, since the box is barely
+    // deeper than a tuft is wide.
+    if (boombox && Math.hypot(x - boombox.x, z - boombox.z) < BOOMBOX_W / 2 + reach) return true;
+    // In each bench's own frame, the way `createProps` keeps trunks off them: grass through a
+    // seat is the one arrangement that reads as a rendering fault rather than as a park.
+    return benches.some((bench) => {
+      const cos = Math.cos(bench.yaw);
+      const sin = Math.sin(bench.yaw);
+      const dx = x - bench.x;
+      const dz = z - bench.z;
+      return Math.abs(dx * cos - dz * sin) < BENCH_LEN / 2 + reach * 0.7
+        && Math.abs(dx * sin + dz * cos) < 0.34 + reach * 0.5;
+    });
+  };
+  for (const area of areas) scatter(rng, { ...area, blocked }, tufts);
+  return tufts;
+}
+
+/**
+ * The edge lawns' tufts. Each area comes from the module that laid the lawn (`grass` on what
+ * `createNorthPark`, `createParkShore` and `createSouthShore` return), in the shape `scatter` takes,
+ * and `avoid(x, z, reach)` adds whatever stands on more than one of them — the L's columns.
+ */
+export function planEdgeGrass(rng, areas, avoid = null) {
+  const tufts = [];
   for (const area of areas) {
-    const { x0, z0, x1, z1 } = area.bounds;
-    const attempts = Math.round((x1 - x0) * (z1 - z0) * DENSITY);
-    for (let n = 0; n < attempts; n++) {
-      // Every draw is taken whether the tuft survives or not, so one rule changing does not move
-      // every tuft after it.
-      const x = rng.range(x0, x1);
-      const z = rng.range(z0, z1);
-      const w = rng.range(TUFT_W[0], TUFT_W[1]);
-      const h = rng.range(TUFT_H[0], TUFT_H[1]) * (0.8 + 0.2 * w / TUFT_W[1]);
-      const yaw = rng.range(-YAW_JITTER, YAW_JITTER);
-      const variant = rng.int(0, VARIANTS - 1);
-      const keep = rng.next();
-
-      // Clumps, with a soft edge: a hard threshold on the noise draws its contour lines.
-      const c = clump(x, z);
-      const want = Math.min(1, Math.max(0, (c - 0.22) / 0.28));
-      if (keep > want) continue;
-
-      const reach = w / 2;
-      // The card's two ends, not its root, have to stay on the grass — a tuft spilling over the
-      // walk is grass growing out of the paving. Worked out from the yaw rather than assumed
-      // diagonal: turned 0.6 off the view, a card runs within 11° of a grid axis.
-      const ex = reach * Math.cos(Math.PI / 4 + yaw);
-      const ez = reach * Math.sin(Math.PI / 4 + yaw);
-      if (!area.inside(x + ex, z - ez) || !area.inside(x - ex, z + ez)) continue;
-      if (statue && Math.abs(x - statue.x) < STATUE_PLAZA / 2 + reach
-        && Math.abs(z - statue.z) < STATUE_PLAZA / 2 + reach) continue;
-      if (pond && Math.hypot(x - pond.x, z - pond.z) < pond.r + reach * 0.6) continue;
-      // Off the blacktop, with a card's reach to spare — long grass sprouting from a court's apron
-      // reads as the slab being laid under the lawn rather than in it.
-      if (court && onCourt(court, x, z, reach)) continue;
-      // And off the skatepark's concrete, on the same terms (`onCourt` reads only a slab's centre,
-      // axis and size, which the two share).
-      if (skatepark && onCourt(skatepark, x, z, reach)) continue;
-      // And out from under the boom box beside the court — a radius, since the box is barely
-      // deeper than a tuft is wide.
-      if (boombox && Math.hypot(x - boombox.x, z - boombox.z) < BOOMBOX_W / 2 + reach) continue;
-      // In each bench's own frame, the way `createProps` keeps trunks off them: grass through a
-      // seat is the one arrangement that reads as a rendering fault rather than as a park.
-      const underBench = benches.some((bench) => {
-        const cos = Math.cos(bench.yaw);
-        const sin = Math.sin(bench.yaw);
-        const dx = x - bench.x;
-        const dz = z - bench.z;
-        return Math.abs(dx * cos - dz * sin) < BENCH_LEN / 2 + reach * 0.7
-          && Math.abs(dx * sin + dz * cos) < 0.34 + reach * 0.5;
-      });
-      if (underBench) continue;
-
-      tufts.push({ x, z, w, h, yaw, variant });
-    }
+    const blocked = (x, z, reach) => area.blocked?.(x, z, reach) || (avoid?.(x, z, reach) ?? false);
+    scatter(rng, { ...area, blocked }, tufts);
   }
   return tufts;
+}
+
+/**
+ * Scatter tufts over one lawn, into `tufts`.
+ *
+ * @param area  `{ bounds, inside(x, z), blocked?(x, z, reach), density?(x, z) }`. `inside` is the
+ *              lawn's own outline and is asked of both ends of a card; `blocked` is whatever stands
+ *              on the lawn; `density` (0..1) thins the scatter on top of the clumping.
+ */
+function scatter(rng, area, tufts) {
+  const { x0, z0, x1, z1 } = area.bounds;
+  const attempts = Math.round((x1 - x0) * (z1 - z0) * DENSITY);
+  for (let n = 0; n < attempts; n++) {
+    // Every draw is taken whether the tuft survives or not, so one rule changing does not move
+    // every tuft after it.
+    const x = rng.range(x0, x1);
+    const z = rng.range(z0, z1);
+    const w = rng.range(TUFT_W[0], TUFT_W[1]);
+    const h = rng.range(TUFT_H[0], TUFT_H[1]) * (0.8 + 0.2 * w / TUFT_W[1]);
+    const yaw = rng.range(-YAW_JITTER, YAW_JITTER);
+    const variant = rng.int(0, VARIANTS - 1);
+    const keep = rng.next();
+
+    // Clumps, with a soft edge: a hard threshold on the noise draws its contour lines.
+    const c = clump(x, z);
+    const want = Math.min(1, Math.max(0, (c - 0.22) / 0.28)) * (area.density?.(x, z) ?? 1);
+    if (keep > want) continue;
+
+    const reach = w / 2;
+    // The card's two ends, not its root, have to stay on the grass — a tuft spilling over the
+    // walk is grass growing out of the paving. Worked out from the yaw rather than assumed
+    // diagonal: turned 0.6 off the view, a card runs within 11° of a grid axis.
+    const ex = reach * Math.cos(Math.PI / 4 + yaw);
+    const ez = reach * Math.sin(Math.PI / 4 + yaw);
+    if (!area.inside(x + ex, z - ez) || !area.inside(x - ex, z + ez)) continue;
+    if (area.blocked?.(x, z, reach)) continue;
+
+    tufts.push({ x, z, w, h, yaw, variant });
+  }
 }
 
 /**
@@ -275,12 +309,16 @@ export function grassGeometry(tufts, rng) {
 }
 
 /**
- * The parks' grass: one mesh, one draw.
+ * The parks' grass: one mesh, one draw — the edge lawns' tufts ride in the same mesh, so they cost
+ * triangles and no draw call.
  *
  * @param furniture  `{ benches, statue, pond }` from `createProps`.
+ * @param edges      `{ areas, avoid, rng }` for `planEdgeGrass`, or null. Its own stream, and its
+ *                   tufts appended after the parks', so the edges change nothing in the city.
  */
-export function createGrass(rng, blocks, furniture) {
+export function createGrass(rng, blocks, furniture, edges = null) {
   const tufts = planGrass(rng, blocks, furniture);
+  if (edges && EDGE_GRASS) tufts.push(...planEdgeGrass(edges.rng, edges.areas, edges.avoid));
   const mesh = new THREE.Mesh(grassGeometry(tufts, rng), propMaterial({ cutout: tuftAtlas() }));
   mesh.castShadow = false;
   mesh.receiveShadow = true;

@@ -993,6 +993,72 @@ const onGrass = (city, i, j) => {
     `${inWater} in water, ${onPlaza} on the plaza, ${inBench} under a bench`);
 }
 
+// --- The edge lawns' grass ------------------------------------------------------
+//
+// The north park, the park shore and the south shore grow the same tufts (`?edgegrass=classic`
+// drops them). Tested against the lawns' own geometry rather than the `inside` the planner was
+// handed: north of the park's wall and out of its lake, landward of the south shore's water and off
+// its pavement band, and off the L's footings.
+{
+  const { createParkShore } = await import('../src/city/parkshore.js');
+  const { createSouthShore } = await import('../src/city/southshore.js');
+  const { southKerbZ, shoreZ } = await import('../src/city/harborplan.js');
+  const { planEdgeGrass } = await import('../src/city/grass.js');
+  const { planLTrain, LTRAIN_DIMENSIONS: L } = await import('../src/game/ltrain.js');
+  let north = 0;
+  let south = 0;
+  let pastWall = 0;
+  let inLake = 0;
+  let offShore = 0;
+  let onFooting = 0;
+  for (let s = 0; s < 10; s++) {
+    createLayout(makeRng(seed + s * 41));
+    const park = createNorthPark(makeRng(seed + s * 41 + 53));
+    const parkShoreStrip = createParkShore();
+    const shore = createSouthShore(makeRng(seed + s * 41 + 61));
+    const plan = planLTrain();
+    const cols = plan ? plan.columns.map((a) => plan.world(a)) : [];
+    const avoid = (x, z, reach) => cols.some((c) => Math.abs(x - c.x) < L.FOOTING_W / 2 + reach
+      && Math.abs(z - c.z) < L.FOOTING_W / 2 + reach);
+    const parkTufts = park ? planEdgeGrass(makeRng(1), [park.grass, parkShoreStrip?.grass].filter(Boolean), avoid) : [];
+    const shoreTufts = shore ? planEdgeGrass(makeRng(2), [shore.grass], avoid) : [];
+    north += parkTufts.length;
+    south += shoreTufts.length;
+    const cards = (tufts) => grassGeometry(tufts, makeRng(1)).attributes.position;
+    const ends = (pos, k) => [[pos.getX(k * 6), pos.getZ(k * 6)], [pos.getX(k * 6 + 1), pos.getZ(k * 6 + 1)]];
+    const footing = (x, z) => cols.some((c) => Math.abs(x - c.x) < L.FOOTING_W / 2 && Math.abs(z - c.z) < L.FOOTING_W / 2);
+    if (park) {
+      const pos = cards(parkTufts);
+      const { lake } = park;
+      for (let k = 0; k < parkTufts.length; k++) {
+        for (const [x, z] of ends(pos, k)) {
+          if (z > park.bounds.wall) pastWall += 1;
+          // The lake's outline is an ellipse bent by at most l2 + l3 either way: inside the
+          // shrunken one is certainly water.
+          const shrink = 1 - lake.l2 - lake.l3;
+          if (((x - lake.x) / (lake.rx * shrink)) ** 2 + ((z - lake.z) / (lake.rz * shrink)) ** 2 < 1) inLake += 1;
+          if (footing(x, z)) onFooting += 1;
+        }
+      }
+    }
+    if (shore) {
+      const pos = cards(shoreTufts);
+      for (let k = 0; k < shoreTufts.length; k++) {
+        for (const [x, z] of ends(pos, k)) {
+          if (z < southKerbZ() + 1 || z > shoreZ(x)) offShore += 1;
+          if (footing(x, z)) onFooting += 1;
+        }
+      }
+    }
+  }
+  createLayout(makeRng(seed));
+  check('edge grass: the north park and the south shore both grow tufts', north > 0 && south > 0,
+    `${(north / 10).toFixed(0)} north, ${(south / 10).toFixed(0)} south a city`);
+  check('edge grass: none past the park wall, in its lake, off the shore strip or on an L footing',
+    pastWall + inLake + offShore + onFooting === 0,
+    `${pastWall} past the wall, ${inLake} in the lake, ${offShore} off the strip, ${onFooting} on a footing`);
+}
+
 // --- Autumn, and the leaves a squall strips --------------------------------------
 //
 // The season is a hash of each trunk's position, so it must move no geometry: the same tree in

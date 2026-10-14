@@ -87,7 +87,7 @@ import { createBirds, chooseRoosts } from './game/birds.js';
 import { createDucks } from './game/ducks.js';
 import { createHoopers } from './game/hoopers.js';
 import { createBoombox } from './game/boombox.js';
-import { createLTrain } from './game/ltrain.js';
+import { createLTrain, planLTrain, LTRAIN_DIMENSIONS } from './game/ltrain.js';
 import { courtRect } from './city/blacktop.js';
 import { createSkaters } from './game/skaters.js';
 import { createClassicSkaters } from './game/skatersclassic.js';
@@ -676,7 +676,16 @@ if (props.pondMesh) scene.add(props.pondMesh);
 // Tufts of long grass on the same lawns, kept out of the furniture `createProps` just placed. Its own
 // stream, so retuning the grass moves no tree. **Not** `markOccluder`: the AO prepass would draw
 // every card as a solid quad. See city/grass.js.
-const grass = createGrass(makeRng(seed + 122), layout, props);
+// The edge lawns (north park, park shore, south shore) grow the same tufts in the same mesh, off
+// a stream of their own and kept off the L's columns where it walks across them.
+const lColumns = new URLSearchParams(window.location.search).get('ltrain') !== 'classic'
+  ? (() => { const plan = planLTrain(); return plan ? plan.columns.map((a) => plan.world(a)) : []; })() : [];
+const grass = createGrass(makeRng(seed + 122), layout, props, {
+  rng: makeRng(seed + 123),
+  areas: [northPark?.grass, parkShoreStrip?.grass, southShore?.grass].filter(Boolean),
+  avoid: (x, z, reach) => lColumns.some((c) => Math.abs(x - c.x) < LTRAIN_DIMENSIONS.FOOTING_W / 2 + reach
+    && Math.abs(z - c.z) < LTRAIN_DIMENSIONS.FOOTING_W / 2 + reach),
+});
 scene.add(grass.mesh);
 // Leaf cards round every tree crown — the parks', the medians' and the courtyard's — on the same
 // terms as the grass. See city/canopyfuzz.js.

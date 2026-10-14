@@ -4,7 +4,7 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 import { coastNorth, harborBasin } from './grid.js';
 import { KERB_H, FADE_RINGS } from './ground.js';
-import { northParkBounds, PARK_FADE } from './northpark.js';
+import { northParkBounds, PARK_FADE, NORTH_THIN } from './northpark.js';
 import { parkShore, seawallX } from './harborplan.js';
 
 // The park shore (`?parkshore=classic` keeps the seawall curling west under the park's corner).
@@ -74,7 +74,19 @@ export function createParkShore() {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = 'park-shore';
-  return { mesh, fade: northFade(b.x1, zN) };
+  // The lawn as `city/grass.js` scatters tufts over it, on the park's terms (city/northpark.js):
+  // thinning north the way the park's do, and out over the last few units before the fade.
+  const kerbX = harborBasin().kerbX;
+  const z1 = b.z1 - WALK;
+  const grass = {
+    bounds: { x0: b.x1, x1: Math.max(...strip(b.x1, zN, z1).map(([x]) => x)), z0: zN, z1 },
+    inside: (x, z) => z > zN + 0.05 && z < z1 - 0.05 && x > b.x1 + 0.05 && x < seawallX(kerbX, z) - 0.3,
+    density: (x, z) => {
+      const north = (b.z1 - z) / (b.z1 - b.z0);
+      return Math.max(0, 1 - NORTH_THIN * north) * Math.min(1, Math.max(0, (z - zN) / 8));
+    },
+  };
+  return { mesh, fade: northFade(b.x1, zN), grass };
 }
 
 /**

@@ -1089,6 +1089,18 @@ spread evenly, because an even scatter reads as a texture laid over the park.
 - Up to 0.9 tall — level with a bench's backrest — because that is the height at which a clump
   reads as a volume the tree shadows lie *across*. It does hide the lower half of a bird walking
   through it, which is meadow behaviour rather than a bug.
+- **The edge lawns grow it too** (default; `?edgegrass=classic` leaves them flat green): the north
+  park, the park shore beside it and the south shore's strip. Each module hands `createGrass` its
+  lawn as an area (`grass` on what `createNorthPark`, `createParkShore` and `createSouthShore`
+  return: bounds, an outline test, what stands on it, a density), scattered by the same rule off
+  its own stream (`seed + 123`) and appended to the same mesh, so the edges cost triangles and no
+  draw call. Kept off the park's paths, lake bank, drives and wall, the shore's walkway and cart,
+  and the L's footings. The north park thins north (`NORTH_THIN`: gone by ~70% of the depth, where
+  the wood stands — at full density it was ~7,200 tufts, four times every other park together) and
+  every edge thins to nothing over the last 8 units before its lawn feathers out, so the grass
+  never stops on a line the lawn runs past. Measured headless (`tools/perf.mjs`, seed 7): ~2,950
+  tufts north and ~3,450 south, 308 draws either way, 651.1k → 664.0k triangles a frame (+2%). The
+  `?bench` row `edge grass off` is there for the alpha-tested overdraw, which only a phone measures.
 
 ### Leaf fuzz on the crowns
 

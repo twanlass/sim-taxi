@@ -7,6 +7,7 @@ import { KERB_H, PAVE_INSET, SLAB_RADIUS, EDGE_FADE, FADE_RINGS } from './ground
 import { WATER_Y } from './river.js';
 import { wallQuad } from './harbor.js';
 import { treeParts } from './props.js';
+import { pointInPolygon } from './curves.js';
 import {
   southShore, southKerbZ, shoreZ, shorePoints, islandHalf, onShoreline, coastArcStart,
 } from './harborplan.js';
@@ -253,7 +254,23 @@ export function createSouthShore(rng) {
   mesh.receiveShadow = true;
   mesh.name = 'south-shore';
 
-  return { mesh, fade: westFade(kerbZ, x0, joinX, { lawnCol, walkCol, pathCol }), crowns, cart };
+  // --- The lawn as `city/grass.js` scatters tufts over it: off the walkway and the cart, held a
+  // little back from the seawall's lip (the rocks' crowns stand above it), and thinning out over
+  // the last few units before the west fade so the grass does not stop on a line there.
+  const lawnPoly = lawn.map(([x, z]) => ({ x, z }));
+  const onLawn = (x, z) => pointInPolygon(x, z, lawnPoly);
+  const grass = {
+    bounds: {
+      x0, z0: kerbZ + WALK,
+      x1: Math.max(...lawn.map(([x]) => x)), z1: Math.max(...lawn.map(([, z]) => z)),
+    },
+    inside: (x, z) => onLawn(x, z) && onLawn(x, z + 0.4) && onLawn(x + 0.4, z),
+    blocked: (x, z, reach) => pathDistance(x, z) < PATH_W / 2 + reach * 0.6
+      || (cart && Math.hypot(x - cart.x, z - cart.z) < CART_KEEP_OUT * 0.6 + reach),
+    density: (x) => Math.min(1, Math.max(0, (x - x0) / 8)),
+  };
+
+  return { mesh, fade: westFade(kerbZ, x0, joinX, { lawnCol, walkCol, pathCol }), crowns, cart, grass };
 }
 
 /**
