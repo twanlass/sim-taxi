@@ -15,6 +15,7 @@ import { isParkwayMid, coastWest, coastEast, coastNorth, harborBasin, HARBOR } f
 import { createHarbor } from '../src/city/harbor.js';
 import { coastArcStart, coastArcZ, SEA_CORNER } from '../src/city/harborplan.js';
 import { createLayout } from '../src/city/layout.js';
+import { createNorthPark } from '../src/city/northpark.js';
 import {
   createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
 } from '../src/city/ground.js';
@@ -369,6 +370,28 @@ const onGrass = (city, i, j) => {
   createLayout(makeRng(seed));
   check('every city has corners for a courier job to stand on', leanest >= 16,
     `leanest ${leanest}/${(GRID_I + 1) * (GRID_J + 1)} on seed ${leanestSeed}`);
+}
+
+// --- The north park's drive ------------------------------------------------
+//
+// Decorative, so the only thing that can go wrong is that it doesn't get built: `placeDrive` gives
+// up when every street is under the L or behind the lake's loop. Measured 0 misses in 60 seeds,
+// spread over three streets.
+{
+  let missing = 0;
+  let firstMiss = -1;
+  let built = 0;
+  for (let s = 0; s < 40; s++) {
+    createLayout(makeRng(s));
+    const park = createNorthPark(makeRng(s + 53));
+    if (!park) continue;
+    built += 1;
+    if (!park.drive) { missing += 1; if (firstMiss < 0) firstMiss = s; }
+    park.mesh.geometry.dispose();
+  }
+  createLayout(makeRng(seed));
+  check('north park: every city gets its arched drive', built === 0 || missing === 0,
+    `${missing}/${built} without one${firstMiss >= 0 ? `, first seed ${firstMiss}` : ''}`);
 }
 
 // --- The walk round a park --------------------------------------------------
