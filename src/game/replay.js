@@ -259,7 +259,13 @@ export function createTape(scene, { roots = [], exclude = () => false } = {}) {
     node.quaternion.set(v[ob + 3], v[ob + 4], v[ob + 5], v[ob + 6]);
     node.quaternion.copy(qa.slerp(node.quaternion, alpha));
     node.scale.set(lerp(7), lerp(8), lerp(9));
-    node.visible = v[(alpha < 0.5 ? oa : ob) + 10] > 0.5;
+    // A node shown or hidden between two samples holds the *earlier* one until the later lands —
+    // the instance rule in `applyTrack`, for the same crash. The patrol cruiser is a node, and
+    // `police.shed()` hides it on the impact frame its wreck shell is copied out on, so nearest-
+    // sample hid it for the back half of the gap before t0 while the shell was still hidden: the
+    // cop car flashed out just before every cut's blast.
+    // (`bracket` hands back a == b on the sample itself, so the later one still lands on time.)
+    node.visible = v[oa + 10] > 0.5;
   }
 
   /** Draw the scene as it stood at sim time `t`. */
