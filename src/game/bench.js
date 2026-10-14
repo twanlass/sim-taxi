@@ -63,6 +63,8 @@ export const BENCH_STEPS = [
   // drift between the two baselines.
   { label: 'paint layered', params: { paint: 'layered' } },
   { label: 'paint classic', params: { paint: 'classic' } },
+  // What the high rises past the west ring road cost (city/westedge.js): the same city without them.
+  { label: 'west edge off', params: { westedge: 'classic' } },
   { label: '30 fps', params: { fps: '30' } },
   { label: 'squall overhead', params: { squall: '0.5' } },
   // Everything off at once: the floor this renderer can reach without changing what it draws.

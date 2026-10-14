@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { createHelicopterMesh, SEARCHLIGHT } from '../geometry/helicopter.js';
 import { BODY_EULER_ORDER } from '../util/geo.js';
 import { color } from '../palette.js';
-import { CRUISE_ALT, ROTOR_FLIGHT, heading } from './chopper.js';
+import { CRUISE_ALT, ROTOR_FLIGHT, heading, WEST_MARGIN } from './chopper.js';
+import { WEST_CLEAR_X } from '../city/westedge.js';
 import { VIEW_DIR } from './camera.js';
 import { markEmissive } from './bloom.js';
 
@@ -251,7 +252,12 @@ export function createPoliceHeli(scene, rng, { groundY = () => 0 } = {}) {
     // In from the far side of the city rather than from the camera's: a machine arriving from
     // up-screen is seen arriving, one from behind the lens appears out of the bottom of the frame
     // already overhead.
-    const away = Math.atan2(-CAM_GROUND.y, -CAM_GROUND.x) + rng.range(-0.9, 0.9);
+    let away = Math.atan2(-CAM_GROUND.y, -CAM_GROUND.x) + rng.range(-0.9, 0.9);
+    // Not in over the high rises past the west ring road (city/westedge.js), whose far column stands
+    // well above `ALT`. The city is all east of them, so a line in from an entry east of their kerb
+    // never crosses them: swing a westerly entry round to the northerly one that just clears it.
+    const minCos = (WEST_CLEAR_X + WEST_MARGIN - target.x) / ENTRY_DIST;
+    if (Math.cos(away) < minCos && minCos > -1) away = -Math.acos(Math.min(1, minCos));
     state.x = target.x + Math.cos(away) * ENTRY_DIST;
     state.z = target.z + Math.sin(away) * ENTRY_DIST;
     state.y = ALT;
@@ -335,8 +341,13 @@ export function createPoliceHeli(scene, rng, { groundY = () => 0 } = {}) {
   function updateOut(dt) {
     // Away from the middle of the island, accelerating, turning onto it as it goes.
     const r = Math.hypot(state.x, state.z) || 1;
-    const ox = state.x / r;
-    const oz = state.z / r;
+    let ox = state.x / r;
+    let oz = state.z / r;
+    // North or south rather than west, past the high rises (see `begin`).
+    if (WEST_CLEAR_X > -Infinity && ox < 0) {
+      ox = 0;
+      oz = oz < 0 ? -1 : 1;
+    }
     fly(dt, { vx: ox * LEAVE_SPEED, vz: oz * LEAVE_SPEED }, Math.atan2(-state.vz, state.vx));
     state.light = clamp(state.light - LIGHT_EASE * dt, 0, 1);
     if (state.fade <= 0 && r > FADE[1]) {

@@ -13,6 +13,9 @@ import { makeRng } from '../src/util/rng.js';
 import { pointInPolygon } from '../src/city/curves.js';
 import { isParkwayMid, coastWest, coastEast, coastNorth, harborBasin, HARBOR } from '../src/city/grid.js';
 import { createHarbor } from '../src/city/harbor.js';
+import {
+  createWestEdge, westKerbX, westClosures, WEST_SKYLINE, WEST_CLEAR_X,
+} from '../src/city/westedge.js';
 import { coastArcStart, coastArcZ, SEA_CORNER } from '../src/city/harborplan.js';
 import { createLayout } from '../src/city/layout.js';
 import {
@@ -283,10 +286,14 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
 {
   const fade = ground.children.find((c) => c.name === 'asphalt-fade');
   // Signed distance to the rounded-square outline: 0 on the edge, positive outside.
-  const insetX = SLAB_X / 2 - SLAB_RADIUS;
+  // Centred between the two coasts rather than on the origin: the high rises past the west ring
+  // road move the west one out (city/westedge.js). Without them, and without the harbor, the two
+  // are the same thing.
+  const midX = (coastWest() + SLAB_X / 2) / 2;
+  const insetX = (SLAB_X / 2 - coastWest()) / 2 - SLAB_RADIUS;
   const insetZ = SLAB_Z / 2 - SLAB_RADIUS;
   const square = (x, z) => Math.hypot(
-    Math.max(Math.abs(x) - insetX, 0), Math.max(Math.abs(z) - insetZ, 0),
+    Math.max(Math.abs(x - midX) - insetX, 0), Math.max(Math.abs(z) - insetZ, 0),
   ) - SLAB_RADIUS;
   // With the harbor the east side is a seawall that takes no skirt, so the outline is the west
   // half of the square with the north and south coasts running straight on east until each turns
@@ -12776,7 +12783,11 @@ let chopperOrder; // likewise
   // The tallest thing it has to miss, measured off the city that was actually built rather than
   // off the constant the generator caps at.
   buildings.mesh.geometry.computeBoundingBox();
-  const skyline = buildings.mesh.geometry.boundingBox.max.y;
+  // The high rises past the west ring road too (city/westedge.js): every flight crosses that edge.
+  const westTowers = createWestEdge(makeRng(seed + 59))?.towers;
+  westTowers?.geometry.computeBoundingBox();
+  const skyline = Math.max(buildings.mesh.geometry.boundingBox.max.y,
+    westTowers?.geometry.boundingBox.max.y ?? 0);
   check('the plane clears the skyline',
     minY - PLANE_UNDERSIDE > skyline + 4,
     `underside ${(minY - PLANE_UNDERSIDE).toFixed(1)} vs tallest tower ${skyline.toFixed(1)}`);
@@ -13097,11 +13108,16 @@ let chopperOrder; // likewise
   // checked against what is actually standing under it rather than against the ceiling constant.
   const CELL = 2;
   const cells = new Map();
-  const cityPos = buildings.mesh.geometry.attributes.position;
-  for (let i = 0; i < cityPos.count; i++) {
-    const key = `${Math.floor(cityPos.getX(i) / CELL)},${Math.floor(cityPos.getZ(i) / CELL)}`;
-    const y = cityPos.getY(i);
-    if (!(cells.get(key) >= y)) cells.set(key, y);
+  // The high rises past the west ring road stand in it too: a leg flown in over them is a leg flown
+  // through them (city/westedge.js).
+  for (const mesh of [buildings.mesh, createWestEdge(makeRng(seed + 59))?.towers]) {
+    if (!mesh) continue;
+    const cityPos = mesh.geometry.attributes.position;
+    for (let i = 0; i < cityPos.count; i++) {
+      const key = `${Math.floor(cityPos.getX(i) / CELL)},${Math.floor(cityPos.getZ(i) / CELL)}`;
+      const y = cityPos.getY(i);
+      if (!(cells.get(key) >= y)) cells.set(key, y);
+    }
   }
   const tallestNear = (x, z, radius) => {
     let top = 0;
@@ -18942,6 +18958,112 @@ let chopperOrder; // likewise
       let off = 0;
       for (let t = 0; dp && t < dp.count; t++) if (Math.abs(dp.getY(t) - WATER_Y) > 1e-6) off += 1;
       check('harbor: the sea has no shoal round its rim', !!dock && off === 0, `${off} vertices off sea level`);
+    }
+  }
+
+  // --- The high rises past the west ring road (city/westedge.js).
+  {
+    const we = createWestEdge(makeRng(seed + 59));
+    if (!we) {
+      check('west edge: classic builds nothing past the west ring road', coastWest() === -(SLAB_X / 2), `coast ${coastWest()}`);
+    } else {
+      const kerb = westKerbX();
+      // Scenery only: nothing out there reaches the ring road it is shut off from.
+      let pastKerb = 0;
+      for (const mesh of [we.ground, we.towers]) {
+        const p = mesh.geometry.attributes.position;
+        for (let k = 0; k < p.count; k++) if (p.getX(k) > kerb + 1e-6) pastKerb += 1;
+      }
+      check('west edge: nothing in it stands on the ring road', pastKerb === 0, `${pastKerb} vertices east of x = ${kerb}`);
+
+      // Every street that carries on west is shut where it leaves the ring road, the trestle spanning
+      // the whole carriageway.
+      const closures = westClosures();
+      const gp = we.ground.geometry.attributes.position;
+      let open = 0;
+      for (const c of closures) {
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (let k = 0; k < gp.count; k++) {
+          if (Math.abs(gp.getX(k) - c.x) > 0.5 || gp.getY(k) < 0.5) continue;
+          lo = Math.min(lo, gp.getZ(k));
+          hi = Math.max(hi, gp.getZ(k));
+        }
+        if (!(lo < c.z - c.half + 0.6 && hi > c.z + c.half - 0.6)) open += 1;
+      }
+      check('west edge: every street west is barricaded across its width',
+        closures.length === GRID_J + 1 && open === 0, `${closures.length} closures, ${open} left open`);
+
+      // The skyline: the near column under the city's own ceiling, nothing anywhere over WEST_SKYLINE.
+      const tp = we.towers.geometry.attributes.position;
+      let nearTop = 0;
+      let farTop = 0;
+      for (let k = 0; k < tp.count; k++) {
+        if (tp.getX(k) > WEST_CLEAR_X) nearTop = Math.max(nearTop, tp.getY(k));
+        else farTop = Math.max(farTop, tp.getY(k));
+      }
+      check('west edge: the near column stays under the city ceiling, the far one under WEST_SKYLINE',
+        nearTop < SKYLINE_CEILING && farTop <= WEST_SKYLINE && farTop > SKYLINE_CEILING + 5,
+        `near ${nearTop.toFixed(1)} (ceiling ${SKYLINE_CEILING}), far ${farTop.toFixed(1)} (cap ${WEST_SKYLINE})`);
+
+      // No tower can stand between the camera and a street. Rays toward the camera from the ring
+      // road's whole length and from every lane in the west column of blocks, at the ground and at a
+      // taxi's roof, through the towers as built.
+      const ray = new THREE.Raycaster();
+      we.towers.geometry.computeBoundingSphere();
+      let hidden = 0;
+      let fired = 0;
+      for (let z = lineZ(0) - 4; z <= lineZ(GRID_J) + 4; z += 2) {
+        for (const x of [kerb, lineX(0), lineX(1) - 4]) {
+          for (const y of [0.05, 1.6]) {
+            ray.set(new THREE.Vector3(x, y, z), VIEW_DIR.clone());
+            fired += 1;
+            if (ray.intersectObject(we.towers, false).length) hidden += 1;
+          }
+        }
+      }
+      check('west edge: no tower hides any part of the ring road from the camera', hidden === 0,
+        `${hidden} of ${fired} sightlines blocked`);
+
+      // The helicopters fly at 22, under the far column, so neither may start a leg over it: the
+      // rooftop chopper from a pad anywhere along the west of the city, and the police helicopter
+      // chasing a taxi anywhere down the west ring road.
+      let chopperWest = 0;
+      let legs = 0;
+      for (const pz of [-60, -30, 0, 30, 60]) {
+        for (const cw of [3, 8]) {
+          const fake = { x: lineX(0) + 8, z: pz, y: 14, r: 2.4, cw, cd: 11 - cw, deck: 14 };
+          const ch = createChopper(new THREE.Scene(), makeRng(seed + pz + cw), fake);
+          for (let v = 0; v < 12; v++) {
+            ch.visit();
+            legs += 1;
+            if (ch.state.x < WEST_CLEAR_X + 4) chopperWest += 1;
+          }
+        }
+      }
+      check('west edge: the rooftop chopper never comes in over the tall column', chopperWest === 0,
+        `${chopperWest} of ${legs} legs start west of x = ${WEST_CLEAR_X + 4}`);
+
+      const { createPoliceHeli } = await import('../src/game/policeheli.js');
+      let heliWest = Infinity;
+      let sorties = 0;
+      for (const tz of [-70, -40, -10, 20, 50, 70]) {
+        const heli = createPoliceHeli(new THREE.Scene(), makeRng(seed + tz));
+        for (let n = 0; n < 4; n++) {
+          const target = { x: lineX(0), z: tz };
+          for (let f = 0; f < 60 * 8; f++) {
+            heli.update(1 / 60, target);
+            heliWest = Math.min(heliWest, heli.state.x);
+          }
+          for (let f = 0; f < 60 * 20 && heli.busy(); f++) {
+            heli.update(1 / 60, null);
+            heliWest = Math.min(heliWest, heli.state.x);
+          }
+          sorties += 1;
+        }
+      }
+      check('west edge: the police helicopter never flies over the tall column', heliWest > WEST_CLEAR_X + 2,
+        `westmost ${heliWest.toFixed(1)} over ${sorties} sorties, column's kerb at ${WEST_CLEAR_X}`);
     }
   }
 

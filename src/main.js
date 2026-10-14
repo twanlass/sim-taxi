@@ -17,6 +17,7 @@ import { createGround, KERB_H } from './city/ground.js';
 import { createRiver, bridgeLines, bridgeSpan, deckHeightAt } from './city/river.js';
 import { createHarbor } from './city/harbor.js';
 import { createNorthPark } from './city/northpark.js';
+import { createWestEdge } from './city/westedge.js';
 import { tickRiverWater, syncRiverWater, bindRiverDrawbridge, setWaterStyle } from './city/riverwater.js';
 import { createDrawbridge } from './game/drawbridge.js';
 import { createBoats } from './game/boats.js';
@@ -620,6 +621,11 @@ const fall = getFall();
 setAutumn(fall, { classicColours: getFoliageClassic() });
 const city = createBuildings(makeRng(seed + 22), layout);
 scene.add(markOccluder(city.mesh));
+// The high rises past the west ring road, the streets carrying on to them and the barricades shutting
+// them off (city/westedge.js). Built before the panes are collected, so Rain Mode lights their windows
+// too. Its own stream. Null under `?westedge=classic`.
+const westEdge = createWestEdge(makeRng(seed + 59));
+if (westEdge) scene.add(markOccluder(westEdge.ground), markOccluder(westEdge.towers));
 
 // Rain Mode's city lights — lit windows over the panes just built, and street lamps. A wet street
 // is a mirror for lamps, and a daytime city has almost none. See game/citylights.js. Their own
@@ -1377,7 +1383,7 @@ const spray = createSpray(scene, makeRng(seed + 78));
 const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
-  meshes: [city.mesh, propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
+  meshes: [city.mesh, ...(westEdge ? [westEdge.towers] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
     ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []),
     ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),

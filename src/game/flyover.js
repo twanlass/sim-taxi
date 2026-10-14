@@ -1,6 +1,7 @@
 import { createPlaneMesh } from '../geometry/plane.js';
 import { VIEW_DIR } from './camera.js';
 import { BODY_EULER_ORDER } from '../util/geo.js';
+import { WEST_EDGE } from '../city/grid.js';
 
 // A light aircraft crossing the city every so often. Pure scenery: it is not routed, not
 // collidable, not tappable, and nothing in the fare loop or the difficulty curve knows it exists.
@@ -13,7 +14,11 @@ import { BODY_EULER_ORDER } from '../util/geo.js';
 
 const SPEED = 38;                // units/s — about four times ambient traffic, which is roughly
                                  // the ratio a light aircraft holds over city driving
-const CRUISE_ALT = 30;           // clears the tallest tower (16) with room for the bob and bank
+// Clears the tallest tower in the city (16) with room for the bob and bank — or, with the high rises
+// past the west ring road (city/westedge.js), their skyline: every flight crosses that edge
+// somewhere, so the whole cruise goes up. 48 puts the belly 4.6 over `WEST_SKYLINE` at the bottom
+// of the jitter.
+const CRUISE_ALT = WEST_EDGE ? 48 : 30;
 const ALT_JITTER = [-4, 6];
 
 // How far either side of the middle of the flight line a run reaches. It has to put both ends of

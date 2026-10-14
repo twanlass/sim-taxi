@@ -303,6 +303,37 @@ Park). From game view will just look like map ends there at a park."
 - Hand-written triangles (paths, lake, shore, fade) go through `upTriangles`, which computes each
   normal from the winding and flips any that face down.
 
+### The west edge high rises (default, `?westedge=classic` to drop them)
+
+`city/westedge.js`: past the west ring road the island carries on for two more columns of blocks on
+the grid's own pitch (`WEST_COLUMNS`, `WEST_REACH` in `grid.js`, which moves `coastWest()` out by
+40). Every street running along X carries on west to the coast with its own paint, and is shut where
+it leaves the ring road by the roadworks' trestle (`barricadeParts`) and a row of cones. Tyler,
+2026-10-14: "start some high rises and sky scrapers. Have through streets visually continue but
+block them off from the game grid with construction barriers."
+
+- **Scenery only**, the north park's terms: no lane, junction, fare or car is out there and the road
+  network never hears of it; its own rng stream (`seed + 59`). The towers are `buildHighRise` in
+  `city/buildings.js`, the city's own tower with a height handed in, so the setbacks, façades and
+  shopfronts match. They rise in the entrance wave and Rain Mode lights their windows.
+- **Two heights.** The near column stays under the city's `SKYLINE_CEILING`; the far one is the
+  skyline, 22–33 to the parapet, glass and slate mostly, some with a mast. Nothing reaches past
+  `WEST_SKYLINE` (38).
+- **Nothing out there can hide the city, at any height.** The sightline off any point climbs toward
+  +x+z, away from the west edge, so a tower west of the ring road's kerb is always drawn *behind*
+  the streets. `tools/probe.mjs` fires rays from the ring road at taxi height to hold it.
+- **The aircraft go round or over.** The aeroplane cruises at 48 rather than 30, so its belly clears
+  `WEST_SKYLINE` by 4.6 at the bottom of its jitter. The two helicopters fly at 22, under the far
+  column, so neither starts a leg west of `WEST_CLEAR_X` (its east kerb) plus `WEST_MARGIN`: the
+  rooftop chopper flips its approach end for end, the police helicopter swings a westerly entry
+  round to the north and never leaves westward. The clouds' keep-out takes the far column as a
+  third box (`KEEP_OUT` in `game/clouds.js`).
+- **The river runs through it.** The channel's walls, walk and railing run on to the new coast
+  (`channelWest` in `city/river.js`) and the water shoals and fades there, so boats sail out between
+  towers. The new north-south streets stop at the embankment; there are no bridges out there.
+- **The camera can pan a little further west** (`PAN_LIMIT_WEST`, half the reach), to look up at the
+  skyline.
+
 ## Layout: what a block *is*
 
 `layout.js` decides each block's identity before anything is built, so ground, buildings and props
