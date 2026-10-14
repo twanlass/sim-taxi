@@ -1440,10 +1440,41 @@ just entered the lane, typically. No gate refuses them.
 
 The route gate that was left here went too; see above.
 
-**One courtesy is kept.** A car being passed still does not *choose* a left turn across the taxi
-(`car === taxi.passTarget` in the exit roll). A car that has already committed to one when the taxi
-pulls out will turn into it — that is the case the old gate existed for, and it is now the player's
-risk to read.
+**One courtesy is kept, and half of one gate is back.** A car being passed still does not *choose*
+a left turn across the taxi (`car === taxi.passTarget` in the exit roll). And the taxi does not pull
+out round a car that is *already* part way round a left (`turningAcross`): it tailgates it for the
+fraction of a second the car takes to leave the lane instead. Without it, 12 of 73 passes (24 cities
+× 60s, Loco held) pulled out alongside a car mid-left and spent the rest of its arc grinding down its
+flank, with the contact (`lean` in `sim/collisions.js`) holding the taxi to the car's corner speed —
+boost down to ~10 u/s, side by side, which is how it got reported. The reason the gate was removed
+does not apply to this half of it: it gates only the pull-out, not `canPass`, so a refusal tailgates
+rather than rams, and the car it refuses for is leaving the road anyway. Over a second set of 48
+cities × 60s, passes with any contact while the taxi was level with its car went from 30 of 143 to
+18 of 130; what is left is oncoming and cross traffic, which the player can see coming. `?passturn=classic` pulls out regardless.
+
+**A pass keeps its pace.** Two things held a passing taxi to the speed of the car it was going
+round, both reported as the taxi "hesitating" alongside, worst beside a truck:
+
+- **The swing out.** While the taxi leaves its lane the tailgate shrinks with the offset
+  (`boostGap`), and the speed cap on it was the stopping-distance rule, `leader.v + sqrt(2·brake·room)`
+  on the room at the offset reached *so far*. The offset grows with every unit of road, so that
+  answer is too cautious, and for the first half of every pass that started from a tailgate it
+  held the taxi at the leader's speed. `swingCap` looks ahead along the swing instead: after `x`
+  more units the offset and the gap it needs are known exactly, so it solves for the steady speed
+  that never eats into that gap.
+- **Junctions, beside a truck.** The truck scan treats a truck heading for the taxi's exit lane
+  by straight-line distance (`bodyClearance`). An overtaking taxi is still on its own lane in the
+  bookkeeping, so a truck it was passing straight across a junction counted as "on its exit", 1-2
+  units off its nose from four units across the road. That capped the taxi at the truck's speed
+  plus a few u/s for every junction of the pass, and it was the biggest single loss. Out of its
+  lane, the taxi now asks the heading-based test, which sees the truck beside it rather than in
+  front of it.
+
+Measured over 24 cities × 60s with the combo thrown at every car and 30% trucks, against the speed
+free acceleration would have reached from the same start: a truck pass 0.75s after pulling out went
+from 16.7 u/s against a possible 23.3 to 22.7 against 22.9, and the speed lost to the leader and to
+junctions across all truck passes dropped from ~230 u/s to ~40. What is left is contact with
+oncoming and cross traffic. `?passpace=classic` puts both rules back.
 
 #### How dangerous it should be
 
