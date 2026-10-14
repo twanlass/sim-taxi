@@ -1115,7 +1115,7 @@ curved lane at its far end. The lawns are built by offsetting the centreline fur
 (kerb, walk, grass) rather than by insetting the kerb polygon, whose clipped ends fold.
 
 The park road is one-way in a direction the seed picks: one lane down the centreline of a 6-wide
-road, with chevrons at its entrance, middle and exit and no centre line. `?parkway=twoway`
+road, with chevrons a quarter, half and three quarters of the way along and no centre line. `?parkway=twoway`
 (`PARKWAY=twoway` headless) gives it two lanes.
 
 The park road is the one road the grid has no opinion about, so `tools/roadnet.mjs` leaves its lanes
