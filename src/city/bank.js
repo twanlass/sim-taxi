@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { bakeColor } from '../util/geo.js';
 import { color } from '../palette.js';
 import { KERB_H } from './ground.js';
+import { lippedCap } from './buildings.js';
 
 // The city's one bank: a low, wide stone building with a colonnade under a pediment and a
 // patinated dome behind it. It is the third building the tower generator does not draw, and the
@@ -309,8 +310,12 @@ export function buildBank(b, lot, bounds, parts) {
   // A cornice, which is the cheapest thing on any building here and does the most work — see
   // `roofKit` in city/buildings.js, where the same 0.18 of ledge is what turns the top of a box
   // into the top of a building.
-  slab(width + 0.36, CORNICE_H, massDepth + 0.36, 0, PLINTH_TOP + MASS_H,
-    PORTICO_DEPTH + massDepth / 2, columnStone);
+  // Hollowed into a lip like every other flat roof (`lippedCap`), so the drum stands on the sunk
+  // deck inside it. The roofline is the cornice's top either way.
+  const roofAt = at(0, PORTICO_DEPTH + massDepth / 2);
+  const [roofW, roofD] = axis === 'x' ? [massDepth + 0.36, width + 0.36] : [width + 0.36, massDepth + 0.36];
+  const deck = lippedCap(parts, roofW, CORNICE_H, roofD, roofAt.x, PLINTH_TOP + MASS_H, roofAt.z,
+    columnStone);
 
   // The doorway. Mostly buried in the mass with 0.03 of it standing **proud** of the front face —
   // the same trick and the same order of magnitude as `EPS` in city/buildings.js, which every
@@ -368,9 +373,8 @@ export function buildBank(b, lot, bounds, parts) {
   // there is no angle from which the inside of the shell can be reached.
   const domeCentre = at(0, PORTICO_DEPTH + massDepth / 2);
   const domeR = Math.min(width, massDepth) * 0.26;
-  const drumTop = PLINTH_TOP + MASS_H + CORNICE_H + DRUM_H;
-  parts.push(box(domeR * 2.2, DRUM_H, domeR * 2.2,
-    domeCentre.x, PLINTH_TOP + MASS_H + CORNICE_H, domeCentre.z, columnStone));
+  const drumTop = deck + DRUM_H;
+  parts.push(box(domeR * 2.2, DRUM_H, domeR * 2.2, domeCentre.x, deck, domeCentre.z, columnStone));
   const dome = new THREE.SphereGeometry(domeR, 10, 4, 0, Math.PI * 2, 0, Math.PI / 2);
   dome.translate(domeCentre.x, drumTop, domeCentre.z);
   parts.push(bakeColor(dome, color('bankDome')));

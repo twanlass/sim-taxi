@@ -6,6 +6,7 @@ import {
 import { color, jitterColor } from '../palette.js';
 import { taxiSignGeometry } from '../geometry/taxi.js';
 import { KERB_H } from './ground.js';
+import { lippedCap } from './buildings.js';
 import {
   DIR, GRID_I, GRID_J, HALF_ROAD, LANE, isSegmentClosed, junctionReach, lineX, lineZ,
 } from './grid.js';
@@ -635,7 +636,11 @@ export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
   const base = KERB_H;
   const head = base + DOOR_H;           // the lintel: where the curtain winds away
   const top = base + HEIGHT;
-  const deck = top + 0.34;              // the top of the coping, which the pole stands on
+  // The coping, hollowed into a lip like every flat roof in the city (`lippedCap`). `deck` is the
+  // floor inside it, which the pole and the plant stand on.
+  const coping = [];
+  const deck = lippedCap(coping, frontX - bx0 + 0.36, 0.34, bz1 - bz0 + 0.36,
+    (bx0 + frontX) / 2, top, (bz0 + bz1) / 2, color('garageTrim'));
 
   // --- The pole's placement, worked out from the sign rather than chosen.
   //
@@ -690,7 +695,7 @@ export function createGarage(block, rng, { sign: style = 'cutout' } = {}) {
     span(bayX, frontX, head, top, dz0, dz1, wall),
 
     // Parapet cap. A one-storey box with a lid reads as a building; without it, as a crate.
-    span(bx0 - 0.18, frontX + 0.18, top, top + 0.34, bz0 - 0.18, bz1 + 0.18, trim),
+    ...coping,
 
     // The bay lining. Sits a hair inside every surface it covers, so it wins the depth test
     // against the wall behind it rather than arguing with it — and every panel stops short of
