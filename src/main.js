@@ -67,6 +67,7 @@ import { createSkidMarks, createTyreTrail } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
 import { createSpray } from './game/spray.js';
 import { createCityEntry } from './game/cityentry.js';
+import { createBrushTiles } from './game/brushtiles.js';
 import { createBlast, WRECK_STYLES } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createSparks } from './game/sparks.js';
@@ -126,7 +127,7 @@ import { createHdr } from './game/hdr.js';
 import { createCrayon } from './game/crayon.js';
 import { createCartoon } from './game/cartoon.js';
 import {
-  setAmbientOcclusion, setPainterly, setCrayon, setCartoon, setCloudShadows, setClassicPaint, setPaintLook, setVehiclePaint, propMaterial, setGlossCity, setGlossGlobal,
+  setAmbientOcclusion, setPainterly, setPaintBrushes, setCrayon, setCartoon, setCloudShadows, setClassicPaint, setPaintLook, setVehiclePaint, propMaterial, setGlossCity, setGlossGlobal,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
@@ -291,9 +292,19 @@ setAmbientOcclusion(aoEnabled);
 // `game/crayon.js` for what the three layers of it are.
 const crayonEnabled = budget.crayon;
 setCrayon(crayonEnabled);
-// Prototype painterly look (PAINT_* in util/geo.js): warm shade, walls fading up from a darker foot. `?painterly=classic` is the old look.
+// Prototype painterly look (PAINT_* in util/geo.js, game/brushtiles.js): red shadow edges, walls
+// fading up from a darker foot, painted brush tiles. `?painterly=classic` is the old look.
 const painterly = new URLSearchParams(location.search).get('painterly') !== 'classic';
 setPainterly(painterly);
+if (painterly) {
+  const tiles = createBrushTiles();
+  setPaintBrushes(tiles.wall, tiles.ground);
+}
+// Which brush a static mesh wears (see PAINT_FRAGMENT): 1 buildings, 2 ground (lawns only).
+const brush = (mesh, kind) => {
+  mesh.material.userData.brush = kind;
+  return mesh;
+};
 setClassicPaint(getPaintClassic());
 setPaintLook(getPaintLook());
 setVehiclePaint(!getVehiclePaintClassic());
@@ -612,7 +623,7 @@ applyWeather();
 // `markOccluder` is what puts a mesh into the AO depth prepass. The rule it enforces is that
 // anything lit by `propMaterial()` has to be in there: a mesh that receives AO without casting it
 // samples the occlusion of whatever stands behind it. See `game/ssao.js`.
-scene.add(markOccluder(rain.wetGround(createGround(makeRng(seed + 11), layout))));
+scene.add(markOccluder(rain.wetGround(brush(createGround(makeRng(seed + 11), layout), 2))));
 
 // The river, and the spans that get over it. Its own stream, like every other generator, so that
 // moving a bridge cannot reshuffle a park.
@@ -655,7 +666,7 @@ if (harbor) scene.add(markOccluder(harbor.mesh));
 // Null under `?northpark=classic`.
 const northPark = createNorthPark(makeRng(seed + 53));
 if (northPark) {
-  scene.add(markOccluder(northPark.mesh));
+  scene.add(markOccluder(brush(northPark.mesh, 2)));
   scene.add(northPark.water);
   scene.add(northPark.fade);
 }
@@ -681,12 +692,12 @@ const stopPanes = rain.enabled ? collectPanes() : null;
 const fall = getFall();
 setAutumn(fall, { classicColours: getFoliageClassic() });
 const city = createBuildings(makeRng(seed + 22), layout);
-scene.add(markOccluder(city.mesh));
+scene.add(markOccluder(brush(city.mesh, 1)));
 // The high rises past the west ring road, the streets carrying on to them and the barricades shutting
 // them off (city/westedge.js). Built before the panes are collected, so Rain Mode lights their windows
 // too. Its own stream. Null under `?westedge=classic`.
 const westEdge = createWestEdge(makeRng(seed + 59));
-if (westEdge) scene.add(markOccluder(westEdge.ground), markOccluder(westEdge.towers));
+if (westEdge) scene.add(markOccluder(brush(westEdge.ground, 2)), markOccluder(brush(westEdge.towers, 1)));
 // The northwest corner's asphalt skirt (`?westcorner=classic` drops the corner). Transparent, so not
 // an occluder.
 if (westEdge?.fade) scene.add(westEdge.fade);

@@ -109,7 +109,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 
 | Param | Does |
 |---|---|
-| `?painterly=classic` | Without the painterly prototype: warmer shade, and building walls fading up from a darker foot |
+| `?painterly=classic` | Without the painterly prototype: a reddened, saturated edge on every soft shadow, building walls fading up from a darker foot, and painted brush-stroke tiles on walls, roofs and lawns |
 | `?crayon` | Crayon Mode. Off by default |
 | `?cartoon` | Cartoon Mode. Off by default |
 | `?hdr` | The full HDR bloom route instead of the emissive bloom, as a comparison. Not with Crayon or Cartoon |

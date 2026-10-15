@@ -35,7 +35,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/impact.js', '../src/game/taxidamage.js', '../src/game/taxidoor.js',
   '../src/util/viewport.js',
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
-  '../src/game/ssao.js', '../src/game/crayon.js', '../src/game/cartoon.js',
+  '../src/game/ssao.js', '../src/game/crayon.js', '../src/game/cartoon.js', '../src/game/brushtiles.js',
   '../src/game/bloom.js', '../src/game/hdr.js',
   '../src/game/diag.js', '../src/game/bench.js', '../src/game/soak.js', '../src/game/governor.js', '../src/game/recovery.js', '../src/game/pause.js', '../src/game/menupage.js', '../src/game/inspect.js',
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',

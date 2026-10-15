@@ -278,43 +278,83 @@ export function setPainterly(enabled) {
 }
 
 export const PAINT_UNIFORMS = {
-  // Shade, warmed: multiplied into the indirect light where the sun doesn't reach, after the cool
-  // shadow tint has run. Luminance of this colour is ~1.0, so it shifts hue without darkening.
-  uShadeWarm: { value: new THREE.Color(1.22, 0.97, 0.72) },
-  uShadeSat: { value: 0.3 },    // a little extra chroma in shade, so it reads rich rather than muddy
+  // TF2's rule (Mitchell et al., NPAR 2007): shadows go cool, and the *terminator* is reddened and
+  // more saturated. Our faces are flat, so the only light-to-shade transition we have is the soft
+  // edge of a cast shadow (and faces at grazing sun) — that is where the red goes. The shade core is
+  // left to the existing cool tint.
+  uEdgeTint: { value: new THREE.Color(1.28, 0.9, 0.8) },
+  uEdge: { value: 0.8 },
+  uEdgeSat: { value: 0.4 },
   uHeightGrad: { value: 0.4 },  // how much darker a wall is at its foot
   uHeightSpan: { value: 10 },   // world units over which the foot fades up to full brightness
+  // Painted brush tiles (game/brushtiles.js), projected in world space off each flat face's normal.
+  tBrushWall: { value: null },
+  tBrushGround: { value: null },
+  uBrushTile: { value: 8 },     // world units per tile repeat
+  uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
 };
 
+/** Hand the baked brush tiles to every painterly material. */
+export function setPaintBrushes(wall, ground) {
+  PAINT_UNIFORMS.tBrushWall.value = wall;
+  PAINT_UNIFORMS.tBrushGround.value = ground;
+}
+
 const PAINT_COMMON = /* glsl */ `
-uniform vec3 uShadeWarm;
-uniform float uShadeSat;
+uniform vec3 uEdgeTint;
+uniform float uEdge;
+uniform float uEdgeSat;
 uniform float uHeightGrad;
 uniform float uHeightSpan;
+uniform sampler2D tBrushWall;
+uniform sampler2D tBrushGround;
+uniform float uBrushTile;
+uniform float uBrushAmt;
+uniform float uBrushKind;
 varying vec3 vPaintWorld;
 `;
 
-// Spliced in after SHADOW_LIGHT, so it warms the shade the cool tint has already coloured.
+// Spliced in after SHADOW_LIGHT. The shade ratio is 0 on a fully lit face and 1 in full shade, so
+// 4r(1-r) peaks in a shadow's soft edge and is zero on both sides of it.
 const PAINT_LIGHT = /* glsl */ `
 	{
 		vec3 pL = vec3(0.2126, 0.7152, 0.0722);
 		float pD = dot(reflectedLight.directDiffuse, pL);
 		float pI = dot(reflectedLight.indirectDiffuse, pL);
 		float pShade = smoothstep(0.45, 1.0, pI / max(pD + pI, 1e-4));
-		vec3 ind = reflectedLight.indirectDiffuse * mix(vec3(1.0), uShadeWarm, pShade);
-		float il = dot(ind, pL);
-		reflectedLight.indirectDiffuse = max(mix(vec3(il), ind, 1.0 + uShadeSat * pShade), 0.0);
+		float pEdge = 4.0 * pShade * (1.0 - pShade) * uEdge;
+		vec3 pTint = mix(vec3(1.0), uEdgeTint, pEdge);
+		vec3 dd = reflectedLight.directDiffuse * pTint;
+		vec3 id = reflectedLight.indirectDiffuse * pTint;
+		float dl = dot(dd, pL);
+		float il = dot(id, pL);
+		reflectedLight.directDiffuse = max(mix(vec3(dl), dd, 1.0 + uEdgeSat * pEdge), 0.0);
+		reflectedLight.indirectDiffuse = max(mix(vec3(il), id, 1.0 + uEdgeSat * pEdge), 0.0);
 	}
 `;
 
-// The height fade: a wall is darker at its foot and comes up to its own colour over uHeightSpan.
-// Only vertical faces take it; roofs and the ground are untouched.
+// The height fade (walls darker at their foot), then the brush tiles. uBrushKind is per material:
+// 0 none, 1 buildings (walls and roofs), 2 ground (lawns only — the road stays clean).
 const PAINT_FRAGMENT = /* glsl */ `
 	{
 		vec3 pN = normalize(inverseTransformDirection(normal, viewMatrix));
-		float wall = 1.0 - abs(pN.y);
+		vec3 an = abs(pN);
+		float wall = 1.0 - an.y;
 		float h = smoothstep(0.0, uHeightSpan, vPaintWorld.y);
 		gl_FragColor.rgb *= mix(1.0 - uHeightGrad * wall, 1.0, h);
+		if (uBrushKind > 0.5) {
+			float b = 0.0;
+			if (an.y > 0.7) {
+				vec3 c = gl_FragColor.rgb;
+				float grassy = smoothstep(0.015, 0.06, c.g - max(c.r, c.b));
+				float k = uBrushKind > 1.5 ? grassy : 1.0;
+				b = (texture2D(tBrushGround, vPaintWorld.xz / uBrushTile).r - 0.5) * k;
+			} else if (uBrushKind < 1.5) {
+				vec2 uv = vec2(an.x > an.z ? vPaintWorld.z : vPaintWorld.x, vPaintWorld.y);
+				b = texture2D(tBrushWall, uv / uBrushTile).r - 0.5;
+			}
+			gl_FragColor.rgb *= 1.0 + 2.0 * b * uBrushAmt;
+		}
 	}
 `;
 
@@ -1214,7 +1254,7 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
   const useAO = aoEnabled && ao;
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
     + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}` : ''}`
-    + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint4' : ''}`;
+    + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint5' : ''}`;
   material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {
@@ -1223,7 +1263,10 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
     if (cartoonEnabled) Object.assign(shader.uniforms, CARTOON_UNIFORMS);
     if (cloudsEnabled) Object.assign(shader.uniforms, CLOUD_UNIFORMS);
     if (painterlyEnabled) {
-      Object.assign(shader.uniforms, PAINT_UNIFORMS);
+      Object.assign(shader.uniforms, PAINT_UNIFORMS, {
+        // Per material, read at compile time: whoever built the mesh tags it after propMaterial().
+        uBrushKind: { value: material.userData.brush ?? 0 },
+      });
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>
 varying vec3 vPaintWorld;`)
