@@ -249,8 +249,7 @@
          they end. The red glow is the drop shadow's colour, so it holds against pale asphalt the
          way the digits do and reads as a lamp at the same time. */
       #chase-siren {
-        position: absolute; top: calc((var(--hud-row) - 44px) / 2); right: var(--pause-w);
-        width: 60px; height: 44px;
+        position: absolute; width: 60px; height: 44px;
         filter: drop-shadow(0 2px 5px rgba(20, 40, 55, 0.55)) drop-shadow(0 0 6px rgba(226, 75, 60, 0.55));
         opacity: 0; transform: scale(0.3) translateY(-30%); transform-origin: center top;
         transition: opacity 0.2s ease, transform 0.32s cubic-bezier(0.55, 0, 0.85, 0.4);
@@ -261,8 +260,20 @@
       }
       #chase-siren.is-cooling { transform: none; transition: opacity 1.2s ease-in; }
       #chase-siren canvas { display: block; width: 60px; height: 44px; }
+      /* Where it stands. By default it is a child of #boost-meter and sits on the crown of the
+         fuel gauge (Tyler, 2026-10-15), centred over Loco Mode: the gauge's outer edge is
+         BASE_R + width + RIM = 97 units off the button's centre (game/fuelarc.js), at
+         `--gas-d` per 150, and it pops up out of that rather than down out of the top edge.
+         `?pedals=classic` moves it back into #hud, on the cash row beside the pause. It rides
+         the pedals' entrance, and #boost-meter's own hiding rules (replay, game over, shot mode). */
+      #boost-meter #chase-siren {
+        left: calc(50% - 30px); bottom: calc(50% + 97 * var(--gas-d) / 150 + 2px);
+        transform-origin: center bottom; transform: scale(0.3) translateY(30%);
+      }
+      #hud #chase-siren { top: calc((var(--hud-row) - 44px) / 2); right: var(--pause-w); }
+      #boost-meter #chase-siren.is-on, #boost-meter #chase-siren.is-cooling { transform: none; }
       @media (prefers-reduced-motion: reduce) {
-        #chase-siren, #chase-siren.is-on { transform: none; }
+        #chase-siren, #chase-siren.is-on, #boost-meter #chase-siren { transform: none; }
       }
       /* The combo meter (game/combometer.js; `updateComboTag` in main.js): the count,
          "3x", centred on the screen on the cash row, with the tailpipe's flame licking out of its
@@ -970,10 +981,10 @@
          would leave the gas looking pressed and the brake it is standing on looking up.
          `is-held` is the pointer's (engagePedal in main.js); `is-down` and `is-on` are the
          pedals' own state, set however they were pressed, so the Space and B keys sink them too. */
-      #boost .pedal-face { filter: url(#gas-up); }
-      #brake .pedal-face { filter: url(#brake-up); }
-      #boost.is-held .pedal-face, #boost.is-down .pedal-face { filter: url(#gas-down); }
-      #brake.is-held .pedal-face, #brake.is-on .pedal-face { filter: url(#brake-down); }
+      #boost .pedal-classic .pedal-face { filter: url(#gas-up); }
+      #brake .pedal-classic .pedal-face { filter: url(#brake-up); }
+      #boost.is-held .pedal-classic .pedal-face, #boost.is-down .pedal-classic .pedal-face { filter: url(#gas-down); }
+      #brake.is-held .pedal-classic .pedal-face, #brake.is-on .pedal-classic .pedal-face { filter: url(#brake-down); }
       /* The face drops into its base, 5 of the 12 units of crescent under it, and the icon rides
          with it. In the button's user units. The silhouette and the hit box stay put. */
       .pedal-face, .pedal-icon { transition: transform 0.07s ease-out; }
@@ -981,6 +992,19 @@
       #brake.is-held .pedal-face, #brake.is-on .pedal-face,
       #boost.is-held .pedal-icon, #boost.is-down .pedal-icon,
       #brake.is-held .pedal-icon, #brake.is-on .pedal-icon { transform: translateY(5px); }
+      /* The NES pedals (the default, Tyler 2026-10-15): the same two buttons drawn as a pad's B
+         and A — a black plastic surround, a shallow crescent of side, a hard glint rather than a
+         soft sheen, and a dish in the middle with the letter engraved in it. Sharper means no blur
+         anywhere in the up state, so there is no up filter at all. The press is the same idea as
+         the classic one at a shallower depth: 4 of the 5 units of crescent, and a hard inner
+         shadow from the top. `?pedals=classic` (body.pedals-classic) shows the drawings these
+         replaced, which still ship beside them. */
+      body.pedals-classic .pedal-nes, body:not(.pedals-classic) .pedal-classic { display: none; }
+      .pedal-letter { font: 700 50px/1 var(--game-font); }
+      #boost.is-held .pedal-nes .pedal-face, #boost.is-down .pedal-nes .pedal-face,
+      #brake.is-held .pedal-nes .pedal-face, #brake.is-on .pedal-nes .pedal-face {
+        filter: url(#nes-down); transform: translateY(4px);
+      }
       /* Held brake lights up a touch, the way the taxi's own lamps come on out on the road. */
       #brake.is-on .pedal-art { filter: brightness(1.12); }
 
@@ -1477,8 +1501,8 @@
       /* The "+" between keys: the title's ink, so it reads as part of the card's type. */
       .nm-plus { font: 700 18px/1 var(--game-font); color: #44497d; }
       .nm-key svg { display: block; overflow: visible; width: 44px; height: 44px; }
-      .nm-boost .pedal-face { filter: url(#gas-up); }
-      .nm-brake .pedal-face { filter: url(#brake-up); }
+      body.pedals-classic .nm-boost .pedal-face { filter: url(#gas-up); }
+      body.pedals-classic .nm-brake .pedal-face { filter: url(#brake-up); }
 
       /* Dim until pressed, lit from the press to the end of the loop; the face drops into its base
          while held, the HUD pedals' own 5 units. */
@@ -1486,6 +1510,7 @@
       .nm-key.is-lit { filter: none; opacity: 1; }
       .nm-key :is(.pedal-face, .pedal-icon) { transition: transform 0.06s ease-out; }
       .nm-key.is-down :is(.pedal-face, .pedal-icon) { transform: translateY(5px); }
+      body:not(.pedals-classic) .nm-key.is-down .pedal-face { filter: url(#nes-down); transform: translateY(4px); }
 
       /* --- the HUD's entrance ------------------------------------------------
          Everything the player will need but cannot use yet starts off its own screen edge, and
@@ -2123,8 +2148,6 @@
       <!-- What the ride aboard is on course for — Loco, Perfect, Stealth. Filled by `updateRunTags`
            in main.js; empty between rides. -->
       <div id="runs" class="runs"></div>
-      <!-- The 🚨 while the police are after the taxi, drawn into by game/chasesiren.js. -->
-      <div id="chase-siren" role="img" aria-label="Police chase" aria-hidden="true"></div>
     </div>
     <!-- The courier load, drawn into by game/cargochip.js while a package is aboard. Empty here:
          the box inside it is the real `createParcel` mesh in a WebGL context of its own, the same
@@ -2177,9 +2200,12 @@
         <circle class="boost-edge" r="0" />
         <line class="boost-glint" hidden />
       </svg>
+      <!-- The 🚨 while the police are after the taxi, drawn into by game/chasesiren.js. It stands
+           over the crown of the gauge; `?pedals=classic` moves it back into #hud (main.js). -->
+      <div id="chase-siren" role="img" aria-label="Police chase" aria-hidden="true"></div>
     </div>
     <button id="boost" type="button" aria-label="Loco Mode" aria-keyshortcuts="Space">
-      <svg class="pedal-art" viewBox="0 0 150 150" aria-hidden="true">
+      <svg class="pedal-art pedal-classic" viewBox="0 0 150 150" aria-hidden="true">
         <defs>
           <filter id="gas-up" x="-4" y="-4" width="158" height="158" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
             <feFlood flood-opacity="0" result="BackgroundImageFix" />
@@ -2245,9 +2271,52 @@
           <path class="pedal-icon" filter="url(#gas-icon)" d="M48.3979 98.1325L81.7166 65.9284C83.3303 64.3687 85.8942 66.2413 84.8993 68.2531L75.3902 87.4814C74.7329 88.8107 75.7 90.368 77.183 90.368H97.8347C99.713 90.368 100.555 92.7229 99.1033 93.9142L61.9627 124.385C60.1205 125.897 57.6537 123.498 59.1132 121.614L72.1451 104.796C73.1634 103.481 72.2267 101.571 70.5641 101.571H49.7878C47.9896 101.571 47.1049 99.3823 48.3979 98.1325Z" fill="#FFE4B9" />
         </g>
       </svg>
+      <!-- The NES pedal (the default; see "The NES pedals" in the #boost/#brake rules): a black
+           plastic surround, the button sunk in it with a thin crescent of side, one hard glint on
+           the upper left, a dished centre lit from below, and the letter engraved in the dish.
+           Everything that moves with a press is in the one `.pedal-face` group. -->
+      <svg class="pedal-art pedal-nes" viewBox="0 0 150 150" aria-hidden="true">
+        <defs>
+          <!-- The press: a hard inner shadow from the top edge, shared by both buttons. -->
+          <filter id="nes-down" x="-4" y="-4" width="158" height="158" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
+            <feOffset dy="5" />
+            <feGaussianBlur stdDeviation="1" />
+            <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+            <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.45 0" />
+            <feBlend in2="SourceGraphic" />
+          </filter>
+          <linearGradient id="nes-gas-face" x1="0" y1="9" x2="0" y2="133" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#FFB83A" /><stop offset="1" stop-color="#F28D00" />
+          </linearGradient>
+          <!-- The dish runs the other way — dark at the top, light at the bottom — which is what
+               makes it read as sunk rather than domed. -->
+          <linearGradient id="nes-gas-dish" x1="0" y1="37" x2="0" y2="105" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#D97900" /><stop offset="1" stop-color="#FFC453" />
+          </linearGradient>
+          <linearGradient id="nes-brake-face" x1="0" y1="9" x2="0" y2="133" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#F2514F" /><stop offset="1" stop-color="#D42B2E" />
+          </linearGradient>
+          <linearGradient id="nes-brake-dish" x1="0" y1="37" x2="0" y2="105" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#B91F22" /><stop offset="1" stop-color="#F8706E" />
+          </linearGradient>
+        </defs>
+        <circle cx="75" cy="75" r="73" fill="#1D1B21" />
+        <circle cx="75" cy="75" r="70.5" stroke="#4A4652" stroke-width="1.5" fill="none" />
+        <circle cx="75" cy="76" r="64" fill="#7A4100" />
+        <g class="pedal-face">
+          <circle cx="75" cy="71" r="62" fill="url(#nes-gas-face)" />
+          <path d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
+          <circle cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
+          <circle cx="75" cy="71" r="34" fill="url(#nes-gas-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
+          <path d="M104.44 88A34 34 0 0 1 45.56 88" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
+          <text class="pedal-letter" x="75" y="87" text-anchor="middle" fill="#9A5200">A</text>
+          <text class="pedal-letter" x="75" y="89" text-anchor="middle" fill="#FFF1D6">A</text>
+        </g>
+      </svg>
     </button>
     <button id="brake" type="button" aria-label="Brake" aria-keyshortcuts="B">
-      <svg class="pedal-art" viewBox="0 0 150 150" aria-hidden="true">
+      <svg class="pedal-art pedal-classic" viewBox="0 0 150 150" aria-hidden="true">
         <defs>
           <filter id="brake-up" x="-4" y="-4" width="158" height="158" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
             <feFlood flood-opacity="0" result="BackgroundImageFix" />
@@ -2308,6 +2377,24 @@
         <circle cx="75" cy="75" r="72" stroke="#221500" stroke-width="6" fill="none" />
         <g transform="translate(-10.5 19.9)">
           <path class="pedal-icon" filter="url(#brake-icon)" d="M67.8233 30.9787C67.9488 29.9782 68.7994 29.2277 69.8077 29.2277H105.624C106.827 29.2277 107.758 30.2827 107.608 31.4767L103.11 67.3243C102.985 68.3248 102.134 69.0753 101.126 69.0753H65.3096C64.1062 69.0753 63.1753 68.0203 63.3252 66.8263L67.8233 30.9787Z" fill="#FFCCCD" />
+        </g>
+      </svg>
+      <!-- The NES pedal (the default; see "The NES pedals" in the #boost/#brake rules): a black
+           plastic surround, the button sunk in it with a thin crescent of side, one hard glint on
+           the upper left, a dished centre lit from below, and the letter engraved in the dish.
+           Everything that moves with a press is in the one `.pedal-face` group. -->
+      <svg class="pedal-art pedal-nes" viewBox="0 0 150 150" aria-hidden="true">
+        <circle cx="75" cy="75" r="73" fill="#1D1B21" />
+        <circle cx="75" cy="75" r="70.5" stroke="#4A4652" stroke-width="1.5" fill="none" />
+        <circle cx="75" cy="76" r="64" fill="#6E1214" />
+        <g class="pedal-face">
+          <circle cx="75" cy="71" r="62" fill="url(#nes-brake-face)" />
+          <path d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
+          <circle cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
+          <circle cx="75" cy="71" r="34" fill="url(#nes-brake-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
+          <path d="M104.44 88A34 34 0 0 1 45.56 88" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
+          <text class="pedal-letter" x="75" y="87" text-anchor="middle" fill="#8E1E21">B</text>
+          <text class="pedal-letter" x="75" y="89" text-anchor="middle" fill="#FFE6E6">B</text>
         </g>
       </svg>
     </button>
