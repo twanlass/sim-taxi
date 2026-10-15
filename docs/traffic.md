@@ -1240,6 +1240,15 @@ be rammed, and holding past it still rams. At 0.6s reaction that takes the pass 
 a taxi that never throws the combo still rams 80 cars in the same runs. Tyler tried it behind a
 flag and kept it (2026-10-07).
 
+That grace is counted from catching the car, so a taxi already sitting behind one with Loco off has
+spent it, and the combo's first tap was then itself a ram: `BOOST_KICK` puts the taxi into the
+bumper inside the tap. Following within 14 units for 2s and then tap, 0.15s lift, hold, over 12
+cities: a 0.25s tap rammed 27 times and passed 7, a 0.4s tap rammed 35 of 40, and only the shortest
+taps (0.08s) got through. So a fresh press behind a car also gets `OVERTAKE_PRESS_GRACE` (0.5s) of
+tailgating, and the same runs ram 0-1 times on the tap at every length (Tyler, 2026-10-15: "hard to
+pull off when directly behind a car and not already loco'ing"). Holding on past it still rams;
+`?pressgrace=classic` drops it.
+
 The same day `OVERTAKE_PRE_HOLD` went from 0.2s to 0, so a quick tap, then tap-and-hold behind a
 car throws the combo too. The 0.2 was there to stop stabs at the pill arming it, but a double tap
 with a car in range is deliberate.

@@ -60,12 +60,24 @@ export const OVERTAKE_ARM_WINDOW = 3.0;
 export const OVERTAKE_GRACE = 1.2;
 
 /**
+ * Seconds a fresh press of the pill behind a car is tailgated rather than rammed, on top of
+ * OVERTAKE_GRACE. That grace is counted from catching the car, so a player already sitting behind
+ * one has spent it, and the combo's own first tap was then a ram: `BOOST_KICK` puts the taxi into
+ * the car's bumper inside the tap. Measured (12 cities, following within 14 units for 2s, then tap,
+ * 0.15s lift, hold): a 0.25s tap rammed on 27 of 41 tries and passed 7; 0.4s rammed 35 of 40.
+ * A thumb's tap on a phone is 100-250ms. Holding on past this still rams.
+ */
+export const OVERTAKE_PRESS_GRACE = 0.5;
+
+/**
  * @param taxi   the traffic model's taxi; reads `passGap`, `passLeader` and `passing`, writes
  *               `passArmed`, `passPending` and `passGrace`
  * @param grace  seconds of OVERTAKE_GRACE to give a newly caught car; 0 rams on contact (the
  *               probe and the bot pass it explicitly)
+ * @param pressGrace  seconds of OVERTAKE_PRESS_GRACE to give a fresh press behind a car;
+ *               `?pressgrace=classic` passes 0
  */
-export function createOvertakeCombo({ taxi, grace = 0 }) {
+export function createOvertakeCombo({ taxi, grace = 0, pressGrace = grace > 0 ? OVERTAKE_PRESS_GRACE : 0 }) {
   const state = {
     armed: false,
     /** Seconds an armed combo has left to start its pass. */
@@ -106,6 +118,7 @@ export function createOvertakeCombo({ taxi, grace = 0 }) {
    */
   function update(dt, { held, brakeHeld = false }) {
     if (held && !wasHeld) {
+      if (pressGrace > 0 && behind()) graceLeft = Math.max(graceLeft, pressGrace);
       if (blip !== null && blip <= OVERTAKE_BLIP_MS / 1000 && behind()) {
         state.armed = true;
         state.armLeft = OVERTAKE_ARM_WINDOW;
