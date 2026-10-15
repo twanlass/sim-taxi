@@ -3289,7 +3289,7 @@ talking about them. A DOM bubble projected over the car every frame, not geometr
 be read, and there is no font in the scene.
 
 **The 🚨 in the HUD** says the chase is on for as long as it is on (`game/chasesiren.js`, Tyler's
-idea, 2026-10-14): a low-poly beacon on the cash row, just left of the pause, a squared-off solid red lens
+idea, 2026-10-14): a low-poly beacon standing over the Loco Mode button (on the cash row beside the pause under `?pedals=classic`), a squared-off solid red lens
 whose shader sweeps a hot spot round it, flashing once a turn as the spot swings past the camera. It pops in on the spot and is up for a [getaway](gameplay.md#the-bank-robbery) too. While
 the cop is losing you (the gap held past escape range, or the taxi out of its sight) the lamp cools
 with the patrol's own two counters: slower, dimmer, half faded. Lost, it spins down and fades out

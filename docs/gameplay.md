@@ -2854,10 +2854,14 @@ unbroken move: with nothing to arrive at on the car, the box has one destination
 ## Crazy-taxi mode
 
 The **Loco Mode** button is the gas pedal: the round orange button centred on the bottom edge,
-100px across, with the brake to its left (see [the pedal slide](#the-pedal-slide)). **Hold to
+100px across, with the brake to its left (see [the pedal slide](#the-pedal-slide)). Both are drawn
+as an NES pad's buttons — Loco Mode is **A**, the brake **B** — black plastic surround, a dished
+centre with the letter debossed in it, a hard glint (Tyler, 2026-10-15; `?pedals=classic` brings
+back the round pedals with lightning and stop icons). **Hold to
 enable, release to pause.** A short tap costs a short slice, a long hold flows until the tank is
 empty. Full tank is 15 seconds of boost. The decision is *how long* to press as well as *when*.
-The fuel level is the arc gauge round the pedal (`#boost-meter`, `game/fuelarc.js`), off a `--pct`
+The fuel level is the arc gauge round the pedal (`#boost-meter`, `game/fuelarc.js`), a 140° crown
+over the top of it (~197° under `?pedals=classic`), off a `--pct`
 CSS variable, dropping as you drain and climbing as a drop-off pours fuel in.
 
 **Every drop of it is earned, except the way back out of empty.** The run opens with **a third of a tank**, each

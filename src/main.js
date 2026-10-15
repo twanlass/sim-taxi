@@ -56,7 +56,7 @@ import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
-import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM } from './game/fuelarc.js';
+import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM, useClassicArc as useClassicFuelArc } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION, BOOT_FRACTION } from './game/taxidamage.js';
 import { createHitCue, hitCueMode } from './game/hitcue.js';
@@ -3032,7 +3032,17 @@ const taxiFinder = createTaxiFinder({
 // game/cargochip.js. Built only when the layer is on, because it opens a WebGL context of its own
 // and a run under `?parcels=0` can never have anything to put in it.
 const cargoChip = parcels ? createCargoChip({ sun, hemi }) : null;
-// The 🚨 on the cash row while the police are after the taxi; `?chasesiren=classic` goes without.
+// The NES pedals (Tyler, 2026-10-15): B and A on plastic buttons with a dished centre, a shorter
+// fuel arc, and the 🚨 standing over Loco Mode rather than on the cash row. `?pedals=classic` puts
+// back the round pedals with their stop and lightning icons, the wider arc, and the siren beside
+// the pause. Both pedal drawings ship in the markup; the body class picks one (index.html).
+if (new URLSearchParams(window.location.search).get('pedals') === 'classic') {
+  document.body.classList.add('pedals-classic');
+  useClassicFuelArc();
+  const siren = document.getElementById('chase-siren');
+  if (siren) document.getElementById('hud')?.appendChild(siren);
+}
+// The 🚨 over Loco Mode while the police are after the taxi; `?chasesiren=classic` goes without.
 const chaseSiren = new URLSearchParams(window.location.search).get('chasesiren') !== 'classic'
   ? createChaseSiren() : null;
 const farePointers = createFarePointers({
