@@ -26,9 +26,10 @@
  *   pressure  how many riders are offered per rider one taxi can serve
  *   ramp      how many deliveries the curve takes to run its length
  *   shipped   just the current tuning
+ *   modes     the Settings row's Easy / Regular / Hard, as shipped
  */
 import { play, pct, mean } from './autoplay.mjs';
-import { setTuning, getTuning } from '../src/game/difficulty.js';
+import { setTuning, getTuning, MODES } from '../src/game/difficulty.js';
 
 const RUNS = Number(process.argv[2] ?? 9);
 const PRESET = process.argv[3] ?? 'shipped';
@@ -45,6 +46,8 @@ const BASE = getTuning();
 // Each variant is a patch over the shipped tuning, so a preset only has to name what it moves.
 const PRESETS = {
   shipped: [{ label: 'shipped' }],
+
+  modes: Object.values(MODES).map(({ label, tuning }) => ({ label, ...tuning })),
 
   pace: [
     { label: 'pace 1.5→1.0', paceEnd: 1.0 },

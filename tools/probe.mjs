@@ -2840,6 +2840,21 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     && difficulty.maxFares(1) === MAX_FARES);
   check('the board difficulty.js sizes is the one fares.js pools', BOARD_MAX === MAX_FARES);
   check('the curve reaches its ceiling', difficulty.difficulty(40) === 1);
+  // Every Settings mode stays winnable, each is harder than the one before it at every point on
+  // the run, and switching back lands exactly on the shipped curve the checks above measured.
+  const shipped = JSON.stringify(difficulty.getTuning());
+  const modes = Object.keys(difficulty.MODES);
+  const curves = modes.map((m) => {
+    difficulty.setMode(m);
+    return Array.from({ length: 41 }, (_, n) => ({ pace: difficulty.pace(n), pressure: difficulty.pressure(n) }));
+  });
+  difficulty.setMode('easy');
+  check('Easy is the shipped curve', modes[0] === 'easy' && JSON.stringify(difficulty.getTuning()) === shipped);
+  check('no difficulty mode asks for more than Loco Mode can give',
+    curves.every((c) => c.every((p) => p.pace >= LOCO_PACE_SELF)));
+  check('each difficulty mode is at least as hard as the one before it, everywhere on the run',
+    curves.slice(1).every((c, k) => c.every((p, n) => p.pace <= curves[k][n].pace
+      && p.pressure >= curves[k][n].pressure)));
   // A fare that spawns already past its floor is one the clamp is doing all the work for. The
   // floor exists for the next-door hop; if it is catching a median trip, the budget is broken.
   const medianWork = 16.4;   // measured mean trip, tools/eta.mjs
