@@ -555,6 +555,15 @@ export function getSquall(
 }
 
 /**
+ * How a squall's edge arrives — `?squallramp=classic` brings back the one that arrived all at once:
+ * the shade, the rain and the lights over the same ~6s of the cell's edge, the sky greying the
+ * moment a cell came on anywhere. Anything else is the graded front (`RAMP` in game/squall.js).
+ */
+export function getSquallRampClassic() {
+  return new URLSearchParams(window.location.search).get('squallramp') === 'classic';
+}
+
+/**
  * Autumn — `?fall=off` puts the trees back in summer green and keeps their leaves on in a squall.
  * On by default. The colours are a hash of each trunk's position (`autumnBase` in city/props.js),
  * so the switch moves no tree. The leaves are game/leaves.js.

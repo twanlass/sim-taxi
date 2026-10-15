@@ -295,6 +295,12 @@ export const CLOUD_UNIFORMS = {
   uCell: { value: new THREE.Vector4(0, 0, 30, 0) },
   uCellEdge: { value: 14 },
   uCellTime: { value: 0 },
+  // How the front falls off past the core's edge, in edges (`RAMP` in game/squall.js): the
+  // drizzle's reach and share, then where the shade starts and ends.
+  uCellShape: { value: new THREE.Vector4(1, 0, 0, 1.6) },
+  // The lights against the shade (from, over), whether the drizzle thins the drops rather than
+  // fading them, and the cell's strength as it comes up and dies away.
+  uCellLight: { value: new THREE.Vector4(0, 1, 0, 1) },
 };
 
 /**
@@ -312,13 +318,26 @@ float cloudNoise(vec2 p) {
   return mix(mix(cloudHash(i), cloudHash(i + vec2(1.0, 0.0)), f.x),
              mix(cloudHash(i + vec2(0.0, 1.0)), cloudHash(i + vec2(1.0, 1.0)), f.x), f.y);
 }
-// How far into the squall's rain cell a point is — 1 at its core, 0 outside it, ragged at the edge.
-// The same footprint as cellMask in game/squall.js; keep the two in step.
-float cellCore(vec2 xz, vec4 cell, float edge, float t) {
-  if (cell.w < 0.5) return 0.0;
-  float d = length(xz - cell.xy);
+// How far past the ragged edge of the squall's core a point is, negative inside it. The same
+// footprint as cellFront in game/squall.js; keep the two in step.
+float cellFront(vec2 xz, vec4 cell, float t) {
   float r = cell.z * (0.82 + 0.36 * cloudNoise(vec2(xz.x / 16.0 + t * 0.04, xz.y / 16.0 - t * 0.03)));
-  return 1.0 - smoothstep(r, r + edge, d);
+  return length(xz - cell.xy) - r;
+}
+// How hard it is raining at a point: the downpour over one edge, and the drizzle's share out across
+// its wider band ahead of it. cellMask in game/squall.js.
+float cellRain(vec2 xz, vec4 cell, float edge, float t, vec4 shape, float strength) {
+  if (cell.w < 0.5) return 0.0;
+  float f = cellFront(xz, cell, t);
+  float heavy = 1.0 - smoothstep(0.0, edge, f);
+  float drizzle = shape.y * (1.0 - smoothstep(0.0, edge * shape.x, f));
+  return strength * max(heavy, drizzle);
+}
+// How far into the cell's shade a point is — wider than the rain, and ahead of it. cellShade there.
+float cellShade(vec2 xz, vec4 cell, float edge, float t, vec4 shape, float strength) {
+  if (cell.w < 0.5) return 0.0;
+  float f = cellFront(xz, cell, t);
+  return strength * (1.0 - smoothstep(edge * shape.z, edge * shape.w, f));
 }
 float cloudSun(vec2 xz, float t, float cover, float scale, vec2 drift) {
   vec2 p = xz / scale + drift * t;
@@ -339,9 +358,9 @@ const CLOUD_LIGHT = /* glsl */ `
 		float cSun = cloudSun(cWorld.xz, uCloudTime, uCloudCover, uCloudScale, uCloudDrift);
 		reflectedLight.directDiffuse *= mix(uCloudFloor, 1.0, cSun);
 		// Under the squall's cell: the sun all but gone and the sky dimmer too, so the cell reads as
-		// a dark patch of weather moving over a sunny city. Reaches a little past the rain itself —
-		// the cloud is wider than what falls out of it.
-		float cCell = cellCore(cWorld.xz, uCell, uCellEdge * 1.6, uCellTime);
+		// a dark patch of weather moving over a sunny city. Reaches well past the rain itself — the
+		// cloud is wider than what falls out of it, and it is what arrives first.
+		float cCell = cellShade(cWorld.xz, uCell, uCellEdge, uCellTime, uCellShape, uCellLight.w);
 		reflectedLight.directDiffuse *= 1.0 - 0.88 * cCell;
 		reflectedLight.indirectDiffuse *= 1.0 - 0.3 * cCell;
 	}
@@ -1258,6 +1277,8 @@ uniform mat4 uCloudViewInv;
 uniform vec4 uCell;
 uniform float uCellEdge;
 uniform float uCellTime;
+uniform vec4 uCellShape;
+uniform vec4 uCellLight;
 ${CLOUD_GLSL}` : ''}`);
 
     if (useAO) {

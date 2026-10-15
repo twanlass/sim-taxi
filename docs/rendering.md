@@ -1537,15 +1537,25 @@ the start of the crossing, so a still frame shows the trail.
 Everything that was a level in the storm becomes a position here:
 
 - **The cell's footprint** is a soft, ragged disc: core radius `CELL_R` 30, soft edge `CELL_EDGE`
-  14, and its edge noised over time. It exists twice, as `cellMask` on the CPU and `cellCore` in
-  `CLOUD_GLSL`, built from the same hash, so the grip under the taxi agrees with the rain on
-  screen. Keep the two in step.
+  14, and its edge noised over time. It exists twice, as `cellFront`/`cellMask`/`cellShade` on the
+  CPU and `cellFront`/`cellRain`/`cellShade` in `CLOUD_GLSL`, built from the same hash, so the grip
+  under the taxi agrees with the rain on screen. Keep the two in step.
+- **The front arrives in order** (`RAMP` in game/squall.js, passed to the shaders as `uCellShape`
+  and `uCellLight`). At ~3.6 u/s an edge is about 4 s at one point, and the three things a storm
+  does are laid out across ~12 s of it: the shade first, from 3.2 edges out to full at 0.6; the
+  lights through the darkening; then a drizzle, a quarter of the rain from 1.6 edges in; then the
+  downpour over the last edge. Leaving, it runs backwards. Each cell also comes up to strength over
+  the first tenth of its crossing and dies away over the last, so its shade does not snap on over
+  the corner it starts beside. `?squallramp=classic` puts all three back on the same ~6 s.
 - **Cloud shade.** Under the cell, `CLOUD_LIGHT` cuts the sun's direct light by 88% and the sky's by
-  30%. It reaches 1.6 times the soft edge, past the rain itself, because the cloud is wider than
-  what falls out of it.
-- **Rain and splashes** fade by the footprint at each drop's position. Their wrap box closes in
-  around the cell, 2 × (radius + edge) + 20 across, so all the rain there is falls there, at the
-  density the whole sky had.
+  30%, by `cellShade`, well past the rain itself, because the cloud is wider than what falls out of
+  it.
+- **Rain and splashes** follow `cellRain` at each drop's position. In the drizzle a streak either
+  falls or does not, each against its own share, so the band is a quarter of the drops rather than
+  every drop at a quarter of its alpha; a drop that is not falling is clipped in the vertex shader
+  rather than drawn transparent. Their wrap box closes in around the cell out to the drizzle's edge,
+  2 × (radius + 1.6 edges) + 20 across, and carries drops by its area, so the downpour is as dense
+  as it was in the first front's 108-unit box.
 - **The wet map** is a 96² grid over 170 units of island. It soaks toward the footprint with a
   3 s time constant and dries with 45 s — any faster and the trail is half gone by the time the cell
   is halfway across, so the rain reads as drying the ground behind itself. The grid is uploaded as an
@@ -1553,13 +1563,17 @@ Everything that was a level in the storm becomes a position here:
   binds a white texel, so the lookup is one code path. Ripples follow the *rain* and not the wet
   map: a drying street is still, and only the street being rained on moves.
 - **The lights.** Windows, lamp heads and lamp pools take the larger of the city-wide level and
-  the footprint where they stand (`litLevelAt` in game/citylights.js). Each one still has its own
+  the shade where they stand, read over 0.15–0.95 of it (`litLevelAt` in game/citylights.js;
+  `squall.lightAt` on the CPU). Each one still has its own
   threshold, so a block lights up pane by pane as the cell arrives. The level is read at each
   light's **anchor** (`aLitXZ` — a pane's centre, a lamp's post), never per vertex: the footprint's
   22-unit edge varies across one pane by more than the ramp, and read per corner every window wiped
   on from one side as the edge went over it. Car headlights come from
-  `setRunningLightsAt(fn)` in sim/traffic.js, per car from its own position.
-- **What stays global:** a faint grade (`SQUALL_GREY` 0.2) while a cell is on the map, the grip
+  `setRunningLightsAt(fn)` in sim/traffic.js, per car from its own position, half way through the
+  city's lights.
+- **What stays global:** a faint grade (`SQUALL_GREY` 0.2), building as the cell comes within
+  `SQUALL_NEAR` (60 units) of its shade's edge from the middle of the frame and full with it
+  overhead (`squallNearness` in main.js), the grip
   (read under the *taxi*, so every car brakes as the player's patch of road does), and the lens
   drops (on while the *taxi* is under the rain — it is the taxi's windscreen — or within `LENS_REACH`
   (15 units) of its edge, easing in over 0.5s and clearing over 5s once it drives out,
