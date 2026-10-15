@@ -36,6 +36,13 @@ export const GRAVEYARD_MODE = (() => {
   return raw === 'classic' || raw === 'single' ? raw : 'double';
 })();
 export const GRAVEYARD_ON = GRAVEYARD_MODE !== 'classic';
+/**
+ * The ground mist, off by default (Tyler, 2026-10-15: "Kill the graveyard fog for now");
+ * `?gravemist=classic` (`GRAVEMIST=classic` headless) brings it back.
+ */
+export const GRAVE_MIST = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('gravemist') === 'classic'
+  : globalThis.process?.env?.GRAVEMIST === 'classic';
 
 /** What ground.js lays the lawn at — the park's own level, since it is the park's own surface. */
 export const GRAVE_GRASS_Y = KERB_H + 0.01;
@@ -65,7 +72,8 @@ const ARCH_R = GATE_HALF + GATE_PIER / 2 - 0.12;
 const GATE_OPEN = 1.2;
 
 // --- The rows -----------------------------------------------------------------
-const PATH_HALF = 0.65;
+/** Half the gravel path's width. Exported for the probe's grass check. */
+export const PATH_HALF = 0.65;
 // Thinned 2026-10-13 (Tyler: "too many"): 1.2 x 1.55 with 18% gaps put 84-93 stones on the
 // double lot, wall to wall. This and 30% gaps (below) leave lawn between them: 44-49 over five cities.
 const COL_PITCH = 1.7;
@@ -337,8 +345,11 @@ function headstone(kind, rng) {
   return geo;
 }
 
-/** `keepOut`: the tree and the statue, each `{ x, z, r? }` — no stone within `r` (TREE_CLEAR by default). */
-function headstoneParts(site, keepOut, rng, parts) {
+/**
+ * `keepOut`: the tree and the statue, each `{ x, z, r? }` — no stone within `r` (TREE_CLEAR by
+ * default). Each stone placed goes into `stones` as `{ x, z }`, for the grass to keep off.
+ */
+function headstoneParts(site, keepOut, rng, parts, stones) {
   const { fence, gateX } = site;
   const zFirst = fence.z0 + STONE_CLEAR + 0.2;
   const zLast = fence.z1 - STONE_CLEAR - 1.2;  // leave the grave in front of the last row room
@@ -363,6 +374,7 @@ function headstoneParts(site, keepOut, rng, parts) {
         geo.rotateY(rng.jitter(0.06));
         geo.translate(x, FOOT, z);
         parts.push(geo);
+        stones.push({ x, z });
       }
     }
   }
@@ -421,6 +433,48 @@ function createMist(site, rng) {
   };
 }
 
+// --- The grass --------------------------------------------------------------------
+
+/** Tufts here come up to this fraction of a park's: tall enough to read, short of a stone's face. */
+const GRASS_HEIGHT = 0.75;
+// What a stone keeps clear round itself, in its own (unturned) frame: half the widest stone, and
+// from just behind it to the far end of its grave mound. The front reach matters most — a tuft
+// standing on the grave is between the camera and the stone's face.
+const STONE_GRASS_HALF = 0.5;
+const STONE_GRASS_BACK = 0.35;
+const STONE_GRASS_FRONT = 1.35;
+
+/**
+ * The lawn inside the fence, as `planEdgeGrass` takes it: off the plinth, the gravel path, the open
+ * gate leaves, the tree's trunk, the statue's square, and each stone and the grave in front of it.
+ * `reach` is half a card's width, and is spent whole on each axis: turned the full 0.6 off the
+ * view, a card runs within 11° of a grid axis (`scatter`, city/grass.js).
+ */
+export function graveGrassArea(site, { tree, statue, stones }) {
+  const { fence, gateX } = site;
+  const inX0 = fence.x0 + PLINTH_W / 2 + 0.1;
+  const inX1 = fence.x1 - PLINTH_W / 2 - 0.1;
+  const inZ0 = fence.z0 + PLINTH_W / 2 + 0.1;
+  const inZ1 = fence.z1 - PLINTH_W / 2 - 0.1;
+  return {
+    bounds: { x0: inX0, x1: inX1, z0: inZ0, z1: inZ1 },
+    inside: (x, z) => x > inX0 && x < inX1 && z > inZ0 && z < inZ1,
+    height: GRASS_HEIGHT,
+    root: PALETTE.graveGrass,
+    blocked(x, z, reach) {
+      const r = reach;
+      const dx = Math.abs(x - gateX);
+      if (dx < PATH_HALF + 0.1 + r) return true;
+      // The leaves swing GATE_OPEN into the lot off hinges GATE_HALF either side of the path.
+      if (dx < GATE_HALF + GATE_PIER + r && (z - fence.z0 < GATE_HALF + r || fence.z1 - z < GATE_HALF + r)) return true;
+      if (Math.hypot(x - tree.x, z - tree.z) < 0.5 + r) return true;
+      if (Math.abs(x - statue.x) < STATUE_PLAZA / 2 + r && Math.abs(z - statue.z) < STATUE_PLAZA / 2 + r) return true;
+      return stones.some((s) => Math.abs(x - s.x) < STONE_GRASS_HALF + r
+        && z - s.z > -STONE_GRASS_BACK - r && z - s.z < STONE_GRASS_FRONT + r);
+    },
+  };
+}
+
 // --- The whole lot ----------------------------------------------------------------
 
 export function createGraveyard(block, rng) {
@@ -453,7 +507,8 @@ export function createGraveyard(block, rng) {
   };
   parts.push(...statueParts(statue.x, statue.z, GRAVE_GRASS_Y, rng));
 
-  headstoneParts(site, [tree, statue], rng, parts);
+  const stones = [];
+  headstoneParts(site, [tree, statue], rng, parts, stones);
 
   // The lanterns' iron caps and points, on both gates; the lit glass under them is `glow` below.
   for (const z of [fence.z0, fence.z1]) {
@@ -498,7 +553,10 @@ export function createGraveyard(block, rng) {
   glowParts.forEach((p) => p.dispose());
   glow.name = 'graveyard-glow';
 
+  // Built either way so the stream behind it does not move; only drawn under `?gravemist=classic`.
+  // Switched off on the material, not the group: the entrance wave sets the group's `visible`.
   const mist = createMist(site, rng);
+  mist.material.visible = GRAVE_MIST;
 
   const group = new THREE.Group();
   group.name = 'graveyard-root';
@@ -507,6 +565,10 @@ export function createGraveyard(block, rng) {
   return {
     site,
     group,
+    /** The lawn as `city/grass.js` scatters tufts over it. */
+    grass: graveGrassArea(site, { tree, statue, stones }),
+    /** Every headstone's foot, `{ x, z }` — the grave runs +Z of it. */
+    stones,
     shell,
     glow,
     /** Advance the mist. `dark` is 0 in daylight and 1 at full night. */

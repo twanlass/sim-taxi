@@ -52,7 +52,7 @@ import {
   createBurgerJoint, burgerSite, burgerGeometry, BURGER_R, SIGN_SPIN, VIEW_RISE, ROOF_Y, CAP_Y,
 } from '../src/city/burgerjoint.js';
 import { createDriveThru } from '../src/game/drivethru.js';
-import { createGraveyard } from '../src/city/graveyard.js';
+import { createGraveyard, PATH_HALF as GRAVE_PATH_HALF } from '../src/city/graveyard.js';
 import { plantedCrowns } from '../src/city/props.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
@@ -20930,6 +20930,39 @@ let chopperOrder; // likewise
   }
   check('graveyard: everything on it stands inside its kerb, under 8 units tall',
     outside === 0 && top < 8, `${outside} vertices outside, tallest ${top.toFixed(2)}`);
+
+  // Its grass (`?gravegrass=classic` drops it): both ends of every card inside the fence, off the
+  // path, and off every stone and the grave in front of it — read off the built cards, against the
+  // fence and the stones the graveyard reports rather than the area the planner was handed.
+  {
+    const { planEdgeGrass } = await import('../src/city/grass.js');
+    let tufts = 0;
+    let outFence = 0;
+    let onPath = 0;
+    let onGrave = 0;
+    for (let s = 0; s < 10; s++) {
+      const sweep = createLayout(makeRng(seed + 7000 + s * 13));
+      if (!sweep.graveyardBlock) continue;
+      const y = createGraveyard(sweep.graveyardBlock, makeRng(seed + s * 41 + 131));
+      const planned = planEdgeGrass(makeRng(seed + s * 41 + 124), [y.grass]);
+      const cards = grassGeometry(planned, makeRng(1)).attributes.position;
+      const { fence, gateX } = y.site;
+      for (let k = 0; k < planned.length; k++) {
+        tufts += 1;
+        for (const v of [k * 6, k * 6 + 1]) {
+          const x = cards.getX(v);
+          const z = cards.getZ(v);
+          if (x < fence.x0 || x > fence.x1 || z < fence.z0 || z > fence.z1) outFence += 1;
+          if (Math.abs(x - gateX) < GRAVE_PATH_HALF) onPath += 1;
+          if (y.stones.some((st) => Math.abs(x - st.x) < 0.45 && z - st.z > -0.15 && z - st.z < 1.2)) onGrave += 1;
+        }
+      }
+    }
+    createLayout(makeRng(seed));
+    check('graveyard grass: tufts grow, inside the fence, off the path and off every grave',
+      tufts > 0 && outFence + onPath + onGrave === 0,
+      `${(tufts / 10).toFixed(0)} a lot; ${outFence} card ends past the fence, ${onPath} on the path, ${onGrave} on a grave`);
+  }
 
   let placed = 0;
   let downtown = 0;

@@ -755,10 +755,12 @@ know it exists. An iron railing on a stone plinth runs round the lawn, with a ga
 the +Z fence.
 Headstones stand in rows either side of a gravel path that runs gate to gate (one gate in each
 end), one big tree stands in a back corner, one of the parks' statues (`statueParts`) stands on its
-plaza in the −X half for some asymmetry, and a little ground mist drifts across. The tree is
+plaza in the −X half for some asymmetry, and long grass grows between the rows (see
+[Long grass](#long-grass)). The tree is
 an ordinary `treeParts` tree at 6.6 tall (the parks run 3.4–5.6) with a plum crown, so it lights and
-wears leaf cards exactly as every other tree does. The mist thickens after dark, using the
-same measure of darkness as the helicopter's searchlight.
+wears leaf cards exactly as every other tree does. The ground mist that used to drift across is off
+since 2026-10-15; `?gravemist=classic` brings it back, thickening after dark on the same measure of
+darkness as the helicopter's searchlight.
 
 - **It faces the camera, like the burger joint.** Only +X and +Z faces are ever seen, so the gate is
   in the +Z fence, every stone faces +Z, and the tree stands in the back corner, behind the stones
@@ -1120,6 +1122,14 @@ spread evenly, because an even scatter reads as a texture laid over the park.
   never stops on a line the lawn runs past. Measured headless (`tools/perf.mjs`, seed 7): ~2,950
   tufts north and ~3,450 south, 308 draws either way, 651.1k → 664.0k triangles a frame (+2%). The
   `?bench` row `edge grass off` is there for the alpha-tested overdraw, which only a phone measures.
+- **The graveyard grows it too** (default; `?gravegrass=classic` leaves the lawn flat): the lot
+  inside the fence hands `createGrass` an area (`grass` on what `createGraveyard` returns) off its
+  own stream (`seed + 124`), appended last. Rooted in `graveGrass` rather than the parks' green, at
+  0.75 of a park tuft's height so no clump tops a headstone, and kept off the plinth, the path, the
+  open gate leaves, the tree's trunk, the statue's square and each stone with the grave in front of
+  it — the front reach matters most, since a tuft on the grave stands between the camera and the
+  stone's face. About 90 tufts a lot, so ~180 triangles in the same draw. The probe checks the
+  built cards against the fence, the path and the stones the graveyard reports.
 
 ### Leaf fuzz on the crowns
 
