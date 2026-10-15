@@ -47,6 +47,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?damage=classic` | The taxi's damage ladder before the first-hit flash, grime and steam | #456 | [gameplay.md](gameplay.md) |
 | `?wreck=classic` / `=quick` | The old fireball, or the quick cut (default is `flat`) | #398 | [traffic.md](traffic.md) |
 | `?capture=classic` | The old police rules: any patrol touch is "Busted!", a boosted hit on any cop is a full wreck, a getaway's cops never arrest. Default: hitting a cop costs HP like any car, and "Busted!" is being pinned by a chasing cop | #527 | [gameplay.md](gameplay.md#getting-caught) |
+| `?standdown=classic` | A patrol cop that loses you goes dark and drives off the map, instead of going back on patrol with its bar swinging | | [traffic.md](traffic.md#the-life-of-a-patrol) |
 | `?cop=classic` | With `?capture=classic`: boosting into a cop is a bump rather than a full wreck | #466 | [gameplay.md](gameplay.md) |
 | `?stuntman=classic` | Smashing a roadworks barricade is scenery: no Stuntman combo step, no Loco refund | | [gameplay.md](gameplay.md#the-combo-meter) |
 | `?camreturn=classic` | The camera stays where the player panned it, instead of riding back to the taxi after 1.5s with no touch on the map | #530 | [rendering.md](rendering.md#getting-back-to-the-taxi) |

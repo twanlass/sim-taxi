@@ -9182,7 +9182,9 @@ function rideToPickup() {
   // `tank`: seconds of Loco Mode the taxi spends from the moment it is spotted — 0 is off the pill,
   // BOOST_DURATION a full tank. `hideAt`: seconds in, the taxi turns in at the depot — staged off
   // the road, as the opening does it, and `hideout` called the way main.js calls it.
-  const outcome = (s, tank, hideAt = null) => {
+  // `resume`: the default in the game (`?standdown=classic` turns it off) — a lost cop goes back on
+  // patrol rather than standing down. Off for the runs the stand-down checks below measure.
+  const outcome = (s, tank, hideAt = null, resume = false) => {
     createLayout(makeRng(s));
     const pScene = new THREE.Scene();
     const pTraffic = createTraffic(makeRng(s + 44), pScene, CARS_DEFAULT);
@@ -9194,6 +9196,7 @@ function rideToPickup() {
       police: pPolice,
       traffic: pTraffic,
       taxi,
+      resume,
       onCaught: (cop) => {
         result = { how: 'caught', touched: touching(taxi, cop, TOUCH_SLACK), braking: cop.roadblock > 0 };
         taxi.crashed = true;
@@ -9275,6 +9278,28 @@ function rideToPickup() {
     }
     // After a loss: the bar goes dark, the car drives off, and once it is out of sight it leaves
     // the road and the cruiser goes back on its cooldown. Ducking into the depot is the same exit.
+    if (resume && (out.how === 'lost' || out.how === 'hid')) {
+      // Back on patrol: bar swinging, chase flags down, on the out leg — and then it actually
+      // drives (a stopped car with its bar swinging is the dead cop again, lit) and leaves town by
+      // the exit the way any crossing does.
+      const cop = pursuit.state.cop;
+      out.resumed = pursuit.state.phase === 'patrol' && pursuit.state.leg === 'out'
+        && pPolice.state.bar === 'patrol' && cop && !cop.siren && cop.chase === 0 && !cop.ram
+        && pTraffic.policeCars.includes(cop);
+      taxi.boost = false;
+      const from = cop && { x: cop.x, z: cop.z };
+      let k = 0;
+      out.moved = 0;
+      for (; k < 60 * 90 && pursuit.state.phase === 'patrol'; k++) {
+        pTraffic.update(1 / 60);
+        pursuit.update(1 / 60);
+        pPolice.update(1 / 60);
+        if (k === 60 * 5 && from) out.moved = Math.hypot(cop.x - from.x, cop.z - from.z);
+      }
+      out.exited = pursuit.state.phase === 'exiting' || pursuit.state.phase === 'off';
+      out.exitAt = k / 60;
+      return out;
+    }
     if (out.how === 'lost' || out.how === 'hid') {
       const cop = pursuit.state.cop;
       out.dark = pursuit.state.phase === 'leaving' && cop && !cop.siren && cop.chase === 0 && (cop.route?.length ?? 0) > 0;
@@ -9296,7 +9321,7 @@ function rideToPickup() {
     return out;
   };
 
-  const runs = { cruising: [], boosting: [], third: [], hid: [] };
+  const runs = { cruising: [], boosting: [], third: [], hid: [], resumed: [] };
   // The full tank is run on more seeds than the rest, because its median is a *time* sitting close
   // to its bar rather than a count with room either side. Over 40 seeds it is 6.1s in the 6 × 7
   // city (33 lost; the other 7 all caught inside 0.6s, the staged-into-the-cop's-side case) and
@@ -9313,6 +9338,9 @@ function rideToPickup() {
     if (b) runs.boosting.push(b);
     if (c) runs.third.push(c);
     if (h) runs.hid.push(h);
+    // The game's default: lost, or ducked into the depot, and the cop goes back on patrol.
+    const r = k < 8 ? outcome(seed + 500 + k, BOOST_DURATION, k < 2 ? 0.5 : null, true) : null;
+    if (r && (r.how === 'lost' || r.how === 'hid')) runs.resumed.push(r);
   }
   createLayout(makeRng(seed));   // createLayout installs the network it builds — put ours back
 
@@ -9360,6 +9388,14 @@ function rideToPickup() {
   check('...and the cop stands down as a lost one does', hid.every((r) => r.dark && r.backOnPatrol
     && r.retiredFar >= SPAWN_CLEARANCE - 0.5),
     `${hid.filter((r) => r.dark && r.backOnPatrol).length}/${hid.length}`);
+  // The default since Tyler found the stand-down read as "a dead patrol car" (`resumePatrol`).
+  const back = runs.resumed;
+  check('a lost cop goes back on patrol, bar swinging', back.length >= 4 && back.every((r) => r.resumed),
+    `${back.filter((r) => r.resumed).length}/${back.length}`);
+  check('...keeps driving', back.every((r) => r.moved > 10 || r.exitAt < 5),
+    `least moved in 5s ${Math.min(...back.map((r) => (r.exitAt < 5 ? Infinity : r.moved))).toFixed(1)}`);
+  check('...and crosses out of town', back.every((r) => r.exited),
+    `slowest ${Math.max(...back.map((r) => r.exitAt)).toFixed(1)}s`);
 }
 
 // --- Out of the cop's sight -------------------------------------------------

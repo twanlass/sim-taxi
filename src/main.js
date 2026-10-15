@@ -1213,6 +1213,9 @@ const patrol = createPatrol({
   },
   onCaught: (cop, ram) => bustByPolice(ram),
   capture: !captureClassic,
+  // A cop that loses you goes back on patrol, bar swinging; `?standdown=classic` has it go dark and
+  // drive off the map instead.
+  resume: new URLSearchParams(window.location.search).get('standdown') !== 'classic',
   // A ram at speed is a hit like any other, charged through the same path a boosted one is.
   onRammed: (cop) => { collisions.strike(cop); },
   // Said by the cruiser that lost you, from over its own roof — `?copchat=classic` only.
