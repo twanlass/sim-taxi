@@ -57,15 +57,23 @@ every other table in this doc is Easy's. The choice is saved with the other sett
 from the next rider to spawn (so it can be flipped from the pause screen), and `?difficulty=` pins
 it for one load. Shot mode always plays Easy.
 
-| | `paceStart` | `pressure` | `rampFares` |
-|---|---|---|---|
-| Easy | 1.5 | 0.5 → 1.4 | 12 |
-| Regular | 1.4 | 0.8 → 1.6 | 10 |
-| Hard | 1.25 | 1.0 → 1.9 | 7 |
+| | `paceStart` | `pressure` | `rampFares` | patrol cruisers |
+|---|---|---|---|---|
+| Easy | 1.5 | 0.5 → 1.4 | 12 | 1 |
+| Regular | 1.4 | 0.8 → 1.6 | 10 | 2 |
+| Hard | 1.25 | 1.0 → 1.9 | 7 | 3 |
 
 `paceEnd` stays 0.85 in all three: `LOCO_PACE_SELF` is 0.8, so there is no room below it that is not
 unwinnable. A shorter ramp also brings the car count and police cadence to their ceilings sooner,
-since they ride the same `d`; nothing else about the world changes per mode.
+since they ride the same `d`.
+
+**Patrol cruisers** (`extraPatrols`, Tyler 2026-10-15) are the one world knob a mode sets outright.
+Each extra is a whole second patrol (main.js builds one `createPatrol` per cruiser behind the
+one-patrol interface the rest of the file uses) with its own cooldown off the same range, entering
+12s after the one before it at the start of a run. Any of them can chase, and two can chase at
+once. The extras carry no point lights (`createPolice({ lamps: false })`): a light costs every lit
+fragment in the city whether it is on or not, and the bar still glows through the bloom. The sweep
+above does not see them, because the autoplay bot plays the fare game without police.
 
 `node tools/difficulty-sweep.mjs 21 modes`, deliveries p10 / median and the share of kerbside picks
 made with more than one rider waiting:

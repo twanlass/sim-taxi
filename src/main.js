@@ -1173,6 +1173,14 @@ window.addEventListener('keydown', (event) => {
 // crosses town edge to edge with its bar swinging red and blue, and comes after you if you boost in
 // front of it. "Pull over!" goes up over its roof the moment it does (game/copshout.js).
 const police = createPolice(scene);
+// ...and the extra cruisers the harder Difficulty modes put on patrol (`extraPatrols` in
+// game/difficulty.js), one per patrol the hardest mode can have. All built up front, so a mode
+// switched from the pause screen has its cars ready; until one wears a car it is a hidden shell and
+// costs no draw. No lamps on these: see `createPolice`.
+const cruisers = [police, ...Array.from(
+  { length: Math.max(...Object.values(difficulty.MODES).map((m) => m.tuning.extraPatrols ?? 0)) },
+  () => createPolice(scene, { lamps: false }),
+)];
 // The cops no longer talk during a chase — no "pull over" on spotting, no "lost the suspect" when
 // they give up (Tyler, 2026-10-13): the bar, the strobe and the chirp already say both. The bubbles
 // come back with `?copchat=classic`. The robbery's dispatch call is a different thing and stays.
@@ -1198,9 +1206,10 @@ const hushTips = () => getaway() || patrol.busy();
 // the bust, a boosted hit on any cop is the wreck, and a getaway's cops never arrest anybody.
 const captureClassic = new URLSearchParams(window.location.search).get('capture') === 'classic';
 const getawayPin = createPin(traffic.taxi);
-const patrol = createPatrol({
-  rng: makeRng(runSeed + 66),
-  police,
+const makePatrol = (cruiser, k) => createPatrol({
+  // The first keeps the stream it always had, so an Easy run is the run it was.
+  rng: makeRng(k === 0 ? runSeed + 66 : runSeed + 6600 + k),
+  police: cruiser,
   traffic,
   taxi: traffic.taxi,
   // A robbery owns the streets while it runs, and its cops are still in the shared fleet while
@@ -1222,6 +1231,38 @@ const patrol = createPatrol({
   onLost: (cop) => { if (copChat && !fares.state.gameOver) radio?.show(LOST_CALL, cop); },
   onHid: (cop) => { if (copChat && !fares.state.gameOver) radio?.show(LOST_CALL, cop); },
 });
+/**
+ * Every patrol, behind the one-patrol interface the rest of this file was written against. Each runs
+ * its own life (its own cruiser, cooldown, chase and pin), and `difficulty.patrolCount()` says how
+ * many may be out: one on Easy, two on Regular, three on Hard. One that drops out of the count
+ * mid-run (the mode switched down) finishes whatever it is doing before it stops.
+ *
+ * `state` is the busy patrol's when there is one, so the chase siren and the tips read the chase,
+ * and the first patrol's otherwise.
+ */
+const patrols = cruisers.map(makePatrol);
+// A run opens with a patrol due (5-12s); the extras come in later and a little apart, rather than
+// three cruisers arriving in the same breath.
+patrols.forEach((p, k) => { p.state.cooldown += k * 12; });
+const patrolOut = (p, k) => k < difficulty.patrolCount() || p.state.phase !== 'off';
+const patrol = {
+  get state() { return (patrols.find((p) => p.busy()) ?? patrols[0]).state; },
+  update(dt, opts) { patrols.forEach((p, k) => { if (patrolOut(p, k)) p.update(dt, opts); }); },
+  setCooldownRange(range) { for (const p of patrols) p.setCooldownRange(range); },
+  // A getaway's cop handed over goes to a patrol with no car of its own first, so the hand-off
+  // does not take a cruiser off the road mid-crossing; failing that, to the first, as it always did.
+  pursueNearest(cops) {
+    const free = patrols.filter((p, k) => patrolOut(p, k) && !p.state.cop);
+    for (const p of free.length ? free : [patrols[0]]) {
+      const cop = p.pursueNearest(cops);
+      if (cop) return cop;
+    }
+    return null;
+  },
+  rammed(cop) { for (const p of patrols) p.rammed(cop); },
+  hideout() { return patrols.map((p) => p.hideout()).some(Boolean); },
+  busy: () => patrols.some((p) => p.busy()),
+};
 // Boost, then two quick taps of the brake: the taxi spins round onto the far lane. See game/bootleg.js.
 setSpinStyle(getUturnStyle());
 // The drift launch rolls the taxi a full turn in mid-air; `?barrelroll=classic` flies it level.
@@ -1276,7 +1317,7 @@ markOccluder(traffic.truckBoxMesh);
 markOccluder(traffic.bumperMesh);
 markOccluder(traffic.truckBumperMesh);
 markOccluder(traffic.taxiGroup);
-markOccluder(police.group);
+for (const cruiser of cruisers) markOccluder(cruiser.group);
 
 // --- What glows ---------------------------------------------------------------------------
 // The bloom's draw list, marked here for the reason the AO occluders are: `sim/` may not import
@@ -1303,7 +1344,7 @@ if (taxiHeadlights) {
   markEmissive(taxiHeadlights.pods, 'pod');
 }
 if (lamps) markEmissive(lamps.heads, 'bay');
-for (const mesh of police.emissiveMeshes) markEmissive(mesh, 'siren');
+for (const mesh of cruisers.flatMap((c) => c.emissiveMeshes)) markEmissive(mesh, 'siren');
 if (ltrain?.lamps) markEmissive(ltrain.lamps, 'pod');
 // One mesh, three lit things: the pickup window, the menu board and the neon round the roofline
 // are merged into `burger.glow` (see city/burgerjoint.js), so the neon arrived in the bloom with
@@ -1329,7 +1370,7 @@ for (const slot of fares.slots) markOccluder(slot.passenger.group);
 // hull on every axis but a sliver, and at play zoom a truck is a shape while the taxi is *read*.
 if (cartoonEnabled) {
   cartoon.outline(traffic.taxiGroup, { group: 'taxi' });
-  cartoon.outline(police.group);
+  for (const cruiser of cruisers) cartoon.outline(cruiser.group);
   for (const source of [traffic.mesh, ...traffic.classicDrawn, traffic.truckMesh, traffic.truckBoxMesh]) {
     scene.add(...cartoon.fleet(source));
   }
@@ -1585,7 +1626,7 @@ const struckGlass = createWindshield(scene, { rng: makeRng(runSeed + 921), roadY
 const tape = shot ? null : createTape(scene, {
   // ...and the patrol cruiser, which is a group of its own rather than an instance: left off, a
   // patrol the taxi rammed was missing from every cut of its own crash.
-  roots: [traffic.taxiGroup, police.group],
+  roots: [traffic.taxiGroup, ...cruisers.map((c) => c.group)],
   exclude: (mesh) => mesh.name === 'boat-wake',
 });
 const replayOverlay = document.getElementById('replay');
@@ -2986,6 +3027,17 @@ const farePointers = createFarePointers({
 // The other half of the same problem, aimed the other way: the drop-off is somewhere the player is
 // driving to, and the police car is something driving at them. See game/sirenglow.js.
 const sirenGlow = createSirenGlow({ camera, viewport });
+const nearestLitCruiser = () => {
+  let best = police;
+  let bestD = Infinity;
+  for (const cruiser of cruisers) {
+    if (!cruiser.state.lit) continue;
+    const at = cruiser.group.position;
+    const d = Math.hypot(at.x - traffic.taxi.x, at.z - traffic.taxi.z);
+    if (d < bestD) { best = cruiser; bestD = d; }
+  }
+  return best;
+};
 // The robbery's version of the same light: round every edge at once while a getaway runs, since
 // four cop cars on every side have no one bearing to point at. See game/robberyglow.js.
 const robberyGlow = createRobberyGlow({ viewport });
@@ -5538,7 +5590,7 @@ function tick() {
   }
   // The cruiser's mesh and lamps, after the traffic car it wears has moved and after the patrol
   // has decided whether its bar is on.
-  police.update(dt);
+  for (const cruiser of cruisers) cruiser.update(dt);
   // Last of the three, and both halves of that matter. It copies the matrices traffic composed
   // *this* frame, so running it any earlier would slide every outline off its own car by a couple
   // of pixels at boost speed; and it runs after collisions so a car wrecked on this frame is
@@ -6017,7 +6069,8 @@ function tick() {
   farePointers.update(aboard, fares.state.gameOver ? [] : fares.waitingAll(), fares.colorOf);
   // After the police update above, so the wash is aimed at where the cruiser is this frame rather
   // than trailing it by one.
-  sirenGlow.update(police, traffic.taxi);
+  // With more than one cruiser out, the wash warns about the nearest one with its bar up.
+  sirenGlow.update(nearestLitCruiser(), traffic.taxi);
   // Wall clock for the envelope, so the crash's slow-motion does not hold the frame up; the strobe
   // stays on the sim clock the cop cars' own bars run off.
   robberyGlow.update(wallDt, !!robbery?.state.alarmed && !fares.state.gameOver, traffic.stats.time);
@@ -6748,8 +6801,10 @@ window.__taxi = {
   spray,
   wetTracks,
   police,
-  /** The patrol cruiser's life — patrol, chase, leave. See game/patrol.js. */
+  /** The patrol cruisers' lives — patrol, chase, leave — as one. See game/patrol.js. */
   patrol,
+  /** ...and each one on its own: one per cruiser, `difficulty.patrolCount()` of them out. */
+  patrols,
   /** The brake-tap spin (game/bootleg.js) — `spin()` fires one, `state` tallies them. */
   bootleg,
   overtake,

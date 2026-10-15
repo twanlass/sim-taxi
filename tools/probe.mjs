@@ -2848,7 +2848,9 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
     difficulty.setMode(m);
     return Array.from({ length: 41 }, (_, n) => ({ pace: difficulty.pace(n), pressure: difficulty.pressure(n) }));
   });
+  const patrolCounts = modes.map((m) => { difficulty.setMode(m); return difficulty.patrolCount(); });
   difficulty.setMode('easy');
+  check('one patrol on Easy, one more per step up', patrolCounts.join() === '1,2,3', patrolCounts.join());
   check('Easy is the shipped curve', modes[0] === 'easy' && JSON.stringify(difficulty.getTuning()) === shipped);
   check('no difficulty mode asks for more than Loco Mode can give',
     curves.every((c) => c.every((p) => p.pace >= LOCO_PACE_SELF)));
