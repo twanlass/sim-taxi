@@ -26,7 +26,7 @@ import { markEmissive, setEmissiveScale } from './bloom.js';
 // alive, but it would also run every clock, the crystal's flight and the fare loop at a crawl
 // under a figure animated at full speed, which is two time bases in one frame; the robber's line
 // is a freeze, so the cut and the line read as one held beat. Everything here runs on wall time
-// and the main loop draws and returns, the robber's-line branch's shape. A tap skips it.
+// and the main loop draws and returns, the robber's-line branch's shape. It cannot be skipped (`skippable` below).
 //
 // **The bystander is the bank rider.** By default nobody stands outside the bank and the alarm is
 // not there either: a rider appears on the steps as an ordinary fare (BANK_CHANCE in game/fares.js),
@@ -227,7 +227,7 @@ export function planRun(site, taxi) {
  *                   with the cut — see the header.
  */
 export function createBankJob({
-  scene, site, cashTrail, controller, setDoor, play = () => {}, scenery = false,
+  scene, site, cashTrail, controller, setDoor, play = () => {}, scenery = false, skippable = false,
 }) {
   const f = bankFrontage(site);
 
@@ -607,13 +607,16 @@ export function createBankJob({
     document.body.classList.remove('bankjob');
   }
 
-  // A tap anywhere skips to the robber being in, through a full-screen catcher so it cannot also
-  // route the taxi — the robber's line's own arrangement (`#robber-talk`). Space and Enter too.
+  // **Not skippable**, by default. A tap landing just as the cut opened — the player was still
+  // steering the cab onto the kerb — skipped the whole robbery before anyone saw it, which is the
+  // one thing the cut exists to show. The full-screen catcher stays up regardless and swallows the
+  // tap so it cannot also route the taxi — the robber's line's own arrangement (`#robber-talk`).
+  // `?robberyskip=classic` puts the tap (and Space/Enter) back as a skip.
   const catcher = document.getElementById('bankjob-catch');
   const skip = () => { if (cut && !cut.done) finish(); };
-  catcher?.addEventListener('click', skip);
+  if (skippable) catcher?.addEventListener('click', skip);
   window.addEventListener('keydown', (event) => {
-    if (!cut || cut.done || event.repeat) return;
+    if (!skippable || !cut || cut.done || event.repeat) return;
     if (event.code !== 'Space' && event.code !== 'Enter') return;
     event.preventDefault();
     skip();
