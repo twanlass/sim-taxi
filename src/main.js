@@ -2861,10 +2861,10 @@ function panToTaxi() {
 // on it holds it, so reading the map with a thumb down never gets yanked away.
 // `?camreturn=classic` leaves the camera wherever the player put it.
 //
-// 3 seconds is a first guess, not a measurement. It is a trade with the edge arrow's look-out
-// (below), which was deliberately *not* put on a timer: a player who rode out to a fare and is
-// deciding whether to take it can be reading the board, not touching it.
-const CAMERA_RETURN_IDLE = 3;
+// 1.5 seconds is a feel pick after playing the first guess of 3, not a measurement. It is a trade
+// with the edge arrow's look-out (below), which was deliberately *not* put on a timer: a player who
+// rode out to a fare and is deciding whether to take it can be reading the board, not touching it.
+const CAMERA_RETURN_IDLE = 1.5;
 const cameraReturns = new URLSearchParams(window.location.search).get('camreturn') !== 'classic';
 let cameraIdle = 0;
 let fingersOnMap = 0;
