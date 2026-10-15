@@ -138,18 +138,27 @@ master) arrived hotter than Block 1, so it is levelled to it. Measured as RMS of
 siren was once our own stand-in too (`16_POLICE_siren_loop`, −10.1 dB, shipped at 0.18); Block 2's
 `25_NPC_siren_loop` replaced it and ships at 0 dB.
 
-## Block 2: the city (demo)
+## Block 2: the city
 
-Block 2 (Nicolás, October 2026, 25 files, 84 MB of masters, 4.2 MB shipped) is the city around the
-taxi rather than the taxi, and it arrived as a **demo**: wire it in, find out what works, report
-back before the final mix. So two things are shaped for auditioning rather than shipping. His sheet
-numbers restart at 16, so his 17 and 18 (gate, bridge) share numbers with our
-`17_BURGER_drive_through` and `18_HORN_honk`; the names differ, which is all `FILES` reads.
+Block 2 (Nicolás, October 2026) is the city around the taxi rather than the taxi, plus the radio's
+songs. The **final** delivery (*sim-taxi_block-2_final_v1*: 31 effects, 82 MB of masters, 4.6 MB
+shipped; 4 songs, 51 MB, 2.9 MB) replaced a demo of the same sounds, keeping its names where a
+sound stayed one file. The four `_preview` songs in it are the same mixes at −14 LUFS "for
+listening only" and are not committed. His sheet numbers restart at 16, so his 17 and 18 (gate,
+bridge) share numbers with our `17_BURGER_drive_through` and `18_HORN_honk`; the names differ,
+which is all `FILES` reads.
 
-- **PICK sounds** (`PICKED` in sfx.js): where he sent alternatives (mono/stereo, short/long, three
-  bird intensities), the files are not random takes. `mix.sounds.<key>.pick` names the one that
-  plays, and the ⚙️ panel's **Plays** menu switches it live (a bed swaps file the next frame). Once
-  a choice is made, drop the losers from the delivery and the key from `PICKED`.
+What the final delivery settled, against the demo: construction, seagulls and the court are **mono
+only** ("after testing in the game"); the birds are two intensities of three takes, strong for the
+flock scattering and soft for it landing, where the demo's three files were a PICK; the chirp is
+two short and two long takes, all four drawn at random; spawn has three takes and angry six; and
+the city bed is two 21 s loops (`CHAINED` in sfx.js), joined end to end at decode into one 42 s
+loop so it repeats half as often. Rain still comes both ways, to try in the mix.
+
+- **PICK sounds** (`PICKED` in sfx.js): where he sent alternatives, the files are not random takes.
+  `mix.sounds.<key>.pick` names the one that plays, and the ⚙️ panel switches it live (a bed swaps
+  file the next frame). Only `rain` is one now, stereo or mono. Once a choice is made, drop the
+  loser from the delivery and the key from `PICKED`.
 - **PLACED sounds** (`PLACED`): heard from a point. `mix.place.<key>` is `{ near, far }` in world
   units (a block is 20): full level inside `near`, squared falloff, silent past `far`. Each is
   panned by where the point sits across the screen (`StereoPannerNode`, never wider than
@@ -163,29 +172,28 @@ numbers restart at 16, so his 17 and 18 (gate, bridge) share numbers with our
   to resize it directly. In debug mode the map drags on a desktop too, so the listener can be put
   anywhere, and each placed sound (plus the drive-through) has a 🔊 pin whose chip opens the panel
   on it; a press anywhere else lets the selection go.
-- **Stereo** is a switch on every sound: live on the four delivered both ways (court,
-  construction, rain, seagulls), on and greyed where there is only a stereo cut. The PICKs that
-  choose something else (bird intensity, chirp length) keep a **Plays** menu.
+- **Stereo** is a switch on every sound: live on rain, the one delivered both ways; on and greyed
+  where there is only a stereo cut, off and greyed where there is only a mono one.
 - **Replace…** on any sound plays local files in its place for the session (nothing is saved).
   Several files are a variant set: a one-shot draws one per trigger, never the same twice running;
   a loop plays one, chosen from a menu.
 
 | Sound | File(s) | Plays | Hook |
 |---|---|---|---|
-| `spawn` | 16 | Once, the city building itself (the entrance wave) | first frame `cityEntry.running()` with the audio up |
+| `spawn` | 16 A–C | Once, the city building itself (the entrance wave) | first frame `cityEntry.running()` with the audio up |
 | `gate` | 17 | The depot's roller door at the start of a run | `opening.phase()` going `settle` → `door` |
 | `bridge` | 18 | The whole drawbridge cycle, from the barriers starting down | `drawbridge.state.phase` → `closing`; steered for 26 s |
-| `city` | 19 | Bed, everywhere, always | — |
-| `construction` | 20 MONO / ST | Bed at the roadworks' closed block while it stands, faded with it | `roadwork.state` |
-| `birdsUp` / `birdsDown` | 21 C·B·A / A·B·C | A pigeon flock scattering / the last of it landing | `flock.state.flights` / `.landings` |
+| `city` | 19 A then B | Bed, everywhere, always; the two loops play end to end | — |
+| `construction` | 20 MONO | Bed at the roadworks' closed block while it stands, faded with it | `roadwork.state` |
+| `birdsUp` / `birdsDown` | 21 strong A–C / soft A–C | A pigeon flock scattering / the last of it landing | `flock.state.flights` / `.landings` |
 | `plane` | 22 | The light aircraft, started 1.4 s into its run to centre on the pass, steered | `flyover.state.flights` |
 | `heli` | 23 | The rooftop chopper's visit, steered, faded when it is gone | `chopper.state.visits` |
-| `angry` | 24 A–E | A rider storming off (the swearing bubble) | fare `missed` / `vip-missed` / `robber-missed` |
+| `angry` | 24 A–F | A rider storming off (the swearing bubble) | fare `missed` / `vip-missed` / `robber-missed` |
 | `siren` | 25 | The existing siren bed, now on Block 2's recording (our old stand-in, 16, is gone) | — |
-| `seagulls` | 29 MONO / ST | Bed at the nearest barge carrying gulls | `boats.boats` |
+| `seagulls` | 29 MONO | Bed at the nearest barge carrying gulls | `boats.boats` |
 | `rain` | 30 ST / MONO | Bed, the rain at the taxi (`squall.rainNear`, or the storm's `rain`) | — |
-| `court` | 31 MONO / ST | Bed at the basketball court, where the city has one | `props.court` |
-| `chirp` | 32 short / long | A patrol spotting the taxi and lighting up | `patrol` `onSpotted` |
+| `court` | 31 MONO | Bed at the basketball court, where the city has one | `props.court` |
+| `chirp` | 32 short A·B, long A·B | A patrol spotting the taxi and lighting up | `patrol` `onSpotted` |
 
 ### The boom box
 
@@ -202,22 +210,31 @@ spawn is "buildings appear when the map is generated", the gate "opens and close
 the garage", angry is a passenger who "shouts at the taxi". Two are the nearest event the game has
 rather than the one he describes: the chirp is for police who "flick the siren on for a moment",
 which no cop does yet, so it plays as a patrol lights up to give chase; and the birds are written as
-a flock "taking off and passing", so take-off is their main use and landing is ours. The sheet also
-lists three music tracks (`26_MUS_rolling`, `27_MUS_upbeat`, `28_MUS_rock`) that were not in the
-demo delivery.
+a flock "taking off and passing", so take-off is their main use and landing is ours.
 
-Every Block 2 level starts at 0 dB, the designer's rule for Block 1: measured as RMS off the
-masters they already sit level with it (the 25 siren -28.5 dB against the crash's -26.3, the beds
--37 to -52). The police helicopter keeps its synthesised rotor; 23 is the rooftop chopper.
+Every Block 2 level is 0 dB: the delivery note puts the effects' peaks between −25 and −6 dBFS,
+"balanced relative to each other and to Block 1". The police helicopter keeps its synthesised
+rotor; 23 is the rooftop chopper.
+
+The final delivery was encoded with ffmpeg's AAC (128 kbps, `-fflags +bitexact`) from a cloud
+session with no Mac, as the horn was. Those files carry ffmpeg's 1024 frames of priming in an edit
+list rather than afconvert's 2112; a decoder that honours the edit list (ffmpeg, so Chrome) hands
+back the true length plus at most one frame of end padding, which `loopWindow` reads as no
+priming at all and loops correctly. Re-running `tools/audio.mjs` on a Mac replaces them with
+afconvert's encode.
 
 ## The radio
 
 The music is a car radio, the station KPRS. On the **title menu** it is not on the air yet: the
-first tap starts one of the four songs at random, and more follow back to back (no ads, no ID) for
+first tap starts one of the songs at random, and more follow back to back (no ads, no ID) for
 as long as the menu is up. **Play** cuts it (60 ms down) to `MUSIC_radio_intro` (6.3 s; it replaced
-a 15 s one in October 2026), the announcer's "beautiful day in this concrete jungle", then a hard cut to one of four 30 s songs (`MUSIC_country`,
-`MUSIC_jazz`, `MUSIC_rock`, `MUSIC_funk`) at random, and at the end of each a fresh pick, never the
-song that just played. Between songs the station talks:
+a 15 s one in October 2026), the announcer's "beautiful day in this concrete jungle", then a hard cut to one of four songs at random, and at the end of each a fresh pick, never the
+song that just played. The songs are Nicolás's, written for the station (Block 2, October 2026):
+`26_MUS_rolling` (funk), `27_MUS_upbeat` (funk with vocals), `28_MUS_hiphop` and `33_MUS_indiepop`,
+40 to 50 s each with short intros and clean endings. They replaced four 30 s songs
+(`MUSIC_country`, `MUSIC_jazz`, `MUSIC_rock`, `MUSIC_funk`), which `?songs=classic` puts back on
+the air. Only the set on the air is fetched and decoded; the ⚙️ panel's ▶ on one of the other set
+fetches it on asking. Between songs the station talks:
 
 - **An ad break every 2 songs** (`RADIO.adEvery`): `RADIO_break_in` (the tee-up), one of three ads
   (`RADIO_ad_earls`, `RADIO_ad_le_barge`, `RADIO_ad_loco_juice`) at random and never the last one,
@@ -248,8 +265,10 @@ off the masters with ffmpeg's `ebur128`: they arrived at −13.5 (country), −1
 (rock), and a since-replaced intro at −17.3, against −34 for the engine idle and −22 for a crash.
 The October additions were levelled by **RMS** instead, ffmpeg not being to hand: the older tracks'
 RMS plus their gain lands at −26.7 dB RMS on average, and each new one is brought to that. Re-measure
-them with ebur128 when it is available. The radio's `.m4a` files are about 2.6 MB together, the
-biggest download in the game; they decode to roughly 60 MB of PCM, held for the session.
+them with ebur128 when it is available. Nicolás's songs were measured with ebur128 at −17.8 to
+−18.3 LUFS (his delivery says −18) and are brought down about 6 dB each. What the station plays is
+about 3.6 MB of `.m4a`, the biggest download in the game, and decodes to roughly 85 MB of PCM, held
+for the session: his songs run 40 to 50 s against the old 30, which is 25 MB more of it.
 
 The ads and the stings arrived as MP3s and 44.1 kHz WAVs from Tyler; they were converted to 48 kHz
 16-bit stereo WAV masters (afconvert) so they encode like everything else.
@@ -333,7 +352,7 @@ and 1.25, a flatbed crate is `crash` at 0.3 and 1.6, and `land` scales with the 
 ## Checking it
 
 `window.__taxi.sfx.state` reports `{ ready, loaded, total, muted, held }`. `loaded` should equal
-`total` (68) after the first tap. `window.__taxi.sfx.play('crash')` fires any one-shot by name, and
+`total` (74) after the first tap. `window.__taxi.sfx.play('crash')` fires any one-shot by name, and
 `tuning()`, `tune(partial)` and `reset()` reach the same mix the Audio sections edit. The
 module is in check.mjs's `BOOT` list, which proves it imports cleanly in node, where it builds a
 no-op.

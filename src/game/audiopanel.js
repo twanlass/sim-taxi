@@ -93,7 +93,7 @@ const TIPS = {
   'Level': 'Volume of this sound, every take. Double-click the slider to go back to the shipped value.',
   'Pitch': 'Playback speed in semitones; changes length too. Double-click the slider to go back to the shipped value.',
   'Min gap': 'Shortest time before this sound can play again. Stops rapid repeats.',
-  'Stereo': 'Play the stereo file instead of the mono one. Greyed out: only stereo was delivered.',
+  'Stereo': 'Play the stereo file instead of the mono one. Greyed out: only one of the two was delivered.',
   'Plays': 'Which of the delivered versions plays in game.',
   'Full within': 'Full volume within this distance of the 👂 (world units; a block is 20).',
   'Silent past': 'Silent beyond this distance of the 👂. Fades between the two.',
@@ -317,14 +317,16 @@ export function buildAudioSections(host, sfx) {
     //
     // Mono against stereo is a yes/no, so it is a **Stereo** switch rather than a menu of two file
     // names — and every sound has one, so the answer is on screen for all of them: a sound with no
-    // mono cut is stereo, and its switch is on and greyed. The PICKs that choose between something
-    // else (the birds' three intensities, the chirp's two lengths) keep the menu.
+    // mono cut is stereo, and its switch is on and greyed; one delivered mono only (construction,
+    // seagulls, the court) is off and greyed. A PICK that chooses between something else gets a
+    // menu instead.
     let pick = null;
     const monoAt = SOUNDS[key].findIndex((f) => f.endsWith('_MONO'));
     const stereoAt = SOUNDS[key].findIndex((f) => f.endsWith('_ST'));
     const stereoPair = PICKED.has(key) && monoAt >= 0 && stereoAt >= 0;
-    const stereo = el('input', { type: 'checkbox', checked: true, disabled: !stereoPair });
-    if (!stereoPair) stereo.title = 'Only delivered in stereo';
+    const monoOnly = monoAt >= 0 && stereoAt < 0;
+    const stereo = el('input', { type: 'checkbox', checked: !monoOnly, disabled: !stereoPair });
+    if (!stereoPair) stereo.title = monoOnly ? 'Only delivered in mono' : 'Only delivered in stereo';
     row(box, 'Stereo', stereo);
     if (PICKED.has(key) && !stereoPair) {
       pick = el('select', {}, ...SOUNDS[key].map((f, i) => el('option', { value: String(i), textContent: f })));
@@ -403,13 +405,14 @@ export function buildAudioSections(host, sfx) {
     + 'and the station ID every 3. ▶ plays a track alone, the radio held quiet; ■ stops it. Level '
     + 'is on top of the track\'s own levelling. Replace… takes over the next time it comes round.');
   const kindOf = (key) => (key === RADIO.intro ? 'Intro' : RADIO.songs.includes(key) ? 'Song'
+    : RADIO.classicSongs.includes(key) ? 'Song (?songs=classic)'
     : RADIO.ads.includes(key) ? 'Ad' : 'Station');
   for (const key of RADIO.all) {
     const box = el('div', { className: 'aud-sound aud-track' });
     box.dataset.search = `music ${key}`;
     const play = el('button', { type: 'button', className: 'aud-play', textContent: '▶',
       title: 'Play this track from the start. The radio goes quiet until it ends.' });
-    const label = key === RADIO.intro ? 'intro' : key.replace(/^(MUSIC|RADIO)_(ad_)?/, '').replace(/_/g, ' ');
+    const label = key === RADIO.intro ? 'intro' : key.replace(/^(\d+_MUS|MUSIC|RADIO)_(ad_)?/, '').replace(/_/g, ' ');
     box.append(el('div', { className: 'aud-name' }, play,
       el('strong', { textContent: label }),
       el('span', { textContent: `${kindOf(key)} · ${key} · ${RADIO.seconds[key].toFixed(1)}s` })));

@@ -55,6 +55,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?pedals=classic` | The round pedals with stop and lightning icons (not the NES B and A buttons), the wider ~197° fuel arc, and the 🚨 on the cash row instead of over Loco Mode | — | [gameplay.md](gameplay.md#crazy-taxi-mode) |
 | `?chasesiren=classic` | No 🚨 during a chase | #513 | [traffic.md](traffic.md#spotted-and-then-caught-or-lost) |
 | `?helispot=classic` | The police helicopter's first, brighter and harder-edged searchlight | | [gameplay.md](gameplay.md) |
+| `?songs=classic` | The radio plays the four earlier songs (country, jazz, rock, funk) instead of Nicolás's four | | [audio.md](audio.md#the-radio) |
 | `?menumusic=classic` | The radio's intro plays under the title menu on the first tap, rather than a song until Play | #519 | [audio.md](audio.md#the-radio) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
 | `?robbery=classic` | The robbery with no opening cut (straight to the drive-past). Also implies `?bankfare=classic` | #475, #478 | [gameplay.md](gameplay.md) |

@@ -1163,10 +1163,12 @@ function boardSound() {
 // Its own stream, which draws the take each one-shot plays (the designer's A/B/C variants).
 // `menuMusic`: the title menu plays songs alone and Play cuts to the announcer (`goOnAir` in
 // `beginRun`); with no title screen, `beginRun` runs at boot and the radio opens on the intro as
-// ever. `?menumusic=classic` opens on the intro under the menu too.
+// ever. `?menumusic=classic` opens on the intro under the menu too. `?songs=classic` puts the four
+// songs Nicolás's replaced back on the station.
 const sfx = shot ? null : createSfx({
   rng: makeRng(runSeed + 811),
   menuMusic: new URLSearchParams(window.location.search).get('menumusic') !== 'classic',
+  classicSongs: new URLSearchParams(window.location.search).get('songs') === 'classic',
 });
 // The ⚙️ panel's handle once it exists (`createDebugPanel` at the bottom of the file), so the frame
 // can ask whether it is open — the sound rings below show only then.
