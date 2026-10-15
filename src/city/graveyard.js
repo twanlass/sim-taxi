@@ -36,6 +36,13 @@ export const GRAVEYARD_MODE = (() => {
   return raw === 'classic' || raw === 'single' ? raw : 'double';
 })();
 export const GRAVEYARD_ON = GRAVEYARD_MODE !== 'classic';
+/**
+ * The ground mist, off by default (Tyler, 2026-10-15: "Kill the graveyard fog for now");
+ * `?gravemist=classic` (`GRAVEMIST=classic` headless) brings it back.
+ */
+export const GRAVE_MIST = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('gravemist') === 'classic'
+  : globalThis.process?.env?.GRAVEMIST === 'classic';
 
 /** What ground.js lays the lawn at — the park's own level, since it is the park's own surface. */
 export const GRAVE_GRASS_Y = KERB_H + 0.01;
@@ -546,7 +553,10 @@ export function createGraveyard(block, rng) {
   glowParts.forEach((p) => p.dispose());
   glow.name = 'graveyard-glow';
 
+  // Built either way so the stream behind it does not move; only drawn under `?gravemist=classic`.
+  // Switched off on the material, not the group: the entrance wave sets the group's `visible`.
   const mist = createMist(site, rng);
+  mist.material.visible = GRAVE_MIST;
 
   const group = new THREE.Group();
   group.name = 'graveyard-root';

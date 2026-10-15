@@ -755,10 +755,12 @@ know it exists. An iron railing on a stone plinth runs round the lawn, with a ga
 the +Z fence.
 Headstones stand in rows either side of a gravel path that runs gate to gate (one gate in each
 end), one big tree stands in a back corner, one of the parks' statues (`statueParts`) stands on its
-plaza in the −X half for some asymmetry, and a little ground mist drifts across. The tree is
+plaza in the −X half for some asymmetry, and long grass grows between the rows (see
+[Long grass](#long-grass)). The tree is
 an ordinary `treeParts` tree at 6.6 tall (the parks run 3.4–5.6) with a plum crown, so it lights and
-wears leaf cards exactly as every other tree does. The mist thickens after dark, using the
-same measure of darkness as the helicopter's searchlight.
+wears leaf cards exactly as every other tree does. The ground mist that used to drift across is off
+since 2026-10-15; `?gravemist=classic` brings it back, thickening after dark on the same measure of
+darkness as the helicopter's searchlight.
 
 - **It faces the camera, like the burger joint.** Only +X and +Z faces are ever seen, so the gate is
   in the +Z fence, every stone faces +Z, and the tree stands in the back corner, behind the stones
