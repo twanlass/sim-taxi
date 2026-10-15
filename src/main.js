@@ -2839,6 +2839,42 @@ function panToTaxi() {
   });
 }
 
+// The camera comes home on its own, too. A swipe hands the framing to the player, and for a long time
+// nothing took it back: on a phone the city is bigger than the frame, so a look across town ended
+// with the taxi lost somewhere in a busy frame or off it entirely, found again by dragging the map
+// by hand. This is a fast game and a look is a glance, so once the map has been left alone for
+// CAMERA_RETURN_IDLE seconds the camera rides back to the car (`panToTaxi`, flash and all), and the
+// follow-cam picks it up from there. Any touch on the map restarts the count, and a finger resting
+// on it holds it, so reading the map with a thumb down never gets yanked away.
+// `?camreturn=classic` leaves the camera wherever the player put it.
+//
+// 3 seconds is a first guess, not a measurement. It is a trade with the edge arrow's look-out
+// (below), which was deliberately *not* put on a timer: a player who rode out to a fare and is
+// deciding whether to take it can be reading the board, not touching it.
+const CAMERA_RETURN_IDLE = 3;
+const cameraReturns = new URLSearchParams(window.location.search).get('camreturn') !== 'classic';
+let cameraIdle = 0;
+let fingersOnMap = 0;
+if (!shot && cameraReturns) {
+  const el = renderer.domElement;
+  el.addEventListener('pointerdown', () => { fingersOnMap++; cameraIdle = 0; });
+  const lift = () => { fingersOnMap = Math.max(0, fingersOnMap - 1); cameraIdle = 0; };
+  el.addEventListener('pointerup', lift);
+  el.addEventListener('pointercancel', lift);
+  el.addEventListener('pointermove', () => { if (fingersOnMap > 0) cameraIdle = 0; });
+  el.addEventListener('wheel', () => { cameraIdle = 0; }, { passive: true });
+}
+function updateCameraReturn(dt) {
+  const waiting = cameraReturns && cameraTakenOver && isNarrow() && fingersOnMap === 0
+    && !fares.state.gameOver && !controller.isGliding() && !endSpot
+    && !title?.holding() && !opening?.holdsCamera() && !tutorial?.holdsCamera();
+  if (!waiting) { cameraIdle = 0; return; }
+  cameraIdle += dt;
+  if (cameraIdle < CAMERA_RETURN_IDLE) return;
+  cameraIdle = 0;
+  panToTaxi();
+}
+
 // A tap on an off-screen fare's edge arrow (see game/farepointers.js): ride the camera to the mark
 // the arrow was pointing at. The third of the three camera shortcuts, and the plainest — it is a
 // pan the player would otherwise have made by dragging the map in that direction and guessing when
@@ -5535,9 +5571,10 @@ function tick() {
   // kick fires — the taxi left the frame at 1.4-1.7x the boost cruise with nothing following it.
   // The momentum chase keeps the boost's 3.2 through the post-release tail and any kick still being
   // carried, because the opening follow's 1.5 is set for cruising, not for a car at its fastest.
-  // A swipe after the release still takes the framing, at once. None of them has a gate on the way
-  // *out* once the player has it: the camera is left wherever it landed rather than snapping back. Both aim past the taxi rather than at it (`followAim`), so the road it is driving down
-  // gets the frame the road behind it used to.
+  // A swipe after the release still takes the framing, at once. The way *out* is idleness: once the
+  // player has left the map alone for CAMERA_RETURN_IDLE, the camera rides home to the taxi
+  // (`updateCameraReturn`). Both aim past the taxi rather than at it (`followAim`), so the road it
+  // is driving down gets the frame the road behind it used to.
   //
   // End-of-run focus outranks everything (and runs on every viewport, not only narrow ones): the
   // camera eases into whatever ended the run — the crash site, the cop pulling up, or the corner a
@@ -5553,6 +5590,7 @@ function tick() {
   // `holdsCamera` go false with the camera already sitting on `restFraming()` below, so there is
   // no gap for the follow-cam to snap across.
   // The title screen's drift sits above even the vignette, which is held behind it anyway.
+  updateCameraReturn(dt);
   const boosting = boost.isActive();
   // On the press, not every frame of the hold: a swipe made *while* holding is still the player
   // asking for the map, and it should hold once the button comes up.
