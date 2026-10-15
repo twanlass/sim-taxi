@@ -47,10 +47,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?capture=classic` | The old police rules: any patrol touch is "Busted!", a boosted hit on any cop is a full wreck, a getaway's cops never arrest. Default: hitting a cop costs HP like any car, and "Busted!" is being pinned by a chasing cop | #527 | [gameplay.md](gameplay.md#getting-caught) |
 | `?cop=classic` | With `?capture=classic`: boosting into a cop is a bump rather than a full wreck | #466 | [gameplay.md](gameplay.md) |
 | `?stuntman=classic` | Smashing a roadworks barricade is scenery: no Stuntman combo step, no Loco refund | | [gameplay.md](gameplay.md#the-combo-meter) |
-| `?callout=halo\|ping\|beacon\|classic` | Prototype taxi callouts: road ring with Loco tank + health (default), sonar ping or light shaft while you hold the camera. | — | [rendering.md](rendering.md) |
-| `?calloutFrame=dx,dz` | With `?shot=`: aim the shot that far off the taxi, for reviewing the taxi callouts | — | [testing.md](testing.md) |
-| `?camreturn=classic` | The camera stays where the player panned it, instead of riding back to the taxi after 3s with no touch on the map | — | [gameplay.md](gameplay.md) |
-| `?taxiroof=classic` | The taxi's cabin is one dark glass box again, instead of a yellow roof over a band of windows | — | [rendering.md](rendering.md) |
+| `?camreturn=classic` | The camera stays where the player panned it, instead of riding back to the taxi after 3s with no touch on the map | #530 | [rendering.md](rendering.md#getting-back-to-the-taxi) |
+| `?taxiroof=classic` | The taxi's cabin is one dark glass box again, instead of a yellow roof over a band of windows | #530 | [rendering.md](rendering.md#the-taxis-roof--geometrytaxijs) |
 | `?chasesiren=classic` | No 🚨 on the cash row during a chase | #513 | [traffic.md](traffic.md#spotted-and-then-caught-or-lost) |
 | `?helispot=classic` | The police helicopter's first, brighter and harder-edged searchlight | | [gameplay.md](gameplay.md) |
 | `?menumusic=classic` | The radio's intro plays under the title menu on the first tap, rather than a song until Play | #519 | [audio.md](audio.md#the-radio) |

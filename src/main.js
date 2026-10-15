@@ -110,7 +110,6 @@ import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
 import { createTaxiFinder } from './game/taxifinder.js';
-import { createTaxiCallout } from './game/taxicallout.js';
 import { createCargoChip } from './game/cargochip.js';
 import { createChaseSiren } from './game/chasesiren.js';
 import { createTutorial, LOCO_HINT_HOLD } from './game/tutorial.js';
@@ -2930,8 +2929,6 @@ const wantsRiderChips = new URLSearchParams(window.location.search).get('chips')
 const riderFinder = wantsRiderChips
   ? createRiderFinder({ onSelect: selectRider, sun, hemi })
   : { update: () => {} };
-// Prototype in-world callouts for a taxi that is on the frame but lost in it — see game/taxicallout.js.
-const taxiCallout = createTaxiCallout(scene, { maxHp: TAXI_HP });
 // The chip that answers "where did my car go" — up only while the taxi is completely off-frame.
 const taxiFinder = createTaxiFinder({
   sun,
@@ -5981,7 +5978,6 @@ function tick() {
   // Armed only when nothing else already has the framing in hand: a run that has ended has the
   // closing shot, the tutorial is pointing the camera at the city itself, and a pan in flight is
   // already on its way somewhere — including this chip's own, which is what drops it on the tap.
-  taxiCallout.update(dt, traffic.taxi, boost.fraction(), cameraTakenOver);
   taxiFinder.update(dt, traffic.taxi,
     !fares.state.gameOver && !controller.isGliding() && !tutorial?.holdsCamera());
   // A no-op unless a package is aboard — it draws nothing while the chip is down.
@@ -6541,16 +6537,6 @@ if (shot) {
   // be in the state a run is actually played in, which is shut, the car long gone and the door
   // come down behind it.
   garage?.setDoor(0);
-  // Part-full on both arcs, so a still shows what the halo's two gauges look like mid-run.
-  taxiCallout.settle(traffic.taxi, 0.62, 0.72);
-  // Prototype review framing: `&calloutFrame=dx,dz` aims the shot that far from the taxi, so a still
-  // can show the car where a look across town leaves it — on the frame, off centre.
-  const calloutFrame = new URLSearchParams(window.location.search).get('calloutFrame');
-  if (calloutFrame) {
-    const [dx, dz] = calloutFrame.split(',').map(Number);
-    controller.state.target.set(traffic.taxi.x + dx, 0, traffic.taxi.z + dz);
-    controller.update(aspect());
-  }
   renderFrame();
   document.body.dataset.shotReady = 'true';
 } else {
