@@ -58,7 +58,7 @@ import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOvertakeCombo, OVERTAKE_BLIP_MS, OVERTAKE_GRACE } from '../src/game/overtake.js';
 import { createOpening, exitPath, entryPath, REPAIR_GAP } from '../src/game/opening.js';
 import { createDepotRun } from '../src/game/depotrun.js';
-import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
+import { spinTaxi, driftTaxi, kickDrift, DRIFT_KICK_WINDOW, DRIFT_MIN_V, DRIFT_ANGLE, DRIFT_EXIT, DRIFT_CHAIN, createTraffic, lightPhase, displayPhase, setPriorityJunction, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, DRIFT_LAUNCH_LEN, DRIFT_LAUNCH_HEIGHT, onDriftLaunch, setBarrelRoll, setHopStyle, setDodge, HOP_MIN_V, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE, carGeometry, CABIN_TOP, copLaysRubber, uturnWindow } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -194,7 +194,7 @@ import {
 import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin, crossingOrigin } from '../src/game/route.js';
-import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, BLOCK, HALF_ROAD, HALF_ARTERIAL, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, riverBanks, riverRow } from '../src/city/grid.js';
+import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, BLOCK, HALF_ROAD, HALF_ARTERIAL, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, riverBanks, riverRow, junctionReach } from '../src/city/grid.js';
 import {
   waterEdges, bridgeSpan, bridgeLines, riverCrossing, drawbridgeLine, archAt, deckHeightAt, createRiver, waterHeightAt,
   WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR, TUG_AIR, ARCH_RISE, DECK_THICK,
@@ -5202,6 +5202,120 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   check('a blip with the brake in it (the drift) does not arm the overtake',
     braked.arms === 0 && braked.peak === 0,
     `${braked.arms} arms, pass peaked at ${braked.peak.toFixed(2)}`);
+
+  // 1e. The swerve (`findDodge` in traffic.js): the same blip short of a car stood nosed into the
+  // junction ahead goes round it in the oncoming lane. The blocker comes from the taxi's right, so
+  // it covers the taxi's lane first and leaves the far one open. `depth` is how far its centre is
+  // past the edge of the box. The blip is thrown as soon as the blocker is in range. Staged at the
+  // first junction with a straight run through it, an oncoming lane to borrow and a road coming in
+  // from the taxi's right.
+  let sw = null;
+  for (let i = 1; i < GRID_I && !sw; i++) {
+    for (let j = 1; j < GRID_J && !sw; j++) {
+      for (const d of [0, 1, 2, 3]) {
+        if (ringAxisAt(i, j) || approachRoom(d, i, j) < 30) continue;
+        if (!legalExits(d, i, j).includes(d) || !legalExits(opposite(d), i, j).length) continue;
+        if (!(approachRoom(leftOf(d), i, j) > 0)) continue;
+        sw = { i, j, d };
+        break;
+      }
+    }
+  }
+  const dodgeStage = ({ gesture = 'blip', depth = 0, creep = 0, style = '', cop = false } = {}) => {
+    setDodge(style);
+    const sTraffic = createTraffic(makeRng(seed + 113), new THREE.Scene(), 2);
+    const [sTaxi, sBlock] = sTraffic.cars;
+    // The blocker first, on its own: driven in until its centre is `depth` past the edge of the
+    // box, and held there — or, with `creep`, kept rolling at that speed.
+    const bd = leftOf(sw.d);
+    placeCar(sBlock, bd, sw.i, sw.j, 0);
+    sBlock.route = [bd]; sBlock.parked = false;
+    placeCar(sTaxi, opposite(sw.d), sw.i, sw.j, 200);
+    const edge = (isXAxis(bd) ? lineX(sw.i) : lineZ(sw.j)) * dirSign(bd) - junctionReach(bd, sw.i, sw.j);
+    const progress = () => (isXAxis(bd) ? sBlock.x : sBlock.z) * dirSign(bd) - edge;
+    // x and z are only written by an update, so the first frame is always run.
+    // Slowed for the last two units so it stops where it was asked to rather than a frame past.
+    for (let f = 0; f < 600 && (f === 0 || progress() < depth); f++) {
+      if (f > 0 && progress() > depth - 2) sBlock.v = Math.min(sBlock.v, 1);
+      sTraffic.update(1 / 60);
+    }
+    // A roadblock cop, the way game/robbery.js leaves one: stopped on the centreline of the taxi's
+    // road and skidded round to 45° across it (`slew` in traffic.js).
+    if (cop) {
+      sBlock.police = true;
+      sBlock.blockAxis = sw.d;
+      sBlock.roadblock = 1;
+      for (let f = 0; f < 60; f++) sTraffic.update(1 / 60);
+    }
+    placeCar(sTaxi, sw.d, sw.i, sw.j, 36);
+    sTaxi.route = [sw.d, sw.d, sw.d]; sTaxi.parked = false;
+    sTaxi.hp = TAXI_HP;
+    const combo = createOvertakeCombo({ taxi: sTaxi });
+    const sCollisions = createCollisions(sTraffic.cars, sTaxi);
+    let hits = 0;
+    let peak = 0;
+    let widest = 0;
+    let kerbward = 0;
+    let blipAt = null;
+    sCollisions.onBump(() => { hits += 1; });
+    const blipFrames = Math.floor((OVERTAKE_BLIP_MS / 1000) * 60 * 0.6);
+    for (let f = 0; f < 60 * 2.5; f++) {
+      sBlock.v = creep;
+      sBlock.roadblock = creep > 0 ? 0 : 1;
+      if (blipAt === null && sTaxi.dodgeGap < 25) blipAt = f;
+      const off = gesture !== 'hold' && blipAt !== null && f >= blipAt && f < blipAt + blipFrames;
+      sTaxi.boost = true;
+      sTaxi.boostEasing = off;
+      combo.update(1 / 60, { held: !off });
+      sTraffic.update(1 / 60);
+      sCollisions.update(1 / 60);
+      peak = Math.max(peak, sTaxi.pass);
+      widest = Math.max(widest, sTaxi.passOffset);
+      kerbward = Math.min(kerbward, sTaxi.passOffset);
+    }
+    setDodge('');
+    return { hits, peak, widest, kerbward, arms: combo.state.arms, dodges: sTaxi.dodges, blipAt };
+  };
+  const sweep = (r) => `${r.arms} arms, ${r.dodges} swerves, ${r.hits} bumps, pass peaked at`
+    + ` ${r.peak.toFixed(2)}, ${(r.kerbward < 0 ? r.kerbward : r.widest).toFixed(2)} across`;
+  const swerved = dodgeStage();
+  check('a blip short of a car nosed into the junction swerves round it in the oncoming lane',
+    swerved.dodges === 1 && swerved.hits === 0 && swerved.peak > 0.95, sweep(swerved));
+  const ploughed = dodgeStage({ gesture: 'hold' });
+  check('holding Loco without the blip drives into the car in the junction',
+    ploughed.dodges === 0 && ploughed.hits > 0 && ploughed.peak === 0, sweep(ploughed));
+  const classicSwerve = dodgeStage({ style: 'classic' });
+  check('?swerve=classic: the blip does not arm on a car in the junction',
+    classicSwerve.arms === 0 && classicSwerve.hits > 0, sweep(classicSwerve));
+  // 3.5 in, its nose is within the envelope of the oncoming lane's centre and the swing goes on
+  // to the far kerb; 4.5 in, it covers both and there is no line round it.
+  const wide = dodgeStage({ depth: 3.5 });
+  check('a car too far in for the lane centre is swerved round wide, out by the far kerb',
+    wide.dodges === 1 && wide.hits === 0 && wide.widest > 2 * LANE + 0.5, sweep(wide));
+  // The robbery's roadblock cop, on the centreline and 0.58 toward the taxi's side of it (the worst
+  // the robbery check below measures a cop landing in a box): the first is jinked round by the
+  // taxi's own kerb, the second wide by the far one.
+  const middle = junctionReach(leftOf(sw.d), sw.i, sw.j);
+  const roadblock = dodgeStage({ depth: middle, cop: true });
+  check('a roadblock cop slewed across the middle of the road is jinked round by the kerb',
+    roadblock.dodges === 1 && roadblock.hits === 0 && roadblock.kerbward < -1 && roadblock.widest === 0,
+    sweep(roadblock));
+  const offMiddle = dodgeStage({ depth: middle - 0.58, cop: true });
+  check('...and one stopped off the middle on the taxi\'s side is swerved round wide',
+    offMiddle.dodges === 1 && offMiddle.hits === 0 && offMiddle.widest > 2 * LANE + 0.5, sweep(offMiddle));
+  // Square across the middle, its circles are 0.95 either side of the centreline and within the
+  // envelope of every line there is.
+  const shut = dodgeStage({ depth: middle });
+  check('a car stopped square across the middle of the junction is not swerved round',
+    shut.dodges === 0 && shut.peak === 0, sweep(shut));
+  // Moving: creeping in at 2 u/s is swerved round where it will be, not where it is; crossing at
+  // cruise is cross traffic, which the gesture leaves alone.
+  const creeping = dodgeStage({ creep: 2 });
+  check('a car creeping into the junction is swerved round where it is going to be',
+    creeping.dodges === 1 && creeping.hits === 0, sweep(creeping));
+  const crossing = dodgeStage({ creep: SPEED });
+  check('a car crossing the junction at cruise is not a swerve',
+    crossing.dodges === 0 && crossing.arms === 0, sweep(crossing));
 
   // 2. A boosting taxi turning left used to stop dead under a green: the oncoming lane shares its
   // axis, so it kept its green, and the left-turn yield then refused to let the taxi go — waiting

@@ -39,7 +39,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
-  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setPassTurnGate, setPassPace, setHopStyle,
+  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setPassTurnGate, setPassPace, setHopStyle, setDodge,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
@@ -1229,6 +1229,9 @@ setPassTurnGate(new URLSearchParams(window.location.search).get('passturn'));
 // A swinging-out taxi keeps its pace instead of matching the car it is going round, and a truck it
 // is passing stops holding it back through junctions; `?passpace=classic` puts both back.
 setPassPace(new URLSearchParams(window.location.search).get('passpace'));
+// The overtake combo also swerves round a car stopped or creeping in the junction ahead;
+// `?swerve=classic` keeps it for leaders only.
+setDodge(new URLSearchParams(window.location.search).get('swerve'));
 // A hop always comes down; `?hop=classic` lets the brake park the taxi in mid-air again.
 setHopStyle(new URLSearchParams(window.location.search).get('hop'));
 const bootleg = createBootleg({

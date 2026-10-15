@@ -19,7 +19,7 @@ import { bumperGeometries, bumperAt, bumperLength, BUMPER_D, BUMPER_H } from '..
 import { bumperHinge, lampSocket, lampHang } from '../geometry/damage.js';
 import {
   GRID_I, GRID_J, HALF_ROAD, LANE, PITCH, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
-  ringAxisAt, isUnsignalised, lineX, lineZ, laneOffsetFor, riverBanks,
+  ringAxisAt, isUnsignalised, lineX, lineZ, laneOffsetFor, riverBanks, halfRoadX, halfRoadZ, junctionReach,
 } from '../city/grid.js';
 import { deckHeightAt } from '../city/river.js';
 import { cityNetwork } from '../city/roadnet.js';
@@ -751,6 +751,121 @@ let passTurnGate = true;
 /** `?passturn=classic` lets the taxi pull out round a car already turning left; anything else waits. */
 export function setPassTurnGate(name) {
   passTurnGate = name !== 'classic';
+}
+
+// --- The dodge: the overtake combo, thrown at something standing in the junction ahead.
+//
+// Tyler calls it the swerve, and so does `?swerve=classic`; in here it is the dodge, because
+// `swerve` and SWERVE_* already name the Loco weave in this file.
+//
+// A car nosed into the box from a side street, or a cop stopped across it, is not a leader — the
+// lane bookkeeping never lists it — so the pass block above cannot see it, and a boosting taxi
+// barges the box ([nothing stops the taxi](docs/traffic.md#nothing-stops-the-taxi)) and hits it.
+// The same blip off the pill and back on (game/overtake.js) now goes round it instead: the pass's
+// own swing into the oncoming lane, latched on the blocker rather than on a leader, so everything
+// the pass already does — the smoothstepped offset, the bank, carrying straight on through the
+// junction, tucking back in once `PASS_CLEAR` past — comes with it.
+//
+// **Only something stopped or creeping qualifies** (`DODGE_CREEP`). A car crossing the box at
+// speed is the hazard that makes barging a junction a risk at all, and a gesture that erased it
+// would erase that. What it answers is the car that is *sitting* in the way: pulled into the box
+// and waiting, or a cop parked across it.
+//
+// **And only where there is a line round it.** The swing has to come out of the far side of the
+// box intact, so every car in the box — the blocker and anything else there, a second cop or a car
+// waiting to turn left — is projected to where it will be when the taxi gets there, and the swing
+// line has to clear all of them by the collision envelope. A car poking in from the taxi's right
+// covers the taxi's lane and leaves the far one open; one from the left covers the far one first
+// and is not in the taxi's way at all.
+//
+// The robbery's roadblock cop on an ordinary street is the case that needed more than one line. It
+// stands across the centreline, slewed to 45° (game/robbery.js `acrossPoint`), and its collision
+// circles sit 0.67 either side of the middle — so a taxi on the oncoming lane's centre, 2 off the
+// middle, passes 1.33 from them against a 2.31 envelope. Where the lane centre does not clear, the
+// dodge jinks out to the taxi's own kerb instead (`dodgeKerb`, 1.15 across): 3.15 off the
+// middle, 2.48 from those circles, and out of the oncoming lane entirely. A cop stopped off the
+// middle (game/robbery.js lets it land up to BLOCK_ACROSS from it; 0.58 measured) leaves one side
+// or the other, and a car poked deep in from the taxi's right leaves only the far kerb
+// (`dodgeWide`). Two cops paired across both halves leave none, and the box stays shut.
+/** Fastest a blocker may be moving, in u/s, and still be dodged: about half of `SPEED`. */
+const DODGE_CREEP = 4;
+/** Daylight the swing line keeps off a blocker's collision circles, on top of `ENVELOPE`. */
+const DODGE_MARGIN = 0.05;
+/** How far ahead a blocker is looked for — the combo's own reach (`OVERTAKE_ARM_RANGE`). */
+const DODGE_SCAN = 30;
+/**
+ * Road between the taxi and the blocker at which the swing starts, past the change's own length.
+ * Pulled out any earlier and the dodge is a lap of the oncoming lane down the whole block. The
+ * floor is set by where the decision can be made at all: only on a lane, like the pass's, and the
+ * lane ends at the hold line — STOP_SETBACK (3.4) plus the box's half-width (4) short of a cop
+ * stopped in the middle of the box. At 6 the kerb jink, whose change is only 2 units long, asked
+ * for 8.0 and got one frame at most in which to say yes: armed, never pulled out, hit the cop.
+ */
+const DODGE_LEAD = 10;
+let dodgeOn = true;
+/** `?swerve=classic`: the combo is for leaders only, and a car stood in the junction is hit. */
+export function setDodge(name) {
+  dodgeOn = name !== 'classic';
+}
+/**
+ * The car to dodge in the junction ahead of `taxi`, the road to it, and how far across the
+ * swing has to go — or null when there is nothing in the way, or no line round it.
+ *
+ * Measured in the taxi's road frame: `along` is distance down the road, `lat` the coordinate across
+ * it. Where a car's circles will be is projected along its own heading at its own speed over the
+ * time the taxi takes to get there, sampled at three points in between.
+ */
+function findDodge(cars, taxi, passLateral) {
+  const xAxis = isXAxis(taxi.d);
+  const sign = dirSign(taxi.d);
+  const end = taxi.lane.path.at(taxi.lane.length);
+  const laneLat = xAxis ? end.z : end.x;
+  const centre = xAxis ? lineZ(taxi.j) : lineX(taxi.i);
+  const toFar = Math.sign(centre - laneLat);
+  const boxAlong = (xAxis ? lineX(taxi.i) : lineZ(taxi.j)) * sign;
+  const reach = junctionReach(taxi.d, taxi.i, taxi.j);
+  const taxiAlong = (xAxis ? taxi.x : taxi.z) * sign;
+  if (boxAlong - taxiAlong > DODGE_SCAN + reach) return null;
+  // To the far kerb, less the simulated body's half-width. The drawn taxi is TAXI_SCALE wider
+  // (geometry/taxi.js), so on the lane either side of the box it hangs 0.15 over the pavement;
+  // leaving that out costs the roadblock cop below its line round (2.32 off against 2.31).
+  const kerb = xAxis ? halfRoadX(taxi.j) : halfRoadZ(taxi.i);
+  const dodgeWide = Math.abs(laneLat - centre) + kerb - CAR_W / 2;
+  // ...or the other way, a jink out to the taxi's own kerb, which is negative across.
+  const dodgeKerb = -(kerb - Math.abs(laneLat - centre) - CAR_W / 2);
+  const reachTime = Math.max(0, boxAlong - taxiAlong) / Math.max(taxi.v, SPEED);
+  const clearBy = ENVELOPE + DODGE_MARGIN;
+
+  let blocker = null;
+  let gap = Infinity;
+  const lats = [];
+  for (const other of cars) {
+    if (other === taxi || other.crashed) continue;
+    const otherAlong = (xAxis ? other.x : other.z) * sign;
+    if (Math.abs(otherAlong - boxAlong) > reach + CAR_LEN / 2) continue;
+    const off = circleOffsetOf(other);
+    const fx = Math.cos(other.yaw);
+    const fz = -Math.sin(other.yaw);
+    let inWay = false;
+    for (const k of [0, 0.5, 1]) {
+      const run = (other.v ?? 0) * reachTime * k;
+      for (const c of other.isTruck ? [off, -off, 0] : [off, -off]) {
+        const lat = xAxis ? other.z + fz * (c + run) : other.x + fx * (c + run);
+        lats.push(lat);
+        if (Math.abs(lat - laneLat) < clearBy) inWay = true;
+      }
+    }
+    // A car heading the taxi's own way is a leader, and passing it is the pass block's job.
+    if (!inWay || Math.cos(other.yaw - taxi.yaw) > 0.7) continue;
+    const ahead = otherAlong - taxiAlong;
+    if (ahead <= 0 || ahead >= gap) continue;
+    blocker = other;
+    gap = ahead;
+  }
+  if (!blocker || (blocker.v ?? 0) > DODGE_CREEP) return null;
+  const clearAt = (lateral) => lats.every((lat) => Math.abs(lat - (laneLat + toFar * lateral)) >= clearBy);
+  const lateral = [passLateral, dodgeKerb, dodgeWide].find(clearAt);
+  return lateral === undefined ? null : { car: blocker, gap, lateral };
 }
 /**
  * Units of road for the full lane change.
@@ -3019,6 +3134,8 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0, classi
       driftHp: 0,
       // A tally of the taxi's pull-outs round a car, read by main.js for the overtake's haptic.
       overtakes: 0,
+      // ...of which dodges round something stood in a junction (`findDodge`), for the tools.
+      dodges: 0,
       // 0..1 brightness for the brake and turn-signal light pods. brakeLevel is eased (see
       // BRAKE_LIGHT_RISE/FALL) — off frame one along with prevV/v agreeing there is no accel yet.
       // The turn-signal levels are not eased; they jump straight to their blink target.
@@ -3060,6 +3177,8 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0, classi
       passArmed: undefined,
       passGap: Infinity,  // the leader's gap as the pass block last saw it, for the combo
       passLeader: null,   // and who it is
+      dodgeGap: Infinity, // road to a blocker the combo could dodge (`findDodge`)
+      dodgeLateral: null, // the swing a dodge latched, while its offset is out
       // What `pass` is turned into: the smoothstepped offset the body is drawn at, the slope of
       // that offset (which *is* the tangent of the steering angle, since it is per unit of road),
       // and the roll that comes off its curvature. Derived every frame from `pass`; kept on the car
@@ -3257,6 +3376,7 @@ export function stageCar(car, x, z, yaw) {
   car.pass = 0;
   car.passing = false;
   car.passTarget = null;
+  car.dodgeLateral = null;
   car.passOffset = 0;
   car.passSlope = 0;
   car.passBank = 0;
@@ -5090,7 +5210,10 @@ export function createTraffic(
       if (taxi.state === 'drive') {
         const ds = taxi.v * dt;
         taxi.swervePhase += ds;
-        const delta = (taxi.boost ? 1 : 0) - taxi.swerve;
+        // Not while dodging (`findDodge`): the weave's 0.52 is more than the kerb jink's whole
+        // margin round a roadblock cop, and it bumped the cop it was squeezing past. Faded over the
+        // same SWERVE_FADE, which the pull-out's DODGE_LEAD is longer than.
+        const delta = (taxi.boost && taxi.dodgeLateral == null ? 1 : 0) - taxi.swerve;
         taxi.swerve += Math.sign(delta) * Math.min(Math.abs(delta), ds / loco.fade);
       }
 
@@ -5566,13 +5689,18 @@ export function createTraffic(
       taxi.passGap = gap ?? Infinity;
       taxi.passLeader = leaderOf.get(taxi) ?? null;
       const locoHeld = taxi.boost && !taxi.boostEasing;
-      // Sized against the road under the taxi, not against a constant — see `PASS_LATERAL`. The
-      // fade scales with the swing so the peak crab angle is the same 31° on a 6.67-unit lane
-      // change as on a 4-unit one; the manoeuvre just takes proportionally more road (~51 units
-      // on a divided arterial against ~32 on a side street), which the boost speed and the
-      // straight-on gate below already give it.
-      const passLateral = passLateralOn(taxi);
-      const passFade = PASS_FADE * (passLateral / PASS_LATERAL);
+      // A dodge (`findDodge`) latches its own swing for as long as the offset is out, because it
+      // may have to go wider than the lane centre, or the other way, to clear what it is going
+      // round — see `passLateral` below the decision.
+      if (!taxi.passing && !(taxi.pass > 0)) taxi.dodgeLateral = null;
+      // Something stood in the junction ahead that the combo could dodge. Published, like
+      // `passGap`, for game/overtake.js, which arms on either. Looked for only in Loco Mode
+      // and the taxi in its lane — a pass under way is already out there. `boost` rather than
+      // `locoHeld`, so the blip itself, the pill up, still sees it: the combo reads it on the re-press.
+      const dodge = dodgeOn && taxi.boost && taxi.state === 'drive' && !taxi.passing && !(taxi.pass > 0)
+        ? findDodge(cars, taxi, passLateralOn(taxi))
+        : null;
+      taxi.dodgeGap = dodge?.gap ?? Infinity;
       // A pass needs somewhere to go and somewhere to finish: an oncoming lane to borrow, and a
       // route that carries straight on rather than turning out of the manoeuvre half way through.
       // `route[0]` advances as each junction is consumed, so this goes false by itself on the far
@@ -5670,14 +5798,21 @@ export function createTraffic(
         // Pulling out wants the overtake combo (game/overtake.js) where main.js runs one — a blip
         // off the pill and back on behind the car. `passArmed` undefined is the old rule, holding
         // is enough, which the passing lab and the probe still drive. Staying out does not ask.
-        taxi.passing = locoHeld
-          && ((taxi.passing && alongside())
-            || (room && near && taxi.passArmed !== false && !turningAcross(leader)));
+        const passes = room && near && taxi.passArmed !== false && !turningAcross(leader);
+        // A dodge wants the combo itself, never the lab's holding-is-enough rule, and pulls out
+        // DODGE_LEAD short of the change's own length from the blocker — see `findDodge`.
+        const dodges = !passes && room && dodge !== null && taxi.passArmed === true
+          && dodge.gap < PASS_FADE * (Math.abs(dodge.lateral) / PASS_LATERAL) + DODGE_LEAD;
+        taxi.passing = locoHeld && ((taxi.passing && alongside()) || passes || dodges);
         // Latched on the frame the taxi pulls out and held for the whole manoeuvre, rather than
         // re-read per frame: half way through a pass the taxi is *ahead* of this car in lane
         // coordinates, so `leaderOf` has already moved on to whatever is in front of them both.
         if (taxi.passing && !was) {
-          taxi.passTarget = leader ?? null;
+          taxi.passTarget = (dodges ? dodge.car : leader) ?? null;
+          if (dodges) {
+            taxi.dodgeLateral = dodge.lateral;
+            taxi.dodges += 1;
+          }
           taxi.overtakes += 1;
         }
         if (!taxi.passing) taxi.passTarget = null;
@@ -5731,6 +5866,14 @@ export function createTraffic(
       // at a red keeps the lock it rolled up with), which a standing lane change is the one thing
       // that falsifies.
       taxi.passCredit = ds - rolled;
+      // Sized against the road under the taxi, not against a constant — see `PASS_LATERAL`. The
+      // fade scales with the swing so the peak crab angle is the same 31° on a 6.67-unit lane
+      // change as on a 4-unit one; the manoeuvre just takes proportionally more road (~51 units
+      // on a divided arterial against ~32 on a side street), which the boost speed and the
+      // straight-on gate below already give it. Read after the decision, so a dodge's first frame
+      // swings by its own latched lateral rather than the lane's.
+      const passLateral = taxi.dodgeLateral ?? passLateralOn(taxi);
+      const passFade = PASS_FADE * (Math.abs(passLateral) / PASS_LATERAL);
       const step = Math.sign(delta) * Math.min(Math.abs(delta), ds / passFade);
       taxi.pass += step;
 
@@ -5756,7 +5899,8 @@ export function createTraffic(
       // is running: thrown one way out of the lane, settling the other way into it, and mirrored on
       // the way back. Eased over PASS_BANK_EASE units of road rather than applied raw, because the
       // lateral input really does step and a body that stepped with it would be hinged, not sprung.
-      const bankTarget = rate === 0 ? 0 : 1 - 2 * taxi.pass;
+      // Mirrored for a dodge out to the kerb, which swings the other way.
+      const bankTarget = rate === 0 ? 0 : (1 - 2 * taxi.pass) * Math.sign(passLateral);
       taxi.passBank += (bankTarget - taxi.passBank) * Math.min(1, ds / PASS_BANK_EASE);
     }
 

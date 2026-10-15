@@ -2327,7 +2327,9 @@ in [the box-in](traffic.md#the-box-in-roadblocks-the-overtake-and-the-brake-chec
 
 - **Roadblocks.** A cop crossing a junction a block or two up your route skids to a stop at 45°
   *across the middle of your road* and holds it for up to four seconds, or until you have got past it. One at a
-  time, eight seconds apart.
+  time, eight seconds apart. The overtake combo thrown short of one swerves round it, squeezing past by
+  the kerb ([the swerve](traffic.md#swerving-round-a-car-stood-in-the-junction)), unless a second
+  cop is holding the other half.
 - **The overtake and the brake check.** A cop that catches you from behind goes round you in the
   oncoming lane, cuts in and slews across the road for 2.5 seconds, with the rest of the chase
   arriving behind you. A cop that is already ahead of you on your road skips the overtake and does
