@@ -1331,6 +1331,9 @@ function overtakeGrace(params) {
 const overtake = createOvertakeCombo({
   taxi: traffic.taxi,
   grace: overtakeGrace(new URLSearchParams(window.location.search)),
+  // A fresh press behind a car is tailgated for OVERTAKE_PRESS_GRACE, so the combo's first tap
+  // from a taxi already sitting behind one is not itself a ram. `?pressgrace=classic` drops it.
+  ...(new URLSearchParams(window.location.search).get('pressgrace') === 'classic' ? { pressGrace: 0 } : {}),
 });
 // The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
