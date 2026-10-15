@@ -139,7 +139,7 @@ import {
 } from './game/route.js';
 import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.js';
 import { createPathDrag } from './game/pathdrag.js';
-import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
+import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
   getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getPaintClassic, getPaintLook, getVehiclePaintClassic, getWater, getUturnStyle } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
@@ -232,6 +232,17 @@ difficulty.pinDifficulty(getDifficultyPin() ?? shot?.difficulty ?? null);
 // the Resolution choice is the pixel-ratio cap. Shot mode ignores it, so a stored 1.5 on the machine
 // taking screenshots cannot soften every reference image.
 const settings = createSettings();
+// The Difficulty row (Easy / Regular / Hard). Applied here, before the fare system budgets its first
+// clock, and live from then on: a change takes effect from the next rider to spawn. `?difficulty=`
+// pins it for the load and leaves the saved choice alone; shot mode holds Easy, so a stored Hard on
+// the machine taking screenshots cannot move a reference image.
+const difficultyPinned = shot ? 'easy' : getDifficultyMode();
+difficulty.setMode(difficultyPinned ?? settings.get().difficulty);
+// Only on an actual change of mode: any other setting moving would otherwise reset the tuning, and
+// wipe whatever the ⚙️ panel's sliders had dialled in.
+settings.onChange((v) => {
+  if (!difficultyPinned && v.difficulty !== difficulty.getMode()) difficulty.setMode(v.difficulty);
+});
 const resolutionPinned = new URLSearchParams(window.location.search).has('dpr');
 const budget = {
   safe: getSafeMode(),
