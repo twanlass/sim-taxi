@@ -3162,13 +3162,14 @@ only a shell one level in is hidden, so the two lamps stay in the scene's light 
 | `off` | a cooldown off the difficulty ramp (`policeCooldown`, 16–30s falling to 8–14s) |
 | `patrol` | crossing: in at one edge, through a corner within `PATROL_REACH` (1 block) of the taxi (`PATROL_TIME`, 25s, caps that leg), out at the opposite edge; bar swinging |
 | `exiting` | out of traffic, driving straight off the island (`police.release`), dissolving past the slab's edge, then retired |
-| `chase` | it spotted you — bar strobing at the hunting rate, driving at you |
-| `leaving` | routed to the far corner, retired by `retirePolice` once out of sight |
+| `chase` | it spotted you — bar strobing at the hunting rate, driving at you; lost, it goes back to `patrol` |
+| `leaving` | a robbery started (or it lost you, under `?standdown=classic`): bar dark, routed to the far corner, retired by `retirePolice` once out of sight |
 
 **It crosses the map.** `enter` picks an axis, puts the car on the edge of the island furthest from
 the taxi across it and level with the taxi along it (`enterPolice` handed that edge junction, which
 still never places a car in frame), and picks an exit anywhere along the opposite edge but its
-corners. It **dissolves in** over `FADE_TIME` (0.8s): the materials use `alphaHash`, a define set
+corners. The exit has to have a street running into it pointed off the map (`openExit`): not every edge
+junction does, and a patrol sent to one with none lapped that corner for good. It **dissolves in** over `FADE_TIME` (0.8s): the materials use `alphaHash`, a define set
 once at construction, so the car stays in the opaque pass and the AO prepass and nothing relinks when
 it fades.
 
@@ -3198,9 +3199,16 @@ with 1.5s of grace before a touch counts. A cruiser still driving off from befor
 retired to make room: there is one cruiser mesh. See
 [gameplay.md](gameplay.md#the-drop-off-the-arrest-and-the-tail).
 
-**After a chase it leaves the way a robbery's cops stand down** (and so it does when a robbery
-starts): bar dark, routed to the corner furthest from the
-taxi, taken off only once `STAND_DOWN_RANGE` clear (`SPAWN_CLEARANCE` past the timeout, never
+**Lose it and it goes back on patrol** (`resumePatrol`): bar swinging again, chase flags off, and
+on the out leg of a crossing to an exit re-picked on the far side of town from the taxi — carrying
+on away from you along whichever axis it is further off, so it is not driving straight back to the
+taxi it just lost. It can still spot you on the way out. Ducking into the depot ends a chase the same
+way. It used to stand down after every chase, dark, and Tyler read that as "a dead patrol car"
+(2026-10-15); a cop rolling round town with its lights out looks broken rather than off duty.
+`?standdown=classic` keeps the old exit.
+
+**When a robbery starts it leaves the way a robbery's cops stand down**: bar dark, routed to the
+corner furthest from the taxi, taken off only once `STAND_DOWN_RANGE` clear (`SPAWN_CLEARANCE` past the timeout, never
 less), through `traffic.retirePolice` — the swap-to-tail-and-retire the robbery's recycling used to
 spell out inline, and which both now need because both can have cars in the fleet at once.
 

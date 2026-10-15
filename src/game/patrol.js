@@ -1,5 +1,6 @@
 import { DIR, GRID_I, GRID_J, PITCH, dirSign, isXAxis, lineX, lineZ } from '../city/grid.js';
 import { SLAB_X, SLAB_Z } from '../city/ground.js';
+import { cityNetwork } from '../city/roadnet.js';
 import { SPAWN_CLEARANCE } from '../sim/traffic.js';
 import { contact, touching } from '../sim/collisions.js';
 import { SPOT_RANGE } from '../sim/police.js';
@@ -36,7 +37,10 @@ import { groundLineClear } from './sightline.js';
 //   exiting   out of traffic, driving straight off the island and dissolving past the slab's
 //             edge (`police.release`), then retired
 //   chase     it spotted you: bar strobing, driving at you — ends caught, or lost
-//   leaving   lost you: bar dark, driving off; retired once out of sight
+//   patrol    lost you: back to its bar swinging, crossing the rest of town on its way out — and
+//             it can spot you again on the way (see `resume`)
+//   leaving   a robbery started, or lost you under `resume: false` (`?standdown=classic`): bar
+//             dark, driving off; retired once out of sight
 //
 // **Spotted** is the rule the old bust was: boost within SPOT_RANGE (one block) of it. What
 // changed is what happens next.
@@ -44,8 +48,8 @@ import { groundLineClear } from './sightline.js';
 //   - **Caught** — the cop touches the taxi (see TOUCH_SLACK). The run ends "Busted!", as it always
 //     did; it just takes a cop actually getting to you now. The taxi ramming the cop on the pill is
 //     not that: it is a bump, and buys RAMMED_GRACE.
-//   - **Lost** — see ESCAPE_BLOCKS, or out of its sight for SIGHT_HOLD. The bar goes dark and the
-//     cruiser drives off, the same stand-down a robbery's cops do.
+//   - **Lost** — see ESCAPE_BLOCKS, or out of its sight for SIGHT_HOLD. The bar goes back to its
+//     patrol swing and the cruiser carries on patrolling (`resumePatrol`).
 //   - **Gone to ground** — the taxi pulls into the depot mid-chase (`hideout`). Lost, by another
 //     door: the cop never saw it go in.
 
@@ -330,11 +334,14 @@ export function holdArrest(cop) {
  *                 main.js turns it on unless `?capture=classic`
  * @param onRammed `(cop) => void` — under `capture`, the cop has just rammed a taxi still doing a
  *                 speed: main.js charges it as a hit (`strike` in sim/collisions.js)
+ * @param resume   a cop that loses the taxi goes back on patrol (`resumePatrol`) rather than
+ *                 standing down. Off by default so the tools' stand-down checks keep the rule they
+ *                 measured; main.js turns it on unless `?standdown=classic`
  * @param onLost   `(cop) => void` — the taxi got away
  * @param onHid    `(cop) => void` — the taxi got away into the depot (`hideout`)
  */
 export function createPatrol({
-  rng, police, traffic, taxi, blocked = () => false, capture = false,
+  rng, police, traffic, taxi, blocked = () => false, capture = false, resume = false,
   onSpotted = () => {}, onCaught = () => {}, onRammed = () => {}, onLost = () => {}, onHid = () => {},
 }) {
   const pin = createPin(taxi);
@@ -394,6 +401,30 @@ export function createPatrol({
   };
 
   /**
+   * An exit on the edge at `edge` (an i if `acrossI`, else a j), as near `along` the other axis as
+   * there is one: a junction with a street running into it from inside town, pointed off the map.
+   * Not every edge junction has one — on the 6 × 7 map no street runs from (1, 6) to the ring at
+   * (0, 6), for one — and a patrol sent to an exit with no exit lane never leaves: `headOut` cannot route onto
+   * it, `crossOut` sends it back, and it laps that corner for good. The probe found it there on
+   * one seed in eight.
+   */
+  function openExit(acrossI, edge, along) {
+    const last = (acrossI ? GRID_J : GRID_I) - 1;
+    const d = acrossI ? (edge === GRID_I ? DIR.PX : DIR.NX) : (edge === GRID_J ? DIR.PZ : DIR.NZ);
+    const net = cityNetwork();
+    const at = (k) => (acrossI ? { i: edge, j: k } : { i: k, j: edge });
+    const from = Math.max(1, Math.min(last, along));
+    for (let off = 0; off <= last; off++) {
+      for (const k of off ? [from - off, from + off] : [from]) {
+        if (k < 1 || k > last) continue;
+        const exit = at(k);
+        if (net.laneByGrid(d, exit.i, exit.j)) return { exit, exitD: d };
+      }
+    }
+    return { exit: at(from), exitD: d };
+  }
+
+  /**
    * Come onto the map at one edge, bound for the opposite one.
    *
    * It used to come in as a robbery's cop does, off screen and as near the taxi as that allows,
@@ -409,12 +440,9 @@ export function createPatrol({
     const entry = acrossI
       ? { i: taxi.i > GRID_I / 2 ? 0 : GRID_I, j: clampJ(taxi.j + rng.int(-1, 1)) }
       : { i: clampI(taxi.i + rng.int(-1, 1)), j: taxi.j > GRID_J / 2 ? 0 : GRID_J };
-    const exit = acrossI
-      ? { i: GRID_I - entry.i, j: rng.int(1, GRID_J - 1) }
-      : { i: rng.int(1, GRID_I - 1), j: GRID_J - entry.j };
-    const exitD = acrossI
-      ? (exit.i === GRID_I ? DIR.PX : DIR.NX)
-      : (exit.j === GRID_J ? DIR.PZ : DIR.NZ);
+    const { exit, exitD } = openExit(acrossI,
+      acrossI ? GRID_I - entry.i : GRID_J - entry.j,
+      acrossI ? rng.int(1, GRID_J - 1) : rng.int(1, GRID_I - 1));
     // `enterPolice` ranks lanes by distance to the point it is handed and never places one in
     // frame (SPAWN_CLEARANCE), so the car arrives on a road at that edge junction or next to it.
     if (!traffic.enterPolice(1, { x: lineX(entry.i), z: lineZ(entry.j) })) { state.cooldown = 3; return; }
@@ -675,6 +703,37 @@ export function createPatrol({
     aimedAt = null;
   }
 
+  /**
+   * Lost you, and back to work: bar swinging again, the chase flags down, and on the out leg of a
+   * crossing to an exit on the far side of town from the taxi — so it can run into you again, and
+   * spot you if you boost near it, but it is not hunting.
+   *
+   * It used to stand down instead (`leave`, still what `?standdown=classic` and a robbery get): bar
+   * dark, routed off to the far corner, gone once out of sight. Tyler, 2026-10-15: "it seems to be
+   * like a dead patrol car" — a cop car rolling round town with its lights out reads as broken, not
+   * as a cop that has given up, and the radio line it says under `?copchat=classic` was already
+   * "Resuming patrol."
+   *
+   * Why the out leg rather than the in leg: the in leg is routed to a corner within a block of the
+   * taxi (`cruise`), which straight after a loss is a cop driving back to the taxi it just lost —
+   * a second chase, not a patrol. The exit is re-picked because the one it came in with can be
+   * anywhere relative to where the chase left it: it carries on away from the taxi, along whichever
+   * axis it is further off it, and leaves by that edge.
+   */
+  function resumePatrol(cop) {
+    leave(cop);
+    cop.route = [];
+    const acrossI = Math.abs(cop.i - taxi.i) >= Math.abs(cop.j - taxi.j);
+    const { exit, exitD } = acrossI
+      ? openExit(true, cop.i >= taxi.i ? GRID_I : 0, cop.j)
+      : openExit(false, cop.j >= taxi.j ? GRID_J : 0, cop.i);
+    state.exit = exit;
+    state.exitD = exitD;
+    police.setBar('patrol');
+    state.phase = 'patrol';
+    headOut(cop);
+  }
+
   /** The arrest: the cop pulls up on the spot and the run ends "Busted!" (main.js). */
   function catchTaxi(cop) {
     state.caught += 1;
@@ -794,7 +853,8 @@ export function createPatrol({
     state.unseen = seen ? Math.max(0, state.unseen - dt) : state.unseen + dt;
     if (state.clear >= ESCAPE_HOLD || state.unseen >= SIGHT_HOLD || state.elapsed > CHASE_MAX) {
       state.lost += 1;
-      leave(cop);
+      if (resume) resumePatrol(cop);
+      else leave(cop);
       onLost(cop);
     }
   }
@@ -856,19 +916,20 @@ export function createPatrol({
     /**
      * The taxi has just pulled into the depot (main.js, the frame the opening takes it off the
      * road at the driveway): a chase in progress is called off as if the taxi had got clear —
-     * bar dark, the cruiser routed away, the cooldown to the next patrol starting once it is out
-     * of sight. Nothing else is touched: a crossing patrol carries on crossing, and one that is
+     * back on patrol (`resumePatrol`), or under `?standdown=classic` bar dark, the cruiser routed
+     * away, the cooldown to the next patrol starting once it is out of sight. Nothing else is touched: a crossing patrol carries on crossing, and one that is
      * already leaving keeps leaving. The arrest is past saving — the run is over. Answers whether
      * a chase was called off.
      *
      * It does not need to be told the taxi came back out. A staged taxi cannot be spotted (`sees`),
-     * and by the time it is released the cop is driving off to the far corner.
+     * and once it is released it is fair game again, the same as any taxi near a patrol.
      */
     hideout() {
       if (state.phase !== 'chase' || !state.cop) return false;
       state.hid += 1;
       const cop = state.cop;
-      leave(cop);
+      if (resume) resumePatrol(cop);
+      else leave(cop);
       onHid(cop);
       return true;
     },
