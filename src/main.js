@@ -67,7 +67,6 @@ import { createSkidMarks, createTyreTrail } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
 import { createSpray } from './game/spray.js';
 import { createCityEntry } from './game/cityentry.js';
-import { paintBlotches } from './game/painterly.js';
 import { createBlast, WRECK_STYLES } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createSparks } from './game/sparks.js';
@@ -292,10 +291,9 @@ setAmbientOcclusion(aoEnabled);
 // `game/crayon.js` for what the three layers of it are.
 const crayonEnabled = budget.crayon;
 setCrayon(crayonEnabled);
-// Prototype painterly look (game/painterly.js, PAINT_* in util/geo.js). `?painterly=classic` is the old look.
+// Prototype painterly look (PAINT_* in util/geo.js): warm shade, walls fading up from a darker foot. `?painterly=classic` is the old look.
 const painterly = new URLSearchParams(location.search).get('painterly') !== 'classic';
 setPainterly(painterly);
-const blotch = (m) => (painterly ? paintBlotches(m) : m);
 setClassicPaint(getPaintClassic());
 setPaintLook(getPaintLook());
 setVehiclePaint(!getVehiclePaintClassic());
@@ -614,7 +612,7 @@ applyWeather();
 // `markOccluder` is what puts a mesh into the AO depth prepass. The rule it enforces is that
 // anything lit by `propMaterial()` has to be in there: a mesh that receives AO without casting it
 // samples the occlusion of whatever stands behind it. See `game/ssao.js`.
-scene.add(markOccluder(rain.wetGround(blotch(createGround(makeRng(seed + 11), layout)))));
+scene.add(markOccluder(rain.wetGround(createGround(makeRng(seed + 11), layout))));
 
 // The river, and the spans that get over it. Its own stream, like every other generator, so that
 // moving a bridge cannot reshuffle a park.
@@ -683,12 +681,12 @@ const stopPanes = rain.enabled ? collectPanes() : null;
 const fall = getFall();
 setAutumn(fall, { classicColours: getFoliageClassic() });
 const city = createBuildings(makeRng(seed + 22), layout);
-scene.add(markOccluder(blotch(city.mesh)));
+scene.add(markOccluder(city.mesh));
 // The high rises past the west ring road, the streets carrying on to them and the barricades shutting
 // them off (city/westedge.js). Built before the panes are collected, so Rain Mode lights their windows
 // too. Its own stream. Null under `?westedge=classic`.
 const westEdge = createWestEdge(makeRng(seed + 59));
-if (westEdge) scene.add(markOccluder(blotch(westEdge.ground)), markOccluder(blotch(westEdge.towers)));
+if (westEdge) scene.add(markOccluder(westEdge.ground), markOccluder(westEdge.towers));
 // The northwest corner's asphalt skirt (`?westcorner=classic` drops the corner). Transparent, so not
 // an occluder.
 if (westEdge?.fade) scene.add(westEdge.fade);
@@ -718,7 +716,7 @@ for (const mesh of [litPanes, lamps?.pools]) if (mesh) mesh.visible = false;
 // enough, which the chain below handles rather than guards against. See city/pond.js.
 const props = createProps(makeRng(seed + 33), layout);
 const propsMesh = props.mesh;
-scene.add(markOccluder(blotch(propsMesh)));
+scene.add(markOccluder(propsMesh));
 // The pond's water, which wears the river's surface and so rides outside the merge — and outside
 // the AO prepass, for the river water's reasons (`pondWaterMesh` in city/pond.js). Null under
 // `?water=classic`, whose flat fan is still in `propsMesh`.

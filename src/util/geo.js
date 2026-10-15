@@ -278,62 +278,43 @@ export function setPainterly(enabled) {
 }
 
 export const PAINT_UNIFORMS = {
-  uWarmWrap: { value: 0.9 },   // half-Lambert wrap: warm light bleeding past the terminator
-  uWarmTint: { value: new THREE.Color(1.0, 0.62, 0.38) },
-  uShadeSat: { value: 0.9 },    // saturation pushed into shade (TF2: shadows go rich, not grey)
-  uHeightGrad: { value: 0.55 }, // how much darker a wall is at its foot
-  uRim: { value: 0.8 },        // sky-coloured rim on surfaces turning away from the eye
-  uRimColor: { value: new THREE.Color(0.78, 0.9, 1.0) },
-  uPaintSat: { value: 0.22 },   // overall chroma lift in the mid-tones
+  // Shade, warmed: multiplied into the indirect light where the sun doesn't reach, after the cool
+  // shadow tint has run. Luminance of this colour is ~1.0, so it shifts hue without darkening.
+  uShadeWarm: { value: new THREE.Color(1.22, 0.97, 0.72) },
+  uShadeSat: { value: 0.3 },    // a little extra chroma in shade, so it reads rich rather than muddy
+  uHeightGrad: { value: 0.4 },  // how much darker a wall is at its foot
+  uHeightSpan: { value: 10 },   // world units over which the foot fades up to full brightness
 };
 
 const PAINT_COMMON = /* glsl */ `
-uniform float uWarmWrap;
-uniform vec3 uWarmTint;
+uniform vec3 uShadeWarm;
 uniform float uShadeSat;
 uniform float uHeightGrad;
-uniform float uRim;
-uniform vec3 uRimColor;
-uniform float uPaintSat;
+uniform float uHeightSpan;
 varying vec3 vPaintWorld;
 `;
 
+// Spliced in after SHADOW_LIGHT, so it warms the shade the cool tint has already coloured.
 const PAINT_LIGHT = /* glsl */ `
 	{
 		vec3 pL = vec3(0.2126, 0.7152, 0.0722);
-		#if NUM_DIR_LIGHTS > 0
-		// Half-Lambert, as TF2 does it: (0.5 n.l + 0.5)^2 in place of max(n.l, 0), so light wraps past
-		// the terminator. Only the extra is added, and warm, so faces turned from the sun glow rather
-		// than going dead.
-		float pNL = dot(normal, directionalLights[0].direction);
-		float pWrap = pow(0.5 * pNL + 0.5, 2.0) - max(pNL, 0.0);
-		reflectedLight.indirectDiffuse += directionalLights[0].color * diffuseColor.rgb * uWarmTint
-			* max(pWrap, 0.0) * uWarmWrap * RECIPROCAL_PI;
-		#endif
 		float pD = dot(reflectedLight.directDiffuse, pL);
 		float pI = dot(reflectedLight.indirectDiffuse, pL);
 		float pShade = smoothstep(0.45, 1.0, pI / max(pD + pI, 1e-4));
-		vec3 ind = reflectedLight.indirectDiffuse;
+		vec3 ind = reflectedLight.indirectDiffuse * mix(vec3(1.0), uShadeWarm, pShade);
 		float il = dot(ind, pL);
 		reflectedLight.indirectDiffuse = max(mix(vec3(il), ind, 1.0 + uShadeSat * pShade), 0.0);
 	}
 `;
 
+// The height fade: a wall is darker at its foot and comes up to its own colour over uHeightSpan.
+// Only vertical faces take it; roofs and the ground are untouched.
 const PAINT_FRAGMENT = /* glsl */ `
 	{
 		vec3 pN = normalize(inverseTransformDirection(normal, viewMatrix));
-		vec3 c = gl_FragColor.rgb;
-		float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
-		// The height gradient: a wall is darker and cooler at its foot, lighter where it meets the sky.
 		float wall = 1.0 - abs(pN.y);
-		float h = smoothstep(0.0, 10.0, vPaintWorld.y);
-		c *= mix(vec3(1.0 - uHeightGrad, 1.0 - uHeightGrad * 0.85, 1.0 - uHeightGrad * 0.6), vec3(1.0), mix(1.0, h, wall));
-		// Rim: under an orthographic camera the eye direction is view-space +Z everywhere.
-		float rim = pow(1.0 - clamp(abs(normal.z), 0.0, 1.0), 3.0) * smoothstep(-0.3, 0.6, pN.y);
-		c += uRimColor * rim * uRim * (0.35 + lum);
-		lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
-		c = mix(vec3(lum), c, 1.0 + uPaintSat * 4.0 * lum * (1.0 - lum));
-		gl_FragColor.rgb = max(c, 0.0);
+		float h = smoothstep(0.0, uHeightSpan, vPaintWorld.y);
+		gl_FragColor.rgb *= mix(1.0 - uHeightGrad * wall, 1.0, h);
 	}
 `;
 
@@ -1233,7 +1214,7 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
   const useAO = aoEnabled && ao;
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
     + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}` : ''}`
-    + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint3' : ''}`;
+    + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint4' : ''}`;
   material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {
@@ -1377,8 +1358,8 @@ ${CLOUD_GLSL}` : ''}`);
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
 ${cloudsEnabled ? CLOUD_LIGHT : ''}
 ${cartoonEnabled ? CARTOON_LIGHT : ''}
-${painterlyEnabled ? PAINT_LIGHT : ''}
-${SHADOW_LIGHT}`);
+${SHADOW_LIGHT}
+${painterlyEnabled ? PAINT_LIGHT : ''}`);
 
     // Both inks share the seam, and they compose in the order the looks would be layered by hand:
     // the cartoon's hard line first, the crayon's broken one over it. Running both is two inks on
