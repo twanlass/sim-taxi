@@ -525,12 +525,12 @@ evidence it visited the rider, where it ends up is the evidence it came home.
 ### Getting back to the taxi
 
 The camera is the player's the moment they swipe, and it comes home on its own once they leave it:
-**3 seconds with no touch on the map** (`CAMERA_RETURN_IDLE`, `updateCameraReturn` in main.js) and
+**1.5 seconds with no touch on the map** (`CAMERA_RETURN_IDLE`, `updateCameraReturn` in main.js) and
 it rides back to the taxi through the same `panToTaxi` the chip below uses, flash included, and the
 follow-cam picks it up from there. Any pointer activity on the canvas restarts the count, a finger
 resting on the map holds it, and nothing counts while another claim has the camera (a glide, the
 tutorial, the vignette, the end-of-run focus). It runs on phones only, where the follow-cam does.
-The 3 is a first guess rather than a measurement, and the trade it makes is with
+The 1.5 is a feel pick (it shipped at 3) rather than a measurement, and the trade it makes is with
 [the edge arrow's look](gameplay.md), which was left off any timer because a player who rode out to
 a fare may be reading the board with their thumb off the glass. `?camreturn=classic` leaves the
 camera wherever the player put it, as it was before
