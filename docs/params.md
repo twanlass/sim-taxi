@@ -26,6 +26,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?parkdrive=classic` | No arched drives round statues in the north park's wall | | [city.md](city.md) |
 | `?parkshore=classic` | The harbor's seawall curling west and stopping at the north park's corner, instead of running on north beside it. Headless tools take `PARKSHORE=classic` | #512 | [river.md](river.md#the-park-shore) |
 | `?southshore=classic` | The old south apron fading into the sky, instead of the rocky shore and park strip. Headless tools take `SOUTHSHORE=classic` | #512 | [river.md](river.md#the-south-shore) |
+| `?gravemist=classic` | The graveyard's ground mist, drifting over the lawn and thicker after dark. Headless tools take `GRAVEMIST=classic` | | [city.md](city.md#the-graveyard) |
+| `?gravegrass=classic` | The graveyard's lawn flat, with no long grass between the stones. Headless tools take `GRAVEGRASS=classic` | | [city.md](city.md#long-grass) |
 | `?edgegrass=classic` | Flat green lawns on the north park, the park shore and the south shore, with no long grass. Headless tools take `EDGEGRASS=classic` | | [city.md](city.md#long-grass) |
 | `?parkway=twoway` | A two-lane road through the central park instead of the one-way one | #473 | [city.md](city.md) |
 | `?graveyard=single` / `=classic` | One graveyard block / no graveyard (default is two blocks with the street between closed) | #487, #491 | [city.md](city.md) |
@@ -82,6 +84,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?parcels=0` / `=1` | Packages off / forced on (they are off in shot mode by default) | [gameplay.md](gameplay.md) |
 | `?cars=N` | Total vehicles, taxi included. `?cars=1` leaves the taxi alone on the road | [testing.md](testing.md) |
 | `?d=0..1` | Pins the difficulty curve instead of the delivery count | [difficulty.md](difficulty.md) |
+| `?difficulty=easy\|regular\|hard` | Pins the Settings Difficulty mode for this load, leaving the saved choice alone | [difficulty.md](difficulty.md#modes) |
 | `?seed=N` | Pins the city. Random each load otherwise | [architecture.md](architecture.md) |
 | `?run=N` | Pins the situation (start, riders, events). Random each load otherwise | [architecture.md](architecture.md) |
 

@@ -139,7 +139,7 @@ import {
 } from './game/route.js';
 import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.js';
 import { createPathDrag } from './game/pathdrag.js';
-import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
+import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
   getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getPaintClassic, getPaintLook, getVehiclePaintClassic, getWater, getUturnStyle } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
@@ -232,6 +232,17 @@ difficulty.pinDifficulty(getDifficultyPin() ?? shot?.difficulty ?? null);
 // the Resolution choice is the pixel-ratio cap. Shot mode ignores it, so a stored 1.5 on the machine
 // taking screenshots cannot soften every reference image.
 const settings = createSettings();
+// The Difficulty row (Easy / Regular / Hard). Applied here, before the fare system budgets its first
+// clock, and live from then on: a change takes effect from the next rider to spawn. `?difficulty=`
+// pins it for the load and leaves the saved choice alone; shot mode holds Easy, so a stored Hard on
+// the machine taking screenshots cannot move a reference image.
+const difficultyPinned = shot ? 'easy' : getDifficultyMode();
+difficulty.setMode(difficultyPinned ?? settings.get().difficulty);
+// Only on an actual change of mode: any other setting moving would otherwise reset the tuning, and
+// wipe whatever the ⚙️ panel's sliders had dialled in.
+settings.onChange((v) => {
+  if (!difficultyPinned && v.difficulty !== difficulty.getMode()) difficulty.setMode(v.difficulty);
+});
 const resolutionPinned = new URLSearchParams(window.location.search).has('dpr');
 const budget = {
   safe: getSafeMode(),
@@ -683,11 +694,24 @@ scene.add(markOccluder(propsMesh));
 // the AO prepass, for the river water's reasons (`pondWaterMesh` in city/pond.js). Null under
 // `?water=classic`, whose flat fan is still in `propsMesh`.
 if (props.pondMesh) scene.add(props.pondMesh);
+// The graveyard — the third block `createLayout` took out of the tower generator's hands. Scenery
+// only: not tappable, nothing routes into it. `null` on `?graveyard=classic` or a city with no
+// room, and nothing below needs to know. See city/graveyard.js.
+// Built here rather than beside the depot and the burger joint because its tree has to be planted
+// before the leaf cards below are dressed onto every tree, and its stones placed before the grass
+// below keeps off them.
+const graveyard = layout.graveyardBlock
+  ? createGraveyard(layout.graveyardBlock, makeRng(seed + 131)) : null;
+if (graveyard) {
+  scene.add(graveyard.group);
+  graveyard.meshes.forEach(markOccluder);
+}
 // Tufts of long grass on the same lawns, kept out of the furniture `createProps` just placed. Its own
 // stream, so retuning the grass moves no tree. **Not** `markOccluder`: the AO prepass would draw
 // every card as a solid quad. See city/grass.js.
 // The edge lawns (north park, park shore, south shore) grow the same tufts in the same mesh, off
-// a stream of their own and kept off the L's columns where it walks across them.
+// a stream of their own and kept off the L's columns where it walks across them. The graveyard's
+// lawn grows them last, off a third stream (`?gravegrass=classic` leaves it flat).
 const lColumns = new URLSearchParams(window.location.search).get('ltrain') !== 'classic'
   ? (() => { const plan = planLTrain(); return plan ? plan.columns.map((a) => plan.world(a)) : []; })() : [];
 const grass = createGrass(makeRng(seed + 122), layout, props, {
@@ -695,21 +719,10 @@ const grass = createGrass(makeRng(seed + 122), layout, props, {
   areas: [northPark?.grass, parkShoreStrip?.grass, southShore?.grass].filter(Boolean),
   avoid: (x, z, reach) => lColumns.some((c) => Math.abs(x - c.x) < LTRAIN_DIMENSIONS.FOOTING_W / 2 + reach
     && Math.abs(z - c.z) < LTRAIN_DIMENSIONS.FOOTING_W / 2 + reach),
-});
+}, graveyard ? { area: graveyard.grass, rng: makeRng(seed + 124) } : null);
 scene.add(grass.mesh);
 // Leaf cards round every tree crown — the parks', the medians' and the courtyard's — on the same
 // terms as the grass. See city/canopyfuzz.js.
-// The graveyard — the third block `createLayout` took out of the tower generator's hands. Scenery
-// only: not tappable, nothing routes into it. `null` on `?graveyard=classic` or a city with no
-// room, and nothing below needs to know. See city/graveyard.js.
-// Built here rather than beside the depot and the burger joint because its tree has to be planted
-// before the leaf cards below are dressed onto every tree.
-const graveyard = layout.graveyardBlock
-  ? createGraveyard(layout.graveyardBlock, makeRng(seed + 131)) : null;
-if (graveyard) {
-  scene.add(graveyard.group);
-  graveyard.meshes.forEach(markOccluder);
-}
 // Every tree in the city, whoever planted it (`plantedCrowns`, city/props.js) — so a new kind of
 // tree can't come out without its leaves.
 const canopyFuzz = createCanopyFuzz(makeRng(seed + 144), plantedCrowns());

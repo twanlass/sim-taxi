@@ -326,6 +326,15 @@ export function getParcelsPin() {
  *
  * Returns null when unpinned, which is what `difficulty.pinDifficulty` wants.
  */
+/**
+ * `?difficulty=easy|regular|hard` — the Settings row's mode, pinned for this load without touching
+ * the saved choice. Null when absent or unknown, so the saved setting decides.
+ */
+export function getDifficultyMode() {
+  const raw = new URLSearchParams(window.location.search).get('difficulty');
+  return raw === null ? null : raw.toLowerCase();
+}
+
 export function getDifficultyPin() {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get('d');

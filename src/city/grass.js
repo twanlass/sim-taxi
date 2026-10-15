@@ -52,6 +52,15 @@ export const EDGE_GRASS = typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('edgegrass') !== 'classic'
   : globalThis.process?.env?.EDGEGRASS !== 'classic';
 
+/**
+ * The graveyard's lawn grows them too, on its own terms — a little shorter and rooted in its darker
+ * grass, kept off the stones, the path and the gates (`grass` on what `createGraveyard` returns).
+ * `?gravegrass=classic` leaves it flat. Tyler, 2026-10-14: "Graveyard needs some grass."
+ */
+export const GRAVE_GRASS = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('gravegrass') !== 'classic'
+  : globalThis.process?.env?.GRAVEGRASS !== 'classic';
+
 /** What ground.js lays a park's lawn at — the same number `pond.js` names `GRASS_Y`. */
 const LAWN_Y = KERB_H + 0.01;
 // Sunk a little into the lawn so no lit gap shows under a tuft's root where the card's bottom
@@ -213,9 +222,11 @@ export function planEdgeGrass(rng, areas, avoid = null) {
 /**
  * Scatter tufts over one lawn, into `tufts`.
  *
- * @param area  `{ bounds, inside(x, z), blocked?(x, z, reach), density?(x, z) }`. `inside` is the
- *              lawn's own outline and is asked of both ends of a card; `blocked` is whatever stands
- *              on the lawn; `density` (0..1) thins the scatter on top of the clumping.
+ * @param area  `{ bounds, inside(x, z), blocked?(x, z, reach), density?(x, z), height?, root? }`.
+ *              `inside` is the lawn's own outline and is asked of both ends of a card; `blocked` is
+ *              whatever stands on the lawn; `density` (0..1) thins the scatter on top of the
+ *              clumping; `height` scales every tuft; `root` is the lawn's colour when it is not the
+ *              parks' (`PALETTE.park`), so the card's base still melts into it.
  */
 function scatter(rng, area, tufts) {
   const { x0, z0, x1, z1 } = area.bounds;
@@ -226,7 +237,7 @@ function scatter(rng, area, tufts) {
     const x = rng.range(x0, x1);
     const z = rng.range(z0, z1);
     const w = rng.range(TUFT_W[0], TUFT_W[1]);
-    const h = rng.range(TUFT_H[0], TUFT_H[1]) * (0.8 + 0.2 * w / TUFT_W[1]);
+    const h = rng.range(TUFT_H[0], TUFT_H[1]) * (0.8 + 0.2 * w / TUFT_W[1]) * (area.height ?? 1);
     const yaw = rng.range(-YAW_JITTER, YAW_JITTER);
     const variant = rng.int(0, VARIANTS - 1);
     const keep = rng.next();
@@ -245,7 +256,7 @@ function scatter(rng, area, tufts) {
     if (!area.inside(x + ex, z - ez) || !area.inside(x - ex, z + ez)) continue;
     if (area.blocked?.(x, z, reach)) continue;
 
-    tufts.push({ x, z, w, h, yaw, variant });
+    tufts.push(area.root ? { x, z, w, h, yaw, variant, root: area.root } : { x, z, w, h, yaw, variant });
   }
 }
 
@@ -281,7 +292,7 @@ export function grassGeometry(tufts, rng) {
 
     // The root is the lawn's own colour so the card's base melts into the ground; the tip carries
     // the tuft. Jittered per tuft so a clump is not one swatch.
-    root.set(jitterColor(PALETTE.park, rng, { l: 0.03 }));
+    root.set(jitterColor(tuft.root ?? PALETTE.park, rng, { l: 0.03 }));
     tip.set(jitterColor(PALETTE.grassTip, rng, { h: 0.03, l: 0.08 }));
     const rand = hash01(tuft.x, tuft.z);
 
@@ -315,10 +326,13 @@ export function grassGeometry(tufts, rng) {
  * @param furniture  `{ benches, statue, pond }` from `createProps`.
  * @param edges      `{ areas, avoid, rng }` for `planEdgeGrass`, or null. Its own stream, and its
  *                   tufts appended after the parks', so the edges change nothing in the city.
+ * @param grave      `{ area, rng }` for the graveyard's lawn, or null — appended last, off its own
+ *                   stream, on the same terms.
  */
-export function createGrass(rng, blocks, furniture, edges = null) {
+export function createGrass(rng, blocks, furniture, edges = null, grave = null) {
   const tufts = planGrass(rng, blocks, furniture);
   if (edges && EDGE_GRASS) tufts.push(...planEdgeGrass(edges.rng, edges.areas, edges.avoid));
+  if (grave?.area && GRAVE_GRASS) tufts.push(...planEdgeGrass(grave.rng, [grave.area]));
   const mesh = new THREE.Mesh(grassGeometry(tufts, rng), propMaterial({ cutout: tuftAtlas() }));
   mesh.castShadow = false;
   mesh.receiveShadow = true;
