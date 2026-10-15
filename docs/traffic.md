@@ -1595,6 +1595,70 @@ that has a green — which is what [nothing stops the taxi](#nothing-stops-the-t
 **The rolling pass is untouched**, which is the check that matters most here: the lab's 130 staged
 approaches passed 130 and wrecked 0 both before and after.
 
+#### Swerving round a car stood in the junction
+
+The same combo, thrown short of a car **stopped or creeping in the junction ahead** — nosed in from
+a side street and waiting, or a cop parked across the box — swerves round it (Tyler, 2026-10-15).
+`findDodge` in `traffic.js` finds it (the dodge in the code, since `swerve` already names the
+weave there) and publishes the road to it as `taxi.dodgeGap`, which
+`game/overtake.js` arms on exactly as it arms on `passGap`. From there it *is* the pass: the same
+swing into the oncoming lane, latched on the blocker (`passTarget`) instead of a leader, carried
+straight through the junction, and tucked back in once `PASS_CLEAR` past it. It counts as an
+overtake for the combo meter and the haptic. `?swerve=classic` takes it out, and the blocker is hit
+as it always was.
+
+Such a car was never the pass's business: it is not on the taxi's lane, so the lane bookkeeping does
+not list it as a leader, and a boosting taxi [barges the box](#nothing-stops-the-taxi) and hits it.
+
+**What qualifies, and the trade-off in it.** Only a blocker moving at `DODGE_CREEP` (4 u/s, about
+half of cruise) or less. A car crossing at speed is the hazard that makes barging a junction a risk
+at all, and a gesture that steered round it would take that away. A car heading the taxi's own way
+is a leader, and passing it stays the pass's job.
+
+**Only where there is a line round it.** Every car in the box, the blocker and anything else there,
+is projected along its heading at its speed to where it will be when the taxi arrives (sampled at
+three points), and the swing line has to clear all their collision circles by the envelope. Three
+lines are tried in order:
+
+| line | across | for |
+|---|---|---|
+| the oncoming lane's centre | 4.0 (6.67 on an arterial) | a car poked in from the taxi's right |
+| a jink to the taxi's own kerb (`dodgeKerb`) | −1.15 | a roadblock cop on the centreline |
+| the far kerb (`dodgeWide`) | 5.15 (7.81) | a car further in, or a cop stopped on the taxi's side |
+
+Both kerb lines stop `CAR_W / 2` short of the kerb, which is the simulated body; the drawn taxi is
+`TAXI_SCALE` wider and hangs 0.15 over the pavement for the few units either side of the box. Using
+the drawn width cost the roadblock cop its line: slewed to 45° on the centreline, its circles sit
+0.67 either side of the middle, 1.33 from the oncoming lane's centre and 2.48 from either kerb line
+against a 2.31 envelope (2.32 with the drawn width, inside the margin). The robbery lets a cop land
+up to `BLOCK_ACROSS` off the middle (0.58 measured), which leaves one kerb or the other. A car from
+the left covers the far lane first and is not in the taxi's way. Two cops paired across both halves
+leave no line, and the box stays shut.
+
+A kerb jink swings the other way, so its offset is negative and its bank is mirrored. And the
+[Loco weave](#boost-crazy-taxi-mode) fades out for as long as a dodge is out: its 0.52 of wander is
+more than the kerb jink's whole margin, and with it left on the taxi bumped the cop it was squeezing
+past.
+
+**It pulls out late.** The swing starts `DODGE_LEAD` (10 units) plus the change's own length short
+of the blocker, rather than the moment the combo arms, so it reads as a swerve and not as a lap of
+the oncoming lane down the whole block. Ten rather than less because, like the pass, it is decided
+only on a lane, and the lane ends 7.4 short of a cop in the middle of the box: at 6 the kerb jink
+armed and never got a frame to pull out in.
+
+Staged in `tools/probe.mjs` on an ordinary street, a car held at increasing depths into the box from
+the taxi's right, and a cop slewed the way the robbery leaves one:
+
+| blocker | outcome |
+|---|---|
+| centre 0 past the box edge | swerves on the oncoming lane's centre, no contact |
+| 3.5 past | swerves wide, 5.15 across, no contact |
+| square across the middle | no line round it: not swerved, hit |
+| creeping in at 2 u/s | swerves wide (where it will be), no contact |
+| crossing at cruise | not a swerve |
+| roadblock cop on the centreline | jinks to the kerb, −1.15, no contact |
+| roadblock cop 0.58 toward the taxi's side | swerves wide, no contact |
+
 ### Seeing what you're about to hit
 
 Because a contact only costs anything while boosting, the one moment a car hidden behind a
