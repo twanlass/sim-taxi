@@ -2856,7 +2856,7 @@ unbroken move: with nothing to arrive at on the car, the box has one destination
 The **Loco Mode** button is the gas pedal: the round orange button centred on the bottom edge,
 100px across, with the brake to its left (see [the pedal slide](#the-pedal-slide)). Both are drawn
 as an NES pad's buttons — Loco Mode is **A**, the brake **B** — black plastic surround, a dished
-centre with the letter engraved in it, a hard glint (Tyler, 2026-10-15; `?pedals=classic` brings
+centre with the letter debossed in it, a hard glint (Tyler, 2026-10-15; `?pedals=classic` brings
 back the round pedals with lightning and stop icons). **Hold to
 enable, release to pause.** A short tap costs a short slice, a long hold flows until the tank is
 empty. Full tank is 15 seconds of boost. The decision is *how long* to press as well as *when*.

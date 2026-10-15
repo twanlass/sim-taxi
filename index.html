@@ -994,13 +994,13 @@
       #brake.is-held .pedal-icon, #brake.is-on .pedal-icon { transform: translateY(5px); }
       /* The NES pedals (the default, Tyler 2026-10-15): the same two buttons drawn as a pad's B
          and A — a black plastic surround, a shallow crescent of side, a hard glint rather than a
-         soft sheen, and a dish in the middle with the letter engraved in it. Sharper means no blur
+         soft sheen, and a dish in the middle with the letter debossed in it. Sharper means no blur
          anywhere in the up state, so there is no up filter at all. The press is the same idea as
          the classic one at a shallower depth: 4 of the 5 units of crescent, and a hard inner
          shadow from the top. `?pedals=classic` (body.pedals-classic) shows the drawings these
          replaced, which still ship beside them. */
       body.pedals-classic .pedal-nes, body:not(.pedals-classic) .pedal-classic { display: none; }
-      .pedal-letter { font: 700 50px/1 var(--game-font); }
+      .pedal-letter { font: 700 50px/1 -apple-system, system-ui, "Helvetica Neue", Arial, sans-serif; }
       #boost.is-held .pedal-nes .pedal-face, #boost.is-down .pedal-nes .pedal-face,
       #brake.is-held .pedal-nes .pedal-face, #brake.is-on .pedal-nes .pedal-face {
         filter: url(#nes-down); transform: translateY(4px);
@@ -2273,7 +2273,7 @@
       </svg>
       <!-- The NES pedal (the default; see "The NES pedals" in the #boost/#brake rules): a black
            plastic surround, the button sunk in it with a thin crescent of side, one hard glint on
-           the upper left, a dished centre lit from below, and the letter engraved in the dish.
+           the upper left, a dished centre lit from below, and the letter debossed in the dish.
            Everything that moves with a press is in the one `.pedal-face` group. -->
       <svg class="pedal-art pedal-nes" viewBox="0 0 150 150" aria-hidden="true">
         <defs>
@@ -2310,8 +2310,13 @@
           <circle cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
           <circle cx="75" cy="71" r="34" fill="url(#nes-gas-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
           <path d="M104.44 88A34 34 0 0 1 45.56 88" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
-          <text class="pedal-letter" x="75" y="87" text-anchor="middle" fill="#9A5200">A</text>
-          <text class="pedal-letter" x="75" y="89" text-anchor="middle" fill="#FFF1D6">A</text>
+          <!-- Debossed, not printed (Tyler, 2026-10-15): the letter is the dish's own plastic, a
+               tenth lighter, and reads by its walls alone — the top wall in shadow, the bottom
+               one catching the light, the way a cut into the dish would. -->
+          <text class="pedal-letter" x="75" y="87.5" text-anchor="middle" fill="#000" fill-opacity="0.35">A</text>
+          <text class="pedal-letter" x="75" y="90.5" text-anchor="middle" fill="#fff" fill-opacity="0.35">A</text>
+          <text class="pedal-letter" x="75" y="89" text-anchor="middle" fill="url(#nes-gas-dish)">A</text>
+          <text class="pedal-letter" x="75" y="89" text-anchor="middle" fill="#fff" fill-opacity="0.1">A</text>
         </g>
       </svg>
     </button>
@@ -2381,7 +2386,7 @@
       </svg>
       <!-- The NES pedal (the default; see "The NES pedals" in the #boost/#brake rules): a black
            plastic surround, the button sunk in it with a thin crescent of side, one hard glint on
-           the upper left, a dished centre lit from below, and the letter engraved in the dish.
+           the upper left, a dished centre lit from below, and the letter debossed in the dish.
            Everything that moves with a press is in the one `.pedal-face` group. -->
       <svg class="pedal-art pedal-nes" viewBox="0 0 150 150" aria-hidden="true">
         <circle cx="75" cy="75" r="73" fill="#1D1B21" />
@@ -2393,8 +2398,13 @@
           <circle cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
           <circle cx="75" cy="71" r="34" fill="url(#nes-brake-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
           <path d="M104.44 88A34 34 0 0 1 45.56 88" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
-          <text class="pedal-letter" x="75" y="87" text-anchor="middle" fill="#8E1E21">B</text>
-          <text class="pedal-letter" x="75" y="89" text-anchor="middle" fill="#FFE6E6">B</text>
+          <!-- Debossed, not printed (Tyler, 2026-10-15): the letter is the dish's own plastic, a
+               tenth lighter, and reads by its walls alone — the top wall in shadow, the bottom
+               one catching the light, the way a cut into the dish would. -->
+          <text class="pedal-letter" x="75" y="87.5" text-anchor="middle" fill="#000" fill-opacity="0.35">B</text>
+          <text class="pedal-letter" x="75" y="90.5" text-anchor="middle" fill="#fff" fill-opacity="0.35">B</text>
+          <text class="pedal-letter" x="75" y="89" text-anchor="middle" fill="url(#nes-brake-dish)">B</text>
+          <text class="pedal-letter" x="75" y="89" text-anchor="middle" fill="#fff" fill-opacity="0.1">B</text>
         </g>
       </svg>
     </button>
