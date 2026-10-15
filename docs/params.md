@@ -109,6 +109,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 
 | Param | Does |
 |---|---|
+| `?painterly=classic` | Without the painterly prototype: TF2-style shading (warm wrap light, saturated shade, darker wall feet, rim) and baked colour blotches on subdivided faces |
 | `?crayon` | Crayon Mode. Off by default |
 | `?cartoon` | Cartoon Mode. Off by default |
 | `?hdr` | The full HDR bloom route instead of the emissive bloom, as a comparison. Not with Crayon or Cartoon |

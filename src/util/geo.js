@@ -270,6 +270,72 @@ let aoEnabled = false;
 let crayonEnabled = false;
 let cartoonEnabled = false;
 let cloudsEnabled = false;
+let painterlyEnabled = false;
+
+/** Prototype: TF2-style painted surfaces (`?painterly`). Build-time, like the other looks. */
+export function setPainterly(enabled) {
+  painterlyEnabled = enabled;
+}
+
+export const PAINT_UNIFORMS = {
+  uWarmWrap: { value: 0.9 },   // half-Lambert wrap: warm light bleeding past the terminator
+  uWarmTint: { value: new THREE.Color(1.0, 0.62, 0.38) },
+  uShadeSat: { value: 0.9 },    // saturation pushed into shade (TF2: shadows go rich, not grey)
+  uHeightGrad: { value: 0.55 }, // how much darker a wall is at its foot
+  uRim: { value: 0.8 },        // sky-coloured rim on surfaces turning away from the eye
+  uRimColor: { value: new THREE.Color(0.78, 0.9, 1.0) },
+  uPaintSat: { value: 0.22 },   // overall chroma lift in the mid-tones
+};
+
+const PAINT_COMMON = /* glsl */ `
+uniform float uWarmWrap;
+uniform vec3 uWarmTint;
+uniform float uShadeSat;
+uniform float uHeightGrad;
+uniform float uRim;
+uniform vec3 uRimColor;
+uniform float uPaintSat;
+varying vec3 vPaintWorld;
+`;
+
+const PAINT_LIGHT = /* glsl */ `
+	{
+		vec3 pL = vec3(0.2126, 0.7152, 0.0722);
+		#if NUM_DIR_LIGHTS > 0
+		// Half-Lambert, as TF2 does it: (0.5 n.l + 0.5)^2 in place of max(n.l, 0), so light wraps past
+		// the terminator. Only the extra is added, and warm, so faces turned from the sun glow rather
+		// than going dead.
+		float pNL = dot(normal, directionalLights[0].direction);
+		float pWrap = pow(0.5 * pNL + 0.5, 2.0) - max(pNL, 0.0);
+		reflectedLight.indirectDiffuse += directionalLights[0].color * diffuseColor.rgb * uWarmTint
+			* max(pWrap, 0.0) * uWarmWrap * RECIPROCAL_PI;
+		#endif
+		float pD = dot(reflectedLight.directDiffuse, pL);
+		float pI = dot(reflectedLight.indirectDiffuse, pL);
+		float pShade = smoothstep(0.45, 1.0, pI / max(pD + pI, 1e-4));
+		vec3 ind = reflectedLight.indirectDiffuse;
+		float il = dot(ind, pL);
+		reflectedLight.indirectDiffuse = max(mix(vec3(il), ind, 1.0 + uShadeSat * pShade), 0.0);
+	}
+`;
+
+const PAINT_FRAGMENT = /* glsl */ `
+	{
+		vec3 pN = normalize(inverseTransformDirection(normal, viewMatrix));
+		vec3 c = gl_FragColor.rgb;
+		float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+		// The height gradient: a wall is darker and cooler at its foot, lighter where it meets the sky.
+		float wall = 1.0 - abs(pN.y);
+		float h = smoothstep(0.0, 10.0, vPaintWorld.y);
+		c *= mix(vec3(1.0 - uHeightGrad, 1.0 - uHeightGrad * 0.85, 1.0 - uHeightGrad * 0.6), vec3(1.0), mix(1.0, h, wall));
+		// Rim: under an orthographic camera the eye direction is view-space +Z everywhere.
+		float rim = pow(1.0 - clamp(abs(normal.z), 0.0, 1.0), 3.0) * smoothstep(-0.3, 0.6, pN.y);
+		c += uRimColor * rim * uRim * (0.35 + lum);
+		lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+		c = mix(vec3(lum), c, 1.0 + uPaintSat * 4.0 * lum * (1.0 - lum));
+		gl_FragColor.rgb = max(c, 0.0);
+	}
+`;
 
 /**
  * Cloud shadows — the storm's (game/rain.js). A moving field of cloud dims the **sun's direct light
@@ -1167,7 +1233,7 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
   const useAO = aoEnabled && ao;
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
     + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}` : ''}`
-    + `${cloudsEnabled ? '-clouds' : ''}`;
+    + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint3' : ''}`;
   material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {
@@ -1175,6 +1241,21 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
     if (crayonEnabled) Object.assign(shader.uniforms, CRAYON_UNIFORMS);
     if (cartoonEnabled) Object.assign(shader.uniforms, CARTOON_UNIFORMS);
     if (cloudsEnabled) Object.assign(shader.uniforms, CLOUD_UNIFORMS);
+    if (painterlyEnabled) {
+      Object.assign(shader.uniforms, PAINT_UNIFORMS);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+varying vec3 vPaintWorld;`)
+        .replace('#include <project_vertex>', `#include <project_vertex>
+	{
+		vec4 pw = vec4(transformed, 1.0);
+		#ifdef USE_INSTANCING
+		pw = instanceMatrix * pw;
+		#endif
+		vPaintWorld = (modelMatrix * pw).xyz;
+	}`);
+      if (!shader.vertexShader.includes('vPaintWorld = (modelMatrix')) throw new Error('painterly: vertex hook missed');
+    }
     if (gloss) {
       // The shared bag plus this body's own shape and paint share, which differ between a car, a
       // truck's cab and the taxi while the source does not — so per material, under one cache key.
@@ -1252,7 +1333,7 @@ ${glossFragment(classicPaint || paintLook === 'toon')
 uniform sampler2D tAmbientOcclusion;
 uniform vec2 uAOTexel;
 uniform vec3 uShadowColor;
-uniform float uShadowTint;${crayonEnabled ? `
+uniform float uShadowTint;${painterlyEnabled ? PAINT_COMMON : ''}${crayonEnabled ? `
 uniform sampler2D tCrayonPaper;
 uniform vec2 uCrayonPaperScale;
 uniform vec2 uCrayonBoil;
@@ -1296,13 +1377,14 @@ ${CLOUD_GLSL}` : ''}`);
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
 ${cloudsEnabled ? CLOUD_LIGHT : ''}
 ${cartoonEnabled ? CARTOON_LIGHT : ''}
+${painterlyEnabled ? PAINT_LIGHT : ''}
 ${SHADOW_LIGHT}`);
 
     // Both inks share the seam, and they compose in the order the looks would be layered by hand:
     // the cartoon's hard line first, the crayon's broken one over it. Running both is two inks on
     // one frame and nobody should want it, but a flag combination that throws is worse than one
     // that looks odd.
-    const beforeFog = `${cartoonEnabled ? CARTOON_INK : ''}${crayonEnabled ? CRAYON_FRAGMENT : ''}`;
+    const beforeFog = `${painterlyEnabled ? PAINT_FRAGMENT : ''}${cartoonEnabled ? CARTOON_INK : ''}${crayonEnabled ? CRAYON_FRAGMENT : ''}`;
     if (beforeFog) {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <fog_fragment>', `${beforeFog}
