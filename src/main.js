@@ -1526,6 +1526,7 @@ const bankJob = robbery && robberyIntro
     setDoor: traffic.setTaxiDoor,
     play: (name, x = null, z = null) => sfx?.play(name, x === null ? {} : { at: placeAt(x, z) }),
     scenery: !bankFare,
+    skippable: new URLSearchParams(window.location.search).get('robberyskip') === 'classic',
   })
   : null;
 if (bankJob && bankFare) {

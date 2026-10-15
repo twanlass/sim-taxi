@@ -2022,7 +2022,10 @@ anyway:
 
 The shove plays in **slow motion**: from contact until just before the bystander comes down the
 cut's clock runs at 0.3x (`IMPACT_SLOW`), easing back to 1x so the bounce and skid land at full
-speed. About 4s of wall time in all, and a tap (or Space/Enter) skips straight to step 3. The alarm
+speed. About 4s of wall time in all, and **it cannot be skipped**: a tap landing as the cut opened
+(the player still steering onto the kerb) skipped the robbery before anyone saw it. The tap is still
+swallowed by a full-screen catcher, so it never reroutes the taxi. `?robberyskip=classic` puts back
+the tap (or Space/Enter) skipping straight to step 3. The alarm
 keeps going for as long as the robbery does and then goes; the rider gets up a few seconds into the
 getaway and walks back into the bank; the door slams and the camera eases back out when the line is
 cleared.
