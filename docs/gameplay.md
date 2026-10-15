@@ -2022,7 +2022,10 @@ anyway:
 
 The shove plays in **slow motion**: from contact until just before the bystander comes down the
 cut's clock runs at 0.3x (`IMPACT_SLOW`), easing back to 1x so the bounce and skid land at full
-speed. About 4s of wall time in all, and a tap (or Space/Enter) skips straight to step 3. The alarm
+speed. About 4s of wall time in all, and **it cannot be skipped**: a tap landing as the cut opened
+(the player still steering onto the kerb) skipped the robbery before anyone saw it. The tap is still
+swallowed by a full-screen catcher, so it never reroutes the taxi. `?robberyskip=classic` puts back
+the tap (or Space/Enter) skipping straight to step 3. The alarm
 keeps going for as long as the robbery does and then goes; the rider gets up a few seconds into the
 getaway and walks back into the bank; the door slams and the camera eases back out when the line is
 cleared.
@@ -2327,7 +2330,9 @@ in [the box-in](traffic.md#the-box-in-roadblocks-the-overtake-and-the-brake-chec
 
 - **Roadblocks.** A cop crossing a junction a block or two up your route skids to a stop at 45°
   *across the middle of your road* and holds it for up to four seconds, or until you have got past it. One at a
-  time, eight seconds apart.
+  time, eight seconds apart. The overtake combo thrown short of one swerves round it, squeezing past by
+  the kerb ([the swerve](traffic.md#swerving-round-a-car-stood-in-the-junction)), unless a second
+  cop is holding the other half.
 - **The overtake and the brake check.** A cop that catches you from behind goes round you in the
   oncoming lane, cuts in and slews across the road for 2.5 seconds, with the rest of the chase
   arriving behind you. A cop that is already ahead of you on your road skips the overtake and does
@@ -2849,10 +2854,14 @@ unbroken move: with nothing to arrive at on the car, the box has one destination
 ## Crazy-taxi mode
 
 The **Loco Mode** button is the gas pedal: the round orange button centred on the bottom edge,
-100px across, with the brake to its left (see [the pedal slide](#the-pedal-slide)). **Hold to
+100px across, with the brake to its left (see [the pedal slide](#the-pedal-slide)). Both are drawn
+as an NES pad's buttons — Loco Mode is **A**, the brake **B** — black plastic surround, a dished
+centre with the letter debossed in it, a hard glint (Tyler, 2026-10-15; `?pedals=classic` brings
+back the round pedals with lightning and stop icons). **Hold to
 enable, release to pause.** A short tap costs a short slice, a long hold flows until the tank is
 empty. Full tank is 15 seconds of boost. The decision is *how long* to press as well as *when*.
-The fuel level is the arc gauge round the pedal (`#boost-meter`, `game/fuelarc.js`), off a `--pct`
+The fuel level is the arc gauge round the pedal (`#boost-meter`, `game/fuelarc.js`), a 140° crown
+over the top of it (~197° under `?pedals=classic`), off a `--pct`
 CSS variable, dropping as you drain and climbing as a drop-off pours fuel in.
 
 **Every drop of it is earned, except the way back out of empty.** The run opens with **a third of a tank**, each

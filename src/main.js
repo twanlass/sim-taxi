@@ -4,7 +4,7 @@ import { createScene, sinkShadowCaster, setHazeTop, HAZE_TOP } from './game/scen
 import { createRain, GRIP } from './game/rain.js';
 import { createStorm } from './game/storm.js';
 import { createComboMeter, comboScope, formatMult } from './game/combometer.js';
-import { createSquall } from './game/squall.js';
+import { createSquall, RAMP, RAMP_CLASSIC, CELL_EDGE } from './game/squall.js';
 import { pedalZones as growPedalZones, pedalAfterMove } from './game/pedalzones.js';
 import {
   collectPanes, litWindows, streetLamps, createTaxiHeadlights, setCityLights,
@@ -39,7 +39,7 @@ import {
   createTraffic, placeCar, TRUCK_CHANCE, CLASSIC_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, copLaysRubber, SPEED,
   ROAD_Y, CAR_LEN, CAR_W, wheelAnchors,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS, driftTaxi, kickDrift, driftHolds, DRIFT_CHAIN,
-  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setPassTurnGate, setPassPace, setHopStyle,
+  onDriftLaunch, hopProgress, setSpinStyle, setBarrelRoll, setPassTurnGate, setPassPace, setHopStyle, setDodge,
   configureSignals, setGrip, setRunningLights, setRunningLightsAt, runningLightsAt, isLaneClosed,
 } from './sim/traffic.js';
 import { createCollisions, TAXI_HP } from './sim/collisions.js';
@@ -56,7 +56,7 @@ import {
   createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
 } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
-import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM } from './game/fuelarc.js';
+import { bandPath as fuelBandPath, frontAt as fuelFrontAt, glintAt as fuelGlintAt, RIM as FUEL_RIM, useClassicArc as useClassicFuelArc } from './game/fuelarc.js';
 import { createImpact } from './game/impact.js';
 import { createTaxiDamage, SMOKE_FRACTION, BOOT_FRACTION } from './game/taxidamage.js';
 import { createHitCue, hitCueMode } from './game/hitcue.js';
@@ -141,7 +141,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getPaintClassic, getPaintLook, getVehiclePaintClassic, getWater, getUturnStyle } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getSquallRampClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getPaintClassic, getPaintLook, getVehiclePaintClassic, getWater, getUturnStyle } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -349,13 +349,21 @@ const squallFlag = getSquall();
 const stormFlag = squallFlag ? null : (getRain() ?? getStorm());
 const storm = stormFlag ? createStorm(stormFlag) : null;
 const squallRng = makeRng(runSeed + 733);
-const squall = squallFlag ? createSquall({ ...squallFlag, rng: () => squallRng.next() }) : null;
+// `?squallramp=classic`: the first front, which brought the shade, the rain and the lights in
+// together. The graded one is described at `RAMP` in game/squall.js.
+const squallRampClassic = getSquallRampClassic();
+const squall = squallFlag ? createSquall({
+  ...squallFlag, rng: () => squallRng.next(), ramp: squallRampClassic ? RAMP_CLASSIC : RAMP,
+}) : null;
 const rain = createRain(renderer, { enabled: Boolean(storm || squall), mood: stormFlag?.mood });
 if (squall) {
   rain.attachSquall(squall);
   // A car's headlights come on as the cell reaches it — from a third of the way into the soft edge
   // — rather than across the city at once.
-  setRunningLightsAt((x, z) => THREE.MathUtils.smoothstep(squall.rainAt(x, z), 0.15, 0.5));
+  // Headlights with the city's lights, half way through them — under the first front, with the rain.
+  setRunningLightsAt(squallRampClassic
+    ? (x, z) => THREE.MathUtils.smoothstep(squall.rainAt(x, z), 0.15, 0.5)
+    : (x, z) => THREE.MathUtils.smoothstep(squall.lightAt(x, z), 0.3, 0.6));
 }
 const cartoon = createCartoon({ enabled: cartoonEnabled });
 
@@ -510,6 +518,21 @@ function setTaxiHeadlights(level) {
 let squallPresence = 0;
 
 /**
+ * How near the cell is to the middle of the frame, for that grey: 1 with it overhead, 0 from
+ * `SQUALL_NEAR` units outside its shade. The first front greyed the whole sky over 4s the moment a
+ * cell came on outside a corner, wherever the player was — the grey arrived with nothing to explain
+ * it, and then the rest of the storm arrived on top of it. Read by distance, it builds over ~30s
+ * as the cell comes closer and goes the same way, which is the sky ahead of a storm darkening.
+ */
+const SQUALL_NEAR = 60;
+function squallNearness(cell, c) {
+  if (!cell.on) return 0;
+  const d = Math.hypot(cell.x - c.x, cell.z - c.z);
+  const far = cell.r * 1.18 + CELL_EDGE * squall.ramp.shadeOut + SQUALL_NEAR;
+  return cell.strength * (1 - THREE.MathUtils.smoothstep(d, cell.r, far));
+}
+
+/**
  * The squall's half of `applyWeather`. Nothing here is city-wide except a faint grade while a cell
  * is on the map: the rain, the wet ground, the cloud shade and the city's lights all follow the
  * cell, through the uniforms `rain.attachSquall` wired up. What is left to do on the CPU is what
@@ -519,7 +542,8 @@ let squallPresence = 0;
 function applySquall(dt) {
   squall.update(dt);
   const { cell } = squall;
-  squallPresence += ((cell.on ? 1 : 0) - squallPresence) * Math.min(1, dt / 4);
+  const presence = squallRampClassic ? (cell.on ? 1 : 0) : squallNearness(cell, rain.centre);
+  squallPresence += (presence - squallPresence) * Math.min(1, dt / 4);
   // The lens follows the taxi, not the frame: it is the taxi's windscreen. Before the taxi exists
   // (the opening, a still) it falls back to the ground under the middle of the frame.
   const c = taxiNow?.() ?? rain.centre;
@@ -1173,6 +1197,14 @@ window.addEventListener('keydown', (event) => {
 // crosses town edge to edge with its bar swinging red and blue, and comes after you if you boost in
 // front of it. "Pull over!" goes up over its roof the moment it does (game/copshout.js).
 const police = createPolice(scene);
+// ...and the extra cruisers the harder Difficulty modes put on patrol (`extraPatrols` in
+// game/difficulty.js), one per patrol the hardest mode can have. All built up front, so a mode
+// switched from the pause screen has its cars ready; until one wears a car it is a hidden shell and
+// costs no draw. No lamps on these: see `createPolice`.
+const cruisers = [police, ...Array.from(
+  { length: Math.max(...Object.values(difficulty.MODES).map((m) => m.tuning.extraPatrols ?? 0)) },
+  () => createPolice(scene, { lamps: false }),
+)];
 // The cops no longer talk during a chase — no "pull over" on spotting, no "lost the suspect" when
 // they give up (Tyler, 2026-10-13): the bar, the strobe and the chirp already say both. The bubbles
 // come back with `?copchat=classic`. The robbery's dispatch call is a different thing and stays.
@@ -1198,9 +1230,10 @@ const hushTips = () => getaway() || patrol.busy();
 // the bust, a boosted hit on any cop is the wreck, and a getaway's cops never arrest anybody.
 const captureClassic = new URLSearchParams(window.location.search).get('capture') === 'classic';
 const getawayPin = createPin(traffic.taxi);
-const patrol = createPatrol({
-  rng: makeRng(runSeed + 66),
-  police,
+const makePatrol = (cruiser, k) => createPatrol({
+  // The first keeps the stream it always had, so an Easy run is the run it was.
+  rng: makeRng(k === 0 ? runSeed + 66 : runSeed + 6600 + k),
+  police: cruiser,
   traffic,
   taxi: traffic.taxi,
   // A robbery owns the streets while it runs, and its cops are still in the shared fleet while
@@ -1213,12 +1246,47 @@ const patrol = createPatrol({
   },
   onCaught: (cop, ram) => bustByPolice(ram),
   capture: !captureClassic,
+  // A cop that loses you goes back on patrol, bar swinging; `?standdown=classic` has it go dark and
+  // drive off the map instead.
+  resume: new URLSearchParams(window.location.search).get('standdown') !== 'classic',
   // A ram at speed is a hit like any other, charged through the same path a boosted one is.
   onRammed: (cop) => { collisions.strike(cop); },
   // Said by the cruiser that lost you, from over its own roof — `?copchat=classic` only.
   onLost: (cop) => { if (copChat && !fares.state.gameOver) radio?.show(LOST_CALL, cop); },
   onHid: (cop) => { if (copChat && !fares.state.gameOver) radio?.show(LOST_CALL, cop); },
 });
+/**
+ * Every patrol, behind the one-patrol interface the rest of this file was written against. Each runs
+ * its own life (its own cruiser, cooldown, chase and pin), and `difficulty.patrolCount()` says how
+ * many may be out: one on Easy, two on Regular, three on Hard. One that drops out of the count
+ * mid-run (the mode switched down) finishes whatever it is doing before it stops.
+ *
+ * `state` is the busy patrol's when there is one, so the chase siren and the tips read the chase,
+ * and the first patrol's otherwise.
+ */
+const patrols = cruisers.map(makePatrol);
+// A run opens with a patrol due (5-12s); the extras come in later and a little apart, rather than
+// three cruisers arriving in the same breath.
+patrols.forEach((p, k) => { p.state.cooldown += k * 12; });
+const patrolOut = (p, k) => k < difficulty.patrolCount() || p.state.phase !== 'off';
+const patrol = {
+  get state() { return (patrols.find((p) => p.busy()) ?? patrols[0]).state; },
+  update(dt, opts) { patrols.forEach((p, k) => { if (patrolOut(p, k)) p.update(dt, opts); }); },
+  setCooldownRange(range) { for (const p of patrols) p.setCooldownRange(range); },
+  // A getaway's cop handed over goes to a patrol with no car of its own first, so the hand-off
+  // does not take a cruiser off the road mid-crossing; failing that, to the first, as it always did.
+  pursueNearest(cops) {
+    const free = patrols.filter((p, k) => patrolOut(p, k) && !p.state.cop);
+    for (const p of free.length ? free : [patrols[0]]) {
+      const cop = p.pursueNearest(cops);
+      if (cop) return cop;
+    }
+    return null;
+  },
+  rammed(cop) { for (const p of patrols) p.rammed(cop); },
+  hideout() { return patrols.map((p) => p.hideout()).some(Boolean); },
+  busy: () => patrols.some((p) => p.busy()),
+};
 // Boost, then two quick taps of the brake: the taxi spins round onto the far lane. See game/bootleg.js.
 setSpinStyle(getUturnStyle());
 // The drift launch rolls the taxi a full turn in mid-air; `?barrelroll=classic` flies it level.
@@ -1229,6 +1297,9 @@ setPassTurnGate(new URLSearchParams(window.location.search).get('passturn'));
 // A swinging-out taxi keeps its pace instead of matching the car it is going round, and a truck it
 // is passing stops holding it back through junctions; `?passpace=classic` puts both back.
 setPassPace(new URLSearchParams(window.location.search).get('passpace'));
+// The overtake combo also swerves round a car stopped or creeping in the junction ahead;
+// `?swerve=classic` keeps it for leaders only.
+setDodge(new URLSearchParams(window.location.search).get('swerve'));
 // A hop always comes down; `?hop=classic` lets the brake park the taxi in mid-air again.
 setHopStyle(new URLSearchParams(window.location.search).get('hop'));
 const bootleg = createBootleg({
@@ -1276,7 +1347,7 @@ markOccluder(traffic.truckBoxMesh);
 markOccluder(traffic.bumperMesh);
 markOccluder(traffic.truckBumperMesh);
 markOccluder(traffic.taxiGroup);
-markOccluder(police.group);
+for (const cruiser of cruisers) markOccluder(cruiser.group);
 
 // --- What glows ---------------------------------------------------------------------------
 // The bloom's draw list, marked here for the reason the AO occluders are: `sim/` may not import
@@ -1303,7 +1374,7 @@ if (taxiHeadlights) {
   markEmissive(taxiHeadlights.pods, 'pod');
 }
 if (lamps) markEmissive(lamps.heads, 'bay');
-for (const mesh of police.emissiveMeshes) markEmissive(mesh, 'siren');
+for (const mesh of cruisers.flatMap((c) => c.emissiveMeshes)) markEmissive(mesh, 'siren');
 if (ltrain?.lamps) markEmissive(ltrain.lamps, 'pod');
 // One mesh, three lit things: the pickup window, the menu board and the neon round the roofline
 // are merged into `burger.glow` (see city/burgerjoint.js), so the neon arrived in the bloom with
@@ -1329,7 +1400,7 @@ for (const slot of fares.slots) markOccluder(slot.passenger.group);
 // hull on every axis but a sliver, and at play zoom a truck is a shape while the taxi is *read*.
 if (cartoonEnabled) {
   cartoon.outline(traffic.taxiGroup, { group: 'taxi' });
-  cartoon.outline(police.group);
+  for (const cruiser of cruisers) cartoon.outline(cruiser.group);
   for (const source of [traffic.mesh, ...traffic.classicDrawn, traffic.truckMesh, traffic.truckBoxMesh]) {
     scene.add(...cartoon.fleet(source));
   }
@@ -1529,6 +1600,7 @@ const bankJob = robbery && robberyIntro
     setDoor: traffic.setTaxiDoor,
     play: (name, x = null, z = null) => sfx?.play(name, x === null ? {} : { at: placeAt(x, z) }),
     scenery: !bankFare,
+    skippable: new URLSearchParams(window.location.search).get('robberyskip') === 'classic',
   })
   : null;
 if (bankJob && bankFare) {
@@ -1584,7 +1656,7 @@ const struckGlass = createWindshield(scene, { rng: makeRng(runSeed + 921), roadY
 const tape = shot ? null : createTape(scene, {
   // ...and the patrol cruiser, which is a group of its own rather than an instance: left off, a
   // patrol the taxi rammed was missing from every cut of its own crash.
-  roots: [traffic.taxiGroup, police.group],
+  roots: [traffic.taxiGroup, ...cruisers.map((c) => c.group)],
   exclude: (mesh) => mesh.name === 'boat-wake',
 });
 const replayOverlay = document.getElementById('replay');
@@ -2863,10 +2935,10 @@ function panToTaxi() {
 // on it holds it, so reading the map with a thumb down never gets yanked away.
 // `?camreturn=classic` leaves the camera wherever the player put it.
 //
-// 3 seconds is a first guess, not a measurement. It is a trade with the edge arrow's look-out
-// (below), which was deliberately *not* put on a timer: a player who rode out to a fare and is
-// deciding whether to take it can be reading the board, not touching it.
-const CAMERA_RETURN_IDLE = 3;
+// 1.5 seconds is a feel pick after playing the first guess of 3, not a measurement. It is a trade
+// with the edge arrow's look-out (below), which was deliberately *not* put on a timer: a player who
+// rode out to a fare and is deciding whether to take it can be reading the board, not touching it.
+const CAMERA_RETURN_IDLE = 1.5;
 const cameraReturns = new URLSearchParams(window.location.search).get('camreturn') !== 'classic';
 let cameraIdle = 0;
 let fingersOnMap = 0;
@@ -2963,7 +3035,17 @@ const taxiFinder = createTaxiFinder({
 // game/cargochip.js. Built only when the layer is on, because it opens a WebGL context of its own
 // and a run under `?parcels=0` can never have anything to put in it.
 const cargoChip = parcels ? createCargoChip({ sun, hemi }) : null;
-// The 🚨 on the cash row while the police are after the taxi; `?chasesiren=classic` goes without.
+// The NES pedals (Tyler, 2026-10-15): B and A on plastic buttons with a dished centre, a shorter
+// fuel arc, and the 🚨 standing over Loco Mode rather than on the cash row. `?pedals=classic` puts
+// back the round pedals with their stop and lightning icons, the wider arc, and the siren beside
+// the pause. Both pedal drawings ship in the markup; the body class picks one (index.html).
+if (new URLSearchParams(window.location.search).get('pedals') === 'classic') {
+  document.body.classList.add('pedals-classic');
+  useClassicFuelArc();
+  const siren = document.getElementById('chase-siren');
+  if (siren) document.getElementById('hud')?.appendChild(siren);
+}
+// The 🚨 over Loco Mode while the police are after the taxi; `?chasesiren=classic` goes without.
 const chaseSiren = new URLSearchParams(window.location.search).get('chasesiren') !== 'classic'
   ? createChaseSiren() : null;
 const farePointers = createFarePointers({
@@ -2985,6 +3067,17 @@ const farePointers = createFarePointers({
 // The other half of the same problem, aimed the other way: the drop-off is somewhere the player is
 // driving to, and the police car is something driving at them. See game/sirenglow.js.
 const sirenGlow = createSirenGlow({ camera, viewport });
+const nearestLitCruiser = () => {
+  let best = police;
+  let bestD = Infinity;
+  for (const cruiser of cruisers) {
+    if (!cruiser.state.lit) continue;
+    const at = cruiser.group.position;
+    const d = Math.hypot(at.x - traffic.taxi.x, at.z - traffic.taxi.z);
+    if (d < bestD) { best = cruiser; bestD = d; }
+  }
+  return best;
+};
 // The robbery's version of the same light: round every edge at once while a getaway runs, since
 // four cop cars on every side have no one bearing to point at. See game/robberyglow.js.
 const robberyGlow = createRobberyGlow({ viewport });
@@ -5537,7 +5630,7 @@ function tick() {
   }
   // The cruiser's mesh and lamps, after the traffic car it wears has moved and after the patrol
   // has decided whether its bar is on.
-  police.update(dt);
+  for (const cruiser of cruisers) cruiser.update(dt);
   // Last of the three, and both halves of that matter. It copies the matrices traffic composed
   // *this* frame, so running it any earlier would slide every outline off its own car by a couple
   // of pixels at boost speed; and it runs after collisions so a car wrecked on this frame is
@@ -6016,7 +6109,8 @@ function tick() {
   farePointers.update(aboard, fares.state.gameOver ? [] : fares.waitingAll(), fares.colorOf);
   // After the police update above, so the wash is aimed at where the cruiser is this frame rather
   // than trailing it by one.
-  sirenGlow.update(police, traffic.taxi);
+  // With more than one cruiser out, the wash warns about the nearest one with its bar up.
+  sirenGlow.update(nearestLitCruiser(), traffic.taxi);
   // Wall clock for the envelope, so the crash's slow-motion does not hold the frame up; the strobe
   // stays on the sim clock the cop cars' own bars run off.
   robberyGlow.update(wallDt, !!robbery?.state.alarmed && !fares.state.gameOver, traffic.stats.time);
@@ -6747,8 +6841,10 @@ window.__taxi = {
   spray,
   wetTracks,
   police,
-  /** The patrol cruiser's life — patrol, chase, leave. See game/patrol.js. */
+  /** The patrol cruisers' lives — patrol, chase, leave — as one. See game/patrol.js. */
   patrol,
+  /** ...and each one on its own: one per cruiser, `difficulty.patrolCount()` of them out. */
+  patrols,
   /** The brake-tap spin (game/bootleg.js) — `spin()` fires one, `state` tallies them. */
   bootleg,
   overtake,

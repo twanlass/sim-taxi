@@ -47,24 +47,29 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?damage=classic` | The taxi's damage ladder before the first-hit flash, grime and steam | #456 | [gameplay.md](gameplay.md) |
 | `?wreck=classic` / `=quick` | The old fireball, or the quick cut (default is `flat`) | #398 | [traffic.md](traffic.md) |
 | `?capture=classic` | The old police rules: any patrol touch is "Busted!", a boosted hit on any cop is a full wreck, a getaway's cops never arrest. Default: hitting a cop costs HP like any car, and "Busted!" is being pinned by a chasing cop | #527 | [gameplay.md](gameplay.md#getting-caught) |
+| `?standdown=classic` | A patrol cop that loses you goes dark and drives off the map, instead of going back on patrol with its bar swinging | | [traffic.md](traffic.md#the-life-of-a-patrol) |
 | `?cop=classic` | With `?capture=classic`: boosting into a cop is a bump rather than a full wreck | #466 | [gameplay.md](gameplay.md) |
 | `?stuntman=classic` | Smashing a roadworks barricade is scenery: no Stuntman combo step, no Loco refund | | [gameplay.md](gameplay.md#the-combo-meter) |
-| `?camreturn=classic` | The camera stays where the player panned it, instead of riding back to the taxi after 3s with no touch on the map | #530 | [rendering.md](rendering.md#getting-back-to-the-taxi) |
+| `?camreturn=classic` | The camera stays where the player panned it, instead of riding back to the taxi after 1.5s with no touch on the map | #530 | [rendering.md](rendering.md#getting-back-to-the-taxi) |
 | `?taxiroof=classic` | The taxi's cabin is one dark glass box again, instead of a yellow roof over a band of windows | #530 | [rendering.md](rendering.md#the-taxis-roof--geometrytaxijs) |
-| `?chasesiren=classic` | No 🚨 on the cash row during a chase | #513 | [traffic.md](traffic.md#spotted-and-then-caught-or-lost) |
+| `?pedals=classic` | The round pedals with stop and lightning icons (not the NES B and A buttons), the wider ~197° fuel arc, and the 🚨 on the cash row instead of over Loco Mode | — | [gameplay.md](gameplay.md#crazy-taxi-mode) |
+| `?chasesiren=classic` | No 🚨 during a chase | #513 | [traffic.md](traffic.md#spotted-and-then-caught-or-lost) |
 | `?helispot=classic` | The police helicopter's first, brighter and harder-edged searchlight | | [gameplay.md](gameplay.md) |
 | `?menumusic=classic` | The radio's intro plays under the title menu on the first tap, rather than a song until Play | #519 | [audio.md](audio.md#the-radio) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
 | `?robbery=classic` | The robbery with no opening cut (straight to the drive-past). Also implies `?bankfare=classic` | #475, #478 | [gameplay.md](gameplay.md) |
 | `?bankfare=classic` | The drive-past robbery instead of the bank rider fare | #499 | [gameplay.md](gameplay.md) |
+| `?robberyskip=classic` | A tap (or Space/Enter) skips the bank job's cut, as it used to | | [gameplay.md](gameplay.md#the-bank-job) |
 | `?robberyodds=classic` | The bank rider's coin stays a fair 50/50 instead of loading toward a robbery with each bank ride | #522 | [gameplay.md](gameplay.md#the-bank-job) |
 | `?uturn=classic` | The first U-turn, a spin on the spot, instead of the handbrake turn | #458 | [gameplay.md](gameplay.md) |
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |
 | `?passturn=classic` | The taxi pulls out to overtake a car already turning left across it, and grinds along its side | #520 | [traffic.md](traffic.md) |
+| `?swerve=classic` | The overtake combo is for a car in front only: a car stopped or creeping in the junction ahead is hit rather than swerved round | | [traffic.md](traffic.md#swerving-round-a-car-stood-in-the-junction) |
 | `?passpace=classic` | The overtaking taxi held back to the passed car's speed while it swings out, and to a truck's through every junction of the pass | #520 | [traffic.md](traffic.md) |
 | `?hop=classic` | A hop can stall in mid-air: braking (or crawling) over the hump hangs the taxi in the air | | [river.md](river.md) |
 | `?route=classic` | The route stops dead at the rider's kerb, with no stub past the pickup | #480 | [gameplay.md](gameplay.md) |
 | `?newmove=classic` | New Move cards mid-run instead of after the run | #493 | [gameplay.md](gameplay.md) |
+| `?squallramp=classic` | A squall's edge arriving all at once: shade, rain and city lights over the same few seconds, and the whole sky greying the moment a cell comes on | | [rendering.md](rendering.md#a-squall--the-default-weather-gamesqualljs) |
 
 ## Gameplay switches and tuning
 

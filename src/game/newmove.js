@@ -166,7 +166,8 @@ export function createNewMove({ viewport = null, onClose = () => {} } = {}) {
   // ids, and a second copy would be duplicate ids — so the clones resolve their `url(#…)`s against
   // the HUD's originals.
   const art = (id) => {
-    const svg = document.querySelector(`#${id} .pedal-art`)?.cloneNode(true);
+    const look = document.body.classList.contains('pedals-classic') ? 'pedal-classic' : 'pedal-nes';
+    const svg = document.querySelector(`#${id} .pedal-art.${look}`)?.cloneNode(true);
     if (!svg) return null;
     svg.querySelector('defs')?.remove();
     svg.removeAttribute('class');

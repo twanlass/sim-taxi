@@ -1604,6 +1604,70 @@ that has a green — which is what [nothing stops the taxi](#nothing-stops-the-t
 **The rolling pass is untouched**, which is the check that matters most here: the lab's 130 staged
 approaches passed 130 and wrecked 0 both before and after.
 
+#### Swerving round a car stood in the junction
+
+The same combo, thrown short of a car **stopped or creeping in the junction ahead** — nosed in from
+a side street and waiting, or a cop parked across the box — swerves round it (Tyler, 2026-10-15).
+`findDodge` in `traffic.js` finds it (the dodge in the code, since `swerve` already names the
+weave there) and publishes the road to it as `taxi.dodgeGap`, which
+`game/overtake.js` arms on exactly as it arms on `passGap`. From there it *is* the pass: the same
+swing into the oncoming lane, latched on the blocker (`passTarget`) instead of a leader, carried
+straight through the junction, and tucked back in once `PASS_CLEAR` past it. It counts as an
+overtake for the combo meter and the haptic. `?swerve=classic` takes it out, and the blocker is hit
+as it always was.
+
+Such a car was never the pass's business: it is not on the taxi's lane, so the lane bookkeeping does
+not list it as a leader, and a boosting taxi [barges the box](#nothing-stops-the-taxi) and hits it.
+
+**What qualifies, and the trade-off in it.** Only a blocker moving at `DODGE_CREEP` (4 u/s, about
+half of cruise) or less. A car crossing at speed is the hazard that makes barging a junction a risk
+at all, and a gesture that steered round it would take that away. A car heading the taxi's own way
+is a leader, and passing it stays the pass's job.
+
+**Only where there is a line round it.** Every car in the box, the blocker and anything else there,
+is projected along its heading at its speed to where it will be when the taxi arrives (sampled at
+three points), and the swing line has to clear all their collision circles by the envelope. Three
+lines are tried in order:
+
+| line | across | for |
+|---|---|---|
+| the oncoming lane's centre | 4.0 (6.67 on an arterial) | a car poked in from the taxi's right |
+| a jink to the taxi's own kerb (`dodgeKerb`) | −1.15 | a roadblock cop on the centreline |
+| the far kerb (`dodgeWide`) | 5.15 (7.81) | a car further in, or a cop stopped on the taxi's side |
+
+Both kerb lines stop `CAR_W / 2` short of the kerb, which is the simulated body; the drawn taxi is
+`TAXI_SCALE` wider and hangs 0.15 over the pavement for the few units either side of the box. Using
+the drawn width cost the roadblock cop its line: slewed to 45° on the centreline, its circles sit
+0.67 either side of the middle, 1.33 from the oncoming lane's centre and 2.48 from either kerb line
+against a 2.31 envelope (2.32 with the drawn width, inside the margin). The robbery lets a cop land
+up to `BLOCK_ACROSS` off the middle (0.58 measured), which leaves one kerb or the other. A car from
+the left covers the far lane first and is not in the taxi's way. Two cops paired across both halves
+leave no line, and the box stays shut.
+
+A kerb jink swings the other way, so its offset is negative and its bank is mirrored. And the
+[Loco weave](#boost-crazy-taxi-mode) fades out for as long as a dodge is out: its 0.52 of wander is
+more than the kerb jink's whole margin, and with it left on the taxi bumped the cop it was squeezing
+past.
+
+**It pulls out late.** The swing starts `DODGE_LEAD` (10 units) plus the change's own length short
+of the blocker, rather than the moment the combo arms, so it reads as a swerve and not as a lap of
+the oncoming lane down the whole block. Ten rather than less because, like the pass, it is decided
+only on a lane, and the lane ends 7.4 short of a cop in the middle of the box: at 6 the kerb jink
+armed and never got a frame to pull out in.
+
+Staged in `tools/probe.mjs` on an ordinary street, a car held at increasing depths into the box from
+the taxi's right, and a cop slewed the way the robbery leaves one:
+
+| blocker | outcome |
+|---|---|
+| centre 0 past the box edge | swerves on the oncoming lane's centre, no contact |
+| 3.5 past | swerves wide, 5.15 across, no contact |
+| square across the middle | no line round it: not swerved, hit |
+| creeping in at 2 u/s | swerves wide (where it will be), no contact |
+| crossing at cruise | not a swerve |
+| roadblock cop on the centreline | jinks to the kerb, −1.15, no contact |
+| roadblock cop 0.58 toward the taxi's side | swerves wide, no contact |
+
 ### Seeing what you're about to hit
 
 Because a contact only costs anything while boosting, the one moment a car hidden behind a
@@ -3171,13 +3235,14 @@ only a shell one level in is hidden, so the two lamps stay in the scene's light 
 | `off` | a cooldown off the difficulty ramp (`policeCooldown`, 16–30s falling to 8–14s) |
 | `patrol` | crossing: in at one edge, through a corner within `PATROL_REACH` (1 block) of the taxi (`PATROL_TIME`, 25s, caps that leg), out at the opposite edge; bar swinging |
 | `exiting` | out of traffic, driving straight off the island (`police.release`), dissolving past the slab's edge, then retired |
-| `chase` | it spotted you — bar strobing at the hunting rate, driving at you |
-| `leaving` | routed to the far corner, retired by `retirePolice` once out of sight |
+| `chase` | it spotted you — bar strobing at the hunting rate, driving at you; lost, it goes back to `patrol` |
+| `leaving` | a robbery started (or it lost you, under `?standdown=classic`): bar dark, routed to the far corner, retired by `retirePolice` once out of sight |
 
 **It crosses the map.** `enter` picks an axis, puts the car on the edge of the island furthest from
 the taxi across it and level with the taxi along it (`enterPolice` handed that edge junction, which
 still never places a car in frame), and picks an exit anywhere along the opposite edge but its
-corners. It **dissolves in** over `FADE_TIME` (0.8s): the materials use `alphaHash`, a define set
+corners. The exit has to have a street running into it pointed off the map (`openExit`): not every edge
+junction does, and a patrol sent to one with none lapped that corner for good. It **dissolves in** over `FADE_TIME` (0.8s): the materials use `alphaHash`, a define set
 once at construction, so the car stays in the opaque pass and the AO prepass and nothing relinks when
 it fades.
 
@@ -3207,9 +3272,16 @@ with 1.5s of grace before a touch counts. A cruiser still driving off from befor
 retired to make room: there is one cruiser mesh. See
 [gameplay.md](gameplay.md#the-drop-off-the-arrest-and-the-tail).
 
-**After a chase it leaves the way a robbery's cops stand down** (and so it does when a robbery
-starts): bar dark, routed to the corner furthest from the
-taxi, taken off only once `STAND_DOWN_RANGE` clear (`SPAWN_CLEARANCE` past the timeout, never
+**Lose it and it goes back on patrol** (`resumePatrol`): bar swinging again, chase flags off, and
+on the out leg of a crossing to an exit re-picked on the far side of town from the taxi — carrying
+on away from you along whichever axis it is further off, so it is not driving straight back to the
+taxi it just lost. It can still spot you on the way out. Ducking into the depot ends a chase the same
+way. It used to stand down after every chase, dark, and Tyler read that as "a dead patrol car"
+(2026-10-15); a cop rolling round town with its lights out looks broken rather than off duty.
+`?standdown=classic` keeps the old exit.
+
+**When a robbery starts it leaves the way a robbery's cops stand down**: bar dark, routed to the
+corner furthest from the taxi, taken off only once `STAND_DOWN_RANGE` clear (`SPAWN_CLEARANCE` past the timeout, never
 less), through `traffic.retirePolice` — the swap-to-tail-and-retire the robbery's recycling used to
 spell out inline, and which both now need because both can have cars in the fleet at once.
 
@@ -3226,7 +3298,7 @@ talking about them. A DOM bubble projected over the car every frame, not geometr
 be read, and there is no font in the scene.
 
 **The 🚨 in the HUD** says the chase is on for as long as it is on (`game/chasesiren.js`, Tyler's
-idea, 2026-10-14): a low-poly beacon on the cash row, just left of the pause, a squared-off solid red lens
+idea, 2026-10-14): a low-poly beacon standing over the Loco Mode button (on the cash row beside the pause under `?pedals=classic`), a squared-off solid red lens
 whose shader sweeps a hot spot round it, flashing once a turn as the spot swings past the camera. It pops in on the spot and is up for a [getaway](gameplay.md#the-bank-robbery) too. While
 the cop is losing you (the gap held past escape range, or the taxi out of its sight) the lamp cools
 with the patrol's own two counters: slower, dimmer, half faded. Lost, it spins down and fades out

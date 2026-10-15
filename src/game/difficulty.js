@@ -121,6 +121,10 @@ const TUNING = {
   // around — and it is a *delay*, not a death, unless the player is boosting through it.
   policeCooldownStart: [16, 30],
   policeCooldownEnd: [8, 14],
+
+  // Patrol cruisers on top of the one every run has, each on its own cooldown (main.js). Zero on
+  // the shipped curve; the harder Difficulty modes raise it (Tyler, 2026-10-15).
+  extraPatrols: 0,
 };
 
 // The shipped tuning, kept so a mode can be laid over it rather than over whatever the last mode
@@ -137,17 +141,18 @@ const BASE = Object.freeze({ ...TUNING });
  * once), and the ramp gets there sooner (`rampFares`). `paceEnd` is the same 0.85 in all three:
  * `LOCO_PACE_SELF` (0.8) is the fastest the taxi can actually be driven, so there is almost no room
  * below it, and Hard is meant to be harder rather than unwinnable. A shorter ramp also brings the
- * traffic and police ceilings in sooner, since those ride the same curve.
+ * traffic and police ceilings in sooner, since those ride the same curve. And one thing on the
+ * world: Regular puts a second patrol cruiser on the streets and Hard a third (`extraPatrols`).
  *
  * Measured with `node tools/difficulty-sweep.mjs 21 modes` — see docs/difficulty.md.
  */
 export const MODES = Object.freeze({
   easy: Object.freeze({ label: 'Easy', tuning: {} }),
   regular: Object.freeze({ label: 'Regular', tuning: {
-    paceStart: 1.4, pressureStart: 0.8, pressureEnd: 1.6, rampFares: 10,
+    paceStart: 1.4, pressureStart: 0.8, pressureEnd: 1.6, rampFares: 10, extraPatrols: 1,
   } }),
   hard: Object.freeze({ label: 'Hard', tuning: {
-    paceStart: 1.25, pressureStart: 1.0, pressureEnd: 1.9, rampFares: 7,
+    paceStart: 1.25, pressureStart: 1.0, pressureEnd: 1.9, rampFares: 7, extraPatrols: 2,
   } }),
 });
 
@@ -232,6 +237,9 @@ export const spawnGap = (delivered) => FARE_CYCLE / pressure(delivered);
 /** Ambient car count the sim should be running at. */
 export const carCount = (delivered) =>
   Math.round(lerp(TUNING.carsStart, TUNING.carsEnd, difficulty(delivered)));
+
+/** Patrol cruisers that may be on the map at once — see `extraPatrols`. */
+export const patrolCount = () => 1 + TUNING.extraPatrols;
 
 /** Seconds between police corridor runs, as `[min, max]` for the sim to draw from. */
 export function policeCooldown(delivered) {

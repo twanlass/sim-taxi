@@ -55,7 +55,7 @@ paint by default, with layered, chameleon, satin and classic behind ?paint=").
 the framing over for good, on the reasoning that a camera fighting a deliberate pan is worse than
 one occasionally pointed at nothing; the taxi-finder chip and the peek's ride home were the only
 ways back. In practice a look across town left the car lost in the frame or off it, and finding it
-again was a drag by hand, so the camera now rides home after 3 idle seconds.
+again was a drag by hand, so the camera now rides home after 1.5 idle seconds (3 at first).
 
 [Current](rendering.md#camera).
 
@@ -225,6 +225,16 @@ was halfway across, so the rain read as drying the ground behind itself. It is 4
 first read the footprint per vertex, and every window wiped on from one side as the edge went over
 it; they read it at their anchor now. The lens drops' reach and linger were raised on 2026-10-08
 (#454).
+
+**The first front arrived all at once** (`?squallramp=classic`). The shade reached 1.6 edges past
+the core, the lights read that same shade, and the rain filled over the one edge inside it, so at any
+point the sun went, every window came on and the streaks appeared inside the same ~6 s — reported
+(2026-10-15) as "rain appears, lighting gets dark, lights pop on". The streaks faded every drop
+together rather than thinning them, so the edge of the rain was a faint full curtain, not a drizzle.
+And the city-wide grey came on over 4 s the moment a cell switched on outside a corner, wherever the
+player was, at full strength from the first frame, so the shade it cast over the nearest corner
+popped on too. The graded front pulls the three apart in space, thins the drops, fades each cell in
+and out over a tenth of its crossing, and reads the grey off the cell's distance from the frame.
 
 ### Autumn, and the leaves a squall strips — `autumnBase` in `city/props.js`, `game/leaves.js`
 

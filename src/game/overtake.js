@@ -1,5 +1,6 @@
 // The overtake combo: Loco Mode behind a car, a quick blip off the pill and back on, and the taxi
-// pulls out and goes round. Without it, holding Loco behind a car tailgates it.
+// pulls out and goes round. Without it, holding Loco behind a car rams it. The same blip short of a
+// car stopped or creeping in the junction ahead swerves round that instead.
 //
 // The pass itself is the traffic model's (the pass block in sim/traffic.js). This only decides
 // whether it is *allowed* to start, through `taxi.passArmed`: undefined is the old rule (holding
@@ -70,7 +71,7 @@ export const OVERTAKE_GRACE = 1.2;
 export const OVERTAKE_PRESS_GRACE = 0.5;
 
 /**
- * @param taxi   the traffic model's taxi; reads `passGap`, `passLeader` and `passing`, writes
+ * @param taxi   the traffic model's taxi; reads `passGap`, `dodgeGap`, `passLeader` and `passing`, writes
  *               `passArmed`, `passPending` and `passGrace`
  * @param grace  seconds of OVERTAKE_GRACE to give a newly caught car; 0 rams on contact (the
  *               probe and the bot pass it explicitly)
@@ -94,7 +95,10 @@ export function createOvertakeCombo({ taxi, grace = 0, pressGrace = grace > 0 ? 
   let graceFor = null;
   let graceLeft = 0;
 
-  const behind = () => (taxi.passGap ?? Infinity) < OVERTAKE_ARM_RANGE;
+  // Or short of something stood in the junction ahead, which the same combo swerves round
+  // (`findDodge` in sim/traffic.js; `dodgeGap` stays Infinity under `?swerve=classic`).
+  const behind = () => Math.min(taxi.passGap ?? Infinity, taxi.dodgeGap ?? Infinity)
+    < OVERTAKE_ARM_RANGE;
   /** Is a release that could still be the blip in progress? Read by sim/traffic.js `canPass`. */
   const pending = () => blip !== null && blip <= OVERTAKE_BLIP_MS / 1000;
 
