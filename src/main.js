@@ -4,7 +4,7 @@ import { createScene, sinkShadowCaster, setHazeTop, HAZE_TOP } from './game/scen
 import { createRain, GRIP } from './game/rain.js';
 import { createStorm } from './game/storm.js';
 import { createComboMeter, comboScope, formatMult } from './game/combometer.js';
-import { createSquall } from './game/squall.js';
+import { createSquall, RAMP, RAMP_CLASSIC, CELL_EDGE } from './game/squall.js';
 import { pedalZones as growPedalZones, pedalAfterMove } from './game/pedalzones.js';
 import {
   collectPanes, litWindows, streetLamps, createTaxiHeadlights, setCityLights,
@@ -141,7 +141,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getPaintClassic, getPaintLook, getVehiclePaintClassic, getWater, getUturnStyle } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getSquallRampClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getPaintClassic, getPaintLook, getVehiclePaintClassic, getWater, getUturnStyle } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -349,13 +349,21 @@ const squallFlag = getSquall();
 const stormFlag = squallFlag ? null : (getRain() ?? getStorm());
 const storm = stormFlag ? createStorm(stormFlag) : null;
 const squallRng = makeRng(runSeed + 733);
-const squall = squallFlag ? createSquall({ ...squallFlag, rng: () => squallRng.next() }) : null;
+// `?squallramp=classic`: the first front, which brought the shade, the rain and the lights in
+// together. The graded one is described at `RAMP` in game/squall.js.
+const squallRampClassic = getSquallRampClassic();
+const squall = squallFlag ? createSquall({
+  ...squallFlag, rng: () => squallRng.next(), ramp: squallRampClassic ? RAMP_CLASSIC : RAMP,
+}) : null;
 const rain = createRain(renderer, { enabled: Boolean(storm || squall), mood: stormFlag?.mood });
 if (squall) {
   rain.attachSquall(squall);
   // A car's headlights come on as the cell reaches it — from a third of the way into the soft edge
   // — rather than across the city at once.
-  setRunningLightsAt((x, z) => THREE.MathUtils.smoothstep(squall.rainAt(x, z), 0.15, 0.5));
+  // Headlights with the city's lights, half way through them — under the first front, with the rain.
+  setRunningLightsAt(squallRampClassic
+    ? (x, z) => THREE.MathUtils.smoothstep(squall.rainAt(x, z), 0.15, 0.5)
+    : (x, z) => THREE.MathUtils.smoothstep(squall.lightAt(x, z), 0.3, 0.6));
 }
 const cartoon = createCartoon({ enabled: cartoonEnabled });
 
@@ -510,6 +518,21 @@ function setTaxiHeadlights(level) {
 let squallPresence = 0;
 
 /**
+ * How near the cell is to the middle of the frame, for that grey: 1 with it overhead, 0 from
+ * `SQUALL_NEAR` units outside its shade. The first front greyed the whole sky over 4s the moment a
+ * cell came on outside a corner, wherever the player was — the grey arrived with nothing to explain
+ * it, and then the rest of the storm arrived on top of it. Read by distance, it builds over ~30s
+ * as the cell comes closer and goes the same way, which is the sky ahead of a storm darkening.
+ */
+const SQUALL_NEAR = 60;
+function squallNearness(cell, c) {
+  if (!cell.on) return 0;
+  const d = Math.hypot(cell.x - c.x, cell.z - c.z);
+  const far = cell.r * 1.18 + CELL_EDGE * squall.ramp.shadeOut + SQUALL_NEAR;
+  return cell.strength * (1 - THREE.MathUtils.smoothstep(d, cell.r, far));
+}
+
+/**
  * The squall's half of `applyWeather`. Nothing here is city-wide except a faint grade while a cell
  * is on the map: the rain, the wet ground, the cloud shade and the city's lights all follow the
  * cell, through the uniforms `rain.attachSquall` wired up. What is left to do on the CPU is what
@@ -519,7 +542,8 @@ let squallPresence = 0;
 function applySquall(dt) {
   squall.update(dt);
   const { cell } = squall;
-  squallPresence += ((cell.on ? 1 : 0) - squallPresence) * Math.min(1, dt / 4);
+  const presence = squallRampClassic ? (cell.on ? 1 : 0) : squallNearness(cell, rain.centre);
+  squallPresence += (presence - squallPresence) * Math.min(1, dt / 4);
   // The lens follows the taxi, not the frame: it is the taxi's windscreen. Before the taxi exists
   // (the opening, a still) it falls back to the ground under the middle of the frame.
   const c = taxiNow?.() ?? rain.centre;

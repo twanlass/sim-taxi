@@ -62,6 +62,14 @@ export const LENS_DRY = 12;
 
 /** The streaks: how many, and the box they wrap in around the camera target. */
 const DROPS = 14000;
+/**
+ * A squall's wrap box is wider than the first front's (108 units) by the drizzle band, so it
+ * carries more drops, by the area, to keep the downpour as dense as `DROPS` made it in 108.
+ * The extra drops cost vertices only: a drop outside the cell is clipped before it rasterises,
+ * which the first front never did, so the fragments drawn are the falling ones.
+ */
+const SQUALL_BOX_FIRST = 108;
+const DROPS_MAX = 20000;
 const BOX = new THREE.Vector3(220, 60, 220);
 const FALL = new THREE.Vector3(3.5, -34, 2);   // u/s, with a little wind
 const STREAK_LEN = 1.9;
@@ -345,7 +353,7 @@ ${WET_ALBEDO}`, 'ground fragment');
     [-1, 0, 1, 0, 1, 1, -1, 0, 1, 1, -1, 1], 2));
   // `position` is never read, but three sizes the draw off it.
   streakGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(18), 3));
-  const seeds = new Float32Array(DROPS * 4);
+  const seeds = new Float32Array(DROPS_MAX * 4);
   for (let i = 0; i < seeds.length; i++) seeds[i] = Math.random();
   streakGeo.setAttribute('seed', new THREE.InstancedBufferAttribute(seeds, 4));
   streakGeo.instanceCount = DROPS;
@@ -362,6 +370,8 @@ ${WET_ALBEDO}`, 'ground fragment');
     uCell: CLOUD_UNIFORMS.uCell,
     uCellEdge: CLOUD_UNIFORMS.uCellEdge,
     uCellTime: CLOUD_UNIFORMS.uCellTime,
+    uCellShape: CLOUD_UNIFORMS.uCellShape,
+    uCellLight: CLOUD_UNIFORMS.uCellLight,
   };
   const streaks = new THREE.Mesh(streakGeo, new THREE.ShaderMaterial({
     uniforms: streakUniforms,
@@ -377,6 +387,8 @@ ${WET_ALBEDO}`, 'ground fragment');
       uniform vec4 uCell;
       uniform float uCellEdge;
       uniform float uCellTime;
+      uniform vec4 uCellShape;
+      uniform vec4 uCellLight;
       attribute vec2 corner;
       attribute vec4 seed;
       varying float vAlong;
@@ -397,8 +409,17 @@ ${WET_ALBEDO}`, 'ground fragment');
         gl_Position = projectionMatrix * v;
         vAlong = corner.y;
         vAlpha = 0.45 + 0.55 * seed.w;
-        // In a squall, only inside the cell — the curtain of rain is the cell.
-        if (uCell.w > 0.5) vAlpha *= cellCore(p.xz, uCell, uCellEdge, uCellTime);
+        // In a squall, only inside the cell — the curtain of rain is the cell. Its drizzle thins
+        // the drops rather than fading them (uCellLight.z), each drop falling once the rain where it
+        // is passes its own share; 0.85 so every drop is falling in the downpour.
+        if (uCell.w > 0.5) {
+          float wet = cellRain(p.xz, uCell, uCellEdge, uCellTime, uCellShape, uCellLight.w);
+          float share = 0.85 * fract(seed.w * 91.7 + seed.x * 37.3);
+          vAlpha *= mix(wet, smoothstep(share, share + 0.15, wet), uCellLight.z);
+          // A drop that is not falling is off the screen, not drawn at nothing: most of the wrap
+          // box is outside the cell, and every one of those quads was a full fragment pass.
+          if (vAlpha <= 0.0) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        }
       }
     `,
     fragmentShader: /* glsl */ `
@@ -436,6 +457,8 @@ ${WET_ALBEDO}`, 'ground fragment');
     uCell: CLOUD_UNIFORMS.uCell,
     uCellEdge: CLOUD_UNIFORMS.uCellEdge,
     uCellTime: CLOUD_UNIFORMS.uCellTime,
+    uCellShape: CLOUD_UNIFORMS.uCellShape,
+    uCellLight: CLOUD_UNIFORMS.uCellLight,
   };
   const splashes = new THREE.Points(splashGeo, new THREE.ShaderMaterial({
     uniforms: splashUniforms,
@@ -454,6 +477,8 @@ ${WET_ALBEDO}`, 'ground fragment');
       uniform vec4 uCell;
       uniform float uCellEdge;
       uniform float uCellTime;
+      uniform vec4 uCellShape;
+      uniform vec4 uCellLight;
       varying float vAge;
       ${CLOUD_GLSL}
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -467,7 +492,7 @@ ${WET_ALBEDO}`, 'ground fragment');
         gl_Position = projectionMatrix * viewMatrix * vec4(xz.x, uY, xz.y, 1.0);
         // A slot fires only if it is inside this moment's share of the rain.
         if (position.x > uDensity) vAge = 1.0;
-        if (uCell.w > 0.5 && position.y > cellCore(xz, uCell, uCellEdge, uCellTime)) vAge = 1.0;
+        if (uCell.w > 0.5 && position.y > cellRain(xz, uCell, uCellEdge, uCellTime, uCellShape, uCellLight.w)) vAge = 1.0;
         gl_PointSize = vAge < 1.0 ? uSize * uPixelRatio * (0.45 + 0.75 * vAge) : 0.0;
       }
     `,
@@ -709,6 +734,7 @@ ${WET_ALBEDO}`, 'ground fragment');
     if (squall) {
       const { cell } = squall;
       CLOUD_UNIFORMS.uCell.value.set(cell.x, cell.z, cell.r, cell.on ? 1 : 0);
+      CLOUD_UNIFORMS.uCellLight.value.w = cell.strength;
       CLOUD_UNIFORMS.uCellTime.value = squall.state.t;
       if (cell.on) rainCentre.set(cell.x, 0, cell.z);
     }
@@ -739,7 +765,12 @@ ${WET_ALBEDO}`, 'ground fragment');
       squall = s;
       groundUniforms.tWetMap.value = s.texture;
       CLOUD_UNIFORMS.uCellEdge.value = s.edge;
-      const span = 2 * (s.cell.r + CLOUD_UNIFORMS.uCellEdge.value) + 20;
+      const { ramp } = s;
+      CLOUD_UNIFORMS.uCellShape.value.set(ramp.drizzleReach, ramp.drizzle, ramp.shadeIn, ramp.shadeOut);
+      CLOUD_UNIFORMS.uCellLight.value.set(ramp.lightLo, ramp.lightSpan, ramp.density, 1);
+      // Out to the drizzle's edge (125 units against 108), with the drops grown by the area.
+      const span = 2 * (s.cell.r + CLOUD_UNIFORMS.uCellEdge.value * Math.max(1, ramp.drizzleReach)) + 20;
+      streakGeo.instanceCount = Math.min(DROPS_MAX, Math.round(DROPS * (span / SQUALL_BOX_FIRST) ** 2));
       streakUniforms.uBox.value.set(span, BOX.y, span);
       splashUniforms.uBox.value = span;
     },
@@ -814,7 +845,7 @@ vec2 rainRipples(vec2 p, float t) {
 const WET_ALBEDO = /* glsl */ `
 float rainHere = uRainWet * texture2D(tWetMap, (vRainWorld.xz + 0.5 * uWetExtent) / uWetExtent).r;
 // Raining on this spot right now, as against merely still wet from it: only the first ripples.
-float rainNow = uCell.w > 0.5 ? cellCore(vRainWorld.xz, uCell, uCellEdge, uCellTime) : 1.0;
+float rainNow = uCell.w > 0.5 ? cellRain(vRainWorld.xz, uCell, uCellEdge, uCellTime, uCellShape, uCellLight.w) : 1.0;
 vec3 rainDx = dFdx(vRainWorld);
 vec3 rainDy = dFdy(vRainWorld);
 float rainUp = smoothstep(0.8, 0.95, abs(normalize(cross(rainDx, rainDy)).y));

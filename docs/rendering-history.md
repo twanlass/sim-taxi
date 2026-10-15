@@ -226,6 +226,16 @@ first read the footprint per vertex, and every window wiped on from one side as 
 it; they read it at their anchor now. The lens drops' reach and linger were raised on 2026-10-08
 (#454).
 
+**The first front arrived all at once** (`?squallramp=classic`). The shade reached 1.6 edges past
+the core, the lights read that same shade, and the rain filled over the one edge inside it, so at any
+point the sun went, every window came on and the streaks appeared inside the same ~6 s — reported
+(2026-10-15) as "rain appears, lighting gets dark, lights pop on". The streaks faded every drop
+together rather than thinning them, so the edge of the rain was a faint full curtain, not a drizzle.
+And the city-wide grey came on over 4 s the moment a cell switched on outside a corner, wherever the
+player was, at full strength from the first frame, so the shade it cast over the nearest corner
+popped on too. The graded front pulls the three apart in space, thins the drops, fades each cell in
+and out over a tenth of its crossing, and reads the grey off the cell's distance from the frame.
+
 ### Autumn, and the leaves a squall strips — `autumnBase` in `city/props.js`, `game/leaves.js`
 
 [Current](rendering.md#autumn-and-the-leaves-a-squall-strips--autumnbase-in-citypropsjs-gameleavesjs).

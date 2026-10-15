@@ -43,8 +43,9 @@ export function setCityLights(level, dt = 0) {
 
 /**
  * How long a light takes to come up once its threshold is passed, in units of `LIT_LEVEL`. Under a
- * squall the level at a point climbs 0..1 in about 6s (a 22-unit edge at ~3.6 u/s), so this is
- * roughly half a second of fade. It was 0.035 — a fifth of a second, which read as a switch.
+ * squall the level at a point climbs 0..1 in about 7s (the shade's 36-unit band at ~3.6 u/s, read
+ * over 0.15–0.95 of it), so this is the better part of a second of fade. It was 0.035 — a fifth of a
+ * second, which read as a switch — and it was set to 0.08 against the first front's ~6s.
  */
 const LIT_RAMP = 0.08;
 
@@ -60,19 +61,17 @@ function inject(source, chunk, replacement) {
 }
 
 /**
- * The cell's reach for the lights, as a multiple of its soft edge — a little past the rain, the way
- * the cloud's shade is (CLOUD_LIGHT in util/geo.js), so the windows are already on as it arrives.
- */
-const CELL_LIGHT_REACH = 1.6;
-
-/**
- * The level a light at `xz` sees: the city-wide one, or — in a squall — however far under the
- * cell it stands, whichever is higher. One GLSL expression for every lit thing here, so a window
- * and the street lamp outside it can never disagree about whether the storm has reached them.
+ * The level a light at `xz` sees: the city-wide one, or — in a squall — how far into the cell's
+ * shade it stands (the shade the cloud casts, CLOUD_LIGHT in util/geo.js), whichever is higher. The
+ * shade is read from `uCellLight.x` over `uCellLight.y` of it, so the thresholds spread across the
+ * darkening rather than its first wisp (`RAMP` in game/squall.js); `squall.lightAt` is the CPU copy.
+ * One GLSL expression for every lit thing here, so a window and the street lamp outside it can
+ * never disagree about whether the storm has reached them.
  */
 const LOCAL_LEVEL = /* glsl */ `
 float litLevelAt(vec2 xz) {
-  return max(uLitLevel, cellCore(xz, uCell, uCellEdge * ${CELL_LIGHT_REACH.toFixed(2)}, uCellTime));
+  float shade = cellShade(xz, uCell, uCellEdge, uCellTime, uCellShape, uCellLight.w);
+  return max(uLitLevel, clamp((shade - uCellLight.x) / uCellLight.y, 0.0, 1.0));
 }
 `;
 const LIT_UNIFORMS = /* glsl */ `
@@ -80,6 +79,8 @@ uniform float uLitLevel;
 uniform vec4 uCell;
 uniform float uCellEdge;
 uniform float uCellTime;
+uniform vec4 uCellShape;
+uniform vec4 uCellLight;
 uniform float uLitTime;
 `;
 
@@ -105,6 +106,8 @@ const litUniforms = () => ({
   uCell: CLOUD_UNIFORMS.uCell,
   uCellEdge: CLOUD_UNIFORMS.uCellEdge,
   uCellTime: CLOUD_UNIFORMS.uCellTime,
+  uCellShape: CLOUD_UNIFORMS.uCellShape,
+  uCellLight: CLOUD_UNIFORMS.uCellLight,
 });
 
 /** Switch an unlit material's fragments on by their `aLitAt` against the level where they stand. */
