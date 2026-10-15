@@ -51,6 +51,12 @@ paint by default, with layered, chameleon, satin and classic behind ?paint=").
 
 ## Camera
 
+**The camera stayed where the player left it** until 2026-10 (`?camreturn=classic`). A swipe handed
+the framing over for good, on the reasoning that a camera fighting a deliberate pan is worse than
+one occasionally pointed at nothing; the taxi-finder chip and the peek's ride home were the only
+ways back. In practice a look across town left the car lost in the frame or off it, and finding it
+again was a drag by hand, so the camera now rides home after 3 idle seconds.
+
 [Current](rendering.md#camera).
 
 - **The boost follow used to stop dead on release.** That is the moment a drift's exit kick fires, so

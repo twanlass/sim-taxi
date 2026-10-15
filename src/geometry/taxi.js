@@ -35,6 +35,13 @@ const STRIPE_LOW = WHEEL_R + ARCH_R + ARCH_LIP;
 const STRIPE_TOP = 1.18 + CHASSIS_LIFT + 0.02;
 export const TAXI_SCALE = 1.18;
 
+// `?taxiroof=classic` puts back the all-glass cabin; otherwise the roof is painted (see shellParts).
+const CLASSIC_ROOF = typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('taxiroof') === 'classic';
+// Where the painted roof starts, in car-local height before CHASSIS_LIFT: the glass runs from the
+// body's top (1.15) up to here, and the roof from here to the cabin's top (1.75).
+const ROOF_BASE = 1.62;
+
 // World-space distance from the taxi origin back to the bumper — used by the tailpipe flame burst
 // (main.js). Kept here rather than in flames.js so both offsets follow if the mesh ever resizes.
 export const TAXI_TAILPIPE_BACK = (CAR_LEN / 2) * TAXI_SCALE;
@@ -92,9 +99,24 @@ function shellParts() {
   // Arched over each axle so the steered pair has a well to turn in (see archedBodyGeometries).
   parts.push(...archedBodyGeometries(CAR_LEN, CAR_W, 0.78 + CHASSIS_LIFT, 0.8, color('taxiBody')));
 
-  const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, 0.6, CAR_W * 0.86);
-  cabin.translate(-0.2, 1.45 + CHASSIS_LIFT, 0);
-  parts.push(setFinish(bakeColor(cabin, color('carGlass')), FINISH.GLASS));
+  if (CLASSIC_ROOF) {
+    const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, 0.6, CAR_W * 0.86);
+    cabin.translate(-0.2, 1.45 + CHASSIS_LIFT, 0);
+    parts.push(setFinish(bakeColor(cabin, color('carGlass')), FINISH.GLASS));
+  } else {
+    // A yellow roof over a band of dark windows. The camera looks down on the car, so the roof is
+    // most of what it sees of it; while the whole cabin was one glass box, the empty taxi read
+    // from above as dark glass and an unlit sign with yellow trim, and got lost among the traffic
+    // on a busy frame. The cabin keeps its old top (1.75), so the roof sign and the broken
+    // windscreen's plates still sit where they did; the roof overhangs the glass a hair each way
+    // so it reads as a lid rather than a stripe.
+    const glass = new THREE.BoxGeometry(CAR_LEN * 0.5, ROOF_BASE - 1.15, CAR_W * 0.86);
+    glass.translate(-0.2, (1.15 + ROOF_BASE) / 2 + CHASSIS_LIFT, 0);
+    parts.push(setFinish(bakeColor(glass, color('carGlass')), FINISH.GLASS));
+    const roof = new THREE.BoxGeometry(CAR_LEN * 0.5 + 0.06, 1.75 - ROOF_BASE, CAR_W * 0.86 + 0.06);
+    roof.translate(-0.2, (ROOF_BASE + 1.75) / 2 + CHASSIS_LIFT, 0);
+    parts.push(setFinish(bakeColor(roof, color('taxiBody')), FINISH.PAINT));
+  }
 
 
 

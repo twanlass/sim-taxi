@@ -524,10 +524,21 @@ evidence it visited the rider, where it ends up is the evidence it came home.
 
 ### Getting back to the taxi
 
-`src/game/taxifinder.js`. The camera is the player's the moment they swipe, and it stays theirs —
-nothing here tows it back onto the car. The bill for that arrives when the taxi drives off the frame
-entirely, which on a phone is one look across town away: the only way home was to drag the map until
-the yellow car turned up, a hunt across near-identical blocks on a clock that is draining. So while
+The camera is the player's the moment they swipe, and it comes home on its own once they leave it:
+**3 seconds with no touch on the map** (`CAMERA_RETURN_IDLE`, `updateCameraReturn` in main.js) and
+it rides back to the taxi through the same `panToTaxi` the chip below uses, flash included, and the
+follow-cam picks it up from there. Any pointer activity on the canvas restarts the count, a finger
+resting on the map holds it, and nothing counts while another claim has the camera (a glide, the
+tutorial, the vignette, the end-of-run focus). It runs on phones only, where the follow-cam does.
+The 3 is a first guess rather than a measurement, and the trade it makes is with
+[the edge arrow's look](gameplay.md), which was left off any timer because a player who rode out to
+a fare may be reading the board with their thumb off the glass. `?camreturn=classic` leaves the
+camera wherever the player put it, as it was before
+([history](rendering-history.md#camera)).
+
+`src/game/taxifinder.js` covers the three seconds before that. The taxi can still drive off the
+frame entirely, which on a phone is one look across town away, and dragging the map until the
+yellow car turns up is a hunt across near-identical blocks on a clock that is draining. So while
 the taxi is **completely** off-frame a chip of it fades in at the opposite end of the bottom row
 from the rider chips, and a tap rides the camera back. Same affordance as those, pointed the other
 way: they answer *who is waiting*, this answers *where am I*.
@@ -3392,6 +3403,20 @@ paint yellow across every car it passes.
 The band still offsets each *point* along its mitre rather than offsetting each segment
 independently. Independent segments leave a wedge of bare road on the outside of every join —
 invisible when the corner *was* the notch, obvious across a ten-step arc.
+
+### The taxi's roof — `geometry/taxi.js`
+
+The cabin is a band of dark windows under a **yellow roof** (`taxiBody`, painted), not one glass
+box. The camera looks down on the car, so the roof is most of what it sees: as an all-glass cabin
+the empty taxi read from above as dark glass and an unlit sign with yellow trim, and got lost in a
+busy frame. The glass runs from the body's top to `ROOF_BASE` (1.62) and the roof from there to the
+cabin's old top (1.75), overhanging the glass by 0.03 each way so it reads as a lid; the roof sign
+and the broken windscreen's plates sit where they always did. The depot's sign is built from the
+same parts, so it wears the roof too. `?taxiroof=classic` puts the glass box back.
+
+Still open: in low sun the bonnet and boot come out pale silver, because the paint's sky reflection
+washes the yellow out of every face that points up — which costs the car more of its yellow from
+above than the glass ever did.
 
 ### The taxi's chequer — `geometry/taxi.js`
 
