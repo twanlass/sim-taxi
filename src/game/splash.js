@@ -91,23 +91,50 @@ const DISC_SOLID = 0.28;
 /** What the frame has to fit: the patch across, and some sky above it for the car to fall through. */
 const FIT_HALF_W = 6.5;
 const FIT_HALF_H = 6.5;
-/** North — the game's own −z, up-screen and to the right under this camera. */
-export const HEADING = Math.PI / 2;
+/**
+ * Two cameras. The default is low and side-on, the way a car advert shoots a launch: the drop reads
+ * as a drop, the bounce as a bounce, and the wheelie in profile, which is the one angle it has a
+ * silhouette from. The car faces +x and leaves off the right edge. `?splashcam=classic` is the first
+ * cut, the game's own 33° three-quarter view, with the car heading north (up-screen and right).
+ *
+ * The side camera's elevation is a trade: at 0° the patch is a line and the dust ring a smear, much
+ * above 20° and it stops reading as profile. 15° keeps the disc a readable ellipse (3.1 units tall
+ * on screen for 12 across) and the car still side-on.
+ */
+const SIDE_ELEVATION = THREE.MathUtils.degToRad(15);
+export const SPLASH_VIEWS = {
+  side: {
+    dir: new THREE.Vector3(0, Math.sin(SIDE_ELEVATION), Math.cos(SIDE_ELEVATION)),
+    heading: 0,
+    // Tighter across than the patch: side-on, the car is the whole subject, and the patch's own edge
+    // is a fade to black anyway. At 6.5 on a phone it was a third of the frame's width.
+    fitHalfW: 5,
+  },
+  quarter: { dir: VIEW_DIR.clone().normalize(), heading: Math.PI / 2, fitHalfW: FIT_HALF_W },
+};
+for (const v of Object.values(SPLASH_VIEWS)) {
+  /** Screen right and screen up, as world directions, and screen height per unit of world height. */
+  v.right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), v.dir).normalize();
+  v.up = new THREE.Vector3().crossVectors(v.right, v.dir).normalize();
+  v.rise = Math.sqrt(1 - v.dir.y * v.dir.y);
+}
+let view = SPLASH_VIEWS.side;
+if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('splashcam') === 'classic') {
+  view = SPLASH_VIEWS.quarter;
+}
+/** The camera in use; the probe walks both. */
+export function splashView() { return view; }
+export function setSplashView(name) { view = SPLASH_VIEWS[name]; }
 /** The quarter-turn and a bit it unwinds on the way down, so it tumbles in rather than lowering. */
 const FALL_SPIN = 1.1;
 /** The drawn body's half-width; its half-length is `TAXI_TAILPIPE_BACK`. Not the sim's 1.7 / 2. */
 const HALF_W = (1.7 / 2) * TAXI_SCALE;
-/** Screen height per unit of world height, under the fixed 33° camera. */
-const RISE_ON_SCREEN = Math.sqrt(1 - VIEW_DIR.y * VIEW_DIR.y);
 
 /** The frustum half-height for a viewport: whichever of the two fits binds. */
 export function splashZoom(aspect) {
-  return Math.max(FIT_HALF_H, FIT_HALF_W / aspect);
+  return Math.max(FIT_HALF_H, view.fitHalfW / aspect);
 }
 
-/** Screen right and screen up, as world directions, under the fixed camera. */
-const SCREEN_RIGHT = new THREE.Vector3(1, 0, -1).normalize();
-const SCREEN_UP = new THREE.Vector3().crossVectors(SCREEN_RIGHT, VIEW_DIR).normalize();
 /** Half the car's drawn extent across its line of travel on screen, roof and wheelie included. */
 const EXIT_SIDE = 3;
 /** From the car's origin back to the tip of its plume, with room for the flicker's stretch. */
@@ -122,13 +149,13 @@ export const FLAME_TAIL = TAXI_TAILPIPE_BACK + FLAME_LEN * 1.2;
  */
 const exitCache = new Map();
 export function exitTime(aspect) {
-  const key = aspect.toFixed(4);
+  const key = `${view.heading}:${aspect.toFixed(4)}`;
   if (exitCache.has(key)) return exitCache.get(key);
   const zoom = splashZoom(aspect);
   const at = new THREE.Vector3();
   const inFrame = (x, y, z) => {
     at.set(x, y, z);
-    return Math.abs(at.dot(SCREEN_RIGHT)) - EXIT_SIDE < zoom * aspect && Math.abs(at.dot(SCREEN_UP)) - EXIT_SIDE < zoom;
+    return Math.abs(at.dot(view.right)) - EXIT_SIDE < zoom * aspect && Math.abs(at.dot(view.up)) - EXIT_SIDE < zoom;
   };
   let t = IGNITE;
   for (; t < IGNITE + 3; t += 1 / 120) {
@@ -153,14 +180,14 @@ export function splashLength(aspect) {
 
 /** Where to drop from: clear of the top of the frame, whatever its shape. */
 export function dropHeight(aspect) {
-  return splashZoom(aspect) / RISE_ON_SCREEN + 4;
+  return splashZoom(aspect) / view.rise + 4;
 }
 
 /**
  * The car's pose at `t` seconds into the timeline. Pure, so the probe can walk it: the wheels never
  * go under the road, and the car is out of frame before the fade.
  *
- * `along` is how far it has driven, forward along `HEADING`. `lift` is the body's origin above the
+ * `along` is how far it has driven, forward along the view's heading. `lift` is the body's origin above the
  * road; a pitched or rolled body is raised by the sagitta of each, the way `sim/traffic.js` keeps
  * a tilted car's low edge on the tarmac — except in the wheelie, which pivots on the rear axle.
  */
@@ -168,7 +195,8 @@ export function splashPose(t, aspect) {
   let y = 0;
   let pitch = 0;
   let roll = 0;
-  let yaw = HEADING;
+  const heading = view.heading;
+  let yaw = heading;
   let squash = 0;
   let along = 0;
   let wheelie = 0;
@@ -177,7 +205,7 @@ export function splashPose(t, aspect) {
     const u = Math.max(0, (t - STAGE_IN) / FALL);
     y = dropHeight(aspect) * (1 - u * u);
     // Nose down and rolled as it comes in, unwinding the spin into the heading it will leave on.
-    yaw = HEADING + FALL_SPIN * (1 - u) ** 2;
+    yaw = heading + FALL_SPIN * (1 - u) ** 2;
     pitch = -0.22;
     roll = 0.14;
   } else {
@@ -221,8 +249,8 @@ export function splashPose(t, aspect) {
     + Math.sin(wheelie) * TAXI_TAILPIPE_BACK;
 
   return {
-    x: Math.cos(HEADING) * along,
-    z: -Math.sin(HEADING) * along,
+    x: Math.cos(heading) * along,
+    z: -Math.sin(heading) * along,
     y, yaw, pitch, roll, squash, along, wheelie,
   };
 }
@@ -263,6 +291,9 @@ function asphaltPatch() {
       uRubber: { value: color('skidRubber') },
       uOpacity: { value: 0 },
       uR: { value: DISC_R },
+      // The car's forward and right on the ground, so the line runs the way it leaves.
+      uFwd: { value: new THREE.Vector2(Math.cos(view.heading), -Math.sin(view.heading)) },
+      uRight: { value: new THREE.Vector2(Math.sin(view.heading), Math.cos(view.heading)) },
     },
     vertexShader: /* glsl */ `
       varying vec2 vXZ;
@@ -278,18 +309,22 @@ function asphaltPatch() {
       uniform vec3 uRubber;
       uniform float uOpacity;
       uniform float uR;
+      uniform vec2 uFwd;
+      uniform vec2 uRight;
       varying vec2 vXZ;
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       void main() {
         // Grain: two scales of stone, so the patch reads as tarmac rather than as a grey disc.
         float g = hash(floor(vXZ * 7.0)) * 0.6 + hash(floor(vXZ * 2.3)) * 0.4;
         vec3 c = uAsphalt * (0.86 + 0.22 * g);
-        // The centre line, a lane to the car's left: dashed along z, as every street's is.
-        float dash = step(0.5, fract(vXZ.y / 4.0));
-        float line = (1.0 - smoothstep(0.11, 0.15, abs(vXZ.x + 2.1))) * dash;
+        // The centre line, a lane to the car's left, dashed along its heading as every street's is.
+        float a = dot(vXZ, uFwd);
+        float b = dot(vXZ, uRight);
+        float dash = step(0.5, fract(a / 4.0));
+        float line = (1.0 - smoothstep(0.11, 0.15, abs(b + 2.1))) * dash;
         c = mix(c, uLine, line * 0.9);
         // A tar seam across it, slightly darker, so the line is not the only thing on it.
-        float seam = 1.0 - smoothstep(0.04, 0.09, abs(vXZ.y - vXZ.x * 0.18 - 2.6));
+        float seam = 1.0 - smoothstep(0.04, 0.09, abs(a + b * 0.18 + 2.6));
         c = mix(c, uRubber, seam * 0.35);
         float d = length(vXZ) / uR;
         float fade = 1.0 - smoothstep(0.28, 1.0, d);
@@ -361,8 +396,10 @@ export function createSplash(root) {
     camera.top = zoom;
     camera.bottom = -zoom;
     camera.updateProjectionMatrix();
-    shakeAt.set(rng ? rng.jitter(shake) : 0, 0, rng ? rng.jitter(shake) : 0);
-    camera.position.copy(VIEW_DIR).multiplyScalar(DISTANCE).add(shakeAt);
+    // Shaken in the screen plane: a jitter along the view axis is invisible under an ortho camera.
+    shakeAt.set(0, 0, 0);
+    if (rng) shakeAt.addScaledVector(view.right, rng.jitter(shake)).addScaledVector(view.up, rng.jitter(shake));
+    camera.position.copy(view.dir).multiplyScalar(DISTANCE).add(shakeAt);
     camera.lookAt(shakeAt);
   }
   frameCamera();
@@ -398,7 +435,7 @@ export function createSplash(root) {
   taxi.group.visible = false;
   renderer.render(scene, camera);
 
-  const car = { x: 0, z: 0, yaw: HEADING, crashed: false, shownPitch: 0, shownLift: 0, shownBarrel: 0 };
+  const car = { x: 0, z: 0, yaw: view.heading, crashed: false, shownPitch: 0, shownLift: 0, shownBarrel: 0 };
   let clock = -1;          // < 0: not started
   let fadeFrom = Infinity; // timeline time the fade began
   let fadeLength = FADE;
@@ -495,8 +532,9 @@ export function createSplash(root) {
       shake = Math.max(shake, 0.2);
     }
     // The burnout: rubber laid and dust kicked off the back tyres for the first few metres, while
-    // they are still on the patch and spinning up rather than gripping.
-    if (ignited && p.along < 9) {
+    // they are still on the patch and spinning up rather than gripping. Not past it: the marks are
+    // not faded with the patch, and side-on, rubber laid out to 9 drew two lines across the black.
+    if (ignited && p.along < DISC_R) {
       for (const w of wheelPoints(p)) {
         if (!w.rear) continue;
         if (p.along - lastSkid > 0.35 || lastSkid < 0) skids.add(w.x, w.z, p.yaw, 1);

@@ -19,6 +19,10 @@ first paint matched the city's horizon — for however long the game took to loa
 straight to the title menu. Reported as "it just shows blue sky when it first starts". `?splash=classic`
 skips the drop and goes straight to the game; the black underlay stays.
 
+The drop was first shot from the game's own three-quarter camera, the car leaving north (off the
+top right). Tyler asked to try it side-on; the low side camera became the default the same day, and
+`?splashcam=classic` keeps the three-quarter view.
+
 ## The opening vignette
 
 Pacing numbers the vignette shipped with and later changed. Now: [The opening vignette](gameplay.md#the-opening-vignette).
