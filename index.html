@@ -2068,6 +2068,37 @@
         align-self: center;
       }
       .aud-play:hover { background: var(--dbg-fill-hi); }
+      .aud-trigger {
+        flex: none; height: 22px; padding: 0 6px; border: 1px solid #f5c56b; border-radius: 6px;
+        cursor: pointer; background: rgba(245, 197, 107, 0.12); color: #f5c56b; font-size: 11px; line-height: 1;
+        align-self: center;
+      }
+      .aud-trigger:hover { background: rgba(245, 197, 107, 0.25); }
+      .aud-hold { border-color: #7aa2ff; color: #7aa2ff; background: rgba(122, 162, 255, 0.12); }
+      .aud-hold:hover { background: rgba(122, 162, 255, 0.25); }
+      .aud-hold.is-on { background: #7aa2ff; color: #101014; }
+      /* A mix group's header: its fold, M, S and fader (src/game/audiopanel.js). */
+      .aud-group {
+        margin: 12px 0 4px; padding: 6px 8px 0; border-radius: 8px; background: rgba(255, 255, 255, 0.07);
+        border: 1px solid var(--dbg-line); border-left: 2px solid var(--dbg-line);
+      }
+      .aud-group.is-edited { border-left-color: var(--dbg-accent); }
+      .aud-group.is-silenced { opacity: 0.45; }
+      #dbg-panel .aud-group .dbg-row { grid-template-columns: 60px 1fr; }
+      .aud-group-name { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+      .aud-fold {
+        flex: 1; text-align: left; border: 0; background: none; color: var(--dbg-text); cursor: pointer;
+        font: 600 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 2px 0;
+      }
+      .aud-ms {
+        flex: none; width: 24px; height: 22px; border: 1px solid var(--dbg-line); border-radius: 6px;
+        cursor: pointer; background: var(--dbg-fill); color: var(--dbg-text); font: 700 10px/1 system-ui, sans-serif;
+      }
+      .aud-ms.is-on { background: #f5c56b; color: #141416; border-color: #f5c56b; }
+      .aud-ms.is-on:last-child { background: #7aa2ff; border-color: #7aa2ff; }
+      /* A folded group hides its sounds — unless the panel's search is in use, which shows a match
+         wherever it is. A class, because `hidden` on these belongs to the search. */
+      #dbg-panel:has(.dbg-search:placeholder-shown) .aud-sound.is-folded { display: none; }
 
       /* The renderer readout — `?diag`, see src/game/diag.js. Bottom-left rather than top, which
          is where the boost meter and the money counter live, and above the boost pill's own corner.

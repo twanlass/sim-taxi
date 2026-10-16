@@ -4758,7 +4758,8 @@ function ambientLevels() {
 }
 
 // The one-shots: read off each system's own counters and phases, so none of them needs a callback
-// it did not already have. Every one is a no-op until the first tap has started the audio.
+// it did not already have. Every one is a no-op until the first tap has started the audio, and
+// until its own file has decoded.
 const birdCounts = flocks.map((f) => ({ up: f.state.flights, down: f.state.landings }));
 let lastBridgePhase = drawbridge?.state.phase ?? null;
 let bridgeVoice = null;
@@ -4769,6 +4770,7 @@ let lastVisits = chopper.state.visits;
 let heliVoice = null;
 let lastOpeningPhase = null;
 let spawnHeard = false;
+let lastEntryT = 0;
 // The aeroplane's run is ~10s of which the middle ~6 are on screen; the master is 7.25s, so it
 // starts this far in, which centres it on the pass. It is steered by distance besides.
 const PLANE_LEAD = 1.4;
@@ -4778,10 +4780,16 @@ const PLANE_LEAD = 1.4;
 const BRIDGE_SECONDS = 26;
 
 function cityOneShots(dt) {
-  if (!sfx?.state.ready) return;
-  // The city building itself, once, on the first frame there is both an entrance and a context.
-  if (!spawnHeard && cityEntry.running()) { sfx.play('spawn'); spawnHeard = true; }
-  if (!cityEntry.running()) spawnHeard = true;
+  if (!sfx) return;
+  // The city building itself, once per entrance, on the first frame of it there is a context and a
+  // decoded spawn take — `play` answers null until both, so this keeps asking for as long as the
+  // city is still rising and gives up once it has risen. Not gated on `sfx.state.ready`: that waits
+  // for all ~75 files, and on a slow decode the entrance was over first and the spawn never played.
+  // Re-armed when the entrance's clock goes back to zero, which is the ⚙️ panel's replay.
+  const entryT = cityEntry.time();
+  if (entryT < lastEntryT) spawnHeard = false;
+  lastEntryT = entryT;
+  if (!spawnHeard && cityEntry.running() && sfx.play('spawn')) spawnHeard = true;
 
   // The depot's door going up at the start of a run. Only out of 'settle' — the repair visit's
   // second 'door' is the same door already running.
@@ -4847,6 +4855,130 @@ function cityOneShots(dt) {
     if (chopper.state.mode === 'away') { sfx.release(heliVoice, 0.6); heliVoice = null; }
   }
 }
+
+// The ⚙️ panel's ⚡ buttons (game/audiopanel.js): make the rare thing behind a sound happen now,
+// rather than waiting a minute or three for it. Each one starts the *real* event — the systems'
+// own `launch`/`visit`/`takeOff`/`request`, the ones shot mode stages with — so the sound arrives
+// through `cityOneShots` above, placed and steered exactly as in play. Each answers null, or why
+// it could not.
+const soundTriggers = {
+  spawn: () => { cityEntry.replay(traffic.taxi); replayLTrainIntro(traffic.taxi); return null; },
+  plane: () => {
+    if (flyover.state.active) return 'already crossing';
+    flyover.launch();
+    return null;
+  },
+  heli: () => {
+    if (!chopper.group) return 'no helipad in this city';
+    if (chopper.state.mode !== 'away') return 'already on a visit';
+    chopper.visit();
+    return null;
+  },
+  // The flock nearest the taxi, since a scatter is heard from where the birds are. Its landing,
+  // `birdsDown`, follows on its own once it has settled again.
+  birdsUp: () => {
+    const grounded = flocks.filter((f) => f.state.mode === 'ground');
+    if (!grounded.length) return 'every flock is in the air';
+    const t = traffic.taxi;
+    const dist = (f) => { const c = f.centre(); return Math.hypot(c.x - t.x, c.z - t.z); };
+    grounded.reduce((a, b) => (dist(b) < dist(a) ? b : a)).takeOff();
+    return null;
+  },
+  bridge: () => {
+    if (!drawbridge) return 'no drawbridge in this city';
+    if (drawbridge.state.phase !== 'open') return 'already cycling';
+    // Lowered again by its own hold (HOLD_SECONDS in game/drawbridge.js) with no boat to wait for.
+    drawbridge.request();
+    return null;
+  },
+  // The walk-off has no event of its own to stage short of failing a fare, so this is the sound
+  // from the taxi — where the riding passenger who gives up gets out (`'missed'` in the fare
+  // handler below).
+  angry: () => (sfx?.play('angry', { at: placeAt(traffic.taxi.x, traffic.taxi.z) }) ? null
+    : 'no audio yet (tap the game) or inside its min gap'),
+};
+soundTriggers.birdsDown = soundTriggers.birdsUp;
+
+// ⏸ Hold (the ⚙️ panel): one moving source frozen where it is — its own update skipped, so the
+// taxi and the rest of the city carry on — with its sound looping and steered off it, so the
+// falloff can be tuned by driving to and from something that stays put. Held, a source is
+// `{ sound, voice, flock? }`; `heldSounds` below loops each. Holding something that is not in the
+// air sends it up first and steps it to where it can be seen.
+const holds = { plane: null, heli: null, birds: null };
+const holdOf = (key) => (key === 'birdsUp' || key === 'birdsDown' ? 'birds' : key);
+function heldAt(which) {
+  if (which === 'plane') { const p = flyover.group.position; return placeAt(p.x, p.z, p.y); }
+  if (which === 'heli') return placeAt(chopper.state.x, chopper.state.z, chopper.state.y);
+  const c = holds.birds.flock.centre();
+  return placeAt(c.x, c.z);
+}
+function setHold(key, on) {
+  const which = holdOf(key);
+  const held = holds[which];
+  if (!on) {
+    if (!held) return null;
+    holds[which] = null;
+    // The plane and the chopper go on with the loop playing out as their own voice, steered as
+    // usual; the birds' scatter is only ever a one-shot, so it just fades.
+    if (which === 'plane' && held.voice) { sfx?.unloop(held.voice); planeVoice = held.voice; }
+    else if (which === 'heli' && held.voice) { sfx?.unloop(held.voice); heliVoice = held.voice; }
+    else if (held.voice) sfx?.release(held.voice, 0.3);
+    return null;
+  }
+  if (held) return null;
+  let flock = null;
+  if (which === 'plane') {
+    if (!flyover.state.active) {
+      flyover.launch();
+      // To the middle of the run, which is over the city (`s` runs -RUN_MARGIN..RUN_MARGIN).
+      while (flyover.state.active && flyover.state.s < 0) flyover.update(1 / 60);
+    }
+    lastFlights = flyover.state.flights;   // or `cityOneShots` starts its own pass on top
+    if (planeVoice) { sfx.release(planeVoice, 0.2); planeVoice = null; }
+  } else if (which === 'heli') {
+    if (!chopper.group) return 'no helipad in this city';
+    if (chopper.state.mode === 'away') {
+      chopper.visit();
+      // Down onto the pad; capped, in case a visit ever cannot finish its approach.
+      for (let step = 0; step < 60 * 30 && !['settle', 'idle'].includes(chopper.state.mode); step++) {
+        chopper.update(1 / 60);
+      }
+    }
+    lastVisits = chopper.state.visits;
+    if (heliVoice) { sfx.release(heliVoice, 0.2); heliVoice = null; }
+  } else {
+    const t = traffic.taxi;
+    const dist = (f) => { const c = f.centre(); return Math.hypot(c.x - t.x, c.z - t.z); };
+    const seen = flocks.filter((f) => f.state.mode !== 'gone');
+    if (!seen.length) return 'every flock has flown off';
+    flock = seen.reduce((a, b) => (dist(b) < dist(a) ? b : a));
+    // A flock on the ground is sent up and held a second into the climb, where it is in the air.
+    if (flock.state.mode === 'ground') {
+      flock.takeOff();
+      for (let step = 0; step < 60; step++) flock.update(1 / 60);
+    }
+    const n = flocks.indexOf(flock);
+    birdCounts[n].up = flock.state.flights;
+    birdCounts[n].down = flock.state.landings;
+  }
+  holds[which] = { sound: key, voice: null, flock };
+  return null;
+}
+/** Loop each held source's sound, aimed at where it is frozen. Every frame, after `cityOneShots`. */
+function heldSounds() {
+  if (!sfx) return;
+  for (const which of Object.keys(holds)) {
+    const held = holds[which];
+    if (!held) continue;
+    const at = heldAt(which);
+    if (!held.voice || held.voice.ended) held.voice = sfx.play(held.sound, { at, steered: true, loop: true });
+    else sfx.steer(held.voice, held.sound, at);
+  }
+}
+const soundHolds = Object.fromEntries(['plane', 'heli', 'birdsUp', 'birdsDown'].map((key) => [key, {
+  held: () => Boolean(holds[holdOf(key)]),
+  set: (on) => setHold(key, on),
+}]));
 
 // The falloff circles for the ⚙️ panel (game/soundrings.js): every placed source the frame can
 // name, so the panel's "Full within"/"Silent past" sliders have something to move.
@@ -5435,10 +5567,11 @@ function tick() {
   ejection.update(dt);
   windshield.update(dt);
   struckGlass.update(dt);
-  flyover.update(dt);
+  // A source held from the ⚙️ panel (`holds`) is frozen by skipping its update.
+  if (!holds.plane) flyover.update(dt);
   // Night, for the searchlight: off the sun's own power, which the day/night keys run 0 to 3.85.
   policeHeli?.update(dt, heliTarget(dt), { dark: 1 - THREE.MathUtils.smoothstep(sun.intensity, 0.3, 2.6) });
-  chopper.update(dt, { hold: Boolean(policeHeli?.busy()) });
+  if (!holds.heli) chopper.update(dt, { hold: Boolean(policeHeli?.busy()) });
   clouds.update(dt);
   rain.update(dt, camera);
   applyWeather(dt);
@@ -5446,7 +5579,7 @@ function tick() {
   // Handed last frame's taxi position, which is all a startle needs — it is a distance test with
   // eight units of slack, and running it here rather than after `traffic.update` keeps the whole
   // scenery block in one place.
-  for (const flock of flocks) flock.update(dt, traffic.taxi);
+  for (const flock of flocks) if (flock !== holds.birds?.flock) flock.update(dt, traffic.taxi);
   ducks.update(dt);
   leaves?.update(dt);
   hoopers.update(dt);
@@ -5593,6 +5726,7 @@ function tick() {
     ambient: sfx ? ambientLevels() : undefined,
   });
   cityOneShots(dt);
+  heldSounds();
   // Only the sound being edited in the panel — see `focused` in game/audiopanel.js.
   if (soundRings) {
     const open = Boolean(debugPanel && !debugPanel.panel.hidden);
@@ -6799,6 +6933,8 @@ if (!shot && wantsDebugPanel) {
     /** True when the sliders opened on a tuning restored from a previous session. */
     locoRestored: Boolean(stashedLoco),
     sfx,
+    soundTriggers,
+    soundHolds,
     wreck: { styles: Object.keys(WRECK_STYLES), current: getWreckStyle(), set: blast.setStyle },
   });
 }

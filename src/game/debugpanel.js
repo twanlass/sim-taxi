@@ -119,6 +119,12 @@ export function createDebugPanel({
   // The sound effects (game/sfx.js), for the Audio sections — null in the boot pass and in shot
   // mode, which have no audio, and then the sections are left out.
   sfx = null,
+  // By sound: make the rare thing that plays it happen now — the Audio sections' ⚡ buttons. See
+  // `soundTriggers` in main.js.
+  soundTriggers = {},
+  // ...and freeze the moving ones (plane, chopper, birds) with their sound looping — the ⏸ buttons.
+  // See `holds` in main.js.
+  soundHolds = {},
   // The wreck fireball's cut — `{ styles, current, set }` over game/blast.js's WRECK_STYLES.
   wreck = null,
 }) {
@@ -1163,7 +1169,7 @@ export function createDebugPanel({
   // is already the new state.
   let audio = null;
   if (sfx) {
-    audio = buildAudioSections(panel, sfx);
+    audio = buildAudioSections(panel, sfx, { triggers: soundTriggers, holds: soundHolds });
     toggle.addEventListener('click', () => (panel.hidden ? audio.close() : audio.open()));
   }
 
