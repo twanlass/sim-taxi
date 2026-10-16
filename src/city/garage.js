@@ -280,7 +280,7 @@ function occlusionClear(blocks, bi, bj) {
  * single park, arterial or building — the generators downstream each run their own offset stream
  * and nothing in layout.js reads `rng` after this.
  */
-export function chooseGarageBlock(rng, blocks, prefer = null) {
+export function chooseGarageBlock(rng, blocks) {
   const candidates = blocks.filter((b) => b.type === 'built'
     // A district block is half of a merged park; a lone pocket park is already excluded by `type`.
     && (b.districtId === null || b.districtId === undefined)
@@ -289,14 +289,6 @@ export function chooseGarageBlock(rng, blocks, prefer = null) {
     && !isSegmentClosed(b.bi + 1, b.bj, DIR.PZ)
     && occlusionClear(blocks, b.bi, b.bj));
   if (!candidates.length) return null;
-
-  // The neighbourhood a layout would rather have it in (the industrial bay, under `HOODS`), falling
-  // back to anywhere it fits.
-  const preferred = prefer ? candidates.filter(prefer) : [];
-  if (preferred.length) {
-    const inside = preferred.filter((b) => b.bi > 0 && b.bj > 0 && b.bj < GRID_J - 1);
-    return rng.pick(inside.length ? inside : preferred);
-  }
 
   // Prefer somewhere off the outer ring: a depot in a corner puts the player's first fare — biased
   // to spawn near the taxi, see fares.js — out on the edge of the map with the whole city behind

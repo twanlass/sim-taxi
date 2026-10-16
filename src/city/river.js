@@ -4,7 +4,7 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import {
   GRID_I, GRID_J, lineX, lineZ, halfRoadZ, riverBanks, riverRow, segmentKey,
-  harborBasin, coastEast, coastWest, coastNorth, isArterialZ, LTRAIN_NS, HOODS,
+  harborBasin, coastEast, coastWest, coastNorth, isArterialZ, LTRAIN_NS,
 } from './grid.js';
 import {
   harborPiers, coastZ, seaInset, seaStartX, coastArcStart, southShore, shoreZ, seaRimSouth, southKerbZ,
@@ -166,13 +166,7 @@ const middleRow = (rng) => rng.int(Math.floor((GRID_J - 1) / 2), Math.ceil((GRID
  * the sentence.
  */
 export function planRiver(rng) {
-  // Under `HOODS` the river is always the lower of the two middle rows, so the four neighbourhoods
-  // are the same size on every seed: three block rows north of it (downtown and the parks), two
-  // south (the homes and the bay). With it a row higher the parks quadrant was six blocks, which
-  // the central park and one district fill, and a third of those cities had nowhere left for the
-  // pond. The draw is still taken, so everything after it lands where it did.
-  const drawn = middleRow(rng);
-  const row = HOODS ? Math.ceil((GRID_J - 1) / 2) : drawn;
+  const row = middleRow(rng);
 
   const crossings = new Map();
   for (let i = 0; i <= GRID_I; i++) crossings.set(i, 'water');
@@ -223,17 +217,6 @@ export function planRiver(rng) {
     }
   } else if (GRID_I >= 2) {
     draw = rng.int(Math.floor(GRID_I / 2), Math.ceil(GRID_I / 2));
-    // The neighbourhood city (`HOODS`) is back to an odd column count with the L still on it, and
-    // the arterial is one of the same two middle lines — so the leaf can land under the deck. Move
-    // it to the other middle line and give the train's line a fixed bridge, the even grid's answer:
-    // four crossings of six, the two in the middle side by side.
-    const rail = LTRAIN_NS ? [...Array(GRID_I + 1).keys()].find((i) => i > 0 && i < GRID_I && isArterialZ(i)) : undefined;
-    if (rail === draw) {
-      draw = draw === Math.floor(GRID_I / 2) ? Math.ceil(GRID_I / 2) : Math.floor(GRID_I / 2);
-      crossings.set(rail, 'fixed');
-    } else if (rail !== undefined && HOODS) {
-      crossings.set(rail, 'fixed');
-    }
   }
   if (draw !== null) crossings.set(draw, 'draw');
 

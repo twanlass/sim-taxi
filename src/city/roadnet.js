@@ -354,21 +354,11 @@ function buildTurns(nodes, lanes) {
         // a flat third everywhere made the bend's right turns twice as tight as a grid corner,
         // 9.6° of heading in one frame at cruise. Grid turns keep their quadratic: every number
         // tuned on a corner was tuned on that.
-        //
-        // And where they cross but only just in front of one end, the two-thirds handle at that end
-        // is a few centimetres long and the curve turns its whole angle there: the neighbourhood
-        // city puts the bend's west end on the north-south arterial, whose wider box trims the
-        // lane to 0.35 units short of where the tangents meet, and the taxi's heading stepped 7° in
-        // one frame pulling away from the stop. Under a quarter of the chord from either end, the
-        // third-of-the-chord handles take it.
         const curved = inLane.path.kind !== 'line' || outLane.path.kind !== 'line';
-        const chord = Math.hypot(p2.x - p0.x, p2.z - p0.z);
-        const tight = crossed && Math.min(Math.hypot(crossed.x - p0.x, crossed.z - p0.z),
-          Math.hypot(p2.x - crossed.x, p2.z - crossed.z)) < chord / 4;
         let path;
         if (!curved) {
           path = bezierCurve(p0, control, p2);
-        } else if (crossed && !tight) {
+        } else if (crossed) {
           path = cubicCurve(p0,
             { x: p0.x + (crossed.x - p0.x) * (2 / 3), z: p0.z + (crossed.z - p0.z) * (2 / 3) },
             { x: p2.x + (crossed.x - p2.x) * (2 / 3), z: p2.z + (crossed.z - p2.z) * (2 / 3) }, p2);

@@ -17,7 +17,6 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 
 | Param | Brings back | PR | Doc |
 |---|---|---|---|
-| `?hoods=classic` | The 6 × 7 city with one skyline everywhere and the high rises past the west ring road, instead of the 5 × 6 city built as four neighbourhoods (downtown, parks, homes, the bay). Headless tools take `HOODS=classic` | | [city.md](city.md#neighbourhoods-default-hoodsclassic-for-the-6--7-city) |
 | `?city=classic` | The 5 × 6 city (25 land blocks, straight roads only, three bridges). Headless tools take `CITY=classic` | #483 | [city.md](city.md) |
 | `?harbor=classic` | The old river mouth, with no harbor, cranes or ships | #488, #497 | [river.md](river.md) |
 | `?northpark=classic` | No park past the north ring road | #483 | [city.md](city.md) |

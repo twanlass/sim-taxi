@@ -11,14 +11,14 @@ happening to agree on the same magic number.
 ## Coordinates
 
 ```js
-GRID_I = 5    // block columns → i runs 0..5   (6 under ?hoods=classic)
-GRID_J = 6    // block rows    → j runs 0..6, and 6 × 7 = 42 intersections   (7 under ?hoods=classic)
+GRID_I = 6    // block columns → i runs 0..6   (5 under ?city=classic)
+GRID_J = 7    // block rows    → j runs 0..7, and 7 × 8 = 56 intersections   (6 classic)
 PITCH = 20    // distance between road centrelines
 ROAD_W = 8    // full road width (two lanes)
 BLOCK = 12    // PITCH - ROAD_W, the buildable footprint between two ordinary streets
 LANE  = 2     // lane centre offset from the centreline
-SPAN_X = 100  // GRID_I * PITCH   (120 under ?hoods=classic)
-SPAN_Z = 120  // GRID_J * PITCH   (140 under ?hoods=classic)
+SPAN_X = 120  // GRID_I * PITCH   (100 classic)
+SPAN_Z = 140  // GRID_J * PITCH   (120 classic)
 
 ARTERIAL_ROAD_W = 10.667   // ROAD_W × 4/3 — a main street is divided, see below
 LANE_TO_KERB    = 2        // lane centre to its own kerb, the same on every road
@@ -38,9 +38,7 @@ The size is a gameplay constant, not an aesthetic one. On a desktop the whole ci
 which is what allows a fixed camera and unambiguous tap-to-select; on a phone in portrait it cannot,
 so the camera follows the taxi and the map can be dragged (`attachDragPan` in `game/camera.js`, see
 [rendering.md](rendering.md#camera)). The city grew from 5 × 5 land blocks to 6 × 6 in #483, with a
-2 × 2 central park in the middle, and went back to 5 × 5 as [neighbourhoods](#neighbourhoods-default-hoodsclassic-for-the-6--7-city)
-(Tyler: "it's too big"), keeping the central park; `?hoods=classic` keeps the 6 × 6 and
-`?city=classic` the old 5 × 5 without the park.
+2 × 2 central park in the middle; `?city=classic` keeps the old size.
 
 The extra row is the one asymmetry, and it is **water** — see [river.md](river.md). Land is still a
 square (36 blocks); the extra row is what stops the river costing the map a street or a landmark.
@@ -338,10 +336,6 @@ Park). From game view will just look like map ends there at a park."
 
 ### The west edge high rises (default, `?westedge=classic` to drop them)
 
-Under the default [neighbourhoods](#neighbourhoods-default-hoodsclassic-for-the-6--7-city) there are
-no high rises out here: downtown's mid-rise north of the river and the homes' houses south of it. What
-follows is the `?hoods=classic` edge.
-
 `city/westedge.js`: past the west ring road the island carries on for two more columns of blocks on
 the grid's own pitch (`WEST_COLUMNS`, `WEST_REACH` in `grid.js`, which moves `coastWest()` out by
 40). Every street running along X carries on west to the coast with its own paint, and is shut where
@@ -383,35 +377,6 @@ block them off from the game grid with construction barriers."
 - **Past all of it the city carries on into the haze** (`city/horizon.js`, `?horizon=classic` for the
   bare edge): plain towers on the grid's pitch past the west towers and past the north park, fading
   into the sky. See [rendering.md](rendering.md#past-the-edge-of-the-map--cityhorizonjs).
-
-## Neighbourhoods (default, `?hoods=classic` for the 6 × 7 city)
-
-Tyler, 2026-10-16: "it's too big. I count 7 streets wide. Let's go to 6", "let's try something with
-creating distinct hoods... Businesses. Parks, courts, skate parks. Houses. And maybe the industry Bay
-Area", and "get rid of the high rises. They block out the sun."
-
-The city is **5 × 6 blocks** again (`HOODS` in `grid.js`), with everything the big city brought —
-the central park and its parkway, the L, the harbor, the shores and the north park. The river splits
-it north from south and the north-south arterial, fixed on line 2, splits it west from east, so each
-quadrant has a real street or the water along its edges. `hoodOf` in `layout.js` names them, and the
-camera decides which goes where:
-
-| Quadrant | Hood | What it builds |
-|---|---|---|
-| NW | `downtown` | The city's own tower at mid-rise height (`DOWNTOWN_H`, 7–14), the bank (its roomiest block is kept whole so a bank always fits), the helipad. Top of the screen, so its height hides only more of itself. |
-| NE | `parks` | The central park, one park district, a pocket park, the graveyard, the court and the skatepark; low-rise on whatever is left. Runs on into the north park. |
-| SW | `homes` | Houses (`buildHouse`): each block cut down the middle and fronted on both long sides, a lawn, a path, a gable or hip, a tree out back. One block in three is a brownstone terrace instead. |
-| SE | `industry` | The bay (`buildWorks`): sawtooth and gabled sheds with loading doors and clerestories, tank farms, container yards, one chimney. The depot and the drive-through prefer it. |
-
-No pocket park rolls downtown, in the bay or among the homes, and only one park district is laid
-(in the parks quadrant): the homes are four to six blocks and every one of them is wanted for houses.
-The graveyard goes to the parks quadrant when a pair is left there and to the homes otherwise.
-
-Past the west ring road the [west edge](#the-west-edge-high-rises-default-westedgeclassic-to-drop-them)
-still carries the streets on, but **with no high rises**: north of the river it is downtown's
-mid-rise, south of it the homes' houses. The [horizon](rendering.md#past-the-edge-of-the-map--cityhorizonjs)
-filler is as low as the city (4–12). With an odd column count the drawbridge can land on the L's
-line again, so `planRiver` moves it to the other middle line and gives the train's line a fixed bridge.
 
 ## Layout: what a block *is*
 

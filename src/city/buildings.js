@@ -1,9 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, bakeColors, hash01, propMaterial, stampEntry } from '../util/geo.js';
-import {
-  BUILDING_COLORS, HOUSE_COLORS, ROW_COLORS, WORKS_COLORS, PALETTE, color, jitterColor,
-} from '../palette.js';
+import { BUILDING_COLORS, color, jitterColor } from '../palette.js';
 import { valueNoise2D } from '../util/rng.js';
 import { KERB_H } from './ground.js';
 import { treeParts, treeShape } from './props.js';
@@ -892,21 +890,6 @@ export function buildHighRise(parts, lot, bounds, rng, height, families = BUILDI
 /** Recursive lot subdivision, exported for the high rises past the west ring road. */
 export { splitLot };
 
-/**
- * A block of the homes' houses on `bounds`, for the west edge's south side (city/westedge.js),
- * built exactly as the city's own are. Returns each house's parts range and anchor, for the
- * entrance wave.
- */
-export function buildHomesBlock(parts, bounds, rng) {
-  const out = [];
-  for (const lot of houseLots(bounds, rng)) {
-    const from = parts.length;
-    buildHouse(lot, { bounds }, rng, parts, { pitched: 0, crowns: [] });
-    out.push({ from, to: parts.length, cx: (lot.x0 + lot.x1) / 2, cz: (lot.z0 + lot.z1) / 2 });
-  }
-  return out;
-}
-
 // --- Courtyard blocks -------------------------------------------------------
 //
 // A hollow perimeter block: four wings around a planted courtyard. It is the one massing in the
@@ -1092,284 +1075,6 @@ function buildCourtyard(lot, block, rng, parts) {
   return { yard, wing: t, front, trees: planted, crowns };
 }
 
-// --- The neighbourhoods' buildings (`HOODS`, city/layout.js) ------------------------------------
-//
-// Each quadrant builds its own kind of place, and every one of them is lower than the city it
-// replaced: Tyler, 2026-10-16, "get rid of the high rises. They block out the sun".
-//
-//   - **downtown** keeps the city's own tower, at a mid-rise height: tall enough to be the business
-//     district and to carry the helipad, never a wall. 7–14 against the old 16 at the core.
-//   - **parks** builds what faces a park: low-rise, 2–3 storeys, which is where `buildTower`'s
-//     pitched roofs come out.
-//   - **homes** is houses: a block split down the middle and fronted on both long sides, each lot a
-//     house with a lawn, a path to the door and maybe a tree out back — or, one block in three, a
-//     brownstone terrace of walk-ups shoulder to shoulder (`buildHouse`).
-//   - **industry** is the bay: big low sheds with loading doors and clerestories, tank farms and
-//     container yards, and one chimney (`buildWorks`).
-export const DOWNTOWN_H = [7, 14];
-const PARKSIDE_H = [4.2, 7.6];
-// To the eaves: one storey and a half, so a house is wider than it is tall and its roof is half of
-// what it looks like. The first cut ran to 5.9 on a 4-unit frontage and the street read as a row of
-// narrow towers wearing hats.
-const HOUSE_H = [2.9, 4.3];
-const ROW_H = [6.2, 8.8];
-const ROW_CHANCE = 0.35;
-const HOUSE_FRONTAGE = [4.8, 6.2];
-// Walk-ups are narrower than houses: a terrace is a row of tall thin fronts.
-const ROW_FRONTAGE = [3.4, 4.2];
-const WORKS_H = [4.2, 6.4];
-export const CHIMNEY_H = [10.5, 12];
-
-/**
- * The homes' lots: the block cut in two across one axis, and each half cut into a row of lots
- * fronting the street on its outer side. Each lot carries the side it fronts and the block's style.
- */
-function houseLots(bounds, rng) {
-  const { x0, z0, x1, z1 } = bounds;
-  const style = rng.chance(ROW_CHANCE) ? 'row' : 'house';
-  const frontage = style === 'row' ? ROW_FRONTAGE : HOUSE_FRONTAGE;
-  // Houses front the pair of streets the block is longer between, so the rows run the long way.
-  const frontX = (z1 - z0) >= (x1 - x0);    // fronts face ±x, the rows run along z
-  const lots = [];
-  for (const half of [0, 1]) {
-    const [a0, a1] = frontX ? [x0, x1] : [z0, z1];
-    const mid = (a0 + a1) / 2;
-    const [h0, h1] = half ? [mid, a1] : [a0, mid];
-    const [b0, b1] = frontX ? [z0, z1] : [x0, x1];
-    const n = Math.max(2, Math.round((b1 - b0) / rng.range(frontage[0], frontage[1])));
-    for (let k = 0; k < n; k++) {
-      const c0 = b0 + ((b1 - b0) * k) / n;
-      const c1 = b0 + ((b1 - b0) * (k + 1)) / n;
-      // Side index as everywhere here: 0 = +X, 1 = +Z, 2 = -X, 3 = -Z.
-      const front = frontX ? (half ? 0 : 2) : (half ? 1 : 3);
-      lots.push(frontX
-        ? { x0: h0, x1: h1, z0: c0, z1: c1, front, style }
-        : { x0: c0, x1: c1, z0: h0, z1: h1, front, style });
-    }
-  }
-  return lots;
-}
-
-/** A gable over a `w × d` footprint, ridge along the longer side: the triangular prism `pitchedRoof` uses. */
-function gable(parts, cx, cz, w, d, y, rise, col) {
-  const alongX = w > d;
-  const span = alongX ? d : w;
-  const len = alongX ? w : d;
-  const geo = new THREE.CylinderGeometry(1, 1, 1, 3);
-  geo.rotateX(-Math.PI / 2);
-  geo.scale(span / Math.sqrt(3), rise / 1.5, len);
-  if (alongX) geo.rotateY(Math.PI / 2);
-  geo.translate(cx, y + rise / 3, cz);
-  parts.push(bakeColor(geo, col));
-}
-
-/**
- * One house, or one walk-up in a terrace, on a lot from `houseLots`.
- *
- * Everything is placed in the lot's own frame — `u` along the frontage, `v` back from the kerb — and
- * mapped out through `at`, so a house is the same house whichever way its street runs.
- */
-function buildHouse(lot, block, rng, parts, stats) {
-  const out = SIDE_OUT[lot.front];
-  const alongX = lot.front === 0 || lot.front === 2;      // depth runs along x
-  const row = lot.style === 'row';
-  const streets = streetSidesOf(lot, block.bounds);
-  // Frontage, measured across the lot (`u`), and depth from the kerb back (`v`).
-  const [u0, u1] = alongX ? [lot.z0, lot.z1] : [lot.x0, lot.x1];
-  const kerb = alongX ? (out[0] > 0 ? lot.x1 : lot.x0) : (out[1] > 0 ? lot.z1 : lot.z0);
-  const lotD = alongX ? lot.x1 - lot.x0 : lot.z1 - lot.z0;
-  const at = (u, v) => (alongX
-    ? { x: kerb - out[0] * v, z: u }
-    : { x: u, z: kerb - out[1] * v });
-  const slab = (su, h, sv, u, base, v, col) => {
-    const p = at(u, v);
-    const [sx, sz] = alongX ? [sv, su] : [su, sv];
-    parts.push(box(sx, h, sz, p.x, base, p.z, col));
-  };
-  // The ends of the frontage that meet a cross street keep the pavement clear; the rest run to the
-  // lot line, a terrace's party walls touching and a house's yards meeting at a fence line.
-  const sideLo = alongX ? 3 : 2;
-  const sideHi = alongX ? 1 : 0;
-  const endLo = u0 + (streets.includes(sideLo) ? INSET : 0);
-  const endHi = u1 - (streets.includes(sideHi) ? INSET : 0);
-
-  // The lawn: front and back, under the house, inset off the pavement and a hair off the
-  // neighbours so each yard reads as its own. Its top is 0.05 over the pavement's, not on it.
-  const lawnV0 = INSET;
-  const lawnV1 = lotD - 0.05;
-  const lawnU0 = endLo + (streets.includes(sideLo) ? 0 : 0.05);
-  const lawnU1 = endHi - (streets.includes(sideHi) ? 0 : 0.05);
-  slab(lawnU1 - lawnU0, 0.06, lawnV1 - lawnV0, (lawnU0 + lawnU1) / 2, KERB_H, (lawnV0 + lawnV1) / 2,
-    jitterColor(color('park'), rng, { l: 0.04 }));
-
-  const frontYard = row ? INSET + 0.35 : INSET + rng.range(0.4, 0.8);
-  const width = row ? endHi - endLo : Math.max(2.2, (endHi - endLo) - rng.range(0.7, 1.3));
-  const depth = Math.min(lotD - frontYard - (row ? 1.0 : 1.4), row ? rng.range(3.6, 4.2) : rng.range(2.6, 3.2));
-  if (width < 2 || depth < 2) return;
-  const uc = row ? (endLo + endHi) / 2 : (endLo + endHi) / 2 + rng.jitter(((endHi - endLo) - width) / 2);
-  const vc = frontYard + depth / 2;
-  const h = row ? rng.range(ROW_H[0], ROW_H[1]) : rng.range(HOUSE_H[0], HOUSE_H[1]);
-  const body = jitterColor(color(rng.pick(row ? ROW_COLORS : HOUSE_COLORS)), rng, { l: 0.05 });
-  slab(width, h, depth, uc, KERB_H, vc, body);
-  const c = at(uc, vc);
-  const [w, d] = alongX ? [depth, width] : [width, depth];
-  punchedWindows(parts, c.x, KERB_H, c.z, w, d, h, row ? 0.55 : 0.1, color('window'), streakPeak(c.x, c.z), body);
-
-  // The front door, off centre, and what stands in front of it: a stoop up to a walk-up's raised
-  // parlour floor, a path across a house's lawn.
-  const du = uc + (rng.chance(0.5) ? 1 : -1) * width * 0.26;
-  slab(0.85, 1.9, 0.08, du, KERB_H + (row ? 0.5 : 0.02), frontYard - 0.02, color('door'));
-  if (row) {
-    slab(1.0, 0.5, 0.7, du, KERB_H, frontYard - 0.35, shade(body, 0.8));
-  } else {
-    slab(0.7, 0.07, frontYard - INSET, du, KERB_H, (INSET + frontYard) / 2, color('parkPath'));
-  }
-
-  const top = KERB_H + h;
-  if (row) {
-    // A flat roof behind a heavy cornice: the brownstone's skyline is its cornice line.
-    lippedCap(parts, w + 0.3, 0.34, d + 0.3, c.x, top, c.z, shade(body, 0.7));
-  } else {
-    // Eaves, then a gable or a hip — `pitchedRoof`, the city's own low-rise roof.
-    stats.pitched += 1;
-    pitchedRoof(parts, c.x, c.z, w, d, top, body, rng);
-  }
-
-  // A tree out back, on the line between the two halves of the block where the yards meet, kept off
-  // the house by its own crown's reach. A yard too shallow for one grows none.
-  if (!row && rng.chance(0.55)) {
-    const room = lotD - frontYard - depth - 0.2;
-    const reachPerHeight = treeShape(1).crownReach;
-    const height = Math.min(rng.range(3.4, 4.8), room / reachPerHeight);
-    if (height >= 2.6) {
-      const p = at(uc + rng.jitter(width * 0.25), lotD - 0.15);
-      parts.push(...treeParts(p.x, p.z, rng, { height, crowns: stats.crowns }));
-    }
-  }
-}
-
-/** A sawtooth or gabled shed, a tank farm or a stack of containers, on an industrial lot. */
-function buildWorks(lot, block, rng, parts, stats) {
-  const b = buildableOf(lot);
-  if (b.w < 2.5 || b.d < 2.5) return;
-  const { cx, cz } = b;
-  const streets = streetSidesOf(lot, block.bounds);
-  const yard = (col) => parts.push(box(b.w + 1.0, 0.05, b.d + 1.0, cx, KERB_H, cz, col));
-  const roll = rng.next();
-
-  if (roll < 0.62 || b.w < 5 || b.d < 5) {
-    const h = rng.range(WORKS_H[0], WORKS_H[1]);
-    const wall = jitterColor(color(rng.pick(WORKS_COLORS)), rng, { l: 0.05 });
-    parts.push(box(b.w, h, b.d, cx, KERB_H, cz, wall));
-    // A concrete plinth round the base, and a clerestory high up every side.
-    parts.push(box(b.w + 0.06, 0.8, b.d + 0.06, cx, KERB_H, cz, shade(wall, 0.82)));
-    ribbonWindows(parts, cx, KERB_H, cz, b.w, b.d, h, h - 3, color('window'), streakPeak(cx, cz));
-    // Loading doors on the faces that meet a street.
-    for (const side of streets) {
-      const faceW = side === 0 || side === 2 ? b.d : b.w;
-      const n = THREE.MathUtils.clamp(Math.floor(faceW / 3.4), 1, 4);
-      const dh = Math.min(3, h * 0.55);
-      const dw = Math.min(2.4, faceW / n - 0.8);
-      const [ox, oz] = SIDE_OUT[side];
-      const [tx, tz] = SIDE_TAN[side];
-      for (let k = 0; k < n; k++) {
-        const u = (k + 0.5 - n / 2) * (faceW / n);
-        const px = cx + ox * (b.w / 2 + 0.07) + tx * u;
-        const pz = cz + oz * (b.d / 2 + 0.07) + tz * u;
-        parts.push(box(ox ? 0.08 : dw, dh, ox ? dw : 0.08, px, KERB_H, pz, color('garageDoor')));
-      }
-    }
-    const top = KERB_H + h;
-    const roof = jitterColor(color(rng.chance(0.5) ? 'slate' : 'roof'), rng, { l: 0.05 });
-    if (rng.chance(0.5)) {
-      // Sawtooth: a run of gables side by side across the long axis, the factory roof.
-      const alongX = b.w >= b.d;
-      const len = alongX ? b.w : b.d;
-      const n = Math.max(2, Math.round(len / 3.2));
-      for (let k = 0; k < n; k++) {
-        const off = (k + 0.5 - n / 2) * (len / n);
-        const [pw, pd] = alongX ? [len / n, b.d] : [b.w, len / n];
-        gable(parts, cx + (alongX ? off : 0), cz + (alongX ? 0 : off), pw, pd, top, 1.1, roof);
-      }
-    } else if (rng.chance(0.5)) {
-      gable(parts, cx, cz, b.w + 0.3, b.d + 0.3, top, Math.min(1.6, Math.min(b.w, b.d) * 0.22), roof);
-    } else {
-      roofKit(parts, cx, cz, b.w, b.d, top, 'punched', wall, rng, stats);
-    }
-    return;
-  }
-
-  if (roll < 0.84) {
-    // Tanks, two to four on a concrete pad, with a pipe rack between them.
-    yard(color('quay'));
-    const cols = b.w > b.d * 1.6 ? 3 : 2;
-    const rows = b.d > b.w * 1.6 ? 3 : 2;
-    const cw = b.w / cols;
-    const cd = b.d / rows;
-    const r = Math.min(cw, cd) / 2 - 0.35;
-    for (let i = 0; i < cols; i++) {
-      for (let j = 0; j < rows; j++) {
-        if (rng.chance(0.2)) continue;
-        const tx = b.x0 + cw * (i + 0.5);
-        const tz = b.z0 + cd * (j + 0.5);
-        const th = rng.range(2.6, 5.2);
-        const steel = jitterColor(color('tankSteel'), rng, { l: 0.04 });
-        const tank = new THREE.CylinderGeometry(r, r, th, 12);
-        tank.translate(tx, KERB_H + th / 2, tz);
-        parts.push(bakeColor(tank, steel));
-        const lid = new THREE.CylinderGeometry(r * 0.35, r * 1.02, 0.45, 12);
-        lid.translate(tx, KERB_H + th + 0.225, tz);
-        parts.push(bakeColor(lid, shade(steel, 0.86)));
-        const hoop = new THREE.CylinderGeometry(r * 1.03, r * 1.03, 0.14, 12);
-        hoop.translate(tx, KERB_H + th * 0.4, tz);
-        parts.push(bakeColor(hoop, color('rooftopIron')));
-      }
-    }
-    const rackY = KERB_H + 2.2;
-    parts.push(box(b.w * 0.8, 0.22, 0.22, cx, rackY, cz, color('rooftopIron')));
-    parts.push(box(0.22, 0.22, b.d * 0.8, cx, rackY + 0.22, cz, color('rooftopIron')));
-    if (!stats.chimney) {
-      // One chimney in the city, the bay's landmark: thin enough that it hides almost nothing.
-      stats.chimney = true;
-      const ch = rng.range(CHIMNEY_H[0], CHIMNEY_H[1]);
-      const sx = b.x0 + 0.7;
-      const sz = b.z0 + 0.7;
-      const stack = new THREE.CylinderGeometry(0.42, 0.62, ch, 10);
-      stack.translate(sx, KERB_H + ch / 2, sz);
-      parts.push(bakeColor(stack, jitterColor(color('brick'), rng, { l: 0.04 })));
-      for (const f of [0.78, 0.9]) {
-        const band = new THREE.CylinderGeometry(0.5, 0.5, 0.35, 10);
-        band.translate(sx, KERB_H + ch * f, sz);
-        parts.push(bakeColor(band, color('pale')));
-      }
-    }
-    return;
-  }
-
-  // A container yard: stacks one to three high, in rows down the long axis.
-  yard(color('quay'));
-  const alongX = b.w >= b.d;
-  const CL = 2.6;
-  const CW = 1.1;
-  const len = alongX ? b.w : b.d;
-  const wid = alongX ? b.d : b.w;
-  const nl = Math.max(1, Math.floor(len / (CL + 0.25)));
-  const nw = Math.max(1, Math.floor(wid / (CW + 0.5)));
-  for (let i = 0; i < nl; i++) {
-    for (let j = 0; j < nw; j++) {
-      const stack = rng.int(0, 3);
-      const a = (i + 0.5 - nl / 2) * (len / nl);
-      const c = (j + 0.5 - nw / 2) * (wid / nw);
-      for (let k = 0; k < stack; k++) {
-        const col = jitterColor(new THREE.Color(rng.pick(PALETTE.containerColors)), rng, { l: 0.04 });
-        parts.push(alongX
-          ? box(CL, CW - 0.04, CW, cx + a, KERB_H + k * CW, cz + c, col)
-          : box(CW, CW - 0.04, CL, cx + c, KERB_H + k * CW, cz + a, col));
-      }
-    }
-  }
-}
-
 export function createBuildings(rng, blocks) {
   const parts = [];
   // Counted rather than inferred. These are all rates the look depends on — one courtyard, a
@@ -1379,9 +1084,7 @@ export function createBuildings(rng, blocks) {
   // that the one landing circle can be placed once they all exist. It rides here rather than in a
   // parameter of its own because it is threaded through exactly the same three call sites the
   // counters are, and two out-parameters where one would do is two things to keep in step.
-  // `crowns` collects the canopy of every tree the houses plant, for the probe's shading check (the
-  // courtyard hands back its own).
-  const stats = { pitched: 0, helipads: 0, decks: [], chimney: false, crowns: [] };
+  const stats = { pitched: 0, helipads: 0, decks: [] };
 
   // Every parcel in the city, decided before any of them is built. Two passes rather than one
   // because of the courtyard: **exactly one city block gets hollowed out**, and "exactly one"
@@ -1389,39 +1092,16 @@ export function createBuildings(rng, blocks) {
   // the tail running to five, and a distinctive massing repeated five times across a 5×5 grid
   // stops being distinctive — it just becomes the shape a block is.
   const lots = [];
-  // Under `HOODS` downtown is only four to six blocks, and a bank needs a lot 7 across, which a
-  // divided block rarely leaves. So the roomiest downtown block is kept whole for it — chosen by
-  // size rather than drawn, so the stream below is the same either way.
-  const area = (b) => (b.bounds.x1 - b.bounds.x0) * (b.bounds.z1 - b.bounds.z0);
-  const roomiest = (except) => blocks.filter((b) => b.type === 'built' && b.hood === 'downtown' && b !== except)
-    .reduce((best, b) => (!best || area(b) > area(best) + 1e-6 ? b : best), null);
-  const bankBlock = roomiest(null);
-  // ...and the next roomiest for the courtyard, for the same reason: only an undivided block can be
-  // hollowed out, and with downtown this small a city whose blocks all split got none (6 in 24).
-  const courtBlock = bankBlock ? roomiest(bankBlock) : null;
   for (const block of blocks) {
     if (block.type !== 'built') continue;
     const { x0, z0, x1, z1 } = block.bounds;
-    if (block === bankBlock || block === courtBlock) {
-      lots.push({ lot: { x0, z0, x1, z1 }, block, kind: 'tower', bank: block === bankBlock, court: block === courtBlock });
-      continue;
-    }
-    if (block.hood === 'homes') {
-      for (const lot of houseLots(block.bounds, rng)) lots.push({ lot, block, kind: 'house' });
-      continue;
-    }
-    // The bay's sheds want the whole block, or half of one: a warehouse is one big footprint.
-    const depth = block.hood === 'industry' ? 1 : 2;
-    const kind = block.hood === 'industry' ? 'works' : 'tower';
-    for (const lot of splitLot(x0, z0, x1, z1, depth, rng)) lots.push({ lot, block, kind });
+    for (const lot of splitLot(x0, z0, x1, z1, 2, rng)) lots.push({ lot, block });
   }
 
   // Only an *undivided* block is wide enough to hollow out and still leave wings with rooms in
   // them, so the candidate list is short to begin with — five or so on a typical seed. A city
   // whose blocks all happened to split gets no courtyard rather than a cramped one.
-  const reserved = lots.filter((e) => e.court);
-  const roomy = (reserved.length ? reserved : lots).filter(({ lot, kind, bank }) => {
-    if (kind !== 'tower' || bank) return false;
+  const roomy = lots.filter(({ lot }) => {
     const b = buildableOf(lot);
     return b.w > COURT_MIN && b.d > COURT_MIN;
   });
@@ -1437,12 +1117,7 @@ export function createBuildings(rng, blocks) {
   // forecourt and a drive-through lane respectively, which is a thing `splitLot` would divide out
   // from under them; a bank is a building with a door on the street and needs no ground of its own.
   // See city/bank.js.
-  // Under `HOODS` the bank is downtown's: the business district is where the robbery starts.
-  // Anywhere a tower stands, if downtown has no lot that takes it.
-  const towerLots = lots.filter((e) => e.kind === 'tower');
-  const downtownLots = towerLots.filter((e) => e.bank);
-  const bankLot = (downtownLots.length ? chooseBankLot(rng, downtownLots, buildableOf, yard) : null)
-    ?? chooseBankLot(rng, towerLots, buildableOf, yard);
+  const bankLot = chooseBankLot(rng, lots, buildableOf, yard);
 
   // Every part a lot builds is stamped with that lot's ground anchor, which is what lets the
   // entrance animation (game/cityentry.js) grow whole buildings out of the one merged mesh. The
@@ -1458,13 +1133,7 @@ export function createBuildings(rng, blocks) {
     else if (entry === bankLot) {
       bank = buildBank(buildableOf(entry.lot), entry.lot, entry.block.bounds, parts);
     }
-    else if (entry.kind === 'house') buildHouse(entry.lot, entry.block, rng, parts, stats);
-    else if (entry.kind === 'works') buildWorks(entry.lot, entry.block, rng, parts, stats);
-    else if (entry.block.hood === 'downtown') {
-      buildTower(entry.lot, entry.block, rng, parts, stats, { height: rng.range(DOWNTOWN_H[0], DOWNTOWN_H[1]) });
-    } else if (entry.block.hood === 'parks') {
-      buildTower(entry.lot, entry.block, rng, parts, stats, { height: rng.range(PARKSIDE_H[0], PARKSIDE_H[1]) });
-    } else buildTower(entry.lot, entry.block, rng, parts, stats);
+    else buildTower(entry.lot, entry.block, rng, parts, stats);
     if (parts.length === from) continue;      // a lot too narrow to build stamps nothing
     const b = buildableOf(entry.lot);
     const rand = hash01(b.cx, b.cz);
@@ -1520,7 +1189,7 @@ export function createBuildings(rng, blocks) {
   mesh.receiveShadow = true;
   mesh.name = 'buildings';
   return {
-    mesh, count: parts.length, courtyards, court, pad, entrySites, crowns: stats.crowns,
+    mesh, count: parts.length, courtyards, court, pad, entrySites,
     // Where the bank stands, or null if this city has nowhere for one. See city/bank.js — the door
     // point on it is what `game/robbery.js` measures the trigger range from, and what the robber
     // comes running out of.

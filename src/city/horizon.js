@@ -4,7 +4,6 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { color, jitterColor } from '../palette.js';
 import {
   WEST_CORNER, WEST_COLUMNS, GRID_J, HALF_ROAD, lineX, lineZ, halfRoadX, isRiverBlock, coastWest, coastSouth,
-  HOODS,
 } from './grid.js';
 import { KERB_H } from './ground.js';
 import { northParkBounds } from './northpark.js';
@@ -68,9 +67,8 @@ const SIDE_FEATHER = 14;
 // The towers. West carries on the skyline, under `WEST_SKYLINE` (the aeroplane's floor); north of the
 // park stays under the city's own ceiling, because the helicopters transit at 22 and nothing
 // keeps them out of the north the way `WEST_CLEAR_X` keeps them out of the west.
-// Under `HOODS` the city past the edge is as low as the city in it: no skyline anywhere.
-const WEST_H = HOODS ? [4, 11] : [12, 34];
-const NORTH_H = HOODS ? [5, 12] : [8, 19];
+const WEST_H = [12, 34];
+const NORTH_H = [8, 19];
 // Bigger than the city's lots: a far skyline is a few broad masses, not a crowd.
 const LOT_DEPTH = 1;
 // A share of the taller towers carry a set-back crown: the one detail that survives the haze.

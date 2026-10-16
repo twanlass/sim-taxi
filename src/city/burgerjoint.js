@@ -309,7 +309,7 @@ function laneSeen(blocks, block, site) {
  * reason stated there: the generators downstream each run their own offset stream, so a draw here
  * cannot reshuffle a park, an arterial or a tower.
  */
-export function chooseBurgerBlock(rng, blocks, prefer = null) {
+export function chooseBurgerBlock(rng, blocks) {
   const candidates = blocks.filter((b) => b.type === 'built'
     // Half of a merged park district is not a lot. The depot has already claimed its block by the
     // time this runs, and `type` covers that one — `chooseGarageBlock` sets it first.
@@ -336,12 +336,9 @@ export function chooseBurgerBlock(rng, blocks, prefer = null) {
   // centrality 0.98.
   //
   // Each filter falls back to the pool it narrows rather than to nothing.
-  // The neighbourhood a layout would rather have it in (`HOODS`), when it has a lot that works.
-  const preferred = prefer ? candidates.filter(prefer) : [];
-  const from = preferred.length ? preferred : candidates;
-  const inner = from.filter((b) => b.bi > 0 && b.bi < GRID_I - 1
+  const inner = candidates.filter((b) => b.bi > 0 && b.bi < GRID_I - 1
     && b.bj > 0 && b.bj < GRID_J - 1);
-  const pool = inner.length ? inner : from;
+  const pool = inner.length ? inner : candidates;
   const quiet = pool.filter((b) => b.centrality <= 0.6);
   return rng.pick(quiet.length ? quiet : pool);
 }

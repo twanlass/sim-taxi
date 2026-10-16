@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { pointInPolygon } from '../src/city/curves.js';
-import { isParkwayMid, coastWest, coastEast, coastNorth, harborBasin, HARBOR, HOODS, LTRAIN_NS as GRID_LTRAIN_NS, isArterialZ as gridIsArterialZ } from '../src/city/grid.js';
+import { isParkwayMid, coastWest, coastEast, coastNorth, harborBasin, HARBOR } from '../src/city/grid.js';
 import { createHarbor } from '../src/city/harbor.js';
 import {
   createWestEdge, westKerbX, westClosures, WEST_SKYLINE, WEST_CLEAR_X, cornerBlocks, northClosure,
@@ -415,11 +415,8 @@ const onGrass = (city, i, j) => {
   createLayout(makeRng(seed));
   check('north park: every city gets its arched drive', built === 0 || missing === 0,
     `${missing}/${built} without one`);
-  // The 5 × 6 neighbourhood city (`HOODS`) has 20 fewer units of park for the lake to slide along,
-  // and two streets east of the L: measured 5 in 40 with one drive, all five missing the east one
-  // (seeds 2, 8, 21, 23, 26), where the lake's loop covers both.
   check('north park: a drive each side of the L, bar the cities the lake leaves no room in',
-    single <= (HOODS ? 5 : 3), `${single}/${built} with one${firstSingle >= 0 ? `, first seed ${firstSingle}` : ''}`);
+    single <= 3, `${single}/${built} with one${firstSingle >= 0 ? `, first seed ${firstSingle}` : ''}`);
   check('north park: two drives never share a stretch of wall', overlap === 0, `${overlap}/${built} too close`);
 }
 
@@ -1202,7 +1199,7 @@ const onGrass = (city, i, j) => {
     // Generous on purpose: a trunk or a bench under a crown falls inside its 1.3 r and is let off.
     // What this is for is a wall, a roof or a plinth going soft, which nothing near a tree is.
     scan(builtProps.mesh, builtProps.crowns);
-    scan(builtCity.mesh, [...(builtCity.court?.crowns ?? []), ...builtCity.crowns]);
+    scan(builtCity.mesh, builtCity.court?.crowns ?? []);
   }
   createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
   check('only the tree crowns are smooth-shaded; every other face keeps its facet', strays === 0,
@@ -1573,25 +1570,20 @@ const onGrass = (city, i, j) => {
   }
   createLayout(makeRng(seed));     // put the probe's city back — `createLayout` installs its network
 
-  // Under `HOODS` there is one district rather than two, and on one city in 40 (seed 71994) the
-  // statue, the pond and the court fill it and leave the skatepark nowhere to go.
-  check('every city with a park gets a skatepark', parks >= cities - (HOODS ? 1 : 0), `${parks} across ${cities} cities`);
+  check('every city with a park gets a skatepark', parks === cities, `${parks} across ${cities} cities`);
 
   // And the pocket park `createLayout` always hands back: a lone park in every city, touching no
-  // other park on any side or corner. Under `HOODS` it is the parks quadrant's instead, where every
-  // block touches green by design, so what holds there is that the quadrant has one.
+  // other park on any side or corner.
   let bare = 0;
   for (let s = 0; s < 40; s++) {
     const cityLayout = createLayout(makeRng(seed + s * 37));
     const green = new Set(cityLayout.filter((b) => b.type === 'park').map((b) => `${b.bi},${b.bj}`));
     const alone = cityLayout.filter((b) => b.type === 'park' && b.districtId === null
-      && (HOODS ? b.hood === 'parks'
-        : [-1, 0, 1].every((di) => [-1, 0, 1].every((dj) => (!di && !dj) || !green.has(`${b.bi + di},${b.bj + dj}`)))));
+      && [-1, 0, 1].every((di) => [-1, 0, 1].every((dj) => (!di && !dj) || !green.has(`${b.bi + di},${b.bj + dj}`))));
     if (!alone.length) bare += 1;
   }
   createLayout(makeRng(seed));
-  check(HOODS ? 'every city has a pocket park in the parks quadrant' : 'every city has at least one pocket park standing on its own',
-    bare === 0, `${bare} of 40 cities without one`);
+  check('every city has at least one pocket park standing on its own', bare === 0, `${bare} of 40 cities without one`);
   check('on the lawn, clear of the statue, the pond and the court, and no bench on it',
     offLawn + clash + benchOn === 0, `${offLawn} off the lawn, ${clash} clashes, ${benchOn} benches on it`);
 
@@ -5219,16 +5211,10 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   // past the edge of the box. The blip is thrown as soon as the blocker is in range. Staged at the
   // first junction with a straight run through it, an oncoming lane to borrow and a road coming in
   // from the taxi's right.
-  //
-  // North-south headings first. The 5 × 6 neighbourhood city (`HOODS`) put the first qualifying
-  // junction on an east-west road for the first time, and there the roadblock jink below clears the
-  // cop but brushes it once (1 bump, at every east-west junction tried: (1,1), (1,2), (1,5) heading
-  // west, (3,4) heading east; none heading north or south). That is an open bug in the jink, not in
-  // the staging; it is reported rather than fixed here, and this keeps the stage the one it was.
   let sw = null;
   for (let i = 1; i < GRID_I && !sw; i++) {
     for (let j = 1; j < GRID_J && !sw; j++) {
-      for (const d of [1, 3, 0, 2]) {
+      for (const d of [0, 1, 2, 3]) {
         if (ringAxisAt(i, j) || approachRoom(d, i, j) < 30) continue;
         if (!legalExits(d, i, j).includes(d) || !legalExits(opposite(d), i, j).length) continue;
         if (!(approachRoom(leftOf(d), i, j) > 0)) continue;
@@ -9642,9 +9628,7 @@ function rideToPickup() {
   check('out of sight, the cop drives to where it last saw the taxi, not where it is',
     searchFrames > 0 && staleFrames > 0 && reaimed === 0,
     `${searchFrames} frames searching, ${staleFrames} of them somewhere the taxi no longer is, ${reaimed} re-aims`);
-  // One of eight under `HOODS`: houses with yards, parks and the low bay leave long sightlines
-  // across the blocks, and a smaller city has fewer corners to break them. Flagged in the PR.
-  check('cornering on the pill can lose the cop round the corners', n(cornering, 'sight') >= (HOODS ? 1 : 2),
+  check('cornering on the pill can lose the cop round the corners', n(cornering, 'sight') >= 2,
     `${n(cornering, 'sight')}/${cornering.length} lost out of sight, ${n(cornering, 'caught')} caught`);
   check('...while a cruising taxi is still caught with the city standing',
     n(cruising, 'caught') >= cruising.length * 0.7,
@@ -17871,9 +17855,7 @@ let chopperOrder; // likewise
       for (const [offset, watch] of [[0, false], [100, false], [200, true], [300, true],
         [400, false], [500, false], [600, true], [700, true]]) {
         const s5 = new THREE.Scene();
-        // Twelve cars on the neighbourhood city, its own opening count (`difficulty.js`): eighteen
-        // on a map with a fifth fewer roads queued a cop behind traffic at the seal on 3 runs of 8.
-        const t5 = createTraffic(makeRng(seed + 44 + offset), s5, HOODS ? 12 : 18, 24);
+        const t5 = createTraffic(makeRng(seed + 44 + offset), s5, 18, 24);
         const f5 = createFareSystem(makeRng(seed + 55), s5);
         t5.warmup(3);
         f5.state.delivered = 5;
@@ -18184,9 +18166,7 @@ let chopperOrder; // likewise
   check('no corner the camera cannot see is left on the board',
     badKept === 0, `${badKept} kept with under 60% of the mark visible`);
   check('...and the worst corner it does keep still shows most of its mark',
-    // At or over the 60% the check above draws the line at: under `HOODS` the worst kept corner is
-    // 15 rays of 25 exactly.
-    worstKept >= 0.6, `${(worstKept * 100).toFixed(0)}% visible`);
+    worstKept > 0.6, `${(worstKept * 100).toFixed(0)}% visible`);
   // The other direction, which the cell size buys and nothing else does: a height field coarse
   // enough to over-state a wall starts throwing away corners that were perfectly visible. At a
   // 1-unit cell this failed on this very sweep.
@@ -18759,10 +18739,7 @@ let chopperOrder; // likewise
     const kinds = [...Array(GRID_I + 1).keys()].map((i) => riverCrossing(i));
     const fixed = kinds.filter((k) => k === 'fixed').length;
     const draws = kinds.filter((k) => k === 'draw').length;
-    // ...and the neighbourhood city's six lines carry the L on one of the middle two, which gets a
-    // fixed bridge beside the leaf — four of six, the two in the middle side by side (`planRiver`).
-    const railLine = GRID_LTRAIN_NS && [...Array(GRID_I + 1).keys()].some((i) => i > 0 && i < GRID_I && gridIsArterialZ(i));
-    const wantFixed = (GRID_I % 2 === 0 && GRID_I >= 6) || (HOODS && railLine) ? 3 : 2;
+    const wantFixed = GRID_I % 2 === 0 && GRID_I >= 6 ? 3 : 2;
     const besideDraw = wantFixed === 2
       || kinds.findIndex((k, i) => k === 'fixed' && i > 0 && i < GRID_I) === drawbridgeLine() - 1
       || kinds.findLastIndex((k, i) => k === 'fixed' && i > 0 && i < GRID_I) === drawbridgeLine() + 1;
@@ -19501,9 +19478,7 @@ let chopperOrder; // likewise
         else farTop = Math.max(farTop, tp.getY(k));
       }
       check('west edge: the near column stays under the city ceiling, the far one under WEST_SKYLINE',
-        // Under `HOODS` the far column is mid-rise too: the high rises are what Tyler asked to lose.
-        nearTop < SKYLINE_CEILING && farTop <= WEST_SKYLINE
-          && (HOODS ? farTop < SKYLINE_CEILING : farTop > SKYLINE_CEILING + 5),
+        nearTop < SKYLINE_CEILING && farTop <= WEST_SKYLINE && farTop > SKYLINE_CEILING + 5,
         `near ${nearTop.toFixed(1)} (ceiling ${SKYLINE_CEILING}), far ${farTop.toFixed(1)} (cap ${WEST_SKYLINE})`);
 
       // No tower can stand between the camera and a street. Rays toward the camera from the ring
@@ -21035,8 +21010,7 @@ let chopperOrder; // likewise
     lti.deck.customDepthMaterial.onBeforeCompile(stubD, null);
     const classicI = createLTrain(new THREE.Scene(), makeRng(9), { intro: false });
     check('ltrain: the bents rise first, then the island spans are laid one at a time from the taxi\'s end',
-      // Seven island spans on the five-column neighbourhood city, eight on the six-column one.
-      firstDrop >= Math.max(...islandRise) + 0.3 && ordered && island.length >= (GRID_I >= 6 ? 8 : 7)
+      firstDrop >= Math.max(...islandRise) + 0.3 && ordered && island.length >= 8
         && maxSpan === spans.length - 1 && end < 5 && heldTrain && !lti.intro.running()
         && stubI.vertexShader.includes('aLIntro') && stubI.fragmentShader.includes('vLIntro <')
         && stubD.vertexShader.includes('aLIntro') && stubD.vertexShader.includes('mvPosition.z -=')
@@ -21152,9 +21126,7 @@ let chopperOrder; // likewise
     const g = sweep.graveyardBlock;
     if (!g?.double) continue;
     placed += 1;
-    // Under `HOODS` downtown is a quadrant rather than a centrality, and the graveyard goes in the
-    // parks quadrant beside it — whose inner corner block scores over 0.6 on the old measure.
-    if (HOODS ? g.blocks.some((b) => b.hood === 'downtown') : g.centrality > 0.6) downtown += 1;
+    if (g.centrality > 0.6) downtown += 1;
     // The road between the two blocks is gone, and the depot and the joint are elsewhere.
     if (!isSegmentClosed(g.bi + 1, g.bj, DIR.PZ)) open += 1;
     if (g.blocks.some((b) => b === sweep.garageBlock || b === sweep.burgerBlock || b.type !== 'graveyard')) {

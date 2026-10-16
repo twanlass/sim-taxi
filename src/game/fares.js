@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  GRID_I, GRID_J, halfRoadX, halfRoadZ, isParkBlock, isParkwayMid, isRiverBlock, lineX, lineZ, HOODS,
+  GRID_I, GRID_J, halfRoadX, halfRoadZ, isParkBlock, isParkwayMid, isRiverBlock, lineX, lineZ,
 } from '../city/grid.js';
 import { KERB_H } from '../city/ground.js';
 import { createPassengerPin, createDestinationPin } from '../geometry/marker.js';
@@ -594,14 +594,7 @@ export const onWaterBlock = (spot) => {
 // be visible: the far edge of *every* mark on a kerb corner disappears under its own building's
 // façade — the corner stands 0.35 clear of a wall and the mark is 3.5 across — and a test that
 // counted that would call the whole city hidden.
-//
-// The neighbourhood city (`HOODS`) samples further out, at three quarters of the disc: its mid-rise
-// downtown and its terraces put a wall at the height that halves a mark on far more corners than
-// the classic towers did (the "wrong height" trap in CLAUDE.md), and at half the reach those
-// scored 3 of 6 with 52% of the mark visible — 12 such corners kept over 20 cities. At 0.75 and
-// four of six it is 1 kept, none the camera could see thrown away, and 4.2 junctions of 42 out of
-// play against 3.4.
-const SEEN_REACH = HOODS ? RING_R * 0.75 : RING_R / 2;
+const SEEN_REACH = RING_R / 2;
 // Six samples, and the seventh is left out on purpose. The up-screen diagonal — the mark's far
 // corner — is **buried under its own building on 82% of the corners in the city**: the pin stands
 // 0.35 clear of the façade and the mark reaches 1.75 further, so on any block with a building on
@@ -614,7 +607,7 @@ const SEEN_SAMPLES = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1]];
 // with more than 85% visible scored **4 or more**. There is a clean gap between the two
 // populations and the threshold sits in it, with a count of margin either way. Three takes 1.7
 // junctions of 36 out of play and drops no corner the camera could see.
-const SEEN_MIN = HOODS ? 4 : 3;
+const SEEN_MIN = 3;
 
 /**
  * Whether the camera can actually see the marker on this intersection's corner.
@@ -1607,19 +1600,8 @@ export function createFareSystem(rng, scene, {
       // that corner is the one point nearby that is guaranteed to be pavement, and overshooting it
       // is the diagonal mistake above by another route. From mid-junction it is a ~6.4-unit dash.
       const kerb = cornerFor(taxiCar.i, taxiCar.j);
-      let dx = kerb.x - taxiCar.x;
-      let dz = kerb.z - taxiCar.z;
-      // A taxi pulled up near that corner leaves a dash of a few units, which reads as the rider
-      // stepping out and standing there. Then they carry on past it along the pavement, away from
-      // the junction: the axis the corner is *nearer* on is the one the road runs along (across it
-      // is at least the lane's distance to the kerb). Measured: 4.1 units in the neighbourhood
-      // city's probe run, against the ~6.4 from mid-junction, which is left as it was.
-      if (Math.hypot(dx, dz) < 6) {
-        const centre = intersectionCentre(taxiCar.i, taxiCar.j);
-        const extra = BAIL_RUN - Math.hypot(dx, dz);
-        if (Math.abs(dx) < Math.abs(dz)) dx += Math.sign(kerb.x - centre.x) * extra;
-        else dz += Math.sign(kerb.z - centre.z) * extra;
-      }
+      const dx = kerb.x - taxiCar.x;
+      const dz = kerb.z - taxiCar.z;
       // The fallback is only reachable if the taxi is standing exactly on the corner, which the
       // road's own width rules out — a car is in the carriageway by definition.
       const len = Math.hypot(dx, dz) || 1;

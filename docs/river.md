@@ -4,11 +4,8 @@
 spans, `src/game/drawbridge.js` for the one that lifts, and `src/geometry/boat.js` +
 `src/game/boats.js` for the traffic on it.
 
-A river runs east–west through the city, crossed by four bridges (three under `?city=classic`).
-All but one of them arch. That one is flat, and it opens. In the default 5 × 6
-[neighbourhood](city.md#neighbourhoods-default-hoodsclassic-for-the-6--7-city) city it is always the
-lower of the two middle rows, three block rows north of it and two south, so the four quadrants are
-the same size on every seed.
+A river runs east–west through the middle of the city, crossed by four bridges in the 6 × 7 city
+(three under `?city=classic`). All but one of them arch. That one is flat, and it opens.
 
 ## The city grew a row rather than losing one
 
@@ -61,11 +58,7 @@ the ring, and playing it the difference was obvious: with five of six lines carr
 crossing within a block of wherever the taxi already was, and the river stopped being a decision.
 Taking one out puts real distance between the ways over — which is the whole reason for the water.
 
-**Under `HOODS` the 5 × 6 grid keeps the L, so it is four of six again:** the arterial is fixed on
-line 2, one of the two middle lines, so the leaf takes the other (3) and line 2 gets a fixed bridge
-— the even grid's answer, the two middle crossings side by side.
-
-The 6 × 7 city (`?hoods=classic`) has seven lines, and three of them left three blocks between every way over: with
+The 6 × 7 city has seven lines, and three of them left three blocks between every way over: with
 the leaf up, the taxi drove round by the ring. So it gets a **fourth crossing, fixed, one line
 beside the drawbridge** on a side the seed picks (`planRiver`). Four of seven is the density three
 of six was. Beside the drawbridge rather than beside the ring, so a lift still matters: the far side

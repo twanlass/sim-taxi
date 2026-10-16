@@ -153,14 +153,13 @@ export function chooseGraveyardBlock(rng, blocks) {
  * @param o.centrality   `(bi, bj) => number`, 1 at the core
  * @param o.districts    the park districts, for the hash
  */
-export function planGraveyardPair({ taken, isWater, arterialZ, centrality, districts, skip = null }) {
+export function planGraveyardPair({ taken, isWater, arterialZ, centrality, districts }) {
   const pairs = [];
   for (let bi = 0; bi + 1 < GRID_I; bi++) {
     for (let bj = 0; bj < GRID_J; bj++) {
       const cells = [[bi, bj], [bi + 1, bj]];
       if (cells.some(([i, j]) => taken(i, j) || isWater(i, j))) continue;
       if (arterialZ.has(bi + 1)) continue;
-      if (skip?.(cells)) continue;
       pairs.push({ cells, quiet: Math.max(...cells.map(([i, j]) => centrality(i, j))) });
     }
   }

@@ -149,16 +149,14 @@ export function createDucks(scene, rng, pond) {
    * into the middle of the pond and leaves the water round the edge empty.
    */
   function spot() {
-    let best = { x: pond.x, z: pond.z, gap: -Infinity };
+    let at = { x: pond.x, z: pond.z };
     for (let attempt = 0; attempt < APART_TRIES; attempt++) {
       const angle = rng.range(0, Math.PI * 2);
       const reach = swim * Math.sqrt(rng.next());
-      const at = { x: pond.x + Math.cos(angle) * reach, z: pond.z + Math.sin(angle) * reach };
-      const gap = Math.min(Infinity, ...ducks.map((other) => Math.hypot(at.x - other.x, at.z - other.z)));
-      if (gap > best.gap) best = { ...at, gap };
-      if (gap > APART) break;
+      at = { x: pond.x + Math.cos(angle) * reach, z: pond.z + Math.sin(angle) * reach };
+      if (ducks.every((other) => Math.hypot(at.x - other.x, at.z - other.z) > APART)) break;
     }
-    return { x: best.x, z: best.z };
+    return at;
   }
 
   /**
@@ -169,31 +167,22 @@ export function createDucks(scene, rng, pond) {
    * barely two `APART`s across, so a loop that insisted would be a loop that never ended.
    */
   function newTarget(duck) {
-    // When no draw clears every other bird, the one furthest from its nearest neighbour is kept
-    // rather than the last: on a pond under 3 in radius the last draw stacked two of them on one
-    // spot for 260 frames in five minutes, and the best of six never did.
-    let best = { tx: duck.x, tz: duck.z, gap: -Infinity };
+    let tx = duck.x;
+    let tz = duck.z;
     for (let attempt = 0; attempt < APART_TRIES; attempt++) {
-      let tx = duck.x + rng.jitter(WANDER);
-      let tz = duck.z + rng.jitter(WANDER);
+      tx = duck.x + rng.jitter(WANDER);
+      tz = duck.z + rng.jitter(WANDER);
       const d = Math.hypot(tx - pond.x, tz - pond.z);
       if (d > swim) {
         const s = swim / d;
         tx = pond.x + (tx - pond.x) * s;
         tz = pond.z + (tz - pond.z) * s;
       }
-      let gap = Infinity;
-      // Against where each other bird is headed *and* where it sits now: a sitting duck's target
-      // is already its next spot, so the target alone let a bird paddle on to one still sitting.
-      for (const other of ducks) {
-        if (other === duck) continue;
-        gap = Math.min(gap, Math.hypot(tx - other.tx, tz - other.tz), Math.hypot(tx - other.x, tz - other.z));
-      }
-      if (gap > best.gap) best = { tx, tz, gap };
-      if (gap > APART) break;
+      if (ducks.every((other) => other === duck
+        || Math.hypot(tx - other.tx, tz - other.tz) > APART)) break;
     }
-    duck.tx = best.tx;
-    duck.tz = best.tz;
+    duck.tx = tx;
+    duck.tz = tz;
   }
 
   const ducks = [];
