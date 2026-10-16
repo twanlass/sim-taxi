@@ -217,6 +217,18 @@ export function planRiver(rng) {
     }
   } else if (GRID_I >= 2) {
     draw = rng.int(Math.floor(GRID_I / 2), Math.ceil(GRID_I / 2));
+    // The 5 × 5 island carries the L too, down an arterial drawn from the same two middle lines —
+    // so the leaf can land under the deck, and on any other line the train would cross on open
+    // water. The even grid's answer again: the leaf takes the other middle line if it has to, and
+    // the train's line gets a fixed bridge. Four crossings of six, the two in the middle side by
+    // side; the same single draw.
+    const rail = LTRAIN_NS ? [...Array(GRID_I + 1).keys()].find((i) => i > 0 && i < GRID_I && isArterialZ(i)) : undefined;
+    if (rail === draw) {
+      draw = draw === Math.floor(GRID_I / 2) ? Math.ceil(GRID_I / 2) : Math.floor(GRID_I / 2);
+      crossings.set(rail, 'fixed');
+    } else if (rail !== undefined) {
+      crossings.set(rail, 'fixed');
+    }
   }
   if (draw !== null) crossings.set(draw, 'draw');
 
