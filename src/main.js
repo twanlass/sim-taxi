@@ -126,7 +126,7 @@ import { createHdr } from './game/hdr.js';
 import { createCrayon } from './game/crayon.js';
 import { createCartoon } from './game/cartoon.js';
 import {
-  setAmbientOcclusion, setCrayon, setCartoon, setCloudShadows, setClassicPaint, setPaintLook, setRim, setVehiclePaint, propMaterial, setGlossCity, setGlossGlobal,
+  setAmbientOcclusion, setCrayon, setCartoon, setCloudShadows, setClassicPaint, setPaintLook, setRim, setRimDepth, rimPaintOn, setVehiclePaint, propMaterial, setGlossCity, setGlossGlobal,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
@@ -330,7 +330,7 @@ budget.bloom = budget.bloom && !budget.hdr;
 // depth buffer and the bloom rejects its lamps against it, and Android's `?safe` default would
 // otherwise have turned the pass off on the platform most likely to be asked for a drawn look.
 const ao = createAmbientOcclusion(renderer, {
-  enabled: aoEnabled, edges: crayonEnabled || cartoonEnabled, depth: budget.bloom,
+  enabled: aoEnabled, edges: crayonEnabled || cartoonEnabled, depth: budget.bloom || rimPaintOn(),
 });
 // Spill around every self-lit thing in the game — see game/bloom.js. Not a bright-pass over the
 // frame: an explicit draw list of lamps, rendered into a small half-float target of its own, so
@@ -443,6 +443,8 @@ function renderFrame(cam = camera) {
   rain.update(0, cam);
   rain.renderReflection(scene, cam);
   ao.render(scene, cam);
+  // The rim paint reads the depth the prepass just drew (util/geo.js, `gRimEdge`).
+  setRimDepth(ao.depth(), ao.depthSize(), cam);
   // After the AO prepass, which is what fills the depth buffer the lamps are rejected against.
   bloom.render(scene, cam);
   // Here rather than in the loop for the AO prepass's reason: shot mode renders without the loop.

@@ -588,20 +588,36 @@ export const GLOSS_UNIFORMS = {
   uGlossGlobal: { value: new THREE.Vector4() },
   // The rim look's backlight (`setRim`): rgb in linear, a = strength.
   uRim: { value: new THREE.Vector4() },
+  // The rim's depth edge test: the AO prepass's packed depth (`setRimDepth`), one step in that
+  // texture's uv, the depth range in world units, and x = the depth gap (world units) that starts
+  // the rim, y = the sky rim's share, z = the step in texels.
+  tRimDepth: { value: null },
+  uRimStep: { value: new THREE.Vector2() },
+  uRimDepthScale: { value: 1 },
+  uRimShape: { value: new THREE.Vector4(0.4, 0.6, 4, 0) },
 };
 
-// `?rim=<name>`: the rim look's backlight colour. Magenta reads against every body colour in the
-// fleet, the yellow taxi included — gold vanished into it, and white or cyan over yellow came out
-// as the same pale wash the old toon sheen had.
+// `?rim=<name>`: a tint on the rim. White (the default) leaves it the colour of whatever light
+// made it: the sun's gold in the afternoon, red and blue off a cop's bar.
 export const RIM_COLORS = { magenta: '#ff3df0', cyan: '#00e5ff', gold: '#ffb347', white: '#ffffff' };
-const RIM_STRENGTH = 0.85;
+const RIM_STRENGTH = 3;
 
-/** The rim look's backlight colour, by name (`RIM_COLORS`); anything else is magenta. */
+/** The rim's tint, by name (`RIM_COLORS`); anything else is white. */
 export function setRim(name) {
-  const c = new THREE.Color(RIM_COLORS[name] ?? RIM_COLORS.magenta).convertSRGBToLinear();
+  const c = new THREE.Color(RIM_COLORS[name] ?? RIM_COLORS.white).convertSRGBToLinear();
   GLOSS_UNIFORMS.uRim.value.set(c.r, c.g, c.b, RIM_STRENGTH);
 }
 setRim();
+
+/**
+ * Hand the rim the AO prepass's depth, every frame before the main render — its size moves with
+ * the drawing buffer and its depth scale with the camera.
+ */
+export function setRimDepth(texture, size, camera) {
+  GLOSS_UNIFORMS.tRimDepth.value = texture;
+  if (size) GLOSS_UNIFORMS.uRimStep.value.set(GLOSS_UNIFORMS.uRimShape.value.z / size.width, GLOSS_UNIFORMS.uRimShape.value.z / size.height);
+  GLOSS_UNIFORMS.uRimDepthScale.value = camera.far - camera.near;
+}
 
 /**
  * Follow the sky. The dome's `ShaderMaterial` writes its uniforms straight to the canvas with no
@@ -861,6 +877,9 @@ export function setPaintLook(look) {
   paintLook = look === 'layered' || look in PAINT_LOOK_NUMBERS ? look : PAINT_LOOK_DEFAULT;
   resetGlossTuning();
 }
+
+/** Whether the cars wear the rim look, which reads the AO prepass's depth. */
+export const rimPaintOn = () => !classicPaint && paintLook === 'rim';
 
 /** A copy of the live finish tuning — what the `?debug` panel reads and exports. */
 export const glossTuning = () => structuredClone(glossState);
@@ -1131,16 +1150,21 @@ __LOOK_FINAL__
 // **Toon** thresholds the glint and the sheen into shapes, quantises the sky into two bands, and
 // replaces the clear coat's curve with one hard band past 0.6 graze.
 //
-// **Rim** keeps toon's shapes and adds a backlight. A body is flat panels, so three's normal has
-// one N·V per face and no edge to find; the bulge vector (fragment minus body centre over the
-// half-extents) is the normal of the ellipsoid that fits the body, and it turns side-on along the
-// body's projected outline. So the band is that ellipsoid's 1 - N·V, weighted to the up-screen
-// half so it reads as light from behind rather than an outline, and added rather than mixed.
-// It dims with the sky's horizon (to 0.3 of itself at midnight), the light it stands in for —
-// at full strength in the dark it was a neon magenta car with no other light on it.
-// Measured on the taxi and a cop at a close pinch: 0.86-0.90 is a patch over the far corners;
-// 0.8 already tints whole panels, and a band driven off the bent normal instead (1 + 3..20 times
-// the in-face bulge) lit the sills along the road, which reads as ground bounce, not a backlight.
+// **Rim** keeps toon's shapes and adds a hairline of light along the body's silhouette, on the
+// edges that face a light and nowhere else. The panels are flat boxes, so nothing in a fragment's
+// own normal says it is at an edge; the screen does. Each light steps the fragment a few texels
+// toward itself across the AO prepass's depth (`gRimEdge`): if the step lands on something more
+// than 0.4 units further back — the road behind the car, or nothing — this fragment is on the
+// car's lit edge, and it gets the light's own colour, shadow included, since three has already
+// folded the shadow map into `directLight.color`. So the sun lights the edges toward the sun, a
+// cop's bar lights the edges toward the bar, a car under a tower's shadow has none, and turning
+// a corner moves the line to other edges. A second step straight up-screen adds the sky's colour
+// at a fraction of that, the reflection of the sky behind the car.
+//
+// The first build was a Fresnel on the ellipsoid that fits the body (`vGlossBulge` as a normal):
+// on boxes it painted coloured patches over whole corners, and the facets showed through it.
+// The step is in texels, not world units, so it is a pen width: 4 half-res texels, ~8 device
+// pixels on a phone, which is visible at play zoom and still a line in a close-up.
 const CHAMELEON_TURN = 2.3;
 const LOOK_DEFAULT_SKY = 'pow(gR.y, 0.6)';
 const TOON_SKY = 'step(0.45, gR.y)';
@@ -1151,6 +1175,23 @@ const TOON_SPECULAR = /* glsl */ `{
 		float gSh = smoothstep( 0.86, 0.87, dot( gReflN, gH ) ) * gFinA.w;
 		reflectedLight.directSpecular += directLight.color * gLit * ( gGlintIrr * 1.6 + gSh * gTint );
 	}`;
+const RIM_SPECULAR = TOON_SPECULAR.slice(0, -2) + /* glsl */ `
+		vec2 gRimD = directLight.direction.xy;
+		if ( gIsPaint > 0.5 && dot( gRimD, gRimD ) > 1e-6 ) {
+			reflectedLight.directSpecular += directLight.color * uRim.rgb * uRim.a
+				* gRimEdge( normalize( gRimD ) );
+		}
+	}`;
+// After <packing>, which the gloss uniforms are not: hung on the light chunk's include instead.
+const RIM_EDGE_FN = /* glsl */ `
+// How far the scene behind this fragment drops away one step along dir: 1 where the step lands
+// off the body (on the road, or on nothing), 0 where it lands on the body itself.
+float gRimEdge(vec2 dir) {
+	vec2 uv = gl_FragCoord.xy * uAOTexel + dir * uRimStep;
+	float gap = (unpackRGBAToDepth(texture2D(tRimDepth, uv)) - gl_FragCoord.z) * uRimDepthScale;
+	return smoothstep(uRimShape.x, uRimShape.x + 0.3, gap);
+}
+`;
 const PAINT_LOOKS = {
   chameleon: {
     base: `
@@ -1173,15 +1214,10 @@ const PAINT_LOOKS = {
   },
   rim: {
     sky: TOON_SKY,
-    specular: TOON_SPECULAR,
+    edge: true,
+    specular: RIM_SPECULAR,
     final: `
-		{
-			vec3 gRimN = normalize(vGlossBulge);
-			float gRimUp = dot(gRimN.xy, gRimN.xy) > 1e-6 ? 0.5 + 0.5 * normalize(gRimN.xy).y : 0.5;
-			float gRimBand = smoothstep(0.86, 0.90, 1.0 - clamp(gRimN.z, 0.0, 1.0));
-			float gRimSky = clamp(dot(uGlossHorizon, vec3(0.3, 0.59, 0.11)) * 1.6, 0.3, 1.0);
-			outgoingLight += uRim.rgb * uRim.a * gIsPaint * gRimBand * gRimUp * gRimSky;
-		}`,
+		outgoingLight += uGlossTop * uRim.rgb * uRimShape.y * gIsPaint * gRimEdge(vec2(0.0, 1.0));`,
   },
 };
 
@@ -1258,6 +1294,10 @@ uniform vec4 uGlossGlobal;
 uniform float uGloss;
 uniform float uGlossMirror;
 uniform vec4 uRim;
+uniform sampler2D tRimDepth;
+uniform vec2 uRimStep;
+uniform float uRimDepthScale;
+uniform vec4 uRimShape;
 varying vec3 vGlossWorld;
 varying vec3 vGlossBulge;
 varying vec3 vGlossObj;
@@ -1271,7 +1311,7 @@ vec3 gFinishColor;
 vec3 gSpecN;
 vec3 gReflN;
 ${classicPaint ? 'float gFlake;' : GLOSS_PAINT_DECLS}`)
-        .replace('#include <lights_phong_pars_fragment>',
+        .replace('#include <lights_phong_pars_fragment>', (look.edge ? RIM_EDGE_FN : '') +
           THREE.ShaderChunk.lights_phong_pars_fragment.replace(GLOSS_SPECULAR_FROM,
             classicPaint ? GLOSS_SPECULAR_CLASSIC : look.specular ?? GLOSS_SPECULAR_TO))
         .replace('#include <color_fragment>', `#include <color_fragment>
