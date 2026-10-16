@@ -214,6 +214,29 @@ export const LOOPS = new Set(['idle', 'locoLoop', 'signal', 'siren', 'city', 'co
  */
 export const AMBIENT = ['city', 'construction', 'seagulls', 'rain', 'court'];
 
+/**
+ * The mix groups: every sound in exactly one, each group a gain node between its voices and the
+ * master. Nicolás asked for them once Block 2 doubled the count (October 2026): with this many
+ * elements a mix is set group against group first and sound against sound second, and the ⚙️ panel
+ * lists the sounds under these headings with a fader, a mute and a solo each. The fader is in
+ * mix.json (`groups.<key>.gain`) and ships; mute and solo are for listening only and never leave
+ * the session. In the order the panel shows them. `police` also carries the synthesised rotor,
+ * which has no key of its own (`makeRotor`).
+ */
+export const GROUPS = [
+  { key: 'engine', label: 'Engine & Loco',
+    sounds: ['idle', 'accel', 'brake', 'locoActivate', 'locoLoop', 'locoLaunch', 'locoBrake', 'skid'] },
+  { key: 'taxi', label: 'Taxi', sounds: ['doorOpen', 'doorClose', 'signal', 'horn'] },
+  { key: 'impacts', label: 'Impacts', sounds: ['bump', 'crash', 'takeoff', 'land'] },
+  { key: 'police', label: 'Police', sounds: ['siren', 'copSkid', 'chirp'] },
+  { key: 'people', label: 'People', sounds: ['angry'] },
+  { key: 'events', label: 'City events',
+    sounds: ['spawn', 'gate', 'bridge', 'birdsUp', 'birdsDown', 'plane', 'heli', 'driveThru'] },
+  { key: 'ambience', label: 'Ambience', sounds: AMBIENT },
+];
+/** Which group a sound is in, by sound. */
+export const GROUP_OF = Object.fromEntries(GROUPS.flatMap((g) => g.sounds.map((s) => [s, g.key])));
+
 // The loops' true lengths, by file, from the masters (afinfo). A decoder that does not trim AAC's
 // 2112 frames of encoder priming hands back a buffer that long *plus* the pad, and looping the whole
 // buffer would put 44ms of silence in every cycle — a hiccup in the engine once every four
@@ -402,12 +425,16 @@ function cleanMix(raw, base) {
   const shape = base ?? src;
   const out = {
     master: clamp(num(src.master) ?? shape.master ?? 1, LIMITS.master),
+    groups: {},
     sounds: {},
     minGap: {},
     place: {},
     engine: {},
     music: { master: 1, tracks: {} },
   };
+  for (const { key } of GROUPS) {
+    out.groups[key] = { gain: clamp(num(src.groups?.[key]?.gain) ?? shape.groups?.[key]?.gain ?? 1, LIMITS.gain) };
+  }
   for (const key of Object.keys(SOUNDS)) {
     const from = shape.sounds?.[key] ?? {};
     const given = src.sounds?.[key] ?? {};
@@ -509,15 +536,22 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
   // Live, and read every frame, so the panel can move any number while the car is driving.
   const mix = copyMix(SHIPPED_MIX);
   const tuning = () => copyMix(mix);
+  // The panel's mute and solo per group (GROUPS) — for listening, so not part of the mix: never
+  // stashed, never exported, gone on a reload. Any solo silences every group not soloed.
+  const monitorSets = { mute: new Set(), solo: new Set() };
+  const monitor = () => ({ mute: [...monitorSets.mute], solo: [...monitorSets.solo] });
+  const groupLevel = (key) => mix.groups[key].gain
+    * (monitorSets.mute.has(key) || (monitorSets.solo.size && !monitorSets.solo.has(key)) ? 0 : 1);
   /** Merge a partial mix in. Anything unknown or non-numeric is dropped (see `cleanMix`). */
   function tuneMix(partial) {
     const merged = copyMix(mix);
     const src = partial && typeof partial === 'object' ? partial : {};
     if ('master' in src) merged.master = src.master;
-    for (const part of ['sounds', 'minGap', 'place', 'engine']) {
+    for (const part of ['groups', 'sounds', 'minGap', 'place', 'engine']) {
       for (const [key, value] of Object.entries(src[part] ?? {})) {
         if (!(key in merged[part])) continue;
-        merged[part][key] = part === 'sounds' || part === 'place' ? { ...merged[part][key], ...value } : value;
+        merged[part][key] = part === 'groups' || part === 'sounds' || part === 'place'
+          ? { ...merged[part][key], ...value } : value;
       }
     }
     if (src.music && typeof src.music === 'object') {
@@ -528,6 +562,12 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     }
     Object.assign(mix, cleanMix(merged, SHIPPED_MIX));
   }
+  /** Mute or solo a group (either may be omitted). An unknown group is ignored. */
+  function setMonitorSets(key, mute, solo) {
+    if (!(key in mix.groups)) return;
+    if (mute !== undefined) monitorSets.mute[mute ? 'add' : 'delete'](key);
+    if (solo !== undefined) monitorSets.solo[solo ? 'add' : 'delete'](key);
+  }
   if (!hasAudio) {
     // Headless, or a browser without Web Audio: every call is a no-op — except the mix, which is
     // plain data and is what `npm run check` exercises.
@@ -535,8 +575,9 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     return {
       state, play: noop, update: noop, hold: noop, setMuted: noop, toggleMuted: () => true,
       setVolumes: noop,
-      locoOn: noop, locoOff: noop, release: noop, steer: noop, duckMusic: noop, fadeOutMusic: noop,
+      locoOn: noop, locoOff: noop, release: noop, unloop: noop, steer: noop, duckMusic: noop, fadeOutMusic: noop,
       goOnAir: noop, tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
+      monitor, setMonitor: (key, { mute, solo } = {}) => setMonitorSets(key, mute, solo),
       audition: () => null, stopAuditions: noop, files: FILES, radioFiles: RADIO_FILES,
       replace: async () => ({ ok: false, failed: [] }), revert: noop, replaced: () => null,
       pickReplacement: noop,
@@ -681,15 +722,23 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
 
   /**
    * A gain, then a stereo panner where the browser has one (every target since Safari 14.1), into
-   * the master. Every voice gets the panner so a placed sound and an unplaced one are one shape.
+   * `key`'s group bus (GROUPS) and so the master. Every voice gets the panner so a placed sound and
+   * an unplaced one are one shape.
    */
-  function chain(src, gain) {
+  function chain(src, gain, key) {
     const g = ctx.createGain();
     g.gain.value = gain;
     const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
     src.connect(g);
-    (pan ? g.connect(pan) : g).connect(master);
+    (pan ? g.connect(pan) : g).connect(groupBus[GROUP_OF[key]] ?? master);
     return { src, gain: g, pan, file: null };
+  }
+
+  // One gain node per group, between its voices and the master — see GROUPS. Built with the context.
+  const groupBus = {};
+  function setGroupLevels(tau = 0.02) {
+    if (!ctx) return;
+    for (const { key } of GROUPS) groupBus[key].gain.setTargetAtTime(groupLevel(key), ctx.currentTime, tau);
   }
 
   function makeLoop(key, gain = 0) {
@@ -700,7 +749,7 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     const w = loopWindow(src.buffer, LOOP_SECONDS[file] ?? src.buffer.duration);
     src.loopStart = w.start;
     src.loopEnd = w.end;
-    const voice = chain(src, gain);
+    const voice = chain(src, gain, key);
     voice.file = file;
     voice.scale = 1;
     src.start(0, w.start);
@@ -784,7 +833,7 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     g.gain.value = 0;
     noise.connect(lowpass).connect(chop);
     thump.connect(thumpGain).connect(chop);
-    chop.connect(g).connect(master);
+    chop.connect(g).connect(groupBus.police);
     noise.start();
     thump.start();
     lfo.start();
@@ -797,13 +846,20 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     master = ctx.createGain();
     master.gain.value = masterLevel();
     master.connect(ctx.destination);
+    for (const { key } of GROUPS) {
+      groupBus[key] = ctx.createGain();
+      groupBus[key].gain.value = groupLevel(key);
+      groupBus[key].connect(master);
+    }
     musicBus = ctx.createGain();
     musicBus.gain.value = musicLevel();
     musicBus.connect(ctx.destination);
     radioBus = ctx.createGain();
     radioBus.connect(musicBus);
     startRadio();
-    await Promise.all(Object.keys(FILES).map(async (key) => {
+    // The spawn's takes first: they are the one sound with a deadline (see `play`).
+    const order = [...SOUNDS.spawn, ...Object.keys(FILES).filter((f) => !SOUNDS.spawn.includes(f))];
+    await Promise.all(order.map(async (key) => {
       const p = bytesOf(key);
       try {
         const buf = await p;
@@ -1000,9 +1056,13 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
    * Fire a one-shot. `delay` is seconds from now on the audio clock, which stops with a hold, so a
    * door scheduled to close after the rider climbs in waits through a pause with the rest.
    */
-  function play(name, { gain = 1, rate = 1, delay = 0, at = null, steered = false } = {}) {
+  function play(name, { gain = 1, rate = 1, delay = 0, at = null, steered = false, loop = false } = {}) {
     if (!SFX_EVENTS.has(name)) throw new Error(`unknown sound: ${name}`);
-    if (!state.ready || state.muted) return null;
+    // Gated on the context, not on `ready`: `ready` waits for every file, and a one-shot only needs
+    // its own (`pickTake` draws from the decoded takes and answers null without one). The spawn is
+    // why — it has the length of the city's entrance to land in, and on `ready` it missed whenever
+    // the whole set took longer than that to decode, which read as "sometimes it plays".
+    if (!ctx || state.muted) return null;
     const now = ctx.currentTime;
     const gap = mix.minGap[name];
     if (gap && lastAt[name] != null && now + delay - lastAt[name] < gap) return null;
@@ -1017,9 +1077,13 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     const src = ctx.createBufferSource();
     src.buffer = buffers[file];
     src.playbackRate.value = rate * mix.sounds[name].rate;
-    const voice = chain(src, gain * mix.sounds[name].gain);
+    // Only the ⚙️ panel's ⏸ Hold asks for a loop: a plane frozen overhead, sounding for as long as
+    // it is held so its falloff can be walked. `unloop` lets it play out when it is let go.
+    src.loop = loop;
+    const voice = chain(src, gain * mix.sounds[name].gain, name);
     voice.file = file;
     voice.scale = gain;
+    src.onended = () => { voice.ended = true; };
     if (at) {
       voice.gain.gain.value = gain * mix.sounds[name].gain * (at.level ?? 1) * falloff(name, at.d);
       if (voice.pan) voice.pan.pan.value = Math.max(-1, Math.min(1, at.pan ?? 0)) * PAN_WIDTH;
@@ -1221,6 +1285,7 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     if (!ctx) return;
     const t = ctx.currentTime;
     master.gain.setTargetAtTime(masterLevel(), t, 0.02);
+    setGroupLevels();
     if (!state.musicOut) musicBus.gain.setTargetAtTime(musicLevel(), t, 0.02);
     for (const v of radioVoices) v.gain.gain.setTargetAtTime(trackLevel(v.key), t, 0.02);
     for (const v of auditions) if (v.track) v.gain.gain.setTargetAtTime(trackLevel(v.track), t, 0.02);
@@ -1240,7 +1305,7 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     const src = ctx.createBufferSource();
     src.buffer = buffers[file];
     src.playbackRate.value = mix.sounds[key].rate;
-    const voice = chain(src, mix.sounds[key].gain);
+    const voice = chain(src, mix.sounds[key].gain, key);
     auditions.add(voice);
     src.onended = () => auditions.delete(voice);
     src.start();
@@ -1360,6 +1425,10 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     tuning,
     tune,
     reset: () => tune(SHIPPED_MIX),
+    /** The groups muted and soloed on the panel, `{ mute: [...], solo: [...] }`. */
+    monitor,
+    /** Mute or solo a group for listening — `setMonitor('ambience', { solo: true })`. */
+    setMonitor(key, { mute, solo } = {}) { setMonitorSets(key, mute, solo); setGroupLevels(); },
     audition,
     stopAuditions,
     files: FILES,
@@ -1369,6 +1438,8 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     locoOff,
     /** Fade out a voice `play()` returned — the drive-through speaker as the taxi leaves the lot. */
     release: (voice, tau = 0.3) => stopVoice(voice, tau),
+    /** Let a voice `play({ loop: true })` started finish the pass it is on, then end. */
+    unloop: (voice) => { if (voice) voice.src.loop = false; },
     steer,
     duckMusic,
     fadeOutMusic,

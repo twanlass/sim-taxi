@@ -228,7 +228,7 @@ import {
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
 import { createComboMeter, comboScope, COMBO_MAX } from '../src/game/combometer.js';
-import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, radioBetween, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL } from '../src/game/sfx.js';
+import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, radioBetween, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL, GROUPS } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
 const seed = Number(process.argv[2] ?? 71624);
@@ -10920,6 +10920,23 @@ function rideToPickup() {
     t.master === 4 && t.sounds.crash.gain === 0 && t.sounds.crash.rate === 1 && !t.sounds.nope
       && t.engine.idleRateHi === 2 && !('bogus' in t.engine) && t.minGap.skid === SHIPPED_MIX.minGap.skid,
     JSON.stringify({ master: t.master, crash: t.sounds.crash }));
+  // The mix groups (GROUPS): every sound in exactly one, since a sound in none plays straight into
+  // the master past every group fader — and is missing from the panel, which lists by group.
+  const grouped = GROUPS.flatMap((g) => g.sounds);
+  const ungrouped = Object.keys(SOUNDS).filter((k) => grouped.filter((s) => s === k).length !== 1);
+  check('every sound is in exactly one mix group', ungrouped.length === 0
+    && grouped.length === Object.keys(SOUNDS).length, ungrouped.join(', '));
+  const noGroup = GROUPS.filter((g) => !Number.isFinite(MIX_FILE.groups?.[g.key]?.gain)).map((g) => g.key);
+  check('mix.json has a level for every group', noGroup.length === 0, noGroup.join(', '));
+  sfx.tune({ groups: { ambience: { gain: 99 }, nope: { gain: 1 } } });
+  check('a group level is clamped and an unknown group dropped',
+    sfx.tuning().groups.ambience.gain === 8 && !sfx.tuning().groups.nope);
+  // Mute and solo are for listening: they must never reach the mix the panel exports.
+  sfx.setMonitor('police', { solo: true });
+  sfx.setMonitor('taxi', { mute: true });
+  check('mute and solo are kept apart from the mix',
+    JSON.stringify(sfx.monitor()) === JSON.stringify({ mute: ['taxi'], solo: ['police'] })
+      && !JSON.stringify(sfx.tuning()).includes('solo'));
   sfx.reset();
   check('and reset puts the shipped mix back', JSON.stringify(sfx.tuning()) === JSON.stringify(SHIPPED_MIX));
 }

@@ -20,7 +20,18 @@
  * Levels are shown in dB and rates in semitones, because that is how a designer thinks about
  * them; the file keeps linear gain and a playback rate, because that is what Web Audio takes.
  */
-import { SFX_EVENTS, SHIPPED_MIX, SOUNDS, LOOPS, PICKED, PLACED, RADIO } from './sfx.js';
+import { SFX_EVENTS, SHIPPED_MIX, SOUNDS, LOOPS, PICKED, PLACED, RADIO, GROUPS } from './sfx.js';
+
+// What each ⚡ does, for its tooltip. The keys are main.js's `soundTriggers`.
+const TRIGGER_TIPS = {
+  spawn: 'Replay the city\'s entrance, which plays the spawn sound with it.',
+  plane: 'Send the plane across now. Heard as it passes, so watch where it flies.',
+  heli: 'Bring the rooftop helicopter in now. Heard from its pad: drive near it.',
+  birdsUp: 'Scatter the flock nearest the taxi. The landing sound follows when it settles.',
+  birdsDown: 'Scatter the flock nearest the taxi; this plays when it settles again.',
+  bridge: 'Raise the drawbridge now. Its cycle is about 26s.',
+  angry: 'A rider swearing at the taxi — in the game, the one who gives up waiting or bails out.',
+};
 
 // v2 with Block 1: a v1 stash holds levels trimmed for the test files, keyed partly by takes that
 // no longer exist, and would quietly override the designer's 0 dB starting point.
@@ -114,10 +125,15 @@ const slider = (min, max, step, value) => el('input', { type: 'range', min, max,
  *
  * @param {HTMLElement} host  The ⚙️ panel.
  * @param {object} sfx  The handle from createSfx — `state`, `tuning`, `tune`, `reset`,
- *   `audition`, `stopAuditions`, `play`.
+ *   `audition`, `stopAuditions`, `play`, `monitor`, `setMonitor`.
+ * @param {object} [opts]
+ * @param {Object<string, () => (string|null)>} [opts.triggers]  By sound: make the thing that
+ *   plays it happen in the game (the ⚡ buttons). Answers null, or why it could not.
+ * @param {Object<string, {held: () => boolean, set: (on: boolean) => (string|null)}>} [opts.holds]
+ *   By sound: freeze the moving thing that plays it, sound looping (the ⏸ buttons).
  * @returns {{ open: () => void, close: () => void }}  Called as the ⚙️ panel opens and closes.
  */
-export function buildAudioSections(host, sfx) {
+export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}) {
   const stashed = loadStash();
   if (stashed) sfx.tune(stashed);
 
@@ -164,6 +180,9 @@ export function buildAudioSections(host, sfx) {
   // Everything that paints a control from the live mix, so Reset and Import can resync them all.
   const syncs = [];
   const sync = () => { for (const s of syncs) s(); };
+  // Each group header's mute/solo paint — one group's solo changes how every other one looks.
+  const monitors = [];
+  const holdPaints = [];
 
   const status = note('');
   const saveNote = el('p', { className: 'dbg-note' });
@@ -224,13 +243,16 @@ export function buildAudioSections(host, sfx) {
   note('▶ plays the sound once at its level and pitch. A sound with variants plays a different '
     + 'take each press, as the game does, and names the one it played. Its level and pitch cover '
     + 'every take. In the game some one-shots are scaled again where they fire (a bump by closing '
-    + 'speed, say) — see docs/audio.md.');
+    + 'speed, say) — see docs/audio.md. ⚡ makes a rare one happen in the game (the plane, the '
+    + 'chopper, the birds…) so it is heard where and how it plays. Sounds are grouped; each group '
+    + 'has a level that ships with the mix, and M/S to mute or solo it while listening.');
   const stopAll = el('button', { type: 'button', className: 'dbg-wide', textContent: '■ Stop previews',
     title: 'Stop every ▶ preview that is still playing.' });
   stopAll.addEventListener('click', () => { sfx.stopAuditions(); for (const p of trackPlays) p(); });
   panel.append(stopAll);
 
-  for (const key of Object.keys(SHIPPED_MIX.sounds)) {
+  // One sound's box, appended where the panel has got to — under its group's header (below).
+  function buildSound(key) {
     const box = el('div', { className: 'aud-sound' });
     // What the ⚙️ panel's search matches this box on; its only button is a ▶.
     // Every file it can play, by its full name, so a search for `angry_C` or `basketball_loop_ST`
@@ -244,6 +266,38 @@ export function buildAudioSections(host, sfx) {
       + `${takes > 1 ? ` · ${takes} takes` : ''}`;
     const fileLabel = el('span', { textContent: fileText });
     const title = el('div', { className: 'aud-name' }, play, el('strong', { textContent: key }), fileLabel);
+    // ⚡ makes the thing itself happen — the plane crosses, the chopper comes in, the flock goes up
+    // — so the sound is heard as the game plays it, placed and steered, rather than dry as ▶ plays
+    // it. Only for sounds tied to something rare; main.js decides what each one does
+    // (`soundTriggers` there). A trigger answers null, or why it could not.
+    const trigger = triggers[key];
+    if (trigger) {
+      const fire = el('button', { type: 'button', className: 'aud-trigger', textContent: '⚡',
+        title: TRIGGER_TIPS[key] ?? `Make ${key} happen in the game` });
+      fire.addEventListener('click', () => {
+        const why = trigger();
+        fileLabel.textContent = why ? `${fileText} · ${why}` : `${fileText} · triggered`;
+      });
+      title.insertBefore(fire, title.children[1]);
+    }
+    // ⏸ freezes a moving source where it is, its sound looping, so its falloff can be tuned by
+    // driving to and from it (main.js `holds`). Lit while held; pressed again lets it go.
+    const hold = holds[key];
+    if (hold) {
+      const pin = el('button', { type: 'button', className: 'aud-trigger aud-hold', textContent: '⏸',
+        title: 'Freeze it where it is, its sound looping, so you can drive to and from it. '
+          + 'Sends it up first if it is not in the air. Press again to let it go.' });
+      const paintHold = () => pin.classList.toggle('is-on', hold.held());
+      pin.addEventListener('click', () => {
+        const why = hold.set(!hold.held());
+        fileLabel.textContent = why ? `${fileText} · ${why}` : `${fileText}${hold.held() ? ' · held' : ''}`;
+        // Both bird keys hold the same flock, so both buttons repaint.
+        for (const p of holdPaints) p();
+      });
+      holdPaints.push(paintHold);
+      paintHold();
+      title.insertBefore(pin, title.children[trigger ? 2 : 1]);
+    }
     box.append(title);
     // Try files from disk in this sound's place — this session only, nothing saved. Pick several
     // and they are a variant set: a one-shot draws one per trigger, a loop plays the one chosen in
@@ -393,7 +447,89 @@ export function buildAudioSections(host, sfx) {
     }
     gap?.addEventListener('dblclick', () => { sfx.tune({ minGap: { [key]: SHIPPED_MIX.minGap[key] } }); paint(); changed(); });
     syncs.push(paint);
+    return box;
   }
+
+  // The groups (GROUPS in sfx.js), each a header and then its sounds. The header is the group's
+  // bus: a fader that is part of the mix, and M and S that are only for listening — solo one
+  // group, or several, to hear them without the rest. A group folds to its header; all start
+  // folded, since 33 sounds open at once is the scroll hunt sections were made to end. Folding is
+  // a class rather than `hidden`, which the panel's search owns, and a search shows a folded box
+  // anyway (index.html).
+  const groupOfBox = new Map();
+  const unfold = [];
+  for (const group of GROUPS) {
+    const fold = el('button', { type: 'button', className: 'aud-fold',
+      title: 'Show or hide this group\'s sounds' });
+    const mute = el('button', { type: 'button', className: 'aud-ms', textContent: 'M',
+      title: 'Mute this group while listening. Not saved in the mix.' });
+    const solo = el('button', { type: 'button', className: 'aud-ms', textContent: 'S',
+      title: 'Hear only the soloed groups while listening. Not saved in the mix.' });
+    const level = slider(-40, 12, 0.5, 0);
+    const head = el('div', { className: 'aud-group' },
+      el('div', { className: 'aud-group-name' }, fold, mute, solo));
+    // Every sound in it, so a search for one of them keeps its group's header in view.
+    head.dataset.search = `${group.label} group ${group.sounds.join(' ')}`;
+    const levelValue = row(head, 'Level', level,
+      'Volume of every sound in this group, on top of each sound\'s own. Double-click to reset.');
+    panel.append(head);
+    const boxesIn = group.sounds.map((key) => buildSound(key));
+    for (const key of group.sounds) groupOfBox.set(key, group.key);
+
+    let open = false;
+    const setFold = (on) => {
+      open = on;
+      fold.textContent = `${open ? '▾' : '▸'} ${group.label} · ${group.sounds.length}`;
+      for (const box of boxesIn) box.classList.toggle('is-folded', !open);
+    };
+    fold.addEventListener('click', () => setFold(!open));
+    unfold.push([group.key, () => setFold(true)]);
+    setFold(false);
+
+    const paintMonitor = () => {
+      const m = sfx.monitor();
+      mute.classList.toggle('is-on', m.mute.includes(group.key));
+      solo.classList.toggle('is-on', m.solo.includes(group.key));
+      // Silenced by somebody else's solo: dimmed, so it is clear why it has gone quiet.
+      head.classList.toggle('is-silenced', m.solo.length > 0 && !m.solo.includes(group.key));
+    };
+    monitors.push(paintMonitor);
+    mute.addEventListener('click', () => {
+      sfx.setMonitor(group.key, { mute: !sfx.monitor().mute.includes(group.key) });
+      for (const p of monitors) p();
+    });
+    solo.addEventListener('click', () => {
+      sfx.setMonitor(group.key, { solo: !sfx.monitor().solo.includes(group.key) });
+      for (const p of monitors) p();
+    });
+
+    const paint = () => {
+      const g = sfx.tuning().groups[group.key].gain;
+      level.value = String(Math.max(-40, toDb(g)));
+      levelValue.textContent = dbText(g);
+      head.classList.toggle('is-edited', g !== SHIPPED_MIX.groups[group.key].gain);
+      paintMonitor();
+    };
+    level.addEventListener('input', () => {
+      const db = Number(level.value);
+      sfx.tune({ groups: { [group.key]: { gain: db <= -40 ? 0 : fromDb(db) } } });
+      paint();
+    });
+    level.addEventListener('change', changed);
+    level.addEventListener('dblclick', () => {
+      sfx.tune({ groups: { [group.key]: { gain: SHIPPED_MIX.groups[group.key].gain } } });
+      paint();
+      changed();
+    });
+    syncs.push(paint);
+  }
+  const clearMonitor = el('button', { type: 'button', className: 'dbg-wide', textContent: 'Clear mutes and solos',
+    title: 'Hear every group again.' });
+  clearMonitor.addEventListener('click', () => {
+    for (const { key } of GROUPS) sfx.setMonitor(key, { mute: false, solo: false });
+    for (const p of monitors) p();
+  });
+  panel.append(clearMonitor);
 
   // --- Export ---------------------------------------------------------------
   // --- Music -------------------------------------------------------------
@@ -566,6 +702,7 @@ export function buildAudioSections(host, sfx) {
     reveal(key) {
       const box = boxes.get(key);
       if (!box) return;
+      for (const [g, open] of unfold) if (g === groupOfBox.get(key)) open();
       focus(key, box);
       // Instant rather than smooth: the section may have unfolded this same frame, and a smooth
       // scroll started against the old layout stopped short of the box.
