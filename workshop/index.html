@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rocket Rides — model workshop</title>
+    <!-- A workbench at /workshop/, like /lab/: no manifest, no icons, no service worker, nothing in
+         the game links here, and it is not in `npm run build` at all — the chat panel is a dev
+         server endpoint (tools/workshop-agent.mjs), so a built copy would be a viewer with a dead
+         text box. See docs/workshop.md. -->
+    <meta name="robots" content="noindex" />
+    <style>
+      :root {
+        color-scheme: light;
+        --chat-w: 380px;
+        --ink: #eef3f7;
+        --panel: rgba(22, 30, 38, 0.82);
+        --accent: #F5C130;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 100%; height: 100%; overflow: hidden; background: #dcedf7;
+        font: 500 13px/1.5 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+      }
+      #stage { position: fixed; top: 0; left: 0; bottom: 0; right: var(--chat-w); }
+      #stage canvas { position: absolute; inset: 0; display: block; touch-action: none; }
+
+      /* The bench's knobs, top-left over the canvas. Plain for the reason the lab gives. */
+      #bench {
+        position: absolute; top: 14px; left: 14px; z-index: 5;
+        display: grid; gap: 8px; width: 236px;
+        padding: 12px 14px; border-radius: 12px;
+        background: var(--panel); color: var(--ink);
+        backdrop-filter: blur(6px);
+        box-shadow: 0 6px 22px rgba(12, 24, 34, 0.28);
+        user-select: none; -webkit-user-select: none;
+      }
+      #bench h1 {
+        font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.62; font-weight: 700;
+      }
+      #bench select {
+        width: 100%; padding: 5px 8px; border-radius: 8px; border: 0; font: inherit; font-weight: 700;
+        background: rgba(255, 255, 255, 0.14); color: inherit;
+      }
+      #bench select option, #bench select optgroup { color: #16120a; }
+      .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .seg button, .act {
+        padding: 4px 10px; border: 0; border-radius: 999px; cursor: pointer;
+        background: rgba(255, 255, 255, 0.12); color: inherit; font: inherit; font-weight: 600;
+      }
+      .seg button.on { background: var(--accent); color: #16120a; font-weight: 800; }
+      label.slider { display: grid; grid-template-columns: 40px 1fr 38px; align-items: center; gap: 8px; }
+      label.slider input { width: 100%; accent-color: var(--accent); }
+      label.check { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+      .value { text-align: right; font-variant-numeric: tabular-nums; opacity: 0.8; }
+      .source { font: 11px/1.4 ui-monospace, Menlo, monospace; opacity: 0.6; word-break: break-word; }
+      #reloaded { font-size: 11px; opacity: 0; transition: opacity 0.4s; color: var(--accent); }
+      #reloaded.show { opacity: 1; transition: none; }
+      #bench-error {
+        position: absolute; left: 14px; right: 14px; bottom: 14px; z-index: 5; display: none;
+        padding: 10px 12px; border-radius: 10px; background: rgba(150, 30, 30, 0.9); color: #fff;
+        font: 12px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap;
+      }
+
+      /* The chat. Docked right on a desktop; under the bench on anything narrow. */
+      #chat {
+        position: fixed; top: 0; right: 0; bottom: 0; width: var(--chat-w);
+        display: flex; flex-direction: column;
+        background: #151c23; color: var(--ink);
+        border-left: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      #chat header {
+        display: flex; align-items: center; gap: 8px; padding: 12px 14px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      }
+      #chat header h2 { font-size: 13px; font-weight: 800; flex: 1; }
+      #chat header .act { font-size: 12px; }
+      #log { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+      .msg { max-width: 92%; padding: 8px 11px; border-radius: 12px; white-space: pre-wrap; word-wrap: break-word; }
+      .msg.user { align-self: flex-end; background: var(--accent); color: #16120a; font-weight: 600; }
+      .msg.agent { align-self: flex-start; background: rgba(255, 255, 255, 0.07); }
+      .msg.agent.working::after { content: "▍"; animation: blink 1s steps(2) infinite; opacity: 0.7; }
+      .msg.error { align-self: stretch; background: rgba(190, 50, 50, 0.25); color: #ffd9d4; }
+      .msg code { font: 12px ui-monospace, Menlo, monospace; background: rgba(255, 255, 255, 0.09); padding: 0 3px; border-radius: 4px; }
+      .tool { align-self: flex-start; font: 11px/1.4 ui-monospace, Menlo, monospace; opacity: 0.55; padding-left: 4px; }
+      .tool b { font-weight: 700; color: var(--accent); opacity: 0.9; }
+      .undo { align-self: flex-start; font-size: 12px; opacity: 0.75; }
+      .undo .act { font-size: 12px; }
+      .empty { opacity: 0.5; font-size: 12px; line-height: 1.55; }
+      @keyframes blink { 50% { opacity: 0; } }
+      #compose { padding: 10px; border-top: 1px solid rgba(255, 255, 255, 0.07); display: grid; gap: 6px; }
+      #input {
+        width: 100%; min-height: 64px; max-height: 200px; resize: vertical;
+        padding: 9px 11px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.05); color: inherit; font: inherit;
+      }
+      #input:focus { outline: 2px solid rgba(245, 193, 48, 0.5); outline-offset: -1px; }
+      #compose .row { justify-content: space-between; }
+      #compose .hint { font-size: 11px; opacity: 0.45; }
+      .act.primary { background: var(--accent); color: #16120a; font-weight: 800; }
+      .act:disabled { opacity: 0.35; cursor: default; }
+
+      @media (max-width: 760px) {
+        :root { --chat-w: 0px; }
+        #stage { bottom: 46%; right: 0; }
+        #chat { top: 54%; width: 100%; border-left: 0; }
+        #bench { width: 200px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div id="bench">
+        <h1>Model workshop</h1>
+        <select id="model" aria-label="Model"></select>
+        <div class="source" id="source"></div>
+        <div class="row seg" id="views">
+          <button type="button" data-view="orbit">Orbit</button>
+          <button type="button" data-view="game">Game view</button>
+        </div>
+        <label class="slider">Hour <input id="hour" type="range" min="0" max="24" step="0.1" /><span class="value" id="hour-v"></span></label>
+        <div class="row">
+          <label class="check"><input id="spin" type="checkbox" /> Turntable</label>
+          <button type="button" class="act" id="frame">Reframe</button>
+        </div>
+        <div id="reloaded">Updated from source</div>
+      </div>
+      <div id="bench-error"></div>
+    </div>
+
+    <aside id="chat">
+      <header>
+        <h2>Claude</h2>
+        <button type="button" class="act" id="new-chat">New chat</button>
+      </header>
+      <div id="log"></div>
+      <form id="compose">
+        <textarea id="input" placeholder="Make the taxi's roof sign bigger…" rows="3"></textarea>
+        <div class="row">
+          <span class="hint">Enter to send · Shift+Enter for a new line</span>
+          <span class="row">
+            <button type="button" class="act" id="stop" hidden>Stop</button>
+            <button type="submit" class="act primary" id="send">Send</button>
+          </span>
+        </div>
+      </form>
+    </aside>
+
+    <!-- Two modules, deliberately. The viewer re-runs on every edit to anything it imports (that is
+         how the bench hot-reloads); the chat imports nothing from the game, so an edit never takes
+         the conversation down with it. -->
+    <script type="module" src="/src/workshop/chat.js"></script>
+    <script type="module" src="/src/workshop/viewer.js"></script>
+  </body>
+</html>
