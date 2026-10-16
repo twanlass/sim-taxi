@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  The launch screen: one flat fill of #DCEDF7 and nothing else.
+  The launch screen: one flat fill of black and nothing else.
 
-  That colour is `PALETTE.skyBottom` from src/palette.js — the same value as `background_color` in
-  the web manifest and the `background` on `html, body` in index.html. Matching it is the whole
-  point: launch, the WKWebView's own background, and the page behind the canvas are then all the
-  same sky, so the gap between tapping the icon and WebGL's first paint reads as the game loading
-  rather than as three different screens flashing past.
+  That colour is `PALETTE.splashVoid` from src/palette.js — the same value as `background_color` in
+  the web manifest, the WKWebView's own background, and the page's `html.booting` background in
+  index.html. Matching it is the whole point: launch, the web view, the page and the startup screen
+  (src/game/splash.js) are then one black, so the gap between tapping the icon and the taxi
+  dropping in reads as one screen rather than several flashing past. It was the sky's #DCEDF7
+  until the startup screen, which made the whole load a pale blue screen.
 
   No logo and no spinner. The bundle is a local read of under a megabyte, so this is on screen for a
   fraction of a second; anything drawn here would register as a flicker. Apple also rejects launch
@@ -28,7 +29,7 @@
                     <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
                         <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                        <color key="backgroundColor" red="0.86274509803921573" green="0.92941176470588233" blue="0.96862745098039216" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <color key="backgroundColor" red="0" green="0" blue="0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <viewLayoutGuide key="safeArea" id="6Tk-OE-BBY"/>
                     </view>
                 </viewController>

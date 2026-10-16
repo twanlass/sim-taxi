@@ -202,8 +202,11 @@ always correct.
 and are not guaranteed to be intercepted — a device that was only ever online for one visit could
 still come up empty offline otherwise. Since the bundle's filename isn't known ahead of time, the
 install step fetches `/index.html` fresh, regexes the real `/assets/...` paths back out of it, and
-caches those alongside the static shell files (icons, `manifest.webmanifest`). That is what makes
-a single online visit enough.
+caches those alongside the static shell files (icons, `manifest.webmanifest`). It then reads each
+of those scripts for the `assets/...` names *they* carry, because the game itself is not in the
+page: `src/boot.js` is the page's entry and imports `main.js` dynamically behind the startup screen
+([gameplay.md](gameplay.md#the-startup-screen)), so the game's chunk is named only in the entry
+chunk's preload list. That is what makes a single online visit enough.
 
 `public/manifest.webmanifest` names the app and its icons for platforms that read one (Android /
 desktop Chrome and Edge use it for their own install prompts); iOS ignores it and relies on the

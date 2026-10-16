@@ -5243,7 +5243,11 @@ export function createTraffic(
     const heldAt = new Set();
 
     for (const car of cars) {
-      if (car.state !== 'turn') continue;
+      // Not a staged car: it is off the network (see `stageCar`), and a taxi staged into the depot
+      // on the frame it was mid-turn kept that junction held for as long as it stayed hidden — a
+      // stand-down cop and an ordinary car sat at the line under it for the whole 90s the probe
+      // watched, on the 5 × 5 island's first seed to put the depot beside a ring junction.
+      if (car.state !== 'turn' || car.staged) continue;
       // The ordinary case: a car that has run out of arc and is waiting for room to land.
       // The brake pedal is the other way into the box and out of it — a taxi hauled to a stop
       // half way across a junction is stranded in exactly the sense this set means, at any `turnT`,

@@ -131,6 +131,7 @@ import {
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createTitleScreen } from './game/titlescreen.js';
+import { splashCovers } from './game/splash.js';
 import { createSettings, qualityOf } from './game/settings.js';
 import { createPause } from './game/pause.js';
 import { createInspect } from './game/inspect.js';
@@ -1070,6 +1071,11 @@ const robberLine = city.bank && !shot
 // bystander shoved over, the run to the cab — before the robber's line. See game/bankjob.js; the
 // module itself is built further down, once the cash trail it sheds notes into exists.
 const robberyIntro = new URLSearchParams(window.location.search).get('robbery') !== 'classic';
+// ...framed on the screen around everything in it, with the L's deck thinned over the shove
+// (`frameCut` in game/bankjob.js). `?robberycam=classic` is the first framing, averaged in the ground
+// plane round the cab, which put the bank at the edge of an upright phone whenever the cab was
+// picked up across the street.
+const classicRobberyCam = new URLSearchParams(window.location.search).get('robberycam') === 'classic';
 // ...and it starts with the bank rider: a fare on the bank's steps, a coin tossed when they spawn,
 // and the robber taking their seat on tails (BANK_CHANCE in game/fares.js). `?bankfare=classic`
 // keeps the drive-past, with a bystander always outside and the alarm always on the building.
@@ -1603,6 +1609,7 @@ const bankJob = robbery && robberyIntro
     play: (name, x = null, z = null) => sfx?.play(name, x === null ? {} : { at: placeAt(x, z) }),
     scenery: !bankFare,
     skippable: new URLSearchParams(window.location.search).get('robberyskip') === 'classic',
+    classicFraming: classicRobberyCam,
   })
   : null;
 if (bankJob && bankFare) {
@@ -5372,6 +5379,10 @@ let lastFrameAt = 0;
 
 function frame(t) {
   requestAnimationFrame(frame);
+  // The startup screen is drawing over the whole page (game/splash.js): nothing here would be seen,
+  // and a city frame behind it is GPU the drop needs. The sim waits too — the dt clamp below is the
+  // whole of the catch-up when it lets go, and the governor ignores a gap that long.
+  if (splashCovers()) return;
   if (frameRateCap() < 60 && t - lastFrameAt < 1000 / frameRateCap() - 4) return;
   lastFrameAt = t;
   // Only frames of live play count toward the governor: a paused or finished run is cheap and
@@ -5429,6 +5440,10 @@ function tick() {
   // camera — running on wall time. It hands over to the robber's line above when the robber is in.
   if (bankJob?.running()) {
     bankJob.update(dt, aspect());
+    // The L's deck thins over the cut's own subjects rather than over wherever the taxi and the
+    // pins were on the frame the world stopped (`fadePoints` in game/bankjob.js). Left as they are
+    // for the robber's line after it, which is about the same cab.
+    if (ltrain && !classicRobberyCam) ltrain.setFadePoints(bankJob.fadePoints());
     renderFrame();
     return;
   }
@@ -6926,6 +6941,8 @@ if (!shot && wantsDebugPanel) {
 
 window.__taxi = {
   traffic,
+  // The city camera — `state.punch` is how a browser test stages a cut opening on a held Loco push-in.
+  controller,
   // The combo meter — see game/combometer.js — and the drop-off that cashes it in.
   combo,
   landCombo,

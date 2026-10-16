@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="booting">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -63,8 +63,6 @@
          `none` — the canvas, the Loco Mode pill — still say so below and win on specificity, `*`
          having none at all. */
       * { margin: 0; padding: 0; box-sizing: border-box; touch-action: manipulation; }
-      /* Matches PALETTE.skyBottom, so the frame before WebGL's first paint is the sky rather
-         than a flash of a different colour. */
       /* Nothing on this page is prose to be read — it's a surface you tap and drag on. Without
          these, a long press anywhere on iOS still finds *something* selectable (the callout hunts
          past the canvas for the nearest text node) and pops the Copy / Look Up / Translate
@@ -87,6 +85,20 @@
         /* No grey flash under a tap either — every control here has its own :active state. */
         -webkit-tap-highlight-color: transparent;
       }
+      /* Black until the game has drawn. A cold start used to show the page's sky here — the
+         `#dcedf7` above, which is PALETTE.skyBottom so a canvas emptied by a resize mid-run blinks
+         to sky rather than to some other colour — for as long as the game took to load, and it
+         read as a broken blue screen. `booting` is on the root from the first byte, so the first
+         frame is black, the same `splashVoid` black as the iOS launch screen and the web view
+         behind the page; game/splash.js (or src/boot.js, without the startup screen) takes it off
+         once the city is on screen, and the sky underlay is back for the rest of the session. */
+      html.booting, html.booting body { background: #000; }
+      /* The startup screen (game/splash.js): over everything, the menu included, until it fades. */
+      #splash {
+        position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 100;
+        background: #000; touch-action: none;
+      }
+      body.shot-mode #splash { display: none; }
       /* The one exception: the debug panel's JSON dump exists to be selected and copied when the
          clipboard API refuses, and an inherited `user-select: none` would leave nothing to drag
          over. Sliders and colour wells come along for the ride harmlessly. */
@@ -262,12 +274,12 @@
       #chase-siren canvas { display: block; width: 60px; height: 44px; }
       /* Where it stands. By default it is a child of #boost-meter and sits on the crown of the
          fuel gauge (Tyler, 2026-10-15), centred over Loco Mode: the gauge's outer edge is
-         BASE_R + width + RIM = 97 units off the button's centre (game/fuelarc.js), at
+         BASE_R + width + RIM = 101 units off the button's centre (game/fuelarc.js), at
          `--gas-d` per 150, and it pops up out of that rather than down out of the top edge.
          `?pedals=classic` moves it back into #hud, on the cash row beside the pause. It rides
          the pedals' entrance, and #boost-meter's own hiding rules (replay, game over, shot mode). */
       #boost-meter #chase-siren {
-        left: calc(50% - 30px); bottom: calc(50% + 97 * var(--gas-d) / 150 + 2px);
+        left: calc(50% - 30px); bottom: calc(50% + 101 * var(--gas-d) / 150 + 2px);
         transform-origin: center bottom; transform: scale(0.3) translateY(30%);
       }
       #hud #chase-siren { top: calc((var(--hud-row) - 44px) / 2); right: var(--pause-w); }
@@ -2163,6 +2175,7 @@
     </style>
   </head>
   <body>
+    <div id="splash" aria-hidden="true"></div>
     <div id="hud">
       <div class="money">$<span id="money">0</span></div>
       <!-- Riders let go on the kerb, out of MAX_STRIKES (game/fares.js). Three marks, lit one at a
@@ -2322,13 +2335,13 @@
           </linearGradient>
           <!-- The dish runs the other way — dark at the top, light at the bottom — which is what
                makes it read as sunk rather than domed. -->
-          <linearGradient id="nes-gas-dish" x1="0" y1="37" x2="0" y2="105" gradientUnits="userSpaceOnUse">
+          <linearGradient id="nes-gas-dish" x1="0" y1="27" x2="0" y2="115" gradientUnits="userSpaceOnUse">
             <stop stop-color="#D97900" /><stop offset="1" stop-color="#FFC453" />
           </linearGradient>
           <linearGradient id="nes-brake-face" x1="0" y1="9" x2="0" y2="133" gradientUnits="userSpaceOnUse">
             <stop stop-color="#F2514F" /><stop offset="1" stop-color="#D42B2E" />
           </linearGradient>
-          <linearGradient id="nes-brake-dish" x1="0" y1="37" x2="0" y2="105" gradientUnits="userSpaceOnUse">
+          <linearGradient id="nes-brake-dish" x1="0" y1="27" x2="0" y2="115" gradientUnits="userSpaceOnUse">
             <stop stop-color="#B91F22" /><stop offset="1" stop-color="#F8706E" />
           </linearGradient>
         </defs>
@@ -2339,8 +2352,8 @@
           <circle cx="75" cy="71" r="62" fill="url(#nes-gas-face)" />
           <path d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
           <circle cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
-          <circle cx="75" cy="71" r="34" fill="url(#nes-gas-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
-          <path d="M104.44 88A34 34 0 0 1 45.56 88" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
+          <circle cx="75" cy="71" r="44" fill="url(#nes-gas-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
+          <path d="M113.11 93A44 44 0 0 1 36.89 93" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
           <!-- Debossed, not printed (Tyler, 2026-10-15): the letter is the dish's own plastic, a
                tenth lighter, and reads by its walls alone — the top wall in shadow, the bottom
                one catching the light, the way a cut into the dish would. -->
@@ -2427,8 +2440,8 @@
           <circle cx="75" cy="71" r="62" fill="url(#nes-brake-face)" />
           <path d="M25.15 47.76A55 55 0 0 1 56.19 19.32" stroke="#fff" stroke-opacity="0.6" stroke-width="5" stroke-linecap="round" fill="none" />
           <circle cx="67.35" cy="16.54" r="2.4" fill="#fff" fill-opacity="0.6" />
-          <circle cx="75" cy="71" r="34" fill="url(#nes-brake-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
-          <path d="M104.44 88A34 34 0 0 1 45.56 88" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
+          <circle cx="75" cy="71" r="44" fill="url(#nes-brake-dish)" stroke="#000" stroke-opacity="0.22" stroke-width="1.5" />
+          <path d="M113.11 93A44 44 0 0 1 36.89 93" stroke="#fff" stroke-opacity="0.4" stroke-width="1.5" fill="none" />
           <!-- Debossed, not printed (Tyler, 2026-10-15): the letter is the dish's own plastic, a
                tenth lighter, and reads by its walls alone — the top wall in shadow, the bottom
                one catching the light, the way a cut into the dish would. -->
@@ -2588,6 +2601,8 @@
         };
       }
     </script>
-    <script type="module" src="/src/main.js"></script>
+    <!-- Not main.js: the game is imported by boot.js once the startup screen is built. See
+         src/boot.js, and sw.js for how its chunk still gets precached. -->
+    <script type="module" src="/src/boot.js"></script>
   </body>
 </html>

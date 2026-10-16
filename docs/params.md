@@ -17,7 +17,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 
 | Param | Brings back | PR | Doc |
 |---|---|---|---|
-| `?city=classic` | The 5 × 6 city (25 land blocks, straight roads only, three bridges). Headless tools take `CITY=classic` | #483 | [city.md](city.md) |
+| `?city=big` | The 6 × 7 city (36 land blocks) with the central park, harbor, north park, shores, west edge high rises, horizon filler and the L's turn west. The default is the 5 × 5 island with feathered edges. Headless tools take `CITY=big` | #483 | [city.md](city.md) |
 | `?harbor=classic` | The old river mouth, with no harbor, cranes or ships | #488, #497 | [river.md](river.md) |
 | `?northpark=classic` | No park past the north ring road | #483 | [city.md](city.md) |
 | `?westedge=classic` | No high rises past the west ring road: the island ends at the old west coast. Headless tools take `WESTEDGE=classic` | #510 | [city.md](city.md#the-west-edge-high-rises-default-westedgeclassic-to-drop-them) |
@@ -56,11 +56,15 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?chasesiren=classic` | No 🚨 during a chase | #513 | [traffic.md](traffic.md#spotted-and-then-caught-or-lost) |
 | `?helispot=classic` | The police helicopter's first, brighter and harder-edged searchlight | | [gameplay.md](gameplay.md) |
 | `?songs=classic` | The radio plays the four earlier songs (country, jazz, rock, funk) instead of Nicolás's four | | [audio.md](audio.md#the-radio) |
+| `?splashcam=classic` | The startup screen from the game's 33° three-quarter view (the first cut) instead of the low side-on camera | | [gameplay.md](gameplay.md#the-startup-screen) |
+| `?splashsound=classic` | The startup screen plays silent, as it first shipped, rather than with the landing, bounce and Loco sounds | | [gameplay.md](gameplay.md#the-startup-screen) |
+| `?splash=classic` | No startup screen: the game loads behind black and opens on the title menu, with no taxi drop first | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?menumusic=classic` | The radio's intro plays under the title menu on the first tap, rather than a song until Play | #519 | [audio.md](audio.md#the-radio) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |
 | `?robbery=classic` | The robbery with no opening cut (straight to the drive-past). Also implies `?bankfare=classic` | #475, #478 | [gameplay.md](gameplay.md) |
 | `?bankfare=classic` | The drive-past robbery instead of the bank rider fare | #499 | [gameplay.md](gameplay.md) |
 | `?robberyskip=classic` | A tap (or Space/Enter) skips the bank job's cut, as it used to | | [gameplay.md](gameplay.md#the-bank-job) |
+| `?robberycam=classic` | The bank job's cut framed the first way, averaged on the cab in the ground plane, a held Loco push-in left on, and the L's deck left solid over the shove | | [gameplay.md](gameplay.md#the-cuts-framing) |
 | `?robberyodds=classic` | The bank rider's coin stays a fair 50/50 instead of loading toward a robbery with each bank ride | #522 | [gameplay.md](gameplay.md#the-bank-job) |
 | `?uturn=classic` | The first U-turn, a spin on the spot, instead of the handbrake turn | #458 | [gameplay.md](gameplay.md) |
 | `?barrelroll=classic` | Big Air flown level, no barrel roll | #485 | [river.md](river.md) |

@@ -279,8 +279,9 @@ only the .m4a files whose masters changed.
 
 ## Gestures, pauses and the phone
 
-- **Nothing can play before a tap.** Every browser keeps an `AudioContext` suspended until the page
-  has been touched. The context is created inside the first `pointerdown`/`touchend`/`keydown`
+- **Nothing can play before a tap**, the startup screen's sting in the iOS app aside: it runs on a
+  context of its own (`game/splashsound.js`, see [gameplay.md](gameplay.md#the-startup-screen)).
+  Every browser keeps an `AudioContext` suspended until the page has been touched. The context is created inside the first `pointerdown`/`touchend`/`keydown`
   (Safari only starts one from inside a gesture), and the files are decoded then. The fetches start
   at boot, so the bytes have usually arrived by the time of that first tap.
 - **The world stopping stops the sound.** The pause and the robber's line both call

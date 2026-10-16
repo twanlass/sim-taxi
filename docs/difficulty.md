@@ -43,7 +43,7 @@ ramp along `d` — they are the world, not the fare game.
 
 | World knob | `d = 0` | `d = 1` | |
 |---|---|---|---|
-| `carCount` | 16 | 30 | Ambient traffic. Pushed into `sim/traffic.js`. 12 to 22 under `?city=classic`: these are densities, scaled by the street length. |
+| `carCount` | 12 | 22 | Ambient traffic. Pushed into `sim/traffic.js`. 16 to 30 under `?city=big`: these are densities, scaled by the street length. |
 | `policeCooldown` | 16–30s | 8–14s | Between patrols. Pushed into `game/patrol.js`. |
 
 `?d=0..1` pins the curve. The ⚙️ panel has a slider for the same handle, and four more for the two

@@ -32,7 +32,7 @@ import MIX from '../../assets/audio/mix.json' with { type: 'json' };
 // The designer's files, keyed by the designer's own names so a re-delivery drops straight in. Each
 // is a literal `new URL` so Vite can see it at build time; a URL assembled from a variable is one
 // Vite cannot find and will not ship.
-const FILES = {
+export const FILES = {
   '01_ENG_idle_loop': new URL('../../assets/audio/01_ENG_idle_loop.m4a', import.meta.url).href,
   '02_IMPACT_bump_A': new URL('../../assets/audio/02_IMPACT_bump_A.m4a', import.meta.url).href,
   '02_IMPACT_bump_B': new URL('../../assets/audio/02_IMPACT_bump_B.m4a', import.meta.url).href,
@@ -479,7 +479,8 @@ export const SHIPPED_MIX = cleanMix(MIX, null);
 
 const MUTE_KEY = 'simTaxi.muted';
 
-function readMuted() {
+/** The player's mute, as remembered. Exported for the startup screen, which plays before this exists. */
+export function readMuted() {
   try { return window.localStorage.getItem(MUTE_KEY) === '1'; } catch { return false; }
 }
 function writeMuted(on) {

@@ -55,6 +55,10 @@ export const PALETTE = {
   hemiGround: '#6B5A48',
 
   asphalt: '#636972',
+  // The startup screen's void (game/splash.js), and the page, the web view and the iOS launch
+  // screen before it: what a cold start shows while the game loads, so it has to be the same black
+  // everywhere or the hand-offs between them flash.
+  splashVoid: '#000000',
   asphaltEdge: '#6B717A',
   // Tyre rubber on the road. Not black: pure black over a blue-grey asphalt read as a hole cut in
   // the road rather than something lying on it, and a touch of warm brown is what rubber smeared

@@ -8,6 +8,23 @@ and each links back to the section that describes the game as it is today.
 
 Dates and PR numbers are given where the text or the commit log records them.
 
+## The startup screen
+
+[Now](gameplay.md#the-startup-screen): black, then the taxi drops onto a patch of asphalt and
+boosts off it, then the title menu.
+
+Before it (to 2026-10-16) a cold start showed the sky's `#DCEDF7` — the iOS launch screen, the web
+view behind the page and the page itself were all that colour, chosen so the frame before WebGL's
+first paint matched the city's horizon — for however long the game took to load, and then cut
+straight to the title menu. Reported as "it just shows blue sky when it first starts". `?splash=classic`
+skips the drop and goes straight to the game; the black underlay stays.
+
+The drop was first shot from the game's own three-quarter camera, the car leaving north (off the
+top right). Tyler asked to try it side-on; the low side camera became the default the same day, and
+`?splashcam=classic` keeps the three-quarter view.
+
+It first shipped silent; `?splashsound=classic` keeps that.
+
 ## The opening vignette
 
 Pacing numbers the vignette shipped with and later changed. Now: [The opening vignette](gameplay.md#the-opening-vignette).
@@ -638,6 +655,20 @@ setup, in three beats:
 ### The bank job
 
 Now: [The bank job](gameplay.md#the-bank-job).
+
+**The cut's first framing** (`?robberycam=classic`) was the steps, the bystander and the cab door
+averaged in the ground plane, the door counted twice so the cab stayed central, with a half-height
+of `10 + 0.9 × span` (the world distance from the steps or the bystander to the cab door) between
+15 and 26. Fine with the cab out front. Picked up across the street or across the junction, the cab
+is 14 screen units sideways from the steps, and an upright phone at a 26 half-height is 24 units
+wide, so the bank and the cab sat out towards opposite edges with the middle on roofs — and right
+on them whenever Loco was held into the pickup, because the push-in (0.76) is eased by the frame
+loop the cut stops and stayed frozen through the cut and the line. On a
+city whose L runs down the bank's street it was worse: the deck's fade was still keyed on where the
+taxi and the pins were when the world stopped, so the shove played under the girders. Reported off
+exactly that, with the robber's bubble pinned to the edge of the screen pointing at a cab you could
+not see. Replaced by a fit on the screen's own axes between the HUD rows, and the deck fed the cut's
+subjects.
 
 `game/bankjob.js`, the default since it was tried out behind a flag; `?robbery=classic` keeps the
 old drive-past. The robber's line fixed the event arriving
