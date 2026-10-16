@@ -4,7 +4,7 @@
   "start_url": "/",
   "display": "standalone",
   "display_override": ["fullscreen"],
-  "background_color": "#dcedf7",
+  "background_color": "#000000",
   "theme_color": "#A46BFF",
   "icons": [
     { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },

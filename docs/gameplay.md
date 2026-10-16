@@ -1,5 +1,39 @@
 # Gameplay
 
+## The startup screen
+
+`src/game/splash.js`, entered from `src/boot.js`. A cold start is black from its first frame — the
+iOS launch screen, the web view and the page (`html.booting`) are all `PALETTE.splashVoid` — and
+stays black while the game loads. Then a patch of asphalt fades up in the middle of the black, seen
+from a low side-on camera (15° up), the taxi falls out of the sky onto it with the **Big Air landing** (the dust ring, the pale shockwave,
+sparks off all four wheels, a hard shake), bounces twice, sits for a beat, lights **Loco Mode** and
+leaves on its back wheels, laying rubber, off the right edge of the frame. Once it is fully gone,
+flame and all (`exitTime`), the empty patch holds for a second (`HOLD`) — skid marks, dust settling
+— and then fades to the title screen. About 3.8 s from the first frame of asphalt on a phone; a tap
+anywhere skips to a quick fade, and a player with reduced motion gets the fade alone.
+
+**It covers the load without animating during it.** `main.js` builds the city in one synchronous
+task (13 s of one long task under headless SwiftShader, nothing in between), so nothing on the page
+can move while it runs. `boot.js` builds the splash first — its renderer, its scene and the effect
+pools it borrows from the game — then imports the game behind the black. When the game is up, the
+city draws a few frames behind it (`WARM_FRAMES`) so its first-frame shader links land where they
+cannot stutter anything, and then the drop plays with the city skipping its frames
+(`splashCovers()`, read at the top of `frame` in main.js). The fade reveals the last of those warm
+frames, still on the city's canvas, and the city picks up when the screen is gone.
+
+**It is built before the game is imported on purpose.** `propMaterial()` bakes the AO, Crayon and
+cloud-shadow switches into the shader at creation, and `main.js` throws them as it boots: a taxi made
+afterwards would sample the city's SSAO buffer at whatever pixel it stood on. Built and compiled
+first, it is the plain car.
+
+**Where it plays.** Every cold start. Not wherever the title screen would not be either — shot mode,
+`?dev`, `?title=off`, the reload "Play again" does — and not on **`?splash=classic`**, which is the
+old load: straight into the game, though the page is still black rather than sky until the city has
+drawn. The drop itself is walked in `tools/probe.mjs`: the body never dips into the road, and the
+car starts above the frame and is gone, plume included, at `exitTime` at a phone, a square and a
+desktop aspect, under both cameras. **`?splashcam=classic`** is the first cut's camera instead: the
+game's own 33° three-quarter view, with the car leaving off the top right.
+
 ## The title screen
 
 `src/game/titlescreen.js`, in `#title-screen`. A load opens on **Play, Settings, Credits**, left
