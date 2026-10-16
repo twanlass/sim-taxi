@@ -21186,6 +21186,54 @@ let chopperOrder; // likewise
     campers.length > 0 && tinted === 0, `${tinted} of ${campers.length} tinted`);
 }
 
+// --- The startup screen (game/splash.js) -----------------------------------------------------
+// The drop is a pure function of time and aspect, so it is walked here rather than looked at: the
+// body never goes into the road, the car starts above the top of the frame and is gone off its edge
+// before the fade, at a phone, a square and a desktop window alike.
+{
+  const splash = await import('../src/game/splash.js');
+  const { TAXI_TAILPIPE_BACK, TAXI_SCALE } = await import('../src/geometry/taxi.js');
+  const { VIEW_DIR: dir } = await import('../src/game/camera.js');
+  const right = new THREE.Vector3(1, 0, -1).normalize();
+  const up = new THREE.Vector3().crossVectors(right, dir).normalize();
+  const halfW = (1.7 / 2) * TAXI_SCALE;
+  const corner = new THREE.Vector3();
+  const euler = new THREE.Euler();
+  const REACH = 3;    // the drawn car's half-length plus its roof, as a radius on screen
+  let lowest = Infinity;
+  let lowestAt = 0;
+  const notGone = [];
+  const notAbove = [];
+  for (const aspect of [390 / 844, 1, 1280 / 800]) {
+    const zoom = splash.splashZoom(aspect);
+    const onScreen = (p) => {
+      const at = new THREE.Vector3(p.x, p.y, p.z);
+      return Math.abs(at.dot(right)) - REACH < zoom * aspect && Math.abs(at.dot(up)) - REACH < zoom;
+    };
+    for (let t = splash.STAGE_IN; t <= splash.SPLASH_LENGTH; t += 1 / 240) {
+      const p = splash.splashPose(t, aspect);
+      euler.set(p.roll, p.yaw, p.pitch, BODY_EULER_ORDER);
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        corner.set(sx * TAXI_TAILPIPE_BACK, 0, sz * halfW).applyEuler(euler);
+        if (p.y + corner.y < lowest) { lowest = p.y + corner.y; lowestAt = t; }
+      }
+    }
+    if (onScreen(splash.splashPose(splash.STAGE_IN, aspect))) notAbove.push(aspect.toFixed(2));
+    if (onScreen(splash.splashPose(splash.FADE_AT, aspect))) notGone.push(aspect.toFixed(2));
+  }
+  check('splash: the body never dips into the road through the drop, the bounces and the wheelie',
+    lowest > -0.05, `lowest corner ${lowest.toFixed(3)} at ${lowestAt.toFixed(2)}s`);
+  check('splash: the taxi starts above the top of the frame at every aspect', notAbove.length === 0,
+    notAbove.length ? `in frame at ${notAbove.join(', ')}` : '');
+  check('splash: the taxi is out of frame before the fade at every aspect', notGone.length === 0,
+    notGone.length ? `still in frame at ${notGone.join(', ')}` : '');
+  const landed = splash.splashPose(splash.LAND + 1e-4, 1);
+  check('splash: it lands on the road at LAND, and lands facing the way it leaves',
+    landed.y < 0.6 && Math.abs(landed.yaw - splash.HEADING) < 1e-3, `y ${landed.y.toFixed(2)}, yaw ${landed.yaw.toFixed(3)}`);
+  check('splash: the whole thing is under three seconds', splash.SPLASH_LENGTH < 3,
+    `${splash.SPLASH_LENGTH.toFixed(2)}s`);
+}
+
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
 // how many cars happen to be moving at the instant the sim stops.
 const throughput = stats.distance / stats.time / traffic.cars.length;

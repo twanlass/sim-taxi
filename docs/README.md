@@ -10,7 +10,7 @@ behind it that aren't obvious from the code.
 | [river.md](river.md) | The river, its bridges, the span that lifts, the boats it lifts for, and the harbor at its east mouth | `src/city/river.js`, `src/game/drawbridge.js`, `src/city/harbor.js` |
 | [roadnet.md](roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces | `src/city/roadnet.js`, `src/city/curves.js` |
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the drive-through, the building fire and its engine, cop cars in ambient traffic, the patrol cruiser, and the wreck and its replay | `src/sim/`, `game/wreckage.js`, `game/replay.js` |
-| [gameplay.md](gameplay.md) | The title screen, the opening vignette and tutorial, the fare loop, routing and tapping a street, the bank robbery, the package courier, picking, the travelling clock, economy and the combo meter, the pedals and the moves (overtake, U-turn, drift), the New Move cards, the burger run, repairs at the depot, pause | `src/game/` |
+| [gameplay.md](gameplay.md) | The startup screen, the title screen, the opening vignette and tutorial, the fare loop, routing and tapping a street, the bank robbery, the package courier, picking, the travelling clock, economy and the combo meter, the pedals and the moves (overtake, U-turn, drift), the New Move cards, the burger run, repairs at the depot, pause | `src/game/` |
 | [gameplay-history.md](gameplay-history.md) | How each of those got to where it is: superseded designs, rejected attempts, and what each `?x=classic` brings back | |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
 | [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, car paint, weather, Crayon and Cartoon Mode, bloom, effects, sirens | `src/game/scene.js`, `src/geometry/` |
@@ -31,7 +31,7 @@ rather than a dice roll, so it obeys every junction exactly like everyone else a
 way to a destination. On a desktop the whole city is in frame; on a phone the camera follows the
 taxi and the map can be dragged ([rendering.md](rendering.md#camera)).
 
-A run opens on the **title screen** over the live city ([gameplay.md](gameplay.md#the-title-screen)).
+A cold start is black, then the **startup screen**: the taxi drops out of the sky onto a patch of asphalt and boosts off it ([gameplay.md](gameplay.md#the-startup-screen)). A run opens on the **title screen** over the live city ([gameplay.md](gameplay.md#the-title-screen)).
 Press Play and the camera comes down onto the taxi's **garage**: the door goes up, the car drives out
 into traffic and the camera pulls back to the game ([the opening vignette](gameplay.md#the-opening-vignette)).
 Three speech bubbles from the taxi are the whole tutorial ([the opening tutorial](gameplay.md#the-opening-tutorial)).

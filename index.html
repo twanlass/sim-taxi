@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="booting">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -63,8 +63,6 @@
          `none` — the canvas, the Loco Mode pill — still say so below and win on specificity, `*`
          having none at all. */
       * { margin: 0; padding: 0; box-sizing: border-box; touch-action: manipulation; }
-      /* Matches PALETTE.skyBottom, so the frame before WebGL's first paint is the sky rather
-         than a flash of a different colour. */
       /* Nothing on this page is prose to be read — it's a surface you tap and drag on. Without
          these, a long press anywhere on iOS still finds *something* selectable (the callout hunts
          past the canvas for the nearest text node) and pops the Copy / Look Up / Translate
@@ -87,6 +85,20 @@
         /* No grey flash under a tap either — every control here has its own :active state. */
         -webkit-tap-highlight-color: transparent;
       }
+      /* Black until the game has drawn. A cold start used to show the page's sky here — the
+         `#dcedf7` above, which is PALETTE.skyBottom so a canvas emptied by a resize mid-run blinks
+         to sky rather than to some other colour — for as long as the game took to load, and it
+         read as a broken blue screen. `booting` is on the root from the first byte, so the first
+         frame is black, the same `splashVoid` black as the iOS launch screen and the web view
+         behind the page; game/splash.js (or src/boot.js, without the startup screen) takes it off
+         once the city is on screen, and the sky underlay is back for the rest of the session. */
+      html.booting, html.booting body { background: #000; }
+      /* The startup screen (game/splash.js): over everything, the menu included, until it fades. */
+      #splash {
+        position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 100;
+        background: #000; touch-action: none;
+      }
+      body.shot-mode #splash { display: none; }
       /* The one exception: the debug panel's JSON dump exists to be selected and copied when the
          clipboard API refuses, and an inherited `user-select: none` would leave nothing to drag
          over. Sliders and colour wells come along for the ride harmlessly. */
@@ -2132,6 +2144,7 @@
     </style>
   </head>
   <body>
+    <div id="splash" aria-hidden="true"></div>
     <div id="hud">
       <div class="money">$<span id="money">0</span></div>
       <!-- Riders let go on the kerb, out of MAX_STRIKES (game/fares.js). Three marks, lit one at a
@@ -2557,6 +2570,8 @@
         };
       }
     </script>
-    <script type="module" src="/src/main.js"></script>
+    <!-- Not main.js: the game is imported by boot.js once the startup screen is built. See
+         src/boot.js, and sw.js for how its chunk still gets precached. -->
+    <script type="module" src="/src/boot.js"></script>
   </body>
 </html>

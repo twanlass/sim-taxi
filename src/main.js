@@ -131,6 +131,7 @@ import {
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createTitleScreen } from './game/titlescreen.js';
+import { splashCovers } from './game/splash.js';
 import { createSettings, qualityOf } from './game/settings.js';
 import { createPause } from './game/pause.js';
 import { createInspect } from './game/inspect.js';
@@ -5240,6 +5241,10 @@ let lastFrameAt = 0;
 
 function frame(t) {
   requestAnimationFrame(frame);
+  // The startup screen is drawing over the whole page (game/splash.js): nothing here would be seen,
+  // and a city frame behind it is GPU the drop needs. The sim waits too — the dt clamp below is the
+  // whole of the catch-up when it lets go, and the governor ignores a gap that long.
+  if (splashCovers()) return;
   if (frameRateCap() < 60 && t - lastFrameAt < 1000 / frameRateCap() - 4) return;
   lastFrameAt = t;
   // Only frames of live play count toward the governor: a paused or finished run is cheap and

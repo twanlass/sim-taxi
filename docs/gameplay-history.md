@@ -8,6 +8,17 @@ and each links back to the section that describes the game as it is today.
 
 Dates and PR numbers are given where the text or the commit log records them.
 
+## The startup screen
+
+[Now](gameplay.md#the-startup-screen): black, then the taxi drops onto a patch of asphalt and
+boosts off it, then the title menu.
+
+Before it (to 2026-10-16) a cold start showed the sky's `#DCEDF7` — the iOS launch screen, the web
+view behind the page and the page itself were all that colour, chosen so the frame before WebGL's
+first paint matched the city's horizon — for however long the game took to load, and then cut
+straight to the title menu. Reported as "it just shows blue sky when it first starts". `?splash=classic`
+skips the drop and goes straight to the game; the black underlay stays.
+
 ## The opening vignette
 
 Pacing numbers the vignette shipped with and later changed. Now: [The opening vignette](gameplay.md#the-opening-vignette).

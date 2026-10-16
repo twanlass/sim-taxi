@@ -17,11 +17,13 @@ final class GameViewController: UIViewController {
     private static let scheme = "simtaxi"
     private static let startURL = URL(string: "\(scheme)://app/index.html")!
 
-    /// `PALETTE.skyBottom` from `src/palette.js`, and the `background_color` in the web manifest.
-    /// Used for the view behind the canvas so the frame before WebGL's first paint is sky rather
-    /// than a flash of black — the same reasoning as the `background` on `html, body` in
-    /// `index.html`. `LaunchScreen.storyboard` is this colour too, which makes launch continuous.
-    private static let sky = UIColor(red: 0xDC / 255, green: 0xED / 255, blue: 0xF7 / 255, alpha: 1)
+    /// `PALETTE.splashVoid` from `src/palette.js`: black, as is the `background_color` in the web
+    /// manifest, `LaunchScreen.storyboard` and the page itself until the city has drawn
+    /// (`html.booting` in `index.html`). A cold start goes launch screen, web view, page, startup
+    /// screen (`src/game/splash.js`), and every one of those hand-offs has to be the same colour or
+    /// it flashes. It used to be the sky's `#DCEDF7` throughout, which made the whole load a pale
+    /// blue screen.
+    private static let backdrop = UIColor.black
 
     private var webView: WKWebView!
 
@@ -76,8 +78,8 @@ final class GameViewController: UIViewController {
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.scrollView.pinchGestureRecognizer?.isEnabled = false
         webView.isOpaque = true
-        webView.backgroundColor = Self.sky
-        webView.scrollView.backgroundColor = Self.sky
+        webView.backgroundColor = Self.backdrop
+        webView.scrollView.backgroundColor = Self.backdrop
         webView.allowsBackForwardNavigationGestures = false
 
         // Safari Web Inspector against the running app — Develop ▸ <device> ▸ Rocket Rides. This is the
