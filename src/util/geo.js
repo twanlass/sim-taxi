@@ -597,17 +597,40 @@ export const GLOSS_UNIFORMS = {
   uRimShape: { value: new THREE.Vector4(0.4, 0.6, 4, 0) },
 };
 
-// `?rim=<name>`: a tint on the rim. White (the default) leaves it the colour of whatever light
-// made it: the sun's gold in the afternoon, red and blue off a cop's bar.
+// `?rim=<name>`: one tint for every car's rim. Without one, each car's rim takes its own paint's
+// hue at full strength (Tyler, 2026-10-16: gold on the taxi), times the colour of the light.
 export const RIM_COLORS = { magenta: '#ff3df0', cyan: '#00e5ff', gold: '#ffb347', white: '#ffffff' };
 const RIM_STRENGTH = 3;
+let rimLine = true;
 
-/** The rim's tint, by name (`RIM_COLORS`); anything else is white. */
+/**
+ * The rim line, which every look but classic wears: `paint` (the default) takes each car's own
+ * hue, a `RIM_COLORS` name tints it, `off` drops it. Build-time for `off`, like the looks.
+ */
 export function setRim(name) {
+  rimLine = name !== 'off';
   const c = new THREE.Color(RIM_COLORS[name] ?? RIM_COLORS.white).convertSRGBToLinear();
   GLOSS_UNIFORMS.uRim.value.set(c.r, c.g, c.b, RIM_STRENGTH);
+  GLOSS_UNIFORMS.uRimShape.value.w = name in RIM_COLORS ? 0 : 1;
 }
 setRim();
+
+// The ⚙️ panel's Rim rows (game/debugpanel.js): name -> [uniform, component].
+const RIM_TUNING = {
+  width: ['uRimShape', 'z'],
+  strength: ['uRim', 'w'],
+  sky: ['uRimShape', 'y'],
+  gap: ['uRimShape', 'x'],
+  carColour: ['uRimShape', 'w'],
+};
+/** The rim's live numbers, for the ⚙️ panel. `width` is in half-res texels, `gap` in world units. */
+export const rimTuning = () => Object.fromEntries(Object.entries(RIM_TUNING)
+  .map(([key, [u, c]]) => [key, GLOSS_UNIFORMS[u].value[c]]));
+/** Set one of them live (`setRimTuning('width', 6)`); width lands on the next frame's step. */
+export function setRimTuning(key, value) {
+  const [u, c] = RIM_TUNING[key];
+  GLOSS_UNIFORMS[u].value[c] = value;
+}
 
 /**
  * Hand the rim the AO prepass's depth, every frame before the main render — its size moves with
@@ -879,7 +902,7 @@ export function setPaintLook(look) {
 }
 
 /** Whether the cars wear the rim look, which reads the AO prepass's depth. */
-export const rimPaintOn = () => !classicPaint && paintLook === 'rim';
+export const rimPaintOn = () => !classicPaint && rimLine;
 
 /** A copy of the live finish tuning — what the `?debug` panel reads and exports. */
 export const glossTuning = () => structuredClone(glossState);
@@ -1007,6 +1030,7 @@ ${GLOSS_BEND}
 __LOOK_BASE__
 		float gPeak = max(max(diffuseColor.r, diffuseColor.g), max(diffuseColor.b, 1e-3));
 		gTint = mix(vec3(1.0), diffuseColor.rgb / gPeak, gFinD.y);
+		gRimHue = diffuseColor.rgb / gPeak;
 
 		vec3 gF = vGlossObj * uGlossGlobal.x + 0.37;
 		vec3 gId = floor(gF);
@@ -1061,6 +1085,7 @@ const GLOSS_SPECULAR_TO = /* glsl */ `{
 
 // What the layered paint adds to the fragment's globals, and the hash its flakes are cut with.
 const GLOSS_PAINT_DECLS = /* glsl */ `vec3 gTint;
+vec3 gRimHue;
 vec3 gFlakeN;
 float gFlakeVis;
 float gFlakeDisc;
@@ -1150,7 +1175,8 @@ __LOOK_FINAL__
 // **Toon** thresholds the glint and the sheen into shapes, quantises the sky into two bands, and
 // replaces the clear coat's curve with one hard band past 0.6 graze.
 //
-// **Rim** keeps toon's shapes and adds a hairline of light along the body's silhouette, on the
+// **Rim** is toon with the sheen in the paint's full hue. The rim line (`RIM_LIGHT`, `RIM_SKY`,
+// appended to every look but classic unless `?rim=off`) is a hairline of light along the body's silhouette, on the
 // edges that face a light and nowhere else. The panels are flat boxes, so nothing in a fragment's
 // own normal says it is at an edge; the screen does. Each light steps the fragment a few texels
 // toward itself across the AO prepass's depth (`gRimEdge`): if the step lands on something more
@@ -1175,13 +1201,18 @@ const TOON_SPECULAR = /* glsl */ `{
 		float gSh = smoothstep( 0.86, 0.87, dot( gReflN, gH ) ) * gFinA.w;
 		reflectedLight.directSpecular += directLight.color * gLit * ( gGlintIrr * 1.6 + gSh * gTint );
 	}`;
-const RIM_SPECULAR = TOON_SPECULAR.slice(0, -2) + /* glsl */ `
+// The rim line, appended to whichever look's specular is in the light loop.
+const RIM_LIGHT = /* glsl */ `
+	{
 		vec2 gRimD = directLight.direction.xy;
 		if ( gIsPaint > 0.5 && dot( gRimD, gRimD ) > 1e-6 ) {
-			reflectedLight.directSpecular += directLight.color * uRim.rgb * uRim.a
+			reflectedLight.directSpecular += directLight.color * gRimColor() * uRim.a
 				* gRimEdge( normalize( gRimD ) );
 		}
 	}`;
+// ...and the sky's share, appended to the look's final slot.
+const RIM_SKY = /* glsl */ `
+		outgoingLight += uGlossTop * gRimColor() * uRimShape.y * gIsPaint * gRimEdge(vec2(0.0, 1.0));`;
 // After <packing>, which the gloss uniforms are not: hung on the light chunk's include instead.
 const RIM_EDGE_FN = /* glsl */ `
 // How far the scene behind this fragment drops away one step along dir: 1 where the step lands
@@ -1190,6 +1221,10 @@ float gRimEdge(vec2 dir) {
 	vec2 uv = gl_FragCoord.xy * uAOTexel + dir * uRimStep;
 	float gap = (unpackRGBAToDepth(texture2D(tRimDepth, uv)) - gl_FragCoord.z) * uRimDepthScale;
 	return smoothstep(uRimShape.x, uRimShape.x + 0.3, gap);
+}
+// The tint, or the paint's own hue at full strength (uRimShape.w = 1, ?rim=paint).
+vec3 gRimColor() {
+	return mix(uRim.rgb, gRimHue, uRimShape.w);
 }
 `;
 const PAINT_LOOKS = {
@@ -1214,10 +1249,7 @@ const PAINT_LOOKS = {
   },
   rim: {
     sky: TOON_SKY,
-    edge: true,
-    specular: RIM_SPECULAR,
-    final: `
-		outgoingLight += uGlossTop * uRim.rgb * uRimShape.y * gIsPaint * gRimEdge(vec2(0.0, 1.0));`,
+    specular: TOON_SPECULAR,
   },
 };
 
@@ -1247,7 +1279,7 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
   // `?crayon&ao=off` a crayoned material and a bare one would otherwise share a key.
   const useAO = aoEnabled && ao;
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
-    + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}` : ''}`
+    + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}${rimPaintOn() ? '-rim' : ''}` : ''}`
     + `${cloudsEnabled ? '-clouds' : ''}`;
   material.customProgramCacheKey = () => key;
 
@@ -1260,6 +1292,7 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
       // The shared bag plus this body's own shape and paint share, which differ between a car, a
       // truck's cab and the taxi while the source does not — so per material, under one cache key.
       const look = classicPaint ? {} : PAINT_LOOKS[paintLook] ?? {};
+      const rim = rimPaintOn();
       Object.assign(shader.uniforms, GLOSS_UNIFORMS, {
         uGloss: { value: gloss.amount },
         uGlossMirror: { value: gloss.mirror },
@@ -1311,9 +1344,10 @@ vec3 gFinishColor;
 vec3 gSpecN;
 vec3 gReflN;
 ${classicPaint ? 'float gFlake;' : GLOSS_PAINT_DECLS}`)
-        .replace('#include <lights_phong_pars_fragment>', (look.edge ? RIM_EDGE_FN : '') +
+        .replace('#include <lights_phong_pars_fragment>', (rim ? RIM_EDGE_FN : '') +
           THREE.ShaderChunk.lights_phong_pars_fragment.replace(GLOSS_SPECULAR_FROM,
-            classicPaint ? GLOSS_SPECULAR_CLASSIC : look.specular ?? GLOSS_SPECULAR_TO))
+            classicPaint ? GLOSS_SPECULAR_CLASSIC
+              : (look.specular ?? GLOSS_SPECULAR_TO) + (rim ? RIM_LIGHT : '')))
         .replace('#include <color_fragment>', `#include <color_fragment>
 ${GLOSS_COLOR}`)
         .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
@@ -1322,7 +1356,7 @@ ${classicPaint ? GLOSS_NORMAL_CLASSIC : GLOSS_NORMAL.replace('__LOOK_BASE__', lo
 ${glossFragment(classicPaint || paintLook === 'toon' || paintLook === 'rim')
   .replace('__LOOK_SKY__', look.sky ?? LOOK_DEFAULT_SKY)
   .replace('__LOOK_MIRROR__', look.mirror ?? '')
-  .replace('__LOOK_FINAL__', look.final ?? '')}`);
+  .replace('__LOOK_FINAL__', (look.final ?? '') + (rim ? RIM_SKY : ''))}`);
       // Never a blind replace (CLAUDE.md): a hook that matched nothing is a matte car and no error.
       for (const marker of ['attribute float aFinish', 'vGlossFinish = aFinish', 'aFinish > 2.5 && aFinish < 3.5']) {
         if (!shader.vertexShader.includes(marker)) throw new Error(`gloss: vertex hook missed (${marker})`);

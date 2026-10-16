@@ -5,7 +5,7 @@ import { SPEED, MPH_PER_UNIT, CAR_W } from '../sim/traffic.js';
 import { PITCH, LANE } from '../city/grid.js';
 import { PLAY_ZOOM } from './camera.js';
 import {
-  setShadowTint, shadowTint, FINISH_NAMES, glossTuning, setGlossFinish, setGlossGlobal,
+  setShadowTint, shadowTint, FINISH_NAMES, glossTuning, setGlossFinish, setGlossGlobal, rimTuning, setRimTuning,
   resetGlossTuning,
 } from '../util/geo.js';
 import { MIN_ELEVATION } from './daylight.js';
@@ -587,6 +587,24 @@ export function createDebugPanel({
   };
   syncFinish();
   syncFinishGlobals();
+
+  // The rim line (util/geo.js, `gRimEdge`). Live on every look but classic; `?rim=off` compiles it
+  // out, and then these move nothing.
+  const RIM_FIELDS = [
+    ['width', 'Rim width', 1, 12, 0.5, 1],
+    ['strength', 'Rim strength', 0, 8, 0.05, 2],
+    ['sky', 'Rim sky', 0, 2, 0.05, 2],
+    ['carColour', 'Rim car colour', 0, 1, 0.05, 2],
+    ['gap', 'Rim depth gap', 0.05, 2, 0.05, 2],
+  ];
+  const rimStart = rimTuning();
+  for (const [key, label, min, max, step, digits] of RIM_FIELDS) {
+    const input = slider(min, max, step, rimStart[key]);
+    const value = row(panel, label, input);
+    const show = () => { value.textContent = Number(input.value).toFixed(digits); };
+    input.addEventListener('input', () => { setRimTuning(key, Number(input.value)); show(); });
+    show();
+  }
 
   const resetFinish = document.createElement('button');
   resetFinish.type = 'button';

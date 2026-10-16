@@ -603,7 +603,7 @@ export function getPaintLook() {
   return new URLSearchParams(window.location.search).get('paint');
 }
 
-/** `?rim=magenta|cyan|gold|white` — a tint on the rim paint's edge light; null is white (util/geo.js). */
+/** `?rim=off|magenta|cyan|gold|white` — the paint's rim line; null is each car's own hue (util/geo.js). */
 export function getRimColor() {
   return new URLSearchParams(window.location.search).get('rim');
 }

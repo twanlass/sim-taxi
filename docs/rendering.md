@@ -265,8 +265,8 @@ few overridden (`PAINT_LOOK_NUMBERS`) and up to four GLSL slots filled (`PAINT_L
 `satin` is a wrap — almost no coat, a broad sheen and a velvet rim; `toon` makes the glint and
 sheen hard shapes and the coat one band of sky past 0.6 graze.
 
-**`rim` is the default** (2026-10-16): toon's hard glint and sheen, plus a hairline of light along
-each body's silhouette on the edges that face a light. Two things make it:
+**`rim` is the default** (2026-10-16): toon's hard glint and sheen in the paint's full hue, plus the
+rim line, which every look but classic now wears. Two things make it:
 
 - **The sheen takes the paint's full hue** (`tint` 1, toon has 0.5). Toon's half-white sheen is what
   turned the taxi pale blue-grey from above: a hard shape over most of a sunlit flank, half of it
@@ -281,9 +281,11 @@ each body's silhouette on the edges that face a light. Two things make it:
   under `?ao=off`. The first build, a Fresnel on the ellipsoid fitted to the body, painted patches
   over whole corners instead of a line.
 
-`?rim=magenta|cyan|gold|white` tints the line (`RIM_COLORS`, white default, which leaves it the
-light's own colour). `?paint=toon` is the look before it; `?paint=layered` the realistic layered
-paint described above.
+The line takes each car's own hue by default (`?rim=paint`; a yellow taxi gets a gold edge, a white
+cop a white one), `?rim=magenta|cyan|gold|white` tints every car one colour (`RIM_COLORS`), and
+`?rim=off` compiles it out. The ⚙️ panel has its width (in half-res texels), strength, sky share,
+car-colour mix and depth gap live. `?paint=toon` is the look before rim; `?paint=layered` the
+realistic layered paint described above, and `?paint=satin&rim=off` any look without the line.
 
 **Cost.** Per glossy fragment: two hashes, the derivatives, and two more Blinn-Phong lobes per
 light (one at play zoom, where the sparkle is skipped). Cars are a few percent of the frame, and
