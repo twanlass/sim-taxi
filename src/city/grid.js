@@ -12,13 +12,17 @@
 // because every other name in this file already means "runs along X": `arterialX` is a set of `j`
 // values and `halfRoadX(j)` is a road's extent in z. A `GRID_X` would have read as the opposite of
 // what it is. `i` runs `0..GRID_I` and `j` runs `0..GRID_J`; blocks are `bi < GRID_I`, `bj < GRID_J`.
-// The city is 6 × 7 blocks, 36 of them land, with a 2 × 2 central park and a curving road through
-// it (`city/centralpark.js`). `?city=classic` keeps the old 5 × 6 (25 land blocks) with straight
-// roads only. Read at module load because every count below is a constant the rest of the city is
-// built from; headless tools have no `location` and take `CITY=classic` from the environment.
+// The city is 5 × 6 blocks, 25 of them land, on an island that feathers into the sky on every side.
+// `?city=big` is the 6 × 7 city (36 land blocks) with a 2 × 2 central park and a curving road
+// through it (`city/centralpark.js`), and everything that grew round it: the harbor, the north
+// park, the shores, the west edge's high rises and the horizon filler. That was the default from
+// #483 until Tyler took it back (2026-10-16: "The bigger map is bugging me. Can we go back to the
+// smaller 5x5 that had feathered out edges"). Read at module load because every count below is a
+// constant the rest of the city is built from; headless tools have no `location` and take
+// `CITY=big` from the environment.
 export const BIG_CITY = typeof location !== 'undefined'
-  ? new URLSearchParams(location.search).get('city') !== 'classic'
-  : globalThis.process?.env?.CITY !== 'classic';
+  ? new URLSearchParams(location.search).get('city') === 'big'
+  : globalThis.process?.env?.CITY === 'big';
 export const GRID_I = BIG_CITY ? 6 : 5;  // block columns
 // The L train runs north-south, down the north-south arterial (Tyler, 2026-10-13: across the river
 // rather than beside it). `?lroute=classic` keeps the old east-west line. Here rather than in
@@ -32,7 +36,9 @@ export const LTRAIN_NS = typeof location !== 'undefined'
 // rises (Tyler, 2026-10-14: "make a right turn and head out of town through the west side high
 // rises. Doesn't make sense fading off into the ocean"). `?ltrainwest=classic` keeps the straight
 // north-south line. Only means anything on a north-south line.
-export const LTRAIN_WEST = LTRAIN_NS && (typeof location !== 'undefined'
+// Only on `?city=big`: the turn was made for the west edge's high rises to take it, and the 5 × 5
+// island has none, so there the line runs straight on south into the feathered edge.
+export const LTRAIN_WEST = BIG_CITY && LTRAIN_NS && (typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('ltrainwest') !== 'classic'
   : globalThis.process?.env?.LTRAINWEST !== 'classic');
 // A row more than columns, because **one of the rows is the river** (`city/river.js`). The city is
@@ -440,10 +446,11 @@ export function riverBanks() {
 // It is all *outside* the ring road. No street, block or junction moves, so the road network, the
 // routing, the fares and every probe staging see the same city they always did; the waterfront
 // road is the east ring road, and its junctions already take riders. `?harbor=classic` keeps the
-// old mouth. Read at module load for the same reason `BIG_CITY` is.
-export const HARBOR = typeof location !== 'undefined'
+// old mouth. Only on `?city=big`: the 5 × 5 island's river runs out into the feathered edge. Read at
+// module load for the same reason `BIG_CITY` is.
+export const HARBOR = BIG_CITY && (typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('harbor') !== 'classic'
-  : globalThis.process?.env?.HARBOR !== 'classic';
+  : globalThis.process?.env?.HARBOR !== 'classic');
 /** The island's margin past each ring road, before the fade. Owned here so the harbor can measure from it. */
 export const SLAB_MARGIN = ROAD_W * 3;
 /** How much further the island reaches east of the old coast to hold the harbor. */
@@ -455,9 +462,9 @@ export const COAST_X = (SPAN_X + SLAB_MARGIN) / 2;
 // barricaded off where they leave it. West, because west is the *far* edge: the camera looks down
 // the -x-z diagonal, so everything out there stands up-screen of the city and no tower can stand
 // between the camera and a street. Read at module load for the reason `HARBOR` is.
-export const WEST_EDGE = typeof location !== 'undefined'
+export const WEST_EDGE = BIG_CITY && (typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('westedge') !== 'classic'
-  : globalThis.process?.env?.WESTEDGE !== 'classic';
+  : globalThis.process?.env?.WESTEDGE !== 'classic');
 /** How many block columns stand west of the ring road, and how much further west the island reaches for them. */
 export const WEST_COLUMNS = WEST_EDGE ? 2 : 0;
 export const WEST_REACH = WEST_COLUMNS * PITCH;
@@ -467,9 +474,9 @@ export const coastEast = () => COAST_X + HARBOR_REACH;
 // The big park past the north ring road (city/northpark.js, `?northpark=classic` to drop it): how far
 // its lawn runs north of the ring road's kerb before it fades. Here for the reason HARBOR_REACH is:
 // the map's north edge moves with it, and the L's line has to know where that is.
-export const NORTH_PARK = typeof location !== 'undefined'
+export const NORTH_PARK = BIG_CITY && (typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('northpark') !== 'classic'
-  : globalThis.process?.env?.NORTHPARK !== 'classic';
+  : globalThis.process?.env?.NORTHPARK !== 'classic');
 export const NORTH_PARK_DEPTH = 46;
 // The corner where those two meet (city/westedge.js, `?westcorner=classic` to leave it empty): mid-rises
 // north of the north ring road's stubs, and the west ring road carried on north between them and the
@@ -485,15 +492,15 @@ export const coastSouth = () => (SPAN_Z + SLAB_MARGIN) / 2;
 // The south shore (city/southshore.js, `?southshore=classic` for the old apron): the harbor's rocky
 // shore carried on round the south end, with a strip of park between the ring road and the water.
 // It needs the harbor's sea to stand in, so it is off wherever the harbor is.
-export const SOUTH_SHORE = typeof location !== 'undefined'
+export const SOUTH_SHORE = BIG_CITY && (typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('southshore') !== 'classic'
-  : globalThis.process?.env?.SOUTHSHORE !== 'classic';
+  : globalThis.process?.env?.SOUTHSHORE !== 'classic');
 // The park shore (`?parkshore=classic`): the harbor's seawall and rocks carried straight on north
 // along the north park's east edge, where they used to curl west and stop at the park's corner.
 // Needs both the harbor and the north park.
-export const PARK_SHORE = typeof location !== 'undefined'
+export const PARK_SHORE = BIG_CITY && (typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('parkshore') !== 'classic'
-  : globalThis.process?.env?.PARKSHORE !== 'classic';
+  : globalThis.process?.env?.PARKSHORE !== 'classic');
 // The channel runs on at its own width for this far past the ring road's kerb before it opens out.
 // Enough for the ring bridge's footway (1.4) and a short walled run, so the river visibly *arrives*
 // at the basin rather than the bridge standing in it.
