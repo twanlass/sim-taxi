@@ -16,7 +16,7 @@
  * police are pushed *into* those systems by `main.js`, the same way `traffic.taxi.boost` is.
  */
 
-import { BIG_CITY } from '../city/grid.js';
+import { GRID_I } from '../city/grid.js';
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -112,9 +112,10 @@ const TUNING = {
   // second column — busy enough to be felt in every corner, short of the point where the boost
   // stops being usable at all. Those are densities, so they scale with the road: the 6 × 7 city
   // has ~1.35x the street of the 5 × 6 one (97 grid segments to 71), and 12/22 there read as an
-  // empty town. `?city=classic` keeps the old numbers.
-  carsStart: BIG_CITY ? 16 : 12,
-  carsEnd: BIG_CITY ? 30 : 22,
+  // empty town. `?city=classic` keeps the old numbers, and so does the neighbourhood city (`HOODS`),
+  // which is the 5 × 6 grid again.
+  carsStart: GRID_I >= 6 ? 16 : 12,
+  carsEnd: GRID_I >= 6 ? 30 : 22,
 
   // Seconds between police corridor runs, as a range the sim draws from. Roughly halved across the
   // ramp, so the corridor goes from an occasional interruption to something that has to be planned

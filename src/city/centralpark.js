@@ -40,11 +40,13 @@ const ONEWAY_HALF = 3;
  * arterial — closing an arterial would break its green wave and its median for a park. Most central
  * candidate wins, with a draw only to break ties, so the rest of the layout stream barely moves.
  */
-export function planCentralPark(rng, { arterialX, arterialZ }) {
+export function planCentralPark(rng, { arterialX, arterialZ, allow = null }) {
   const candidates = [];
   for (let bi = 0; bi + 1 < GRID_I; bi++) {
     for (let bj = 0; bj + 1 < GRID_J; bj++) {
       if ([bj, bj + 1].some((r) => isRiverBlock(0, r))) continue;
+      // Under `HOODS` the park belongs to one neighbourhood, and all four of its blocks have to be in it.
+      if (allow && ![[0, 0], [1, 0], [0, 1], [1, 1]].every(([di, dj]) => allow(bi + di, bj + dj))) continue;
       if (arterialZ.has(bi + 1) || arterialX.has(bj + 1)) continue;
       const cx = lineX(bi + 1);
       const cz = lineZ(bj + 1);

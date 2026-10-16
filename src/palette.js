@@ -90,6 +90,16 @@ export const PALETTE = {
   slate: '#767B85',
   roof: '#565A61',
   rooftop: '#6B6F76',
+  // The homes' clapboard (`buildHouse`, city/buildings.js): the masonry families above, then a few
+  // painted ones, every one of them as muted as `pale` so a street of houses still reads by its
+  // roofs and yards before its paint. Kept off the gameplay hues the same way the walls are.
+  houseCream: '#D8CCB0',
+  houseSage: '#A7B29A',
+  houseBlue: '#A8B6C2',
+  houseGrey: '#B9B7B0',
+  // The bay's sheds and tanks (`buildWorks`): corrugated steel, and the paler steel of a tank.
+  shedSteel: '#8E959A',
+  tankSteel: '#C9CCCB',
 
   // Windows stay dark in every lighting condition, which is what sells scale on a blocky mass.
   // This is the *bottom* of a pane now rather than the whole of it — see `windowSky`.
@@ -1264,3 +1274,7 @@ export function jitterColor(base, rng, { h = 0.01, s = 0.05, l = 0.06 } = {}) {
 }
 
 export const BUILDING_COLORS = ['concrete', 'pale', 'tan', 'brick', 'glass', 'slate'];
+export const HOUSE_COLORS = ['houseCream', 'houseSage', 'houseBlue', 'houseGrey', 'pale', 'tan', 'brick'];
+// The brownstone terrace: brick and brownstone only, the masonry a row of walk-ups is built from.
+export const ROW_COLORS = ['brick', 'brick', 'tan', 'concrete'];
+export const WORKS_COLORS = ['shedSteel', 'concrete', 'brick', 'pale', 'slate'];

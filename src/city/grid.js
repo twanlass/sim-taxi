@@ -19,7 +19,15 @@
 export const BIG_CITY = typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('city') !== 'classic'
   : globalThis.process?.env?.CITY !== 'classic';
-export const GRID_I = BIG_CITY ? 6 : 5;  // block columns
+// **Neighbourhoods** (Tyler, 2026-10-16: "it's too big. I count 7 streets wide. Let's go to 6", and
+// "each quadrant feels unique"). The big city's features — the central park, the parkway, the L,
+// the harbor and the shores — on one street fewer each way, 5 × 6 blocks, with each quadrant built
+// as its own kind of place (`HOOD` in city/layout.js). `?hoods=classic` keeps the 6 × 7 city with
+// one skyline everywhere and the high rises past the west ring road.
+export const HOODS = BIG_CITY && (typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('hoods') !== 'classic'
+  : globalThis.process?.env?.HOODS !== 'classic');
+export const GRID_I = BIG_CITY && !HOODS ? 6 : 5;  // block columns
 // The L train runs north-south, down the north-south arterial (Tyler, 2026-10-13: across the river
 // rather than beside it). `?lroute=classic` keeps the old east-west line. Here rather than in
 // game/ltrain.js because the river has to know: the drawbridge cannot lift under the deck, so it
@@ -38,7 +46,7 @@ export const LTRAIN_WEST = LTRAIN_NS && (typeof location !== 'undefined'
 // A row more than columns, because **one of the rows is the river** (`city/river.js`). The city is
 // a block row taller than it is wide so that the water costs it neither a street nor a buildable
 // block: 36 of the 42 blocks are land, a 6×6 city's worth (25 of 30, a 5×5's, under `?city=classic`).
-export const GRID_J = BIG_CITY ? 7 : 6;  // block rows, one of them water
+export const GRID_J = BIG_CITY && !HOODS ? 7 : 6;  // block rows, one of them water
 export const PITCH = 20;             // distance between road centrelines
 export const ROAD_W = 8;             // full road width (two lanes)
 export const BLOCK = PITCH - ROAD_W; // buildable footprint between two ordinary streets

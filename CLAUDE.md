@@ -5,7 +5,8 @@ Guidance for Claude Code when working in this repository.
 ## What this is
 
 **Rocket Rides** — a low-poly 3D browser game. Crazy Taxi meets Flight Control: a fixed 3/4 view of a
-6-by-7 block city with a river down the middle of it and a central park, ambient traffic obeying real signals, and one
+5-by-6 block city with a river across it, a central park, and four neighbourhoods (downtown, parks,
+homes, the bay), ambient traffic obeying real signals, and one
 taxi you route by tapping fares.
 
 Three.js r0.180 + Vite 7. **Every mesh is generated in code** — no models, no loader. The one

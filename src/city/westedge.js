@@ -5,12 +5,12 @@ import { PALETTE, color, jitterColor } from '../palette.js';
 import {
   WEST_EDGE, WEST_COLUMNS, GRID_J, HALF_ROAD, lineX, lineZ, halfRoadX, halfRoadZ,
   isArterialX, isRiverBlock, isRiverGap, MEDIAN_W, WEST_CORNER, coastWest, coastNorth, SLAB_MARGIN,
-  SPAN_Z, LTRAIN_WEST,
+  SPAN_Z, LTRAIN_WEST, HOODS, riverRow,
 } from './grid.js';
 import {
   KERB_H, PAVE_INSET, curbBox, roundedPaint, paint, SLAB_RADIUS, EDGE_FADE, FADE_RINGS,
 } from './ground.js';
-import { buildHighRise, splitLot } from './buildings.js';
+import { buildHighRise, buildHomesBlock, splitLot } from './buildings.js';
 import { barricadeParts, coneGeometry } from '../geometry/roadworks.js';
 
 // The high rises past the west ring road (`?westedge=classic` leaves the old apron).
@@ -45,6 +45,10 @@ export const WEST_SKYLINE = 38;
 // from walling off the far one: a 34-unit tower behind a 19-unit one still shows 12 storeys over it.
 const NEAR_H = [9, 18.5];
 const FAR_H = [22, 33];
+// Under `HOODS` there are no high rises at all (Tyler, 2026-10-16: "get rid of the high rises. They
+// block out the sun"): north of the river the edge carries on downtown's mid-rise, both columns at
+// its height, and south of it the homes carry on as houses.
+const HOOD_H = [6, 12];
 // The mast on top of some of the far towers: the thing that says *skyscraper* at a distance.
 const MAST_CHANCE = 0.4;
 const MAST_H = [2.5, 5];
@@ -63,7 +67,7 @@ const RAIL_CLEAR = 1.0;
 
 // The north-west corner, past the north ring road: mid-rises, the city's own height and no taller, so
 // the step from the skyline down to the park is a step rather than a cliff.
-const CORNER_H = [7, 15];
+const CORNER_H = HOODS ? [6, 12] : [7, 15];
 const CORNER_ROWS = 2;
 // The asphalt under the corner, which the island's slab stops short of: a hair *under* the slab
 // rather than butted against its rounded corner, which is tessellated its own way and would leave
@@ -226,18 +230,25 @@ export function createWestEdge(rng) {
   for (const block of blocks) {
     const { x0, x1, z0, z1 } = block.bounds;
     const far = block.column > 1;
-    const lots = splitLot(x0, z0, x1, z1, far ? 1 : 2, rng);
+    if (HOODS && block.bj > riverRow()) {
+      for (const house of buildHomesBlock(towers, block.bounds, rng)) {
+        for (let i = house.from; i < house.to; i++) stampEntry(towers[i], house.cx, house.cz, hash01(house.cx, house.cz));
+        sites.push({ cx: house.cx, cz: house.cz, top: topOf(towers, house), column: block.column });
+      }
+      continue;
+    }
+    const lots = splitLot(x0, z0, x1, z1, far && !HOODS ? 1 : 2, rng);
     for (const lot of lots) {
-      const [lo, hi] = far ? FAR_H : NEAR_H;
+      const [lo, hi] = HOODS ? HOOD_H : far ? FAR_H : NEAR_H;
       // Bigger lots go taller: a slender 40-storey tower on a corner plot reads as a chimney.
       const area = (lot.x1 - lot.x0) * (lot.z1 - lot.z0);
       const bulk = Math.min(1, area / 120);
       const height = lo + (hi - lo) * Math.min(1, rng.range(0.25, 0.85) + bulk * 0.25);
-      const range = buildHighRise(towers, lot, block.bounds, rng, height, far ? FAR_FAMILIES : undefined);
+      const range = buildHighRise(towers, lot, block.bounds, rng, height, far && !HOODS ? FAR_FAMILIES : undefined);
       const cx = (lot.x0 + lot.x1) / 2;
       const cz = (lot.z0 + lot.z1) / 2;
       const top = topOf(towers, range);
-      if (far && rng.chance(MAST_CHANCE)) {
+      if (far && !HOODS && rng.chance(MAST_CHANCE)) {
         const h = Math.min(rng.range(MAST_H[0], MAST_H[1]), WEST_SKYLINE - top);
         if (h > 1) {
           const mast = new THREE.CylinderGeometry(0.1, 0.18, h, 5);
