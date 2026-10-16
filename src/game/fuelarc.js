@@ -14,7 +14,8 @@
 
 export const CAP = { x: 75, y: 75, r: 69 };
 const OUTLINE_OUT = CAP.r + 4;         // the face's black outline, outer edge
-export const GAP = 4;                  // clear air between that outline and the gauge's rim
+export const GAP = 8;                  // clear air between that outline and the gauge's rim: 4
+                                       // until Tyler asked for twice the distance (2026-10-16)
 export const RIM = 2;                  // the dark track shows this much either side of the fuel
 export const BASE_R = OUTLINE_OUT + GAP + RIM; // where the fuel's inner edge runs
 // Fuel width at the empty end and the full end — the same, now: the taper (12 → 20, and 8 → 14
