@@ -9,6 +9,7 @@ import {
   TAXI_FRONT_AXLE_FWD, TAXI_FRONT_TRACK, TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK,
 } from '../geometry/taxi.js';
 import { setGhostOutlines } from '../geometry/ghostoutline.js';
+import { FLAME_LEN } from './locoflame.js';
 import { VIEW_DIR, DISTANCE } from './camera.js';
 import { SUN } from './scene.js';
 import { createDust } from './dust.js';
@@ -71,10 +72,13 @@ export const IGNITE = TOUCHDOWNS.at(-1) + 0.32;
 const LAUNCH_ACCEL = 70;
 export const WHEELIE = 0.3;        // rad, ~17°
 const WHEELIE_RATE = 9;            // per second, the nose coming up
-/** The fade to the menu starts here; the car is out of frame by then at every aspect (probe). */
-export const FADE_AT = IGNITE + 0.8;
+/**
+ * How long the empty patch holds after the car has gone — skid marks, the dust settling, the
+ * backfire fading — before the fade to the menu. Tyler's beat: "have the taxi fully exit, wait 1s,
+ * then fade". The first cut faded 0.8s after ignition, with the car still on its way out.
+ */
+export const HOLD = 1;
 export const FADE = 0.4;
-export const SPLASH_LENGTH = FADE_AT + FADE;
 /** A tap anywhere skips to the fade, and a skipped fade is quicker. */
 const SKIP_FADE = 0.22;
 /** City frames drawn behind the black before the drop starts — see the module note. */
@@ -99,6 +103,52 @@ const RISE_ON_SCREEN = Math.sqrt(1 - VIEW_DIR.y * VIEW_DIR.y);
 /** The frustum half-height for a viewport: whichever of the two fits binds. */
 export function splashZoom(aspect) {
   return Math.max(FIT_HALF_H, FIT_HALF_W / aspect);
+}
+
+/** Screen right and screen up, as world directions, under the fixed camera. */
+const SCREEN_RIGHT = new THREE.Vector3(1, 0, -1).normalize();
+const SCREEN_UP = new THREE.Vector3().crossVectors(SCREEN_RIGHT, VIEW_DIR).normalize();
+/** Half the car's drawn extent across its line of travel on screen, roof and wheelie included. */
+const EXIT_SIDE = 3;
+/** From the car's origin back to the tip of its plume, with room for the flicker's stretch. */
+export const FLAME_TAIL = TAXI_TAILPIPE_BACK + FLAME_LEN * 1.2;
+
+/**
+ * When the car — the tip of its Loco plume included — has fully left the frame, walked off its own
+ * pose rather than worked out in closed form: it leaves on a diagonal through whichever edge it
+ * reaches first, and on a wide frame that is the top, where the wheelie's lift counts too (the
+ * closed form that left the lift out had the plume still in a desktop frame). Per aspect: a desktop
+ * window is wider than a phone and takes longer to leave.
+ */
+const exitCache = new Map();
+export function exitTime(aspect) {
+  const key = aspect.toFixed(4);
+  if (exitCache.has(key)) return exitCache.get(key);
+  const zoom = splashZoom(aspect);
+  const at = new THREE.Vector3();
+  const inFrame = (x, y, z) => {
+    at.set(x, y, z);
+    return Math.abs(at.dot(SCREEN_RIGHT)) - EXIT_SIDE < zoom * aspect && Math.abs(at.dot(SCREEN_UP)) - EXIT_SIDE < zoom;
+  };
+  let t = IGNITE;
+  for (; t < IGNITE + 3; t += 1 / 120) {
+    const p = splashPose(t, aspect);
+    const tx = p.x - Math.cos(p.yaw) * FLAME_TAIL;
+    const tz = p.z + Math.sin(p.yaw) * FLAME_TAIL;
+    if (!inFrame(p.x, p.y, p.z) && !inFrame(tx, p.y, tz)) break;
+  }
+  exitCache.set(key, t);
+  return t;
+}
+
+/** The fade to the menu: a `HOLD` on the empty patch after the car is gone. */
+export function fadeAt(aspect) {
+  return exitTime(aspect) + HOLD;
+}
+
+/** Start to finish, at an aspect: about 3.8s on a phone. */
+export function splashLength(aspect) {
+  return fadeAt(aspect) + FADE;
 }
 
 /** Where to drop from: clear of the top of the frame, whatever its shape. */
@@ -454,7 +504,7 @@ export function createSplash(root) {
       }
       if (p.along - lastSkid > 0.35 || lastSkid < 0) lastSkid = p.along;
     }
-    plume.update(dt, car, ignited && t < FADE_AT + FADE);
+    plume.update(dt, car, ignited && t < exitTime(aspect()));
 
     dust.update(dt);
     sparks.update(dt);
@@ -469,7 +519,7 @@ export function createSplash(root) {
     frameCamera(shake, rng);
     renderer.render(scene, camera);
 
-    if (t >= FADE_AT && fadeFrom === Infinity) beginFade(FADE);
+    if (t >= fadeAt(aspect()) && fadeFrom === Infinity) beginFade(FADE);
     if (t >= fadeFrom + fadeLength) finish();
   }
 

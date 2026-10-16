@@ -7,9 +7,10 @@ iOS launch screen, the web view and the page (`html.booting`) are all `PALETTE.s
 stays black while the game loads. Then a patch of asphalt fades up in the middle of the black, the
 taxi falls out of the sky onto it with the **Big Air landing** (the dust ring, the pale shockwave,
 sparks off all four wheels, a hard shake), bounces twice, sits for a beat, lights **Loco Mode** and
-leaves on its back wheels, laying rubber, off the top right of the frame. The fade that follows
-lands on the title screen. About 2.7 s from the first frame of asphalt; a tap anywhere skips to a
-quick fade, and a player with reduced motion gets the fade alone.
+leaves on its back wheels, laying rubber, off the top right of the frame. Once it is fully gone,
+flame and all (`exitTime`), the empty patch holds for a second (`HOLD`) — skid marks, dust settling
+— and then fades to the title screen. About 3.8 s from the first frame of asphalt on a phone; a tap
+anywhere skips to a quick fade, and a player with reduced motion gets the fade alone.
 
 **It covers the load without animating during it.** `main.js` builds the city in one synchronous
 task (13 s of one long task under headless SwiftShader, nothing in between), so nothing on the page
@@ -29,7 +30,8 @@ first, it is the plain car.
 `?dev`, `?title=off`, the reload "Play again" does — and not on **`?splash=classic`**, which is the
 old load: straight into the game, though the page is still black rather than sky until the city has
 drawn. The drop itself is walked in `tools/probe.mjs`: the body never dips into the road, and the
-car starts above the frame and leaves it before the fade at a phone, a square and a desktop aspect.
+car starts above the frame and is gone, plume included, at `exitTime` at a phone, a square and a
+desktop aspect.
 
 ## The title screen
 

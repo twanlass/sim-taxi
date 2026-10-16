@@ -21210,7 +21210,7 @@ let chopperOrder; // likewise
       const at = new THREE.Vector3(p.x, p.y, p.z);
       return Math.abs(at.dot(right)) - REACH < zoom * aspect && Math.abs(at.dot(up)) - REACH < zoom;
     };
-    for (let t = splash.STAGE_IN; t <= splash.SPLASH_LENGTH; t += 1 / 240) {
+    for (let t = splash.STAGE_IN; t <= splash.splashLength(aspect); t += 1 / 240) {
       const p = splash.splashPose(t, aspect);
       euler.set(p.roll, p.yaw, p.pitch, BODY_EULER_ORDER);
       for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
@@ -21219,19 +21219,25 @@ let chopperOrder; // likewise
       }
     }
     if (onScreen(splash.splashPose(splash.STAGE_IN, aspect))) notAbove.push(aspect.toFixed(2));
-    if (onScreen(splash.splashPose(splash.FADE_AT, aspect))) notGone.push(aspect.toFixed(2));
+    // Gone at `exitTime` — the car *and* its plume's tip, which trails behind it toward the middle.
+    const out = splash.splashPose(splash.exitTime(aspect), aspect);
+    const back = splash.FLAME_TAIL;
+    const tail = { x: out.x - Math.cos(out.yaw) * back, y: out.y, z: out.z + Math.sin(out.yaw) * back };
+    if (onScreen(out) || onScreen(tail)) notGone.push(aspect.toFixed(2));
   }
   check('splash: the body never dips into the road through the drop, the bounces and the wheelie',
     lowest > -0.05, `lowest corner ${lowest.toFixed(3)} at ${lowestAt.toFixed(2)}s`);
   check('splash: the taxi starts above the top of the frame at every aspect', notAbove.length === 0,
     notAbove.length ? `in frame at ${notAbove.join(', ')}` : '');
-  check('splash: the taxi is out of frame before the fade at every aspect', notGone.length === 0,
+  check('splash: the taxi and its flame are out of frame at exitTime, at every aspect', notGone.length === 0,
     notGone.length ? `still in frame at ${notGone.join(', ')}` : '');
   const landed = splash.splashPose(splash.LAND + 1e-4, 1);
   check('splash: it lands on the road at LAND, and lands facing the way it leaves',
     landed.y < 0.6 && Math.abs(landed.yaw - splash.HEADING) < 1e-3, `y ${landed.y.toFixed(2)}, yaw ${landed.yaw.toFixed(3)}`);
-  check('splash: the whole thing is under three seconds', splash.SPLASH_LENGTH < 3,
-    `${splash.SPLASH_LENGTH.toFixed(2)}s`);
+  const phone = 390 / 844;
+  check('splash: the fade waits a second on the empty patch after the car has gone',
+    Math.abs(splash.fadeAt(phone) - splash.exitTime(phone) - 1) < 1e-9,
+    `exit ${splash.exitTime(phone).toFixed(2)}s, fade ${splash.fadeAt(phone).toFixed(2)}s, done ${splash.splashLength(phone).toFixed(2)}s`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
