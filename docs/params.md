@@ -1,7 +1,7 @@
 # URL parameters
 
 Every query parameter the game reads, in one place. Combine them with `&`:
-`/?dev&seed=7&cars=1`. The page at `/lab/` has its own, in [lab.md](lab.md).
+`/?dev&seed=7&cars=1`. The page at `/lab/` has its own, in [lab.md](lab.md), and so does the model workshop at `/workshop/`, in [workshop.md](workshop.md).
 
 `tools/docs.mjs` (part of `npm run check`) fails if the code reads a parameter that is not in a
 table here, or a row names one nothing reads any more. So adding a `?flag` means adding its row.
