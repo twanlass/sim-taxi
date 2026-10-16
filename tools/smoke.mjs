@@ -309,17 +309,32 @@ try {
       const { result } = await tc.send('Runtime.evaluate', { expression, returnByValue: true });
       return result.value;
     };
+    // A plain load opens on the startup screen (game/splash.js) first: the taxi's drop, over the
+    // menu, until it fades. The menu is not answerable until it has gone, so that is what counts as
+    // up — and it is checked on the way that the screen was there, black, and went.
+    let splashSeen = false;
+    let blackFirst = false;
     const bootTitle = async () => {
       await tc.send('Page.navigate', { url: baseUrl });
       const deadline = Date.now() + 120000;
       while (Date.now() < deadline) {
-        if (await tEval('Boolean(window.__taxi?.title)').catch(() => false)) return true;
+        const at = await tEval(`JSON.stringify({
+          title: Boolean(window.__taxi?.title),
+          splash: Boolean(document.querySelector('#splash canvas')),
+          booting: document.documentElement.classList.contains('booting'),
+          black: getComputedStyle(document.body).backgroundColor,
+        })`).then(JSON.parse).catch(() => null);
+        if (at?.splash) splashSeen = true;
+        if (at?.splash && at.booting && at.black === 'rgb(0, 0, 0)') blackFirst = true;
+        if (at?.title && !at.splash && !at.booting) return true;
         await sleep(300);
       }
       return false;
     };
 
     const up = await bootTitle();
+    check('the startup screen plays on a plain load, over black, and then gets out of the way',
+      up && splashSeen && blackFirst, `seen ${splashSeen}, black ${blackFirst}`);
     check('the title screen comes up on a plain load', up);
     if (up) {
       // Let the sim run a while behind it before asking what it held.
