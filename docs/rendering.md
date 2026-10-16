@@ -213,7 +213,7 @@ ignores them.
 
 ### Car paint — the layered finish
 
-The shipped default is the `toon` look built on this (see the end of this section); everything below
+The shipped default is the `rim` look built on this (see the end of this section); everything below
 is the layered paint it starts from, still one `?paint=layered` away. `?paint=classic` keeps the
 paint before the layered one — its own GLSL, not the new shader fed the old numbers; see
 [history](rendering-history.md#car-paint--the-layered-finish).
@@ -263,8 +263,26 @@ length (`GLOSS_HIT_SOFT`): the further the thing reflected, the blurrier its edg
 few overridden (`PAINT_LOOK_NUMBERS`) and up to four GLSL slots filled (`PAINT_LOOKS`):
 `chameleon` turns the base hue by up to 2.3 rad as a panel turns away, so edges flip colour;
 `satin` is a wrap — almost no coat, a broad sheen and a velvet rim; `toon` makes the glint and
-sheen hard shapes and the coat one band of sky past 0.6 graze. **Toon is the default** (picked
-2026-10-13); `?paint=layered` brings back the realistic layered paint described above.
+sheen hard shapes and the coat one band of sky past 0.6 graze.
+
+**`rim` is the default** (2026-10-16): toon's hard glint and sheen with a coloured backlight on the
+car's up-screen edges in place of toon's sky band. Two things make it:
+
+- **The sheen takes the paint's full hue** (`tint` 1, toon has 0.5). Toon's half-white sheen is what
+  turned the taxi pale blue-grey from above: a hard shape over most of a sunlit flank, half of it
+  white. At 1 the taxi stays yellow.
+- **The rim is a sphere's Fresnel on a box.** A body is flat panels, so its own normal has one
+  N·V per face and no edge to find. The bulge vector (fragment minus body centre, over the
+  half-extents, the same one the glint bends with) *is* a normal — the ellipsoid's that fits the
+  body — and it turns side-on to the camera exactly along the body's projected outline. The band
+  is 1 − N·V of that, between 0.86 and 0.90, weighted toward the up-screen half so it reads as a
+  light behind the car rather than an outline. It is added, not mixed, so it brightens the paint
+  the way a light does. On boxy bodies the band lands as a patch over the body's far corners
+  rather than a hairline; a thinner line would need a screen-space silhouette pass.
+
+`?rim=magenta|cyan|gold|white` picks the colour (`RIM_COLORS`, magenta default). Gold disappears
+into the taxi and white or cyan over yellow wash to the pale grey the tint fix just removed.
+`?paint=toon` is the look before it; `?paint=layered` the realistic layered paint described above.
 
 **Cost.** Per glossy fragment: two hashes, the derivatives, and two more Blinn-Phong lobes per
 light (one at play zoom, where the sparkle is skipped). Cars are a few percent of the frame, and

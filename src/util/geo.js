@@ -586,7 +586,22 @@ export const GLOSS_UNIFORMS = {
   uFinishD: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector4()) },
   // x: flake cells per unit, y: façade darkness, z: false-colour finish view (0/1).
   uGlossGlobal: { value: new THREE.Vector4() },
+  // The rim look's backlight (`setRim`): rgb in linear, a = strength.
+  uRim: { value: new THREE.Vector4() },
 };
+
+// `?rim=<name>`: the rim look's backlight colour. Magenta reads against every body colour in the
+// fleet, the yellow taxi included — gold vanished into it, and white or cyan over yellow came out
+// as the same pale wash the old toon sheen had.
+export const RIM_COLORS = { magenta: '#ff3df0', cyan: '#00e5ff', gold: '#ffb347', white: '#ffffff' };
+const RIM_STRENGTH = 0.85;
+
+/** The rim look's backlight colour, by name (`RIM_COLORS`); anything else is magenta. */
+export function setRim(name) {
+  const c = new THREE.Color(RIM_COLORS[name] ?? RIM_COLORS.magenta).convertSRGBToLinear();
+  GLOSS_UNIFORMS.uRim.value.set(c.r, c.g, c.b, RIM_STRENGTH);
+}
+setRim();
 
 /**
  * Follow the sky. The dome's `ShaderMaterial` writes its uniforms straight to the canvas with no
@@ -759,6 +774,9 @@ const PAINT_CLASSIC = {
 //   rim that lifts the paint at grazing angles instead of mirroring the street there.
 // - `toon`: cel paint. The glint and the sheen are hard-edged shapes rather than lobes, and the
 //   clear coat is one hard band of sky along the bent edges.
+// - `rim` (the default): toon's shapes with the sheen in the paint's full hue — toon's half-white
+//   one is what washed the taxi to a pale blue-grey — and a coloured backlight on the body's
+//   up-screen edges instead of the sky band.
 const PAINT_LOOK_NUMBERS = {
   chameleon: { coat: 1, tint: 1, flop: 0.1, sheen: 0.7, flake: 0.9 },
   satin: {
@@ -766,11 +784,13 @@ const PAINT_LOOK_NUMBERS = {
     flop: 0, diffuse: 1.3,
   },
   toon: { glint: 1, sheen: 0.45, flake: 0, coat: 0, tint: 0.5, flop: 0 },
+  rim: { glint: 1, sheen: 0.45, flake: 0, coat: 0, tint: 1, flop: 0 },
 };
 
 let classicPaint = false;
-// Toon is the default (Tyler, 2026-10-13); the rest stay one `?paint=` away.
-const PAINT_LOOK_DEFAULT = 'toon';
+// Rim is the default (Tyler, 2026-10-16), toon before it (2026-10-13); the rest stay one
+// `?paint=` away.
+const PAINT_LOOK_DEFAULT = 'rim';
 let paintLook = PAINT_LOOK_DEFAULT;
 const finishDefaults = () => {
   const finishes = structuredClone(FINISH_DEFAULTS);
@@ -836,7 +856,7 @@ export function setClassicPaint(enabled) {
   resetGlossTuning();
 }
 
-/** `?paint=layered|chameleon|satin|toon` — anything else (no param) is toon, the default. */
+/** `?paint=layered|chameleon|satin|toon|rim` — anything else (no param) is rim, the default. */
 export function setPaintLook(look) {
   paintLook = look === 'layered' || look in PAINT_LOOK_NUMBERS ? look : PAINT_LOOK_DEFAULT;
   resetGlossTuning();
@@ -1110,8 +1130,27 @@ __LOOK_FINAL__
 //
 // **Toon** thresholds the glint and the sheen into shapes, quantises the sky into two bands, and
 // replaces the clear coat's curve with one hard band past 0.6 graze.
+//
+// **Rim** keeps toon's shapes and adds a backlight. A body is flat panels, so three's normal has
+// one N·V per face and no edge to find; the bulge vector (fragment minus body centre over the
+// half-extents) is the normal of the ellipsoid that fits the body, and it turns side-on along the
+// body's projected outline. So the band is that ellipsoid's 1 - N·V, weighted to the up-screen
+// half so it reads as light from behind rather than an outline, and added rather than mixed.
+// It dims with the sky's horizon (to 0.3 of itself at midnight), the light it stands in for —
+// at full strength in the dark it was a neon magenta car with no other light on it.
+// Measured on the taxi and a cop at a close pinch: 0.86-0.90 is a patch over the far corners;
+// 0.8 already tints whole panels, and a band driven off the bent normal instead (1 + 3..20 times
+// the in-face bulge) lit the sills along the road, which reads as ground bounce, not a backlight.
 const CHAMELEON_TURN = 2.3;
 const LOOK_DEFAULT_SKY = 'pow(gR.y, 0.6)';
+const TOON_SKY = 'step(0.45, gR.y)';
+const TOON_SPECULAR = /* glsl */ `{
+		vec3 gH = normalize( directLight.direction + geometryViewDir );
+		float gLit = step( 0.0, dot( gReflN, directLight.direction ) );
+		float gGlintIrr = smoothstep( 0.982, 0.986, dot( gSpecN, gH ) ) * gFinA.x;
+		float gSh = smoothstep( 0.86, 0.87, dot( gReflN, gH ) ) * gFinA.w;
+		reflectedLight.directSpecular += directLight.color * gLit * ( gGlintIrr * 1.6 + gSh * gTint );
+	}`;
 const PAINT_LOOKS = {
   chameleon: {
     base: `
@@ -1127,16 +1166,22 @@ const PAINT_LOOKS = {
 		outgoingLight += outgoingLight * gIsPaint * 1.1 * gGraze * gGraze * gGraze;`,
   },
   toon: {
-    sky: 'step(0.45, gR.y)',
+    sky: TOON_SKY,
     mirror: `
 		gMirror += gIsPaint * 0.5 * step(0.6, gGraze) * uGloss;`,
-    specular: /* glsl */ `{
-		vec3 gH = normalize( directLight.direction + geometryViewDir );
-		float gLit = step( 0.0, dot( gReflN, directLight.direction ) );
-		float gGlintIrr = smoothstep( 0.982, 0.986, dot( gSpecN, gH ) ) * gFinA.x;
-		float gSh = smoothstep( 0.86, 0.87, dot( gReflN, gH ) ) * gFinA.w;
-		reflectedLight.directSpecular += directLight.color * gLit * ( gGlintIrr * 1.6 + gSh * gTint );
-	}`,
+    specular: TOON_SPECULAR,
+  },
+  rim: {
+    sky: TOON_SKY,
+    specular: TOON_SPECULAR,
+    final: `
+		{
+			vec3 gRimN = normalize(vGlossBulge);
+			float gRimUp = dot(gRimN.xy, gRimN.xy) > 1e-6 ? 0.5 + 0.5 * normalize(gRimN.xy).y : 0.5;
+			float gRimBand = smoothstep(0.86, 0.90, 1.0 - clamp(gRimN.z, 0.0, 1.0));
+			float gRimSky = clamp(dot(uGlossHorizon, vec3(0.3, 0.59, 0.11)) * 1.6, 0.3, 1.0);
+			outgoingLight += uRim.rgb * uRim.a * gIsPaint * gRimBand * gRimUp * gRimSky;
+		}`,
   },
 };
 
@@ -1212,6 +1257,7 @@ uniform vec4 uFinishD[5];
 uniform vec4 uGlossGlobal;
 uniform float uGloss;
 uniform float uGlossMirror;
+uniform vec4 uRim;
 varying vec3 vGlossWorld;
 varying vec3 vGlossBulge;
 varying vec3 vGlossObj;
@@ -1233,7 +1279,7 @@ ${GLOSS_COLOR}`)
         .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
 ${classicPaint ? GLOSS_NORMAL_CLASSIC : GLOSS_NORMAL.replace('__LOOK_BASE__', look.base ?? '')}`)
         .replace('#include <envmap_fragment>', `#include <envmap_fragment>
-${glossFragment(classicPaint || paintLook === 'toon')
+${glossFragment(classicPaint || paintLook === 'toon' || paintLook === 'rim')
   .replace('__LOOK_SKY__', look.sky ?? LOOK_DEFAULT_SKY)
   .replace('__LOOK_MIRROR__', look.mirror ?? '')
   .replace('__LOOK_FINAL__', look.final ?? '')}`);

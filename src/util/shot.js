@@ -598,9 +598,14 @@ export function getVehiclePaintClassic() {
   return new URLSearchParams(window.location.search).get('vehiclepaint') === 'classic';
 }
 
-/** `?paint=layered|chameleon|satin|toon` — null means the default, toon (util/geo.js, PAINT_LOOKS). */
+/** `?paint=layered|chameleon|satin|toon|rim` — null means the default, rim (util/geo.js, PAINT_LOOKS). */
 export function getPaintLook() {
   return new URLSearchParams(window.location.search).get('paint');
+}
+
+/** `?rim=magenta|cyan|gold|white` — the rim look's backlight colour; null is magenta (util/geo.js). */
+export function getRimColor() {
+  return new URLSearchParams(window.location.search).get('rim');
 }
 
 /**

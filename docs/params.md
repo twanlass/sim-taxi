@@ -41,7 +41,8 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?foliage=classic` | The first, louder autumn palette | #486 | [rendering.md](rendering.md) |
 | `?water=classic` | The faceted first river surface | | [river.md](river.md) |
-| `?paint=classic` / `=layered` / `=chameleon` / `=satin` | Car paint before the layered finish, or one of the explored looks (default is `toon`) | #501 | [rendering.md](rendering.md) |
+| `?paint=classic` / `=layered` / `=chameleon` / `=satin` / `=toon` | Car paint before the layered finish, or one of the explored looks (default is `rim`; `toon` was the default before it) | #501 | [rendering.md](rendering.md) |
+| `?rim=magenta` / `=cyan` / `=gold` / `=white` | The rim paint's backlight colour (default magenta) | | [rendering.md](rendering.md#car-paint--the-layered-finish) |
 | `?vehiclepaint=classic` | The plane, helicopters, boats, container ships and L train back on the plain flat material instead of the cars' paint | | [rendering.md](rendering.md#every-other-vehicle) |
 | `?classics=classic` / `=0.3` | No convertibles or camper vans / that chance per car, capped at 0.5 (default 1 in 40) | #495 | [traffic.md](traffic.md) |
 | `?damage=classic` | The taxi's damage ladder before the first-hit flash, grime and steam | #456 | [gameplay.md](gameplay.md) |
