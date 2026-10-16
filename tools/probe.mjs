@@ -115,7 +115,7 @@ import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.
 import * as difficulty from '../src/game/difficulty.js';
 import { BOARD_MAX } from '../src/game/difficulty.js';
 import { LOCO_PACE_SELF } from './autoplay.mjs';
-import { planRun as planBankRun } from '../src/game/bankjob.js';
+import { planRun as planBankRun, cutShot as bankCutShot, frameCut as frameBankCut } from '../src/game/bankjob.js';
 import { createRobbery, TRIGGER_RANGE as ROBBERY_TRIGGER_RANGE, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
 import {
   createPatrol, createPin, ESCAPE_BLOCKS, TOUCH_SLACK, SIGHT_HOLD, PIN_HOLD, PIN_SPEED,
@@ -16538,6 +16538,17 @@ let chopperOrder; // likewise
     let runs = 0;
     let rounded = 0;
     let through = 0;
+    // The cut's camera (`frameCut`), checked through a real orthographic camera placed the way
+    // game/camera.js places one — so the projection is three's, not the arithmetic under test — on
+    // an upright phone, the narrowest screen there is. Everything the cut shows has to land on
+    // screen and between the HUD rows (15% top, 20% bottom). The first framing averaged the shove
+    // and the cab in the ground plane and left the bank at the frame's edge with the cab across the
+    // junction.
+    const cutCam = new THREE.OrthographicCamera();
+    const PHONE = 390 / 844;
+    let offFrame = 0;
+    let worstZoom = 0;
+    const cutPoint = new THREE.Vector3();
     for (const lane of cityNetwork().lanes) {
       if (!lane.path) continue;
       for (let s = 0; s <= lane.length; s += 0.5) {
@@ -16549,8 +16560,25 @@ let chopperOrder; // likewise
         if (plan.legs.length > 3) rounded += 1;
         // The first leg starts inside the portico, which is the point of it.
         if (plan.legs.slice(1).some(throughWall)) through += 1;
+        const { frame } = bankCutShot(bank, { x: p.x, z: p.z, yaw: Math.atan2(-t.z, t.x) }, plan);
+        const focus = frameBankCut(frame, PHONE);
+        worstZoom = Math.max(worstZoom, focus.zoom);
+        cutCam.top = focus.zoom; cutCam.bottom = -focus.zoom;
+        cutCam.right = focus.zoom * PHONE; cutCam.left = -focus.zoom * PHONE;
+        cutCam.near = 1; cutCam.far = 1000;
+        cutCam.updateProjectionMatrix();
+        cutCam.position.set(focus.x, 0, focus.z).addScaledVector(VIEW_DIR, 400);
+        cutCam.lookAt(focus.x, 0, focus.z);
+        cutCam.updateMatrixWorld();
+        if (frame.some((q) => {
+          cutPoint.set(q.x, q.y, q.z).project(cutCam);
+          return Math.abs(cutPoint.x) > 1 || cutPoint.y > 1 - 2 * 0.15 || cutPoint.y < -1 + 2 * 0.2;
+        })) offFrame += 1;
       }
     }
+    check('the bank job’s camera holds the door, the shove and the cab clear of the HUD on a phone',
+      runs > 0 && offFrame === 0,
+      `${offFrame} of ${runs} trigger points with something off screen, widest half-height ${worstZoom.toFixed(1)}`);
     check('the robber runs round the bank’s block to the cab, never through it',
       runs > 0 && through === 0 && rounded > 0,
       `${through} of ${runs} trigger points through a wall, ${rounded} sent round a corner`);
