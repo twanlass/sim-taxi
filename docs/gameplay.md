@@ -12,6 +12,14 @@ flame and all (`exitTime`), the empty patch holds for a second (`HOLD`) — skid
 — and then fades to the title screen. About 3.8 s from the first frame of asphalt on a phone; a tap
 anywhere skips to a quick fade, and a player with reduced motion gets the fade alone.
 
+**It has sound where sound is allowed** (`game/splashsound.js`): the Big Air landing on the slam, a
+bump on each bounce, and the Loco press (launch, the activate's roar, a skid for the burnout) as it
+leaves, the roar fading as the car clears the frame. The game's own recordings at the shipped mix,
+under the player's mute and effects slider. It has to play before anyone has tapped, which a
+browser will not allow, so it makes its own context at once and stays silent unless that context
+is running: in the iOS app it is (the shell lifts the gesture rule), in Safari it never is, in
+Chrome only on a site the player already uses a lot. `?splashsound=classic` is the silent drop.
+
 **It covers the load without animating during it.** `main.js` builds the city in one synchronous
 task (13 s of one long task under headless SwiftShader, nothing in between), so nothing on the page
 can move while it runs. `boot.js` builds the splash first — its renderer, its scene and the effect

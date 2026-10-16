@@ -23,6 +23,8 @@ The drop was first shot from the game's own three-quarter camera, the car leavin
 top right). Tyler asked to try it side-on; the low side camera became the default the same day, and
 `?splashcam=classic` keeps the three-quarter view.
 
+It first shipped silent; `?splashsound=classic` keeps that.
+
 ## The opening vignette
 
 Pacing numbers the vignette shipped with and later changed. Now: [The opening vignette](gameplay.md#the-opening-vignette).
