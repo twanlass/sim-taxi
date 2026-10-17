@@ -2095,7 +2095,26 @@
         cursor: pointer; background: var(--dbg-fill); color: var(--dbg-text); font: 700 10px/1 system-ui, sans-serif;
       }
       .aud-ms.is-on { background: #f5c56b; color: #141416; border-color: #f5c56b; }
-      .aud-ms.is-on:last-child { background: #7aa2ff; border-color: #7aa2ff; }
+      .aud-ms.aud-solo.is-on { background: #7aa2ff; border-color: #7aa2ff; }
+      .aud-ms-pair { display: flex; gap: 4px; margin-left: auto; flex: none; align-self: center; }
+      .aud-sound.is-silenced > :not(.aud-name), .aud-sound.is-silenced .aud-name > :not(.aud-ms-pair) { opacity: 0.45; }
+      /* The buses over the groups, and the peak meter on Master (src/game/audiopanel.js). */
+      .aud-bus { margin-top: 6px; }
+      .aud-bus-name { flex: 1; font-size: 12px; padding: 2px 0; }
+      .aud-meter { margin: 2px 0 8px; cursor: pointer; }
+      .aud-meter-row { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; font-size: 9px; opacity: 0.8; }
+      .aud-meter-bar { position: relative; flex: 1; height: 8px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, 0.08); }
+      .aud-meter-fill {
+        position: absolute; inset: 0; clip-path: inset(0 100% 0 0);
+        /* -60..0 dBFS: green to -12, amber to -6, red above. Clipped rather than sized, so the
+           colours stay put on the scale. */
+        background: linear-gradient(to right, #5fd38d 0 80%, #f5c56b 80% 90%, #ff6b6b 90% 100%);
+      }
+      .aud-meter-tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; }
+      .aud-meter-scale { position: relative; height: 10px; margin-left: 13px; font-size: 8px; opacity: 0.5; }
+      .aud-meter-scale span { position: absolute; transform: translateX(-50%); }
+      .aud-meter-read { font: 600 11px/1.4 ui-monospace, monospace; margin-top: 2px; }
+      .aud-meter.is-clipped .aud-meter-read { color: #ff6b6b; }
       /* A folded group hides its sounds — unless the panel's search is in use, which shows a match
          wherever it is. A class, because `hidden` on these belongs to the search. */
       #dbg-panel:has(.dbg-search:placeholder-shown) .aud-sound.is-folded { display: none; }

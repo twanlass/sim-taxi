@@ -20,7 +20,7 @@
  * Levels are shown in dB and rates in semitones, because that is how a designer thinks about
  * them; the file keeps linear gain and a playback rate, because that is what Web Audio takes.
  */
-import { SFX_EVENTS, SHIPPED_MIX, SOUNDS, LOOPS, PICKED, PLACED, RADIO, GROUPS } from './sfx.js';
+import { SFX_EVENTS, SHIPPED_MIX, SOUNDS, LOOPS, PICKED, PLACED, RADIO, GROUPS, BUSES, MIX_PARENT } from './sfx.js';
 
 // What each ⚡ does, for its tooltip. The keys are main.js's `soundTriggers`.
 const TRIGGER_TIPS = {
@@ -53,8 +53,12 @@ function clearStash() {
   try { storage()?.removeItem(STASH_KEY); } catch { /* soft */ }
 }
 
+// Every fader's bottom stop is silence, not a quiet level: Nicolás could still hear the music with
+// its old -30 dB floor. FLOOR is that stop, and anything at or under it is a gain of 0 (-∞).
+const FLOOR = -60;
 const toDb = (gain) => (gain > 0 ? 20 * Math.log10(gain) : -Infinity);
-const fromDb = (db) => (db <= -60 ? 0 : 10 ** (db / 20));
+const fromDb = (db) => (db <= FLOOR ? 0 : 10 ** (db / 20));
+const faderAt = (gain) => String(Math.max(FLOOR, toDb(gain)));
 const toSemis = (rate) => 12 * Math.log2(rate);
 const fromSemis = (st) => 2 ** (st / 12);
 const dbText = (gain) => (gain > 0 ? `${toDb(gain) >= 0 ? '+' : ''}${toDb(gain).toFixed(1)} dB` : '-∞ dB');
@@ -89,8 +93,11 @@ function el(tag, props = {}, ...children) {
  * panel without having read docs/audio.md. Short on purpose — a tooltip is read mid-drag.
  */
 const TIPS = {
-  'SFX level': 'Volume of every sound effect. Under the player\'s own SFX slider.',
-  'Music level': 'Volume of the radio. Under the player\'s own Music slider.',
+  'Master': 'Everything: music and effects together. The meter reads after it.',
+  'Music': 'Volume of the radio. Under the player\'s own Music slider.',
+  'SFX': 'Volume of every sound effect, Player and World. Under the player\'s own SFX slider.',
+  'Player': 'The taxi: Engine & Loco, Taxi and Impacts.',
+  'World': 'The city: City events, Ambience, People and Police.',
   'Idle pitch · stopped': 'Engine idle pitch when the taxi is standing still.',
   'Idle pitch · cruise': 'Engine idle pitch at normal top speed. It glides between the two.',
   'Loco pitch · cruise': 'Loco engine pitch at normal top speed.',
@@ -180,9 +187,40 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
   // Everything that paints a control from the live mix, so Reset and Import can resync them all.
   const syncs = [];
   const sync = () => { for (const s of syncs) s(); };
-  // Each group header's mute/solo paint — one group's solo changes how every other one looks.
+  // Every M/S pair's paint — one solo changes how everything else looks, so all repaint together.
   const monitors = [];
+  const repaintMonitors = () => { for (const p of monitors) p(); };
   const holdPaints = [];
+  // Heard while listening: this node and everything above it passes the mutes and solos.
+  const heard = (key) => {
+    for (let k = key; k != null; k = MIX_PARENT[k]) if (!sfx.audible(k)) return false;
+    return true;
+  };
+  /**
+   * An M and an S for any node of the mix tree — bus, group, sound or track — appended to `into`.
+   * `box` is dimmed while the node cannot be heard: muted, under a mute, or left out of a solo.
+   */
+  function monitorButtons(key, into, box) {
+    const mute = el('button', { type: 'button', className: 'aud-ms', textContent: 'M',
+      title: 'Mute while listening. Not saved in the mix.' });
+    const solo = el('button', { type: 'button', className: 'aud-ms aud-solo', textContent: 'S',
+      title: 'Solo: hear only what is soloed (and what is under it). Not saved in the mix.' });
+    into.append(mute, solo);
+    monitors.push(() => {
+      const m = sfx.monitor();
+      mute.classList.toggle('is-on', m.mute.includes(key));
+      solo.classList.toggle('is-on', m.solo.includes(key));
+      box.classList.toggle('is-silenced', !heard(key));
+    });
+    mute.addEventListener('click', () => {
+      sfx.setMonitor(key, { mute: !sfx.monitor().mute.includes(key) });
+      repaintMonitors();
+    });
+    solo.addEventListener('click', () => {
+      sfx.setMonitor(key, { solo: !sfx.monitor().solo.includes(key) });
+      repaintMonitors();
+    });
+  }
 
   const status = note('');
   const saveNote = el('p', { className: 'dbg-note' });
@@ -201,20 +239,94 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
       : `${s.loaded}/${s.total} files loaded${s.muted ? ' · MUTED (M)' : ''}${s.held ? ' · paused' : ''}`;
   }
 
-  // --- Master ---------------------------------------------------------------
+  // The peak meter on Master, in dBFS: a bar per channel that falls back at METER_FALL, a tick at
+  // the highest peak of the last METER_HOLD seconds, and a readout of the highest peak since it was
+  // last clicked. Sample peak, not true peak or loudness — those can wait for the full mix. Read
+  // from `sfx.meter()` once a frame while the panel is open, and not at all otherwise.
+  const METER_FLOOR = -60;
+  const METER_HOLD = 1.5;
+  const METER_FALL = 24;   // dB a second
+  const meter = { start() {}, stop() {} };
+  function buildMeter() {
+    const wrap = el('div', { className: 'aud-meter', title: 'Sample peak on Master, dBFS. Click to reset the held peak.' });
+    const frac = (db) => Math.max(0, Math.min(1, (db - METER_FLOOR) / -METER_FLOOR));
+    const pct = (db) => `${frac(db) * 100}%`;
+    const sides = ['L', 'R'].map((label) => {
+      const fill = el('div', { className: 'aud-meter-fill' });
+      const tick = el('div', { className: 'aud-meter-tick' });
+      const bar = el('div', { className: 'aud-meter-bar' }, fill, tick);
+      wrap.append(el('div', { className: 'aud-meter-row' }, el('span', { textContent: label }), bar));
+      return { fill, tick, level: -Infinity, hold: -Infinity, holdAt: 0 };
+    });
+    const scale = el('div', { className: 'aud-meter-scale' });
+    for (const db of [-48, -36, -24, -12, -6, 0]) {
+      const mark = el('span', { textContent: String(db) });
+      mark.style.left = pct(db);
+      scale.append(mark);
+    }
+    const readout = el('div', { className: 'aud-meter-read' });
+    wrap.append(scale, readout);
+    let max = -Infinity;
+    let frame = 0;
+    let last = 0;
+    const fmt = (db) => (db === -Infinity ? '-∞' : db.toFixed(1));
+    function draw(now) {
+      frame = requestAnimationFrame(draw);
+      const dt = last ? (now - last) / 1000 : 0;
+      last = now;
+      const peaks = sfx.meter();
+      sides.forEach((side, i) => {
+        const db = peaks ? toDb(peaks[i] ?? peaks[0]) : -Infinity;
+        side.level = Math.max(db, side.level - METER_FALL * dt);
+        if (db >= side.hold) { side.hold = db; side.holdAt = now; }
+        else if (now - side.holdAt > METER_HOLD * 1000) side.hold = Math.max(db, side.hold - METER_FALL * dt);
+        if (db > max) max = db;
+        side.fill.style.clipPath = `inset(0 ${(1 - frac(side.level)) * 100}% 0 0)`;
+        side.tick.style.left = pct(side.hold);
+        side.tick.hidden = side.hold <= METER_FLOOR;
+      });
+      const level = Math.max(sides[0].level, sides[1].level);
+      readout.textContent = peaks
+        ? `${fmt(level)} dBFS · peak ${fmt(max)} dBFS${max >= -0.1 ? ' · CLIP' : ''}`
+        : 'Tap the game to start the audio.';
+      wrap.classList.toggle('is-clipped', max >= -0.1);
+    }
+    wrap.addEventListener('click', () => { max = -Infinity; for (const s of sides) s.hold = -Infinity; });
+    meter.start = () => { cancelAnimationFrame(frame); last = 0; frame = requestAnimationFrame(draw); };
+    meter.stop = () => { cancelAnimationFrame(frame); frame = 0; };
+    return wrap;
+  }
+
+  // --- Mixer ----------------------------------------------------------------
+  // The buses (BUSES in sfx.js): Master over Music and SFX, SFX over Player and World. Each a fader
+  // that ships in mix.json, down to -∞, and an M and an S for listening.
   heading('Audio');
-  // The two buses, each under the player's own Settings slider: every effect, and the radio.
-  // mix.json's `master` and `music.master`.
-  for (const [label, read, write] of [
-    ['SFX level', (t) => t.master, (g) => ({ master: g })],
-    ['Music level', (t) => t.music.master, (g) => ({ music: { master: g } })],
-  ]) {
-    const input = slider(-30, 12, 0.5, 0);
-    const value = row(panel, label, input);
+  const busFader = {
+    master: [(t) => t.buses.master.gain, (g) => ({ buses: { master: { gain: g } } })],
+    music: [(t) => t.music.master, (g) => ({ music: { master: g } })],
+    sfx: [(t) => t.master, (g) => ({ master: g })],
+    player: [(t) => t.buses.player.gain, (g) => ({ buses: { player: { gain: g } } })],
+    world: [(t) => t.buses.world.gain, (g) => ({ buses: { world: { gain: g } } })],
+  };
+  const depth = (key) => { let n = 0; for (let k = MIX_PARENT[key]; k != null; k = MIX_PARENT[k]) n++; return n; };
+  for (const bus of BUSES) {
+    const [read, write] = busFader[bus.key];
+    const strip = el('div', { className: 'aud-group aud-bus' });
+    strip.style.marginLeft = `${depth(bus.key) * 10}px`;
+    strip.dataset.search = `${bus.label} bus mixer`;
+    const name = el('div', { className: 'aud-group-name' },
+      el('strong', { className: 'aud-bus-name', textContent: bus.label }));
+    monitorButtons(bus.key, name, strip);
+    strip.append(name);
+    const input = slider(FLOOR, 12, 0.5, 0);
+    const value = row(strip, 'Level', input, TIPS[bus.label]);
+    if (bus.key === 'master') strip.append(buildMeter());
+    panel.append(strip);
     const paint = () => {
       const g = read(sfx.tuning());
-      input.value = String(Math.max(-30, toDb(g)));
+      input.value = faderAt(g);
       value.textContent = dbText(g);
+      strip.classList.toggle('is-edited', g !== read(SHIPPED_MIX));
     };
     input.addEventListener('input', () => { sfx.tune(write(fromDb(Number(input.value)))); paint(); });
     input.addEventListener('change', changed);
@@ -245,7 +357,8 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
     + 'every take. In the game some one-shots are scaled again where they fire (a bump by closing '
     + 'speed, say) — see docs/audio.md. ⚡ makes a rare one happen in the game (the plane, the '
     + 'chopper, the birds…) so it is heard where and how it plays. Sounds are grouped; each group '
-    + 'has a level that ships with the mix, and M/S to mute or solo it while listening.');
+    + 'has a level that ships with the mix. M and S on every bus, group, sound and track mute or '
+    + 'solo it while listening; a solo silences everything not soloed, above or under it.');
   const stopAll = el('button', { type: 'button', className: 'dbg-wide', textContent: '■ Stop previews',
     title: 'Stop every ▶ preview that is still playing.' });
   stopAll.addEventListener('click', () => { sfx.stopAuditions(); for (const p of trackPlays) p(); });
@@ -266,6 +379,9 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
       + `${takes > 1 ? ` · ${takes} takes` : ''}`;
     const fileLabel = el('span', { textContent: fileText });
     const title = el('div', { className: 'aud-name' }, play, el('strong', { textContent: key }), fileLabel);
+    const ms = el('span', { className: 'aud-ms-pair' });
+    monitorButtons(key, ms, box);
+    title.append(ms);
     // ⚡ makes the thing itself happen — the plane crosses, the chopper comes in, the flock goes up
     // — so the sound is heard as the game plays it, placed and steered, rather than dry as ▶ plays
     // it. Only for sounds tied to something rare; main.js decides what each one does
@@ -357,7 +473,7 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
       else fileLabel.textContent = fileText;
     });
 
-    const gain = slider(-40, 18, 0.5, 0);
+    const gain = slider(FLOOR, 18, 0.5, 0);
     const gainValue = row(box, 'Level', gain);
     const rate = slider(-24, 24, 0.1, 0);
     const rateValue = row(box, 'Pitch', rate);
@@ -398,7 +514,7 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
     const paint = () => {
       const t = sfx.tuning();
       const s = t.sounds[key];
-      gain.value = String(Math.max(-40, toDb(s.gain)));
+      gain.value = faderAt(s.gain);
       gainValue.textContent = `${dbText(s.gain)} · ×${s.gain.toFixed(3)}`;
       rate.value = String(toSemis(s.rate));
       rateValue.textContent = stText(s.rate);
@@ -419,9 +535,9 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
         || (gap && t.minGap[key] !== SHIPPED_MIX.minGap[key])
         || (near && JSON.stringify(t.place[key]) !== JSON.stringify(SHIPPED_MIX.place[key])));
     };
-    // `-40 dB` is the bottom of the slider and means silence, so a sound can be muted outright.
+    // The bottom of the slider is silence (FLOOR), so a sound can be faded out outright.
     gain.addEventListener('input', () => {
-      sfx.tune({ sounds: { [key]: { gain: Number(gain.value) <= -40 ? 0 : fromDb(Number(gain.value)) } } });
+      sfx.tune({ sounds: { [key]: { gain: fromDb(Number(gain.value)) } } });
       paint();
     });
     rate.addEventListener('input', () => { sfx.tune({ sounds: { [key]: { rate: fromSemis(Number(rate.value)) } } }); paint(); });
@@ -461,13 +577,10 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
   for (const group of GROUPS) {
     const fold = el('button', { type: 'button', className: 'aud-fold',
       title: 'Show or hide this group\'s sounds' });
-    const mute = el('button', { type: 'button', className: 'aud-ms', textContent: 'M',
-      title: 'Mute this group while listening. Not saved in the mix.' });
-    const solo = el('button', { type: 'button', className: 'aud-ms', textContent: 'S',
-      title: 'Hear only the soloed groups while listening. Not saved in the mix.' });
-    const level = slider(-40, 12, 0.5, 0);
-    const head = el('div', { className: 'aud-group' },
-      el('div', { className: 'aud-group-name' }, fold, mute, solo));
+    const level = slider(FLOOR, 12, 0.5, 0);
+    const nameRow = el('div', { className: 'aud-group-name' }, fold);
+    const head = el('div', { className: 'aud-group' }, nameRow);
+    monitorButtons(group.key, nameRow, head);
     // Every sound in it, so a search for one of them keeps its group's header in view.
     head.dataset.search = `${group.label} group ${group.sounds.join(' ')}`;
     const levelValue = row(head, 'Level', level,
@@ -480,39 +593,21 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
     const setFold = (on) => {
       open = on;
       fold.textContent = `${open ? '▾' : '▸'} ${group.label} · ${group.sounds.length}`;
+      fold.title = `In ${BUSES.find((b) => b.key === group.bus).label}. Show or hide this group's sounds.`;
       for (const box of boxesIn) box.classList.toggle('is-folded', !open);
     };
     fold.addEventListener('click', () => setFold(!open));
     unfold.push([group.key, () => setFold(true)]);
     setFold(false);
 
-    const paintMonitor = () => {
-      const m = sfx.monitor();
-      mute.classList.toggle('is-on', m.mute.includes(group.key));
-      solo.classList.toggle('is-on', m.solo.includes(group.key));
-      // Silenced by somebody else's solo: dimmed, so it is clear why it has gone quiet.
-      head.classList.toggle('is-silenced', m.solo.length > 0 && !m.solo.includes(group.key));
-    };
-    monitors.push(paintMonitor);
-    mute.addEventListener('click', () => {
-      sfx.setMonitor(group.key, { mute: !sfx.monitor().mute.includes(group.key) });
-      for (const p of monitors) p();
-    });
-    solo.addEventListener('click', () => {
-      sfx.setMonitor(group.key, { solo: !sfx.monitor().solo.includes(group.key) });
-      for (const p of monitors) p();
-    });
-
     const paint = () => {
       const g = sfx.tuning().groups[group.key].gain;
-      level.value = String(Math.max(-40, toDb(g)));
+      level.value = faderAt(g);
       levelValue.textContent = dbText(g);
       head.classList.toggle('is-edited', g !== SHIPPED_MIX.groups[group.key].gain);
-      paintMonitor();
     };
     level.addEventListener('input', () => {
-      const db = Number(level.value);
-      sfx.tune({ groups: { [group.key]: { gain: db <= -40 ? 0 : fromDb(db) } } });
+      sfx.tune({ groups: { [group.key]: { gain: fromDb(Number(level.value)) } } });
       paint();
     });
     level.addEventListener('change', changed);
@@ -524,11 +619,8 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
     syncs.push(paint);
   }
   const clearMonitor = el('button', { type: 'button', className: 'dbg-wide', textContent: 'Clear mutes and solos',
-    title: 'Hear every group again.' });
-  clearMonitor.addEventListener('click', () => {
-    for (const { key } of GROUPS) sfx.setMonitor(key, { mute: false, solo: false });
-    for (const p of monitors) p();
-  });
+    title: 'Hear everything again: every bus, group, sound and track.' });
+  clearMonitor.addEventListener('click', () => { sfx.clearMonitor(); repaintMonitors(); });
   panel.append(clearMonitor);
 
   // --- Export ---------------------------------------------------------------
@@ -549,9 +641,13 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
     const play = el('button', { type: 'button', className: 'aud-play', textContent: '▶',
       title: 'Play this track from the start. The radio goes quiet until it ends.' });
     const label = key === RADIO.intro ? 'intro' : key.replace(/^(\d+_MUS|MUSIC|RADIO)_(ad_)?/, '').replace(/_/g, ' ');
-    box.append(el('div', { className: 'aud-name' }, play,
+    const trackName = el('div', { className: 'aud-name' }, play,
       el('strong', { textContent: label }),
-      el('span', { textContent: `${kindOf(key)} · ${key} · ${RADIO.seconds[key].toFixed(1)}s` })));
+      el('span', { textContent: `${kindOf(key)} · ${key} · ${RADIO.seconds[key].toFixed(1)}s` }));
+    const ms = el('span', { className: 'aud-ms-pair' });
+    monitorButtons(key, ms, box);
+    trackName.append(ms);
+    box.append(trackName);
     // ▶ while it is quiet, ■ while it is the track being previewed — painted from
     // `state.previewTrack`, so it flips back by itself when the track ends or another one starts.
     const paintPlay = () => {
@@ -591,16 +687,16 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
     revertBtn.addEventListener('click', () => { sfx.revertTrack(key); paintReplaced(); });
     box.append(el('div', { className: 'aud-replace-row' }, replaceBtn, revertBtn, replaceNote), picker);
 
-    const gain = slider(-40, 18, 0.5, 0);
+    const gain = slider(FLOOR, 18, 0.5, 0);
     const gainValue = row(box, 'Level', gain, 'Volume of this track; 0 dB is shipped. Double-click the slider to go back to the shipped value.');
     const paint = () => {
       const g = sfx.tuning().music.tracks[key].gain;
-      gain.value = String(Math.max(-40, toDb(g)));
+      gain.value = faderAt(g);
       gainValue.textContent = `${dbText(g)} · ×${g.toFixed(3)}`;
       box.classList.toggle('is-edited', g !== SHIPPED_MIX.music.tracks[key].gain);
     };
     const set = (g) => sfx.tune({ music: { tracks: { [key]: { gain: g } } } });
-    gain.addEventListener('input', () => { set(Number(gain.value) <= -40 ? 0 : fromDb(Number(gain.value))); paint(); });
+    gain.addEventListener('input', () => { set(fromDb(Number(gain.value))); paint(); });
     gain.addEventListener('change', changed);
     gain.addEventListener('dblclick', () => { set(SHIPPED_MIX.music.tracks[key].gain); paint(); changed(); });
     syncs.push(paint);
@@ -675,6 +771,7 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
   // mute, pause), so it polls while the panel is open rather than asking sfx for events.
   let timer = 0;
   sync();
+  repaintMonitors();
   changed();
   paintStatus();
   return {
@@ -684,8 +781,9 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {} } = {}
       paintStatus();
       // The music ■ goes back to ▶ when a track ends on its own, which nothing announces.
       timer = setInterval(() => { paintStatus(); for (const p of trackPlays) p(); }, 500);
+      meter.start();
     },
-    close() { clearInterval(timer); },
+    close() { clearInterval(timer); meter.stop(); },
     /** The sound whose rings to draw, or null before one has been touched. */
     focused: () => focusedKey,
     /**
