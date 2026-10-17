@@ -295,6 +295,9 @@ export const PAINT_UNIFORMS = {
   uRoadTile: { value: 12 },     // a bigger repeat on the road: it is the largest flat surface on screen
   uRoadAmt: { value: 0.5 },     // value-and-hue swing of a road stroke
   uLawnAmt: { value: 0 },       // lawn strokes (0.7 earlier; off for streets-only)
+  uRoadMaskScale: { value: 16 }, // world units per cell of the fade mask's coarser octave
+  uRoadMaskLo: { value: 0.38 },  // mask value where the strokes are fully gone…
+  uRoadMaskHi: { value: 0.58 },  // …and where they are at full strength
   uBrushTile: { value: 8 },     // world units per tile repeat
   uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
 };
@@ -318,6 +321,16 @@ uniform sampler2D tBrushRoad;
 uniform float uRoadTile;
 uniform float uRoadAmt;
 uniform float uLawnAmt;
+uniform float uRoadMaskScale;
+uniform float uRoadMaskLo;
+uniform float uRoadMaskHi;
+float paintHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float paintNoise(vec2 p) {
+	vec2 i = floor(p), f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(paintHash(i), paintHash(i + vec2(1.0, 0.0)), f.x),
+		mix(paintHash(i + vec2(0.0, 1.0)), paintHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
 uniform float uBrushTile;
 uniform float uBrushAmt;
 uniform float uBrushKind;
@@ -365,7 +378,14 @@ const PAINT_FRAGMENT = /* glsl */ `
 					// lighter or darker, so the swing is per channel rather than one scalar.
 					float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
 					vec3 r = texture2D(tBrushRoad, vPaintWorld.xz / uRoadTile).rgb - 0.5;
-					gl_FragColor.rgb *= 1.0 + 2.0 * r * uRoadAmt * (1.0 - grassy) * (1.0 - smoothstep(0.35, 0.6, lum));
+					// The fade mask: two octaves of value noise, so the strokes come and go in soft
+					// patches tens of units across and the 12-unit repeat never lines up with itself
+					// down a whole street. (The ground brush tile read at a big scale was tried first:
+					// its strokes survive the magnification and the patches came out as streaks.)
+					vec2 mq = vPaintWorld.xz / uRoadMaskScale;
+					float m = paintNoise(mq) * 0.65 + paintNoise(mq * 2.3 + 17.1) * 0.35;
+					float fade = smoothstep(uRoadMaskLo, uRoadMaskHi, m);
+					gl_FragColor.rgb *= 1.0 + 2.0 * r * uRoadAmt * fade * (1.0 - grassy) * (1.0 - smoothstep(0.35, 0.6, lum));
 				}
 			} else if (uBrushKind < 1.5) {
 				vec2 uv = vec2(an.x > an.z ? vPaintWorld.z : vPaintWorld.x, vPaintWorld.y);
@@ -1533,7 +1553,7 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
   const useAO = aoEnabled && ao;
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
     + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}${rimPaintOn() ? '-rim' : ''}` : ''}`
-    + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint6' : ''}`;
+    + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint7' : ''}`;
   material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {

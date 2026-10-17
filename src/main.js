@@ -294,7 +294,7 @@ setAmbientOcclusion(aoEnabled);
 const crayonEnabled = budget.crayon;
 setCrayon(crayonEnabled);
 // Prototype painterly look (PAINT_* in util/geo.js, game/brushtiles.js): painted strokes on the
-// streets only. The shadow edge, wall fade and wall/roof/lawn strokes are still in, dialled to 0. `?painterly=classic` is the old look.
+// streets only, fading out in block-sized patches. The shadow edge, wall fade and wall/roof/lawn strokes are still in, dialled to 0. `?painterly=classic` is the old look.
 const painterly = new URLSearchParams(location.search).get('painterly') !== 'classic';
 setPainterly(painterly);
 if (painterly) {
