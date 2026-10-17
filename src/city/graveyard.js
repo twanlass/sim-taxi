@@ -75,9 +75,14 @@ const GATE_OPEN = 1.2;
 /** Half the gravel path's width. Exported for the probe's grass check. */
 export const PATH_HALF = 0.65;
 // Thinned 2026-10-13 (Tyler: "too many"): 1.2 x 1.55 with 18% gaps put 84-93 stones on the
-// double lot, wall to wall. This and 30% gaps (below) leave lawn between them: 44-49 over five cities.
-const COL_PITCH = 1.7;
-const ROW_PITCH = 2.1;
+// double lot, wall to wall. 1.7 x 2.1 with 30% gaps left lawn between them: 28-41 over ten cities.
+// Halved 2026-10-17 (Tyler: "thin out the tombstones by half"): 2.4 x 2.8 with 35% gaps puts 13-21
+// over the same ten (mean 18 against 37). Spacing does most of it so the rows stay evenly spread;
+// 65% gaps on the old pitch got the same count by leaving whole stretches of a row empty.
+const COL_PITCH = 2.4;
+const ROW_PITCH = 2.8;
+/** The share of grid slots left as lawn: a full grid reads as a car park. */
+const GAP_CHANCE = 0.35;
 /**
  * Headstones are modelled at life size against a 3.2-tall figure and then drawn this much bigger:
  * at life size a stone is four pixels at play zoom and the lot read as a fenced lawn with grit on it.
@@ -363,8 +368,7 @@ function headstoneParts(site, keepOut, rng, parts, stones) {
     const pitch = cols > 1 ? width / (cols - 1) : 0;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        // Gaps in the rows: a full grid reads as a car park.
-        if (rng.chance(0.3)) continue;
+        if (rng.chance(GAP_CHANCE)) continue;
         const x = inner + side * c * pitch + rng.jitter(0.08);
         const z = zFirst + r * ROW_PITCH + rng.jitter(0.06);
         if (keepOut.some((t) => Math.hypot(t.x - x, t.z - z) < (t.r ?? TREE_CLEAR))) continue;
