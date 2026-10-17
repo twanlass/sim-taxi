@@ -64,6 +64,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?splashcam=classic` | The startup screen from the game's 33° three-quarter view (the first cut) instead of the low side-on camera | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?splashsound=classic` | The startup screen plays silent, as it first shipped, rather than with the landing, bounce and Loco sounds | | [gameplay.md](gameplay.md#the-startup-screen) |
 | `?splash=classic` | No startup screen: the game loads behind black and opens on the title menu, with no taxi drop first | | [gameplay.md](gameplay.md#the-startup-screen) |
+| `?radiofade=classic` | The station cuts hard between every track, instead of the DJ talking over the start and end of the songs | | [audio.md](audio.md#talking-over-the-music) |
 | `?radiointro=classic` | The radio is full-range from Play, instead of playing through the taxi's dash speakers until the car rolls out of its garage | | [audio.md](audio.md#the-dash-radio) |
 | `?menumusic=classic` | The radio's intro plays under the title menu on the first tap, rather than a song until Play | #519 | [audio.md](audio.md#the-radio) |
 | `?copchat=classic` | The cops' "pull over" and "lost the suspect" bubbles | #492 | [gameplay.md](gameplay.md) |

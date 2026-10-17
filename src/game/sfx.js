@@ -296,10 +296,8 @@ const MUSIC_FADE_OUT = 1.5;
  * `music` is how many seconds of the first *song* play crushed before the car may leave its
  * doorway (`holdReveal` in game/opening.js). The announcer's intro is 6.3 s, and played before the
  * song it covered the whole in-car stretch, so the crush was only ever heard on a voice; holding
- * the shot until a song had played after it made the opening four seconds longer. So in the car the
- * station talks *over* the music, the way a DJ does over a song's intro (Tyler: "start music under
- * the announcer"): the first song starts `under` seconds into the intro at `duck` of its level (-6 dB) and
- * rises to full over the last `rise` seconds of the voice.
+ * the shot until a song had played after it made the opening four seconds longer. So the station
+ * talks *over* the music (`RADIO_FADE`): the first song starts a second into the intro.
  * `open` is the reveal, in seconds: the filters sweep to transparent (10 Hz, Nyquist, 0 dB), the
  * crushed path crossfades into the clean one, and the static dies away over the first `staticOut`
  * of it. Short enough to have landed by the end of the pull-back (`roll` and `release` come to about
@@ -311,9 +309,27 @@ const MUSIC_FADE_OUT = 1.5;
 export const DASH = {
   lowCut: 700, highCut: 2000, peakHz: 1400, peakDb: 8, Q: 4,
   drive: 4, steps: 32, crushLevel: 0.11, staticLevel: 0.5,
-  open: 3, staticOut: 0.5, music: 4, under: 1, duck: 0.5, rise: 1,
+  open: 3, staticOut: 0.5, music: 4,
 };
 const DASH_OPEN_LOW = 10;
+/**
+ * The station talks over the music, the way a DJ does (Tyler, October 2026: "start music under the
+ * announcer", then "crossfade between all of the DJ announcements and their music tracks";
+ * `?radiofade=classic` for the hard cuts). Two shapes:
+ *
+ *  - **Talk into a song** (the intro, the sting out of an ad break, the station ID): the song starts
+ *    `under` seconds into the voice at `duck` of its level (-6 dB) and rises to full over the voice's
+ *    last `rise` seconds.
+ *  - **Talk over a song's end** (the tee-up into an ad break, the station ID): the voice starts
+ *    `over` seconds before the song ends, and the song dips to `duck` over `dip` seconds under it.
+ *    The songs all have clean endings, so the voice lands on the last bars rather than on a cut.
+ *
+ * An ad is produced on its own and keeps its hard edges either side.
+ */
+const RADIO_FADE = { under: 1, over: 2, duck: 0.5, rise: 1, dip: 0.4 };
+// Where the opening songs of the last session are remembered, so the next one opens on another
+// (Tyler: "always play a different initial music track on game start").
+const OPENERS_KEY = 'simTaxi.openingSongs';
 // The police helicopter's synthesised rotor (`makeRotor`): its blade-pass rate in Hz, and its level
 // at full presence. Not in mix.json, which is keyed by the designer's files and has no file for it.
 const ROTOR_CHOP = 11;
@@ -547,8 +563,10 @@ function loopWindow(buffer, seconds) {
  *   plays songs alone until then. False (`?menumusic=classic`, or no title screen) opens on the intro.
  * @param {boolean} [opts.classicSongs]  The radio plays the four songs Nicolás's replaced
  *   (`?songs=classic`).
+ * @param {boolean} [opts.radioFade]  The station talks over the edges of the songs (`RADIO_FADE`).
+ *   False (`?radiofade=classic`) plays every track after the last with a hard cut.
  */
-export function createSfx({ rng, menuMusic = false, classicSongs = false } = {}) {
+export function createSfx({ rng, menuMusic = false, classicSongs = false, radioFade = true } = {}) {
   // The songs this session's station plays, and every file it can schedule. Only these are
   // fetched and decoded up front: the other set is a few MB of download and ~30 MB of PCM.
   const songs = classicSongs ? RADIO.classicSongs : RADIO.songs;
@@ -1057,8 +1075,21 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
   // While the intro is still decoding after the cut, nothing may be scheduled ahead of it.
   let introPending = false;
 
-  // The intro the next track goes in under, `{ end }` on the audio clock, or null — `DASH.under`.
-  let underIntro = null;
+  // The track last put on the clock — `{ key, at, end, voice }` — which the next one may overlap
+  // (`RADIO_FADE`). Null after a cut.
+  let prev = null;
+  const talksIntoSong = new Set([RADIO.intro, RADIO.breakOut, RADIO.stationId]);
+  const talksOverSong = new Set([RADIO.breakIn, RADIO.stationId]);
+  // The songs that opened the last session (`OPENERS_KEY`): the first song this session plays, on
+  // the menu and after the intro, is neither of them while there is any other to pick.
+  const lastOpeners = (() => {
+    try { return JSON.parse(window.localStorage.getItem(OPENERS_KEY)) || []; } catch { return []; }
+  })();
+  const openers = [];
+  function opened(song) {
+    openers.push(song);
+    try { window.localStorage.setItem(OPENERS_KEY, JSON.stringify(openers)); } catch { /* soft */ }
+  }
 
   /** Play `key` into the music bus from `when`, calling `onEnd` once it has finished. */
   function playTrack(key, when, onEnd) {
@@ -1073,30 +1104,45 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     radioVoices.add(voice);
     src.onended = () => { radioVoices.delete(voice); onEnd(); };
     src.start(when, w.start, w.end - w.start);
+    lastVoice = voice;
     return when + (w.end - w.start);
   }
+  let lastVoice = null;
 
   // Tracks scheduled on the audio clock and not yet ended, and when the last of them ends.
   let ahead = 0;
   let queuedEnd = 0;
   function queue(key) {
-    const when = Math.max(queuedEnd, ctx.currentTime);
+    const now = ctx.currentTime;
+    let when = Math.max(queuedEnd, now);
+    // Overlap the track before (`RADIO_FADE`), if it is still on the clock. A song that decoded too
+    // late to go in under the voice, or a voice too late for the song's tail, just follows it.
+    const live = radioFade && prev && prev.end > now;
+    const intoSong = live && songs.includes(key) && talksIntoSong.has(prev.key);
+    const overSong = live && talksOverSong.has(key) && songs.includes(prev.key);
+    if (intoSong) when = Math.max(prev.at + RADIO_FADE.under, now);
+    if (overSong) when = Math.max(prev.end - RADIO_FADE.over, now);
     const gen = generation;
     ahead++;
     if (onAir && state.dashRadio && key !== RADIO.intro && state.dashSongAt === null) state.dashSongAt = when;
-    queuedEnd = playTrack(key, when, () => { if (gen !== generation) return; ahead--; topUp(); });
-    if (underIntro && key !== RADIO.intro) {
-      // Ducked under the voice, then up to its own level as the voice finishes. A song that decoded
-      // too late to start under the intro just plays.
-      const { end } = underIntro;
-      underIntro = null;
-      if (when < end) {
-        const g = [...radioVoices].at(-1).gain.gain, level = trackLevel(key);
-        g.setValueAtTime(level * DASH.duck, when);
-        g.setValueAtTime(level * DASH.duck, Math.max(when, end - DASH.rise));
-        g.linearRampToValueAtTime(level, end);
-      }
+    const end = playTrack(key, when, () => { if (gen !== generation) return; ahead--; topUp(); });
+    if (intoSong && when < prev.end) {
+      // Under the voice, then up to its own level as the voice finishes.
+      const g = lastVoice.gain.gain, level = trackLevel(key);
+      g.setValueAtTime(level * RADIO_FADE.duck, when);
+      g.setValueAtTime(level * RADIO_FADE.duck, Math.max(when, prev.end - RADIO_FADE.rise));
+      g.linearRampToValueAtTime(level, prev.end);
     }
+    if (overSong && when < prev.end) {
+      // The song's last bars dip under the voice and play out there.
+      const g = prev.voice.gain.gain, level = trackLevel(prev.key);
+      g.setValueAtTime(level, when);
+      g.linearRampToValueAtTime(level * RADIO_FADE.duck, Math.min(prev.end, when + RADIO_FADE.dip));
+    }
+    // The queue carries on from the later of the two ends: a song that went in under a voice ends
+    // after it, and a voice over a song's tail ends after the song.
+    queuedEnd = Math.max(end, queuedEnd);
+    prev = { key, at: when, end, voice: lastVoice };
     state.radio = [...state.radio.slice(-7), { track: key, at: when }];
   }
 
@@ -1108,10 +1154,12 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
    */
   function topUp() {
     if (introPending) return;
-    const freshPick = (keys, last) => {
+    const freshPick = (keys, last, avoid = []) => {
       const loaded = keys.filter((k) => trackBuffer(k));
       if (!loaded.length) return null;
-      const fresh = loaded.length > 1 ? loaded.filter((k) => k !== last) : loaded;
+      let fresh = loaded.length > 1 ? loaded.filter((k) => k !== last) : loaded;
+      const away = fresh.filter((k) => !avoid.includes(k));
+      if (away.length) fresh = away;
       return fresh[Math.floor(random() * fresh.length)];
     };
     while (ahead < 2) {
@@ -1120,9 +1168,12 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
         if (trackBuffer(next)) queue(next);
         continue;
       }
-      const song = freshPick(songs, lastSong);
+      // The run's first song is not one the last session opened on.
+      const opening = onAir && songsPlayed === 0;
+      const song = freshPick(songs, lastSong, opening ? lastOpeners : []);
       if (!song) return;
       lastSong = song;
+      if (opening) opened(song);
       queue(song);
       // The menu is songs alone: the station only talks once it is on the air.
       if (!onAir) continue;
@@ -1149,9 +1200,11 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
    */
   async function startRadio() {
     if (onAir) { openStation(); return; }
-    const first = songs[Math.floor(random() * songs.length)];
+    const fresh = songs.filter((k) => !lastOpeners.includes(k));
+    const pool = fresh.length ? fresh : songs;
+    const first = pool[Math.floor(random() * pool.length)];
     await decodeRadio(first);
-    if (!onAir && trackBuffer(first)) { lastSong = first; queue(first); }
+    if (!onAir && trackBuffer(first)) { lastSong = first; opened(first); queue(first); }
     await Promise.all(playlist.map(decodeRadio));
     if (!onAir) topUp();
   }
@@ -1176,18 +1229,11 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     between.length = 0;
     songsPlayed = 0;
     state.dashSongAt = null;
-    underIntro = null;
+    prev = null;
     introPending = true;
     await decodeRadio(RADIO.intro);
     introPending = false;
-    if (trackBuffer(RADIO.intro)) {
-      queue(RADIO.intro);
-      // In the dash the first song goes in under the voice rather than after it (`DASH.under`).
-      if (state.dashRadio) {
-        underIntro = { end: queuedEnd };
-        queuedEnd = state.radio.at(-1).at + DASH.under;
-      }
-    }
+    if (trackBuffer(RADIO.intro)) queue(RADIO.intro);
     await Promise.all(playlist.map(decodeRadio));
     topUp();
   }

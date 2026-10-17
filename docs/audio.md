@@ -277,6 +277,24 @@ They are encoded by `tools/audio.mjs` like every other sound. afconvert on macOS
 reproduce the Block 1 files byte for byte (17 of 41 differ, mostly at the same size), so commit
 only the .m4a files whose masters changed.
 
+### Talking over the music
+
+The station talks over the edges of the songs the way a DJ does (`RADIO_FADE` in `sfx.js`;
+`?radiofade=classic` cuts hard between every track):
+
+- **Into a song**: after the intro, the sting out of an ad break or the station ID, the next song
+  starts 1 s into the voice, 6 dB down, and rises to full over the voice's last second.
+- **Over a song's end**: the tee-up into an ad break and the station ID start 2 s before the song
+  ends, and the song dips 6 dB under them over 0.4 s and plays its last bars out there. The songs all
+  have clean endings, so the voice lands on them rather than on a cut.
+
+The ads keep their hard edges either side, being produced pieces of their own. A track that decoded
+too late to overlap simply follows.
+
+**Each game opens on a different song.** The songs that opened the last session (the title menu's
+first song and the first song after the intro) are remembered in `localStorage`
+(`simTaxi.openingSongs`), and this session's first picks avoid them while there is another to play.
+
 ### The dash radio
 
 From **Play** the station sounds as if it is coming from a cheap AM set in the taxi, and it **opens
@@ -295,13 +313,12 @@ between the two ends (`DASH` in `sfx.js`):
 - **Static**: six seconds of generated hiss with crackles and the odd pop, looped into the same
   speaker, about 12 dB under the music.
 
-In the car the announcer talks **over** the first song, the way a DJ does over a song's intro: the
-song starts 1 s into the 6.3 s intro, 6 dB down, and rises to full over the voice's last second
-(`DASH.under`, `duck`, `rise`). Played one after the other, the intro filled the whole in-car stretch
-and the crush was only ever heard on a voice. The vignette holds its shot of the car in the open
+The announcer talks **over** the first song ([talking over the music](#talking-over-the-music)), so
+the song is in the dash from a second after Play. Played one after the other, the 6.3 s intro filled
+the whole in-car stretch and the crush was only ever heard on a voice. The vignette holds its shot of the car in the open
 doorway (the `reveal` beat) until that song has played through the dash for 4 s (`DASH.music`,
 `holdReveal` in `opening.js`, at most 8 s), so the car rolls out and the sound opens up as the
-announcer signs off. With `?radiointro=classic` the intro and the song play one after the other.
+announcer signs off.
 On the `roll` beat (`DASH_PHASES` in `main.js`) `openDash` runs the reveal over 3 s: the
 filters sweep to transparent (exponentially on the frequencies, so the octaves open at an even pace;
 open is 10 Hz, Nyquist and 0 dB), the crushed mono path crossfades into the clean stereo one, and the
