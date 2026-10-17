@@ -294,8 +294,12 @@ const MUSIC_FADE_OUT = 1.5;
  *    about 12 dB under the music in RMS, with the pops reaching the music's level.
  *
  * `music` is how many seconds of the first *song* play crushed before the car may leave its
- * doorway (`holdReveal` in game/opening.js): the announcer's intro is 6.3 s and on its own it covered
- * the whole in-car stretch, so the crush was only ever heard on a voice.
+ * doorway (`holdReveal` in game/opening.js). The announcer's intro is 6.3 s, and played before the
+ * song it covered the whole in-car stretch, so the crush was only ever heard on a voice; holding
+ * the shot until a song had played after it made the opening four seconds longer. So in the car the
+ * station talks *over* the music, the way a DJ does over a song's intro (Tyler: "start music under
+ * the announcer"): the first song starts `under` seconds into the intro at `duck` of its level (-6 dB) and
+ * rises to full over the last `rise` seconds of the voice.
  * `open` is the reveal, in seconds: the filters sweep to transparent (10 Hz, Nyquist, 0 dB), the
  * crushed path crossfades into the clean one, and the static dies away over the first `staticOut`
  * of it. Short enough to have landed by the end of the pull-back (`roll` and `release` come to about
@@ -307,7 +311,7 @@ const MUSIC_FADE_OUT = 1.5;
 export const DASH = {
   lowCut: 700, highCut: 2000, peakHz: 1400, peakDb: 8, Q: 4,
   drive: 4, steps: 32, crushLevel: 0.11, staticLevel: 0.5,
-  open: 3, staticOut: 0.5, music: 3,
+  open: 3, staticOut: 0.5, music: 4, under: 1, duck: 0.5, rise: 1,
 };
 const DASH_OPEN_LOW = 10;
 // The police helicopter's synthesised rotor (`makeRotor`): its blade-pass rate in Hz, and its level
@@ -1053,6 +1057,9 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
   // While the intro is still decoding after the cut, nothing may be scheduled ahead of it.
   let introPending = false;
 
+  // The intro the next track goes in under, `{ end }` on the audio clock, or null — `DASH.under`.
+  let underIntro = null;
+
   /** Play `key` into the music bus from `when`, calling `onEnd` once it has finished. */
   function playTrack(key, when, onEnd) {
     const buffer = trackBuffer(key);
@@ -1078,6 +1085,18 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     ahead++;
     if (onAir && state.dashRadio && key !== RADIO.intro && state.dashSongAt === null) state.dashSongAt = when;
     queuedEnd = playTrack(key, when, () => { if (gen !== generation) return; ahead--; topUp(); });
+    if (underIntro && key !== RADIO.intro) {
+      // Ducked under the voice, then up to its own level as the voice finishes. A song that decoded
+      // too late to start under the intro just plays.
+      const { end } = underIntro;
+      underIntro = null;
+      if (when < end) {
+        const g = [...radioVoices].at(-1).gain.gain, level = trackLevel(key);
+        g.setValueAtTime(level * DASH.duck, when);
+        g.setValueAtTime(level * DASH.duck, Math.max(when, end - DASH.rise));
+        g.linearRampToValueAtTime(level, end);
+      }
+    }
     state.radio = [...state.radio.slice(-7), { track: key, at: when }];
   }
 
@@ -1157,10 +1176,18 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     between.length = 0;
     songsPlayed = 0;
     state.dashSongAt = null;
+    underIntro = null;
     introPending = true;
     await decodeRadio(RADIO.intro);
     introPending = false;
-    if (trackBuffer(RADIO.intro)) queue(RADIO.intro);
+    if (trackBuffer(RADIO.intro)) {
+      queue(RADIO.intro);
+      // In the dash the first song goes in under the voice rather than after it (`DASH.under`).
+      if (state.dashRadio) {
+        underIntro = { end: queuedEnd };
+        queuedEnd = state.radio.at(-1).at + DASH.under;
+      }
+    }
     await Promise.all(playlist.map(decodeRadio));
     topUp();
   }

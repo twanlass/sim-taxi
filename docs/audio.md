@@ -295,10 +295,14 @@ between the two ends (`DASH` in `sfx.js`):
 - **Static**: six seconds of generated hiss with crackles and the odd pop, looped into the same
   speaker, about 12 dB under the music.
 
-The vignette holds its shot of the car in the open doorway (the `reveal` beat) until the first
-*song* has played through the dash for 3 s (`DASH.music`, `holdReveal` in `opening.js`, at most 8 s).
-The announcer's 6.3 s intro otherwise fills the whole in-car stretch, and the crush is only ever
-heard on a voice. On the `roll` beat (`DASH_PHASES` in `main.js`) `openDash` runs the reveal over 3 s: the
+In the car the announcer talks **over** the first song, the way a DJ does over a song's intro: the
+song starts 1 s into the 6.3 s intro, 6 dB down, and rises to full over the voice's last second
+(`DASH.under`, `duck`, `rise`). Played one after the other, the intro filled the whole in-car stretch
+and the crush was only ever heard on a voice. The vignette holds its shot of the car in the open
+doorway (the `reveal` beat) until that song has played through the dash for 4 s (`DASH.music`,
+`holdReveal` in `opening.js`, at most 8 s), so the car rolls out and the sound opens up as the
+announcer signs off. With `?radiointro=classic` the intro and the song play one after the other.
+On the `roll` beat (`DASH_PHASES` in `main.js`) `openDash` runs the reveal over 3 s: the
 filters sweep to transparent (exponentially on the frequencies, so the octaves open at an even pace;
 open is 10 Hz, Nyquist and 0 dB), the crushed mono path crossfades into the clean stereo one, and the
 static is gone in the first 1.5 s. A skip, `?vignette=off` or a city with no depot opens it

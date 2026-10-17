@@ -93,7 +93,7 @@ near lane.
 | `approach` | `focusOn` eases target and zoom together onto the door, from the play framing at zoom 52 down to **15** | ~1.4s, capped at 1.9 |
 | `settle` | A beat on the shut door, so arriving and the door moving read as two events | 0.12s |
 | `door` | The curtain winds up on an ease-*out* — a roller door leaves fast under its counterweight and creeps the last few inches | 0.95s |
-| `reveal` | The car sitting in a lit doorway, the radio crushed through its speaker ([the dash radio](audio.md#the-dash-radio)). This is the shot | 0.35s, or until the first song has played 3s through the dash (up to 8s; usually ~5s) |
+| `reveal` | The car sitting in a lit doorway, the radio crushed through its speaker ([the dash radio](audio.md#the-dash-radio)). This is the shot | 0.35s, or until the first song has played 4s through the dash (up to 8s) |
 | `roll` | Out of the bay, across the forecourt, down the kerb, right into the lane. The zoom starts widening as the nose clears the door, so the pull-back is already under way; the **shutter starts coming back down** the moment the car reaches the kerb | ~2.7s |
 | `release` | `focusOn` back to whatever framing the run would have had — the city's centre on a desktop, the taxi on a phone, where the opening follow-cam picks it up | ~1.3s, capped at 2.0 |
 
