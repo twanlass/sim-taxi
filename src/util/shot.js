@@ -267,6 +267,12 @@ export const SHOTS = [
   // strip of park in front of them, close and then at play zoom.
   { name: 'south-shore', description: 'the south shore: rocks, lawn, walkway and trees', target: [-10, 84], zoom: 20, warmup: 12 },
   { name: 'south-shore-far', description: 'the south shore at play zoom, beside the city', target: [10, 72], zoom: 52, warmup: 12 },
+  // The car wash (city/carwash.js) and the tube man on its corner (game/tubeman.js): do the tunnel,
+  // the brushes and the sign read as a car wash, and does it survive play zoom — then the tube man
+  // close enough to see his face. Appended, for the index reason.
+  { name: 'carwash', description: 'the car wash and its tube man', target: [0, 0], zoom: 18, warmup: 12, atCarWash: true },
+  { name: 'carwash-far', description: 'the car wash at play zoom', target: [0, 0], zoom: 52, warmup: 12, atCarWash: true },
+  { name: 'tubeman', description: 'the tube man, close', target: [0, 0], zoom: 7, warmup: 12, atTubeMan: true },
 ];
 
 export function getActiveShot() {
