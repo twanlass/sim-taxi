@@ -293,15 +293,18 @@ const MUSIC_FADE_OUT = 1.5;
  *    `staticLevel`, played into the same speaker so it is band-limited and crushed with the music:
  *    about 12 dB under the music in RMS, with the pops reaching the music's level.
  *
+ * `hold` is how long the crushed radio carries on once the taxi is out of the door before the reveal
+ * starts (Tyler: "2s more of crushed music… to sell it") — so the car is on the street with the
+ * radio still in it, and the open lands at about the end of the pull-back rather than inside it.
  * `open` is the reveal, in seconds: the filters sweep to transparent (10 Hz, Nyquist, 0 dB), the
  * crushed path crossfades into the clean one, and the static dies away over the first `staticOut`
- * of it. Short enough to have landed before the pull-back out of the garage does (`roll` and
- * `release` come to about four seconds, docs/gameplay.md).
+ * of it. With the hold it ends about five seconds after the car leaves the door, a second past the
+ * pull-back (`roll` and `release` come to about four seconds, docs/gameplay.md).
  */
 export const DASH = {
   lowCut: 700, highCut: 2000, peakHz: 1400, peakDb: 8, Q: 4,
   drive: 4, steps: 32, crushLevel: 0.11, staticLevel: 0.5,
-  open: 3, staticOut: 0.5,
+  open: 3, staticOut: 0.5, hold: 2,
 };
 const DASH_OPEN_LOW = 10;
 // The police helicopter's synthesised rotor (`makeRotor`): its blade-pass rate in Hz, and its level
@@ -1166,7 +1169,8 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
   }
 
   /**
-   * Out of the car: sweep the dash radio open into the full mix over `seconds` (`DASH`). Once, and
+   * Out of the car: after `DASH.hold`, sweep the dash radio open into the full mix over `seconds`
+   * (`DASH`). Once, and
    * a no-op if the run did not start in the car. Before the first tap there is no context, so it
    * only clears the flag and the station starts open.
    */
@@ -1174,9 +1178,10 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     if (!state.dashRadio) return;
     state.dashRadio = false;
     if (!ctx) return;
-    const t = ctx.currentTime;
+    const now = ctx.currentTime;
+    const t = now + DASH.hold;
     const ramp = (param, v, curve = 'linear', end = t + seconds) => {
-      param.cancelScheduledValues(t);
+      param.cancelScheduledValues(now);
       param.setValueAtTime(param.value, t);
       if (curve === 'exp') param.exponentialRampToValueAtTime(v, end);
       else param.linearRampToValueAtTime(v, end);
