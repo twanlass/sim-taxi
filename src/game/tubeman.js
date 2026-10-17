@@ -11,14 +11,13 @@ import { PALETTE } from '../palette.js';
 //
 // He stood on the burger joint's apron first; Tyler wanted him on a business of his own.
 //
-// **How he moves.** A chain of capsules, each jointed to the one under it, bent by two travelling
-// waves — a slow lateral one and a faster one over it — so the S runs up the tube from the blower
-// rather than the whole thing rocking as one stick. The sway is about the local Z axis, across the
-// screen: the camera never rotates, so a bend toward or away from it barely shows. Every few
-// seconds he **slumps**: the lower joints fold him over, the head hangs, the arms drop, and he
-// whips back up with an overshoot. That fold is what makes it read as an inflatable rather than a
-// wobbling pole, and it folds away from the camera and to the left on screen, back over the lot
-// rather than out over the road — see `update`.
+// **How he moves.** A chain of capsules, each jointed to the one under it, each joint a spring
+// chasing an air pressure that comes and goes (see "The motion" below). Full, he stands with his
+// arms thrown up over his head and gusts knocking him about; every few seconds the air cuts out,
+// he folds over at the hips with his top half hanging head-down and his arms dropped, and then he
+// refills with a whip back up. The sway is across the screen, since a bend toward or away from a
+// camera that never rotates barely shows, and the fold goes to the screen's left or right, always
+// back over the lot rather than out over the two roads round his corner.
 
 /** Body: capsule radius, joint spacing, and how many. 7 × 0.55 over the blower is about 4.2 up. */
 const R = 0.3;
@@ -33,21 +32,53 @@ const ARM_SEGS = 3;
 const BLOWER = { w: 0.8, h: 0.36 };
 
 
-// The motion. Angles in radians per joint, so the tip of the tube sees about `SEGS` of each.
-const SWAY = 0.15;              // the slow lateral wave
-const SWAY_W = 4.2;
-const FLUTTER = 0.07;           // the fast one riding on it
-const FLUTTER_W = 7.3;
-const NOD = 0.07;               // toward and away from the camera
-const NOD_W = 3.1;
-/** How far the arms stand out from hanging straight down, and how much they flap about that. */
-const ARM_OUT = 0.95;
-const ARM_FLAP = 0.6;
-/** The slump: fall, hang folded, whip back up. Seconds. */
-const SLUMP_FALL = 0.45;
-const SLUMP_HOLD = 0.25;
-const SLUMP_RISE = 0.8;
-const SLUMP_GAP = [3.5, 7];
+// The motion: a pressure that comes and goes, and springs that chase it.
+//
+// The first cut bent the tube along sine waves and read as rubber: a rubber tube sways, an air
+// tube *gets blown about*. What sells the air is (1) the collapse — the blower stutters, the tube
+// folds hard at the hips and the top half hangs head-down — (2) the refill, a whip back up that
+// overshoots, and (3) arms that shoot up over his head when the air is in. So each joint is a
+// lightly damped spring chasing a target set by the pressure, stiff at the blower and floppy at
+// the head, and random gusts kick their velocities so no two seconds look alike (Tyler, 2026-10-17:
+// "feels like rubber... needs to feel like he's filled with air and be much more dramatic").
+/** The hinge he folds at — the bottom of this segment, 2 units up, about halfway: his hips. */
+const HIP = 3;
+/** Folded angles: the hip, the joint above it, and each joint further up as the top half droops. */
+const FOLD_HIP = 1.8;
+const FOLD_NEXT = 0.4;
+const FOLD_DROOP = 0.08;
+/** Spring stiffness at the blower and at the head (1/s²), and the damping ratio: low, so it rings. */
+const K_BASE = 150;
+const K_TIP = 55;
+const ZETA = 0.22;
+/**
+ * The fold's own damping, heavier: at the lateral's 0.22 the refill overshot by half the fold and
+ * whipped him 2.6 units out over the road at car height. At this he overshoots by about a fifth,
+ * which still reads as a snap back up.
+ */
+const ZETA_FOLD = 0.5;
+/** Gusts: how often, and how hard they kick a joint (rad/s). */
+const GUST_GAP = [0.12, 0.35];
+const GUST_KICK = 2.6;
+/** Upright, the lateral wave that keeps him busy between gusts. */
+const SWAY = 0.12;
+const SWAY_W = 5.5;
+/** Arms: hanging when empty, overhead when full (radians out from straight down), and the flap. */
+const ARM_DOWN = 0.25;
+const ARM_UP = 2.85;
+const ARM_FLAP = 0.35;
+/** The arm's own spring, stiff enough that they are back overhead within half a second of a refill. */
+const ARM_K = 110;
+const ARM_ZETA = 0.3;
+/** How far each joint down the arm lags and flops, radians. */
+const ELBOW_FLOP = 0.35;
+/** The pressure cycle, seconds: full for a while, collapse, hang, refill. */
+const FULL = [1.6, 4.2];
+const COLLAPSE = 0.3;
+const HANG = [0.25, 0.7];
+const REFILL = 0.22;
+/** How thin the tube goes when the air is out, as a share of its full width. */
+const SLACK = 0.8;
 
 const smooth = (t) => t * t * (3 - 2 * t);
 
@@ -183,54 +214,118 @@ export function createTubeMan(scene, rng, spot, anchor = null) {
   });
 
   // --- Time ------------------------------------------------------------------
-  const phase = [rng.range(0, 6.3), rng.range(0, 6.3), rng.range(0, 6.3)];
-  let clock = rng.range(0, 20);
-  let slumpAt = clock + rng.range(...SLUMP_GAP);
+  // Fold directions, in the holder's frame (+Z toward the camera, +X across the screen): world −Z
+  // and world −X, both back over the lot and away from the two roads round his corner, and one
+  // falls to the screen's right and the other to its left.
+  const FOLD_DIRS = [[Math.SQRT1_2, -Math.SQRT1_2], [-Math.SQRT1_2, -Math.SQRT1_2]];
+  const bodyMeshes = joints.map((j) => j.children.find((c) => c.isMesh));
+  // Per joint: the fold (`f`) and the lateral bend (`l`), each an angle and a rate.
+  const springs = joints.map((_, k) => {
+    const t = k / (SEGS - 1);
+    const kk = K_BASE + (K_TIP - K_BASE) * t;
+    return { k: kk, c: 2 * ZETA * Math.sqrt(kk), cf: 2 * ZETA_FOLD * Math.sqrt(kk), f: 0, fv: 0, l: 0, lv: 0 };
+  });
+  const armSprings = arms.map(() => ({ a: ARM_DOWN, v: 0, e: [0, 0, 0], ev: [0, 0, 0] }));
+  const phase = [rng.range(0, 6.3), rng.range(0, 6.3)];
+  let clock = 0;
+  let pressure = 1;
+  let stage = 'full';
+  let stageEnd = rng.range(...FULL);
+  let fold = FOLD_DIRS[0];
+  let gustAt = rng.range(...GUST_GAP);
 
-  /** 0 upright, 1 folded over — with an overshoot past upright as he whips back. */
-  function slumpLevel() {
-    const u = clock - slumpAt;
-    if (u < 0) return 0;
-    if (u < SLUMP_FALL) return smooth(u / SLUMP_FALL);
-    if (u < SLUMP_FALL + SLUMP_HOLD) return 1;
-    const r = (u - SLUMP_FALL - SLUMP_HOLD) / SLUMP_RISE;
-    if (r < 1) return Math.exp(-4 * r) * Math.cos(3.5 * r);
-    slumpAt = clock + rng.range(...SLUMP_GAP);
-    return 0;
+  /** Advance the pressure cycle; returns the pressure, 0 empty to 1 full. */
+  function breathe() {
+    if (clock >= stageEnd) {
+      if (stage === 'full') {
+        stage = 'collapse';
+        stageEnd = clock + COLLAPSE;
+        fold = FOLD_DIRS[rng.int(0, FOLD_DIRS.length - 1)];
+      }
+      else if (stage === 'collapse') { stage = 'hang'; stageEnd = clock + rng.range(...HANG); }
+      else if (stage === 'hang') { stage = 'refill'; stageEnd = clock + REFILL; }
+      else { stage = 'full'; stageEnd = clock + rng.range(...FULL); }
+    }
+    const left = stageEnd - clock;
+    if (stage === 'collapse') return smooth(left / COLLAPSE);
+    if (stage === 'hang') return 0;
+    if (stage === 'refill') return 1 - left / REFILL;
+    return 1;
+  }
+
+  function step(dt) {
+    clock += dt;
+    pressure = breathe();
+    const empty = 1 - pressure;
+    if (clock >= gustAt) {
+      gustAt = clock + rng.range(...GUST_GAP);
+      // A gust kicks one joint sideways, harder the higher it is and the fuller the tube.
+      const k = rng.int(1, SEGS - 1);
+      springs[k].lv += rng.range(-1, 1) * GUST_KICK * (0.4 + 0.6 * k / SEGS) * (0.3 + 0.7 * pressure);
+      const arm = armSprings[rng.int(0, 1)];
+      arm.v += rng.range(-1, 1) * GUST_KICK * 1.5;
+    }
+    for (let k = 1; k < SEGS; k++) {
+      const s = springs[k];
+      const foldTo = empty * (k === HIP ? FOLD_HIP : k === HIP + 1 ? FOLD_NEXT : k > HIP ? FOLD_DROOP : 0);
+      const w = 0.4 + 0.6 * (k / SEGS);
+      const swayTo = pressure * w * SWAY * Math.sin(SWAY_W * clock - 0.9 * k + phase[0]);
+      s.fv += (s.k * (foldTo - s.f) - s.cf * s.fv) * dt;
+      s.lv += (s.k * (swayTo - s.l) - s.c * s.lv) * dt;
+      s.f += s.fv * dt;
+      s.l += s.lv * dt;
+    }
+    arms.forEach((arm, n) => {
+      const a = armSprings[n];
+      const flap = Math.sin(arm.rate * clock + arm.phase);
+      const to = ARM_DOWN + pressure * (ARM_UP - ARM_DOWN) + pressure * ARM_FLAP * flap;
+      a.v += (ARM_K * (to - a.a) - 2 * ARM_ZETA * Math.sqrt(ARM_K) * a.v) * dt;
+      a.a += a.v * dt;
+      // Each joint down the arm lags the one above it, which is what makes it flop.
+      for (let k = 1; k < ARM_SEGS; k++) {
+        const eTo = ELBOW_FLOP * Math.sin(arm.rate * clock + arm.phase - 1.3 * k) * (0.4 + 0.6 * pressure);
+        a.ev[k] += (45 * (eTo - a.e[k]) - 2 * 0.25 * Math.sqrt(45) * a.ev[k]) * dt;
+        a.e[k] += a.ev[k] * dt;
+      }
+    });
+  }
+
+  const foldAxis = new THREE.Vector3();
+  const qFold = new THREE.Quaternion();
+  const qLat = new THREE.Quaternion();
+  const Z_AXIS = new THREE.Vector3(0, 0, 1);
+  function pose() {
+    const [dx, dz] = fold;
+    // The fold turns about the horizontal axis square to its direction, Y × (dx, 0, dz). It has to
+    // be one axis-angle turn: written as Euler X and Z turns, a fold toward a diagonal leans over
+    // toward one of the two axes instead once it passes a radian or so, and a fold aimed back over
+    // the lot laid his head 2 units out toward the road.
+    foldAxis.set(dz, 0, -dx);
+    for (let k = 1; k < SEGS; k++) {
+      const s = springs[k];
+      qFold.setFromAxisAngle(foldAxis, s.f);
+      qLat.setFromAxisAngle(Z_AXIS, s.l);
+      joints[k].quaternion.multiplyQuaternions(qFold, qLat);
+    }
+    const girth = SLACK + (1 - SLACK) * pressure;
+    for (const m of bodyMeshes) m.scale.set(girth, 1, girth);
+    arms.forEach((arm, n) => {
+      const a = armSprings[n];
+      arm.root.rotation.set(0.2 * Math.sin(arm.rate * 0.7 * clock + arm.phase), 0, arm.side * a.a);
+      for (let k = 1; k < ARM_SEGS; k++) arm.chain[k].rotation.z = arm.side * a.e[k];
+    });
   }
 
   function update(dt) {
-    clock += dt;
-    const e = slumpLevel();
-    for (let k = 1; k < SEGS; k++) {
-      // Stiff at the blower, floppier up the tube.
-      const w = 0.45 + 0.55 * (k / SEGS);
-      let side = w * (SWAY * Math.sin(SWAY_W * clock - 0.9 * k + phase[0])
-        + FLUTTER * Math.sin(FLUTTER_W * clock - 0.6 * k + phase[1]));
-      let nod = w * NOD * Math.sin(NOD_W * clock - 0.7 * k + phase[2]);
-      // The fold: the two lowest joints give way and the rest curls back on itself — toward
-      // world −Z, which in this frame is local +X and away from the camera. He stands on the lot's
-      // +X+Z corner, so that is back over the lot; folding toward +X or +Z would lay him across
-      // the road.
-      const fold = k <= 2 ? 0.72 : -0.2;
-      side -= e * fold * Math.SQRT1_2;
-      nod -= e * fold * Math.SQRT1_2;
-      joints[k].rotation.set(nod, 0, side);
-    }
-    for (const arm of arms) {
-      const flap = Math.sin(arm.rate * clock + arm.phase);
-      const out = THREE.MathUtils.lerp(ARM_OUT + ARM_FLAP * flap, 0.2, Math.max(0, e));
-      arm.root.rotation.set(0.15 * Math.sin(arm.rate * 0.7 * clock + arm.phase), 0, arm.side * out);
-      // Each joint down the arm lags the one above it, which is what makes it flop.
-      for (let k = 1; k < ARM_SEGS; k++) {
-        arm.chain[k].rotation.z = arm.side * 0.45 * Math.sin(arm.rate * clock + arm.phase - 1.3 * k);
-      }
-    }
+    // Substepped: the stiffest spring rings at ~2 Hz and a slow frame is 1/20 s.
+    const n = Math.max(1, Math.ceil(dt * 120));
+    for (let i = 0; i < n; i++) step(dt / n);
+    pose();
   }
-  // Posed at construction, so the first frame — and a shot, which ticks once and freezes — catches
-  // him mid-flail rather than standing to attention.
+  // Run in for a few seconds at construction, so the first frame — and a shot, which ticks once and
+  // freezes — catches him mid-flail with the springs moving, not standing to attention.
   function settle() { update(0); }
-  settle();
+  update(rng.range(2, 6));
 
   const entryObjects = anchor ? [{ object: holder, ...anchor }] : [];
   return { group, holder, joints, arms, entryObjects, update, settle, at };
