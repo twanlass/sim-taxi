@@ -1,13 +1,18 @@
 {
   "master": 1,
+  "buses": {
+    "master": { "gain": 1 },
+    "player": { "gain": 1 },
+    "world": { "gain": 1 }
+  },
   "groups": {
     "engine": { "gain": 1 },
     "taxi": { "gain": 1 },
     "impacts": { "gain": 1 },
-    "police": { "gain": 1 },
-    "people": { "gain": 1 },
     "events": { "gain": 1 },
-    "ambience": { "gain": 1 }
+    "ambience": { "gain": 1 },
+    "people": { "gain": 1 },
+    "police": { "gain": 1 }
   },
   "sounds": {
     "idle": { "file": "01_ENG_idle_loop", "gain": 1, "rate": 1 },

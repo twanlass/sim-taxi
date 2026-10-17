@@ -228,7 +228,7 @@ import {
 import { createBoostMeter } from '../src/game/boostmeter.js';
 import * as fuelArc from '../src/game/fuelarc.js';
 import { createComboMeter, comboScope, COMBO_MAX } from '../src/game/combometer.js';
-import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, radioBetween, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL, GROUPS } from '../src/game/sfx.js';
+import { createSfx, SHIPPED_MIX, SFX_EVENTS, SOUNDS, LOOPS, RADIO, radioBetween, DRIVE_THRU_SECONDS, DRIVE_THRU_TAIL, GROUPS, BUSES, MIX_PARENT, monitorPass } from '../src/game/sfx.js';
 import MIX_FILE from '../assets/audio/mix.json' with { type: 'json' };
 
 const seed = Number(process.argv[2] ?? 71624);
@@ -10947,6 +10947,44 @@ function rideToPickup() {
       && !JSON.stringify(sfx.tuning()).includes('solo'));
   sfx.reset();
   check('and reset puts the shipped mix back', JSON.stringify(sfx.tuning()) === JSON.stringify(SHIPPED_MIX));
+
+  // The buses over the groups (BUSES): one tree, Master at its root, every group under Player or
+  // World, and one namespace for every node — mute and solo take a bare key, so a sound named like
+  // a group would answer for both.
+  const nodeKeys = [...BUSES.map((b) => b.key), ...GROUPS.map((g) => g.key), ...Object.keys(SOUNDS),
+    ...RADIO.all, 'rotor'];
+  check('every bus, group, sound and track has a key of its own',
+    new Set(nodeKeys).size === nodeKeys.length && nodeKeys.every((k) => k in MIX_PARENT));
+  const rootOf = (k) => { let n = 0; while (MIX_PARENT[k] != null && n++ < 10) k = MIX_PARENT[k]; return k; };
+  check('every node of the mix tree ends in Master', nodeKeys.every((k) => rootOf(k) === 'master'));
+  check('every group feeds Player or World', GROUPS.every((g) => g.bus === 'player' || g.bus === 'world'));
+  const noBus = ['master', 'player', 'world'].filter((k) => !Number.isFinite(MIX_FILE.buses?.[k]?.gain));
+  check('mix.json has a level for Master, Player and World', noBus.length === 0, noBus.join(', '));
+  // The solo rule: soloing a sound keeps the path down to it open and silences its siblings, the
+  // other buses and the music; a mute anywhere stops only itself (the chain does the rest).
+  const sets = (mute, solo) => ({ mute: new Set(mute), solo: new Set(solo) });
+  const soloIdle = sets([], ['idle']);
+  check('a solo opens its own path and silences the rest',
+    ['master', 'sfx', 'player', 'engine', 'idle'].every((k) => monitorPass(k, soloIdle) === 1)
+      && ['accel', 'taxi', 'world', 'music', 'rotor', RADIO.intro].every((k) => monitorPass(k, soloIdle) === 0));
+  const soloWorld = sets([], ['world']);
+  check('a soloed bus passes everything under it',
+    monitorPass('angry', soloWorld) === 1 && monitorPass('rotor', soloWorld) === 1
+      && monitorPass('player', soloWorld) === 0 && monitorPass('music', soloWorld) === 0);
+  check('a mute silences only itself, and outranks its own solo',
+    monitorPass('people', sets(['people'], ['people'])) === 0 && monitorPass('angry', sets(['people'], [])) === 1);
+  sfx.setMonitor('angry', { mute: true });
+  sfx.setMonitor('MUSIC_radio_intro', { solo: true });
+  sfx.setMonitor('nope', { solo: true });
+  check('a sound and a track can be muted or soloed, and an unknown key is ignored',
+    JSON.stringify(sfx.monitor()) === JSON.stringify({ mute: ['taxi', 'angry'], solo: ['police', 'MUSIC_radio_intro'] }));
+  sfx.clearMonitor();
+  check('and Clear mutes and solos clears them all',
+    JSON.stringify(sfx.monitor()) === JSON.stringify({ mute: [], solo: [] }));
+  sfx.tune({ buses: { master: { gain: 0 }, world: { gain: 99 }, sfx: { gain: 2 } } });
+  check('a bus fader reaches silence, is clamped, and only Master/Player/World take one',
+    sfx.tuning().buses.master.gain === 0 && sfx.tuning().buses.world.gain === 4 && !sfx.tuning().buses.sfx);
+  sfx.reset();
 }
 
 // --- The Loco tuning stash --------------------------------------------------
