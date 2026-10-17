@@ -973,6 +973,28 @@ function buildCar() {
   return mergeGeometries(parts, false);
 }
 
+/**
+ * The train alone, off its deck, for the model workshop's bench (src/workshop/catalog.js): the
+ * same car geometry and paint `createLTrain` uses, CARS of them nose to tail at CAR_GAP on a
+ * straight, without the coast fade or the entrance, which both need the city to mean anything.
+ */
+export function createTrainMesh() {
+  const group = new THREE.Group();
+  group.name = 'ltrain';
+  const carGeo = buildCar();
+  const material = vehiclePaintOn()
+    ? propMaterial({ gloss: { geometry: carGeo, amount: 0.55 } })
+    : propMaterial();
+  for (let n = 0; n < CARS; n++) {
+    const car = new THREE.Mesh(carGeo, material);
+    car.castShadow = true;
+    car.receiveShadow = true;
+    car.position.x = (n - (CARS - 1) / 2) * (CAR_LEN + CAR_GAP);
+    group.add(car);
+  }
+  return group;
+}
+
 // --- The line -----------------------------------------------------------------------------------
 
 /**
