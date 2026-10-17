@@ -1250,6 +1250,10 @@ export const PALETTE = {
   graveTree: '#5E3448',
   graveLantern: '#FFC46A',
   graveMist: '#E6EBF2',
+
+  // The model workshop's bench grid (src/workshop/viewer.js), not the game. White drawn at a low
+  // alpha over the asphalt pad, so it reads as a faint chalk line rather than a colour of its own.
+  benchGrid: '#FFFFFF',
 };
 
 export function color(value) {
