@@ -101,15 +101,19 @@ const TURN_R = LANE_TO_KERB;
  * it lands on — a car on the run, and the dropped kerb it drives over — has to still be on the
  * block. A first pass at 2.6 put the ramp 1.1 units out into the road behind it, which the
  * bounding-box check in `tools/probe.mjs` is there to catch.
+ *
+ * Written as that floor plus 0.2 rather than as the 3.4 it is on 8-unit streets, because `TURN_R`
+ * grows with the lanes (`?streets=`) and a fixed 3.4 put the ramp 0.3 off the block on 10-unit
+ * streets.
  */
-const EXIT_LIFT = 3.4;
+/** Half-width of a dropped kerb. Wider than a car and narrower than the lane's own asphalt. */
+const RAMP_HALF = 1.2;
+const EXIT_LIFT = TURN_R + RAMP_HALF + 0.2;
 
 const SIDE_INSET = 0.9;          // the building, off the block's −X and −Z edges
 const FRONT_INSET = 1.5;         // ...and back off its +Z edge, so it has a forecourt on the street
 const BUILD_GAP = 1.8;           // lane centre to the building's +X face
 const APRON_BACK = 0.2;          // the asphalt stops this far short of the block's −Z edge
-/** Half-width of a dropped kerb. Wider than a car and narrower than the lane's own asphalt. */
-const RAMP_HALF = 1.2;
 
 // --- What lies on the ground, and in what order ------------------------------
 //

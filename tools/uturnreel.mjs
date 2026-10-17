@@ -3,7 +3,7 @@
  * straight road (src/lab/labroad.js), driven by the shipped traffic model, Loco Mode
  * (game/boost.js) and bootleg (game/bootleg.js) with the pedals pressed on the card's own timeline.
  * What it records is what the renderer is handed — the taxi group's transform, the wheel lock, the
- * brake lamp, the flame and the rubber — sixty times a second, into src/game/uturnreel.js, which
+ * brake lamp, the flame and the rubber — sixty times a second, into src/game/uturnreel-<width>.js, which
  * the card plays back on a street in the player's city.
  *
  * Why a recording and not the sim itself. The card opens with the world frozen, and the traffic
@@ -16,7 +16,7 @@
  * longer matches the file, which is what keeps it the game's U-turn after the sim is retuned.
  *
  *   node tools/uturnreel.mjs           # check the committed reel against a fresh take
- *   node tools/uturnreel.mjs --write   # film it and write src/game/uturnreel.js
+ *   node tools/uturnreel.mjs --write   # film it and write src/game/uturnreel-<width>.js
  */
 
 import fs from 'node:fs';
@@ -27,11 +27,14 @@ import { createTraffic, placeCar, SPEED } from '../src/sim/traffic.js';
 import { createBoost } from '../src/game/boost.js';
 import { createBootleg } from '../src/game/bootleg.js';
 import { createTyreTrail } from '../src/game/skidmarks.js';
-import { DIR, PITCH, HALF_ROAD } from '../src/city/grid.js';
+import { DIR, PITCH, HALF_ROAD, STREETS_KEY } from '../src/city/grid.js';
 import { labNetwork, labNodeX, LAB_BLOCKS } from '../src/lab/labroad.js';
 import { BOOST_ON, BOOST_OFF, TAP_1, TAP_2, TAP_LEN, CLIP_LOOP } from '../src/game/uturnclip.js';
 
-const OUT = new URL('../src/game/uturnreel.js', import.meta.url);
+// One recording per street width (`?streets=`, city/grid.js): the corner, the lane change and the
+// U-turn are all the shape of the road they were filmed on. `STREETS=half node tools/uturnreel.mjs
+// --write` films the 10-unit one; with no STREETS it is the default width.
+const OUT = new URL(`../src/game/uturnreel-${STREETS_KEY}.js`, import.meta.url);
 const STEP = 1 / 60;
 // main.js's own: the brake marks the road above this speed, and a launch breaks traction for this
 // long (BRAKE_SKID_V, LAUNCH_SKID_TIME, and the 0.42 stamp spacing in `layRubber`).
@@ -51,10 +54,12 @@ function film(start) {
   boost.topUp(1);
   for (let n = 0; n < 600; n++) boost.update(STEP);
 
-  // `placeAtX` in the lab: onto the block's lane, clamped off the junctions.
+  // `placeAtX` in the lab: onto the block's lane, clamped off the junction ahead. Not off the one
+  // behind: a start back in that box is placed on the lane before it (`placeCar` walks back up the
+  // chain), which is what lets every width find a take — see the search below.
   const block = Math.floor(start / PITCH);
   const from = labNodeX(block) + HALF_ROAD;
-  const at = Math.min(labNodeX(block + 1) - HALF_ROAD, Math.max(from, labNodeX(0) + start));
+  const at = Math.min(labNodeX(block + 1) - HALF_ROAD, labNodeX(0) + start);
   const lane = cityNetwork().laneByGrid(DIR.PX, block + 1);
   placeCar(taxi, DIR.PX, block + 1, 0, lane.length - (at - from));
   taxi.v = SPEED;
@@ -123,6 +128,11 @@ function film(start) {
 // Where to start: the take whose second tap spins the car on the frame it lands — not buffered
 // through a junction, which a player does not see as their tap — and lands it nearest the middle
 // of the far lane's block, so the spin is clear of both crossings.
+//
+// The taxi covers the same ~32 units from its start to the second tap whatever the start, and the
+// taps that can spin are the 8.6 of lane short of each hold line. With starts held to the lane
+// as well, the two windows overlapped by 0.9 on 8-unit streets and missed each other on 9 and 10
+// (`?streets=`), which is why a start may now sit back in the junction behind.
 let best = null;
 for (let start = 30; start < 70; start += 0.25) {
   const take = film(start);

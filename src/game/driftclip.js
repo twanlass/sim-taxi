@@ -1,6 +1,12 @@
-import { riverBanks } from '../city/grid.js';
-import { REEL } from './driftreel.js';
+import { riverBanks, STREETS_KEY } from '../city/grid.js';
+import { REEL as REEL_CLASSIC } from './driftreel-classic.js';
+import { REEL as REEL_TOUCH } from './driftreel-touch.js';
+import { REEL as REEL_HALF } from './driftreel-half.js';
 import { reelPlayer, createMoveClip, onStreet } from './moveclip.js';
+
+// One recording per street width (`?streets=`, city/grid.js): the shape of the road it was filmed
+// on is the shape of the road it has to fit. Exported for tools/check.mjs.
+export const REEL = { classic: REEL_CLASSIC, touch: REEL_TOUCH, half: REEL_HALF }[STREETS_KEY];
 
 // The drift, acted out: the clip on its New Move card (game/newmove.js), on a real corner of the
 // player's city. The stand-in comes up the street, floors it, taps the brake just before a left turn,
@@ -8,7 +14,7 @@ import { reelPlayer, createMoveClip, onStreet } from './moveclip.js';
 // pedal row — Loco, brake, Loco — is pressed off this clip's clock (`clipKeys`), as the U-turn's is.
 //
 // The camera, the stand-in and the still over the city are game/moveclip.js, shared with the U-turn
-// (game/uturnclip.js). The motion is a recording (game/driftreel.js) made by tools/driftreel.mjs on a
+// (game/uturnclip.js). The motion is a recording (game/driftreel-<width>.js) made by tools/driftreel.mjs on a
 // grid of side streets and checked against a fresh take on every `npm run check`. It is written in
 // the corner's own frame — from the junction's centre, along the approach and across it — so it can
 // be laid on any corner of the city whose turn is the same shape (`pickCorner`).

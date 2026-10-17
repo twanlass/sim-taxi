@@ -4,7 +4,7 @@
  * pressed on the card's own timeline — Loco, a tap of the brake just before the corner, Loco again
  * mid-slide (`driftTaxi` / `kickDrift` in sim/traffic.js, and holdBrake / holdLocoMode in main.js).
  * What it records is what the renderer is handed — the taxi group's transform, the wheel lock, the
- * brake lamp, the flame and the rubber — sixty times a second, into src/game/driftreel.js, which
+ * brake lamp, the flame and the rubber — sixty times a second, into src/game/driftreel-<width>.js, which
  * the card plays back on a matching corner of the player's city.
  *
  * Why a recording and not the sim, and why it is checked: tools/uturnreel.mjs, which this follows.
@@ -15,7 +15,7 @@
  * shape. That shape is written down with it (`turn`) and the card's corner picker matches on it.
  *
  *   node tools/driftreel.mjs           # check the committed reel against a fresh take
- *   node tools/driftreel.mjs --write   # film it and write src/game/driftreel.js
+ *   node tools/driftreel.mjs --write   # film it and write src/game/driftreel-<width>.js
  */
 
 import fs from 'node:fs';
@@ -26,12 +26,15 @@ import { createTraffic, placeCar, SPEED, DRIFT_MIN_V } from '../src/sim/traffic.
 import { driftTaxi, kickDrift, driftHolds } from '../src/sim/traffic.js';
 import { createBoost } from '../src/game/boost.js';
 import { createBootleg } from '../src/game/bootleg.js';
-import { DIR } from '../src/city/grid.js';
+import { DIR, STREETS_KEY } from '../src/city/grid.js';
 import {
   BOOST_ON, TAP, TAP_LEN, KICK_ON, CLIP_LOOP,
 } from '../src/game/driftclip.js';
 
-const OUT = new URL('../src/game/driftreel.js', import.meta.url);
+// One recording per street width (`?streets=`, city/grid.js): the corner, the lane change and the
+// U-turn are all the shape of the road they were filmed on. `STREETS=half node tools/driftreel.mjs
+// --write` films the 10-unit one; with no STREETS it is the default width.
+const OUT = new URL(`../src/game/driftreel-${STREETS_KEY}.js`, import.meta.url);
 const STEP = 1 / 60;
 // main.js's own (BRAKE_SKID_V, LAUNCH_SKID_TIME, the 0.42 stamp spacing in `layRubber`).
 const BRAKE_SKID_V = 2.5;
@@ -210,8 +213,18 @@ const check = (name, pass, detail = '') => {
 };
 let committed = '';
 try { committed = fs.readFileSync(OUT, 'utf8'); } catch { /* missing: fails below */ }
-check('the committed reel is the shipped drift', committed === source,
-  committed === source ? '' : 'the sim has changed under it; run node tools/driftreel.mjs --write');
+// Equal to the last rounded digit, not byte for byte: the reel is filmed at an absolute corner, and
+// on `CITY=big` that corner sits somewhere else, so the same take rounds a thousandth differently
+// (measured: 0.001 at most on 9-unit streets). A sim change moves it by far more than that.
+const sameReel = (a, b) => {
+  const nums = (t) => (t.match(/-?\d+(\.\d+)?(e-?\d+)?/g) ?? []).map(Number);
+  const x = nums(a);
+  const y = nums(b);
+  return x.length === y.length && x.every((v, k) => Math.abs(v - y[k]) <= 0.0015);
+};
+const matches = committed === source || sameReel(committed, source);
+check('the committed reel is the shipped drift', matches,
+  matches ? '' : 'the sim has changed under it; run node tools/driftreel.mjs --write');
 const yaw0 = reel.frames[0][4];
 const yaw1 = reel.frames[reel.frames.length - 1][4];
 // Within the swing's last rock: the drift is still settling as the loop fades.
