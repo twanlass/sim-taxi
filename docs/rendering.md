@@ -1460,6 +1460,29 @@ only distinction being made.
 - **The bands are subtle at the shipped `steps` of 3**, since golden hour already puts most of a
   facade in one band. It is a slider for exactly that reason.
 
+## Painted streets — `game/brushtiles.js`, `PAINT_*` in `util/geo.js`
+
+The road surface carries dry-brush strokes, each a little lighter or darker and a little red or
+blue, so the asphalt reads as painted rather than flat grey. `?painterly=classic` turns it off.
+
+- **The strokes** are a 256² tile painted in code at boot (`paintRoad`), every dab drawn at its
+  eight wrapped neighbours so the tile is seamless, all on one heading. The ground's fragment
+  shader (`uBrushKind` 2, set by `brush(mesh, 2)` in `main.js`) reads it in world space every 12
+  units and only on dark, non-green pixels, so kerbs, paint and lawns are left alone.
+- **Direction.** The tile is read as (x, z) on an east–west street and (z, x) on a north–south one.
+  At a junction one road runs straight through and the other's strokes fade out over 3 units at its
+  kerb: the arterial wins, and between two of a kind the east–west road does, so a main street keeps
+  one heading across the map. The arterial lines reach the shader as two bitmasks
+  (`uRoadArt`, filled in `setPaintBrushes` after the layout exists). Splitting each box along its
+  diagonals was the first cut and drew a pinwheel in every junction.
+- **Patches.** Two octaves of value noise at a ~16-unit cell fade the strokes in and out, so some
+  stretches are brushed and some are bare, and the 12-unit repeat never lines up down a whole
+  street. The ground brush tile read at a big scale was tried first and came out as streaks.
+- **What was tried and is dialled to 0** (still in the shader, behind uniforms): a reddened,
+  saturated shadow terminator and cool shadow core after Valve's TF2 paper (read as a glowing
+  outline), a darker wall foot, and strokes on walls, roofs and lawns (read as dirty). Baked colour
+  blotches cost 1.2M extra vertices and were dropped outright.
+
 ## Rain Mode — `game/rain.js`
 
 `?rain`. An exploration and off by default: the city on a wet afternoon. Five layers, plus one
