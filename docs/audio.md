@@ -279,19 +279,29 @@ only the .m4a files whose masters changed.
 
 ### The dash radio
 
-From **Play** the station sounds as if it is coming from inside the taxi, through a car's small door
-speakers, and it **opens out into the full mix as the car rolls out of its garage** in the
+From **Play** the station sounds as if it is coming from a cheap AM set in the taxi, and it **opens
+out into the full mix as the car rolls out of its garage** in the
 [opening vignette](gameplay.md#the-opening-vignette): the film move from music playing in the scene
 to music playing over it. The menu's song is full-range, so Play is also the moment you get in the
-car. The radio's path into the music bus runs through three filters (`DASH` in `sfx.js`): a
-high-pass at 450 Hz, a +6 dB bump at 1.5 kHz and a low-pass at 2.6 kHz, both pass filters with a
-little resonance. On the vignette's `roll` beat (`DASH_PHASES` in `main.js`) they sweep to
-transparent over 3.5 s (`openDash`), exponentially on the two frequencies so the octaves open at an
-even pace; open is the high-pass at 10 Hz, the low-pass at Nyquist and the bump at 0 dB. The 6.3 s
-intro is usually over by then, so it is the first song that opens up as the car hits the street. A
-skip, `?vignette=off` or a city with no depot opens it on the next frame. Only the station goes
-through it: the ⚙️ panel's track previews play past it. `?radiointro=classic` keeps the station
-full-range from Play.
+car. The in-car end is crushed hard on purpose, because the reveal is only as big as the distance
+between the two ends (`DASH` in `sfx.js`):
+
+- **Band**: high-pass at 700 Hz, an 8 dB bump at 1.4 kHz, low-pass at 2 kHz, both pass filters
+  ringing a little. Narrower than a car speaker, closer to AM.
+- **Mono**, so the stereo opening out is part of the reveal.
+- **Crushed**: driven into a tanh clip quantised to 32 levels a side (about 6 bits), then brought
+  down so a song in the car sits about 4 LU under the same song open, and the open swells as well
+  as brightens.
+- **Static**: six seconds of generated hiss with crackles and the odd pop, looped into the same
+  speaker, about 12 dB under the music.
+
+On the vignette's `roll` beat (`DASH_PHASES` in `main.js`) `openDash` runs the reveal over 3 s: the
+filters sweep to transparent (exponentially on the frequencies, so the octaves open at an even pace;
+open is 10 Hz, Nyquist and 0 dB), the crushed mono path crossfades into the clean stereo one, and the
+static is gone in the first 1.5 s. The 6.3 s intro is usually over by then, so it is the first song
+that opens up as the car hits the street. A skip, `?vignette=off` or a city with no depot opens it
+on the next frame. Only the station goes through it: the ⚙️ panel's track previews play past it.
+`?radiointro=classic` keeps the station full-range from Play.
 
 ## Gestures, pauses and the phone
 

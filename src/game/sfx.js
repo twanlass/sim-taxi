@@ -273,21 +273,36 @@ const MUSIC_DUCK = 0.25;
 const MUSIC_FADE_OUT = 1.5;
 /**
  * The dash radio (Tyler, October 2026; `?radiointro=classic` off). From Play the station is heard
- * the way it would be from inside the taxi — through a car's small door speakers — and opens out
- * into the full mix as the car rolls out of its garage: the film move from music playing *in* the
- * scene to music playing *over* it. Three filters in series on the radio's path into the music bus:
- * a high-pass (`lowCut`) taking away the bass a 4-inch cone cannot move, a low-pass (`highCut`)
- * taking away the air, and a peaking bump (`peakHz`, `peakDb`) for the boxy midrange those speakers
- * are all about. Both pass filters carry a little resonance (`Q`, in dB as Web Audio has it for
- * these two types) because a small speaker rings at both ends of its range rather than rolling off
- * clean. `open` is the sweep to transparent, in seconds: long enough to hear the room open up
- * rather than a switch flipping, short enough to have landed before the pull-back out of the
- * garage does (the `roll` and `release` beats come to about four seconds, docs/gameplay.md).
+ * the way it would be from inside the taxi — a cheap AM set through one tired door speaker — and
+ * opens out into the full mix as the car rolls out of its garage: the film move from music playing
+ * *in* the scene to music playing *over* it. The further apart the two ends are, the bigger that
+ * reveal lands, so the in-car end is deliberately crushed rather than politely filtered (Tyler,
+ * after the first cut: "make the audio sound even flatter… crush that even more"):
  *
- * Open is not a bypass but every filter set where it does nothing audible: the high-pass at 10 Hz,
- * the low-pass at Nyquist (where the spec makes it exactly unity) and the bump at 0 dB.
+ *  - **Band**: a high-pass at `lowCut` (no bass from a 4-inch cone), a low-pass at `highCut` (no
+ *    air) and a peaking bump at `peakHz` (`peakDb`) for the honk. Both pass filters ring a little
+ *    (`Q`, in dB as Web Audio has it for those two types). 700 Hz to 2 kHz is narrower than a real
+ *    car speaker, closer to an AM receiver, which is the point.
+ *  - **Mono**, so the stereo spreading out is part of the open.
+ *  - **Crushed**: `drive` into a tanh soft clip quantised to `steps` levels a side — a ~6-bit
+ *    converter, so quiet passages go grainy and loud ones flatten. Its output sits at `crushLevel`,
+ *    so the in-car radio is under the open mix and the open swells as well as brightens: on an
+ *    offline render of this graph a song in the car measures about 4 LU under the same song open
+ *    (at 0.3 the crush was 8 LU *over* it — a clipper flattens the level up as well as the dynamics).
+ *  - **Static**: a bed of hiss with sparse crackles and the odd pop (`staticBuffer`) at
+ *    `staticLevel`, played into the same speaker so it is band-limited and crushed with the music:
+ *    about 12 dB under the music in RMS, with the pops reaching the music's level.
+ *
+ * `open` is the reveal, in seconds: the filters sweep to transparent (10 Hz, Nyquist, 0 dB), the
+ * crushed path crossfades into the clean one, and the static dies away over the first `staticOut`
+ * of it. Short enough to have landed before the pull-back out of the garage does (`roll` and
+ * `release` come to about four seconds, docs/gameplay.md).
  */
-export const DASH = { lowCut: 450, highCut: 2600, peakHz: 1500, peakDb: 6, Q: 3, open: 3.5 };
+export const DASH = {
+  lowCut: 700, highCut: 2000, peakHz: 1400, peakDb: 8, Q: 4,
+  drive: 4, steps: 32, crushLevel: 0.11, staticLevel: 0.5,
+  open: 3, staticOut: 0.5,
+};
 const DASH_OPEN_LOW = 10;
 // The police helicopter's synthesised rotor (`makeRotor`): its blade-pass rate in Hz, and its level
 // at full presence. Not in mix.json, which is keyed by the designer's files and has no file for it.
@@ -877,15 +892,7 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     musicBus.gain.value = musicLevel();
     musicBus.connect(ctx.destination);
     radioBus = ctx.createGain();
-    dash = ['highpass', 'peaking', 'lowpass'].map((type) => {
-      const f = ctx.createBiquadFilter();
-      f.type = type;
-      return f;
-    });
-    [dash[0].Q.value, dash[2].Q.value] = [DASH.Q, DASH.Q];
-    dash[1].frequency.value = DASH.peakHz;
-    dash[1].Q.value = 1;
-    radioBus.connect(dash[0]).connect(dash[1]).connect(dash[2]).connect(musicBus);
+    buildDash();
     setDash(state.dashRadio, ctx.currentTime);
     startRadio();
     // The spawn's takes first: they are the one sound with a deadline (see `play`).
@@ -909,19 +916,93 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     if (state.held) suspendCtx();
   }
 
-  // The dash radio's three filters, high-pass, bump, low-pass (`DASH`), between `radioBus` and the
-  // music bus.
+  // The dash radio (`DASH`), between `radioBus` and the music bus:
+  //
+  //   radioBus ─┐                  ┌─ mono ─ drive ─ crush ─ crushOut ─┐
+  //   static ───┴─ highpass ─ bump ┤                                   ├─ lowpass ─ musicBus
+  //                                └─ clean ───────────────────────────┘
+  //
+  // In the car `crushOut` is up and `clean` is shut; the open sweeps the filters and swaps the two.
   let dash = null;
-  /** The three filter settings, in car (`true`) or open — `[param, value]` in `dash` order. */
-  const dashSettings = (inCar) => [
-    [dash[0].frequency, inCar ? DASH.lowCut : DASH_OPEN_LOW],
-    [dash[1].gain, inCar ? DASH.peakDb : 0],
-    [dash[2].frequency, inCar ? DASH.highCut : ctx.sampleRate / 2],
-  ];
+  function buildDash() {
+    const filter = (type, freq, q) => {
+      const f = ctx.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = freq;
+      f.Q.value = q;
+      return f;
+    };
+    const gain = (v) => { const g = ctx.createGain(); g.gain.value = v; return g; };
+    const low = filter('highpass', DASH_OPEN_LOW, DASH.Q);
+    const bump = filter('peaking', DASH.peakHz, 1);
+    const high = filter('lowpass', ctx.sampleRate / 2, DASH.Q);
+    // One speaker: a gain node held to one channel down-mixes whatever reaches it, and the
+    // low-pass up-mixes it back to both sides.
+    const mono = gain(1);
+    mono.channelCount = 1;
+    mono.channelCountMode = 'explicit';
+    const drive = gain(DASH.drive);
+    const crush = ctx.createWaveShaper();
+    crush.curve = crushCurve();
+    const crushOut = gain(0);
+    const clean = gain(1);
+    radioBus.connect(low).connect(bump);
+    bump.connect(mono).connect(drive).connect(crush).connect(crushOut).connect(high);
+    bump.connect(clean).connect(high);
+    high.connect(musicBus);
+    dash = { low, bump, high, crushOut, clean, staticGain: null, staticSrc: null };
+  }
+  /** tanh, quantised to `DASH.steps` levels a side: the soft clip and the bit depth in one curve. */
+  function crushCurve() {
+    const n = 2048;
+    const curve = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = (i / (n - 1)) * 2 - 1;
+      curve[i] = Math.round(Math.tanh(x * 2) * DASH.steps) / DASH.steps;
+    }
+    return curve;
+  }
+  /**
+   * Six seconds of AM static, made once: hiss (white noise through a one-pole low-pass, so it is a
+   * wash rather than a fizz once the speaker band has had it), crackles at about 14 a second, and a
+   * louder pop about one second in two. Six seconds so the loop is not heard as a pattern; it never
+   * plays longer than the vignette anyway.
+   */
+  function staticBuffer() {
+    const rate = ctx.sampleRate;
+    const buffer = ctx.createBuffer(1, Math.round(rate * 6), rate);
+    const d = buffer.getChannelData(0);
+    let lp = 0;
+    for (let i = 0; i < d.length; i++) {
+      lp += 0.35 * (Math.random() * 2 - 1 - lp);
+      d[i] = lp * 0.06;
+    }
+    const click = (amp, len) => {
+      const at = Math.floor(Math.random() * (d.length - len));
+      const sign = Math.random() < 0.5 ? -1 : 1;
+      for (let k = 0; k < len; k++) d[at + k] += sign * amp * Math.exp(-k / (len / 4)) * (k % 2 ? -0.6 : 1);
+    };
+    for (let i = 0; i < 6 * 14; i++) click(0.05 + Math.random() * 0.2, 6 + Math.floor(Math.random() * 30));
+    for (let i = 0; i < 3; i++) click(0.5 + Math.random() * 0.3, 60 + Math.floor(Math.random() * 120));
+    return buffer;
+  }
+  /** In the car (`true`) or open, on the spot. */
   function setDash(inCar, at) {
-    for (const [param, v] of dashSettings(inCar)) {
-      param.cancelScheduledValues(0);
-      param.setValueAtTime(v, at);
+    const set = (param, v) => { param.cancelScheduledValues(0); param.setValueAtTime(v, at); };
+    set(dash.low.frequency, inCar ? DASH.lowCut : DASH_OPEN_LOW);
+    set(dash.bump.gain, inCar ? DASH.peakDb : 0);
+    set(dash.high.frequency, inCar ? DASH.highCut : ctx.sampleRate / 2);
+    set(dash.crushOut.gain, inCar ? DASH.crushLevel : 0);
+    set(dash.clean.gain, inCar ? 0 : 1);
+    if (inCar && !dash.staticSrc) {
+      const src = ctx.createBufferSource();
+      src.buffer = staticBuffer();
+      src.loop = true;
+      dash.staticGain = ctx.createGain();
+      dash.staticGain.gain.value = DASH.staticLevel;
+      src.connect(dash.staticGain).connect(dash.low);
+      src.start(at);
+      dash.staticSrc = src;
     }
   }
 
@@ -1094,13 +1175,24 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     state.dashRadio = false;
     if (!ctx) return;
     const t = ctx.currentTime;
-    // Exponential on the two frequencies, so the sweep moves through the octaves at an even pace
-    // rather than spending most of its time above 10 kHz; the bump's gain is in dB, so linear.
-    for (const [param, v] of dashSettings(false)) {
+    const ramp = (param, v, curve = 'linear', end = t + seconds) => {
       param.cancelScheduledValues(t);
       param.setValueAtTime(param.value, t);
-      if (param === dash[1].gain) param.linearRampToValueAtTime(v, t + seconds);
-      else param.exponentialRampToValueAtTime(v, t + seconds);
+      if (curve === 'exp') param.exponentialRampToValueAtTime(v, end);
+      else param.linearRampToValueAtTime(v, end);
+    };
+    // Exponential on the two frequencies, so the sweep moves through the octaves at an even pace
+    // rather than spending most of its time above 10 kHz; the bump's gain is in dB, so linear.
+    ramp(dash.low.frequency, DASH_OPEN_LOW, 'exp');
+    ramp(dash.high.frequency, ctx.sampleRate / 2, 'exp');
+    ramp(dash.bump.gain, 0);
+    ramp(dash.crushOut.gain, 0);
+    ramp(dash.clean.gain, 1);
+    if (dash.staticSrc) {
+      const gone = t + seconds * DASH.staticOut;
+      ramp(dash.staticGain.gain, 0, 'linear', gone);
+      dash.staticSrc.stop(gone + 0.05);
+      dash.staticSrc = null;
     }
   }
 
