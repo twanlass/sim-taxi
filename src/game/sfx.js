@@ -271,6 +271,24 @@ const MUSIC_DUCK = 0.25;
 // the song ending rather than being cut, short enough that it is gone before the stats finish
 // counting up.
 const MUSIC_FADE_OUT = 1.5;
+/**
+ * The dash radio (Tyler, October 2026; `?radiointro=classic` off). From Play the station is heard
+ * the way it would be from inside the taxi — through a car's small door speakers — and opens out
+ * into the full mix as the car rolls out of its garage: the film move from music playing *in* the
+ * scene to music playing *over* it. Three filters in series on the radio's path into the music bus:
+ * a high-pass (`lowCut`) taking away the bass a 4-inch cone cannot move, a low-pass (`highCut`)
+ * taking away the air, and a peaking bump (`peakHz`, `peakDb`) for the boxy midrange those speakers
+ * are all about. Both pass filters carry a little resonance (`Q`, in dB as Web Audio has it for
+ * these two types) because a small speaker rings at both ends of its range rather than rolling off
+ * clean. `open` is the sweep to transparent, in seconds: long enough to hear the room open up
+ * rather than a switch flipping, short enough to have landed before the pull-back out of the
+ * garage does (the `roll` and `release` beats come to about four seconds, docs/gameplay.md).
+ *
+ * Open is not a bypass but every filter set where it does nothing audible: the high-pass at 10 Hz,
+ * the low-pass at Nyquist (where the spec makes it exactly unity) and the bump at 0 dB.
+ */
+export const DASH = { lowCut: 450, highCut: 2600, peakHz: 1500, peakDb: 6, Q: 3, open: 3.5 };
+const DASH_OPEN_LOW = 10;
 // The police helicopter's synthesised rotor (`makeRotor`): its blade-pass rate in Hz, and its level
 // at full presence. Not in mix.json, which is keyed by the designer's files and has no file for it.
 const ROTOR_CHOP = 11;
@@ -522,6 +540,8 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     // The radio pulled down under the drive-through speaker — see `duckMusic`.
     ducked: false,
     musicOut: false,
+    // The station heard through the taxi's dash speakers, until `openDash` — see `DASH`.
+    dashRadio: false,
     ready: false,
     loaded: 0,
     total: Object.keys(FILES).length,
@@ -577,7 +597,8 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
       state, play: noop, update: noop, hold: noop, setMuted: noop, toggleMuted: () => true,
       setVolumes: noop,
       locoOn: noop, locoOff: noop, release: noop, unloop: noop, steer: noop, duckMusic: noop, fadeOutMusic: noop,
-      goOnAir: noop, tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
+      goOnAir: (opts) => { state.dashRadio = Boolean(opts?.dash); },
+      openDash: () => { state.dashRadio = false; }, tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
       monitor, setMonitor: (key, { mute, solo } = {}) => setMonitorSets(key, mute, solo),
       audition: () => null, stopAuditions: noop, files: FILES, radioFiles: RADIO_FILES,
       replace: async () => ({ ok: false, failed: [] }), revert: noop, replaced: () => null,
@@ -856,7 +877,16 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     musicBus.gain.value = musicLevel();
     musicBus.connect(ctx.destination);
     radioBus = ctx.createGain();
-    radioBus.connect(musicBus);
+    dash = ['highpass', 'peaking', 'lowpass'].map((type) => {
+      const f = ctx.createBiquadFilter();
+      f.type = type;
+      return f;
+    });
+    [dash[0].Q.value, dash[2].Q.value] = [DASH.Q, DASH.Q];
+    dash[1].frequency.value = DASH.peakHz;
+    dash[1].Q.value = 1;
+    radioBus.connect(dash[0]).connect(dash[1]).connect(dash[2]).connect(musicBus);
+    setDash(state.dashRadio, ctx.currentTime);
     startRadio();
     // The spawn's takes first: they are the one sound with a deadline (see `play`).
     const order = [...SOUNDS.spawn, ...Object.keys(FILES).filter((f) => !SOUNDS.spawn.includes(f))];
@@ -877,6 +907,22 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     rotor = makeRotor();
     state.ready = true;
     if (state.held) suspendCtx();
+  }
+
+  // The dash radio's three filters, high-pass, bump, low-pass (`DASH`), between `radioBus` and the
+  // music bus.
+  let dash = null;
+  /** The three filter settings, in car (`true`) or open — `[param, value]` in `dash` order. */
+  const dashSettings = (inCar) => [
+    [dash[0].frequency, inCar ? DASH.lowCut : DASH_OPEN_LOW],
+    [dash[1].gain, inCar ? DASH.peakDb : 0],
+    [dash[2].frequency, inCar ? DASH.highCut : ctx.sampleRate / 2],
+  ];
+  function setDash(inCar, at) {
+    for (const [param, v] of dashSettings(inCar)) {
+      param.cancelScheduledValues(0);
+      param.setValueAtTime(v, at);
+    }
   }
 
   // --- the radio ---
@@ -1031,10 +1077,31 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
    * Play: the menu's song gives way to the announcer. Before the first tap there is no context yet
    * and nothing to cut, so it only flips the flag and `startRadio` opens on the intro itself.
    */
-  function goOnAir() {
+  function goOnAir({ dash: inCar = false } = {}) {
     if (onAir) return;
     onAir = true;
-    if (ctx) openStation();
+    state.dashRadio = inCar;
+    if (ctx) { setDash(inCar, ctx.currentTime); openStation(); }
+  }
+
+  /**
+   * Out of the car: sweep the dash radio open into the full mix over `seconds` (`DASH`). Once, and
+   * a no-op if the run did not start in the car. Before the first tap there is no context, so it
+   * only clears the flag and the station starts open.
+   */
+  function openDash(seconds = DASH.open) {
+    if (!state.dashRadio) return;
+    state.dashRadio = false;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    // Exponential on the two frequencies, so the sweep moves through the octaves at an even pace
+    // rather than spending most of its time above 10 kHz; the bump's gain is in dB, so linear.
+    for (const [param, v] of dashSettings(false)) {
+      param.cancelScheduledValues(t);
+      param.setValueAtTime(param.value, t);
+      if (param === dash[1].gain) param.linearRampToValueAtTime(v, t + seconds);
+      else param.exponentialRampToValueAtTime(v, t + seconds);
+    }
   }
 
   // The unlock. Created *inside* the gesture, because Safari only lets a context start running
@@ -1445,6 +1512,7 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     duckMusic,
     fadeOutMusic,
     goOnAir,
+    openDash,
     setMuted,
     setVolumes,
     toggleMuted: () => { setMuted(!state.muted); return state.muted; },

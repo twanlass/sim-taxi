@@ -1180,6 +1180,13 @@ const sfx = shot ? null : createSfx({
   menuMusic: new URLSearchParams(window.location.search).get('menumusic') !== 'classic',
   classicSongs: new URLSearchParams(window.location.search).get('songs') === 'classic',
 });
+// The dash radio (`DASH` in game/sfx.js): Play puts the station in the taxi's own speakers, and it
+// opens out into the full mix when the car rolls out of its garage. `?radiointro=classic` keeps the
+// station full-range from Play.
+const dashRadio = new URLSearchParams(window.location.search).get('radiointro') !== 'classic';
+// The vignette beats the car is still in its garage for, so the radio stays in the dash. Anything
+// else — `roll` onward, a skip, `?vignette=off`, a city with no depot — opens it.
+const DASH_PHASES = new Set(['wait', 'approach', 'settle', 'door', 'reveal']);
 // The ⚙️ panel's handle once it exists (`createDebugPanel` at the bottom of the file), so the frame
 // can ask whether it is open — the sound rings below show only then.
 let debugPanel = null;
@@ -5138,7 +5145,7 @@ function parked() {
 let runBegun = false;
 function beginRun() {
   runBegun = true;
-  sfx?.goOnAir();
+  sfx?.goOnAir({ dash: dashRadio });
   if (!settings.get().tips) dropTutorial();
 }
 function dropTutorial() {
@@ -5618,6 +5625,7 @@ function tick() {
   // the car's position, heading and speed by hand, and the render pass inside `traffic.update`
   // reads them on the same frame. See game/opening.js for the staging split.
   opening?.update(dt);
+  if (sfx?.state.dashRadio && !(opening?.running() && DASH_PHASES.has(opening.phase()))) sfx.openDash();
   // The pedals arrive the moment the taxi is the player's to drive — on the lane, with the
   // vignette's pull-back still running — rather than with the rest of the HUD. They used to wait
   // for `hud-ready`, which is the *tutorial's* second beat being answered: the pull-back, a

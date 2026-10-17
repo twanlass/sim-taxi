@@ -10921,6 +10921,17 @@ function rideToPickup() {
   check('every sound is either a one-shot or a bed', unsorted.length === 0, unsorted.join(', '));
 
   const sfx = createSfx();
+  // The dash radio (DASH): Play can put the station in the car, opening it is once, and a run that
+  // starts open (`?radiointro=classic`) is never put back in.
+  const dashed = createSfx({ menuMusic: true });
+  dashed.goOnAir({ dash: true });
+  const inCar = dashed.state.dashRadio;
+  dashed.openDash();
+  const plain = createSfx({ menuMusic: true });
+  plain.goOnAir({ dash: false });
+  plain.openDash();
+  check('Play puts the radio in the dash and openDash takes it out',
+    inCar === true && dashed.state.dashRadio === false && plain.state.dashRadio === false);
   sfx.tune({ master: 9, sounds: { crash: { gain: -1, rate: 'x' }, nope: { gain: 1 } },
     engine: { idleRateHi: 2, bogus: 3 }, minGap: { skid: NaN } });
   const t = sfx.tuning();

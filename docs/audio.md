@@ -277,6 +277,22 @@ They are encoded by `tools/audio.mjs` like every other sound. afconvert on macOS
 reproduce the Block 1 files byte for byte (17 of 41 differ, mostly at the same size), so commit
 only the .m4a files whose masters changed.
 
+### The dash radio
+
+From **Play** the station sounds as if it is coming from inside the taxi, through a car's small door
+speakers, and it **opens out into the full mix as the car rolls out of its garage** in the
+[opening vignette](gameplay.md#the-opening-vignette): the film move from music playing in the scene
+to music playing over it. The menu's song is full-range, so Play is also the moment you get in the
+car. The radio's path into the music bus runs through three filters (`DASH` in `sfx.js`): a
+high-pass at 450 Hz, a +6 dB bump at 1.5 kHz and a low-pass at 2.6 kHz, both pass filters with a
+little resonance. On the vignette's `roll` beat (`DASH_PHASES` in `main.js`) they sweep to
+transparent over 3.5 s (`openDash`), exponentially on the two frequencies so the octaves open at an
+even pace; open is the high-pass at 10 Hz, the low-pass at Nyquist and the bump at 0 dB. The 6.3 s
+intro is usually over by then, so it is the first song that opens up as the car hits the street. A
+skip, `?vignette=off` or a city with no depot opens it on the next frame. Only the station goes
+through it: the ⚙️ panel's track previews play past it. `?radiointro=classic` keeps the station
+full-range from Play.
+
 ## Gestures, pauses and the phone
 
 - **Nothing can play before a tap**, the startup screen's sting in the iOS app aside: it runs on a
