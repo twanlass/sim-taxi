@@ -79,12 +79,12 @@ const TOOLS = [
   // The docs against the code: every URL parameter in src/ has a row in docs/params.md (and every
   // row is still read), and every relative link between the docs lands on a heading that exists.
   { name: 'docs',    args: ['tools/docs.mjs'],         pick: /(\d+\/\d+) checks passed/ },
-  // The New Move card's U-turn is a recording of the sim (game/uturnreel.js); this films it again
+  // The New Move card's U-turn is a recording of the sim (game/uturnreel-<width>.js); this films it again
   // and fails if the game's U-turn has moved on without it.
   { name: 'uturn',   args: ['tools/uturnreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
-  // ...and the drift's card the same (game/driftreel.js).
+  // ...and the drift's card the same (game/driftreel-<width>.js).
   { name: 'drift',   args: ['tools/driftreel.mjs'],    pick: /(\d+\/\d+) checks passed/ },
-  // ...and the overtake's (game/overtakereel.js).
+  // ...and the overtake's (game/overtakereel-<width>.js).
   { name: 'overtake', args: ['tools/overtakereel.mjs'], pick: /(\d+\/\d+) checks passed/ },
 ];
 
@@ -201,7 +201,7 @@ try {
   // finds a long enough street (side or ring) in the shipped cities.
   {
     const { reelAt, clipKeys, pickOvertakeStreet, CLIP_LOOP } = await import('../src/game/overtakeclip.js');
-    const { REEL } = await import('../src/game/overtakereel.js');
+    const { REEL } = await import('../src/game/overtakeclip.js');
     const leadAt = (t) => REEL.lead[Math.min(REEL.lead.length - 1, Math.round(t / REEL.step))];
     const start = reelAt(0);
     const end = reelAt(CLIP_LOOP);
