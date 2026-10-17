@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial, setFinish, FINISH } from '../util/geo.js';
+import { bakeColor, propMaterial, setFinish, FINISH, SMOOTH_BODY, bodyBox, softenNormals } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import {
   wheelGeometries, wheelGeometry, wheelAnchors, archedBodyGeometries, archOutlines, extrudeOutlines,
@@ -110,12 +110,13 @@ function shellParts() {
     // on a busy frame. The cabin keeps its old top (1.75), so the roof sign and the broken
     // windscreen's plates still sit where they did; the roof overhangs the glass a hair each way
     // so it reads as a lid rather than a stripe.
-    const glass = new THREE.BoxGeometry(CAR_LEN * 0.5, ROOF_BASE - 1.15, CAR_W * 0.86);
+    const soft = (g) => (SMOOTH_BODY ? softenNormals(g) : g);
+    const glass = bodyBox(CAR_LEN * 0.5, ROOF_BASE - 1.15, CAR_W * 0.86, 0.1);
     glass.translate(-0.2, (1.15 + ROOF_BASE) / 2 + CHASSIS_LIFT, 0);
-    parts.push(setFinish(bakeColor(glass, color('carGlass')), FINISH.GLASS));
-    const roof = new THREE.BoxGeometry(CAR_LEN * 0.5 + 0.06, 1.75 - ROOF_BASE, CAR_W * 0.86 + 0.06);
+    parts.push(setFinish(soft(bakeColor(glass, color('carGlass'))), FINISH.GLASS));
+    const roof = bodyBox(CAR_LEN * 0.5 + 0.06, 1.75 - ROOF_BASE, CAR_W * 0.86 + 0.06, 0.06);
     roof.translate(-0.2, (ROOF_BASE + 1.75) / 2 + CHASSIS_LIFT, 0);
-    parts.push(setFinish(bakeColor(roof, color('taxiBody')), FINISH.PAINT));
+    parts.push(setFinish(soft(bakeColor(roof, color('taxiBody'))), FINISH.PAINT));
   }
 
 

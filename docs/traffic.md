@@ -1240,6 +1240,15 @@ be rammed, and holding past it still rams. At 0.6s reaction that takes the pass 
 a taxi that never throws the combo still rams 80 cars in the same runs. Tyler tried it behind a
 flag and kept it (2026-10-07).
 
+That grace is counted from catching the car, so a taxi already sitting behind one with Loco off has
+spent it, and the combo's first tap was then itself a ram: `BOOST_KICK` puts the taxi into the
+bumper inside the tap. Following within 14 units for 2s and then tap, 0.15s lift, hold, over 12
+cities: a 0.25s tap rammed 27 times and passed 7, a 0.4s tap rammed 35 of 40, and only the shortest
+taps (0.08s) got through. So a fresh press behind a car also gets `OVERTAKE_PRESS_GRACE` (0.5s) of
+tailgating, and the same runs ram 0-1 times on the tap at every length (Tyler, 2026-10-15: "hard to
+pull off when directly behind a car and not already loco'ing"). Holding on past it still rams;
+`?pressgrace=classic` drops it.
+
 The same day `OVERTAKE_PRE_HOLD` went from 0.2s to 0, so a quick tap, then tap-and-hold behind a
 car throws the combo too. The 0.2 was there to stop stabs at the pill arming it, but a double tap
 with a car in range is deliberate.
@@ -2661,7 +2670,7 @@ whole block at once.
 rule about appetite. Blocking those laps also removes the passes they were making, so `ENTER_CHANCE`
 carries the rate instead. What it is tuned against is not how many cars stop but **how much of the
 time there is a car in the lot at all**, measured over 24 minutes of traffic per density — a run
-played between 12 and 22 cars when this was measured, in the 5 × 6 city (`?city=classic` today; the 6 × 7 plays 16 to 30 over more street) ([difficulty.md](difficulty.md)):
+played between 12 and 22 cars when this was measured, in the 5 × 6 city (the default again; `?city=big`'s 6 × 7 plays 16 to 30 over more street) ([difficulty.md](difficulty.md)):
 
 | cars | pull in / min | a car in the lot |
 |---|---|---|
@@ -3289,7 +3298,7 @@ talking about them. A DOM bubble projected over the car every frame, not geometr
 be read, and there is no font in the scene.
 
 **The 🚨 in the HUD** says the chase is on for as long as it is on (`game/chasesiren.js`, Tyler's
-idea, 2026-10-14): a low-poly beacon on the cash row, just left of the pause, a squared-off solid red lens
+idea, 2026-10-14): a low-poly beacon standing over the Loco Mode button (on the cash row beside the pause under `?pedals=classic`), a squared-off solid red lens
 whose shader sweeps a hot spot round it, flashing once a turn as the spot swings past the camera. It pops in on the spot and is up for a [getaway](gameplay.md#the-bank-robbery) too. While
 the cop is losing you (the gap held past escape range, or the taxi out of its sight) the lamp cools
 with the patrol's own two counters: slower, dimmer, half faded. Lost, it spins down and fades out

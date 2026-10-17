@@ -4,8 +4,9 @@
 spans, `src/game/drawbridge.js` for the one that lifts, and `src/geometry/boat.js` +
 `src/game/boats.js` for the traffic on it.
 
-A river runs east–west through the middle of the city, crossed by four bridges in the 6 × 7 city
-(three under `?city=classic`). All but one of them arch. That one is flat, and it opens.
+A river runs east–west through the middle of the city, crossed by four bridges: three across the
+other lines, plus one fixed under the L's deck beside the drawbridge (`planRiver`). Without the L
+(`?ltrain=classic`) the 5 × 5 has three. All but one of them arch. That one is flat, and it opens.
 
 ## The city grew a row rather than losing one
 
@@ -13,8 +14,8 @@ The obvious way to put water on this map is to flood a block row. It costs a who
 blocks, and with them whichever one-per-city landmark happened to be standing there — the depot, the
 burger joint, the courtyard, the helipad.
 
-So the Z axis has **one more** block row than X has columns — seven against six (six against five
-under `?city=classic`) — and one of them is the channel. Land stays a square (36 blocks, or 25),
+So the Z axis has **one more** block row than X has columns — six against five (seven against six
+under `?city=big`) — and one of them is the channel. Land stays a square (25 blocks, or 36),
 every street survives, and the map gains an east–west street it did not have. That is what made
 `GRID` come apart into `GRID_I` and `GRID_J` ([city.md](city.md#coordinates)), and it is the whole
 of the cost.

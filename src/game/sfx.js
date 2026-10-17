@@ -32,7 +32,7 @@ import MIX from '../../assets/audio/mix.json' with { type: 'json' };
 // The designer's files, keyed by the designer's own names so a re-delivery drops straight in. Each
 // is a literal `new URL` so Vite can see it at build time; a URL assembled from a variable is one
 // Vite cannot find and will not ship.
-const FILES = {
+export const FILES = {
   '01_ENG_idle_loop': new URL('../../assets/audio/01_ENG_idle_loop.m4a', import.meta.url).href,
   '02_IMPACT_bump_A': new URL('../../assets/audio/02_IMPACT_bump_A.m4a', import.meta.url).href,
   '02_IMPACT_bump_B': new URL('../../assets/audio/02_IMPACT_bump_B.m4a', import.meta.url).href,
@@ -76,18 +76,23 @@ const FILES = {
   '15_SIGNAL_turn': new URL('../../assets/audio/15_SIGNAL_turn.m4a', import.meta.url).href,
   '17_BURGER_drive_through': new URL('../../assets/audio/17_BURGER_drive_through.m4a', import.meta.url).href,
   '18_HORN_honk': new URL('../../assets/audio/18_HORN_honk.m4a', import.meta.url).href,
-  // Block 2 (Nicolás, October 2026) — a **demo** delivery: the city around the taxi rather than
-  // the taxi. Its numbering restarts at 16 on the designer's own sheet, so 16-18 here are not the
-  // siren, burger and horn above; the names differ, which is all `FILES` cares about.
-  '16_SCN_spawn': new URL('../../assets/audio/16_SCN_spawn.m4a', import.meta.url).href,
+  // Block 2 (Nicolás, October 2026, the final delivery): the city around the taxi rather than the
+  // taxi. Its numbering restarts at 16 on the designer's own sheet, so 16-18 here are not the
+  // burger and horn above; the names differ, which is all `FILES` cares about.
+  '16_SCN_spawn_A': new URL('../../assets/audio/16_SCN_spawn_A.m4a', import.meta.url).href,
+  '16_SCN_spawn_B': new URL('../../assets/audio/16_SCN_spawn_B.m4a', import.meta.url).href,
+  '16_SCN_spawn_C': new URL('../../assets/audio/16_SCN_spawn_C.m4a', import.meta.url).href,
   '17_SCN_gate': new URL('../../assets/audio/17_SCN_gate.m4a', import.meta.url).href,
   '18_SCN_bridge': new URL('../../assets/audio/18_SCN_bridge.m4a', import.meta.url).href,
-  '19_AMB_city_loop': new URL('../../assets/audio/19_AMB_city_loop.m4a', import.meta.url).href,
+  '19_AMB_city_loop_A_ST': new URL('../../assets/audio/19_AMB_city_loop_A_ST.m4a', import.meta.url).href,
+  '19_AMB_city_loop_B_ST': new URL('../../assets/audio/19_AMB_city_loop_B_ST.m4a', import.meta.url).href,
   '20_AMB_construction_loop_MONO': new URL('../../assets/audio/20_AMB_construction_loop_MONO.m4a', import.meta.url).href,
-  '20_AMB_construction_loop_ST': new URL('../../assets/audio/20_AMB_construction_loop_ST.m4a', import.meta.url).href,
-  '21_AMB_birds_A': new URL('../../assets/audio/21_AMB_birds_A.m4a', import.meta.url).href,
-  '21_AMB_birds_B': new URL('../../assets/audio/21_AMB_birds_B.m4a', import.meta.url).href,
-  '21_AMB_birds_C': new URL('../../assets/audio/21_AMB_birds_C.m4a', import.meta.url).href,
+  '21_SCN_birds_soft_A': new URL('../../assets/audio/21_SCN_birds_soft_A.m4a', import.meta.url).href,
+  '21_SCN_birds_soft_B': new URL('../../assets/audio/21_SCN_birds_soft_B.m4a', import.meta.url).href,
+  '21_SCN_birds_soft_C': new URL('../../assets/audio/21_SCN_birds_soft_C.m4a', import.meta.url).href,
+  '21_SCN_birds_strong_A': new URL('../../assets/audio/21_SCN_birds_strong_A.m4a', import.meta.url).href,
+  '21_SCN_birds_strong_B': new URL('../../assets/audio/21_SCN_birds_strong_B.m4a', import.meta.url).href,
+  '21_SCN_birds_strong_C': new URL('../../assets/audio/21_SCN_birds_strong_C.m4a', import.meta.url).href,
   '22_AIR_plane': new URL('../../assets/audio/22_AIR_plane.m4a', import.meta.url).href,
   '23_AIR_heli': new URL('../../assets/audio/23_AIR_heli.m4a', import.meta.url).href,
   '24_NPC_angry_A': new URL('../../assets/audio/24_NPC_angry_A.m4a', import.meta.url).href,
@@ -95,22 +100,24 @@ const FILES = {
   '24_NPC_angry_C': new URL('../../assets/audio/24_NPC_angry_C.m4a', import.meta.url).href,
   '24_NPC_angry_D': new URL('../../assets/audio/24_NPC_angry_D.m4a', import.meta.url).href,
   '24_NPC_angry_E': new URL('../../assets/audio/24_NPC_angry_E.m4a', import.meta.url).href,
+  '24_NPC_angry_F': new URL('../../assets/audio/24_NPC_angry_F.m4a', import.meta.url).href,
   '25_NPC_siren_loop': new URL('../../assets/audio/25_NPC_siren_loop.m4a', import.meta.url).href,
   '29_AMB_seagulls_loop_MONO': new URL('../../assets/audio/29_AMB_seagulls_loop_MONO.m4a', import.meta.url).href,
-  '29_AMB_seagulls_loop_ST': new URL('../../assets/audio/29_AMB_seagulls_loop_ST.m4a', import.meta.url).href,
   '30_AMB_rain_loop_MONO': new URL('../../assets/audio/30_AMB_rain_loop_MONO.m4a', import.meta.url).href,
   '30_AMB_rain_loop_ST': new URL('../../assets/audio/30_AMB_rain_loop_ST.m4a', import.meta.url).href,
   '31_AMB_basketball_loop_MONO': new URL('../../assets/audio/31_AMB_basketball_loop_MONO.m4a', import.meta.url).href,
-  '31_AMB_basketball_loop_ST': new URL('../../assets/audio/31_AMB_basketball_loop_ST.m4a', import.meta.url).href,
-  '32_NPC_chirp_long': new URL('../../assets/audio/32_NPC_chirp_long.m4a', import.meta.url).href,
-  '32_NPC_chirp_short': new URL('../../assets/audio/32_NPC_chirp_short.m4a', import.meta.url).href,
+  '32_NPC_chirp_long_A': new URL('../../assets/audio/32_NPC_chirp_long_A.m4a', import.meta.url).href,
+  '32_NPC_chirp_long_B': new URL('../../assets/audio/32_NPC_chirp_long_B.m4a', import.meta.url).href,
+  '32_NPC_chirp_short_A': new URL('../../assets/audio/32_NPC_chirp_short_A.m4a', import.meta.url).href,
+  '32_NPC_chirp_short_B': new URL('../../assets/audio/32_NPC_chirp_short_B.m4a', import.meta.url).href,
 };
 
 /**
  * What the game calls each sound, and the takes it draws from. The designer delivers most one-shots
  * as lettered variants (`_A`, `_B`, `_C`…) mixed level with each other and meant to be picked **one
  * per trigger**, so a door or a skid heard twice in a row is not the same recording twice — see
- * `pickTake`. A bed has one file: a loop cannot change take mid-cycle.
+ * `pickTake`. A bed has one file, since a loop cannot change take mid-cycle — or, CHAINED, plays its
+ * files end to end as one.
  */
 export const SOUNDS = {
   idle: ['01_ENG_idle_loop'],
@@ -141,22 +148,28 @@ export const SOUNDS = {
   driveThru: ['17_BURGER_drive_through'],
   horn: ['18_HORN_honk'],
   // Block 2: the city. Most of these are PLACED (below) — heard from where they happen.
-  spawn: ['16_SCN_spawn'],
+  spawn: ['16_SCN_spawn_A', '16_SCN_spawn_B', '16_SCN_spawn_C'],
   gate: ['17_SCN_gate'],
   bridge: ['18_SCN_bridge'],
-  city: ['19_AMB_city_loop'],
-  construction: ['20_AMB_construction_loop_MONO', '20_AMB_construction_loop_ST'],
-  // One delivery of three intensities, C the hardest, and the designer's question was which suits
-  // which animation — so each flock event is a PICK over all three rather than a random draw.
-  birdsUp: ['21_AMB_birds_C', '21_AMB_birds_B', '21_AMB_birds_A'],
-  birdsDown: ['21_AMB_birds_A', '21_AMB_birds_B', '21_AMB_birds_C'],
+  // Two loops that follow one another rather than takes: see CHAINED.
+  city: ['19_AMB_city_loop_A_ST', '19_AMB_city_loop_B_ST'],
+  // Mono only in the final delivery: the designer tried both in the game and kept mono for every
+  // bed heard from a point on the map.
+  construction: ['20_AMB_construction_loop_MONO'],
+  // Two intensities, three takes each, "to cover the different bird animations": the strong set
+  // is the flock scattering, the soft set the last of it settling.
+  birdsUp: ['21_SCN_birds_strong_A', '21_SCN_birds_strong_B', '21_SCN_birds_strong_C'],
+  birdsDown: ['21_SCN_birds_soft_A', '21_SCN_birds_soft_B', '21_SCN_birds_soft_C'],
   plane: ['22_AIR_plane'],
   heli: ['23_AIR_heli'],
-  angry: ['24_NPC_angry_A', '24_NPC_angry_B', '24_NPC_angry_C', '24_NPC_angry_D', '24_NPC_angry_E'],
-  seagulls: ['29_AMB_seagulls_loop_MONO', '29_AMB_seagulls_loop_ST'],
+  angry: ['24_NPC_angry_A', '24_NPC_angry_B', '24_NPC_angry_C', '24_NPC_angry_D', '24_NPC_angry_E',
+    '24_NPC_angry_F'],
+  seagulls: ['29_AMB_seagulls_loop_MONO'],
   rain: ['30_AMB_rain_loop_ST', '30_AMB_rain_loop_MONO'],
-  court: ['31_AMB_basketball_loop_MONO', '31_AMB_basketball_loop_ST'],
-  chirp: ['32_NPC_chirp_short', '32_NPC_chirp_long'],
+  court: ['31_AMB_basketball_loop_MONO'],
+  // Two short and two long, all four drawn at random: one cop lighting up should not always sound
+  // the same, and the length is part of that.
+  chirp: ['32_NPC_chirp_short_A', '32_NPC_chirp_short_B', '32_NPC_chirp_long_A', '32_NPC_chirp_long_B'],
 };
 
 /**
@@ -166,8 +179,14 @@ export const SOUNDS = {
  * live — a bed swaps file on the next frame. Once a choice is made, the losers come out of the
  * list and the delivery, and the key comes out of here.
  */
-export const PICKED = new Set(['construction', 'birdsUp', 'birdsDown', 'seagulls', 'rain',
-  'court', 'chirp']);
+export const PICKED = new Set(['rain']);
+
+/**
+ * Beds delivered as several loops meant to follow one another — the city's A and B. A bed can only
+ * play one buffer, so the takes are joined end to end into one (`chainBuffer`), each trimmed to its
+ * master's true length first, and that loops: the city repeats every 42s rather than every 21.
+ */
+export const CHAINED = new Set(['city']);
 
 /**
  * Sounds heard **from somewhere**: `mix.place[key]` is the falloff — full inside `near` world units
@@ -195,17 +214,38 @@ export const LOOPS = new Set(['idle', 'locoLoop', 'signal', 'siren', 'city', 'co
  */
 export const AMBIENT = ['city', 'construction', 'seagulls', 'rain', 'court'];
 
+/**
+ * The mix groups: every sound in exactly one, each group a gain node between its voices and the
+ * master. Nicolás asked for them once Block 2 doubled the count (October 2026): with this many
+ * elements a mix is set group against group first and sound against sound second, and the ⚙️ panel
+ * lists the sounds under these headings with a fader, a mute and a solo each. The fader is in
+ * mix.json (`groups.<key>.gain`) and ships; mute and solo are for listening only and never leave
+ * the session. In the order the panel shows them. `police` also carries the synthesised rotor,
+ * which has no key of its own (`makeRotor`).
+ */
+export const GROUPS = [
+  { key: 'engine', label: 'Engine & Loco',
+    sounds: ['idle', 'accel', 'brake', 'locoActivate', 'locoLoop', 'locoLaunch', 'locoBrake', 'skid'] },
+  { key: 'taxi', label: 'Taxi', sounds: ['doorOpen', 'doorClose', 'signal', 'horn'] },
+  { key: 'impacts', label: 'Impacts', sounds: ['bump', 'crash', 'takeoff', 'land'] },
+  { key: 'police', label: 'Police', sounds: ['siren', 'copSkid', 'chirp'] },
+  { key: 'people', label: 'People', sounds: ['angry'] },
+  { key: 'events', label: 'City events',
+    sounds: ['spawn', 'gate', 'bridge', 'birdsUp', 'birdsDown', 'plane', 'heli', 'driveThru'] },
+  { key: 'ambience', label: 'Ambience', sounds: AMBIENT },
+];
+/** Which group a sound is in, by sound. */
+export const GROUP_OF = Object.fromEntries(GROUPS.flatMap((g) => g.sounds.map((s) => [s, g.key])));
+
 // The loops' true lengths, by file, from the masters (afinfo). A decoder that does not trim AAC's
 // 2112 frames of encoder priming hands back a buffer that long *plus* the pad, and looping the whole
 // buffer would put 44ms of silence in every cycle — a hiccup in the engine once every four
 // seconds. See `loopWindow`. By file rather than by sound since a PICK bed changes file.
 const LOOP_SECONDS = {
   '01_ENG_idle_loop': 4, '06_LOCO_engine_loop': 8, '15_SIGNAL_turn': 4.53125,
-  '25_NPC_siren_loop': 8.6875, '19_AMB_city_loop': 21,
-  '20_AMB_construction_loop_MONO': 21, '20_AMB_construction_loop_ST': 21,
-  '29_AMB_seagulls_loop_MONO': 21, '29_AMB_seagulls_loop_ST': 21,
-  '30_AMB_rain_loop_MONO': 21, '30_AMB_rain_loop_ST': 21,
-  '31_AMB_basketball_loop_MONO': 21, '31_AMB_basketball_loop_ST': 21,
+  '25_NPC_siren_loop': 8.6875, '19_AMB_city_loop_A_ST': 21, '19_AMB_city_loop_B_ST': 21,
+  '20_AMB_construction_loop_MONO': 21, '29_AMB_seagulls_loop_MONO': 21,
+  '30_AMB_rain_loop_MONO': 21, '30_AMB_rain_loop_ST': 21, '31_AMB_basketball_loop_MONO': 21,
 };
 /** How far across the stereo field a placed sound may sit — never hard into one ear. */
 const PAN_WIDTH = 0.7;
@@ -256,6 +296,10 @@ const RADIO_FILES = {
   MUSIC_jazz: new URL('../../assets/audio/MUSIC_jazz.m4a', import.meta.url).href,
   MUSIC_rock: new URL('../../assets/audio/MUSIC_rock.m4a', import.meta.url).href,
   MUSIC_funk: new URL('../../assets/audio/MUSIC_funk.m4a', import.meta.url).href,
+  '26_MUS_rolling': new URL('../../assets/audio/26_MUS_rolling.m4a', import.meta.url).href,
+  '27_MUS_upbeat': new URL('../../assets/audio/27_MUS_upbeat.m4a', import.meta.url).href,
+  '28_MUS_hiphop': new URL('../../assets/audio/28_MUS_hiphop.m4a', import.meta.url).href,
+  '33_MUS_indiepop': new URL('../../assets/audio/33_MUS_indiepop.m4a', import.meta.url).href,
   RADIO_ad_earls: new URL('../../assets/audio/RADIO_ad_earls.m4a', import.meta.url).href,
   RADIO_ad_le_barge: new URL('../../assets/audio/RADIO_ad_le_barge.m4a', import.meta.url).href,
   RADIO_ad_loco_juice: new URL('../../assets/audio/RADIO_ad_loco_juice.m4a', import.meta.url).href,
@@ -277,7 +321,11 @@ const dB = (d) => 10 ** (d / 20);
  */
 export const RADIO = {
   intro: 'MUSIC_radio_intro',
-  songs: ['MUSIC_country', 'MUSIC_jazz', 'MUSIC_rock', 'MUSIC_funk'],
+  // Nicolás's four (Block 2 final, October 2026), written for the station: 40-50s each with short
+  // intros and clean endings, all mastered to -18 LUFS. They replaced the four below, which
+  // `?songs=classic` plays instead (`classicSongs` in createSfx).
+  songs: ['26_MUS_rolling', '27_MUS_upbeat', '28_MUS_hiphop', '33_MUS_indiepop'],
+  classicSongs: ['MUSIC_country', 'MUSIC_jazz', 'MUSIC_rock', 'MUSIC_funk'],
   ads: ['RADIO_ad_earls', 'RADIO_ad_le_barge', 'RADIO_ad_loco_juice'],
   breakIn: 'RADIO_break_in',
   breakOut: 'RADIO_break_out',
@@ -286,18 +334,24 @@ export const RADIO = {
   idEvery: 3,
   seconds: {
     MUSIC_radio_intro: 6.34775, MUSIC_country: 30, MUSIC_jazz: 30, MUSIC_rock: 30, MUSIC_funk: 30,
+    '26_MUS_rolling': 45, '27_MUS_upbeat': 49.5714375, '28_MUS_hiphop': 40.6299375,
+    '33_MUS_indiepop': 49.133875,
     RADIO_ad_earls: 9.4, RADIO_ad_le_barge: 14.528, RADIO_ad_loco_juice: 13.24,
     RADIO_break_in: 3.474271, RADIO_break_out: 4.284063, RADIO_station_id: 4.362438,
   },
   gain: {
     MUSIC_radio_intro: dB(-6.1), MUSIC_country: dB(-10.5), MUSIC_jazz: dB(-11.7), MUSIC_rock: dB(-13.2),
     MUSIC_funk: dB(-11.6),
+    // ebur128 off the masters: -18.3, -17.8, -18.2 and -18.1 LUFS, true peak -3 to -3.9.
+    '26_MUS_rolling': dB(-5.7), '27_MUS_upbeat': dB(-6.2), '28_MUS_hiphop': dB(-5.8),
+    '33_MUS_indiepop': dB(-5.9),
     RADIO_ad_earls: dB(-9.4), RADIO_ad_le_barge: dB(-3.8), RADIO_ad_loco_juice: dB(-13),
     RADIO_break_in: dB(-3), RADIO_break_out: dB(-8.5), RADIO_station_id: dB(-8),
   },
 };
-/** Every file the radio plays, in the order the ⚙️ panel lists them. */
-RADIO.all = [RADIO.intro, ...RADIO.songs, ...RADIO.ads, RADIO.breakIn, RADIO.breakOut, RADIO.stationId];
+/** Every file the radio can play, in the order the ⚙️ panel lists them. */
+RADIO.all = [RADIO.intro, ...RADIO.songs, ...RADIO.classicSongs, ...RADIO.ads, RADIO.breakIn,
+  RADIO.breakOut, RADIO.stationId];
 
 /**
  * What the station puts between the `n`th song (counting from 1) and the next: `'ad'` for an ad
@@ -371,12 +425,16 @@ function cleanMix(raw, base) {
   const shape = base ?? src;
   const out = {
     master: clamp(num(src.master) ?? shape.master ?? 1, LIMITS.master),
+    groups: {},
     sounds: {},
     minGap: {},
     place: {},
     engine: {},
     music: { master: 1, tracks: {} },
   };
+  for (const { key } of GROUPS) {
+    out.groups[key] = { gain: clamp(num(src.groups?.[key]?.gain) ?? shape.groups?.[key]?.gain ?? 1, LIMITS.gain) };
+  }
   for (const key of Object.keys(SOUNDS)) {
     const from = shape.sounds?.[key] ?? {};
     const given = src.sounds?.[key] ?? {};
@@ -421,7 +479,8 @@ export const SHIPPED_MIX = cleanMix(MIX, null);
 
 const MUTE_KEY = 'simTaxi.muted';
 
-function readMuted() {
+/** The player's mute, as remembered. Exported for the startup screen, which plays before this exists. */
+export function readMuted() {
   try { return window.localStorage.getItem(MUTE_KEY) === '1'; } catch { return false; }
 }
 function writeMuted(on) {
@@ -443,8 +502,14 @@ function loopWindow(buffer, seconds) {
  * @param {{ next: () => number }} [opts.rng]  Draws each trigger's take (`pickTake`). Math.random without.
  * @param {boolean} [opts.menuMusic]  Hold the station off the air until `goOnAir` — the title menu
  *   plays songs alone until then. False (`?menumusic=classic`, or no title screen) opens on the intro.
+ * @param {boolean} [opts.classicSongs]  The radio plays the four songs Nicolás's replaced
+ *   (`?songs=classic`).
  */
-export function createSfx({ rng, menuMusic = false } = {}) {
+export function createSfx({ rng, menuMusic = false, classicSongs = false } = {}) {
+  // The songs this session's station plays, and every file it can schedule. Only these are
+  // fetched and decoded up front: the other set is a few MB of download and ~30 MB of PCM.
+  const songs = classicSongs ? RADIO.classicSongs : RADIO.songs;
+  const playlist = [RADIO.intro, ...songs, ...RADIO.ads, RADIO.breakIn, RADIO.breakOut, RADIO.stationId];
   const hasAudio = typeof window !== 'undefined'
     && (window.AudioContext || window.webkitAudioContext);
   const state = {
@@ -472,15 +537,22 @@ export function createSfx({ rng, menuMusic = false } = {}) {
   // Live, and read every frame, so the panel can move any number while the car is driving.
   const mix = copyMix(SHIPPED_MIX);
   const tuning = () => copyMix(mix);
+  // The panel's mute and solo per group (GROUPS) — for listening, so not part of the mix: never
+  // stashed, never exported, gone on a reload. Any solo silences every group not soloed.
+  const monitorSets = { mute: new Set(), solo: new Set() };
+  const monitor = () => ({ mute: [...monitorSets.mute], solo: [...monitorSets.solo] });
+  const groupLevel = (key) => mix.groups[key].gain
+    * (monitorSets.mute.has(key) || (monitorSets.solo.size && !monitorSets.solo.has(key)) ? 0 : 1);
   /** Merge a partial mix in. Anything unknown or non-numeric is dropped (see `cleanMix`). */
   function tuneMix(partial) {
     const merged = copyMix(mix);
     const src = partial && typeof partial === 'object' ? partial : {};
     if ('master' in src) merged.master = src.master;
-    for (const part of ['sounds', 'minGap', 'place', 'engine']) {
+    for (const part of ['groups', 'sounds', 'minGap', 'place', 'engine']) {
       for (const [key, value] of Object.entries(src[part] ?? {})) {
         if (!(key in merged[part])) continue;
-        merged[part][key] = part === 'sounds' || part === 'place' ? { ...merged[part][key], ...value } : value;
+        merged[part][key] = part === 'groups' || part === 'sounds' || part === 'place'
+          ? { ...merged[part][key], ...value } : value;
       }
     }
     if (src.music && typeof src.music === 'object') {
@@ -491,6 +563,12 @@ export function createSfx({ rng, menuMusic = false } = {}) {
     }
     Object.assign(mix, cleanMix(merged, SHIPPED_MIX));
   }
+  /** Mute or solo a group (either may be omitted). An unknown group is ignored. */
+  function setMonitorSets(key, mute, solo) {
+    if (!(key in mix.groups)) return;
+    if (mute !== undefined) monitorSets.mute[mute ? 'add' : 'delete'](key);
+    if (solo !== undefined) monitorSets.solo[solo ? 'add' : 'delete'](key);
+  }
   if (!hasAudio) {
     // Headless, or a browser without Web Audio: every call is a no-op — except the mix, which is
     // plain data and is what `npm run check` exercises.
@@ -498,8 +576,9 @@ export function createSfx({ rng, menuMusic = false } = {}) {
     return {
       state, play: noop, update: noop, hold: noop, setMuted: noop, toggleMuted: () => true,
       setVolumes: noop,
-      locoOn: noop, locoOff: noop, release: noop, steer: noop, duckMusic: noop, fadeOutMusic: noop,
+      locoOn: noop, locoOff: noop, release: noop, unloop: noop, steer: noop, duckMusic: noop, fadeOutMusic: noop,
       goOnAir: noop, tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
+      monitor, setMonitor: (key, { mute, solo } = {}) => setMonitorSets(key, mute, solo),
       audition: () => null, stopAuditions: noop, files: FILES, radioFiles: RADIO_FILES,
       replace: async () => ({ ok: false, failed: [] }), revert: noop, replaced: () => null,
       pickReplacement: noop,
@@ -522,14 +601,21 @@ export function createSfx({ rng, menuMusic = false } = {}) {
   // network fails every uncached file at once, and Safari's `TypeError: Load failed` carries an
   // empty `stack`, so the panel read "Unhandled rejection:" and nothing else. A missing sound is
   // not a broken game; `start()` still awaits the original promise and logs it as one.
+  //
+  // The radio's other song set is fetched only if the ⚙️ panel asks to hear one of it.
   const bytes = {};
-  for (const [key, url] of Object.entries({ ...FILES, ...RADIO_FILES })) {
-    bytes[key] = fetch(url).then((r) => {
-      if (!r.ok) throw new Error(`${r.status} ${url}`);
-      return r.arrayBuffer();
-    });
-    bytes[key].catch(() => {});
-  }
+  const urls = { ...FILES, ...RADIO_FILES };
+  const bytesOf = (key) => {
+    if (!bytes[key]) {
+      bytes[key] = fetch(urls[key]).then((r) => {
+        if (!r.ok) throw new Error(`${r.status} ${urls[key]}`);
+        return r.arrayBuffer();
+      });
+      bytes[key].catch(() => {});
+    }
+    return bytes[key];
+  };
+  for (const key of [...Object.keys(FILES), ...playlist]) bytesOf(key);
 
   let ctx = null;
   let master = null;
@@ -598,21 +684,62 @@ export function createSfx({ rng, menuMusic = false } = {}) {
   let stoppedFor = 0;
   let wasAir = false;
 
-  /** The file a bed plays: its one file, or for a PICK the one chosen. */
+  /** The file a bed plays: its one file, for a PICK the one chosen, for a CHAINED bed the join. */
   const bedFile = (key) => (replacements[key] ? replacements[key].ids[replacements[key].pick] : null)
+    ?? (CHAINED.has(key) ? chainBuffer(key) : null)
     ?? SOUNDS[key][PICKED.has(key) ? mix.sounds[key].pick : 0];
 
   /**
-   * A gain, then a stereo panner where the browser has one (every target since Safari 14.1), into
-   * the master. Every voice gets the panner so a placed sound and an unplaced one are one shape.
+   * A CHAINED bed's takes joined into one buffer, under an id of its own in `buffers`, built once
+   * every take has decoded. Each is cut to its master's true length (`loopWindow`) before the
+   * join, so neither AAC's priming nor its end padding lands as a gap in the middle. Until then,
+   * or if a take failed, null — and the bed plays its first file alone.
    */
-  function chain(src, gain) {
+  const chained = {};
+  function chainBuffer(key) {
+    if (chained[key]) return chained[key];
+    const parts = SOUNDS[key].map((f) => buffers[f]);
+    if (!ctx || parts.some((b) => !b)) return null;
+    const spans = parts.map((b, i) => {
+      const w = loopWindow(b, LOOP_SECONDS[SOUNDS[key][i]] ?? b.duration);
+      return { b, from: Math.round(w.start * b.sampleRate), to: Math.round(w.end * b.sampleRate) };
+    });
+    const length = spans.reduce((n, s) => n + s.to - s.from, 0);
+    const channels = Math.max(...parts.map((b) => b.numberOfChannels));
+    const out = ctx.createBuffer(channels, length, parts[0].sampleRate);
+    for (let c = 0; c < channels; c++) {
+      const into = out.getChannelData(c);
+      let at = 0;
+      for (const s of spans) {
+        into.set(s.b.getChannelData(Math.min(c, s.b.numberOfChannels - 1)).subarray(s.from, s.to), at);
+        at += s.to - s.from;
+      }
+    }
+    const id = SOUNDS[key].join('+');
+    buffers[id] = out;
+    chained[key] = id;
+    return id;
+  }
+
+  /**
+   * A gain, then a stereo panner where the browser has one (every target since Safari 14.1), into
+   * `key`'s group bus (GROUPS) and so the master. Every voice gets the panner so a placed sound and
+   * an unplaced one are one shape.
+   */
+  function chain(src, gain, key) {
     const g = ctx.createGain();
     g.gain.value = gain;
     const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
     src.connect(g);
-    (pan ? g.connect(pan) : g).connect(master);
+    (pan ? g.connect(pan) : g).connect(groupBus[GROUP_OF[key]] ?? master);
     return { src, gain: g, pan, file: null };
+  }
+
+  // One gain node per group, between its voices and the master — see GROUPS. Built with the context.
+  const groupBus = {};
+  function setGroupLevels(tau = 0.02) {
+    if (!ctx) return;
+    for (const { key } of GROUPS) groupBus[key].gain.setTargetAtTime(groupLevel(key), ctx.currentTime, tau);
   }
 
   function makeLoop(key, gain = 0) {
@@ -623,7 +750,7 @@ export function createSfx({ rng, menuMusic = false } = {}) {
     const w = loopWindow(src.buffer, LOOP_SECONDS[file] ?? src.buffer.duration);
     src.loopStart = w.start;
     src.loopEnd = w.end;
-    const voice = chain(src, gain);
+    const voice = chain(src, gain, key);
     voice.file = file;
     voice.scale = 1;
     src.start(0, w.start);
@@ -707,7 +834,7 @@ export function createSfx({ rng, menuMusic = false } = {}) {
     g.gain.value = 0;
     noise.connect(lowpass).connect(chop);
     thump.connect(thumpGain).connect(chop);
-    chop.connect(g).connect(master);
+    chop.connect(g).connect(groupBus.police);
     noise.start();
     thump.start();
     lfo.start();
@@ -720,14 +847,21 @@ export function createSfx({ rng, menuMusic = false } = {}) {
     master = ctx.createGain();
     master.gain.value = masterLevel();
     master.connect(ctx.destination);
+    for (const { key } of GROUPS) {
+      groupBus[key] = ctx.createGain();
+      groupBus[key].gain.value = groupLevel(key);
+      groupBus[key].connect(master);
+    }
     musicBus = ctx.createGain();
     musicBus.gain.value = musicLevel();
     musicBus.connect(ctx.destination);
     radioBus = ctx.createGain();
     radioBus.connect(musicBus);
     startRadio();
-    await Promise.all(Object.keys(FILES).map(async (key) => {
-      const p = bytes[key];
+    // The spawn's takes first: they are the one sound with a deadline (see `play`).
+    const order = [...SOUNDS.spawn, ...Object.keys(FILES).filter((f) => !SOUNDS.spawn.includes(f))];
+    await Promise.all(order.map(async (key) => {
+      const p = bytesOf(key);
       try {
         const buf = await p;
         buffers[key] = await ctx.decodeAudioData(buf);
@@ -767,7 +901,7 @@ export function createSfx({ rng, menuMusic = false } = {}) {
   function decodeRadio(key) {
     decoding[key] ??= (async () => {
       try {
-        radioBuffers[key] = await ctx.decodeAudioData(await bytes[key]);
+        radioBuffers[key] = await ctx.decodeAudioData(await bytesOf(key));
       } catch (err) {
         console.warn(`sfx: ${key} did not load`, err);
       }
@@ -830,7 +964,7 @@ export function createSfx({ rng, menuMusic = false } = {}) {
         if (trackBuffer(next)) queue(next);
         continue;
       }
-      const song = freshPick(RADIO.songs, lastSong);
+      const song = freshPick(songs, lastSong);
       if (!song) return;
       lastSong = song;
       queue(song);
@@ -859,10 +993,10 @@ export function createSfx({ rng, menuMusic = false } = {}) {
    */
   async function startRadio() {
     if (onAir) { openStation(); return; }
-    const first = RADIO.songs[Math.floor(random() * RADIO.songs.length)];
+    const first = songs[Math.floor(random() * songs.length)];
     await decodeRadio(first);
     if (!onAir && trackBuffer(first)) { lastSong = first; queue(first); }
-    await Promise.all(RADIO.all.map(decodeRadio));
+    await Promise.all(playlist.map(decodeRadio));
     if (!onAir) topUp();
   }
 
@@ -873,7 +1007,7 @@ export function createSfx({ rng, menuMusic = false } = {}) {
     // The first song after the intro is never the one the menu was playing. `lastSong` alone is
     // the menu's *next* song, already queued behind it, so read the one actually sounding.
     const sounding = [...radioVoices].filter((v) => v.at <= t).pop();
-    if (sounding && RADIO.songs.includes(sounding.key)) lastSong = sounding.key;
+    if (sounding && songs.includes(sounding.key)) lastSong = sounding.key;
     for (const v of radioVoices) {
       // A cut, but not a click: 60ms down, then stopped.
       v.gain.gain.cancelScheduledValues(t);
@@ -889,7 +1023,7 @@ export function createSfx({ rng, menuMusic = false } = {}) {
     await decodeRadio(RADIO.intro);
     introPending = false;
     if (trackBuffer(RADIO.intro)) queue(RADIO.intro);
-    await Promise.all(RADIO.all.map(decodeRadio));
+    await Promise.all(playlist.map(decodeRadio));
     topUp();
   }
 
@@ -923,9 +1057,13 @@ export function createSfx({ rng, menuMusic = false } = {}) {
    * Fire a one-shot. `delay` is seconds from now on the audio clock, which stops with a hold, so a
    * door scheduled to close after the rider climbs in waits through a pause with the rest.
    */
-  function play(name, { gain = 1, rate = 1, delay = 0, at = null, steered = false } = {}) {
+  function play(name, { gain = 1, rate = 1, delay = 0, at = null, steered = false, loop = false } = {}) {
     if (!SFX_EVENTS.has(name)) throw new Error(`unknown sound: ${name}`);
-    if (!state.ready || state.muted) return null;
+    // Gated on the context, not on `ready`: `ready` waits for every file, and a one-shot only needs
+    // its own (`pickTake` draws from the decoded takes and answers null without one). The spawn is
+    // why — it has the length of the city's entrance to land in, and on `ready` it missed whenever
+    // the whole set took longer than that to decode, which read as "sometimes it plays".
+    if (!ctx || state.muted) return null;
     const now = ctx.currentTime;
     const gap = mix.minGap[name];
     if (gap && lastAt[name] != null && now + delay - lastAt[name] < gap) return null;
@@ -940,9 +1078,13 @@ export function createSfx({ rng, menuMusic = false } = {}) {
     const src = ctx.createBufferSource();
     src.buffer = buffers[file];
     src.playbackRate.value = rate * mix.sounds[name].rate;
-    const voice = chain(src, gain * mix.sounds[name].gain);
+    // Only the ⚙️ panel's ⏸ Hold asks for a loop: a plane frozen overhead, sounding for as long as
+    // it is held so its falloff can be walked. `unloop` lets it play out when it is let go.
+    src.loop = loop;
+    const voice = chain(src, gain * mix.sounds[name].gain, name);
     voice.file = file;
     voice.scale = gain;
+    src.onended = () => { voice.ended = true; };
     if (at) {
       voice.gain.gain.value = gain * mix.sounds[name].gain * (at.level ?? 1) * falloff(name, at.d);
       if (voice.pan) voice.pan.pan.value = Math.max(-1, Math.min(1, at.pan ?? 0)) * PAN_WIDTH;
@@ -1144,6 +1286,7 @@ export function createSfx({ rng, menuMusic = false } = {}) {
     if (!ctx) return;
     const t = ctx.currentTime;
     master.gain.setTargetAtTime(masterLevel(), t, 0.02);
+    setGroupLevels();
     if (!state.musicOut) musicBus.gain.setTargetAtTime(musicLevel(), t, 0.02);
     for (const v of radioVoices) v.gain.gain.setTargetAtTime(trackLevel(v.key), t, 0.02);
     for (const v of auditions) if (v.track) v.gain.gain.setTargetAtTime(trackLevel(v.track), t, 0.02);
@@ -1163,7 +1306,7 @@ export function createSfx({ rng, menuMusic = false } = {}) {
     const src = ctx.createBufferSource();
     src.buffer = buffers[file];
     src.playbackRate.value = mix.sounds[key].rate;
-    const voice = chain(src, mix.sounds[key].gain);
+    const voice = chain(src, mix.sounds[key].gain, key);
     auditions.add(voice);
     src.onended = () => auditions.delete(voice);
     src.start();
@@ -1196,6 +1339,12 @@ export function createSfx({ rng, menuMusic = false } = {}) {
    * until this one ends or ■ Stop previews cuts it — two songs over each other judge neither.
    */
   function auditionTrack(key) {
+    // The song set this session's station does not play is only fetched on asking: the first ▶
+    // decodes it and plays once it is in.
+    if (ctx && !trackBuffer(key) && !decoding[key] && RADIO.all.includes(key)) {
+      decodeRadio(key).then(() => { if (trackBuffer(key)) auditionTrack(key); });
+      return false;
+    }
     if (!state.ready || state.muted || state.held || !trackBuffer(key)) return false;
     for (const v of auditions) if (v.track) { stopVoice(v, 0.03); auditions.delete(v); }
     radioPreviewing(true);
@@ -1277,6 +1426,10 @@ export function createSfx({ rng, menuMusic = false } = {}) {
     tuning,
     tune,
     reset: () => tune(SHIPPED_MIX),
+    /** The groups muted and soloed on the panel, `{ mute: [...], solo: [...] }`. */
+    monitor,
+    /** Mute or solo a group for listening — `setMonitor('ambience', { solo: true })`. */
+    setMonitor(key, { mute, solo } = {}) { setMonitorSets(key, mute, solo); setGroupLevels(); },
     audition,
     stopAuditions,
     files: FILES,
@@ -1286,6 +1439,8 @@ export function createSfx({ rng, menuMusic = false } = {}) {
     locoOff,
     /** Fade out a voice `play()` returned — the drive-through speaker as the taxi leaves the lot. */
     release: (voice, tau = 0.3) => stopVoice(voice, tau),
+    /** Let a voice `play({ loop: true })` started finish the pass it is on, then end. */
+    unloop: (voice) => { if (voice) voice.src.loop = false; },
     steer,
     duckMusic,
     fadeOutMusic,

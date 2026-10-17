@@ -598,9 +598,19 @@ export function getVehiclePaintClassic() {
   return new URLSearchParams(window.location.search).get('vehiclepaint') === 'classic';
 }
 
-/** `?paint=layered|chameleon|satin|toon` — null means the default, toon (util/geo.js, PAINT_LOOKS). */
+/** `?paint=layered|chameleon|satin|toon|rim|real` — null means the default, real (util/geo.js, PAINT_LOOKS). */
 export function getPaintLook() {
   return new URLSearchParams(window.location.search).get('paint');
+}
+
+/** `?rim=off|magenta|cyan|gold|white` — the paint's rim line; null is each car's own hue (util/geo.js). */
+export function getRimColor() {
+  return new URLSearchParams(window.location.search).get('rim');
+}
+
+/** `?flip=<amount>|off` — the paint's flip colour; null keeps the look's own (util/geo.js). */
+export function getFlip() {
+  return new URLSearchParams(window.location.search).get('flip');
 }
 
 /**

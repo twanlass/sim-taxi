@@ -11,14 +11,14 @@ happening to agree on the same magic number.
 ## Coordinates
 
 ```js
-GRID_I = 6    // block columns → i runs 0..6   (5 under ?city=classic)
-GRID_J = 7    // block rows    → j runs 0..7, and 7 × 8 = 56 intersections   (6 classic)
+GRID_I = 5    // block columns → i runs 0..5   (6 under ?city=big)
+GRID_J = 6    // block rows    → j runs 0..6, and 6 × 7 = 42 intersections   (7 big)
 PITCH = 20    // distance between road centrelines
 ROAD_W = 8    // full road width (two lanes)
 BLOCK = 12    // PITCH - ROAD_W, the buildable footprint between two ordinary streets
 LANE  = 2     // lane centre offset from the centreline
-SPAN_X = 120  // GRID_I * PITCH   (100 classic)
-SPAN_Z = 140  // GRID_J * PITCH   (120 classic)
+SPAN_X = 100  // GRID_I * PITCH   (120 big)
+SPAN_Z = 120  // GRID_J * PITCH   (140 big)
 
 ARTERIAL_ROAD_W = 10.667   // ROAD_W × 4/3 — a main street is divided, see below
 LANE_TO_KERB    = 2        // lane centre to its own kerb, the same on every road
@@ -37,11 +37,14 @@ Every other name in this file already means "runs along X" — `arterialX` is a 
 The size is a gameplay constant, not an aesthetic one. On a desktop the whole city fits in frame,
 which is what allows a fixed camera and unambiguous tap-to-select; on a phone in portrait it cannot,
 so the camera follows the taxi and the map can be dragged (`attachDragPan` in `game/camera.js`, see
-[rendering.md](rendering.md#camera)). The city grew from 5 × 5 land blocks to 6 × 6 in #483, with a
-2 × 2 central park in the middle; `?city=classic` keeps the old size.
+[rendering.md](rendering.md#camera)). The city is 5 × 5 land blocks on an island that feathers into
+the sky on every side. It grew to 6 × 6 in #483, with a 2 × 2 central park, the harbor, the north
+park, the shores, the west edge's high rises and the horizon filler round it; Tyler took that back
+on 2026-10-16 ("The bigger map is bugging me"), and `?city=big` (`CITY=big` headless) builds it.
+Every feature that only makes sense on it — those, plus the L's turn west — is off on the 5 × 5.
 
 The extra row is the one asymmetry, and it is **water** — see [river.md](river.md). Land is still a
-square (36 blocks); the extra row is what stops the river costing the map a street or a landmark.
+square (25 blocks); the extra row is what stops the river costing the map a street or a landmark.
 
 ## Direction encoding
 
@@ -754,17 +757,16 @@ It is scenery only. Nothing routes into it, nothing on it can be tapped, and the
 know it exists. An iron railing on a stone plinth runs round the lawn, with a gate in the middle of
 the +Z fence.
 Headstones stand in rows either side of a gravel path that runs gate to gate (one gate in each
-end), one big tree stands in a back corner, one of the parks' statues (`statueParts`) stands on its
-plaza in the −X half for some asymmetry, and long grass grows between the rows (see
-[Long grass](#long-grass)). The tree is
-an ordinary `treeParts` tree at 6.6 tall (the parks run 3.4–5.6) with a plum crown, so it lights and
-wears leaf cards exactly as every other tree does. The ground mist that used to drift across is off
+end), one of the parks' statues (`statueParts`) stands on its plaza in the −X half for some
+asymmetry, and long grass grows between the rows (see [Long grass](#long-grass)). The fence's piers
+stand every 6.4 units in a brownish stone (`gravePier`): at half that pitch and in the graves' own
+grey they read from across the map as one more row of headstones. The big plum-crowned tree that
+stood in the back corner is off since 2026-10-17; `?gravetree=classic` brings it back. The ground mist that used to drift across is off
 since 2026-10-15; `?gravemist=classic` brings it back, thickening after dark on the same measure of
 darkness as the helicopter's searchlight.
 
 - **It faces the camera, like the burger joint.** Only +X and +Z faces are ever seen, so the gate is
-  in the +Z fence, every stone faces +Z, and the tree stands in the back corner, behind the stones
-  rather than over them. A first cut had an above-ground crypt and bare spooky trees; Tyler cut
+  in the +Z fence and every stone faces +Z. A first cut had an above-ground crypt and bare spooky trees; Tyler cut
   both.
 - **The stones are drawn 1.4× life size** (`STONE_SCALE`). At life size they were four pixels at play
   zoom, and the lot read as a fenced lawn with grit on it.
@@ -1144,10 +1146,10 @@ trees; `seed + 144`. The atlas builder both share is `util/cutout.js`.
 
 ## The 6 × 7 city and the central park
 
-The city is 6 × 7 blocks, 36 of them land, with a **2 × 2 central park** and a curving road through
-it (`city/centralpark.js`). `?city=classic` (`CITY=classic` for a headless tool) builds the old
-5 × 6 city with straight roads only, for comparison. Ambient traffic scales with the street: 16 to
-30 cars against the old city's 12 to 22 ([difficulty.md](difficulty.md)).
+`?city=big` (`CITY=big` for a headless tool) is 6 × 7 blocks, 36 of them land, with a **2 × 2
+central park** and a curving road through it (`city/centralpark.js`). The default 5 × 6 city has
+straight roads only. Ambient traffic scales with the street: 16 to 30 cars on the big city against
+the default's 12 to 22 ([difficulty.md](difficulty.md)).
 
 The park road is a trick worth knowing before extending it. Every grid road round the park's middle
 junction is **closed**, so the road markings, the junction paint, the depot and drive-through
@@ -1173,8 +1175,8 @@ The park road is the one road the grid has no opinion about, so `tools/roadnet.m
 out of the grid comparisons. It also skips the trim checks at the road's two end junctions: the road
 leaves them 28° off square, so its kerb holds the cross street ~0.6 further back than
 `junctionReach` (which knows only square crossings) says. Several probe sweeps skip the park's
-middle junction facing against the one-way, which no car can be in. `npm run check` covers this
-city only; `CITY=classic npm run check` is the old one's suite.
+middle junction facing against the one-way, which no car can be in. `npm run check` covers the
+default city; `CITY=big npm run check` is the big one's suite.
 
 ## Ground, buildings, props
 

@@ -14,17 +14,22 @@
 
 export const CAP = { x: 75, y: 75, r: 69 };
 const OUTLINE_OUT = CAP.r + 4;         // the face's black outline, outer edge
-export const GAP = 4;                  // clear air between that outline and the gauge's rim
+export const GAP = 8;                  // clear air between that outline and the gauge's rim: 4
+                                       // until Tyler asked for twice the distance (2026-10-16)
 export const RIM = 2;                  // the dark track shows this much either side of the fuel
 export const BASE_R = OUTLINE_OUT + GAP + RIM; // where the fuel's inner edge runs
 // Fuel width at the empty end and the full end — the same, now: the taper (12 → 20, and 8 → 14
 // round the old pedal) was dropped for an even band at its midpoint.
 export const W_EMPTY = 16;
 export const W_FULL = 16;
-// Both ends stop at this height: a little under the button's centre (~8.5° below the horizontal),
-// so the gauge reads as a dial over the top of the button rather than a ring round it. Not lower:
-// the brake sits off the left end, and the further down the band reaches the more room it needs.
-export const END_Y = CAP.y + 12;
+// The sweep, centred over the top of the button. 140° (Tyler, 2026-10-15: "reduce overall arc"),
+// which stops both ends 20° above the horizontal — a crown over the NES-style button rather than
+// a horseshoe round it, and further clear of the brake. `?pedals=classic` puts back the first
+// cut's ~197°, whose ends stood 12 units under the centre (~8.5° below the horizontal).
+export const SWEEP_DEG = 140;
+const CLASSIC_END_Y = CAP.y + 12;
+// Both ends stop at this height.
+export let END_Y = CAP.y - BASE_R * Math.sin(((180 - SWEEP_DEG) / 2) * Math.PI / 180);
 
 /**
  * The base curve as a dense polyline, left end to right end, each point carrying its outward unit
@@ -51,7 +56,13 @@ function baseCurve() {
   return pts;
 }
 
-const CURVE = baseCurve();
+let CURVE = baseCurve();
+
+/** `?pedals=classic`: the first cut's wider sweep. Call before the first `bandPath`. */
+export function useClassicArc() {
+  END_Y = CLASSIC_END_Y;
+  CURVE = CURVE_POINTS = baseCurve();
+}
 
 /** Fuel width at a fraction t (0 = empty end, 1 = full end) along the gauge. */
 export const widthAt = (t) => W_EMPTY + (W_FULL - W_EMPTY) * t;
@@ -120,4 +131,4 @@ export function glintAt(t) {
   };
 }
 
-export const CURVE_POINTS = CURVE;
+export let CURVE_POINTS = CURVE;

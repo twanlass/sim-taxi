@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial, setFinish, FINISH, BODY_EULER_ORDER } from '../util/geo.js';
+import {
+  bakeColor, propMaterial, setFinish, FINISH, BODY_EULER_ORDER, SMOOTH_BODY, bodyBox, softenNormals,
+} from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { KERB_H, roundedRectShape } from '../city/ground.js';
 import {
@@ -2737,9 +2739,10 @@ export function carGeometry({ bumpers = true } = {}) {
   // axle so the front pair has a well to steer in (geometry/wheels.js).
   parts.push(...archedBodyGeometries(CAR_LEN, CAR_W, 0.78 + CHASSIS_LIFT, 0.8, new THREE.Color(1, 1, 1)));
 
-  const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, CABIN_H, CAR_W * 0.86);
+  const cabin = bodyBox(CAR_LEN * 0.5, CABIN_H, CAR_W * 0.86, 0.12);
   cabin.translate(CABIN_X, CABIN_Y, 0);
-  parts.push(setFinish(bakeColor(cabin, color('carGlass')), FINISH.GLASS));
+  const glass = bakeColor(cabin, color('carGlass'));
+  parts.push(setFinish(SMOOTH_BODY ? softenNormals(glass) : glass, FINISH.GLASS));
 
   parts.push(...wheelGeometries(CAR_LEN, CAR_W));
   if (bumpers) parts.push(...bumperGeometries(CAR_LEN, CAR_W));
@@ -2765,10 +2768,11 @@ export function carGeometry({ bumpers = true } = {}) {
  */
 const CAB_SKIN = 0.02;
 export function policeCabGeometry() {
-  const cab = new THREE.BoxGeometry(
-    CAR_LEN * 0.5 + 2 * CAB_SKIN, CABIN_H + CAB_SKIN, CAR_W * 0.86 + 2 * CAB_SKIN);
+  const cab = bodyBox(
+    CAR_LEN * 0.5 + 2 * CAB_SKIN, CABIN_H + CAB_SKIN, CAR_W * 0.86 + 2 * CAB_SKIN, 0.12 + CAB_SKIN);
   cab.translate(CABIN_X, CABIN_Y + CAB_SKIN / 2, 0);
-  return setFinish(bakeColor(cab, color('policeCab')), FINISH.PAINT);
+  const shell = bakeColor(cab, color('policeCab'));
+  return setFinish(SMOOTH_BODY ? softenNormals(shell) : shell, FINISH.PAINT);
 }
 
 // Shared by truckCabGeometry() and truckBoxGeometry() so the two pieces — drawn from separate
@@ -5243,7 +5247,11 @@ export function createTraffic(
     const heldAt = new Set();
 
     for (const car of cars) {
-      if (car.state !== 'turn') continue;
+      // Not a staged car: it is off the network (see `stageCar`), and a taxi staged into the depot
+      // on the frame it was mid-turn kept that junction held for as long as it stayed hidden — a
+      // stand-down cop and an ordinary car sat at the line under it for the whole 90s the probe
+      // watched, on the 5 × 5 island's first seed to put the depot beside a ring junction.
+      if (car.state !== 'turn' || car.staged) continue;
       // The ordinary case: a car that has run out of arc and is waiting for room to land.
       // The brake pedal is the other way into the box and out of it — a taxi hauled to a stop
       // half way across a junction is stranded in exactly the sense this set means, at any `turnT`,
