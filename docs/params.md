@@ -23,6 +23,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?northpark=classic` | No park past the north ring road | #483 | [city.md](city.md) |
 | `?westedge=classic` | No high rises past the west ring road: the island ends at the old west coast. Headless tools take `WESTEDGE=classic` | #510 | [city.md](city.md#the-west-edge-high-rises-default-westedgeclassic-to-drop-them) |
 | `?westcorner=classic` | No mid-rises in the northwest corner: open asphalt between the west edge and the north park, which keeps its old west strip and feather. Headless tools take `WESTCORNER=classic` | | [city.md](city.md#the-west-edge-high-rises-default-westedgeclassic-to-drop-them) |
+| `?edgefog=classic` | The island feathering into the sky, with no fog bank round it. Headless tools take `EDGEFOG=classic` | | [rendering.md](rendering.md#the-island-edge--gameedgefogjs-citygroundjs) |
 | `?horizon=classic` | The bare edge of the map: no city carrying on past the west towers and the north park, the ground fading straight into the sky. Headless tools take `HORIZON=classic` | | [rendering.md](rendering.md#past-the-edge-of-the-map--cityhorizonjs) |
 | `?parkdrive=classic` | No arched drives round statues in the north park's wall | | [city.md](city.md) |
 | `?parkshore=classic` | The harbor's seawall curling west and stopping at the north park's corner, instead of running on north beside it. Headless tools take `PARKSHORE=classic` | #512 | [river.md](river.md#the-park-shore) |

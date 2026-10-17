@@ -1363,7 +1363,7 @@ leaves 2.2 units of clearance at the tightest point — the diagonal through a r
 
 That outline is also where the asphalt stops being solid: a 16-unit skirt fades outward from it into
 the sky, so the island has no hard edge at all. It is added *outside* the slab precisely because of
-the 2.2 units above — see [rendering.md](rendering.md#the-island-edge--citygroundjs).
+the 2.2 units above — see [rendering.md](rendering.md#the-feathered-skirt--citygroundjs).
 
 All three use the same technique: generate small geometries, bake colour into vertex attributes
 with `bakeColor()` from `util/geo.js`, then merge into a single non-indexed mesh with
