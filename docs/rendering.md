@@ -307,7 +307,10 @@ lit from those normals rather than flat-shaded. Smooth bodies are not a default.
 edge, so instead each flank and end gets a horizon line, and every panel two diagonal bands,
 keyed to the body's box and slid by the flank's facing so they move as the car turns. Their colour
 is the sky's, lifted toward its own brightness, so they fade at night. `real` also doubles the rim
-to 8 texels. ⚙️ "Reflection streaks" sets their strength (0.6 on `real`, Tyler's pick; 0 elsewhere).
+to 8 texels, capped at 0.5 world units (`RIM_MAX_WORLD`), so the doubling shows in close-ups and
+play zoom keeps the rim look's width: uncapped, 8 texels at play zoom on a phone is 1.1 units, the
+whole flank of a car. The rim and the streaks only go on car- and truck-sized bodies
+(`gCarSized`); the harbour's ships wear the same paint and came out white under both. ⚙️ "Reflection streaks" sets their strength (0.6 on `real`, Tyler's pick; 0 elsewhere).
 
 **Cost.** Per glossy fragment: two hashes, the derivatives, and two more Blinn-Phong lobes per
 light (one at play zoom, where the sparkle is skipped). Cars are a few percent of the frame, and

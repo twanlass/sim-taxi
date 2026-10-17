@@ -653,7 +653,16 @@ export function setRimTuning(key, value) {
  */
 export function setRimDepth(texture, size, camera) {
   GLOSS_UNIFORMS.tRimDepth.value = texture;
-  if (size) GLOSS_UNIFORMS.uRimStep.value.set(GLOSS_UNIFORMS.uRimShape.value.z / size.width, GLOSS_UNIFORMS.uRimShape.value.z / size.height);
+  if (size) {
+    // The width is a pen width in texels, capped at RIM_MAX_WORLD units of world so it stays a
+    // line when the camera pulls out (see RIM_MAX_WORLD).
+    let texels = GLOSS_UNIFORMS.uRimShape.value.z;
+    if (camera.isOrthographicCamera) {
+      const perUnit = (size.width * camera.zoom) / (camera.right - camera.left);
+      texels = Math.min(texels, RIM_MAX_WORLD * perUnit);
+    }
+    GLOSS_UNIFORMS.uRimStep.value.set(texels / size.width, texels / size.height);
+  }
   GLOSS_UNIFORMS.uRimDepthScale.value = camera.far - camera.near;
 }
 
@@ -916,6 +925,12 @@ const PAINT_LOOK_FLIP = { rim: 0.7, real: 0.8 };
 // 2026-10-17: double the rim on realistic).
 const PAINT_LOOK_STREAKS = { real: 0.6 }; // Tyler, 2026-10-17: "0.6 looks rad"
 const PAINT_LOOK_RIM_WIDTH = { real: 8 };
+// ...but never wider than this in world units. The doubled width was judged in close-ups; at play
+// zoom on a phone (~7 half-res texels a unit) 8 texels is 1.1 units, which is the whole visible
+// flank of a car and the whole hull of a harbour ship, so both came out lit edge to edge
+// (Tyler, 2026-10-17: "Boats are pure white. Cars are over bright."). 0.5 is what the rim look's
+// 4 texels measured at play zoom, the width Tyler had already been playing with.
+const RIM_MAX_WORLD = 0.5;
 let flipOverride = null;
 /** `?flip=`: a number, or `off`. Null keeps each look's own. */
 export function setFlip(value) {
@@ -1309,7 +1324,7 @@ const RIM_LIGHT = /* glsl */ `
 		vec2 gRimD = directLight.direction.xy;
 		if ( gIsPaint > 0.5 && dot( gRimD, gRimD ) > 1e-6 ) {
 			reflectedLight.directSpecular += directLight.color * gRimColor() * uRim.a
-				* gRimEdge( normalize( gRimD ) );
+				* gCarSized() * gRimEdge( normalize( gRimD ) );
 		}
 	}`;
 // ...and the sky's share, appended to the look's final slot.
@@ -1323,7 +1338,7 @@ const RIM_LIGHT = /* glsl */ `
 // size: the harbour's ships wear this paint too, and on a 20-unit hull the bands turned the
 // whole ship pale (Tyler, 2026-10-17).
 const STREAKS = /* glsl */ `
-	float sOn = uStreak.x * (1.0 - smoothstep(3.0, 4.0, 1.0 / min(uGlossInvHalf.x, uGlossInvHalf.z)));
+	float sOn = uStreak.x * gCarSized();
 	if (gIsPaint > 0.5 && sOn > 0.0) {
 		vec3 sP = (vGlossObj - uGlossCentre) * uGlossInvHalf;
 		vec3 sN = abs(normalize(cross(dFdx(vGlossObj), dFdy(vGlossObj))));
@@ -1345,7 +1360,7 @@ const STREAKS = /* glsl */ `
 		outgoingLight = mix(outgoingLight, sCol, clamp(sOn * (0.45 * sBand + 0.06 * sSky + 0.4 * sLine), 0.0, 1.0));
 	}`;
 const RIM_SKY = /* glsl */ `
-		outgoingLight += uGlossTop * gRimColor() * uRimShape.y * gIsPaint * gRimEdge(vec2(0.0, 1.0));`;
+		outgoingLight += uGlossTop * gRimColor() * uRimShape.y * gIsPaint * gCarSized() * gRimEdge(vec2(0.0, 1.0));`;
 // After <packing>, which the gloss uniforms are not: hung on the light chunk's include instead.
 const RIM_EDGE_FN = /* glsl */ `
 // How far the scene behind this fragment drops away one step along dir: 1 where the step lands
@@ -1482,6 +1497,12 @@ float gIsPaint;
 vec3 gFinishColor;
 vec3 gSpecN;
 vec3 gReflN;
+// 1 on a body up to about a truck's size, 0 on anything much bigger. The harbour's ships wear the
+// cars' paint, and both the rim and the streaks are car-scale details: on a 20-unit hull the rim
+// lit the bow white and the streaks turned the whole ship pale (Tyler, 2026-10-17).
+float gCarSized() {
+	return 1.0 - smoothstep(3.0, 4.0, 1.0 / min(uGlossInvHalf.x, uGlossInvHalf.z));
+}
 ${classicPaint ? 'float gFlake;' : GLOSS_PAINT_DECLS}`)
         .replace('#include <lights_phong_pars_fragment>', (rim ? RIM_EDGE_FN : '') +
           THREE.ShaderChunk.lights_phong_pars_fragment.replace(GLOSS_SPECULAR_FROM,
