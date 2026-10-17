@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
+import { PITCH, HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 /**
@@ -292,6 +293,7 @@ export const PAINT_UNIFORMS = {
   tBrushWall: { value: null },
   tBrushGround: { value: null },
   tBrushRoad: { value: null },
+  uRoadGrid: { value: new THREE.Vector3(HALF_SPAN_X, HALF_SPAN_Z, PITCH) }, // where the street centrelines are
   uRoadTile: { value: 12 },     // a bigger repeat on the road: it is the largest flat surface on screen
   uRoadAmt: { value: 0.5 },     // value-and-hue swing of a road stroke
   uLawnAmt: { value: 0 },       // lawn strokes (0.7 earlier; off for streets-only)
@@ -318,6 +320,7 @@ uniform float uHeightSpan;
 uniform sampler2D tBrushWall;
 uniform sampler2D tBrushGround;
 uniform sampler2D tBrushRoad;
+uniform vec3 uRoadGrid;
 uniform float uRoadTile;
 uniform float uRoadAmt;
 uniform float uLawnAmt;
@@ -377,7 +380,14 @@ const PAINT_FRAGMENT = /* glsl */ `
 					// The road tile is coloured: each stroke is a hair red or a hair blue as well as
 					// lighter or darker, so the swing is per channel rather than one scalar.
 					float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
-					vec3 r = texture2D(tBrushRoad, vPaintWorld.xz / uRoadTile).rgb - 0.5;
+					// The road tile's strokes all run along its u axis, so it is read as (x, z) on an
+					// east-west street and (z, x) on a north-south one: whichever centreline is
+					// nearer decides. A junction splits along its diagonals, cross-faded over about a
+					// unit so the seam does not draw a hard X through the box.
+					vec2 gd = abs(fract((vPaintWorld.xz + uRoadGrid.xy) / uRoadGrid.z + 0.5) - 0.5);
+					float ns = smoothstep(-0.03, 0.03, gd.y - gd.x);
+					vec3 r = mix(texture2D(tBrushRoad, vPaintWorld.xz / uRoadTile).rgb,
+						texture2D(tBrushRoad, vPaintWorld.zx / uRoadTile).rgb, ns) - 0.5;
 					// The fade mask: two octaves of value noise, so the strokes come and go in soft
 					// patches tens of units across and the 12-unit repeat never lines up with itself
 					// down a whole street. (The ground brush tile read at a big scale was tried first:
@@ -1553,7 +1563,7 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
   const useAO = aoEnabled && ao;
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
     + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}${rimPaintOn() ? '-rim' : ''}` : ''}`
-    + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint7' : ''}`;
+    + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint8' : ''}`;
   material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {

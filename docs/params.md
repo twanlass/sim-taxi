@@ -120,7 +120,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 
 | Param | Does |
 |---|---|
-| `?painterly=classic` | Without the painterly prototype: painted brush strokes on the streets, each a hair lighter or darker and a hair red or blue, fading in and out in block-sized patches |
+| `?painterly=classic` | Without the painterly prototype: painted brush strokes running along the streets, each a little lighter or darker and a little red or blue, fading in and out in block-sized patches |
 | `?crayon` | Crayon Mode. Off by default |
 | `?cartoon` | Cartoon Mode. Off by default |
 | `?hdr` | The full HDR bloom route instead of the emissive bloom, as a comparison. Not with Crayon or Cartoon |

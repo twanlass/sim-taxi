@@ -65,16 +65,15 @@ function paintTile(seed, { count, len, wid, angle, spread, tone, hue = 0, also =
 }
 
 function paintRoad(seed) {
-  // Two passes into one tile: along x, then along z, at the same count each.
-  const a = { count: 110, len: [70, 130], wid: [16, 26], spread: 0.06, tone: 30, hue: 14 };
-  return paintTile(seed, { ...a, angle: 0, also: { ...a, angle: Math.PI / 2 } });
+  // Every stroke along the tile's u axis; the shader turns the tile to run down each street.
+  // Hue 14 read as barely there and 24 still did at play zoom; 32 is the third pass at it.
+  return paintTile(seed, { count: 220, len: [70, 130], wid: [16, 26], angle: 0, spread: 0.06, tone: 30, hue: 32 });
 }
 
 /**
  * Walls: long, near-horizontal strokes. Ground: shorter diagonal clumps, for lawns and roofs.
- * Road: broad dry-brush strokes laid along *both* street axes (half at 0, half at 90°), because one
- * tile covers north–south and east–west roads alike and a single heading would cut across half of
- * them. Lower tone than the others — asphalt with loud strokes is the "dirty" look Tyler rejected.
+ * Road: broad dry-brush strokes all on one heading; the shader reads the tile turned to match each
+ * street (it was a 0°/90° cross-hatch while one reading had to serve both axes). Lower tone than the others — asphalt with loud strokes is the "dirty" look Tyler rejected.
  */
 export function createBrushTiles() {
   return {
