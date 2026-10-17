@@ -28,6 +28,14 @@ glint and the reflection now read two *extra* bent normals and the diffuse keeps
 
 ## Car paint — the layered finish
 
+**Rim was the default from 2026-10-16 to 2026-10-17** (`?paint=rim`): toon's hard glint and sheen in
+the paint's full hue with the rim line, until the realistic look with painted streaks replaced it.
+
+**Toon was the default from 2026-10-13 to 2026-10-16** (`?paint=toon`): the same hard glint and
+sheen as the rim look, with the sheen half white (`tint` 0.5) and a band of sky mixed over the
+body past 0.6 graze where the rim look adds its coloured backlight. The half-white sheen is what
+made the taxi read silver from above.
+
 [Current](rendering.md#car-paint--the-layered-finish).
 
 **`?paint=classic`** keeps the paint from before the layered finish — its own GLSL, not the new

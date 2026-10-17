@@ -213,7 +213,7 @@ ignores them.
 
 ### Car paint — the layered finish
 
-The shipped default is the `toon` look built on this (see the end of this section); everything below
+The shipped default is the `real` look built on this (see the end of this section); everything below
 is the layered paint it starts from, still one `?paint=layered` away. `?paint=classic` keeps the
 paint before the layered one — its own GLSL, not the new shader fed the old numbers; see
 [history](rendering-history.md#car-paint--the-layered-finish).
@@ -263,8 +263,54 @@ length (`GLOSS_HIT_SOFT`): the further the thing reflected, the blurrier its edg
 few overridden (`PAINT_LOOK_NUMBERS`) and up to four GLSL slots filled (`PAINT_LOOKS`):
 `chameleon` turns the base hue by up to 2.3 rad as a panel turns away, so edges flip colour;
 `satin` is a wrap — almost no coat, a broad sheen and a velvet rim; `toon` makes the glint and
-sheen hard shapes and the coat one band of sky past 0.6 graze. **Toon is the default** (picked
-2026-10-13); `?paint=layered` brings back the realistic layered paint described above.
+sheen hard shapes and the coat one band of sky past 0.6 graze.
+
+**`rim`** (the default 2026-10-16 to 17, `?paint=rim`): toon's hard glint and sheen in the paint's full hue, plus the
+rim line, which every look but classic now wears. Two things make it:
+
+- **The sheen takes the paint's full hue** (`tint` 1, toon has 0.5). Toon's half-white sheen is what
+  turned the taxi pale blue-grey from above: a hard shape over most of a sunlit flank, half of it
+  white. At 1 the taxi stays yellow.
+- **The highlights are small.** Toon's glint snaps on at cos 0.996 of the half-angle and its sheen at
+  0.975 (`uToonCut`, shared by toon and rim). The first cut, 0.982 and 0.86, drew a sun-sized oval
+  across the windscreen and a lobe over half the roof (Tyler, 2026-10-17).
+- **The rim is found on the screen, not on the surface.** The bodies are flat boxes, so no normal
+  says where an edge is. Each light steps the fragment 4 half-res texels toward itself across the
+  AO prepass's depth (`gRimEdge`); where the step lands more than 0.4 units further back — road, or
+  nothing — the fragment is on that light's edge of the car and takes the light's colour, shadow
+  map included. The sun lights the sun-side edges, a cop's bar lights the edges toward the bar, a
+  car in a tower's shadow has none, and turning moves the line. A second step straight up-screen
+  adds a fainter sky-coloured edge. It needs the AO depth pass, so the rim look asks for it even
+  under `?ao=off`. The first build, a Fresnel on the ellipsoid fitted to the body, painted patches
+  over whole corners instead of a line.
+
+The line takes each car's own hue by default (`?rim=paint`; a yellow taxi gets a gold edge, a white
+cop a white one), `?rim=magenta|cyan|gold|white` tints every car one colour (`RIM_COLORS`), and
+`?rim=off` compiles it out. The ⚙️ panel has its width (in half-res texels), strength, sky share,
+car-colour mix and depth gap live, and the two toon cuts (past 1, that highlight is gone). `?paint=toon` is the look before rim; `?paint=layered` the
+realistic layered paint described above, and `?paint=satin&rim=off` any look without the line.
+
+**Flip colour, realistic paint and smooth bodies** (2026-10-17, experiments from Tyler's car-paint
+brief). The flip colour turns the paint toward a deeper shade of itself (its own colour squared,
+so yellow goes amber and white stays white) as the bent normal turns away from the camera, at
+`uFlip` strength: 0.7 on `rim`, 0.8 on `real`, `?flip=` to override, ⚙️ sliders for strength and
+falloff. `?paint=real` is the brief's stack on this source: a sharp clear-coat glint over a soft
+sheen, flakes, the full Fresnel coat and the flip, with both bends cut to a quarter because the
+bends are what smeared the layered look's reflection across a box. `?carbody=smooth` rounds the
+bodies instead: the arched body's profile corners filleted (0.14) and its flanks bevelled (0.05,
+because the arches reach to within 0.13 of the top), cabins and the cop's cab as rounded boxes,
+normals softened across anything under 40 degrees (`softenNormals`), and the paint material
+lit from those normals rather than flat-shaded. Smooth bodies are not a default.
+
+**`real` is the default** (2026-10-17). It dropped its sky reflection (coat 0; it washed the taxi pale, Tyler 2026-10-17) for
+**painted reflection streaks** (`STREAKS`): a box panel reflects one point of the sky edge to
+edge, so instead each flank and end gets a horizon line, and every panel two diagonal bands,
+keyed to the body's box and slid by the flank's facing so they move as the car turns. Their colour
+is the sky's, lifted toward its own brightness, so they fade at night. `real` also doubles the rim
+to 8 texels, capped at 0.5 world units (`RIM_MAX_WORLD`), so the doubling shows in close-ups and
+play zoom keeps the rim look's width: uncapped, 8 texels at play zoom on a phone is 1.1 units, the
+whole flank of a car. The rim and the streaks only go on car- and truck-sized bodies
+(`gCarSized`); the harbour's ships wear the same paint and came out white under both. ⚙️ "Reflection streaks" sets their strength (0.6 on `real`, Tyler's pick; 0 elsewhere).
 
 **Cost.** Per glossy fragment: two hashes, the derivatives, and two more Blinn-Phong lobes per
 light (one at play zoom, where the sparkle is skipped). Cars are a few percent of the frame, and

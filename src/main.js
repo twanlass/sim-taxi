@@ -126,7 +126,7 @@ import { createHdr } from './game/hdr.js';
 import { createCrayon } from './game/crayon.js';
 import { createCartoon } from './game/cartoon.js';
 import {
-  setAmbientOcclusion, setCrayon, setCartoon, setCloudShadows, setClassicPaint, setPaintLook, setVehiclePaint, propMaterial, setGlossCity, setGlossGlobal,
+  setAmbientOcclusion, setCrayon, setCartoon, setCloudShadows, setClassicPaint, setPaintLook, setRim, setFlip, setRimDepth, rimPaintOn, setVehiclePaint, propMaterial, setGlossCity, setGlossGlobal,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
@@ -142,7 +142,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getSquallRampClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getPaintClassic, getPaintLook, getVehiclePaintClassic, getWater, getUturnStyle } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getSquallRampClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getPaintClassic, getPaintLook, getRimColor, getFlip, getVehiclePaintClassic, getWater, getUturnStyle } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -294,6 +294,8 @@ const crayonEnabled = budget.crayon;
 setCrayon(crayonEnabled);
 setClassicPaint(getPaintClassic());
 setPaintLook(getPaintLook());
+setRim(getRimColor());
+setFlip(getFlip());
 setVehiclePaint(!getVehiclePaintClassic());
 // Cloud shadows are compiled into every lit material, so they are decided here with the look modes,
 // before anything is meshed. See CLOUD_UNIFORMS in util/geo.js.
@@ -329,7 +331,7 @@ budget.bloom = budget.bloom && !budget.hdr;
 // depth buffer and the bloom rejects its lamps against it, and Android's `?safe` default would
 // otherwise have turned the pass off on the platform most likely to be asked for a drawn look.
 const ao = createAmbientOcclusion(renderer, {
-  enabled: aoEnabled, edges: crayonEnabled || cartoonEnabled, depth: budget.bloom,
+  enabled: aoEnabled, edges: crayonEnabled || cartoonEnabled, depth: budget.bloom || rimPaintOn(),
 });
 // Spill around every self-lit thing in the game — see game/bloom.js. Not a bright-pass over the
 // frame: an explicit draw list of lamps, rendered into a small half-float target of its own, so
@@ -442,6 +444,8 @@ function renderFrame(cam = camera) {
   rain.update(0, cam);
   rain.renderReflection(scene, cam);
   ao.render(scene, cam);
+  // The rim paint reads the depth the prepass just drew (util/geo.js, `gRimEdge`).
+  setRimDepth(ao.depth(), ao.depthSize(), cam);
   // After the AO prepass, which is what fills the depth buffer the lamps are rejected against.
   bloom.render(scene, cam);
   // Here rather than in the loop for the AO prepass's reason: shot mode renders without the loop.
