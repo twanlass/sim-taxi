@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 // First, before anything builds a material: it patches three's fog chunk for every program.
-import { EDGE_FOG, createEdgeFogFloor, createEdgeFogCity, tickEdgeFog } from './game/edgefog.js';
+import { EDGE_FOG, createEdgeFogFloor, tickEdgeFog } from './game/edgefog.js';
 import { makeRng } from './util/rng.js';
 import { createScene, sinkShadowCaster, setHazeTop, HAZE_TOP } from './game/scene.js';
 import { createRain, GRIP } from './game/rain.js';
@@ -618,10 +618,7 @@ applyWeather();
 // samples the occlusion of whatever stands behind it. See `game/ssao.js`.
 scene.add(markOccluder(rain.wetGround(createGround(makeRng(seed + 11), layout))));
 // The ground past the coast, for the fog of war to swallow — game/edgefog.js.
-if (EDGE_FOG) {
-  scene.add(createEdgeFogFloor());
-  scene.add(createEdgeFogCity(makeRng(seed + 419)));
-}
+if (EDGE_FOG) scene.add(createEdgeFogFloor());
 
 // The river, and the spans that get over it. Its own stream, like every other generator, so that
 // moving a bridge cannot reshuffle a park.
@@ -7198,6 +7195,9 @@ window.__taxi = {
    * capture. Harmless while the loop is running, since the next frame overwrites it anyway.
    */
   redraw: () => renderFrame(),
+  // The fog of war's clock, for filming its drift from a frozen shot: `edgeFogAt(12.5)` sets it and
+  // redraws (game/edgefog.js).
+  edgeFogAt: (seconds) => { tickEdgeFog(seconds); renderFrame(); },
   /**
    * Put the run-end screen up on demand, over a stub run — for `tools/smoke.mjs`.
    *

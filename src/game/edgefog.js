@@ -1,16 +1,12 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import {
-  BIG_CITY, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, GRID_I, GRID_J, PITCH, BLOCK, lineX, lineZ, riverRow,
-} from '../city/grid.js';
-import { bakeColor, propMaterial, unlitMaterial } from '../util/geo.js';
-import { color, jitterColor } from '../palette.js';
+import { BIG_CITY, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD } from '../city/grid.js';
+import { unlitMaterial } from '../util/geo.js';
 
 // --- The fog of war round the island -------------------------------------------------------------
 //
 // A bank of soft white fog wrapped round the city, the way an RTS hides the map you have not
 // explored: the ring road runs along its inner edge, and past it there is no coast, no sky and no
-// end to the ground — only fog, with the tops of the outermost buildings standing up out of it. It
+// end to the ground — only fog, with the roofs of the outermost buildings standing up out of it. It
 // hides where the island stops and leaves the question of what is out there open, which is the
 // point (Tyler, 2026-10-17: "gives the illusion you could unlock more city later").
 //
@@ -24,7 +20,8 @@ import { color, jitterColor } from '../palette.js';
 // term lives inside three's own `USE_FOG` guard.
 //
 // The shape is a signed distance to a rounded rectangle round the ring road's outer kerbs, roughened
-// by two octaves of drifting value noise so the edge billows rather than reading as a vignette. The
+// by drifting, self-warping value noise so the edge billows and moves rather than reading as a
+// vignette (see `FOG_DRIFT`). The
 // distance is measured **minus the fragment's height**, so the bank has a sloped top: a roof eight
 // units up needs to stand eight units further out before the fog takes it, and the outermost
 // buildings come up out of it rather than being washed flat with their own pavement.
@@ -68,14 +65,22 @@ export const FOG_END = 7;
 export const FOG_BILLOW = 8;
 /** How much a unit of height pushes the bank back: 1 = a 45° slope off the ground. */
 export const FOG_SLOPE = 1.1;
-/** How fast the billows drift, in world units per second. Slow: weather, not smoke. */
-export const FOG_DRIFT = [0.55, 0.25];
 /**
- * How much of a tall thing still shows through the thickest fog — 0 swallows it entirely. Without it
- * the blocks past the edge were either standing clear of the bank (a wall of bare boxes) or gone,
- * with nothing in between; this is the in between.
+ * The motion, in world units per second. Three layers and none of them is the edge sliding sideways.
+ *
+ * The first cut drifted one noise field along one heading at 0.6 u/s, and a translated texture reads
+ * as exactly that: a pattern on a conveyor, the same billow shapes going past. Tyler asked for it to
+ * "feel organic and have some motion". So the big billows and the fine ones drift on headings ~100°
+ * apart and at different speeds — their sum keeps re-forming instead of repeating — and both are read
+ * through a slow **warp field** that itself drifts (`FOG_WARP`), which is what makes a billow swell,
+ * curl and pinch off rather than travel. The warp is the part that reads as alive; the drift is what
+ * keeps it from settling.
  */
-export const FOG_SILHOUETTE = 0.22;
+export const FOG_DRIFT = [1.1, 0.45];
+export const FOG_DRIFT_FINE = [-0.9, 1.4];
+/** How far the warp field can bend the billows (world units), and how fast the warp itself moves. */
+export const FOG_WARP = 16;
+export const FOG_WARP_SPEED = 0.6;
 /** The floor's depth: under the river's bed (the channel is 2 down), so it never covers it. */
 export const FLOOR_Y = -6;
 
@@ -136,17 +141,17 @@ const FRAGMENT = /* glsl */ `
 		vec2 efp = vEdgeFogWorld.xz;
 		vec2 efq = abs( efp ) - vec2( ${f(FOG_HALF_X - FOG_RADIUS)}, ${f(FOG_HALF_Z - FOG_RADIUS)} );
 		float efd = length( max( efq, 0.0 ) ) + min( max( efq.x, efq.y ), 0.0 ) - ${f(FOG_RADIUS)};
-		vec2 efw = efp - vec2( ${f(FOG_DRIFT[0])}, ${f(FOG_DRIFT[1])} ) * edgeFog.w;
-		float efn = edgeFogNoise( efw * 0.06 ) * 0.65 + edgeFogNoise( efw * 0.17 + 7.3 ) * 0.35;
+		float eft = edgeFog.w;
+		vec2 efs = efp * 0.022 + vec2( 0.0, ${f(FOG_WARP_SPEED * 0.022)} ) * eft;
+		vec2 efw = efp + ( vec2( edgeFogNoise( efs ), edgeFogNoise( efs.yx + 4.7 ) ) - 0.5 ) * ${f(2 * FOG_WARP)};
+		float efn = edgeFogNoise( ( efw - vec2( ${f(FOG_DRIFT[0])}, ${f(FOG_DRIFT[1])} ) * eft ) * 0.06 ) * 0.65
+			+ edgeFogNoise( ( efw - vec2( ${f(FOG_DRIFT_FINE[0])}, ${f(FOG_DRIFT_FINE[1])} ) * eft ) * 0.17 + 7.3 ) * 0.35;
 		float efh = max( vEdgeFogWorld.y, 0.0 ) * ${f(FOG_SLOPE)};
 		float efa = smoothstep( ${f(FOG_START)}, ${f(FOG_END)}, efd - efn * ${f(FOG_BILLOW)} - efh );
 		// The floor is the fog itself, wherever it shows: through the island's feathered skirt as
 		// much as past it. Partly fogged it would show its own plain colour as a pale band.
 		if ( vEdgeFogWorld.y < ${f(FLOOR_Y + 1)} ) efa = 1.0;
 		efa = 1.0 - ( 1.0 - efa ) * ( 1.0 - efa ) * ( 1.0 - efa );
-		// Anything standing tall is never quite swallowed: a shadow of it stays in the bank, which is
-		// how the blocks past the edge read as buildings in the fog rather than not being there.
-		efa = min( efa, 1.0 - ${f(FOG_SILHOUETTE)} * smoothstep( 3.0, 14.0, vEdgeFogWorld.y ) );
 		// The billows' own shading: the noise's crests a shade brighter than its hollows, so the
 		// bank has bodies in it rather than being one flat sheet of colour.
 		vec3 efc = edgeFog.xyz * ( 0.86 + 0.2 * efn );
@@ -206,65 +211,3 @@ export function createEdgeFogFloor() {
   return mesh;
 }
 
-// --- The city under the fog ------------------------------------------------------------------------
-//
-// Blocks carry on past the ring road on the grid's own pitch, so the tops of a few buildings stand up
-// out of the bank: the one thing that says "there is more city out there" rather than "the world
-// ends in cloud". The fog's slope does the work — a roof pokes out only where it is tall enough for
-// its distance, so the first ring shows its upper storeys, the second the odd roof, and the third
-// nothing at all but a shape where the noise thins.
-//
-// **Only up-screen: west and north.** The camera looks down the -x-z diagonal, so a building past
-// the east or south ring road stands *between* the camera and that road, and its height throws up
-// over the very lane the taxi drives — the trap that sized the bank's roof (CLAUDE.md, "a building
-// at the wrong height"). Past the west and north edges anything tall stands behind the city.
-//
-// **The river row stays open**, so the channel runs off into the fog between buildings instead of
-// into the side of one.
-//
-// Plain boxes, one merged mesh, one draw, no shadows and no AO; under the far edge's fog a window is
-// a pixel of noise.
-
-/** Rings of blocks past the ring road, and the height range of what stands on them. */
-export const GHOST_RINGS = 3;
-const GHOST_H = [6, 16];
-const GHOST_FAMILIES = ['concrete', 'pale', 'tan', 'brick', 'slate'];
-
-export function createEdgeFogCity(rng) {
-  if (!EDGE_FOG) return null;
-  const parts = [];
-  const river = riverRow();
-  for (let bi = -GHOST_RINGS; bi < GRID_I; bi++) {
-    for (let bj = -GHOST_RINGS; bj < GRID_J; bj++) {
-      if (bi >= 0 && bj >= 0) continue; // the city, and everything east and south of it
-      // Not the first ring: it stands a kerb's width off the ring road, too near for any fog that
-      // leaves the road clear, and it read as a wall of bare boxes round the city rather than as
-      // something glimpsed.
-      if (bi > -2 && bj > -2) continue;
-      if (bj === river) continue;
-      const cx = lineX(bi) + PITCH / 2;
-      const cz = lineZ(bj) + PITCH / 2;
-      // One to three buildings to a block, in a row along its longer split.
-      const n = rng.int(1, 3);
-      const alongX = rng.chance(0.5);
-      const span = BLOCK - 2;
-      for (let k = 0; k < n; k++) {
-        const len = span / n - 1;
-        const off = -span / 2 + (k + 0.5) * (span / n);
-        const w = alongX ? len : span * rng.range(0.6, 0.9);
-        const d = alongX ? span * rng.range(0.6, 0.9) : len;
-        // Shorter the further out, so the skyline steps down into the bank instead of walling it.
-        const ring = Math.max(-bi, -bj);
-        const h = rng.range(GHOST_H[0], GHOST_H[1]) * (1 - 0.2 * (ring - 2));
-        const box = new THREE.BoxGeometry(w, h, d);
-        box.translate(cx + (alongX ? off : 0), h / 2, cz + (alongX ? 0 : off));
-        parts.push(bakeColor(box, jitterColor(color(rng.pick(GHOST_FAMILIES)), rng, { l: 0.05 })));
-      }
-    }
-  }
-  const geometry = mergeGeometries(parts, false);
-  parts.forEach((g) => g.dispose());
-  const mesh = new THREE.Mesh(geometry, propMaterial({ ao: false }));
-  mesh.name = 'edge-fog-city';
-  return mesh;
-}

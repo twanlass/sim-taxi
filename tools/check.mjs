@@ -112,13 +112,11 @@ try {
   // The fog of war (game/edgefog.js). Its term rides three's own fog chunks, so what is checked is
   // that the chunks carry it and that built-in shaders share the one uniform object by reference —
   // a copy would freeze the fog's colour and drift at whatever they were on the first frame. Then
-  // the two rules that keep it off the game: it never reaches the ring road's outer lane, and no
-  // tower in it stands east or south of the city, where it would rise over the road it sits beside.
+  // the rule that keeps it off the game: it never reaches the ring road's outer lane.
   {
     const THREE = await import('three');
     const fog = await import('../src/game/edgefog.js');
-    const { LANE_TO_KERB, HALF_SPAN_X, HALF_SPAN_Z, PITCH } = await import('../src/city/grid.js');
-    const { makeRng } = await import('../src/util/rng.js');
+    const { LANE_TO_KERB } = await import('../src/city/grid.js');
     if (fog.EDGE_FOG) {
       if (!THREE.ShaderChunk.fog_fragment.includes('edgeFog')) throw new Error('edgefog: the fog chunk was not patched');
       if (THREE.ShaderLib.standard.uniforms.edgeFog?.value !== fog.edgeFogUniform
@@ -126,16 +124,6 @@ try {
         throw new Error('edgefog: a built-in shader does not share the one fog uniform');
       }
       if (fog.FOG_START <= -LANE_TO_KERB) throw new Error(`edgefog: FOG_START ${fog.FOG_START} reaches the outer lane`);
-      const mesh = fog.createEdgeFogCity(makeRng(1));
-      mesh.geometry.computeBoundingBox();
-      const pos = mesh.geometry.attributes.position;
-      for (let k = 0; k < pos.count; k++) {
-        const x = pos.getX(k);
-        const z = pos.getZ(k);
-        if (x > -HALF_SPAN_X - PITCH && z > -HALF_SPAN_Z - PITCH) {
-          throw new Error(`edgefog: a tower in the fog at (${x.toFixed(1)}, ${z.toFixed(1)}) is inside the first ring or east/south of the city`);
-        }
-      }
     }
   }
 

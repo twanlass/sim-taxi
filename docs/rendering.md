@@ -2088,8 +2088,8 @@ Screenshot mode freezes the cycle: a rendered shot has to be reproducible.
 ## The island edge — `game/edgefog.js`, `city/ground.js`
 
 The island sits in a **bank of soft white fog**, the way an RTS hides the map you have not explored:
-the ring road runs along its inner edge, past it there is no coast and no sky, only fog, and a few
-pale towers stand in it further out. Tyler, 2026-10-17: "helps us hide the city ends at the edges but
+the ring road runs along its inner edge, and past it there is no coast and no sky, only fog, slowly
+billowing. Tyler, 2026-10-17: "helps us hide the city ends at the edges but
 gives the illusion you could unlock more city later". `?edgefog=classic` (`EDGEFOG=classic` headless)
 puts back the island feathering into the sky, which is the skirt described further down — still
 there under the fog, and what `?city=big` shows, since the fog is island-only.
@@ -2111,26 +2111,27 @@ there under the fog, and what `?city=big` shows, since the fog is island-only.
   "not wired" rather than painting black fog.
 - **The shape.** A signed distance to a rounded rectangle round the ring road's outer kerbs
   (`FOG_HALF_X/Z`, `FOG_RADIUS`), ramped from 1 unit inside the kerb to opaque 7 outside it, with
-  two octaves of drifting value noise pushing the edge **outward only**, up to 8 units. Outward only
-  is a gameplay rule: the first cut billowed both ways, and on the near (south and east) side a hollow
-  rolled the bank right across the ring road.
-- **A sloped top.** The distance is taken minus 1.1 × the fragment's height, so tall things have to
-  stand further out before the fog takes them, and nothing tall is ever fully swallowed
-  (`FOG_SILHOUETTE`, 22% shows through). That is what turns the blocks past the edge into towers in
-  the fog rather than either a wall of bare boxes or nothing.
+  value noise pushing the edge **outward only**, up to 8 units. Outward only is a gameplay rule: the
+  first cut billowed both ways, and on the near (south and east) side a hollow rolled the bank right
+  across the ring road. `tools/check.mjs` holds `FOG_START` short of the outer lane.
+- **The motion.** Two noise layers drift on headings about 100° apart at different speeds
+  (`FOG_DRIFT`, `FOG_DRIFT_FINE`), and both are read through a slowly drifting warp field
+  (`FOG_WARP`, up to 16 units of bend). The first cut slid one layer along one heading, which reads as
+  a texture on a conveyor; the warp is what makes a billow swell, curl and pinch off instead. All of it
+  stays outward-only, so the motion never brings the fog onto the road.
+- **A sloped top.** The distance is taken minus 1.1 × the fragment's height, so the outermost
+  buildings' roofs stand up out of the bank rather than being washed flat with their own pavement.
 - **A floor for it to swallow.** Past the coast there is nothing to fog, so a plain plane sits at
   `FLOOR_Y` (−6, below the river's bed so it can never cover the channel) and is forced to full fog.
   It is what stands in for the sky everywhere past the island.
-- **The city under it** (`createEdgeFogCity`). Plain boxes on the grid's pitch, rings two and three
-  past the ring road, **west and north only**: the camera looks down the −x−z diagonal, so anything
-  tall past the east or south ring road would stand between the camera and that road. The first ring
-  is skipped (a kerb's width off the ring road it cannot be fogged without fogging the road, and it
-  read as a wall), and the river row is left open so the channel runs off into the fog. One mesh,
-  one draw, no shadows, no AO.
 - **Colour follows the sky.** `daylight.js` calls `setEdgeFogSky` on every keyframe: the dome's
   horizon colour lifted 45% toward white, so it greys under rain and darkens at night with no wiring
   of its own. The noise shades it ±10% so the bank has bodies in it.
-- **Drift** is sim time (`tickEdgeFog`), so a paused game holds its fog still and shots repeat.
+- **Sim time** drives it (`tickEdgeFog`), so a paused game holds its fog still and shots repeat;
+  `__taxi.edgeFogAt(seconds)` sets the clock and redraws, for filming the drift from a frozen shot.
+- **No city in the fog.** A ring of pale towers standing in the bank to the west and north was
+  tried and dropped (Tyler, 2026-10-17: "let's not add the buildings in the distance then and just
+  keep the fog"); towers can only go up-screen, so seen whole they bunched into one corner.
 
 ### The feathered skirt — `city/ground.js`
 
