@@ -1318,9 +1318,13 @@ const RIM_LIGHT = /* glsl */ `
 // instead, the way a toy car or an illustration fakes chrome: on each flank and end a horizon
 // line, sky above it and a little ground below; across every panel two diagonal light bands, one
 // broad and one thin. Keyed to the body's own box, so they ride the car, and slid along the panel
-// by the flank's facing, so they move as the car turns. Additive in the sky's colour, off the sun.
+// by the flank's facing, so they move as the car turns. Mixed toward the sky's colour rather than
+// added, so a bright panel cannot blow out to white, and only on bodies up to about a truck's
+// size: the harbour's ships wear this paint too, and on a 20-unit hull the bands turned the
+// whole ship pale (Tyler, 2026-10-17).
 const STREAKS = /* glsl */ `
-	if (gIsPaint > 0.5 && uStreak.x > 0.0) {
+	float sOn = uStreak.x * (1.0 - smoothstep(3.0, 4.0, 1.0 / min(uGlossInvHalf.x, uGlossInvHalf.z)));
+	if (gIsPaint > 0.5 && sOn > 0.0) {
 		vec3 sP = (vGlossObj - uGlossCentre) * uGlossInvHalf;
 		vec3 sN = abs(normalize(cross(dFdx(vGlossObj), dFdy(vGlossObj))));
 		bool sTop = sN.y > 0.7;
@@ -1337,8 +1341,8 @@ const STREAKS = /* glsl */ `
 		// The sky's own colour lifted toward its own brightness in white, so the bands are pale by
 		// day and fade with the sky at night instead of staying white.
 		vec3 sCol = uGlossTop + 0.8 * vec3(dot(uGlossTop, vec3(0.2126, 0.7152, 0.0722)));
-		outgoingLight *= 1.0 - uStreak.x * 0.18 * (sTop ? 0.0 : 1.0 - sSky);
-		outgoingLight += uStreak.x * sCol * (0.45 * sBand + 0.06 * sSky + 0.4 * sLine);
+		outgoingLight *= 1.0 - sOn * 0.18 * (sTop ? 0.0 : 1.0 - sSky);
+		outgoingLight = mix(outgoingLight, sCol, clamp(sOn * (0.45 * sBand + 0.06 * sSky + 0.4 * sLine), 0.0, 1.0));
 	}`;
 const RIM_SKY = /* glsl */ `
 		outgoingLight += uGlossTop * gRimColor() * uRimShape.y * gIsPaint * gRimEdge(vec2(0.0, 1.0));`;
