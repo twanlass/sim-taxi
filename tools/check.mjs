@@ -28,7 +28,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/chopper.js', '../src/game/policeheli.js',
   '../src/game/flames.js', '../src/game/locoflame.js', '../src/game/sparks.js',
   '../src/game/repairfx.js',
-  '../src/game/daylight.js', '../src/game/riderfinder.js',
+  '../src/game/daylight.js', '../src/game/edgefog.js', '../src/game/riderfinder.js',
   '../src/game/taxifinder.js',
   '../src/game/farepointers.js', '../src/game/sirenglow.js', '../src/game/robberyglow.js',
   '../src/game/vanish.js', '../src/game/wreckage.js', '../src/game/ejection.js', '../src/game/windshield.js', '../src/game/replay.js', '../src/game/runend.js',
@@ -107,6 +107,24 @@ try {
   sunk.customDepthMaterial.onBeforeCompile(stub);
   if (!stub.vertexShader.includes(`mvPosition.z -= ${SHADOW_SINK.toFixed(4)}`)) {
     throw new Error('sinkShadowCaster: the depth patch did not land in the shader');
+  }
+
+  // The fog of war (game/edgefog.js). Its term rides three's own fog chunks, so what is checked is
+  // that the chunks carry it and that built-in shaders share the one uniform object by reference —
+  // a copy would freeze the fog's colour and drift at whatever they were on the first frame. Then
+  // the rule that keeps it off the game: it never reaches the ring road's outer lane.
+  {
+    const THREE = await import('three');
+    const fog = await import('../src/game/edgefog.js');
+    const { LANE_TO_KERB } = await import('../src/city/grid.js');
+    if (fog.EDGE_FOG) {
+      if (!THREE.ShaderChunk.fog_fragment.includes('edgeFog')) throw new Error('edgefog: the fog chunk was not patched');
+      if (THREE.ShaderLib.standard.uniforms.edgeFog?.value !== fog.edgeFogUniform
+        || THREE.UniformsUtils.clone(THREE.ShaderLib.lambert.uniforms).edgeFog.value !== fog.edgeFogUniform) {
+        throw new Error('edgefog: a built-in shader does not share the one fog uniform');
+      }
+      if (fog.FOG_START <= -LANE_TO_KERB) throw new Error(`edgefog: FOG_START ${fog.FOG_START} reaches the outer lane`);
+    }
   }
 
   // The city past the edge of the map (city/horizon.js): its haze patch run against three's own
