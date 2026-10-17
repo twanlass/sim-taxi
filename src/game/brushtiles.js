@@ -16,14 +16,16 @@ import { makeRng } from '../util/rng.js';
 
 const SIZE = 256;
 
-function paintTile(seed, { count, len, wid, angle, spread, tone }) {
+function paintTile(seed, { count, len, wid, angle, spread, tone, also = null }) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = SIZE;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = 'rgb(128,128,128)';
   ctx.fillRect(0, 0, SIZE, SIZE);
   const rng = makeRng(seed);
-  for (let i = 0; i < count; i++) {
+  const passes = also ? 2 : 1;
+  for (let i = 0; i < count * passes; i++) {
+    if (i === count) ({ len, wid, angle, spread, tone } = also);
     const x = rng.range(0, SIZE);
     const y = rng.range(0, SIZE);
     const l = rng.range(len[0], len[1]);
@@ -55,10 +57,22 @@ function paintTile(seed, { count, len, wid, angle, spread, tone }) {
   return tex;
 }
 
-/** Walls: long, near-horizontal strokes. Ground: shorter diagonal clumps, for lawns and roofs. */
+function paintRoad(seed) {
+  // Two passes into one tile: along x, then along z, at the same count each.
+  const a = { count: 110, len: [70, 130], wid: [16, 26], spread: 0.06, tone: 30 };
+  return paintTile(seed, { ...a, angle: 0, also: { ...a, angle: Math.PI / 2 } });
+}
+
+/**
+ * Walls: long, near-horizontal strokes. Ground: shorter diagonal clumps, for lawns and roofs.
+ * Road: broad dry-brush strokes laid along *both* street axes (half at 0, half at 90°), because one
+ * tile covers north–south and east–west roads alike and a single heading would cut across half of
+ * them. Lower tone than the others — asphalt with loud strokes is the "dirty" look Tyler rejected.
+ */
 export function createBrushTiles() {
   return {
     wall: paintTile(9101, { count: 260, len: [48, 96], wid: [12, 20], angle: 0, spread: 0.12, tone: 40 }),
     ground: paintTile(9202, { count: 320, len: [36, 64], wid: [12, 18], angle: 0.75, spread: 0.35, tone: 36 }),
+    road: paintRoad(9303),
   };
 }

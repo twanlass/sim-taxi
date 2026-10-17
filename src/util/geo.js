@@ -291,14 +291,18 @@ export const PAINT_UNIFORMS = {
   // Painted brush tiles (game/brushtiles.js), projected in world space off each flat face's normal.
   tBrushWall: { value: null },
   tBrushGround: { value: null },
+  tBrushRoad: { value: null },
+  uRoadTile: { value: 12 },     // a bigger repeat on the road: it is the largest flat surface on screen
+  uRoadAmt: { value: 0.5 },
   uBrushTile: { value: 8 },     // world units per tile repeat
   uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
 };
 
 /** Hand the baked brush tiles to every painterly material. */
-export function setPaintBrushes(wall, ground) {
+export function setPaintBrushes(wall, ground, road) {
   PAINT_UNIFORMS.tBrushWall.value = wall;
   PAINT_UNIFORMS.tBrushGround.value = ground;
+  PAINT_UNIFORMS.tBrushRoad.value = road;
 }
 
 const PAINT_COMMON = /* glsl */ `
@@ -309,6 +313,9 @@ uniform float uHeightGrad;
 uniform float uHeightSpan;
 uniform sampler2D tBrushWall;
 uniform sampler2D tBrushGround;
+uniform sampler2D tBrushRoad;
+uniform float uRoadTile;
+uniform float uRoadAmt;
 uniform float uBrushTile;
 uniform float uBrushAmt;
 uniform float uBrushKind;
@@ -335,7 +342,8 @@ const PAINT_LIGHT = /* glsl */ `
 `;
 
 // The height fade (walls darker at their foot), then the brush tiles. uBrushKind is per material:
-// 0 none, 1 buildings (walls and roofs), 2 ground (lawns only — the road stays clean).
+// 0 none, 1 buildings (walls and roofs), 2 ground (lawns get the ground tile, everything else up-facing
+// — the road, kerbs, pavement — gets the road tile, held off the bright lane paint).
 const PAINT_FRAGMENT = /* glsl */ `
 	{
 		vec3 pN = normalize(inverseTransformDirection(normal, viewMatrix));
@@ -350,6 +358,11 @@ const PAINT_FRAGMENT = /* glsl */ `
 				float grassy = smoothstep(0.015, 0.06, c.g - max(c.r, c.b));
 				float k = uBrushKind > 1.5 ? grassy : 1.0;
 				b = (texture2D(tBrushGround, vPaintWorld.xz / uBrushTile).r - 0.5) * k;
+				if (uBrushKind > 1.5) {
+					float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+					float r = (texture2D(tBrushRoad, vPaintWorld.xz / uRoadTile).r - 0.5) * uRoadAmt / max(uBrushAmt, 1e-3);
+					b += r * (1.0 - grassy) * (1.0 - smoothstep(0.35, 0.6, lum));
+				}
 			} else if (uBrushKind < 1.5) {
 				vec2 uv = vec2(an.x > an.z ? vPaintWorld.z : vPaintWorld.x, vPaintWorld.y);
 				b = texture2D(tBrushWall, uv / uBrushTile).r - 0.5;

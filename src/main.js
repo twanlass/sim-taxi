@@ -299,7 +299,7 @@ const painterly = new URLSearchParams(location.search).get('painterly') !== 'cla
 setPainterly(painterly);
 if (painterly) {
   const tiles = createBrushTiles();
-  setPaintBrushes(tiles.wall, tiles.ground);
+  setPaintBrushes(tiles.wall, tiles.ground, tiles.road);
 }
 // Which brush a static mesh wears (see PAINT_FRAGMENT): 1 buildings, 2 ground (lawns only).
 const brush = (mesh, kind) => {
