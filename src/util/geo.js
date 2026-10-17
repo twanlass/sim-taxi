@@ -1365,9 +1365,14 @@ const RIM_SKY = /* glsl */ `
 const RIM_EDGE_FN = /* glsl */ `
 // How far the scene behind this fragment drops away one step along dir: 1 where the step lands
 // off the body (on the road, or on nothing), 0 where it lands on the body itself.
+// Only for a fragment the prepass drew: anything not marked as an occluder (the helicopter, the
+// plane, the river boats) finds the ground far behind its own pixel as well as behind the step,
+// so without this check every lit face of it was edge and it came out white (Tyler, 2026-10-17).
 float gRimEdge(vec2 dir) {
-	vec2 uv = gl_FragCoord.xy * uAOTexel + dir * uRimStep;
-	float gap = (unpackRGBAToDepth(texture2D(tRimDepth, uv)) - gl_FragCoord.z) * uRimDepthScale;
+	vec2 uv = gl_FragCoord.xy * uAOTexel;
+	float own = (unpackRGBAToDepth(texture2D(tRimDepth, uv)) - gl_FragCoord.z) * uRimDepthScale;
+	if (own > uRimShape.x) return 0.0;
+	float gap = (unpackRGBAToDepth(texture2D(tRimDepth, uv + dir * uRimStep)) - gl_FragCoord.z) * uRimDepthScale;
 	return smoothstep(uRimShape.x, uRimShape.x + 0.3, gap);
 }
 // The tint, or the paint's own hue at full strength (uRimShape.w = 1, ?rim=paint).
