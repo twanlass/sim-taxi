@@ -914,7 +914,7 @@ const PAINT_LOOK_NUMBERS = {
 const PAINT_LOOK_FLIP = { rim: 0.7, real: 0.8 };
 // The streaks each look wears (`uStreak.x`), and its rim's width in half-res texels (Tyler,
 // 2026-10-17: double the rim on realistic).
-const PAINT_LOOK_STREAKS = { real: 1 };
+const PAINT_LOOK_STREAKS = { real: 0.6 }; // Tyler, 2026-10-17: "0.6 looks rad"
 const PAINT_LOOK_RIM_WIDTH = { real: 8 };
 let flipOverride = null;
 /** `?flip=`: a number, or `off`. Null keeps each look's own. */

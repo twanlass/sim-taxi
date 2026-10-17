@@ -307,7 +307,7 @@ lit from those normals rather than flat-shaded. Neither is a default yet.
 edge, so instead each flank and end gets a horizon line, and every panel two diagonal bands,
 keyed to the body's box and slid by the flank's facing so they move as the car turns. Their colour
 is the sky's, lifted toward its own brightness, so they fade at night. `real` also doubles the rim
-to 8 texels. ⚙️ "Reflection streaks" sets their strength (1 on `real`, 0 elsewhere).
+to 8 texels. ⚙️ "Reflection streaks" sets their strength (0.6 on `real`, Tyler's pick; 0 elsewhere).
 
 **Cost.** Per glossy fragment: two hashes, the derivatives, and two more Blinn-Phong lobes per
 light (one at play zoom, where the sparkle is skipped). Cars are a few percent of the frame, and
