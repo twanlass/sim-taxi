@@ -25,6 +25,15 @@ top right). Tyler asked to try it side-on; the low side camera became the defaul
 
 It first shipped silent; `?splashsound=classic` keeps that.
 
+## The title screen
+
+[Now](gameplay.md#the-title-screen): the menu over jump cuts between the city's landmarks.
+
+Until 2026-10-17 the backdrop was one continuous shot: the camera drifting a slow ellipse round the
+middle of the city (`panAt` in game/titlescreen.js — a lap every two minutes at zoom 34, radii 0.3
+of each half-span), and Play eased it from wherever the drift was down onto the garage door. Tyler
+asked for it to cut round the landmarks instead. `?titlecam=classic` keeps the drift and the ease.
+
 ## The opening vignette
 
 Pacing numbers the vignette shipped with and later changed. Now: [The opening vignette](gameplay.md#the-opening-vignette).

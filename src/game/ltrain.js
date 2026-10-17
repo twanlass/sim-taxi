@@ -1387,6 +1387,29 @@ export function createLTrain(scene, rng, { sparks = null, lights = true, intro =
       ? { ...plan.world(state.x, TRACK_OFF), y: RAIL_TOP, level: state.speed / SPEED }
       : null),
     runTime,
+    /**
+     * The title screen's reel (game/titlereel.js): the train's middle at roof-rail height while it
+     * is running on the island, else null...
+     */
+    subject() {
+      if (state.phase !== 'run') return null;
+      const mid = plan.world(state.x, TRACK_OFF);
+      return coastKeep(mid.x, mid.z) >= 1 ? { x: mid.x, y: RAIL_TOP, z: mid.z } : null;
+    },
+    /**
+     * ...and how many seconds it has left before that middle crosses the coast, walked forward on
+     * the run's own distance-time profile. 0 off the island. Stepped at a tenth of a second, which
+     * is 1.2 units at cruise — far finer than the shot it decides.
+     */
+    islandLeft() {
+      if (!this.subject()) return 0;
+      for (let t = state.t; t < runTime; t += 0.1) {
+        const s = along(t);
+        const mid = plan.world(state.dir > 0 ? plan.from + s : plan.to - s, TRACK_OFF);
+        if (coastKeep(mid.x, mid.z) < 1) return t - state.t;
+      }
+      return runTime - state.t;
+    },
   };
 }
 
