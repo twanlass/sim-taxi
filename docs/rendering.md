@@ -2085,7 +2085,54 @@ Lambert, and carries an emissive at 0.35 of its own colour to hold its hue after
 
 Screenshot mode freezes the cycle: a rendered shot has to be reproducible.
 
-## The island edge — `city/ground.js`
+## The island edge — `game/edgefog.js`, `city/ground.js`
+
+The island sits in a **bank of soft white fog**, the way an RTS hides the map you have not explored:
+the ring road runs along its inner edge, past it there is no coast and no sky, only fog, and a few
+pale towers stand in it further out. Tyler, 2026-10-17: "helps us hide the city ends at the edges but
+gives the illusion you could unlock more city later". `?edgefog=classic` (`EDGEFOG=classic` headless)
+puts back the island feathering into the sky, which is the skirt described further down — still
+there under the fog, and what `?city=big` shows, since the fog is island-only.
+
+### The fog of war — `game/edgefog.js`
+
+- **A fog term, not a fog mesh.** A stack of translucent sheets is the obvious build and costs the
+  one thing a phone has least of: full-screen overdraw, once per sheet, every frame. Instead the
+  module appends to three's own fog chunks (`ShaderChunk.fog_*`) at import, before anything
+  compiles, so every material that already wears the [haze](#atmospheric-perspective) also mixes
+  toward the fog by where it stands on the *map*. No per-material patch to forget and no
+  `customProgramCacheKey` to keep honest: every program has it. It lives inside three's `USE_FOG`
+  guard, so [unlit markers](#unlit-means-unfogged) and the sky dome refuse it exactly as they refuse
+  the haze. `main.js` imports it first for that reason.
+- **One shared uniform, deliberately a plain object.** `edgeFog` is rgb (the colour) plus w (time).
+  Three clones each material's uniforms, deep-copying vectors and colours but passing any other
+  object by reference, so a plain `{ x, y, z, w }` is one object shared by every material — moving it
+  once a frame moves them all. A material that never got it reads vec4(0), which the shader takes as
+  "not wired" rather than painting black fog.
+- **The shape.** A signed distance to a rounded rectangle round the ring road's outer kerbs
+  (`FOG_HALF_X/Z`, `FOG_RADIUS`), ramped from 1 unit inside the kerb to opaque 7 outside it, with
+  two octaves of drifting value noise pushing the edge **outward only**, up to 8 units. Outward only
+  is a gameplay rule: the first cut billowed both ways, and on the near (south and east) side a hollow
+  rolled the bank right across the ring road.
+- **A sloped top.** The distance is taken minus 1.1 × the fragment's height, so tall things have to
+  stand further out before the fog takes them, and nothing tall is ever fully swallowed
+  (`FOG_SILHOUETTE`, 22% shows through). That is what turns the blocks past the edge into towers in
+  the fog rather than either a wall of bare boxes or nothing.
+- **A floor for it to swallow.** Past the coast there is nothing to fog, so a plain plane sits at
+  `FLOOR_Y` (−6, below the river's bed so it can never cover the channel) and is forced to full fog.
+  It is what stands in for the sky everywhere past the island.
+- **The city under it** (`createEdgeFogCity`). Plain boxes on the grid's pitch, rings two and three
+  past the ring road, **west and north only**: the camera looks down the −x−z diagonal, so anything
+  tall past the east or south ring road would stand between the camera and that road. The first ring
+  is skipped (a kerb's width off the ring road it cannot be fogged without fogging the road, and it
+  read as a wall), and the river row is left open so the channel runs off into the fog. One mesh,
+  one draw, no shadows, no AO.
+- **Colour follows the sky.** `daylight.js` calls `setEdgeFogSky` on every keyframe: the dome's
+  horizon colour lifted 45% toward white, so it greys under rain and darkens at night with no wiring
+  of its own. The noise shades it ±10% so the bank has bodies in it.
+- **Drift** is sim time (`tickEdgeFog`), so a paused game holds its fog still and shots repeat.
+
+### The feathered skirt — `city/ground.js`
 
 The asphalt doesn't end on a line. A **fade skirt** hangs off the slab — `EDGE_FADE = 16` units of
 asphalt stepping outward from the slab's own outline, alpha 1 → 0 — so the city feathers into the
@@ -3012,7 +3059,7 @@ every unit of it is a unit of disagreement between the shading and the shape, wh
 flat-shaded canopy and a mottle here.
 
 **A fade at the edges**, in the alpha of a 4-component vertex colour — the same trick the island's
-own [edge fade](#the-island-edge--citygroundjs) uses, so it needs no shader. This is what actually
+own [edge fade](#the-feathered-skirt--citygroundjs) uses, so it needs no shader. This is what actually
 stops a cloud reading as low-poly: the silhouette is the one place a polygon can still be *seen* as
 a polygon, and dissolving it costs nothing but the numbers.
 
