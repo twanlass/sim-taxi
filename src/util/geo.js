@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
-import { PITCH, HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
+import { PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ } from '../city/grid.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 /**
@@ -294,6 +294,7 @@ export const PAINT_UNIFORMS = {
   tBrushGround: { value: null },
   tBrushRoad: { value: null },
   uRoadGrid: { value: new THREE.Vector3(HALF_SPAN_X, HALF_SPAN_Z, PITCH) }, // where the street centrelines are
+  uRoadArt: { value: new THREE.Vector4(0, 0, HALF_ROAD, HALF_ARTERIAL) }, // arterial lines as bitmasks (j, i), then the two half-widths
   uRoadTile: { value: 12 },     // a bigger repeat on the road: it is the largest flat surface on screen
   uRoadAmt: { value: 0.5 },     // value-and-hue swing of a road stroke
   uLawnAmt: { value: 0 },       // lawn strokes (0.7 earlier; off for streets-only)
@@ -309,6 +310,12 @@ export function setPaintBrushes(wall, ground, road) {
   PAINT_UNIFORMS.tBrushWall.value = wall;
   PAINT_UNIFORMS.tBrushGround.value = ground;
   PAINT_UNIFORMS.tBrushRoad.value = road;
+  // The arterials are the layout's call (grid.js is told at createLayout), so read them now.
+  let x = 0, z = 0;
+  for (let j = 0; j <= GRID_J; j++) if (isArterialX(j)) x += 2 ** j;
+  for (let i = 0; i <= GRID_I; i++) if (isArterialZ(i)) z += 2 ** i;
+  PAINT_UNIFORMS.uRoadArt.value.x = x;
+  PAINT_UNIFORMS.uRoadArt.value.y = z;
 }
 
 const PAINT_COMMON = /* glsl */ `
@@ -321,6 +328,7 @@ uniform sampler2D tBrushWall;
 uniform sampler2D tBrushGround;
 uniform sampler2D tBrushRoad;
 uniform vec3 uRoadGrid;
+uniform vec4 uRoadArt;
 uniform float uRoadTile;
 uniform float uRoadAmt;
 uniform float uLawnAmt;
@@ -381,11 +389,18 @@ const PAINT_FRAGMENT = /* glsl */ `
 					// lighter or darker, so the swing is per channel rather than one scalar.
 					float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
 					// The road tile's strokes all run along its u axis, so it is read as (x, z) on an
-					// east-west street and (z, x) on a north-south one: whichever centreline is
-					// nearer decides. A junction splits along its diagonals, cross-faded over about a
-					// unit so the seam does not draw a hard X through the box.
-					vec2 gd = abs(fract((vPaintWorld.xz + uRoadGrid.xy) / uRoadGrid.z + 0.5) - 0.5);
-					float ns = smoothstep(-0.03, 0.03, gd.y - gd.x);
+					// east-west street and (z, x) on a north-south one. At a junction one road runs
+					// straight through and the other stops at its kerb, so a street keeps one heading
+					// across the whole map: the arterial wins, and between two of a kind the
+					// east-west road does. (The first cut split each box along its diagonals, which
+					// drew a pinwheel in every junction.)
+					vec2 gl = floor((vPaintWorld.xz + uRoadGrid.xy) / uRoadGrid.z + 0.5);
+					vec2 gd = abs(vPaintWorld.xz + uRoadGrid.xy - gl * uRoadGrid.z);
+					float artX = mod(floor(uRoadArt.x / exp2(gl.y)), 2.0);  // the road along x at line j
+					float artZ = mod(floor(uRoadArt.y / exp2(gl.x)), 2.0);  // the road along z at line i
+					float onX = 1.0 - smoothstep(-0.3, 0.3, gd.y - mix(uRoadArt.z, uRoadArt.w, artX));
+					float onZ = 1.0 - smoothstep(-0.3, 0.3, gd.x - mix(uRoadArt.z, uRoadArt.w, artZ));
+					float ns = onZ * (1.0 - onX * (1.0 - artZ * (1.0 - artX)));
 					vec3 r = mix(texture2D(tBrushRoad, vPaintWorld.xz / uRoadTile).rgb,
 						texture2D(tBrushRoad, vPaintWorld.zx / uRoadTile).rgb, ns) - 0.5;
 					// The fade mask: two octaves of value noise, so the strokes come and go in soft
@@ -1563,7 +1578,7 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
   const useAO = aoEnabled && ao;
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
     + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}${rimPaintOn() ? '-rim' : ''}` : ''}`
-    + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint8' : ''}`;
+    + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint9' : ''}`;
   material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {
