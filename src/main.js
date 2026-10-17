@@ -113,7 +113,7 @@ import { createTaxiFinder } from './game/taxifinder.js';
 import { createCargoChip } from './game/cargochip.js';
 import { createChaseSiren } from './game/chasesiren.js';
 import { createTutorial, LOCO_HINT_HOLD } from './game/tutorial.js';
-import { createOpening, entryPath, DASH_REVEAL } from './game/opening.js';
+import { createOpening, entryPath } from './game/opening.js';
 import { createWipe } from './game/wipe.js';
 import { createFarePointers } from './game/farepointers.js';
 import { createSirenGlow } from './game/sirenglow.js';
@@ -171,7 +171,7 @@ import { createGovernor } from './game/governor.js';
 import { createViewport } from './util/viewport.js';
 import { isNative } from './util/platform.js';
 import { tap as haptic, setHapticPrefs } from './util/haptics.js';
-import { createSfx } from './game/sfx.js';
+import { createSfx, DASH } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID_I, GRID_J, MAX_SPAN, lineX, lineZ } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
@@ -6841,8 +6841,9 @@ if (shot) {
       onDrop: () => dust.burst(traffic.taxi.x, traffic.taxi.z, traffic.taxi.yaw, 7, 0.5),
       // What a repair visit shows while the door is down to its gap. See game/repairfx.js.
       workshop: repairFx,
-      // A longer beat on the car in the doorway while the radio plays through its speaker.
-      reveal: dashRadio ? DASH_REVEAL : undefined,
+      // The car stays in its doorway until the dash radio's first song has played crushed for a
+      // few seconds (`DASH.music` in game/sfx.js), so the open lands on music, not the announcer.
+      holdReveal: () => Boolean(sfx?.state.dashRadio) && sfx.dashMusicSeconds() < DASH.music,
     });
     // `?vignette=off`, the same escape hatch `?tutorial=off` is: the opening is seven seconds
     // long and nobody iterating on the fare loop wants it on every reload. The module is

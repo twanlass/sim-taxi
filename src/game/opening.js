@@ -20,8 +20,8 @@ import { aimAtHeight } from './camera.js';
 // coming off the kerb is not animated here; it is one impulse into the pitch spring that was
 // already there, and the spring does the rest.
 //
-// The whole sequence is about nine seconds (seven with `?radiointro=classic`, whose reveal is
-// short) — see the phase table in docs/gameplay.md — and a tap
+// The whole sequence is about seven seconds, a few more while the dash radio holds the reveal
+// (`REVEAL_HOLD_MAX`) — see the phase table in docs/gameplay.md — and a tap
 // on the city gets out of it: `skip()` below, which main.js runs behind the cut to black in
 // game/wipe.js. Two things it deliberately does *not* do, both because neither would read in that
 // time:
@@ -85,13 +85,14 @@ const DOOR_CLOSE_TIME = 1.4;
 // And a beat on the open door with the car sitting in it. This is the shot the whole vignette is
 // for; much under a third of a second and the reveal is over before it lands.
 const REVEAL = 0.35;
-// How long the run's own opening holds that shot when the radio is playing in the dash
-// (`DASH` in game/sfx.js, `?radiointro=classic` off): the car sits in the doorway with the station
-// crushed through its speaker, and the sound opens up as it rolls out. Tyler, October 2026: "just
-// needs a few seconds of the music sounding crushed to sell the transition". Counting the approach
-// and the door, which are in the car too, this puts about five seconds of it on the close-up. A
-// repair visit keeps `REVEAL`: the radio is long open by then.
-export const DASH_REVEAL = 2.5;
+// The longest the run's own opening will hold that shot for `holdReveal` — the dash radio
+// (`DASH` in game/sfx.js), which keeps the car in its doorway until the first song has played
+// crushed through its speaker for a few seconds, so the sound opens up as the car rolls out.
+// Tyler, October 2026: "just needs a few seconds of the music sounding crushed to sell the
+// transition". Waiting on the music rather than a fixed beat because the announcer's 6.3 s intro
+// filled the whole of a fixed one: the crush only ever reached the voice. The cap is a backstop
+// for a song that never starts (a file that failed to load); a repair visit never holds.
+export const REVEAL_HOLD_MAX = 8;
 
 // --- The drive-out ----------------------------------------------------------
 
@@ -263,7 +264,7 @@ export function entryPath(site) {
  */
 export function createOpening({
   site, setDoor, taxi, taxiGroup, cars, controller, aspect, playZoom,
-  restFraming, isBlocked = () => false, onDrop = () => {}, workshop = null, reveal = REVEAL,
+  restFraming, isBlocked = () => false, onDrop = () => {}, workshop = null, holdReveal = () => false,
 }) {
   const path = exitPath(site);
   const merge = path.at(path.total);
@@ -518,7 +519,8 @@ export function createOpening({
       setDoor(doorFrom + (1 - doorFrom) * (1 - (1 - k) * (1 - k)));
       if (k >= 1) { phase = 'reveal'; clock = 0; }
     }
-    if (phase === 'reveal' && clock >= (mode === 'opening' ? reveal : REVEAL)) {
+    if (phase === 'reveal' && clock >= REVEAL
+      && !(mode === 'opening' && holdReveal() && clock < REVEAL_HOLD_MAX)) {
       phase = 'roll';
       clock = 0;
       // Indicating right before it moves, like anything pulling out of a driveway.

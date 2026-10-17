@@ -293,6 +293,9 @@ const MUSIC_FADE_OUT = 1.5;
  *    `staticLevel`, played into the same speaker so it is band-limited and crushed with the music:
  *    about 12 dB under the music in RMS, with the pops reaching the music's level.
  *
+ * `music` is how many seconds of the first *song* play crushed before the car may leave its
+ * doorway (`holdReveal` in game/opening.js): the announcer's intro is 6.3 s and on its own it covered
+ * the whole in-car stretch, so the crush was only ever heard on a voice.
  * `open` is the reveal, in seconds: the filters sweep to transparent (10 Hz, Nyquist, 0 dB), the
  * crushed path crossfades into the clean one, and the static dies away over the first `staticOut`
  * of it. Short enough to have landed by the end of the pull-back (`roll` and `release` come to about
@@ -304,7 +307,7 @@ const MUSIC_FADE_OUT = 1.5;
 export const DASH = {
   lowCut: 700, highCut: 2000, peakHz: 1400, peakDb: 8, Q: 4,
   drive: 4, steps: 32, crushLevel: 0.11, staticLevel: 0.5,
-  open: 3, staticOut: 0.5,
+  open: 3, staticOut: 0.5, music: 3,
 };
 const DASH_OPEN_LOW = 10;
 // The police helicopter's synthesised rotor (`makeRotor`): its blade-pass rate in Hz, and its level
@@ -560,6 +563,9 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     musicOut: false,
     // The station heard through the taxi's dash speakers, until `openDash` — see `DASH`.
     dashRadio: false,
+    // When the first track after the intro starts, on the audio clock, while `dashRadio` — see
+    // `dashMusicSeconds`.
+    dashSongAt: null,
     ready: false,
     loaded: 0,
     total: Object.keys(FILES).length,
@@ -616,7 +622,7 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
       setVolumes: noop,
       locoOn: noop, locoOff: noop, release: noop, unloop: noop, steer: noop, duckMusic: noop, fadeOutMusic: noop,
       goOnAir: (opts) => { state.dashRadio = Boolean(opts?.dash); },
-      openDash: () => { state.dashRadio = false; }, tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
+      openDash: () => { state.dashRadio = false; }, dashMusicSeconds: () => Infinity, tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
       monitor, setMonitor: (key, { mute, solo } = {}) => setMonitorSets(key, mute, solo),
       audition: () => null, stopAuditions: noop, files: FILES, radioFiles: RADIO_FILES,
       replace: async () => ({ ok: false, failed: [] }), revert: noop, replaced: () => null,
@@ -1070,6 +1076,7 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     const when = Math.max(queuedEnd, ctx.currentTime);
     const gen = generation;
     ahead++;
+    if (onAir && state.dashRadio && key !== RADIO.intro && state.dashSongAt === null) state.dashSongAt = when;
     queuedEnd = playTrack(key, when, () => { if (gen !== generation) return; ahead--; topUp(); });
     state.radio = [...state.radio.slice(-7), { track: key, at: when }];
   }
@@ -1149,6 +1156,7 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     queuedEnd = 0;
     between.length = 0;
     songsPlayed = 0;
+    state.dashSongAt = null;
     introPending = true;
     await decodeRadio(RADIO.intro);
     introPending = false;
@@ -1608,6 +1616,13 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     fadeOutMusic,
     goOnAir,
     openDash,
+    /**
+     * How long the first song after the intro has been playing through the dash, in seconds: 0
+     * before it starts (negative while it is only scheduled reads as 0 too), and Infinity when there
+     * is no context to play it — before the first tap nothing is playing, so nothing should wait.
+     */
+    dashMusicSeconds: () => (!ctx ? Infinity
+      : state.dashSongAt === null ? 0 : Math.max(0, ctx.currentTime - state.dashSongAt)),
     setMuted,
     setVolumes,
     toggleMuted: () => { setMuted(!state.muted); return state.muted; },
