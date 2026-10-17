@@ -295,9 +295,9 @@ between the two ends (`DASH` in `sfx.js`):
 - **Static**: six seconds of generated hiss with crackles and the odd pop, looped into the same
   speaker, about 12 dB under the music.
 
-On the vignette's `roll` beat (`DASH_PHASES` in `main.js`) `openDash` holds the crushed radio for
-another 2 s (`DASH.hold`), so the taxi is out on the street with the radio still in it, then runs
-the reveal over 3 s: the
+The vignette holds its shot of the car in the open doorway for 2.5 s instead of 0.35 s while the
+radio is in the dash (`DASH_REVEAL` in `opening.js`), so about five seconds of crushed radio play over
+the close-up. On the `roll` beat (`DASH_PHASES` in `main.js`) `openDash` runs the reveal over 3 s: the
 filters sweep to transparent (exponentially on the frequencies, so the octaves open at an even pace;
 open is 10 Hz, Nyquist and 0 dB), the crushed mono path crossfades into the clean stereo one, and the
 static is gone in the first 1.5 s. The 6.3 s intro is usually over by then, so it is the first song
