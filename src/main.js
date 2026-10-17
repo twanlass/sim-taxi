@@ -1641,6 +1641,9 @@ if (bankJob && bankFare) {
     z: bankJob.home.z,
     away: bankJob.along,
     swapReady: () => robbery.swapReady(),
+    // Collected level with the steps, routed down the bank's own street (BANK_REACH_ALONG in
+    // game/fares.js). `?bankpickup=classic`: the junction's ARRIVE_RADIUS, from any side.
+    tight: new URLSearchParams(window.location.search).get('bankpickup') !== 'classic',
   });
 }
 // The other half of the tailpipe: `flames` is the bark on the press, this is the plume that burns
@@ -2501,9 +2504,11 @@ function onwardFrom(target) {
  * finger that slipped and a tap cannot slip (see `TAP_MAX_DETOUR` in game/parcels.js).
  *
  * `onto` names the *direction* the taxi has to be travelling when it gets there, which turns the
- * destination from a junction into a lane. Only the burger run asks for one — the drive-through's
- * mouth opens off one kerbside lane and a route that arrives from any other side drives past it —
- * and `findRouteOnto` carries why the obvious `via` version does not work.
+ * destination from a junction into a lane. The burger run and the depot run ask for one — the
+ * drive-through's mouth opens off one kerbside lane and a route that arrives from any other side
+ * drives past it — and `findRouteOnto` carries why the obvious `via` version does not work. A target
+ * can also carry its own: the bank rider's does (`bankApproach` in game/fares.js), so every re-plan
+ * of that trip — a tap, a drag, a reset — keeps coming down the bank's street without being told.
  *
  * `along` is a tapped street, `{ a, b }`, which the route has to drive down rather than merely touch
  * — see game/streettap.js. It takes `maxDetour` the way `via` does, and never comes with `onto`:
@@ -2513,7 +2518,7 @@ function onwardFrom(target) {
  * keeps the same destination must pass the same object rather than an equal one — otherwise every
  * frame of a drag replays the sweep and the band never finishes drawing itself.
  */
-function routeTo(target, { via = null, along = null, maxDetour, onto = null } = {}) {
+function routeTo(target, { via = null, along = null, maxDetour, onto = target?.onto ?? null } = {}) {
   const car = traffic.taxi;
   const plan = (from) => (along
     ? findRouteAlong(from, along, target, { maxDetour })
@@ -2645,6 +2650,8 @@ function divertToParcel(parcel) {
 function tapStreet(ray) {
   if (!ray || !pathDrag || !canBendRoute()) return;
   if (burgerRun?.active() || depotRun?.active()) return;
+  // Same for the bank rider, whose target carries its lane (see `routeTo`): `along` has no `onto`.
+  if (traffic.taxi.pendingTarget?.onto != null) return;
   const point = ray.intersectPlane(GROUND_PLANE, tapPoint);
   if (!point) return;
   // A finger on a roof is a finger on the roof. The ray reaches the ground a long way up-screen of
