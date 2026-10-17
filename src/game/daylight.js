@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { setEdgeFogSky } from './edgefog.js';
 import { MAX_SPAN } from '../city/grid.js';
 import { hazeColor } from './scene.js';
 import { cloudTint } from './clouds.js';
@@ -138,6 +139,7 @@ export function createDaylight({ sun, hemi, sky, fog = null, clouds = null }, st
     sky.uniforms.bottomColor.value.copy(look.bottom);
     setGlossSky(look.top, look.bottom);
     if (fog) hazeColor(look.top, look.bottom, fog.color);
+    setEdgeFogSky(look.bottom);
     if (clouds) clouds.setLight(look.top, look.bottom);
 
     return look;
