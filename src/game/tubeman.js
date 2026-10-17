@@ -12,10 +12,10 @@ import { PALETTE } from '../palette.js';
 // He stood on the burger joint's apron first; Tyler wanted him on a business of his own.
 //
 // **How he moves.** A chain of capsules, each jointed to the one under it, each joint a spring
-// chasing an air pressure that comes and goes (see "The motion" below). Full, he stands with his
-// arms thrown up over his head and gusts knocking him about; every few seconds the air cuts out,
-// he folds over at the hips with his top half hanging head-down and his arms dropped, and then he
-// refills with a whip back up. The sway is across the screen, since a bend toward or away from a
+// chasing the air in its own segment (see "The motion" below). The blower blasts in bursts: each
+// one climbs the tube, straightening him from the bottom up until his arms are thrown over his head,
+// and between them he goes limp and sags — and every few bursts the gap runs long enough that he
+// folds right over at the hips, head hanging, before the next blast whips him back up. The sway is across the screen, since a bend toward or away from a
 // camera that never rotates barely shows, and the fold goes to the screen's left or right, always
 // back over the lot rather than out over the two roads round his corner.
 
@@ -32,24 +32,29 @@ const ARM_SEGS = 3;
 const BLOWER = { w: 0.8, h: 0.36 };
 
 
-// The motion: a pressure that comes and goes, and springs that chase it.
+// The motion: air blasted up the tube in bursts, and springs that chase it.
 //
 // The first cut bent the tube along sine waves and read as rubber: a rubber tube sways, an air
-// tube *gets blown about*. What sells the air is (1) the collapse — the blower stutters, the tube
-// folds hard at the hips and the top half hangs head-down — (2) the refill, a whip back up that
-// overshoots, and (3) arms that shoot up over his head when the air is in. So each joint is a
-// lightly damped spring chasing a target set by the pressure, stiff at the blower and floppy at
-// the head, and random gusts kick their velocities so no two seconds look alike (Tyler, 2026-10-17:
-// "feels like rubber... needs to feel like he's filled with air and be much more dramatic").
+// tube *gets blown about*. The second gave him a steady pressure that cut out every few seconds,
+// which read better but still too even. A real one is fed in **bursts** (Tyler, 2026-10-17): each
+// blast comes up the tube from the blower, so the bottom stiffens first and the top whips up last,
+// and between blasts the whole thing goes limp and starts to sag — then the next one brings it back
+// to life. So the blower's output is a train of bursts, each segment's pressure follows the one
+// below it while it blows (so the front travels up) and the whole tube empties at once when it
+// stops, and each joint is a spring whose stiffness and target come from its own pressure.
+// A short gap is a sag; a long one, every few bursts, folds him right over at the hips.
 /** The hinge he folds at — the bottom of this segment, 2 units up, about halfway: his hips. */
 const HIP = 3;
-/** Folded angles: the hip, the joint above it, and each joint further up as the top half droops. */
-const FOLD_HIP = 1.8;
+/** Fully limp angles: the hip, the joint above it, and each joint further up as the top half droops. */
+const FOLD_HIP = 1.65;
 const FOLD_NEXT = 0.4;
 const FOLD_DROOP = 0.08;
-/** Spring stiffness at the blower and at the head (1/s²), and the damping ratio: low, so it rings. */
+/** Every joint below the hip gives a little too, so a sag reads through the whole tube. */
+const FOLD_LOW = 0.06;
+/** Spring stiffness at the blower and at the head (1/s²), full; limp, it falls to this share. */
 const K_BASE = 150;
 const K_TIP = 55;
+const K_LIMP = 0.18;
 const ZETA = 0.22;
 /**
  * The fold's own damping, heavier: at the lateral's 0.22 the refill overshot by half the fold and
@@ -57,10 +62,21 @@ const ZETA = 0.22;
  * which still reads as a snap back up.
  */
 const ZETA_FOLD = 0.5;
-/** Gusts: how often, and how hard they kick a joint (rad/s). */
+/** The bursts, seconds: how long the blower blasts, and the gap after it. */
+const BURST = [0.35, 0.75];
+const GAP = [0.3, 0.7];
+/** Every few bursts the gap runs long enough to fold him all the way over. */
+const LONG_GAP = [0.9, 1.4];
+const LONG_EVERY = [3, 6];
+/** Per second: how fast air climbs from one segment into the next, and how fast the tube empties. */
+const FILL = 22;
+const DRAIN = 4.5;
+/** Each burst's front kicks the top of the tube sideways as it arrives (rad/s). */
+const BURST_KICK = 3.2;
+/** Gusts in between: how often, and how hard they kick a joint (rad/s). */
 const GUST_GAP = [0.12, 0.35];
-const GUST_KICK = 2.6;
-/** Upright, the lateral wave that keeps him busy between gusts. */
+const GUST_KICK = 2.0;
+/** Upright, the lateral wave that keeps him busy. */
 const SWAY = 0.12;
 const SWAY_W = 5.5;
 /** Arms: hanging when empty, overhead when full (radians out from straight down), and the flap. */
@@ -72,15 +88,8 @@ const ARM_K = 110;
 const ARM_ZETA = 0.3;
 /** How far each joint down the arm lags and flops, radians. */
 const ELBOW_FLOP = 0.35;
-/** The pressure cycle, seconds: full for a while, collapse, hang, refill. */
-const FULL = [1.6, 4.2];
-const COLLAPSE = 0.3;
-const HANG = [0.25, 0.7];
-const REFILL = 0.22;
 /** How thin the tube goes when the air is out, as a share of its full width. */
 const SLACK = 0.8;
-
-const smooth = (t) => t * t * (3 - 2 * t);
 
 /**
  * @param scene
@@ -228,62 +237,92 @@ export function createTubeMan(scene, rng, spot, anchor = null) {
   const armSprings = arms.map(() => ({ a: ARM_DOWN, v: 0, e: [0, 0, 0], ev: [0, 0, 0] }));
   const phase = [rng.range(0, 6.3), rng.range(0, 6.3)];
   let clock = 0;
-  let pressure = 1;
-  let stage = 'full';
-  let stageEnd = rng.range(...FULL);
-  let fold = FOLD_DIRS[0];
+  // Pressure per segment, 0 empty to 1 full; [0] is the blower's own output.
+  const air = new Array(SEGS).fill(1);
+  let blowing = true;
+  let switchAt = rng.range(...BURST);
+  let untilLong = rng.int(...LONG_EVERY);
+  let topWasFull = true;
+  // Which way he sags: a blend from world −Z (0) to world −X (1), eased toward a new pick each gap
+  // so the lean drifts rather than snapping.
+  let lean = rng.next();
+  let leanTo = lean;
+  const fold = [0, 0];
   let gustAt = rng.range(...GUST_GAP);
 
-  /** Advance the pressure cycle; returns the pressure, 0 empty to 1 full. */
-  function breathe() {
-    if (clock >= stageEnd) {
-      if (stage === 'full') {
-        stage = 'collapse';
-        stageEnd = clock + COLLAPSE;
-        fold = FOLD_DIRS[rng.int(0, FOLD_DIRS.length - 1)];
+  function blower(dt) {
+    if (clock >= switchAt) {
+      blowing = !blowing;
+      if (blowing) switchAt = clock + rng.range(...BURST);
+      else {
+        untilLong -= 1;
+        const long = untilLong <= 0;
+        if (long) untilLong = rng.int(...LONG_EVERY);
+        switchAt = clock + rng.range(...(long ? LONG_GAP : GAP));
+        leanTo = rng.next();
       }
-      else if (stage === 'collapse') { stage = 'hang'; stageEnd = clock + rng.range(...HANG); }
-      else if (stage === 'hang') { stage = 'refill'; stageEnd = clock + REFILL; }
-      else { stage = 'full'; stageEnd = clock + rng.range(...FULL); }
     }
-    const left = stageEnd - clock;
-    if (stage === 'collapse') return smooth(left / COLLAPSE);
-    if (stage === 'hang') return 0;
-    if (stage === 'refill') return 1 - left / REFILL;
-    return 1;
+    air[0] = blowing ? 1 : 0;
+    for (let k = 1; k < SEGS; k++) {
+      // Blowing, each segment fills from the one below it, so the front climbs. Off, the whole
+      // tube loses its air at once: a cascade drain (each emptying into the one below) left the
+      // top full for most of a gap, and he barely sagged.
+      if (blowing) air[k] += (air[k - 1] - air[k]) * Math.min(1, FILL * dt);
+      else air[k] -= air[k] * Math.min(1, DRAIN * dt);
+    }
+    lean += (leanTo - lean) * Math.min(1, 2 * dt);
+    const a = FOLD_DIRS[0];
+    const b = FOLD_DIRS[1];
+    const x = a[0] + (b[0] - a[0]) * lean;
+    const z = a[1] + (b[1] - a[1]) * lean;
+    const n = Math.hypot(x, z);
+    fold[0] = x / n;
+    fold[1] = z / n;
   }
 
   function step(dt) {
     clock += dt;
-    pressure = breathe();
-    const empty = 1 - pressure;
+    blower(dt);
+    // The burst's front reaching the head: a crack of the whip at the top.
+    const topFull = air[SEGS - 1] > 0.7;
+    if (topFull && !topWasFull) {
+      for (let k = HIP; k < SEGS; k++) springs[k].lv += rng.range(-1, 1) * BURST_KICK;
+    }
+    topWasFull = topFull;
     if (clock >= gustAt) {
       gustAt = clock + rng.range(...GUST_GAP);
-      // A gust kicks one joint sideways, harder the higher it is and the fuller the tube.
+      // A gust kicks one joint sideways, harder the higher it is and the fuller the tube there.
       const k = rng.int(1, SEGS - 1);
-      springs[k].lv += rng.range(-1, 1) * GUST_KICK * (0.4 + 0.6 * k / SEGS) * (0.3 + 0.7 * pressure);
+      springs[k].lv += rng.range(-1, 1) * GUST_KICK * (0.4 + 0.6 * k / SEGS) * (0.3 + 0.7 * air[k]);
       const arm = armSprings[rng.int(0, 1)];
-      arm.v += rng.range(-1, 1) * GUST_KICK * 1.5;
+      arm.v += rng.range(-1, 1) * GUST_KICK * 1.5 * air[SHOULDER];
     }
     for (let k = 1; k < SEGS; k++) {
       const s = springs[k];
-      const foldTo = empty * (k === HIP ? FOLD_HIP : k === HIP + 1 ? FOLD_NEXT : k > HIP ? FOLD_DROOP : 0);
+      const p = air[k];
+      const limp = 1 - p;
+      const foldTo = limp * (k === HIP ? FOLD_HIP : k === HIP + 1 ? FOLD_NEXT : k > HIP ? FOLD_DROOP : FOLD_LOW);
       const w = 0.4 + 0.6 * (k / SEGS);
-      const swayTo = pressure * w * SWAY * Math.sin(SWAY_W * clock - 0.9 * k + phase[0]);
-      s.fv += (s.k * (foldTo - s.f) - s.cf * s.fv) * dt;
-      s.lv += (s.k * (swayTo - s.l) - s.c * s.lv) * dt;
+      const swayTo = p * w * SWAY * Math.sin(SWAY_W * clock - 0.9 * k + phase[0]);
+      // Limp is soft: the spring itself goes slack with the air, not just its target.
+      const give = K_LIMP + (1 - K_LIMP) * p;
+      const kk = s.k * give;
+      const g = Math.sqrt(give);
+      s.fv += (kk * (foldTo - s.f) - s.cf * g * s.fv) * dt;
+      s.lv += (kk * (swayTo - s.l) - s.c * g * s.lv) * dt;
       s.f += s.fv * dt;
       s.l += s.lv * dt;
     }
+    const shoulderAir = air[SHOULDER];
     arms.forEach((arm, n) => {
       const a = armSprings[n];
       const flap = Math.sin(arm.rate * clock + arm.phase);
-      const to = ARM_DOWN + pressure * (ARM_UP - ARM_DOWN) + pressure * ARM_FLAP * flap;
+      const to = ARM_DOWN + shoulderAir * (ARM_UP - ARM_DOWN) + shoulderAir * ARM_FLAP * flap;
       a.v += (ARM_K * (to - a.a) - 2 * ARM_ZETA * Math.sqrt(ARM_K) * a.v) * dt;
       a.a += a.v * dt;
       // Each joint down the arm lags the one above it, which is what makes it flop.
       for (let k = 1; k < ARM_SEGS; k++) {
-        const eTo = ELBOW_FLOP * Math.sin(arm.rate * clock + arm.phase - 1.3 * k) * (0.4 + 0.6 * pressure);
+        const eTo = ELBOW_FLOP * Math.sin(arm.rate * clock + arm.phase - 1.3 * k) * (0.4 + 0.6 * shoulderAir);
         a.ev[k] += (45 * (eTo - a.e[k]) - 2 * 0.25 * Math.sqrt(45) * a.ev[k]) * dt;
         a.e[k] += a.ev[k] * dt;
       }
@@ -307,8 +346,10 @@ export function createTubeMan(scene, rng, spot, anchor = null) {
       qLat.setFromAxisAngle(Z_AXIS, s.l);
       joints[k].quaternion.multiplyQuaternions(qFold, qLat);
     }
-    const girth = SLACK + (1 - SLACK) * pressure;
-    for (const m of bodyMeshes) m.scale.set(girth, 1, girth);
+    bodyMeshes.forEach((m, k) => {
+      const girth = SLACK + (1 - SLACK) * air[k];
+      m.scale.set(girth, 1, girth);
+    });
     arms.forEach((arm, n) => {
       const a = armSprings[n];
       arm.root.rotation.set(0.2 * Math.sin(arm.rate * 0.7 * clock + arm.phase), 0, arm.side * a.a);
