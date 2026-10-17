@@ -858,10 +858,13 @@ corner honestly and cost the board a junction, and a low wide bank is what the s
 anyway. Everything at the front is then sized down to stay under the roof behind it, because a
 pediment poking above its own roofline is a gable rather than a portico.
 
-## The car wash, and its tube man
+## The roadside lot, and its tube man
 
-The fourth block taken from the tower generator (`city/carwash.js`, `?carwash=classic` to give it
-back): a wash tunnel against the block's −Z edge, with its long +Z side open on posts so the brushes
+The fourth block taken from the tower generator (`city/roadside.js`, `?roadside=classic` to give it
+back) is a roadside business with an inflatable tube man on its corner. It is a car wash by default;
+`?roadside=gas` makes it a gas station instead, on the same block, so Tyler can compare the two.
+
+**The car wash** (`city/carwash.js`) is a wash tunnel against the block's −Z edge, with its long +Z side open on posts so the brushes
 turning inside it show, a blue fascia covered in soap bubbles, a concrete lot out front with two
 vacuum bays and a pay kiosk, and a pylon sign spelling WASH in a pixel face. It is scenery only for
 now: no car goes through, and nothing routes into it. Chosen last in `createLayout`, after the
@@ -872,13 +875,20 @@ quiet, inner blocks, as the burger joint does.
 into a scratch array that is thrown away (`ghost` in `city/buildings.js`), because skipping them the
 way the depot's and the joint's blocks are skipped shifts every draw after them and rebuilds the
 skyline. That is what turned the probe's corner sweep red the first time: a reshuffled tower three
-blocks away halving a kerb mark. A courtyard, the bank or the helipad drawn onto the car wash's block
+blocks away halving a kerb mark. A courtyard, the bank or the helipad drawn onto the roadside block
 moves to another lot, picked by hash so nothing else moves with it; the probe holds every other
 vertex in place.
 
 **The roof is as tall as it is so the brushes show.** A sightline into the open side climbs 0.92
 per unit of z on its way out under the eaves, and the top brush sits 2 up and 1.7 in, so the eaves
 have to clear 3.56. At 3.0 the roof hid it.
+
+**The gas station** (`city/gasstation.js`) is a convenience store with lit windows and a MART band
+on the block's −X half, and a green canopy over two pump islands on its +X half, pulled back from
+the +Z kerb so the tube man's corner stays open, plus a pylon with GAS over a price board. The
+canopy's depth and height are a sightline too: the pumps sit 1.8 in from its +Z edge, so a line
+from a pump's top climbs 1.66 on its way out and clears the 3.7 underside. Deeper or lower and the
+pumps vanish under their own roof; the probe fires a ray from each pump to check.
 
 **The tube man** (`game/tubeman.js`) flails on the lot's +X+Z corner, the one the camera faces: a
 red tube on a blower box, yellow streamers for hair and cuffs, a cartoon face. He is a chain of
@@ -888,8 +898,8 @@ bend toward or away from a camera that never rotates barely shows; the fold goes
 because the two other ways out of that corner are roads. He is not tappable: a tall thin hit target
 steals taps from markers up-screen of it.
 
-**Which block is a sightline.** `chooseCarWashBlock` only takes a block where the tube man's corner
-and the middle of the tunnel's open side can both be seen over every block up-camera of them, using
+**Which block is a sightline.** `chooseRoadsideBlock` only takes a block where the tube man's corner
+and the middle of the block can both be seen over every block up-camera of them, using
 the burger joint's height predictions. He stood on the burger joint's apron first, beside its
 drive-through lane; Tyler wanted him on a business of his own (2026-10-17).
 

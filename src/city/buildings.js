@@ -1100,9 +1100,9 @@ export function createBuildings(rng, blocks) {
   // that is disposed of — `ghost` — and every other tower comes out as it would with no car wash.
   const lots = [];
   for (const block of blocks) {
-    if (block.type !== 'built' && block.type !== 'carwash') continue;
+    if (block.type !== 'built' && block.type !== 'roadside') continue;
     const { x0, z0, x1, z1 } = block.bounds;
-    for (const lot of splitLot(x0, z0, x1, z1, 2, rng)) lots.push({ lot, block, ghost: block.type === 'carwash' });
+    for (const lot of splitLot(x0, z0, x1, z1, 2, rng)) lots.push({ lot, block, ghost: block.type === 'roadside' });
   }
 
   // Only an *undivided* block is wide enough to hollow out and still leave wings with rooms in

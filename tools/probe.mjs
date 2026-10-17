@@ -42,6 +42,8 @@ import {
 import { createBoombox, BPM as BOOMBOX_BPM } from '../src/game/boombox.js';
 import { createTubeMan } from '../src/game/tubeman.js';
 import { createCarWash } from '../src/city/carwash.js';
+import { createGasStation } from '../src/city/gasstation.js';
+import { LOT_Y } from '../src/city/roadside.js';
 import { onLawn } from '../src/city/ground.js';
 import { createHoopers } from '../src/game/hoopers.js';
 import {
@@ -1481,14 +1483,15 @@ const onGrass = (city, i, j) => {
     box.emitter ? `at (${box.emitter.x.toFixed(1)}, ${box.emitter.z.toFixed(1)})` : 'no emitter');
 }
 
-// The car wash (city/carwash.js) and the tube man on its corner (game/tubeman.js). The city puts
-// one somewhere and the towers leave its block alone; its brushes turn; and twenty seconds of the
+// The roadside block (city/roadside.js): the car wash (city/carwash.js) or the gas station
+// (city/gasstation.js), and the tube man on its corner (game/tubeman.js). The city puts one
+// somewhere and the towers leave its block alone; its brushes turn; and twenty seconds of the
 // tube man flailing, every vertex, never reach a car's flank in the kerbside lane of either road
 // round his corner, never go through the ground — and he actually moves, folds included: a sway
 // of a few tenths is a wobble, a fold is a unit or more at the head.
 {
-  const block = layout.carWashBlock;
-  check('the city puts a car wash somewhere', Boolean(block), block ? `block (${block.bi}, ${block.bj})` : 'none');
+  const block = layout.roadsideBlock;
+  check('the city puts a roadside business somewhere', Boolean(block), block ? `block (${block.bi}, ${block.bj})` : 'none');
   check('...on a block the towers leave alone', (() => {
     const p = buildings.mesh.geometry.attributes.position;
     const b = block.bounds;
@@ -1518,7 +1521,7 @@ const onGrass = (city, i, j) => {
     const withWash = offBlock(buildings.mesh);
     block.type = 'built';
     const without = offBlock(createBuildings(makeRng(seed + 22), layout).mesh);
-    block.type = 'carwash';
+    block.type = 'roadside';
     let moved = 0;
     for (const k of withWash) if (!without.has(k)) moved += 1;
     for (const k of without) if (!withWash.has(k)) moved += 1;
@@ -1566,7 +1569,42 @@ const onGrass = (city, i, j) => {
     overRoad === 0 && below > 0, `${overRoad} vertex-frames over a kerbside lane, lowest ${below.toFixed(2)}`);
   check('...and flails, folding right over now and then', headMax - headMin > 1.5,
     `head swept ${(headMax - headMin).toFixed(2)} across the screen`);
-  check('no car wash (?carwash=classic) builds no tube man', createTubeMan(new THREE.Scene(), makeRng(9), null).at === null);
+  check('no roadside business (?roadside=classic) builds no tube man', createTubeMan(new THREE.Scene(), makeRng(9), null).at === null);
+
+  // The gas station on the same block. Its pumps stand under a canopy, and a canopy is exactly the
+  // thing that hides what is under it from this camera: a line from the top of each pump's screen
+  // toward the camera has to get out from under the deck without touching anything. And the tube
+  // man, folding over toward −Z, has to stay out of the canopy and the store.
+  const gas = createGasStation(block, makeRng(seed + 141));
+  const gasScene = new THREE.Scene();
+  gasScene.add(gas.group);
+  gasScene.updateMatrixWorld(true);
+  const toCamera = new THREE.Vector3(1, 0.92, 1).normalize();
+  const caster = new THREE.Raycaster();
+  const hidden = gas.site.islands.filter((isl) => {
+    caster.set(new THREE.Vector3(isl.x, LOT_Y + 1.45, isl.z + 0.47), toCamera);
+    return caster.intersectObject(gas.shell, false).length > 0;
+  });
+  check('the gas station\'s pumps can be seen under its canopy', hidden.length === 0,
+    `${hidden.length} of ${gas.site.islands.length} hidden`);
+  const gasMan = createTubeMan(new THREE.Scene(), makeRng(9), gas.site.tubeMan);
+  const { canopy: cn, store: st } = gas.site;
+  let inside = 0;
+  for (let n = 0; n < 1200; n++) {
+    gasMan.update(1 / 60);
+    if (n % 4) continue;
+    gasMan.group.updateMatrixWorld(true);
+    gasMan.group.traverse((o) => {
+      if (!o.isMesh) return;
+      const pos = o.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+        const under = (r) => v.x > r.x0 && v.x < r.x1 && v.z > r.z0 && v.z < r.z1;
+        if (under(st) || (under(cn) && v.y > LOT_Y + 3.5)) inside += 1;
+      }
+    });
+  }
+  check('...and the tube man stays out of its canopy and its store', inside === 0, `${inside} vertex-frames inside`);
 }
 
 // --- The players on it ---------------------------------------------------------

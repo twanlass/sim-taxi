@@ -8,7 +8,7 @@ import { roadNetFromGrid, setCityNetwork } from './roadnet.js';
 import { chooseGarageBlock } from './garage.js';
 import { chooseBurgerBlock } from './burgerjoint.js';
 import { chooseGraveyardBlock, planGraveyardPair, GRAVEYARD_MODE } from './graveyard.js';
-import { chooseCarWashBlock, CAR_WASH_ON } from './carwash.js';
+import { chooseRoadsideBlock, ROADSIDE_MODE } from './roadside.js';
 import { clearPlantedCrowns } from './props.js';
 import { configureSignals } from '../sim/traffic.js';
 
@@ -276,12 +276,14 @@ export function createLayout(rng) {
     blocks.graveyardBlock = null;
   }
 
-  // ...and the car wash, last of all and for the same reasons: a whole block, `null` a real answer,
-  // and drawn after everything above so adding it moves no park, landmark or arterial. It reads the
-  // other landmarks' blocks as spoken for. `?carwash=classic` skips the draw. See city/carwash.js.
-  const carWash = CAR_WASH_ON ? chooseCarWashBlock(rng, blocks) : null;
-  if (carWash) carWash.type = 'carwash';
-  blocks.carWashBlock = carWash ?? null;
+  // ...and the roadside business (a car wash, or a gas station on `?roadside=gas`), last of all and
+  // for the same reasons: a whole block, `null` a real answer, and drawn after everything above so
+  // adding it moves no park, landmark or arterial. It reads the other landmarks' blocks as spoken
+  // for. Both businesses take the same block, so switching between them moves nothing else.
+  // `?roadside=classic` skips the draw. See city/roadside.js.
+  const roadside = ROADSIDE_MODE !== 'classic' ? chooseRoadsideBlock(rng, blocks) : null;
+  if (roadside) roadside.type = 'roadside';
+  blocks.roadsideBlock = roadside ?? null;
 
   // Bake the road network for the city just decided, and install it as *the* network. Everything
   // above — the closures, the arterials, their coordinated directions — is exactly the input it

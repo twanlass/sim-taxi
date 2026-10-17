@@ -910,6 +910,20 @@ export const PALETTE = {
   carWashBrushB: '#F065B4',
   carWashBrushCore: '#2A2D33',
   carWashGlow: '#E9F6FF',
+  // The gas station (city/gasstation.js), the roadside block's other business: a green canopy
+  // with a yellow stripe — green rather than red so the red tube man in front of it still reads —
+  // a cream brick store, white pumps, and the bright underside every forecourt canopy has at night.
+  gasGreen: '#1E9467',
+  gasStripe: '#F5C531',
+  gasWhite: '#F1F0EA',
+  gasStoreWall: '#D8C7A6',
+  gasTrim: '#3E4248',
+  gasLot: '#9C9A94',
+  gasIsland: '#C9C6BE',
+  gasPumpScreen: '#22262C',
+  gasBollard: '#F2C230',
+  gasIce: '#5BB4E8',
+  gasGlow: '#FFF3D2',
   // The tube man at the car wash (game/tubeman.js), off the photo Tyler sent: a fire-engine
   // red tube, a shock of yellow streamers for hair and the same yellow on the cuffs, a white
   // cartoon face, and a dark blower box under him.

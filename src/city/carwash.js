@@ -2,37 +2,24 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, hash01, propMaterial, stampEntry, unlitMaterial } from '../util/geo.js';
 import { color, jitterColor } from '../palette.js';
-import { KERB_H } from './ground.js';
-import { GRID_I, GRID_J } from './grid.js';
+import { LOT_Y, PAINT_Y, box, disc, roadsideCorner, span, wordParts } from './roadside.js';
 
 // The car wash: a wash tunnel with its brushes turning, a lot out front with vacuum bays and a
 // pay kiosk, a pylon sign, and an inflatable tube man flailing on the corner (game/tubeman.js) —
 // which is what it is here for. Tyler wanted the tube man on a business of his own rather than on
 // the burger joint's corner (2026-10-17), and a car wash is where they live.
 //
-// The fourth block `createLayout` takes out of the tower generator's hands, built on the burger
-// joint's terms: a whole block, `null` a real answer, drawn after every other draw so adding it
-// moves nothing above. Scenery only for now — no car goes through the tunnel and nothing routes
-// into it. `?carwash=classic` (`CARWASH=classic` headless) gives the block back to the towers.
+// One of the two businesses the roadside block can be (city/roadside.js picks the block, and says
+// which business by `?roadside=`): this one is the default. Scenery only for now — no car goes
+// through the tunnel and nothing routes into it.
 //
 // **Which way it faces is settled by the camera**, as the joint's is. Only +X and +Z faces are ever
 // seen, so the tunnel stands against the block's −Z edge with its long side open to +Z, and the
 // lot, the sign and the tube man are all in front of it. A car would go through −X to +X and
 // come out of the end the camera faces.
 
-export const CAR_WASH_ON = (typeof location !== 'undefined'
-  ? new URLSearchParams(location.search).get('carwash')
-  : globalThis.process?.env?.CARWASH) !== 'classic';
-
-// --- Levels ------------------------------------------------------------------
-// Each flat surface clears the one under it rather than sharing its plane (CLAUDE.md: two flat
-// surfaces at one height is a shimmer, not a touch). `createGround` lays the pavement.
-const PAVEMENT_Y = KERB_H + 0.01;
-/** The lot's concrete, over the pavement. Exported: the tube man stands on it. */
-export const LOT_Y = PAVEMENT_Y + 0.02;
 /** The tunnel's floor, over the lot. */
 const FLOOR_Y = LOT_Y + 0.02;
-const PAINT_Y = LOT_Y + 0.012;
 
 // --- The tunnel, in block-local terms -----------------------------------------
 const TUN_SIDE = 1.0;            // off the block's −X and −Z edges
@@ -52,8 +39,6 @@ const POST = 0.24;
 
 // --- The lot --------------------------------------------------------------------
 const LOT_INSET = 0.3;
-/** The tube man: in from the +X and +Z kerbs, on the corner the camera faces. */
-const TUBE_IN = 1.1;
 const SIGN_IN = 1.0;
 const SIGN_H = 5.6;              // to the panel's middle
 const VAC_BACK = 1.3;            // the vacuum posts, back from the +Z kerb
@@ -64,56 +49,6 @@ const BRUSH_H = 2.3;
 /** Radians per second. A real wash brush turns at about two revolutions a second; this is half. */
 export const BRUSH_SPIN = 6.5;
 const FINS = 10;
-
-/** Height gained per unit travelled along x on the sightline to the camera (see burgerjoint.js). */
-const VIEW_RISE = 0.92;
-const SIGHT_MARGIN = 1.0;
-
-function ceilingOf(block) {
-  if (block.type === 'park' || block.type === 'graveyard') return 6;
-  if (block.type === 'garage' || block.type === 'burger' || block.type === 'carwash') return KERB_H + 4.6;
-  if (block.type === 'river') return 0;
-  return 5 + (block.centrality ?? 0) * 11;
-}
-
-/** True if the ground at `p` can be seen from the camera over every block up-camera of it. */
-function pointSeen(blocks, self, p) {
-  for (const other of blocks) {
-    if (other === self) continue;
-    if (other.bounds.x1 <= p.x || other.bounds.z1 <= p.z) continue;
-    const enter = Math.max(other.bounds.x0 - p.x, other.bounds.z0 - p.z, 0);
-    const leave = Math.min(other.bounds.x1 - p.x, other.bounds.z1 - p.z);
-    if (leave <= enter) continue;
-    if (ceilingOf(other) + SIGHT_MARGIN > KERB_H + enter * VIEW_RISE) return false;
-  }
-  return true;
-}
-
-/**
- * Which block the car wash takes, or null.
- *
- * Not touching the depot, the burger joint or the graveyard, so the landmarks spread out; out of
- * downtown, like the joint, because a low lot among towers is one the camera cannot see into; and
- * only where the camera can actually see the tube man's corner and the tunnel's open side. Each
- * filter falls back to the pool it narrows.
- */
-export function chooseCarWashBlock(rng, blocks) {
-  const special = blocks.filter((b) => ['garage', 'burger', 'graveyard'].includes(b.type));
-  const touches = (b) => special.some((s) => Math.abs(s.bi - b.bi) <= 1 && Math.abs(s.bj - b.bj) <= 1);
-  const candidates = blocks.filter((b) => b.type === 'built'
-    && (b.districtId === null || b.districtId === undefined));
-  if (!candidates.length) return null;
-  const seen = candidates.filter((b) => {
-    const s = carWashSite(b);
-    return pointSeen(blocks, b, s.tubeMan) && pointSeen(blocks, b, s.frontMid);
-  });
-  const pool0 = seen.length ? seen : candidates;
-  const apart = pool0.filter((b) => !touches(b));
-  const pool = apart.length ? apart : pool0;
-  const quiet = pool.filter((b) => b.centrality <= 0.6);
-  const inner = quiet.filter((b) => b.bi > 0 && b.bi < GRID_I - 1 && b.bj > 0 && b.bj < GRID_J - 1);
-  return rng.pick(inner.length ? inner : quiet.length ? quiet : pool);
-}
 
 /** Every number about a car wash, derived from its block — so the chooser can ask before building. */
 export function carWashSite(block) {
@@ -126,31 +61,11 @@ export function carWashSite(block) {
     bounds: block.bounds,
     tunnel,
     zc,
-    tubeMan: { x: x1 - TUBE_IN, y: LOT_Y, z: z1 - TUBE_IN },
-    frontMid: { x: (tunnel.x0 + tunnel.x1) / 2, z: tunnel.z1 },
+    tubeMan: roadsideCorner(block),
     sign: { x: x0 + SIGN_IN, z: z1 - SIGN_IN },
     // The review framing: the block's middle.
     focus: { x: (x0 + x1) / 2, z: (z0 + z1) / 2 },
   };
-}
-
-function box(dx, dy, dz, x, base, z, col) {
-  const geo = new THREE.BoxGeometry(dx, dy, dz);
-  geo.translate(x, base + dy / 2, z);
-  return bakeColor(geo, col);
-}
-
-function span(x0, x1, y0, y1, z0, z1, col) {
-  return box(x1 - x0, y1 - y0, z1 - z0, (x0 + x1) / 2, y0, (z0 + z1) / 2, col);
-}
-
-/** A disc on a face: a short cylinder, its axis along `axis` ('x' or 'z'). */
-function disc(r, depth, x, y, z, axis, col) {
-  const geo = new THREE.CylinderGeometry(r, r, depth, 14);
-  if (axis === 'z') geo.rotateX(Math.PI / 2);
-  else geo.rotateZ(Math.PI / 2);
-  geo.translate(x, y, z);
-  return bakeColor(geo, col);
 }
 
 /**
@@ -171,35 +86,6 @@ function brushGeometry(r, h) {
   const geo = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
   return geo;
-}
-
-// "WASH" in a blocky pixel face, for the pylon. Rows top to bottom.
-const GLYPHS = {
-  W: ['X...X', 'X...X', 'X.X.X', 'XX.XX', 'X...X'],
-  A: ['.XX.', 'X..X', 'XXXX', 'X..X', 'X..X'],
-  S: ['.XXX', 'X...', '.XX.', '...X', 'XXX.'],
-  H: ['X..X', 'X..X', 'XXXX', 'X..X', 'X..X'],
-};
-const PIXEL = 0.2;
-
-/** The word as pixel boxes in the sign's local XY, centred, standing `depth` proud of z = 0. */
-function wordParts(word, depth, col) {
-  const cols = [...word].reduce((n, ch) => n + GLYPHS[ch][0].length + 1, -1);
-  let cx = -(cols * PIXEL) / 2;
-  const parts = [];
-  for (const ch of word) {
-    const rows = GLYPHS[ch];
-    rows.forEach((row, ry) => {
-      [...row].forEach((cell, rx) => {
-        if (cell !== 'X') return;
-        const geo = new THREE.BoxGeometry(PIXEL * 0.92, PIXEL * 0.92, depth);
-        geo.translate(cx + (rx + 0.5) * PIXEL, (2 - ry) * PIXEL, depth / 2);
-        parts.push(bakeColor(geo, col));
-      });
-    });
-    cx += (rows[0].length + 1) * PIXEL;
-  }
-  return parts;
 }
 
 export function createCarWash(block, rng) {

@@ -90,6 +90,8 @@ import { createHoopers } from './game/hoopers.js';
 import { createBoombox } from './game/boombox.js';
 import { createTubeMan } from './game/tubeman.js';
 import { createCarWash } from './city/carwash.js';
+import { createGasStation } from './city/gasstation.js';
+import { ROADSIDE_MODE } from './city/roadside.js';
 import { createLTrain, planLTrain, LTRAIN_DIMENSIONS } from './game/ltrain.js';
 import { courtRect } from './city/blacktop.js';
 import { createSkaters } from './game/skaters.js';
@@ -831,17 +833,19 @@ if (burger) {
   // mass is the one version that can never cover a marker the player can see past it.
   burger.group.userData.pickable = 'burger';
 }
-// The car wash — the fourth block `createLayout` took from the towers — and the inflatable tube man
-// flailing on its corner, which is what it is there for. Scenery only: not tappable, nothing routes
-// into it. `null` on `?carwash=classic` or a city with no room. See city/carwash.js. The tube man is
+// The roadside business — the fourth block `createLayout` took from the towers, a car wash or, on
+// `?roadside=gas`, a gas station — and the inflatable tube man flailing on its corner, which is what
+// it is there for. Scenery only: not tappable, nothing routes into it. `null` on
+// `?roadside=classic` or a city with no room. See city/roadside.js. The tube man is
 // not tappable either: 4.5 units of tall thin target is exactly the shape that steals taps from a
 // marker up-screen of it (CLAUDE.md). Where he stands is the map's; how he flails is the run's.
-const carWash = layout.carWashBlock ? createCarWash(layout.carWashBlock, makeRng(seed + 141)) : null;
-if (carWash) {
-  scene.add(carWash.group);
-  carWash.meshes.forEach(markOccluder);
+const roadside = !layout.roadsideBlock ? null
+  : (ROADSIDE_MODE === 'gas' ? createGasStation : createCarWash)(layout.roadsideBlock, makeRng(seed + 141));
+if (roadside) {
+  scene.add(roadside.group);
+  roadside.meshes.forEach(markOccluder);
 }
-const tubeMan = createTubeMan(scene, makeRng(runSeed + 331), carWash?.site.tubeMan ?? null, carWash?.entry ?? null);
+const tubeMan = createTubeMan(scene, makeRng(runSeed + 331), roadside?.site.tubeMan ?? null, roadside?.entry ?? null);
 
 // Which kerb corners this camera can see, settled once now that everything permanent is standing.
 // The board consults it when it places a marker — a rider, a drop-off ring or a courier pad on a
@@ -851,7 +855,7 @@ const tubeMan = createTubeMan(scene, makeRng(runSeed + 331), carWash?.site.tubeM
 // comes and goes, and the boards would have to be re-asked every time one moved.
 const occluders = setCityOccluders(
   city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? []),
-  ...(graveyard?.meshes ?? []), ...(carWash?.meshes ?? []),
+  ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
 );
 // The same field is what the cars' paint reflects (`propMaterial({ gloss })`, util/geo.js).
 setGlossCity(occluders, SKYLINE_CEILING);
@@ -1402,7 +1406,7 @@ if (ltrain?.lamps) markEmissive(ltrain.lamps, 'pod');
 // nothing to wire.
 if (burger) markEmissive(burger.glow, 'window');
 if (graveyard) markEmissive(graveyard.glow, 'window');
-if (carWash) markEmissive(carWash.glow, 'window');
+if (roadside) markEmissive(roadside.glow, 'window');
 if (garage) markEmissive(garage.light, 'bay');
 if (garage?.neon) markEmissive(garage.neon, 'window');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
@@ -1559,7 +1563,7 @@ const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, ...(westEdge ? [westEdge.towers] : []), propsMesh, grass.mesh, canopyFuzz.mesh, ...(garage?.meshes ?? []),
-    ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(carWash?.meshes ?? []),
+    ...(burger?.meshes ?? []), ...(graveyard?.meshes ?? []), ...(roadside?.meshes ?? []),
     ...(lamps ? [lamps.posts, lamps.heads] : []),
     ...(props.courtMesh ? [props.courtMesh] : []), ...(props.skateMesh ? [props.skateMesh] : []),
     ...(props.pondMesh ? [props.pondMesh] : [])],
@@ -1569,10 +1573,10 @@ const cityEntry = createCityEntry({
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
     ...(graveyard ? [graveyard.entryObject] : []),
     ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
-    ...tubeMan.entryObjects, ...(carWash?.entryObjects ?? []), ...(ltrain?.entryObjects ?? [])],
+    ...tubeMan.entryObjects, ...(roadside?.entryObjects ?? []), ...(ltrain?.entryObjects ?? [])],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
     ...(burger ? [burger.entrySite] : []), ...(graveyard ? [graveyard.entrySite] : []),
-    ...(carWash ? [carWash.entrySite] : [])],
+    ...(roadside ? [roadside.entrySite] : [])],
   dust,
   // The spawn point for now — the wave is re-aimed at the taxi's *post-warmup* position at the
   // bottom of this file, which is where the player actually first sees the car.
@@ -5613,7 +5617,7 @@ function tick() {
   // paused with them: `frame()` has already returned by here on a paused frame.
   burger?.update(dt, SIGN_SPIN);
   // The car wash's brushes and curtain, and the tube man on its corner.
-  carWash?.update(dt);
+  roadside?.update(dt);
   tubeMan.update(dt);
   // And the sign on the depot's roof, on the same terms — see DEPOT_SPIN in city/garage.js.
   garage?.update(dt);
@@ -6567,9 +6571,9 @@ if (shot) {
     controller.state.target.set(burger.site.focus.x, 0, burger.site.focus.z);
     controller.update(aspect());
   }
-  // The car wash, framed on its lot; and its tube man, close enough to see his face.
-  if (shot.atCarWash && carWash) {
-    controller.state.target.set(carWash.site.focus.x, 0, carWash.site.focus.z);
+  // The roadside business, framed on its lot; and its tube man, close enough to see his face.
+  if (shot.atCarWash && roadside) {
+    controller.state.target.set(roadside.site.focus.x, 0, roadside.site.focus.z);
     controller.update(aspect());
   }
   if (shot.atTubeMan && tubeMan.at) {
@@ -7117,10 +7121,10 @@ window.__taxi = {
   hoopers,
   /** The boom box beside the court — `boombox.emitter` is where its music will play from. */
   boombox,
-  /** The tube man on the car wash's corner — `tubeMan.at` is where he stands, null with no car wash. */
+  /** The tube man on the roadside lot's corner — `tubeMan.at` is where he stands, null with none. */
   tubeMan,
-  /** The car wash, or null. */
-  carWash,
+  /** The car wash or gas station (`?roadside=`), or null. */
+  roadside,
   /** The riders on the skatepark, and `skaters.park` the park — absent if the city has none. */
   skaters,
   /** The elevated train, or null under `?ltrain=classic` — see game/ltrain.js. */
