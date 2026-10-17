@@ -551,7 +551,9 @@ export function chainSeconds(from, stops) {
   let at = from;
   let total = 0;
   for (const stop of stops) {
-    const route = findRoute(at, stop);
+    // A stop that names its lane (the bank rider's, see `bankApproach` in game/fares.js) is billed
+    // for the drive the taxi will actually be sent on, lap of the block included.
+    const route = stop.onto != null ? findRouteOnto(at, stop, stop.onto) : findRoute(at, stop);
     if (route === null) return null;
     total += estimateSeconds(route, at.d);
     at = { i: stop.i, j: stop.j, d: route.length ? route[route.length - 1] : at.d };

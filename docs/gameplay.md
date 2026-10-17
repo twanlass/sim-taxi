@@ -1862,7 +1862,12 @@ delivery, 35s after the last one left the board; #499). They are an ordinary tap
 them and pull up, and a coin tossed when they spawned decides it — **a loaded one**: even odds on
 the first bank rider of a run, then 15 points more robbery for each one who rode (50, 65, 80, 95,
 capped there), back to even once a robbery happens (`BANK_ROBBER_STEP`; #522,
-`?robberyodds=classic` for a fair coin every time). Heads they get in like anybody
+`?robberyodds=classic` for a fair coin every time). **The taxi collects them from the steps, not the
+corner**: the route comes down the bank's own street (the fare's target carries its lane, `onto`),
+and the pickup resolves only level with the door (`BANK_REACH_ALONG`, 6 either way along the
+façade, across both lanes). The junction's `ARRIVE_RADIUS` it used to share with everyone fired
+from the cross street round the corner, a block and a half from the robber the cut then had to
+frame (`?bankpickup=classic`). Heads they get in like anybody
 else; tails a robber bursts out of the bank, shoves them over and takes their seat — see
 [the bank job](#the-bank-job) — and the streets go blue for as long as it takes to get the robber
 where they are going. `?bankfare=classic` restores the drive-past robbery, where passing the bank

@@ -116,6 +116,7 @@ import * as difficulty from '../src/game/difficulty.js';
 import { BOARD_MAX } from '../src/game/difficulty.js';
 import { LOCO_PACE_SELF } from './autoplay.mjs';
 import { planRun as planBankRun, cutShot as bankCutShot, frameCut as frameBankCut } from '../src/game/bankjob.js';
+import { bankFrontage } from '../src/city/bank.js';
 import { createRobbery, TRIGGER_RANGE as ROBBERY_TRIGGER_RANGE, LOST_RANGE, STAND_DOWN_TIMEOUT, STAND_DOWN_RANGE } from '../src/game/robbery.js';
 import {
   createPatrol, createPin, ESCAPE_BLOCKS, TOUCH_SLACK, SIGHT_HOLD, PIN_HOLD, PIN_SPEED,
@@ -17142,7 +17143,8 @@ let chopperOrder; // likewise
     // taxi's own next junction.
     {
       const stand = planBankRun(bank, { x: 0, z: 0, yaw: 0 }).home;
-      const bankRig = (k, { stop = true } = {}) => {
+      const bankAway = bankFrontage(bank).along;
+      const bankRig = (k, { stop = true, tight = false } = {}) => {
         const s8 = new THREE.Scene();
         const t8 = createTraffic(makeRng(seed + 44), s8, 10, 18);
         const f8 = createFareSystem(makeRng(seed + 900 + k), s8);
@@ -17155,7 +17157,8 @@ let chopperOrder; // likewise
         rob8.state.since = 1e3;
         if (stop) {
           f8.setBankStop({
-            junction: rob8.junction, x: stand.x, z: stand.z, away: { x: 1, z: 0 }, swapReady: () => rob8.swapReady(),
+            junction: rob8.junction, x: stand.x, z: stand.z, away: tight ? bankAway : { x: 1, z: 0 },
+            swapReady: () => rob8.swapReady(), tight,
           });
         }
         const J = rob8.junction;
@@ -17222,6 +17225,49 @@ let chopperOrder; // likewise
           steps.map((v) => v.toFixed(2)).join(' '));
         const flat = createFareSystem(makeRng(seed + 900), new THREE.Scene(), { risingOdds: false });
         check('...but not under ?robberyodds=classic', flat.robberOdds() === 0.5 && flat.state.bankRides === 0);
+      }
+      // BANK_REACH_ALONG: by default the bank rider is collected level with the steps, on the bank's
+      // own street, and routed down it. The junction's ARRIVE_RADIUS fired from round the corner —
+      // a block and a half from the robber the cut has to frame (Tyler, 2026-10-17).
+      {
+        const tightBanks = Array.from({ length: 40 }, (_, k) => bankRig(k, { tight: true })).filter((d) => d.bankFare);
+        const at = (d, x, z) => {
+          d.f8.markDirected(d.bankFare, { pop: false });
+          d.t8.taxi.x = x; d.t8.taxi.z = z;
+          return d.f8.update(1 / 60, d.t8.taxi).map((e) => e.type).filter((t) => t === 'pickup' || t === 'swapped');
+        };
+        const J = tightBanks[0]?.rob8.junction;
+        const c = J && intersectionCentre(J.i, J.j);
+        const onto = tightBanks[0]?.bankFare.target.onto;
+        const lane = J && cityNetwork().laneByGrid(onto, J.i, J.j);
+        // The point of that lane level with the stand, measured in the frontage's frame.
+        let level = null;
+        if (lane) {
+          for (let t = 0; t <= lane.length; t += 0.1) {
+            const p = lane.path.at(t);
+            const u = (p.x - stand.x) * bankAway.x + (p.z - stand.z) * bankAway.z;
+            if (!level || Math.abs(u) < level.u) level = { u: Math.abs(u), x: p.x, z: p.z };
+          }
+        }
+        check('the bank rider’s target names the lane down the bank’s street',
+          tightBanks.length > 0 && tightBanks.every((d) => d.bankFare.target.onto === onto) && Boolean(lane) && level?.u < 0.2,
+          `${tightBanks.length} riders, onto ${onto}, level with the steps within ${level?.u.toFixed(2)}`);
+        // Across the street from the door, the side the far lane is on.
+        const across = level && Math.hypot(level.x - stand.x, level.z - stand.z);
+        check('...which runs within reach of the steps', across !== null && across < 10.5, `${across?.toFixed(2)} out`);
+        const d0 = tightBanks[0];
+        check('...and the junction, where it used to resolve, no longer collects them',
+          Boolean(d0) && at(d0, c.x, c.z).length === 0);
+        // Round the corner on the cross street, which is where the screenshot had it: one lane in
+        // off the junction, on the far side from the bank.
+        const off = { x: c.x - stand.x, z: c.z - stand.z };
+        const sideways = { x: bankAway.z, z: -bankAway.x };
+        const s = Math.sign(off.x * sideways.x + off.z * sideways.z) || 1;
+        check('...nor does the cross street round the corner',
+          Boolean(d0) && at(d0, c.x + sideways.x * s * 8 + bankAway.x * Math.sign(off.x * bankAway.x + off.z * bankAway.z) * 2,
+            c.z + sideways.z * s * 8 + bankAway.z * Math.sign(off.x * bankAway.x + off.z * bankAway.z) * 2).length === 0);
+        check('...but driving past the steps does',
+          Boolean(d0) && Boolean(level) && at(d0, level.x, level.z).length === 1);
       }
       if (tails.length > 1) {
         // Tails, but the gates are shut — the last robbery inside its cooldown: they get in after all.
