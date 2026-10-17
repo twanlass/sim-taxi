@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
+import { PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ } from '../city/grid.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 /**
@@ -271,6 +272,155 @@ let aoEnabled = false;
 let crayonEnabled = false;
 let cartoonEnabled = false;
 let cloudsEnabled = false;
+let painterlyEnabled = false;
+
+/** Prototype: TF2-style painted surfaces (`?painterly`). Build-time, like the other looks. */
+export function setPainterly(enabled) {
+  painterlyEnabled = enabled;
+}
+
+export const PAINT_UNIFORMS = {
+  // TF2's rule (Mitchell et al., NPAR 2007): shadows go cool, and the *terminator* is reddened and
+  // more saturated. Our faces are flat, so the only light-to-shade transition we have is the soft
+  // edge of a cast shadow (and faces at grazing sun) — that is where the red goes. The shade core is
+  // left to the existing cool tint.
+  uEdgeTint: { value: new THREE.Color(1.28, 0.9, 0.8) },
+  uEdge: { value: 0 },          // off for the streets-only look (0.8 was the red-edge prototype)
+  uEdgeSat: { value: 0.4 },
+  uHeightGrad: { value: 0 },    // how much darker a wall is at its foot (0.4 in the earlier round; off for streets-only)
+  uHeightSpan: { value: 10 },   // world units over which the foot fades up to full brightness
+  // Painted brush tiles (game/brushtiles.js), projected in world space off each flat face's normal.
+  tBrushWall: { value: null },
+  tBrushGround: { value: null },
+  tBrushRoad: { value: null },
+  uRoadGrid: { value: new THREE.Vector3(HALF_SPAN_X, HALF_SPAN_Z, PITCH) }, // where the street centrelines are
+  uRoadArt: { value: new THREE.Vector4(0, 0, HALF_ROAD, HALF_ARTERIAL) }, // arterial lines as bitmasks (j, i), then the two half-widths
+  uRoadTile: { value: 12 },     // a bigger repeat on the road: it is the largest flat surface on screen
+  uRoadAmt: { value: 0.5 },     // value-and-hue swing of a road stroke
+  uLawnAmt: { value: 0 },       // lawn strokes (0.7 earlier; off for streets-only)
+  uRoadMaskScale: { value: 16 }, // world units per cell of the fade mask's coarser octave
+  uRoadMaskLo: { value: 0.38 },  // mask value where the strokes are fully gone…
+  uRoadMaskHi: { value: 0.58 },  // …and where they are at full strength
+  uBrushTile: { value: 8 },     // world units per tile repeat
+  uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
+};
+
+/** Hand the baked brush tiles to every painterly material. */
+export function setPaintBrushes(wall, ground, road) {
+  PAINT_UNIFORMS.tBrushWall.value = wall;
+  PAINT_UNIFORMS.tBrushGround.value = ground;
+  PAINT_UNIFORMS.tBrushRoad.value = road;
+  // The arterials are the layout's call (grid.js is told at createLayout), so read them now.
+  let x = 0, z = 0;
+  for (let j = 0; j <= GRID_J; j++) if (isArterialX(j)) x += 2 ** j;
+  for (let i = 0; i <= GRID_I; i++) if (isArterialZ(i)) z += 2 ** i;
+  PAINT_UNIFORMS.uRoadArt.value.x = x;
+  PAINT_UNIFORMS.uRoadArt.value.y = z;
+}
+
+const PAINT_COMMON = /* glsl */ `
+uniform vec3 uEdgeTint;
+uniform float uEdge;
+uniform float uEdgeSat;
+uniform float uHeightGrad;
+uniform float uHeightSpan;
+uniform sampler2D tBrushWall;
+uniform sampler2D tBrushGround;
+uniform sampler2D tBrushRoad;
+uniform vec3 uRoadGrid;
+uniform vec4 uRoadArt;
+uniform float uRoadTile;
+uniform float uRoadAmt;
+uniform float uLawnAmt;
+uniform float uRoadMaskScale;
+uniform float uRoadMaskLo;
+uniform float uRoadMaskHi;
+float paintHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float paintNoise(vec2 p) {
+	vec2 i = floor(p), f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(paintHash(i), paintHash(i + vec2(1.0, 0.0)), f.x),
+		mix(paintHash(i + vec2(0.0, 1.0)), paintHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+uniform float uBrushTile;
+uniform float uBrushAmt;
+uniform float uBrushKind;
+varying vec3 vPaintWorld;
+`;
+
+// Spliced in after SHADOW_LIGHT. The shade ratio is 0 on a fully lit face and 1 in full shade, so
+// 4r(1-r) peaks in a shadow's soft edge and is zero on both sides of it.
+const PAINT_LIGHT = /* glsl */ `
+	{
+		vec3 pL = vec3(0.2126, 0.7152, 0.0722);
+		float pD = dot(reflectedLight.directDiffuse, pL);
+		float pI = dot(reflectedLight.indirectDiffuse, pL);
+		float pShade = smoothstep(0.45, 1.0, pI / max(pD + pI, 1e-4));
+		float pEdge = 4.0 * pShade * (1.0 - pShade) * uEdge;
+		vec3 pTint = mix(vec3(1.0), uEdgeTint, pEdge);
+		vec3 dd = reflectedLight.directDiffuse * pTint;
+		vec3 id = reflectedLight.indirectDiffuse * pTint;
+		float dl = dot(dd, pL);
+		float il = dot(id, pL);
+		reflectedLight.directDiffuse = max(mix(vec3(dl), dd, 1.0 + uEdgeSat * pEdge), 0.0);
+		reflectedLight.indirectDiffuse = max(mix(vec3(il), id, 1.0 + uEdgeSat * pEdge), 0.0);
+	}
+`;
+
+// The height fade (walls darker at their foot), then the brush tiles. uBrushKind is per material:
+// 0 none, 1 buildings (walls and roofs), 2 ground (lawns get the ground tile, everything else up-facing
+// — the road, kerbs, pavement — gets the road tile, held off the bright lane paint).
+const PAINT_FRAGMENT = /* glsl */ `
+	{
+		vec3 pN = normalize(inverseTransformDirection(normal, viewMatrix));
+		vec3 an = abs(pN);
+		float wall = 1.0 - an.y;
+		float h = smoothstep(0.0, uHeightSpan, vPaintWorld.y);
+		gl_FragColor.rgb *= mix(1.0 - uHeightGrad * wall, 1.0, h);
+		if (uBrushKind > 0.5) {
+			float b = 0.0;
+			if (an.y > 0.7) {
+				vec3 c = gl_FragColor.rgb;
+				float grassy = smoothstep(0.015, 0.06, c.g - max(c.r, c.b));
+				float k = uBrushKind > 1.5 ? grassy * uLawnAmt / max(uBrushAmt, 1e-3) : 1.0;
+				b = (texture2D(tBrushGround, vPaintWorld.xz / uBrushTile).r - 0.5) * k;
+				if (uBrushKind > 1.5) {
+					// The road tile is coloured: each stroke is a hair red or a hair blue as well as
+					// lighter or darker, so the swing is per channel rather than one scalar.
+					float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+					// The road tile's strokes all run along its u axis, so it is read as (x, z) on an
+					// east-west street and (z, x) on a north-south one. At a junction one road runs
+					// straight through and the other stops at its kerb, so a street keeps one heading
+					// across the whole map: the arterial wins, and between two of a kind the
+					// east-west road does. (The first cut split each box along its diagonals, which
+					// drew a pinwheel in every junction.) The seam is cross-faded over 3 units
+					// straddling the kerb line; 0.6 read as a hard edge.
+					vec2 gl = floor((vPaintWorld.xz + uRoadGrid.xy) / uRoadGrid.z + 0.5);
+					vec2 gd = abs(vPaintWorld.xz + uRoadGrid.xy - gl * uRoadGrid.z);
+					float artX = mod(floor(uRoadArt.x / exp2(gl.y)), 2.0);  // the road along x at line j
+					float artZ = mod(floor(uRoadArt.y / exp2(gl.x)), 2.0);  // the road along z at line i
+					float onX = 1.0 - smoothstep(-1.5, 1.5, gd.y - mix(uRoadArt.z, uRoadArt.w, artX));
+					float onZ = 1.0 - smoothstep(-1.5, 1.5, gd.x - mix(uRoadArt.z, uRoadArt.w, artZ));
+					float ns = onZ * (1.0 - onX * (1.0 - artZ * (1.0 - artX)));
+					vec3 r = mix(texture2D(tBrushRoad, vPaintWorld.xz / uRoadTile).rgb,
+						texture2D(tBrushRoad, vPaintWorld.zx / uRoadTile).rgb, ns) - 0.5;
+					// The fade mask: two octaves of value noise, so the strokes come and go in soft
+					// patches tens of units across and the 12-unit repeat never lines up with itself
+					// down a whole street. (The ground brush tile read at a big scale was tried first:
+					// its strokes survive the magnification and the patches came out as streaks.)
+					vec2 mq = vPaintWorld.xz / uRoadMaskScale;
+					float m = paintNoise(mq) * 0.65 + paintNoise(mq * 2.3 + 17.1) * 0.35;
+					float fade = smoothstep(uRoadMaskLo, uRoadMaskHi, m);
+					gl_FragColor.rgb *= 1.0 + 2.0 * r * uRoadAmt * fade * (1.0 - grassy) * (1.0 - smoothstep(0.35, 0.6, lum));
+				}
+			} else if (uBrushKind < 1.5) {
+				vec2 uv = vec2(an.x > an.z ? vPaintWorld.z : vPaintWorld.x, vPaintWorld.y);
+				b = texture2D(tBrushWall, uv / uBrushTile).r - 0.5;
+			}
+			gl_FragColor.rgb *= 1.0 + 2.0 * b * uBrushAmt;
+		}
+	}
+`;
 
 /**
  * Cloud shadows — the storm's (game/rain.js). A moving field of cloud dims the **sun's direct light
@@ -1443,7 +1593,7 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
   const useAO = aoEnabled && ao;
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
     + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}${rimPaintOn() ? '-rim' : ''}` : ''}`
-    + `${cloudsEnabled ? '-clouds' : ''}`;
+    + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint10' : ''}`;
   material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {
@@ -1451,6 +1601,24 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
     if (crayonEnabled) Object.assign(shader.uniforms, CRAYON_UNIFORMS);
     if (cartoonEnabled) Object.assign(shader.uniforms, CARTOON_UNIFORMS);
     if (cloudsEnabled) Object.assign(shader.uniforms, CLOUD_UNIFORMS);
+    if (painterlyEnabled) {
+      Object.assign(shader.uniforms, PAINT_UNIFORMS, {
+        // Per material, read at compile time: whoever built the mesh tags it after propMaterial().
+        uBrushKind: { value: material.userData.brush ?? 0 },
+      });
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+varying vec3 vPaintWorld;`)
+        .replace('#include <project_vertex>', `#include <project_vertex>
+	{
+		vec4 pw = vec4(transformed, 1.0);
+		#ifdef USE_INSTANCING
+		pw = instanceMatrix * pw;
+		#endif
+		vPaintWorld = (modelMatrix * pw).xyz;
+	}`);
+      if (!shader.vertexShader.includes('vPaintWorld = (modelMatrix')) throw new Error('painterly: vertex hook missed');
+    }
     if (gloss) {
       // The shared bag plus this body's own shape and paint share, which differ between a car, a
       // truck's cab and the taxi while the source does not — so per material, under one cache key.
@@ -1547,7 +1715,7 @@ ${glossFragment(classicPaint || paintLook === 'toon' || paintLook === 'rim')
 uniform sampler2D tAmbientOcclusion;
 uniform vec2 uAOTexel;
 uniform vec3 uShadowColor;
-uniform float uShadowTint;${crayonEnabled ? `
+uniform float uShadowTint;${painterlyEnabled ? PAINT_COMMON : ''}${crayonEnabled ? `
 uniform sampler2D tCrayonPaper;
 uniform vec2 uCrayonPaperScale;
 uniform vec2 uCrayonBoil;
@@ -1591,13 +1759,14 @@ ${CLOUD_GLSL}` : ''}`);
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
 ${cloudsEnabled ? CLOUD_LIGHT : ''}
 ${cartoonEnabled ? CARTOON_LIGHT : ''}
-${SHADOW_LIGHT}`);
+${SHADOW_LIGHT}
+${painterlyEnabled ? PAINT_LIGHT : ''}`);
 
     // Both inks share the seam, and they compose in the order the looks would be layered by hand:
     // the cartoon's hard line first, the crayon's broken one over it. Running both is two inks on
     // one frame and nobody should want it, but a flag combination that throws is worse than one
     // that looks odd.
-    const beforeFog = `${cartoonEnabled ? CARTOON_INK : ''}${crayonEnabled ? CRAYON_FRAGMENT : ''}`;
+    const beforeFog = `${painterlyEnabled ? PAINT_FRAGMENT : ''}${cartoonEnabled ? CARTOON_INK : ''}${crayonEnabled ? CRAYON_FRAGMENT : ''}`;
     if (beforeFog) {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <fog_fragment>', `${beforeFog}

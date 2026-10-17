@@ -69,6 +69,7 @@ import { createSkidMarks, createTyreTrail } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
 import { createSpray } from './game/spray.js';
 import { createCityEntry } from './game/cityentry.js';
+import { createBrushTiles } from './game/brushtiles.js';
 import { createBlast, WRECK_STYLES } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createSparks } from './game/sparks.js';
@@ -128,7 +129,7 @@ import { createHdr } from './game/hdr.js';
 import { createCrayon } from './game/crayon.js';
 import { createCartoon } from './game/cartoon.js';
 import {
-  setAmbientOcclusion, setCrayon, setCartoon, setCloudShadows, setClassicPaint, setPaintLook, setRim, setFlip, setRimDepth, rimPaintOn, setVehiclePaint, propMaterial, setGlossCity, setGlossGlobal,
+  setAmbientOcclusion, setPainterly, setPaintBrushes, setCrayon, setCartoon, setCloudShadows, setClassicPaint, setPaintLook, setRim, setFlip, setRimDepth, rimPaintOn, setVehiclePaint, propMaterial, setGlossCity, setGlossGlobal,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
@@ -294,6 +295,19 @@ setAmbientOcclusion(aoEnabled);
 // `game/crayon.js` for what the three layers of it are.
 const crayonEnabled = budget.crayon;
 setCrayon(crayonEnabled);
+// Prototype painterly look (PAINT_* in util/geo.js, game/brushtiles.js): painted strokes on the
+// streets only, fading out in block-sized patches. The shadow edge, wall fade and wall/roof/lawn strokes are still in, dialled to 0. `?painterly=classic` is the old look.
+const painterly = new URLSearchParams(location.search).get('painterly') !== 'classic';
+setPainterly(painterly);
+if (painterly) {
+  const tiles = createBrushTiles();
+  setPaintBrushes(tiles.wall, tiles.ground, tiles.road);
+}
+// Which brush a static mesh wears (see PAINT_FRAGMENT): 1 buildings, 2 ground (lawns only).
+const brush = (mesh, kind) => {
+  mesh.material.userData.brush = kind;
+  return mesh;
+};
 setClassicPaint(getPaintClassic());
 setPaintLook(getPaintLook());
 setRim(getRimColor());
@@ -616,7 +630,7 @@ applyWeather();
 // `markOccluder` is what puts a mesh into the AO depth prepass. The rule it enforces is that
 // anything lit by `propMaterial()` has to be in there: a mesh that receives AO without casting it
 // samples the occlusion of whatever stands behind it. See `game/ssao.js`.
-scene.add(markOccluder(rain.wetGround(createGround(makeRng(seed + 11), layout))));
+scene.add(markOccluder(rain.wetGround(brush(createGround(makeRng(seed + 11), layout), 2))));
 // The ground past the coast, for the fog of war to swallow — game/edgefog.js.
 if (EDGE_FOG) scene.add(createEdgeFogFloor());
 
@@ -661,7 +675,7 @@ if (harbor) scene.add(markOccluder(harbor.mesh));
 // Null under `?northpark=classic`.
 const northPark = createNorthPark(makeRng(seed + 53));
 if (northPark) {
-  scene.add(markOccluder(northPark.mesh));
+  scene.add(markOccluder(brush(northPark.mesh, 2)));
   scene.add(northPark.water);
   scene.add(northPark.fade);
 }
@@ -692,7 +706,7 @@ scene.add(markOccluder(city.mesh));
 // them off (city/westedge.js). Built before the panes are collected, so Rain Mode lights their windows
 // too. Its own stream. Null under `?westedge=classic`.
 const westEdge = createWestEdge(makeRng(seed + 59));
-if (westEdge) scene.add(markOccluder(westEdge.ground), markOccluder(westEdge.towers));
+if (westEdge) scene.add(markOccluder(brush(westEdge.ground, 2)), markOccluder(westEdge.towers));
 // The northwest corner's asphalt skirt (`?westcorner=classic` drops the corner). Transparent, so not
 // an occluder.
 if (westEdge?.fade) scene.add(westEdge.fade);
@@ -1636,6 +1650,9 @@ if (bankJob && bankFare) {
     z: bankJob.home.z,
     away: bankJob.along,
     swapReady: () => robbery.swapReady(),
+    // Collected level with the steps, routed down the bank's own street (BANK_REACH_ALONG in
+    // game/fares.js). `?bankpickup=classic`: the junction's ARRIVE_RADIUS, from any side.
+    tight: new URLSearchParams(window.location.search).get('bankpickup') !== 'classic',
   });
 }
 // The other half of the tailpipe: `flames` is the bark on the press, this is the plume that burns
@@ -2496,9 +2513,11 @@ function onwardFrom(target) {
  * finger that slipped and a tap cannot slip (see `TAP_MAX_DETOUR` in game/parcels.js).
  *
  * `onto` names the *direction* the taxi has to be travelling when it gets there, which turns the
- * destination from a junction into a lane. Only the burger run asks for one — the drive-through's
- * mouth opens off one kerbside lane and a route that arrives from any other side drives past it —
- * and `findRouteOnto` carries why the obvious `via` version does not work.
+ * destination from a junction into a lane. The burger run and the depot run ask for one — the
+ * drive-through's mouth opens off one kerbside lane and a route that arrives from any other side
+ * drives past it — and `findRouteOnto` carries why the obvious `via` version does not work. A target
+ * can also carry its own: the bank rider's does (`bankApproach` in game/fares.js), so every re-plan
+ * of that trip — a tap, a drag, a reset — keeps coming down the bank's street without being told.
  *
  * `along` is a tapped street, `{ a, b }`, which the route has to drive down rather than merely touch
  * — see game/streettap.js. It takes `maxDetour` the way `via` does, and never comes with `onto`:
@@ -2508,7 +2527,7 @@ function onwardFrom(target) {
  * keeps the same destination must pass the same object rather than an equal one — otherwise every
  * frame of a drag replays the sweep and the band never finishes drawing itself.
  */
-function routeTo(target, { via = null, along = null, maxDetour, onto = null } = {}) {
+function routeTo(target, { via = null, along = null, maxDetour, onto = target?.onto ?? null } = {}) {
   const car = traffic.taxi;
   const plan = (from) => (along
     ? findRouteAlong(from, along, target, { maxDetour })
@@ -2640,6 +2659,8 @@ function divertToParcel(parcel) {
 function tapStreet(ray) {
   if (!ray || !pathDrag || !canBendRoute()) return;
   if (burgerRun?.active() || depotRun?.active()) return;
+  // Same for the bank rider, whose target carries its lane (see `routeTo`): `along` has no `onto`.
+  if (traffic.taxi.pendingTarget?.onto != null) return;
   const point = ray.intersectPlane(GROUND_PLANE, tapPoint);
   if (!point) return;
   // A finger on a roof is a finger on the roof. The ray reaches the ground a long way up-screen of
