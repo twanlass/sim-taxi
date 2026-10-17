@@ -313,7 +313,8 @@ whole flank of a car. The rim and the streaks only go on car- and truck-sized bo
 (`gCarSized`); the harbour's ships wear the same paint and came out white under both. And it only
 draws on a fragment the AO prepass drew itself: the helicopter, the plane and the river boats are
 not occluders, so the ground behind their own pixel read as an edge everywhere and they came out
-white. ⚙️ "Reflection streaks" sets their strength (0.6 on `real`, Tyler's pick; 0 elsewhere).
+white. The gap is measured against the fragment's own plane carried along the step, so a
+receding bonnet or roof is not mistaken for an edge (it striped the taxi's panels at 2x). ⚙️ "Reflection streaks" sets their strength (0.6 on `real`, Tyler's pick; 0 elsewhere).
 
 **Cost.** Per glossy fragment: two hashes, the derivatives, and two more Blinn-Phong lobes per
 light (one at play zoom, where the sparkle is skipped). Cars are a few percent of the frame, and

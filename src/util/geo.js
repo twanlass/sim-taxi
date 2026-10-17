@@ -1141,6 +1141,7 @@ const GLOSS_NORMAL = /* glsl */ `
 	{
 ${GLOSS_BEND}
 		float gNV = clamp(gReflN.z, 0.0, 1.0);
+		gZGrad = vec2(dFdx(gl_FragCoord.z), dFdy(gl_FragCoord.z));
 		diffuseColor.rgb *= 1.0 - gFinD.z * (1.0 - gNV) * (1.0 - gNV);
 		diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * diffuseColor.rgb * 0.85,
 			gIsPaint * uFlip.x * pow(1.0 - gNV, uFlip.y));
@@ -1368,11 +1369,19 @@ const RIM_EDGE_FN = /* glsl */ `
 // Only for a fragment the prepass drew: anything not marked as an occluder (the helicopter, the
 // plane, the river boats) finds the ground far behind its own pixel as well as behind the step,
 // so without this check every lit face of it was edge and it came out white (Tyler, 2026-10-17).
+//
+// The gap is measured against this fragment's own plane carried along the step (gZGrad), not its
+// flat depth. Under this camera a bonnet or roof recedes 1.5 units of depth per unit up-screen, so
+// a half-unit step along the panel itself already cleared the 0.4 threshold and read as an edge;
+// where it landed on the half-res buffer then flipped row by row, and the taxi's flat panels came
+// out in zebra stripes of rim light at 2x (Tyler, 2026-10-17).
 float gRimEdge(vec2 dir) {
 	vec2 uv = gl_FragCoord.xy * uAOTexel;
 	float own = (unpackRGBAToDepth(texture2D(tRimDepth, uv)) - gl_FragCoord.z) * uRimDepthScale;
 	if (own > uRimShape.x) return 0.0;
-	float gap = (unpackRGBAToDepth(texture2D(tRimDepth, uv + dir * uRimStep)) - gl_FragCoord.z) * uRimDepthScale;
+	vec2 step = dir * uRimStep;
+	float plane = gl_FragCoord.z + dot(gZGrad, step / uAOTexel);
+	float gap = (unpackRGBAToDepth(texture2D(tRimDepth, uv + step)) - plane) * uRimDepthScale;
 	return smoothstep(uRimShape.x, uRimShape.x + 0.3, gap);
 }
 // The tint, or the paint's own hue at full strength (uRimShape.w = 1, ?rim=paint).
@@ -1502,6 +1511,7 @@ float gIsPaint;
 vec3 gFinishColor;
 vec3 gSpecN;
 vec3 gReflN;
+vec2 gZGrad;
 // 1 on a body up to about a truck's size, 0 on anything much bigger. The harbour's ships wear the
 // cars' paint, and both the rim and the streaks are car-scale details: on a 20-unit hull the rim
 // lit the bow white and the streaks turned the whole ship pale (Tyler, 2026-10-17).
