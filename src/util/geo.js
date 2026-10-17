@@ -890,7 +890,7 @@ const PAINT_CLASSIC = {
 //   rim that lifts the paint at grazing angles instead of mirroring the street there.
 // - `toon`: cel paint. The glint and the sheen are hard-edged shapes rather than lobes, and the
 //   clear coat is one hard band of sky along the bent edges.
-// - `rim` (the default): toon's shapes with the sheen in the paint's full hue — toon's half-white
+// - `rim`: toon's shapes with the sheen in the paint's full hue — toon's half-white
 //   one is what washed the taxi to a pale blue-grey — and a coloured backlight on the body's
 //   up-screen edges instead of the sky band.
 const PAINT_LOOK_NUMBERS = {
@@ -924,9 +924,9 @@ export function setFlip(value) {
 }
 
 let classicPaint = false;
-// Rim is the default (Tyler, 2026-10-16), toon before it (2026-10-13); the rest stay one
-// `?paint=` away.
-const PAINT_LOOK_DEFAULT = 'rim';
+// Realistic is the default (2026-10-17, Tyler: "0.6 looks rad"), rim before it (2026-10-16), toon
+// before that (2026-10-13); the rest stay one `?paint=` away.
+const PAINT_LOOK_DEFAULT = 'real';
 let paintLook = PAINT_LOOK_DEFAULT;
 const finishDefaults = () => {
   const finishes = structuredClone(FINISH_DEFAULTS);
@@ -992,7 +992,7 @@ export function setClassicPaint(enabled) {
   resetGlossTuning();
 }
 
-/** `?paint=layered|chameleon|satin|toon|rim` — anything else (no param) is rim, the default. */
+/** `?paint=layered|chameleon|satin|toon|rim|real` — anything else (no param) is real, the default. */
 export function setPaintLook(look) {
   paintLook = look === 'layered' || look in PAINT_LOOK_NUMBERS ? look : PAINT_LOOK_DEFAULT;
   resetGlossTuning();

@@ -598,7 +598,7 @@ export function getVehiclePaintClassic() {
   return new URLSearchParams(window.location.search).get('vehiclepaint') === 'classic';
 }
 
-/** `?paint=layered|chameleon|satin|toon|rim|real` — null means the default, rim (util/geo.js, PAINT_LOOKS). */
+/** `?paint=layered|chameleon|satin|toon|rim|real` — null means the default, real (util/geo.js, PAINT_LOOKS). */
 export function getPaintLook() {
   return new URLSearchParams(window.location.search).get('paint');
 }

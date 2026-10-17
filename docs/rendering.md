@@ -213,7 +213,7 @@ ignores them.
 
 ### Car paint — the layered finish
 
-The shipped default is the `rim` look built on this (see the end of this section); everything below
+The shipped default is the `real` look built on this (see the end of this section); everything below
 is the layered paint it starts from, still one `?paint=layered` away. `?paint=classic` keeps the
 paint before the layered one — its own GLSL, not the new shader fed the old numbers; see
 [history](rendering-history.md#car-paint--the-layered-finish).
@@ -265,7 +265,7 @@ few overridden (`PAINT_LOOK_NUMBERS`) and up to four GLSL slots filled (`PAINT_L
 `satin` is a wrap — almost no coat, a broad sheen and a velvet rim; `toon` makes the glint and
 sheen hard shapes and the coat one band of sky past 0.6 graze.
 
-**`rim` is the default** (2026-10-16): toon's hard glint and sheen in the paint's full hue, plus the
+**`rim`** (the default 2026-10-16 to 17, `?paint=rim`): toon's hard glint and sheen in the paint's full hue, plus the
 rim line, which every look but classic now wears. Two things make it:
 
 - **The sheen takes the paint's full hue** (`tint` 1, toon has 0.5). Toon's half-white sheen is what
@@ -300,9 +300,9 @@ bends are what smeared the layered look's reflection across a box. `?carbody=smo
 bodies instead: the arched body's profile corners filleted (0.14) and its flanks bevelled (0.05,
 because the arches reach to within 0.13 of the top), cabins and the cop's cab as rounded boxes,
 normals softened across anything under 40 degrees (`softenNormals`), and the paint material
-lit from those normals rather than flat-shaded. Neither is a default yet.
+lit from those normals rather than flat-shaded. Smooth bodies are not a default.
 
-`real` then dropped its sky reflection (coat 0; it washed the taxi pale, Tyler 2026-10-17) for
+**`real` is the default** (2026-10-17). It dropped its sky reflection (coat 0; it washed the taxi pale, Tyler 2026-10-17) for
 **painted reflection streaks** (`STREAKS`): a box panel reflects one point of the sky edge to
 edge, so instead each flank and end gets a horizon line, and every panel two diagonal bands,
 keyed to the body's box and slid by the flank's facing so they move as the car turns. Their colour

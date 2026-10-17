@@ -41,7 +41,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?foliage=classic` | The first, louder autumn palette | #486 | [rendering.md](rendering.md) |
 | `?water=classic` | The faceted first river surface | | [river.md](river.md) |
-| `?paint=classic` / `=layered` / `=chameleon` / `=satin` / `=toon` / `=real` | Car paint before the layered finish, or one of the explored looks (`real`: sharp glint, flakes, flip colour, painted reflection streaks, double-width rim) (default is `rim`; `toon` was the default before it) | #501 | [rendering.md](rendering.md) |
+| `?paint=classic` / `=layered` / `=chameleon` / `=satin` / `=toon` / `=rim` | Car paint before the layered finish, or one of the explored looks (default is `real`: sharp glint, flakes, flip colour, painted reflection streaks, double-width rim; `rim` was the default before it, `toon` before that) | #501 | [rendering.md](rendering.md) |
 | `?rim=off` / `=magenta` / `=cyan` / `=gold` / `=white` | The rim line every paint look wears: off, or one tint for every car (default: each car's own colour) | | [rendering.md](rendering.md#car-paint--the-layered-finish) |
 | `?flip=<0..1>` / `=off` | The paint's flip colour, a deeper shade of itself at grazing angles (default: 0.7 on `rim`, 0.8 on `real`, off elsewhere) | | [rendering.md](rendering.md#car-paint--the-layered-finish) |
 | `?carbody=smooth` | Experimental: cars with rounded body edges and soft normals instead of flat boxes | | [rendering.md](rendering.md#car-paint--the-layered-finish) |
