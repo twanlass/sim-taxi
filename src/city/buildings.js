@@ -1157,6 +1157,10 @@ export function createBuildings(rng, blocks) {
     const crowns = plantedCrowns().length;
     const out = entry.ghost ? scratch : parts;
     const moved = (entry === yardAt && yardAt !== yard) || (entry === bankAt && bankAt !== bankLot);
+    // Nor does a thrown-away building report its windows: Rain Mode's lit panes (`paneSink`) were
+    // left hanging over the roadside lot at night where its towers would have stood.
+    const sink = paneSink;
+    if (entry.ghost || moved) paneSink = null;
     if (entry === yard) {
       const built = buildCourtyard(entry.lot, entry.block, rng, out);
       if (!entry.ghost) court = built;
@@ -1166,6 +1170,7 @@ export function createBuildings(rng, blocks) {
       if (!entry.ghost) bank = built;
     }
     else buildTower(entry.lot, entry.block, rng, moved ? scratch : out, stats);
+    paneSink = sink;
     if (entry.ghost || moved) {
       // Its decks stay in the list, flagged, so the helipad's draw below sees the list it always
       // saw; a pad that lands on one is moved after the draw.

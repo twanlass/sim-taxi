@@ -43,6 +43,7 @@ import { createBoombox, BPM as BOOMBOX_BPM } from '../src/game/boombox.js';
 import { createTubeMan } from '../src/game/tubeman.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
+import { collectPanes } from '../src/game/citylights.js';
 import { LOT_Y, ROADSIDE_MODE, roadsideKind } from '../src/city/roadside.js';
 import { onLawn } from '../src/city/ground.js';
 import { createHoopers } from '../src/game/hoopers.js';
@@ -1527,6 +1528,15 @@ const onGrass = (city, i, j) => {
     for (const k of without) if (!withWash.has(k)) moved += 1;
     check('...and taking it moves no other building', moved === 0,
       `${moved} vertices differ off its block; ${buildings.rehomed.length} landmark lot(s) moved`);
+  }
+  // ...and the towers it threw away leave no lit windows behind: Rain Mode lights the panes the
+  // generator reports, and a ghost reporting its own hung them over the lot at night.
+  {
+    const stop = collectPanes();
+    createBuildings(makeRng(seed + 22), layout);
+    const b = block.bounds;
+    const stray = stop().filter((f) => f.cx > b.x0 && f.cx < b.x1 && f.cz > b.z0 && f.cz < b.z1).length;
+    check('...and leaves no lit windows on its block', stray === 0, `${stray} façade(s)`);
   }
   const wash = createCarWash(block, makeRng(seed + 141));
   const before = wash.entryObjects.map((e) => e.object.rotation.clone());
