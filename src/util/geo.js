@@ -393,13 +393,14 @@ const PAINT_FRAGMENT = /* glsl */ `
 					// straight through and the other stops at its kerb, so a street keeps one heading
 					// across the whole map: the arterial wins, and between two of a kind the
 					// east-west road does. (The first cut split each box along its diagonals, which
-					// drew a pinwheel in every junction.)
+					// drew a pinwheel in every junction.) The seam is cross-faded over 3 units
+					// straddling the kerb line; 0.6 read as a hard edge.
 					vec2 gl = floor((vPaintWorld.xz + uRoadGrid.xy) / uRoadGrid.z + 0.5);
 					vec2 gd = abs(vPaintWorld.xz + uRoadGrid.xy - gl * uRoadGrid.z);
 					float artX = mod(floor(uRoadArt.x / exp2(gl.y)), 2.0);  // the road along x at line j
 					float artZ = mod(floor(uRoadArt.y / exp2(gl.x)), 2.0);  // the road along z at line i
-					float onX = 1.0 - smoothstep(-0.3, 0.3, gd.y - mix(uRoadArt.z, uRoadArt.w, artX));
-					float onZ = 1.0 - smoothstep(-0.3, 0.3, gd.x - mix(uRoadArt.z, uRoadArt.w, artZ));
+					float onX = 1.0 - smoothstep(-1.5, 1.5, gd.y - mix(uRoadArt.z, uRoadArt.w, artX));
+					float onZ = 1.0 - smoothstep(-1.5, 1.5, gd.x - mix(uRoadArt.z, uRoadArt.w, artZ));
 					float ns = onZ * (1.0 - onX * (1.0 - artZ * (1.0 - artX)));
 					vec3 r = mix(texture2D(tBrushRoad, vPaintWorld.xz / uRoadTile).rgb,
 						texture2D(tBrushRoad, vPaintWorld.zx / uRoadTile).rgb, ns) - 0.5;
@@ -1578,7 +1579,7 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
   const useAO = aoEnabled && ao;
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
     + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}${rimPaintOn() ? '-rim' : ''}` : ''}`
-    + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint9' : ''}`;
+    + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint10' : ''}`;
   material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {
