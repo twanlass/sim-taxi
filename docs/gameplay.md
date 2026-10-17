@@ -93,7 +93,7 @@ near lane.
 | `approach` | `focusOn` eases target and zoom together onto the door, from the play framing at zoom 52 down to **15** | ~1.4s, capped at 1.9 |
 | `settle` | A beat on the shut door, so arriving and the door moving read as two events | 0.12s |
 | `door` | The curtain winds up on an ease-*out* — a roller door leaves fast under its counterweight and creeps the last few inches | 0.95s |
-| `reveal` | The car sitting in a lit doorway. This is the shot | 0.35s |
+| `reveal` | The car sitting in a lit doorway, the radio crushed through its speaker ([the dash radio](audio.md#the-dash-radio)). This is the shot | 0.35s, or until the first song has played 4s through the dash (up to 8s) |
 | `roll` | Out of the bay, across the forecourt, down the kerb, right into the lane. The zoom starts widening as the nose clears the door, so the pull-back is already under way; the **shutter starts coming back down** the moment the car reaches the kerb | ~2.7s |
 | `release` | `focusOn` back to whatever framing the run would have had — the city's centre on a desktop, the taxi on a phone, where the opening follow-cam picks it up | ~1.3s, capped at 2.0 |
 
@@ -1862,7 +1862,12 @@ delivery, 35s after the last one left the board; #499). They are an ordinary tap
 them and pull up, and a coin tossed when they spawned decides it — **a loaded one**: even odds on
 the first bank rider of a run, then 15 points more robbery for each one who rode (50, 65, 80, 95,
 capped there), back to even once a robbery happens (`BANK_ROBBER_STEP`; #522,
-`?robberyodds=classic` for a fair coin every time). Heads they get in like anybody
+`?robberyodds=classic` for a fair coin every time). **The taxi collects them from the steps, not the
+corner**: the route comes down the bank's own street (the fare's target carries its lane, `onto`),
+and the pickup resolves only level with the door (`BANK_REACH_ALONG`, 6 either way along the
+façade, across both lanes). The junction's `ARRIVE_RADIUS` it used to share with everyone fired
+from the cross street round the corner, a block and a half from the robber the cut then had to
+frame (`?bankpickup=classic`). Heads they get in like anybody
 else; tails a robber bursts out of the bank, shoves them over and takes their seat — see
 [the bank job](#the-bank-job) — and the streets go blue for as long as it takes to get the robber
 where they are going. `?bankfare=classic` restores the drive-past robbery, where passing the bank

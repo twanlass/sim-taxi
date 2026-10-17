@@ -1284,7 +1284,10 @@ export const PALETTE = {
   graveStoneDark: '#A19E96',
   gravePath: '#BDB4A2',
   graveIron: '#2A2D33',
-  // The graveyard's one tree: a dark plum crown, off every colour the season paints the parks.
+  // The fence's plinth and piers: a touch brown, so a pier is masonry and not one more headstone.
+  gravePier: '#9C8F7E',
+  gravePierCap: '#C4B8A6',
+  // The graveyard's one tree (`?gravetree=classic`): a dark plum crown, off every colour the season paints the parks.
   graveTree: '#5E3448',
   graveLantern: '#FFC46A',
   graveMist: '#E6EBF2',

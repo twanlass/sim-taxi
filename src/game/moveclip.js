@@ -55,7 +55,7 @@ const FRAME_MARGIN = 1.15;
 const SEAM = 0.25;
 
 /**
- * A reel (game/uturnreel.js, game/driftreel.js) as something to play: `at(t)` is the car at time t
+ * A reel (game/uturnreel-<width>.js, game/driftreel-<width>.js) as something to play: `at(t)` is the car at time t
  * into the loop, interpolated — along and lateral in the reel's own frame (+ the driver's right),
  * y, roll, yaw (from the frame's heading, unwrapped), pitch, the wheel lock, the brake lamp and the
  * flame (0 out, 1 lit, 2 the drift kick's twin plume). `alongShift` is taken off every along, so a

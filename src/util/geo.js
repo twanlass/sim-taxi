@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
+import { PITCH, HALF_SPAN_X, HALF_SPAN_Z, HALF_ROAD, HALF_ARTERIAL, GRID_I, GRID_J, isArterialX, isArterialZ } from '../city/grid.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 /**
  * The Euler order every body in the game poses with, and it is not the default.
@@ -270,6 +272,155 @@ let aoEnabled = false;
 let crayonEnabled = false;
 let cartoonEnabled = false;
 let cloudsEnabled = false;
+let painterlyEnabled = false;
+
+/** Prototype: TF2-style painted surfaces (`?painterly`). Build-time, like the other looks. */
+export function setPainterly(enabled) {
+  painterlyEnabled = enabled;
+}
+
+export const PAINT_UNIFORMS = {
+  // TF2's rule (Mitchell et al., NPAR 2007): shadows go cool, and the *terminator* is reddened and
+  // more saturated. Our faces are flat, so the only light-to-shade transition we have is the soft
+  // edge of a cast shadow (and faces at grazing sun) — that is where the red goes. The shade core is
+  // left to the existing cool tint.
+  uEdgeTint: { value: new THREE.Color(1.28, 0.9, 0.8) },
+  uEdge: { value: 0 },          // off for the streets-only look (0.8 was the red-edge prototype)
+  uEdgeSat: { value: 0.4 },
+  uHeightGrad: { value: 0 },    // how much darker a wall is at its foot (0.4 in the earlier round; off for streets-only)
+  uHeightSpan: { value: 10 },   // world units over which the foot fades up to full brightness
+  // Painted brush tiles (game/brushtiles.js), projected in world space off each flat face's normal.
+  tBrushWall: { value: null },
+  tBrushGround: { value: null },
+  tBrushRoad: { value: null },
+  uRoadGrid: { value: new THREE.Vector3(HALF_SPAN_X, HALF_SPAN_Z, PITCH) }, // where the street centrelines are
+  uRoadArt: { value: new THREE.Vector4(0, 0, HALF_ROAD, HALF_ARTERIAL) }, // arterial lines as bitmasks (j, i), then the two half-widths
+  uRoadTile: { value: 12 },     // a bigger repeat on the road: it is the largest flat surface on screen
+  uRoadAmt: { value: 0.5 },     // value-and-hue swing of a road stroke
+  uLawnAmt: { value: 0 },       // lawn strokes (0.7 earlier; off for streets-only)
+  uRoadMaskScale: { value: 16 }, // world units per cell of the fade mask's coarser octave
+  uRoadMaskLo: { value: 0.38 },  // mask value where the strokes are fully gone…
+  uRoadMaskHi: { value: 0.58 },  // …and where they are at full strength
+  uBrushTile: { value: 8 },     // world units per tile repeat
+  uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
+};
+
+/** Hand the baked brush tiles to every painterly material. */
+export function setPaintBrushes(wall, ground, road) {
+  PAINT_UNIFORMS.tBrushWall.value = wall;
+  PAINT_UNIFORMS.tBrushGround.value = ground;
+  PAINT_UNIFORMS.tBrushRoad.value = road;
+  // The arterials are the layout's call (grid.js is told at createLayout), so read them now.
+  let x = 0, z = 0;
+  for (let j = 0; j <= GRID_J; j++) if (isArterialX(j)) x += 2 ** j;
+  for (let i = 0; i <= GRID_I; i++) if (isArterialZ(i)) z += 2 ** i;
+  PAINT_UNIFORMS.uRoadArt.value.x = x;
+  PAINT_UNIFORMS.uRoadArt.value.y = z;
+}
+
+const PAINT_COMMON = /* glsl */ `
+uniform vec3 uEdgeTint;
+uniform float uEdge;
+uniform float uEdgeSat;
+uniform float uHeightGrad;
+uniform float uHeightSpan;
+uniform sampler2D tBrushWall;
+uniform sampler2D tBrushGround;
+uniform sampler2D tBrushRoad;
+uniform vec3 uRoadGrid;
+uniform vec4 uRoadArt;
+uniform float uRoadTile;
+uniform float uRoadAmt;
+uniform float uLawnAmt;
+uniform float uRoadMaskScale;
+uniform float uRoadMaskLo;
+uniform float uRoadMaskHi;
+float paintHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float paintNoise(vec2 p) {
+	vec2 i = floor(p), f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(paintHash(i), paintHash(i + vec2(1.0, 0.0)), f.x),
+		mix(paintHash(i + vec2(0.0, 1.0)), paintHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+uniform float uBrushTile;
+uniform float uBrushAmt;
+uniform float uBrushKind;
+varying vec3 vPaintWorld;
+`;
+
+// Spliced in after SHADOW_LIGHT. The shade ratio is 0 on a fully lit face and 1 in full shade, so
+// 4r(1-r) peaks in a shadow's soft edge and is zero on both sides of it.
+const PAINT_LIGHT = /* glsl */ `
+	{
+		vec3 pL = vec3(0.2126, 0.7152, 0.0722);
+		float pD = dot(reflectedLight.directDiffuse, pL);
+		float pI = dot(reflectedLight.indirectDiffuse, pL);
+		float pShade = smoothstep(0.45, 1.0, pI / max(pD + pI, 1e-4));
+		float pEdge = 4.0 * pShade * (1.0 - pShade) * uEdge;
+		vec3 pTint = mix(vec3(1.0), uEdgeTint, pEdge);
+		vec3 dd = reflectedLight.directDiffuse * pTint;
+		vec3 id = reflectedLight.indirectDiffuse * pTint;
+		float dl = dot(dd, pL);
+		float il = dot(id, pL);
+		reflectedLight.directDiffuse = max(mix(vec3(dl), dd, 1.0 + uEdgeSat * pEdge), 0.0);
+		reflectedLight.indirectDiffuse = max(mix(vec3(il), id, 1.0 + uEdgeSat * pEdge), 0.0);
+	}
+`;
+
+// The height fade (walls darker at their foot), then the brush tiles. uBrushKind is per material:
+// 0 none, 1 buildings (walls and roofs), 2 ground (lawns get the ground tile, everything else up-facing
+// — the road, kerbs, pavement — gets the road tile, held off the bright lane paint).
+const PAINT_FRAGMENT = /* glsl */ `
+	{
+		vec3 pN = normalize(inverseTransformDirection(normal, viewMatrix));
+		vec3 an = abs(pN);
+		float wall = 1.0 - an.y;
+		float h = smoothstep(0.0, uHeightSpan, vPaintWorld.y);
+		gl_FragColor.rgb *= mix(1.0 - uHeightGrad * wall, 1.0, h);
+		if (uBrushKind > 0.5) {
+			float b = 0.0;
+			if (an.y > 0.7) {
+				vec3 c = gl_FragColor.rgb;
+				float grassy = smoothstep(0.015, 0.06, c.g - max(c.r, c.b));
+				float k = uBrushKind > 1.5 ? grassy * uLawnAmt / max(uBrushAmt, 1e-3) : 1.0;
+				b = (texture2D(tBrushGround, vPaintWorld.xz / uBrushTile).r - 0.5) * k;
+				if (uBrushKind > 1.5) {
+					// The road tile is coloured: each stroke is a hair red or a hair blue as well as
+					// lighter or darker, so the swing is per channel rather than one scalar.
+					float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+					// The road tile's strokes all run along its u axis, so it is read as (x, z) on an
+					// east-west street and (z, x) on a north-south one. At a junction one road runs
+					// straight through and the other stops at its kerb, so a street keeps one heading
+					// across the whole map: the arterial wins, and between two of a kind the
+					// east-west road does. (The first cut split each box along its diagonals, which
+					// drew a pinwheel in every junction.) The seam is cross-faded over 3 units
+					// straddling the kerb line; 0.6 read as a hard edge.
+					vec2 gl = floor((vPaintWorld.xz + uRoadGrid.xy) / uRoadGrid.z + 0.5);
+					vec2 gd = abs(vPaintWorld.xz + uRoadGrid.xy - gl * uRoadGrid.z);
+					float artX = mod(floor(uRoadArt.x / exp2(gl.y)), 2.0);  // the road along x at line j
+					float artZ = mod(floor(uRoadArt.y / exp2(gl.x)), 2.0);  // the road along z at line i
+					float onX = 1.0 - smoothstep(-1.5, 1.5, gd.y - mix(uRoadArt.z, uRoadArt.w, artX));
+					float onZ = 1.0 - smoothstep(-1.5, 1.5, gd.x - mix(uRoadArt.z, uRoadArt.w, artZ));
+					float ns = onZ * (1.0 - onX * (1.0 - artZ * (1.0 - artX)));
+					vec3 r = mix(texture2D(tBrushRoad, vPaintWorld.xz / uRoadTile).rgb,
+						texture2D(tBrushRoad, vPaintWorld.zx / uRoadTile).rgb, ns) - 0.5;
+					// The fade mask: two octaves of value noise, so the strokes come and go in soft
+					// patches tens of units across and the 12-unit repeat never lines up with itself
+					// down a whole street. (The ground brush tile read at a big scale was tried first:
+					// its strokes survive the magnification and the patches came out as streaks.)
+					vec2 mq = vPaintWorld.xz / uRoadMaskScale;
+					float m = paintNoise(mq) * 0.65 + paintNoise(mq * 2.3 + 17.1) * 0.35;
+					float fade = smoothstep(uRoadMaskLo, uRoadMaskHi, m);
+					gl_FragColor.rgb *= 1.0 + 2.0 * r * uRoadAmt * fade * (1.0 - grassy) * (1.0 - smoothstep(0.35, 0.6, lum));
+				}
+			} else if (uBrushKind < 1.5) {
+				vec2 uv = vec2(an.x > an.z ? vPaintWorld.z : vPaintWorld.x, vPaintWorld.y);
+				b = texture2D(tBrushWall, uv / uBrushTile).r - 0.5;
+			}
+			gl_FragColor.rgb *= 1.0 + 2.0 * b * uBrushAmt;
+		}
+	}
+`;
 
 /**
  * Cloud shadows — the storm's (game/rain.js). A moving field of cloud dims the **sun's direct light
@@ -586,7 +737,84 @@ export const GLOSS_UNIFORMS = {
   uFinishD: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector4()) },
   // x: flake cells per unit, y: façade darkness, z: false-colour finish view (0/1).
   uGlossGlobal: { value: new THREE.Vector4() },
+  // The rim look's backlight (`setRim`): rgb in linear, a = strength.
+  uRim: { value: new THREE.Vector4() },
+  // The rim's depth edge test: the AO prepass's packed depth (`setRimDepth`), one step in that
+  // texture's uv, the depth range in world units, and x = the depth gap (world units) that starts
+  // the rim, y = the sky rim's share, z = the step in texels.
+  tRimDepth: { value: null },
+  uRimStep: { value: new THREE.Vector2() },
+  uRimDepthScale: { value: 1 },
+  uRimShape: { value: new THREE.Vector4(0.4, 0.6, 4, 0) },
+  // Where the toon and rim looks' glint (x) and sheen (y) snap on, as cos(half-angle): higher is
+  // a smaller shape. Were 0.982 and 0.86, which drew a sun-sized oval across the windscreen and
+  // a broad lobe over the roof (Tyler, 2026-10-17: "crazy big highlights").
+  uToonCut: { value: new THREE.Vector2(0.996, 0.975) },
+  // The flip colour: x how far the paint turns toward a deeper shade of itself at a grazing angle,
+  // y the falloff's power. Per look (`PAINT_LOOK_FLIP`), `?flip=` overrides.
+  uFlip: { value: new THREE.Vector2(0, 1.6) },
+  // Painted reflection streaks (STREAKS): x strength, per look (`PAINT_LOOK_STREAKS`).
+  uStreak: { value: new THREE.Vector4(0, 0, 0, 0) },
 };
+
+// `?rim=<name>`: one tint for every car's rim. Without one, each car's rim takes its own paint's
+// hue at full strength (Tyler, 2026-10-16: gold on the taxi), times the colour of the light.
+export const RIM_COLORS = { magenta: '#ff3df0', cyan: '#00e5ff', gold: '#ffb347', white: '#ffffff' };
+const RIM_STRENGTH = 3;
+let rimLine = true;
+
+/**
+ * The rim line, which every look but classic wears: `paint` (the default) takes each car's own
+ * hue, a `RIM_COLORS` name tints it, `off` drops it. Build-time for `off`, like the looks.
+ */
+export function setRim(name) {
+  rimLine = name !== 'off';
+  const c = new THREE.Color(RIM_COLORS[name] ?? RIM_COLORS.white).convertSRGBToLinear();
+  GLOSS_UNIFORMS.uRim.value.set(c.r, c.g, c.b, RIM_STRENGTH);
+  GLOSS_UNIFORMS.uRimShape.value.w = name in RIM_COLORS ? 0 : 1;
+}
+setRim();
+
+// The ⚙️ panel's Rim rows (game/debugpanel.js): name -> [uniform, component].
+const RIM_TUNING = {
+  width: ['uRimShape', 'z'],
+  strength: ['uRim', 'w'],
+  sky: ['uRimShape', 'y'],
+  gap: ['uRimShape', 'x'],
+  carColour: ['uRimShape', 'w'],
+  glintCut: ['uToonCut', 'x'],
+  sheenCut: ['uToonCut', 'y'],
+  flip: ['uFlip', 'x'],
+  streaks: ['uStreak', 'x'],
+  flipPower: ['uFlip', 'y'],
+};
+/** The rim's live numbers, for the ⚙️ panel. `width` is in half-res texels, `gap` in world units. */
+export const rimTuning = () => Object.fromEntries(Object.entries(RIM_TUNING)
+  .map(([key, [u, c]]) => [key, GLOSS_UNIFORMS[u].value[c]]));
+/** Set one of them live (`setRimTuning('width', 6)`); width lands on the next frame's step. */
+export function setRimTuning(key, value) {
+  const [u, c] = RIM_TUNING[key];
+  GLOSS_UNIFORMS[u].value[c] = value;
+}
+
+/**
+ * Hand the rim the AO prepass's depth, every frame before the main render — its size moves with
+ * the drawing buffer and its depth scale with the camera.
+ */
+export function setRimDepth(texture, size, camera) {
+  GLOSS_UNIFORMS.tRimDepth.value = texture;
+  if (size) {
+    // The width is a pen width in texels, capped at RIM_MAX_WORLD units of world so it stays a
+    // line when the camera pulls out (see RIM_MAX_WORLD).
+    let texels = GLOSS_UNIFORMS.uRimShape.value.z;
+    if (camera.isOrthographicCamera) {
+      const perUnit = (size.width * camera.zoom) / (camera.right - camera.left);
+      texels = Math.min(texels, RIM_MAX_WORLD * perUnit);
+    }
+    GLOSS_UNIFORMS.uRimStep.value.set(texels / size.width, texels / size.height);
+  }
+  GLOSS_UNIFORMS.uRimDepthScale.value = camera.far - camera.near;
+}
 
 /**
  * Follow the sky. The dome's `ShaderMaterial` writes its uniforms straight to the canvas with no
@@ -642,6 +870,68 @@ export function setGlossCity(field, ceiling) {
 // shiny": its diffuse of 0.64 took the barge's green wheelhouse to black once already.
 export const FINISH = { TYRE: 0, PAINT: 1, GLASS: 2, METAL: 3, MATTE: 4 };
 export const FINISH_NAMES = ['tyre', 'paint', 'glass', 'metal', 'matte'];
+
+// `?carbody=smooth`: the cars' bodies with rounded edges and soft normals, so a reflection has a
+// curve to slide across instead of one flat colour per panel (2026-10-17, an experiment beside the
+// realistic paint). Read at import like `?taxiroof=classic`, because the geometry modules build
+// their bodies before main.js has run a line of its own.
+export const SMOOTH_BODY = typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('carbody') === 'smooth';
+/** How round a smooth body's edges are, in car-local units. */
+export const BODY_ROUND = 0.14;
+
+/**
+ * Soft normals on a non-indexed geometry: each corner takes the area-weighted mean of the faces
+ * meeting at its position that lie within `creaseDeg` of its own face, so a bevel's segments blend
+ * into one curve and a box's 90 degree edges stay hard. Run after `bakeColor`, which flattens.
+ */
+export function softenNormals(geometry, creaseDeg = 40) {
+  const pos = geometry.attributes.position;
+  const n = pos.count;
+  const face = new Float32Array(n);
+  const faceN = [];
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let i = 0; i < n; i += 3) {
+    a.fromBufferAttribute(pos, i); b.fromBufferAttribute(pos, i + 1); c.fromBufferAttribute(pos, i + 2);
+    const fn = new THREE.Vector3().crossVectors(b.sub(a), c.sub(a)); // length = 2 x area
+    faceN.push(fn);
+  }
+  const key = (i) => `${Math.round(pos.getX(i) * 1e4)},${Math.round(pos.getY(i) * 1e4)},${Math.round(pos.getZ(i) * 1e4)}`;
+  const at = new Map();
+  for (let i = 0; i < n; i++) {
+    const k = key(i);
+    if (!at.has(k)) at.set(k, []);
+    at.get(k).push(i);
+  }
+  const cos = Math.cos((creaseDeg * Math.PI) / 180);
+  const out = new Float32Array(n * 3);
+  const sum = new THREE.Vector3(), own = new THREE.Vector3(), other = new THREE.Vector3();
+  for (const list of at.values()) {
+    for (const i of list) {
+      own.copy(faceN[(i / 3) | 0]).normalize();
+      sum.set(0, 0, 0);
+      for (const j of list) {
+        const f = faceN[(j / 3) | 0];
+        other.copy(f).normalize();
+        if (other.dot(own) >= cos) sum.add(f);
+      }
+      if (sum.lengthSq() < 1e-12) sum.copy(own);
+      sum.normalize();
+      out[i * 3] = sum.x; out[i * 3 + 1] = sum.y; out[i * 3 + 2] = sum.z;
+    }
+  }
+  geometry.setAttribute('normal', new THREE.BufferAttribute(out, 3));
+  return geometry;
+}
+
+/** A box for a smooth body, edges rounded by `radius` (clamped to the box); a plain box otherwise. */
+export function bodyBox(w, h, d, radius = BODY_ROUND) {
+  if (!SMOOTH_BODY) return new THREE.BoxGeometry(w, h, d);
+  const r = Math.min(radius, 0.45 * Math.min(w, h, d));
+  const box = new RoundedBoxGeometry(w, h, d, 3, r);
+  box.deleteAttribute('uv');
+  return box;
+}
 
 /** Tag every vertex of a geometry with one finish. Returns the geometry, like `bakeColor`. */
 export function setFinish(geometry, finish) {
@@ -759,6 +1049,9 @@ const PAINT_CLASSIC = {
 //   rim that lifts the paint at grazing angles instead of mirroring the street there.
 // - `toon`: cel paint. The glint and the sheen are hard-edged shapes rather than lobes, and the
 //   clear coat is one hard band of sky along the bent edges.
+// - `rim`: toon's shapes with the sheen in the paint's full hue — toon's half-white
+//   one is what washed the taxi to a pale blue-grey — and a coloured backlight on the body's
+//   up-screen edges instead of the sky band.
 const PAINT_LOOK_NUMBERS = {
   chameleon: { coat: 1, tint: 1, flop: 0.1, sheen: 0.7, flake: 0.9 },
   satin: {
@@ -766,11 +1059,39 @@ const PAINT_LOOK_NUMBERS = {
     flop: 0, diffuse: 1.3,
   },
   toon: { glint: 1, sheen: 0.45, flake: 0, coat: 0, tint: 0.5, flop: 0 },
+  rim: { glint: 1, sheen: 0.45, flake: 0, coat: 0, tint: 1, flop: 0 },
+  // `real` (2026-10-17, from Tyler's car-paint brief): a sharp clear-coat glint over a soft
+  // base sheen, flakes, the full Fresnel coat and the flip colour, with the bends cut to a
+  // quarter, since they are what smeared the layered look's reflection across a box. Meant
+  // for `?carbody=smooth`, whose own curves stand in for the bend.
+  real: {
+    glint: 0.5, glintSharp: 2000, glintBend: 0.25, sheen: 0.35, sheenSharp: 12, flake: 0.6,
+    reflectBend: 0.3, coat: 0, tint: 0.8, flop: 0,
+  },
 };
+// The flip colour each look wears (`uFlip.x`); `?flip=<amount>` overrides, `?flip=off` drops it.
+const PAINT_LOOK_FLIP = { rim: 0.7, real: 0.8 };
+// The streaks each look wears (`uStreak.x`), and its rim's width in half-res texels (Tyler,
+// 2026-10-17: double the rim on realistic).
+const PAINT_LOOK_STREAKS = { real: 0.6 }; // Tyler, 2026-10-17: "0.6 looks rad"
+const PAINT_LOOK_RIM_WIDTH = { real: 8 };
+// ...but never wider than this in world units. The doubled width was judged in close-ups; at play
+// zoom on a phone (~7 half-res texels a unit) 8 texels is 1.1 units, which is the whole visible
+// flank of a car and the whole hull of a harbour ship, so both came out lit edge to edge
+// (Tyler, 2026-10-17: "Boats are pure white. Cars are over bright."). 0.5 is what the rim look's
+// 4 texels measured at play zoom, the width Tyler had already been playing with.
+const RIM_MAX_WORLD = 0.5;
+let flipOverride = null;
+/** `?flip=`: a number, or `off`. Null keeps each look's own. */
+export function setFlip(value) {
+  flipOverride = value === 'off' ? 0 : value == null || value === '' ? null : Number(value);
+  GLOSS_UNIFORMS.uFlip.value.x = flipOverride ?? PAINT_LOOK_FLIP[paintLook] ?? 0;
+}
 
 let classicPaint = false;
-// Toon is the default (Tyler, 2026-10-13); the rest stay one `?paint=` away.
-const PAINT_LOOK_DEFAULT = 'toon';
+// Realistic is the default (2026-10-17, Tyler: "0.6 looks rad"), rim before it (2026-10-16), toon
+// before that (2026-10-13); the rest stay one `?paint=` away.
+const PAINT_LOOK_DEFAULT = 'real';
 let paintLook = PAINT_LOOK_DEFAULT;
 const finishDefaults = () => {
   const finishes = structuredClone(FINISH_DEFAULTS);
@@ -836,11 +1157,17 @@ export function setClassicPaint(enabled) {
   resetGlossTuning();
 }
 
-/** `?paint=layered|chameleon|satin|toon` — anything else (no param) is toon, the default. */
+/** `?paint=layered|chameleon|satin|toon|rim|real` — anything else (no param) is real, the default. */
 export function setPaintLook(look) {
   paintLook = look === 'layered' || look in PAINT_LOOK_NUMBERS ? look : PAINT_LOOK_DEFAULT;
   resetGlossTuning();
+  setFlip(flipOverride);
+  GLOSS_UNIFORMS.uStreak.value.x = PAINT_LOOK_STREAKS[paintLook] ?? 0;
+  GLOSS_UNIFORMS.uRimShape.value.z = PAINT_LOOK_RIM_WIDTH[paintLook] ?? 4;
 }
+
+/** Whether the cars wear the rim look, which reads the AO prepass's depth. */
+export const rimPaintOn = () => !classicPaint && rimLine;
 
 /** A copy of the live finish tuning — what the `?debug` panel reads and exports. */
 export const glossTuning = () => structuredClone(glossState);
@@ -964,10 +1291,14 @@ const GLOSS_NORMAL = /* glsl */ `
 	{
 ${GLOSS_BEND}
 		float gNV = clamp(gReflN.z, 0.0, 1.0);
+		gZGrad = vec2(dFdx(gl_FragCoord.z), dFdy(gl_FragCoord.z));
 		diffuseColor.rgb *= 1.0 - gFinD.z * (1.0 - gNV) * (1.0 - gNV);
+		diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * diffuseColor.rgb * 0.85,
+			gIsPaint * uFlip.x * pow(1.0 - gNV, uFlip.y));
 __LOOK_BASE__
 		float gPeak = max(max(diffuseColor.r, diffuseColor.g), max(diffuseColor.b, 1e-3));
 		gTint = mix(vec3(1.0), diffuseColor.rgb / gPeak, gFinD.y);
+		gRimHue = diffuseColor.rgb / gPeak;
 
 		vec3 gF = vGlossObj * uGlossGlobal.x + 0.37;
 		vec3 gId = floor(gF);
@@ -1022,6 +1353,7 @@ const GLOSS_SPECULAR_TO = /* glsl */ `{
 
 // What the layered paint adds to the fragment's globals, and the hash its flakes are cut with.
 const GLOSS_PAINT_DECLS = /* glsl */ `vec3 gTint;
+vec3 gRimHue;
 vec3 gFlakeN;
 float gFlakeVis;
 float gFlakeDisc;
@@ -1110,8 +1442,103 @@ __LOOK_FINAL__
 //
 // **Toon** thresholds the glint and the sheen into shapes, quantises the sky into two bands, and
 // replaces the clear coat's curve with one hard band past 0.6 graze.
+//
+// **Rim** is toon with the sheen in the paint's full hue. The rim line (`RIM_LIGHT`, `RIM_SKY`,
+// appended to every look but classic unless `?rim=off`) is a hairline of light along the body's silhouette, on the
+// edges that face a light and nowhere else. The panels are flat boxes, so nothing in a fragment's
+// own normal says it is at an edge; the screen does. Each light steps the fragment a few texels
+// toward itself across the AO prepass's depth (`gRimEdge`): if the step lands on something more
+// than 0.4 units further back — the road behind the car, or nothing — this fragment is on the
+// car's lit edge, and it gets the light's own colour, shadow included, since three has already
+// folded the shadow map into `directLight.color`. So the sun lights the edges toward the sun, a
+// cop's bar lights the edges toward the bar, a car under a tower's shadow has none, and turning
+// a corner moves the line to other edges. A second step straight up-screen adds the sky's colour
+// at a fraction of that, the reflection of the sky behind the car.
+//
+// The first build was a Fresnel on the ellipsoid that fits the body (`vGlossBulge` as a normal):
+// on boxes it painted coloured patches over whole corners, and the facets showed through it.
+// The step is in texels, not world units, so it is a pen width: 4 half-res texels, ~8 device
+// pixels on a phone, which is visible at play zoom and still a line in a close-up.
 const CHAMELEON_TURN = 2.3;
 const LOOK_DEFAULT_SKY = 'pow(gR.y, 0.6)';
+const TOON_SKY = 'step(0.45, gR.y)';
+const TOON_SPECULAR = /* glsl */ `{
+		vec3 gH = normalize( directLight.direction + geometryViewDir );
+		float gLit = step( 0.0, dot( gReflN, directLight.direction ) );
+		float gGlintIrr = smoothstep( uToonCut.x, uToonCut.x + 0.004, dot( gSpecN, gH ) ) * gFinA.x;
+		float gSh = smoothstep( uToonCut.y, uToonCut.y + 0.01, dot( gReflN, gH ) ) * gFinA.w;
+		reflectedLight.directSpecular += directLight.color * gLit * ( gGlintIrr * 1.6 + gSh * gTint );
+	}`;
+// The rim line, appended to whichever look's specular is in the light loop.
+const RIM_LIGHT = /* glsl */ `
+	{
+		vec2 gRimD = directLight.direction.xy;
+		if ( gIsPaint > 0.5 && dot( gRimD, gRimD ) > 1e-6 ) {
+			reflectedLight.directSpecular += directLight.color * gRimColor() * uRim.a
+				* gCarSized() * gRimEdge( normalize( gRimD ) );
+		}
+	}`;
+// ...and the sky's share, appended to the look's final slot.
+// **Streaks.** A box panel reflects one point of the sky edge to edge, so no environment can
+// slide across it (Tyler, 2026-10-17: the reflection washed the taxi out). These are painted on
+// instead, the way a toy car or an illustration fakes chrome: on each flank and end a horizon
+// line, sky above it and a little ground below; across every panel two diagonal light bands, one
+// broad and one thin. Keyed to the body's own box, so they ride the car, and slid along the panel
+// by the flank's facing, so they move as the car turns. Mixed toward the sky's colour rather than
+// added, so a bright panel cannot blow out to white, and only on bodies up to about a truck's
+// size: the harbour's ships wear this paint too, and on a 20-unit hull the bands turned the
+// whole ship pale (Tyler, 2026-10-17).
+const STREAKS = /* glsl */ `
+	float sOn = uStreak.x * gCarSized();
+	if (gIsPaint > 0.5 && sOn > 0.0) {
+		vec3 sP = (vGlossObj - uGlossCentre) * uGlossInvHalf;
+		vec3 sN = abs(normalize(cross(dFdx(vGlossObj), dFdy(vGlossObj))));
+		bool sTop = sN.y > 0.7;
+		vec2 sUV = sTop ? sP.xz : sN.z > sN.x ? sP.xy : sP.zy;
+		float sShift = sTop ? 0.0 : 0.6 * normal.x;
+		float sS = sUV.x + 0.7 * sUV.y + sShift;
+		float sW = fwidth(sS) + 1e-4;
+		float sBand = smoothstep(0.16 + sW, 0.16 - sW, abs(sS + 0.35))
+			+ 0.8 * smoothstep(0.05 + sW, 0.05 - sW, abs(sS - 0.2));
+		float sH = sTop ? 0.0 : sUV.y + 0.45;
+		float sHW = fwidth(sH) + 1e-4;
+		float sSky = sTop ? 0.0 : smoothstep(-sHW, sHW, sH);
+		float sLine = sTop ? 0.0 : smoothstep(0.06 + sHW, 0.0, abs(sH - 0.03));
+		// The sky's own colour lifted toward its own brightness in white, so the bands are pale by
+		// day and fade with the sky at night instead of staying white.
+		vec3 sCol = uGlossTop + 0.8 * vec3(dot(uGlossTop, vec3(0.2126, 0.7152, 0.0722)));
+		outgoingLight *= 1.0 - sOn * 0.18 * (sTop ? 0.0 : 1.0 - sSky);
+		outgoingLight = mix(outgoingLight, sCol, clamp(sOn * (0.45 * sBand + 0.06 * sSky + 0.4 * sLine), 0.0, 1.0));
+	}`;
+const RIM_SKY = /* glsl */ `
+		outgoingLight += uGlossTop * gRimColor() * uRimShape.y * gIsPaint * gCarSized() * gRimEdge(vec2(0.0, 1.0));`;
+// After <packing>, which the gloss uniforms are not: hung on the light chunk's include instead.
+const RIM_EDGE_FN = /* glsl */ `
+// How far the scene behind this fragment drops away one step along dir: 1 where the step lands
+// off the body (on the road, or on nothing), 0 where it lands on the body itself.
+// Only for a fragment the prepass drew: anything not marked as an occluder (the helicopter, the
+// plane, the river boats) finds the ground far behind its own pixel as well as behind the step,
+// so without this check every lit face of it was edge and it came out white (Tyler, 2026-10-17).
+//
+// The gap is measured against this fragment's own plane carried along the step (gZGrad), not its
+// flat depth. Under this camera a bonnet or roof recedes 1.5 units of depth per unit up-screen, so
+// a half-unit step along the panel itself already cleared the 0.4 threshold and read as an edge;
+// where it landed on the half-res buffer then flipped row by row, and the taxi's flat panels came
+// out in zebra stripes of rim light at 2x (Tyler, 2026-10-17).
+float gRimEdge(vec2 dir) {
+	vec2 uv = gl_FragCoord.xy * uAOTexel;
+	float own = (unpackRGBAToDepth(texture2D(tRimDepth, uv)) - gl_FragCoord.z) * uRimDepthScale;
+	if (own > uRimShape.x) return 0.0;
+	vec2 step = dir * uRimStep;
+	float plane = gl_FragCoord.z + dot(gZGrad, step / uAOTexel);
+	float gap = (unpackRGBAToDepth(texture2D(tRimDepth, uv + step)) - plane) * uRimDepthScale;
+	return smoothstep(uRimShape.x, uRimShape.x + 0.3, gap);
+}
+// The tint, or the paint's own hue at full strength (uRimShape.w = 1, ?rim=paint).
+vec3 gRimColor() {
+	return mix(uRim.rgb, gRimHue, uRimShape.w);
+}
+`;
 const PAINT_LOOKS = {
   chameleon: {
     base: `
@@ -1127,17 +1554,16 @@ const PAINT_LOOKS = {
 		outgoingLight += outgoingLight * gIsPaint * 1.1 * gGraze * gGraze * gGraze;`,
   },
   toon: {
-    sky: 'step(0.45, gR.y)',
+    sky: TOON_SKY,
     mirror: `
 		gMirror += gIsPaint * 0.5 * step(0.6, gGraze) * uGloss;`,
-    specular: /* glsl */ `{
-		vec3 gH = normalize( directLight.direction + geometryViewDir );
-		float gLit = step( 0.0, dot( gReflN, directLight.direction ) );
-		float gGlintIrr = smoothstep( 0.982, 0.986, dot( gSpecN, gH ) ) * gFinA.x;
-		float gSh = smoothstep( 0.86, 0.87, dot( gReflN, gH ) ) * gFinA.w;
-		reflectedLight.directSpecular += directLight.color * gLit * ( gGlintIrr * 1.6 + gSh * gTint );
-	}`,
+    specular: TOON_SPECULAR,
   },
+  rim: {
+    sky: TOON_SKY,
+    specular: TOON_SPECULAR,
+  },
+  real: {},
 };
 
 /**
@@ -1166,8 +1592,8 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
   // `?crayon&ao=off` a crayoned material and a bare one would otherwise share a key.
   const useAO = aoEnabled && ao;
   const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
-    + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}` : ''}`
-    + `${cloudsEnabled ? '-clouds' : ''}`;
+    + `${cartoonEnabled ? '-cartoon' : ''}${gloss ? `-gloss${classicPaint ? '-classic' : paintLook === 'layered' ? '' : `-${paintLook}`}${rimPaintOn() ? '-rim' : ''}` : ''}`
+    + `${cloudsEnabled ? '-clouds' : ''}${painterlyEnabled ? '-paint10' : ''}`;
   material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {
@@ -1175,10 +1601,29 @@ function patchProp(material, { ao = true, gloss = null } = {}) {
     if (crayonEnabled) Object.assign(shader.uniforms, CRAYON_UNIFORMS);
     if (cartoonEnabled) Object.assign(shader.uniforms, CARTOON_UNIFORMS);
     if (cloudsEnabled) Object.assign(shader.uniforms, CLOUD_UNIFORMS);
+    if (painterlyEnabled) {
+      Object.assign(shader.uniforms, PAINT_UNIFORMS, {
+        // Per material, read at compile time: whoever built the mesh tags it after propMaterial().
+        uBrushKind: { value: material.userData.brush ?? 0 },
+      });
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+varying vec3 vPaintWorld;`)
+        .replace('#include <project_vertex>', `#include <project_vertex>
+	{
+		vec4 pw = vec4(transformed, 1.0);
+		#ifdef USE_INSTANCING
+		pw = instanceMatrix * pw;
+		#endif
+		vPaintWorld = (modelMatrix * pw).xyz;
+	}`);
+      if (!shader.vertexShader.includes('vPaintWorld = (modelMatrix')) throw new Error('painterly: vertex hook missed');
+    }
     if (gloss) {
       // The shared bag plus this body's own shape and paint share, which differ between a car, a
       // truck's cab and the taxi while the source does not — so per material, under one cache key.
       const look = classicPaint ? {} : PAINT_LOOKS[paintLook] ?? {};
+      const rim = rimPaintOn();
       Object.assign(shader.uniforms, GLOSS_UNIFORMS, {
         uGloss: { value: gloss.amount },
         uGlossMirror: { value: gloss.mirror },
@@ -1212,6 +1657,16 @@ uniform vec4 uFinishD[5];
 uniform vec4 uGlossGlobal;
 uniform float uGloss;
 uniform float uGlossMirror;
+uniform vec4 uRim;
+uniform sampler2D tRimDepth;
+uniform vec2 uRimStep;
+uniform float uRimDepthScale;
+uniform vec4 uRimShape;
+uniform vec2 uToonCut;
+uniform vec2 uFlip;
+uniform vec4 uStreak;
+uniform vec3 uGlossCentre;
+uniform vec3 uGlossInvHalf;
 varying vec3 vGlossWorld;
 varying vec3 vGlossBulge;
 varying vec3 vGlossObj;
@@ -1224,19 +1679,27 @@ float gIsPaint;
 vec3 gFinishColor;
 vec3 gSpecN;
 vec3 gReflN;
+vec2 gZGrad;
+// 1 on a body up to about a truck's size, 0 on anything much bigger. The harbour's ships wear the
+// cars' paint, and both the rim and the streaks are car-scale details: on a 20-unit hull the rim
+// lit the bow white and the streaks turned the whole ship pale (Tyler, 2026-10-17).
+float gCarSized() {
+	return 1.0 - smoothstep(3.0, 4.0, 1.0 / min(uGlossInvHalf.x, uGlossInvHalf.z));
+}
 ${classicPaint ? 'float gFlake;' : GLOSS_PAINT_DECLS}`)
-        .replace('#include <lights_phong_pars_fragment>',
+        .replace('#include <lights_phong_pars_fragment>', (rim ? RIM_EDGE_FN : '') +
           THREE.ShaderChunk.lights_phong_pars_fragment.replace(GLOSS_SPECULAR_FROM,
-            classicPaint ? GLOSS_SPECULAR_CLASSIC : look.specular ?? GLOSS_SPECULAR_TO))
+            classicPaint ? GLOSS_SPECULAR_CLASSIC
+              : (look.specular ?? GLOSS_SPECULAR_TO) + (rim ? RIM_LIGHT : '')))
         .replace('#include <color_fragment>', `#include <color_fragment>
 ${GLOSS_COLOR}`)
         .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
 ${classicPaint ? GLOSS_NORMAL_CLASSIC : GLOSS_NORMAL.replace('__LOOK_BASE__', look.base ?? '')}`)
         .replace('#include <envmap_fragment>', `#include <envmap_fragment>
-${glossFragment(classicPaint || paintLook === 'toon')
+${glossFragment(classicPaint || paintLook === 'toon' || paintLook === 'rim')
   .replace('__LOOK_SKY__', look.sky ?? LOOK_DEFAULT_SKY)
   .replace('__LOOK_MIRROR__', look.mirror ?? '')
-  .replace('__LOOK_FINAL__', look.final ?? '')}`);
+  .replace('__LOOK_FINAL__', (look.final ?? '') + (rim ? RIM_SKY : '') + STREAKS)}`);
       // Never a blind replace (CLAUDE.md): a hook that matched nothing is a matte car and no error.
       for (const marker of ['attribute float aFinish', 'vGlossFinish = aFinish', 'aFinish > 2.5 && aFinish < 3.5']) {
         if (!shader.vertexShader.includes(marker)) throw new Error(`gloss: vertex hook missed (${marker})`);
@@ -1252,7 +1715,7 @@ ${glossFragment(classicPaint || paintLook === 'toon')
 uniform sampler2D tAmbientOcclusion;
 uniform vec2 uAOTexel;
 uniform vec3 uShadowColor;
-uniform float uShadowTint;${crayonEnabled ? `
+uniform float uShadowTint;${painterlyEnabled ? PAINT_COMMON : ''}${crayonEnabled ? `
 uniform sampler2D tCrayonPaper;
 uniform vec2 uCrayonPaperScale;
 uniform vec2 uCrayonBoil;
@@ -1296,13 +1759,14 @@ ${CLOUD_GLSL}` : ''}`);
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
 ${cloudsEnabled ? CLOUD_LIGHT : ''}
 ${cartoonEnabled ? CARTOON_LIGHT : ''}
-${SHADOW_LIGHT}`);
+${SHADOW_LIGHT}
+${painterlyEnabled ? PAINT_LIGHT : ''}`);
 
     // Both inks share the seam, and they compose in the order the looks would be layered by hand:
     // the cartoon's hard line first, the crayon's broken one over it. Running both is two inks on
     // one frame and nobody should want it, but a flag combination that throws is worse than one
     // that looks odd.
-    const beforeFog = `${cartoonEnabled ? CARTOON_INK : ''}${crayonEnabled ? CRAYON_FRAGMENT : ''}`;
+    const beforeFog = `${painterlyEnabled ? PAINT_FRAGMENT : ''}${cartoonEnabled ? CARTOON_INK : ''}${crayonEnabled ? CRAYON_FRAGMENT : ''}`;
     if (beforeFog) {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <fog_fragment>', `${beforeFog}
@@ -1359,6 +1823,9 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
   // that come out soft are the ones that were given soft normals on purpose: the tree crowns
   // (`treeParts`, city/props.js).
   if (smooth && !paint) material.flatShading = false;
+  // A smooth body's normals are the point of it (see SMOOTH_BODY); everything else a vehicle
+  // carries comes out of `bakeColor` with flat ones and so draws as it did.
+  if (paint && SMOOTH_BODY) material.flatShading = false;
   patchProp(material, { ao, gloss: paint });
   return material;
 }

@@ -13,17 +13,38 @@ happening to agree on the same magic number.
 ```js
 GRID_I = 5    // block columns → i runs 0..5   (6 under ?city=big)
 GRID_J = 6    // block rows    → j runs 0..6, and 6 × 7 = 42 intersections   (7 big)
-PITCH = 20    // distance between road centrelines
-ROAD_W = 8    // full road width (two lanes)
-BLOCK = 12    // PITCH - ROAD_W, the buildable footprint between two ordinary streets
-LANE  = 2     // lane centre offset from the centreline
-SPAN_X = 100  // GRID_I * PITCH   (120 big)
-SPAN_Z = 120  // GRID_J * PITCH   (140 big)
+ROAD_W = 9    // full road width (two lanes): 8 under ?streets=classic
+BLOCK = 12    // the buildable footprint between two ordinary streets, on every width
+PITCH = 21    // BLOCK + ROAD_W, the distance between road centrelines (20 classic)
+LANE  = 2.25  // ROAD_W / 4, lane centre offset from the centreline
+SPAN_X = 105  // GRID_I * PITCH   (126 big)
+SPAN_Z = 126  // GRID_J * PITCH   (147 big)
 
-ARTERIAL_ROAD_W = 10.667   // ROAD_W × 4/3 — a main street is divided, see below
-LANE_TO_KERB    = 2        // lane centre to its own kerb, the same on every road
+ARTERIAL_ROAD_W = 11.667   // ROAD_W + 8/3 — a main street is divided, see below
+LANE_TO_KERB    = 2.25     // ROAD_W / 8, lane centre to its own kerb, the same on every road
 MEDIAN_W        = 2.4      // the planted island between an arterial's carriageways
 ```
+
+### Street width (`?streets=`)
+
+Streets are 9 units across, a unit wider than the 8 they were for most of the game's life (Tyler,
+2026-10-17: "I want to see if it helps gameplay feel less cramped"). `?streets=classic` puts them back to
+8; headless tools take `STREETS=`. A 10-unit option, half a lane wider, was tried alongside and
+judged too wide.
+Two choices travel with the number:
+
+- **The lanes widen with the road.** `LANE` is a quarter of `ROAD_W`, so the extra width lands on
+  both sides of every car rather than as a stripe down the middle. The overtake, the weave room, the
+  swerve's kerb jink and every turn radius grow with it.
+- **The blocks keep their size and the map grows.** `BLOCK` is fixed at 12 and `PITCH` is `BLOCK +
+  ROAD_W`, so the island is 5 units wider a side than on `classic`. Taking the width out
+  of the blocks instead was tried first and broke 28 probe checks, nearly all for one reason: a
+  lane between two junctions is `BLOCK` long, and the roadworks launch, the L train's spans, the
+  pond, the helipad and the bank's sightline band were all sized against 12 of it.
+
+The arterial's median gap stays a fixed 8/3 (`ARTERIAL_EXTRA`), so a main street is `ROAD_W + 8/3`
+rather than a third wider than whatever a side street is. The New Move cards play a recording per
+width (`game/*reel-<width>.js`); `STREETS=classic node tools/uturnreel.mjs --write` films one.
 
 Intersections are indexed `(i, j)` from `0..GRID_I` and `0..GRID_J`, and `lineX(i)` / `lineZ(j)`
 convert an index to a world coordinate. The city is centred on the origin **on both axes**, which is
@@ -757,17 +778,16 @@ It is scenery only. Nothing routes into it, nothing on it can be tapped, and the
 know it exists. An iron railing on a stone plinth runs round the lawn, with a gate in the middle of
 the +Z fence.
 Headstones stand in rows either side of a gravel path that runs gate to gate (one gate in each
-end), one big tree stands in a back corner, one of the parks' statues (`statueParts`) stands on its
-plaza in the −X half for some asymmetry, and long grass grows between the rows (see
-[Long grass](#long-grass)). The tree is
-an ordinary `treeParts` tree at 6.6 tall (the parks run 3.4–5.6) with a plum crown, so it lights and
-wears leaf cards exactly as every other tree does. The ground mist that used to drift across is off
+end), one of the parks' statues (`statueParts`) stands on its plaza in the −X half for some
+asymmetry, and long grass grows between the rows (see [Long grass](#long-grass)). The fence's piers
+stand every 6.4 units in a brownish stone (`gravePier`): at half that pitch and in the graves' own
+grey they read from across the map as one more row of headstones. The big plum-crowned tree that
+stood in the back corner is off since 2026-10-17; `?gravetree=classic` brings it back. The ground mist that used to drift across is off
 since 2026-10-15; `?gravemist=classic` brings it back, thickening after dark on the same measure of
 darkness as the helicopter's searchlight.
 
 - **It faces the camera, like the burger joint.** Only +X and +Z faces are ever seen, so the gate is
-  in the +Z fence, every stone faces +Z, and the tree stands in the back corner, behind the stones
-  rather than over them. A first cut had an above-ground crypt and bare spooky trees; Tyler cut
+  in the +Z fence and every stone faces +Z. A first cut had an above-ground crypt and bare spooky trees; Tyler cut
   both.
 - **The stones are drawn 1.4× life size** (`STONE_SCALE`). At life size they were four pixels at play
   zoom, and the lot read as a fenced lawn with grit on it.
@@ -1390,7 +1410,7 @@ leaves 2.2 units of clearance at the tightest point — the diagonal through a r
 
 That outline is also where the asphalt stops being solid: a 16-unit skirt fades outward from it into
 the sky, so the island has no hard edge at all. It is added *outside* the slab precisely because of
-the 2.2 units above — see [rendering.md](rendering.md#the-island-edge--citygroundjs).
+the 2.2 units above — see [rendering.md](rendering.md#the-feathered-skirt--citygroundjs).
 
 All three use the same technique: generate small geometries, bake colour into vertex attributes
 with `bakeColor()` from `util/geo.js`, then merge into a single non-indexed mesh with

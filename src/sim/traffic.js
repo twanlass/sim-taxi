@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial, setFinish, FINISH, BODY_EULER_ORDER } from '../util/geo.js';
+import {
+  bakeColor, propMaterial, setFinish, FINISH, BODY_EULER_ORDER, SMOOTH_BODY, bodyBox, softenNormals,
+} from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { KERB_H, roundedRectShape } from '../city/ground.js';
 import {
@@ -790,7 +792,7 @@ export function setPassTurnGate(name) {
 /** Fastest a blocker may be moving, in u/s, and still be dodged: about half of `SPEED`. */
 const DODGE_CREEP = 4;
 /** Daylight the swing line keeps off a blocker's collision circles, on top of `ENVELOPE`. */
-const DODGE_MARGIN = 0.05;
+export const DODGE_MARGIN = 0.05;
 /** How far ahead a blocker is looked for — the combo's own reach (`OVERTAKE_ARM_RANGE`). */
 const DODGE_SCAN = 30;
 /**
@@ -2737,9 +2739,10 @@ export function carGeometry({ bumpers = true } = {}) {
   // axle so the front pair has a well to steer in (geometry/wheels.js).
   parts.push(...archedBodyGeometries(CAR_LEN, CAR_W, 0.78 + CHASSIS_LIFT, 0.8, new THREE.Color(1, 1, 1)));
 
-  const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, CABIN_H, CAR_W * 0.86);
+  const cabin = bodyBox(CAR_LEN * 0.5, CABIN_H, CAR_W * 0.86, 0.12);
   cabin.translate(CABIN_X, CABIN_Y, 0);
-  parts.push(setFinish(bakeColor(cabin, color('carGlass')), FINISH.GLASS));
+  const glass = bakeColor(cabin, color('carGlass'));
+  parts.push(setFinish(SMOOTH_BODY ? softenNormals(glass) : glass, FINISH.GLASS));
 
   parts.push(...wheelGeometries(CAR_LEN, CAR_W));
   if (bumpers) parts.push(...bumperGeometries(CAR_LEN, CAR_W));
@@ -2765,10 +2768,11 @@ export function carGeometry({ bumpers = true } = {}) {
  */
 const CAB_SKIN = 0.02;
 export function policeCabGeometry() {
-  const cab = new THREE.BoxGeometry(
-    CAR_LEN * 0.5 + 2 * CAB_SKIN, CABIN_H + CAB_SKIN, CAR_W * 0.86 + 2 * CAB_SKIN);
+  const cab = bodyBox(
+    CAR_LEN * 0.5 + 2 * CAB_SKIN, CABIN_H + CAB_SKIN, CAR_W * 0.86 + 2 * CAB_SKIN, 0.12 + CAB_SKIN);
   cab.translate(CABIN_X, CABIN_Y + CAB_SKIN / 2, 0);
-  return setFinish(bakeColor(cab, color('policeCab')), FINISH.PAINT);
+  const shell = bakeColor(cab, color('policeCab'));
+  return setFinish(SMOOTH_BODY ? softenNormals(shell) : shell, FINISH.PAINT);
 }
 
 // Shared by truckCabGeometry() and truckBoxGeometry() so the two pieces — drawn from separate
@@ -5215,6 +5219,12 @@ export function createTraffic(
         // same SWERVE_FADE, which the pull-out's DODGE_LEAD is longer than.
         const delta = (taxi.boost && taxi.dodgeLateral == null ? 1 : 0) - taxi.swerve;
         taxi.swerve += Math.sign(delta) * Math.min(Math.abs(delta), ds / loco.fade);
+      } else if (taxi.dodgeLateral != null && taxi.swerve > 0) {
+        // ...and on through the junction, where a dodge is always straight on. The state flips to
+        // `turn` at the hold line, and on wider streets (`?streets=`) the hold line comes early
+        // enough that the fade was frozen part done: the weave's last 0.17 put the kerb jink
+        // inside a stopped car's envelope (2.28 against 2.31) and it bumped the car it was dodging.
+        taxi.swerve = Math.max(0, taxi.swerve - (taxi.v * dt) / loco.fade);
       }
 
       const wave = locoWeave(taxi.swervePhase);
