@@ -45,9 +45,21 @@ game's own 33° three-quarter view, with the car leaving off the top right.
 ## The title screen
 
 `src/game/titlescreen.js`, in `#title-screen`. A load opens on **Play, Settings, Credits**, left
-aligned over the live city, with the camera drifting a slow ellipse across it (`panAt`: one lap
-every two minutes at zoom 34, against play's 52). The menu is the only thing on screen: no HUD, no
-⏸, no riders.
+aligned over the live city. The menu is the only thing on screen: no HUD, no ⏸, no riders.
+
+**Behind it the camera jump cuts round the landmarks** (`src/game/titlereel.js`): the basketball
+court with its players shooting around, the skatepark, the burger joint, and the L whenever a
+train happens to be running on the island — followed down the line, and cut away from before it
+reaches the coast. Each shot is `SHOT` = 5 s with a slow drift along screen-right and a small
+push-in, framed a third of the half-width right of centre so the subject is clear of the menu's
+column, with a quick dip to black between shots (0.22 s out, 0.08 s held, 0.34 s in). The dip is
+under the menu, so the words stay up through every cut, and it never takes a tap. The landmarks
+rotate; the train is an event, slotted in at the next cut whenever it has at least 3 s of island
+left and was not the shot just played. A city missing a landmark plays the rest. Reduced motion
+gets hard cuts and no drift. **Play** cuts to the depot door under the wipe (game/wipe.js) rather
+than easing there, and the opening vignette plays from the door. `?titlecam=classic` is the reel's
+predecessor: one slow ellipse over the middle of the city (`panAt`: a lap every two minutes at zoom
+34), eased down onto the depot on Play.
 
 **It parks the run the way the Home Screen tip does.** `parked()` in `main.js` is the one gate both
 answer to: the fare board is not seeded, the tutorial and the vignette are held, Space and B do

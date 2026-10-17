@@ -131,6 +131,7 @@ import {
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createTitleScreen } from './game/titlescreen.js';
+import { createTitleReel } from './game/titlereel.js';
 import { splashCovers } from './game/splash.js';
 import { createSettings, qualityOf } from './game/settings.js';
 import { createPause } from './game/pause.js';
@@ -4724,6 +4725,8 @@ function nearestGulls() {
 const ltrainFade = [];
 function ltrainFadePoints() {
   ltrainFade.length = 0;
+  // Behind the title menu the subject is whatever the reel has cut to (game/titlereel.js).
+  if (title?.holding() && titleReel) ltrainFade.push(...titleReel.fadePoints());
   const t = traffic.taxi;
   ltrainFade.push({ x: t.x, z: t.z });
   for (const slot of fares.slots) {
@@ -5119,8 +5122,43 @@ const wantsTitle = !shot && !devMode && !consumeTitleSkip()
 const title = wantsTitle ? createTitleScreen(document.getElementById('title-screen'), {
   sound: soundSwitch,
   settings,
-  onPlay: beginRun,
+  onPlay: () => {
+    beginRun();
+    // Play jump cuts to the depot under the wipe, rather than easing down onto it from wherever
+    // the reel had the camera: the reel is a run of cuts, and a swoop out of it reads as a new
+    // kind of move. The classic drift keeps its ease — that was always one continuous shot.
+    if (!titleReel) return;
+    titleReel.clear();
+    if (wipe && opening) wipe.cut(() => opening?.cutToDoor());
+    else opening?.cutToDoor();
+  },
 }) : null;
+// The title's backdrop: a reel of jump cuts round the landmarks (game/titlereel.js), each a few
+// seconds with a slow drift. `?titlecam=classic` is the slow ellipse over the middle of the city
+// it replaced (2026-10-17, Tyler). Each shot is aimed at its subject's middle, at that height:
+// the players' chests, the skaters', the train's roof rail, and halfway up the burger joint's pole.
+const titleReel = title && new URLSearchParams(window.location.search).get('titlecam') !== 'classic'
+  ? createTitleReel({
+    dip: title.dip,
+    still: () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
+    shots: [
+      hoopers.court && { name: 'court', at: () => ({ x: hoopers.court.x, y: 1.5, z: hoopers.court.z }), zoom: 11, r: 7 },
+      skaters.park && { name: 'skatepark', at: () => ({ x: skaters.park.x, y: 1, z: skaters.park.z }), zoom: 11, r: 7 },
+      ltrain && {
+        name: 'train', live: true, zoom: 16, r: 9, at: () => ltrain.subject(), minLeft: () => ltrain.islandLeft(),
+      },
+      burger && {
+        name: 'burger',
+        at: () => ({
+          x: (burger.site.focus.x + burger.site.signAt.x) / 2,
+          y: (burger.site.focus.y + burger.site.signAt.y) / 2,
+          z: (burger.site.focus.z + burger.site.signAt.z) / 2,
+        }),
+        zoom: 13,
+        r: 7,
+      },
+    ].filter(Boolean),
+  }) : null;
 // The camera cuts onto the drift on the first frame the title holds, rather than easing to it from
 // wherever boot left it — the menu's first frame is the first frame anyone sees.
 let titleFramed = false;
@@ -5861,7 +5899,10 @@ function tick() {
   // Debug mode follows Loco Mode on a desktop too: the placed sounds are heard from the middle of
   // the screen, so playtesting them while driving means the camera has to come along.
   const locoFollows = isNarrow() || debugMode;
-  if (title?.holding()) {
+  if (title?.holding() && titleReel) {
+    const p = titleReel.frame(dt, aspect());
+    controller.cutTo(p.x, p.z, p.zoom, 0, aspect());
+  } else if (title?.holding()) {
     const p = title.pan(dt);
     if (titleFramed) controller.focusOn(p.x, p.z, p.zoom, dt, aspect(), 0.8);
     else { controller.cutTo(p.x, p.z, p.zoom, 0, aspect()); titleFramed = true; }
