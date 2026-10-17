@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+// First, before anything builds a material: it patches three's fog chunk for every program.
+import { EDGE_FOG, createEdgeFogFloor, tickEdgeFog } from './game/edgefog.js';
 import { makeRng } from './util/rng.js';
 import { createScene, sinkShadowCaster, setHazeTop, HAZE_TOP } from './game/scene.js';
 import { createRain, GRIP } from './game/rain.js';
@@ -615,6 +617,8 @@ applyWeather();
 // anything lit by `propMaterial()` has to be in there: a mesh that receives AO without casting it
 // samples the occlusion of whatever stands behind it. See `game/ssao.js`.
 scene.add(markOccluder(rain.wetGround(createGround(makeRng(seed + 11), layout))));
+// The ground past the coast, for the fog of war to swallow — game/edgefog.js.
+if (EDGE_FOG) scene.add(createEdgeFogFloor());
 
 // The river, and the spans that get over it. Its own stream, like every other generator, so that
 // moving a bridge cannot reshuffle a park.
@@ -5408,6 +5412,7 @@ function frame(t) {
   bench?.end();
 }
 
+let edgeFogTime = 0;
 function tick() {
   // Read on every frame, paused or not: `getDelta` measures from its own last call, so skipping it
   // while paused would hand the first frame after a resume the whole length of the pause. The clamp
@@ -5818,6 +5823,8 @@ function tick() {
   harborShips?.update(dt);
   drawbridge?.update(dt, traffic.cars);
   tickRiverWater(dt);
+  edgeFogTime += dt;
+  tickEdgeFog(edgeFogTime);
   roadwork.update(dt, traffic.taxi, traffic.cars, fares.occupiedSpots());
   // After the traffic step for the same reason: it rides the truck's instance matrix, which has to
   // be this frame's, and it tests crates against the cars where they now are.
@@ -7199,6 +7206,9 @@ window.__taxi = {
    * capture. Harmless while the loop is running, since the next frame overwrites it anyway.
    */
   redraw: () => renderFrame(),
+  // The fog of war's clock, for filming its drift from a frozen shot: `edgeFogAt(12.5)` sets it and
+  // redraws (game/edgefog.js).
+  edgeFogAt: (seconds) => { tickEdgeFog(seconds); renderFrame(); },
   /**
    * Put the run-end screen up on demand, over a stub run — for `tools/smoke.mjs`.
    *

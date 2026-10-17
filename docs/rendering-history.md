@@ -174,6 +174,14 @@ park, the asphalt and the lawn ran out over the slab's fade skirt and dissolved 
 With the 22–33 unit west skyline standing right at that line, the fade read as a dark smear with the
 sky behind it — reported as "the world just ends". `?horizon=classic` brings it back.
 
+### The island edge
+
+[Current](rendering.md#the-island-edge--gameedgefogjs-citygroundjs).
+
+Until 2026-10-17 the island's edge was the feathered skirt alone: the asphalt apron past the ring
+road faded to nothing over 16 units and the sky dome showed through, so the island read as a slab
+floating in the sky with its outline on show. `?edgefog=classic` brings it back.
+
 ## Crayon Mode — `game/crayon.js`
 
 ### The line — a texel, not a radius
