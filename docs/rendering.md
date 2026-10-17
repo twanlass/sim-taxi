@@ -310,7 +310,11 @@ is the sky's, lifted toward its own brightness, so they fade at night. `real` al
 to 8 texels, capped at 0.5 world units (`RIM_MAX_WORLD`), so the doubling shows in close-ups and
 play zoom keeps the rim look's width: uncapped, 8 texels at play zoom on a phone is 1.1 units, the
 whole flank of a car. The rim and the streaks only go on car- and truck-sized bodies
-(`gCarSized`); the harbour's ships wear the same paint and came out white under both. ⚙️ "Reflection streaks" sets their strength (0.6 on `real`, Tyler's pick; 0 elsewhere).
+(`gCarSized`); the harbour's ships wear the same paint and came out white under both. And it only
+draws on a fragment the AO prepass drew itself: the helicopter, the plane and the river boats are
+not occluders, so the ground behind their own pixel read as an edge everywhere and they came out
+white. The gap is measured against the fragment's own plane carried along the step, so a
+receding bonnet or roof is not mistaken for an edge (it striped the taxi's panels at 2x). ⚙️ "Reflection streaks" sets their strength (0.6 on `real`, Tyler's pick; 0 elsewhere).
 
 **Cost.** Per glossy fragment: two hashes, the derivatives, and two more Blinn-Phong lobes per
 light (one at play zoom, where the sparkle is skipped). Cars are a few percent of the frame, and

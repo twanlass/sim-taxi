@@ -21131,8 +21131,10 @@ let chopperOrder; // likewise
     const cityYard = createGraveyard(cityLayout.graveyardBlock, makeRng(seed + 131));
     const planted = new Set(plantedCrowns());
     const lobes = [...cityProps.crowns, ...(cityBuild.court?.crowns ?? [])];
+    // The graveyard grows a tree only under `?gravetree=classic`, and then it must be planted too.
+    const yardTree = process.env.GRAVETREE === 'classic';
     check('trees: every crown in the city gets leaf cards, the graveyard\'s included',
-      lobes.every((c) => planted.has(c)) && plantedCrowns().length > before,
+      lobes.every((c) => planted.has(c)) && (plantedCrowns().length > before) === yardTree,
       `${lobes.filter((c) => !planted.has(c)).length} missing, graveyard grew ${plantedCrowns().length - before}`);
     check('trees: every mesh with a tree in it is lit smooth',
       [cityProps.mesh, cityBuild.mesh, cityYard.shell].every((m) => m.material.flatShading === false));
