@@ -14,14 +14,15 @@
  * rather than as a WAAPI animation beside it: two clocks can disagree about when the screen is
  * black, and the one thing the dip is for is that the camera moves on a frame nobody sees.
  *
- * A shot is `{ name, at, zoom }`, with `at()` the subject's `{ x, y, z }` (y is how high above the
+ * A shot is `{ name, at }`, with `at()` the subject's `{ x, y, z }` (y is how high above the
  * ground the subject's middle stands — see `aimAtHeight`) or null when it has nothing to show. A
  * landmark always answers; the train answers only while it is running on the island, so it is
  * played when it happens to be there rather than waited for, and a shot that loses its subject
  * part way (the train running off the coast) cuts early.
  */
 
-import { aimAtHeight, RIGHT, UP, VIEW_DIR } from './camera.js';
+import { aimAtHeight, RIGHT, UP, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH } from './camera.js';
+import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
 
 /** Seconds on each shot, counted from the cut — "a couple of seconds", per the brief, and enough
  *  for a jump shot or a run at the ramp to play out inside it. */
@@ -31,8 +32,15 @@ export const SHOT = 5;
 export const DIP_OUT = 0.22;
 export const DIP_HOLD = 0.08;
 export const DIP_IN = 0.34;
-/** World units the camera drifts across a shot, along screen-right. Slow: ~1 unit a second. */
-const DRIFT = 5;
+/**
+ * Every shot's framing: halfway between the game's own camera and the Loco Mode push-in (Tyler,
+ * 2026-10-17 — the first cut framed each landmark at 11 to 17 and read as far too tight). 45.8, so
+ * a landmark is a block in its neighbourhood rather than the whole screen, and the cut from the
+ * reel to the run does not change scale much either.
+ */
+export const REEL_ZOOM = (PLAY_ZOOM + PLAY_ZOOM * LOCO_PUNCH) / 2;
+/** World units the camera drifts across a shot, along screen-right. Slow: ~2 units a second. */
+const DRIFT = 10;
 /** How much wider the shot opens than it ends: a small push-in under the drift. */
 const PUSH = 0.08;
 /**
@@ -44,24 +52,26 @@ const PUSH = 0.08;
  */
 const MENU_SHIFT = 0.32;
 const BELOW_MENU = 0.5;
-/**
- * How much of the screen's width a subject's `r` (its half-extent across the screen) may take:
- * the open half beside the menu on a wide screen, nearly all of it on a phone. The shot's own
- * `zoom` is the floor — a wide screen frames to it, a phone opens out until the subject fits.
- */
-const WIDE_SHARE = 0.6;
-const TALL_SHARE = 0.9;
 /** The shortest time a train shot is worth starting with — less and it leaves the frame at once. */
 const TRAIN_MIN = 3;
 /** And the shortest it is allowed to run before an early cut, so a cut never follows a cut. */
 const MIN_HOLD = 2;
 
+/**
+ * How far from the middle of the map the target may go, as a share of each half-span. At
+ * REEL_ZOOM a frame is most of the island across, and a landmark near the coast framed on its own
+ * terms put the top half of a phone screen in the fog bank (the court on the first city this was
+ * watched on). The old drift stayed inside 0.3 for the same reason; the subject still lands in
+ * frame, just less neatly placed.
+ */
+const KEEP_IN = 0.35;
+
 const smooth = (k) => k * k * (3 - 2 * k);
 
 /**
  * @param {object} opts
- * @param {Array<{ name: string, at: () => ({ x: number, y: number, z: number } | null), zoom: number,
- *   r: number, live?: boolean, minLeft?: () => number }>} opts.shots
+ * @param {Array<{ name: string, at: () => ({ x: number, y: number, z: number } | null),
+ *   live?: boolean, minLeft?: () => number }>} opts.shots
  *        In playing order. A shot with `live` is an *event* (the train) and is slotted in whenever it
  *        is available and was not the last thing shown; the rest rotate.
  * @param {HTMLElement | null} [opts.dip]  A black full-screen element under the menu. Null → hard cuts.
@@ -145,8 +155,7 @@ export function createTitleReel({ shots, dip = null, still = () => false }) {
 
       const k = Math.min(1, clock / SHOT);
       const tall = aspect < 1;
-      const fit = (current.r ?? 0) / (aspect * (tall ? TALL_SHARE : WIDE_SHARE));
-      const zoom = Math.max(current.zoom, fit) * (1 + PUSH * (1 - k));
+      const zoom = REEL_ZOOM * (1 + PUSH * (1 - k));
       const aim = aimAtHeight(seen.x, seen.y ?? 0, seen.z);
       // A live subject carries its own motion; drifting under it as well reads as the camera
       // losing it. The landmarks drift.
@@ -156,9 +165,11 @@ export function createTitleReel({ shots, dip = null, still = () => false }) {
       // picture `d * VIEW_DIR.y` — the subject is put `BELOW_MENU` half-heights down by moving the
       // target up-screen by that over VIEW_DIR.y.
       const up = tall ? (zoom * BELOW_MENU) / VIEW_DIR.y : 0;
+      // Not a live shot: holding the train back from the coast would let it drive out of frame.
+      const clamp = (v, h) => (current.live ? v : Math.max(-h * KEEP_IN, Math.min(h * KEEP_IN, v)));
       return {
-        x: aim.x + RIGHT.x * across + UP.x * up,
-        z: aim.z + RIGHT.z * across + UP.z * up,
+        x: clamp(aim.x + RIGHT.x * across + UP.x * up, HALF_SPAN_X),
+        z: clamp(aim.z + RIGHT.z * across + UP.z * up, HALF_SPAN_Z),
         zoom,
         black,
       };

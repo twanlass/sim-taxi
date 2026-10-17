@@ -5146,10 +5146,10 @@ const titleReel = title && new URLSearchParams(window.location.search).get('titl
     dip: title.dip,
     still: () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
     shots: [
-      hoopers.court && { name: 'court', at: () => ({ x: hoopers.court.x, y: 1.5, z: hoopers.court.z }), zoom: 11, r: 7 },
-      skaters.park && { name: 'skatepark', at: () => ({ x: skaters.park.x, y: 1, z: skaters.park.z }), zoom: 11, r: 7 },
+      hoopers.court && { name: 'court', at: () => ({ x: hoopers.court.x, y: 1.5, z: hoopers.court.z }) },
+      skaters.park && { name: 'skatepark', at: () => ({ x: skaters.park.x, y: 1, z: skaters.park.z }) },
       ltrain && {
-        name: 'train', live: true, zoom: 16, r: 9, at: () => ltrain.subject(), minLeft: () => ltrain.islandLeft(),
+        name: 'train', live: true, at: () => ltrain.subject(), minLeft: () => ltrain.islandLeft(),
       },
       burger && {
         name: 'burger',
@@ -5158,8 +5158,6 @@ const titleReel = title && new URLSearchParams(window.location.search).get('titl
           y: (burger.site.focus.y + burger.site.signAt.y) / 2,
           z: (burger.site.focus.z + burger.site.signAt.z) / 2,
         }),
-        zoom: 13,
-        r: 7,
       },
     ].filter(Boolean),
   }) : null;

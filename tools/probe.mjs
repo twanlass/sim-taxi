@@ -21008,10 +21008,10 @@ let chopperOrder; // likewise
     const reel = createTitleReel({
       dip: dipEl,
       shots: [
-        { name: 'court', at: () => ({ x: -30, y: 1.5, z: 10 }), zoom: 11 },
-        { name: 'skatepark', at: () => ({ x: 20, y: 1, z: -25 }), zoom: 11 },
-        { name: 'train', live: true, zoom: 16, at: () => (trainOn ? { x: tx, y: 7, z: 0 } : null), minLeft: () => trainLeft },
-        { name: 'burger', at: () => ({ x: 5, y: 3, z: 30 }), zoom: 13 },
+        { name: 'court', at: () => ({ x: -30, y: 1.5, z: 10 }) },
+        { name: 'skatepark', at: () => ({ x: 20, y: 1, z: -25 }) },
+        { name: 'train', live: true, at: () => (trainOn ? { x: tx, y: 7, z: 0 } : null), minLeft: () => trainLeft },
+        { name: 'burger', at: () => ({ x: 5, y: 3, z: 30 }) },
       ],
     });
     const dt = 1 / 60;
