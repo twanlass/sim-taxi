@@ -88,6 +88,7 @@ import { createBirds, chooseRoosts } from './game/birds.js';
 import { createDucks } from './game/ducks.js';
 import { createHoopers } from './game/hoopers.js';
 import { createBoombox } from './game/boombox.js';
+import { createTubeMan } from './game/tubeman.js';
 import { createLTrain, planLTrain, LTRAIN_DIMENSIONS } from './game/ltrain.js';
 import { courtRect } from './city/blacktop.js';
 import { createSkaters } from './game/skaters.js';
@@ -829,6 +830,13 @@ if (burger) {
   // mass is the one version that can never cover a marker the player can see past it.
   burger.group.userData.pickable = 'burger';
 }
+// The inflatable tube man flailing at the drive-through's entrance (game/tubeman.js). Where he
+// stands is the joint's; how he flails is the run's. Not tappable: he is 4.5 units of tall thin
+// target, which is exactly the shape that steals taps from a marker up-screen of it (CLAUDE.md).
+// `?tubeman=classic` leaves him out.
+const tubeMan = createTubeMan(scene, makeRng(runSeed + 331),
+  new URLSearchParams(window.location.search).get('tubeman') !== 'classic' ? burger?.site : null,
+  burger ? { x: burger.entryObject.x, z: burger.entryObject.z, rand: burger.entryObject.rand } : null);
 
 // Which kerb corners this camera can see, settled once now that everything permanent is standing.
 // The board consults it when it places a marker — a rider, a drop-off ring or a courier pad on a
@@ -1555,7 +1563,7 @@ const cityEntry = createCityEntry({
   objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : []),
     ...(graveyard ? [graveyard.entryObject] : []),
     ...hoopers.entryObjects, ...boombox.entryObjects, ...skaters.entryObjects,
-    ...(ltrain?.entryObjects ?? [])],
+    ...tubeMan.entryObjects, ...(ltrain?.entryObjects ?? [])],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
     ...(burger ? [burger.entrySite] : []), ...(graveyard ? [graveyard.entrySite] : [])],
   dust,
@@ -5597,6 +5605,7 @@ function tick() {
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
   burger?.update(dt, SIGN_SPIN);
+  tubeMan.update(dt);
   // And the sign on the depot's roof, on the same terms — see DEPOT_SPIN in city/garage.js.
   garage?.update(dt);
   // The graveyard's ground mist, thicker after dark — the same night measure as the searchlight's.
@@ -6549,6 +6558,11 @@ if (shot) {
     controller.state.target.set(burger.site.focus.x, 0, burger.site.focus.z);
     controller.update(aspect());
   }
+  // The tube man beside it, close enough to see his face.
+  if (shot.atTubeMan && tubeMan.at) {
+    controller.state.target.set(tubeMan.at.x, 0, tubeMan.at.z);
+    controller.update(aspect());
+  }
 
   // And the depot, on the same two framings. `site.focus` is the middle of the door opening, which
   // is a couple of units below the middle of the building — but an orthographic camera aimed at a
@@ -7090,6 +7104,8 @@ window.__taxi = {
   hoopers,
   /** The boom box beside the court — `boombox.emitter` is where its music will play from. */
   boombox,
+  /** The tube man at the drive-through — `tubeMan.at` is where he stands, null if he is not built. */
+  tubeMan,
   /** The riders on the skatepark, and `skaters.park` the park — absent if the city has none. */
   skaters,
   /** The elevated train, or null under `?ltrain=classic` — see game/ltrain.js. */

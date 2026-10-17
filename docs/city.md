@@ -738,6 +738,23 @@ all. So `createCityEntry` grew an `objects` list: a handful of transforms scaled
 same easeOutBack over the same delay, so the sign comes up with the building under it instead of
 hanging in the air over a hole in the ground.
 
+### The tube man at the entrance
+
+An inflatable tube man flails on the apron beside the drive-through's way in (`game/tubeman.js`,
+`?tubeman=classic` to leave him out): a red tube on a blower box, yellow streamers for hair and
+cuffs, a cartoon face turned to the camera. He is a chain of capsules jointed end to end, bent by two
+travelling waves so the S runs up the tube, and every few seconds he folds over and whips back
+up with an overshoot. The sway is across the screen, since a bend toward or away from a camera
+that never rotates barely shows; the fold goes down the strip he stands on, because sideways there
+is a car lane on one hand and the road on the other.
+
+**Where he stands is a sightline.** Between the lane and the +X kerb, 2.6 down from the +Z kerb. The
++Z corner itself is inside the lane's entry turn, and the forecourt's −X corner is the one spot on
+the block a tower across the road can hide: over 200 cities, 27 had more than 2.5 units of him
+behind one there, against none on the +X strip, which `laneSeen` has already cleared for the lane
+beside it. He is scenery only: no collisions, and not tappable, because a tall thin hit target steals
+taps from markers up-screen of it.
+
 ## The graveyard
 
 `city/graveyard.js`. **A double block** since 2026-10-13: two blocks side by side along X and the

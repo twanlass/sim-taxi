@@ -895,6 +895,15 @@ export const PALETTE = {
   boomboxTape: '#D9A441',
   musicNoteA: '#FF8F2E',
   musicNoteB: '#FFB45E',
+  // The tube man at the drive-through (game/tubeman.js), off the photo Tyler sent: a fire-engine
+  // red tube, a shock of yellow streamers for hair and the same yellow on the cuffs, a white
+  // cartoon face, and a dark blower box under him.
+  tubeManBody: '#E3342B',
+  tubeManHair: '#FFD43B',
+  tubeManFace: '#FFFFFF',
+  tubeManPupil: '#1B1B1F',
+  tubeManBlower: '#3B3F47',
+  tubeManGrille: '#8E939B',
 
   // The skatepark — see city/skatepark.js. Poured concrete rather than blacktop, so it reads as a
   // *different* paved thing from the court across the park: pale (luma ~170) where the court is

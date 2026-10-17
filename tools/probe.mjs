@@ -40,6 +40,7 @@ import {
   planBoombox, BOOMBOX_W, BOOMBOX_D,
 } from '../src/city/blacktop.js';
 import { createBoombox, BPM as BOOMBOX_BPM } from '../src/game/boombox.js';
+import { createTubeMan } from '../src/game/tubeman.js';
 import { onLawn } from '../src/city/ground.js';
 import { createHoopers } from '../src/game/hoopers.js';
 import {
@@ -1477,6 +1478,66 @@ const onGrass = (city, i, j) => {
   check('and its music has somewhere to play from', !!box.emitter
     && Math.hypot(box.emitter.x - propsBuild.boombox.x, box.emitter.z - propsBuild.boombox.z) < 1,
     box.emitter ? `at (${box.emitter.x.toFixed(1)}, ${box.emitter.z.toFixed(1)})` : 'no emitter');
+}
+
+// The tube man at the drive-through (game/tubeman.js). Twenty seconds of flailing, every vertex:
+// nothing low enough to hit a car is ever inside a car's footprint anywhere along the drive-through
+// path, or out over the road's kerbside lane; nothing goes through the ground; and he actually
+// moves, slumps included — a sway of a few tenths is a wobble, a fold is a unit or more at the head.
+{
+  const site = burgerSite(layout.burgerBlock);
+  const tmScene = new THREE.Scene();
+  const man = createTubeMan(tmScene, makeRng(9), site);
+  const CAR_ROOF = 2.2;
+  const halfW = CAR_W / 2 + 0.1;
+  const footprints = [];
+  for (let s = 0; s <= site.path.total; s += 0.25) {
+    const p = site.path.at(s);
+    const t = site.path.tangentAt(s);
+    footprints.push({ x: p.x, z: p.z, tx: t.x, tz: t.z });
+  }
+  const v = new THREE.Vector3();
+  let inLane = 0;
+  let overRoad = 0;
+  let below = Infinity;
+  let headMin = Infinity;
+  let headMax = -Infinity;
+  const head = man.joints[man.joints.length - 1];
+  for (let n = 0; n < 1200; n++) {
+    man.update(1 / 60);
+    tmScene.updateMatrixWorld(true);
+    head.getWorldPosition(v);
+    // Across the screen: the (1, 0, -1) axis the arms and the fold both work along.
+    const across = (v.x - v.z) / Math.SQRT2;
+    headMin = Math.min(headMin, across);
+    headMax = Math.max(headMax, across);
+    if (n % 4) continue;
+    man.group.traverse((o) => {
+      if (!o.isMesh) return;
+      const pos = o.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+        below = Math.min(below, v.y);
+        if (v.y > CAR_ROOF) continue;
+        // Over the road's kerbside lane, where a car's flank is — not merely past the kerb line.
+        if (v.x > site.kerbX + LANE_TO_KERB - halfW) overRoad += 1;
+        for (const f of footprints) {
+          const dx = v.x - f.x;
+          const dz = v.z - f.z;
+          if (Math.abs(dx * f.tx + dz * f.tz) < CAR_LEN / 2 && Math.abs(-dx * f.tz + dz * f.tx) < halfW) {
+            inLane += 1;
+            break;
+          }
+        }
+      }
+    });
+  }
+  check('the tube man stands clear of the drive-through and the road, and never through the ground',
+    inLane === 0 && overRoad === 0 && below > 0,
+    `${inLane} vertex-frames in a car's way, ${overRoad} over the road, lowest ${below.toFixed(2)}`);
+  check('...and flails, folding right over now and then', headMax - headMin > 1.5,
+    `head swept ${(headMax - headMin).toFixed(2)} across the screen`);
+  check('?tubeman=classic (no site) builds nothing', createTubeMan(new THREE.Scene(), makeRng(9), null).at === null);
 }
 
 // --- The players on it ---------------------------------------------------------
