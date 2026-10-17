@@ -861,8 +861,10 @@ pediment poking above its own roofline is a gable rather than a portico.
 ## The roadside lot, and its tube man
 
 The fourth block taken from the tower generator (`city/roadside.js`, `?roadside=classic` to give it
-back) is a roadside business with an inflatable tube man on its corner. It is a car wash by default;
-`?roadside=gas` makes it a gas station instead, on the same block, so Tyler can compare the two.
+back) is a roadside business with an inflatable tube man on its corner: a car wash or a gas
+station, a coin flip off the city seed (`roadsideKind`, on a stream of its own so the flip moves
+nothing else). Both stand on the same block. `?roadside=carwash` or `?roadside=gas` pins one. Tyler
+had the two built side by side to compare and then picked both (2026-10-17).
 
 **The car wash** (`city/carwash.js`) is a wash tunnel against the block's −Z edge, with its long +Z side open on posts so the brushes
 turning inside it show, a blue fascia covered in soap bubbles, a concrete lot out front with two

@@ -43,7 +43,7 @@ import { createBoombox, BPM as BOOMBOX_BPM } from '../src/game/boombox.js';
 import { createTubeMan } from '../src/game/tubeman.js';
 import { createCarWash } from '../src/city/carwash.js';
 import { createGasStation } from '../src/city/gasstation.js';
-import { LOT_Y } from '../src/city/roadside.js';
+import { LOT_Y, ROADSIDE_MODE, roadsideKind } from '../src/city/roadside.js';
 import { onLawn } from '../src/city/ground.js';
 import { createHoopers } from '../src/game/hoopers.js';
 import {
@@ -1569,6 +1569,10 @@ const onGrass = (city, i, j) => {
     overRoad === 0 && below > 0, `${overRoad} vertex-frames over a kerbside lane, lowest ${below.toFixed(2)}`);
   check('...and flails, folding right over now and then', headMax - headMin > 1.5,
     `head swept ${(headMax - headMin).toFixed(2)} across the screen`);
+  if (ROADSIDE_MODE === 'random') {
+    const kinds = new Set(Array.from({ length: 40 }, (_, k) => roadsideKind(k + 1)));
+    check('cities roll both roadside businesses', kinds.size === 2, [...kinds].join(', '));
+  }
   check('no roadside business (?roadside=classic) builds no tube man', createTubeMan(new THREE.Scene(), makeRng(9), null).at === null);
 
   // The gas station on the same block. Its pumps stand under a canopy, and a canopy is exactly the

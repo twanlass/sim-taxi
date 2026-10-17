@@ -91,7 +91,7 @@ import { createBoombox } from './game/boombox.js';
 import { createTubeMan } from './game/tubeman.js';
 import { createCarWash } from './city/carwash.js';
 import { createGasStation } from './city/gasstation.js';
-import { ROADSIDE_MODE } from './city/roadside.js';
+import { roadsideKind } from './city/roadside.js';
 import { createLTrain, planLTrain, LTRAIN_DIMENSIONS } from './game/ltrain.js';
 import { courtRect } from './city/blacktop.js';
 import { createSkaters } from './game/skaters.js';
@@ -833,14 +833,14 @@ if (burger) {
   // mass is the one version that can never cover a marker the player can see past it.
   burger.group.userData.pickable = 'burger';
 }
-// The roadside business — the fourth block `createLayout` took from the towers, a car wash or, on
-// `?roadside=gas`, a gas station — and the inflatable tube man flailing on its corner, which is what
+// The roadside business — the fourth block `createLayout` took from the towers, a car wash or a gas
+// station as the city seed rolls it (`?roadside=carwash` / `=gas` pins one) — and the inflatable tube man flailing on its corner, which is what
 // it is there for. Scenery only: not tappable, nothing routes into it. `null` on
 // `?roadside=classic` or a city with no room. See city/roadside.js. The tube man is
 // not tappable either: 4.5 units of tall thin target is exactly the shape that steals taps from a
 // marker up-screen of it (CLAUDE.md). Where he stands is the map's; how he flails is the run's.
 const roadside = !layout.roadsideBlock ? null
-  : (ROADSIDE_MODE === 'gas' ? createGasStation : createCarWash)(layout.roadsideBlock, makeRng(seed + 141));
+  : (roadsideKind(seed) === 'gas' ? createGasStation : createCarWash)(layout.roadsideBlock, makeRng(seed + 141));
 if (roadside) {
   scene.add(roadside.group);
   roadside.meshes.forEach(markOccluder);

@@ -2,12 +2,13 @@ import * as THREE from 'three';
 import { bakeColor } from '../util/geo.js';
 import { KERB_H } from './ground.js';
 import { GRID_I, GRID_J } from './grid.js';
+import { makeRng } from '../util/rng.js';
 
 // The roadside block: the fourth block `createLayout` takes out of the tower generator's hands,
 // for a business with an inflatable tube man flailing on its corner (game/tubeman.js). Tyler
 // wanted him on a business of his own rather than on the burger joint's corner (2026-10-17), and
-// then wanted to compare two: a car wash (city/carwash.js, the default) and a gas station with a
-// convenience store (city/gasstation.js). This file holds what the two share — which block, where
+// then wanted to compare two: a car wash (city/carwash.js) and a gas station with a convenience
+// store (city/gasstation.js). Having seen both, he picked neither: each city rolls one (2026-10-17). This file holds what the two share — which block, where
 // the tube man stands, the levels, and the little geometry helpers — and the switch between them.
 //
 // Built on the burger joint's terms: a whole block, `null` a real answer, drawn after every other
@@ -19,15 +20,26 @@ import { GRID_I, GRID_J } from './grid.js';
 // corner, out in front of everything.
 
 /**
- * `'carwash'` (the default), `'gas'`, or `'classic'` for none — `?roadside=` in the browser,
- * `ROADSIDE=` for the headless tools.
+ * `'random'` (the default: the city seed picks, see `roadsideKind`), `'carwash'` or `'gas'` to pin
+ * one, or `'classic'` for none — `?roadside=` in the browser, `ROADSIDE=` for the headless tools.
  */
 export const ROADSIDE_MODE = (() => {
   const raw = typeof location !== 'undefined'
     ? new URLSearchParams(location.search).get('roadside')
     : globalThis.process?.env?.ROADSIDE;
-  return raw === 'gas' || raw === 'classic' ? raw : 'carwash';
+  return raw === 'gas' || raw === 'carwash' || raw === 'classic' ? raw : 'random';
 })();
+
+/**
+ * Which business this city's roadside block is: `'carwash'` or `'gas'`, a coin flip off the city
+ * seed unless `?roadside=` pins one. Its own stream (`seed + 142`) rather than a draw from the
+ * layout's, so the flip moves no other draw — the block is the same either way, and so is
+ * everything round it.
+ */
+export function roadsideKind(seed) {
+  if (ROADSIDE_MODE === 'carwash' || ROADSIDE_MODE === 'gas') return ROADSIDE_MODE;
+  return makeRng(seed + 142).chance(0.5) ? 'gas' : 'carwash';
+}
 
 // --- Levels ------------------------------------------------------------------
 // Each flat surface clears the one under it rather than sharing its plane (CLAUDE.md: two flat

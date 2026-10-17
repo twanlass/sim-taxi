@@ -38,7 +38,7 @@ doc; what the classic version was, and why it changed, is in that doc's history 
 | `?trainintro=classic` | The L without its own intro | #494 | [city.md](city.md) |
 | `?depot=classic` / `=model` | The depot's wrench sign / a 3D taxi on its roof (default is the neon cutout) | #479 | [city.md](city.md) |
 | `?skater=classic` / `=stiff` | The first pair of skaters / the single skater before it got a waist joint | #461, #463 | [city.md](city.md) |
-| `?roadside=gas` | The roadside lot is a gas station (store and two pumps) instead of the car wash. Headless tools take `ROADSIDE=gas` | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
+| `?roadside=carwash` / `=gas` | Pin the roadside lot to the car wash or the gas station; by default each city seed rolls one. Headless tools take `ROADSIDE=` | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?roadside=classic` | No roadside lot: its block goes back to the towers, and the tube man goes with it | | [city.md](city.md#the-roadside-lot-and-its-tube-man) |
 | `?roofs=classic` | Solid flat roof caps, with no lip and no sunk deck | #511 | [city.md](city.md) |
 | `?foliage=classic` | The first, louder autumn palette | #486 | [rendering.md](rendering.md) |
