@@ -245,7 +245,9 @@ export function bankFrontage(site) {
  */
 export function chooseBankLot(rng, lots, buildableOf, exclude = null) {
   const options = lots.filter((entry) => entry !== exclude
-    && entry.block.type === 'built'
+    // A car wash's lots are still in the running (`ghost` in buildings.js): drawn among exactly as
+    // they were before it existed, so the draw lands where it always did, then moved if it lands there.
+    && (entry.block.type === 'built' || entry.ghost)
     && bankSite(buildableOf(entry.lot), entry.lot, entry.block.bounds) !== null);
   return options.length ? rng.pick(options) : null;
 }

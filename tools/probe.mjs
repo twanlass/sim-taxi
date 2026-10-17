@@ -41,6 +41,7 @@ import {
 } from '../src/city/blacktop.js';
 import { createBoombox, BPM as BOOMBOX_BPM } from '../src/game/boombox.js';
 import { createTubeMan } from '../src/game/tubeman.js';
+import { createCarWash } from '../src/city/carwash.js';
 import { onLawn } from '../src/city/ground.js';
 import { createHoopers } from '../src/game/hoopers.js';
 import {
@@ -1480,24 +1481,62 @@ const onGrass = (city, i, j) => {
     box.emitter ? `at (${box.emitter.x.toFixed(1)}, ${box.emitter.z.toFixed(1)})` : 'no emitter');
 }
 
-// The tube man at the drive-through (game/tubeman.js). Twenty seconds of flailing, every vertex:
-// nothing low enough to hit a car is ever inside a car's footprint anywhere along the drive-through
-// path, or out over the road's kerbside lane; nothing goes through the ground; and he actually
-// moves, slumps included — a sway of a few tenths is a wobble, a fold is a unit or more at the head.
+// The car wash (city/carwash.js) and the tube man on its corner (game/tubeman.js). The city puts
+// one somewhere and the towers leave its block alone; its brushes turn; and twenty seconds of the
+// tube man flailing, every vertex, never reach a car's flank in the kerbside lane of either road
+// round his corner, never go through the ground — and he actually moves, folds included: a sway
+// of a few tenths is a wobble, a fold is a unit or more at the head.
 {
-  const site = burgerSite(layout.burgerBlock);
-  const tmScene = new THREE.Scene();
-  const man = createTubeMan(tmScene, makeRng(9), site);
-  const CAR_ROOF = 2.2;
-  const halfW = CAR_W / 2 + 0.1;
-  const footprints = [];
-  for (let s = 0; s <= site.path.total; s += 0.25) {
-    const p = site.path.at(s);
-    const t = site.path.tangentAt(s);
-    footprints.push({ x: p.x, z: p.z, tx: t.x, tz: t.z });
+  const block = layout.carWashBlock;
+  check('the city puts a car wash somewhere', Boolean(block), block ? `block (${block.bi}, ${block.bj})` : 'none');
+  check('...on a block the towers leave alone', (() => {
+    const p = buildings.mesh.geometry.attributes.position;
+    const b = block.bounds;
+    for (let i = 0; i < p.count; i++) {
+      if (p.getX(i) > b.x0 && p.getX(i) < b.x1 && p.getZ(i) > b.z0 && p.getZ(i) < b.z1) return false;
+    }
+    return true;
+  })());
+  // ...and taking it moves no other tower: its lots are still built and thrown away (`ghost` in
+  // city/buildings.js), so every vertex off its block is where it would be with no car wash —
+  // except on a lot a courtyard, the bank or the helipad was moved to because it was drawn onto
+  // the car wash's block, which `rehomed` lists (with the lot each one replaced).
+  {
+    const cw = block.bounds;
+    const excused = [cw, ...buildings.rehomed];
+    const offBlock = (mesh) => {
+      const p = mesh.geometry.attributes.position;
+      const out = new Set();
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i);
+        const z = p.getZ(i);
+        if (excused.some((r) => x >= r.x0 - 0.01 && x <= r.x1 + 0.01 && z >= r.z0 - 0.01 && z <= r.z1 + 0.01)) continue;
+        out.add(`${x.toFixed(3)},${p.getY(i).toFixed(3)},${z.toFixed(3)}`);
+      }
+      return out;
+    };
+    const withWash = offBlock(buildings.mesh);
+    block.type = 'built';
+    const without = offBlock(createBuildings(makeRng(seed + 22), layout).mesh);
+    block.type = 'carwash';
+    let moved = 0;
+    for (const k of withWash) if (!without.has(k)) moved += 1;
+    for (const k of without) if (!withWash.has(k)) moved += 1;
+    check('...and taking it moves no other building', moved === 0,
+      `${moved} vertices differ off its block; ${buildings.rehomed.length} landmark lot(s) moved`);
   }
+  const wash = createCarWash(block, makeRng(seed + 141));
+  const before = wash.entryObjects.map((e) => e.object.rotation.clone());
+  wash.update(0.1);
+  const turned = wash.entryObjects.filter((e, k) => !e.object.rotation.equals(before[k])).length;
+  check('...its brushes turn and its curtain swings', turned === wash.entryObjects.length,
+    `${turned} of ${wash.entryObjects.length} moved`);
+
+  const tmScene = new THREE.Scene();
+  const man = createTubeMan(tmScene, makeRng(9), wash.site.tubeMan);
+  const CAR_ROOF = 2.2;
+  const reach = LANE_TO_KERB - CAR_W / 2 - 0.1;
   const v = new THREE.Vector3();
-  let inLane = 0;
   let overRoad = 0;
   let below = Infinity;
   let headMin = Infinity;
@@ -1507,7 +1546,7 @@ const onGrass = (city, i, j) => {
     man.update(1 / 60);
     tmScene.updateMatrixWorld(true);
     head.getWorldPosition(v);
-    // Across the screen: the (1, 0, -1) axis the arms and the fold both work along.
+    // Across the screen: the (1, 0, -1) axis the arms and the sway work along.
     const across = (v.x - v.z) / Math.SQRT2;
     headMin = Math.min(headMin, across);
     headMax = Math.max(headMax, across);
@@ -1519,25 +1558,15 @@ const onGrass = (city, i, j) => {
         v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
         below = Math.min(below, v.y);
         if (v.y > CAR_ROOF) continue;
-        // Over the road's kerbside lane, where a car's flank is — not merely past the kerb line.
-        if (v.x > site.kerbX + LANE_TO_KERB - halfW) overRoad += 1;
-        for (const f of footprints) {
-          const dx = v.x - f.x;
-          const dz = v.z - f.z;
-          if (Math.abs(dx * f.tx + dz * f.tz) < CAR_LEN / 2 && Math.abs(-dx * f.tz + dz * f.tx) < halfW) {
-            inLane += 1;
-            break;
-          }
-        }
+        if (v.x > block.bounds.x1 + reach || v.z > block.bounds.z1 + reach) overRoad += 1;
       }
     });
   }
-  check('the tube man stands clear of the drive-through and the road, and never through the ground',
-    inLane === 0 && overRoad === 0 && below > 0,
-    `${inLane} vertex-frames in a car's way, ${overRoad} over the road, lowest ${below.toFixed(2)}`);
+  check('the tube man stays clear of the traffic round his corner, and never goes through the ground',
+    overRoad === 0 && below > 0, `${overRoad} vertex-frames over a kerbside lane, lowest ${below.toFixed(2)}`);
   check('...and flails, folding right over now and then', headMax - headMin > 1.5,
     `head swept ${(headMax - headMin).toFixed(2)} across the screen`);
-  check('?tubeman=classic (no site) builds nothing', createTubeMan(new THREE.Scene(), makeRng(9), null).at === null);
+  check('no car wash (?carwash=classic) builds no tube man', createTubeMan(new THREE.Scene(), makeRng(9), null).at === null);
 }
 
 // --- The players on it ---------------------------------------------------------

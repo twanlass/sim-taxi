@@ -738,23 +738,6 @@ all. So `createCityEntry` grew an `objects` list: a handful of transforms scaled
 same easeOutBack over the same delay, so the sign comes up with the building under it instead of
 hanging in the air over a hole in the ground.
 
-### The tube man at the entrance
-
-An inflatable tube man flails on the apron beside the drive-through's way in (`game/tubeman.js`,
-`?tubeman=classic` to leave him out): a red tube on a blower box, yellow streamers for hair and
-cuffs, a cartoon face turned to the camera. He is a chain of capsules jointed end to end, bent by two
-travelling waves so the S runs up the tube, and every few seconds he folds over and whips back
-up with an overshoot. The sway is across the screen, since a bend toward or away from a camera
-that never rotates barely shows; the fold goes down the strip he stands on, because sideways there
-is a car lane on one hand and the road on the other.
-
-**Where he stands is a sightline.** Between the lane and the +X kerb, 2.6 down from the +Z kerb. The
-+Z corner itself is inside the lane's entry turn, and the forecourt's −X corner is the one spot on
-the block a tower across the road can hide: over 200 cities, 27 had more than 2.5 units of him
-behind one there, against none on the +X strip, which `laneSeen` has already cleared for the lane
-beside it. He is scenery only: no collisions, and not tappable, because a tall thin hit target steals
-taps from markers up-screen of it.
-
 ## The graveyard
 
 `city/graveyard.js`. **A double block** since 2026-10-13: two blocks side by side along X and the
@@ -874,6 +857,41 @@ So the mass ducks **under** 7.64 with margin rather than clearing 10.86: a talle
 corner honestly and cost the board a junction, and a low wide bank is what the silhouette wanted
 anyway. Everything at the front is then sized down to stay under the roof behind it, because a
 pediment poking above its own roofline is a gable rather than a portico.
+
+## The car wash, and its tube man
+
+The fourth block taken from the tower generator (`city/carwash.js`, `?carwash=classic` to give it
+back): a wash tunnel against the block's −Z edge, with its long +Z side open on posts so the brushes
+turning inside it show, a blue fascia covered in soap bubbles, a concrete lot out front with two
+vacuum bays and a pay kiosk, and a pylon sign spelling WASH in a pixel face. It is scenery only for
+now: no car goes through, and nothing routes into it. Chosen last in `createLayout`, after the
+graveyard, so adding it moves nothing above; it avoids touching the other landmarks and prefers
+quiet, inner blocks, as the burger joint does.
+
+**Taking the block moves no other building.** The towers on it are still split, drawn and built,
+into a scratch array that is thrown away (`ghost` in `city/buildings.js`), because skipping them the
+way the depot's and the joint's blocks are skipped shifts every draw after them and rebuilds the
+skyline. That is what turned the probe's corner sweep red the first time: a reshuffled tower three
+blocks away halving a kerb mark. A courtyard, the bank or the helipad drawn onto the car wash's block
+moves to another lot, picked by hash so nothing else moves with it; the probe holds every other
+vertex in place.
+
+**The roof is as tall as it is so the brushes show.** A sightline into the open side climbs 0.92
+per unit of z on its way out under the eaves, and the top brush sits 2 up and 1.7 in, so the eaves
+have to clear 3.56. At 3.0 the roof hid it.
+
+**The tube man** (`game/tubeman.js`) flails on the lot's +X+Z corner, the one the camera faces: a
+red tube on a blower box, yellow streamers for hair and cuffs, a cartoon face. He is a chain of
+capsules jointed end to end, bent by two travelling waves so the S runs up the tube, and every few
+seconds he folds over and whips back up with an overshoot. The sway is across the screen, since a
+bend toward or away from a camera that never rotates barely shows; the fold goes back over the lot,
+because the two other ways out of that corner are roads. He is not tappable: a tall thin hit target
+steals taps from markers up-screen of it.
+
+**Which block is a sightline.** `chooseCarWashBlock` only takes a block where the tube man's corner
+and the middle of the tunnel's open side can both be seen over every block up-camera of them, using
+the burger joint's height predictions. He stood on the burger joint's apron first, beside its
+drive-through lane; Tyler wanted him on a business of his own (2026-10-17).
 
 ## Park districts close roads
 

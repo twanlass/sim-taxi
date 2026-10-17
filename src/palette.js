@@ -895,7 +895,22 @@ export const PALETTE = {
   boomboxTape: '#D9A441',
   musicNoteA: '#FF8F2E',
   musicNoteB: '#FFB45E',
-  // The tube man at the drive-through (game/tubeman.js), off the photo Tyler sent: a fire-engine
+  // The car wash (city/carwash.js): a white shed with a bright blue fascia and soap bubbles on it,
+  // a pale concrete lot so it reads as a different paved thing from the road, and brushes in the
+  // two colours every wash in the world uses.
+  carWashBlue: '#2F7FD8',
+  carWashWall: '#E8E6E0',
+  carWashTrim: '#4F5259',
+  carWashBubble: '#F4FAFF',
+  carWashLot: '#B9B6AE',
+  carWashFloor: '#6D6E70',
+  carWashRail: '#F2C230',
+  carWashVacuum: '#C9413A',
+  carWashBrushA: '#3FA3F0',
+  carWashBrushB: '#F065B4',
+  carWashBrushCore: '#2A2D33',
+  carWashGlow: '#E9F6FF',
+  // The tube man at the car wash (game/tubeman.js), off the photo Tyler sent: a fire-engine
   // red tube, a shock of yellow streamers for hair and the same yellow on the cuffs, a white
   // cartoon face, and a dark blower box under him.
   tubeManBody: '#E3342B',

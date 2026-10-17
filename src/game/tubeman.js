@@ -2,21 +2,14 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
-import { APRON_Y } from '../city/burgerjoint.js';
 
-// The inflatable tube man at the burger joint's drive-through entrance: a red tube on a blower,
+// The inflatable tube man on the car wash's corner (city/carwash.js): a red tube on a blower,
 // yellow hair, a cartoon face and two floppy arms, flailing (Tyler, 2026-10-17, off a photo of the
 // real thing). Scenery on the boom box's terms — no collisions, nothing the fare loop knows about,
-// and a run seed for its rhythm. `?tubeman=classic` leaves him out.
+// and a run seed for its rhythm. Where he stands is the car wash's to say (`site.tubeMan`), and
+// `chooseCarWashBlock` only takes a block where the camera can see that corner.
 //
-// **Where he stands is a sightline, not a taste.** On the joint's apron, between the drive-through
-// lane and the +X kerb, a little way down from the +Z corner. The obvious spot is the corner
-// itself, and it is taken twice over: the lane's entry arc is centred a unit in from it, so a car
-// turning in sweeps its inner flank within a unit of the corner post; and the −X end of the +Z
-// forecourt, the other corner, is the one place on the block the city across the road can hide —
-// measured over 200 cities with `ceilingOf`'s height predictions, 27 had more than 2.5 units of him
-// behind a tower there. The +X strip had none, because `chooseBurgerBlock` already filters on a
-// sightline from that lane to the camera, and this strip sits beside the lane.
+// He stood on the burger joint's apron first; Tyler wanted him on a business of his own.
 //
 // **How he moves.** A chain of capsules, each jointed to the one under it, bent by two travelling
 // waves — a slow lateral one and a faster one over it — so the S runs up the tube from the blower
@@ -24,7 +17,8 @@ import { APRON_Y } from '../city/burgerjoint.js';
 // screen: the camera never rotates, so a bend toward or away from it barely shows. Every few
 // seconds he **slumps**: the lower joints fold him over, the head hangs, the arms drop, and he
 // whips back up with an overshoot. That fold is what makes it read as an inflatable rather than a
-// wobbling pole, and it goes down the strip rather than across it — see `update`.
+// wobbling pole, and it folds away from the camera and to the left on screen, back over the lot
+// rather than out over the road — see `update`.
 
 /** Body: capsule radius, joint spacing, and how many. 7 × 0.55 over the blower is about 4.2 up. */
 const R = 0.3;
@@ -38,9 +32,6 @@ const ARM_SEGS = 3;
 /** The blower box he stands on. */
 const BLOWER = { w: 0.8, h: 0.36 };
 
-/** From the +X kerb, in to his centre; and from the +Z kerb, down to it. See the note above. */
-const KERB_IN = 0.9;
-const CORNER_BACK = 2.6;
 
 // The motion. Angles in radians per joint, so the tip of the tube sees about `SEGS` of each.
 const SWAY = 0.15;              // the slow lateral wave
@@ -63,16 +54,17 @@ const smooth = (t) => t * t * (3 - 2 * t);
 /**
  * @param scene
  * @param rng    run stream — the phases and the slump timing
- * @param site   `burger.site` from city/burgerjoint.js, or null: a quiet no-op, as the boom box is
- * @param anchor the joint's entrance anchor `{ x, z, rand }`, so he rises with the building
+ * @param spot   `{ x, y, z }` to stand on (`site.tubeMan` from city/carwash.js), or null: a quiet
+ *               no-op, as the boom box is
+ * @param anchor the car wash's entrance anchor `{ x, z, rand }`, so he rises with the lot
  */
-export function createTubeMan(scene, rng, site, anchor = null) {
+export function createTubeMan(scene, rng, spot, anchor = null) {
   const group = new THREE.Group();
   group.name = 'tube-man';
-  if (!site) return { group, entryObjects: [], update: () => {}, settle: () => {}, at: null };
+  if (!spot) return { group, entryObjects: [], update: () => {}, settle: () => {}, at: null };
   scene.add(group);
 
-  const at = { x: site.kerbX - KERB_IN, y: APRON_Y, z: site.kerbZ - CORNER_BACK };
+  const at = { x: spot.x, y: spot.y, z: spot.z };
   const holder = new THREE.Group();
   holder.position.set(at.x, at.y, at.z);
   // Face the camera: local +Z onto (1, 0, 1), which leaves local X across the screen.
@@ -216,10 +208,10 @@ export function createTubeMan(scene, rng, site, anchor = null) {
       let side = w * (SWAY * Math.sin(SWAY_W * clock - 0.9 * k + phase[0])
         + FLUTTER * Math.sin(FLUTTER_W * clock - 0.6 * k + phase[1]));
       let nod = w * NOD * Math.sin(NOD_W * clock - 0.7 * k + phase[2]);
-      // The fold: the two lowest joints give way and the rest curls back on itself — down the
-      // strip he stands on, world −Z, which in this frame is local +X and away from the camera.
-      // Sideways would be the bigger gesture on screen and has nowhere to go: the strip is about
-      // two units wide, with the lane on one side and the road on the other.
+      // The fold: the two lowest joints give way and the rest curls back on itself — toward
+      // world −Z, which in this frame is local +X and away from the camera. He stands on the lot's
+      // +X+Z corner, so that is back over the lot; folding toward +X or +Z would lay him across
+      // the road.
       const fold = k <= 2 ? 0.72 : -0.2;
       side -= e * fold * Math.SQRT1_2;
       nod -= e * fold * Math.SQRT1_2;
