@@ -22,7 +22,6 @@
  */
 
 import { aimAtHeight, RIGHT, UP, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH } from './camera.js';
-import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
 
 /** Seconds on each shot, counted from the cut — "a couple of seconds", per the brief, and enough
  *  for a jump shot or a run at the ramp to play out inside it. */
@@ -47,24 +46,18 @@ const PUSH = 0.08;
  * Where the subject sits, clear of the menu. The menu is a left-aligned column, vertically centred:
  * on a wide screen the open space is to its right, so the subject goes a third of the half-width
  * right of centre; on a phone the column spans most of the width but only the middle quarter of
- * the height (37–62% down on a 390×844), so the subject goes below it, at about three-quarters of
- * the way down.
+ * the height (37–62% down on a 390×844), so the subject goes just above or below it (a
+ * third of the half-height off the middle, 34% or 66% down) — whichever side keeps the camera
+ * nearer the middle of the map (`menuSide`). Not further: at REEL_ZOOM every tenth of the
+ * half-height is 8.4 units of ground, so half the half-height (the first try) swung the camera 42
+ * units off its subject and put a coast in frame whichever side it went.
  */
 const MENU_SHIFT = 0.32;
-const BELOW_MENU = 0.5;
+const OFF_MENU = 0.32;
 /** The shortest time a train shot is worth starting with — less and it leaves the frame at once. */
 const TRAIN_MIN = 3;
 /** And the shortest it is allowed to run before an early cut, so a cut never follows a cut. */
 const MIN_HOLD = 2;
-
-/**
- * How far from the middle of the map the target may go, as a share of each half-span. At
- * REEL_ZOOM a frame is most of the island across, and a landmark near the coast framed on its own
- * terms put the top half of a phone screen in the fog bank (the court on the first city this was
- * watched on). The old drift stayed inside 0.3 for the same reason; the subject still lands in
- * frame, just less neatly placed.
- */
-const KEEP_IN = 0.35;
 
 const smooth = (k) => k * k * (3 - 2 * k);
 
@@ -89,6 +82,12 @@ export function createTitleReel({ shots, dip = null, still = () => false }) {
   let leaving = false;     // the dip out has started; the cut lands when it is black
   let leaveAt = SHOT;      // when the dip out starts, in shot seconds
   let side = 1;            // drift direction, alternated per shot
+  // On a phone, whether the subject goes above the menu (-1) or below it (+1). At REEL_ZOOM a frame
+  // is most of the island across, so a landmark near the far coast put under the menu lifts the
+  // camera out over the fog bank, which then fills the top of the screen (the court, on the first
+  // city this was watched on). Put above the menu instead, the same landmark pulls the camera
+  // *inland*. Picked once per shot, at the cut, so it never flips mid-shot.
+  let menuSide = 1;
   const played = [];       // names, for the probe
   let last = null;
 
@@ -109,6 +108,14 @@ export function createTitleReel({ shots, dip = null, still = () => false }) {
     leaving = false;
     leaveAt = SHOT;
     side = -side;
+    // The side whose target lands nearer the middle of the map: the target is the subject moved
+    // `menuSide * reach` along UP, so compare the two squared distances.
+    const at = current.at();
+    if (at) {
+      const reach = (REEL_ZOOM * OFF_MENU) / VIEW_DIR.y;
+      const d = (sgn) => (at.x + UP.x * reach * sgn) ** 2 + (at.z + UP.z * reach * sgn) ** 2;
+      menuSide = d(1) <= d(-1) ? 1 : -1;
+    }
   }
   cut();
   // Where the subject was last seen, so a live shot's last frames before the cut hold still rather
@@ -162,14 +169,12 @@ export function createTitleReel({ shots, dip = null, still = () => false }) {
       const drift = current.live || still() ? 0 : (k - 0.5) * DRIFT * side;
       const across = drift - (tall ? 0 : zoom * aspect * MENU_SHIFT);
       // Screen-up on the ground is foreshortened to VIEW_DIR.y, so a target `d` along UP moves the
-      // picture `d * VIEW_DIR.y` — the subject is put `BELOW_MENU` half-heights down by moving the
-      // target up-screen by that over VIEW_DIR.y.
-      const up = tall ? (zoom * BELOW_MENU) / VIEW_DIR.y : 0;
-      // Not a live shot: holding the train back from the coast would let it drive out of frame.
-      const clamp = (v, h) => (current.live ? v : Math.max(-h * KEEP_IN, Math.min(h * KEEP_IN, v)));
+      // picture `d * VIEW_DIR.y` — the subject is put `OFF_MENU` half-heights off the middle by
+      // moving the target the other way by that over VIEW_DIR.y.
+      const up = tall ? (menuSide * zoom * OFF_MENU) / VIEW_DIR.y : 0;
       return {
-        x: clamp(aim.x + RIGHT.x * across + UP.x * up, HALF_SPAN_X),
-        z: clamp(aim.z + RIGHT.z * across + UP.z * up, HALF_SPAN_Z),
+        x: aim.x + RIGHT.x * across + UP.x * up,
+        z: aim.z + RIGHT.z * across + UP.z * up,
         zoom,
         black,
       };

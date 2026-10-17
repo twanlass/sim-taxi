@@ -51,8 +51,9 @@ aligned over the live city. The menu is the only thing on screen: no HUD, no ⏸
 court with its players shooting around, the skatepark, the burger joint, and the L whenever a
 train happens to be running on the island — followed down the line, and cut away from before it
 reaches the coast. Each shot is `SHOT` = 5 s at `REEL_ZOOM` = 45.8 (halfway between play's 52 and the Loco Mode
-push-in's 39.5), with a slow drift along screen-right and a small push-in, framed a third of the half-width right of centre so the subject is clear of the menu's
-column, with a quick dip to black between shots (0.22 s out, 0.08 s held, 0.34 s in). The dip is
+push-in's 39.5), with a slow drift along screen-right and a small push-in, framed clear of the menu's column: a third of the half-width right of centre on a wide
+screen, and on a phone just above or below the menu (34% or 66% down), whichever keeps the camera
+nearer the middle of the map (so a landmark by the coast does not fill the frame with fog), with a quick dip to black between shots (0.22 s out, 0.08 s held, 0.34 s in). The dip is
 under the menu, so the words stay up through every cut, and it never takes a tap. The landmarks
 rotate; the train is an event, slotted in at the next cut whenever it has at least 3 s of island
 left and was not the shot just played. A city missing a landmark plays the rest. Reduced motion
