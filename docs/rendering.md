@@ -271,6 +271,9 @@ rim line, which every look but classic now wears. Two things make it:
 - **The sheen takes the paint's full hue** (`tint` 1, toon has 0.5). Toon's half-white sheen is what
   turned the taxi pale blue-grey from above: a hard shape over most of a sunlit flank, half of it
   white. At 1 the taxi stays yellow.
+- **The highlights are small.** Toon's glint snaps on at cos 0.996 of the half-angle and its sheen at
+  0.975 (`uToonCut`, shared by toon and rim). The first cut, 0.982 and 0.86, drew a sun-sized oval
+  across the windscreen and a lobe over half the roof (Tyler, 2026-10-17).
 - **The rim is found on the screen, not on the surface.** The bodies are flat boxes, so no normal
   says where an edge is. Each light steps the fragment 4 half-res texels toward itself across the
   AO prepass's depth (`gRimEdge`); where the step lands more than 0.4 units further back — road, or
@@ -284,7 +287,7 @@ rim line, which every look but classic now wears. Two things make it:
 The line takes each car's own hue by default (`?rim=paint`; a yellow taxi gets a gold edge, a white
 cop a white one), `?rim=magenta|cyan|gold|white` tints every car one colour (`RIM_COLORS`), and
 `?rim=off` compiles it out. The ⚙️ panel has its width (in half-res texels), strength, sky share,
-car-colour mix and depth gap live. `?paint=toon` is the look before rim; `?paint=layered` the
+car-colour mix and depth gap live, and the two toon cuts (past 1, that highlight is gone). `?paint=toon` is the look before rim; `?paint=layered` the
 realistic layered paint described above, and `?paint=satin&rim=off` any look without the line.
 
 **Cost.** Per glossy fragment: two hashes, the derivatives, and two more Blinn-Phong lobes per

@@ -595,6 +595,10 @@ export const GLOSS_UNIFORMS = {
   uRimStep: { value: new THREE.Vector2() },
   uRimDepthScale: { value: 1 },
   uRimShape: { value: new THREE.Vector4(0.4, 0.6, 4, 0) },
+  // Where the toon and rim looks' glint (x) and sheen (y) snap on, as cos(half-angle): higher is
+  // a smaller shape. Were 0.982 and 0.86, which drew a sun-sized oval across the windscreen and
+  // a broad lobe over the roof (Tyler, 2026-10-17: "crazy big highlights").
+  uToonCut: { value: new THREE.Vector2(0.996, 0.975) },
 };
 
 // `?rim=<name>`: one tint for every car's rim. Without one, each car's rim takes its own paint's
@@ -622,6 +626,8 @@ const RIM_TUNING = {
   sky: ['uRimShape', 'y'],
   gap: ['uRimShape', 'x'],
   carColour: ['uRimShape', 'w'],
+  glintCut: ['uToonCut', 'x'],
+  sheenCut: ['uToonCut', 'y'],
 };
 /** The rim's live numbers, for the ⚙️ panel. `width` is in half-res texels, `gap` in world units. */
 export const rimTuning = () => Object.fromEntries(Object.entries(RIM_TUNING)
@@ -1197,8 +1203,8 @@ const TOON_SKY = 'step(0.45, gR.y)';
 const TOON_SPECULAR = /* glsl */ `{
 		vec3 gH = normalize( directLight.direction + geometryViewDir );
 		float gLit = step( 0.0, dot( gReflN, directLight.direction ) );
-		float gGlintIrr = smoothstep( 0.982, 0.986, dot( gSpecN, gH ) ) * gFinA.x;
-		float gSh = smoothstep( 0.86, 0.87, dot( gReflN, gH ) ) * gFinA.w;
+		float gGlintIrr = smoothstep( uToonCut.x, uToonCut.x + 0.004, dot( gSpecN, gH ) ) * gFinA.x;
+		float gSh = smoothstep( uToonCut.y, uToonCut.y + 0.01, dot( gReflN, gH ) ) * gFinA.w;
 		reflectedLight.directSpecular += directLight.color * gLit * ( gGlintIrr * 1.6 + gSh * gTint );
 	}`;
 // The rim line, appended to whichever look's specular is in the light loop.
@@ -1331,6 +1337,7 @@ uniform sampler2D tRimDepth;
 uniform vec2 uRimStep;
 uniform float uRimDepthScale;
 uniform vec4 uRimShape;
+uniform vec2 uToonCut;
 varying vec3 vGlossWorld;
 varying vec3 vGlossBulge;
 varying vec3 vGlossObj;
