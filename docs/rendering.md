@@ -290,6 +290,18 @@ cop a white one), `?rim=magenta|cyan|gold|white` tints every car one colour (`RI
 car-colour mix and depth gap live, and the two toon cuts (past 1, that highlight is gone). `?paint=toon` is the look before rim; `?paint=layered` the
 realistic layered paint described above, and `?paint=satin&rim=off` any look without the line.
 
+**Flip colour, realistic paint and smooth bodies** (2026-10-17, experiments from Tyler's car-paint
+brief). The flip colour turns the paint toward a deeper shade of itself (its own colour squared,
+so yellow goes amber and white stays white) as the bent normal turns away from the camera, at
+`uFlip` strength: 0.7 on `rim`, 0.8 on `real`, `?flip=` to override, ⚙️ sliders for strength and
+falloff. `?paint=real` is the brief's stack on this source: a sharp clear-coat glint over a soft
+sheen, flakes, the full Fresnel coat and the flip, with both bends cut to a quarter because the
+bends are what smeared the layered look's reflection across a box. `?carbody=smooth` rounds the
+bodies instead: the arched body's profile corners filleted (0.14) and its flanks bevelled (0.05,
+because the arches reach to within 0.13 of the top), cabins and the cop's cab as rounded boxes,
+normals softened across anything under 40 degrees (`softenNormals`), and the paint material
+lit from those normals rather than flat-shaded. Neither is a default yet.
+
 **Cost.** Per glossy fragment: two hashes, the derivatives, and two more Blinn-Phong lobes per
 light (one at play zoom, where the sparkle is skipped). Cars are a few percent of the frame, and
 `?bench` has a `paint classic` row to put a number on it on a device; SwiftShader cannot.

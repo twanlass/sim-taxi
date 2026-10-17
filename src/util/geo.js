@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 /**
  * The Euler order every body in the game poses with, and it is not the default.
@@ -599,6 +600,9 @@ export const GLOSS_UNIFORMS = {
   // a smaller shape. Were 0.982 and 0.86, which drew a sun-sized oval across the windscreen and
   // a broad lobe over the roof (Tyler, 2026-10-17: "crazy big highlights").
   uToonCut: { value: new THREE.Vector2(0.996, 0.975) },
+  // The flip colour: x how far the paint turns toward a deeper shade of itself at a grazing angle,
+  // y the falloff's power. Per look (`PAINT_LOOK_FLIP`), `?flip=` overrides.
+  uFlip: { value: new THREE.Vector2(0, 1.6) },
 };
 
 // `?rim=<name>`: one tint for every car's rim. Without one, each car's rim takes its own paint's
@@ -628,6 +632,8 @@ const RIM_TUNING = {
   carColour: ['uRimShape', 'w'],
   glintCut: ['uToonCut', 'x'],
   sheenCut: ['uToonCut', 'y'],
+  flip: ['uFlip', 'x'],
+  flipPower: ['uFlip', 'y'],
 };
 /** The rim's live numbers, for the ⚙️ panel. `width` is in half-res texels, `gap` in world units. */
 export const rimTuning = () => Object.fromEntries(Object.entries(RIM_TUNING)
@@ -702,6 +708,68 @@ export function setGlossCity(field, ceiling) {
 // shiny": its diffuse of 0.64 took the barge's green wheelhouse to black once already.
 export const FINISH = { TYRE: 0, PAINT: 1, GLASS: 2, METAL: 3, MATTE: 4 };
 export const FINISH_NAMES = ['tyre', 'paint', 'glass', 'metal', 'matte'];
+
+// `?carbody=smooth`: the cars' bodies with rounded edges and soft normals, so a reflection has a
+// curve to slide across instead of one flat colour per panel (2026-10-17, an experiment beside the
+// realistic paint). Read at import like `?taxiroof=classic`, because the geometry modules build
+// their bodies before main.js has run a line of its own.
+export const SMOOTH_BODY = typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('carbody') === 'smooth';
+/** How round a smooth body's edges are, in car-local units. */
+export const BODY_ROUND = 0.14;
+
+/**
+ * Soft normals on a non-indexed geometry: each corner takes the area-weighted mean of the faces
+ * meeting at its position that lie within `creaseDeg` of its own face, so a bevel's segments blend
+ * into one curve and a box's 90 degree edges stay hard. Run after `bakeColor`, which flattens.
+ */
+export function softenNormals(geometry, creaseDeg = 40) {
+  const pos = geometry.attributes.position;
+  const n = pos.count;
+  const face = new Float32Array(n);
+  const faceN = [];
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let i = 0; i < n; i += 3) {
+    a.fromBufferAttribute(pos, i); b.fromBufferAttribute(pos, i + 1); c.fromBufferAttribute(pos, i + 2);
+    const fn = new THREE.Vector3().crossVectors(b.sub(a), c.sub(a)); // length = 2 x area
+    faceN.push(fn);
+  }
+  const key = (i) => `${Math.round(pos.getX(i) * 1e4)},${Math.round(pos.getY(i) * 1e4)},${Math.round(pos.getZ(i) * 1e4)}`;
+  const at = new Map();
+  for (let i = 0; i < n; i++) {
+    const k = key(i);
+    if (!at.has(k)) at.set(k, []);
+    at.get(k).push(i);
+  }
+  const cos = Math.cos((creaseDeg * Math.PI) / 180);
+  const out = new Float32Array(n * 3);
+  const sum = new THREE.Vector3(), own = new THREE.Vector3(), other = new THREE.Vector3();
+  for (const list of at.values()) {
+    for (const i of list) {
+      own.copy(faceN[(i / 3) | 0]).normalize();
+      sum.set(0, 0, 0);
+      for (const j of list) {
+        const f = faceN[(j / 3) | 0];
+        other.copy(f).normalize();
+        if (other.dot(own) >= cos) sum.add(f);
+      }
+      if (sum.lengthSq() < 1e-12) sum.copy(own);
+      sum.normalize();
+      out[i * 3] = sum.x; out[i * 3 + 1] = sum.y; out[i * 3 + 2] = sum.z;
+    }
+  }
+  geometry.setAttribute('normal', new THREE.BufferAttribute(out, 3));
+  return geometry;
+}
+
+/** A box for a smooth body, edges rounded by `radius` (clamped to the box); a plain box otherwise. */
+export function bodyBox(w, h, d, radius = BODY_ROUND) {
+  if (!SMOOTH_BODY) return new THREE.BoxGeometry(w, h, d);
+  const r = Math.min(radius, 0.45 * Math.min(w, h, d));
+  const box = new RoundedBoxGeometry(w, h, d, 3, r);
+  box.deleteAttribute('uv');
+  return box;
+}
 
 /** Tag every vertex of a geometry with one finish. Returns the geometry, like `bakeColor`. */
 export function setFinish(geometry, finish) {
@@ -830,7 +898,23 @@ const PAINT_LOOK_NUMBERS = {
   },
   toon: { glint: 1, sheen: 0.45, flake: 0, coat: 0, tint: 0.5, flop: 0 },
   rim: { glint: 1, sheen: 0.45, flake: 0, coat: 0, tint: 1, flop: 0 },
+  // `real` (2026-10-17, from Tyler's car-paint brief): a sharp clear-coat glint over a soft
+  // base sheen, flakes, the full Fresnel coat and the flip colour, with the bends cut to a
+  // quarter, since they are what smeared the layered look's reflection across a box. Meant
+  // for `?carbody=smooth`, whose own curves stand in for the bend.
+  real: {
+    glint: 0.5, glintSharp: 2000, glintBend: 0.25, sheen: 0.35, sheenSharp: 12, flake: 0.6,
+    reflectBend: 0.3, coat: 1, tint: 0.8, flop: 0,
+  },
 };
+// The flip colour each look wears (`uFlip.x`); `?flip=<amount>` overrides, `?flip=off` drops it.
+const PAINT_LOOK_FLIP = { rim: 0.7, real: 0.8 };
+let flipOverride = null;
+/** `?flip=`: a number, or `off`. Null keeps each look's own. */
+export function setFlip(value) {
+  flipOverride = value === 'off' ? 0 : value == null || value === '' ? null : Number(value);
+  GLOSS_UNIFORMS.uFlip.value.x = flipOverride ?? PAINT_LOOK_FLIP[paintLook] ?? 0;
+}
 
 let classicPaint = false;
 // Rim is the default (Tyler, 2026-10-16), toon before it (2026-10-13); the rest stay one
@@ -905,6 +989,7 @@ export function setClassicPaint(enabled) {
 export function setPaintLook(look) {
   paintLook = look === 'layered' || look in PAINT_LOOK_NUMBERS ? look : PAINT_LOOK_DEFAULT;
   resetGlossTuning();
+  setFlip(flipOverride);
 }
 
 /** Whether the cars wear the rim look, which reads the AO prepass's depth. */
@@ -1033,6 +1118,8 @@ const GLOSS_NORMAL = /* glsl */ `
 ${GLOSS_BEND}
 		float gNV = clamp(gReflN.z, 0.0, 1.0);
 		diffuseColor.rgb *= 1.0 - gFinD.z * (1.0 - gNV) * (1.0 - gNV);
+		diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * diffuseColor.rgb * 0.85,
+			gIsPaint * uFlip.x * pow(1.0 - gNV, uFlip.y));
 __LOOK_BASE__
 		float gPeak = max(max(diffuseColor.r, diffuseColor.g), max(diffuseColor.b, 1e-3));
 		gTint = mix(vec3(1.0), diffuseColor.rgb / gPeak, gFinD.y);
@@ -1257,6 +1344,7 @@ const PAINT_LOOKS = {
     sky: TOON_SKY,
     specular: TOON_SPECULAR,
   },
+  real: {},
 };
 
 /**
@@ -1338,6 +1426,7 @@ uniform vec2 uRimStep;
 uniform float uRimDepthScale;
 uniform vec4 uRimShape;
 uniform vec2 uToonCut;
+uniform vec2 uFlip;
 varying vec3 vGlossWorld;
 varying vec3 vGlossBulge;
 varying vec3 vGlossObj;
@@ -1486,6 +1575,9 @@ export function propMaterial({ ao = true, gloss = null, cutout = null, smooth = 
   // that come out soft are the ones that were given soft normals on purpose: the tree crowns
   // (`treeParts`, city/props.js).
   if (smooth && !paint) material.flatShading = false;
+  // A smooth body's normals are the point of it (see SMOOTH_BODY); everything else a vehicle
+  // carries comes out of `bakeColor` with flat ones and so draws as it did.
+  if (paint && SMOOTH_BODY) material.flatShading = false;
   patchProp(material, { ao, gloss: paint });
   return material;
 }

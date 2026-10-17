@@ -599,6 +599,8 @@ export function createDebugPanel({
     // Toon and rim looks only. Higher is a smaller highlight; past 1 it is gone.
     ['glintCut', 'Toon glint cut', 0.97, 1.001, 0.001, 3],
     ['sheenCut', 'Toon sheen cut', 0.8, 1.01, 0.005, 3],
+    ['flip', 'Flip colour', 0, 1, 0.05, 2],
+    ['flipPower', 'Flip falloff', 0.5, 4, 0.1, 1],
   ];
   const rimStart = rimTuning();
   for (const [key, label, min, max, step, digits] of RIM_FIELDS) {

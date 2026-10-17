@@ -126,7 +126,7 @@ import { createHdr } from './game/hdr.js';
 import { createCrayon } from './game/crayon.js';
 import { createCartoon } from './game/cartoon.js';
 import {
-  setAmbientOcclusion, setCrayon, setCartoon, setCloudShadows, setClassicPaint, setPaintLook, setRim, setRimDepth, rimPaintOn, setVehiclePaint, propMaterial, setGlossCity, setGlossGlobal,
+  setAmbientOcclusion, setCrayon, setCartoon, setCloudShadows, setClassicPaint, setPaintLook, setRim, setFlip, setRimDepth, rimPaintOn, setVehiclePaint, propMaterial, setGlossCity, setGlossGlobal,
 } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
@@ -142,7 +142,7 @@ import { streetAt, routeDrives, STREET_TAP_MAX_DETOUR } from './game/streettap.j
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getDifficultyMode, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getSquallRampClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getPaintClassic, getPaintLook, getRimColor, getVehiclePaintClassic, getWater, getUturnStyle } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr, getRain, getStorm, getSquall, getSquallRampClassic, getWetTyres, getWreckStyle, getFall, getFoliageClassic, getPaintClassic, getPaintLook, getRimColor, getFlip, getVehiclePaintClassic, getWater, getUturnStyle } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { createRobbery } from './game/robbery.js';
 import { createRadio, LOST_CALL, ROBBERY_CALL } from './game/radio.js';
@@ -295,6 +295,7 @@ setCrayon(crayonEnabled);
 setClassicPaint(getPaintClassic());
 setPaintLook(getPaintLook());
 setRim(getRimColor());
+setFlip(getFlip());
 setVehiclePaint(!getVehiclePaintClassic());
 // Cloud shadows are compiled into every lit material, so they are decided here with the look modes,
 // before anything is meshed. See CLOUD_UNIFORMS in util/geo.js.
