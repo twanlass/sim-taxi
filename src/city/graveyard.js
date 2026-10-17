@@ -7,7 +7,7 @@ import { GRID_I, GRID_J, segmentKey } from './grid.js';
 import { STATUE_PLAZA, statueParts, treeParts } from './props.js';
 
 // The city's graveyard: two blocks and the street between them behind an iron fence, with rows of
-// headstones either side of a gravel path, one big tree and a little ground mist. Scenery, on the
+// headstones either side of a gravel path and a park statue. Scenery, on the
 // skatepark's terms — nothing routes through it, nothing on it can be tapped, the fare loop has
 // never heard of it.
 //
@@ -21,9 +21,7 @@ import { STATUE_PLAZA, statueParts, treeParts } from './props.js';
 //
 // **Which way it faces is not a choice**, for the reason city/burgerjoint.js gives at length: the
 // camera looks down the +X+Z diagonal and never rotates, so only a block's +X and +Z faces are ever
-// in front of what stands on it. So the gate is in the +Z fence, every headstone faces +Z, and the
-// trees — the only tall things on the lot — stand in its back half, behind the stones rather than
-// in front of them.
+// in front of what stands on it. So the gate is in the +Z fence and every headstone faces +Z.
 
 /**
  * `'double'` (the default), `'single'`, or `'classic'` for none — `?graveyard=` in the browser,
@@ -43,6 +41,13 @@ export const GRAVEYARD_ON = GRAVEYARD_MODE !== 'classic';
 export const GRAVE_MIST = typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('gravemist') === 'classic'
   : globalThis.process?.env?.GRAVEMIST === 'classic';
+/**
+ * The one big tree in the back corner, off by default (Tyler, 2026-10-17: "kill the creepy tree
+ * it's not working"); `?gravetree=classic` (`GRAVETREE=classic` headless) brings it back.
+ */
+export const GRAVE_TREE = typeof location !== 'undefined'
+  ? new URLSearchParams(location.search).get('gravetree') === 'classic'
+  : globalThis.process?.env?.GRAVETREE === 'classic';
 
 /** What ground.js lays the lawn at — the park's own level, since it is the park's own surface. */
 export const GRAVE_GRASS_Y = KERB_H + 0.01;
@@ -61,7 +66,9 @@ const PICKET = 0.07;
 const PICKET_PITCH = 0.3;
 const PIER = 0.42;          // the stone piers at the corners and every few units along
 const PIER_H = PLINTH_H + RAIL_H + 0.12;
-const PIER_PITCH = 3.2;
+// Was 3.2 until 2026-10-17: Tyler found the piers along the plinth read as more headstones from
+// across the map, so there are half as many, in a warmer stone than the graves (`gravePier`).
+const PIER_PITCH = 6.4;
 
 // --- The gate -----------------------------------------------------------------
 const GATE_HALF = 1.0;       // half the opening in the +Z fence
@@ -89,7 +96,7 @@ const GAP_CHANCE = 0.35;
  */
 const STONE_SCALE = 1.4;
 const STONE_CLEAR = 0.55;    // from the fence and from the path
-const TREE_CLEAR = 1.3;      // no stone inside a trunk's reach
+const TREE_CLEAR = 1.3;      // no stone inside a trunk's reach (`?gravetree=classic`)
 /** The tree's height: past the top of the parks' 3.4–5.6, so it is the one big tree on the block. */
 const TREE_H = 6.6;
 
@@ -240,8 +247,8 @@ function pier(x, z, h, w, stone, cap, parts) {
 
 function fenceParts(site, rng, parts) {
   const { fence, gateX } = site;
-  const stone = jitterColor(color('graveStoneDark'), rng, { l: 0.02 });
-  const cap = color('graveStone');
+  const stone = jitterColor(color('gravePier'), rng, { l: 0.02 });
+  const cap = color('gravePierCap');
   const iron = color('graveIron');
 
   // Each side as a list of runs between piers, both ends broken by a gate on the path's line, so
@@ -471,7 +478,7 @@ export function graveGrassArea(site, { tree, statue, stones }) {
       if (dx < PATH_HALF + 0.1 + r) return true;
       // The leaves swing GATE_OPEN into the lot off hinges GATE_HALF either side of the path.
       if (dx < GATE_HALF + GATE_PIER + r && (z - fence.z0 < GATE_HALF + r || fence.z1 - z < GATE_HALF + r)) return true;
-      if (Math.hypot(x - tree.x, z - tree.z) < 0.5 + r) return true;
+      if (tree && Math.hypot(x - tree.x, z - tree.z) < 0.5 + r) return true;
       if (Math.abs(x - statue.x) < STATUE_PLAZA / 2 + r && Math.abs(z - statue.z) < STATUE_PLAZA / 2 + r) return true;
       return stones.some((s) => Math.abs(x - s.x) < STONE_GRASS_HALF + r
         && z - s.z > -STONE_GRASS_BACK - r && z - s.z < STONE_GRASS_FRONT + r);
@@ -497,8 +504,9 @@ export function createGraveyard(block, rng) {
   // the back corner on the −X side of the path so its crown stands behind the stones rather than
   // over them. Its crown is the one thing here that isn't the parks' palette: a dark plum, so it
   // reads as the graveyard's tree and not as a park tree that wandered in.
+  // Off by default since 2026-10-17; `?gravetree=classic`.
   const tree = { x: fence.x0 + 1.6, z: fence.z0 + 1.6 };
-  parts.push(...treeParts(tree.x, tree.z, rng, { height: TREE_H, trunk: 0.5, canopy: PALETTE.graveTree }));
+  if (GRAVE_TREE) parts.push(...treeParts(tree.x, tree.z, rng, { height: TREE_H, trunk: 0.5, canopy: PALETTE.graveTree }));
 
   // A park statue (Tyler, 2026-10-13: "a little more asymmetric appeal"), the parks' own model with
   // its paved square, out in the lawn of the −X block in front of the tree. Off the middle of its
@@ -512,7 +520,7 @@ export function createGraveyard(block, rng) {
   parts.push(...statueParts(statue.x, statue.z, GRAVE_GRASS_Y, rng));
 
   const stones = [];
-  headstoneParts(site, [tree, statue], rng, parts, stones);
+  headstoneParts(site, GRAVE_TREE ? [tree, statue] : [statue], rng, parts, stones);
 
   // The lanterns' iron caps and points, on both gates; the lit glass under them is `glow` below.
   for (const z of [fence.z0, fence.z1]) {
@@ -534,8 +542,8 @@ export function createGraveyard(block, rng) {
   const stampAll = (geo) => stampEntry(geo, anchorX, anchorZ, rand);
 
   parts.forEach(stampAll);
-  // Smooth for the tree's crown, which is how every tree in the city is lit (see `treeParts`); the
-  // stones and the ironwork still light off their own face normals.
+  // Smooth for the tree's crown under `?gravetree=classic`, which is how every tree in the city is
+  // lit (see `treeParts`); the stones and the ironwork still light off their own face normals.
   const shell = new THREE.Mesh(mergeGeometries(parts, false), propMaterial({ smooth: true }));
   parts.forEach((p) => p.dispose());
   shell.castShadow = true;
@@ -570,7 +578,7 @@ export function createGraveyard(block, rng) {
     site,
     group,
     /** The lawn as `city/grass.js` scatters tufts over it. */
-    grass: graveGrassArea(site, { tree, statue, stones }),
+    grass: graveGrassArea(site, { tree: GRAVE_TREE ? tree : null, statue, stones }),
     /** Every headstone's foot, `{ x, z }` — the grave runs +Z of it. */
     stones,
     shell,

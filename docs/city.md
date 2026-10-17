@@ -757,17 +757,16 @@ It is scenery only. Nothing routes into it, nothing on it can be tapped, and the
 know it exists. An iron railing on a stone plinth runs round the lawn, with a gate in the middle of
 the +Z fence.
 Headstones stand in rows either side of a gravel path that runs gate to gate (one gate in each
-end), one big tree stands in a back corner, one of the parks' statues (`statueParts`) stands on its
-plaza in the −X half for some asymmetry, and long grass grows between the rows (see
-[Long grass](#long-grass)). The tree is
-an ordinary `treeParts` tree at 6.6 tall (the parks run 3.4–5.6) with a plum crown, so it lights and
-wears leaf cards exactly as every other tree does. The ground mist that used to drift across is off
+end), one of the parks' statues (`statueParts`) stands on its plaza in the −X half for some
+asymmetry, and long grass grows between the rows (see [Long grass](#long-grass)). The fence's piers
+stand every 6.4 units in a brownish stone (`gravePier`): at half that pitch and in the graves' own
+grey they read from across the map as one more row of headstones. The big plum-crowned tree that
+stood in the back corner is off since 2026-10-17; `?gravetree=classic` brings it back. The ground mist that used to drift across is off
 since 2026-10-15; `?gravemist=classic` brings it back, thickening after dark on the same measure of
 darkness as the helicopter's searchlight.
 
 - **It faces the camera, like the burger joint.** Only +X and +Z faces are ever seen, so the gate is
-  in the +Z fence, every stone faces +Z, and the tree stands in the back corner, behind the stones
-  rather than over them. A first cut had an above-ground crypt and bare spooky trees; Tyler cut
+  in the +Z fence and every stone faces +Z. A first cut had an above-ground crypt and bare spooky trees; Tyler cut
   both.
 - **The stones are drawn 1.4× life size** (`STONE_SCALE`). At life size they were four pixels at play
   zoom, and the lot read as a fenced lawn with grit on it.
