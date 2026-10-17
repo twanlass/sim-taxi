@@ -284,16 +284,17 @@ export const PAINT_UNIFORMS = {
   // edge of a cast shadow (and faces at grazing sun) — that is where the red goes. The shade core is
   // left to the existing cool tint.
   uEdgeTint: { value: new THREE.Color(1.28, 0.9, 0.8) },
-  uEdge: { value: 0.8 },
+  uEdge: { value: 0 },          // off for the streets-only look (0.8 was the red-edge prototype)
   uEdgeSat: { value: 0.4 },
-  uHeightGrad: { value: 0.4 },  // how much darker a wall is at its foot
+  uHeightGrad: { value: 0 },    // how much darker a wall is at its foot (0.4 in the earlier round; off for streets-only)
   uHeightSpan: { value: 10 },   // world units over which the foot fades up to full brightness
   // Painted brush tiles (game/brushtiles.js), projected in world space off each flat face's normal.
   tBrushWall: { value: null },
   tBrushGround: { value: null },
   tBrushRoad: { value: null },
   uRoadTile: { value: 12 },     // a bigger repeat on the road: it is the largest flat surface on screen
-  uRoadAmt: { value: 0.5 },
+  uRoadAmt: { value: 0.5 },     // value-and-hue swing of a road stroke
+  uLawnAmt: { value: 0 },       // lawn strokes (0.7 earlier; off for streets-only)
   uBrushTile: { value: 8 },     // world units per tile repeat
   uBrushAmt: { value: 0.7 },   // value swing of a stroke (0.22 was invisible at play zoom)
 };
@@ -316,6 +317,7 @@ uniform sampler2D tBrushGround;
 uniform sampler2D tBrushRoad;
 uniform float uRoadTile;
 uniform float uRoadAmt;
+uniform float uLawnAmt;
 uniform float uBrushTile;
 uniform float uBrushAmt;
 uniform float uBrushKind;
@@ -356,12 +358,14 @@ const PAINT_FRAGMENT = /* glsl */ `
 			if (an.y > 0.7) {
 				vec3 c = gl_FragColor.rgb;
 				float grassy = smoothstep(0.015, 0.06, c.g - max(c.r, c.b));
-				float k = uBrushKind > 1.5 ? grassy : 1.0;
+				float k = uBrushKind > 1.5 ? grassy * uLawnAmt / max(uBrushAmt, 1e-3) : 1.0;
 				b = (texture2D(tBrushGround, vPaintWorld.xz / uBrushTile).r - 0.5) * k;
 				if (uBrushKind > 1.5) {
+					// The road tile is coloured: each stroke is a hair red or a hair blue as well as
+					// lighter or darker, so the swing is per channel rather than one scalar.
 					float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
-					float r = (texture2D(tBrushRoad, vPaintWorld.xz / uRoadTile).r - 0.5) * uRoadAmt / max(uBrushAmt, 1e-3);
-					b += r * (1.0 - grassy) * (1.0 - smoothstep(0.35, 0.6, lum));
+					vec3 r = texture2D(tBrushRoad, vPaintWorld.xz / uRoadTile).rgb - 0.5;
+					gl_FragColor.rgb *= 1.0 + 2.0 * r * uRoadAmt * (1.0 - grassy) * (1.0 - smoothstep(0.35, 0.6, lum));
 				}
 			} else if (uBrushKind < 1.5) {
 				vec2 uv = vec2(an.x > an.z ? vPaintWorld.z : vPaintWorld.x, vPaintWorld.y);

@@ -293,8 +293,8 @@ setAmbientOcclusion(aoEnabled);
 // `game/crayon.js` for what the three layers of it are.
 const crayonEnabled = budget.crayon;
 setCrayon(crayonEnabled);
-// Prototype painterly look (PAINT_* in util/geo.js, game/brushtiles.js): red shadow edges, walls
-// fading up from a darker foot, painted brush tiles. `?painterly=classic` is the old look.
+// Prototype painterly look (PAINT_* in util/geo.js, game/brushtiles.js): painted strokes on the
+// streets only. The shadow edge, wall fade and wall/roof/lawn strokes are still in, dialled to 0. `?painterly=classic` is the old look.
 const painterly = new URLSearchParams(location.search).get('painterly') !== 'classic';
 setPainterly(painterly);
 if (painterly) {
@@ -697,12 +697,12 @@ const stopPanes = rain.enabled ? collectPanes() : null;
 const fall = getFall();
 setAutumn(fall, { classicColours: getFoliageClassic() });
 const city = createBuildings(makeRng(seed + 22), layout);
-scene.add(markOccluder(brush(city.mesh, 1)));
+scene.add(markOccluder(city.mesh));
 // The high rises past the west ring road, the streets carrying on to them and the barricades shutting
 // them off (city/westedge.js). Built before the panes are collected, so Rain Mode lights their windows
 // too. Its own stream. Null under `?westedge=classic`.
 const westEdge = createWestEdge(makeRng(seed + 59));
-if (westEdge) scene.add(markOccluder(brush(westEdge.ground, 2)), markOccluder(brush(westEdge.towers, 1)));
+if (westEdge) scene.add(markOccluder(brush(westEdge.ground, 2)), markOccluder(westEdge.towers));
 // The northwest corner's asphalt skirt (`?westcorner=classic` drops the corner). Transparent, so not
 // an occluder.
 if (westEdge?.fade) scene.add(westEdge.fade);
