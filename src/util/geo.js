@@ -603,6 +603,8 @@ export const GLOSS_UNIFORMS = {
   // The flip colour: x how far the paint turns toward a deeper shade of itself at a grazing angle,
   // y the falloff's power. Per look (`PAINT_LOOK_FLIP`), `?flip=` overrides.
   uFlip: { value: new THREE.Vector2(0, 1.6) },
+  // Painted reflection streaks (STREAKS): x strength, per look (`PAINT_LOOK_STREAKS`).
+  uStreak: { value: new THREE.Vector4(0, 0, 0, 0) },
 };
 
 // `?rim=<name>`: one tint for every car's rim. Without one, each car's rim takes its own paint's
@@ -633,6 +635,7 @@ const RIM_TUNING = {
   glintCut: ['uToonCut', 'x'],
   sheenCut: ['uToonCut', 'y'],
   flip: ['uFlip', 'x'],
+  streaks: ['uStreak', 'x'],
   flipPower: ['uFlip', 'y'],
 };
 /** The rim's live numbers, for the ⚙️ panel. `width` is in half-res texels, `gap` in world units. */
@@ -904,11 +907,15 @@ const PAINT_LOOK_NUMBERS = {
   // for `?carbody=smooth`, whose own curves stand in for the bend.
   real: {
     glint: 0.5, glintSharp: 2000, glintBend: 0.25, sheen: 0.35, sheenSharp: 12, flake: 0.6,
-    reflectBend: 0.3, coat: 1, tint: 0.8, flop: 0,
+    reflectBend: 0.3, coat: 0, tint: 0.8, flop: 0,
   },
 };
 // The flip colour each look wears (`uFlip.x`); `?flip=<amount>` overrides, `?flip=off` drops it.
 const PAINT_LOOK_FLIP = { rim: 0.7, real: 0.8 };
+// The streaks each look wears (`uStreak.x`), and its rim's width in half-res texels (Tyler,
+// 2026-10-17: double the rim on realistic).
+const PAINT_LOOK_STREAKS = { real: 1 };
+const PAINT_LOOK_RIM_WIDTH = { real: 8 };
 let flipOverride = null;
 /** `?flip=`: a number, or `off`. Null keeps each look's own. */
 export function setFlip(value) {
@@ -990,6 +997,8 @@ export function setPaintLook(look) {
   paintLook = look === 'layered' || look in PAINT_LOOK_NUMBERS ? look : PAINT_LOOK_DEFAULT;
   resetGlossTuning();
   setFlip(flipOverride);
+  GLOSS_UNIFORMS.uStreak.value.x = PAINT_LOOK_STREAKS[paintLook] ?? 0;
+  GLOSS_UNIFORMS.uRimShape.value.z = PAINT_LOOK_RIM_WIDTH[paintLook] ?? 4;
 }
 
 /** Whether the cars wear the rim look, which reads the AO prepass's depth. */
@@ -1304,6 +1313,33 @@ const RIM_LIGHT = /* glsl */ `
 		}
 	}`;
 // ...and the sky's share, appended to the look's final slot.
+// **Streaks.** A box panel reflects one point of the sky edge to edge, so no environment can
+// slide across it (Tyler, 2026-10-17: the reflection washed the taxi out). These are painted on
+// instead, the way a toy car or an illustration fakes chrome: on each flank and end a horizon
+// line, sky above it and a little ground below; across every panel two diagonal light bands, one
+// broad and one thin. Keyed to the body's own box, so they ride the car, and slid along the panel
+// by the flank's facing, so they move as the car turns. Additive in the sky's colour, off the sun.
+const STREAKS = /* glsl */ `
+	if (gIsPaint > 0.5 && uStreak.x > 0.0) {
+		vec3 sP = (vGlossObj - uGlossCentre) * uGlossInvHalf;
+		vec3 sN = abs(normalize(cross(dFdx(vGlossObj), dFdy(vGlossObj))));
+		bool sTop = sN.y > 0.7;
+		vec2 sUV = sTop ? sP.xz : sN.z > sN.x ? sP.xy : sP.zy;
+		float sShift = sTop ? 0.0 : 0.6 * normal.x;
+		float sS = sUV.x + 0.7 * sUV.y + sShift;
+		float sW = fwidth(sS) + 1e-4;
+		float sBand = smoothstep(0.16 + sW, 0.16 - sW, abs(sS + 0.35))
+			+ 0.8 * smoothstep(0.05 + sW, 0.05 - sW, abs(sS - 0.2));
+		float sH = sTop ? 0.0 : sUV.y + 0.45;
+		float sHW = fwidth(sH) + 1e-4;
+		float sSky = sTop ? 0.0 : smoothstep(-sHW, sHW, sH);
+		float sLine = sTop ? 0.0 : smoothstep(0.06 + sHW, 0.0, abs(sH - 0.03));
+		// The sky's own colour lifted toward its own brightness in white, so the bands are pale by
+		// day and fade with the sky at night instead of staying white.
+		vec3 sCol = uGlossTop + 0.8 * vec3(dot(uGlossTop, vec3(0.2126, 0.7152, 0.0722)));
+		outgoingLight *= 1.0 - uStreak.x * 0.18 * (sTop ? 0.0 : 1.0 - sSky);
+		outgoingLight += uStreak.x * sCol * (0.45 * sBand + 0.06 * sSky + 0.4 * sLine);
+	}`;
 const RIM_SKY = /* glsl */ `
 		outgoingLight += uGlossTop * gRimColor() * uRimShape.y * gIsPaint * gRimEdge(vec2(0.0, 1.0));`;
 // After <packing>, which the gloss uniforms are not: hung on the light chunk's include instead.
@@ -1427,6 +1463,9 @@ uniform float uRimDepthScale;
 uniform vec4 uRimShape;
 uniform vec2 uToonCut;
 uniform vec2 uFlip;
+uniform vec4 uStreak;
+uniform vec3 uGlossCentre;
+uniform vec3 uGlossInvHalf;
 varying vec3 vGlossWorld;
 varying vec3 vGlossBulge;
 varying vec3 vGlossObj;
@@ -1452,7 +1491,7 @@ ${classicPaint ? GLOSS_NORMAL_CLASSIC : GLOSS_NORMAL.replace('__LOOK_BASE__', lo
 ${glossFragment(classicPaint || paintLook === 'toon' || paintLook === 'rim')
   .replace('__LOOK_SKY__', look.sky ?? LOOK_DEFAULT_SKY)
   .replace('__LOOK_MIRROR__', look.mirror ?? '')
-  .replace('__LOOK_FINAL__', (look.final ?? '') + (rim ? RIM_SKY : ''))}`);
+  .replace('__LOOK_FINAL__', (look.final ?? '') + (rim ? RIM_SKY : '') + STREAKS)}`);
       // Never a blind replace (CLAUDE.md): a hook that matched nothing is a matte car and no error.
       for (const marker of ['attribute float aFinish', 'vGlossFinish = aFinish', 'aFinish > 2.5 && aFinish < 3.5']) {
         if (!shader.vertexShader.includes(marker)) throw new Error(`gloss: vertex hook missed (${marker})`);

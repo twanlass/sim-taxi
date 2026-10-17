@@ -302,6 +302,13 @@ because the arches reach to within 0.13 of the top), cabins and the cop's cab as
 normals softened across anything under 40 degrees (`softenNormals`), and the paint material
 lit from those normals rather than flat-shaded. Neither is a default yet.
 
+`real` then dropped its sky reflection (coat 0; it washed the taxi pale, Tyler 2026-10-17) for
+**painted reflection streaks** (`STREAKS`): a box panel reflects one point of the sky edge to
+edge, so instead each flank and end gets a horizon line, and every panel two diagonal bands,
+keyed to the body's box and slid by the flank's facing so they move as the car turns. Their colour
+is the sky's, lifted toward its own brightness, so they fade at night. `real` also doubles the rim
+to 8 texels. ⚙️ "Reflection streaks" sets their strength (1 on `real`, 0 elsewhere).
+
 **Cost.** Per glossy fragment: two hashes, the derivatives, and two more Blinn-Phong lobes per
 light (one at play zoom, where the sparkle is skipped). Cars are a few percent of the frame, and
 `?bench` has a `paint classic` row to put a number on it on a device; SwiftShader cannot.
