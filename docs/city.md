@@ -13,9 +13,9 @@ happening to agree on the same magic number.
 ```js
 GRID_I = 5    // block columns → i runs 0..5   (6 under ?city=big)
 GRID_J = 6    // block rows    → j runs 0..6, and 6 × 7 = 42 intersections   (7 big)
-ROAD_W = 9    // full road width (two lanes): 8 under ?streets=classic, 10 under ?streets=half
+ROAD_W = 9    // full road width (two lanes): 8 under ?streets=classic
 BLOCK = 12    // the buildable footprint between two ordinary streets, on every width
-PITCH = 21    // BLOCK + ROAD_W, the distance between road centrelines (20 classic, 22 half)
+PITCH = 21    // BLOCK + ROAD_W, the distance between road centrelines (20 classic)
 LANE  = 2.25  // ROAD_W / 4, lane centre offset from the centreline
 SPAN_X = 105  // GRID_I * PITCH   (126 big)
 SPAN_Z = 126  // GRID_J * PITCH   (147 big)
@@ -28,22 +28,23 @@ MEDIAN_W        = 2.4      // the planted island between an arterial's carriagew
 ### Street width (`?streets=`)
 
 Streets are 9 units across, a unit wider than the 8 they were for most of the game's life (Tyler,
-2026-10-17: "I want to see if it helps gameplay feel less cramped"). `?streets=half` makes them 10,
-half a 4-unit lane wider, and `?streets=classic` puts them back to 8; headless tools take `STREETS=`.
+2026-10-17: "I want to see if it helps gameplay feel less cramped"). `?streets=classic` puts them back to
+8; headless tools take `STREETS=`. A 10-unit option, half a lane wider, was tried alongside and
+judged too wide.
 Two choices travel with the number:
 
 - **The lanes widen with the road.** `LANE` is a quarter of `ROAD_W`, so the extra width lands on
   both sides of every car rather than as a stripe down the middle. The overtake, the weave room, the
   swerve's kerb jink and every turn radius grow with it.
 - **The blocks keep their size and the map grows.** `BLOCK` is fixed at 12 and `PITCH` is `BLOCK +
-  ROAD_W`, so the island is 5 units wider a side on `touch` and 10 on `half`. Taking the width out
+  ROAD_W`, so the island is 5 units wider a side than on `classic`. Taking the width out
   of the blocks instead was tried first and broke 28 probe checks, nearly all for one reason: a
   lane between two junctions is `BLOCK` long, and the roadworks launch, the L train's spans, the
   pond, the helipad and the bank's sightline band were all sized against 12 of it.
 
 The arterial's median gap stays a fixed 8/3 (`ARTERIAL_EXTRA`), so a main street is `ROAD_W + 8/3`
 rather than a third wider than whatever a side street is. The New Move cards play a recording per
-width (`game/*reel-<width>.js`); `STREETS=half node tools/uturnreel.mjs --write` films one.
+width (`game/*reel-<width>.js`); `STREETS=classic node tools/uturnreel.mjs --write` films one.
 
 Intersections are indexed `(i, j)` from `0..GRID_I` and `0..GRID_J`, and `lineX(i)` / `lineZ(j)`
 convert an index to a world coordinate. The city is centred on the origin **on both axes**, which is

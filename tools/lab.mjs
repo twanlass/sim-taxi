@@ -284,7 +284,7 @@ function standingApproach() {
   collisions.onImpact(() => { wrecked = true; });
 
   // Ten units past the first junction, not 30 from the start of the road: on wider streets
-  // (`?streets=half`) 30 leaves the taxi's spot inside the junction box, `placeAtX` clamps it out
+  // (`?streets=`) 30 can leave the taxi's spot inside the junction box, `placeAtX` clamps it out
   // onto the leader's own, and the two start the run overlapped.
   placeAtX(leader, DIR.PX, labNodeX(1) + 10);
   placeAtX(taxi, DIR.PX, labNodeX(1) + 10 - MIN_GAP);

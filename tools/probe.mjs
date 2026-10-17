@@ -4972,7 +4972,7 @@ const PRESSURE_END = difficulty.getTuning().pressureEnd;
   // 0.52 is the two waves' peak sum; the margin covers a frame landing mid-corner-exit. The frame
   // floor is the sample size: at boost speed a junction arrives about every 1.1s, so barely half
   // of these 20s are spent in the 'drive' state at all — and less on wider streets, whose junction
-  // boxes are bigger (386 frames on `?streets=half`).
+  // boxes are bigger (`?streets=`).
   check('the boosting taxi holds its lane', widest < 0.6 && straightFrames > 350,
     `widest ${widest.toFixed(2)} units off the lane centre over ${straightFrames} frames`);
   check('the boosting taxi actually weaves', widest > 0.25, `widest ${widest.toFixed(2)}`);

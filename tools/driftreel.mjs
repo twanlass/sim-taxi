@@ -32,8 +32,8 @@ import {
 } from '../src/game/driftclip.js';
 
 // One recording per street width (`?streets=`, city/grid.js): the corner, the lane change and the
-// U-turn are all the shape of the road they were filmed on. `STREETS=half node tools/driftreel.mjs
-// --write` films the 10-unit one; with no STREETS it is the default width.
+// U-turn are all the shape of the road they were filmed on. `STREETS=classic node tools/driftreel.mjs
+// --write` films the 8-unit one; with no STREETS it is the default width.
 const OUT = new URL(`../src/game/driftreel-${STREETS_KEY}.js`, import.meta.url);
 const STEP = 1 / 60;
 // main.js's own (BRAKE_SKID_V, LAUNCH_SKID_TIME, the 0.42 stamp spacing in `layRubber`).

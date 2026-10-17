@@ -1,12 +1,11 @@
 import { riverBanks, STREETS_KEY } from '../city/grid.js';
 import { REEL as REEL_CLASSIC } from './driftreel-classic.js';
 import { REEL as REEL_TOUCH } from './driftreel-touch.js';
-import { REEL as REEL_HALF } from './driftreel-half.js';
 import { reelPlayer, createMoveClip, onStreet } from './moveclip.js';
 
 // One recording per street width (`?streets=`, city/grid.js): the shape of the road it was filmed
 // on is the shape of the road it has to fit. Exported for tools/check.mjs.
-export const REEL = { classic: REEL_CLASSIC, touch: REEL_TOUCH, half: REEL_HALF }[STREETS_KEY];
+export const REEL = { classic: REEL_CLASSIC, touch: REEL_TOUCH }[STREETS_KEY];
 
 // The drift, acted out: the clip on its New Move card (game/newmove.js), on a real corner of the
 // player's city. The stand-in comes up the street, floors it, taps the brake just before a left turn,

@@ -32,8 +32,8 @@ import { labNetwork, labNodeX, LAB_BLOCKS } from '../src/lab/labroad.js';
 import { BOOST_ON, BOOST_OFF, TAP_1, TAP_2, TAP_LEN, CLIP_LOOP } from '../src/game/uturnclip.js';
 
 // One recording per street width (`?streets=`, city/grid.js): the corner, the lane change and the
-// U-turn are all the shape of the road they were filmed on. `STREETS=half node tools/uturnreel.mjs
-// --write` films the 10-unit one; with no STREETS it is the default width.
+// U-turn are all the shape of the road they were filmed on. `STREETS=classic node tools/uturnreel.mjs
+// --write` films the 8-unit one; with no STREETS it is the default width.
 const OUT = new URL(`../src/game/uturnreel-${STREETS_KEY}.js`, import.meta.url);
 const STEP = 1 / 60;
 // main.js's own: the brake marks the road above this speed, and a launch breaks traction for this

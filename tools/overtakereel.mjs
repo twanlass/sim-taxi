@@ -25,8 +25,8 @@ import { labNetwork, labNodeX, LAB_BLOCKS } from '../src/lab/labroad.js';
 import { PRE_ROLL, BLIP_OFF, BLIP_ON, CLIP_LOOP } from '../src/game/overtakeclip.js';
 
 // One recording per street width (`?streets=`, city/grid.js): the corner, the lane change and the
-// U-turn are all the shape of the road they were filmed on. `STREETS=half node tools/overtakereel.mjs
-// --write` films the 10-unit one; with no STREETS it is the default width.
+// U-turn are all the shape of the road they were filmed on. `STREETS=classic node tools/overtakereel.mjs
+// --write` films the 8-unit one; with no STREETS it is the default width.
 const OUT = new URL(`../src/game/overtakereel-${STREETS_KEY}.js`, import.meta.url);
 const STEP = 1 / 60;
 // main.js's own: a launch breaks traction for this long, and the stamp spacing in `layRubber`.
@@ -127,23 +127,16 @@ function film(start, gap) {
 // end of the loop, and finishing a couple of car lengths past the car — clearly by, without the
 // taxi running so far up the road that the frame has to shrink both cars to hold it.
 const AHEAD = 6;
-//
-// The pull-out has to follow the blip within 0.4s — or, where no take manages that, 0.5. On 10-unit
-// streets (`?streets=half`) none does: the junction boxes are long enough that every take whose
-// pull-out came that soon had already run up the car's tail in the box, where a pass cannot start.
+// The pull-out has to follow the blip within 0.4s.
+const LATE = 0.4;
 let best = null;
-let late = 0;
-for (const tryLate of [0.4, 0.5]) {
-  if (best) break;
-  late = tryLate;
-  for (let start = 10; start < 60; start += 2) for (let gap = 8; gap <= 30; gap += 0.5) {
-    const take = film(start, gap);
-    if (take.crashed || take.bumps || take.pulledOut == null || take.pulledOut < 0) continue;
-    if (take.peak < 0.99 || !take.back) continue;
-    if ((take.pulledOut - Math.round(BLIP_ON / STEP)) * STEP > tryLate) continue;
-    const off = Math.abs(take.ahead - AHEAD);
-    if (!best || off < best.off) best = { start, gap, off, score: take.ahead, take };
-  }
+for (let start = 10; start < 60; start += 2) for (let gap = 8; gap <= 30; gap += 0.5) {
+  const take = film(start, gap);
+  if (take.crashed || take.bumps || take.pulledOut == null || take.pulledOut < 0) continue;
+  if (take.peak < 0.99 || !take.back) continue;
+  if ((take.pulledOut - Math.round(BLIP_ON / STEP)) * STEP > LATE) continue;
+  const off = Math.abs(take.ahead - AHEAD);
+  if (!best || off < best.off) best = { start, gap, off, score: take.ahead, take };
 }
 if (!best) { console.error('overtakereel: no take passed cleanly'); process.exit(1); }
 
@@ -194,7 +187,7 @@ let committed = '';
 try { committed = fs.readFileSync(OUT, 'utf8'); } catch { /* missing: fails below */ }
 check('the committed reel is the shipped overtake', committed === source,
   committed === source ? '' : 'the sim has changed under it; run node tools/overtakereel.mjs --write');
-check('it pulls out on the blip', (best.take.pulledOut - Math.round(BLIP_ON / STEP)) * STEP <= late,
+check('it pulls out on the blip', (best.take.pulledOut - Math.round(BLIP_ON / STEP)) * STEP <= LATE,
   `frame ${best.take.pulledOut}`);
 check('goes all the way out and back without touching the car',
   best.take.peak >= 0.99 && best.take.back && best.take.bumps === 0);

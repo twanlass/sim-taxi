@@ -1,12 +1,11 @@
 import { riverBanks, STREETS_KEY } from '../city/grid.js';
 import { REEL as REEL_CLASSIC } from './uturnreel-classic.js';
 import { REEL as REEL_TOUCH } from './uturnreel-touch.js';
-import { REEL as REEL_HALF } from './uturnreel-half.js';
 import { reelPlayer, createMoveClip } from './moveclip.js';
 
 // One recording per street width (`?streets=`, city/grid.js): the shape of the road it was filmed
 // on is the shape of the road it has to fit. Exported for tools/check.mjs.
-export const REEL = { classic: REEL_CLASSIC, touch: REEL_TOUCH, half: REEL_HALF }[STREETS_KEY];
+export const REEL = { classic: REEL_CLASSIC, touch: REEL_TOUCH }[STREETS_KEY];
 
 // The U-turn, acted out: a short clip for the New Move card (game/newmove.js), filmed **in the
 // player's own city**. A real straight street, picked when the card opens, at the game's own 3/4
@@ -32,7 +31,7 @@ export const REEL = { classic: REEL_CLASSIC, touch: REEL_TOUCH, half: REEL_HALF 
 export const BOOST_ON = 0.5;
 // A fifth of a second earlier than the 1.5 / 1.6 / 1.9 they were: the take has to land its second
 // tap on a lane rather than in a junction box, and with the boost held that long the tap fell in a
-// box at every start on 9- and 10-unit streets (`?streets=`, tools/uturnreel.mjs has the arithmetic).
+// box at every start on 9-unit streets (`?streets=`, tools/uturnreel.mjs has the arithmetic).
 export const BOOST_OFF = 1.3;
 export const TAP_1 = 1.4;
 export const TAP_2 = 1.7;

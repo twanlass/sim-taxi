@@ -46,20 +46,20 @@ export const LTRAIN_WEST = BIG_CITY && LTRAIN_NS && (typeof location !== 'undefi
 // block: 36 of the 42 blocks are land, a 6×6 city's worth (25 of 30, a 5×5's, under `?city=classic`).
 export const GRID_J = BIG_CITY ? 7 : 6;  // block rows, one of them water
 // How wide an ordinary street is (Tyler, 2026-10-17: "making the streets a little bit wider ... I
-// want to see if it helps gameplay feel less cramped"). Two candidates: `touch` takes a street
-// from 8 to 9, `half` to 10, which is half of one 4-unit lane; `?streets=classic` keeps the 8-unit
-// street. The lanes widen with the road (`LANE` is a quarter of it), so the extra room lands on
+// want to see if it helps gameplay feel less cramped"). `touch` takes a street from 8 to 9;
+// `?streets=classic` keeps the 8-unit one. A 10-unit `half` was tried beside it and Tyler called it
+// too wide (2026-10-17: "Let's ship the default 9 units ... 10 is too wide"). The lanes widen with the road (`LANE` is a quarter of it), so the extra room lands on
 // both sides of every car rather than as a stripe down the middle: the weave, the overtake and the
 // turn radii all grow with it. Read at module load for the same reason as `BIG_CITY`; headless
 // tools take `STREETS=`.
 const STREETS = (typeof location !== 'undefined'
   ? new URLSearchParams(location.search).get('streets')
   : globalThis.process?.env?.STREETS) || 'touch';
-export const STREET_WIDTHS = { classic: 8, touch: 9, half: 10 };
+export const STREET_WIDTHS = { classic: 8, touch: 9 };
 /** Which of those this load is on — an unknown value falls back to the default. */
 export const STREETS_KEY = STREET_WIDTHS[STREETS] ? STREETS : 'touch';
 export const ROAD_W = STREET_WIDTHS[STREETS_KEY];  // full road width (two lanes)
-// **The block holds its size and the pitch grows instead**, so the map is 5 (or 10) units wider a
+// **The block holds its size and the pitch grows instead**, so the map is 5 units wider a
 // side rather than every lot giving up what its roads gained. Taking it out of the blocks was tried
 // first and broke 28 probe checks, nearly all for one reason: the lane between two junctions is
 // `BLOCK` long, and a dozen along-the-lane chains were sized against 12 of it — the roadworks

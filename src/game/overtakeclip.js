@@ -1,13 +1,12 @@
 import { REEL as REEL_CLASSIC } from './overtakereel-classic.js';
 import { REEL as REEL_TOUCH } from './overtakereel-touch.js';
-import { REEL as REEL_HALF } from './overtakereel-half.js';
 import { STREETS_KEY } from '../city/grid.js';
 import { reelPlayer, createMoveClip } from './moveclip.js';
 import { pickStreet } from './uturnclip.js';
 
 // One recording per street width (`?streets=`, city/grid.js): the shape of the road it was filmed
 // on is the shape of the road it has to fit. Exported for tools/check.mjs.
-export const REEL = { classic: REEL_CLASSIC, touch: REEL_TOUCH, half: REEL_HALF }[STREETS_KEY];
+export const REEL = { classic: REEL_CLASSIC, touch: REEL_TOUCH }[STREETS_KEY];
 
 // The overtake, acted out: the clip on its New Move card (game/newmove.js), on a straight street of
 // the player's city. The stand-in comes up behind a slow car on Loco Mode, blips the pill off and
