@@ -271,6 +271,65 @@ const MUSIC_DUCK = 0.25;
 // the song ending rather than being cut, short enough that it is gone before the stats finish
 // counting up.
 const MUSIC_FADE_OUT = 1.5;
+/**
+ * The dash radio (Tyler, October 2026; `?radiointro=classic` off). From Play the station is heard
+ * the way it would be from inside the taxi — a cheap AM set through one tired door speaker — and
+ * opens out into the full mix as the car rolls out of its garage: the film move from music playing
+ * *in* the scene to music playing *over* it. The further apart the two ends are, the bigger that
+ * reveal lands, so the in-car end is deliberately crushed rather than politely filtered (Tyler,
+ * after the first cut: "make the audio sound even flatter… crush that even more"):
+ *
+ *  - **Band**: a high-pass at `lowCut` (no bass from a 4-inch cone), a low-pass at `highCut` (no
+ *    air) and a peaking bump at `peakHz` (`peakDb`) for the honk. Both pass filters ring a little
+ *    (`Q`, in dB as Web Audio has it for those two types). 700 Hz to 2 kHz is narrower than a real
+ *    car speaker, closer to an AM receiver, which is the point.
+ *  - **Mono**, so the stereo spreading out is part of the open.
+ *  - **Crushed**: `drive` into a tanh soft clip quantised to `steps` levels a side — a ~6-bit
+ *    converter, so quiet passages go grainy and loud ones flatten. Its output sits at `crushLevel`,
+ *    so the in-car radio is under the open mix and the open swells as well as brightens: on an
+ *    offline render of this graph a song in the car measures about 4 LU under the same song open
+ *    (at 0.3 the crush was 8 LU *over* it — a clipper flattens the level up as well as the dynamics).
+ *  - **Static**: a bed of hiss with sparse crackles and the odd pop (`staticBuffer`) at
+ *    `staticLevel`, played into the same speaker so it is band-limited and crushed with the music:
+ *    about 12 dB under the music in RMS, with the pops reaching the music's level.
+ *
+ * `music` is how many seconds of the first *song* play crushed before the car may leave its
+ * doorway (`holdReveal` in game/opening.js). The announcer's intro is 6.3 s, and played before the
+ * song it covered the whole in-car stretch, so the crush was only ever heard on a voice; holding
+ * the shot until a song had played after it made the opening four seconds longer. So the station
+ * talks *over* the music (`RADIO_FADE`): the first song starts a second into the intro.
+ * `open` is the reveal, in seconds: the filters sweep to transparent (10 Hz, Nyquist, 0 dB), the
+ * crushed path crossfades into the clean one, and the static dies away over the first `staticOut`
+ * of it. Short enough to have landed by the end of the pull-back (`roll` and `release` come to about
+ * four seconds, docs/gameplay.md). What gives the crushed end time to register is the shot before it:
+ * the vignette holds on the car in its doorway for `DASH_REVEAL` (game/opening.js). Holding the
+ * sound for two seconds after the car had left (the second cut) put the crush over a car already on
+ * the street, where it read as late rather than as inside the car.
+ */
+export const DASH = {
+  lowCut: 700, highCut: 2000, peakHz: 1400, peakDb: 8, Q: 4,
+  drive: 4, steps: 32, crushLevel: 0.11, staticLevel: 0.5,
+  open: 3, staticOut: 0.5, music: 4,
+};
+const DASH_OPEN_LOW = 10;
+/**
+ * The station talks over the music, the way a DJ does (Tyler, October 2026: "start music under the
+ * announcer", then "crossfade between all of the DJ announcements and their music tracks";
+ * `?radiofade=classic` for the hard cuts). Two shapes:
+ *
+ *  - **Talk into a song** (the intro, the sting out of an ad break, the station ID): the song starts
+ *    `under` seconds into the voice at `duck` of its level (-6 dB) and rises to full over the voice's
+ *    last `rise` seconds.
+ *  - **Talk over a song's end** (the tee-up into an ad break, the station ID): the voice starts
+ *    `over` seconds before the song ends, and the song dips to `duck` over `dip` seconds under it.
+ *    The songs all have clean endings, so the voice lands on the last bars rather than on a cut.
+ *
+ * An ad is produced on its own and keeps its hard edges either side.
+ */
+const RADIO_FADE = { under: 1, over: 2, duck: 0.5, rise: 1, dip: 0.4 };
+// Where the opening songs of the last session are remembered, so the next one opens on another
+// (Tyler: "always play a different initial music track on game start").
+const OPENERS_KEY = 'simTaxi.openingSongs';
 // The police helicopter's synthesised rotor (`makeRotor`): its blade-pass rate in Hz, and its level
 // at full presence. Not in mix.json, which is keyed by the designer's files and has no file for it.
 const ROTOR_CHOP = 11;
@@ -504,8 +563,10 @@ function loopWindow(buffer, seconds) {
  *   plays songs alone until then. False (`?menumusic=classic`, or no title screen) opens on the intro.
  * @param {boolean} [opts.classicSongs]  The radio plays the four songs Nicolás's replaced
  *   (`?songs=classic`).
+ * @param {boolean} [opts.radioFade]  The station talks over the edges of the songs (`RADIO_FADE`).
+ *   False (`?radiofade=classic`) plays every track after the last with a hard cut.
  */
-export function createSfx({ rng, menuMusic = false, classicSongs = false } = {}) {
+export function createSfx({ rng, menuMusic = false, classicSongs = false, radioFade = true } = {}) {
   // The songs this session's station plays, and every file it can schedule. Only these are
   // fetched and decoded up front: the other set is a few MB of download and ~30 MB of PCM.
   const songs = classicSongs ? RADIO.classicSongs : RADIO.songs;
@@ -522,6 +583,11 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     // The radio pulled down under the drive-through speaker — see `duckMusic`.
     ducked: false,
     musicOut: false,
+    // The station heard through the taxi's dash speakers, until `openDash` — see `DASH`.
+    dashRadio: false,
+    // When the first track after the intro starts, on the audio clock, while `dashRadio` — see
+    // `dashMusicSeconds`.
+    dashSongAt: null,
     ready: false,
     loaded: 0,
     total: Object.keys(FILES).length,
@@ -577,7 +643,8 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
       state, play: noop, update: noop, hold: noop, setMuted: noop, toggleMuted: () => true,
       setVolumes: noop,
       locoOn: noop, locoOff: noop, release: noop, unloop: noop, steer: noop, duckMusic: noop, fadeOutMusic: noop,
-      goOnAir: noop, tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
+      goOnAir: (opts) => { state.dashRadio = Boolean(opts?.dash); },
+      openDash: () => { state.dashRadio = false; }, dashMusicSeconds: () => Infinity, tuning, tune: tuneMix, reset: () => tuneMix(SHIPPED_MIX),
       monitor, setMonitor: (key, { mute, solo } = {}) => setMonitorSets(key, mute, solo),
       audition: () => null, stopAuditions: noop, files: FILES, radioFiles: RADIO_FILES,
       replace: async () => ({ ok: false, failed: [] }), revert: noop, replaced: () => null,
@@ -856,7 +923,8 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     musicBus.gain.value = musicLevel();
     musicBus.connect(ctx.destination);
     radioBus = ctx.createGain();
-    radioBus.connect(musicBus);
+    buildDash();
+    setDash(state.dashRadio, ctx.currentTime);
     startRadio();
     // The spawn's takes first: they are the one sound with a deadline (see `play`).
     const order = [...SOUNDS.spawn, ...Object.keys(FILES).filter((f) => !SOUNDS.spawn.includes(f))];
@@ -877,6 +945,96 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     rotor = makeRotor();
     state.ready = true;
     if (state.held) suspendCtx();
+  }
+
+  // The dash radio (`DASH`), between `radioBus` and the music bus:
+  //
+  //   radioBus ─┐                  ┌─ mono ─ drive ─ crush ─ crushOut ─┐
+  //   static ───┴─ highpass ─ bump ┤                                   ├─ lowpass ─ musicBus
+  //                                └─ clean ───────────────────────────┘
+  //
+  // In the car `crushOut` is up and `clean` is shut; the open sweeps the filters and swaps the two.
+  let dash = null;
+  function buildDash() {
+    const filter = (type, freq, q) => {
+      const f = ctx.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = freq;
+      f.Q.value = q;
+      return f;
+    };
+    const gain = (v) => { const g = ctx.createGain(); g.gain.value = v; return g; };
+    const low = filter('highpass', DASH_OPEN_LOW, DASH.Q);
+    const bump = filter('peaking', DASH.peakHz, 1);
+    const high = filter('lowpass', ctx.sampleRate / 2, DASH.Q);
+    // One speaker: a gain node held to one channel down-mixes whatever reaches it, and the
+    // low-pass up-mixes it back to both sides.
+    const mono = gain(1);
+    mono.channelCount = 1;
+    mono.channelCountMode = 'explicit';
+    const drive = gain(DASH.drive);
+    const crush = ctx.createWaveShaper();
+    crush.curve = crushCurve();
+    const crushOut = gain(0);
+    const clean = gain(1);
+    radioBus.connect(low).connect(bump);
+    bump.connect(mono).connect(drive).connect(crush).connect(crushOut).connect(high);
+    bump.connect(clean).connect(high);
+    high.connect(musicBus);
+    dash = { low, bump, high, crushOut, clean, staticGain: null, staticSrc: null };
+  }
+  /** tanh, quantised to `DASH.steps` levels a side: the soft clip and the bit depth in one curve. */
+  function crushCurve() {
+    const n = 2048;
+    const curve = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = (i / (n - 1)) * 2 - 1;
+      curve[i] = Math.round(Math.tanh(x * 2) * DASH.steps) / DASH.steps;
+    }
+    return curve;
+  }
+  /**
+   * Six seconds of AM static, made once: hiss (white noise through a one-pole low-pass, so it is a
+   * wash rather than a fizz once the speaker band has had it), crackles at about 14 a second, and a
+   * louder pop about one second in two. Six seconds so the loop is not heard as a pattern; it never
+   * plays longer than the vignette anyway.
+   */
+  function staticBuffer() {
+    const rate = ctx.sampleRate;
+    const buffer = ctx.createBuffer(1, Math.round(rate * 6), rate);
+    const d = buffer.getChannelData(0);
+    let lp = 0;
+    for (let i = 0; i < d.length; i++) {
+      lp += 0.35 * (Math.random() * 2 - 1 - lp);
+      d[i] = lp * 0.06;
+    }
+    const click = (amp, len) => {
+      const at = Math.floor(Math.random() * (d.length - len));
+      const sign = Math.random() < 0.5 ? -1 : 1;
+      for (let k = 0; k < len; k++) d[at + k] += sign * amp * Math.exp(-k / (len / 4)) * (k % 2 ? -0.6 : 1);
+    };
+    for (let i = 0; i < 6 * 14; i++) click(0.05 + Math.random() * 0.2, 6 + Math.floor(Math.random() * 30));
+    for (let i = 0; i < 3; i++) click(0.5 + Math.random() * 0.3, 60 + Math.floor(Math.random() * 120));
+    return buffer;
+  }
+  /** In the car (`true`) or open, on the spot. */
+  function setDash(inCar, at) {
+    const set = (param, v) => { param.cancelScheduledValues(0); param.setValueAtTime(v, at); };
+    set(dash.low.frequency, inCar ? DASH.lowCut : DASH_OPEN_LOW);
+    set(dash.bump.gain, inCar ? DASH.peakDb : 0);
+    set(dash.high.frequency, inCar ? DASH.highCut : ctx.sampleRate / 2);
+    set(dash.crushOut.gain, inCar ? DASH.crushLevel : 0);
+    set(dash.clean.gain, inCar ? 0 : 1);
+    if (inCar && !dash.staticSrc) {
+      const src = ctx.createBufferSource();
+      src.buffer = staticBuffer();
+      src.loop = true;
+      dash.staticGain = ctx.createGain();
+      dash.staticGain.gain.value = DASH.staticLevel;
+      src.connect(dash.staticGain).connect(dash.low);
+      src.start(at);
+      dash.staticSrc = src;
+    }
   }
 
   // --- the radio ---
@@ -917,6 +1075,22 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
   // While the intro is still decoding after the cut, nothing may be scheduled ahead of it.
   let introPending = false;
 
+  // The track last put on the clock — `{ key, at, end, voice }` — which the next one may overlap
+  // (`RADIO_FADE`). Null after a cut.
+  let prev = null;
+  const talksIntoSong = new Set([RADIO.intro, RADIO.breakOut, RADIO.stationId]);
+  const talksOverSong = new Set([RADIO.breakIn, RADIO.stationId]);
+  // The songs that opened the last session (`OPENERS_KEY`): the first song this session plays, on
+  // the menu and after the intro, is neither of them while there is any other to pick.
+  const lastOpeners = (() => {
+    try { return JSON.parse(window.localStorage.getItem(OPENERS_KEY)) || []; } catch { return []; }
+  })();
+  const openers = [];
+  function opened(song) {
+    openers.push(song);
+    try { window.localStorage.setItem(OPENERS_KEY, JSON.stringify(openers)); } catch { /* soft */ }
+  }
+
   /** Play `key` into the music bus from `when`, calling `onEnd` once it has finished. */
   function playTrack(key, when, onEnd) {
     const buffer = trackBuffer(key);
@@ -930,17 +1104,45 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     radioVoices.add(voice);
     src.onended = () => { radioVoices.delete(voice); onEnd(); };
     src.start(when, w.start, w.end - w.start);
+    lastVoice = voice;
     return when + (w.end - w.start);
   }
+  let lastVoice = null;
 
   // Tracks scheduled on the audio clock and not yet ended, and when the last of them ends.
   let ahead = 0;
   let queuedEnd = 0;
   function queue(key) {
-    const when = Math.max(queuedEnd, ctx.currentTime);
+    const now = ctx.currentTime;
+    let when = Math.max(queuedEnd, now);
+    // Overlap the track before (`RADIO_FADE`), if it is still on the clock. A song that decoded too
+    // late to go in under the voice, or a voice too late for the song's tail, just follows it.
+    const live = radioFade && prev && prev.end > now;
+    const intoSong = live && songs.includes(key) && talksIntoSong.has(prev.key);
+    const overSong = live && talksOverSong.has(key) && songs.includes(prev.key);
+    if (intoSong) when = Math.max(prev.at + RADIO_FADE.under, now);
+    if (overSong) when = Math.max(prev.end - RADIO_FADE.over, now);
     const gen = generation;
     ahead++;
-    queuedEnd = playTrack(key, when, () => { if (gen !== generation) return; ahead--; topUp(); });
+    if (onAir && state.dashRadio && key !== RADIO.intro && state.dashSongAt === null) state.dashSongAt = when;
+    const end = playTrack(key, when, () => { if (gen !== generation) return; ahead--; topUp(); });
+    if (intoSong && when < prev.end) {
+      // Under the voice, then up to its own level as the voice finishes.
+      const g = lastVoice.gain.gain, level = trackLevel(key);
+      g.setValueAtTime(level * RADIO_FADE.duck, when);
+      g.setValueAtTime(level * RADIO_FADE.duck, Math.max(when, prev.end - RADIO_FADE.rise));
+      g.linearRampToValueAtTime(level, prev.end);
+    }
+    if (overSong && when < prev.end) {
+      // The song's last bars dip under the voice and play out there.
+      const g = prev.voice.gain.gain, level = trackLevel(prev.key);
+      g.setValueAtTime(level, when);
+      g.linearRampToValueAtTime(level * RADIO_FADE.duck, Math.min(prev.end, when + RADIO_FADE.dip));
+    }
+    // The queue carries on from the later of the two ends: a song that went in under a voice ends
+    // after it, and a voice over a song's tail ends after the song.
+    queuedEnd = Math.max(end, queuedEnd);
+    prev = { key, at: when, end, voice: lastVoice };
     state.radio = [...state.radio.slice(-7), { track: key, at: when }];
   }
 
@@ -952,10 +1154,12 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
    */
   function topUp() {
     if (introPending) return;
-    const freshPick = (keys, last) => {
+    const freshPick = (keys, last, avoid = []) => {
       const loaded = keys.filter((k) => trackBuffer(k));
       if (!loaded.length) return null;
-      const fresh = loaded.length > 1 ? loaded.filter((k) => k !== last) : loaded;
+      let fresh = loaded.length > 1 ? loaded.filter((k) => k !== last) : loaded;
+      const away = fresh.filter((k) => !avoid.includes(k));
+      if (away.length) fresh = away;
       return fresh[Math.floor(random() * fresh.length)];
     };
     while (ahead < 2) {
@@ -964,9 +1168,12 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
         if (trackBuffer(next)) queue(next);
         continue;
       }
-      const song = freshPick(songs, lastSong);
+      // The run's first song is not one the last session opened on.
+      const opening = onAir && songsPlayed === 0;
+      const song = freshPick(songs, lastSong, opening ? lastOpeners : []);
       if (!song) return;
       lastSong = song;
+      if (opening) opened(song);
       queue(song);
       // The menu is songs alone: the station only talks once it is on the air.
       if (!onAir) continue;
@@ -993,9 +1200,11 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
    */
   async function startRadio() {
     if (onAir) { openStation(); return; }
-    const first = songs[Math.floor(random() * songs.length)];
+    const fresh = songs.filter((k) => !lastOpeners.includes(k));
+    const pool = fresh.length ? fresh : songs;
+    const first = pool[Math.floor(random() * pool.length)];
     await decodeRadio(first);
-    if (!onAir && trackBuffer(first)) { lastSong = first; queue(first); }
+    if (!onAir && trackBuffer(first)) { lastSong = first; opened(first); queue(first); }
     await Promise.all(playlist.map(decodeRadio));
     if (!onAir) topUp();
   }
@@ -1019,6 +1228,8 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     queuedEnd = 0;
     between.length = 0;
     songsPlayed = 0;
+    state.dashSongAt = null;
+    prev = null;
     introPending = true;
     await decodeRadio(RADIO.intro);
     introPending = false;
@@ -1031,10 +1242,42 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
    * Play: the menu's song gives way to the announcer. Before the first tap there is no context yet
    * and nothing to cut, so it only flips the flag and `startRadio` opens on the intro itself.
    */
-  function goOnAir() {
+  function goOnAir({ dash: inCar = false } = {}) {
     if (onAir) return;
     onAir = true;
-    if (ctx) openStation();
+    state.dashRadio = inCar;
+    if (ctx) { setDash(inCar, ctx.currentTime); openStation(); }
+  }
+
+  /**
+   * Out of the car: sweep the dash radio open into the full mix over `seconds` (`DASH`). Once, and
+   * a no-op if the run did not start in the car. Before the first tap there is no context, so it
+   * only clears the flag and the station starts open.
+   */
+  function openDash(seconds = DASH.open) {
+    if (!state.dashRadio) return;
+    state.dashRadio = false;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const ramp = (param, v, curve = 'linear', end = t + seconds) => {
+      param.cancelScheduledValues(t);
+      param.setValueAtTime(param.value, t);
+      if (curve === 'exp') param.exponentialRampToValueAtTime(v, end);
+      else param.linearRampToValueAtTime(v, end);
+    };
+    // Exponential on the two frequencies, so the sweep moves through the octaves at an even pace
+    // rather than spending most of its time above 10 kHz; the bump's gain is in dB, so linear.
+    ramp(dash.low.frequency, DASH_OPEN_LOW, 'exp');
+    ramp(dash.high.frequency, ctx.sampleRate / 2, 'exp');
+    ramp(dash.bump.gain, 0);
+    ramp(dash.crushOut.gain, 0);
+    ramp(dash.clean.gain, 1);
+    if (dash.staticSrc) {
+      const gone = t + seconds * DASH.staticOut;
+      ramp(dash.staticGain.gain, 0, 'linear', gone);
+      dash.staticSrc.stop(gone + 0.05);
+      dash.staticSrc = null;
+    }
   }
 
   // The unlock. Created *inside* the gesture, because Safari only lets a context start running
@@ -1445,6 +1688,14 @@ export function createSfx({ rng, menuMusic = false, classicSongs = false } = {})
     duckMusic,
     fadeOutMusic,
     goOnAir,
+    openDash,
+    /**
+     * How long the first song after the intro has been playing through the dash, in seconds: 0
+     * before it starts (negative while it is only scheduled reads as 0 too), and Infinity when there
+     * is no context to play it — before the first tap nothing is playing, so nothing should wait.
+     */
+    dashMusicSeconds: () => (!ctx ? Infinity
+      : state.dashSongAt === null ? 0 : Math.max(0, ctx.currentTime - state.dashSongAt)),
     setMuted,
     setVolumes,
     toggleMuted: () => { setMuted(!state.muted); return state.muted; },
