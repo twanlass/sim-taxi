@@ -363,7 +363,12 @@ for (let s = 0; s < SEEDS; s++) {
           const axis = node.streets[node.priorityStreet]?.axis ?? 0;
           const want = refRingAxisAt(i, j);
           const got = axis < 0.1 ? 'x' : 'z';
-          if (want && want !== got) {
+          // Except where the ring *ends*: on the island the ring roads stop at the river
+          // (`planRiver`), so the junction on each bank is a bend, two arms at a right angle like
+          // a corner, and there is no priority to have. Same conflict count as above.
+          const bend = node.uncontrolled && !net.turns
+            .some((t) => t.node === node.id && t.legal && t.conflicts.length > 0);
+          if (want && want !== got && !bend) {
             mismatches += 1;
             if (!example) example = `(${i},${j}) priority ${got} want ${want}`;
           }
