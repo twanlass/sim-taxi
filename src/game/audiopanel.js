@@ -177,11 +177,15 @@ export function buildAudioSections(host, sfx, { triggers = {}, holds = {}, place
     focusedBox = box;
     box.classList.add('is-focused');
   }
-  // A press anywhere but a sound's own box, a 🔊 pin or a ring handle (game/soundpins.js) lets the
-  // selection go, and its rings with it. On `window` in the capture phase, because a pin stops its
-  // own press from bubbling and the canvas's handlers are not this module's to wait for.
-  window.addEventListener('pointerdown', (event) => {
-    if (!focusedBox || event.target.closest?.('.aud-sound, .sound-pin, .sound-handle')) return;
+  // The selection holds until another sound is picked or Escape lets it go (Tyler, October 2026:
+  // so the map can be dragged around with the rings still on it — a press on the map used to clear
+  // them, which made panning to the 👂's edge of a ring impossible). Escape here is spent: it does
+  // not also pause the game (game/pause.js listens on `window` too), hence capture and
+  // stopImmediatePropagation. With nothing selected, Escape is the pause key as ever.
+  window.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !focusedBox || event.target instanceof HTMLInputElement) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
     focusedBox.classList.remove('is-focused');
     focusedKey = null;
     focusedBox = null;

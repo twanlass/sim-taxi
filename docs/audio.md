@@ -171,7 +171,8 @@ loop so it repeats half as often. Rain still comes both ways, to try in the mix.
   out, and a white dot and 👂 at the listener. Drag the orange or blue handle on the ring's edge
   to resize it directly. In debug mode the map drags on a desktop too, so the listener can be put
   anywhere, and each placed sound (plus the drive-through) has a 🔊 pin whose chip opens the panel
-  on it; a press anywhere else lets the selection go.
+  on it. The selection, and its rings, stay put while the map is dragged around; picking another
+  sound moves it, and **Esc** lets it go (that Esc does not also pause the game).
 - **Stereo** is a switch on every sound: live on rain, the one delivered both ways; on and greyed
   where there is only a stereo cut, off and greyed where there is only a mono one.
 - **Replace…** on any sound plays local files in its place for the session (nothing is saved).
